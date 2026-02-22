@@ -93,6 +93,8 @@ class BinanceRestClient:
                 if not raw:
                     return {}
                 return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise BinanceRetryableError(f"Invalid JSON response: {e}") from e
         except HTTPError as e:
             raw = e.read().decode("utf-8", errors="replace")
             # 429/418/5xx 视为可重试；其余默认不可重试
@@ -101,9 +103,6 @@ class BinanceRestClient:
             raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
         except URLError as e:
             raise BinanceRetryableError(f"Network error: {e}") from e
-
-    # execution/adapters/binance/rest.py  (在 BinanceRestClient 内新增)
-    from urllib.parse import urlencode
 
     def request_api_key(
             self,
@@ -145,6 +144,8 @@ class BinanceRestClient:
                 if not raw:
                     return {}
                 return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise BinanceRetryableError(f"Invalid JSON response: {e}") from e
         except HTTPError as e:
             raw = e.read().decode("utf-8", errors="replace")
             if e.code in (418, 429) or 500 <= e.code <= 599:

@@ -26,8 +26,8 @@ class TimeClock:
 
 
 def main() -> None:
-    api_key = os.getenv("w0i6Nm1hhV0Jqy3E49VftG0f74A3B9pPBdTGX2Dyqui8Sdf64pUnK7zGhHf9fc3P")
-    api_secret = os.getenv("ex7p9CNlKz44h2PCwDY32d9MGAjqUpc4uRMLDXRb1whhD3byNteEkmoSN8PYOfVk")
+    api_key = os.getenv("BINANCE_API_KEY")
+    api_secret = os.getenv("BINANCE_API_SECRET")
     if not api_key or not api_secret:
         raise RuntimeError("Missing env vars: BINANCE_API_KEY / BINANCE_API_SECRET")
 

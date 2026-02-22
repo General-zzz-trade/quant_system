@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
 from time import perf_counter
 import traceback
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, Tuple
@@ -119,8 +120,9 @@ class RiskAggregator:
 
         self._enabled: Dict[str, bool] = {n: (n in enabled_set and n not in disabled_set) for n in names}
 
-        # 统计对象：可变，单点更新
+        # 统计对象：可变，单点更新（通过 _stats_lock 保护线程安全）
         self._stats: Dict[str, RuleStats] = {n: RuleStats(name=n) for n in names}
+        self._stats_lock = threading.Lock()
 
     # ------------------------------------------------------------
     # 开关与快照
@@ -180,7 +182,8 @@ class RiskAggregator:
                 continue
 
             st = self._stats[rule.name]
-            st.calls += 1
+            with self._stats_lock:
+                st.calls += 1
 
             t0 = perf_counter()
             try:
@@ -191,30 +194,31 @@ class RiskAggregator:
                 else:
                     raise RiskAggregatorError(f"未知 mode：{mode}")
             except BaseException as e:
-                st.errors += 1
+                with self._stats_lock:
+                    st.errors += 1
                 d = self._fail_safe_decision(rule_name=rule.name, mode=mode, meta=meta, exc=e)
                 if self._on_error is not None:
-                    # 外部可以接日志/告警/trace
                     try:
                         self._on_error(rule.name, mode, e, meta)
                     except Exception:
-                        # on_error 自身不能影响主流程
                         pass
             finally:
                 dt_ms = (perf_counter() - t0) * 1000.0
-                st.last_ms = dt_ms
-                if dt_ms > st.max_ms:
-                    st.max_ms = dt_ms
+                with self._stats_lock:
+                    st.last_ms = dt_ms
+                    if dt_ms > st.max_ms:
+                        st.max_ms = dt_ms
 
-            # 动作分布统计：单点更新
-            if d.action == RiskAction.ALLOW:
-                st.allow += 1
-            elif d.action == RiskAction.REDUCE:
-                st.reduce += 1
-            elif d.action == RiskAction.REJECT:
-                st.reject += 1
-            elif d.action == RiskAction.KILL:
-                st.kill += 1
+            # 动作分布统计
+            with self._stats_lock:
+                if d.action == RiskAction.ALLOW:
+                    st.allow += 1
+                elif d.action == RiskAction.REDUCE:
+                    st.reduce += 1
+                elif d.action == RiskAction.REJECT:
+                    st.reject += 1
+                elif d.action == RiskAction.KILL:
+                    st.kill += 1
 
             decisions.append(d)
 

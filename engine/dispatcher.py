@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import time as _time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 import threading
 
@@ -73,7 +74,10 @@ class EventDispatcher:
             Route.EXECUTION: [],
         }
         self._seq: int = 0
-        self._seen_event_ids: set[str] = set()
+        self._seen_event_ids: Dict[str, float] = {}  # event_id -> monotonic timestamp
+        self._dedup_ttl_sec: float = 86400.0  # 24h TTL
+        self._dedup_max_size: int = 500_000
+        self._dedup_last_prune: float = _time.monotonic()
 
     # --------------------------------------------------------
     # Registration
@@ -108,13 +112,19 @@ class EventDispatcher:
             self._seq += 1
             seq = self._seq
 
-            # 事件去重（仅当 event_id 存在）
+            # 事件去重（仅当 event_id 存在），带 TTL + 容量上限
             header = getattr(event, "header", None)
             event_id = getattr(header, "event_id", None)
             if isinstance(event_id, str):
                 if event_id in self._seen_event_ids:
                     raise DuplicateEventError(f"重复 event_id: {event_id}")
-                self._seen_event_ids.add(event_id)
+                now = _time.monotonic()
+                self._seen_event_ids[event_id] = now
+                # 定期清理过期条目（每 60 秒或超容量时）
+                if (now - self._dedup_last_prune > 60.0) or len(self._seen_event_ids) > self._dedup_max_size:
+                    cutoff = now - self._dedup_ttl_sec
+                    self._seen_event_ids = {k: v for k, v in self._seen_event_ids.items() if v > cutoff}
+                    self._dedup_last_prune = now
 
             route = self._route_for(event)
             ctx = DispatchContext(

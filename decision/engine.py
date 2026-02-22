@@ -116,7 +116,10 @@ class DecisionEngine:
         validator = IntentValidator(min_notional=self.cfg.min_notional, min_qty=self.cfg.min_qty)
 
         orders: List[OrderSpec] = []
-        price_hint = Decimal(str(getattr(snapshot.market, "close", None) or getattr(snapshot.market, "last_price", None)))
+        _raw_price = getattr(snapshot.market, "close", None) or getattr(snapshot.market, "last_price", None)
+        if _raw_price is None:
+            raise ValueError("No price available in market snapshot (close and last_price are both None)")
+        price_hint = Decimal(str(_raw_price))
         for t in targets:
             ospec = intent_builder.build(snapshot, t)
             if ospec is None:
