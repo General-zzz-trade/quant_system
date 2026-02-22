@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from context.context import Context, ContextError
-
 if TYPE_CHECKING:
-    pass
+    from context.context import Context
+
+
+def _context_error(msg: str) -> Exception:
+    """延迟导入 ContextError 避免循环依赖。"""
+    from context.context import ContextError
+    return ContextError(msg)
 
 
 def validate_context(ctx: Context) -> None:
@@ -33,19 +37,19 @@ def _validate_clock(ctx: Context) -> None:
 
     # ts / bar_index 不允许为 None
     if clock.ts is None:
-        raise ContextError("Clock.ts 不能为空")
+        raise _context_error("Clock.ts 不能为空")
 
     if clock.bar_index is None:
-        raise ContextError("Clock.bar_index 不能为空")
+        raise _context_error("Clock.bar_index 不能为空")
 
     # bar_index 必须是非负整数
     if not isinstance(clock.bar_index, int):
-        raise ContextError(
+        raise _context_error(
             f"Clock.bar_index 类型错误，应为 int，实际为 {type(clock.bar_index)}"
         )
 
     if clock.bar_index < 0:
-        raise ContextError(
+        raise _context_error(
             f"Clock.bar_index 非法（<0）：{clock.bar_index}"
         )
 
@@ -59,14 +63,14 @@ def _validate_market_state(ctx: Context) -> None:
 
     # MarketState 必须存在
     if market is None:
-        raise ContextError("Context.market_state 为空")
+        raise _context_error("Context.market_state 为空")
 
     # 如果 MarketState 内部有 symbol 快照，必须满足基本一致性
     # 这里不假设你的 MarketState 内部结构，只做“存在性 + 不崩溃”校验
     try:
         _ = market  # 占位，防止未使用警告
     except Exception as e:
-        raise ContextError(
+        raise _context_error(
             f"MarketState 访问失败，内部状态可能损坏: {e}"
         )
 
@@ -82,14 +86,14 @@ def _validate_snapshot_lineage(ctx: Context) -> None:
     """
     # context_id 必须存在且为 str
     if not isinstance(ctx.context_id, str):
-        raise ContextError(
+        raise _context_error(
             f"context_id 类型错误，应为 str，实际为 {type(ctx.context_id)}"
         )
 
     # last_snapshot_id 如果存在，必须是 str
     last_snap = ctx._last_snapshot_id  # noqa: SLF001
     if last_snap is not None and not isinstance(last_snap, str):
-        raise ContextError(
+        raise _context_error(
             f"last_snapshot_id 类型错误，应为 str，实际为 {type(last_snap)}"
         )
 
@@ -105,13 +109,13 @@ def _validate_context_integrity(ctx: Context) -> None:
 
     # Clock / MarketState 必须存在
     if ctx._clock is None:  # noqa: SLF001
-        raise ContextError("Context._clock 为空")
+        raise _context_error("Context._clock 为空")
 
     if ctx._market is None:  # noqa: SLF001
-        raise ContextError("Context._market 为空")
+        raise _context_error("Context._market 为空")
 
     # meta 必须是 dict（内部可变，但结构要对）
     if not isinstance(ctx._meta, dict):  # noqa: SLF001
-        raise ContextError(
+        raise _context_error(
             f"Context._meta 类型错误，应为 dict，实际为 {type(ctx._meta)}"
         )
