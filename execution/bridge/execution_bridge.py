@@ -1,6 +1,7 @@
 # execution/bridge/execution_bridge.py
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
@@ -111,21 +112,24 @@ class TokenBucket:
 
     tokens: float = field(init=False)
     last_ts: float = field(init=False)
+    _lock: threading.Lock = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.tokens = float(self.burst)
         self.last_ts = self.clock.now()
+        self._lock = threading.Lock()
 
     def allow(self, n: float = 1.0) -> bool:
-        now = self.clock.now()
-        dt = max(0.0, now - self.last_ts)
-        self.last_ts = now
+        with self._lock:
+            now = self.clock.now()
+            dt = max(0.0, now - self.last_ts)
+            self.last_ts = now
 
-        self.tokens = min(self.burst, self.tokens + dt * self.rate_per_sec)
-        if self.tokens >= n:
-            self.tokens -= n
-            return True
-        return False
+            self.tokens = min(self.burst, self.tokens + dt * self.rate_per_sec)
+            if self.tokens >= n:
+                self.tokens -= n
+                return True
+            return False
 
 
 @dataclass(slots=True)

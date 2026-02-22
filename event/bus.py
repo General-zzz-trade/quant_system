@@ -1,6 +1,7 @@
 # event/bus.py
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, DefaultDict, Iterable, List, Optional, Type
@@ -51,6 +52,7 @@ class EventBus:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._by_type: DefaultDict[str, List[EventHandler]] = defaultdict(list)
         self._by_cls: DefaultDict[Type[BaseEvent], List[EventHandler]] = defaultdict(list)
         self._any: List[EventHandler] = []
@@ -76,17 +78,19 @@ class EventBus:
         if event_type is None and event_cls is None:
             raise ValueError("subscribe 至少需要 event_type 或 event_cls")
 
-        if event_type is not None:
-            self._by_type[event_type].append(handler)
+        with self._lock:
+            if event_type is not None:
+                self._by_type[event_type].append(handler)
 
-        if event_cls is not None:
-            self._by_cls[event_cls].append(handler)
+            if event_cls is not None:
+                self._by_cls[event_cls].append(handler)
 
     def subscribe_any(self, handler: EventHandler) -> None:
         """
         订阅所有事件（谨慎使用）
         """
-        self._any.append(handler)
+        with self._lock:
+            self._any.append(handler)
 
     # --------------------------------------------------------
     # 发布（由 dispatcher 调用）
@@ -100,18 +104,24 @@ class EventBus:
         - handler 顺序 = 注册顺序
         - handler 异常由 dispatcher/runtime 处理
         """
+        # 快照 handler 列表（锁内复制，锁外执行，避免迭代中修改）
+        with self._lock:
+            any_handlers = list(self._any)
+            type_handlers = list(self._by_type.get(event.event_type, ()))
+            cls_handlers = [
+                (cls, list(hs)) for cls, hs in self._by_cls.items()
+            ]
+
         # 1) 任意订阅
-        for h in self._any:
+        for h in any_handlers:
             h(event)
 
         # 2) 按 event_type 路由
-        handlers = self._by_type.get(event.event_type)
-        if handlers:
-            for h in handlers:
-                h(event)
+        for h in type_handlers:
+            h(event)
 
         # 3) 按 event class 路由（支持继承）
-        for cls, handlers in self._by_cls.items():
+        for cls, hs in cls_handlers:
             if isinstance(event, cls):
-                for h in handlers:
+                for h in hs:
                     h(event)

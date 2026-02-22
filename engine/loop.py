@@ -215,8 +215,13 @@ class EngineLoop:
         if d.action == GuardAction.RETRY:
             self._retry_or_drop(env, d)
             return
-        # ALLOW：极少见（表示“虽然异常但允许继续”），这里按 DROP 保守处理
-        return
+        # ALLOW：虽然发生异常但 guard 决定允许继续 → 重新提交事件进行处理
+        if d.action == GuardAction.ALLOW:
+            try:
+                self._coord.emit(env.event, actor=env.actor)
+            except BaseException:
+                pass  # 二次失败不再重试
+            return
 
     def _retry_or_drop(self, env: _Envelope, d: GuardDecision) -> None:
         if env.retries >= int(self._cfg.retry_limit):
