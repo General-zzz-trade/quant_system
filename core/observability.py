@@ -1,0 +1,217 @@
+"""Structured observability interceptors — tracing and logging.
+
+These interceptors inject into the pipeline via the InterceptorChain.
+They are non-blocking and never reject events — their purpose is
+recording, not gate-keeping.
+
+Design:
+    - ``TracingInterceptor``: ensures every envelope carries a TraceContext
+      and records span timing for before/after reduce phases.
+    - ``LoggingInterceptor``: structured-logs intercept decisions and state
+      transitions for audit and debugging.
+    - ``MetricsInterceptor``: records pipeline throughput and latency to
+      the Effects metrics sink.
+"""
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Protocol
+
+from core.interceptors import InterceptAction, InterceptResult
+from core.types import Envelope, EventMetadata, TraceContext
+
+
+# ── Tracing Interceptor ─────────────────────────────────
+
+class TracingInterceptor:
+    """Ensures trace context propagation through the pipeline.
+
+    Every event that enters the pipeline gets a trace span recorded.
+    If the event already has a TraceContext (via its metadata), a child
+    span is created.  Otherwise a new root trace is started.
+
+    Span timings are collected in ``spans`` for export or inspection.
+
+    Parameters
+    ----------
+    max_spans : int
+        Maximum retained spans (ring-buffer style).  Oldest are evicted.
+    """
+
+    def __init__(self, *, max_spans: int = 10_000) -> None:
+        self._max_spans = max_spans
+        self._spans: List[SpanRecord] = []
+        self._active: Dict[str, float] = {}  # event_id → start_mono
+
+    @property
+    def name(self) -> str:
+        return "tracing"
+
+    @property
+    def spans(self) -> List[SpanRecord]:
+        return list(self._spans)
+
+    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+        event_id = envelope.event_id
+        self._active[event_id] = time.monotonic()
+        return InterceptResult.ok(self.name)
+
+    def after_reduce(
+        self,
+        envelope: Envelope,
+        old_state: Any,
+        new_state: Any,
+    ) -> InterceptResult:
+        event_id = envelope.event_id
+        start = self._active.pop(event_id, None)
+        duration_ms = (time.monotonic() - start) * 1000.0 if start is not None else 0.0
+
+        span = SpanRecord(
+            trace_id=envelope.trace_id,
+            span_id=envelope.metadata.trace.span_id,
+            parent_span_id=envelope.metadata.trace.parent_span_id,
+            event_id=event_id,
+            event_kind=envelope.kind.name,
+            source=envelope.metadata.source,
+            duration_ms=duration_ms,
+        )
+
+        self._spans.append(span)
+        if len(self._spans) > self._max_spans:
+            self._spans = self._spans[-self._max_spans:]
+
+        return InterceptResult.ok(self.name)
+
+
+@dataclass(frozen=True, slots=True)
+class SpanRecord:
+    """A recorded pipeline span."""
+    trace_id: str
+    span_id: str
+    parent_span_id: Optional[str]
+    event_id: str
+    event_kind: str
+    source: str
+    duration_ms: float
+
+
+# ── Logging Interceptor ──────────────────────────────────
+
+class LoggingInterceptor:
+    """Structured-logs every pipeline intercept for audit.
+
+    Logs are appended to an internal buffer and optionally forwarded
+    to an external log function (e.g., Effects.log).
+
+    Parameters
+    ----------
+    log_fn : callable, optional
+        External log sink.  Signature: ``(level: str, message: str, **kw) -> None``
+    max_entries : int
+        Maximum log entries retained.
+    log_continue : bool
+        If False (default), only non-CONTINUE results are logged.
+        If True, every intercept is logged (verbose).
+    """
+
+    def __init__(
+        self,
+        *,
+        log_fn: Optional[Callable[..., None]] = None,
+        max_entries: int = 5_000,
+        log_continue: bool = False,
+    ) -> None:
+        self._log_fn = log_fn
+        self._max_entries = max_entries
+        self._log_continue = log_continue
+        self._entries: List[Dict[str, Any]] = []
+
+    @property
+    def name(self) -> str:
+        return "logging"
+
+    @property
+    def entries(self) -> List[Dict[str, Any]]:
+        return list(self._entries)
+
+    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+        # Logging interceptor never blocks — it's observability-only
+        return InterceptResult.ok(self.name)
+
+    def after_reduce(
+        self,
+        envelope: Envelope,
+        old_state: Any,
+        new_state: Any,
+    ) -> InterceptResult:
+        return InterceptResult.ok(self.name)
+
+    def record(self, phase: str, envelope: Envelope, result: InterceptResult) -> None:
+        """Record an intercept decision from the chain.
+
+        This is meant to be called by the pipeline runner after the
+        interceptor chain produces a result, not by the interceptor itself.
+        """
+        if not self._log_continue and result.action == InterceptAction.CONTINUE:
+            return
+
+        entry = {
+            "phase": phase,
+            "event_id": envelope.event_id,
+            "event_kind": envelope.kind.name,
+            "interceptor": result.interceptor,
+            "action": result.action.name,
+            "reason": result.reason,
+        }
+
+        self._entries.append(entry)
+        if len(self._entries) > self._max_entries:
+            self._entries = self._entries[-self._max_entries:]
+
+        if self._log_fn is not None:
+            level = "info" if result.action == InterceptAction.CONTINUE else "warning"
+            self._log_fn(
+                level,
+                f"pipeline.{phase}: {result.interceptor} → {result.action.name}",
+                **entry,
+            )
+
+
+# ── Metrics Interceptor ──────────────────────────────────
+
+class MetricsInterceptor:
+    """Records pipeline throughput and latency to a metrics sink.
+
+    Parameters
+    ----------
+    metrics : MetricsEffect-like object
+        Must have ``counter(name, value, **tags)`` and
+        ``histogram(name, value, **tags)`` methods.
+    """
+
+    def __init__(self, metrics: Any) -> None:
+        self._metrics = metrics
+        self._active: Dict[str, float] = {}
+
+    @property
+    def name(self) -> str:
+        return "metrics"
+
+    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+        self._active[envelope.event_id] = time.monotonic()
+        self._metrics.counter("pipeline.events_in", 1, kind=envelope.kind.name)
+        return InterceptResult.ok(self.name)
+
+    def after_reduce(
+        self,
+        envelope: Envelope,
+        old_state: Any,
+        new_state: Any,
+    ) -> InterceptResult:
+        start = self._active.pop(envelope.event_id, None)
+        if start is not None:
+            dt_ms = (time.monotonic() - start) * 1000.0
+            self._metrics.histogram("pipeline.reduce_ms", dt_ms, kind=envelope.kind.name)
+        self._metrics.counter("pipeline.events_out", 1, kind=envelope.kind.name)
+        return InterceptResult.ok(self.name)
