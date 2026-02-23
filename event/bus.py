@@ -92,6 +92,48 @@ class EventBus:
         with self._lock:
             self._any.append(handler)
 
+    def unsubscribe(
+        self,
+        *,
+        handler: EventHandler,
+        event_type: Optional[str] = None,
+        event_cls: Optional[Type[BaseEvent]] = None,
+    ) -> None:
+        """
+        注销事件处理器
+
+        规则：
+        - event_type / event_cls 至少一个
+        - 如果 handler 未注册，静默忽略
+        """
+        if event_type is None and event_cls is None:
+            raise ValueError("unsubscribe 至少需要 event_type 或 event_cls")
+
+        with self._lock:
+            if event_type is not None:
+                handlers = self._by_type.get(event_type, [])
+                try:
+                    handlers.remove(handler)
+                except ValueError:
+                    pass
+
+            if event_cls is not None:
+                handlers = self._by_cls.get(event_cls, [])
+                try:
+                    handlers.remove(handler)
+                except ValueError:
+                    pass
+
+    def unsubscribe_any(self, handler: EventHandler) -> None:
+        """
+        注销 subscribe_any 注册的处理器
+        """
+        with self._lock:
+            try:
+                self._any.remove(handler)
+            except ValueError:
+                pass
+
     # --------------------------------------------------------
     # 发布（由 dispatcher 调用）
     # --------------------------------------------------------

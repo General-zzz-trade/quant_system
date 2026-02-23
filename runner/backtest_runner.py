@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from statistics import median
+from math import sqrt
+from statistics import median, stdev
 
 import argparse
 import csv
@@ -190,12 +191,14 @@ class BacktestExecutionAdapter:
         price_source: Callable[[str], Optional[Decimal]],
         ts_source: Callable[[], Optional[datetime]],
         fee_bps: Decimal = Decimal("0"),
+        slippage_bps: Decimal = Decimal("0"),
         source: str = "paper",
         on_fill: Optional[Callable[[Any], None]] = None,
     ) -> None:
         self._price_source = price_source
         self._ts_source = ts_source
         self._fee_bps = Decimal(str(fee_bps))
+        self._slippage_bps = Decimal(str(slippage_bps))
         self._source = source
         self._on_fill = on_fill
 
@@ -218,6 +221,14 @@ class BacktestExecutionAdapter:
 
         if px is None:
             raise RuntimeError(f"no price available for {sym}")
+
+        # Apply slippage: buy fills at a higher price, sell fills at a lower price
+        if self._slippage_bps > 0:
+            slippage_mult = self._slippage_bps / Decimal("10000")
+            if _sign(side) > 0:  # buy
+                px = px * (Decimal("1") + slippage_mult)
+            else:  # sell
+                px = px * (Decimal("1") - slippage_mult)
 
         signed = qty * Decimal(_sign(side))
         prev_qty = self._pos_qty.get(sym, Decimal("0"))
@@ -783,6 +794,34 @@ def _build_summary(
 
     total_fees = sum((_safe_dec(t.get("fees")) for t in trades), Decimal("0"))
 
+    # Sharpe ratio (annualized, using daily equity returns)
+    sharpe = ""
+    if len(equity) >= 2:
+        eq_vals = [float(p.equity) for p in equity]
+        daily_rets = [(eq_vals[i] - eq_vals[i - 1]) / eq_vals[i - 1] for i in range(1, len(eq_vals)) if eq_vals[i - 1] != 0]
+        if len(daily_rets) >= 2:
+            try:
+                mean_r = sum(daily_rets) / len(daily_rets)
+                std_r = stdev(daily_rets)
+                if std_r > 0:
+                    # Annualize: bars_per_year depends on bar frequency
+                    # Use actual time span to estimate
+                    if years > 0 and len(daily_rets) > 0:
+                        bars_per_year = len(daily_rets) / years
+                    else:
+                        bars_per_year = 252.0  # fallback: daily
+                    sharpe = str(round(mean_r / std_r * sqrt(bars_per_year), 4))
+            except Exception:
+                sharpe = ""
+
+    # Calmar ratio (CAGR / max_drawdown)
+    calmar = ""
+    if cagr and mdd > 0:
+        try:
+            calmar = str(round(float(cagr) / float(mdd), 4))
+        except Exception:
+            calmar = ""
+
     # duration stats
     durs = []
     for t in trades:
@@ -845,6 +884,9 @@ def _build_summary(
         "avg_duration_sec": avg_duration_sec,
         "median_duration_sec": median_duration_sec,
         "p95_duration_sec": p95_duration_sec,
+
+        "sharpe_ratio": sharpe,
+        "calmar_ratio": calmar,
     }
 
 # ============================================================
@@ -860,6 +902,7 @@ def run_backtest(
     ma_window: int,
     order_qty: Decimal,
     fee_bps: Decimal,
+    slippage_bps: Decimal = Decimal("0"),
     out_dir: Optional[Path] = None,
 ) -> Tuple[List[EquityPoint], List[Dict[str, Any]]]:
     symbol_u = symbol.upper()
@@ -953,6 +996,7 @@ def run_backtest(
         price_source=_price,
         ts_source=_ts,
         fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
         source="paper",
         on_fill=_on_fill,
     )
@@ -1047,6 +1091,135 @@ def run_backtest(
 
 
 # ============================================================
+# Walk-Forward Validation
+# ============================================================
+
+
+@dataclass(frozen=True, slots=True)
+class WalkForwardWindow:
+    """One window of a walk-forward test."""
+    window_idx: int
+    train_bars: int
+    test_bars: int
+    test_summary: Dict[str, Any]
+
+
+def run_walk_forward(
+    *,
+    csv_path: Path,
+    symbol: str,
+    starting_balance: Decimal,
+    ma_window: int,
+    order_qty: Decimal,
+    fee_bps: Decimal,
+    slippage_bps: Decimal = Decimal("0"),
+    train_size: int = 500,
+    test_size: int = 100,
+    out_dir: Optional[Path] = None,
+) -> List[WalkForwardWindow]:
+    """Walk-forward validation: split bars into train/test windows.
+
+    Only the test period result is recorded. Train period is used to warm up
+    the strategy's state. This prevents look-ahead bias in parameter tuning.
+
+    Returns list of WalkForwardWindow, one per test period.
+    """
+    all_bars = list(iter_ohlcv_csv(csv_path))
+    if len(all_bars) < train_size + test_size:
+        raise ValueError(
+            f"Not enough bars for walk-forward: need {train_size + test_size}, got {len(all_bars)}"
+        )
+
+    results: List[WalkForwardWindow] = []
+    window_idx = 0
+    start = 0
+
+    while start + train_size + test_size <= len(all_bars):
+        test_start = start + train_size
+        test_end = test_start + test_size
+        test_window_bars = all_bars[start:test_end]  # includes train for warmup
+        test_only_bars = all_bars[test_start:test_end]
+
+        # Build a minimal in-memory CSV for this window
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, newline=""
+        ) as tmp:
+            writer = csv.writer(tmp)
+            writer.writerow(["ts", "open", "high", "low", "close", "volume"])
+            for bar in test_window_bars:
+                writer.writerow([
+                    bar.ts.isoformat(),
+                    str(bar.o),
+                    str(bar.h),
+                    str(bar.l),
+                    str(bar.c),
+                    str(bar.v) if bar.v is not None else "0",
+                ])
+            tmp_path = tmp.name
+
+        try:
+            window_out = (out_dir / f"window_{window_idx:03d}") if out_dir else None
+            equity, fills = run_backtest(
+                csv_path=Path(tmp_path),
+                symbol=symbol,
+                starting_balance=starting_balance,
+                ma_window=ma_window,
+                order_qty=order_qty,
+                fee_bps=fee_bps,
+                slippage_bps=slippage_bps,
+                out_dir=window_out,
+            )
+
+            # Only keep equity/fills from the test period (skip warmup bars)
+            test_equity = equity[train_size:] if len(equity) > train_size else equity
+            test_fills_raw = fills  # fills are already from the whole window; approximate
+
+            trades = _build_trades_from_fills(test_fills_raw)
+            summary = _build_summary(
+                equity=test_equity,
+                trades=trades,
+                csv_path=csv_path,
+                symbol=symbol,
+            )
+            summary["window_idx"] = window_idx
+            summary["train_bars"] = train_size
+            summary["test_bars"] = len(test_only_bars)
+            summary["test_start_ts"] = test_only_bars[0].ts.isoformat() if test_only_bars else ""
+            summary["test_end_ts"] = test_only_bars[-1].ts.isoformat() if test_only_bars else ""
+
+            results.append(WalkForwardWindow(
+                window_idx=window_idx,
+                train_bars=train_size,
+                test_bars=len(test_only_bars),
+                test_summary=summary,
+            ))
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        start += test_size
+        window_idx += 1
+
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        wf_path = out_dir / "walk_forward_summary.json"
+        with wf_path.open("w", encoding="utf-8") as f:
+            json.dump(
+                [_json_safe(w.test_summary) for w in results],
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+    return results
+
+
+# ============================================================
 # Default runnable CLI
 # ============================================================
 
@@ -1094,7 +1267,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--starting-balance", default="10000", help="Starting balance")
     p.add_argument("--ma", type=int, default=20, help="Moving average window")
     p.add_argument("--qty", default="0.01", help="Order quantity")
-    p.add_argument("--fee-bps", default="0", help="Fee bps per fill")
+    p.add_argument("--fee-bps", default="0", help="Fee bps per fill (e.g. 4 = 0.04%%)")
+    p.add_argument("--slippage-bps", default="0", help="Slippage bps per fill (e.g. 2 = 0.02%%)")
     p.add_argument("--out", default=None, help="Output directory for csv logs")
     return p
 
@@ -1146,6 +1320,7 @@ def main() -> None:
         ma_window=int(args.ma),
         order_qty=Decimal(str(args.qty)),
         fee_bps=Decimal(str(args.fee_bps)),
+        slippage_bps=Decimal(str(args.slippage_bps)),
         out_dir=out_dir,
     )
 

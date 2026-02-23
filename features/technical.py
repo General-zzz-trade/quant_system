@@ -114,6 +114,96 @@ def rsi(values: Sequence[float], window: int = 14) -> FeatureSeries:
     return out
 
 
+def macd(
+    values: Sequence[float],
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
+    """MACD indicator.
+
+    Returns (macd_line, signal_line, histogram).
+    All three series have the same length as ``values`` with None during warmup.
+    """
+    if fast <= 0 or slow <= 0 or signal <= 0:
+        raise ValueError("MACD windows must be positive")
+    if fast >= slow:
+        raise ValueError("fast window must be smaller than slow window")
+
+    fast_ema = ema(values, fast)
+    slow_ema = ema(values, slow)
+
+    macd_line: FeatureSeries = []
+    for f, s in zip(fast_ema, slow_ema):
+        if f is None or s is None:
+            macd_line.append(None)
+        else:
+            macd_line.append(f - s)
+
+    # Signal line: EMA of macd_line (skip None values during warmup)
+    macd_values = [v if v is not None else 0.0 for v in macd_line]
+    signal_raw = ema(macd_values, signal)
+
+    # Only emit valid signal values once macd_line itself is valid
+    first_valid = next((i for i, v in enumerate(macd_line) if v is not None), len(macd_line))
+    signal_line: FeatureSeries = []
+    for i, s in enumerate(signal_raw):
+        if i < first_valid + signal - 1:
+            signal_line.append(None)
+        else:
+            signal_line.append(s)
+
+    histogram: FeatureSeries = []
+    for m, s in zip(macd_line, signal_line):
+        if m is None or s is None:
+            histogram.append(None)
+        else:
+            histogram.append(m - s)
+
+    return macd_line, signal_line, histogram
+
+
+def bollinger_bands(
+    values: Sequence[float],
+    window: int = 20,
+    num_std: float = 2.0,
+) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
+    """Bollinger Bands.
+
+    Returns (upper_band, middle_band, lower_band).
+    middle_band is SMA; upper/lower are middle ± num_std * rolling std.
+    """
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if num_std <= 0:
+        raise ValueError("num_std must be positive")
+
+    rw = RollingWindow(window)
+    upper: FeatureSeries = []
+    middle: FeatureSeries = []
+    lower: FeatureSeries = []
+
+    for x in values:
+        rw.push(float(x))
+        if not rw.full:
+            upper.append(None)
+            middle.append(None)
+            lower.append(None)
+        else:
+            mid = rw.mean
+            std = rw.std
+            if mid is None or std is None:
+                upper.append(None)
+                middle.append(None)
+                lower.append(None)
+            else:
+                upper.append(mid + num_std * std)
+                middle.append(mid)
+                lower.append(mid - num_std * std)
+
+    return upper, middle, lower
+
+
 def atr(bars: Bars, window: int = 14) -> FeatureSeries:
     if window <= 0:
         raise ValueError("window must be positive")
