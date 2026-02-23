@@ -1,7 +1,4 @@
-"""Root conftest — add project root to sys.path AFTER pytest bootstrap.
-
-This avoids the platform/ package shadowing stdlib platform during pytest startup.
-"""
+"""Root conftest — add project root to sys.path AFTER pytest bootstrap."""
 import sys
 from pathlib import Path
 

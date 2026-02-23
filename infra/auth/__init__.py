@@ -1,4 +1,4 @@
-# platform/auth
+# infra/auth
 """Authentication and API key management."""
 from __future__ import annotations
 

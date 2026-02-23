@@ -1,4 +1,4 @@
-# platform/ci
+# infra/ci
 """CI/CD utilities — health checks, smoke tests, version info."""
 from __future__ import annotations
 

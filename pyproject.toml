@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quant-system"
+version = "0.2.0"
+description = "Event-driven quantitative trading system for crypto perpetual futures"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+
+# Zero external dependencies for core logic — only stdlib.
+# Optional groups below add functionality for specific environments.
+dependencies = []
+
+[project.optional-dependencies]
+live = [
+    "websocket-client>=1.6",
+    "python-dotenv>=1.0",
+]
+config = [
+    "pyyaml>=6.0",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-timeout>=2.1",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+test = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-timeout>=2.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tests_unit"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-q --tb=short"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # gradual adoption
