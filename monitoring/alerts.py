@@ -1,18 +1,10 @@
+"""Backward-compatible re-exports from monitoring.alerts package.
+
+Prefer importing from ``monitoring.alerts`` (the package) directly.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, Optional, Protocol
+from monitoring.alerts.base import Alert, AlertSink, Severity
+from monitoring.alerts.console import ConsoleAlertSink
 
-
-class AlertSink(Protocol):
-    def emit(self, *, level: str, message: str, meta: Optional[Dict[str, Any]] = None) -> None:
-        ...
-
-
-@dataclass
-class PrintAlertSink:
-    def emit(self, *, level: str, message: str, meta: Optional[Dict[str, Any]] = None) -> None:
-        now = datetime.utcnow().isoformat()
-        meta_s = "" if not meta else f" {meta}"
-        print(f"[{now}] {level.upper()}: {message}{meta_s}")
+__all__ = ["Alert", "AlertSink", "ConsoleAlertSink", "Severity"]
