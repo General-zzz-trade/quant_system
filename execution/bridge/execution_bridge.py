@@ -138,22 +138,27 @@ class CircuitBreaker:
     clock: Clock
     _fail_ts: list[float] = field(default_factory=list)
     _open_until: float = 0.0
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def is_open(self) -> bool:
-        return self.clock.now() < self._open_until
+        with self._lock:
+            return self.clock.now() < self._open_until
 
     def record_success(self) -> None:
         # 成功可清理部分失败记录（保守：只清理窗口外的）
-        self._prune()
+        with self._lock:
+            self._prune()
 
     def record_failure(self) -> None:
-        now = self.clock.now()
-        self._fail_ts.append(now)
-        self._prune()
-        if len(self._fail_ts) >= self.cfg.failure_threshold:
-            self._open_until = now + self.cfg.cooldown_sec
+        with self._lock:
+            now = self.clock.now()
+            self._fail_ts.append(now)
+            self._prune()
+            if len(self._fail_ts) >= self.cfg.failure_threshold:
+                self._open_until = now + self.cfg.cooldown_sec
 
     def _prune(self) -> None:
+        """Must be called with self._lock held."""
         now = self.clock.now()
         w = self.cfg.window_sec
         if not self._fail_ts:
