@@ -1,5 +1,6 @@
-"""Platform utilities: config, logging, run context, and metrics.
+"""Infrastructure utilities: config, logging, run context, and metrics.
 
+Renamed from platform/ to avoid shadowing Python's stdlib ``platform`` module.
 These helpers avoid heavy dependencies and are safe to use in both backtests and live runs.
 """
 
