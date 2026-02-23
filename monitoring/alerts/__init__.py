@@ -1,4 +1,16 @@
-from .base import AlertSink
+"""Alert sinks — delivery backends for system alerts."""
+from .base import Alert, AlertSink, CompositeAlertSink, DedupAlertSink, Severity
 from .console import ConsoleAlertSink
+from .log_sink import LogAlertSink
+from .webhook import WebhookAlertSink
 
-__all__ = ["AlertSink", "ConsoleAlertSink"]
+__all__ = [
+    "Alert",
+    "AlertSink",
+    "CompositeAlertSink",
+    "ConsoleAlertSink",
+    "DedupAlertSink",
+    "LogAlertSink",
+    "Severity",
+    "WebhookAlertSink",
+]
