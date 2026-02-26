@@ -27,7 +27,7 @@ def _make_snapshot(
         event_id="e1",
         event_type="bar",
         bar_index=bar_index,
-        market=market,
+        markets={symbol: market},
         positions=positions or {},
         account=account,
     )

@@ -93,7 +93,7 @@ def _make_pipeline_input(event: Any, event_index: int = 0) -> PipelineInput:
         event=event,
         event_index=event_index,
         symbol_default="BTCUSDT",
-        market=MarketState.empty(symbol="BTCUSDT"),
+        markets={"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
         account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
         positions={},
     )
@@ -255,10 +255,31 @@ class TestNormalizeToFacts:
         facts = normalize_to_facts(e)
         assert facts == []
 
-    def test_market_event_returns_empty(self) -> None:
-        e = _market_event()
+    def test_market_event_produces_fact(self) -> None:
+        e = SimpleNamespace(
+            event_type="market",
+            header=SimpleNamespace(event_type="market", ts=None, event_id=None),
+            symbol="BTCUSDT",
+            open="42000", high="43000", low="41000", close="42500", volume="100",
+        )
         facts = normalize_to_facts(e)
-        assert facts == []
+        assert len(facts) == 1
+        assert facts[0].event_type == "market"
+        assert facts[0].symbol == "BTCUSDT"
+        assert facts[0].close == "42500"
+
+    def test_funding_event_produces_fact(self) -> None:
+        e = SimpleNamespace(
+            event_type="funding",
+            header=SimpleNamespace(event_type="funding", ts=None, event_id=None),
+            symbol="BTCUSDT",
+            funding_rate="0.0001",
+            mark_price="42000",
+        )
+        facts = normalize_to_facts(e)
+        assert len(facts) == 1
+        assert facts[0].event_type == "funding"
+        assert facts[0].funding_rate == "0.0001"
 
 
 # ---------------------------------------------------------------------------
@@ -333,9 +354,27 @@ class TestPipelineApply:
             event=_fill_event(side="buy", qty=2.0, price=200.0, event_id="f-2"),
             event_index=out1.event_index,
             symbol_default="BTCUSDT",
-            market=out1.market,
+            markets=out1.markets,
             account=out1.account,
             positions=out1.positions,
         )
         out2 = pipeline.apply(inp2)
         assert out2.event_index == 2
+
+    def test_market_event_advances_pipeline(self) -> None:
+        """MARKET events produce facts and advance pipeline, updating MarketState."""
+        pipeline = StatePipeline()
+        ev = SimpleNamespace(
+            event_type="market",
+            header=SimpleNamespace(event_type="market", ts=None, event_id="m-1"),
+            symbol="BTCUSDT",
+            open=Decimal("42000"), high=Decimal("43000"),
+            low=Decimal("41000"), close=Decimal("42500"),
+            volume=Decimal("100"),
+        )
+        inp = _make_pipeline_input(ev, event_index=0)
+        out = pipeline.apply(inp)
+        assert out.advanced is True
+        assert out.event_index == 1
+        assert out.market.close == Decimal("42500")
+        assert out.market.last_price == Decimal("42500")

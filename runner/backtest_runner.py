@@ -416,10 +416,14 @@ def _snapshot_views(snapshot: Any) -> Tuple[Any, Mapping[str, Any], Optional[str
 
     if isinstance(snapshot, dict):
         market = snapshot.get("market")
+        if market is None:
+            # multi-symbol: pick first market from "markets" dict
+            markets = snapshot.get("markets") or {}
+            market = next(iter(markets.values()), None) if markets else None
         positions = snapshot.get("positions") or {}
         event_id = snapshot.get("event_id")
         if market is None:
-            raise RuntimeError("snapshot missing market")
+            raise RuntimeError("snapshot missing market/markets")
         return market, positions, event_id
 
     raise RuntimeError(f"unsupported snapshot type: {type(snapshot).__name__}")

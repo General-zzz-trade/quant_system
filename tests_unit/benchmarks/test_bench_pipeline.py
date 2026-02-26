@@ -48,7 +48,7 @@ def test_pipeline_throughput():
             ts=datetime(2024, 6, 1, tzinfo=timezone.utc),
         ))
 
-    market = MarketState.empty("BTCUSDT")
+    markets = {"BTCUSDT": MarketState.empty("BTCUSDT")}
     account = AccountState.initial(currency="USDT", balance=Decimal("100000"))
     positions: dict[str, PositionState] = {}
     idx = 0
@@ -59,12 +59,12 @@ def test_pipeline_throughput():
             event=ev,
             event_index=idx,
             symbol_default="BTCUSDT",
-            market=market,
+            markets=markets,
             account=account,
             positions=positions,
         )
         out = pipeline.apply(inp)
-        market = out.market
+        markets = dict(out.markets)
         account = out.account
         positions = dict(out.positions)
         idx = out.event_index

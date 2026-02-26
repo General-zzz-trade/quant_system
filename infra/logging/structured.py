@@ -6,6 +6,12 @@ Elasticsearch, CloudWatch, Loki, etc.
 Usage:
     from infra.logging.structured import setup_structured_logging
     setup_structured_logging(level="INFO", log_file="app.log")
+
+    # Or use the StructuredLogger with context propagation:
+    from infra.logging.structured import StructuredLogger, LogContext
+    ctx = LogContext(trace_id="abc", strategy="momentum")
+    log = StructuredLogger("my_module", default_context=ctx)
+    log.info("signal generated", symbol="BTCUSDT", score=0.85)
 """
 from __future__ import annotations
 
@@ -13,6 +19,7 @@ import json
 import logging
 import sys
 import traceback
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -82,3 +89,105 @@ def setup_structured_logging(
         logger.addHandler(fh)
 
     return logger
+
+
+# ── Context-aware structured logger ─────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class LogContext:
+    """Propagated context fields attached to every log record."""
+
+    trace_id: str = ""
+    span_id: str = ""
+    order_id: str = ""
+    symbol: str = ""
+    strategy: str = ""
+
+
+class StructuredLogger:
+    """JSON structured logger with context propagation.
+
+    Wraps the stdlib logger and enriches each record with trace/span IDs,
+    symbol, strategy, and arbitrary extra fields.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        default_context: Optional[LogContext] = None,
+    ) -> None:
+        self._logger = logging.getLogger(name)
+        self._context = default_context or LogContext()
+
+    @property
+    def context(self) -> LogContext:
+        return self._context
+
+    def with_context(self, **kwargs: Any) -> StructuredLogger:
+        """Create child logger with additional/overridden context fields."""
+        new_ctx = replace(self._context, **kwargs)
+        child = StructuredLogger(self._logger.name, default_context=new_ctx)
+        return child
+
+    def debug(self, msg: str, **extra: Any) -> None:
+        self._log(logging.DEBUG, msg, extra)
+
+    def info(self, msg: str, **extra: Any) -> None:
+        self._log(logging.INFO, msg, extra)
+
+    def warning(self, msg: str, **extra: Any) -> None:
+        self._log(logging.WARNING, msg, extra)
+
+    def error(self, msg: str, **extra: Any) -> None:
+        self._log(logging.ERROR, msg, extra)
+
+    def critical(self, msg: str, **extra: Any) -> None:
+        self._log(logging.CRITICAL, msg, extra)
+
+    def _log(self, level: int, msg: str, extra: dict[str, Any]) -> None:
+        if not self._logger.isEnabledFor(level):
+            return
+
+        record: dict[str, Any] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": logging.getLevelName(level),
+            "msg": msg,
+            "trace_id": self._context.trace_id,
+            "span_id": self._context.span_id,
+            "order_id": self._context.order_id,
+            "symbol": self._context.symbol,
+            "strategy": self._context.strategy,
+        }
+        record.update(extra)
+        record = {k: v for k, v in record.items() if v}
+        self._logger.log(level, json.dumps(record, default=str))
+
+
+class JSONFormatter(logging.Formatter):
+    """Logging formatter that outputs JSON lines.
+
+    Similar to ``JsonFormatter`` but parses pre-formatted JSON messages
+    produced by ``StructuredLogger`` and enriches them with logger metadata.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        try:
+            payload = json.loads(message)
+        except (json.JSONDecodeError, TypeError):
+            payload = {
+                "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "msg": message,
+            }
+        payload.setdefault("logger", record.name)
+        if record.exc_info and record.exc_info[1] is not None:
+            payload["exception"] = {
+                "type": type(record.exc_info[1]).__name__,
+                "message": str(record.exc_info[1]),
+                "traceback": traceback.format_exception(*record.exc_info),
+            }
+        return json.dumps(payload, default=str)

@@ -18,6 +18,7 @@ class EventType(Enum):
     FILL = "fill"
     RISK = "risk"
     CONTROL = "control"
+    FUNDING = "funding"
 
 
 
@@ -333,6 +334,59 @@ class ControlEvent(BaseEvent):
             header=header,
             command=str(body["command"]),
             reason=str(body["reason"]),
+        )
+
+
+# ============================================================
+# FundingEvent —— 永续合约资金费率结算
+# ============================================================
+
+@dataclass(frozen=True, slots=True)
+class FundingEvent(BaseEvent):
+    """Funding rate settlement event for perpetual futures.
+
+    Injected at 00:00/08:00/16:00 UTC for Binance perpetuals.
+    Settlement amount = position_qty * mark_price * funding_rate
+    Positive rate: longs pay shorts. Negative rate: shorts pay longs.
+    """
+
+    event_type: ClassVar[EventType] = EventType.FUNDING
+    VERSION: ClassVar[int] = 1
+
+    ts: datetime
+    symbol: str
+    funding_rate: Decimal       # e.g. Decimal("0.0001") = 1 bps
+    mark_price: Decimal         # mark price at settlement time
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ts": self.ts,
+            "symbol": self.symbol,
+            "funding_rate": self.funding_rate,
+            "mark_price": self.mark_price,
+        }
+
+    @classmethod
+    def from_dict(cls, *, header: Any, body: Mapping[str, Any]) -> "FundingEvent":
+        raw_ts = body["ts"]
+        if isinstance(raw_ts, str):
+            s = raw_ts.strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            ts = datetime.fromisoformat(s)
+        elif isinstance(raw_ts, datetime):
+            ts = raw_ts
+        else:
+            raise ValueError(f"invalid ts type: {type(raw_ts).__name__}")
+        if ts.tzinfo is None:
+            raise ValueError("ts must be tz-aware")
+        ts = ts.astimezone(timezone.utc)
+        return cls(
+            header=header,
+            ts=ts,
+            symbol=str(body["symbol"]),
+            funding_rate=Decimal(body["funding_rate"]),
+            mark_price=Decimal(body["mark_price"]),
         )
 
 

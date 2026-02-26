@@ -23,7 +23,7 @@ def _make_pipeline() -> StatePipeline:
 
 def _run_pipeline(pipeline: StatePipeline, events: list) -> tuple:
     """Run a sequence of events through the pipeline, return final state."""
-    market = MarketState.empty("BTCUSDT")
+    markets = {"BTCUSDT": MarketState.empty("BTCUSDT")}
     account = AccountState.initial(currency="USDT", balance=Decimal("10000"))
     positions: dict[str, PositionState] = {}
     idx = 0
@@ -34,19 +34,19 @@ def _run_pipeline(pipeline: StatePipeline, events: list) -> tuple:
             event=ev,
             event_index=idx,
             symbol_default="BTCUSDT",
-            market=market,
+            markets=markets,
             account=account,
             positions=positions,
         )
         out = pipeline.apply(inp)
-        market = out.market
+        markets = dict(out.markets)
         account = out.account
         positions = dict(out.positions)
         idx = out.event_index
         if out.advanced:
             indices.append(idx)
 
-    return market, account, positions, idx, indices
+    return markets, account, positions, idx, indices
 
 
 @given(events=st.lists(
@@ -91,7 +91,7 @@ def test_event_index_monotonic(events):
 def test_pipeline_always_returns_valid_output(events):
     """Pipeline output is never None for any valid event."""
     pipeline = _make_pipeline()
-    market = MarketState.empty("BTCUSDT")
+    markets = {"BTCUSDT": MarketState.empty("BTCUSDT")}
     account = AccountState.initial(currency="USDT", balance=Decimal("10000"))
     positions: dict[str, PositionState] = {}
     idx = 0
@@ -101,7 +101,7 @@ def test_pipeline_always_returns_valid_output(events):
             event=ev,
             event_index=idx,
             symbol_default="BTCUSDT",
-            market=market,
+            markets=markets,
             account=account,
             positions=positions,
         )
@@ -109,7 +109,7 @@ def test_pipeline_always_returns_valid_output(events):
         assert out is not None
         assert out.market is not None
         assert out.account is not None
-        market = out.market
+        markets = dict(out.markets)
         account = out.account
         positions = dict(out.positions)
         idx = out.event_index
@@ -120,7 +120,7 @@ def test_pipeline_always_returns_valid_output(events):
 def test_pipeline_fill_events_always_advance(events):
     """Fill events are fact events and always advance event_index."""
     pipeline = _make_pipeline()
-    market = MarketState.empty("BTCUSDT")
+    markets = {"BTCUSDT": MarketState.empty("BTCUSDT")}
     account = AccountState.initial(currency="USDT", balance=Decimal("10000"))
     positions: dict[str, PositionState] = {}
     idx = 0
@@ -131,14 +131,14 @@ def test_pipeline_fill_events_always_advance(events):
             event=ev,
             event_index=idx,
             symbol_default="BTCUSDT",
-            market=market,
+            markets=markets,
             account=account,
             positions=positions,
         )
         out = pipeline.apply(inp)
         if out.advanced:
             advanced_count += 1
-        market = out.market
+        markets = dict(out.markets)
         account = out.account
         positions = dict(out.positions)
         idx = out.event_index

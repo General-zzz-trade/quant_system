@@ -120,42 +120,44 @@ class RiskAggregator:
 
         self._enabled: Dict[str, bool] = {n: (n in enabled_set and n not in disabled_set) for n in names}
 
-        # 统计对象：可变，单点更新（通过 _stats_lock 保护线程安全）
+        # 统一锁：保护 _stats 和 _enabled 的线程安全
+        self._lock = threading.Lock()
         self._stats: Dict[str, RuleStats] = {n: RuleStats(name=n) for n in names}
-        self._stats_lock = threading.Lock()
 
     # ------------------------------------------------------------
     # 开关与快照
     # ------------------------------------------------------------
 
     def enable(self, rule_name: str) -> None:
-        if rule_name not in self._enabled:
-            raise RiskAggregatorError(f"未知规则：{rule_name}")
-        self._enabled[rule_name] = True
+        with self._lock:
+            if rule_name not in self._enabled:
+                raise RiskAggregatorError(f"未知规则：{rule_name}")
+            self._enabled[rule_name] = True
 
     def disable(self, rule_name: str) -> None:
-        if rule_name not in self._enabled:
-            raise RiskAggregatorError(f"未知规则：{rule_name}")
-        self._enabled[rule_name] = False
+        with self._lock:
+            if rule_name not in self._enabled:
+                raise RiskAggregatorError(f"未知规则：{rule_name}")
+            self._enabled[rule_name] = False
 
     def snapshot(self) -> AggregatorSnapshot:
-        enabled = tuple(n for n, on in self._enabled.items() if on)
-        disabled = tuple(n for n, on in self._enabled.items() if not on)
-        # 返回 stats 的“浅拷贝视图”（RuleStats 本身是可变的，但这里以当前值快照为准）
-        stats = tuple(
-            RuleStats(
-                name=s.name,
-                calls=s.calls,
-                allow=s.allow,
-                reduce=s.reduce,
-                reject=s.reject,
-                kill=s.kill,
-                errors=s.errors,
-                last_ms=s.last_ms,
-                max_ms=s.max_ms,
+        with self._lock:
+            enabled = tuple(n for n, on in self._enabled.items() if on)
+            disabled = tuple(n for n, on in self._enabled.items() if not on)
+            stats = tuple(
+                RuleStats(
+                    name=s.name,
+                    calls=s.calls,
+                    allow=s.allow,
+                    reduce=s.reduce,
+                    reject=s.reject,
+                    kill=s.kill,
+                    errors=s.errors,
+                    last_ms=s.last_ms,
+                    max_ms=s.max_ms,
+                )
+                for s in self._stats.values()
             )
-            for s in self._stats.values()
-        )
         return AggregatorSnapshot(enabled=enabled, disabled=disabled, stats=stats)
 
     # ------------------------------------------------------------
@@ -177,13 +179,16 @@ class RiskAggregator:
     def _evaluate(self, mode: str, obj: Any, meta: Mapping[str, Any]) -> RiskDecision:
         decisions: list[RiskDecision] = []
 
+        # 快照 enabled 状态，避免评估过程中被并发修改
+        with self._lock:
+            enabled_snap = dict(self._enabled)
+
         for rule in self._rules:
-            if not self._enabled.get(rule.name, False):
+            if not enabled_snap.get(rule.name, False):
                 continue
 
             st = self._stats[rule.name]
-            with self._stats_lock:
-                st.calls += 1
+            had_error = False
 
             t0 = perf_counter()
             try:
@@ -194,23 +199,24 @@ class RiskAggregator:
                 else:
                     raise RiskAggregatorError(f"未知 mode：{mode}")
             except BaseException as e:
-                with self._stats_lock:
-                    st.errors += 1
+                had_error = True
                 d = self._fail_safe_decision(rule_name=rule.name, mode=mode, meta=meta, exc=e)
                 if self._on_error is not None:
                     try:
                         self._on_error(rule.name, mode, e, meta)
                     except Exception:
                         pass
-            finally:
-                dt_ms = (perf_counter() - t0) * 1000.0
-                with self._stats_lock:
-                    st.last_ms = dt_ms
-                    if dt_ms > st.max_ms:
-                        st.max_ms = dt_ms
 
-            # 动作分布统计
-            with self._stats_lock:
+            dt_ms = (perf_counter() - t0) * 1000.0
+
+            # 原子更新：单次加锁写入所有 stat 变更，避免并发 snapshot() 读到不一致状态
+            with self._lock:
+                st.calls += 1
+                if had_error:
+                    st.errors += 1
+                st.last_ms = dt_ms
+                if dt_ms > st.max_ms:
+                    st.max_ms = dt_ms
                 if d.action == RiskAction.ALLOW:
                     st.allow += 1
                 elif d.action == RiskAction.REDUCE:

@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
 
 import threading
 
@@ -55,6 +55,7 @@ class CoordinatorConfig:
     - coordinator 不实现时间制度（clock/scheduler 后续模块接入）
     """
     symbol_default: str
+    symbols: Tuple[str, ...] = ()  # 空=退化为单品种 (symbol_default,)
     currency: str = "USDT"
     starting_balance: float = 0.0
 
@@ -113,7 +114,10 @@ class EngineCoordinator:
         self._runtime_handler: Optional[Callable[[Any], None]] = None
 
         # ---- engine state (single source of truth) ----
-        self._market: MarketState = MarketState.empty(symbol=cfg.symbol_default)
+        effective_symbols = cfg.symbols or (cfg.symbol_default,)
+        self._markets: Dict[str, MarketState] = {
+            s: MarketState.empty(symbol=s) for s in effective_symbols
+        }
         self._account: AccountState = self._init_account_state(
             currency=cfg.currency,
             starting_balance=cfg.starting_balance,
@@ -161,7 +165,8 @@ class EngineCoordinator:
                 "event_index": self._event_index,
                 "last_event_id": self._last_event_id,
                 "last_ts": self._last_ts,
-                "market": self._market,
+                "markets": dict(self._markets),
+                "market": self._markets.get(self._cfg.symbol_default, next(iter(self._markets.values()))),
                 "account": self._account,
                 "positions": dict(self._positions),
                 "last_snapshot": self._last_snapshot,
@@ -264,7 +269,7 @@ class EngineCoordinator:
                 event=event,
                 event_index=self._event_index,
                 symbol_default=self._cfg.symbol_default,
-                market=self._market,
+                markets=dict(self._markets),
                 account=self._account,
                 positions=self._positions,
                 portfolio=None,
@@ -275,7 +280,7 @@ class EngineCoordinator:
 
         # 统一更新 engine state（即使未 advanced，也允许替换为同对象；但我们仍按制度控制回调）
         with self._lock:
-            self._market = out.market
+            self._markets = dict(out.markets)
             self._account = out.account
             self._positions = dict(out.positions)
             if out.advanced:

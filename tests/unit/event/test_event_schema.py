@@ -48,7 +48,7 @@ def _fill_header() -> _Header:
 
 class TestEventTypeEnum:
     def test_all_types_exist(self) -> None:
-        expected = {"market", "signal", "intent", "order", "fill", "risk", "control"}
+        expected = {"market", "signal", "intent", "order", "fill", "risk", "control", "funding"}
         actual = {e.value for e in EventType}
         assert actual == expected
 

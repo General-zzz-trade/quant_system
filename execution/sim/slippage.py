@@ -2,6 +2,7 @@
 """Slippage models for paper trading simulation."""
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 from decimal import Decimal
@@ -82,3 +83,34 @@ class RandomSlippage:
             return price * (Decimal("1") + factor)
         else:
             return price * (Decimal("1") - factor)
+
+
+@dataclass(frozen=True, slots=True)
+class SqrtImpactSlippage:
+    """Square-root market impact model (Almgren-Chriss).
+
+    impact_bps = eta * sigma_daily * sqrt(qty / adv)
+
+    where:
+    - eta: impact coefficient (typically 0.1-1.0 for crypto)
+    - sigma_daily: daily volatility (e.g. 0.02 = 2%)
+    - adv: average daily volume in base asset units
+
+    This produces sub-linear impact: doubling order size increases impact by ~41%.
+    """
+    eta: Decimal = Decimal("0.5")
+    sigma_daily: Decimal = Decimal("0.02")     # 2% daily vol
+    adv: Decimal = Decimal("1000")             # average daily volume (base units)
+
+    def apply(self, *, price: Decimal, side: str, qty: Decimal) -> Decimal:
+        if self.adv <= 0 or qty <= 0:
+            return price
+
+        participation = float(qty / self.adv)
+        impact_frac = float(self.eta) * float(self.sigma_daily) * math.sqrt(participation)
+        impact = Decimal(str(impact_frac))
+
+        if side == "buy":
+            return price * (Decimal("1") + impact)
+        else:
+            return price * (Decimal("1") - impact)

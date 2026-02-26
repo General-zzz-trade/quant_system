@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quant-engine
+  namespace: quant
+  labels:
+    app: quant-engine
+    component: trading
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Single instance for trading safety
+  selector:
+    matchLabels:
+      app: quant-engine
+  template:
+    metadata:
+      labels:
+        app: quant-engine
+        component: trading
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: quant-engine
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: engine
+          image: quant-system:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          envFrom:
+            - configMapRef:
+                name: quant-engine-config
+            - secretRef:
+                name: quant-engine-secrets
+          env:
+            - name: QUANT_ENV
+              value: "production"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: config-volume
+          configMap:
+            name: quant-engine-config
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quant-engine
+  namespace: quant
+  labels:
+    app: quant-engine
+spec:
+  selector:
+    app: quant-engine
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  type: ClusterIP
