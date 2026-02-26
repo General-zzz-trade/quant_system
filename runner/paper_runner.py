@@ -173,13 +173,9 @@ class PaperPortfolio:
 
 
 def run_paper(config: PaperRunnerConfig) -> None:
-    """Run paper trading mode.
-
-    This function demonstrates the paper trading loop structure.
-    For full live data integration, wire in the Binance WebSocket market feed.
-    """
+    """Run paper trading in stdin mode (reads close prices from stdin)."""
     symbol = config.symbol.upper()
-    logger.info("Starting paper trading: symbol=%s balance=%s", symbol, config.starting_balance)
+    logger.info("Starting paper trading (stdin): symbol=%s balance=%s", symbol, config.starting_balance)
 
     portfolio = PaperPortfolio(
         balance=config.starting_balance,
@@ -194,9 +190,6 @@ def run_paper(config: PaperRunnerConfig) -> None:
     last_log = time.monotonic()
     last_price = Decimal("0")
 
-    # ── Market data loop ──────────────────────────────────────
-    # In production: replace this with BinanceWebSocket market data feed
-    # For now: reads from stdin as CSV prices (ts,close) for testability
     logger.info("Reading price feed from stdin (format: close_price per line).")
     logger.info("Press Ctrl+C to stop.")
 
@@ -215,10 +208,8 @@ def run_paper(config: PaperRunnerConfig) -> None:
             signal = strategy.on_price(close)
             pos = portfolio._position_qty
 
-            # Simple position management: no position → open on signal; open → close on opposite
             if signal == "buy" and pos <= Decimal("0"):
                 if pos < Decimal("0"):
-                    # Close short first
                     fill = portfolio.execute("buy", abs(pos), close)
                     logger.info("CLOSE SHORT  %s", json.dumps(fill))
                 fill = portfolio.execute("buy", config.order_qty, close)
@@ -226,13 +217,11 @@ def run_paper(config: PaperRunnerConfig) -> None:
 
             elif signal == "sell" and pos >= Decimal("0"):
                 if pos > Decimal("0"):
-                    # Close long first
                     fill = portfolio.execute("sell", pos, close)
                     logger.info("CLOSE LONG   %s", json.dumps(fill))
                 fill = portfolio.execute("sell", config.order_qty, close)
                 logger.info("OPEN SHORT   %s", json.dumps(fill))
 
-            # Periodic logging
             now = time.monotonic()
             if now - last_log >= config.log_interval_sec:
                 summary = portfolio.summary(last_price)
@@ -247,7 +236,6 @@ def run_paper(config: PaperRunnerConfig) -> None:
     except KeyboardInterrupt:
         pass
 
-    # Final summary
     if last_price > 0:
         final = portfolio.summary(last_price)
         logger.info("FINAL SUMMARY: %s", json.dumps(final, indent=2))
@@ -258,8 +246,163 @@ def run_paper(config: PaperRunnerConfig) -> None:
             logger.info("Results written to %s", out_path)
 
 
+def run_paper_live(config: PaperRunnerConfig, *, _transport: Any = None) -> None:
+    """Run paper trading with live Binance WebSocket market data.
+
+    Uses the engine coordinator pipeline: MarketEvent → state → decision → execution.
+    Same architecture as backtest_runner but with live data source.
+
+    Args:
+        _transport: Optional WsTransport override for testing.
+    """
+    from engine.coordinator import CoordinatorConfig, EngineCoordinator
+    from engine.decision_bridge import DecisionBridge
+    from engine.execution_bridge import ExecutionBridge
+    from event.header import EventHeader
+    from event.types import EventType, MarketEvent
+    from runner.backtest_runner import BacktestExecutionAdapter, MovingAverageCrossModule
+    from execution.adapters.binance.kline_processor import KlineProcessor
+    from execution.adapters.binance.ws_market_stream_um import (
+        BinanceUmMarketStreamWsClient,
+        MarketStreamConfig,
+    )
+
+    symbol_u = config.symbol.upper()
+    logger.info("Starting paper trading (live): symbol=%s balance=%s", symbol_u, config.starting_balance)
+
+    if config.out_dir:
+        config.out_dir.mkdir(parents=True, exist_ok=True)
+
+    fills: list[Dict[str, Any]] = []
+
+    def _on_fill(fill: Any) -> None:
+        fills.append({
+            "ts": str(getattr(fill, "ts", "")),
+            "symbol": str(getattr(fill, "symbol", "")),
+            "side": str(getattr(fill, "side", "")),
+            "qty": str(getattr(fill, "qty", "")),
+            "price": str(getattr(fill, "price", "")),
+            "fee": str(getattr(fill, "fee", "")),
+            "realized_pnl": str(getattr(fill, "realized_pnl", "")),
+        })
+        logger.info(
+            "FILL  %s %s qty=%s px=%s fee=%s rpnl=%s",
+            getattr(fill, "side", ""),
+            getattr(fill, "symbol", ""),
+            getattr(fill, "qty", ""),
+            getattr(fill, "price", ""),
+            getattr(fill, "fee", ""),
+            getattr(fill, "realized_pnl", ""),
+        )
+
+    coordinator = EngineCoordinator(
+        cfg=CoordinatorConfig(
+            symbol_default=symbol_u,
+            currency="USDT",
+            starting_balance=float(config.starting_balance),
+        )
+    )
+
+    def _emit(ev: Any) -> None:
+        coordinator.emit(ev, actor="paper")
+
+    def _price(sym: str) -> Optional[Decimal]:
+        view = coordinator.get_state_view()
+        m = view.get("market")
+        if m is None:
+            return None
+        return getattr(m, "close", None) or getattr(m, "last_price", None)
+
+    def _ts() -> Optional[datetime]:
+        view = coordinator.get_state_view()
+        m = view.get("market")
+        return getattr(m, "last_ts", None) if m is not None else None
+
+    exec_adapter = BacktestExecutionAdapter(
+        price_source=_price,
+        ts_source=_ts,
+        fee_bps=config.fee_bps,
+        slippage_bps=config.slippage_bps,
+        source="paper",
+        on_fill=_on_fill,
+    )
+
+    exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit)
+    decision_module = MovingAverageCrossModule(
+        symbol=symbol_u, window=config.ma_window, order_qty=config.order_qty,
+    )
+    decision_bridge = DecisionBridge(dispatcher_emit=_emit, modules=[decision_module])
+
+    coordinator.attach_execution_bridge(exec_bridge)
+    coordinator.attach_decision_bridge(decision_bridge)
+
+    # Build market data stream
+    if _transport is not None:
+        transport = _transport
+    else:
+        try:
+            from execution.adapters.binance.ws_transport_websocket_client import WebsocketClientTransport
+            transport = WebsocketClientTransport()
+        except ImportError:
+            logger.error(
+                "websocket-client not installed. Run: pip install websocket-client"
+            )
+            sys.exit(1)
+
+    processor = KlineProcessor(source="binance.ws.kline")
+    market_stream = BinanceUmMarketStreamWsClient(
+        transport=transport,
+        processor=processor,
+        streams=(f"{symbol_u.lower()}@kline_1m",),
+    )
+
+    coordinator.start()
+    logger.info("Connecting to Binance kline stream for %s...", symbol_u)
+
+    bar_count = 0
+    last_log = time.monotonic()
+
+    try:
+        while True:
+            event = market_stream.step()
+            if event is not None:
+                coordinator.emit(event, actor="live")
+                bar_count += 1
+
+            now = time.monotonic()
+            if now - last_log >= config.log_interval_sec:
+                view = coordinator.get_state_view()
+                m = view.get("market")
+                px = getattr(m, "close", None) if m else None
+                logger.info(
+                    "STATUS  bars=%d  last_price=%s  fills=%d",
+                    bar_count, px, len(fills),
+                )
+                last_log = now
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    finally:
+        market_stream.close()
+        coordinator.stop()
+
+    logger.info("FINAL: %d bars processed, %d fills", bar_count, len(fills))
+
+    if config.out_dir and fills:
+        import csv as csv_mod
+
+        fills_path = config.out_dir / "paper_fills.csv"
+        with fills_path.open("w", newline="") as f:
+            w = csv_mod.DictWriter(f, fieldnames=list(fills[0].keys()))
+            w.writeheader()
+            for row in fills:
+                w.writerow(row)
+        logger.info("Fills written to %s", fills_path)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Paper trading runner")
+    p.add_argument("--mode", choices=["live", "stdin"], default="live",
+                   help="Data source: 'live' for Binance WebSocket, 'stdin' for manual input")
     p.add_argument("--symbol", default="BTCUSDT", help="Trading symbol")
     p.add_argument("--balance", default="10000", help="Starting balance (USDT)")
     p.add_argument("--qty", default="0.01", help="Order quantity")
@@ -283,7 +426,10 @@ def main() -> None:
         log_interval_sec=args.log_interval,
         out_dir=Path(args.out) if args.out else None,
     )
-    run_paper(config)
+    if args.mode == "live":
+        run_paper_live(config)
+    else:
+        run_paper(config)
 
 
 if __name__ == "__main__":

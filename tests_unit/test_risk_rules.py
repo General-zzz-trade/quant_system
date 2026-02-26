@@ -1263,3 +1263,79 @@ class TestRiskAggregator:
 
         # Assert
         assert decision.action == RiskAction.REJECT
+
+
+# ============================================================
+# OrderFrequencyRule Tests
+# ============================================================
+
+
+from risk.rules.order_frequency import OrderFrequencyRule
+
+
+class TestOrderFrequencyRule:
+    """Tests for OrderFrequencyRule."""
+
+    def test_allow_when_rate_below_limit(self) -> None:
+        """Rate below limit → ALLOW."""
+        rule = OrderFrequencyRule(max_orders_per_minute=30)
+        intent = make_intent(side=Side.BUY)
+        meta = {"order_rate_per_min": 10.0}
+
+        decision = rule.evaluate_intent(intent, meta=meta)
+        assert decision.action == RiskAction.ALLOW
+
+    def test_allow_when_no_rate_in_meta(self) -> None:
+        """No rate info in meta → ALLOW (no data = no violation)."""
+        rule = OrderFrequencyRule()
+        intent = make_intent(side=Side.BUY)
+
+        decision = rule.evaluate_intent(intent, meta={})
+        assert decision.action == RiskAction.ALLOW
+
+    def test_intent_reject_when_rate_exceeds_limit(self) -> None:
+        """Rate above per-minute limit → REJECT at intent level."""
+        rule = OrderFrequencyRule(max_orders_per_minute=30)
+        intent = make_intent(side=Side.BUY)
+        meta = {"order_rate_per_min": 35.0}
+
+        decision = rule.evaluate_intent(intent, meta=meta)
+        assert decision.action == RiskAction.REJECT
+        assert any(v.code == RiskCode.OMS_DEGRADED for v in decision.violations)
+
+    def test_order_reject_when_rate_exceeds_limit(self) -> None:
+        """Rate above limit at order level → REJECT."""
+        rule = OrderFrequencyRule(max_orders_per_minute=30)
+        order = make_order(side=Side.BUY, qty=1.0)
+        meta = {"order_rate_per_min": 40.0}
+
+        decision = rule.evaluate_order(order, meta=meta)
+        assert decision.action == RiskAction.REJECT
+
+    def test_order_reject_when_window_count_exceeds(self) -> None:
+        """Order count in window exceeds limit → REJECT."""
+        rule = OrderFrequencyRule(max_orders_per_window=100)
+        order = make_order(side=Side.BUY, qty=1.0)
+        meta = {"recent_order_count": 100}
+
+        decision = rule.evaluate_order(order, meta=meta)
+        assert decision.action == RiskAction.REJECT
+
+    def test_order_reject_both_violations(self) -> None:
+        """Both rate and window count exceeded → two violations."""
+        rule = OrderFrequencyRule(max_orders_per_minute=10, max_orders_per_window=50)
+        order = make_order(side=Side.BUY, qty=1.0)
+        meta = {"order_rate_per_min": 20.0, "recent_order_count": 60}
+
+        decision = rule.evaluate_order(order, meta=meta)
+        assert decision.action == RiskAction.REJECT
+        assert len(decision.violations) == 2
+
+    def test_order_allow_within_all_limits(self) -> None:
+        """Both rate and count within limits → ALLOW."""
+        rule = OrderFrequencyRule(max_orders_per_minute=30, max_orders_per_window=100)
+        order = make_order(side=Side.BUY, qty=1.0)
+        meta = {"order_rate_per_min": 20.0, "recent_order_count": 50}
+
+        decision = rule.evaluate_order(order, meta=meta)
+        assert decision.action == RiskAction.ALLOW

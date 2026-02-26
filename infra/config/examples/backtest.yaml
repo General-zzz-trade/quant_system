@@ -1,0 +1,26 @@
+trading:
+  symbol: BTCUSDT
+  exchange: binance
+  mode: backtest
+
+strategy:
+  name: ma_cross
+  ma_window: 20
+  order_qty: "0.01"
+
+risk:
+  max_position_notional: 50000.0
+  max_leverage: 3.0
+  max_drawdown_pct: 20.0
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+logging:
+  level: INFO
+  structured: false
+
+data:
+  store_path: ./market_data
+  format: parquet

@@ -1,0 +1,36 @@
+trading:
+  symbol: BTCUSDT
+  exchange: binance
+  mode: paper
+
+strategy:
+  name: ma_cross
+  ma_window: 20
+  order_qty: "0.01"
+
+risk:
+  max_position_notional: 50000.0
+  max_leverage: 3.0
+  max_drawdown_pct: 15.0
+  max_orders_per_minute: 30
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+
+logging:
+  level: INFO
+  structured: true
+  file: logs/paper_trading.log
+
+data:
+  store_path: ./market_data
+  format: parquet
+
+monitoring:
+  health_check_interval: 5.0
+  metrics_port: 9090
