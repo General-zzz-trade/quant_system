@@ -908,6 +908,8 @@ def run_backtest(
     fee_bps: Decimal,
     slippage_bps: Decimal = Decimal("0"),
     out_dir: Optional[Path] = None,
+    embargo_bars: int = 1,
+    funding_csv: Optional[str] = None,
 ) -> Tuple[List[EquityPoint], List[Dict[str, Any]]]:
     symbol_u = symbol.upper()
 
@@ -996,7 +998,9 @@ def run_backtest(
         m = view.get("market")
         return getattr(m, "last_ts", None) if m is not None else None
 
-    exec_adapter = BacktestExecutionAdapter(
+    from execution.sim.embargo import EmbargoExecutionAdapter
+
+    base_adapter = BacktestExecutionAdapter(
         price_source=_price,
         ts_source=_ts,
         fee_bps=fee_bps,
@@ -1005,7 +1009,8 @@ def run_backtest(
         on_fill=_on_fill,
     )
 
-    exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit)
+    embargo_adapter = EmbargoExecutionAdapter(inner=base_adapter, embargo_bars=embargo_bars)
+    exec_bridge = ExecutionBridge(adapter=embargo_adapter, dispatcher_emit=_emit)
 
     decision_module = MovingAverageCrossModule(symbol=symbol_u, window=ma_window, order_qty=order_qty)
     decision_bridge = DecisionBridge(dispatcher_emit=_emit, modules=[decision_module])
@@ -1013,9 +1018,26 @@ def run_backtest(
     coordinator.attach_execution_bridge(exec_bridge)
     coordinator.attach_decision_bridge(decision_bridge)
 
+    # Build funding schedule if funding CSV provided
+    funding_schedule: Dict[datetime, Any] = {}
+    if funding_csv is not None:
+        from data.loaders.funding_rate import load_funding_csv, funding_schedule_for_bars
+        funding_records = load_funding_csv(funding_csv, symbol=symbol_u)
+        bar_list = list(iter_ohlcv_csv(csv_path))
+        bar_timestamps = [b.ts for b in bar_list]
+        funding_schedule = funding_schedule_for_bars(bar_timestamps, funding_records)
+    else:
+        bar_list = list(iter_ohlcv_csv(csv_path))
+
     coordinator.start()
 
-    for bar in iter_ohlcv_csv(csv_path):
+    for i, bar in enumerate(bar_list):
+        # Execute embargoed orders from previous bars
+        if embargo_bars > 0:
+            embargo_adapter.on_bar(i)
+        # Set current bar index for any new orders generated this bar
+        embargo_adapter.set_bar(i)
+
         h = EventHeader.new_root(event_type=EventType.MARKET, version=MarketEvent.VERSION, source="csv")
         ev = MarketEvent(
             header=h,
@@ -1028,6 +1050,27 @@ def run_backtest(
             volume=bar.v if bar.v is not None else Decimal("0"),
         )
         coordinator.emit(ev, actor="replay")
+
+        # Funding rate settlement
+        if bar.ts in funding_schedule:
+            fr = funding_schedule[bar.ts]
+            pos_qty = base_adapter._pos_qty.get(symbol_u, Decimal("0"))
+            if pos_qty != 0:
+                fh = EventHeader.new_root(event_type=EventType.FILL, version=1, source="funding")
+                funding_ev = SimpleNamespace(
+                    header=fh,
+                    event_type="funding",
+                    ts=bar.ts,
+                    symbol=symbol_u,
+                    funding_rate=fr.funding_rate,
+                    mark_price=fr.mark_price,
+                    position_qty=pos_qty,
+                )
+                coordinator.emit(funding_ev, actor="funding")
+
+    # Flush remaining embargoed orders on last bar
+    if embargo_bars > 0 and bar_list:
+        embargo_adapter.on_bar(len(bar_list))
 
     coordinator.stop()
 
