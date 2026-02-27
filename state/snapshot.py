@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 from state.account import AccountState
 from state.market import MarketState
@@ -39,6 +39,7 @@ class StateSnapshot:
 
     portfolio: Optional[PortfolioState] = None
     risk: Optional[RiskState] = None
+    features: Optional[Mapping[str, Any]] = None
 
     @property
     def market(self) -> MarketState:
@@ -65,6 +66,7 @@ class StateSnapshot:
         account: AccountState,
         portfolio: Optional[PortfolioState] = None,
         risk: Optional[RiskState] = None,
+        features: Optional[Mapping[str, Any]] = None,
     ) -> "StateSnapshot":
         return cls(
             symbol=symbol,
@@ -77,4 +79,5 @@ class StateSnapshot:
             account=account,
             portfolio=portfolio,
             risk=risk,
+            features=features,
         )

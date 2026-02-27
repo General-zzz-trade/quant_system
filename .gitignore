@@ -35,3 +35,4 @@ Thumbs.db
 # Data artifacts
 /data/
 outputs/
+.hypothesis/

@@ -58,8 +58,13 @@ def _encode_params(params: Mapping[str, Any]) -> str:
 
 
 class BinanceRestClient:
-    def __init__(self, cfg: BinanceRestConfig) -> None:
+    def __init__(
+        self,
+        cfg: BinanceRestConfig,
+        rate_policy: Optional["BinanceRateLimitPolicy"] = None,
+    ) -> None:
         self._cfg = cfg
+        self._rate_policy = rate_policy
 
     def request_signed(
         self,
@@ -72,14 +77,55 @@ class BinanceRestClient:
         p.setdefault("recvWindow", self._cfg.recv_window)
         p.setdefault("timestamp", _now_ms())
 
+        if self._rate_policy is not None and not self._rate_policy.check(path):
+            raise BinanceRetryableError(f"Rate limited (local): {path}")
+
         qs = _encode_params(p)
         sig = _hmac_sha256_hex(self._cfg.api_secret, qs)
         signed_qs = f"{qs}&signature={sig}" if qs else f"signature={sig}"
 
         url = f"{self._cfg.base_url}{path}"
-        return self._send(method=method, url=url, body_qs=signed_qs)
+        return self._send(method=method, url=url, body_qs=signed_qs, path=path)
 
-    def _send(self, *, method: str, url: str, body_qs: str) -> Dict[str, Any]:
+    def request_public(
+        self,
+        *,
+        method: str,
+        path: str,
+        params: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Public endpoint request — no API key, no signature."""
+        p = dict(params or {})
+        qs = _encode_params(p)
+        url = f"{self._cfg.base_url}{path}"
+        m = method.upper()
+        if m == "GET" and qs:
+            url = f"{url}?{qs}"
+            qs = ""
+        return self._send_public(method=m, url=url, body_qs=qs, path=path)
+
+    def _send_public(self, *, method: str, url: str, body_qs: str, path: str = "") -> Dict[str, Any]:
+        data = body_qs.encode("utf-8") if body_qs else None
+        req = Request(url=url, data=data, method=method.upper())
+        try:
+            with urlopen(req, timeout=self._cfg.timeout_s) as resp:
+                self._sync_rate_limit_headers(resp)
+                raw = resp.read().decode("utf-8").strip()
+                if not raw:
+                    return {}
+                return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise BinanceRetryableError(f"Invalid JSON response: {e}") from e
+        except HTTPError as e:
+            self._sync_rate_limit_headers(e)
+            raw = e.read().decode("utf-8", errors="replace")
+            if e.code in (418, 429) or 500 <= e.code <= 599:
+                raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
+            raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
+        except URLError as e:
+            raise BinanceRetryableError(f"Network error: {e}") from e
+
+    def _send(self, *, method: str, url: str, body_qs: str, path: str = "") -> Dict[str, Any]:
         data = body_qs.encode("utf-8")
         headers = {
             "X-MBX-APIKEY": self._cfg.api_key,
@@ -89,6 +135,7 @@ class BinanceRestClient:
 
         try:
             with urlopen(req, timeout=self._cfg.timeout_s) as resp:
+                self._sync_rate_limit_headers(resp)
                 raw = resp.read().decode("utf-8").strip()
                 if not raw:
                     return {}
@@ -96,13 +143,30 @@ class BinanceRestClient:
         except json.JSONDecodeError as e:
             raise BinanceRetryableError(f"Invalid JSON response: {e}") from e
         except HTTPError as e:
+            self._sync_rate_limit_headers(e)
             raw = e.read().decode("utf-8", errors="replace")
-            # 429/418/5xx 视为可重试；其余默认不可重试
             if e.code in (418, 429) or 500 <= e.code <= 599:
                 raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
             raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
         except URLError as e:
             raise BinanceRetryableError(f"Network error: {e}") from e
+
+    def _sync_rate_limit_headers(self, resp: Any) -> None:
+        """Parse X-MBX-USED-WEIGHT headers to calibrate local rate limiter."""
+        if self._rate_policy is None:
+            return
+        for header_name in ("X-MBX-USED-WEIGHT-1M", "X-MBX-USED-WEIGHT"):
+            val = None
+            if hasattr(resp, "getheader"):
+                val = resp.getheader(header_name)
+            elif hasattr(resp, "headers"):
+                val = resp.headers.get(header_name)
+            if val is not None:
+                try:
+                    self._rate_policy.sync_used_weight(int(val))
+                except (TypeError, ValueError):
+                    pass
+                break
 
     def request_api_key(
             self,

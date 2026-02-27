@@ -1,0 +1,15 @@
+# Training configuration for LGBM alpha model
+# Usage: python3 -m scripts.train_lgbm --config infra/config/examples/training.yaml
+
+data_path: "data/btcusdt.csv"
+
+features:
+  fast_ma: 10
+  slow_ma: 30
+  vol_window: 20
+
+training:
+  n_splits: 5
+  horizon: 5          # forward return horizon in bars
+  out_dir: "models/"
+  expanding: true     # expanding window (vs fixed)

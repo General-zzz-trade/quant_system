@@ -72,6 +72,7 @@ class PipelineInput:
     # 这两项属于派生事实（可为空），pipeline 不做决策，只负责传递/快照
     portfolio: Any = None
     risk: Any = None
+    features: Optional[Mapping[str, Any]] = None
 
     @property
     def market(self) -> MarketState:
@@ -94,6 +95,7 @@ class PipelineOutput:
 
     portfolio: Any
     risk: Any
+    features: Optional[Mapping[str, Any]]
 
     event_index: int
     last_event_id: Optional[str]
@@ -322,6 +324,7 @@ def _build_snapshot(
     positions: Mapping[str, PositionState],
     portfolio: Any,
     risk: Any,
+    features: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """
     统一快照生成点（顶级纪律：snapshot 生成必须集中，不可散落）
@@ -346,6 +349,7 @@ def _build_snapshot(
             account=account,
             portfolio=portfolio,
             risk=risk,
+            features=features,
         )
 
     return {
@@ -357,6 +361,7 @@ def _build_snapshot(
         "positions": positions,
         "portfolio": portfolio,
         "risk": risk,
+        "features": features,
     }
 
 
@@ -425,6 +430,7 @@ class StatePipeline:
                 positions=inp.positions,
                 portfolio=inp.portfolio,
                 risk=inp.risk,
+                features=inp.features,
                 event_index=int(inp.event_index),
                 last_event_id=inp.last_event_id if hasattr(inp, "last_event_id") else None,  # type: ignore
                 last_ts=inp.last_ts if hasattr(inp, "last_ts") else None,  # type: ignore
@@ -484,6 +490,7 @@ class StatePipeline:
                 positions=positions,
                 portfolio=inp.portfolio,
                 risk=inp.risk,
+                features=inp.features,
             )
 
         return PipelineOutput(
@@ -492,6 +499,7 @@ class StatePipeline:
             positions=positions,
             portfolio=inp.portfolio,
             risk=inp.risk,
+            features=inp.features,
             event_index=next_index,
             last_event_id=event_id,
             last_ts=ts,

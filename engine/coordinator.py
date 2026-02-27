@@ -65,6 +65,7 @@ class CoordinatorConfig:
     # 观测钩子（可选）
     on_pipeline_output: Optional[Callable[[PipelineOutput], None]] = None
     on_snapshot: Optional[Callable[[Any], None]] = None
+    feature_hook: Optional[Any] = None
 
     # 是否在 pipeline 未推进时也回调 on_pipeline_output
     #（默认 False：只在事实事件推进时触发，保持因果清晰）
@@ -276,6 +277,10 @@ class EngineCoordinator:
         """
         PIPELINE handler：事实事件推进 state 的唯一入口
         """
+        features = None
+        if self._cfg.feature_hook is not None:
+            features = self._cfg.feature_hook.on_event(event)
+
         with self._lock:
             inp = PipelineInput(
                 event=event,
@@ -286,6 +291,7 @@ class EngineCoordinator:
                 positions=self._positions,
                 portfolio=None,
                 risk=None,
+                features=features,
             )
 
         out = self._pipeline.apply(inp)

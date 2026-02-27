@@ -39,10 +39,11 @@ class TracingInterceptor:
         Maximum retained spans (ring-buffer style).  Oldest are evicted.
     """
 
-    def __init__(self, *, max_spans: int = 10_000) -> None:
+    def __init__(self, *, max_spans: int = 10_000, tracer: Optional[Any] = None) -> None:
         self._max_spans = max_spans
         self._spans: List[SpanRecord] = []
         self._active: Dict[str, float] = {}  # event_id → start_mono
+        self._tracer = tracer  # infra.tracing.otel.Tracer (optional)
 
     @property
     def name(self) -> str:
@@ -81,7 +82,22 @@ class TracingInterceptor:
         if len(self._spans) > self._max_spans:
             self._spans = self._spans[-self._max_spans:]
 
+        if self._tracer is not None:
+            self._export_to_tracer(span)
+
         return InterceptResult.ok(self.name)
+
+    def _export_to_tracer(self, span: SpanRecord) -> None:
+        try:
+            with self._tracer.start_span(
+                f"pipeline.{span.event_kind}",
+                trace_id=span.trace_id,
+                parent_id=span.parent_span_id or "",
+                tags={"event_id": span.event_id, "source": span.source},
+            ):
+                pass  # SpanContext __exit__ records it
+        except Exception:
+            pass  # tracing must never break pipeline
 
 
 @dataclass(frozen=True, slots=True)

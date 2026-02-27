@@ -28,7 +28,7 @@ jobs:
         run: python -m pytest tests_unit/ -x -q --tb=short
 
       - name: Run integration tests
-        run: python -m pytest tests/ -x -q --tb=short --ignore=tests/performance
+        run: python -m pytest tests/ -x -q --tb=short --ignore=tests/performance --cov=. --cov-report=xml --cov-fail-under=60
 
   lint:
     runs-on: ubuntu-latest

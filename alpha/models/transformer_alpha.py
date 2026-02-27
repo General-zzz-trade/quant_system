@@ -1,6 +1,6 @@
 """Temporal Fusion Transformer alpha model — attention-based time series prediction.
 
-Simplified TFT architecture using PyTorch. Requires: pip install torch
+EXPERIMENTAL: Not validated in production. Requires: pip install torch
 """
 from __future__ import annotations
 

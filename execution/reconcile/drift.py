@@ -21,6 +21,8 @@ class DriftType(str, Enum):
     ORDER_STATUS = "order_status"
     FILL_MISSING = "fill_missing"
     FILL_EXTRA = "fill_extra"
+    FILL_PRICE_MISMATCH = "fill_price_mismatch"
+    FILL_QTY_MISMATCH = "fill_qty_mismatch"
 
 
 @dataclass(frozen=True, slots=True)

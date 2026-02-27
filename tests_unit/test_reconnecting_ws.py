@@ -98,17 +98,17 @@ class TestReconnection:
         inner.enqueue("ok")
         ws.recv()
 
-        # Check sleep was called with increasing delays
+        # Check sleep was called with increasing delays (with jitter tolerance)
         calls = [c[0][0] for c in mock_sleep.call_args_list]
         assert len(calls) >= 1
-        # First delay should be base_delay_s
-        assert calls[0] == 1.0
-        # Second delay should be 2x
+        # First delay should be base_delay_s + small jitter (10%)
+        assert 1.0 <= calls[0] <= 1.2
+        # Second delay should be ~2x
         if len(calls) >= 2:
-            assert calls[1] == 2.0
-        # Third should be 4x
+            assert 2.0 <= calls[1] <= 2.5
+        # Third should be ~4x
         if len(calls) >= 3:
-            assert calls[2] == 4.0
+            assert 4.0 <= calls[2] <= 5.0
 
     @patch("execution.adapters.binance.reconnecting_ws_transport.time.sleep")
     def test_max_retries_exceeded(self, mock_sleep) -> None:
@@ -182,6 +182,6 @@ class TestReconnection:
         ws.recv()
 
         calls = [c[0][0] for c in mock_sleep.call_args_list]
-        # All delays should be <= max_delay
+        # All delays should be <= max_delay + jitter (10% of max_delay)
         for delay in calls:
-            assert delay <= 5.0
+            assert delay <= 5.0 * 1.15
