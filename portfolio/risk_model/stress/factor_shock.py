@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from portfolio.risk_model.stress.scenarios import StressResult
+from portfolio.risk_model.stress.historical import StressResult
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,6 @@ def test_event_type_enum_stable():
 
 
 def test_event_type_all_values():
-    expected = {"market", "signal", "intent", "order", "fill", "risk", "control"}
+    expected = {"market", "signal", "intent", "order", "fill", "risk", "control", "funding"}
     actual = {e.value for e in EventType}
     assert expected == actual

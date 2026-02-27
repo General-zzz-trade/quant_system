@@ -1,0 +1,40 @@
+services:
+  paper-trader:
+    build:
+      context: .
+      target: live
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - paper-output:/app/output
+    command: >
+      python3 -m runner.paper_runner
+      --mode live
+      --symbol BTCUSDT
+      --balance 10000
+      --out /app/output
+
+  backtest:
+    build:
+      context: .
+      target: ml
+    volumes:
+      - ./data_files:/app/data_files:ro
+      - backtest-output:/app/output
+    profiles: ["research"]
+    command: >
+      python3 -m runner.backtest_runner
+      --csv /app/data_files/bars.csv
+      --symbol BTCUSDT
+      --out /app/output
+
+  tests:
+    build:
+      context: .
+      target: dev
+    profiles: ["dev"]
+    command: python3 -m pytest tests_unit/ -x -q
+
+volumes:
+  paper-output:
+  backtest-output:

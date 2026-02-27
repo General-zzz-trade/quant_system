@@ -175,7 +175,7 @@ class EventDispatcher:
         if ("ORDER_UPDATE" in et_u) or ("ORDER_REPORT" in et_u) or ("ORDER_STATUS" in et_u):
             return Route.PIPELINE
 
-        if "MARKET" in et_u or "FILL" in et_u:
+        if "MARKET" in et_u or "FILL" in et_u or "FUNDING" in et_u:
             return Route.PIPELINE
         if "SIGNAL" in et_u or "INTENT" in et_u or "RISK" in et_u:
             return Route.DECISION
@@ -193,7 +193,7 @@ class EventDispatcher:
         if ("order_update" in n) or ("order_report" in n) or ("order_status" in n):
             return Route.PIPELINE
 
-        if "market" in n or "fill" in n:
+        if "market" in n or "fill" in n or "funding" in n:
             return Route.PIPELINE
         if "signal" in n or "intent" in n or "risk" in n:
             return Route.DECISION

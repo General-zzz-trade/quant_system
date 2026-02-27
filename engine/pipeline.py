@@ -18,10 +18,9 @@ from state.reducers.position import PositionReducer
 
 # snapshot：可选依赖（你实现齐 portfolio/risk 后自动升级为严格快照）
 try:
-    from state.snapshot import build_snapshot, StateSnapshot  # type: ignore
+    from state.snapshot import StateSnapshot
     _HAS_STRICT_SNAPSHOT = True
 except Exception:  # pragma: no cover
-    build_snapshot = None  # type: ignore
     StateSnapshot = Any  # type: ignore
     _HAS_STRICT_SNAPSHOT = False
 
@@ -66,7 +65,7 @@ class PipelineInput:
     event_index: int
     symbol_default: str
 
-    market: MarketState
+    markets: Mapping[str, MarketState]
     account: AccountState
     positions: Mapping[str, PositionState]
 
@@ -74,15 +73,22 @@ class PipelineInput:
     portfolio: Any = None
     risk: Any = None
 
+    @property
+    def market(self) -> MarketState:
+        """Backward compat: 返回 symbol_default 对应的 MarketState。"""
+        if self.symbol_default in self.markets:
+            return self.markets[self.symbol_default]
+        return next(iter(self.markets.values()))
+
 
 @dataclass(frozen=True, slots=True)
 class PipelineOutput:
     """
     pipeline 输出（只读）
 
-    - advanced: 是否推进了 event_index（仅当“事实事件”驱动了 state 更新时才推进）
+    - advanced: 是否推进了 event_index（仅当"事实事件"驱动了 state 更新时才推进）
     """
-    market: MarketState
+    markets: Mapping[str, MarketState]
     account: AccountState
     positions: Mapping[str, PositionState]
 
@@ -95,6 +101,11 @@ class PipelineOutput:
 
     snapshot: Optional[Any]
     advanced: bool
+
+    @property
+    def market(self) -> MarketState:
+        """Backward compat: 返回第一个 MarketState。"""
+        return next(iter(self.markets.values()))
 
 
 class ReducerTriplet(Protocol):
@@ -123,7 +134,7 @@ def _event_id_ts(event: Any) -> Tuple[Optional[str], Optional[Any]]:
 
 def _detect_kind(event: Any) -> str:
     """
-    返回：MARKET / FILL / ORDER / SIGNAL / INTENT / RISK / CONTROL / UNKNOWN
+    返回：MARKET / FILL / ORDER / SIGNAL / INTENT / RISK / CONTROL / FUNDING / UNKNOWN
     """
     et = getattr(event, "event_type", None)
     if et is not None:
@@ -134,6 +145,8 @@ def _detect_kind(event: Any) -> str:
                 return "MARKET"
             if "FILL" in et_u:
                 return "FILL"
+            if "FUNDING" in et_u:
+                return "FUNDING"
             if "ORDER" in et_u:
                 return "ORDER"
             if "INTENT" in et_u:
@@ -154,6 +167,8 @@ def _detect_kind(event: Any) -> str:
             return "MARKET"
         if "fill" in n:
             return "FILL"
+        if "funding" in n:
+            return "FUNDING"
         if "order" in n:
             return "ORDER"
         if "intent" in n:
@@ -188,6 +203,41 @@ def normalize_to_facts(event: Any) -> List[Any]:
     header = getattr(event, "header", None)
 
     out: List[Any] = []
+
+    # -------------------------
+    # MARKET（行情）：透传给 MarketReducer 更新 MarketState
+    # -------------------------
+    if kind == "MARKET":
+        out.append(
+            SimpleNamespace(
+                event_type="market",
+                header=header,
+                symbol=getattr(event, "symbol", None),
+                open=getattr(event, "open", None),
+                high=getattr(event, "high", None),
+                low=getattr(event, "low", None),
+                close=getattr(event, "close", None),
+                volume=getattr(event, "volume", None),
+                ts=getattr(event, "ts", None),
+            )
+        )
+        return out
+
+    # -------------------------
+    # FUNDING（资金费率结算）：透传给 AccountReducer 更新余额
+    # -------------------------
+    if kind == "FUNDING":
+        out.append(
+            SimpleNamespace(
+                event_type="funding",
+                header=header,
+                symbol=getattr(event, "symbol", None),
+                funding_rate=getattr(event, "funding_rate", None),
+                mark_price=getattr(event, "mark_price", None),
+                ts=getattr(event, "ts", None),
+            )
+        )
+        return out
 
     # -------------------------
     # ORDER（订单回报/状态）：作为事实事件推进 event_index（reducers 可忽略）
@@ -267,7 +317,7 @@ def _build_snapshot(
     *,
     raw_event: Any,
     event_index: int,
-    market: MarketState,
+    markets: Mapping[str, MarketState],
     account: AccountState,
     positions: Mapping[str, PositionState],
     portfolio: Any,
@@ -281,13 +331,19 @@ def _build_snapshot(
     """
     event_id, ts = _event_id_ts(raw_event)
 
-    if _HAS_STRICT_SNAPSHOT and build_snapshot is not None:
-        return build_snapshot(
-            event=raw_event,
-            event_index=event_index,
-            market=market,
-            account=account,
+    if _HAS_STRICT_SNAPSHOT:
+        event_type_str = getattr(raw_event, "event_type", "unknown")
+        if hasattr(event_type_str, "value"):
+            event_type_str = event_type_str.value
+        return StateSnapshot.of(
+            symbol=getattr(raw_event, "symbol", ""),
+            ts=ts,
+            event_id=event_id,
+            event_type=str(event_type_str),
+            bar_index=event_index,
+            markets=markets,
             positions=positions,
+            account=account,
             portfolio=portfolio,
             risk=risk,
         )
@@ -296,7 +352,7 @@ def _build_snapshot(
         "event_id": event_id,
         "event_index": event_index,
         "ts": ts,
-        "market": market,
+        "markets": markets,
         "account": account,
         "positions": positions,
         "portfolio": portfolio,
@@ -320,17 +376,17 @@ class PipelineConfig:
 
 class StatePipeline:
     """
-    StatePipeline —— “state 的唯一写通道”（冻结版 v1.0）
+    StatePipeline —— "state 的唯一写通道"（冻结版 v1.0）
 
     目标：
-    - 把 core.py 中“事实归一化 + reducer 链 + snapshot”抽离为独立制度模块
+    - 把 core.py 中"事实归一化 + reducer 链 + snapshot"抽离为独立制度模块
     - 让 replay 与 live 共享同一 pipeline
 
     冻结铁律：
     - pipeline 不做调度
     - pipeline 不做决策
     - pipeline 不做 IO
-    - pipeline 只在“事实事件”驱动时推进 event_index
+    - pipeline 只在"事实事件"驱动时推进 event_index
     """
 
     def __init__(
@@ -364,7 +420,7 @@ class StatePipeline:
         # 非事实事件：不改变任何 state，也不推进 event_index
         if not facts:
             return PipelineOutput(
-                market=inp.market,
+                markets=inp.markets,
                 account=inp.account,
                 positions=inp.positions,
                 portfolio=inp.portfolio,
@@ -376,8 +432,8 @@ class StatePipeline:
                 advanced=False,
             )
 
-        # 复制 positions 容器（PositionState 本身 frozen，所以只需要容器可变副本）
-        market = inp.market
+        # 复制可变容器（MarketState/PositionState 本身 frozen）
+        markets: Dict[str, MarketState] = dict(inp.markets)
         account = inp.account
         positions: Dict[str, PositionState] = dict(inp.positions)
 
@@ -394,12 +450,14 @@ class StatePipeline:
                 else:
                     sym = inp.symbol_default
 
-            # market reducer
-            m_res = self._mr.reduce(market, fev)
-            market = m_res.state
+            # market reducer（按 symbol 路由）
+            if sym not in markets:
+                markets[sym] = MarketState.empty(symbol=sym)
+            m_res = self._mr.reduce(markets[sym], fev)
+            markets[sym] = m_res.state
             any_changed = any_changed or bool(m_res.changed)
 
-            # account reducer（只有 FILL 会改变）
+            # account reducer（只有 FILL/FUNDING 会改变）
             a_res = self._ar.reduce(account, fev)
             account = a_res.state
             any_changed = any_changed or bool(a_res.changed)
@@ -421,7 +479,7 @@ class StatePipeline:
             snapshot = _build_snapshot(
                 raw_event=raw_event,
                 event_index=next_index,
-                market=market,
+                markets=markets,
                 account=account,
                 positions=positions,
                 portfolio=inp.portfolio,
@@ -429,7 +487,7 @@ class StatePipeline:
             )
 
         return PipelineOutput(
-            market=market,
+            markets=markets,
             account=account,
             positions=positions,
             portfolio=inp.portfolio,

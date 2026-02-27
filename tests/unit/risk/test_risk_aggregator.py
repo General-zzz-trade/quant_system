@@ -270,3 +270,64 @@ class TestShortCircuit:
         agg = RiskAggregator(rules=[AlwaysAllowRule()], meta_builder=_noop_meta_builder())
         d = agg.evaluate_order(FakeOrder())
         assert d.action == RiskAction.ALLOW
+
+
+# ---------------------------------------------------------------------------
+# Tests: concurrent stats consistency
+# ---------------------------------------------------------------------------
+
+class TestConcurrentStatsConsistency:
+    """Verify that concurrent evaluate + snapshot never reads inconsistent stats."""
+
+    def test_stats_atomicity_under_concurrency(self) -> None:
+        """Run evaluations and snapshots concurrently, assert stats are always consistent.
+
+        Invariant: for each rule, calls == allow + reject + reduce + kill + errors
+        """
+        import concurrent.futures
+        import threading
+
+        agg = RiskAggregator(
+            rules=[AlwaysAllowRule(), AlwaysRejectRule()],
+            meta_builder=_noop_meta_builder(),
+        )
+
+        n_evaluations = 500
+        violations = []
+        barrier = threading.Barrier(3)  # 2 evaluators + 1 snapshot reader
+
+        def evaluator() -> None:
+            barrier.wait()
+            for _ in range(n_evaluations):
+                agg.evaluate_intent(FakeIntent())
+
+        def snapshot_reader() -> None:
+            barrier.wait()
+            for _ in range(n_evaluations * 2):
+                snap = agg.snapshot()
+                for st in snap.stats:
+                    total = st.allow + st.reject + st.reduce + st.kill + st.errors
+                    if st.calls != total:
+                        violations.append(
+                            f"{st.name}: calls={st.calls} != "
+                            f"allow({st.allow})+reject({st.reject})+reduce({st.reduce})"
+                            f"+kill({st.kill})+errors({st.errors})={total}"
+                        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [
+                pool.submit(evaluator),
+                pool.submit(evaluator),
+                pool.submit(snapshot_reader),
+            ]
+            for f in concurrent.futures.as_completed(futures):
+                f.result()
+
+        assert violations == [], f"Stats inconsistencies detected:\n" + "\n".join(violations[:10])
+
+        # Final sanity: total calls should match
+        snap = agg.snapshot()
+        allow_st = [s for s in snap.stats if s.name == "always_allow"][0]
+        reject_st = [s for s in snap.stats if s.name == "always_reject"][0]
+        assert allow_st.calls == n_evaluations * 2
+        assert reject_st.calls == n_evaluations * 2

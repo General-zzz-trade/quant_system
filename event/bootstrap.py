@@ -9,7 +9,7 @@ from event.codec import EventCodecRegistry
 from event.errors import EventValidationError
 from event.runtime import EventRuntime
 from event.schema import EventSchema, FieldSpec, SchemaRegistry
-from event.store import InMemoryEventStore
+from event.store import EventStore, InMemoryEventStore
 from event.types import (
     ControlEvent,
     EventType,
@@ -69,11 +69,14 @@ def _order_price_invariants(body, _event) -> None:
 # Bootstrap
 # ============================================================
 
-def bootstrap_event_layer() -> Tuple[EventRuntime, InMemoryEventStore]:
+def bootstrap_event_layer(store: "EventStore | None" = None) -> Tuple[EventRuntime, "EventStore"]:
     """Bootstrap a minimal event layer.
 
     说明：这是最小可用启动器（适用于回测/开发）。
     实盘部署时建议替换为 durable EventStore（SQLite/WAL/Kafka 等）。
+
+    Args:
+        store: Optional EventStore override. Defaults to InMemoryEventStore.
     """
 
     schemas = SchemaRegistry()
@@ -195,7 +198,8 @@ def bootstrap_event_layer() -> Tuple[EventRuntime, InMemoryEventStore]:
         if not EventCodecRegistry.has(cls.event_type):
             EventCodecRegistry.register(cls)
 
-    store = InMemoryEventStore()
+    if store is None:
+        store = InMemoryEventStore()
 
     runtime = EventRuntime(
         schema_registry=schemas,

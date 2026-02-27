@@ -72,6 +72,32 @@ def load_reconcile_config(raw: Mapping[str, Any]) -> ReconcileConfig:
     )
 
 
+def build_rest_config_from_venue(venue_cfg: VenueConfig) -> "BinanceRestConfig":
+    """Bridge VenueConfig env-var names to BinanceRestConfig via os.environ.
+
+    Raises ValueError when required env vars are missing.
+    """
+    import os
+
+    from execution.adapters.binance.rest import BinanceRestConfig
+
+    api_key = os.environ.get(venue_cfg.api_key_env, "") if venue_cfg.api_key_env else ""
+    api_secret = os.environ.get(venue_cfg.api_secret_env, "") if venue_cfg.api_secret_env else ""
+
+    if not api_key or not api_secret:
+        raise ValueError(
+            f"Missing credentials: set env vars {venue_cfg.api_key_env!r} "
+            f"and {venue_cfg.api_secret_env!r}"
+        )
+
+    return BinanceRestConfig(
+        base_url=venue_cfg.rest_url or "https://fapi.binance.com",
+        api_key=api_key,
+        api_secret=api_secret,
+        timeout_s=venue_cfg.read_timeout_sec,
+    )
+
+
 def load_execution_config(raw: Mapping[str, Any]) -> Dict[str, Any]:
     """
     加载完整的执行层配置。

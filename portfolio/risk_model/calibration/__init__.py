@@ -7,7 +7,7 @@ from portfolio.risk_model.calibration.validation import (
     check_stationarity,
     validate_calibration,
 )
-from portfolio.risk_model.calibration.wndows import (
+from portfolio.risk_model.calibration.windows import (
     CalibrationWindow,
     WindowType,
 )

@@ -18,6 +18,11 @@ def _freeze_positions(positions: Mapping[str, PositionState]) -> Mapping[str, Po
     return MappingProxyType(ordered)
 
 
+def _freeze_markets(markets: Mapping[str, MarketState]) -> Mapping[str, MarketState]:
+    ordered = {k: markets[k] for k in sorted(markets.keys())}
+    return MappingProxyType(ordered)
+
+
 @dataclass(frozen=True, slots=True)
 class StateSnapshot:
     """Immutable snapshot at an event boundary."""
@@ -28,12 +33,19 @@ class StateSnapshot:
     event_type: str
     bar_index: int
 
-    market: MarketState
+    markets: Mapping[str, MarketState]
     positions: Mapping[str, PositionState]
     account: AccountState
 
     portfolio: Optional[PortfolioState] = None
     risk: Optional[RiskState] = None
+
+    @property
+    def market(self) -> MarketState:
+        """Backward compat: return MarketState for self.symbol."""
+        if self.symbol in self.markets:
+            return self.markets[self.symbol]
+        return next(iter(self.markets.values()))
 
     @property
     def symbols(self) -> Tuple[str, ...]:
@@ -48,7 +60,7 @@ class StateSnapshot:
         event_id: Optional[str],
         event_type: str,
         bar_index: int,
-        market: MarketState,
+        markets: Mapping[str, MarketState],
         positions: Mapping[str, PositionState],
         account: AccountState,
         portfolio: Optional[PortfolioState] = None,
@@ -60,7 +72,7 @@ class StateSnapshot:
             event_id=event_id,
             event_type=event_type,
             bar_index=bar_index,
-            market=market,
+            markets=_freeze_markets(markets),
             positions=_freeze_positions(positions),
             account=account,
             portfolio=portfolio,

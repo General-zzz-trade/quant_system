@@ -22,6 +22,7 @@ class PaperBrokerConfig:
     maker_fee_bps: Decimal = Decimal("2")     # 0.02%
     taker_fee_bps: Decimal = Decimal("5")     # 0.05%
     fill_ratio: Decimal = Decimal("1")         # 成交比例 (0-1)
+    volume_participation: Decimal = Decimal("0.1")  # max fill = 10% of bar volume
 
 
 class PaperBroker:
@@ -84,20 +85,42 @@ class PaperBroker:
         order_id: str,
         *,
         market_price: Decimal,
-    ) -> Optional[CanonicalFill]:
-        """尝试以市场价成交订单。"""
+        bar_volume: Optional[Decimal] = None,
+    ) -> List[CanonicalFill]:
+        """尝试以市场价成交订单，支持部分成交。
+
+        Returns list of fills (0 = no fill, 1 = full fill, 2+ = partial fills).
+
+        Partial fill logic:
+        - If bar_volume is provided and order qty > bar_volume * volume_participation,
+          only fill up to that limit per bar.
+        - Remaining qty stays as open order for next bar.
+        """
         order = self._orders.get(order_id)
         if order is None or order.status in ("filled", "canceled"):
-            return None
+            return []
 
         # 限价单检查
         if order.order_type == "limit":
             if order.side == "buy" and market_price > (order.price or Decimal("0")):
-                return None
+                return []
             if order.side == "sell" and market_price < (order.price or Decimal("inf")):
-                return None
+                return []
 
-        fill_qty = order.qty * self._cfg.fill_ratio
+        remaining_qty = order.qty - (order.filled_qty or Decimal("0"))
+        if remaining_qty <= 0:
+            return []
+
+        # Determine fillable qty based on volume participation
+        max_fill_qty = remaining_qty * self._cfg.fill_ratio
+        if bar_volume is not None and bar_volume > 0:
+            volume_limit = bar_volume * self._cfg.volume_participation
+            max_fill_qty = min(max_fill_qty, volume_limit)
+
+        if max_fill_qty <= 0:
+            return []
+
+        fill_qty = max_fill_qty
         exec_price = self._slippage.apply(
             price=market_price, side=order.side, qty=fill_qty,
         )
@@ -133,15 +156,23 @@ class PaperBroker:
         self._balance -= cost + fee
 
         # 更新订单状态
+        new_filled = (order.filled_qty or Decimal("0")) + fill_qty
+        is_fully_filled = new_filled >= order.qty
+        new_status = "filled" if is_fully_filled else "partially_filled"
+
+        # Compute weighted average price
+        prev_notional = (order.filled_qty or Decimal("0")) * (order.avg_price or Decimal("0"))
+        new_avg_price = (prev_notional + fill_qty * exec_price) / new_filled if new_filled > 0 else exec_price
+
         self._orders[order_id] = CanonicalOrder(
             venue=order.venue, symbol=order.symbol,
             order_id=order.order_id, client_order_id=order.client_order_id,
-            status="filled", side=order.side, order_type=order.order_type,
+            status=new_status, side=order.side, order_type=order.order_type,
             tif=order.tif, qty=order.qty, price=order.price,
-            filled_qty=fill_qty, avg_price=exec_price, ts_ms=now_ms(),
+            filled_qty=new_filled, avg_price=new_avg_price, ts_ms=now_ms(),
         )
 
-        return fill
+        return [fill]
 
     def cancel_order(self, order_id: str) -> bool:
         """撤销模拟订单。"""

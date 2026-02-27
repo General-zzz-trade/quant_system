@@ -1,0 +1,1 @@
+"""Statistical arbitrage strategies."""

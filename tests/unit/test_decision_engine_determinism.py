@@ -24,7 +24,7 @@ def _snap(*, o: str, c: str, pos_qty: str = "0", halted: bool = False) -> StateS
         event_id="e0",
         event_type="market",
         bar_index=0,
-        market=market,
+        markets={"BTCUSDT": market},
         positions={"BTCUSDT": pos},
         account=acct,
         portfolio=None,

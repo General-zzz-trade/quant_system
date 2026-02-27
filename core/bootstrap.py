@@ -39,7 +39,7 @@ Usage::
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
@@ -48,6 +48,7 @@ from core.config import ConfigService
 from core.effects import Effects, live_effects, test_effects
 from core.interceptors import InterceptorChain, PipelineInterceptor
 from core.observability import LoggingInterceptor, MetricsInterceptor, TracingInterceptor
+from core.plugins import PluginRegistry, get_registry
 from engine.saga import SagaManager
 
 
@@ -68,6 +69,15 @@ class SystemContext:
     tracing: TracingInterceptor
     logging_interceptor: LoggingInterceptor
     metrics_interceptor: MetricsInterceptor
+
+    # Plugin registries by category
+    plugins: Dict[str, PluginRegistry] = field(default_factory=dict)
+
+    # Optional production components (wired by LiveRunner when available)
+    event_store: Optional[Any] = None
+    state_store: Optional[Any] = None
+    latency_tracker: Optional[Any] = None
+    alert_manager: Optional[Any] = None
 
 
 def bootstrap(
@@ -148,6 +158,14 @@ def bootstrap(
         max_completed=config.get_or("saga.max_completed", 10_000, int),
     )
 
+    # ── 7. Plugin Registries ─────────────────────────────
+    plugins = {
+        "strategy": get_registry("strategy"),
+        "alpha": get_registry("alpha"),
+        "venue": get_registry("venue"),
+        "indicator": get_registry("indicator"),
+    }
+
     return SystemContext(
         config=config,
         effects=fx,
@@ -157,6 +175,7 @@ def bootstrap(
         tracing=tracing,
         logging_interceptor=logging_ic,
         metrics_interceptor=metrics_ic,
+        plugins=plugins,
     )
 
 
@@ -204,5 +223,11 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 def _make_log_fn(fx: Effects) -> Any:
     """Create a log function from effects."""
     def log_fn(level: str, message: str, **kwargs: Any) -> None:
-        fx.log.log(level, message)
+        dispatch = {
+            "debug": fx.log.debug,
+            "info": fx.log.info,
+            "warning": fx.log.warning,
+            "error": fx.log.error,
+        }
+        dispatch.get(level, fx.log.info)(message)
     return log_fn

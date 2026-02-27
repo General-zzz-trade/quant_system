@@ -21,17 +21,47 @@ live = [
 config = [
     "pyyaml>=6.0",
 ]
+data = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "pyarrow>=14.0",
+]
+research = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "pyarrow>=14.0",
+    "yfinance>=0.2.31",
+    "ccxt>=4.0",
+    "matplotlib>=3.8",
+]
+ml = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "xgboost>=2.0",
+    "lightgbm>=4.1",
+]
+dl = [
+    "torch>=2.1",
+    "transformers>=4.36",
+]
+monitoring = [
+    "prometheus-client>=0.19",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "pytest-timeout>=2.1",
     "ruff>=0.4",
     "mypy>=1.10",
+    "hypothesis>=6.92",
+    "pybind11>=2.12",
 ]
 test = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "pytest-timeout>=2.1",
+    "hypothesis>=6.92",
 ]
 
 [tool.pytest.ini_options]
@@ -40,6 +70,9 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-q --tb=short"
+markers = [
+    "benchmark: performance benchmark tests (deselect with '-m \"not benchmark\"')",
+]
 
 [tool.ruff]
 target-version = "py311"

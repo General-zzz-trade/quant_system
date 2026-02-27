@@ -18,6 +18,7 @@ class EventType(Enum):
     FILL = "fill"
     RISK = "risk"
     CONTROL = "control"
+    FUNDING = "funding"
 
 
 
@@ -337,9 +338,141 @@ class ControlEvent(BaseEvent):
 
 
 # ============================================================
+# FundingEvent —— 永续合约资金费率结算
+# ============================================================
+
+@dataclass(frozen=True, slots=True)
+class FundingEvent(BaseEvent):
+    """Funding rate settlement event for perpetual futures.
+
+    Injected at 00:00/08:00/16:00 UTC for Binance perpetuals.
+    Settlement amount = position_qty * mark_price * funding_rate
+    Positive rate: longs pay shorts. Negative rate: shorts pay longs.
+    """
+
+    event_type: ClassVar[EventType] = EventType.FUNDING
+    VERSION: ClassVar[int] = 1
+
+    ts: datetime
+    symbol: str
+    funding_rate: Decimal       # e.g. Decimal("0.0001") = 1 bps
+    mark_price: Decimal         # mark price at settlement time
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ts": self.ts,
+            "symbol": self.symbol,
+            "funding_rate": self.funding_rate,
+            "mark_price": self.mark_price,
+        }
+
+    @classmethod
+    def from_dict(cls, *, header: Any, body: Mapping[str, Any]) -> "FundingEvent":
+        raw_ts = body["ts"]
+        if isinstance(raw_ts, str):
+            s = raw_ts.strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            ts = datetime.fromisoformat(s)
+        elif isinstance(raw_ts, datetime):
+            ts = raw_ts
+        else:
+            raise ValueError(f"invalid ts type: {type(raw_ts).__name__}")
+        if ts.tzinfo is None:
+            raise ValueError("ts must be tz-aware")
+        ts = ts.astimezone(timezone.utc)
+        return cls(
+            header=header,
+            ts=ts,
+            symbol=str(body["symbol"]),
+            funding_rate=Decimal(body["funding_rate"]),
+            mark_price=Decimal(body["mark_price"]),
+        )
+
+
+# ============================================================
 # 冻结版说明
 # ============================================================
 # - 本文件为 event 层“制度真理源”
 # - 不允许在 codec / runtime / reducer 中兜底字段
 # - 若 IDE 出现红线，只能修改本文件
 # - 新增事件类型 = 新制度版本（不可偷偷加字段）
+
+
+# ============================================================
+# Rich domain types — required by risk rules and context modules
+# These were missing and are added for backward-compatible extension.
+# ============================================================
+
+class Side(str, Enum):
+    """Trading side: BUY (long) or SELL (short)."""
+    BUY = "buy"
+    SELL = "sell"
+
+
+@dataclass(frozen=True, slots=True)
+class Symbol:
+    """Normalized trading symbol (venue-independent)."""
+    value: str  # e.g. "BTCUSDT"
+
+    @property
+    def normalized(self) -> str:
+        return self.value.upper()
+
+    def __str__(self) -> str:
+        return self.normalized
+
+
+class Venue(str, Enum):
+    """Supported trading venues."""
+    BINANCE = "BINANCE"
+    OKX = "OKX"
+    BYBIT = "BYBIT"
+    SIM = "SIM"
+
+
+@dataclass(frozen=True, slots=True)
+class Qty:
+    """Quantity wrapper with Decimal value."""
+    value: Decimal
+
+    @classmethod
+    def of(cls, v: Any) -> "Qty":
+        return cls(value=Decimal(str(v)))
+
+
+@dataclass(frozen=True, slots=True)
+class Price:
+    """Price wrapper with Decimal value."""
+    value: Decimal
+
+    @classmethod
+    def of(cls, v: Any) -> "Price":
+        return cls(value=Decimal(str(v)))
+
+
+@dataclass(frozen=True, slots=True)
+class Money:
+    """Monetary amount wrapper."""
+    amount: Decimal
+    currency: str = "USDT"
+
+    @classmethod
+    def of(cls, v: Any, currency: str = "USDT") -> "Money":
+        return cls(amount=Decimal(str(v)), currency=currency)
+
+
+class OrderType(str, Enum):
+    """Order type."""
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
+
+
+class TimeInForce(str, Enum):
+    """Time in force."""
+    GTC = "GTC"
+    IOC = "IOC"
+    FOK = "FOK"
+    GTX = "GTX"

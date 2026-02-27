@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.env
+.env.*
+!.env.example
+*.egg-info
+dist/
+build/
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.claude/
+tasks/
+research.md

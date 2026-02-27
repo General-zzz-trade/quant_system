@@ -2,9 +2,12 @@
 """Venue adapter registry — central lookup for all registered venue adapters."""
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
 from execution.adapters.base import VenueAdapter
+
+if TYPE_CHECKING:
+    from core.plugins import PluginRegistry
 
 
 class AdapterNotFoundError(KeyError):
@@ -18,12 +21,15 @@ class AdapterRegistry:
     在启动时注册所有可用的 adapter，运行时按 venue 名查找。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, plugin_registry: Optional["PluginRegistry"] = None) -> None:
         self._adapters: Dict[str, VenueAdapter] = {}
+        self._plugin_registry = plugin_registry
 
     def register(self, venue: str, adapter: VenueAdapter) -> None:
         """注册一个交易所适配器。"""
         self._adapters[venue.lower()] = adapter
+        if self._plugin_registry is not None:
+            self._plugin_registry.register_instance(adapter, name=venue.lower())
 
     def get(self, venue: str) -> VenueAdapter:
         """获取指定交易所的适配器，不存在则抛异常。"""

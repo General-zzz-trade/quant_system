@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from ...features.technical import sma
-from ..base import Signal
+from features.technical import sma
+from alpha.base import Signal
 
 
 @dataclass
