@@ -6,6 +6,21 @@ from typing import List, Optional, Sequence
 from features.rolling import RollingWindow
 from features.types import Bar, Bars, FeatureSeries
 
+try:
+    from features._quant_rolling import (
+        cpp_sma,
+        cpp_ema,
+        cpp_returns,
+        cpp_volatility,
+        cpp_rsi,
+        cpp_macd,
+        cpp_bollinger_bands,
+        cpp_atr,
+    )
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 def _closes(bars: Bars) -> List[float]:
     return [float(b.close) for b in bars]
@@ -20,6 +35,8 @@ def _lows(bars: Bars) -> List[float]:
 
 
 def sma(values: Sequence[float], window: int) -> FeatureSeries:
+    if _USING_CPP:
+        return cpp_sma([float(v) for v in values], window)
     rw = RollingWindow(window)
     out: FeatureSeries = []
     for x in values:
@@ -29,6 +46,8 @@ def sma(values: Sequence[float], window: int) -> FeatureSeries:
 
 
 def ema(values: Sequence[float], window: int) -> FeatureSeries:
+    if _USING_CPP:
+        return cpp_ema([float(v) for v in values], window)
     if window <= 0:
         raise ValueError("window must be positive")
 
@@ -46,6 +65,8 @@ def ema(values: Sequence[float], window: int) -> FeatureSeries:
 
 
 def returns(values: Sequence[float], *, log_ret: bool = False) -> FeatureSeries:
+    if _USING_CPP:
+        return cpp_returns([float(v) for v in values], log_ret)
     out: FeatureSeries = [None] * len(values)
     for i in range(1, len(values)):
         p0 = float(values[i - 1])
@@ -63,6 +84,8 @@ def log_returns(values: Sequence[float]) -> FeatureSeries:
 
 
 def volatility(ret_series: Sequence[Optional[float]], window: int) -> FeatureSeries:
+    if _USING_CPP:
+        return cpp_volatility(list(ret_series), window)
     rw = RollingWindow(window)
     out: FeatureSeries = []
     for r in ret_series:
@@ -75,6 +98,8 @@ def volatility(ret_series: Sequence[Optional[float]], window: int) -> FeatureSer
 
 
 def rsi(values: Sequence[float], window: int = 14) -> FeatureSeries:
+    if _USING_CPP:
+        return cpp_rsi([float(v) for v in values], window)
     if window <= 0:
         raise ValueError("window must be positive")
 
@@ -88,7 +113,6 @@ def rsi(values: Sequence[float], window: int = 14) -> FeatureSeries:
         loss = max(-change, 0.0)
 
         if i < window:
-            # warmup
             if avg_gain is None:
                 avg_gain = 0.0
                 avg_loss = 0.0
@@ -120,11 +144,8 @@ def macd(
     slow: int = 26,
     signal: int = 9,
 ) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
-    """MACD indicator.
-
-    Returns (macd_line, signal_line, histogram).
-    All three series have the same length as ``values`` with None during warmup.
-    """
+    if _USING_CPP:
+        return cpp_macd([float(v) for v in values], fast, slow, signal)
     if fast <= 0 or slow <= 0 or signal <= 0:
         raise ValueError("MACD windows must be positive")
     if fast >= slow:
@@ -140,11 +161,9 @@ def macd(
         else:
             macd_line.append(f - s)
 
-    # Signal line: EMA of macd_line (skip None values during warmup)
     macd_values = [v if v is not None else 0.0 for v in macd_line]
     signal_raw = ema(macd_values, signal)
 
-    # Only emit valid signal values once macd_line itself is valid
     first_valid = next((i for i, v in enumerate(macd_line) if v is not None), len(macd_line))
     signal_line: FeatureSeries = []
     for i, s in enumerate(signal_raw):
@@ -168,11 +187,8 @@ def bollinger_bands(
     window: int = 20,
     num_std: float = 2.0,
 ) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
-    """Bollinger Bands.
-
-    Returns (upper_band, middle_band, lower_band).
-    middle_band is SMA; upper/lower are middle ± num_std * rolling std.
-    """
+    if _USING_CPP:
+        return cpp_bollinger_bands([float(v) for v in values], window, num_std)
     if window <= 0:
         raise ValueError("window must be positive")
     if num_std <= 0:
@@ -205,6 +221,11 @@ def bollinger_bands(
 
 
 def atr(bars: Bars, window: int = 14) -> FeatureSeries:
+    if _USING_CPP:
+        highs = _highs(bars)
+        lows = _lows(bars)
+        closes = _closes(bars)
+        return cpp_atr(highs, lows, closes, window)
     if window <= 0:
         raise ValueError("window must be positive")
 
@@ -224,7 +245,6 @@ def atr(bars: Bars, window: int = 14) -> FeatureSeries:
             )
         trs.append(tr)
 
-    # Wilder's smoothing
     out: FeatureSeries = [None] * len(trs)
     atr_prev: Optional[float] = None
 
