@@ -240,6 +240,18 @@ class EngineCoordinator:
         """Attach an ExecutionBridge to enable live execution handling for order events."""
         self._execution_bridge = bridge
 
+    def restore_from_snapshot(self, snapshot: Any) -> None:
+        """Restore engine state from a StateSnapshot. Only valid during INIT phase."""
+        with self._lock:
+            if self._phase != EnginePhase.INIT:
+                raise RuntimeError("Can only restore during INIT phase")
+            for sym, mkt in snapshot.markets.items():
+                self._markets[sym] = mkt
+            self._account = snapshot.account
+            self._positions = dict(snapshot.positions)
+            self._event_index = snapshot.bar_index
+            self._last_event_id = snapshot.event_id
+
     def detach_runtime(self) -> None:
         with self._lock:
             runtime = self._runtime

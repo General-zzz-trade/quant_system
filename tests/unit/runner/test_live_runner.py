@@ -9,8 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from runner.live_runner import LiveRunner, LiveRunnerConfig, _MarginMonitor
+from runner.live_runner import LiveRunner, LiveRunnerConfig
 from risk.kill_switch import KillMode, KillScope, KillSwitch
+from risk.margin_monitor import MarginConfig, MarginMonitor
 
 
 # ── Fake transport ────────────────────────────────────────────
@@ -110,7 +111,7 @@ class TestBuild:
             config,
             venue_clients={"binance": _FakeVenueClient()},
             transport=_FakeTransport(),
-            fetch_margin=lambda: 0.5,
+            fetch_margin=lambda: {"margin_ratio": 0.5},
         )
         assert runner.margin_monitor is not None
 
@@ -202,58 +203,44 @@ class TestFills:
         assert f1 is not f2
 
 
-# ── MarginMonitor unit tests ──────────────────────────────────
+# ── MarginMonitor (production) unit tests ─────────────────────
 
 class TestMarginMonitor:
     def test_critical_triggers_kill_switch(self):
         ks = KillSwitch()
-        alerts: list[tuple[str, float]] = []
 
-        monitor = _MarginMonitor(
-            fetch_margin=lambda: 0.05,
+        monitor = MarginMonitor(
+            config=MarginConfig(critical_margin_ratio=0.08, warning_margin_ratio=0.15),
+            fetch_margin=lambda: {"margin_ratio": 0.05},
             kill_switch=ks,
-            critical_ratio=0.08,
-            warning_ratio=0.15,
-            on_alert=lambda level, ratio: alerts.append((level, ratio)),
         )
 
-        monitor.check_once()
-
+        status = monitor.check_once()
+        assert status["margin_ok"] is False
         assert ks.is_killed() is not None
-        assert len(alerts) == 1
-        assert alerts[0][0] == "critical"
 
     def test_warning_does_not_trigger_kill_switch(self):
         ks = KillSwitch()
-        alerts: list[tuple[str, float]] = []
 
-        monitor = _MarginMonitor(
-            fetch_margin=lambda: 0.12,
+        monitor = MarginMonitor(
+            config=MarginConfig(critical_margin_ratio=0.08, warning_margin_ratio=0.15),
+            fetch_margin=lambda: {"margin_ratio": 0.12},
             kill_switch=ks,
-            critical_ratio=0.08,
-            warning_ratio=0.15,
-            on_alert=lambda level, ratio: alerts.append((level, ratio)),
         )
 
-        monitor.check_once()
-
+        status = monitor.check_once()
         assert ks.is_killed() is None
-        assert len(alerts) == 1
-        assert alerts[0][0] == "warning"
+        assert len(status["alerts"]) == 1
 
     def test_healthy_margin_no_alert(self):
         ks = KillSwitch()
-        alerts: list[tuple[str, float]] = []
 
-        monitor = _MarginMonitor(
-            fetch_margin=lambda: 0.50,
+        monitor = MarginMonitor(
+            config=MarginConfig(critical_margin_ratio=0.08, warning_margin_ratio=0.15),
+            fetch_margin=lambda: {"margin_ratio": 0.50},
             kill_switch=ks,
-            critical_ratio=0.08,
-            warning_ratio=0.15,
-            on_alert=lambda level, ratio: alerts.append((level, ratio)),
         )
 
-        monitor.check_once()
-
+        status = monitor.check_once()
         assert ks.is_killed() is None
-        assert len(alerts) == 0
+        assert len(status["alerts"]) == 0

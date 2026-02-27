@@ -18,10 +18,9 @@ from state.reducers.position import PositionReducer
 
 # snapshot：可选依赖（你实现齐 portfolio/risk 后自动升级为严格快照）
 try:
-    from state.snapshot import build_snapshot, StateSnapshot  # type: ignore
+    from state.snapshot import StateSnapshot
     _HAS_STRICT_SNAPSHOT = True
 except Exception:  # pragma: no cover
-    build_snapshot = None  # type: ignore
     StateSnapshot = Any  # type: ignore
     _HAS_STRICT_SNAPSHOT = False
 
@@ -332,13 +331,19 @@ def _build_snapshot(
     """
     event_id, ts = _event_id_ts(raw_event)
 
-    if _HAS_STRICT_SNAPSHOT and build_snapshot is not None:
-        return build_snapshot(
-            event=raw_event,
-            event_index=event_index,
+    if _HAS_STRICT_SNAPSHOT:
+        event_type_str = getattr(raw_event, "event_type", "unknown")
+        if hasattr(event_type_str, "value"):
+            event_type_str = event_type_str.value
+        return StateSnapshot.of(
+            symbol=getattr(raw_event, "symbol", ""),
+            ts=ts,
+            event_id=event_id,
+            event_type=str(event_type_str),
+            bar_index=event_index,
             markets=markets,
-            account=account,
             positions=positions,
+            account=account,
             portfolio=portfolio,
             risk=risk,
         )

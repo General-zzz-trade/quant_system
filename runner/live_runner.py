@@ -4,11 +4,15 @@
 Assembles:
   - EngineCoordinator + EngineLoop
   - ExecutionBridge (production, via venue_clients)
-  - KillSwitch (execution gate)
+  - KillSwitchBridge (production kill switch gate)
+  - MarginMonitor (production margin ratio + funding rate monitoring)
   - ReconcileScheduler (periodic position/balance reconciliation)
-  - MarginMonitor (margin ratio alerting)
   - GracefulShutdown (SIGTERM/SIGINT handling)
   - SystemHealthMonitor (stale data / drawdown alerts)
+  - LatencyTracker (pipeline stage latency)
+  - AlertManager (rule-based alerting)
+  - SQLite persistent stores (optional)
+  - Structured JSON logging (optional)
 
 Usage:
     runner = LiveRunner.build(config, venue_clients={"binance": client}, ...)
@@ -17,12 +21,10 @@ Usage:
 from __future__ import annotations
 
 import logging
-import threading
+import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
@@ -33,10 +35,15 @@ from engine.guards import build_basic_guard, GuardConfig
 from decision.regime_bridge import RegimeAwareDecisionModule
 from decision.regime_policy import RegimePolicy
 
+from execution.latency.tracker import LatencyTracker
+
+from monitoring.alerts.manager import AlertManager
 from monitoring.engine_hook import EngineMonitoringHook
 from monitoring.health import SystemHealthMonitor, HealthConfig
 
 from risk.kill_switch import KillMode, KillScope, KillSwitch
+from risk.kill_switch_bridge import KillSwitchBridge
+from risk.margin_monitor import MarginConfig, MarginMonitor
 
 from runner.graceful_shutdown import GracefulShutdown, ShutdownConfig
 
@@ -61,87 +68,12 @@ class LiveRunnerConfig:
     margin_critical_ratio: float = 0.08
     # Shutdown
     pending_order_timeout_sec: float = 30.0
-
-
-class _MarginMonitor:
-    """Lightweight margin ratio monitor that runs on a background thread.
-
-    Periodically calls fetch_margin() and fires alerts when the ratio
-    breaches warning/critical thresholds.  If critical, triggers the kill switch.
-    """
-
-    def __init__(
-        self,
-        *,
-        fetch_margin: Callable[[], float],
-        kill_switch: KillSwitch,
-        warning_ratio: float = 0.15,
-        critical_ratio: float = 0.08,
-        interval_sec: float = 30.0,
-        on_alert: Optional[Callable[[str, float], None]] = None,
-    ) -> None:
-        self._fetch_margin = fetch_margin
-        self._kill_switch = kill_switch
-        self._warning_ratio = warning_ratio
-        self._critical_ratio = critical_ratio
-        self._interval_sec = interval_sec
-        self._on_alert = on_alert
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-
-    def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._loop, name="margin-monitor", daemon=True,
-        )
-        self._thread.start()
-        logger.info("MarginMonitor started (interval=%ss)", self._interval_sec)
-
-    def stop(self) -> None:
-        self._running = False
-        if self._thread is not None:
-            self._thread.join(timeout=self._interval_sec * 2)
-            self._thread = None
-        logger.info("MarginMonitor stopped")
-
-    def check_once(self) -> Optional[float]:
-        try:
-            ratio = self._fetch_margin()
-        except Exception:
-            logger.exception("Failed to fetch margin ratio")
-            return None
-
-        if ratio <= self._critical_ratio:
-            logger.error(
-                "CRITICAL margin ratio %.4f <= %.4f — triggering kill switch",
-                ratio, self._critical_ratio,
-            )
-            self._kill_switch.trigger(
-                scope=KillScope.GLOBAL,
-                key="*",
-                mode=KillMode.HARD_KILL,
-                reason=f"margin_critical:{ratio:.4f}",
-                source="margin_monitor",
-            )
-            if self._on_alert:
-                self._on_alert("critical", ratio)
-        elif ratio <= self._warning_ratio:
-            logger.warning(
-                "Margin ratio %.4f <= %.4f (warning threshold)",
-                ratio, self._warning_ratio,
-            )
-            if self._on_alert:
-                self._on_alert("warning", ratio)
-
-        return ratio
-
-    def _loop(self) -> None:
-        while self._running:
-            time.sleep(self._interval_sec)
-            if self._running:
-                self.check_once()
+    # Production infrastructure
+    data_dir: str = "data/live"
+    enable_persistent_stores: bool = False
+    enable_structured_logging: bool = True
+    log_level: str = "INFO"
+    log_file: Optional[str] = None
 
 
 @dataclass
@@ -158,8 +90,11 @@ class LiveRunner:
     kill_switch: KillSwitch
     health: Optional[SystemHealthMonitor] = None
     reconcile_scheduler: Optional[Any] = None
-    margin_monitor: Optional[_MarginMonitor] = None
+    margin_monitor: Optional[MarginMonitor] = None
     shutdown_handler: Optional[GracefulShutdown] = None
+    latency_tracker: Optional[LatencyTracker] = None
+    alert_manager: Optional[AlertManager] = None
+    state_store: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
 
@@ -194,6 +129,17 @@ class LiveRunner:
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
 
+        # ── 0) Structured logging ─────────────────────────────
+        if config.enable_structured_logging:
+            from infra.logging.structured import setup_structured_logging
+            setup_structured_logging(
+                level=config.log_level,
+                log_file=config.log_file,
+            )
+
+        # ── 1) LatencyTracker ─────────────────────────────────
+        latency_tracker = LatencyTracker()
+
         def _record_fill(fill: Any) -> None:
             fills.append({
                 "ts": str(getattr(fill, "ts", "")),
@@ -202,13 +148,16 @@ class LiveRunner:
                 "qty": str(getattr(fill, "qty", "")),
                 "price": str(getattr(fill, "price", "")),
             })
+            order_id = getattr(fill, "order_id", None)
+            if order_id:
+                latency_tracker.record_fill(str(order_id))
             if on_fill is not None:
                 on_fill(fill)
 
-        # 1) KillSwitch
+        # ── 2) KillSwitch ────────────────────────────────────
         kill_switch = KillSwitch()
 
-        # 2) Coordinator with monitoring hook
+        # ── 3) Coordinator with monitoring hook ───────────────
         health: Optional[SystemHealthMonitor] = None
         hook: Optional[EngineMonitoringHook] = None
 
@@ -229,7 +178,7 @@ class LiveRunner:
         def _emit(ev: Any) -> None:
             coordinator.emit(ev, actor="live")
 
-        # 3) Execution adapter from venue_clients
+        # ── 4) Execution adapter: KillSwitchBridge (production) ──
         venue_client = venue_clients.get(config.venue)
         if venue_client is None:
             raise ValueError(
@@ -237,17 +186,18 @@ class LiveRunner:
                 f"Available: {list(venue_clients.keys())}"
             )
 
-        # Wrap venue client as ExecutionAdapter (must have send_order)
-        # Then wrap with kill switch gate
-        exec_adapter = _KillSwitchAdapter(
+        kill_bridge = KillSwitchBridge(
             inner=venue_client,
             kill_switch=kill_switch,
-            on_fill=_record_fill,
+            cancel_fn=getattr(venue_client, "cancel_all_orders", None),
         )
+
+        # Wrap with fill recording: intercept results from send_order
+        exec_adapter = _FillRecordingAdapter(inner=kill_bridge, on_fill=_record_fill)
         exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit)
         coordinator.attach_execution_bridge(exec_bridge)
 
-        # 4) Decision bridge
+        # ── 5) Decision bridge ────────────────────────────────
         modules = list(decision_modules or [])
 
         if config.enable_regime_gate and modules:
@@ -266,11 +216,11 @@ class LiveRunner:
             )
             coordinator.attach_decision_bridge(decision_bridge)
 
-        # 5) EngineLoop with guard
+        # ── 6) EngineLoop with guard ─────────────────────────
         guard = build_basic_guard(GuardConfig())
         loop = EngineLoop(coordinator=coordinator, guard=guard, cfg=LoopConfig())
 
-        # 6) Market data runtime
+        # ── 7) Market data runtime ───────────────────────────
         from execution.adapters.binance.kline_processor import KlineProcessor
         from execution.adapters.binance.ws_market_stream_um import (
             BinanceUmMarketStreamWsClient,
@@ -303,7 +253,7 @@ class LiveRunner:
         runtime = BinanceMarketDataRuntime(ws_client=ws_client)
         loop.attach_runtime(runtime)
 
-        # 7) ReconcileScheduler (if enabled and fetch_venue_state provided)
+        # ── 8) ReconcileScheduler ────────────────────────────
         reconcile_scheduler = None
         if config.enable_reconcile and fetch_venue_state is not None:
             from execution.reconcile.controller import ReconcileController
@@ -323,21 +273,60 @@ class LiveRunner:
                 on_halt=lambda report: coordinator.stop(),
             )
 
-        # 8) MarginMonitor (if fetch_margin provided)
+        # ── 9) MarginMonitor (production) ────────────────────
         margin_monitor = None
         if fetch_margin is not None:
-            margin_monitor = _MarginMonitor(
+            margin_monitor = MarginMonitor(
+                config=MarginConfig(
+                    check_interval_sec=config.margin_check_interval_sec,
+                    warning_margin_ratio=config.margin_warning_ratio,
+                    critical_margin_ratio=config.margin_critical_ratio,
+                ),
                 fetch_margin=fetch_margin,
                 kill_switch=kill_switch,
-                warning_ratio=config.margin_warning_ratio,
-                critical_ratio=config.margin_critical_ratio,
-                interval_sec=config.margin_check_interval_sec,
+                alert_sink=alert_sink,
             )
 
-        # 9) GracefulShutdown
+        # ── 10) AlertManager ────────────────────────────────
+        alert_manager = AlertManager(sink=alert_sink)
+
+        # ── 11) Persistent stores (conditional) ─────────────
+        state_store = None
+        if config.enable_persistent_stores:
+            from execution.store.ack_store import SQLiteAckStore
+            from execution.store.event_log import SQLiteEventLog
+            from state.store import SqliteStateStore
+
+            data_dir = config.data_dir
+            SQLiteAckStore(path=os.path.join(data_dir, "ack_store.db"))
+            SQLiteEventLog(path=os.path.join(data_dir, "event_log.db"))
+            state_store = SqliteStateStore(
+                path=os.path.join(data_dir, "state.db"),
+            )
+
+            # State restoration: restore from latest checkpoint
+            for sym in config.symbols:
+                checkpoint = state_store.latest(sym)
+                if checkpoint is not None:
+                    coordinator.restore_from_snapshot(checkpoint.snapshot)
+                    logger.info(
+                        "Restored state for %s from bar_index=%d",
+                        sym, checkpoint.bar_index,
+                    )
+                    break  # One restore is enough (snapshot contains all symbols)
+
+        # ── 12) GracefulShutdown ─────────────────────────────
         shutdown_cfg = ShutdownConfig(
             pending_order_timeout_sec=config.pending_order_timeout_sec,
         )
+        save_snapshot_fn = None
+        if state_store is not None:
+            def save_snapshot_fn(_path: str) -> None:
+                snapshot = coordinator.get_state_view().get("last_snapshot")
+                if snapshot is not None:
+                    state_store.save(snapshot)
+                    logger.info("State snapshot saved on shutdown")
+
         shutdown_handler = GracefulShutdown(
             config=shutdown_cfg,
             stop_new_orders=lambda: kill_switch.trigger(
@@ -347,6 +336,7 @@ class LiveRunner:
                 reason="graceful_shutdown",
                 source="shutdown",
             ),
+            save_snapshot=save_snapshot_fn,
         )
 
         return cls(
@@ -358,6 +348,9 @@ class LiveRunner:
             reconcile_scheduler=reconcile_scheduler,
             margin_monitor=margin_monitor,
             shutdown_handler=shutdown_handler,
+            latency_tracker=latency_tracker,
+            alert_manager=alert_manager,
+            state_store=state_store,
             _fills=fills,
         )
 
@@ -375,6 +368,8 @@ class LiveRunner:
             self.reconcile_scheduler.start()
         if self.margin_monitor is not None:
             self.margin_monitor.start()
+        if self.alert_manager is not None:
+            self.alert_manager.start_periodic()
         self.runtime.start()
         self.loop.start_background()
 
@@ -394,6 +389,8 @@ class LiveRunner:
         self._running = False
 
         logger.info("Stopping LiveRunner...")
+        if self.alert_manager is not None:
+            self.alert_manager.stop()
         if self.margin_monitor is not None:
             self.margin_monitor.stop()
         if self.reconcile_scheduler is not None:
@@ -415,52 +412,17 @@ class LiveRunner:
         return self.coordinator.get_state_view().get("event_index", 0)
 
 
-class _KillSwitchAdapter:
-    """Wraps a venue client with kill switch gating.
+class _FillRecordingAdapter:
+    """Thin wrapper that intercepts fill events from send_order results."""
 
-    Before forwarding send_order to the inner adapter, checks the kill switch.
-    If killed, returns empty (order blocked).  Also invokes on_fill for each
-    result event that looks like a fill.
-    """
-
-    def __init__(
-        self,
-        *,
-        inner: Any,
-        kill_switch: KillSwitch,
-        on_fill: Optional[Callable[[Any], None]] = None,
-    ) -> None:
+    def __init__(self, inner: Any, on_fill: Callable[[Any], None]) -> None:
         self._inner = inner
-        self._kill_switch = kill_switch
         self._on_fill = on_fill
 
     def send_order(self, order_event: Any) -> list:
-        symbol = getattr(order_event, "symbol", None) or ""
-        strategy_id = getattr(order_event, "strategy_id", None)
-        reduce_only = getattr(order_event, "reduce_only", False)
-
-        allowed, record = self._kill_switch.allow_order(
-            symbol=str(symbol),
-            strategy_id=strategy_id,
-            reduce_only=bool(reduce_only),
-        )
-        if not allowed:
-            logger.warning(
-                "Order blocked by kill switch: symbol=%s scope=%s mode=%s reason=%s",
-                symbol,
-                record.scope.value if record else "?",
-                record.mode.value if record else "?",
-                record.reason if record else "",
-            )
-            return []
-
         results = list(self._inner.send_order(order_event))
-
-        if self._on_fill is not None:
-            for ev in results:
-                event_type = getattr(ev, "event_type", None)
-                et_value = getattr(event_type, "value", str(event_type)) if event_type else ""
-                if "fill" in str(et_value).lower():
-                    self._on_fill(ev)
-
+        for ev in results:
+            et = getattr(getattr(ev, "event_type", None), "value", "")
+            if "fill" in str(et).lower():
+                self._on_fill(ev)
         return results

@@ -73,6 +73,12 @@ class SystemContext:
     # Plugin registries by category
     plugins: Dict[str, PluginRegistry] = field(default_factory=dict)
 
+    # Optional production components (wired by LiveRunner when available)
+    event_store: Optional[Any] = None
+    state_store: Optional[Any] = None
+    latency_tracker: Optional[Any] = None
+    alert_manager: Optional[Any] = None
+
 
 def bootstrap(
     *,
@@ -217,5 +223,11 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 def _make_log_fn(fx: Effects) -> Any:
     """Create a log function from effects."""
     def log_fn(level: str, message: str, **kwargs: Any) -> None:
-        fx.log.log(level, message)
+        dispatch = {
+            "debug": fx.log.debug,
+            "info": fx.log.info,
+            "warning": fx.log.warning,
+            "error": fx.log.error,
+        }
+        dispatch.get(level, fx.log.info)(message)
     return log_fn
