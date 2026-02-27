@@ -14,6 +14,12 @@ from typing import Any, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
+try:
+    from features._quant_rolling import cpp_ols as _cpp_ols
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 @dataclass(frozen=True, slots=True)
 class KyleLambdaResult:
@@ -77,8 +83,11 @@ class KyleLambdaEstimator:
                 kyle_lambda=0.0, r_squared=0.0, n_observations=0,
             )
 
-        # Pure Python OLS: slope = cov(x,y) / var(x)
-        slope, r_sq = _ols(signed_volumes, price_changes)
+        # OLS: slope = cov(x,y) / var(x)
+        if _USING_CPP:
+            slope, r_sq = _cpp_ols(signed_volumes, price_changes)
+        else:
+            slope, r_sq = _ols(signed_volumes, price_changes)
 
         return KyleLambdaResult(
             kyle_lambda=slope,

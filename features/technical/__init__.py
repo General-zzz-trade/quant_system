@@ -16,6 +16,11 @@ try:
         cpp_macd,
         cpp_bollinger_bands,
         cpp_atr,
+        cpp_vwap,
+        cpp_order_flow_imbalance,
+        cpp_rolling_volatility,
+        cpp_price_impact,
+        cpp_ols,
     )
     _USING_CPP = True
 except ImportError:

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
+try:
+    from features._quant_rolling import cpp_ewma_covariance as _cpp_ewma_covariance
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 class EWMACovariance:
     """EWMA 指数加权协方差矩阵。"""
@@ -20,6 +26,14 @@ class EWMACovariance:
         n_obs = min(len(returns.get(s, ())) for s in symbols) if symbols else 0
         if n_obs < 2:
             return {s1: {s2: 0.0 for s2 in symbols} for s1 in symbols}
+
+        if _USING_CPP:
+            matrix = [list(returns[s][:n_obs]) for s in symbols]
+            cov_mat = _cpp_ewma_covariance(matrix, self.alpha)
+            return {
+                s1: {s2: cov_mat[i][j] for j, s2 in enumerate(symbols)}
+                for i, s1 in enumerate(symbols)
+            }
 
         # 初始化为第一期外积
         cov: dict[tuple[str, str], float] = {}

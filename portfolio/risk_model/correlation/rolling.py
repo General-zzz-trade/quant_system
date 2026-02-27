@@ -5,6 +5,12 @@ from __future__ import annotations
 import math
 from typing import Mapping, Sequence
 
+try:
+    from features._quant_rolling import cpp_rolling_correlation as _cpp_rolling_correlation
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 class RollingCorrelation:
     """滚动窗口相关性估计。"""
@@ -18,6 +24,14 @@ class RollingCorrelation:
         symbols: Sequence[str],
         returns: Mapping[str, Sequence[float]],
     ) -> dict[str, dict[str, float]]:
+        if _USING_CPP:
+            matrix = [list(returns.get(s, [])) for s in symbols]
+            corr_mat = _cpp_rolling_correlation(matrix, self.window)
+            return {
+                s1: {s2: corr_mat[i][j] for j, s2 in enumerate(symbols)}
+                for i, s1 in enumerate(symbols)
+            }
+
         result: dict[str, dict[str, float]] = {}
         for s1 in symbols:
             row: dict[str, float] = {}

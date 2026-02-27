@@ -9,12 +9,28 @@ from typing import List, Optional, Sequence
 
 from features.types import Bar, FeatureSeries
 
+try:
+    from features._quant_rolling import (
+        cpp_vwap as _cpp_vwap,
+        cpp_order_flow_imbalance as _cpp_ofi,
+        cpp_rolling_volatility as _cpp_rolling_vol,
+        cpp_price_impact as _cpp_price_impact,
+    )
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 def vwap(bars: Sequence[Bar], window: int = 20) -> FeatureSeries:
     """Volume-weighted average price over a rolling window.
 
     VWAP = sum(close * volume) / sum(volume) over window.
     """
+    if _USING_CPP:
+        closes = [float(b.close) for b in bars]
+        volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
+        return _cpp_vwap(closes, volumes, window)
+
     result: FeatureSeries = []
     for i in range(len(bars)):
         if i < window - 1:
@@ -44,6 +60,12 @@ def order_flow_imbalance(bars: Sequence[Bar], window: int = 10) -> FeatureSeries
     Positive = buying pressure, negative = selling pressure.
     Range: [-1, 1].
     """
+    if _USING_CPP:
+        opens = [float(b.open) for b in bars]
+        closes = [float(b.close) for b in bars]
+        volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
+        return _cpp_ofi(opens, closes, volumes, window)
+
     result: FeatureSeries = []
 
     signed_volumes: List[float] = []
@@ -108,6 +130,11 @@ def price_impact(bars: Sequence[Bar], window: int = 20) -> FeatureSeries:
 
     Measures market impact: higher values = less liquid.
     """
+    if _USING_CPP:
+        closes = [float(b.close) for b in bars]
+        volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
+        return _cpp_price_impact(closes, volumes, window)
+
     result: FeatureSeries = []
     for i in range(len(bars)):
         if i < window:

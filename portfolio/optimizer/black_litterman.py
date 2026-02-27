@@ -7,6 +7,12 @@ import math
 from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
+try:
+    from features._quant_rolling import cpp_black_litterman_posterior as _cpp_bl_posterior
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -203,6 +209,34 @@ class BlackLittermanModel:
         n = len(symbols)
         sym_idx = {s: i for i, s in enumerate(symbols)}
         tau = self._config.tau
+        delta = self._config.risk_aversion
+
+        if _USING_CPP and views:
+            # Build matrices for C++ dispatch
+            sigma_mat = [[cov.get(si, {}).get(sj, 0.0) for sj in symbols] for si in symbols]
+            w_vec = [market_weights[s] for s in symbols]
+            k = len(views)
+            P_mat = [[0.0] * n for _ in range(k)]
+            Q_vec = [0.0] * k
+            conf_vec = [0.0] * k
+            for v_idx, view in enumerate(views):
+                Q_vec[v_idx] = view.expected_return
+                conf_vec[v_idx] = view.confidence
+                for asset, weight in zip(view.assets, view.weights):
+                    if asset in sym_idx:
+                        P_mat[v_idx][sym_idx[asset]] = weight
+
+            mu_post, post_cov, eq_pi = _cpp_bl_posterior(
+                sigma_mat, w_vec, P_mat, Q_vec, conf_vec, tau, delta)
+
+            return BlackLittermanResult(
+                posterior_returns={symbols[i]: mu_post[i] for i in range(n)},
+                posterior_covariance={
+                    symbols[i]: {symbols[j]: post_cov[i][j] for j in range(n)}
+                    for i in range(n)
+                },
+                equilibrium_returns={symbols[i]: eq_pi[i] for i in range(n)},
+            )
 
         # Equilibrium returns
         eq_ret = self.equilibrium_returns(market_weights, cov)

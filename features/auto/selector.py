@@ -6,6 +6,15 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
+try:
+    from features._quant_rolling import (
+        cpp_correlation_select as _cpp_correlation_select,
+        cpp_mutual_info_select as _cpp_mutual_info_select,
+    )
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,10 +64,23 @@ class FeatureSelector:
         features: Mapping[str, Sequence[float]],
         target: Sequence[float],
     ) -> list[FeatureScore]:
-        """Binned mutual information estimation (pure Python)."""
+        """Binned mutual information estimation."""
         n_bins = max(5, int(math.sqrt(len(target))))
-        target_binned = self._bin_values(list(target), n_bins)
+        names = list(features.keys())
+        target_list = list(target)
 
+        if _USING_CPP and names:
+            valid_names = [n for n in names if len(features[n]) == len(target_list)]
+            if valid_names:
+                feat_mat = [features[n] if isinstance(features[n], list) else list(features[n])
+                            for n in valid_names]
+                mi_vec = _cpp_mutual_info_select(feat_mat, target_list, n_bins)
+                scores = [FeatureScore(name=n, score=mi_vec[i], method="mutual_info")
+                          for i, n in enumerate(valid_names)]
+                scores.sort(key=lambda s: s.score, reverse=True)
+                return scores[: self._top_k]
+
+        target_binned = self._bin_values(target_list, n_bins)
         scores: list[FeatureScore] = []
         for name, values in features.items():
             vals = list(values)
@@ -82,6 +104,19 @@ class FeatureSelector:
         n = len(target_list)
         if n < 2:
             return []
+
+        names = list(features.keys())
+
+        if _USING_CPP and names:
+            valid_names = [nm for nm in names if len(features[nm]) == n]
+            if valid_names:
+                feat_mat = [features[nm] if isinstance(features[nm], list) else list(features[nm])
+                            for nm in valid_names]
+                corr_vec = _cpp_correlation_select(feat_mat, target_list)
+                scores = [FeatureScore(name=nm, score=corr_vec[i], method="correlation")
+                          for i, nm in enumerate(valid_names)]
+                scores.sort(key=lambda s: s.score, reverse=True)
+                return scores[: self._top_k]
 
         t_mean = sum(target_list) / n
         t_var = sum((v - t_mean) ** 2 for v in target_list)

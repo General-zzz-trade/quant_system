@@ -426,7 +426,7 @@ class Symbol:
 class Venue(str, Enum):
     """Supported trading venues."""
     BINANCE = "BINANCE"
-    OKX = "OKX"
+    BITGET = "BITGET"
     BYBIT = "BYBIT"
     SIM = "SIM"
 

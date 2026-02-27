@@ -6,6 +6,17 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
+try:
+    from features._quant_rolling import cpp_portfolio_variance as _cpp_portfolio_variance
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
+# Note: C++ dispatch for portfolio_variance is not used here because
+# the dict→vector conversion overhead exceeds the computation benefit
+# for typical portfolio sizes (N<100). The C++ kernel is still available
+# for direct use when data is already in vector form.
+
 
 @dataclass(frozen=True, slots=True)
 class PortfolioRisk:
@@ -24,6 +35,7 @@ def compute_portfolio_risk(
 ) -> PortfolioRisk:
     """计算组合整体风险指标。"""
     symbols = list(weights.keys())
+
     variance = 0.0
     for s1 in symbols:
         w1 = weights[s1]
