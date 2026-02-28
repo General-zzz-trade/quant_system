@@ -113,6 +113,10 @@ class LiveRunner:
     health_server: Optional[Any] = None
     state_store: Optional[Any] = None
     correlation_computer: Optional[Any] = None
+    attribution_tracker: Optional[Any] = None
+    correlation_gate: Optional[Any] = None
+    module_reloader: Optional[Any] = None
+    decision_bridge: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
 
@@ -187,6 +191,28 @@ class LiveRunner:
             )
             hook = EngineMonitoringHook(health=health, metrics=metrics_exporter)
 
+        # ── CorrelationComputer (created early for on_snapshot) ──
+        from risk.correlation_computer import CorrelationComputer
+        correlation_computer = CorrelationComputer(window=60)
+
+        def _update_correlation(snapshot: Any) -> None:
+            markets = getattr(snapshot, "markets", {})
+            for sym, mkt in markets.items():
+                close = getattr(mkt, "close", None)
+                if close is not None:
+                    correlation_computer.update(sym, float(close))
+
+        # ── AttributionTracker ───────────────────────────────
+        from attribution.tracker import AttributionTracker
+        attribution_tracker = AttributionTracker()
+
+        # ── CorrelationGate ──────────────────────────────────
+        from risk.correlation_gate import CorrelationGate, CorrelationGateConfig
+        correlation_gate = CorrelationGate(
+            computer=correlation_computer,
+            config=CorrelationGateConfig(max_avg_correlation=config.max_avg_correlation),
+        )
+
         # ── Feature computation + ML inference hook ──────────
         feat_hook = None
         if feature_computer is not None:
@@ -203,11 +229,29 @@ class LiveRunner:
             symbols=config.symbols,
             currency=config.currency,
             on_pipeline_output=hook,
+            on_snapshot=_update_correlation,
             feature_hook=feat_hook,
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
 
         def _emit(ev: Any) -> None:
+            # Attribution: track all events
+            attribution_tracker.on_event(ev)
+
+            # Correlation gate: check ORDER events
+            et = getattr(ev, "event_type", None)
+            et_str = (str(et.value) if hasattr(et, "value") else str(et)).upper() if et else ""
+            if et_str == "ORDER":
+                view = coordinator.get_state_view()
+                positions = view.get("positions", {})
+                existing = [s for s, p in positions.items() if float(getattr(p, "qty", 0)) != 0]
+                sym = getattr(ev, "symbol", "")
+                decision = correlation_gate.should_allow(sym, existing)
+                if not decision.ok:
+                    msg = decision.violations[0].message if decision.violations else "blocked"
+                    logger.warning("CorrelationGate REJECTED order for %s: %s", sym, msg)
+                    return
+
             coordinator.emit(ev, actor="live")
 
         # ── 4) Execution adapter: KillSwitchBridge (production) ──
@@ -275,11 +319,19 @@ class LiveRunner:
                 gated_modules.append(gated)
             modules = gated_modules
 
+        decision_bridge_inst = None
         if modules:
-            decision_bridge = DecisionBridge(
+            decision_bridge_inst = DecisionBridge(
                 dispatcher_emit=_emit, modules=modules,
             )
-            coordinator.attach_decision_bridge(decision_bridge)
+            coordinator.attach_decision_bridge(decision_bridge_inst)
+
+        # ── 5a) ModuleReloader ───────────────────────────────
+        from engine.module_reloader import ModuleReloader, ReloaderConfig
+        module_reloader = ModuleReloader(
+            config=ReloaderConfig(),
+            on_reload=lambda trigger: logger.info("Module reload triggered: %s", trigger),
+        )
 
         # ── 6) EngineLoop with guard ─────────────────────────
         guard = build_basic_guard(GuardConfig())
@@ -425,10 +477,7 @@ class LiveRunner:
                 cooldown_sec=300.0,
             ))
 
-        # Default rule: high portfolio correlation
-        from risk.correlation_computer import CorrelationComputer
-        correlation_computer = CorrelationComputer(window=60)
-
+        # Default rule: high portfolio correlation (uses correlation_computer created earlier)
         def _high_correlation_condition(
             cc=correlation_computer, syms=config.symbols, thresh=config.max_avg_correlation,
         ) -> bool:
@@ -545,6 +594,10 @@ class LiveRunner:
             health_server=health_server,
             state_store=state_store,
             correlation_computer=correlation_computer,
+            attribution_tracker=attribution_tracker,
+            correlation_gate=correlation_gate,
+            module_reloader=module_reloader,
+            decision_bridge=decision_bridge_inst,
             _fills=fills,
         )
 
@@ -646,6 +699,8 @@ class LiveRunner:
             self.alert_manager.start_periodic()
         if self.health_server is not None:
             self.health_server.start()
+        if self.module_reloader is not None:
+            self.module_reloader.start()
         self.runtime.start()
         self.loop.start_background()
 
@@ -665,6 +720,8 @@ class LiveRunner:
         self._running = False
 
         logger.info("Stopping LiveRunner...")
+        if self.module_reloader is not None:
+            self.module_reloader.stop()
         if self.health_server is not None:
             self.health_server.stop()
         if self.alert_manager is not None:

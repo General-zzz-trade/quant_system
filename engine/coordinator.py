@@ -317,9 +317,11 @@ class EngineCoordinator:
         if self._cfg.on_snapshot is not None and out.snapshot is not None:
             self._cfg.on_snapshot(out.snapshot)
 
-        # 决策触发制度：默认仅在 advanced 且 snapshot 存在时触发
+        # 决策触发制度：仅在 MARKET 事件推进时触发（FILL/ORDER 更新 state 但不触发新决策）
         if self._decision_bridge is not None and out.advanced and out.snapshot is not None:
-            self._decision_bridge.on_pipeline_output(out)
+            from engine.pipeline import _detect_kind
+            if _detect_kind(event) == "MARKET":
+                self._decision_bridge.on_pipeline_output(out)
 
     def _handle_decision_event(self, event: Any) -> None:
         """

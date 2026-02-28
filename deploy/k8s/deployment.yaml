@@ -72,12 +72,17 @@ spec:
               readOnly: true
             - name: logs
               mountPath: /app/logs
+            - name: data
+              mountPath: /app/data/live
       volumes:
         - name: config-volume
           configMap:
             name: quant-engine-config
         - name: logs
           emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: quant-engine-data
 ---
 apiVersion: v1
 kind: Service

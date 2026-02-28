@@ -316,7 +316,8 @@ def run_backtest(
 
     for i, bar in enumerate(bar_list):
         if embargo_bars > 0:
-            embargo_adapter.on_bar(i)
+            for fill_ev in embargo_adapter.on_bar(i):
+                coordinator.emit(fill_ev, actor="backtest")
         embargo_adapter.set_bar(i)
 
         h = EventHeader.new_root(event_type=EventType.MARKET, version=MarketEvent.VERSION, source="csv")
@@ -349,7 +350,8 @@ def run_backtest(
                 coordinator.emit(funding_ev, actor="funding")
 
     if embargo_bars > 0 and bar_list:
-        embargo_adapter.on_bar(len(bar_list))
+        for fill_ev in embargo_adapter.on_bar(len(bar_list)):
+            coordinator.emit(fill_ev, actor="backtest")
 
     coordinator.stop()
 
