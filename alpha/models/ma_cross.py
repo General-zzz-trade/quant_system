@@ -28,11 +28,13 @@ class MACrossAlpha:
         slow_ma = sma(closes, self.slow)
 
         i = len(closes) - 1
-        if fast_ma[i] is None or slow_ma[i] is None or fast_ma[i - 1] is None or slow_ma[i - 1] is None:
+        fast_prev, slow_prev = fast_ma[i - 1], slow_ma[i - 1]
+        fast_curr, slow_curr = fast_ma[i], slow_ma[i]
+        if fast_prev is None or slow_prev is None or fast_curr is None or slow_curr is None:
             return None
 
-        prev_diff = float(fast_ma[i - 1]) - float(slow_ma[i - 1])
-        curr_diff = float(fast_ma[i]) - float(slow_ma[i])
+        prev_diff = fast_prev - slow_prev
+        curr_diff = fast_curr - slow_curr
 
         if prev_diff <= 0.0 and curr_diff > 0.0:
             return Signal(symbol=symbol, ts=ts, side="long", strength=1.0, meta={"fast": self.fast, "slow": self.slow})

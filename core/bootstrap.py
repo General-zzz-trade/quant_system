@@ -78,6 +78,7 @@ class SystemContext:
     state_store: Optional[Any] = None
     latency_tracker: Optional[Any] = None
     alert_manager: Optional[Any] = None
+    tracer: Optional[Any] = None  # infra.tracing.otel.Tracer
 
 
 def bootstrap(
@@ -132,8 +133,17 @@ def bootstrap(
     ))
 
     # ── 4. Observability Interceptors ────────────────────
+    otel_tracer = None
+    try:
+        from infra.tracing.otel import Tracer as OtelTracer
+        otel_tracer = OtelTracer(service_name="quant_system")
+    except Exception:
+        pass  # OTel tracer optional
+
+    obs_max_spans = config.get_or("observability.max_spans", 10_000, int)
     tracing = TracingInterceptor(
-        max_spans=config.get_or("observability.max_spans", 10_000, int),
+        max_spans=obs_max_spans,
+        tracer=otel_tracer,
     )
 
     logging_ic = LoggingInterceptor(
@@ -176,6 +186,7 @@ def bootstrap(
         logging_interceptor=logging_ic,
         metrics_interceptor=metrics_ic,
         plugins=plugins,
+        tracer=otel_tracer,
     )
 
 

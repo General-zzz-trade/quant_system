@@ -18,7 +18,7 @@ FROM base AS live
 RUN pip install --no-cache-dir -e ".[live,data,config,monitoring]"
 
 ENV PYTHONUNBUFFERED=1
-CMD ["python3", "-m", "runner.paper_runner", "--mode", "live"]
+CMD ["python3", "-m", "runner.live_runner", "--config", "/app/infra/config/examples/live.yaml"]
 
 # ---- Dev stage: full development environment ----
 FROM base AS dev

@@ -98,3 +98,13 @@ class DecisionBridge:
                     self.dispatcher_emit(ev)
                 except Exception as e:
                     raise DecisionBridgeError("Failed to emit decision event") from e
+
+    # --------------------------------------------------------
+    # Hot reload support
+    # --------------------------------------------------------
+
+    def swap_modules(self, new_modules: List[DecisionModule]) -> List[DecisionModule]:
+        """Atomically replace decision modules. Returns the old modules."""
+        old = self.modules
+        self.modules = list(new_modules)
+        return old

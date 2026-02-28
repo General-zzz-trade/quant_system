@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
+from typing import Optional
+
 from attribution.pnl import PnLBreakdown, compute_pnl
 from attribution.cost import CostBreakdown, compute_cost_attribution
+from attribution.signal_attribution import SignalAttributionReport
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,7 @@ class AttributionReport:
     cost: CostBreakdown
     net_return_pct: float
     period_label: str = ""
+    signal_attribution: Optional[SignalAttributionReport] = None
 
 
 def build_report(

@@ -1,0 +1,54 @@
+groups:
+  - name: quant_system_alerts
+    rules:
+      - alert: MarketDataStale
+        expr: quant_market_data_age_seconds > 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Market data stale for {{ $labels.instance }}"
+          description: "Market data age exceeds 120s (current: {{ $value }}s)"
+
+      - alert: HighPipelineLatency
+        expr: histogram_quantile(0.99, rate(quant_pipeline_latency_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline P99 latency exceeds 5s"
+          description: "Pipeline P99 latency is {{ $value }}s"
+
+      - alert: KillSwitchTriggered
+        expr: quant_kill_switch_active == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kill switch triggered — trading halted"
+
+      - alert: MarginRatioCritical
+        expr: quant_margin_ratio < 0.08
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Margin ratio below 8%"
+          description: "Current margin ratio: {{ $value }}"
+
+      - alert: PositionDriftDetected
+        expr: quant_reconcile_drift_count > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Position drift detected during reconciliation"
+          description: "{{ $value }} drift(s) detected"
+
+      - alert: HighOrderRejectionRate
+        expr: rate(quant_order_rejections_total[5m]) / (rate(quant_orders_total[5m]) + 1e-10) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Order rejection rate exceeds 10%"
+          description: "Current rejection rate: {{ $value }}"

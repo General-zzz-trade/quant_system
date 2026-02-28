@@ -1,0 +1,39 @@
+# Live trading configuration example
+# Credentials are resolved from environment variables — never embed secrets.
+
+trading:
+  symbol: BTCUSDT
+  exchange: binance
+  mode: live
+
+strategy:
+  name: trend_follow
+  ma_window: 50
+  order_qty: "0.005"
+
+risk:
+  max_position_notional: 25000.0
+  max_leverage: 5.0
+  max_drawdown_pct: 10.0
+  max_orders_per_minute: 20
+
+execution:
+  fee_bps: 2.0
+  slippage_bps: 1.5
+
+credentials:
+  api_key_env: BINANCE_API_KEY
+  api_secret_env: BINANCE_API_SECRET
+
+logging:
+  level: INFO
+  structured: true
+  file: logs/live_trading.log
+
+data:
+  store_path: ./market_data
+  format: parquet
+
+monitoring:
+  health_check_interval: 10.0
+  metrics_port: 9090

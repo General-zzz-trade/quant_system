@@ -1,6 +1,6 @@
 """LSTM alpha model — recurrent neural network for time-series prediction.
 
-Implements AlphaModel Protocol. Requires: pip install torch
+EXPERIMENTAL: Not validated in production. Requires: pip install torch
 
 Uses sliding windows of features to predict next-period returns.
 """

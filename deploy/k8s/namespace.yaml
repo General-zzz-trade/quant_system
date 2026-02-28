@@ -1,0 +1,12 @@
+# Namespace for the quant trading system
+# All trading engine resources live here. ArgoCD's syncPolicy has
+# CreateNamespace=true as a fallback, but declaring it explicitly
+# lets us attach labels and is the GitOps-canonical approach.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quant
+  labels:
+    app.kubernetes.io/part-of: quant-system
+    # Used by NetworkPolicy namespaceSelector for cross-namespace access
+    name: quant

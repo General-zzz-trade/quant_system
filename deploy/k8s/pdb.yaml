@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: quant-engine-pdb
+  namespace: quant
+  labels:
+    app: quant-engine
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: quant-engine

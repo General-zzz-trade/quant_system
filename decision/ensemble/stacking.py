@@ -145,6 +145,14 @@ class StackingEnsemble:
 
         return x
 
+    def refit(
+        self,
+        signals: Mapping[str, Sequence[float]],
+        target: Sequence[float],
+    ) -> None:
+        """Refit meta-learner on new data (convenience alias for fit)."""
+        self.fit(signals, target)
+
     @property
     def weights(self) -> dict[str, float]:
         return dict(self._weights)

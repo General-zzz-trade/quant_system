@@ -6,6 +6,12 @@ from typing import Mapping, Sequence
 
 from portfolio.risk_model.factor.exposure import compute_beta
 
+try:
+    from features._quant_rolling import cpp_estimate_specific_risk as _cpp_estimate_specific_risk
+    _USING_CPP = True
+except ImportError:
+    _USING_CPP = False
+
 
 def estimate_specific_risk(
     symbols: Sequence[str],
@@ -21,6 +27,13 @@ def estimate_specific_risk(
 
     f_n_obs = min(len(factor_returns[f]) for f in factors) if factors else 0
     obs = min(n_obs, f_n_obs)
+
+    if _USING_CPP and obs >= 2 and factors:
+        a_mat = [list(returns[s][:obs]) for s in symbols]
+        f_mat = [list(factor_returns[f][:obs]) for f in factors]
+        exp_mat = [[exposures.get(s, {}).get(f, 0.0) for f in factors] for s in symbols]
+        sr_vec = _cpp_estimate_specific_risk(a_mat, f_mat, exp_mat)
+        return {s: sr_vec[i] for i, s in enumerate(symbols)}
 
     result: dict[str, float] = {}
     for s in symbols:

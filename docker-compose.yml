@@ -1,4 +1,24 @@
 services:
+  live-trader:
+    build:
+      context: .
+      target: live
+    env_file: .env
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./data/live:/app/data/live
+      - ./models:/app/models
+    command: >
+      python3 -m runner.live_runner
+      --config /app/infra/config/examples/live.yaml
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/metrics')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   paper-trader:
     build:
       context: .
@@ -7,6 +27,7 @@ services:
     restart: unless-stopped
     volumes:
       - paper-output:/app/output
+    profiles: ["paper"]
     command: >
       python3 -m runner.paper_runner
       --mode live
@@ -35,6 +56,35 @@ services:
     profiles: ["dev"]
     command: python3 -m pytest tests_unit/ -x -q
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    profiles: ["monitoring"]
+    depends_on:
+      - live-trader
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    profiles: ["monitoring"]
+    depends_on:
+      - prometheus
+
 volumes:
   paper-output:
   backtest-output:
+  prometheus_data:
+  grafana_data:

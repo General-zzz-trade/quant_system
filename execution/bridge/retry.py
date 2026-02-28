@@ -2,6 +2,7 @@
 """Retry logic with exponential backoff for execution bridge."""
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar
@@ -59,7 +60,8 @@ def retry_with_backoff(
             if on_retry:
                 on_retry(attempt, e)
             delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
-            delay += jitter
+            if jitter > 0:
+                delay += random.uniform(0, jitter)
             if delay > 0:
                 _sleep(delay)
 

@@ -47,12 +47,14 @@ class MarginMonitor:
     _running: bool = field(default=False, init=False, repr=False)
     _thread: Optional[threading.Thread] = field(default=None, init=False, repr=False)
     _last_status: Optional[Dict[str, Any]] = field(default=None, init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def start(self) -> None:
         """Start the background monitoring loop."""
-        if self._running:
-            return
-        self._running = True
+        with self._lock:
+            if self._running:
+                return
+            self._running = True
         self._thread = threading.Thread(
             target=self._run_loop, name="margin-monitor", daemon=True,
         )
@@ -61,7 +63,8 @@ class MarginMonitor:
 
     def stop(self) -> None:
         """Stop the background monitoring loop."""
-        self._running = False
+        with self._lock:
+            self._running = False
         if self._thread is not None:
             self._thread.join(timeout=self.config.check_interval_sec + 2.0)
             self._thread = None
@@ -189,13 +192,15 @@ class MarginMonitor:
             logger.exception("alert_sink.emit failed")
 
     def _run_loop(self) -> None:
-        while self._running:
+        while True:
             time.sleep(self.config.check_interval_sec)
-            if self._running:
-                try:
-                    self.check_once()
-                except Exception:
-                    logger.exception("MarginMonitor check_once failed unexpectedly")
+            with self._lock:
+                if not self._running:
+                    break
+            try:
+                self.check_once()
+            except Exception:
+                logger.exception("MarginMonitor check_once failed unexpectedly")
 
     @property
     def last_status(self) -> Optional[Dict[str, Any]]:

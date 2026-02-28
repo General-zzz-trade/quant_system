@@ -45,4 +45,4 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-CMD ["python", "-m", "runner.live_runner"]
+CMD ["python", "-m", "runner.live_runner", "--config", "/app/infra/config/examples/live.yaml"]

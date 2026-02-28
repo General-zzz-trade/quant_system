@@ -1,10 +1,12 @@
 # execution/bridge/execution_bridge.py
 from __future__ import annotations
 
+import random
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, Deque, Dict, Mapping, Optional, Protocol, Tuple
 
 from execution.store.ack_store import InMemoryAckStore
 from execution.store.interfaces import AckStore
@@ -65,7 +67,7 @@ class RetryPolicy:
     max_attempts: int = 3
     base_delay_sec: float = 0.10
     max_delay_sec: float = 2.00
-    jitter_sec: float = 0.0  # 机构级默认：测试可复现，先不抖动
+    jitter_sec: float = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,9 +196,12 @@ class ExecutionBridge:
 
     # optional hook: for audit/logging
     on_ack: Optional[Callable[[Ack], None]] = None
+    # backpressure: max pending commands when rate-limited (0 = fail-fast)
+    pending_queue_size: int = 50
 
     _buckets: Dict[str, TokenBucket] = field(default_factory=dict, init=False, repr=False)
     _breakers: Dict[str, CircuitBreaker] = field(default_factory=dict, init=False, repr=False)
+    _pending: Deque[tuple] = field(default_factory=deque, init=False, repr=False)
 
     @staticmethod
     def _ack_to_payload(a: Ack) -> Mapping[str, Any]:
@@ -252,6 +257,19 @@ class ExecutionBridge:
     def cancel(self, cmd: Any) -> Ack:
         return self._send(cmd=cmd, action="cancel")
 
+    def drain_pending(self) -> list[Ack]:
+        """Process queued commands that were rate-limited. Returns list of Acks."""
+        results = []
+        while self._pending:
+            cmd, action = self._pending.popleft()
+            ack = self._send(cmd=cmd, action=action)
+            results.append(ack)
+        return results
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
+
     def _send(self, *, cmd: Any, action: str) -> Ack:
         venue = str(getattr(cmd, "venue")).lower()
         symbol = str(getattr(cmd, "symbol")).upper()
@@ -296,25 +314,46 @@ class ExecutionBridge:
                 self.on_ack(ack)
             return ack
 
-        # ---- rate limit ----
+        # ---- rate limit with backpressure ----
         bucket = self._bucket(venue)
         if bucket is not None and not bucket.allow(1.0):
-            # 机构级：这里可选择阻塞等待；当前采用 fail-fast（更安全）
-            ack = Ack(
-                status="FAILED",
-                command_id=command_id,
-                idempotency_key=idem,
-                venue=venue,
-                symbol=symbol,
-                attempts=0,
-                deduped=False,
-                result=None,
-                error=f"rate_limited:{venue}",
-            )
-            self.ack_store.put(idem, self._ack_to_payload(ack))
-            if self.on_ack:
-                self.on_ack(ack)
-            return ack
+            if self.pending_queue_size > 0 and len(self._pending) < self.pending_queue_size:
+                self._pending.append((cmd, action))
+            else:
+                ack = Ack(
+                    status="FAILED",
+                    command_id=command_id,
+                    idempotency_key=idem,
+                    venue=venue,
+                    symbol=symbol,
+                    attempts=0,
+                    deduped=False,
+                    result=None,
+                    error=f"rate_limited:{venue}",
+                )
+                self.ack_store.put(idem, self._ack_to_payload(ack))
+                if self.on_ack:
+                    self.on_ack(ack)
+                return ack
+            # Wait briefly for token replenishment then retry
+            self.sleeper.sleep(1.0 / max(bucket.rate_per_sec, 1.0))
+            if bucket.allow(1.0):
+                self._pending.pop()  # remove the one we just queued
+            else:
+                ack = Ack(
+                    status="FAILED",
+                    command_id=command_id,
+                    idempotency_key=idem,
+                    venue=venue,
+                    symbol=symbol,
+                    attempts=0,
+                    deduped=False,
+                    result=None,
+                    error=f"rate_limited_queued:{venue}",
+                )
+                if self.on_ack:
+                    self.on_ack(ack)
+                return ack
 
         # ---- dispatch to venue client with retry ----
         client = self.venue_clients.get(venue)
@@ -425,7 +464,7 @@ class ExecutionBridge:
 
                 delay = min(rp.max_delay_sec, rp.base_delay_sec * (2 ** (i - 1)))
                 if rp.jitter_sec > 0:
-                    delay = delay + min(rp.jitter_sec, 0.001)  # deterministic tiny jitter
+                    delay = delay + random.uniform(0, rp.jitter_sec)
                 if delay > 0:
                     self.sleeper.sleep(delay)
 

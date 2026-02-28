@@ -1,0 +1,66 @@
+# AnalysisTemplate for canary health checks
+#
+# These metrics are queried from Prometheus during the canary rollout.
+# If any metric breaches its threshold, Argo Rollouts automatically
+# aborts the rollout and scales the canary to zero.
+#
+# TRADING-SPECIFIC METRICS:
+# - error-rate: Standard SRE metric. A spike in errors during canary
+#   could mean a breaking API change or bad model inference.
+# - latency-p99: Trading systems are latency-sensitive. If the canary
+#   adds >1s p99, it likely has a regression in the hot path.
+# - order-fill-rate: Domain-specific. If the canary's fill rate drops
+#   below 85%, it may be sending malformed orders or pricing badly.
+#   This catches bugs that error-rate alone would miss.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: quant-system-analysis
+  namespace: quant
+  labels:
+    app: quant-engine
+    app.kubernetes.io/part-of: quant-system
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    # Error rate: fraction of requests that returned an error
+    - name: error-rate
+      interval: 60s
+      # Allow up to 3 consecutive failures before aborting
+      failureLimit: 3
+      successCondition: result[0] < 0.05
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: |
+            sum(rate(quant_system_errors_total{pod=~"quant-system-{{args.canary-hash}}.*"}[2m]))
+            / sum(rate(quant_system_requests_total{pod=~"quant-system-{{args.canary-hash}}.*"}[2m]))
+
+    # P99 latency: 99th percentile response time in seconds
+    - name: latency-p99
+      interval: 60s
+      failureLimit: 3
+      successCondition: result[0] < 1.0
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: |
+            histogram_quantile(0.99,
+              sum(rate(quant_system_latency_seconds_bucket{pod=~"quant-system-{{args.canary-hash}}.*"}[2m])) by (le))
+
+    # Order fill rate: fraction of orders that resulted in a fill
+    # Trading-specific: a drop here means the canary may be generating
+    # bad orders (wrong price, wrong size, rejected by exchange)
+    - name: order-fill-rate
+      interval: 120s
+      # Tighter tolerance — only 2 failures allowed because fill rate
+      # issues directly impact PnL
+      failureLimit: 2
+      successCondition: result[0] > 0.85
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: |
+            sum(rate(quant_system_fills_total{pod=~"quant-system-{{args.canary-hash}}.*"}[5m]))
+            / sum(rate(quant_system_orders_total{pod=~"quant-system-{{args.canary-hash}}.*"}[5m]))

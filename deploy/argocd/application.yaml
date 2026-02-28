@@ -1,0 +1,50 @@
+# ArgoCD Application for quant-system
+# GitOps: cluster state is driven by this repo. ArgoCD watches the deploy/k8s
+# path and reconciles automatically. Manual kubectl apply is discouraged once
+# ArgoCD is managing the namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: quant-system
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: quant-system
+    app.kubernetes.io/managed-by: argocd
+  finalizers:
+    # Ensures ArgoCD cleans up child resources when the Application is deleted
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: quant-system
+  source:
+    # PLACEHOLDER: replace with your actual repo URL
+    repoURL: https://github.com/OWNER/quant-system.git
+    targetRevision: main
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: quant
+  syncPolicy:
+    automated:
+      # Remove resources from cluster that are no longer in git
+      prune: true
+      # Auto-correct drift (e.g. someone does a manual kubectl edit)
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      # Validate manifests against the cluster's OpenAPI schema
+      - Validate=true
+      # Replace instead of apply for resources that hit annotation size limits
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  # Ignore differences that are expected to drift (controller-managed fields)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
