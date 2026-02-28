@@ -115,6 +115,7 @@ class LiveRunner:
     correlation_computer: Optional[Any] = None
     attribution_tracker: Optional[Any] = None
     correlation_gate: Optional[Any] = None
+    risk_gate: Optional[Any] = None
     module_reloader: Optional[Any] = None
     decision_bridge: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
@@ -213,6 +214,14 @@ class LiveRunner:
             config=CorrelationGateConfig(max_avg_correlation=config.max_avg_correlation),
         )
 
+        # ── RiskGate (pre-execution size/notional checks) ────
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
+        risk_gate = RiskGate(
+            config=RiskGateConfig(),
+            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
+            is_killed=lambda: kill_switch.is_killed() is not None,
+        )
+
         # ── Feature computation + ML inference hook ──────────
         feat_hook = None
         if feature_computer is not None:
@@ -242,6 +251,7 @@ class LiveRunner:
             et = getattr(ev, "event_type", None)
             et_str = (str(et.value) if hasattr(et, "value") else str(et)).upper() if et else ""
             if et_str == "ORDER":
+                # Gate 1: Correlation check
                 view = coordinator.get_state_view()
                 positions = view.get("positions", {})
                 existing = [s for s, p in positions.items() if float(getattr(p, "qty", 0)) != 0]
@@ -250,6 +260,12 @@ class LiveRunner:
                 if not decision.ok:
                     msg = decision.violations[0].message if decision.violations else "blocked"
                     logger.warning("CorrelationGate REJECTED order for %s: %s", sym, msg)
+                    return
+
+                # Gate 2: Risk size/notional check
+                risk_result = risk_gate.check(ev)
+                if not risk_result.allowed:
+                    logger.warning("RiskGate REJECTED order for %s: %s", sym, risk_result.reason)
                     return
 
             coordinator.emit(ev, actor="live")
@@ -596,6 +612,7 @@ class LiveRunner:
             correlation_computer=correlation_computer,
             attribution_tracker=attribution_tracker,
             correlation_gate=correlation_gate,
+            risk_gate=risk_gate,
             module_reloader=module_reloader,
             decision_bridge=decision_bridge_inst,
             _fills=fills,
