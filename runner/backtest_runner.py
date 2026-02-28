@@ -188,6 +188,9 @@ def run_backtest(
     embargo_bars: int = 1,
     funding_csv: Optional[str] = None,
     decision_modules: Optional[List[Any]] = None,
+    feature_computer: Any = None,
+    alpha_models: Optional[List[Any]] = None,
+    enable_attribution: bool = False,
 ) -> Tuple[List[EquityPoint], List[Dict[str, Any]]]:
     symbol_u = symbol.upper()
 
@@ -251,16 +254,37 @@ def run_backtest(
             )
         )
 
+    # Feature compute hook (same as live runner)
+    feat_hook = None
+    if feature_computer is not None:
+        from engine.feature_hook import FeatureComputeHook
+        inference_bridge = None
+        if alpha_models:
+            from alpha.inference.bridge import LiveInferenceBridge
+            inference_bridge = LiveInferenceBridge(models=list(alpha_models))
+        feat_hook = FeatureComputeHook(
+            computer=feature_computer, inference_bridge=inference_bridge,
+        )
+
+    # Attribution tracker (same as live runner)
+    attribution_tracker = None
+    if enable_attribution:
+        from attribution.tracker import AttributionTracker
+        attribution_tracker = AttributionTracker()
+
     coordinator = EngineCoordinator(
         cfg=CoordinatorConfig(
             symbol_default=symbol_u,
             currency="USDT",
             starting_balance=float(starting_balance),
             on_pipeline_output=_on_pipeline,
+            feature_hook=feat_hook,
         )
     )
 
     def _emit(ev: Any) -> None:
+        if attribution_tracker is not None:
+            attribution_tracker.on_event(ev)
         coordinator.emit(ev, actor="backtest")
 
     def _price(sym: str) -> Optional[Decimal]:

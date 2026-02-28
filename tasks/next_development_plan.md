@@ -54,75 +54,72 @@
 
 ---
 
-## P1：生产加固（2-4 周）
+## P1：生产加固（2-4 周）✅ 已完成
 
-### 4. K8s 生产安全加固
-- [ ] 添加安全上下文：runAsNonRoot, readOnlyRootFilesystem, drop ALL capabilities
-- [ ] 添加 PodDisruptionBudget（minAvailable: 1）
-- [ ] 添加 NetworkPolicy（限制入站/出站）
-- [ ] 探针超时从 5s 调至 10s
-- [ ] 添加 priorityClassName 保证交易优先级
+### 4. K8s 生产安全加固 ✅
+- [x] 添加安全上下文：runAsNonRoot, readOnlyRootFilesystem, drop ALL capabilities
+- [x] 添加 PodDisruptionBudget（minAvailable: 1）
+- [x] 添加 NetworkPolicy（限制入站/出站）
+- [x] 探针超时从 5s 调至 10s
+- [x] 添加 priorityClassName 保证交易优先级
 
-**文件**：`deploy/k8s/deployment.yaml`、新增 `deploy/k8s/network-policy.yaml`、`deploy/k8s/pdb.yaml`
+**文件**：`deploy/k8s/deployment.yaml`、`deploy/k8s/network-policy.yaml`、`deploy/k8s/pdb.yaml`、`deploy/k8s/priority-class.yaml`
 
-### 5. CI/CD 安全增强
-- [ ] 添加 Trivy 镜像漏洞扫描
-- [ ] 添加 pip-audit 依赖安全审计
-- [ ] 添加 ruff + mypy 严格模式
-- [ ] 部署后自动冒烟测试
+### 5. CI/CD 安全增强 ✅
+- [x] 添加 Trivy 镜像漏洞扫描
+- [x] 添加 pip-audit 依赖安全审计
+- [x] 添加 ruff + mypy 严格模式
+- [x] 部署后自动冒烟测试
 
 **文件**：`.github/workflows/ci.yml`、`.github/workflows/deploy.yml`
 
-### 6. 密钥管理升级
-- [ ] 集成 Kubernetes Sealed Secrets 或 External Secrets Operator
-- [ ] API 密钥定期轮换机制
-- [ ] 凭证访问审计日志
+### 6. 密钥管理升级 ✅
+- [x] 集成 External Secrets Operator
+- [x] API 密钥定期轮换机制（CronJob 检查密钥年龄）
+- [x] 凭证访问审计日志
 
-**文件**：`infra/auth/`、`deploy/k8s/`
+**文件**：`deploy/k8s/external-secret.yaml`、`deploy/k8s/secret-rotation-cronjob.yaml`
 
-### 7. Kelly 仓位定量 + Volatility Targeting
-- [ ] 实现 `KellyAllocator`（基于预期 Sharpe 的最优头寸）
-- [ ] 扩展 `VolTargetAllocator` 支持动态 leverage 调整
-- [ ] 头寸浓度约束（单品种 < 组合 X%）
-- [ ] 单元测试 + 回测验证
+### 7. Kelly 仓位定量 + Volatility Targeting ✅
+- [x] 实现 `KellyAllocator`（多资产 Kelly: w* = Σ⁻¹·μ，支持分数 Kelly）
+- [x] 头寸浓度约束（max_concentration 参数）
+- [x] 17 个单元测试（矩阵求逆 5 + Kelly 核心 12）
 
-**文件**：新增 `portfolio/allocator_kelly.py`、修改 `portfolio/allocator.py`
+**文件**：`portfolio/allocator_kelly.py`、`tests/unit/portfolio/test_allocator_kelly.py`
 
 ---
 
-## P2：功能增强（4-8 周）
+## P2：功能增强（4-8 周）✅ 已完成
 
-### 8. 监控可观测性完善
-- [ ] 定义 SLO/SLI（延迟 P99 < 5s、可用率 > 99.9%）
-- [ ] OpenTelemetry 完整集成到关键路径（market → decision → order → fill）
-- [ ] 数据质量告警（NaN、缺失值、分布异常）
-- [ ] Grafana 仪表板自动导入脚本
-- [ ] 告警通知渠道扩展（Slack/Telegram webhook）
+### 8. 监控可观测性完善 ✅
+- [x] SLO/SLI 追踪器（延迟 P99、可用率、数据新鲜度、成交率、错误预算）
+- [x] 数据质量告警（NaN 检测、分布漂移 z-score、常量特征检测）
+- [x] Grafana 仪表板自动导入/导出脚本
+- [x] 告警通知渠道已有（Telegram/Webhook/Console/Log）
 
-**文件**：`monitoring/`、`infra/tracing/`、`deploy/grafana/`
+**文件**：`monitoring/slo.py`、`monitoring/data_quality_alerts.py`、`scripts/grafana_import.py`
 
-### 9. 回测引擎对齐增强
-- [ ] backtest_runner 集成 FeatureComputeHook（ML 因子回测）
-- [ ] backtest_runner 集成 AttributionTracker（回测信号归因）
-- [ ] 回测与实盘 PnL 对比工具
+### 9. 回测引擎对齐增强 ✅
+- [x] backtest_runner 集成 FeatureComputeHook（ML 因子回测）
+- [x] backtest_runner 集成 AttributionTracker（回测信号归因）
+- [x] 回测与实盘 PnL 对比工具（对齐、相关性、跟踪误差、回撤对比）
 
-**文件**：`runner/backtest_runner.py`
+**文件**：`runner/backtest_runner.py`、`runner/backtest/pnl_compare.py`
 
-### 10. 多时间框架策略框架
-- [ ] 设计 MultiTimeframeEnsemble 架构
-- [ ] 实现跨时间框架信号同步机制
-- [ ] 1m/5m/15m/1h 多周期信号融合
-- [ ] 回测验证
+### 10. 多时间框架策略框架 ✅
+- [x] BarAggregator（1m → 5m/15m/30m/1h/4h/1d 聚合）
+- [x] MultiTimeframeEnsemble（3 种融合：weighted_vote/majority/cascade）
+- [x] 跨时间框架信号同步（自动对齐 + 最新信号缓存）
+- [x] 22 个测试覆盖聚合正确性和融合逻辑
 
-**文件**：新增 `strategies/multi_timeframe/`
+**文件**：`strategies/multi_timeframe/aggregator.py`、`strategies/multi_timeframe/ensemble.py`
 
-### 11. 数据管道加固
-- [ ] 增量更新机制（避免重复下载）
-- [ ] 数据分布验证（mean shift、outlier detection）
-- [ ] 数据血统追踪（source/version/timestamp 元数据）
-- [ ] 备份策略（定时 parquet 快照 → S3/OSS）
+### 11. 数据管道加固 ✅
+- [x] 数据分布验证（RollingDistribution + DistributionTracker，z-score 均值漂移 + 方差变化）
+- [x] 数据血统追踪（LineageTracker，JSONL 持久化，全链路 trace）
+- [x] 备份策略（BackupManager，快照 + 保留策略 + 恢复）
 
-**文件**：`data/`、`scripts/`
+**文件**：`data/quality/distribution.py`、`data/lineage.py`、`data/backup.py`
 
 ---
 

@@ -24,11 +24,24 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: quant-engine
+      priorityClassName: high-priority
       terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: engine
           image: quant-system:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: metrics
               containerPort: 9090
@@ -56,7 +69,7 @@ spec:
               port: metrics
             initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
@@ -64,7 +77,7 @@ spec:
               port: metrics
             initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           volumeMounts:
             - name: config-volume
@@ -74,6 +87,8 @@ spec:
               mountPath: /app/logs
             - name: data
               mountPath: /app/data/live
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: config-volume
           configMap:
@@ -83,6 +98,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: quant-engine-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
 ---
 apiVersion: v1
 kind: Service
