@@ -41,7 +41,7 @@ def _lows(bars: Bars) -> List[float]:
 
 def sma(values: Sequence[float], window: int) -> FeatureSeries:
     if _USING_CPP:
-        return cpp_sma([float(v) for v in values], window)
+        return cpp_sma([float(v) for v in values], window)  # type: ignore[no-any-return]
     rw = RollingWindow(window)
     out: FeatureSeries = []
     for x in values:
@@ -52,7 +52,7 @@ def sma(values: Sequence[float], window: int) -> FeatureSeries:
 
 def ema(values: Sequence[float], window: int) -> FeatureSeries:
     if _USING_CPP:
-        return cpp_ema([float(v) for v in values], window)
+        return cpp_ema([float(v) for v in values], window)  # type: ignore[no-any-return]
     if window <= 0:
         raise ValueError("window must be positive")
 
@@ -71,7 +71,7 @@ def ema(values: Sequence[float], window: int) -> FeatureSeries:
 
 def returns(values: Sequence[float], *, log_ret: bool = False) -> FeatureSeries:
     if _USING_CPP:
-        return cpp_returns([float(v) for v in values], log_ret)
+        return cpp_returns([float(v) for v in values], log_ret)  # type: ignore[no-any-return]
     out: FeatureSeries = [None] * len(values)
     for i in range(1, len(values)):
         p0 = float(values[i - 1])
@@ -90,7 +90,7 @@ def log_returns(values: Sequence[float]) -> FeatureSeries:
 
 def volatility(ret_series: Sequence[Optional[float]], window: int) -> FeatureSeries:
     if _USING_CPP:
-        return cpp_volatility(list(ret_series), window)
+        return cpp_volatility(list(ret_series), window)  # type: ignore[no-any-return]
     rw = RollingWindow(window)
     out: FeatureSeries = []
     for r in ret_series:
@@ -104,7 +104,7 @@ def volatility(ret_series: Sequence[Optional[float]], window: int) -> FeatureSer
 
 def rsi(values: Sequence[float], window: int = 14) -> FeatureSeries:
     if _USING_CPP:
-        return cpp_rsi([float(v) for v in values], window)
+        return cpp_rsi([float(v) for v in values], window)  # type: ignore[no-any-return]
     if window <= 0:
         raise ValueError("window must be positive")
 
@@ -118,7 +118,7 @@ def rsi(values: Sequence[float], window: int = 14) -> FeatureSeries:
         loss = max(-change, 0.0)
 
         if i < window:
-            if avg_gain is None:
+            if avg_gain is None or avg_loss is None:
                 avg_gain = 0.0
                 avg_loss = 0.0
             avg_gain += gain
@@ -150,7 +150,7 @@ def macd(
     signal: int = 9,
 ) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
     if _USING_CPP:
-        return cpp_macd([float(v) for v in values], fast, slow, signal)
+        return cpp_macd([float(v) for v in values], fast, slow, signal)  # type: ignore[no-any-return]
     if fast <= 0 or slow <= 0 or signal <= 0:
         raise ValueError("MACD windows must be positive")
     if fast >= slow:
@@ -193,7 +193,7 @@ def bollinger_bands(
     num_std: float = 2.0,
 ) -> tuple[FeatureSeries, FeatureSeries, FeatureSeries]:
     if _USING_CPP:
-        return cpp_bollinger_bands([float(v) for v in values], window, num_std)
+        return cpp_bollinger_bands([float(v) for v in values], window, num_std)  # type: ignore[no-any-return]
     if window <= 0:
         raise ValueError("window must be positive")
     if num_std <= 0:
@@ -230,7 +230,7 @@ def atr(bars: Bars, window: int = 14) -> FeatureSeries:
         highs = _highs(bars)
         lows = _lows(bars)
         closes = _closes(bars)
-        return cpp_atr(highs, lows, closes, window)
+        return cpp_atr(highs, lows, closes, window)  # type: ignore[no-any-return]
     if window <= 0:
         raise ValueError("window must be positive")
 

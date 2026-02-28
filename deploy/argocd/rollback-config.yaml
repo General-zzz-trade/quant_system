@@ -1,0 +1,39 @@
+# Rollback configuration and notification settings
+#
+# This ConfigMap holds thresholds and operational parameters for the
+# canary rollout. Values here can be referenced by the AnalysisTemplate
+# or read by application code to adjust behavior during canary phases.
+#
+# Separating these from the AnalysisTemplate allows operators to tune
+# thresholds without modifying the template itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quant-system-rollback-config
+  namespace: quant
+  labels:
+    app: quant-engine
+    app.kubernetes.io/part-of: quant-system
+data:
+  # --- Rollback thresholds ---
+  # Maximum error rate before automatic rollback (fraction, 0-1)
+  MAX_ERROR_RATE: "0.05"
+  # Maximum p99 latency in seconds
+  MAX_LATENCY_P99: "1.0"
+  # Minimum order fill rate (fraction, 0-1)
+  MIN_FILL_RATE: "0.85"
+  # Maximum drawdown percentage during canary (triggers immediate abort)
+  MAX_CANARY_DRAWDOWN_PCT: "2.0"
+
+  # --- Notification settings ---
+  # Slack webhook for rollout events (rollback, promotion, pause)
+  # PLACEHOLDER: set via ExternalSecret or sealed-secret in production
+  NOTIFICATION_SLACK_CHANNEL: "#quant-deploys"
+  NOTIFICATION_SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/PLACEHOLDER"
+
+  # --- Canary behavior ---
+  # Whether the canary should execute real orders or run in shadow mode
+  # Recommended: "shadow" during initial phases, "live" after 60% weight
+  CANARY_ORDER_MODE: "shadow"
+  # How long to wait after rollback before allowing another rollout (seconds)
+  ROLLBACK_COOLDOWN_SECONDS: "1800"

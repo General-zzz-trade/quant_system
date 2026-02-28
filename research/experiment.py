@@ -178,7 +178,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     if args.command == "run":
-        import yaml
+        import yaml  # type: ignore[import-untyped]
         with open(args.config) as f:
             config = yaml.safe_load(f)
         runner = ExperimentRunner(out_dir=args.out)

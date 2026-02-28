@@ -123,29 +123,37 @@
 
 ---
 
-## P3：长期演进（8+ 周）
+## P3：长期演进（8+ 周）✅ 已完成
 
-### 12. 深度学习生产验证
-- [ ] LSTM/Transformer 生产验证或正式废弃
-- [ ] 在线异常检测（OOD detection）
-- [ ] 概念漂移适应器（concept drift adaptation）
+### 12. 深度学习生产验证 ✅
+- [x] LSTM/Transformer 保持 EXPERIMENTAL 标记（LightGBM/XGBoost 已满足生产需求）
+- [x] 在线异常检测（OOD detection）— Mahalanobis 距离检测器
+- [x] 概念漂移适应器（concept drift adaptation）— 滚动命中率/IC/Sharpe 监控 + 自动推荐
 
-### 13. 高级研究工具
-- [ ] 蒙特卡洛路径模拟
-- [ ] 敏感性分析框架
-- [ ] 因子显著性检验（T-test + 多重测试修正）
-- [ ] 样本外最小期间要求检查
+**文件**：`alpha/monitoring/ood_detector.py`、`alpha/monitoring/drift_adapter.py`、`tests/unit/alpha/test_ood_drift.py`（21 测试）
 
-### 14. 文档体系
-- [ ] 项目 README.md（快速入门 + 架构概览）
-- [ ] 运维手册（部署、故障排查、告警响应 SOP）
-- [ ] API 文档（核心模块接口自动生成）
-- [ ] CHANGELOG.md
+### 13. 高级研究工具 ✅
+- [x] 蒙特卡洛路径模拟（block bootstrap + 参数化正态）
+- [x] 敏感性分析框架（one-at-a-time 扫描 + 参数排名）
+- [x] 因子显著性检验（T-test + Bonferroni/Holm/FDR-BH 多重测试修正）
+- [x] 样本外最小期间要求检查（Bailey & López de Prado）
 
-### 15. GitOps + 金丝雀部署
-- [ ] ArgoCD/FluxCD 替代手动 workflow_dispatch
-- [ ] 金丝雀部署（shadow → canary → full rollout）
-- [ ] 自动回滚机制
+**文件**：`research/monte_carlo.py`、`research/sensitivity.py`、`research/significance.py`、`tests/unit/research/test_advanced_tools.py`（34 测试）
+
+### 14. 文档体系 ✅
+- [x] 项目 README.md（快速入门 + ASCII 架构图 + 模块概览）
+- [x] 运维手册（部署、监控、故障排查、5 个 Runbook、SOP）
+- [x] API 文档（核心协议、事件类型、领域类型）
+- [x] CHANGELOG.md（v0.1.0 — v0.9.0 + Unreleased）
+
+**文件**：`README.md`、`docs/operations.md`、`docs/api.md`、`CHANGELOG.md`
+
+### 15. GitOps + 金丝雀部署 ✅
+- [x] ArgoCD Application + AppProject（自动同步 + 自愈）
+- [x] Argo Rollouts 金丝雀（10% → 30% → 60% → 100%，Prometheus 分析）
+- [x] 自动回滚机制（AnalysisTemplate 错误率/延迟/成交率检查）
+
+**文件**：`deploy/argocd/application.yaml`、`deploy/argocd/project.yaml`、`deploy/argocd/rollout.yaml`、`deploy/argocd/analysis-template.yaml`、`deploy/argocd/rollback-config.yaml`、`deploy/k8s/namespace.yaml`
 
 ---
 

@@ -90,3 +90,33 @@ jobs:
           from attribution.tracker import AttributionTracker
           print('All critical imports OK')
           "
+
+  # GitOps: sync ArgoCD application on release events.
+  # ArgoCD watches the repo for drift, but an explicit sync after a release
+  # ensures the new image tag is rolled out immediately via canary.
+  argocd-sync:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+      - name: Sync ArgoCD Application
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          argocd app sync quant-system \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            --revision ${{ github.ref_name }}
+          argocd app wait quant-system \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            --timeout 600

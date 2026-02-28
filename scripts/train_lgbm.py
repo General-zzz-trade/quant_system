@@ -12,10 +12,14 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from alpha.training.trainer import ModelTrainer
 from features.live_computer import LiveFeatureComputer
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +61,10 @@ def compute_target(closes: "pd.Series", horizon: int = 5) -> "pd.Series":
 
 
 def load_config(path: Path) -> dict:
-    import yaml
+    import yaml  # type: ignore[import-untyped]
     with open(path) as f:
-        return yaml.safe_load(f)
+        result: dict = yaml.safe_load(f)
+        return result
 
 
 def main() -> None:

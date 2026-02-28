@@ -47,14 +47,19 @@ def to_bars(
             dt = ts
         else:
             dt = datetime.fromisoformat(str(ts))
+        _open = r.get(open_key, 0.0)
+        _high = r.get(high_key, 0.0)
+        _low = r.get(low_key, 0.0)
+        _close = r.get(close_key, 0.0)
+        _vol = r.get(volume_key, 0.0)
         out.append(
             Bar(
                 ts=dt,
-                open=float(r.get(open_key, 0.0)),
-                high=float(r.get(high_key, 0.0)),
-                low=float(r.get(low_key, 0.0)),
-                close=float(r.get(close_key, 0.0)),
-                volume=float(r.get(volume_key, 0.0)),
+                open=float(_open) if isinstance(_open, (int, float, str)) else 0.0,
+                high=float(_high) if isinstance(_high, (int, float, str)) else 0.0,
+                low=float(_low) if isinstance(_low, (int, float, str)) else 0.0,
+                close=float(_close) if isinstance(_close, (int, float, str)) else 0.0,
+                volume=float(_vol) if isinstance(_vol, (int, float, str)) else 0.0,
             )
         )
     return out
