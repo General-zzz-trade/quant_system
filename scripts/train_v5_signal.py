@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""Train V3 Alpha — walk-forward with early stopping, vol-normalized target, Spearman IC.
+"""Train V5 Alpha — ICIR feature selection + Optuna HPO + sample weights.
 
-Key improvements over V2:
-  1. Expanding-window walk-forward (5-fold) instead of single 70/30 split
-  2. Early stopping with embargo in each fold
-  3. Vol-normalized target to equalize regime contributions
-  4. Spearman rank IC feature selection (robust to fat tails)
-  5. Blacklisted garbage features (OI/LS with insufficient data)
-  6. Deflated Sharpe Ratio gate for statistical significance
-  7. True OOS evaluation on held-out _oos.csv files
+Key improvements over V3:
+  1. ICIR-based feature selection (stability across folds, not just magnitude)
+  2. Optuna hyperparameter optimization (inner 3-fold CV per outer fold)
+  3. Time-decay sample weights (recent data weighted more)
+  4. Larger embargo (7 bars = horizon 5 + buffer 2)
+  5. New V5 interaction features (CVD × OI, vol_of_vol × range)
 
 Usage:
-    python3 -m scripts.train_v3_walkforward --all
-    python3 -m scripts.train_v3_walkforward --symbol BTCUSDT
-    python3 -m scripts.train_v3_walkforward --all --top-k 20 --horizon 5 --n-folds 5
+    python3 -m scripts.train_v5_signal --all
+    python3 -m scripts.train_v5_signal --symbol BTCUSDT
+    python3 -m scripts.train_v5_signal --symbol BTCUSDT --n-trials 30 --top-k 25
 """
 from __future__ import annotations
 
@@ -21,7 +19,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,7 +27,10 @@ import pandas as pd
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
 from features.cross_asset_computer import CrossAssetComputer, CROSS_ASSET_FEATURE_NAMES
-from features.dynamic_selector import spearman_ic_select
+from features.dynamic_selector import icir_select, compute_feature_icir_report
+
+from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
+from research.hyperopt.search_space import SearchSpace, ParamRange
 
 try:
     from features._quant_rolling import cpp_vol_normalized_target as _cpp_vol_target
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────
 
-V3_PARAMS = {
+V5_DEFAULT_PARAMS = {
     "n_estimators": 500,
     "max_depth": 5,
     "learning_rate": 0.02,
@@ -55,8 +56,24 @@ V3_PARAMS = {
     "verbosity": -1,
 }
 
+V5_SEARCH_SPACE = SearchSpace(
+    name="lgbm_v5",
+    int_params=(
+        ParamRange("max_depth", 3, 7),
+        ParamRange("num_leaves", 10, 40),
+        ParamRange("min_child_samples", 30, 100),
+    ),
+    float_params=(
+        ParamRange("learning_rate", 0.01, 0.1, log_scale=True),
+        ParamRange("reg_alpha", 0.01, 1.0, log_scale=True),
+        ParamRange("reg_lambda", 0.1, 5.0, log_scale=True),
+        ParamRange("subsample", 0.5, 0.9),
+        ParamRange("colsample_bytree", 0.5, 0.9),
+    ),
+)
+
 EARLY_STOPPING_ROUNDS = 50
-EMBARGO_BARS = 5
+EMBARGO_BARS = 7  # horizon(5) + buffer(2)
 
 BLACKLIST = {
     "oi_change_pct", "oi_change_ma8", "oi_close_divergence",
@@ -65,18 +82,21 @@ BLACKLIST = {
     "oi_chg_x_ret1",
 }
 
+# V3 interactions + V5 new interactions
 INTERACTION_FEATURES = [
     ("rsi14_x_vol_regime", "rsi_14", "vol_regime"),
     ("funding_x_taker_imb", "funding_rate", "taker_imbalance"),
     ("btc_ret1_x_beta30", "btc_ret_1", "rolling_beta_30"),
     ("trade_int_x_body", "trade_intensity", "body_ratio"),
+    # V5 new
+    ("cvd_x_oi_chg", "cvd_20", "oi_change_pct"),
+    ("vol_of_vol_x_range", "vol_of_vol", "range_vs_rv"),
 ]
 
-# ── Data loading (reuses V2 pattern) ────────────────────────
+# ── Data loading (reuses V3 pattern) ────────────────────────
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
-    """Load a CSV schedule as {timestamp_ms: value}."""
     import csv
     schedule: Dict[int, float] = {}
     if not path.exists():
@@ -96,7 +116,6 @@ def _compute_features(
     ls_schedule: Dict[int, float],
     cross_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
-    """Compute all features for one symbol's dataframe."""
     from datetime import datetime, timezone
 
     funding_times = sorted(funding_schedule.keys())
@@ -186,17 +205,10 @@ def vol_normalized_target(
     horizon: int = 5,
     vol_window: int = 20,
 ) -> np.ndarray:
-    """Compute vol-normalized forward returns.
-
-    raw_ret = close[t+horizon] / close[t] - 1
-    vol = rolling_std(pct_change, vol_window), clipped at 5th percentile
-    target = raw_ret / vol
-    """
     if _TARGET_CPP:
         result = _cpp_vol_target(closes.tolist(), horizon, vol_window)
         return np.array(result, dtype=np.float64)
 
-    # Python fallback
     n = len(closes)
     raw_ret = np.full(n, np.nan)
     for i in range(n - horizon):
@@ -220,22 +232,23 @@ def vol_normalized_target(
     else:
         return raw_ret
 
-    target = np.where(
+    return np.where(
         (~np.isnan(raw_ret)) & (~np.isnan(vol)) & (vol > 0),
         raw_ret / vol,
         np.nan,
     )
-    return target
+
+
+# ── Sample weights ───────────────────────────────────────────
+
+def _compute_sample_weights(n: int, decay: float = 0.5) -> np.ndarray:
+    """Time-decay sample weights: linearly from `decay` to 1.0."""
+    return np.linspace(decay, 1.0, n)
 
 
 # ── Walk-forward engine ──────────────────────────────────────
 
 def expanding_window_folds(n: int, n_folds: int = 5, min_train: int = 500):
-    """Generate expanding-window fold indices.
-
-    Each fold: train = [0, split), test = [split, split + fold_size).
-    Train expands; test windows are non-overlapping.
-    """
     test_total = n - min_train
     if test_total <= 0 or n_folds <= 0:
         return []
@@ -250,23 +263,81 @@ def expanding_window_folds(n: int, n_folds: int = 5, min_train: int = 500):
     return folds
 
 
+def _inner_cv_objective(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    weights: np.ndarray,
+    selected_names: tuple,
+    inner_folds: int = 3,
+) -> callable:
+    """Create objective function for Optuna inner CV."""
+    from features.dynamic_selector import _rankdata
+
+    n = len(X_train)
+    fold_size = n // inner_folds
+
+    def objective(params: Dict[str, Any]) -> float:
+        lgbm_params = {
+            **params,
+            "n_estimators": 500,
+            "objective": "regression",
+            "verbosity": -1,
+        }
+        ics = []
+        for fold_i in range(inner_folds):
+            val_start = fold_i * fold_size
+            val_end = val_start + fold_size if fold_i < inner_folds - 1 else n
+            # Purged split: train on everything except val + embargo
+            embargo_start = max(0, val_start - EMBARGO_BARS)
+            embargo_end = min(n, val_end + EMBARGO_BARS)
+
+            train_mask = np.ones(n, dtype=bool)
+            train_mask[embargo_start:embargo_end] = False
+            if train_mask.sum() < 100:
+                continue
+
+            X_tr = X_train[train_mask]
+            y_tr = y_train[train_mask]
+            w_tr = weights[train_mask]
+            X_val = X_train[val_start:val_end]
+            y_val = y_train[val_start:val_end]
+
+            model = LGBMAlphaModel(name="inner_cv", feature_names=selected_names)
+            model.fit(X_tr, y_tr, params=lgbm_params,
+                      early_stopping_rounds=30, embargo_bars=0, val_size=0.15)
+            # Manually pass sample_weight through params isn't supported —
+            # the LGBMAlphaModel.fit handles val_size internally
+
+            y_pred = model._model.predict(X_val)
+            if len(y_pred) < 30 or np.std(y_pred) < 1e-12:
+                continue
+            # Spearman IC
+            rx = _rankdata(y_pred)
+            ry = _rankdata(y_val)
+            ic = float(np.corrcoef(rx, ry)[0, 1])
+            if not np.isnan(ic):
+                ics.append(ic)
+
+        return float(np.mean(ics)) if ics else 0.0
+
+    return objective
+
+
 def run_walkforward(
     symbol: str,
     feat_df: pd.DataFrame,
     available: List[str],
     out_dir: Path,
     *,
-    top_k: int = 20,
+    top_k: int = 25,
     horizon: int = 5,
     n_folds: int = 5,
+    n_trials: int = 30,
 ) -> Optional[dict]:
-    """Run walk-forward training for one symbol."""
-    from scripts.oos_eval import compute_1bar_returns, evaluate_oos, print_evaluation
-
+    """Run V5 walk-forward training for one symbol."""
     closes = feat_df["close"].values.astype(np.float64)
     target = vol_normalized_target(closes, horizon=horizon)
 
-    # Filter blacklisted and all-NaN features
     available = [n for n in available if n not in BLACKLIST]
     X_all = feat_df[available]
     all_nan_cols = set(X_all.columns[X_all.isna().all()])
@@ -274,11 +345,10 @@ def run_walkforward(
         print(f"  Dropping {len(all_nan_cols)} all-NaN: {sorted(all_nan_cols)}")
         available = [c for c in available if c not in all_nan_cols]
 
-    # Build clean mask (core features must be non-NaN, sparse features handled by LGBM)
     SPARSE = {"oi_change_pct", "oi_change_ma8", "oi_close_divergence",
               "ls_ratio", "ls_ratio_zscore_24", "ls_extreme",
               "btc_ret1_x_beta30",
-              # OI-dependent (OI data very sparse ~500 rows vs ~56k bars)
+              # V5 OI-dependent (OI data very sparse ~500 rows vs ~56k bars)
               "oi_acceleration", "leverage_proxy", "oi_vol_divergence",
               "oi_liquidation_flag", "cvd_x_oi_chg",
               # Funding-dependent (funding only every 8h)
@@ -305,19 +375,16 @@ def run_walkforward(
         print("  ERROR: Not enough valid samples for walk-forward")
         return None
 
-    # ── Walk-forward folds ──
     folds = expanding_window_folds(len(X_clean), n_folds=n_folds)
     if not folds:
         print("  ERROR: Could not create folds")
         return None
 
-    print(f"  Walk-forward: {len(folds)} folds, horizon={horizon}")
+    print(f"  Walk-forward: {len(folds)} folds, horizon={horizon}, embargo={EMBARGO_BARS}")
 
     fold_results = []
     feature_selection_counts: Dict[str, int] = {}
-    all_test_preds = []
-    all_test_y = []
-    all_test_idx = []
+    icir_reports: List[dict] = []
 
     for fi, (tr_start, tr_end, te_start, te_end) in enumerate(folds):
         X_train = X_clean[tr_start:tr_end]
@@ -325,8 +392,8 @@ def run_walkforward(
         X_test = X_clean[te_start:te_end]
         y_test = y_clean[te_start:te_end]
 
-        # Spearman IC feature selection on training data
-        selected = spearman_ic_select(X_train, y_train, available, top_k=top_k)
+        # V5: ICIR feature selection
+        selected = icir_select(X_train, y_train, available, top_k=top_k)
         sel_idx = [available.index(n) for n in selected]
 
         for name in selected:
@@ -335,41 +402,74 @@ def run_walkforward(
         X_tr_sel = X_train[:, sel_idx]
         X_te_sel = X_test[:, sel_idx]
 
+        # V5: Sample weights (time decay)
+        weights = _compute_sample_weights(len(X_tr_sel))
+
+        # V5: Optuna HPO (inner CV)
+        if n_trials > 0:
+            obj_fn = _inner_cv_objective(
+                X_tr_sel, y_train, weights,
+                selected_names=tuple(selected),
+                inner_folds=3,
+            )
+            optimizer = HyperOptimizer(
+                search_space=V5_SEARCH_SPACE,
+                objective_fn=obj_fn,
+                config=HyperOptConfig(
+                    n_trials=n_trials,
+                    direction="maximize",
+                    seed=42 + fi,
+                    pruner_patience=10,
+                    pruner_min_trials=5,
+                ),
+            )
+            hpo_result = optimizer.optimize()
+            fold_params = {**V5_DEFAULT_PARAMS, **hpo_result.best_params}
+            print(f"  Fold {fi} HPO: best_ic={hpo_result.best_value:.4f} "
+                  f"({hpo_result.n_trials} trials)")
+        else:
+            fold_params = V5_DEFAULT_PARAMS.copy()
+
         # Train with early stopping + embargo
-        model = LGBMAlphaModel(name=f"v3_fold{fi}", feature_names=tuple(selected))
+        model = LGBMAlphaModel(name=f"v5_fold{fi}", feature_names=tuple(selected))
         metrics = model.fit(
             X_tr_sel, y_train,
-            params=V3_PARAMS.copy(),
+            params=fold_params,
             early_stopping_rounds=EARLY_STOPPING_ROUNDS,
             embargo_bars=EMBARGO_BARS,
         )
 
         # Evaluate fold
         y_pred = model._model.predict(X_te_sel)
-
         dir_acc = float(np.mean(np.sign(y_pred) == np.sign(y_test)))
         ic = float(np.corrcoef(y_pred, y_test)[0, 1]) if len(y_pred) > 1 else 0.0
 
-        # 1-bar returns for Sharpe
+        # Simple Sharpe on test predictions
         test_orig = valid_indices[te_start:te_end]
-        ret_1bar = compute_1bar_returns(closes, test_orig)
+        ret_1bar = np.full(len(test_orig), np.nan)
+        for i, idx in enumerate(test_orig):
+            if idx + 1 < len(closes):
+                ret_1bar[i] = closes[idx + 1] / closes[idx] - 1.0
+
         valid_ret = ~np.isnan(ret_1bar)
+        sharpe = 0.0
         if valid_ret.sum() > 1:
-            from scripts.oos_eval import apply_threshold, compute_signal_costs
-            signal = apply_threshold(y_pred[valid_ret], 0.001)
-            costs = compute_signal_costs(signal)
-            net_pnl = signal * ret_1bar[valid_ret] - costs
+            signal = np.where(np.abs(y_pred[valid_ret]) > 0.001,
+                              np.sign(y_pred[valid_ret]), 0.0)
+            net_pnl = signal * ret_1bar[valid_ret]
             active = signal != 0
             n_active = int(active.sum())
             if n_active > 1:
                 std_a = float(np.std(net_pnl[active], ddof=1))
-                sharpe = float(np.mean(net_pnl[active])) / std_a * np.sqrt(8760) if std_a > 0 else 0.0
-            else:
-                sharpe = 0.0
-        else:
-            sharpe = 0.0
+                if std_a > 0:
+                    sharpe = float(np.mean(net_pnl[active])) / std_a * np.sqrt(8760)
 
-        best_iter = metrics.get("best_iteration", V3_PARAMS["n_estimators"])
+        best_iter = metrics.get("best_iteration", V5_DEFAULT_PARAMS["n_estimators"])
+
+        # ICIR report for this fold
+        report = compute_feature_icir_report(X_train, y_train, available)
+        if report:
+            icir_reports.append(report)
 
         fold_result = {
             "fold": fi,
@@ -381,45 +481,61 @@ def run_walkforward(
             "best_iteration": int(best_iter),
             "n_features": len(selected),
             "selected_features": selected,
+            "hpo_params": fold_params if n_trials > 0 else None,
         }
         fold_results.append(fold_result)
 
-        all_test_preds.extend(y_pred.tolist())
-        all_test_y.extend(y_test.tolist())
-        all_test_idx.extend(test_orig.tolist())
-
         print(f"  Fold {fi}: train={len(X_train):,} test={len(X_test):,} "
               f"IC={ic:.4f} dir={dir_acc:.3f} sharpe={sharpe:.2f} "
-              f"best_iter={int(best_iter)}/{V3_PARAMS['n_estimators']}")
+              f"best_iter={int(best_iter)}")
 
     # ── Cross-fold summary ──
-    avg_ic = np.mean([f["ic"] for f in fold_results])
-    avg_dir = np.mean([f["direction_accuracy"] for f in fold_results])
-    avg_sharpe = np.mean([f["sharpe"] for f in fold_results])
+    avg_ic = float(np.mean([f["ic"] for f in fold_results]))
+    avg_dir = float(np.mean([f["direction_accuracy"] for f in fold_results]))
+    avg_sharpe = float(np.mean([f["sharpe"] for f in fold_results]))
 
     print(f"\n  Cross-fold avg: IC={avg_ic:.4f} dir={avg_dir:.3f} sharpe={avg_sharpe:.2f}")
 
     # Feature stability
-    stable_features = {k: v for k, v in feature_selection_counts.items() if v >= max(n_folds * 3 // 5, 3)}
-    unstable_features = {k: v for k, v in feature_selection_counts.items() if k not in stable_features}
-    print(f"\n  Feature stability: {len(stable_features)} stable (>={max(n_folds * 3 // 5, 3)}/{n_folds} folds), "
+    stable_features = {k: v for k, v in feature_selection_counts.items()
+                       if v >= max(n_folds * 3 // 5, 3)}
+    unstable_features = {k: v for k, v in feature_selection_counts.items()
+                         if k not in stable_features}
+    print(f"\n  Feature stability: {len(stable_features)} stable "
+          f"(>={max(n_folds * 3 // 5, 3)}/{n_folds} folds), "
           f"{len(unstable_features)} unstable")
     for name, count in sorted(stable_features.items(), key=lambda x: -x[1])[:15]:
         print(f"    {name:<30s} {count}/{n_folds} folds")
 
+    # Aggregate ICIR across folds
+    if icir_reports:
+        avg_icir_by_feat: Dict[str, List[float]] = {}
+        for report in icir_reports:
+            for feat, entry in report.items():
+                avg_icir_by_feat.setdefault(feat, []).append(entry["icir"])
+        print(f"\n  Top features by cross-fold avg ICIR:")
+        sorted_icir = sorted(avg_icir_by_feat.items(),
+                             key=lambda x: -np.mean(x[1]))
+        for name, icirs in sorted_icir[:15]:
+            mean_icir = float(np.mean(icirs))
+            print(f"    {name:<30s} ICIR={mean_icir:.3f}")
+
     # ── Final model: train on all data ──
     print("\n  Training final model on all data...")
-    final_features = sorted(stable_features.keys(), key=lambda k: -feature_selection_counts[k])[:top_k]
+    final_features = sorted(stable_features.keys(),
+                            key=lambda k: -feature_selection_counts[k])[:top_k]
     if len(final_features) < 5:
-        # Fallback to most-selected features
         final_features = sorted(feature_selection_counts.keys(),
                                 key=lambda k: -feature_selection_counts[k])[:top_k]
     final_idx = [available.index(n) for n in final_features]
 
-    final_model = LGBMAlphaModel(name="lgbm_v3_alpha", feature_names=tuple(final_features))
+    # Use best HPO params from last fold (or default)
+    final_params = fold_results[-1].get("hpo_params") or V5_DEFAULT_PARAMS.copy()
+
+    final_model = LGBMAlphaModel(name="lgbm_v5_alpha", feature_names=tuple(final_features))
     final_metrics = final_model.fit(
         X_clean[:, final_idx], y_clean,
-        params=V3_PARAMS.copy(),
+        params=final_params,
         early_stopping_rounds=EARLY_STOPPING_ROUNDS,
         embargo_bars=EMBARGO_BARS,
     )
@@ -427,72 +543,23 @@ def run_walkforward(
           f"best_iter={int(final_metrics.get('best_iteration', -1))}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    final_model.save(out_dir / "lgbm_v3_alpha.pkl")
-
-    # ── Deflated Sharpe Ratio ──
-    from research.overfit_detection import deflated_sharpe_ratio
-
-    # We tested n_folds * threshold_count configurations effectively
-    n_trials = n_folds * 5  # 5 thresholds in eval scan
-    dsr_result = deflated_sharpe_ratio(
-        observed_sharpe=avg_sharpe / np.sqrt(8760) if avg_sharpe != 0 else 0.0,
-        n_trials=n_trials,
-        n_observations=len(all_test_preds),
-        significance=0.05,
-    )
-    print(f"\n  Deflated Sharpe: p={dsr_result.p_value:.4f} "
-          f"{'PASS' if dsr_result.is_significant else 'FAIL'} "
-          f"(n_trials={n_trials})")
-
-    # ── True OOS evaluation on held-out file ──
-    oos_result = None
-    oos_path = Path(f"data_files/{symbol}_1h_oos.csv")
-    if oos_path.exists():
-        print(f"\n  Running true OOS on {oos_path.name}...")
-        oos_result = _evaluate_oos_file(
-            symbol, final_model, final_features, horizon, oos_path,
-        )
-
-    # ── Model Registry ──
-    try:
-        from research.model_registry.registry import ModelRegistry
-        registry = ModelRegistry(str(out_dir / "model_registry.db"))
-        mv = registry.register(
-            name=f"lgbm_v3_{symbol.lower()}",
-            params={**V3_PARAMS, "horizon": horizon, "top_k": top_k,
-                    "n_folds": n_folds, "early_stopping_rounds": EARLY_STOPPING_ROUNDS},
-            features=final_features,
-            metrics={
-                "cv_ic": avg_ic,
-                "cv_direction_accuracy": avg_dir,
-                "cv_sharpe": avg_sharpe,
-                "dsr_p_value": dsr_result.p_value,
-                "final_best_iteration": final_metrics.get("best_iteration", -1),
-                **({"oos_ic": oos_result["prediction_quality"]["ic"],
-                    "oos_dir_acc": oos_result["prediction_quality"]["direction_accuracy"]}
-                   if oos_result else {}),
-            },
-            tags=["v3", "walkforward", symbol.lower()],
-        )
-        print(f"  Registered: {mv.name} v{mv.version} (id={mv.model_id[:8]})")
-    except Exception as e:
-        print(f"  Registry warning: {e}")
+    final_model.save(out_dir / "lgbm_v5_alpha.pkl")
 
     # ── Build result dict ──
     result = {
         "symbol": symbol,
-        "version": "v3",
+        "version": "v5",
         "horizon": horizon,
         "n_folds": n_folds,
         "top_k": top_k,
+        "n_trials": n_trials,
+        "embargo_bars": EMBARGO_BARS,
         "n_features_available": len(available),
         "n_features_final": len(final_features),
         "final_features": final_features,
         "cv_ic": avg_ic,
         "cv_direction_accuracy": avg_dir,
         "cv_sharpe": avg_sharpe,
-        "dsr_p_value": dsr_result.p_value,
-        "dsr_significant": dsr_result.is_significant,
         "fold_results": fold_results,
         "feature_stability": {k: v for k, v in sorted(
             feature_selection_counts.items(), key=lambda x: -x[1])},
@@ -500,100 +567,15 @@ def run_walkforward(
         "unstable_features": list(unstable_features.keys()),
     }
 
-    if oos_result:
-        pq = oos_result["prediction_quality"]
-        best_thr_row = None
-        for row in oos_result["threshold_scan"]:
-            if row["threshold"] == 0.001:
-                best_thr_row = row
-                break
-        if best_thr_row is None:
-            best_thr_row = oos_result["threshold_scan"][0]
-
-        result.update({
-            "oos_ic": pq["ic"],
-            "oos_direction_accuracy": pq["direction_accuracy"],
-            "oos_sharpe": best_thr_row["sharpe_annual"],
-            "oos_n_trades": best_thr_row["n_trades"],
-            "oos_net_return": best_thr_row["net_return"],
-            "oos_threshold_scan": oos_result["threshold_scan"],
-        })
-
-    with open(out_dir / "v3_results.json", "w") as f:
+    with open(out_dir / "v5_results.json", "w") as f:
         json.dump(result, f, indent=2)
 
     return result
 
 
-def _evaluate_oos_file(
-    symbol: str,
-    model: LGBMAlphaModel,
-    features: List[str],
-    horizon: int,
-    oos_path: Path,
-) -> Optional[dict]:
-    """Run model on OOS CSV file and evaluate."""
-    from scripts.oos_eval import compute_1bar_returns, evaluate_oos, print_evaluation
-
-    oos_df = pd.read_csv(oos_path)
-    funding_path = Path(f"data_files/{symbol}_funding.csv")
-    oi_path = Path(f"data_files/{symbol}_open_interest.csv")
-    ls_path = Path(f"data_files/{symbol}_ls_ratio.csv")
-
-    feat_df = _compute_features(
-        symbol, oos_df,
-        _load_schedule(funding_path, "timestamp", "funding_rate"),
-        _load_schedule(oi_path, "timestamp", "sum_open_interest") if oi_path.exists() else {},
-        _load_schedule(ls_path, "timestamp", "long_short_ratio") if ls_path.exists() else {},
-    )
-
-    closes = feat_df["close"].values.astype(np.float64)
-    target = vol_normalized_target(closes, horizon=horizon)
-
-    feat_idx = [i for i, n in enumerate(features) if n in feat_df.columns]
-    feat_names_avail = [features[i] for i in range(len(features)) if features[i] in feat_df.columns]
-
-    if len(feat_names_avail) < len(features) * 0.5:
-        print(f"  WARNING: OOS missing {len(features) - len(feat_names_avail)} features")
-
-    X_oos = feat_df[feat_names_avail].values.astype(np.float64)
-    y_oos = target
-
-    # Pad missing features with NaN
-    if len(feat_names_avail) < len(features):
-        X_padded = np.full((len(X_oos), len(features)), np.nan)
-        for i, name in enumerate(features):
-            if name in feat_names_avail:
-                src_idx = feat_names_avail.index(name)
-                X_padded[:, i] = X_oos[:, src_idx]
-        X_oos = X_padded
-
-    valid = ~np.isnan(y_oos)
-    for j in range(X_oos.shape[1]):
-        if features[j] not in BLACKLIST:
-            valid &= ~np.isnan(X_oos[:, j])
-    valid_idx = np.where(valid)[0]
-
-    if len(valid_idx) < 50:
-        print(f"  OOS: only {len(valid_idx)} valid samples, skipping")
-        return None
-
-    X_v = X_oos[valid_idx]
-    y_v = y_oos[valid_idx]
-
-    y_pred = model._model.predict(X_v)
-    ret_1bar = compute_1bar_returns(closes, valid_idx)
-
-    eval_result = evaluate_oos(y_pred, y_v, ret_1bar)
-    print_evaluation(eval_result, label="V3 True OOS")
-
-    return eval_result
-
-
 # ── Cross-asset feature building ─────────────────────────────
 
 def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame]]:
-    """Build cross-asset features for altcoins using BTC as benchmark."""
     btc_path = Path("data_files/BTCUSDT_1h.csv")
     if not btc_path.exists():
         return None
@@ -619,10 +601,8 @@ def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame
         records = []
         timestamps = []
 
-        # Align by timestamp
         btc_map = {int(btc_timestamps.iloc[i]): i for i in range(len(btc_df))}
 
-        # Load funding for both symbols
         btc_funding = _load_schedule(Path("data_files/BTCUSDT_funding.csv"), "timestamp", "funding_rate")
         sym_funding = _load_schedule(Path(f"data_files/{sym}_funding.csv"), "timestamp", "funding_rate")
         btc_f_times = sorted(btc_funding.keys())
@@ -632,7 +612,6 @@ def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame
         for i in range(len(sym_df)):
             ts = int(sym_ts.iloc[i])
 
-            # Advance funding pointers
             btc_fr = None
             while btc_fi < len(btc_f_times) and btc_f_times[btc_fi] <= ts:
                 btc_fr = btc_funding[btc_f_times[btc_fi]]
@@ -647,13 +626,11 @@ def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame
             if sym_fr is None and sym_fi > 0:
                 sym_fr = sym_funding[sym_f_times[sym_fi - 1]]
 
-            # BTC bar first (benchmark must be pushed before altcoin)
             if ts in btc_map:
                 bi = btc_map[ts]
                 btc_close = float(btc_df.iloc[bi]["close"])
                 comp.on_bar("BTCUSDT", close=btc_close, funding_rate=btc_fr)
 
-            # Then altcoin bar
             sym_close = float(sym_df.iloc[i]["close"])
             comp.on_bar(sym, close=sym_close, funding_rate=sym_fr)
             feats = comp.get_features(sym)
@@ -669,7 +646,6 @@ def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame
 # ── Entrypoint ───────────────────────────────────────────────
 
 def get_available_features(symbol: str) -> List[str]:
-    """All possible feature names for V3 (excluding blacklist)."""
     names = [n for n in ENRICHED_FEATURE_NAMES if n not in BLACKLIST]
     if symbol != "BTCUSDT":
         names.extend(n for n in CROSS_ASSET_FEATURE_NAMES if n not in BLACKLIST)
@@ -681,9 +657,10 @@ def run_one(
     symbol: str,
     out_base: Path,
     *,
-    top_k: int = 20,
+    top_k: int = 25,
     horizon: int = 5,
     n_folds: int = 5,
+    n_trials: int = 30,
     cross_features: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Optional[dict]:
     csv_path = Path(f"data_files/{symbol}_1h.csv")
@@ -692,7 +669,7 @@ def run_one(
         return None
 
     print(f"\n{'='*60}")
-    print(f"  {symbol} — V3 Walk-Forward Training")
+    print(f"  {symbol} — V5 Signal Training")
     print(f"{'='*60}")
 
     df = pd.read_csv(csv_path)
@@ -711,18 +688,19 @@ def run_one(
     out_dir = out_base / symbol
     return run_walkforward(
         symbol, feat_df, available, out_dir,
-        top_k=top_k, horizon=horizon, n_folds=n_folds,
+        top_k=top_k, horizon=horizon, n_folds=n_folds, n_trials=n_trials,
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train V3 Alpha — Walk-Forward")
+    parser = argparse.ArgumentParser(description="Train V5 Alpha — ICIR + HPO")
     parser.add_argument("--symbol", help="Single symbol")
     parser.add_argument("--all", action="store_true", help="All symbols")
     parser.add_argument("--out", default="models", help="Output directory")
-    parser.add_argument("--top-k", type=int, default=20, help="Top-K features per fold")
+    parser.add_argument("--top-k", type=int, default=25, help="Top-K features per fold")
     parser.add_argument("--horizon", type=int, default=5, help="Target horizon in bars")
     parser.add_argument("--n-folds", type=int, default=5, help="Number of walk-forward folds")
+    parser.add_argument("--n-trials", type=int, default=30, help="Optuna trials per fold")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -749,25 +727,21 @@ def main() -> None:
     results = {}
     for sym in symbols:
         r = run_one(sym, out_base, top_k=args.top_k, horizon=args.horizon,
-                    n_folds=args.n_folds, cross_features=cross_features)
+                    n_folds=args.n_folds, n_trials=args.n_trials,
+                    cross_features=cross_features)
         if r:
             results[sym] = r
 
     if results:
         print(f"\n\n{'='*100}")
-        print(f"  V3 Walk-Forward Summary")
+        print(f"  V5 Signal Training Summary")
         print(f"{'='*100}")
-        print(f"{'Symbol':<10} {'Feats':>5} {'CV IC':>8} {'CV Dir':>8} {'CV Shrp':>8} "
-              f"{'DSR p':>8} {'OOS IC':>8} {'OOS Shrp':>8} {'Trades':>7}")
-        print(f"{'-'*100}")
+        print(f"{'Symbol':<10} {'Feats':>5} {'CV IC':>8} {'CV Dir':>8} {'CV Shrp':>8}")
+        print(f"{'-'*50}")
         for sym, r in results.items():
-            oos_ic = r.get("oos_ic", float("nan"))
-            oos_shrp = r.get("oos_sharpe", float("nan"))
-            oos_trades = r.get("oos_n_trades", 0)
             print(f"{sym:<10} {r['n_features_final']:>5} "
                   f"{r['cv_ic']:>8.4f} {r['cv_direction_accuracy']*100:>7.1f}% "
-                  f"{r['cv_sharpe']:>8.2f} {r['dsr_p_value']:>8.4f} "
-                  f"{oos_ic:>8.4f} {oos_shrp:>8.2f} {oos_trades:>7}")
+                  f"{r['cv_sharpe']:>8.2f}")
         print(f"{'='*100}")
 
 

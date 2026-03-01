@@ -155,6 +155,187 @@ def _rankdata(arr: np.ndarray) -> np.ndarray:
     return ranks
 
 
+def _spearman_ic(x: np.ndarray, y: np.ndarray) -> float:
+    """Spearman rank IC between two arrays (no scipy dependency)."""
+    rx = _rankdata(x)
+    ry = _rankdata(y)
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def icir_select(
+    X: np.ndarray,
+    y: np.ndarray,
+    feature_names: Sequence[str],
+    top_k: int = 20,
+    ic_window: int = 200,
+    n_windows: int = 5,
+    min_icir: float = 0.3,
+    max_consecutive_negative: int = 3,
+) -> List[str]:
+    """Select top-K features by IC Information Ratio (ICIR).
+
+    ICIR = mean(|IC|) / std(IC) — measures IC stability across windows.
+    Features with unstable IC (flipping signs) or low ICIR are filtered out.
+
+    Args:
+        X: Feature matrix (n_samples, n_features).
+        y: Target array (n_samples,).
+        feature_names: Feature names corresponding to columns.
+        top_k: Number of features to select.
+        ic_window: Size of each non-overlapping IC window.
+        n_windows: Number of windows to use (from end of data).
+        min_icir: Minimum ICIR threshold for inclusion.
+        max_consecutive_negative: Max consecutive negative-IC windows before discard.
+
+    Returns:
+        List of selected feature names, sorted by descending ICIR.
+    """
+    n_samples, n_features = X.shape
+    total_needed = ic_window * n_windows
+    if n_samples < total_needed or n_samples < 50:
+        return list(feature_names[:top_k])
+
+    # Cut n_windows non-overlapping windows from end
+    start_offset = n_samples - total_needed
+    windows = []
+    for w in range(n_windows):
+        ws = start_offset + w * ic_window
+        we = ws + ic_window
+        windows.append((ws, we))
+
+    results: List[tuple] = []
+    for j in range(n_features):
+        ics = []
+        for ws, we in windows:
+            col = X[ws:we, j]
+            tgt = y[ws:we]
+            valid = ~np.isnan(col) & ~np.isnan(tgt)
+            if valid.sum() < 30:
+                ics.append(0.0)
+                continue
+            x_clean = col[valid]
+            y_clean = tgt[valid]
+            if np.std(x_clean) < 1e-12 or np.std(y_clean) < 1e-12:
+                ics.append(0.0)
+                continue
+            ic = _spearman_ic(x_clean, y_clean)
+            ics.append(ic)
+
+        ic_arr = np.array(ics)
+
+        # Check consecutive negative windows
+        max_neg = 0
+        cur_neg = 0
+        for ic_val in ic_arr:
+            if ic_val < 0:
+                cur_neg += 1
+                max_neg = max(max_neg, cur_neg)
+            else:
+                cur_neg = 0
+
+        if max_neg >= max_consecutive_negative:
+            continue
+
+        ic_std = float(np.std(ic_arr, ddof=1)) if len(ic_arr) > 1 else 0.0
+        ic_mean_abs = float(np.mean(np.abs(ic_arr)))
+
+        if ic_std < 1e-12:
+            icir = ic_mean_abs * 100.0 if ic_mean_abs > 0 else 0.0
+        else:
+            icir = ic_mean_abs / ic_std
+
+        if icir < min_icir:
+            continue
+
+        results.append((feature_names[j], icir))
+
+    results.sort(key=lambda x: -x[1])
+    selected = [name for name, _ in results[:top_k]]
+
+    # If too few pass filters, relax and fill from absolute IC
+    if len(selected) < top_k:
+        already = set(selected)
+        fallback = spearman_ic_select(X, y, feature_names, top_k=top_k)
+        for name in fallback:
+            if name not in already:
+                selected.append(name)
+                already.add(name)
+            if len(selected) >= top_k:
+                break
+
+    return selected
+
+
+def compute_feature_icir_report(
+    X: np.ndarray,
+    y: np.ndarray,
+    feature_names: Sequence[str],
+    ic_window: int = 200,
+    n_windows: int = 5,
+) -> Dict[str, Dict[str, float]]:
+    """Compute ICIR diagnostic report for all features.
+
+    Returns:
+        Dict mapping feature name to {mean_ic, std_ic, icir, max_consec_neg, pct_positive}.
+    """
+    n_samples, n_features = X.shape
+    total_needed = ic_window * n_windows
+    if n_samples < total_needed:
+        return {}
+
+    start_offset = n_samples - total_needed
+    windows = []
+    for w in range(n_windows):
+        ws = start_offset + w * ic_window
+        we = ws + ic_window
+        windows.append((ws, we))
+
+    report: Dict[str, Dict[str, float]] = {}
+    for j in range(n_features):
+        ics = []
+        for ws, we in windows:
+            col = X[ws:we, j]
+            tgt = y[ws:we]
+            valid = ~np.isnan(col) & ~np.isnan(tgt)
+            if valid.sum() < 30:
+                ics.append(0.0)
+                continue
+            x_clean = col[valid]
+            y_clean = tgt[valid]
+            if np.std(x_clean) < 1e-12 or np.std(y_clean) < 1e-12:
+                ics.append(0.0)
+                continue
+            ic = _spearman_ic(x_clean, y_clean)
+            ics.append(ic)
+
+        ic_arr = np.array(ics)
+        ic_mean = float(np.mean(ic_arr))
+        ic_std = float(np.std(ic_arr, ddof=1)) if len(ic_arr) > 1 else 0.0
+        ic_mean_abs = float(np.mean(np.abs(ic_arr)))
+        icir = ic_mean_abs / ic_std if ic_std > 1e-12 else (ic_mean_abs * 100.0 if ic_mean_abs > 0 else 0.0)
+
+        max_neg = 0
+        cur_neg = 0
+        for ic_val in ic_arr:
+            if ic_val < 0:
+                cur_neg += 1
+                max_neg = max(max_neg, cur_neg)
+            else:
+                cur_neg = 0
+
+        pct_pos = float(np.mean(ic_arr > 0))
+
+        report[feature_names[j]] = {
+            "mean_ic": ic_mean,
+            "std_ic": ic_std,
+            "icir": icir,
+            "max_consec_neg": float(max_neg),
+            "pct_positive": pct_pos,
+        }
+
+    return report
+
+
 def spearman_ic_select(
     X: np.ndarray,
     y: np.ndarray,

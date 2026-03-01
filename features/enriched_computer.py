@@ -74,6 +74,24 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "ls_ratio",               # long/short account ratio
     "ls_ratio_zscore_24",     # 24-bar z-score of LS ratio
     "ls_extreme",             # extreme long/short bias flag
+    # --- V5: Order Flow features ---
+    "cvd_10",                 # cumulative volume delta 10 bars
+    "cvd_20",                 # cumulative volume delta 20 bars
+    "cvd_price_divergence",   # CVD vs price direction divergence flag
+    "aggressive_flow_zscore", # z-score of taker buy ratio over 50 bars
+    # --- V5: Volatility microstructure ---
+    "vol_of_vol",             # std of vol_5 over 20 bars
+    "range_vs_rv",            # (H-L)/C / vol_5 — intrabar range vs realized vol
+    "parkinson_vol",          # Parkinson volatility estimator (20 bars)
+    "rv_acceleration",        # vol_5[t] - vol_5[t-5]
+    # --- V5: Liquidation proxy ---
+    "oi_acceleration",        # oi_change_pct acceleration
+    "leverage_proxy",         # OI/(close*volume) normalized by EMA(20)
+    "oi_vol_divergence",      # OI up + volume down divergence flag
+    "oi_liquidation_flag",    # large OI drop + volume spike flag
+    # --- V5: Funding carry ---
+    "funding_annualized",     # funding_rate * 3 * 365
+    "funding_vs_vol",         # funding_rate / vol_20
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -246,6 +264,19 @@ class _SymbolState:
     ls_ratio_window_24: RollingWindow = field(default_factory=lambda: RollingWindow(24))
     _last_ls_ratio: Optional[float] = None
 
+    # V5: Order flow windows
+    cvd_window_10: RollingWindow = field(default_factory=lambda: RollingWindow(10))
+    cvd_window_20: RollingWindow = field(default_factory=lambda: RollingWindow(20))
+    taker_ratio_window_50: RollingWindow = field(default_factory=lambda: RollingWindow(50))
+
+    # V5: Volatility microstructure
+    vol_5_history: Deque[float] = field(default_factory=lambda: deque(maxlen=25))
+    hl_log_sq_window: RollingWindow = field(default_factory=lambda: RollingWindow(20))
+
+    # V5: Liquidation proxy
+    leverage_proxy_ema: _EMA = field(default_factory=lambda: _EMA(span=20))
+    _prev_oi_change_for_accel: Optional[float] = None
+
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
     _last_close: Optional[float] = None
@@ -284,9 +315,16 @@ class _SymbolState:
         if open_interest is not None:
             if self._last_oi is not None and self._last_oi > 0:
                 change = (open_interest - self._last_oi) / self._last_oi
+                # V5: track acceleration before overwriting
+                self._prev_oi_change_for_accel = self._last_oi_change_pct
                 self._last_oi_change_pct = change
                 self.oi_change_ema_8.push(change)
             self._last_oi = open_interest
+
+            # V5: leverage proxy = OI / (close * volume), normalized by EMA
+            if close > 0 and volume > 0:
+                raw_lev = open_interest / (close * volume)
+                self.leverage_proxy_ema.push(raw_lev)
 
         # LS Ratio state
         if ls_ratio is not None:
@@ -303,6 +341,11 @@ class _SymbolState:
             # Taker buy ratio
             tbr = taker_buy_volume / volume if volume > 0 else 0.5
             self.taker_buy_ratio_ema_10.push(tbr)
+            # V5: Order flow — push imbalance into CVD windows, tbr into zscore window
+            imbalance = 2.0 * tbr - 1.0
+            self.cvd_window_10.push(imbalance)
+            self.cvd_window_20.push(imbalance)
+            self.taker_ratio_window_50.push(tbr)
             # Average trade size
             ats = quote_volume / trades
             self.avg_trade_size_ema_20.push(ats)
@@ -330,6 +373,17 @@ class _SymbolState:
             self.return_window_20.push(ret)
             self.return_window_5.push(ret)
         self._last_close = close
+
+        # V5: vol_5 history for vol_of_vol and rv_acceleration
+        if self.return_window_5.full:
+            self.vol_5_history.append(self.return_window_5.std)
+
+        # V5: Parkinson volatility — ln(H/L)^2
+        if high > 0 and low > 0 and high >= low:
+            hl_ratio = high / low
+            if hl_ratio > 0:
+                ln_hl = math.log(hl_ratio)
+                self.hl_log_sq_window.push(ln_hl * ln_hl)
 
         # Volume
         self._last_volume = volume
@@ -647,6 +701,111 @@ class _SymbolState:
         else:
             feats["ls_ratio_zscore_24"] = None
             feats["ls_extreme"] = None
+
+        # --- V5: Order Flow features ---
+        if self.cvd_window_10.full:
+            feats["cvd_10"] = self.cvd_window_10.mean * self.cvd_window_10.n
+        else:
+            feats["cvd_10"] = None
+
+        if self.cvd_window_20.full:
+            cvd_20_val = self.cvd_window_20.mean * self.cvd_window_20.n
+            feats["cvd_20"] = cvd_20_val
+            # CVD-price divergence: sign(cvd_20) != sign(ret_20)
+            if n > 20 and hist[-21] != 0:
+                ret_20 = (hist[-1] - hist[-21]) / hist[-21]
+                cvd_sign = 1.0 if cvd_20_val > 0 else (-1.0 if cvd_20_val < 0 else 0.0)
+                ret_sign = 1.0 if ret_20 > 0 else (-1.0 if ret_20 < 0 else 0.0)
+                feats["cvd_price_divergence"] = 1.0 if cvd_sign != 0 and cvd_sign != ret_sign else 0.0
+            else:
+                feats["cvd_price_divergence"] = None
+        else:
+            feats["cvd_20"] = None
+            feats["cvd_price_divergence"] = None
+
+        if self.taker_ratio_window_50.full:
+            tr_mean = self.taker_ratio_window_50.mean
+            tr_std = self.taker_ratio_window_50.std
+            if tr_std is not None and tr_std > 1e-12 and tbr is not None:
+                feats["aggressive_flow_zscore"] = (tbr - tr_mean) / tr_std
+            else:
+                feats["aggressive_flow_zscore"] = None
+        else:
+            feats["aggressive_flow_zscore"] = None
+
+        # --- V5: Volatility microstructure ---
+        vol5_val = feats.get("vol_5")
+        vol20_val = feats.get("vol_20")
+
+        if len(self.vol_5_history) >= 20:
+            recent = list(self.vol_5_history)[-20:]
+            mean_v = sum(recent) / len(recent)
+            var_v = sum((x - mean_v) ** 2 for x in recent) / len(recent)
+            feats["vol_of_vol"] = sqrt(var_v)
+        else:
+            feats["vol_of_vol"] = None
+
+        if n > 0 and close and close != 0 and vol5_val is not None and vol5_val > 1e-12:
+            h = self.high_history[-1] if len(self.high_history) > 0 else close
+            l = self.low_history[-1] if len(self.low_history) > 0 else close
+            feats["range_vs_rv"] = ((h - l) / close) / vol5_val
+        else:
+            feats["range_vs_rv"] = None
+
+        if self.hl_log_sq_window.full:
+            mean_sq = self.hl_log_sq_window.mean
+            if mean_sq is not None and mean_sq >= 0:
+                feats["parkinson_vol"] = sqrt(mean_sq / (4.0 * math.log(2)))
+            else:
+                feats["parkinson_vol"] = None
+        else:
+            feats["parkinson_vol"] = None
+
+        if len(self.vol_5_history) >= 6:
+            feats["rv_acceleration"] = self.vol_5_history[-1] - self.vol_5_history[-6]
+        else:
+            feats["rv_acceleration"] = None
+
+        # --- V5: Liquidation proxy ---
+        if self._last_oi_change_pct is not None and self._prev_oi_change_for_accel is not None:
+            feats["oi_acceleration"] = self._last_oi_change_pct - self._prev_oi_change_for_accel
+        else:
+            feats["oi_acceleration"] = None
+
+        if self._last_oi is not None and close and close > 0 and self._last_volume > 0:
+            raw_lev = self._last_oi / (close * self._last_volume)
+            lev_ema = self.leverage_proxy_ema.value
+            if self.leverage_proxy_ema.ready and lev_ema and lev_ema > 0:
+                feats["leverage_proxy"] = raw_lev / lev_ema
+            else:
+                feats["leverage_proxy"] = None
+        else:
+            feats["leverage_proxy"] = None
+
+        # OI up + volume down divergence
+        oi_chg = self._last_oi_change_pct
+        vol_r = feats.get("vol_ratio_20")
+        if oi_chg is not None and vol_r is not None:
+            feats["oi_vol_divergence"] = 1.0 if oi_chg > 0 and vol_r < 1.0 else 0.0
+        else:
+            feats["oi_vol_divergence"] = None
+
+        # Large OI drop + volume spike → liquidation
+        if oi_chg is not None and vol_r is not None:
+            feats["oi_liquidation_flag"] = 1.0 if oi_chg < -0.05 and vol_r > 2.0 else 0.0
+        else:
+            feats["oi_liquidation_flag"] = None
+
+        # --- V5: Funding carry ---
+        if self._last_funding_rate is not None:
+            feats["funding_annualized"] = self._last_funding_rate * 3.0 * 365.0
+        else:
+            feats["funding_annualized"] = None
+
+        if self._last_funding_rate is not None and vol20_val is not None and vol20_val > 1e-12:
+            feats["funding_vs_vol"] = self._last_funding_rate / vol20_val
+        else:
+            feats["funding_vs_vol"] = None
 
         return feats
 

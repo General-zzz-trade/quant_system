@@ -244,15 +244,15 @@ class TestFeatureCountConsistency:
     def test_feature_count_matches(self):
         """All ENRICHED_FEATURE_NAMES features should be in output dict."""
         comp = EnrichedFeatureComputer()
-        for i in range(70):
-            comp.on_bar("BTC", close=100.0 + i * 0.1, volume=10.0,
+        for i in range(80):
+            comp.on_bar("BTC", close=100.0 + i * 0.1, volume=10.0 + i * 0.01,
                         high=100.5 + i * 0.1, low=99.5 + i * 0.1,
                         open_=100.0 + i * 0.1, hour=i % 24, dow=i % 7,
                         funding_rate=0.0001,
-                        trades=100.0, taker_buy_volume=5.0,
+                        trades=100.0, taker_buy_volume=5.0 + i * 0.02,
                         quote_volume=1000.0,
                         open_interest=1000.0 + i * 10,
                         ls_ratio=1.0 + i * 0.001)
         feats = comp.get_features_dict("BTC")
         for name in ENRICHED_FEATURE_NAMES:
-            assert feats[name] is not None, f"Feature '{name}' is None after 70 bars warmup"
+            assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
