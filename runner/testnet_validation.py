@@ -20,9 +20,65 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _build_ml_stack(raw: Dict[str, Any]) -> Tuple[Optional[Any], List[Any], List[Any]]:
+    """Build ML pipeline (feature_computer, alpha_models, decision_modules) from config.
+
+    Returns (None, [], []) if no strategy.model_path configured or no models found.
+    """
+    strategy = raw.get("strategy", {})
+    model_path = strategy.get("model_path")
+    if not model_path:
+        logger.info("No strategy.model_path — running without ML stack")
+        return None, [], []
+
+    from alpha.models.lgbm_alpha import LGBMAlphaModel
+    from decision.ml_decision import MLDecisionModule
+    from features.enriched_computer import EnrichedFeatureComputer
+
+    model_dir = Path(model_path)
+    config_name = strategy.get("config_name", "mod_reg_1h")
+    symbols = raw.get("trading", {}).get("symbols", ["BTCUSDT"])
+    threshold = strategy.get("threshold", 0.002)
+    threshold_short = strategy.get("threshold_short", 999.0)
+    risk_pct = strategy.get("risk_pct", 0.30)
+
+    models: List[Any] = []
+    for sym in symbols:
+        pkl = model_dir / sym / f"{config_name}.pkl"
+        if pkl.exists():
+            m = LGBMAlphaModel(name=f"{config_name}_{sym}")
+            m.load(pkl)
+            models.append(m)
+            logger.info("Loaded model: %s", pkl)
+        else:
+            logger.warning("Model not found: %s", pkl)
+
+    if not models:
+        logger.warning("No models loaded — running without ML stack")
+        return None, [], []
+
+    fc = EnrichedFeatureComputer()
+
+    dms = [
+        MLDecisionModule(
+            symbol=sym,
+            threshold=threshold,
+            threshold_short=threshold_short,
+            risk_pct=risk_pct,
+        )
+        for sym in symbols
+    ]
+
+    logger.info(
+        "ML stack ready: %d models, %d decision modules, threshold=%.4f",
+        len(models), len(dms), threshold,
+    )
+    return fc, models, dms
 
 
 def _ensure_testnet(raw: Dict[str, Any]) -> None:
@@ -63,12 +119,12 @@ def _write_equity_csv(path: Path, fills: List[Dict[str, Any]], starting_balance:
 
 def run_paper(config_path: Path, duration: int) -> None:
     """Phase 1: Paper trading with testnet market data."""
-    from infra.config.loader import load_config_secure, resolve_credentials
+    from infra.config.loader import load_config_secure
     from runner.live_paper_runner import LivePaperRunner, LivePaperConfig
 
     raw = load_config_secure(config_path)
     _ensure_testnet(raw)
-    resolve_credentials(raw)
+    # Paper phase uses WS market data only — no API keys needed
 
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
@@ -80,7 +136,13 @@ def run_paper(config_path: Path, duration: int) -> None:
         testnet=True,
     )
 
-    runner = LivePaperRunner.build(config)
+    fc, models, dms = _build_ml_stack(raw)
+    runner = LivePaperRunner.build(
+        config,
+        feature_computer=fc,
+        alpha_models=models or None,
+        decision_modules=dms or None,
+    )
 
     def _timeout(*_: Any) -> None:
         logger.info("Paper phase duration reached (%ds), stopping...", duration)
@@ -102,12 +164,12 @@ def run_paper(config_path: Path, duration: int) -> None:
 
 def run_shadow(config_path: Path, duration: int) -> None:
     """Phase 2: Shadow mode — signals recorded, no execution."""
-    from infra.config.loader import load_config_secure, resolve_credentials
+    from infra.config.loader import load_config_secure
     from runner.live_runner import LiveRunner, LiveRunnerConfig
 
     raw = load_config_secure(config_path)
     _ensure_testnet(raw)
-    resolve_credentials(raw)
+    # Shadow phase records signals only — no API keys needed
 
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
@@ -126,7 +188,14 @@ def run_shadow(config_path: Path, duration: int) -> None:
         def send_order(self, order_event: Any) -> list:
             return []
 
-    runner = LiveRunner.build(config, venue_clients={"binance": _NoOpClient()})
+    fc, models, dms = _build_ml_stack(raw)
+    runner = LiveRunner.build(
+        config,
+        venue_clients={"binance": _NoOpClient()},
+        feature_computer=fc,
+        alpha_models=models or None,
+        decision_modules=dms or None,
+    )
 
     def _timeout(*_: Any) -> None:
         logger.info("Shadow phase duration reached (%ds), stopping...", duration)
@@ -167,7 +236,14 @@ def run_live(config_path: Path, duration: int) -> None:
     api_secret = os.environ.get(creds.get("api_secret_env", ""), "")
 
     if not api_key or not api_secret:
-        print(f"Set {creds.get('api_key_env')} and {creds.get('api_secret_env')} env vars.")
+        key_env = creds.get("api_key_env", "BINANCE_TESTNET_API_KEY")
+        secret_env = creds.get("api_secret_env", "BINANCE_TESTNET_API_SECRET")
+        print(f"Missing testnet API credentials.")
+        print(f"  1. Register at https://testnet.binancefuture.com/")
+        print(f"  2. Generate API key/secret")
+        print(f"  3. Export env vars:")
+        print(f"     export {key_env}=<your_api_key>")
+        print(f"     export {secret_env}=<your_api_secret>")
         sys.exit(1)
 
     urls = resolve_binance_urls(testnet=True)
@@ -185,7 +261,14 @@ def run_live(config_path: Path, duration: int) -> None:
         enable_persistent_stores=False,
     )
 
-    runner = LiveRunner.build(config, venue_clients={"binance": client})
+    fc, models, dms = _build_ml_stack(raw)
+    runner = LiveRunner.build(
+        config,
+        venue_clients={"binance": client},
+        feature_computer=fc,
+        alpha_models=models or None,
+        decision_modules=dms or None,
+    )
 
     if runner.user_stream is not None:
         us_url = getattr(runner.user_stream.cfg, "ws_base_url", "unknown")

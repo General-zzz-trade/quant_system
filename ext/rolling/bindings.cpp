@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 
 #include "rolling_window.hpp"
 #include "vwap_window.hpp"
@@ -10,6 +11,10 @@
 #include "factor_math.hpp"
 #include "feature_selection.hpp"
 #include "linalg.hpp"
+#include "bootstrap.hpp"
+#include "monte_carlo.hpp"
+#include "target.hpp"
+#include "greedy_select.hpp"
 
 namespace py = pybind11;
 
@@ -102,4 +107,69 @@ PYBIND11_MODULE(_quant_rolling, m) {
           py::arg("sigma"), py::arg("market_weights"),
           py::arg("P"), py::arg("Q"), py::arg("confidences"),
           py::arg("tau"), py::arg("risk_aversion"));
+
+    // Bootstrap Sharpe CI
+    py::class_<BootstrapResult>(m, "BootstrapResult")
+        .def_readonly("sharpe_mean", &BootstrapResult::sharpe_mean)
+        .def_readonly("sharpe_95ci_lo", &BootstrapResult::sharpe_95ci_lo)
+        .def_readonly("sharpe_95ci_hi", &BootstrapResult::sharpe_95ci_hi)
+        .def_readonly("p_sharpe_gt_0", &BootstrapResult::p_sharpe_gt_0)
+        .def_readonly("p_sharpe_gt_05", &BootstrapResult::p_sharpe_gt_05);
+    m.def("cpp_bootstrap_sharpe_ci", &cpp_bootstrap_sharpe_ci,
+          py::arg("returns"),
+          py::arg("n_bootstrap") = 10000,
+          py::arg("block_size") = 5,
+          py::arg("seed") = 42);
+
+    // Monte Carlo simulation
+    py::class_<MCResult>(m, "MCResult")
+        .def_readonly("paths", &MCResult::paths)
+        .def_readonly("mean_final", &MCResult::mean_final)
+        .def_readonly("median_final", &MCResult::median_final)
+        .def_readonly("percentile_5", &MCResult::percentile_5)
+        .def_readonly("percentile_95", &MCResult::percentile_95)
+        .def_readonly("prob_loss", &MCResult::prob_loss)
+        .def_readonly("prob_target", &MCResult::prob_target)
+        .def_readonly("max_drawdown_mean", &MCResult::max_drawdown_mean)
+        .def_readonly("max_drawdown_95", &MCResult::max_drawdown_95);
+    m.def("cpp_simulate_paths", &cpp_simulate_paths,
+          py::arg("returns"),
+          py::arg("n_paths") = 1000,
+          py::arg("horizon") = 252,
+          py::arg("parametric") = false,
+          py::arg("target_return") = 0.0,
+          py::arg("block_size") = 5,
+          py::arg("seed") = 42);
+
+    // Vol-normalized target
+    m.def("cpp_vol_normalized_target", &cpp_vol_normalized_target,
+          py::arg("closes"),
+          py::arg("horizon") = 5,
+          py::arg("vol_window") = 20);
+
+    // Greedy IC-based feature selection (raw vector version)
+    m.def("cpp_greedy_ic_select",
+          static_cast<std::vector<int>(*)(const std::vector<double>&, const std::vector<double>&, int, int, int)>(&cpp_greedy_ic_select),
+          py::arg("X_flat"),
+          py::arg("y"),
+          py::arg("n_samples"),
+          py::arg("n_features"),
+          py::arg("top_k") = 20);
+
+    // Greedy IC-based feature selection (numpy version — zero-copy)
+    m.def("cpp_greedy_ic_select_np",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int top_k) -> std::vector<int> {
+              auto xbuf = X.request();
+              auto ybuf = y.request();
+              if (xbuf.ndim != 2 || ybuf.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              int n_samples = static_cast<int>(xbuf.shape[0]);
+              int n_features = static_cast<int>(xbuf.shape[1]);
+              const double* xptr = static_cast<const double*>(xbuf.ptr);
+              const double* yptr = static_cast<const double*>(ybuf.ptr);
+              return cpp_greedy_ic_select(xptr, yptr, n_samples, n_features, top_k);
+          },
+          py::arg("X"), py::arg("y"), py::arg("top_k") = 20);
 }

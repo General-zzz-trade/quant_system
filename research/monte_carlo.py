@@ -7,6 +7,12 @@ import random
 from dataclasses import dataclass
 from typing import List, Tuple
 
+try:
+    from features._quant_rolling import cpp_simulate_paths as _cpp_simulate
+    _MC_CPP = True
+except ImportError:
+    _MC_CPP = False
+
 
 @dataclass(frozen=True, slots=True)
 class MonteCarloResult:
@@ -124,6 +130,22 @@ class MonteCarloSimulator:
                 percentile_5=1.0, percentile_95=1.0,
                 prob_loss=0.0, prob_target=0.0,
                 max_drawdown_mean=0.0, max_drawdown_95=0.0,
+            )
+
+        if _MC_CPP:
+            parametric = (method == "parametric")
+            r = _cpp_simulate(
+                returns, n_paths, horizon, parametric,
+                target_return, 5, self._rng.randint(0, 2**63),
+            )
+            return MonteCarloResult(
+                paths=r.paths, mean_final=r.mean_final,
+                median_final=r.median_final,
+                percentile_5=r.percentile_5,
+                percentile_95=r.percentile_95,
+                prob_loss=r.prob_loss, prob_target=r.prob_target,
+                max_drawdown_mean=r.max_drawdown_mean,
+                max_drawdown_95=r.max_drawdown_95,
             )
 
         finals: List[float] = []
