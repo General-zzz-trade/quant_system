@@ -34,5 +34,8 @@ Thumbs.db
 
 # Data artifacts
 /data/
+data_files/
+/models/
+output/
 outputs/
 .hypothesis/

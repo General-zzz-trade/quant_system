@@ -191,6 +191,7 @@ def run_backtest(
     feature_computer: Any = None,
     alpha_models: Optional[List[Any]] = None,
     enable_attribution: bool = False,
+    enable_regime_gate: bool = False,
 ) -> Tuple[List[EquityPoint], List[Dict[str, Any]]]:
     symbol_u = symbol.upper()
 
@@ -319,6 +320,14 @@ def run_backtest(
         modules = decision_modules
     else:
         modules = [MovingAverageCrossModule(symbol=symbol_u, window=ma_window, order_qty=order_qty)]
+
+    if enable_regime_gate and modules:
+        from decision.regime_bridge import RegimeAwareDecisionModule
+        from decision.regime_policy import RegimePolicy
+        modules = [
+            RegimeAwareDecisionModule(inner=m, policy=RegimePolicy())
+            for m in modules
+        ]
 
     decision_bridge = DecisionBridge(dispatcher_emit=_emit, modules=modules)
 
