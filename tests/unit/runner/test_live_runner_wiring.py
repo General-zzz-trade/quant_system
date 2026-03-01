@@ -208,17 +208,3 @@ class TestUserStreamWiring:
         assert runner.user_stream is not None
         assert runner.user_stream.cfg.ws_base_url == "wss://fstream.binance.com/ws"
 
-    def test_user_stream_not_wired_for_bitget(self):
-        """venue=bitget -> no user stream."""
-        config = LiveRunnerConfig(
-            venue="bitget",
-            enable_preflight=False,
-            enable_persistent_stores=False,
-        )
-        runner = LiveRunner.build(
-            config,
-            venue_clients={"bitget": _FakeVenueClient()},
-            transport=_FakeTransport(),
-            user_stream_transport=_FakeTransport(),
-        )
-        assert runner.user_stream is None

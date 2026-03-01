@@ -359,166 +359,131 @@ class LiveRunner:
         loop = EngineLoop(coordinator=coordinator, guard=guard, cfg=LoopConfig())
 
         # ── 7) Market data runtime ───────────────────────────
-        if config.venue == "bitget":
-            from execution.adapters.bitget.kline_processor import (
-                BitgetKlineProcessor,
-            )
-            from execution.adapters.bitget.ws_client import (
-                BitgetWsMarketStreamClient,
-                BitgetWsConfig,
-            )
-            from execution.adapters.bitget.market_data_runtime import (
-                BitgetMarketDataRuntime,
-            )
+        from execution.adapters.binance.kline_processor import KlineProcessor
+        from execution.adapters.binance.ws_market_stream_um import (
+            BinanceUmMarketStreamWsClient,
+            MarketStreamConfig,
+        )
+        from execution.adapters.binance.market_data_runtime import BinanceMarketDataRuntime
+        from execution.adapters.binance.urls import resolve_binance_urls
 
-            bitget_processor = BitgetKlineProcessor(source="bitget.ws.kline")
-            bitget_runtime = BitgetMarketDataRuntime(
-                ws_client=BitgetWsMarketStreamClient(symbols=[], channel=""),
-                symbols=config.symbols,
-                kline_interval=config.kline_interval,
-            )
+        if config.testnet:
+            logger.warning("*** TESTNET MODE — NOT PRODUCTION ***")
 
-            def _bitget_on_kline(raw: Any, _p=bitget_processor, _r=bitget_runtime) -> None:
-                event = _p.process(raw)
-                if event is not None:
-                    _r.enqueue(event)
+        binance_urls = resolve_binance_urls(config.testnet)
 
-            bitget_ws = BitgetWsMarketStreamClient(
-                symbols=config.symbols,
-                channel=f"candle{config.kline_interval}",
-                cfg=BitgetWsConfig(),
-                on_kline=_bitget_on_kline,
-            )
-            bitget_runtime.ws_client = bitget_ws
-            runtime = bitget_runtime
-            loop.attach_runtime(runtime)
-            user_stream_client = None
-        else:
-            from execution.adapters.binance.kline_processor import KlineProcessor
-            from execution.adapters.binance.ws_market_stream_um import (
-                BinanceUmMarketStreamWsClient,
-                MarketStreamConfig,
-            )
-            from execution.adapters.binance.market_data_runtime import BinanceMarketDataRuntime
-            from execution.adapters.binance.urls import resolve_binance_urls
+        if transport is None:
+            try:
+                from execution.adapters.binance.ws_transport_websocket_client import (
+                    WebsocketClientTransport,
+                )
+                transport = WebsocketClientTransport()
+            except ImportError:
+                raise RuntimeError(
+                    "websocket-client not installed. Run: pip install websocket-client"
+                )
 
-            if config.testnet:
-                logger.warning("*** TESTNET MODE — NOT PRODUCTION ***")
+        ws_url = config.ws_base_url
+        if config.testnet:
+            ws_url = binance_urls.ws_market_stream
 
-            binance_urls = resolve_binance_urls(config.testnet)
+        streams = tuple(
+            f"{sym.lower()}@kline_{config.kline_interval}"
+            for sym in config.symbols
+        )
+        processor = KlineProcessor(source="binance.ws.kline")
+        ws_client = BinanceUmMarketStreamWsClient(
+            transport=transport,
+            processor=processor,
+            streams=streams,
+            cfg=MarketStreamConfig(ws_base_url=ws_url),
+        )
+        from execution.adapters.binance.rest_kline_source import RestKlineSource
+        rest_base = (
+            getattr(venue_client, '_cfg', None) and venue_client._cfg.base_url
+            or binance_urls.rest_base
+        )
+        rest_fallback = RestKlineSource(
+            base_url=rest_base,
+            source="binance.rest.kline",
+        )
+        runtime = BinanceMarketDataRuntime(
+            ws_client=ws_client,
+            rest_fallback=rest_fallback,
+            symbols=config.symbols,
+            kline_interval=config.kline_interval,
+        )
+        loop.attach_runtime(runtime)
 
-            if transport is None:
+        # ── 7a) User Stream (private fill/order feed) ────
+        if not config.shadow_mode:
+            from execution.adapters.binance.rest import BinanceRestClient as _BRC2
+            if isinstance(venue_client, _BRC2):
                 try:
-                    from execution.adapters.binance.ws_transport_websocket_client import (
-                        WebsocketClientTransport,
+                    from execution.adapters.binance.listen_key_um import BinanceUmListenKeyClient
+                    from execution.adapters.binance.listen_key_manager import (
+                        BinanceUmListenKeyManager, ListenKeyManagerConfig,
                     )
-                    transport = WebsocketClientTransport()
-                except ImportError:
-                    raise RuntimeError(
-                        "websocket-client not installed. Run: pip install websocket-client"
+                    from execution.adapters.binance.ws_user_stream_um import (
+                        BinanceUmUserStreamWsClient, UserStreamWsConfig,
+                    )
+                    from execution.adapters.binance.user_stream_processor_um import (
+                        BinanceUmUserStreamProcessor,
+                    )
+                    from execution.adapters.binance.mapper_fill import BinanceFillMapper
+                    from execution.adapters.binance.mapper_order import BinanceOrderMapper
+                    from execution.ingress.router import FillIngressRouter
+                    from execution.ingress.order_router import OrderIngressRouter
+
+                    class _TimeClock:
+                        def now(self) -> float:
+                            return time.time()
+
+                    fill_router = FillIngressRouter(
+                        coordinator=coordinator, default_actor="venue:binance",
+                    )
+                    order_router = OrderIngressRouter(
+                        coordinator=coordinator, default_actor="venue:binance",
+                    )
+                    us_processor = BinanceUmUserStreamProcessor(
+                        order_router=order_router,
+                        fill_router=fill_router,
+                        order_mapper=BinanceOrderMapper(),
+                        fill_mapper=BinanceFillMapper(),
+                        default_actor="venue:binance",
+                    )
+                    lk_client = BinanceUmListenKeyClient(rest=venue_client)
+                    lk_mgr = BinanceUmListenKeyManager(
+                        client=lk_client,
+                        clock=_TimeClock(),
+                        cfg=ListenKeyManagerConfig(validity_sec=3600, renew_margin_sec=300),
                     )
 
-            ws_url = config.ws_base_url
-            if config.testnet:
-                ws_url = binance_urls.ws_market_stream
+                    us_transport = user_stream_transport
+                    if us_transport is None:
+                        from execution.adapters.binance.ws_transport_websocket_client import (
+                            WebsocketClientTransport as _WsCT,
+                        )
+                        us_transport = _WsCT()
 
-            streams = tuple(
-                f"{sym.lower()}@kline_{config.kline_interval}"
-                for sym in config.symbols
-            )
-            processor = KlineProcessor(source="binance.ws.kline")
-            ws_client = BinanceUmMarketStreamWsClient(
-                transport=transport,
-                processor=processor,
-                streams=streams,
-                cfg=MarketStreamConfig(ws_base_url=ws_url),
-            )
-            from execution.adapters.binance.rest_kline_source import RestKlineSource
-            rest_base = (
-                getattr(venue_client, '_cfg', None) and venue_client._cfg.base_url
-                or binance_urls.rest_base
-            )
-            rest_fallback = RestKlineSource(
-                base_url=rest_base,
-                source="binance.rest.kline",
-            )
-            runtime = BinanceMarketDataRuntime(
-                ws_client=ws_client,
-                rest_fallback=rest_fallback,
-                symbols=config.symbols,
-                kline_interval=config.kline_interval,
-            )
-            loop.attach_runtime(runtime)
-
-            # ── 7a) User Stream (private fill/order feed) ────
-            if not config.shadow_mode:
-                from execution.adapters.binance.rest import BinanceRestClient as _BRC2
-                if isinstance(venue_client, _BRC2):
-                    try:
-                        from execution.adapters.binance.listen_key_um import BinanceUmListenKeyClient
-                        from execution.adapters.binance.listen_key_manager import (
-                            BinanceUmListenKeyManager, ListenKeyManagerConfig,
-                        )
-                        from execution.adapters.binance.ws_user_stream_um import (
-                            BinanceUmUserStreamWsClient, UserStreamWsConfig,
-                        )
-                        from execution.adapters.binance.user_stream_processor_um import (
-                            BinanceUmUserStreamProcessor,
-                        )
-                        from execution.adapters.binance.mapper_fill import BinanceFillMapper
-                        from execution.adapters.binance.mapper_order import BinanceOrderMapper
-                        from execution.ingress.router import FillIngressRouter
-                        from execution.ingress.order_router import OrderIngressRouter
-
-                        class _TimeClock:
-                            def now(self) -> float:
-                                return time.time()
-
-                        fill_router = FillIngressRouter(
-                            coordinator=coordinator, default_actor="venue:binance",
-                        )
-                        order_router = OrderIngressRouter(
-                            coordinator=coordinator, default_actor="venue:binance",
-                        )
-                        us_processor = BinanceUmUserStreamProcessor(
-                            order_router=order_router,
-                            fill_router=fill_router,
-                            order_mapper=BinanceOrderMapper(),
-                            fill_mapper=BinanceFillMapper(),
-                            default_actor="venue:binance",
-                        )
-                        lk_client = BinanceUmListenKeyClient(rest=venue_client)
-                        lk_mgr = BinanceUmListenKeyManager(
-                            client=lk_client,
-                            clock=_TimeClock(),
-                            cfg=ListenKeyManagerConfig(validity_sec=3600, renew_margin_sec=300),
-                        )
-
-                        us_transport = user_stream_transport
-                        if us_transport is None:
-                            from execution.adapters.binance.ws_transport_websocket_client import (
-                                WebsocketClientTransport as _WsCT,
-                            )
-                            us_transport = _WsCT()
-
-                        user_stream_client = BinanceUmUserStreamWsClient(
-                            transport=us_transport,
-                            listen_key_mgr=lk_mgr,
-                            processor=us_processor,
-                            cfg=UserStreamWsConfig(
-                                ws_base_url=binance_urls.ws_user_stream,
-                            ),
-                        )
-                        logger.info(
-                            "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
-                        )
-                    except Exception:
-                        user_stream_client = None
-                        logger.warning("User stream setup failed — continuing without", exc_info=True)
-                else:
+                    user_stream_client = BinanceUmUserStreamWsClient(
+                        transport=us_transport,
+                        listen_key_mgr=lk_mgr,
+                        processor=us_processor,
+                        cfg=UserStreamWsConfig(
+                            ws_base_url=binance_urls.ws_user_stream,
+                        ),
+                    )
+                    logger.info(
+                        "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
+                    )
+                except Exception:
                     user_stream_client = None
+                    logger.warning("User stream setup failed — continuing without", exc_info=True)
             else:
                 user_stream_client = None
+        else:
+            user_stream_client = None
 
         # ── 8) ReconcileScheduler ────────────────────────────
         reconcile_scheduler = None
@@ -1005,25 +970,6 @@ if __name__ == "__main__":
             )
         )
         venue_clients["binance"] = client
-    elif exchange == "bitget":
-        from execution.adapters.bitget.rest import BitgetRestClient, BitgetRestConfig
-        from execution.adapters.bitget.rest_client import BitgetFuturesRestClient
-        from execution.adapters.bitget.order_gateway import BitgetFuturesOrderGateway
-        from execution.adapters.bitget.venue_client_futures import BitgetFuturesFullVenueClient
-
-        creds = raw.get("credentials", {})
-        rest = BitgetRestClient(
-            cfg=BitgetRestConfig(
-                api_key=creds.get("api_key", ""),
-                api_secret=creds.get("api_secret", ""),
-                passphrase=creds.get("passphrase", ""),
-            )
-        )
-        rest_client = BitgetFuturesRestClient(client=rest)
-        gw = BitgetFuturesOrderGateway(rest=rest)
-        venue_clients["bitget"] = BitgetFuturesFullVenueClient(
-            rest_client=rest_client, order_gateway=gw,
-        )
 
     runner = LiveRunner.from_config(
         args.config,

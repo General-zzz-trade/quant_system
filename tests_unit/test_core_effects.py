@@ -35,7 +35,7 @@ class TestInMemoryMetrics:
     def test_tags_create_separate_keys(self) -> None:
         m = InMemoryMetrics()
         m.counter("fills", 1, venue="binance")
-        m.counter("fills", 2, venue="bitget")
+        m.counter("fills", 2, venue="binance_b")
         snap = m.snapshot()
         assert len(snap) == 2
 

@@ -6,7 +6,7 @@ Production-grade quantitative trading system for crypto perpetual futures. ML-dr
 
 ```
                           +------------------+
-                          |  Market Data WS  |  (Binance, Bitget)
+                          |  Market Data WS  |  (Binance)
                           +--------+---------+
                                    |
                           +--------v---------+
@@ -111,7 +111,7 @@ python -m runner.live_runner --config config/local.yaml --shadow
 | `engine/` | EngineCoordinator event loop, StatePipeline, dispatcher, guards |
 | `alpha/` | ML models (LightGBM, XGBoost), inference bridge, drift detection |
 | `risk/` | KillSwitch, CorrelationGate, CorrelationComputer, risk aggregation |
-| `execution/` | Exchange adapters (Binance, Bitget), rate limiting, reconciliation |
+| `execution/` | Exchange adapters (Binance), rate limiting, reconciliation |
 | `portfolio/` | Black-Litterman, Kelly allocator, MVO, risk parity, rebalancing |
 | `decision/` | DecisionEngine, regime-aware gating, intent validation, sizing |
 | `strategies/` | Multi-timeframe ensemble, factor strategies, stat-arb, HFT |

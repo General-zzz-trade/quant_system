@@ -68,7 +68,7 @@ class VenueAdapter(Protocol):
     def get_recent_fills(self, *, symbol: Optional[str] = None, since_ms: int = 0) -> Tuple[CanonicalFill, ...]: ...
 ```
 
-Implementations: `BinanceRestClient` (complete), `BitgetAdapter` (partial).
+Implementations: `BinanceRestClient`.
 
 ### ExecutionAdapter
 
@@ -372,7 +372,7 @@ Rich domain wrappers defined in `event/types.py`:
 ```python
 Side.BUY / Side.SELL           # Trading direction
 Symbol(value="BTCUSDT")        # Normalized symbol
-Venue.BINANCE / Venue.BITGET   # Supported venues
+Venue.BINANCE / Venue.SIM      # Supported venues
 Qty.of(0.01)                   # Quantity (Decimal)
 Price.of(42000)                # Price (Decimal)
 Money.of(10000, "USDT")       # Monetary amount

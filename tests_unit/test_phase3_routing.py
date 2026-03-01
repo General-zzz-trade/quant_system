@@ -28,8 +28,8 @@ class TestSmartRouter:
         router.register_venue("binance", _MockQuoteProvider(
             VenueQuote("binance", Decimal("50000"), Decimal("50010"), Decimal("10"), Decimal("10")),
         ))
-        router.register_venue("bitget", _MockQuoteProvider(
-            VenueQuote("bitget", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
+        router.register_venue("sim", _MockQuoteProvider(
+            VenueQuote("sim", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
         ))
         assert len(router.venue_ids) == 2
 
@@ -38,13 +38,13 @@ class TestSmartRouter:
         router.register_venue("binance", _MockQuoteProvider(
             VenueQuote("binance", Decimal("50000"), Decimal("50010"), Decimal("10"), Decimal("10")),
         ))
-        router.register_venue("bitget", _MockQuoteProvider(
-            VenueQuote("bitget", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
+        router.register_venue("sim", _MockQuoteProvider(
+            VenueQuote("sim", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
         ))
 
         decision = router.route_order("BTCUSDT", "buy", Decimal("1"))
         assert decision is not None
-        assert decision.venue_id == "bitget"  # Lower ask
+        assert decision.venue_id == "sim"  # Lower ask
         assert decision.price == Decimal("50005")
 
     def test_route_sell_best_bid(self):
@@ -52,8 +52,8 @@ class TestSmartRouter:
         router.register_venue("binance", _MockQuoteProvider(
             VenueQuote("binance", Decimal("50000"), Decimal("50010"), Decimal("10"), Decimal("10")),
         ))
-        router.register_venue("bitget", _MockQuoteProvider(
-            VenueQuote("bitget", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
+        router.register_venue("sim", _MockQuoteProvider(
+            VenueQuote("sim", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
         ))
 
         decision = router.route_order("BTCUSDT", "sell", Decimal("1"))
@@ -70,16 +70,16 @@ class TestSmartRouter:
         router.register_venue("binance", _MockQuoteProvider(
             VenueQuote("binance", Decimal("50000"), Decimal("50010"), Decimal("10"), Decimal("3")),
         ))
-        router.register_venue("bitget", _MockQuoteProvider(
-            VenueQuote("bitget", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
+        router.register_venue("sim", _MockQuoteProvider(
+            VenueQuote("sim", Decimal("49990"), Decimal("50005"), Decimal("5"), Decimal("5")),
         ))
 
         split = router.split_order("BTCUSDT", "buy", Decimal("7"))
         assert split is not None
         assert len(split.legs) == 2
         assert split.total_qty == Decimal("7")
-        # First leg should be cheapest ask (okx at 50005)
-        assert split.legs[0].venue_id == "bitget"
+        # First leg should be cheapest ask (sim at 50005)
+        assert split.legs[0].venue_id == "sim"
 
     def test_unregister_venue(self):
         router = SmartRouter()
@@ -163,11 +163,11 @@ class TestExecutionQualityTracker:
     def test_venue_comparison(self):
         tracker = ExecutionQualityTracker()
         tracker.record(self._make_record(venue_id="binance"))
-        tracker.record(self._make_record(venue_id="bitget", order_id="2"))
+        tracker.record(self._make_record(venue_id="sim", order_id="2"))
 
         comparison = tracker.venue_comparison()
         assert "binance" in comparison
-        assert "bitget" in comparison
+        assert "sim" in comparison
 
     def test_filter_by_symbol(self):
         tracker = ExecutionQualityTracker()

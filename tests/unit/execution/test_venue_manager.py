@@ -87,8 +87,8 @@ class TestVenueManager:
     def test_multiple_venues(self):
         mgr = VenueManager()
         mgr.register(VenueInfo(name="binance"), _MockGateway("binance"))
-        mgr.register(VenueInfo(name="bitget"), _MockGateway("bitget"))
-        assert set(mgr.venues) == {"binance", "bitget"}
+        mgr.register(VenueInfo(name="sim"), _MockGateway("sim"))
+        assert set(mgr.venues) == {"binance", "sim"}
 
     def test_get_info(self):
         mgr = VenueManager()
@@ -102,7 +102,7 @@ class TestSmartRouter:
     def _setup_mgr(self) -> VenueManager:
         mgr = VenueManager()
         mgr.register(VenueInfo(name="binance"), _MockGateway("binance"), fee_bps=4.0)
-        mgr.register(VenueInfo(name="bitget"), _MockGateway("bitget"), fee_bps=5.0)
+        mgr.register(VenueInfo(name="sim"), _MockGateway("sim"), fee_bps=5.0)
         return mgr
 
     def test_route_single_venue(self):
@@ -127,12 +127,12 @@ class TestSmartRouter:
         router = SmartRouter(manager=mgr)
 
         decision = router.route("BTCUSDT", "buy", Decimal("1.0"))
-        assert decision.venue == "bitget"
+        assert decision.venue == "sim"
 
     def test_route_no_healthy_raises(self):
         mgr = self._setup_mgr()
         mgr.set_health("binance", False)
-        mgr.set_health("bitget", False)
+        mgr.set_health("sim", False)
         router = SmartRouter(manager=mgr)
 
         with pytest.raises(RuntimeError, match="No healthy venue"):
@@ -141,20 +141,20 @@ class TestSmartRouter:
     def test_symbol_specific_routing(self):
         mgr = self._setup_mgr()
         router = SmartRouter(manager=mgr)
-        router.register_symbol("ETHUSDT", ["bitget"])
+        router.register_symbol("ETHUSDT", ["sim"])
 
         decision = router.route("ETHUSDT", "buy", Decimal("1.0"))
-        assert decision.venue == "bitget"
+        assert decision.venue == "sim"
 
     def test_latency_affects_routing(self):
         mgr = self._setup_mgr()
         router = SmartRouter(manager=mgr)
         # Give binance much higher latency
         router.set_latency("binance", 5000.0)
-        router.set_latency("bitget", 50.0)
+        router.set_latency("sim", 50.0)
 
         decision = router.route("BTCUSDT", "buy", Decimal("1.0"))
-        assert decision.venue == "bitget"
+        assert decision.venue == "sim"
 
     def test_route_and_submit(self):
         mgr = self._setup_mgr()
@@ -162,5 +162,5 @@ class TestSmartRouter:
 
         cmd = SimpleNamespace(symbol="BTCUSDT", side="buy", qty=Decimal("0.1"))
         decision, result = router.route_and_submit(cmd)
-        assert decision.venue in ("binance", "bitget")
+        assert decision.venue in ("binance", "sim")
         assert "orderId" in result

@@ -129,7 +129,7 @@ class TestBuild:
         with pytest.raises(ValueError, match="No venue client"):
             LiveRunner.build(
                 config,
-                venue_clients={"bitget": _FakeVenueClient()},
+                venue_clients={"other": _FakeVenueClient()},
                 transport=_FakeTransport(),
             )
 

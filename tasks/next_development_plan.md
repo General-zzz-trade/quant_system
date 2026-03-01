@@ -13,7 +13,7 @@
 | 组合优化 (portfolio) | 85% | Black-Litterman/多求解器完整，缺参数化风险预算 |
 | 策略层 (strategies) | 80% | 5 个策略框架，缺多时间框架 |
 | ML 层 (alpha) | 75% | LightGBM/XGBoost 生产就绪，LSTM/Transformer 实验性 |
-| 执行层 (execution) | 70% | Binance 完整，**Bitget 残缺**（无 WS、无 MarketDataRuntime） |
+| 执行层 (execution) | 90% | Binance 完整（Bitget 已删除，专注单交易所） |
 | 基础设施 (infra/deploy) | 60% | K8s 缺 HPA/PDB/安全上下文，CI 缺安全扫描 |
 | 测试覆盖 | 50% | 1091 测试，但 alpha/decision/portfolio 覆盖极低（5-10%） |
 | 文档 | 30% | 无 README、无运维手册、无 API 文档 |
@@ -22,16 +22,8 @@
 
 ## P0：生产阻断项（1-2 周）
 
-### 1. Bitget 适配器补全
-**问题**：14 个文件但缺核心能力，无法实盘使用
-- [ ] 实现 `BitgetMarketDataRuntime`（参照 BinanceMarketDataRuntime）
-- [ ] 实现 `BitgetWsMarketStreamClient`（WebSocket 行情流）
-- [ ] 补全 `BitgetFuturesVenueClient`（get_balance, get_positions, get_instruments）
-- [ ] `live_runner.py` 增加 `if exchange == "bitget"` 分支
-- [ ] Bitget 适配器集成测试
-
-**影响**：多交易所部署被阻断
-**文件**：`execution/adapters/bitget/`
+### ~~1. Bitget 适配器补全~~ — 已取消
+> Bitget 适配器已于 2026-03-01 删除（部分实现、增加维护负担）。项目专注 Binance 单交易所。
 
 ### 2. 关键模块测试补齐
 **问题**：alpha（0%）、decision（5%）、portfolio（10%）几乎无测试覆盖
@@ -160,19 +152,14 @@
 ## 建议执行顺序
 
 ```
-Week 1-2:  P0 #1 Bitget 补全 + P0 #2 测试补齐（并行）
-Week 2-3:  P0 #3 RiskGate 接入 + P1 #4 K8s 加固
-Week 3-4:  P1 #5 CI 安全 + P1 #7 Kelly 仓位
-Week 4-6:  P2 #8 监控 + P2 #9 回测对齐
-Week 6-8:  P2 #10 多时间框架 + P2 #11 数据管道
-Week 8+:   P3 长期演进
+Week 1:    P0 #2 测试补齐（alpha/decision/portfolio）
+Week 2:    P0 #3 RiskGate 接入 live_runner
+Week 3+:   架构演进（视需求排期）
 ```
 
 ## 关键风险
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|---------|
-| Bitget API 不稳定 | 多所部署延迟 | 先 mock 测试，后接真实 API |
 | 测试补齐工作量大 | 进度拖延 | 优先覆盖关键路径，非全量补齐 |
 | LSTM/Transformer 无法生产化 | ML 能力受限 | LightGBM/XGBoost 已足够，深度学习可推迟 |
-| K8s 安全加固影响现有部署 | 服务中断 | staging 环境先行验证 |

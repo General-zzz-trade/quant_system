@@ -64,7 +64,7 @@ Primary config file: YAML loaded by `infra/config/loader.py`. Example at `infra/
 trading:
   symbol: BTCUSDT              # Primary trading pair
   symbols: [BTCUSDT, ETHUSDT]  # Multi-symbol mode
-  exchange: binance             # Venue: binance | bitget
+  exchange: binance             # Venue: binance
 
 risk:
   max_position_notional: 25000  # Max USD notional per symbol
