@@ -1,11 +1,19 @@
-"""Download Binance BTCUSDT perpetual futures historical klines."""
+"""Download Binance Futures perpetual historical klines.
+
+Usage:
+    python scripts/download_binance_klines.py BTCUSDT 1h data_files/BTCUSDT_1h.csv
+    python scripts/download_binance_klines.py BTCUSDT 1h data_files/BTCUSDT_1h.csv --start 2023-03-01
+    python scripts/download_binance_klines.py --batch BTCUSDT,ETHUSDT,SOLUSDT --interval 1h --start 2023-03-01
+"""
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from urllib.request import urlopen, Request
 
 BASE_URL = "https://fapi.binance.com"
@@ -27,16 +35,27 @@ def interval_ms(interval: str) -> int:
     return int(interval[:-1]) * units[interval[-1]]
 
 
-def download_all(symbol: str, interval: str, output_path: str):
-    # BTCUSDT perp started 2019-09-08
-    start_ms = 1567900800000  # 2019-09-08 00:00:00 UTC
-    step = interval_ms(interval) * LIMIT
+def _ts_str(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
 
-    all_rows = []
+
+def _parse_date_ms(date_str: str) -> int:
+    """Parse YYYY-MM-DD to epoch milliseconds."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+def download_all(
+    symbol: str, interval: str, output_path: str, *, start_ms: int | None = None,
+) -> int:
+    if start_ms is None:
+        start_ms = 1567900800000  # 2019-09-08 00:00:00 UTC (BTCUSDT perp launch)
+
+    all_rows: list = []
     current = start_ms
     now_ms = int(time.time() * 1000)
 
-    print(f"Downloading {symbol} {interval} klines from 2019-09-08 to now...")
+    print(f"Downloading {symbol} {interval} klines from {_ts_str(start_ms)} to now...")
 
     while current < now_ms:
         try:
@@ -52,20 +71,18 @@ def download_all(symbol: str, interval: str, output_path: str):
         all_rows.extend(data)
         last_open_time = data[-1][0]
 
-        # progress
         pct = min(100, (last_open_time - start_ms) / max(1, now_ms - start_ms) * 100)
         print(f"  Fetched {len(all_rows):>7,} bars | up to {_ts_str(last_open_time)} | {pct:.1f}%")
 
         if len(data) < LIMIT:
             break
 
-        # next batch starts after last bar
         current = last_open_time + interval_ms(interval)
-        time.sleep(0.2)  # be polite
+        time.sleep(0.2)
 
     # deduplicate by open_time
-    seen = set()
-    unique = []
+    seen: set = set()
+    unique: list = []
     for row in all_rows:
         if row[0] not in seen:
             seen.add(row[0])
@@ -86,13 +103,27 @@ def download_all(symbol: str, interval: str, output_path: str):
     return len(unique)
 
 
-def _ts_str(ms: int) -> str:
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
-
-
 if __name__ == "__main__":
-    symbol = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
-    interval = sys.argv[2] if len(sys.argv) > 2 else "1h"
-    out = sys.argv[3] if len(sys.argv) > 3 else f"data_files/{symbol}_{interval}.csv"
-    download_all(symbol, interval, out)
+    parser = argparse.ArgumentParser(description="Download Binance Futures klines")
+    parser.add_argument("symbol", nargs="?", help="Symbol (e.g. BTCUSDT)")
+    parser.add_argument("interval", nargs="?", default="1h", help="Interval (default: 1h)")
+    parser.add_argument("output", nargs="?", help="Output CSV path")
+    parser.add_argument("--start", help="Start date YYYY-MM-DD (default: earliest available)")
+    parser.add_argument("--batch", help="Comma-separated symbols for batch download")
+    parser.add_argument("--interval", dest="interval_flag", default="1h", help="Interval for batch mode")
+    args = parser.parse_args()
+
+    start_ms = _parse_date_ms(args.start) if args.start else None
+
+    if args.batch:
+        symbols = [s.strip() for s in args.batch.split(",")]
+        interval = args.interval_flag
+        for sym in symbols:
+            out = f"data_files/{sym}_{interval}.csv"
+            download_all(sym, interval, out, start_ms=start_ms)
+            print()
+    elif args.symbol:
+        out = args.output or f"data_files/{args.symbol}_{args.interval}.csv"
+        download_all(args.symbol, args.interval, out, start_ms=start_ms)
+    else:
+        parser.print_help()

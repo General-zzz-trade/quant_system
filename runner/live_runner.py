@@ -90,6 +90,8 @@ class LiveRunnerConfig:
     max_avg_correlation: float = 0.7
     # Health HTTP endpoint
     health_port: Optional[int] = None
+    # Testnet mode
+    testnet: bool = False
 
 
 @dataclass
@@ -118,8 +120,10 @@ class LiveRunner:
     risk_gate: Optional[Any] = None
     module_reloader: Optional[Any] = None
     decision_bridge: Optional[Any] = None
+    user_stream: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
+    _user_stream_thread: Optional[Any] = field(default=None, init=False)
 
     @classmethod
     def build(
@@ -136,6 +140,7 @@ class LiveRunner:
         alert_sink: Optional[Any] = None,
         feature_computer: Any = None,
         alpha_models: Sequence[Any] | None = None,
+        user_stream_transport: Any = None,
     ) -> "LiveRunner":
         """Build the full production stack.
 
@@ -387,6 +392,7 @@ class LiveRunner:
             bitget_runtime.ws_client = bitget_ws
             runtime = bitget_runtime
             loop.attach_runtime(runtime)
+            user_stream_client = None
         else:
             from execution.adapters.binance.kline_processor import KlineProcessor
             from execution.adapters.binance.ws_market_stream_um import (
@@ -394,6 +400,12 @@ class LiveRunner:
                 MarketStreamConfig,
             )
             from execution.adapters.binance.market_data_runtime import BinanceMarketDataRuntime
+            from execution.adapters.binance.urls import resolve_binance_urls
+
+            if config.testnet:
+                logger.warning("*** TESTNET MODE — NOT PRODUCTION ***")
+
+            binance_urls = resolve_binance_urls(config.testnet)
 
             if transport is None:
                 try:
@@ -406,6 +418,10 @@ class LiveRunner:
                         "websocket-client not installed. Run: pip install websocket-client"
                     )
 
+            ws_url = config.ws_base_url
+            if config.testnet:
+                ws_url = binance_urls.ws_market_stream
+
             streams = tuple(
                 f"{sym.lower()}@kline_{config.kline_interval}"
                 for sym in config.symbols
@@ -415,11 +431,15 @@ class LiveRunner:
                 transport=transport,
                 processor=processor,
                 streams=streams,
-                cfg=MarketStreamConfig(ws_base_url=config.ws_base_url),
+                cfg=MarketStreamConfig(ws_base_url=ws_url),
             )
             from execution.adapters.binance.rest_kline_source import RestKlineSource
+            rest_base = (
+                getattr(venue_client, '_cfg', None) and venue_client._cfg.base_url
+                or binance_urls.rest_base
+            )
             rest_fallback = RestKlineSource(
-                base_url=getattr(venue_client, '_cfg', None) and venue_client._cfg.base_url or "https://fapi.binance.com",
+                base_url=rest_base,
                 source="binance.rest.kline",
             )
             runtime = BinanceMarketDataRuntime(
@@ -429,6 +449,76 @@ class LiveRunner:
                 kline_interval=config.kline_interval,
             )
             loop.attach_runtime(runtime)
+
+            # ── 7a) User Stream (private fill/order feed) ────
+            if not config.shadow_mode:
+                from execution.adapters.binance.rest import BinanceRestClient as _BRC2
+                if isinstance(venue_client, _BRC2):
+                    try:
+                        from execution.adapters.binance.listen_key_um import BinanceUmListenKeyClient
+                        from execution.adapters.binance.listen_key_manager import (
+                            BinanceUmListenKeyManager, ListenKeyManagerConfig,
+                        )
+                        from execution.adapters.binance.ws_user_stream_um import (
+                            BinanceUmUserStreamWsClient, UserStreamWsConfig,
+                        )
+                        from execution.adapters.binance.user_stream_processor_um import (
+                            BinanceUmUserStreamProcessor,
+                        )
+                        from execution.adapters.binance.mapper_fill import BinanceFillMapper
+                        from execution.adapters.binance.mapper_order import BinanceOrderMapper
+                        from execution.ingress.router import FillIngressRouter
+                        from execution.ingress.order_router import OrderIngressRouter
+
+                        class _TimeClock:
+                            def now(self) -> float:
+                                return time.time()
+
+                        fill_router = FillIngressRouter(
+                            coordinator=coordinator, default_actor="venue:binance",
+                        )
+                        order_router = OrderIngressRouter(
+                            coordinator=coordinator, default_actor="venue:binance",
+                        )
+                        us_processor = BinanceUmUserStreamProcessor(
+                            order_router=order_router,
+                            fill_router=fill_router,
+                            order_mapper=BinanceOrderMapper(),
+                            fill_mapper=BinanceFillMapper(),
+                            default_actor="venue:binance",
+                        )
+                        lk_client = BinanceUmListenKeyClient(rest=venue_client)
+                        lk_mgr = BinanceUmListenKeyManager(
+                            client=lk_client,
+                            clock=_TimeClock(),
+                            cfg=ListenKeyManagerConfig(validity_sec=3600, renew_margin_sec=300),
+                        )
+
+                        us_transport = user_stream_transport
+                        if us_transport is None:
+                            from execution.adapters.binance.ws_transport_websocket_client import (
+                                WebsocketClientTransport as _WsCT,
+                            )
+                            us_transport = _WsCT()
+
+                        user_stream_client = BinanceUmUserStreamWsClient(
+                            transport=us_transport,
+                            listen_key_mgr=lk_mgr,
+                            processor=us_processor,
+                            cfg=UserStreamWsConfig(
+                                ws_base_url=binance_urls.ws_user_stream,
+                            ),
+                        )
+                        logger.info(
+                            "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
+                        )
+                    except Exception:
+                        user_stream_client = None
+                        logger.warning("User stream setup failed — continuing without", exc_info=True)
+                else:
+                    user_stream_client = None
+            else:
+                user_stream_client = None
 
         # ── 8) ReconcileScheduler ────────────────────────────
         reconcile_scheduler = None
@@ -649,6 +739,7 @@ class LiveRunner:
             risk_gate=risk_gate,
             module_reloader=module_reloader,
             decision_bridge=decision_bridge_inst,
+            user_stream=user_stream_client,
             _fills=fills,
         )
 
@@ -715,6 +806,7 @@ class LiveRunner:
             log_level=log_cfg.get("level", "INFO"),
             log_file=log_cfg.get("file"),
             shadow_mode=shadow_mode,
+            testnet=bool(trading.get("testnet", False)),
             **kwargs,
         )
 
@@ -753,6 +845,32 @@ class LiveRunner:
         if self.module_reloader is not None:
             self.module_reloader.start()
         self.runtime.start()
+
+        if self.user_stream is not None:
+            import threading
+
+            def _user_stream_loop() -> None:
+                try:
+                    self.user_stream.connect()
+                except Exception:
+                    logger.warning("User stream initial connect failed", exc_info=True)
+                    return
+                while self._running:
+                    try:
+                        self.user_stream.step()
+                    except Exception:
+                        logger.warning("User stream step error, reconnecting in 1s", exc_info=True)
+                        time.sleep(1.0)
+                        try:
+                            self.user_stream.connect()
+                        except Exception:
+                            logger.warning("User stream reconnect failed", exc_info=True)
+
+            t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
+            t.start()
+            self._user_stream_thread = t
+            logger.info("User stream thread started")
+
         self.loop.start_background()
 
         logger.info("LiveRunner started. Press Ctrl+C to stop.")
@@ -771,6 +889,13 @@ class LiveRunner:
         self._running = False
 
         logger.info("Stopping LiveRunner...")
+        if self.user_stream is not None:
+            try:
+                self.user_stream.close()
+            except Exception:
+                logger.warning("User stream close error", exc_info=True)
+            if self._user_stream_thread is not None:
+                self._user_stream_thread.join(timeout=5.0)
         if self.module_reloader is not None:
             self.module_reloader.stop()
         if self.health_server is not None:
@@ -864,13 +989,17 @@ if __name__ == "__main__":
 
     venue_clients: Dict[str, Any] = {}
     exchange = raw.get("trading", {}).get("exchange", "binance")
+    testnet = bool(raw.get("trading", {}).get("testnet", False))
 
     if exchange == "binance":
         from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+        from execution.adapters.binance.urls import resolve_binance_urls
 
+        binance_urls = resolve_binance_urls(testnet)
         creds = raw.get("credentials", {})
         client = BinanceRestClient(
             cfg=BinanceRestConfig(
+                base_url=binance_urls.rest_base,
                 api_key=creds.get("api_key", ""),
                 api_secret=creds.get("api_secret", ""),
             )

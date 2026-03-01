@@ -104,7 +104,7 @@ def test_target_horizon():
 # ── compute_features_from_ohlcv (mocked) ───────────────────
 
 
-@patch("scripts.train_lgbm.LiveFeatureComputer")
+@patch("features.live_computer.LiveFeatureComputer")
 def test_compute_features_from_ohlcv(mock_computer_cls):
     from scripts.train_lgbm import compute_features_from_ohlcv
 
@@ -132,7 +132,7 @@ def test_compute_features_from_ohlcv(mock_computer_cls):
     assert mock_computer.on_bar.call_count == 3
 
 
-@patch("scripts.train_lgbm.LiveFeatureComputer")
+@patch("features.live_computer.LiveFeatureComputer")
 def test_compute_features_from_ohlcv_missing_optional_cols(mock_computer_cls):
     from scripts.train_lgbm import compute_features_from_ohlcv
 
@@ -154,7 +154,7 @@ def test_compute_features_from_ohlcv_missing_optional_cols(mock_computer_cls):
         assert kwargs["low"] == kwargs["close"]   # low defaults to close
 
 
-@patch("scripts.train_lgbm.LiveFeatureComputer")
+@patch("features.live_computer.LiveFeatureComputer")
 def test_compute_features_custom_params(mock_computer_cls):
     from scripts.train_lgbm import compute_features_from_ohlcv
 

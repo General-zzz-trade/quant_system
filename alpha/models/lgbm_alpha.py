@@ -46,7 +46,7 @@ class LGBMAlphaModel:
         except ImportError:
             return None
 
-        x = [[features.get(f, 0.0) for f in self.feature_names]]
+        x = [[features.get(f, float("nan")) for f in self.feature_names]]
         pred = self._model.predict(x)[0]
 
         if pred > self.threshold:

@@ -119,3 +119,106 @@ class TestProductionWiring:
         assert config.enable_structured_logging is False
         assert config.log_level == "DEBUG"
         assert config.log_file == "custom.log"
+
+
+def _make_binance_rest_client():
+    from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+    return BinanceRestClient(
+        cfg=BinanceRestConfig(
+            base_url="https://testnet.binancefuture.com",
+            api_key="test-key",
+            api_secret="test-secret",
+        )
+    )
+
+
+class TestUserStreamWiring:
+    def test_user_stream_wired_for_binance(self):
+        """BinanceRestClient + non-shadow -> user_stream is wired."""
+        config = LiveRunnerConfig(
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _make_binance_rest_client()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is not None
+
+    def test_user_stream_not_wired_in_shadow(self):
+        """Shadow mode -> no user stream."""
+        config = LiveRunnerConfig(
+            shadow_mode=True,
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _make_binance_rest_client()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is None
+
+    def test_user_stream_not_wired_for_fake_client(self):
+        """FakeVenueClient (not BinanceRestClient) -> no user stream."""
+        config = LiveRunnerConfig(
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _FakeVenueClient()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is None
+
+    def test_user_stream_testnet_url(self):
+        """testnet=True -> user stream ws_base_url is testnet."""
+        config = LiveRunnerConfig(
+            testnet=True,
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _make_binance_rest_client()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is not None
+        assert runner.user_stream.cfg.ws_base_url == "wss://stream.binancefuture.com/ws"
+
+    def test_user_stream_production_url(self):
+        """testnet=False -> user stream ws_base_url is production."""
+        config = LiveRunnerConfig(
+            testnet=False,
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _make_binance_rest_client()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is not None
+        assert runner.user_stream.cfg.ws_base_url == "wss://fstream.binance.com/ws"
+
+    def test_user_stream_not_wired_for_bitget(self):
+        """venue=bitget -> no user stream."""
+        config = LiveRunnerConfig(
+            venue="bitget",
+            enable_preflight=False,
+            enable_persistent_stores=False,
+        )
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"bitget": _FakeVenueClient()},
+            transport=_FakeTransport(),
+            user_stream_transport=_FakeTransport(),
+        )
+        assert runner.user_stream is None

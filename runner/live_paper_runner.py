@@ -58,6 +58,7 @@ class LivePaperConfig:
     enable_regime_gate: bool = True
     enable_monitoring: bool = True
     health_stale_data_sec: float = 120.0
+    testnet: bool = False
 
 
 @dataclass
@@ -87,6 +88,9 @@ class LivePaperRunner:
         transport: Any = None,
         metrics_exporter: Any = None,
         on_fill: Callable[[Any], None] | None = None,
+        feature_computer: Any = None,
+        alpha_models: Sequence[Any] | None = None,
+        funding_rate_source: Any = None,
     ) -> "LivePaperRunner":
         """Build the full production stack.
 
@@ -97,6 +101,9 @@ class LivePaperRunner:
             transport: WsTransport override for testing.
             metrics_exporter: Optional PrometheusExporter for metrics.
             on_fill: Optional callback for each fill event.
+            feature_computer: Optional feature computer (e.g. EnrichedFeatureComputer).
+            alpha_models: Optional ML models for signal generation.
+            funding_rate_source: Optional callable returning current funding rate.
         """
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
@@ -122,12 +129,27 @@ class LivePaperRunner:
             )
             hook = EngineMonitoringHook(health=health, metrics=metrics_exporter)
 
+        # Feature compute hook (same pattern as backtest_runner)
+        feat_hook = None
+        if feature_computer is not None:
+            from engine.feature_hook import FeatureComputeHook
+            inference_bridge = None
+            if alpha_models:
+                from alpha.inference.bridge import LiveInferenceBridge
+                inference_bridge = LiveInferenceBridge(models=list(alpha_models))
+            feat_hook = FeatureComputeHook(
+                computer=feature_computer,
+                inference_bridge=inference_bridge,
+                funding_rate_source=funding_rate_source,
+            )
+
         coord_cfg = CoordinatorConfig(
             symbol_default=symbol_default,
             symbols=config.symbols,
             currency=config.currency,
             starting_balance=config.starting_balance,
             on_pipeline_output=hook,
+            feature_hook=feat_hook,
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
 
@@ -194,6 +216,13 @@ class LivePaperRunner:
                     "websocket-client not installed. Run: pip install websocket-client"
                 )
 
+        if config.testnet:
+            from execution.adapters.binance.urls import resolve_binance_urls
+            ws_url = resolve_binance_urls(True).ws_market_stream
+            logger.warning("*** TESTNET MODE — NOT PRODUCTION ***")
+        else:
+            ws_url = config.ws_base_url
+
         streams = tuple(
             f"{sym.lower()}@kline_{config.kline_interval}"
             for sym in config.symbols
@@ -203,7 +232,7 @@ class LivePaperRunner:
             transport=transport,
             processor=processor,
             streams=streams,
-            cfg=MarketStreamConfig(ws_base_url=config.ws_base_url),
+            cfg=MarketStreamConfig(ws_base_url=ws_url),
         )
         runtime = BinanceMarketDataRuntime(ws_client=ws_client)
 

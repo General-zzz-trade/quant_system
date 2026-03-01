@@ -1,0 +1,37 @@
+# Binance Futures Testnet configuration
+# Uses testnet.binancefuture.com — no real funds at risk.
+# Register at https://testnet.binancefuture.com/ for API keys.
+
+trading:
+  symbol: BTCUSDT
+  exchange: binance
+  testnet: true
+  mode: live
+
+strategy:
+  name: ma_cross
+  fast_window: 10
+  slow_window: 30
+  order_qty: "0.001"   # minimal size for testnet
+
+risk:
+  max_position_notional: 500.0
+  max_leverage: 2.0
+  max_drawdown_pct: 5.0
+  max_orders_per_minute: 10
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+logging:
+  level: DEBUG
+  structured: true
+  file: logs/testnet_trading.log
+
+monitoring:
+  health_check_interval: 30.0

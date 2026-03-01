@@ -90,8 +90,14 @@ def build_rest_config_from_venue(venue_cfg: VenueConfig) -> "BinanceRestConfig":
             f"and {venue_cfg.api_secret_env!r}"
         )
 
+    if venue_cfg.rest_url:
+        base_url = venue_cfg.rest_url
+    else:
+        from execution.adapters.binance.urls import resolve_binance_urls
+        base_url = resolve_binance_urls(venue_cfg.testnet).rest_base
+
     return BinanceRestConfig(
-        base_url=venue_cfg.rest_url or "https://fapi.binance.com",
+        base_url=base_url,
         api_key=api_key,
         api_secret=api_secret,
         timeout_s=venue_cfg.read_timeout_sec,

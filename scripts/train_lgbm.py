@@ -2,7 +2,8 @@
 """Train LGBM alpha model via walk-forward cross-validation.
 
 Usage:
-    python3 -m scripts.train_lgbm --data data/btcusdt.csv --out models/
+    python3 -m scripts.train_lgbm --data data_files/BTCUSDT_1h.csv --out models/BTCUSDT
+    python3 -m scripts.train_lgbm --data data_files/BTCUSDT_1h.csv --out models/BTCUSDT --enriched
     python3 -m scripts.train_lgbm --config infra/config/examples/training.yaml
 """
 from __future__ import annotations
@@ -16,7 +17,6 @@ from typing import TYPE_CHECKING
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from alpha.training.trainer import ModelTrainer
-from features.live_computer import LiveFeatureComputer
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -36,6 +36,7 @@ def compute_features_from_ohlcv(
 ) -> "pd.DataFrame":
     """Compute features using LiveFeatureComputer over historical OHLCV."""
     import pandas as pd
+    from features.live_computer import LiveFeatureComputer
 
     computer = LiveFeatureComputer(fast_ma=fast_ma, slow_ma=slow_ma, vol_window=vol_window)
 
@@ -49,6 +50,30 @@ def compute_features_from_ohlcv(
 
         computer.on_bar(symbol, close=close, volume=volume, high=high, low=low)
         feats = computer.get_features_dict(symbol)
+        feats["close"] = close
+        records.append(feats)
+
+    return pd.DataFrame(records)
+
+
+def compute_enriched_features(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Compute enriched features (25+) using EnrichedFeatureComputer."""
+    import pandas as pd
+    from features.enriched_computer import EnrichedFeatureComputer
+
+    computer = EnrichedFeatureComputer()
+
+    records = []
+    for _, row in df.iterrows():
+        symbol = str(row.get("symbol", "BTCUSDT"))
+        close = float(row["close"])
+        volume = float(row.get("volume", 0))
+        high = float(row.get("high", close))
+        low = float(row.get("low", close))
+        open_ = float(row.get("open", close))
+
+        feats = computer.on_bar(symbol, close=close, volume=volume,
+                                high=high, low=low, open_=open_)
         feats["close"] = close
         records.append(feats)
 
@@ -77,6 +102,7 @@ def main() -> None:
     parser.add_argument("--fast-ma", type=int, default=10)
     parser.add_argument("--slow-ma", type=int, default=30)
     parser.add_argument("--vol-window", type=int, default=20)
+    parser.add_argument("--enriched", action="store_true", help="Use enriched feature set (25+)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -108,17 +134,24 @@ def main() -> None:
     if not required.issubset(df.columns):
         sys.exit(f"CSV must contain columns: {required}. Found: {list(df.columns)}")
 
-    logger.info("Computing features (fast_ma=%d, slow_ma=%d, vol=%d)",
-                args.fast_ma, args.slow_ma, args.vol_window)
-    feat_df = compute_features_from_ohlcv(
-        df, fast_ma=args.fast_ma, slow_ma=args.slow_ma, vol_window=args.vol_window,
-    )
+    if args.enriched:
+        from features.enriched_computer import ENRICHED_FEATURE_NAMES
+        feature_names = ENRICHED_FEATURE_NAMES
+        logger.info("Computing enriched features (%d features)", len(feature_names))
+        feat_df = compute_enriched_features(df)
+    else:
+        feature_names = FEATURE_NAMES
+        logger.info("Computing features (fast_ma=%d, slow_ma=%d, vol=%d)",
+                    args.fast_ma, args.slow_ma, args.vol_window)
+        feat_df = compute_features_from_ohlcv(
+            df, fast_ma=args.fast_ma, slow_ma=args.slow_ma, vol_window=args.vol_window,
+        )
 
     # Target: forward returns
     target = compute_target(df["close"], horizon=args.horizon)
 
     # Align: drop rows where features or target are NaN
-    X = feat_df[list(FEATURE_NAMES)]
+    X = feat_df[list(feature_names)]
     y = target
     mask = X.notna().all(axis=1) & y.notna()
     X = X[mask].values
@@ -129,14 +162,35 @@ def main() -> None:
     if len(X) < 200:
         sys.exit(f"Not enough data: {len(X)} samples (need >= 200)")
 
-    # Train
-    model = LGBMAlphaModel(name="lgbm_alpha", feature_names=FEATURE_NAMES)
+    # Train with stronger regularization for enriched features
+    model = LGBMAlphaModel(name="lgbm_alpha", feature_names=feature_names)
     trainer = ModelTrainer(model=model, out_dir=args.out)
-    results = trainer.walk_forward_train(X, y, n_splits=args.n_splits, expanding=True)
+
+    fit_kwargs = None
+    if args.enriched:
+        fit_kwargs = {"params": {
+            "n_estimators": 300,
+            "max_depth": 6,
+            "learning_rate": 0.03,
+            "num_leaves": 31,
+            "min_child_samples": 50,
+            "reg_alpha": 0.1,
+            "reg_lambda": 1.0,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "objective": "regression",
+            "verbosity": -1,
+        }}
+
+    results = trainer.walk_forward_train(
+        X, y, n_splits=args.n_splits, expanding=True, fit_kwargs=fit_kwargs,
+    )
 
     # Summary
     metrics_summary = {
         "folds": len(results),
+        "features": list(feature_names),
+        "n_features": len(feature_names),
         "avg_val_mse": float(np.mean([r.metrics["val_mse"] for r in results])),
         "avg_direction_accuracy": float(np.mean([r.metrics["direction_accuracy"] for r in results])),
         "per_fold": [{"fold": r.fold, **r.metrics} for r in results],

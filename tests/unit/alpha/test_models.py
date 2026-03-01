@@ -175,7 +175,8 @@ class TestLGBMAlphaModel:
         )
         assert result.strength == 1.0
 
-    def test_missing_feature_defaults_to_zero(self):
+    def test_missing_feature_defaults_to_nan(self):
+        """Missing features should be NaN (LGBM handles natively), not 0."""
         mock_model = MagicMock()
         mock_model.predict.return_value = [0.5]
 
@@ -188,7 +189,9 @@ class TestLGBMAlphaModel:
             features={"f1": 1.0},  # f2 missing
         )
         call_args = mock_model.predict.call_args[0][0]
-        assert call_args == [[1.0, 0.0]]
+        import math
+        assert call_args[0][0] == 1.0
+        assert math.isnan(call_args[0][1])
 
 
 # ── XGBAlphaModel ──────────────────────────────────────────
