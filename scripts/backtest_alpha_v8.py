@@ -33,6 +33,21 @@ COST_PER_TRADE = FEE_BPS + SLIPPAGE_BPS  # 6 bps total
 INITIAL_CAPITAL = 10000.0
 
 
+def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
+    """Return boolean mask: True where close <= SMA(ma_window)."""
+    n = len(closes)
+    mask = np.zeros(n, dtype=bool)
+    if n < ma_window:
+        mask[:] = True  # not enough data — conservative
+        return mask
+    cs = np.cumsum(closes)
+    ma = np.empty(n)
+    ma[:ma_window] = np.nan
+    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
+    mask = np.isnan(ma) | (closes <= ma)
+    return mask
+
+
 def _apply_monthly_gate(
     signal: np.ndarray,
     closes: np.ndarray,
@@ -43,15 +58,141 @@ def _apply_monthly_gate(
     if n != len(closes):
         raise ValueError("signal and closes must have same length")
     out = signal.copy()
-    if n < ma_window:
-        return out
-    cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
-    # Gate: zero signal where close <= MA or MA not yet available
-    gate_off = np.isnan(ma) | (closes <= ma)
-    out[gate_off] = 0.0
+    bear = _compute_bear_mask(closes, ma_window)
+    out[bear] = 0.0
+    return out
+
+
+def _prob_to_score(
+    prob: float,
+    bear_thresholds: Optional[List[Tuple[float, float]]] = None,
+) -> float:
+    """Convert bear model probability to position score.
+
+    Args:
+        prob: Classifier probability of crash (prob[:,1]).
+        bear_thresholds: List of (prob_threshold, score) tuples, sorted desc.
+            e.g. [(0.7, -1.0), (0.6, -0.5), (0.5, 0.0)]
+            If None, uses binary: prob > 0.5 → -1.0 else 0.0.
+    """
+    if bear_thresholds is None:
+        return -1.0 if prob > 0.5 else 0.0
+    for thresh, score in bear_thresholds:
+        if prob > thresh:
+            return score
+    return 0.0
+
+
+def _apply_regime_switch(
+    signal: np.ndarray,
+    closes: np.ndarray,
+    feat_df: "pd.DataFrame",
+    bear_model_raw: Any,
+    bear_features: list,
+    ma_window: int = 480,
+    min_hold: int = 24,
+    bear_thresholds: Optional[List[Tuple[float, float]]] = None,
+    vol_target: Optional[float] = None,
+    vol_feature: str = "atr_norm_14",
+    dd_limit: Optional[float] = None,
+    dd_cooldown: int = 48,
+) -> np.ndarray:
+    """Regime-switch: bull→signal (long-only), bear→bear model (short).
+
+    Supports graded bear sizing, vol-adaptive scaling, and drawdown circuit breaker.
+
+    Args:
+        bear_thresholds: Graded bear thresholds. None = binary (legacy).
+        vol_target: Target volatility for position scaling. None = off.
+        vol_feature: Feature name for realized vol (must be in feat_df).
+        dd_limit: Max drawdown before forced flat (e.g. -0.15). None = off.
+        dd_cooldown: Bars to stay flat after drawdown breach.
+    """
+    n = len(signal)
+    if n != len(closes):
+        raise ValueError("signal and closes must have same length")
+
+    bear_mask = _compute_bear_mask(closes, ma_window)
+
+    # Build bear feature matrix
+    X_bear = np.column_stack([
+        np.nan_to_num(feat_df[f].values[-n:].astype(np.float64), nan=0.0)
+        if f in feat_df.columns else np.zeros(n)
+        for f in bear_features
+    ])
+
+    # Bear model predict on all bars (classifier: prob[:,1])
+    prob = bear_model_raw.predict_proba(X_bear)[:, 1]
+
+    out = signal.copy()
+    for i in range(n):
+        if bear_mask[i]:
+            out[i] = _prob_to_score(prob[i], bear_thresholds)
+
+    # Vol-adaptive sizing: scale all positions by target_vol / realized_vol
+    if vol_target is not None and vol_feature in feat_df.columns:
+        vol_vals = feat_df[vol_feature].values[-n:].astype(np.float64)
+        for i in range(n):
+            if out[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
+                scale = min(vol_target / vol_vals[i], 1.0)
+                out[i] *= scale
+
+    # Re-apply min_hold across regime switches
+    held = np.zeros_like(out)
+    held[0] = out[0]
+    hold_count = 1
+    for i in range(1, len(out)):
+        if hold_count < min_hold:
+            held[i] = held[i - 1]
+            hold_count += 1
+        else:
+            held[i] = out[i]
+            if out[i] != held[i - 1]:
+                hold_count = 1
+            else:
+                hold_count += 1
+
+    # Drawdown circuit breaker: force flat when rolling DD exceeds limit
+    if dd_limit is not None:
+        held = _apply_dd_breaker(held, closes, dd_limit, dd_cooldown)
+
+    return held
+
+
+def _apply_dd_breaker(
+    signal: np.ndarray,
+    closes: np.ndarray,
+    dd_limit: float,
+    cooldown: int,
+) -> np.ndarray:
+    """Force flat when cumulative strategy drawdown exceeds dd_limit.
+
+    Tracks equity curve from signal*returns, triggers cooldown period.
+    """
+    n = min(len(signal), len(closes) - 1)
+    out = signal.copy()
+    ret_1bar = np.diff(closes) / closes[:-1]
+
+    equity = 1.0
+    peak = 1.0
+    cool_remaining = 0
+
+    for i in range(n):
+        if cool_remaining > 0:
+            out[i] = 0.0
+            cool_remaining -= 1
+            # Still track equity (flat, no PnL)
+            continue
+
+        if i < len(ret_1bar):
+            equity *= (1.0 + out[i] * ret_1bar[i])
+        peak = max(peak, equity)
+        dd = (equity - peak) / peak
+
+        if dd < dd_limit:
+            cool_remaining = cooldown
+            out[i] = 0.0
+
     return out
 
 
@@ -60,14 +201,19 @@ def _pred_to_signal(
     target_mode: str = "",
     deadzone: float = 0.5,
     min_hold: int = 24,
+    zscore_window: int = 720,
 ) -> np.ndarray:
     """Convert raw predictions to discrete positions {-1, 0, +1} with min hold.
+
+    Uses rolling-window z-score normalization (causal — no lookahead).
+    Each bar's z-score is computed using the last `zscore_window` predictions.
 
     Args:
         y_pred: Raw model predictions.
         target_mode: "binary" or continuous.
         deadzone: z-score threshold to enter a position.
         min_hold: Minimum bars to hold before allowing signal change.
+        zscore_window: Rolling window size for z-score (default: 720 = 30 days).
     """
     # Step 1: raw discrete signal from predictions
     if target_mode == "binary":
@@ -75,12 +221,28 @@ def _pred_to_signal(
         raw = np.sign(centered)
         raw = np.where(np.abs(centered) < 0.02, 0.0, raw)
     else:
-        mu = np.mean(y_pred)
-        std = np.std(y_pred)
-        if std < 1e-12:
-            return np.zeros_like(y_pred)
-        z = (y_pred - mu) / std
-        raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
+        # Rolling-window z-score: causal, adapts to recent distribution
+        n = len(y_pred)
+        raw = np.zeros(n)
+        buf = np.empty(zscore_window)
+        buf_idx = 0
+        buf_count = 0
+        for i in range(n):
+            buf[buf_idx] = y_pred[i]
+            buf_idx = (buf_idx + 1) % zscore_window
+            buf_count = min(buf_count + 1, zscore_window)
+            if buf_count < min(168, zscore_window):
+                continue  # warmup: need at least 168 bars (1 week)
+            window = buf[:buf_count] if buf_count < zscore_window else buf
+            mu = np.mean(window)
+            std = np.std(window)
+            if std < 1e-12:
+                continue
+            z = (y_pred[i] - mu) / std
+            if z > deadzone:
+                raw[i] = 1.0
+            elif z < -deadzone:
+                raw[i] = -1.0
 
     # Step 2: enforce minimum holding period
     signal = np.zeros_like(raw)
@@ -267,12 +429,23 @@ def run_backtest(
     monthly_gate_window: int = 480,
     full: bool = False,
     oos_bars: int = 13140,
+    bear_model_path: Optional[str] = None,
+    bear_thresholds: Optional[List[Tuple[float, float]]] = None,
+    vol_target: Optional[float] = None,
+    vol_feature: str = "atr_norm_14",
+    dd_limit: Optional[float] = None,
+    dd_cooldown: int = 48,
 ) -> Dict[str, Any]:
     """Run realistic backtest on historical data.
 
     Args:
         full: Use all available data instead of last oos_bars.
         oos_bars: Number of bars for OOS window (default 13140 = ~18 months).
+        bear_thresholds: Graded bear prob thresholds [(0.7,-1.0),(0.6,-0.5),(0.5,0.0)].
+        vol_target: Target vol for position scaling (e.g. 0.02).
+        vol_feature: Feature for realized vol (default: atr_norm_14).
+        dd_limit: Max drawdown before circuit breaker (e.g. -0.15). None=off.
+        dd_cooldown: Bars to stay flat after DD breach.
     """
     # Load config — support both V8 (top-level) and legacy (nested under symbol) format
     with open(config_path) as f:
@@ -303,11 +476,29 @@ def run_backtest(
         weights = [1.0]
         model_label = str(model_path)
 
+    # Auto-detect settings from config.json
+    if config.get("monthly_gate", False) and not monthly_gate:
+        monthly_gate = True
+    if config.get("long_only", False) and not long_only:
+        long_only = True
+
+    # Auto-detect position management from config
+    pm = config.get("position_management", {})
+    if bear_thresholds is None and pm.get("bear_thresholds"):
+        bear_thresholds = [tuple(x) for x in pm["bear_thresholds"]]
+    if vol_target is None and pm.get("vol_target") is not None:
+        vol_target = pm["vol_target"]
+        vol_feature = pm.get("vol_feature", vol_feature)
+    if dd_limit is None and pm.get("dd_limit") is not None:
+        dd_limit = pm["dd_limit"]
+        dd_cooldown = pm.get("dd_cooldown", dd_cooldown)
+
     print(f"\n{'='*70}")
     print(f"  Alpha V8 Backtest: {symbol}")
     print(f"  Model: {model_label}")
     print(f"  Horizon: {horizon}, Mode: {target_mode}")
     print(f"  Features: {len(feature_names)}")
+    print(f"  Long-only: {long_only}, Monthly gate: {monthly_gate}")
     print(f"  Cost: {COST_PER_TRADE*10000:.0f} bps per trade (fee={FEE_BPS*10000:.0f} + slip={SLIPPAGE_BPS*10000:.0f})")
     print(f"{'='*70}")
 
@@ -361,12 +552,68 @@ def run_backtest(
     if long_only:
         signal = np.clip(signal, 0.0, None)
         print(f"  Long-only mode: short signals clipped to 0")
-    if monthly_gate:
+
+    # Load bear model if available (Strategy F regime-switch)
+    bear_model_dir = bear_model_path
+    if bear_model_dir is None and model_path.is_dir():
+        bear_model_dir = config.get("bear_model_path")
+    bear_model_raw = None
+    bear_features = []
+    if bear_model_dir:
+        bear_dir = Path(bear_model_dir)
+        bear_cfg_path = bear_dir / "config.json"
+        if bear_cfg_path.exists():
+            with open(bear_cfg_path) as f:
+                bear_cfg = json.load(f)
+            bear_pkl = bear_dir / bear_cfg["models"][0]
+            if bear_pkl.exists():
+                import pickle
+                with open(bear_pkl, "rb") as f:
+                    bear_data = pickle.load(f)
+                bear_model_raw = bear_data["model"]
+                bear_features = bear_data.get("features", bear_cfg.get("features", []))
+                print(f"  Bear model loaded: {bear_pkl} ({len(bear_features)} features)")
+
+    if monthly_gate and bear_model_raw is not None:
+        # Strategy F: regime-switch (bull=long-only, bear=short via bear model)
+        pre_active = np.mean(signal != 0) * 100
+        # Trim feat_df to match warmup-sliced arrays
+        feat_df_trimmed = feat_df.iloc[warmup:].reset_index(drop=True)
+        signal = _apply_regime_switch(
+            signal, closes, feat_df_trimmed, bear_model_raw, bear_features,
+            ma_window=monthly_gate_window, min_hold=config.get("min_hold", 24),
+            bear_thresholds=bear_thresholds,
+            vol_target=vol_target, vol_feature=vol_feature,
+            dd_limit=dd_limit, dd_cooldown=dd_cooldown,
+        )
+        bear_mask = _compute_bear_mask(closes, monthly_gate_window)
+        n_bull = int((~bear_mask).sum())
+        n_bear = int(bear_mask.sum())
+        n_long = int((signal > 0).sum())
+        n_short = int((signal < 0).sum())
+        print(f"  Strategy F regime-switch (MA{monthly_gate_window}):")
+        print(f"    Bull bars: {n_bull}, Bear bars: {n_bear}")
+        print(f"    Long positions: {n_long}, Short positions: {n_short}")
+    elif monthly_gate:
         pre_active = np.mean(signal != 0) * 100
         signal = _apply_monthly_gate(signal, closes, monthly_gate_window)
         post_active = np.mean(signal != 0) * 100
         print(f"  Monthly gate (MA{monthly_gate_window}): active {pre_active:.1f}% → {post_active:.1f}% "
               f"(gated {pre_active - post_active:.1f}%)")
+
+    # DD breaker for non-regime-switch path
+    if dd_limit is not None and bear_model_raw is None:
+        signal = _apply_dd_breaker(signal, closes, dd_limit, dd_cooldown)
+        print(f"  DD breaker: limit={dd_limit*100:.1f}%, cooldown={dd_cooldown} bars")
+
+    # Position management info
+    if bear_thresholds is not None and bear_model_raw is not None:
+        print(f"  Bear thresholds: {bear_thresholds}")
+    if vol_target is not None:
+        print(f"  Vol target: {vol_target} (feature: {vol_feature})")
+    if dd_limit is not None:
+        print(f"  DD limit: {dd_limit*100:.1f}%, cooldown: {dd_cooldown} bars")
+
     print(f"  Signal stats: active={np.mean(signal != 0)*100:.1f}%, "
           f"long={np.mean(signal > 0)*100:.1f}%, short={np.mean(signal < 0)*100:.1f}%")
 
@@ -379,7 +626,30 @@ def run_backtest(
     turnover = np.abs(np.diff(signal_for_trade, prepend=0))
     gross_pnl = signal_for_trade * ret_1bar
     cost = turnover * COST_PER_TRADE
-    net_pnl = gross_pnl - cost
+
+    # Funding rate cost: long pays positive funding, short receives positive funding
+    # Funding settles every 8h; distribute across the 8 bars in that window
+    funding_schedule = _load_schedule(
+        Path(f"data_files/{symbol}_funding.csv"), "timestamp", "funding_rate")
+    funding_cost = np.zeros(len(signal_for_trade))
+    if funding_schedule:
+        funding_times = sorted(funding_schedule.keys())
+        f_idx = 0
+        current_rate = 0.0
+        trade_timestamps = timestamps[:len(signal_for_trade)]
+        for i in range(len(signal_for_trade)):
+            ts = trade_timestamps[i]
+            while f_idx < len(funding_times) and funding_times[f_idx] <= ts:
+                current_rate = funding_schedule[funding_times[f_idx]]
+                f_idx += 1
+            # Distribute 8h funding across 8 bars (1h each)
+            # Long position pays funding_rate, short receives it
+            if signal_for_trade[i] != 0.0:
+                funding_cost[i] = signal_for_trade[i] * current_rate / 8.0
+        total_funding = float(np.sum(np.abs(funding_cost)))
+        print(f"  Funding cost: {total_funding*100:.4f}% total")
+
+    net_pnl = gross_pnl - cost - funding_cost
 
     # Equity curve
     equity = np.ones(len(net_pnl) + 1) * INITIAL_CAPITAL
@@ -508,6 +778,34 @@ def run_backtest(
                 h_sharpe = float(np.mean(h_active_pnl)) / h_std * np.sqrt(8760)
         print(f"\n  {label}: return={h_ret*100:+.2f}% sharpe={h_sharpe:.2f} active={h_active.mean()*100:.1f}%")
 
+    # ── Per-regime metrics (when bear model used) ──
+    regime_metrics = {}
+    if bear_model_raw is not None:
+        bear_mask_final = _compute_bear_mask(closes, monthly_gate_window)
+        for regime_label, regime_mask in [("Bull", ~bear_mask_final[:len(net_pnl)]),
+                                           ("Bear", bear_mask_final[:len(net_pnl)])]:
+            r_pnl = net_pnl[regime_mask]
+            r_active = active[regime_mask]
+            r_n = int(regime_mask.sum())
+            r_n_active = int(r_active.sum())
+            r_ret = float(np.sum(r_pnl))
+            r_sharpe = 0.0
+            if r_n_active > 1:
+                r_active_pnl = r_pnl[r_active]
+                r_std = float(np.std(r_active_pnl, ddof=1))
+                if r_std > 0:
+                    r_sharpe = float(np.mean(r_active_pnl)) / r_std * np.sqrt(8760)
+            regime_metrics[regime_label.lower()] = {
+                "bars": r_n, "active": r_n_active,
+                "return": r_ret, "sharpe": r_sharpe,
+            }
+            sig_in_regime = signal_for_trade[regime_mask]
+            r_long = int((sig_in_regime > 0).sum())
+            r_short = int((sig_in_regime < 0).sum())
+            print(f"\n  {regime_label} regime: bars={r_n}, active={r_n_active}, "
+                  f"long={r_long}, short={r_short}")
+            print(f"    Return={r_ret*100:+.2f}%, Sharpe={r_sharpe:.2f}")
+
     # ── Save results ──
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -551,6 +849,17 @@ def run_backtest(
         "total_months": len(monthly),
         "cost_bps": COST_PER_TRADE * 10000,
     }
+    if regime_metrics:
+        summary["regime_metrics"] = regime_metrics
+        summary["strategy"] = "F_regime_switch"
+    if bear_thresholds is not None:
+        summary["bear_thresholds"] = bear_thresholds
+    if vol_target is not None:
+        summary["vol_target"] = vol_target
+        summary["vol_feature"] = vol_feature
+    if dd_limit is not None:
+        summary["dd_limit"] = dd_limit
+        summary["dd_cooldown"] = dd_cooldown
     with open(out_dir / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
 
@@ -575,6 +884,18 @@ def main() -> None:
                         help="Use all available historical data (not just OOS window)")
     parser.add_argument("--oos-bars", type=int, default=13140,
                         help="OOS window size in bars (default: 13140 = ~18 months)")
+    parser.add_argument("--bear-model", default=None,
+                        help="Bear model directory (overrides config.json bear_model_path)")
+    parser.add_argument("--bear-thresholds", default=None,
+                        help='Graded bear thresholds JSON, e.g. \'[[0.7,-1.0],[0.6,-0.5],[0.5,0.0]]\'')
+    parser.add_argument("--vol-target", type=float, default=None,
+                        help="Target volatility for position scaling (e.g. 0.02)")
+    parser.add_argument("--vol-feature", default="atr_norm_14",
+                        help="Feature for realized vol (default: atr_norm_14)")
+    parser.add_argument("--dd-limit", type=float, default=None,
+                        help="Max drawdown circuit breaker (e.g. -0.15). Negative value.")
+    parser.add_argument("--dd-cooldown", type=int, default=48,
+                        help="Bars to stay flat after DD breach (default: 48)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -607,12 +928,22 @@ def main() -> None:
         print(f"Config not found: {config_path}")
         return
 
+    bear_thresholds = None
+    if args.bear_thresholds:
+        bear_thresholds = [tuple(x) for x in json.loads(args.bear_thresholds)]
+
     run_backtest(symbol, model_path, config_path, out_dir,
                  long_only=args.long_only,
                  monthly_gate=args.monthly_gate,
                  monthly_gate_window=args.monthly_gate_window,
                  full=args.full,
-                 oos_bars=args.oos_bars)
+                 oos_bars=args.oos_bars,
+                 bear_model_path=args.bear_model,
+                 bear_thresholds=bear_thresholds,
+                 vol_target=args.vol_target,
+                 vol_feature=args.vol_feature,
+                 dd_limit=args.dd_limit,
+                 dd_cooldown=args.dd_cooldown)
 
 
 if __name__ == "__main__":

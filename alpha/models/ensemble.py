@@ -31,6 +31,12 @@ class EnsembleAlphaModel:
     sub_models: Sequence[Any] = ()
     weights: Sequence[float] = ()
 
+    def __post_init__(self) -> None:
+        if self.weights and self.sub_models and len(self.weights) != len(self.sub_models):
+            raise ValueError(
+                f"len(weights)={len(self.weights)} != len(sub_models)={len(self.sub_models)}"
+            )
+
     def predict(
         self, *, symbol: str, ts: datetime, features: Dict[str, Any],
     ) -> Optional[_Signal]:

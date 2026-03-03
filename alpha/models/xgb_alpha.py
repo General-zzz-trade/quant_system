@@ -51,7 +51,17 @@ class XGBAlphaModel:
             return None
 
         x = np.array([[features.get(f, float("nan")) for f in self.feature_names]])
-        pred = self._model.predict(x)[0]
+
+        # Handle both XGBRegressor (sklearn API) and raw Booster
+        try:
+            import xgboost as xgb
+        except ImportError:
+            return None
+        if isinstance(self._model, xgb.Booster):
+            dm = xgb.DMatrix(x, feature_names=list(self.feature_names))
+            pred = self._model.predict(dm)[0]
+        else:
+            pred = self._model.predict(x)[0]
 
         if pred > self.threshold:
             return _Signal(symbol=symbol, ts=ts, side="long", strength=min(abs(pred), 1.0))
@@ -130,12 +140,18 @@ class XGBAlphaModel:
 
     def save(self, path: str | Path) -> None:
         """Save model to disk."""
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump({"model": self._model, "features": self.feature_names}, f)
+        from infra.model_signing import sign_file
+        sign_file(path)
 
     def load(self, path: str | Path) -> None:
         """Load model from disk."""
+        path = Path(path)
+        from infra.model_signing import verify_file
+        verify_file(path)
         with open(path, "rb") as f:
             data = pickle.load(f)
         self._model = data["model"]

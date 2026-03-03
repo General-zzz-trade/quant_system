@@ -25,7 +25,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
@@ -107,7 +107,7 @@ class LiveRunnerConfig:
     # Signal constraints (must match backtest)
     min_hold_bars: Optional[Dict[str, int]] = None
     long_only_symbols: Optional[set] = None
-    deadzone: float = 0.5
+    deadzone: Union[float, Dict[str, float]] = 0.5
     # Trend hold
     trend_follow: bool = False
     trend_indicator: str = "tf4h_close_vs_ma20"
@@ -115,7 +115,12 @@ class LiveRunnerConfig:
     max_hold: int = 120
     # Monthly gate
     monthly_gate: bool = False
-    monthly_gate_window: int = 480
+    monthly_gate_window: Union[int, Dict[str, int]] = 480
+    # Bear regime thresholds for Strategy F
+    bear_thresholds: Optional[list] = None
+    # Vol-adaptive sizing (scalar or per-symbol dict)
+    vol_target: Union[None, float, Dict[str, Optional[float]]] = None
+    vol_feature: Union[str, Dict[str, str]] = "atr_norm_14"
 
 
 @dataclass
@@ -176,6 +181,7 @@ class LiveRunner:
         ls_ratio_source: Any = None,
         spot_close_source: Any = None,
         fgi_source: Any = None,
+        bear_model: Any = None,
     ) -> "LiveRunner":
         """Build the full production stack.
 
@@ -309,6 +315,10 @@ class LiveRunner:
                     max_hold=config.max_hold,
                     monthly_gate=config.monthly_gate,
                     monthly_gate_window=config.monthly_gate_window,
+                    bear_model=bear_model,
+                    bear_thresholds=config.bear_thresholds,
+                    vol_target=config.vol_target,
+                    vol_feature=config.vol_feature,
                 )
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
@@ -410,7 +420,7 @@ class LiveRunner:
                             price=Decimal(str(raw_price)) if raw_price is not None else None,
                         )
                     except Exception:
-                        logger.debug("OSM register failed for order %s", order_id, exc_info=True)
+                        logger.warning("OSM register failed for order %s", order_id, exc_info=True)
                     timeout_tracker.on_submit(str(order_id), ev)
 
             elif et_str == "FILL":
@@ -1036,17 +1046,8 @@ class LiveRunner:
         if self.freshness_monitor is not None:
             self.freshness_monitor.start()
 
-        # SIGHUP: reload production models
-        if self.model_loader is not None:
-            import signal as _signal
-            def _sighup_handler(signum: int, frame: Any) -> None:
-                logger.info("SIGHUP received — checking for model updates")
-                # Actual reload deferred to main loop to avoid signal-handler issues
-                self._reload_models_pending = True
-            try:
-                _signal.signal(_signal.SIGHUP, _sighup_handler)
-            except (OSError, AttributeError):
-                pass  # SIGHUP not available on Windows
+        # SIGHUP: reload production models (placeholder — not yet wired to main loop)
+        # TODO: wire _reload_models_pending field + main loop check when model hot-reload is needed
 
         self.runtime.start()
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, Mapping, Optional, Sequence, Set
+from typing import Any, Dict, Mapping, Optional, Sequence, Set, Union
 
 from alpha.base import AlphaModel
 from alpha.inference import InferenceEngine
@@ -35,13 +35,17 @@ class LiveInferenceBridge:
         metrics_exporter: Any = None,
         min_hold_bars: Optional[Dict[str, int]] = None,
         long_only_symbols: Optional[Set[str]] = None,
-        deadzone: float = 0.5,
+        deadzone: Union[float, Dict[str, float]] = 0.5,
         trend_follow: bool = False,
         trend_indicator: str = "tf4h_close_vs_ma20",
         trend_threshold: float = 0.0,
         max_hold: int = 120,
         monthly_gate: bool = False,
-        monthly_gate_window: int = 480,
+        monthly_gate_window: Union[int, Dict[str, int]] = 480,
+        bear_model: Optional[AlphaModel] = None,
+        bear_thresholds: Optional[Sequence[tuple]] = None,
+        vol_target: Union[None, float, Dict[str, Optional[float]]] = None,
+        vol_feature: Union[str, Dict[str, str]] = "atr_norm_14",
     ) -> None:
         self._engine = InferenceEngine(models=list(models))
         self._score_key = score_key
@@ -55,11 +59,29 @@ class LiveInferenceBridge:
         self._max_hold = max_hold
         self._monthly_gate = monthly_gate
         self._monthly_gate_window = monthly_gate_window
+        self._bear_model = bear_model
+        if bear_thresholds is not None:
+            thresholds_only = [t[0] for t in bear_thresholds]
+            if thresholds_only != sorted(thresholds_only, reverse=True):
+                raise ValueError(
+                    f"bear_thresholds must be in descending order by threshold, "
+                    f"got: {bear_thresholds}"
+                )
+        self._bear_thresholds = bear_thresholds
+        self._vol_target = vol_target
+        self._vol_feature = vol_feature
         # Per-symbol state for min_hold enforcement
         self._position: Dict[str, float] = {}
         self._hold_counter: Dict[str, int] = {}
         # Per-symbol close history for monthly gate
         self._close_history: Dict[str, deque] = {}
+
+    @staticmethod
+    def _resolve(param, symbol: str, default=None):
+        """Resolve a scalar-or-dict parameter to a per-symbol value."""
+        if isinstance(param, dict):
+            return param.get(symbol, default)
+        return param if param is not None else default
 
     def _apply_constraints(
         self, symbol: str, raw_score: float, features: Optional[Dict[str, Any]] = None,
@@ -76,9 +98,10 @@ class LiveInferenceBridge:
             score = max(0.0, score)
 
         # Discretize: z > deadzone → +1, z < -deadzone → -1, else 0
-        if score > self._deadzone:
+        dz = self._resolve(self._deadzone, symbol, 0.5)
+        if score > dz:
             desired = 1.0
-        elif score < -self._deadzone:
+        elif score < -dz:
             desired = -1.0
         else:
             desired = 0.0
@@ -118,7 +141,7 @@ class LiveInferenceBridge:
         """Return True if signal is allowed (close > MA), False if gated."""
         if not self._monthly_gate:
             return True
-        w = self._monthly_gate_window
+        w = self._resolve(self._monthly_gate_window, symbol, 480)
         hist = self._close_history.get(symbol)
         if hist is None:
             hist = deque(maxlen=w)
@@ -168,12 +191,39 @@ class LiveInferenceBridge:
 
                 score = self._apply_constraints(symbol, score, features)
 
-                # Monthly gate: override to 0 when close <= MA
-                if not gate_ok and score != 0.0:
-                    score = 0.0
-                    # Reset position state so next entry starts clean
-                    self._position[symbol] = 0.0
-                    self._hold_counter[symbol] = self._min_hold_bars.get(symbol, 0)
+                # Monthly gate: bear regime — run bear model or go flat
+                if not gate_ok:
+                    if self._bear_model is not None:
+                        bear_sig = self._bear_model.predict(
+                            symbol=symbol, ts=ts, features=features)
+                        if bear_sig is not None and bear_sig.side == "long":
+                            # Graded bear scoring by probability thresholds
+                            if self._bear_thresholds:
+                                prob = bear_sig.strength
+                                score = 0.0
+                                for thresh, s in self._bear_thresholds:
+                                    if prob > thresh:
+                                        score = s
+                                        break
+                            else:
+                                score = -1.0
+                        else:
+                            score = 0.0
+                    elif score != 0.0:
+                        score = 0.0
+                    # Sync hold state on regime switch
+                    if score != self._position.get(symbol, 0.0):
+                        self._position[symbol] = score
+                        self._hold_counter[symbol] = 1
+
+                # Vol-adaptive sizing
+                vt = self._resolve(self._vol_target, symbol)
+                if score != 0.0 and vt is not None:
+                    vf = self._resolve(self._vol_feature, symbol, "atr_norm_14")
+                    vol_val = features.get(vf)
+                    if vol_val is not None and vol_val > 1e-8:
+                        scale = min(vt / float(vol_val), 1.0)
+                        score *= scale
 
                 features[self._score_key] = score
 

@@ -86,7 +86,8 @@ class MarginMonitor:
             logger.exception("fetch_margin failed")
             status["margin_ok"] = False
             status["error"] = "fetch_margin_failed"
-            self._last_status = status
+            with self._lock:
+                self._last_status = status
             return status
 
         margin_ratio = float(margin_data.get("margin_ratio", 1.0))
@@ -165,7 +166,8 @@ class MarginMonitor:
                     meta={"funding_rates": extreme_symbols},
                 )
 
-        self._last_status = status
+        with self._lock:
+            self._last_status = status
         return status
 
     def _emit_alert(
@@ -204,4 +206,6 @@ class MarginMonitor:
 
     @property
     def last_status(self) -> Optional[Dict[str, Any]]:
-        return self._last_status
+        with self._lock:
+            s = self._last_status
+            return s.copy() if s is not None else None

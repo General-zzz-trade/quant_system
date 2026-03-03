@@ -121,13 +121,17 @@ def _get_price(cmd: Any) -> Optional[float]:
 
 
 def _position_notional(
-    positions: Mapping[str, Any], symbol: str, price: float,
+    positions: Mapping[str, Any], symbol: str, fallback_price: float,
 ) -> float:
     pos = positions.get(symbol)
     if pos is None:
         return 0.0
     qty = getattr(pos, "qty", None) or getattr(pos, "quantity", None) or 0
+    # Use the position's own price (mark or entry) rather than the order's price
+    pos_price = getattr(pos, "mark_price", None) or getattr(pos, "entry_price", None)
+    if pos_price is None:
+        pos_price = fallback_price
     try:
-        return abs(float(qty)) * price
+        return abs(float(qty)) * float(pos_price)
     except (TypeError, ValueError):
         return 0.0

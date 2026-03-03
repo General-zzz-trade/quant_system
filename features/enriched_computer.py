@@ -601,9 +601,9 @@ class _SymbolState:
                 feats["upper_shadow"] = (h - max(o, c)) / hl_range
                 feats["lower_shadow"] = (min(o, c) - l) / hl_range
             else:
-                feats["body_ratio"] = 0.0
-                feats["upper_shadow"] = 0.0
-                feats["lower_shadow"] = 0.0
+                feats["body_ratio"] = None
+                feats["upper_shadow"] = None
+                feats["lower_shadow"] = None
         else:
             feats["body_ratio"] = None
             feats["upper_shadow"] = None

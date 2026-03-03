@@ -233,6 +233,10 @@ def run_fold(
     max_hold: int = 120,
     monthly_gate: bool = False,
     monthly_gate_window: int = 480,
+    vol_target: Optional[float] = None,
+    vol_feature: str = "atr_norm_14",
+    dd_limit: Optional[float] = None,
+    dd_cooldown: int = 48,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -411,12 +415,32 @@ def run_fold(
     if monthly_gate:
         signal = _apply_monthly_gate(signal, test_closes, monthly_gate_window)
 
+    # Vol-adaptive sizing
+    if vol_target is not None and vol_feature in test_df.columns:
+        vol_vals = test_df[vol_feature].values.astype(np.float64)
+        for i in range(len(signal)):
+            if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
+                signal[i] *= min(vol_target / vol_vals[i], 1.0)
+
+    # DD breaker
+    if dd_limit is not None:
+        from scripts.backtest_alpha_v8 import _apply_dd_breaker
+        signal = _apply_dd_breaker(signal, test_closes, dd_limit, dd_cooldown)
+
     ret_1bar = np.diff(test_closes) / test_closes[:-1]
     signal_for_trade = signal[:len(ret_1bar)]
     turnover = np.abs(np.diff(signal_for_trade, prepend=0))
     gross_pnl = signal_for_trade * ret_1bar
     cost = turnover * COST_PER_TRADE
-    net_pnl = gross_pnl - cost
+
+    # Funding cost: long pays positive funding, short receives it
+    funding_cost = np.zeros(len(signal_for_trade))
+    if "funding_rate" in test_df.columns:
+        fr = test_df["funding_rate"].values[:len(signal_for_trade)].astype(np.float64)
+        fr = np.nan_to_num(fr, 0.0)
+        funding_cost = signal_for_trade * fr / 8.0
+
+    net_pnl = gross_pnl - cost - funding_cost
 
     active = signal_for_trade != 0
     n_active = int(active.sum())
@@ -439,6 +463,334 @@ def run_fold(
         features=selected,
         n_train=len(X_train),
         n_test=len(X_test),
+    )
+
+
+# ── Strategy F: per-fold regime-switch WF ────────────────────
+
+# Bear detector constants
+_BEAR_DETECTOR_POOL = [
+    "funding_zscore_24", "funding_momentum", "funding_extreme",
+    "funding_sign_persist", "funding_cumulative_8",
+    "basis", "basis_zscore_24", "basis_momentum",
+    "vol_20", "vol_regime", "parkinson_vol", "atr_norm_14",
+    "fgi_normalized", "fgi_extreme",
+    "rsi_14", "bb_pctb_20",
+    "oi_acceleration", "leverage_proxy",
+]
+
+_BEAR_CLS_PARAMS = {
+    "n_estimators": 300,
+    "max_depth": 5,
+    "learning_rate": 0.02,
+    "num_leaves": 16,
+    "min_child_samples": 50,
+    "reg_alpha": 0.1,
+    "reg_lambda": 2.0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "objective": "binary",
+    "metric": "binary_logloss",
+    "verbosity": -1,
+}
+
+
+def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
+    """Return boolean mask: True where close <= SMA(ma_window)."""
+    n = len(closes)
+    mask = np.zeros(n, dtype=bool)
+    if n < ma_window:
+        mask[:] = True
+        return mask
+    cs = np.cumsum(closes)
+    ma = np.empty(n)
+    ma[:ma_window] = np.nan
+    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
+    mask = np.isnan(ma) | (closes <= ma)
+    return mask
+
+
+def _compute_bear_target(closes: np.ndarray, horizon: int = 24,
+                          threshold: float = -0.02) -> np.ndarray:
+    """Binary target: 1 if forward return < threshold (crash)."""
+    n = len(closes)
+    raw = np.full(n, np.nan)
+    raw[:n - horizon] = closes[horizon:] / closes[:n - horizon] - 1.0
+    target = np.where(raw < threshold, 1.0, 0.0)
+    target[np.isnan(raw)] = np.nan
+    return target
+
+
+def run_fold_strategy_f(
+    fold: Fold,
+    feat_df: pd.DataFrame,
+    closes: np.ndarray,
+    feature_names: List[str],
+    *,
+    fixed_features: Optional[List[str]] = None,
+    candidate_pool: Optional[List[str]] = None,
+    n_flexible: int = 4,
+    use_hpo: bool = False,
+    hpo_trials: int = HPO_TRIALS,
+    deadzone: float = DEADZONE,
+    min_hold: int = MIN_HOLD,
+    monthly_gate_window: int = 480,
+    bear_thresholds: Optional[list] = None,
+    vol_target: Optional[float] = None,
+    vol_feature: str = "atr_norm_14",
+    dd_limit: Optional[float] = None,
+    dd_cooldown: int = 48,
+) -> FoldResult:
+    """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
+
+    Bull regime (close > SMA): V8 LGBM+XGB long-only signal.
+    Bear regime (close <= SMA): bear C classifier short signal.
+    Both models trained exclusively on the fold's train window.
+    """
+    import lightgbm as lgb
+
+    train_df = feat_df.iloc[fold.train_start:fold.train_end]
+    test_df = feat_df.iloc[fold.test_start:fold.test_end]
+    train_closes = closes[fold.train_start:fold.train_end]
+    test_closes = closes[fold.test_start:fold.test_end]
+    n_test = len(test_closes)
+
+    # ── 1. Train V8 bull model (same as run_fold) ──
+    y_train_full = _compute_target(train_closes, HORIZON, TARGET_MODE)
+    X_train_full = train_df[feature_names].values.astype(np.float64)
+    X_test = test_df[feature_names].values.astype(np.float64)
+
+    X_train = X_train_full[WARMUP:]
+    y_train = y_train_full[WARMUP:]
+    train_valid = ~np.isnan(y_train)
+    X_train = X_train[train_valid]
+    y_train = y_train[train_valid]
+
+    if len(X_train) < 1000:
+        return FoldResult(idx=fold.idx, period="", ic=0.0, sharpe=0.0,
+                          total_return=0.0, features=[], n_train=len(X_train), n_test=0)
+
+    # Feature selection
+    if fixed_features:
+        selected = list(fixed_features)
+        if n_flexible > 0:
+            pool = candidate_pool or [f for f in feature_names if f not in fixed_features]
+            pool_in_data = [f for f in pool if f in feature_names]
+            if pool_in_data:
+                pool_idx = [feature_names.index(f) for f in pool_in_data]
+                X_pool = X_train[:, pool_idx]
+                flex = greedy_ic_select(X_pool, y_train, pool_in_data, top_k=n_flexible)
+                selected.extend(flex)
+    else:
+        selected = greedy_ic_select(X_train, y_train, feature_names, top_k=TOP_K)
+
+    if not selected:
+        return FoldResult(idx=fold.idx, period="", ic=0.0, sharpe=0.0,
+                          total_return=0.0, features=[], n_train=len(X_train), n_test=0)
+
+    sel_idx = [feature_names.index(n) for n in selected]
+    X_train_sel = X_train[:, sel_idx]
+    X_test_sel = X_test[:, sel_idx]
+
+    # V8 HPO or default
+    params = dict(V7_DEFAULT_PARAMS)
+    if use_hpo:
+        try:
+            from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
+            n_tr = len(X_train_sel)
+            val_size = min(n_tr // 4, TEST_BARS)
+            X_hpo_train = X_train_sel[:-val_size]
+            y_hpo_train = y_train[:-val_size]
+            X_hpo_val = X_train_sel[-val_size:]
+            y_hpo_val = y_train[-val_size:]
+
+            def objective(trial_params):
+                p = {**V7_DEFAULT_PARAMS, **trial_params}
+                dtrain = lgb.Dataset(X_hpo_train, label=y_hpo_train)
+                dval = lgb.Dataset(X_hpo_val, label=y_hpo_val, reference=dtrain)
+                bst = lgb.train(p, dtrain, num_boost_round=p["n_estimators"],
+                                valid_sets=[dval],
+                                callbacks=[lgb.early_stopping(50, verbose=False),
+                                           lgb.log_evaluation(0)])
+                y_hat = bst.predict(X_hpo_val)
+                vm = ~np.isnan(y_hpo_val)
+                if vm.sum() < 10:
+                    return 0.0
+                from features.dynamic_selector import _rankdata, _spearman_ic
+                return float(_spearman_ic(_rankdata(y_hat[vm]), _rankdata(y_hpo_val[vm])))
+
+            opt = HyperOptimizer(search_space=V7_SEARCH_SPACE, objective_fn=objective,
+                                 config=HyperOptConfig(n_trials=hpo_trials, direction="maximize"))
+            result = opt.optimize()
+            params = {**V7_DEFAULT_PARAMS, **result.best_params}
+        except Exception as e:
+            logger.warning("HPO failed for fold %d: %s", fold.idx, e)
+
+    # Train LGBM
+    dtrain = lgb.Dataset(X_train_sel, label=y_train)
+    lgbm_bst = lgb.train(params, dtrain,
+                          num_boost_round=params.get("n_estimators", 500),
+                          callbacks=[lgb.log_evaluation(0)])
+    lgbm_pred = lgbm_bst.predict(X_test_sel)
+
+    # Train XGB (ensemble)
+    try:
+        import xgboost as xgb
+        xgb_params = {
+            "max_depth": params.get("max_depth", 6),
+            "learning_rate": params.get("learning_rate", 0.05),
+            "objective": "reg:squarederror",
+            "verbosity": 0,
+            "subsample": params.get("subsample", 0.8),
+            "colsample_bytree": params.get("colsample_bytree", 0.8),
+        }
+        dtrain_xgb = xgb.DMatrix(X_train_sel, label=y_train)
+        dtest_xgb = xgb.DMatrix(X_test_sel)
+        xgb_bst = xgb.train(xgb_params, dtrain_xgb,
+                             num_boost_round=params.get("n_estimators", 500))
+        xgb_pred = xgb_bst.predict(dtest_xgb)
+        y_pred_v8 = 0.5 * lgbm_pred + 0.5 * xgb_pred
+    except Exception:
+        y_pred_v8 = lgbm_pred
+
+    # V8 signal: long-only
+    sig_v8 = _pred_to_signal(y_pred_v8, target_mode=TARGET_MODE,
+                              deadzone=deadzone, min_hold=min_hold)
+    sig_v8 = np.clip(sig_v8, 0.0, 1.0)
+
+    # ── 2. Train bear C model on bear bars within train window ──
+    bear_mask_train = _compute_bear_mask(train_closes, monthly_gate_window)
+    bear_target = _compute_bear_target(train_closes, horizon=HORIZON, threshold=-0.02)
+
+    bear_features_available = [f for f in _BEAR_DETECTOR_POOL if f in feature_names]
+    bear_feat_idx = [feature_names.index(f) for f in bear_features_available]
+    X_bear_train_full = X_train_full[:, bear_feat_idx]
+
+    # Valid bear samples: in bear regime + valid target + past warmup
+    bear_valid = bear_mask_train & ~np.isnan(bear_target)
+    bear_valid[:WARMUP] = False
+    bear_idx = np.where(bear_valid)[0]
+
+    sig_bear = np.zeros(n_test)
+    bear_trained = False
+
+    if len(bear_idx) >= 200:
+        X_bear = np.nan_to_num(X_bear_train_full[bear_idx], 0.0)
+        y_bear = bear_target[bear_idx]
+
+        n_pos = int(y_bear.sum())
+        n_neg = len(y_bear) - n_pos
+        scale_pos = n_neg / max(n_pos, 1)
+
+        bear_params = dict(_BEAR_CLS_PARAMS)
+        bear_params["scale_pos_weight"] = scale_pos
+
+        dtrain_bear = lgb.Dataset(X_bear, label=y_bear)
+        bear_bst = lgb.train(bear_params, dtrain_bear,
+                              num_boost_round=bear_params["n_estimators"],
+                              callbacks=[lgb.log_evaluation(0)])
+
+        # Predict on test
+        X_bear_test = np.nan_to_num(
+            test_df[bear_features_available].values.astype(np.float64) if all(
+                f in test_df.columns for f in bear_features_available)
+            else X_test[:, bear_feat_idx],
+            0.0)
+        bear_prob = bear_bst.predict(X_bear_test)
+
+        # Convert prob to signal
+        if bear_thresholds:
+            for i in range(n_test):
+                for thresh, score in bear_thresholds:
+                    if bear_prob[i] > thresh:
+                        sig_bear[i] = score
+                        break
+        else:
+            sig_bear = np.where(bear_prob > 0.5, -1.0, 0.0)
+
+        bear_trained = True
+
+    # ── 3. Regime-switch: combine bull + bear ──
+    bear_mask_test = _compute_bear_mask(test_closes, monthly_gate_window)
+    signal = np.where(bear_mask_test[:n_test], sig_bear[:n_test], sig_v8[:n_test])
+
+    # Vol-adaptive sizing
+    if vol_target is not None and vol_feature in test_df.columns:
+        vol_vals = test_df[vol_feature].values.astype(np.float64)
+        for i in range(len(signal)):
+            if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
+                signal[i] *= min(vol_target / vol_vals[i], 1.0)
+
+    # Enforce min_hold (direct — signal is already discrete, not raw predictions)
+    held = np.zeros_like(signal)
+    held[0] = signal[0]
+    hold_count = 1
+    for i in range(1, len(signal)):
+        if hold_count < min_hold:
+            held[i] = held[i - 1]
+            hold_count += 1
+        else:
+            held[i] = signal[i]
+            if signal[i] != held[i - 1]:
+                hold_count = 1
+            else:
+                hold_count += 1
+    signal = held
+
+    # DD breaker
+    if dd_limit is not None:
+        from scripts.backtest_alpha_v8 import _apply_dd_breaker
+        signal = _apply_dd_breaker(signal, test_closes, dd_limit, dd_cooldown)
+
+    # ── 4. Evaluate ──
+    y_test_full = _compute_target(test_closes, HORIZON, TARGET_MODE)
+    test_valid = ~np.isnan(y_test_full)
+
+    # IC (use V8 predictions for IC, as bear is classifier)
+    ic = 0.0
+    if test_valid.sum() > 10:
+        from features.dynamic_selector import _rankdata, _spearman_ic
+        y_pred_v = y_pred_v8[test_valid]
+        y_test_v = y_test_full[test_valid]
+        if np.std(y_pred_v) > 1e-12 and np.std(y_test_v) > 1e-12:
+            ic = float(_spearman_ic(_rankdata(y_pred_v), _rankdata(y_test_v)))
+
+    # PnL
+    ret_1bar = np.diff(test_closes) / test_closes[:-1]
+    sig_trade = signal[:len(ret_1bar)]
+    turnover = np.abs(np.diff(sig_trade, prepend=0))
+    gross_pnl = sig_trade * ret_1bar
+    cost = turnover * COST_PER_TRADE
+
+    # Funding cost
+    funding_cost = np.zeros(len(sig_trade))
+    if "funding_rate" in test_df.columns:
+        fr = test_df["funding_rate"].values[:len(sig_trade)].astype(np.float64)
+        fr = np.nan_to_num(fr, 0.0)
+        funding_cost = sig_trade * fr / 8.0
+
+    net_pnl = gross_pnl - cost - funding_cost
+
+    active = sig_trade != 0
+    n_active = int(active.sum())
+    sharpe = 0.0
+    if n_active > 1:
+        active_pnl = net_pnl[active]
+        std_a = float(np.std(active_pnl, ddof=1))
+        if std_a > 0:
+            sharpe = float(np.mean(active_pnl)) / std_a * np.sqrt(8760)
+
+    total_return = float(np.sum(net_pnl))
+
+    return FoldResult(
+        idx=fold.idx,
+        period="",
+        ic=ic,
+        sharpe=sharpe,
+        total_return=total_return,
+        features=selected + (bear_features_available if bear_trained else []),
+        n_train=len(X_train),
+        n_test=n_test,
     )
 
 
@@ -559,6 +911,18 @@ def main() -> None:
                         help="Gate signal when close <= SMA(window)")
     parser.add_argument("--monthly-gate-window", type=int, default=480,
                         help="SMA window for monthly gate (default: 480)")
+    parser.add_argument("--strategy-f", action="store_true",
+                        help="Per-fold Strategy F: V8 bull + bear C regime-switch")
+    parser.add_argument("--bear-thresholds", default=None,
+                        help='Graded bear thresholds JSON, e.g. \'[[0.7,-1.0],[0.6,-0.5],[0.5,0.0]]\'')
+    parser.add_argument("--vol-target", type=float, default=None,
+                        help="Target vol for position scaling (e.g. 0.02)")
+    parser.add_argument("--vol-feature", default="atr_norm_14",
+                        help="Feature for realized vol (default: atr_norm_14)")
+    parser.add_argument("--dd-limit", type=float, default=None,
+                        help="Max drawdown circuit breaker (e.g. -0.15)")
+    parser.add_argument("--dd-cooldown", type=int, default=48,
+                        help="Bars to stay flat after DD breach (default: 48)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -586,8 +950,18 @@ def main() -> None:
     max_hold_bars = args.max_hold
     monthly_gate = args.monthly_gate
     monthly_gate_window = args.monthly_gate_window
+    strategy_f = args.strategy_f
+    bear_thresholds = None
+    if args.bear_thresholds:
+        bear_thresholds = [tuple(x) for x in json.loads(args.bear_thresholds)]
+    vol_target = args.vol_target
+    vol_feature_name = args.vol_feature
+    dd_limit = args.dd_limit
+    dd_cooldown = args.dd_cooldown
 
     print(f"\n  Walk-Forward Validation: {symbol}")
+    if strategy_f:
+        print(f"  MODE: Strategy F (per-fold V8 + bear C regime-switch)")
     print(f"  HPO: {'ON' if use_hpo else 'OFF (default params)'}"
           f"{f' ({hpo_trials} trials)' if use_hpo else ''}")
     print(f"  Signal: deadzone={deadzone}, min_hold={min_hold}"
@@ -668,21 +1042,36 @@ def main() -> None:
               f"(train={fold.train_end - fold.train_start}, test={fold.test_end - fold.test_start})")
 
         t1 = time.time()
-        result = run_fold(fold, feat_df, closes, all_feature_names,
-                          use_hpo=use_hpo, fixed_features=fixed_features,
-                          candidate_pool=candidate_pool, n_flexible=n_flexible,
-                          regime_gate=regime_gate, long_only=long_only,
-                          adaptive_sizing=adaptive_sizing,
-                          deadzone=deadzone, min_hold=min_hold,
-                          continuous_sizing=continuous_sizing,
-                          hpo_trials=hpo_trials,
-                          ensemble=ensemble, target_mode=target_mode,
-                          trend_follow=trend_follow,
-                          trend_indicator=trend_indicator,
-                          trend_threshold=trend_threshold,
-                          max_hold=max_hold_bars,
-                          monthly_gate=monthly_gate,
-                          monthly_gate_window=monthly_gate_window)
+        if strategy_f:
+            result = run_fold_strategy_f(
+                fold, feat_df, closes, all_feature_names,
+                fixed_features=fixed_features,
+                candidate_pool=candidate_pool, n_flexible=n_flexible,
+                use_hpo=use_hpo, hpo_trials=hpo_trials,
+                deadzone=deadzone, min_hold=min_hold,
+                monthly_gate_window=monthly_gate_window,
+                bear_thresholds=bear_thresholds,
+                vol_target=vol_target, vol_feature=vol_feature_name,
+                dd_limit=dd_limit, dd_cooldown=dd_cooldown,
+            )
+        else:
+            result = run_fold(fold, feat_df, closes, all_feature_names,
+                              use_hpo=use_hpo, fixed_features=fixed_features,
+                              candidate_pool=candidate_pool, n_flexible=n_flexible,
+                              regime_gate=regime_gate, long_only=long_only,
+                              adaptive_sizing=adaptive_sizing,
+                              deadzone=deadzone, min_hold=min_hold,
+                              continuous_sizing=continuous_sizing,
+                              hpo_trials=hpo_trials,
+                              ensemble=ensemble, target_mode=target_mode,
+                              trend_follow=trend_follow,
+                              trend_indicator=trend_indicator,
+                              trend_threshold=trend_threshold,
+                              max_hold=max_hold_bars,
+                              monthly_gate=monthly_gate,
+                              monthly_gate_window=monthly_gate_window,
+                              vol_target=vol_target, vol_feature=vol_feature_name,
+                              dd_limit=dd_limit, dd_cooldown=dd_cooldown)
         result.period = period
         fold_results.append(result)
 
@@ -718,6 +1107,11 @@ def main() -> None:
         "max_hold": max_hold_bars,
         "monthly_gate": monthly_gate,
         "monthly_gate_window": monthly_gate_window,
+        "strategy_f": strategy_f,
+        "bear_thresholds": bear_thresholds,
+        "vol_target": vol_target,
+        "dd_limit": dd_limit,
+        "dd_cooldown": dd_cooldown,
         "folds": [
             {
                 "idx": r.idx,
@@ -734,7 +1128,8 @@ def main() -> None:
         "summary": summary,
     }
 
-    out_path = out_dir / f"wf_{symbol}.json"
+    suffix = "_strategy_f" if strategy_f else ""
+    out_path = out_dir / f"wf_{symbol}{suffix}.json"
     with open(out_path, "w") as f:
         json.dump(results_dict, f, indent=2, default=str)
     print(f"\n  Results saved to {out_path}")

@@ -34,6 +34,13 @@ class BinanceRestConfig:
     recv_window: int = 5000
     timeout_s: float = 10.0
 
+    def __repr__(self) -> str:
+        return (
+            f"BinanceRestConfig(base_url={self.base_url!r}, "
+            f"api_key='***', api_secret='***', "
+            f"recv_window={self.recv_window}, timeout_s={self.timeout_s})"
+        )
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)

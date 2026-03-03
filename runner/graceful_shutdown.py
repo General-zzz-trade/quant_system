@@ -99,7 +99,7 @@ class GracefulShutdown:
                         break
                 except Exception:
                     logger.exception("wait_pending callback failed")
-                    break
+                    continue
                 time.sleep(self._config.poll_interval_sec)
             if drained:
                 logger.info("All pending orders resolved")

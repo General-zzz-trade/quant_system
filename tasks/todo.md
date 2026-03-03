@@ -1,46 +1,107 @@
-# 特征优化：提升稳定 + 扩大候选池
+# Research Phase: MaxDD Control + Fair WF + Multi-Asset
 
-## 完成状态: DONE
+## Phase 1: MaxDD Control — Position Management Layer (DONE)
 
-### Step 1: WF 验证新配置 — DONE
+### 1a. Graded Bear Position Sizing
+- [x] `_prob_to_score()` — converts bear probability to graded score via threshold list
+- [x] `_apply_regime_switch()` — accepts `bear_thresholds` param (None = binary legacy)
+- [x] `bridge.py` — `bear_thresholds` param in constructor, graded scoring in `enrich()`
+- [x] CLI: `--bear-thresholds '[[0.7,-1.0],[0.6,-0.5],[0.5,0.0]]'`
+
+### 1b. Vol-Adaptive Position Sizing
+- [x] `_apply_regime_switch()` — `vol_target` / `vol_feature` params, scales all positions
+- [x] `bridge.py` — `vol_target` / `vol_feature` params, applies in `enrich()` after scoring
+- [x] CLI: `--vol-target 0.02 --vol-feature atr_norm_14`
+
+### 1c. Drawdown Circuit Breaker
+- [x] `_apply_dd_breaker()` — standalone function, tracks equity, forces flat + cooldown
+- [x] Applied inside `_apply_regime_switch()` (bear model path) and standalone (non-bear path)
+- [x] CLI: `--dd-limit -0.15 --dd-cooldown 48`
+
+## Phase 2: Fair Walk-Forward Validation (DONE)
+
+### 2a. Per-fold V8 Retraining
+- [x] `run_fold_strategy_f()` — trains LGBM+XGB ensemble per fold (not fixed production model)
+- [x] Feature selection within each fold (fixed + greedy IC)
+- [x] HPO optional per fold
+
+### 2b. Strategy F Complete WF
+- [x] Bull=per-fold V8 long-only + Bear=per-fold C short, regime-switch per fold
+- [x] All Phase 1 features available: `--bear-thresholds`, `--vol-target`, `--dd-limit`
+- [x] CLI: `--strategy-f` flag dispatches to `run_fold_strategy_f()`
+- [x] Results saved as `wf_{SYMBOL}_strategy_f.json`
+
+## Phase 2.5: Backtest Realism Fixes (DONE)
+
+### Z-Score Lookahead Bias
+- [x] Fixed: `_pred_to_signal()` used global `np.mean/std(y_pred)` — future info
+- [x] Replaced with rolling-window z-score (720 bars = 30 days, 168 warmup)
+- [x] Causal: each bar's z-score uses only past predictions
+
+### Funding Rate Costs
+- [x] Backtest: `funding_cost = signal * current_rate / 8.0` deducted from PnL
+- [x] WF: same funding deduction added to both `run_fold` and `run_fold_strategy_f`
+- [x] Historical average: ~12.6%/year annualized funding cost (BTC perps)
+
+## Phase 3: SOL Multi-Asset Extension (READY)
+
+- [x] SOL data available: `data_files/SOLUSDT_1h.csv` (47k bars, ~5.4 years)
+- [x] No code changes needed — WF framework handles `--symbol SOLUSDT` natively
+- [ ] **Run SOL WF** (see CLI examples below)
+- [ ] **Run SOL Strategy F** (see CLI examples below)
+
+## Corrected Results (rolling z-score + funding)
+
+### OOS 18-Month (2024-09 → 2026-02)
+| Metric | Bull-only | Strategy F |
+|--------|-----------|------------|
+| Sharpe | 2.67 | 3.56 |
+| Return | +19.7% | +54.6% |
+| MaxDD | -11.4% | -9.6% |
+| Pos Months | 8/18 | 14/18 |
+
+### Walk-Forward (21 folds, per-fold retrained)
+| Metric | Bull-only | Strategy F |
+|--------|-----------|------------|
+| Positive Folds | 14/21 | 15/21 |
+| Avg Sharpe | 0.83 | 1.82 |
+| Total Return | +33.5% | +63.8% |
+| PASS | Yes | Yes |
+
+### Strategy F Value-Add
+- Sharpe: +0.99 (0.83 → 1.82)
+- Return: +30.3% (33.5% → 63.8%)
+- Bear market folds dramatically improved (fold 6: -13.7 → +1.0)
+
+## Verification
+- 2144 tests passing, 0 regressions
+- All new functions unit-tested inline
+
+## CLI Examples
+
+```bash
+# OOS bull-only baseline (no bear model)
+python3 -m scripts.backtest_alpha_v8 --symbol BTCUSDT --monthly-gate --long-only --bear-model none
+
+# OOS Strategy F (auto-detects position mgmt from config)
+python3 -m scripts.backtest_alpha_v8 --symbol BTCUSDT --monthly-gate
+
+# Bull-only WF with funding
+python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo \
+  --long-only --monthly-gate --ensemble \
+  --fixed-features basis ret_24 fgi_normalized fgi_extreme parkinson_vol \
+    atr_norm_14 rsi_14 tf4h_atr_norm_14 basis_zscore_24 cvd_20 \
+  --candidate-pool funding_zscore_24 basis_momentum vol_ma_ratio_5_20 \
+    mean_reversion_20 funding_sign_persist hour_sin \
+  --out-dir results/walkforward_fixed
+
+# Strategy F WF with funding + graded bear
+python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo \
+  --strategy-f \
+  --fixed-features basis ret_24 fgi_normalized fgi_extreme parkinson_vol \
+    atr_norm_14 rsi_14 tf4h_atr_norm_14 basis_zscore_24 cvd_20 \
+  --candidate-pool funding_zscore_24 basis_momentum vol_ma_ratio_5_20 \
+    mean_reversion_20 funding_sign_persist hour_sin \
+  --bear-thresholds '[[0.7,-1.0],[0.6,-0.5],[0.5,0.0]]' \
+  --out-dir results/walkforward_fixed
 ```
-10 fixed: basis, ret_24, fgi_normalized, fgi_extreme, parkinson_vol,
-          atr_norm_14, rsi_14, tf4h_atr_norm_14, basis_zscore_24, cvd_20
-6 candidate: funding_zscore_24, basis_momentum, vol_ma_ratio_5_20,
-             mean_reversion_20, funding_sign_persist, hour_sin
-4 flexible slots
-```
-
-结果对比:
-| 指标 | 旧配置 (8+4) | 新配置 (10+4) |
-|------|-------------|---------------|
-| Positive Sharpe | 15/21 | **17/21** |
-| Avg Sharpe | 2.81 | **4.12** |
-| Total Return | +117% | **+119%** |
-
-弱点期改善: fold 12 和 14 翻正
-
-Feature stability (21/21): 13个特征100%稳定
-- 10 fixed + funding_sign_persist + funding_zscore_24 + basis_momentum
-- 第4个flex slot在 mean_reversion_20 (10/21) 和 vol_ma_ratio_5_20 (11/21) 间交替
-
-### Step 2: 重训练生产模型 — DONE
-- train_v8_production.py 配置已更新 (N_FLEXIBLE=4, 新CANDIDATE_POOL)
-- OOS 18个月: Sharpe=3.79, Return=+63%, IC=0.0665
-- Bootstrap P(S>0)=99.1%, 12/18正月
-- 4/4 production gates PASS
-- 模型注册: alpha_v8_BTCUSDT v2 (promoted)
-
-### Step 3: 回测验证 — DONE
-- Sharpe: 3.82, Return: +35.60%, Annual: +22.64%
-- Max DD: -12.09%, Profit factor: 1.11
-- H1 Sharpe: 4.04, H2 Sharpe: 3.48 (无衰减)
-- 11/18 positive months
-- Monthly gate: active 26.3% → 14.3%
-
-### Step 4: 更新 final_results.json — DONE
-- BTCUSDT features 更新为14特征 (10 fixed + 4 greedy selected)
-- 添加 walkforward / oos / monthly_gate 配置
-
-## 下一步
-- Paper trading 阶段

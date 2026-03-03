@@ -104,6 +104,10 @@ class LivePaperRunner:
         max_hold: int = 120,
         monthly_gate: bool = False,
         monthly_gate_window: int = 480,
+        bear_model: Any = None,
+        bear_thresholds: Optional[list] = None,
+        vol_target: Any = None,
+        vol_feature: str = "atr_norm_14",
     ) -> "LivePaperRunner":
         """Build the full production stack.
 
@@ -160,6 +164,10 @@ class LivePaperRunner:
                     max_hold=max_hold,
                     monthly_gate=monthly_gate,
                     monthly_gate_window=monthly_gate_window,
+                    bear_model=bear_model,
+                    bear_thresholds=bear_thresholds,
+                    vol_target=vol_target,
+                    vol_feature=vol_feature,
                 )
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,

@@ -7,9 +7,13 @@ import queue
 import threading
 import time
 
+import logging
+
 from engine.coordinator import EngineCoordinator
 from engine.errors import EngineErrorContext
 from engine.guards import Guard, GuardAction, GuardDecision, build_basic_guard, GuardConfig
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeLike(Protocol):
@@ -99,6 +103,7 @@ class EngineLoop:
 
         self._inbox: "queue.Queue[_Envelope]" = queue.Queue(maxsize=int(self._cfg.inbox_maxsize))
         self._running = False
+        self._drop_count: int = 0
 
         # 可选：后台线程模式（你也可以不用，手动 step/drain）
         self._thread: Optional[threading.Thread] = None
@@ -135,6 +140,8 @@ class EngineLoop:
                 self._inbox.put(env)  # block
             return True
         except queue.Full:
+            self._drop_count += 1
+            logger.warning("EngineLoop inbox full, event dropped (total_drops=%d, actor=%s)", self._drop_count, actor)
             return False
 
     # -------------------------

@@ -1,10 +1,11 @@
 # runner/testnet_validation.py
-"""3-phase testnet validation workflow: paper → shadow → live → compare.
+"""3-phase testnet validation workflow: paper → shadow → live → longrun → compare.
 
 Usage:
     python -m runner.testnet_validation --config testnet_binance.yaml --phase paper --duration 300
     python -m runner.testnet_validation --config testnet_binance.yaml --phase shadow --duration 300
     python -m runner.testnet_validation --config testnet_binance.yaml --phase live --duration 300
+    python -m runner.testnet_validation --config testnet_binance.yaml --phase longrun
     python -m runner.testnet_validation --config testnet_binance.yaml --phase compare
 """
 from __future__ import annotations
@@ -13,9 +14,11 @@ import argparse
 import csv
 import json
 import logging
+import math
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -88,8 +91,8 @@ def _build_ml_stack(
                 logger.warning("No ensemble members loaded")
                 return None, [], [], {}
 
-            # Pad weights if needed
-            if len(weights) < len(sub_models):
+            # Adjust weights to match loaded sub_models (some may be missing)
+            if len(weights) != len(sub_models):
                 weights = [1.0 / len(sub_models)] * len(sub_models)
 
             ensemble = EnsembleAlphaModel(
@@ -128,6 +131,30 @@ def _build_ml_stack(
             signal_kwargs["monthly_gate_window"] = mcfg.get(
                 "monthly_gate_window", strategy.get("monthly_gate_window", 480)
             )
+
+        # Position management: bear_thresholds, vol_target, vol_feature
+        pos_mgmt = mcfg.get("position_management", {})
+        if pos_mgmt.get("bear_thresholds"):
+            signal_kwargs["bear_thresholds"] = [tuple(x) for x in pos_mgmt["bear_thresholds"]]
+        if pos_mgmt.get("vol_target") is not None:
+            signal_kwargs["vol_target"] = pos_mgmt["vol_target"]
+        if pos_mgmt.get("vol_feature"):
+            signal_kwargs["vol_feature"] = pos_mgmt["vol_feature"]
+
+        # Bear model for regime-switch (Strategy F)
+        bear_model_path = mcfg.get("bear_model_path")
+        if bear_model_path:
+            bear_dir = Path(bear_model_path)
+            bear_cfg_path = bear_dir / "config.json"
+            if bear_cfg_path.exists():
+                with bear_cfg_path.open() as bf:
+                    bear_cfg = json.load(bf)
+                bear_pkl = bear_dir / bear_cfg["models"][0]
+                if bear_pkl.exists():
+                    bear_m = LGBMAlphaModel(name="bear_detector")
+                    bear_m.load(bear_pkl)
+                    signal_kwargs["bear_model"] = bear_m
+                    logger.info("Loaded bear model: %s", bear_pkl)
 
     # ── Legacy format: model_dir/SYM/config_name.pkl ──────
     if not models:
@@ -201,6 +228,29 @@ def _write_equity_csv(path: Path, fills: List[Dict[str, Any]], starting_balance:
             })
 
 
+def _start_pollers(symbol: str, testnet: bool = True):
+    """Start all data pollers. Returns (funding, oi, fgi) pollers."""
+    from execution.adapters.binance.funding_poller import BinanceFundingPoller
+    from execution.adapters.binance.oi_poller import BinanceOIPoller
+    from execution.adapters.fgi_poller import FGIPoller
+
+    funding = BinanceFundingPoller(symbol=symbol, testnet=testnet)
+    oi = BinanceOIPoller(symbol=symbol, testnet=testnet)
+    fgi = FGIPoller()
+    funding.start()
+    oi.start()
+    fgi.start()
+    return funding, oi, fgi
+
+
+def _stop_pollers(*pollers: Any) -> None:
+    for p in pollers:
+        try:
+            p.stop()
+        except Exception:
+            pass
+
+
 def run_paper(config_path: Path, duration: int) -> None:
     """Phase 1: Paper trading with testnet market data."""
     from infra.config.loader import load_config_secure
@@ -221,11 +271,16 @@ def run_paper(config_path: Path, duration: int) -> None:
     )
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
+    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+
     runner = LivePaperRunner.build(
         config,
         feature_computer=fc,
         alpha_models=models or None,
         decision_modules=dms or None,
+        funding_rate_source=funding.get_rate,
+        oi_source=oi.get_oi,
+        fgi_source=fgi.get_value,
         **signal_kwargs,
     )
 
@@ -241,6 +296,8 @@ def run_paper(config_path: Path, duration: int) -> None:
         runner.start()
     except KeyboardInterrupt:
         runner.stop()
+    finally:
+        _stop_pollers(funding, oi, fgi)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "paper_equity.csv", runner.fills, 10000.0)
@@ -266,6 +323,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
             return []
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
+    bear_model = signal_kwargs.pop("bear_model", None)
     config = LiveRunnerConfig(
         symbols=symbols,
         testnet=True,
@@ -274,12 +332,19 @@ def run_shadow(config_path: Path, duration: int) -> None:
         enable_persistent_stores=False,
         **signal_kwargs,
     )
+
+    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+
     runner = LiveRunner.build(
         config,
         venue_clients={"binance": _NoOpClient()},
         feature_computer=fc,
         alpha_models=models or None,
         decision_modules=dms or None,
+        bear_model=bear_model,
+        funding_rate_source=funding.get_rate,
+        oi_source=oi.get_oi,
+        fgi_source=fgi.get_value,
     )
 
     def _timeout(*_: Any) -> None:
@@ -294,6 +359,8 @@ def run_shadow(config_path: Path, duration: int) -> None:
         runner.start()
     except KeyboardInterrupt:
         runner.stop()
+    finally:
+        _stop_pollers(funding, oi, fgi)
 
     out = _output_dir(config_path)
     with (out / "shadow_events.json").open("w") as f:
@@ -307,7 +374,6 @@ def run_live(config_path: Path, duration: int) -> None:
     from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
     from execution.adapters.binance.urls import resolve_binance_urls
     from runner.live_runner import LiveRunner, LiveRunnerConfig
-
     raw = load_config_secure(config_path)
     _ensure_testnet(raw)
     resolve_credentials(raw)
@@ -317,12 +383,12 @@ def run_live(config_path: Path, duration: int) -> None:
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
 
     creds = raw.get("credentials", {})
-    api_key = os.environ.get(creds.get("api_key_env", ""), "")
-    api_secret = os.environ.get(creds.get("api_secret_env", ""), "")
+    key_env = creds.get("api_key_env") or "BINANCE_TESTNET_API_KEY"
+    secret_env = creds.get("api_secret_env") or "BINANCE_TESTNET_API_SECRET"
+    api_key = os.environ.get(key_env, "")
+    api_secret = os.environ.get(secret_env, "")
 
     if not api_key or not api_secret:
-        key_env = creds.get("api_key_env", "BINANCE_TESTNET_API_KEY")
-        secret_env = creds.get("api_secret_env", "BINANCE_TESTNET_API_SECRET")
         print(f"Missing testnet API credentials.")
         print(f"  1. Register at https://testnet.binancefuture.com/")
         print(f"  2. Generate API key/secret")
@@ -341,18 +407,26 @@ def run_live(config_path: Path, duration: int) -> None:
     )
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
+    bear_model = signal_kwargs.pop("bear_model", None)
     config = LiveRunnerConfig(
         symbols=symbols,
         testnet=True,
         enable_persistent_stores=False,
         **signal_kwargs,
     )
+
+    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+
     runner = LiveRunner.build(
         config,
         venue_clients={"binance": client},
         feature_computer=fc,
         alpha_models=models or None,
         decision_modules=dms or None,
+        bear_model=bear_model,
+        funding_rate_source=funding.get_rate,
+        oi_source=oi.get_oi,
+        fgi_source=fgi.get_value,
     )
 
     if runner.user_stream is not None:
@@ -373,10 +447,142 @@ def run_live(config_path: Path, duration: int) -> None:
         runner.start()
     except KeyboardInterrupt:
         runner.stop()
+    finally:
+        _stop_pollers(funding, oi, fgi)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "live_equity.csv", runner.fills, 10000.0)
     logger.info("Live testnet phase complete. Fills: %d. Output: %s", len(runner.fills), out)
+
+
+def _start_status_logger(
+    runner: Any,
+    ws_transport: Any,
+    stop_event: threading.Event,
+    interval: float = 60.0,
+) -> threading.Thread:
+    """Daemon thread that prints periodic status lines for longrun mode."""
+    start_time = time.monotonic()
+
+    def _loop() -> None:
+        while not stop_event.wait(timeout=interval):
+            uptime = int(time.monotonic() - start_time)
+            events = runner.event_index
+            n_fills = len(runner.fills)
+
+            # Feature completeness from coordinator state
+            view = runner.coordinator.get_state_view()
+            features = view.get("features", {})
+            total = len(features)
+            valid = sum(1 for v in features.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
+
+            ws_state = ws_transport.state.value if hasattr(ws_transport, "state") else "unknown"
+
+            logger.info(
+                "LONGRUN STATUS | uptime=%ds events=%d fills=%d features=%d/%d ws=%s",
+                uptime, events, n_fills, valid, total, ws_state,
+            )
+
+    t = threading.Thread(target=_loop, name="longrun-status", daemon=True)
+    t.start()
+    return t
+
+
+def run_longrun(config_path: Path, duration: int) -> None:
+    """Long-running testnet mode with WS reconnection and state persistence.
+
+    Runs indefinitely (ignores duration). Stop with SIGTERM/SIGINT (Ctrl+C).
+    Uses ReconnectingWsTransport for WS resilience and SQLite state checkpointing.
+    """
+    from infra.config.loader import load_config_secure, resolve_credentials
+    from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+    from execution.adapters.binance.urls import resolve_binance_urls
+    from execution.adapters.binance.ws_transport_websocket_client import WebsocketClientTransport
+    from execution.adapters.binance.reconnecting_ws_transport import ReconnectingWsTransport
+    from runner.live_runner import LiveRunner, LiveRunnerConfig
+
+    raw = load_config_secure(config_path)
+    _ensure_testnet(raw)
+    resolve_credentials(raw)
+
+    trading = raw.get("trading", {})
+    symbol = trading.get("symbol", "BTCUSDT")
+    symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+
+    creds = raw.get("credentials", {})
+    key_env = creds.get("api_key_env") or "BINANCE_TESTNET_API_KEY"
+    secret_env = creds.get("api_secret_env") or "BINANCE_TESTNET_API_SECRET"
+    api_key = os.environ.get(key_env, "")
+    api_secret = os.environ.get(secret_env, "")
+
+    if not api_key or not api_secret:
+        print(f"Missing testnet API credentials.")
+        print(f"  1. Register at https://testnet.binancefuture.com/")
+        print(f"  2. Generate API key/secret")
+        print(f"  3. Export env vars:")
+        print(f"     export {key_env}=<your_api_key>")
+        print(f"     export {secret_env}=<your_api_secret>")
+        sys.exit(1)
+
+    urls = resolve_binance_urls(testnet=True)
+    client = BinanceRestClient(
+        cfg=BinanceRestConfig(
+            base_url=urls.rest_base,
+            api_key=api_key,
+            api_secret=api_secret,
+        )
+    )
+
+    fc, models, dms, signal_kwargs = _build_ml_stack(raw)
+    bear_model = signal_kwargs.pop("bear_model", None)
+
+    output_dir = _output_dir(config_path)
+    config = LiveRunnerConfig(
+        symbols=symbols,
+        testnet=True,
+        enable_persistent_stores=True,
+        data_dir=str(output_dir),
+        **signal_kwargs,
+    )
+
+    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+
+    ws_transport = ReconnectingWsTransport(
+        inner=WebsocketClientTransport(),
+        max_retries=20,
+        max_delay_s=120.0,
+    )
+
+    runner = LiveRunner.build(
+        config,
+        venue_clients={"binance": client},
+        transport=ws_transport,
+        feature_computer=fc,
+        alpha_models=models or None,
+        decision_modules=dms or None,
+        bear_model=bear_model,
+        funding_rate_source=funding.get_rate,
+        oi_source=oi.get_oi,
+        fgi_source=fgi.get_value,
+    )
+
+    status_stop = threading.Event()
+    _start_status_logger(runner, ws_transport, status_stop)
+
+    logger.info("Starting LONGRUN mode (Ctrl+C or SIGTERM to stop)...")
+    try:
+        runner.start()
+    except KeyboardInterrupt:
+        runner.stop()
+    finally:
+        status_stop.set()
+        _stop_pollers(funding, oi, fgi)
+
+    _write_equity_csv(output_dir / "longrun_equity.csv", runner.fills, 10000.0)
+    logger.info(
+        "Longrun stopped. Fills: %d, Events: %d. Output: %s",
+        len(runner.fills), runner.event_index, output_dir,
+    )
 
 
 def run_compare(config_path: Path) -> None:
@@ -425,7 +631,7 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True, help="Testnet config YAML")
     parser.add_argument(
         "--phase",
-        choices=["paper", "shadow", "live", "compare"],
+        choices=["paper", "shadow", "live", "longrun", "compare"],
         required=True,
         help="Validation phase to run",
     )
@@ -438,6 +644,8 @@ def main() -> None:
         run_shadow(args.config, args.duration)
     elif args.phase == "live":
         run_live(args.config, args.duration)
+    elif args.phase == "longrun":
+        run_longrun(args.config, args.duration)
     elif args.phase == "compare":
         run_compare(args.config)
 
