@@ -74,6 +74,7 @@ class LGBMAlphaModel:
         early_stopping_rounds: int = 0,
         embargo_bars: int = 0,
         val_size: float = 0.2,
+        sample_weight: Optional[Any] = None,
     ) -> Dict[str, float]:
         """Train the model. Returns training metrics.
 
@@ -94,6 +95,7 @@ class LGBMAlphaModel:
         val_start = split
         X_train, X_val = X[:train_end], X[val_start:]
         y_train, y_val = y[:train_end], y[val_start:]
+        w_train = sample_weight[:train_end] if sample_weight is not None else None
 
         default_params = {
             "n_estimators": n_estimators,
@@ -114,6 +116,7 @@ class LGBMAlphaModel:
         model = lgb.LGBMRegressor(**default_params)
         model.fit(
             X_train, y_train,
+            sample_weight=w_train,
             eval_set=[(X_val, y_val)],
             callbacks=callbacks if callbacks else None,
         )
@@ -151,6 +154,7 @@ class LGBMAlphaModel:
         early_stopping_rounds: int = 0,
         embargo_bars: int = 0,
         val_size: float = 0.2,
+        sample_weight: Optional[Any] = None,
     ) -> Dict[str, float]:
         """Train binary classifier. Output is prob - 0.5 (centered at 0).
 
@@ -169,6 +173,7 @@ class LGBMAlphaModel:
         val_start = split
         X_train, X_val = X[:train_end], X[val_start:]
         y_train, y_val = y_binary[:train_end], y_binary[val_start:]
+        w_train = sample_weight[:train_end] if sample_weight is not None else None
 
         default_params = {
             "n_estimators": n_estimators,
@@ -190,6 +195,7 @@ class LGBMAlphaModel:
         model = lgb.LGBMClassifier(**default_params)
         model.fit(
             X_train, y_train,
+            sample_weight=w_train,
             eval_set=[(X_val, y_val)],
             callbacks=callbacks if callbacks else None,
         )
@@ -222,15 +228,21 @@ class LGBMAlphaModel:
         return metrics
 
     def save(self, path: str | Path) -> None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump({
                 "model": self._model,
                 "features": self.feature_names,
                 "is_classifier": self._is_classifier,
             }, f)
+        from infra.model_signing import sign_file
+        sign_file(path)
 
     def load(self, path: str | Path) -> None:
+        path = Path(path)
+        from infra.model_signing import verify_file
+        verify_file(path)
         with open(path, "rb") as f:
             data = pickle.load(f)
         self._model = data["model"]

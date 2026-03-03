@@ -36,6 +36,10 @@ Thumbs.db
 /data/
 data_files/
 /models/
+models_v*/
 output/
 outputs/
+results/
+*.pkl
+*.pkl.sig
 .hypothesis/

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quant-engine
+  namespace: quant
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: quant-engine-leader
+  namespace: quant
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: quant-engine-leader
+  namespace: quant
+subjects:
+  - kind: ServiceAccount
+    name: quant-engine
+    namespace: quant
+roleRef:
+  kind: Role
+  name: quant-engine-leader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: quant-engine-leader
+  namespace: quant
+spec:
+  leaseDurationSeconds: 15
+  renewDeadline: 10
+  retryPeriod: 2

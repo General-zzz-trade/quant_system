@@ -58,6 +58,7 @@ class ExecutionBridge:
 
     adapter: ExecutionAdapter
     dispatcher_emit: Callable[[Any], None]
+    risk_gate: Optional[Any] = None
 
     # --------------------------------------------------------
     # Entry
@@ -67,6 +68,15 @@ class ExecutionBridge:
         """
         dispatcher 路由到 Route.EXECUTION 时的 handler
         """
+        # Second defense: RiskGate check at execution boundary
+        if self.risk_gate is not None:
+            check = self.risk_gate.check(event)
+            if not check.allowed:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "RiskGate (execution bridge) REJECTED: %s", check.reason)
+                return
+
         try:
             results = self.adapter.send_order(event)
         except Exception as e:

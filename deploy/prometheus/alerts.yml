@@ -52,3 +52,66 @@ groups:
         annotations:
           summary: "Order rejection rate exceeds 10%"
           description: "Current rejection rate: {{ $value }}"
+
+      - alert: HighDrawdown
+        expr: quant_drawdown_pct > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Portfolio drawdown exceeds 10%"
+          description: "Current drawdown: {{ $value }}%"
+
+      - alert: ReconcileFailed
+        expr: quant_reconcile_failures_total > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconciliation failure detected"
+          description: "{{ $value }} reconcile failure(s)"
+
+      - alert: ModelDriftDetected
+        expr: quant_model_drift_severity > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model concept drift detected"
+          description: "Drift severity: {{ $value }}"
+
+      - alert: DataStaleFreshness
+        expr: quant_data_freshness_age_hours > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data source is stale"
+          description: "{{ $labels.source }} age: {{ $value }}h"
+
+      - alert: HighInferenceLatency
+        expr: histogram_quantile(0.99, rate(quant_inference_latency_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inference P99 latency exceeds 500ms"
+          description: "Model {{ $labels.model }} P99 latency: {{ $value }}s"
+
+      - alert: ModelScoreStale
+        expr: time() - quant_ml_score > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No new ml_score output for 5 minutes"
+          description: "Model {{ $labels.model }} last score update > 5m ago"
+
+      - alert: InferenceErrors
+        expr: rate(quant_inference_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML inference errors detected"
+          description: "Model {{ $labels.model }}: {{ $value }} errors/sec"

@@ -236,7 +236,8 @@ class TestFeatureCountConsistency:
                         open_=100.0 + i * 0.1, hour=i % 24, dow=i % 7,
                         funding_rate=0.0001,
                         trades=100.0, taker_buy_volume=5.0,
-                        quote_volume=1000.0)
+                        quote_volume=1000.0,
+                        taker_buy_quote_volume=500.0)
         feats = comp.get_features_dict("BTC")
         for name in ENRICHED_FEATURE_NAMES:
             assert name in feats, f"Feature '{name}' missing from output"
@@ -245,14 +246,157 @@ class TestFeatureCountConsistency:
         """All ENRICHED_FEATURE_NAMES features should be in output dict."""
         comp = EnrichedFeatureComputer()
         for i in range(80):
-            comp.on_bar("BTC", close=100.0 + i * 0.1, volume=10.0 + i * 0.01,
+            close = 100.0 + i * 0.1
+            comp.on_bar("BTC", close=close, volume=10.0 + i * 0.01,
                         high=100.5 + i * 0.1, low=99.5 + i * 0.1,
                         open_=100.0 + i * 0.1, hour=i % 24, dow=i % 7,
                         funding_rate=0.0001,
                         trades=100.0, taker_buy_volume=5.0 + i * 0.02,
                         quote_volume=1000.0,
+                        taker_buy_quote_volume=500.0 + i * 0.01,
                         open_interest=1000.0 + i * 10,
-                        ls_ratio=1.0 + i * 0.001)
+                        ls_ratio=1.0 + i * 0.001,
+                        spot_close=close - 0.5,
+                        fear_greed=50.0 + (i % 8) * 5)
         feats = comp.get_features_dict("BTC")
         for name in ENRICHED_FEATURE_NAMES:
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
+
+
+class TestV8AlphaRebuildFeatures:
+    """Test the 6 V8 Alpha Rebuild V3 features."""
+
+    def _make_bar(self, close=100.0, volume=10.0, trades=100.0,
+                  taker_buy_volume=5.0, quote_volume=1000.0,
+                  taker_buy_quote_volume=500.0, **kw):
+        return dict(close=close, volume=volume, trades=trades,
+                    taker_buy_volume=taker_buy_volume,
+                    quote_volume=quote_volume,
+                    taker_buy_quote_volume=taker_buy_quote_volume, **kw)
+
+    def _warmup(self, comp, n=25, symbol="BTC"):
+        for i in range(n):
+            comp.on_bar(symbol, **self._make_bar(
+                close=100.0 + i * 0.1,
+                volume=10.0 + i * 0.01,
+            ))
+
+    def test_feature_names_include_v8(self):
+        expected = [
+            "taker_bq_ratio", "vwap_dev_20", "volume_momentum_10",
+            "mom_vol_divergence", "basis_carry_adj", "vol_regime_adaptive",
+        ]
+        for name in expected:
+            assert name in ENRICHED_FEATURE_NAMES, f"{name} not in ENRICHED_FEATURE_NAMES"
+
+    def test_taker_bq_ratio_basic(self):
+        comp = EnrichedFeatureComputer()
+        self._warmup(comp)
+        feats = comp.on_bar("BTC", **self._make_bar(
+            taker_buy_quote_volume=700.0, quote_volume=1000.0))
+        assert feats["taker_bq_ratio"] == pytest.approx(0.7)
+
+    def test_taker_bq_ratio_none_when_zero(self):
+        comp = EnrichedFeatureComputer()
+        feats = comp.on_bar("BTC", close=100.0, volume=10.0,
+                            taker_buy_quote_volume=0.0, quote_volume=0.0)
+        assert feats["taker_bq_ratio"] is None
+
+    def test_vwap_dev_20_warmup(self):
+        comp = EnrichedFeatureComputer()
+        # Need 20 bars for VWAP window to be full
+        for i in range(19):
+            comp.on_bar("BTC", **self._make_bar(close=100.0, volume=10.0))
+        feats = comp.on_bar("BTC", **self._make_bar(close=100.0, volume=10.0))
+        assert feats["vwap_dev_20"] is not None
+
+    def test_vwap_dev_20_above_vwap(self):
+        comp = EnrichedFeatureComputer()
+        # Push 20 bars at price 100
+        for i in range(20):
+            comp.on_bar("BTC", **self._make_bar(close=100.0, volume=10.0))
+        # Push bar with higher close → deviation should be positive
+        feats = comp.on_bar("BTC", **self._make_bar(close=105.0, volume=10.0))
+        assert feats["vwap_dev_20"] is not None
+        assert feats["vwap_dev_20"] > 0
+
+    def test_volume_momentum_10(self):
+        comp = EnrichedFeatureComputer()
+        # Warm up with enough bars
+        for i in range(25):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i * 0.5,  # uptrend
+                volume=10.0,
+            ))
+        feats = comp.on_bar("BTC", **self._make_bar(
+            close=115.0, volume=15.0))  # high volume confirms momentum
+        assert feats["volume_momentum_10"] is not None
+        # Uptrend + high volume → positive
+        assert feats["volume_momentum_10"] > 0
+
+    def test_mom_vol_divergence_agreement(self):
+        comp = EnrichedFeatureComputer()
+        # Warm up
+        for i in range(25):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i * 0.1, volume=10.0))
+        # Price up + volume above average → agreement (+1)
+        feats = comp.on_bar("BTC", **self._make_bar(
+            close=103.0, volume=20.0))  # price up, vol above avg
+        assert feats["mom_vol_divergence"] is not None
+        assert feats["mom_vol_divergence"] == 1.0
+
+    def test_mom_vol_divergence_divergence(self):
+        comp = EnrichedFeatureComputer()
+        for i in range(25):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i * 0.1, volume=10.0))
+        # Price up + volume below average → divergence (-1)
+        feats = comp.on_bar("BTC", **self._make_bar(
+            close=103.0, volume=2.0))  # price up, vol below avg
+        assert feats["mom_vol_divergence"] is not None
+        assert feats["mom_vol_divergence"] == -1.0
+
+    def test_basis_carry_adj(self):
+        comp = EnrichedFeatureComputer()
+        for i in range(5):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i, spot_close=99.5 + i,
+                funding_rate=0.0001))
+        feats = comp.on_bar("BTC", **self._make_bar(
+            close=110.0, spot_close=109.5, funding_rate=0.0002))
+        assert feats["basis_carry_adj"] is not None
+        # basis ≈ (110 - 109.5) / 109.5 ≈ 0.00457
+        # funding * 3 = 0.0006
+        # total ≈ 0.00517
+        expected_basis = (110.0 - 109.5) / 109.5
+        expected = expected_basis + 0.0002 * 3.0
+        assert feats["basis_carry_adj"] == pytest.approx(expected, rel=1e-3)
+
+    def test_basis_carry_adj_none_without_data(self):
+        comp = EnrichedFeatureComputer()
+        feats = comp.on_bar("BTC", close=100.0, volume=10.0)
+        assert feats["basis_carry_adj"] is None
+
+    def test_vol_regime_adaptive_warmup(self):
+        comp = EnrichedFeatureComputer()
+        # Need vol_regime EMA(5) ready + 30 history entries
+        # vol_regime needs vol_5 and vol_20 → need ~30+ bars minimum
+        for i in range(35):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i * 0.1, volume=10.0))
+        feats = comp.get_features_dict("BTC")
+        # May still be None if not enough vol_regime history yet
+        # After 35 bars: vol_5 ready after ~6, vol_20 after ~21
+        # vol_regime history starts accumulating after ~21
+        # Need 30 entries → ~51 bars total
+        assert feats["vol_regime_adaptive"] is None  # not ready yet
+
+    def test_vol_regime_adaptive_ready(self):
+        comp = EnrichedFeatureComputer()
+        for i in range(55):
+            comp.on_bar("BTC", **self._make_bar(
+                close=100.0 + i * 0.1, volume=10.0))
+        feats = comp.get_features_dict("BTC")
+        assert feats["vol_regime_adaptive"] is not None
+        assert feats["vol_regime_adaptive"] in (-1.0, 0.0, 1.0)

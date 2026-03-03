@@ -91,6 +91,19 @@ class LivePaperRunner:
         feature_computer: Any = None,
         alpha_models: Sequence[Any] | None = None,
         funding_rate_source: Any = None,
+        oi_source: Any = None,
+        ls_ratio_source: Any = None,
+        spot_close_source: Any = None,
+        fgi_source: Any = None,
+        min_hold_bars: Optional[Dict[str, int]] = None,
+        long_only_symbols: Optional[set] = None,
+        deadzone: float = 0.5,
+        trend_follow: bool = False,
+        trend_indicator: str = "tf4h_close_vs_ma20",
+        trend_threshold: float = 0.0,
+        max_hold: int = 120,
+        monthly_gate: bool = False,
+        monthly_gate_window: int = 480,
     ) -> "LivePaperRunner":
         """Build the full production stack.
 
@@ -136,11 +149,26 @@ class LivePaperRunner:
             inference_bridge = None
             if alpha_models:
                 from alpha.inference.bridge import LiveInferenceBridge
-                inference_bridge = LiveInferenceBridge(models=list(alpha_models))
+                inference_bridge = LiveInferenceBridge(
+                    models=list(alpha_models),
+                    min_hold_bars=min_hold_bars,
+                    long_only_symbols=long_only_symbols,
+                    deadzone=deadzone,
+                    trend_follow=trend_follow,
+                    trend_indicator=trend_indicator,
+                    trend_threshold=trend_threshold,
+                    max_hold=max_hold,
+                    monthly_gate=monthly_gate,
+                    monthly_gate_window=monthly_gate_window,
+                )
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
                 inference_bridge=inference_bridge,
                 funding_rate_source=funding_rate_source,
+                oi_source=oi_source,
+                ls_ratio_source=ls_ratio_source,
+                spot_close_source=spot_close_source,
+                fgi_source=fgi_source,
             )
 
         coord_cfg = CoordinatorConfig(

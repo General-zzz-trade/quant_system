@@ -1,0 +1,40 @@
+# V8 gate_v2 Testnet Validation
+# WF: 17/21 positive Sharpe, OOS: Sharpe=3.79, Return=+63%
+# Signal constraints loaded from models_v8/BTCUSDT_gate_v2/config.json
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: true
+  mode: live
+
+strategy:
+  model_path: models_v8/BTCUSDT_gate_v2
+  threshold: 0.0001
+  threshold_short: 999.0   # long-only
+  risk_pct: 0.30
+  order_qty: "0.001"
+  monthly_gate: true
+  monthly_gate_window: 480
+
+risk:
+  max_position_notional: 500.0
+  max_leverage: 2.0
+  max_drawdown_pct: 5.0
+  max_orders_per_minute: 10
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+logging:
+  level: DEBUG
+  structured: true
+  file: logs/testnet_v8_gate_v2.log
+
+monitoring:
+  health_check_interval: 30.0

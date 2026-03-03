@@ -92,6 +92,22 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     # --- V5: Funding carry ---
     "funding_annualized",     # funding_rate * 3 * 365
     "funding_vs_vol",         # funding_rate / vol_20
+    # --- V7: Spot-futures basis ---
+    "basis",                  # (futures_close - spot_close) / spot_close
+    "basis_zscore_24",        # z-score of basis over 24 bars
+    "basis_momentum",         # basis - EMA(basis, 8)
+    "basis_extreme",          # |zscore| > 2 flag
+    # --- V7: Fear & Greed Index ---
+    "fgi_normalized",         # FGI / 100 - 0.5 (range [-0.5, 0.5])
+    "fgi_zscore_7",           # (FGI - mean_7d) / std_7d
+    "fgi_extreme",            # FGI < 25 → -1, FGI > 75 → 1, else 0
+    # --- V8: Alpha Rebuild V3 features ---
+    "taker_bq_ratio",         # taker_buy_quote_volume / quote_volume — USD-weighted buy pressure
+    "vwap_dev_20",            # (close - VWAP_20) / close — VWAP deviation (mean reversion)
+    "volume_momentum_10",     # ret_10 × clip(volume/SMA_vol_20, 3.0) — volume-confirmed momentum
+    "mom_vol_divergence",     # sign(ret_1)==sign(vol_ratio-1) ? +1 : -1 — exhaustion detector
+    "basis_carry_adj",        # basis + funding_rate × 3 — carry-adjusted basis
+    "vol_regime_adaptive",    # EMA(vol_regime,5) vs 30-bar median — regime persistence
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -277,6 +293,23 @@ class _SymbolState:
     leverage_proxy_ema: _EMA = field(default_factory=lambda: _EMA(span=20))
     _prev_oi_change_for_accel: Optional[float] = None
 
+    # V7: Basis features (spot-futures)
+    basis_window_24: RollingWindow = field(default_factory=lambda: RollingWindow(24))
+    basis_ema_8: _EMA = field(default_factory=lambda: _EMA(span=8))
+    _last_basis: Optional[float] = None
+
+    # V7: Fear & Greed Index
+    fgi_window_7: RollingWindow = field(default_factory=lambda: RollingWindow(7))
+    _last_fgi: Optional[float] = None
+
+    # V8: VWAP deviation windows
+    vwap_cv_window: RollingWindow = field(default_factory=lambda: RollingWindow(20))
+    vwap_v_window: RollingWindow = field(default_factory=lambda: RollingWindow(20))
+
+    # V8: Adaptive vol regime
+    vol_regime_ema: _EMA = field(default_factory=lambda: _EMA(span=5))
+    vol_regime_history: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
     _last_close: Optional[float] = None
@@ -286,6 +319,7 @@ class _SymbolState:
     _last_funding_rate: Optional[float] = None
     _last_trades: float = 0.0
     _last_taker_buy_volume: float = 0.0
+    _last_taker_buy_quote_volume: float = 0.0
     _last_quote_volume: float = 0.0
     _bar_count: int = 0
 
@@ -293,8 +327,11 @@ class _SymbolState:
              *, hour: int = -1, dow: int = -1, funding_rate: Optional[float] = None,
              trades: float = 0.0, taker_buy_volume: float = 0.0,
              quote_volume: float = 0.0,
+             taker_buy_quote_volume: float = 0.0,
              open_interest: Optional[float] = None,
-             ls_ratio: Optional[float] = None) -> None:
+             ls_ratio: Optional[float] = None,
+             spot_close: Optional[float] = None,
+             fear_greed: Optional[float] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -331,10 +368,29 @@ class _SymbolState:
             self._last_ls_ratio = ls_ratio
             self.ls_ratio_window_24.push(ls_ratio)
 
+        # V7: Basis (spot-futures)
+        if spot_close is not None and close > 0 and spot_close > 0:
+            basis = (close - spot_close) / spot_close
+            self._last_basis = basis
+            self.basis_window_24.push(basis)
+            self.basis_ema_8.push(basis)
+
+        # V7: Fear & Greed Index (daily — only push to window when value changes)
+        if fear_greed is not None:
+            if self._last_fgi is None or abs(fear_greed - self._last_fgi) > 0.01:
+                self.fgi_window_7.push(fear_greed)
+            self._last_fgi = fear_greed
+
         # Microstructure state
         self._last_trades = trades
         self._last_taker_buy_volume = taker_buy_volume
+        self._last_taker_buy_quote_volume = taker_buy_quote_volume
         self._last_quote_volume = quote_volume
+
+        # V8: VWAP windows
+        if volume > 0:
+            self.vwap_cv_window.push(close * volume)
+            self.vwap_v_window.push(volume)
         if trades > 0:
             self.trades_ema_20.push(trades)
             self.trades_ema_5.push(trades)
@@ -377,6 +433,15 @@ class _SymbolState:
         # V5: vol_5 history for vol_of_vol and rv_acceleration
         if self.return_window_5.full:
             self.vol_5_history.append(self.return_window_5.std)
+
+        # V8: Adaptive vol regime — track EMA and history of vol_regime
+        if self.return_window_5.full and self.return_window_20.full:
+            v5 = self.return_window_5.std
+            v20 = self.return_window_20.std
+            if v20 is not None and v20 > 1e-12:
+                vr = v5 / v20
+                self.vol_regime_ema.push(vr)
+                self.vol_regime_history.append(vr)
 
         # V5: Parkinson volatility — ln(H/L)^2
         if high > 0 and low > 0 and high >= low:
@@ -807,6 +872,112 @@ class _SymbolState:
         else:
             feats["funding_vs_vol"] = None
 
+        # --- V7: Spot-futures basis ---
+        feats["basis"] = self._last_basis
+        if self.basis_window_24.full and self._last_basis is not None:
+            b_mean = self.basis_window_24.mean
+            b_std = self.basis_window_24.std
+            if b_std is not None and b_std > 1e-12:
+                zscore = (self._last_basis - b_mean) / b_std
+                feats["basis_zscore_24"] = zscore
+                feats["basis_extreme"] = 1.0 if zscore > 2.0 else (-1.0 if zscore < -2.0 else 0.0)
+            else:
+                feats["basis_zscore_24"] = None
+                feats["basis_extreme"] = None
+        else:
+            feats["basis_zscore_24"] = None
+            feats["basis_extreme"] = None
+
+        basis_ema_val = self.basis_ema_8.value if self.basis_ema_8.ready else None
+        if self._last_basis is not None and basis_ema_val is not None:
+            feats["basis_momentum"] = self._last_basis - basis_ema_val
+        else:
+            feats["basis_momentum"] = None
+
+        # --- V7: Fear & Greed Index ---
+        if self._last_fgi is not None:
+            feats["fgi_normalized"] = self._last_fgi / 100.0 - 0.5
+            feats["fgi_extreme"] = (
+                -1.0 if self._last_fgi < 25 else (1.0 if self._last_fgi > 75 else 0.0)
+            )
+        else:
+            feats["fgi_normalized"] = None
+            feats["fgi_extreme"] = None
+
+        if self.fgi_window_7.full and self._last_fgi is not None:
+            fgi_mean = self.fgi_window_7.mean
+            fgi_std = self.fgi_window_7.std
+            if fgi_std is not None and fgi_std > 1e-12:
+                feats["fgi_zscore_7"] = (self._last_fgi - fgi_mean) / fgi_std
+            else:
+                feats["fgi_zscore_7"] = None
+        else:
+            feats["fgi_zscore_7"] = None
+
+        # --- V8: Alpha Rebuild V3 features ---
+
+        # taker_bq_ratio: USD-weighted buy pressure
+        tbqv = self._last_taker_buy_quote_volume
+        qv = self._last_quote_volume
+        if tbqv > 0 and qv > 0:
+            feats["taker_bq_ratio"] = tbqv / qv
+        else:
+            feats["taker_bq_ratio"] = None
+
+        # vwap_dev_20: VWAP deviation (mean reversion signal)
+        if self.vwap_cv_window.full and self.vwap_v_window.full and close and close > 0:
+            sum_cv = self.vwap_cv_window.mean * self.vwap_cv_window.n
+            sum_v = self.vwap_v_window.mean * self.vwap_v_window.n
+            if sum_v > 0:
+                vwap = sum_cv / sum_v
+                feats["vwap_dev_20"] = (close - vwap) / close
+            else:
+                feats["vwap_dev_20"] = None
+        else:
+            feats["vwap_dev_20"] = None
+
+        # volume_momentum_10: ret_10 × clip(volume/SMA_vol_20, 3.0)
+        ret_10 = feats.get("ret_12")  # closest available; use close_history directly
+        if n > 10 and hist[-11] != 0:
+            ret_10 = (hist[-1] - hist[-11]) / hist[-11]
+        else:
+            ret_10 = None
+        vol_r_20 = feats.get("vol_ratio_20")
+        if ret_10 is not None and vol_r_20 is not None:
+            feats["volume_momentum_10"] = ret_10 * min(vol_r_20, 3.0)
+        else:
+            feats["volume_momentum_10"] = None
+
+        # mom_vol_divergence: price direction vs volume direction agreement
+        ret1 = feats.get("ret_1")
+        vol_r = feats.get("vol_ratio_20")
+        if ret1 is not None and vol_r is not None:
+            price_up = ret1 > 0
+            vol_up = vol_r > 1.0
+            feats["mom_vol_divergence"] = 1.0 if price_up == vol_up else -1.0
+        else:
+            feats["mom_vol_divergence"] = None
+
+        # basis_carry_adj: basis + funding_rate × 3
+        if self._last_basis is not None and self._last_funding_rate is not None:
+            feats["basis_carry_adj"] = self._last_basis + self._last_funding_rate * 3.0
+        else:
+            feats["basis_carry_adj"] = None
+
+        # vol_regime_adaptive: EMA(vol_regime,5) vs 30-bar median
+        if self.vol_regime_ema.ready and len(self.vol_regime_history) >= 30:
+            ema_val = self.vol_regime_ema.value
+            sorted_hist = sorted(self.vol_regime_history)
+            median_val = sorted_hist[len(sorted_hist) // 2]
+            if ema_val > median_val * 1.05:
+                feats["vol_regime_adaptive"] = 1.0
+            elif ema_val < median_val * 0.95:
+                feats["vol_regime_adaptive"] = -1.0
+            else:
+                feats["vol_regime_adaptive"] = 0.0
+        else:
+            feats["vol_regime_adaptive"] = None
+
         return feats
 
 
@@ -835,21 +1006,13 @@ class EnrichedFeatureComputer:
         trades: float = 0.0,
         taker_buy_volume: float = 0.0,
         quote_volume: float = 0.0,
+        taker_buy_quote_volume: float = 0.0,
         open_interest: Optional[float] = None,
         ls_ratio: Optional[float] = None,
+        spot_close: Optional[float] = None,
+        fear_greed: Optional[float] = None,
     ) -> Dict[str, Optional[float]]:
-        """Process a new bar and return computed features.
-
-        Args:
-            hour: Hour of day (0-23 UTC). -1 if unknown.
-            dow: Day of week (0=Mon, 6=Sun). -1 if unknown.
-            funding_rate: Current funding rate (e.g. 0.0001). None if unknown.
-            trades: Number of trades in bar.
-            taker_buy_volume: Taker buy base volume in bar.
-            quote_volume: Total quote volume in bar.
-            open_interest: Current open interest (contracts). None if unknown.
-            ls_ratio: Long/short account ratio. None if unknown.
-        """
+        """Process a new bar and return computed features."""
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
 
@@ -866,7 +1029,9 @@ class EnrichedFeatureComputer:
                    hour=hour, dow=dow, funding_rate=funding_rate,
                    trades=trades, taker_buy_volume=taker_buy_volume,
                    quote_volume=quote_volume,
-                   open_interest=open_interest, ls_ratio=ls_ratio)
+                   taker_buy_quote_volume=taker_buy_quote_volume,
+                   open_interest=open_interest, ls_ratio=ls_ratio,
+                   spot_close=spot_close, fear_greed=fear_greed)
         return state.get_features()
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:

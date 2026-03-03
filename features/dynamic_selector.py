@@ -336,6 +336,101 @@ def compute_feature_icir_report(
     return report
 
 
+def stable_icir_select(
+    X: np.ndarray,
+    y: np.ndarray,
+    feature_names: Sequence[str],
+    top_k: int = 20,
+    ic_window: int = 200,
+    n_windows: int = 5,
+    min_icir: float = 0.3,
+    min_stable_folds: int = 4,
+    sign_consistency_threshold: float = 0.8,
+) -> List[str]:
+    """Select features by ICIR with stability gate and sign consistency.
+
+    Two-stage filter:
+      1. Stability gate: feature must have ICIR > min_icir in >=min_stable_folds/n_windows.
+      2. Sign consistency: IC sign must agree in >= sign_consistency_threshold of windows.
+
+    Falls back to greedy_ic_select if fewer than 5 features pass both gates.
+    """
+    n_samples, n_features = X.shape
+    total_needed = ic_window * n_windows
+    if n_samples < total_needed or n_samples < 50:
+        return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    start_offset = n_samples - total_needed
+    windows = []
+    for w in range(n_windows):
+        ws = start_offset + w * ic_window
+        we = ws + ic_window
+        windows.append((ws, we))
+
+    candidates: List[tuple] = []
+    for j in range(n_features):
+        ics = []
+        for ws, we in windows:
+            col = X[ws:we, j]
+            tgt = y[ws:we]
+            valid = ~np.isnan(col) & ~np.isnan(tgt)
+            if valid.sum() < 30:
+                ics.append(0.0)
+                continue
+            x_clean = col[valid]
+            y_clean = tgt[valid]
+            if np.std(x_clean) < 1e-12 or np.std(y_clean) < 1e-12:
+                ics.append(0.0)
+                continue
+            ic = _spearman_ic(x_clean, y_clean)
+            ics.append(ic)
+
+        ic_arr = np.array(ics)
+
+        # Per-window ICIR check: count folds where |IC|/std > threshold
+        folds_above = 0
+        for i_w in range(n_windows):
+            other = [ic_arr[k] for k in range(n_windows) if k != i_w]
+            if not other:
+                continue
+            std_other = float(np.std(other, ddof=1)) if len(other) > 1 else 1e-12
+            if std_other < 1e-12:
+                std_other = 1e-12
+            window_icir = abs(ic_arr[i_w]) / std_other
+            if window_icir > min_icir:
+                folds_above += 1
+
+        # Overall ICIR
+        ic_std = float(np.std(ic_arr, ddof=1)) if len(ic_arr) > 1 else 0.0
+        ic_mean_abs = float(np.mean(np.abs(ic_arr)))
+        if ic_std < 1e-12:
+            overall_icir = ic_mean_abs * 100.0 if ic_mean_abs > 0 else 0.0
+        else:
+            overall_icir = ic_mean_abs / ic_std
+
+        # Stability gate: ICIR > threshold in enough folds
+        if folds_above < min_stable_folds:
+            continue
+
+        # Sign consistency: IC sign must be consistent
+        n_positive = int(np.sum(ic_arr > 0))
+        n_negative = int(np.sum(ic_arr < 0))
+        dominant_sign_ratio = max(n_positive, n_negative) / max(n_windows, 1)
+        if dominant_sign_ratio < sign_consistency_threshold:
+            continue
+
+        candidates.append((feature_names[j], overall_icir))
+
+    candidates.sort(key=lambda x: -x[1])
+    selected = [name for name, _ in candidates[:top_k]]
+
+    # Fallback if too few pass gates
+    if len(selected) < 5:
+        return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    return selected
+
+
 def spearman_ic_select(
     X: np.ndarray,
     y: np.ndarray,

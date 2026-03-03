@@ -73,7 +73,7 @@ class LiveRunnerConfig:
     pending_order_timeout_sec: float = 30.0
     # Production infrastructure
     data_dir: str = "data/live"
-    enable_persistent_stores: bool = False
+    enable_persistent_stores: bool = True
     enable_structured_logging: bool = True
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -92,6 +92,30 @@ class LiveRunnerConfig:
     health_port: Optional[int] = None
     # Testnet mode
     testnet: bool = False
+    # ModelRegistry auto-loading
+    model_registry_db: Optional[str] = None
+    artifact_store_root: Optional[str] = None
+    model_names: tuple[str, ...] = ()
+    # Portfolio risk aggregator
+    enable_portfolio_risk: bool = True
+    max_gross_leverage: float = 3.0
+    max_net_leverage: float = 1.0
+    max_concentration: float = 0.4
+    # Data scheduler + freshness monitor
+    enable_data_scheduler: bool = False
+    data_files_dir: str = "data_files"
+    # Signal constraints (must match backtest)
+    min_hold_bars: Optional[Dict[str, int]] = None
+    long_only_symbols: Optional[set] = None
+    deadzone: float = 0.5
+    # Trend hold
+    trend_follow: bool = False
+    trend_indicator: str = "tf4h_close_vs_ma20"
+    trend_threshold: float = 0.0
+    max_hold: int = 120
+    # Monthly gate
+    monthly_gate: bool = False
+    monthly_gate_window: int = 480
 
 
 @dataclass
@@ -121,6 +145,12 @@ class LiveRunner:
     module_reloader: Optional[Any] = None
     decision_bridge: Optional[Any] = None
     user_stream: Optional[Any] = None
+    order_state_machine: Optional[Any] = None
+    timeout_tracker: Optional[Any] = None
+    model_loader: Optional[Any] = None
+    portfolio_aggregator: Optional[Any] = None
+    data_scheduler: Optional[Any] = None
+    freshness_monitor: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
     _user_stream_thread: Optional[Any] = field(default=None, init=False)
@@ -141,6 +171,11 @@ class LiveRunner:
         feature_computer: Any = None,
         alpha_models: Sequence[Any] | None = None,
         user_stream_transport: Any = None,
+        funding_rate_source: Any = None,
+        oi_source: Any = None,
+        ls_ratio_source: Any = None,
+        spot_close_source: Any = None,
+        fgi_source: Any = None,
     ) -> "LiveRunner":
         """Build the full production stack.
 
@@ -227,15 +262,62 @@ class LiveRunner:
             is_killed=lambda: kill_switch.is_killed() is not None,
         )
 
+        # ── Portfolio Risk Aggregator — deferred until coordinator exists ──
+        # (built below after coordinator creation; referenced by _emit closure)
+        portfolio_aggregator = None
+
+        # ── OrderStateMachine (order lifecycle tracking) ────
+        from execution.state_machine.machine import OrderStateMachine
+        order_state_machine = OrderStateMachine()
+
+        # ── TimeoutTracker (stale order detection) ──────────
+        from execution.safety.timeout_tracker import OrderTimeoutTracker
+        timeout_tracker = OrderTimeoutTracker(
+            timeout_sec=config.pending_order_timeout_sec,
+        )
+
+        # ── ModelRegistry auto-loading (Phase 1) ──────────
+        model_loader_inst = None
+        if config.model_registry_db and config.model_names:
+            from research.model_registry.registry import ModelRegistry
+            from research.model_registry.artifact import ArtifactStore
+            from alpha.model_loader import ProductionModelLoader
+
+            registry = ModelRegistry(config.model_registry_db)
+            artifact_store = ArtifactStore(config.artifact_store_root or "artifacts")
+            model_loader_inst = ProductionModelLoader(registry, artifact_store)
+            loaded = model_loader_inst.load_production_models(config.model_names)
+            if loaded:
+                alpha_models = list(alpha_models or []) + loaded
+                logger.info("Auto-loaded %d production model(s) from registry", len(loaded))
+
         # ── Feature computation + ML inference hook ──────────
         feat_hook = None
         if feature_computer is not None:
             inference_bridge = None
             if alpha_models:
                 from alpha.inference.bridge import LiveInferenceBridge
-                inference_bridge = LiveInferenceBridge(models=list(alpha_models))
+                inference_bridge = LiveInferenceBridge(
+                    models=list(alpha_models),
+                    metrics_exporter=metrics_exporter,
+                    min_hold_bars=config.min_hold_bars,
+                    long_only_symbols=config.long_only_symbols,
+                    deadzone=config.deadzone,
+                    trend_follow=config.trend_follow,
+                    trend_indicator=config.trend_indicator,
+                    trend_threshold=config.trend_threshold,
+                    max_hold=config.max_hold,
+                    monthly_gate=config.monthly_gate,
+                    monthly_gate_window=config.monthly_gate_window,
+                )
             feat_hook = FeatureComputeHook(
-                computer=feature_computer, inference_bridge=inference_bridge,
+                computer=feature_computer,
+                inference_bridge=inference_bridge,
+                funding_rate_source=funding_rate_source,
+                oi_source=oi_source,
+                ls_ratio_source=ls_ratio_source,
+                spot_close_source=spot_close_source,
+                fgi_source=fgi_source,
             )
 
         coord_cfg = CoordinatorConfig(
@@ -247,6 +329,33 @@ class LiveRunner:
             feature_hook=feat_hook,
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
+
+        # ── Portfolio Risk Aggregator (Phase 2) ────────────
+        if config.enable_portfolio_risk:
+            try:
+                from risk.meta_builder_live import build_live_meta_builder
+                from risk.aggregator import RiskAggregator
+                from risk.rules.portfolio_limits import (
+                    GrossExposureRule, NetExposureRule, ConcentrationRule,
+                )
+                from decimal import Decimal
+
+                _equity_source = fetch_margin if fetch_margin is not None else lambda: 10000.0
+                meta_builder = build_live_meta_builder(coordinator, equity_source=_equity_source)
+                portfolio_aggregator = RiskAggregator(
+                    rules=[
+                        GrossExposureRule(max_gross_leverage=Decimal(str(config.max_gross_leverage))),
+                        NetExposureRule(max_net_leverage=Decimal(str(config.max_net_leverage))),
+                        ConcentrationRule(max_weight=Decimal(str(config.max_concentration))),
+                    ],
+                    meta_builder=meta_builder,
+                )
+                logger.info(
+                    "Portfolio risk enabled: gross<=%.1f, net<=%.1f, concentration<=%.1f",
+                    config.max_gross_leverage, config.max_net_leverage, config.max_concentration,
+                )
+            except Exception:
+                logger.warning("Portfolio risk setup failed — continuing without", exc_info=True)
 
         def _emit(ev: Any) -> None:
             # Attribution: track all events
@@ -272,6 +381,56 @@ class LiveRunner:
                 if not risk_result.allowed:
                     logger.warning("RiskGate REJECTED order for %s: %s", sym, risk_result.reason)
                     return
+
+                # Gate 3: Portfolio-level risk check
+                if portfolio_aggregator is not None:
+                    try:
+                        port_decision = portfolio_aggregator.evaluate_order(ev)
+                        if not port_decision.ok:
+                            msgs = [v.message for v in port_decision.violations]
+                            logger.warning("PortfolioRisk REJECTED order for %s: %s", sym, "; ".join(msgs))
+                            return
+                    except Exception:
+                        logger.warning("PortfolioRisk check failed for %s", sym, exc_info=True)
+
+                # Track order submission in state machine + timeout tracker
+                order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
+                if order_id:
+                    try:
+                        from decimal import Decimal
+                        raw_qty = getattr(ev, "qty", getattr(ev, "quantity", 0))
+                        raw_price = getattr(ev, "price", None)
+                        order_state_machine.register(
+                            order_id=str(order_id),
+                            client_order_id=getattr(ev, "client_order_id", None),
+                            symbol=sym,
+                            side=str(getattr(ev, "side", "")),
+                            order_type=str(getattr(ev, "order_type", "LIMIT")),
+                            qty=Decimal(str(raw_qty)),
+                            price=Decimal(str(raw_price)) if raw_price is not None else None,
+                        )
+                    except Exception:
+                        logger.debug("OSM register failed for order %s", order_id, exc_info=True)
+                    timeout_tracker.on_submit(str(order_id), ev)
+
+            elif et_str == "FILL":
+                # Track fills in state machine + timeout tracker
+                order_id = getattr(ev, "order_id", None)
+                if order_id:
+                    timeout_tracker.on_fill(str(order_id))
+                    try:
+                        from execution.state_machine.transitions import OrderStatus
+                        from decimal import Decimal
+                        fill_qty = getattr(ev, "qty", None)
+                        fill_price = getattr(ev, "price", None)
+                        order_state_machine.transition(
+                            order_id=str(order_id),
+                            new_status=OrderStatus.FILLED,
+                            filled_qty=Decimal(str(fill_qty)) if fill_qty is not None else None,
+                            avg_price=Decimal(str(fill_price)) if fill_price is not None else None,
+                        )
+                    except Exception:
+                        logger.debug("OSM transition failed for order %s", order_id, exc_info=True)
 
             coordinator.emit(ev, actor="live")
 
@@ -324,7 +483,7 @@ class LiveRunner:
             logger.warning("SHADOW MODE — orders will be simulated, not executed")
         else:
             exec_adapter = _FillRecordingAdapter(inner=kill_bridge, on_fill=_record_fill)
-        exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit)
+        exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit, risk_gate=risk_gate)
         coordinator.attach_execution_bridge(exec_bridge)
 
         # ── 5) Decision bridge ────────────────────────────────
@@ -640,6 +799,26 @@ class LiveRunner:
                     "Startup reconciliation failed — proceeding with local state"
                 )
 
+        # ── 11b) DataScheduler + FreshnessMonitor (Phase 3) ─
+        data_scheduler = None
+        freshness_monitor = None
+        if config.enable_data_scheduler:
+            try:
+                from data.scheduler.data_scheduler import DataScheduler, DataSchedulerConfig
+                from data.scheduler.freshness_monitor import FreshnessMonitor, FreshnessConfig
+
+                data_scheduler = DataScheduler(DataSchedulerConfig(symbols=config.symbols))
+                freshness_monitor = FreshnessMonitor(FreshnessConfig(
+                    data_dir=config.data_files_dir,
+                    symbols=config.symbols,
+                    on_alert=lambda a: logger.warning(
+                        "Data stale: %s age=%.1fh", a.source, a.age_hours,
+                    ),
+                ))
+                logger.info("DataScheduler + FreshnessMonitor configured")
+            except Exception:
+                logger.warning("DataScheduler setup failed — continuing without", exc_info=True)
+
         # ── 12) GracefulShutdown ─────────────────────────────
         shutdown_cfg = ShutdownConfig(
             pending_order_timeout_sec=config.pending_order_timeout_sec,
@@ -652,6 +831,36 @@ class LiveRunner:
                     state_store.save(snapshot)
                     logger.info("State snapshot saved on shutdown")
 
+        # wait_pending: returns True when no active orders remain
+        def _wait_pending() -> bool:
+            return timeout_tracker.pending_count == 0
+
+        # cancel_all: cancel all open orders on the venue
+        def _cancel_all() -> None:
+            if hasattr(venue_client, "cancel_all_orders"):
+                for sym in config.symbols:
+                    try:
+                        venue_client.cancel_all_orders(sym)
+                    except Exception:
+                        logger.warning("cancel_all_orders failed for %s", sym, exc_info=True)
+
+        # reconcile: run one reconciliation pass
+        def _reconcile_once() -> None:
+            if reconcile_scheduler is not None:
+                try:
+                    reconcile_scheduler.run_once()
+                except Exception:
+                    logger.warning("Shutdown reconciliation failed", exc_info=True)
+
+        # Use a mutable container for late-binding cleanup: the runner
+        # instance doesn't exist yet, so we capture a list and patch it
+        # after construction (see below).
+        _runner_ref: List[Any] = []
+
+        def _cleanup() -> None:
+            if _runner_ref:
+                _runner_ref[0]._running = False
+
         shutdown_handler = GracefulShutdown(
             config=shutdown_cfg,
             stop_new_orders=lambda: kill_switch.trigger(
@@ -661,7 +870,11 @@ class LiveRunner:
                 reason="graceful_shutdown",
                 source="shutdown",
             ),
+            wait_pending=_wait_pending,
+            cancel_all=_cancel_all,
+            reconcile=_reconcile_once,
             save_snapshot=save_snapshot_fn,
+            cleanup=_cleanup,
         )
 
         # ── 13) Health HTTP endpoint (optional) ────────────────
@@ -685,7 +898,7 @@ class LiveRunner:
                 status_fn=_health_status_fn,
             )
 
-        return cls(
+        runner = cls(
             loop=loop,
             coordinator=coordinator,
             runtime=runtime,
@@ -705,8 +918,17 @@ class LiveRunner:
             module_reloader=module_reloader,
             decision_bridge=decision_bridge_inst,
             user_stream=user_stream_client,
+            order_state_machine=order_state_machine,
+            timeout_tracker=timeout_tracker,
+            model_loader=model_loader_inst,
+            portfolio_aggregator=portfolio_aggregator,
+            data_scheduler=data_scheduler,
+            freshness_monitor=freshness_monitor,
             _fills=fills,
         )
+        # Patch late-binding reference so cleanup callback can stop the runner
+        _runner_ref.append(runner)
+        return runner
 
     @classmethod
     def from_config(
@@ -809,6 +1031,23 @@ class LiveRunner:
             self.health_server.start()
         if self.module_reloader is not None:
             self.module_reloader.start()
+        if self.data_scheduler is not None:
+            self.data_scheduler.start()
+        if self.freshness_monitor is not None:
+            self.freshness_monitor.start()
+
+        # SIGHUP: reload production models
+        if self.model_loader is not None:
+            import signal as _signal
+            def _sighup_handler(signum: int, frame: Any) -> None:
+                logger.info("SIGHUP received — checking for model updates")
+                # Actual reload deferred to main loop to avoid signal-handler issues
+                self._reload_models_pending = True
+            try:
+                _signal.signal(_signal.SIGHUP, _sighup_handler)
+            except (OSError, AttributeError):
+                pass  # SIGHUP not available on Windows
+
         self.runtime.start()
 
         if self.user_stream is not None:
@@ -842,6 +1081,11 @@ class LiveRunner:
         try:
             while self._running:
                 time.sleep(1.0)
+                # Check for timed-out orders
+                if self.timeout_tracker is not None:
+                    timed_out = self.timeout_tracker.check_timeouts()
+                    if timed_out:
+                        logger.warning("Timed out orders: %s", timed_out)
         except KeyboardInterrupt:
             pass
         finally:
@@ -861,6 +1105,10 @@ class LiveRunner:
                 logger.warning("User stream close error", exc_info=True)
             if self._user_stream_thread is not None:
                 self._user_stream_thread.join(timeout=5.0)
+        if self.freshness_monitor is not None:
+            self.freshness_monitor.stop()
+        if self.data_scheduler is not None:
+            self.data_scheduler.stop()
         if self.module_reloader is not None:
             self.module_reloader.stop()
         if self.health_server is not None:

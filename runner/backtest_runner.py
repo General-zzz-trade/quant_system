@@ -349,7 +349,10 @@ def run_backtest(
 
     for i, bar in enumerate(bar_list):
         if embargo_bars > 0:
-            for fill_ev in embargo_adapter.on_bar(i):
+            # Fill embargoed orders at this bar's OPEN price — the first
+            # tradeable price after the embargo window, not the stale
+            # previous bar's close sitting in the coordinator state.
+            for fill_ev in embargo_adapter.on_bar(i, open_price=bar.o):
                 coordinator.emit(fill_ev, actor="backtest")
         embargo_adapter.set_bar(i)
 
@@ -383,7 +386,9 @@ def run_backtest(
                 coordinator.emit(funding_ev, actor="funding")
 
     if embargo_bars > 0 and bar_list:
-        for fill_ev in embargo_adapter.on_bar(len(bar_list)):
+        # End-of-data flush: no next bar available, use last bar's close
+        # as best-effort fill price (conservative: no better data exists).
+        for fill_ev in embargo_adapter.on_bar(len(bar_list), open_price=bar_list[-1].c):
             coordinator.emit(fill_ev, actor="backtest")
 
     coordinator.stop()
@@ -717,7 +722,9 @@ def run_multi_backtest(
 
     for i, (sym, bar) in enumerate(tagged_bars):
         if embargo_bars > 0:
-            embargo_adapter.on_bar(i)
+            # Fill embargoed orders at this bar's OPEN price.
+            for fill_ev in embargo_adapter.on_bar(i, open_price=bar.o):
+                coordinator.emit(fill_ev, actor="backtest")
         embargo_adapter.set_bar(i)
 
         _latest_prices[sym.upper()] = bar.c
@@ -736,7 +743,10 @@ def run_multi_backtest(
         coordinator.emit(ev, actor="replay")
 
     if embargo_bars > 0 and tagged_bars:
-        embargo_adapter.on_bar(len(tagged_bars))
+        # End-of-data flush for multi-symbol path.
+        last_bar = tagged_bars[-1][1]
+        for fill_ev in embargo_adapter.on_bar(len(tagged_bars), open_price=last_bar.c):
+            coordinator.emit(fill_ev, actor="backtest")
 
     coordinator.stop()
 

@@ -24,13 +24,17 @@ class FeatureComputeHook:
                  funding_rate_source: Any = None,
                  cross_asset_computer: Any = None,
                  oi_source: Any = None,
-                 ls_ratio_source: Any = None) -> None:
+                 ls_ratio_source: Any = None,
+                 spot_close_source: Any = None,
+                 fgi_source: Any = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._funding_rate_source = funding_rate_source
         self._cross_asset = cross_asset_computer
         self._oi_source = oi_source
         self._ls_ratio_source = ls_ratio_source
+        self._spot_close_source = spot_close_source
+        self._fgi_source = fgi_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         # Check once which extra params computer.on_bar accepts
         import inspect
@@ -40,6 +44,33 @@ class FeatureComputeHook:
         self._pass_funding = "funding_rate" in sig.parameters
         self._pass_trades = "trades" in sig.parameters
         self._pass_oi = "open_interest" in sig.parameters
+        self._pass_spot_close = "spot_close" in sig.parameters
+        self._pass_fgi = "fear_greed" in sig.parameters
+
+        # Schema validation: warn if model requires features the computer doesn't provide
+        if inference_bridge is not None:
+            self._validate_feature_schema(inference_bridge, computer)
+
+    @staticmethod
+    def _validate_feature_schema(inference_bridge: Any, computer: Any) -> None:
+        required: set[str] = set()
+        engine = getattr(inference_bridge, "_engine", None)
+        models = getattr(engine, "_models", []) if engine else []
+        for model in models:
+            names = getattr(model, "feature_names", None)
+            if names:
+                required.update(names)
+        if not required:
+            return
+        available = set(getattr(computer, "feature_names", []))
+        if not available:
+            return
+        missing = required - available - {"close", "volume"}
+        if missing:
+            logger.warning(
+                "Feature schema mismatch: model requires %d features but computer lacks: %s",
+                len(required), sorted(missing),
+            )
 
     def on_event(self, event: Any) -> Optional[Mapping[str, Any]]:
         """Compute features if this is a market event. Returns features dict or None."""
@@ -96,6 +127,16 @@ class FeatureComputeHook:
                 ls_val = self._ls_ratio_source()
                 if ls_val is not None:
                     bar_kwargs["ls_ratio"] = ls_val
+
+        if self._pass_spot_close and self._spot_close_source is not None:
+            spot_val = self._spot_close_source()
+            if spot_val is not None:
+                bar_kwargs["spot_close"] = spot_val
+
+        if self._pass_fgi and self._fgi_source is not None:
+            fgi_val = self._fgi_source()
+            if fgi_val is not None:
+                bar_kwargs["fear_greed"] = fgi_val
 
         self._computer.on_bar(symbol, **bar_kwargs)
 

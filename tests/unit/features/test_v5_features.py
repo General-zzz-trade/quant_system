@@ -221,7 +221,7 @@ class TestFundingCarryFeatures(_Base):
 class TestV5FeatureCount(_Base):
 
     def test_enriched_feature_names_count(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 66, f"Expected 66, got {len(ENRICHED_FEATURE_NAMES)}"
+        assert len(ENRICHED_FEATURE_NAMES) == 79, f"Expected 79, got {len(ENRICHED_FEATURE_NAMES)}"
 
     def test_all_v5_features_present_after_warmup(self):
         comp = EnrichedFeatureComputer()
@@ -247,12 +247,17 @@ class TestV5FeatureCount(_Base):
         """All features should be non-None after sufficient warmup."""
         comp = EnrichedFeatureComputer()
         for i in range(80):
-            comp.on_bar("BTC", close=100.0 + i * 0.1, volume=10.0 + i * 0.01,
+            close = 100.0 + i * 0.1
+            comp.on_bar("BTC", close=close, volume=10.0 + i * 0.01,
                         high=100.5 + i * 0.1, low=99.5 + i * 0.1,
                         open_=100.0 + i * 0.1, hour=i % 24, dow=i % 7,
                         funding_rate=0.0001, trades=100.0, taker_buy_volume=5.0,
-                        quote_volume=1000.0, open_interest=1000.0 + i * 10,
-                        ls_ratio=1.0 + i * 0.001)
+                        quote_volume=1000.0,
+                        taker_buy_quote_volume=500.0,
+                        open_interest=1000.0 + i * 10,
+                        ls_ratio=1.0 + i * 0.001,
+                        spot_close=close - 0.5,
+                        fear_greed=50.0 + (i % 8) * 5)
         feats = comp.get_features_dict("BTC")
         for name in ENRICHED_FEATURE_NAMES:
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"

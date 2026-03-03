@@ -85,7 +85,11 @@ class BinanceRestClient:
         signed_qs = f"{qs}&signature={sig}" if qs else f"signature={sig}"
 
         url = f"{self._cfg.base_url}{path}"
-        return self._send(method=method, url=url, body_qs=signed_qs, path=path)
+        m = method.upper()
+        if m == "GET":
+            url = f"{url}?{signed_qs}"
+            signed_qs = ""
+        return self._send(method=m, url=url, body_qs=signed_qs, path=path)
 
     def request_public(
         self,
@@ -126,7 +130,7 @@ class BinanceRestClient:
             raise BinanceRetryableError(f"Network error: {e}") from e
 
     def _send(self, *, method: str, url: str, body_qs: str, path: str = "") -> Dict[str, Any]:
-        data = body_qs.encode("utf-8")
+        data = body_qs.encode("utf-8") if body_qs else None
         headers = {
             "X-MBX-APIKEY": self._cfg.api_key,
             "Content-Type": "application/x-www-form-urlencoded",

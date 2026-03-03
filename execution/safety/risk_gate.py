@@ -53,19 +53,25 @@ class RiskGate:
                     reason=f"max_open_orders:{count}>={self.config.max_open_orders}",
                 )
 
-        # Order notional check
+        # Order notional check — fail-closed: reject if qty or price missing
         qty = _get_qty(cmd)
         price = _get_price(cmd)
-        if qty is not None and price is not None:
-            notional = abs(qty * price)
-            if notional > self.config.max_order_notional:
-                return RiskCheckResult(
-                    allowed=False,
-                    reason=f"order_notional:{notional:.2f}>{self.config.max_order_notional:.2f}",
-                )
+        if qty is None or price is None:
+            logger.warning("RiskGate: cannot extract qty=%s price=%s from order, rejecting", qty, price)
+            return RiskCheckResult(
+                allowed=False,
+                reason=f"missing_qty_or_price:qty={qty},price={price}",
+            )
+
+        notional = abs(qty * price)
+        if notional > self.config.max_order_notional:
+            return RiskCheckResult(
+                allowed=False,
+                reason=f"order_notional:{notional:.2f}>{self.config.max_order_notional:.2f}",
+            )
 
         # Position limit check
-        if self.get_positions is not None and qty is not None and price is not None:
+        if self.get_positions is not None:
             symbol = str(getattr(cmd, "symbol", ""))
             positions = self.get_positions()
             current_notional = _position_notional(positions, symbol, price)

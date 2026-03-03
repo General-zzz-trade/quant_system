@@ -50,7 +50,7 @@ class XGBAlphaModel:
         except ImportError:
             return None
 
-        x = np.array([[features.get(f, 0.0) for f in self.feature_names]])
+        x = np.array([[features.get(f, float("nan")) for f in self.feature_names]])
         pred = self._model.predict(x)[0]
 
         if pred > self.threshold:
@@ -68,6 +68,10 @@ class XGBAlphaModel:
         n_estimators: int = 100,
         max_depth: int = 6,
         learning_rate: float = 0.1,
+        early_stopping_rounds: int = 0,
+        embargo_bars: int = 0,
+        val_size: float = 0.2,
+        sample_weight: Optional[Any] = None,
     ) -> Dict[str, float]:
         """Train the model. X: 2D array of features, y: 1D array of returns.
 
@@ -76,11 +80,16 @@ class XGBAlphaModel:
         try:
             import xgboost as xgb  # type: ignore[import-untyped]
             import numpy as np
-            from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
         except ImportError as e:
             raise RuntimeError("Missing deps: pip install xgboost scikit-learn") from e
 
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, shuffle=False)
+        n = len(X)
+        split = int(n * (1.0 - val_size))
+        train_end = max(split - embargo_bars, 1)
+        val_start = split
+        X_train, X_val = X[:train_end], X[val_start:]
+        y_train, y_val = y[:train_end], y[val_start:]
+        w_train = sample_weight[:train_end] if sample_weight is not None else None
 
         default_params = {
             "n_estimators": n_estimators,
@@ -92,8 +101,16 @@ class XGBAlphaModel:
         if params:
             default_params.update(params)
 
+        if early_stopping_rounds > 0:
+            default_params["early_stopping_rounds"] = early_stopping_rounds
+
         model = xgb.XGBRegressor(**default_params)
-        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+        model.fit(
+            X_train, y_train,
+            sample_weight=w_train,
+            eval_set=[(X_val, y_val)],
+            verbose=False,
+        )
 
         self._model = model
 
@@ -101,8 +118,15 @@ class XGBAlphaModel:
         mse = float(np.mean((val_pred - y_val) ** 2))
         direction_acc = float(np.mean(np.sign(val_pred) == np.sign(y_val)))
 
+        metrics: Dict[str, float] = {
+            "val_mse": mse,
+            "direction_accuracy": direction_acc,
+        }
+        if early_stopping_rounds > 0:
+            metrics["best_iteration"] = float(getattr(model, "best_iteration", n_estimators))
+
         logger.info("XGB trained: val_mse=%.6f, direction_accuracy=%.4f", mse, direction_acc)
-        return {"val_mse": mse, "direction_accuracy": direction_acc}
+        return metrics
 
     def save(self, path: str | Path) -> None:
         """Save model to disk."""

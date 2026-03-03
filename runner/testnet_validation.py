@@ -25,42 +25,126 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def _build_ml_stack(raw: Dict[str, Any]) -> Tuple[Optional[Any], List[Any], List[Any]]:
-    """Build ML pipeline (feature_computer, alpha_models, decision_modules) from config.
+def _build_ml_stack(
+    raw: Dict[str, Any],
+) -> Tuple[Optional[Any], List[Any], List[Any], Dict[str, Any]]:
+    """Build ML pipeline (feature_computer, alpha_models, decision_modules, signal_kwargs) from config.
 
-    Returns (None, [], []) if no strategy.model_path configured or no models found.
+    Returns (None, [], [], {}) if no strategy.model_path configured or no models found.
+
+    When model_dir contains a config.json (V8+ format), loads ensemble models and
+    extracts signal constraints automatically. Falls back to legacy per-symbol layout.
     """
     strategy = raw.get("strategy", {})
     model_path = strategy.get("model_path")
     if not model_path:
         logger.info("No strategy.model_path — running without ML stack")
-        return None, [], []
+        return None, [], [], {}
 
     from alpha.models.lgbm_alpha import LGBMAlphaModel
+    from alpha.models.xgb_alpha import XGBAlphaModel
     from decision.ml_decision import MLDecisionModule
     from features.enriched_computer import EnrichedFeatureComputer
 
     model_dir = Path(model_path)
-    config_name = strategy.get("config_name", "mod_reg_1h")
     symbols = raw.get("trading", {}).get("symbols", ["BTCUSDT"])
     threshold = strategy.get("threshold", 0.002)
     threshold_short = strategy.get("threshold_short", 999.0)
     risk_pct = strategy.get("risk_pct", 0.30)
 
+    signal_kwargs: Dict[str, Any] = {}
     models: List[Any] = []
-    for sym in symbols:
-        pkl = model_dir / sym / f"{config_name}.pkl"
-        if pkl.exists():
-            m = LGBMAlphaModel(name=f"{config_name}_{sym}")
-            m.load(pkl)
-            models.append(m)
-            logger.info("Loaded model: %s", pkl)
+
+    # ── V8+ format: config.json in model_dir ──────────────
+    model_config_path = model_dir / "config.json"
+    if model_config_path.exists():
+        with model_config_path.open() as f:
+            mcfg = json.load(f)
+
+        if mcfg.get("ensemble"):
+            from alpha.models.ensemble import EnsembleAlphaModel
+
+            sub_models: List[Any] = []
+            weights = mcfg.get("ensemble_weights", [])
+            for i, fname in enumerate(mcfg.get("models", [])):
+                pkl_path = model_dir / fname
+                if not pkl_path.exists():
+                    logger.warning("Ensemble member not found: %s", pkl_path)
+                    continue
+                if "lgbm" in fname.lower():
+                    m = LGBMAlphaModel(name=fname)
+                    m.load(pkl_path)
+                elif "xgb" in fname.lower():
+                    m = XGBAlphaModel(name=fname)
+                    m.load(pkl_path)
+                else:
+                    logger.warning("Unknown model type for %s, trying LGBM", fname)
+                    m = LGBMAlphaModel(name=fname)
+                    m.load(pkl_path)
+                sub_models.append(m)
+                logger.info("Loaded ensemble member: %s", pkl_path)
+
+            if not sub_models:
+                logger.warning("No ensemble members loaded")
+                return None, [], [], {}
+
+            # Pad weights if needed
+            if len(weights) < len(sub_models):
+                weights = [1.0 / len(sub_models)] * len(sub_models)
+
+            ensemble = EnsembleAlphaModel(
+                name=f"ensemble_{mcfg.get('symbol', 'unknown')}",
+                sub_models=sub_models,
+                weights=weights,
+            )
+            models.append(ensemble)
         else:
-            logger.warning("Model not found: %s", pkl)
+            # Single model in V8 dir
+            for fname in mcfg.get("models", []):
+                pkl_path = model_dir / fname
+                if not pkl_path.exists():
+                    continue
+                if "lgbm" in fname.lower():
+                    m = LGBMAlphaModel(name=fname)
+                    m.load(pkl_path)
+                elif "xgb" in fname.lower():
+                    m = XGBAlphaModel(name=fname)
+                    m.load(pkl_path)
+                else:
+                    m = LGBMAlphaModel(name=fname)
+                    m.load(pkl_path)
+                models.append(m)
+                logger.info("Loaded model: %s", pkl_path)
+
+        # Extract signal constraints from config.json
+        if mcfg.get("long_only"):
+            signal_kwargs["long_only_symbols"] = set(symbols)
+        if "deadzone" in mcfg:
+            signal_kwargs["deadzone"] = mcfg["deadzone"]
+        if "min_hold" in mcfg:
+            signal_kwargs["min_hold_bars"] = {s: mcfg["min_hold"] for s in symbols}
+        if mcfg.get("monthly_gate", False) or strategy.get("monthly_gate", False):
+            signal_kwargs["monthly_gate"] = True
+            signal_kwargs["monthly_gate_window"] = mcfg.get(
+                "monthly_gate_window", strategy.get("monthly_gate_window", 480)
+            )
+
+    # ── Legacy format: model_dir/SYM/config_name.pkl ──────
+    if not models:
+        config_name = strategy.get("config_name", "mod_reg_1h")
+        for sym in symbols:
+            pkl = model_dir / sym / f"{config_name}.pkl"
+            if pkl.exists():
+                m = LGBMAlphaModel(name=f"{config_name}_{sym}")
+                m.load(pkl)
+                models.append(m)
+                logger.info("Loaded model: %s", pkl)
+            else:
+                logger.warning("Model not found: %s", pkl)
 
     if not models:
         logger.warning("No models loaded — running without ML stack")
-        return None, [], []
+        return None, [], [], {}
 
     fc = EnrichedFeatureComputer()
 
@@ -75,10 +159,10 @@ def _build_ml_stack(raw: Dict[str, Any]) -> Tuple[Optional[Any], List[Any], List
     ]
 
     logger.info(
-        "ML stack ready: %d models, %d decision modules, threshold=%.4f",
-        len(models), len(dms), threshold,
+        "ML stack ready: %d models, %d decision modules, threshold=%.4f, signal_kwargs=%s",
+        len(models), len(dms), threshold, signal_kwargs,
     )
-    return fc, models, dms
+    return fc, models, dms, signal_kwargs
 
 
 def _ensure_testnet(raw: Dict[str, Any]) -> None:
@@ -136,12 +220,13 @@ def run_paper(config_path: Path, duration: int) -> None:
         testnet=True,
     )
 
-    fc, models, dms = _build_ml_stack(raw)
+    fc, models, dms, signal_kwargs = _build_ml_stack(raw)
     runner = LivePaperRunner.build(
         config,
         feature_computer=fc,
         alpha_models=models or None,
         decision_modules=dms or None,
+        **signal_kwargs,
     )
 
     def _timeout(*_: Any) -> None:
@@ -175,20 +260,20 @@ def run_shadow(config_path: Path, duration: int) -> None:
     symbol = trading.get("symbol", "BTCUSDT")
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
 
+    # Shadow mode needs a venue client that won't be called
+    class _NoOpClient:
+        def send_order(self, order_event: Any) -> list:
+            return []
+
+    fc, models, dms, signal_kwargs = _build_ml_stack(raw)
     config = LiveRunnerConfig(
         symbols=symbols,
         testnet=True,
         shadow_mode=True,
         enable_preflight=False,
         enable_persistent_stores=False,
+        **signal_kwargs,
     )
-
-    # Shadow mode needs a venue client that won't be called
-    class _NoOpClient:
-        def send_order(self, order_event: Any) -> list:
-            return []
-
-    fc, models, dms = _build_ml_stack(raw)
     runner = LiveRunner.build(
         config,
         venue_clients={"binance": _NoOpClient()},
@@ -255,13 +340,13 @@ def run_live(config_path: Path, duration: int) -> None:
         )
     )
 
+    fc, models, dms, signal_kwargs = _build_ml_stack(raw)
     config = LiveRunnerConfig(
         symbols=symbols,
         testnet=True,
         enable_persistent_stores=False,
+        **signal_kwargs,
     )
-
-    fc, models, dms = _build_ml_stack(raw)
     runner = LiveRunner.build(
         config,
         venue_clients={"binance": client},
