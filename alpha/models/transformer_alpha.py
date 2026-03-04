@@ -4,6 +4,7 @@ EXPERIMENTAL: Not validated in production. Requires: pip install torch
 """
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import pickle
@@ -124,8 +125,14 @@ class TransformerAlphaModel:
         epochs: int = 50,
         lr: float = 0.0001,
         batch_size: int = 32,
+        patience: int = 5,
+        embargo: int = 24,
     ) -> Dict[str, float]:
-        """Train the model. X: (n_samples, seq_len, n_features), y: (n_samples,)."""
+        """Train the model. X: (n_samples, seq_len, n_features), y: (n_samples,).
+
+        patience: early stopping patience (epochs without improvement)
+        embargo: gap between train and val to prevent leakage
+        """
         try:
             import torch
             import torch.nn as nn
@@ -139,15 +146,19 @@ class TransformerAlphaModel:
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.float32)
 
+        # Split train/val with embargo gap
         split = int(len(X) * 0.8)
-        X_train, X_val = X_tensor[:split], X_tensor[split:]
-        y_train, y_val = y_tensor[:split], y_tensor[split:]
+        train_end = max(split - embargo, 1)
+        X_train, X_val = X_tensor[:train_end], X_tensor[split:]
+        y_train, y_val = y_tensor[:train_end], y_tensor[split:]
 
         optimizer = torch.optim.AdamW(self._model.parameters(), lr=lr)
         criterion = nn.MSELoss()
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
         best_val_loss = float("inf")
+        best_state = None
+        wait = 0
 
         for epoch in range(epochs):
             self._model.train()
@@ -166,8 +177,20 @@ class TransformerAlphaModel:
             self._model.eval()
             with torch.no_grad():
                 val_loss = criterion(self._model(X_val), y_val).item()
+
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_state = copy.deepcopy(self._model.state_dict())
+                wait = 0
+            else:
+                wait += 1
+                if wait >= patience:
+                    logger.info("Transformer early stop at epoch %d", epoch + 1)
+                    break
+
+        # Restore best weights
+        if best_state is not None:
+            self._model.load_state_dict(best_state)
 
         self._model.eval()
         with torch.no_grad():
@@ -177,6 +200,26 @@ class TransformerAlphaModel:
 
         logger.info("Transformer trained: val_loss=%.6f, acc=%.4f", best_val_loss, direction_acc)
         return {"val_loss": best_val_loss, "direction_accuracy": direction_acc}
+
+    def predict_batch(self, X_3d: Any, batch_size: int = 256) -> Any:
+        """Batch prediction on 3D input. Returns 1D numpy array."""
+        try:
+            import torch
+            import numpy as np
+        except ImportError as e:
+            raise RuntimeError("torch/numpy required") from e
+
+        if self._model is None:
+            raise RuntimeError("Model not built/loaded")
+
+        self._model.eval()
+        X_tensor = torch.tensor(X_3d, dtype=torch.float32)
+        preds = []
+        with torch.no_grad():
+            for i in range(0, len(X_tensor), batch_size):
+                batch = X_tensor[i:i + batch_size]
+                preds.append(self._model(batch).numpy())
+        return np.concatenate(preds)
 
     def save(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)

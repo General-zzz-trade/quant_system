@@ -6,6 +6,7 @@ Uses sliding windows of features to predict next-period returns.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import pickle
 from dataclasses import dataclass, field
@@ -81,7 +82,9 @@ class LSTMAlphaModel:
         class _LSTMNet(nn.Module):
             def __init__(self, input_sz: int, hidden: int, layers: int) -> None:
                 super().__init__()
-                self.lstm = nn.LSTM(input_sz, hidden, layers, batch_first=True)
+                self.lstm = nn.LSTM(
+                    input_sz, hidden, layers, batch_first=True, dropout=0.1 if layers > 1 else 0.0,
+                )
                 self.fc = nn.Linear(hidden, 1)
 
             def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -98,11 +101,15 @@ class LSTMAlphaModel:
         epochs: int = 50,
         lr: float = 0.001,
         batch_size: int = 32,
+        patience: int = 5,
+        embargo: int = 24,
     ) -> Dict[str, float]:
         """Train the LSTM model.
 
         X: 3D array (n_samples, seq_len, n_features)
         y: 1D array (n_samples,) of target returns
+        patience: early stopping patience (epochs without improvement)
+        embargo: gap between train and val to prevent leakage
         """
         try:
             import torch
@@ -117,22 +124,23 @@ class LSTMAlphaModel:
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.float32)
 
-        # Split train/val
+        # Split train/val with embargo gap
         split = int(len(X) * 0.8)
-        X_train, X_val = X_tensor[:split], X_tensor[split:]
-        y_train, y_val = y_tensor[:split], y_tensor[split:]
+        train_end = max(split - embargo, 1)
+        X_train, X_val = X_tensor[:train_end], X_tensor[split:]
+        y_train, y_val = y_tensor[:train_end], y_tensor[split:]
 
         optimizer = torch.optim.Adam(self._model.parameters(), lr=lr)
         criterion = nn.MSELoss()
 
         self._model.train()
         best_val_loss = float("inf")
+        best_state = None
+        wait = 0
 
         for epoch in range(epochs):
             # Mini-batch training
             perm = torch.randperm(len(X_train))
-            total_loss = 0.0
-            n_batches = 0
 
             for i in range(0, len(X_train), batch_size):
                 idx = perm[i:i + batch_size]
@@ -142,9 +150,8 @@ class LSTMAlphaModel:
                 pred = self._model(xb)
                 loss = criterion(pred, yb)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self._model.parameters(), 1.0)
                 optimizer.step()
-                total_loss += loss.item()
-                n_batches += 1
 
             # Validation
             self._model.eval()
@@ -155,6 +162,17 @@ class LSTMAlphaModel:
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_state = copy.deepcopy(self._model.state_dict())
+                wait = 0
+            else:
+                wait += 1
+                if wait >= patience:
+                    logger.info("LSTM early stop at epoch %d", epoch + 1)
+                    break
+
+        # Restore best weights
+        if best_state is not None:
+            self._model.load_state_dict(best_state)
 
         # Final metrics
         self._model.eval()
@@ -165,6 +183,26 @@ class LSTMAlphaModel:
 
         logger.info("LSTM trained: val_loss=%.6f, direction_acc=%.4f", best_val_loss, direction_acc)
         return {"val_loss": best_val_loss, "direction_accuracy": direction_acc}
+
+    def predict_batch(self, X_3d: Any, batch_size: int = 256) -> Any:
+        """Batch prediction on 3D input. Returns 1D numpy array."""
+        try:
+            import torch
+            import numpy as np
+        except ImportError as e:
+            raise RuntimeError("torch/numpy required") from e
+
+        if self._model is None:
+            raise RuntimeError("Model not built/loaded")
+
+        self._model.eval()
+        X_tensor = torch.tensor(X_3d, dtype=torch.float32)
+        preds = []
+        with torch.no_grad():
+            for i in range(0, len(X_tensor), batch_size):
+                batch = X_tensor[i:i + batch_size]
+                preds.append(self._model(batch).numpy())
+        return np.concatenate(preds)
 
     def save(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)

@@ -42,6 +42,12 @@ try:
 except ImportError:
     _BT_CPP = False
 
+try:
+    import torch as _torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
 logger = logging.getLogger(__name__)
 
 # ── Regime detection ─────────────────────────────────────────
@@ -158,6 +164,149 @@ TARGET_MODE = "clipped"
 MIN_HOLD = 24
 DEADZONE = 0.5
 HPO_TRIALS = 10
+NN_SEQ_LEN = 20
+NN_EPOCHS = 30
+
+
+# ── NN Ensemble helpers ─────────────────────────────────────
+
+def _compute_ensemble_weights(
+    preds_list: List[np.ndarray], y_true: np.ndarray,
+) -> List[float]:
+    """IC-weighted ensemble: weight_i = max(spearman_ic_i, 0) / sum.
+
+    Falls back to equal weights if all ICs are non-positive.
+    """
+    from features.dynamic_selector import _rankdata, _spearman_ic
+
+    n = len(preds_list)
+    ics = []
+    valid = ~np.isnan(y_true)
+    y_v = y_true[valid]
+    if len(y_v) < 10:
+        return [1.0 / n] * n
+
+    yr = _rankdata(y_v)
+    for p in preds_list:
+        pv = p[valid]
+        if np.std(pv) < 1e-12:
+            ics.append(0.0)
+        else:
+            ics.append(float(_spearman_ic(_rankdata(pv), yr)))
+
+    weights = [max(ic, 0.0) for ic in ics]
+    total = sum(weights)
+    if total < 1e-12:
+        return [1.0 / n] * n
+    return [w / total for w in weights]
+
+
+def _apply_nn_ensemble(
+    lgbm_pred: np.ndarray,
+    X_train_sel: np.ndarray,
+    y_train: np.ndarray,
+    X_test_sel: np.ndarray,
+    nn_seq_len: int = NN_SEQ_LEN,
+    nn_epochs: int = NN_EPOCHS,
+) -> np.ndarray:
+    """Train LSTM + Transformer on sliding windows, return IC-weighted ensemble.
+
+    Returns y_pred of same length as lgbm_pred. Falls back to lgbm_pred on failure.
+    """
+    if not _HAS_TORCH:
+        logger.warning("torch not available, skipping NN ensemble")
+        return lgbm_pred
+
+    from alpha.nn_utils import make_sliding_windows, align_target
+    from alpha.models.lstm_alpha import LSTMAlphaModel
+    from alpha.models.transformer_alpha import TransformerAlphaModel
+    from sklearn.preprocessing import StandardScaler
+
+    n_test = len(lgbm_pred)
+    n_features = X_train_sel.shape[1]
+
+    # StandardScaler fit on train
+    scaler = StandardScaler()
+    X_train_sc = scaler.fit_transform(X_train_sel)
+    X_test_sc = scaler.transform(X_test_sel)
+
+    # Sliding windows
+    if len(X_train_sc) <= nn_seq_len or len(X_test_sc) <= nn_seq_len:
+        logger.warning("Not enough data for NN seq_len=%d, skipping", nn_seq_len)
+        return lgbm_pred
+
+    X_train_3d = make_sliding_windows(X_train_sc, nn_seq_len)
+    y_train_3d = align_target(y_train, nn_seq_len)
+    X_test_3d = make_sliding_windows(X_test_sc, nn_seq_len)
+
+    nn_preds = []
+    nn_names = []
+
+    # Train LSTM
+    try:
+        lstm = LSTMAlphaModel(seq_len=nn_seq_len)
+        lstm.fit(X_train_3d, y_train_3d, epochs=nn_epochs)
+        lstm_pred_short = lstm.predict_batch(X_test_3d)
+        nn_preds.append(lstm_pred_short)
+        nn_names.append("LSTM")
+    except Exception as e:
+        logger.warning("LSTM training failed: %s", e)
+
+    # Train Transformer
+    try:
+        tfm = TransformerAlphaModel(seq_len=nn_seq_len)
+        tfm.fit(X_train_3d, y_train_3d, epochs=nn_epochs)
+        tfm_pred_short = tfm.predict_batch(X_test_3d)
+        nn_preds.append(tfm_pred_short)
+        nn_names.append("Transformer")
+    except Exception as e:
+        logger.warning("Transformer training failed: %s", e)
+
+    if not nn_preds:
+        return lgbm_pred
+
+    # Pad NN predictions: first (seq_len-1) bars use LGBM-only
+    pad = nn_seq_len - 1
+    nn_preds_full = []
+    for p in nn_preds:
+        padded = np.concatenate([lgbm_pred[:pad], p[:n_test - pad]])
+        nn_preds_full.append(padded[:n_test])
+
+    # Compute IC-weighted ensemble weights on train validation portion.
+    # Use last 20% of train 3D windows (with embargo already handled inside NN fit).
+    val_start = int(len(y_train_3d) * 0.8)
+    val_y = y_train_3d[val_start:]
+    nn_models = []
+    for name in nn_names:
+        nn_models.append(lstm if name == "LSTM" else tfm)
+
+    try:
+        train_val_3d = X_train_3d[val_start:]
+        val_preds_for_ic = []
+        for model in nn_models:
+            val_preds_for_ic.append(model.predict_batch(train_val_3d)[:len(val_y)])
+        # Weight only among NN models, then blend with LGBM at fixed ratio
+        nn_weights = _compute_ensemble_weights(val_preds_for_ic, val_y)
+        # Blend: 60% LGBM + 40% NN (IC-weighted among NN models)
+        lgbm_w = 0.6
+        nn_w = 0.4
+    except Exception:
+        # Equal weight fallback
+        n_models = 1 + len(nn_preds)
+        lgbm_w = 1.0 / n_models
+        nn_w = 1.0 - lgbm_w
+        nn_weights = [1.0 / len(nn_preds)] * len(nn_preds)
+
+    # Weighted average
+    y_ensemble = lgbm_w * lgbm_pred[:n_test]
+    for w, p in zip(nn_weights, nn_preds_full):
+        y_ensemble = y_ensemble + (nn_w * w) * p
+
+    model_names = ["LGBM"] + nn_names
+    final_weights = [lgbm_w] + [nn_w * w for w in nn_weights]
+    logger.info("NN ensemble weights: %s (%s)",
+                [f"{w:.3f}" for w in final_weights], model_names)
+    return y_ensemble
 
 
 # ── Fold generation ──────────────────────────────────────────
@@ -244,6 +393,9 @@ def run_fold(
     dd_cooldown: int = 48,
     cost_model_type: str = "flat",
     volumes: Optional[np.ndarray] = None,
+    nn_ensemble: bool = False,
+    nn_seq_len: int = NN_SEQ_LEN,
+    nn_epochs: int = NN_EPOCHS,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -384,6 +536,13 @@ def run_fold(
             y_pred = 0.5 * y_pred + 0.5 * xgb_pred
         except Exception as e:
             logger.warning("XGB ensemble failed for fold %d: %s", fold.idx, e)
+
+    # NN ensemble: LSTM + Transformer IC-weighted blend
+    if nn_ensemble:
+        y_pred = _apply_nn_ensemble(
+            y_pred, X_train_sel, y_train, X_test_sel,
+            nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
+        )
 
     # IC on test
     ic = 0.0
@@ -619,6 +778,9 @@ def run_fold_strategy_f(
     dd_cooldown: int = 48,
     cost_model_type: str = "flat",
     volumes: Optional[np.ndarray] = None,
+    nn_ensemble: bool = False,
+    nn_seq_len: int = NN_SEQ_LEN,
+    nn_epochs: int = NN_EPOCHS,
 ) -> FoldResult:
     """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
 
@@ -731,6 +893,13 @@ def run_fold_strategy_f(
         y_pred_v8 = 0.5 * lgbm_pred + 0.5 * xgb_pred
     except Exception:
         y_pred_v8 = lgbm_pred
+
+    # NN ensemble on bull model (bear stays LGBM-only — too few samples for NN)
+    if nn_ensemble:
+        y_pred_v8 = _apply_nn_ensemble(
+            y_pred_v8, X_train_sel, y_train, X_test_sel,
+            nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
+        )
 
     # V8 signal: long-only
     sig_v8 = _pred_to_signal(y_pred_v8, target_mode=TARGET_MODE,
@@ -1015,6 +1184,12 @@ def main() -> None:
                         help="Bars to stay flat after DD breach (default: 48)")
     parser.add_argument("--cost-model", choices=["flat", "realistic"], default="flat",
                         help="Cost model: flat (6bps) or realistic (sqrt-impact + spread)")
+    parser.add_argument("--nn-ensemble", action="store_true",
+                        help="Add LSTM + Transformer to ensemble (IC-weighted)")
+    parser.add_argument("--nn-seq-len", type=int, default=NN_SEQ_LEN,
+                        help=f"NN sliding window length (default: {NN_SEQ_LEN})")
+    parser.add_argument("--nn-epochs", type=int, default=NN_EPOCHS,
+                        help=f"NN max training epochs (default: {NN_EPOCHS})")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -1051,6 +1226,9 @@ def main() -> None:
     dd_limit = args.dd_limit
     dd_cooldown = args.dd_cooldown
     cost_model_type = args.cost_model
+    nn_ensemble = args.nn_ensemble
+    nn_seq_len = args.nn_seq_len
+    nn_epochs = args.nn_epochs
 
     print(f"\n  Walk-Forward Validation: {symbol}")
     if strategy_f:
@@ -1061,6 +1239,8 @@ def main() -> None:
           f"{', continuous_sizing' if continuous_sizing else ''}")
     if ensemble:
         print(f"  Ensemble: LGBM + XGB (averaged)")
+    if nn_ensemble:
+        print(f"  NN Ensemble: LSTM + Transformer (IC-weighted, seq_len={nn_seq_len}, epochs={nn_epochs})")
     if target_mode != TARGET_MODE:
         print(f"  Target mode: {target_mode}")
     if trend_follow:
@@ -1148,6 +1328,7 @@ def main() -> None:
                 vol_target=vol_target, vol_feature=vol_feature_name,
                 dd_limit=dd_limit, dd_cooldown=dd_cooldown,
                 cost_model_type=cost_model_type, volumes=volumes_all,
+                nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
             )
         else:
             result = run_fold(fold, feat_df, closes, all_feature_names,
@@ -1167,7 +1348,9 @@ def main() -> None:
                               monthly_gate_window=monthly_gate_window,
                               vol_target=vol_target, vol_feature=vol_feature_name,
                               dd_limit=dd_limit, dd_cooldown=dd_cooldown,
-                              cost_model_type=cost_model_type, volumes=volumes_all)
+                              cost_model_type=cost_model_type, volumes=volumes_all,
+                              nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len,
+                              nn_epochs=nn_epochs)
         result.period = period
         fold_results.append(result)
 
@@ -1208,6 +1391,9 @@ def main() -> None:
         "vol_target": vol_target,
         "dd_limit": dd_limit,
         "dd_cooldown": dd_cooldown,
+        "nn_ensemble": nn_ensemble,
+        "nn_seq_len": nn_seq_len,
+        "nn_epochs": nn_epochs,
         "folds": [
             {
                 "idx": r.idx,
@@ -1225,6 +1411,8 @@ def main() -> None:
     }
 
     suffix = "_strategy_f" if strategy_f else ""
+    if nn_ensemble:
+        suffix += "_nn"
     out_path = out_dir / f"wf_{symbol}{suffix}.json"
     with open(out_path, "w") as f:
         json.dump(results_dict, f, indent=2, default=str)
