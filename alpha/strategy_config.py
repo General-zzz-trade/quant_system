@@ -31,6 +31,7 @@ SYMBOL_CONFIG = {
         candidate_pool=[
             "funding_zscore_24", "basis_momentum", "vol_ma_ratio_5_20",
             "mean_reversion_20", "funding_sign_persist", "hour_sin",
+            "liquidation_cascade_score",
         ],
         n_flexible=4,
         deadzone=0.5,

@@ -105,8 +105,17 @@
 - [x] Deribit IV download script + DeribitIVPoller (5min polling)
 - [x] ENRICHED_FEATURE_NAMES: 79 → 85
 
+### E.4 IC Analysis + Candidate Pool Update (completed)
+- [x] ic_analysis_v9.py: Spearman IC vs 5-bar forward return
+- [x] liquidation_cascade_score: IC=0.031, PASS → added to BTC candidate_pool
+- [x] funding_term_slope: IC=0.009, FAIL (below 0.02 threshold)
+- [x] cross_tf_regime_sync: SKIP (external feature, no multi-TF data in 1h CSV)
+- [x] implied_vol_zscore_24, iv_rv_spread, put_call_ratio: SKIP (no Deribit IV data yet)
+- [x] BTC Strategy F WF regression: 15/21 PASS, Avg Sharpe=1.82, Return=+63.83% (no degradation)
+- [x] Removed 4 duplicate test files (tests_unit/ collisions with tests/unit/)
+
 ## Verification
-- 2165 tests passing, 0 regressions
+- 2226 tests passing, 0 regressions
 - Coverage baseline: 59%, fail_under=57
 - All new functions unit-tested
 
