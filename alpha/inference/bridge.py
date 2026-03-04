@@ -76,6 +76,13 @@ class LiveInferenceBridge:
         # Per-symbol close history for monthly gate
         self._close_history: Dict[str, deque] = {}
 
+    def update_models(self, models: Sequence[AlphaModel]) -> None:
+        self._engine.set_models(models)
+        self._position.clear()
+        self._hold_counter.clear()
+        self._close_history.clear()
+        logger.info("Models hot-swapped: %d model(s)", len(models))
+
     @staticmethod
     def _resolve(param, symbol: str, default=None):
         """Resolve a scalar-or-dict parameter to a per-symbol value."""

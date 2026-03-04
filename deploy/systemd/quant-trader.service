@@ -1,0 +1,20 @@
+[Unit]
+Description=Quant Trading System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quant
+WorkingDirectory=/opt/quant_system
+ExecStart=/usr/bin/python3 -m runner.live_runner --config /opt/quant_system/infra/config/examples/live.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+EnvironmentFile=/opt/quant_system/.env
+StandardOutput=append:/var/log/quant-trader/trader.log
+StandardError=append:/var/log/quant-trader/trader.log
+
+[Install]
+WantedBy=multi-user.target

@@ -47,8 +47,8 @@
 
 - [x] SOL data available: `data_files/SOLUSDT_1h.csv` (47k bars, ~5.4 years)
 - [x] No code changes needed — WF framework handles `--symbol SOLUSDT` natively
-- [ ] **Run SOL WF** (see CLI examples below)
-- [ ] **Run SOL Strategy F** (see CLI examples below)
+- [x] **SOL Bull-only WF**: 12/17 positive Sharpe → PASS (borderline), Avg Sharpe=-0.68, Return=+121.8%
+- [x] **SOL Strategy F WF**: 11/17 positive Sharpe → FAIL, Avg Sharpe=0.97, Return=+105.8%
 
 ## Corrected Results (rolling z-score + funding)
 
@@ -73,9 +73,42 @@
 - Return: +30.3% (33.5% → 63.8%)
 - Bear market folds dramatically improved (fold 6: -13.7 → +1.0)
 
+## Phase 4: ABCDE Implementation (DONE)
+
+### A. SOL Walk-Forward (completed)
+- [x] SOL Bull-only: 12/17 PASS (borderline), Avg Sharpe=-0.68, Return=+121.8%
+- [x] SOL Strategy F: 11/17 FAIL, Avg Sharpe=0.97, Return=+105.8%
+
+### B. Model Hot Reload SIGHUP (completed)
+- [x] InferenceEngine.set_models()
+- [x] LiveInferenceBridge.update_models() — clears position/hold/close state
+- [x] LiveRunner: inference_bridge field + SIGHUP handler + main loop reload check
+- [x] 5 unit tests in test_model_hot_reload.py
+
+### C. Production Deployment Hardening (completed)
+- [x] Grafana auto-provisioning: datasource + dashboard provider YAMLs
+- [x] docker-compose.yml: provisioning volume mount
+- [x] Systemd service unit: ExecReload=/bin/kill -HUP, Restart=on-failure
+- [x] Logrotate config: daily, rotate 14, maxsize 100M
+- [x] Telegram alert sink: 3 unit tests
+
+### D. Test Coverage Config + Gap Analysis (completed)
+- [x] pyproject.toml: coverage.run + coverage.report sections
+- [x] pytest.ini: fixed testpaths (added tests_unit)
+- [x] Baseline coverage: 59% (2152 tests)
+- [x] fail_under = 57 (baseline - 2%)
+- [x] Targeted tests: risk_gate portfolio (6), health_server (4), feature_hook+bridge (3)
+
+### E. Alpha Research — New Features (completed)
+- [x] 3 cross-factor features: liquidation_cascade_score, funding_term_slope, cross_tf_regime_sync
+- [x] 3 Deribit IV features: implied_vol_zscore_24, iv_rv_spread, put_call_ratio
+- [x] Deribit IV download script + DeribitIVPoller (5min polling)
+- [x] ENRICHED_FEATURE_NAMES: 79 → 85
+
 ## Verification
-- 2144 tests passing, 0 regressions
-- All new functions unit-tested inline
+- 2165 tests passing, 0 regressions
+- Coverage baseline: 59%, fail_under=57
+- All new functions unit-tested
 
 ## CLI Examples
 

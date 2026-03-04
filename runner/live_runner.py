@@ -153,11 +153,13 @@ class LiveRunner:
     order_state_machine: Optional[Any] = None
     timeout_tracker: Optional[Any] = None
     model_loader: Optional[Any] = None
+    inference_bridge: Optional[Any] = None
     portfolio_aggregator: Optional[Any] = None
     data_scheduler: Optional[Any] = None
     freshness_monitor: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
+    _reload_models_pending: bool = field(default=False, init=False)
     _user_stream_thread: Optional[Any] = field(default=None, init=False)
 
     @classmethod
@@ -299,8 +301,8 @@ class LiveRunner:
 
         # ── Feature computation + ML inference hook ──────────
         feat_hook = None
+        inference_bridge = None
         if feature_computer is not None:
-            inference_bridge = None
             if alpha_models:
                 from alpha.inference.bridge import LiveInferenceBridge
                 inference_bridge = LiveInferenceBridge(
@@ -931,6 +933,7 @@ class LiveRunner:
             order_state_machine=order_state_machine,
             timeout_tracker=timeout_tracker,
             model_loader=model_loader_inst,
+            inference_bridge=inference_bridge,
             portfolio_aggregator=portfolio_aggregator,
             data_scheduler=data_scheduler,
             freshness_monitor=freshness_monitor,
@@ -938,6 +941,7 @@ class LiveRunner:
         )
         # Patch late-binding reference so cleanup callback can stop the runner
         _runner_ref.append(runner)
+        runner._config = config
         return runner
 
     @classmethod
@@ -1046,8 +1050,16 @@ class LiveRunner:
         if self.freshness_monitor is not None:
             self.freshness_monitor.start()
 
-        # SIGHUP: reload production models (placeholder — not yet wired to main loop)
-        # TODO: wire _reload_models_pending field + main loop check when model hot-reload is needed
+        # SIGHUP: schedule model reload on next main loop iteration
+        if self.model_loader is not None:
+            import signal as _signal
+            def _sighup_handler(signum: int, frame: Any) -> None:
+                logger.info("SIGHUP received — scheduling model reload")
+                self._reload_models_pending = True
+            try:
+                _signal.signal(_signal.SIGHUP, _sighup_handler)
+            except (OSError, AttributeError):
+                pass
 
         self.runtime.start()
 
@@ -1087,6 +1099,17 @@ class LiveRunner:
                     timed_out = self.timeout_tracker.check_timeouts()
                     if timed_out:
                         logger.warning("Timed out orders: %s", timed_out)
+                if self._reload_models_pending:
+                    self._reload_models_pending = False
+                    if self.model_loader is not None:
+                        try:
+                            cfg = getattr(self, '_config', None)
+                            names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
+                            new_models = self.model_loader.reload_if_changed(names)
+                            if new_models is not None and self.inference_bridge is not None:
+                                self.inference_bridge.update_models(new_models)
+                        except Exception:
+                            logger.exception("Model hot-reload failed")
         except KeyboardInterrupt:
             pass
         finally:

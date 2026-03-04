@@ -28,6 +28,9 @@ class InferenceEngine:
     def add_model(self, model: AlphaModel) -> None:
         self._models.append(model)
 
+    def set_models(self, models: Sequence[AlphaModel]) -> None:
+        self._models = list(models)
+
     def run(
         self,
         symbol: str,

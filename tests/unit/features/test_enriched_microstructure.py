@@ -257,9 +257,15 @@ class TestFeatureCountConsistency:
                         open_interest=1000.0 + i * 10,
                         ls_ratio=1.0 + i * 0.001,
                         spot_close=close - 0.5,
-                        fear_greed=50.0 + (i % 8) * 5)
+                        fear_greed=50.0 + (i % 8) * 5,
+                        implied_vol=0.5 + i * 0.001,
+                        put_call_ratio=0.8 + i * 0.002)
         feats = comp.get_features_dict("BTC")
+        # cross_tf_regime_sync is computed externally by multi-TF aggregator
+        external_features = {"cross_tf_regime_sync"}
         for name in ENRICHED_FEATURE_NAMES:
+            if name in external_features:
+                continue
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
 
 

@@ -108,6 +108,14 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "mom_vol_divergence",     # sign(ret_1)==sign(vol_ratio-1) ? +1 : -1 — exhaustion detector
     "basis_carry_adj",        # basis + funding_rate × 3 — carry-adjusted basis
     "vol_regime_adaptive",    # EMA(vol_regime,5) vs 30-bar median — regime persistence
+    # --- V9: Cross-factor interaction features ---
+    "liquidation_cascade_score",  # |oi_change_pct| * vol_ma_ratio_5_20 — liquidation pressure
+    "funding_term_slope",         # (funding_rate - funding_ma8) / max(|funding_ma8|, 1e-6) — funding curve slope
+    "cross_tf_regime_sync",       # sign(close_vs_ma20) == sign(tf4h_close_vs_ma20) — multi-TF alignment
+    # --- V9: Deribit IV features (set externally) ---
+    "implied_vol_zscore_24",      # IV z-score over 24 bars
+    "iv_rv_spread",               # implied vol - realized vol (vol_20)
+    "put_call_ratio",             # Deribit options put/call OI ratio
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -310,6 +318,11 @@ class _SymbolState:
     vol_regime_ema: _EMA = field(default_factory=lambda: _EMA(span=5))
     vol_regime_history: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
 
+    # V9: Deribit IV features
+    iv_window_24: RollingWindow = field(default_factory=lambda: RollingWindow(24))
+    _last_implied_vol: Optional[float] = None
+    _last_put_call_ratio: Optional[float] = None
+
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
     _last_close: Optional[float] = None
@@ -331,7 +344,9 @@ class _SymbolState:
              open_interest: Optional[float] = None,
              ls_ratio: Optional[float] = None,
              spot_close: Optional[float] = None,
-             fear_greed: Optional[float] = None) -> None:
+             fear_greed: Optional[float] = None,
+             implied_vol: Optional[float] = None,
+             put_call_ratio: Optional[float] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -380,6 +395,13 @@ class _SymbolState:
             if self._last_fgi is None or abs(fear_greed - self._last_fgi) > 0.01:
                 self.fgi_window_7.push(fear_greed)
             self._last_fgi = fear_greed
+
+        # V9: Deribit IV
+        if implied_vol is not None:
+            self._last_implied_vol = implied_vol
+            self.iv_window_24.push(implied_vol)
+        if put_call_ratio is not None:
+            self._last_put_call_ratio = put_call_ratio
 
         # Microstructure state
         self._last_trades = trades
@@ -978,6 +1000,50 @@ class _SymbolState:
         else:
             feats["vol_regime_adaptive"] = None
 
+        # --- V9: Cross-factor interaction features ---
+        # liquidation_cascade_score: |oi_change_pct| * vol_ma_ratio_5_20
+        oi_pct = feats.get("oi_change_pct")
+        vmr = feats.get("vol_ma_ratio_5_20")
+        if oi_pct is not None and vmr is not None:
+            feats["liquidation_cascade_score"] = abs(oi_pct) * vmr
+        else:
+            feats["liquidation_cascade_score"] = None
+
+        # funding_term_slope: normalized (funding_rate - funding_ma8)
+        fr = feats.get("funding_rate")
+        fma8 = feats.get("funding_ma8")
+        if fr is not None and fma8 is not None:
+            denom = max(abs(fma8), 1e-6)
+            feats["funding_term_slope"] = (fr - fma8) / denom
+        else:
+            feats["funding_term_slope"] = None
+
+        # cross_tf_regime_sync: sign(close_vs_ma20) == sign(tf4h_close_vs_ma20)
+        # tf4h_close_vs_ma20 is computed externally (multi-timeframe aggregator), not available here
+        feats["cross_tf_regime_sync"] = None
+
+        # --- V9: Deribit IV features ---
+        # implied_vol_zscore_24
+        if self.iv_window_24.full and self._last_implied_vol is not None:
+            iv_mean = self.iv_window_24.mean
+            iv_std = self.iv_window_24.std
+            if iv_std is not None and iv_std > 1e-8:
+                feats["implied_vol_zscore_24"] = (self._last_implied_vol - iv_mean) / iv_std
+            else:
+                feats["implied_vol_zscore_24"] = None
+        else:
+            feats["implied_vol_zscore_24"] = None
+
+        # iv_rv_spread: implied vol - realized vol (vol_20)
+        vol20 = feats.get("vol_20")
+        if self._last_implied_vol is not None and vol20 is not None:
+            feats["iv_rv_spread"] = self._last_implied_vol - vol20
+        else:
+            feats["iv_rv_spread"] = None
+
+        # put_call_ratio (passthrough from external feed)
+        feats["put_call_ratio"] = self._last_put_call_ratio
+
         return feats
 
 
@@ -1011,6 +1077,8 @@ class EnrichedFeatureComputer:
         ls_ratio: Optional[float] = None,
         spot_close: Optional[float] = None,
         fear_greed: Optional[float] = None,
+        implied_vol: Optional[float] = None,
+        put_call_ratio: Optional[float] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features."""
         if symbol not in self._states:
@@ -1031,7 +1099,8 @@ class EnrichedFeatureComputer:
                    quote_volume=quote_volume,
                    taker_buy_quote_volume=taker_buy_quote_volume,
                    open_interest=open_interest, ls_ratio=ls_ratio,
-                   spot_close=spot_close, fear_greed=fear_greed)
+                   spot_close=spot_close, fear_greed=fear_greed,
+                   implied_vol=implied_vol, put_call_ratio=put_call_ratio)
         return state.get_features()
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:

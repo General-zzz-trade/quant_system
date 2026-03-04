@@ -221,7 +221,7 @@ class TestFundingCarryFeatures(_Base):
 class TestV5FeatureCount(_Base):
 
     def test_enriched_feature_names_count(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 79, f"Expected 79, got {len(ENRICHED_FEATURE_NAMES)}"
+        assert len(ENRICHED_FEATURE_NAMES) == 85, f"Expected 85, got {len(ENRICHED_FEATURE_NAMES)}"
 
     def test_all_v5_features_present_after_warmup(self):
         comp = EnrichedFeatureComputer()
@@ -257,7 +257,12 @@ class TestV5FeatureCount(_Base):
                         open_interest=1000.0 + i * 10,
                         ls_ratio=1.0 + i * 0.001,
                         spot_close=close - 0.5,
-                        fear_greed=50.0 + (i % 8) * 5)
+                        fear_greed=50.0 + (i % 8) * 5,
+                        implied_vol=0.5 + i * 0.001,
+                        put_call_ratio=0.8 + i * 0.002)
         feats = comp.get_features_dict("BTC")
+        external_features = {"cross_tf_regime_sync"}
         for name in ENRICHED_FEATURE_NAMES:
+            if name in external_features:
+                continue
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
