@@ -9,7 +9,7 @@ after the embargo expires — matching realistic execution timing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, List, Optional, Tuple
@@ -86,6 +86,9 @@ class EmbargoExecutionAdapter:
             order.price = price
             return order
         # Wrap: copy all attrs, override price
-        ns = SimpleNamespace(**{k: getattr(order, k) for k in vars(order)})
+        if is_dataclass(order):
+            ns = SimpleNamespace(**{f.name: getattr(order, f.name) for f in fields(order)})
+        else:
+            ns = SimpleNamespace(**{k: getattr(order, k) for k in vars(order)})
         ns.price = price
         return ns

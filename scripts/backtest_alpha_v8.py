@@ -25,6 +25,13 @@ from features.enriched_computer import EnrichedFeatureComputer
 
 logger = logging.getLogger(__name__)
 
+# ── C++ acceleration ─────────────────────────────────────────────
+
+try:
+    from features.batch_backtest import _BT_CPP, run_backtest_fast, pred_to_signal_fast
+except ImportError:
+    _BT_CPP = False
+
 # ── Constants ────────────────────────────────────────────────────
 
 FEE_BPS = 4e-4          # 4 bps per trade (maker/taker average)
@@ -435,6 +442,7 @@ def run_backtest(
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
     dd_cooldown: int = 48,
+    cost_model_type: str = "flat",
 ) -> Dict[str, Any]:
     """Run realistic backtest on historical data.
 
@@ -517,7 +525,8 @@ def run_backtest(
 
     # Compute features
     print("  Computing features...")
-    feat_df = compute_oos_features(symbol, oos_df)
+    from features.batch_feature_engine import compute_features_batch
+    feat_df = compute_features_batch(symbol, oos_df)
 
     # Prepare X matrix
     for fname in feature_names:
@@ -527,11 +536,18 @@ def run_backtest(
     closes = feat_df["close"].values.astype(np.float64)
     X = feat_df[feature_names].values.astype(np.float64)
 
+    # Extract volumes for realistic cost model
+    vol_col = "volume" if "volume" in oos_df.columns else None
+    volumes_raw = oos_df[vol_col].values.astype(np.float64) if vol_col else np.ones(len(oos_df))
+    vol_20_raw = feat_df["vol_20"].values.astype(np.float64) if "vol_20" in feat_df.columns else np.full(len(feat_df), np.nan)
+
     # Warmup: skip first 65 bars where features are not fully computed
     warmup = 65
     X = X[warmup:]
     closes = closes[warmup:]
     timestamps = timestamps[warmup:]
+    volumes_arr = volumes_raw[warmup:]
+    vol_20_arr = vol_20_raw[warmup:]
     n = len(X)
 
     # Predict (ensemble: weighted average of all models)
@@ -622,10 +638,28 @@ def run_backtest(
     ret_1bar = np.diff(closes) / closes[:-1]
     signal_for_trade = signal[:len(ret_1bar)]
 
-    # Turnover cost
-    turnover = np.abs(np.diff(signal_for_trade, prepend=0))
     gross_pnl = signal_for_trade * ret_1bar
-    cost = turnover * COST_PER_TRADE
+
+    # Cost computation
+    if cost_model_type == "realistic":
+        from execution.sim.cost_model import RealisticCostModel
+        cm = RealisticCostModel()
+        breakdown = cm.compute_costs(
+            signal_for_trade,
+            closes[:len(signal_for_trade)],
+            volumes_arr[:len(signal_for_trade)],
+            vol_20_arr[:len(signal_for_trade)],
+            capital=INITIAL_CAPITAL,
+        )
+        cost = breakdown.total_cost
+        signal_for_trade = breakdown.clipped_signal
+        gross_pnl = signal_for_trade * ret_1bar  # Recompute with clipped signal
+        print(f"  Cost model: realistic (fee={np.sum(breakdown.fee_cost)*100:.4f}%, "
+              f"impact={np.sum(breakdown.impact_cost)*100:.4f}%, "
+              f"spread={np.sum(breakdown.spread_cost)*100:.4f}%)")
+    else:
+        turnover = np.abs(np.diff(signal_for_trade, prepend=0))
+        cost = turnover * COST_PER_TRADE
 
     # Funding rate cost: long pays positive funding, short receives positive funding
     # Funding settles every 8h; distribute across the 8 bars in that window
@@ -692,6 +726,7 @@ def run_backtest(
     profit_factor = gross_wins / gross_losses if gross_losses > 0 else float("inf")
 
     # Total turnover and cost
+    turnover = np.abs(np.diff(signal_for_trade, prepend=0))
     total_turnover = float(np.sum(turnover))
     total_cost = float(np.sum(cost))
 
@@ -896,6 +931,8 @@ def main() -> None:
                         help="Max drawdown circuit breaker (e.g. -0.15). Negative value.")
     parser.add_argument("--dd-cooldown", type=int, default=48,
                         help="Bars to stay flat after DD breach (default: 48)")
+    parser.add_argument("--cost-model", choices=["flat", "realistic"], default="flat",
+                        help="Cost model: flat (6bps) or realistic (sqrt-impact + spread)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -943,7 +980,8 @@ def main() -> None:
                  vol_target=args.vol_target,
                  vol_feature=args.vol_feature,
                  dd_limit=args.dd_limit,
-                 dd_cooldown=args.dd_cooldown)
+                 dd_cooldown=args.dd_cooldown,
+                 cost_model_type=args.cost_model)
 
 
 if __name__ == "__main__":

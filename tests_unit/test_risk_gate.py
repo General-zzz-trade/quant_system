@@ -81,17 +81,17 @@ class TestRiskGate:
         assert not r.allowed
         assert "portfolio_notional" in r.reason
 
-    def test_no_price_allows(self):
+    def test_no_price_rejects(self):
         gate = RiskGate(config=RiskGateConfig(max_order_notional=1.0))
         cmd = SimpleNamespace(symbol="BTC", qty=999.0)  # no price attr
         r = gate.check(cmd)
-        assert r.allowed
+        assert not r.allowed  # fail-closed: missing price → reject
 
-    def test_no_qty_allows(self):
+    def test_no_qty_rejects(self):
         gate = RiskGate(config=RiskGateConfig(max_order_notional=1.0))
         cmd = SimpleNamespace(symbol="BTC", price=999.0)  # no qty attr
         r = gate.check(cmd)
-        assert r.allowed
+        assert not r.allowed  # fail-closed: missing qty → reject
 
     def test_qty_attribute_variants(self):
         gate = RiskGate(config=RiskGateConfig(max_order_notional=100.0))

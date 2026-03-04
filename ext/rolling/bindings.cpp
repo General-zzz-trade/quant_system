@@ -15,6 +15,10 @@
 #include "monte_carlo.hpp"
 #include "target.hpp"
 #include "greedy_select.hpp"
+#include "feature_engine.hpp"
+#include "backtest_engine.hpp"
+#include "feature_selector.hpp"
+#include "multi_timeframe.hpp"
 
 namespace py = pybind11;
 
@@ -172,4 +176,113 @@ PYBIND11_MODULE(_quant_rolling, m) {
               return cpp_greedy_ic_select(xptr, yptr, n_samples, n_features, top_k);
           },
           py::arg("X"), py::arg("y"), py::arg("top_k") = 20);
+
+    // Batch feature engine
+    m.def("cpp_compute_all_features", &cpp_compute_all_features,
+          py::arg("timestamps"), py::arg("opens"), py::arg("highs"),
+          py::arg("lows"), py::arg("closes"), py::arg("volumes"),
+          py::arg("trades"), py::arg("tbv"), py::arg("qv"), py::arg("tbqv"),
+          py::arg("funding_sched"), py::arg("oi_sched"), py::arg("ls_sched"),
+          py::arg("spot_sched"), py::arg("fgi_sched"), py::arg("iv_sched"),
+          py::arg("pcr_sched"), py::arg("onchain_sched"));
+    m.def("cpp_feature_names", &cpp_feature_names);
+
+    // Backtest engine
+    m.def("cpp_run_backtest", &backtest::cpp_run_backtest,
+          py::arg("timestamps"), py::arg("closes"), py::arg("volumes"),
+          py::arg("vol_20"), py::arg("y_pred"), py::arg("bear_probs"),
+          py::arg("vol_values"), py::arg("funding_rates"),
+          py::arg("funding_ts"), py::arg("config_json"));
+    m.def("cpp_pred_to_signal", &backtest::cpp_pred_to_signal,
+          py::arg("y_pred"), py::arg("deadzone") = 0.5,
+          py::arg("min_hold") = 24, py::arg("zscore_window") = 720,
+          py::arg("zscore_warmup") = 168);
+
+    // Feature selector (IC-based)
+    m.def("cpp_rolling_ic_select",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int top_k, int ic_window) -> std::vector<int> {
+              auto xb = X.request(); auto yb = y.request();
+              if (xb.ndim != 2 || yb.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              return feat_sel::cpp_rolling_ic_select(
+                  static_cast<const double*>(xb.ptr), static_cast<const double*>(yb.ptr),
+                  static_cast<int>(xb.shape[0]), static_cast<int>(xb.shape[1]),
+                  top_k, ic_window);
+          },
+          py::arg("X"), py::arg("y"), py::arg("top_k") = 20, py::arg("ic_window") = 500);
+
+    m.def("cpp_spearman_ic_select",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int top_k, int ic_window) -> std::vector<int> {
+              auto xb = X.request(); auto yb = y.request();
+              if (xb.ndim != 2 || yb.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              return feat_sel::cpp_spearman_ic_select(
+                  static_cast<const double*>(xb.ptr), static_cast<const double*>(yb.ptr),
+                  static_cast<int>(xb.shape[0]), static_cast<int>(xb.shape[1]),
+                  top_k, ic_window);
+          },
+          py::arg("X"), py::arg("y"), py::arg("top_k") = 20, py::arg("ic_window") = 500);
+
+    m.def("cpp_icir_select",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int top_k, int ic_window, int n_windows,
+             double min_icir, int max_consec_neg) -> std::vector<int> {
+              auto xb = X.request(); auto yb = y.request();
+              if (xb.ndim != 2 || yb.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              return feat_sel::cpp_icir_select(
+                  static_cast<const double*>(xb.ptr), static_cast<const double*>(yb.ptr),
+                  static_cast<int>(xb.shape[0]), static_cast<int>(xb.shape[1]),
+                  top_k, ic_window, n_windows, min_icir, max_consec_neg);
+          },
+          py::arg("X"), py::arg("y"), py::arg("top_k") = 20,
+          py::arg("ic_window") = 200, py::arg("n_windows") = 5,
+          py::arg("min_icir") = 0.3, py::arg("max_consec_neg") = 3);
+
+    m.def("cpp_stable_icir_select",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int top_k, int ic_window, int n_windows,
+             double min_icir, int min_stable_folds,
+             double sign_consistency) -> std::vector<int> {
+              auto xb = X.request(); auto yb = y.request();
+              if (xb.ndim != 2 || yb.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              return feat_sel::cpp_stable_icir_select(
+                  static_cast<const double*>(xb.ptr), static_cast<const double*>(yb.ptr),
+                  static_cast<int>(xb.shape[0]), static_cast<int>(xb.shape[1]),
+                  top_k, ic_window, n_windows, min_icir, min_stable_folds, sign_consistency);
+          },
+          py::arg("X"), py::arg("y"), py::arg("top_k") = 20,
+          py::arg("ic_window") = 200, py::arg("n_windows") = 5,
+          py::arg("min_icir") = 0.3, py::arg("min_stable_folds") = 4,
+          py::arg("sign_consistency") = 0.8);
+
+    m.def("cpp_feature_icir_report",
+          [](py::array_t<double, py::array::c_style | py::array::forcecast> X,
+             py::array_t<double, py::array::c_style | py::array::forcecast> y,
+             int ic_window, int n_windows) -> py::array_t<double> {
+              auto xb = X.request(); auto yb = y.request();
+              if (xb.ndim != 2 || yb.ndim != 1)
+                  throw std::runtime_error("X must be 2D, y must be 1D");
+              int p = static_cast<int>(xb.shape[1]);
+              auto flat = feat_sel::cpp_feature_icir_report(
+                  static_cast<const double*>(xb.ptr), static_cast<const double*>(yb.ptr),
+                  static_cast<int>(xb.shape[0]), p, ic_window, n_windows);
+              auto result = py::array_t<double>({p, 5});
+              std::memcpy(result.mutable_data(), flat.data(), flat.size() * sizeof(double));
+              return result;
+          },
+          py::arg("X"), py::arg("y"), py::arg("ic_window") = 200, py::arg("n_windows") = 5);
+
+    // Multi-timeframe 4h features
+    m.def("cpp_compute_4h_features", &mtf::cpp_compute_4h_features,
+          py::arg("ts"), py::arg("opens"), py::arg("highs"),
+          py::arg("lows"), py::arg("closes"), py::arg("volumes"));
+    m.def("cpp_4h_feature_names", &mtf::cpp_4h_feature_names);
 }

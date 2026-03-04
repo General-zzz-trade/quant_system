@@ -57,6 +57,7 @@ def _build_ml_stack(
 
     signal_kwargs: Dict[str, Any] = {}
     models: List[Any] = []
+    pos_mgmt: Dict[str, Any] = {}
 
     # ── V8+ format: config.json in model_dir ──────────────
     model_config_path = model_dir / "config.json"
@@ -175,12 +176,17 @@ def _build_ml_stack(
 
     fc = EnrichedFeatureComputer()
 
+    dd_limit = pos_mgmt.get("dd_limit", 0.0)
+    dd_cooldown = pos_mgmt.get("dd_cooldown", 48)
+
     dms = [
         MLDecisionModule(
             symbol=sym,
             threshold=threshold,
             threshold_short=threshold_short,
             risk_pct=risk_pct,
+            dd_limit=dd_limit,
+            dd_cooldown=dd_cooldown,
         )
         for sym in symbols
     ]
@@ -229,18 +235,26 @@ def _write_equity_csv(path: Path, fills: List[Dict[str, Any]], starting_balance:
 
 
 def _start_pollers(symbol: str, testnet: bool = True):
-    """Start all data pollers. Returns (funding, oi, fgi) pollers."""
+    """Start all data pollers. Returns (funding, oi, fgi, deribit_iv, onchain) pollers."""
     from execution.adapters.binance.funding_poller import BinanceFundingPoller
     from execution.adapters.binance.oi_poller import BinanceOIPoller
     from execution.adapters.fgi_poller import FGIPoller
+    from execution.adapters.deribit_iv_poller import DeribitIVPoller
+    from execution.adapters.onchain_poller import OnchainPoller
 
+    currency = symbol.replace("USDT", "")
+    asset = currency.lower()
     funding = BinanceFundingPoller(symbol=symbol, testnet=testnet)
     oi = BinanceOIPoller(symbol=symbol, testnet=testnet)
     fgi = FGIPoller()
+    deribit_iv = DeribitIVPoller(currency=currency)
+    onchain = OnchainPoller(asset=asset)
     funding.start()
     oi.start()
     fgi.start()
-    return funding, oi, fgi
+    deribit_iv.start()
+    onchain.start()
+    return funding, oi, fgi, deribit_iv, onchain
 
 
 def _stop_pollers(*pollers: Any) -> None:
@@ -271,7 +285,7 @@ def run_paper(config_path: Path, duration: int) -> None:
     )
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
-    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
 
     runner = LivePaperRunner.build(
         config,
@@ -281,6 +295,9 @@ def run_paper(config_path: Path, duration: int) -> None:
         funding_rate_source=funding.get_rate,
         oi_source=oi.get_oi,
         fgi_source=fgi.get_value,
+        implied_vol_source=lambda: deribit_iv.get_current()[0],
+        put_call_ratio_source=lambda: deribit_iv.get_current()[1],
+        onchain_source=onchain.get_current,
         **signal_kwargs,
     )
 
@@ -297,7 +314,7 @@ def run_paper(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "paper_equity.csv", runner.fills, 10000.0)
@@ -333,7 +350,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
 
     runner = LiveRunner.build(
         config,
@@ -345,6 +362,9 @@ def run_shadow(config_path: Path, duration: int) -> None:
         funding_rate_source=funding.get_rate,
         oi_source=oi.get_oi,
         fgi_source=fgi.get_value,
+        implied_vol_source=lambda: deribit_iv.get_current()[0],
+        put_call_ratio_source=lambda: deribit_iv.get_current()[1],
+        onchain_source=onchain.get_current,
     )
 
     def _timeout(*_: Any) -> None:
@@ -360,7 +380,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
 
     out = _output_dir(config_path)
     with (out / "shadow_events.json").open("w") as f:
@@ -415,7 +435,7 @@ def run_live(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
 
     runner = LiveRunner.build(
         config,
@@ -427,6 +447,9 @@ def run_live(config_path: Path, duration: int) -> None:
         funding_rate_source=funding.get_rate,
         oi_source=oi.get_oi,
         fgi_source=fgi.get_value,
+        implied_vol_source=lambda: deribit_iv.get_current()[0],
+        put_call_ratio_source=lambda: deribit_iv.get_current()[1],
+        onchain_source=onchain.get_current,
     )
 
     if runner.user_stream is not None:
@@ -448,7 +471,7 @@ def run_live(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "live_equity.csv", runner.fills, 10000.0)
@@ -545,7 +568,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
 
     ws_transport = ReconnectingWsTransport(
         inner=WebsocketClientTransport(),
@@ -564,6 +587,9 @@ def run_longrun(config_path: Path, duration: int) -> None:
         funding_rate_source=funding.get_rate,
         oi_source=oi.get_oi,
         fgi_source=fgi.get_value,
+        implied_vol_source=lambda: deribit_iv.get_current()[0],
+        put_call_ratio_source=lambda: deribit_iv.get_current()[1],
+        onchain_source=onchain.get_current,
     )
 
     status_stop = threading.Event()
@@ -576,7 +602,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
         runner.stop()
     finally:
         status_stop.set()
-        _stop_pollers(funding, oi, fgi)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
 
     _write_equity_csv(output_dir / "longrun_equity.csv", runner.fills, 10000.0)
     logger.info(

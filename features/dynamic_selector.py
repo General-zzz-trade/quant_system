@@ -15,6 +15,18 @@ try:
 except ImportError:
     _GREEDY_CPP = False
 
+try:
+    from features._quant_rolling import (
+        cpp_rolling_ic_select as _cpp_rolling_ic,
+        cpp_spearman_ic_select as _cpp_spearman_ic,
+        cpp_icir_select as _cpp_icir,
+        cpp_stable_icir_select as _cpp_stable_icir,
+        cpp_feature_icir_report as _cpp_icir_report,
+    )
+    _SELECTOR_CPP = True
+except ImportError:
+    _SELECTOR_CPP = False
+
 
 def rolling_ic_select(
     X: np.ndarray,
@@ -38,6 +50,12 @@ def rolling_ic_select(
     n_samples, n_features = X.shape
     if n_samples < 50:
         return list(feature_names[:top_k])
+
+    if _SELECTOR_CPP:
+        X_c = np.ascontiguousarray(X, dtype=np.float64)
+        y_c = np.ascontiguousarray(y, dtype=np.float64)
+        indices = _cpp_rolling_ic(X_c, y_c, top_k=top_k, ic_window=ic_window)
+        return [feature_names[i] for i in indices]
 
     # Use the most recent `ic_window` bars
     start = max(0, n_samples - ic_window)
@@ -195,6 +213,25 @@ def icir_select(
     if n_samples < total_needed or n_samples < 50:
         return list(feature_names[:top_k])
 
+    if _SELECTOR_CPP:
+        X_c = np.ascontiguousarray(X, dtype=np.float64)
+        y_c = np.ascontiguousarray(y, dtype=np.float64)
+        indices = _cpp_icir(X_c, y_c, top_k=top_k, ic_window=ic_window,
+                            n_windows=n_windows, min_icir=min_icir,
+                            max_consec_neg=max_consecutive_negative)
+        selected = [feature_names[i] for i in indices]
+        # Fallback fill if too few pass
+        if len(selected) < top_k:
+            already = set(selected)
+            fallback = spearman_ic_select(X, y, feature_names, top_k=top_k)
+            for name in fallback:
+                if name not in already:
+                    selected.append(name)
+                    already.add(name)
+                if len(selected) >= top_k:
+                    break
+        return selected
+
     # Cut n_windows non-overlapping windows from end
     start_offset = n_samples - total_needed
     windows = []
@@ -283,6 +320,21 @@ def compute_feature_icir_report(
     if n_samples < total_needed:
         return {}
 
+    if _SELECTOR_CPP:
+        X_c = np.ascontiguousarray(X, dtype=np.float64)
+        y_c = np.ascontiguousarray(y, dtype=np.float64)
+        arr = _cpp_icir_report(X_c, y_c, ic_window=ic_window, n_windows=n_windows)
+        report: Dict[str, Dict[str, float]] = {}
+        for j in range(n_features):
+            report[feature_names[j]] = {
+                "mean_ic": float(arr[j, 0]),
+                "std_ic": float(arr[j, 1]),
+                "icir": float(arr[j, 2]),
+                "max_consec_neg": float(arr[j, 3]),
+                "pct_positive": float(arr[j, 4]),
+            }
+        return report
+
     start_offset = n_samples - total_needed
     windows = []
     for w in range(n_windows):
@@ -359,6 +411,17 @@ def stable_icir_select(
     total_needed = ic_window * n_windows
     if n_samples < total_needed or n_samples < 50:
         return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    if _SELECTOR_CPP:
+        X_c = np.ascontiguousarray(X, dtype=np.float64)
+        y_c = np.ascontiguousarray(y, dtype=np.float64)
+        indices = _cpp_stable_icir(X_c, y_c, top_k=top_k, ic_window=ic_window,
+                                    n_windows=n_windows, min_icir=min_icir,
+                                    min_stable_folds=min_stable_folds,
+                                    sign_consistency=sign_consistency_threshold)
+        if len(indices) == 0:
+            return greedy_ic_select(X, y, feature_names, top_k=top_k)
+        return [feature_names[i] for i in indices]
 
     start_offset = n_samples - total_needed
     windows = []
@@ -456,6 +519,12 @@ def spearman_ic_select(
     n_samples, n_features = X.shape
     if n_samples < 50:
         return list(feature_names[:top_k])
+
+    if _SELECTOR_CPP:
+        X_c = np.ascontiguousarray(X, dtype=np.float64)
+        y_c = np.ascontiguousarray(y, dtype=np.float64)
+        indices = _cpp_spearman_ic(X_c, y_c, top_k=top_k, ic_window=ic_window)
+        return [feature_names[i] for i in indices]
 
     start = max(0, n_samples - ic_window)
     X_recent = X[start:]

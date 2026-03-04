@@ -46,7 +46,7 @@ class TestBackwardCompat:
         assert mod.threshold_short == 0.005  # mirrors threshold
 
         # Long signal
-        orders = list(mod.decide(_snap(50000, 0.01)))
+        orders = list(mod.decide(_snap(50000, 0.8)))
         assert len(orders) == 1
         assert orders[0].side == "BUY"
         assert orders[0].reason == "open_long"
@@ -72,7 +72,7 @@ class TestAsymmetricThreshold:
         mod = MLDecisionModule(
             symbol="BTCUSDT", threshold=0.005, threshold_short=0.01,
         )
-        orders = list(mod.decide(_snap(50000, -0.015)))
+        orders = list(mod.decide(_snap(50000, -0.8)))
         assert len(orders) == 1
         assert orders[0].side == "SELL"
         assert orders[0].reason == "open_short"
@@ -86,13 +86,13 @@ class TestHardStopLoss:
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long
-        orders = list(mod.decide(_snap(50000, 0.01, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(50000, 0.8, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "open_long"
 
         # Price drops beyond 2 * 0.02 * 50000 = 2000 from entry
         # entry=50000, stop at 48000, close=47900 triggers
-        orders = list(mod.decide(_snap(47900, 0.01, qty=0.06, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(47900, 0.8, qty=0.06, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "stop_loss"
         assert orders[0].side == "SELL"
@@ -102,12 +102,12 @@ class TestHardStopLoss:
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open short
-        orders = list(mod.decide(_snap(50000, -0.01, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(50000, -0.8, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "open_short"
 
         # Price rises beyond 2 * 0.02 * 50000 = 2000 from entry
-        orders = list(mod.decide(_snap(52100, -0.01, qty=-0.06, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(52100, -0.8, qty=-0.06, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "stop_loss"
         assert orders[0].side == "BUY"
@@ -118,21 +118,22 @@ class TestTrailingStop:
 
     def test_trailing_stop_long(self):
         mod = MLDecisionModule(
-            symbol="BTCUSDT", threshold=0.005, trailing_atr=3.0,
+            symbol="BTCUSDT", threshold=0.005, risk_pct=0.30, trailing_atr=3.0,
         )
-        # Open long at 50000
-        orders = list(mod.decide(_snap(50000, 0.01, atr_norm=0.02)))
+        # Open long at 50000 with ml_score=1.0 → qty=0.060
+        orders = list(mod.decide(_snap(50000, 1.0, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "open_long"
+        open_qty = float(orders[0].qty)
 
-        # Price rises to 55000 — update peak
-        orders = list(mod.decide(_snap(55000, 0.01, qty=0.06, atr_norm=0.02)))
-        assert len(orders) == 0  # same side, no change
+        # Price rises to 55000 — use matching target qty to avoid rebalance
+        # target = 10000*0.30*1.0/55000 = 0.054
+        orders = list(mod.decide(_snap(55000, 1.0, qty=0.054, atr_norm=0.02)))
         assert mod._peak_price == 55000
 
         # Price drops from 55000: trail_dist = 0.02 * 51700 * 3.0 = 3102
         # At 51700 the trail from peak 55000 is 3300 > 3102 → triggers
-        orders = list(mod.decide(_snap(51700, 0.01, qty=0.06, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(51700, 1.0, qty=0.054, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "trailing_stop"
 
@@ -145,19 +146,19 @@ class TestMinHoldBars:
             symbol="BTCUSDT", threshold=0.005, min_hold_bars=3,
         )
         # Open long
-        orders = list(mod.decide(_snap(50000, 0.01)))
+        orders = list(mod.decide(_snap(50000, 0.8)))
         assert len(orders) == 1
 
         # Bar 1: short signal but held only 1 bar — suppressed
-        orders = list(mod.decide(_snap(49000, -0.01, qty=0.06)))
+        orders = list(mod.decide(_snap(49000, -0.8, qty=0.06)))
         assert len(orders) == 0
 
         # Bar 2: still suppressed
-        orders = list(mod.decide(_snap(48000, -0.01, qty=0.06)))
+        orders = list(mod.decide(_snap(48000, -0.8, qty=0.06)))
         assert len(orders) == 0
 
         # Bar 3: now allowed (bars_held=3 >= min_hold_bars=3)
-        orders = list(mod.decide(_snap(47000, -0.01, qty=0.06)))
+        orders = list(mod.decide(_snap(47000, -0.8, qty=0.06)))
         assert len(orders) > 0
 
 
@@ -175,10 +176,10 @@ class TestVolTargetSizing:
             atr_stop=2.0, vol_target=0.15,
         )
 
-        # Low vol: atr_norm=0.01 → qty = 10000*0.30 / (0.01*2.0) / 50000 = 3.0
-        orders_low = list(mod_low_vol.decide(_snap(50000, 0.01, atr_norm=0.01)))
-        # High vol: atr_norm=0.04 → qty = 10000*0.30 / (0.04*2.0) / 50000 = 0.75
-        orders_high = list(mod_high_vol.decide(_snap(50000, 0.01, atr_norm=0.04)))
+        # Low vol: atr_norm=0.01 → base = 10000*0.30 / (0.01*2.0) / 50000 = 3.0, * weight=1.0 = 3.0
+        orders_low = list(mod_low_vol.decide(_snap(50000, 1.0, atr_norm=0.01)))
+        # High vol: atr_norm=0.04 → base = 10000*0.30 / (0.04*2.0) / 50000 = 0.75, * weight=1.0 = 0.75
+        orders_high = list(mod_high_vol.decide(_snap(50000, 1.0, atr_norm=0.04)))
 
         assert len(orders_low) == 1
         assert len(orders_high) == 1
@@ -199,11 +200,11 @@ class TestStopPriority:
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long
-        list(mod.decide(_snap(50000, 0.01, atr_norm=0.02)))
+        list(mod.decide(_snap(50000, 0.8, atr_norm=0.02)))
 
         # Price crashes but ml_score still says long
         # stop_dist = 0.02 * 50000 * 2.0 = 2000, stop at 48000
-        orders = list(mod.decide(_snap(47500, 0.01, qty=0.06, atr_norm=0.02)))
+        orders = list(mod.decide(_snap(47500, 0.8, qty=0.06, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "stop_loss"
 
@@ -216,10 +217,11 @@ class TestATRMissingSafety:
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long (without ATR in features)
-        orders = list(mod.decide(_snap(50000, 0.01, atr_norm=None)))
+        orders = list(mod.decide(_snap(50000, 0.8, atr_norm=None)))
         assert len(orders) == 1
 
         # Price crashes but no ATR → stop should NOT fire
-        orders = list(mod.decide(_snap(40000, 0.01, qty=0.06, atr_norm=None)))
-        # No stop, same direction → no orders
-        assert len(orders) == 0
+        # May generate rebalance due to price change, but must NOT be stop_loss
+        orders = list(mod.decide(_snap(40000, 0.8, qty=0.06, atr_norm=None)))
+        for o in orders:
+            assert o.reason != "stop_loss"

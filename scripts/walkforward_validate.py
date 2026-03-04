@@ -37,6 +37,11 @@ from scripts.backtest_alpha_v8 import _pred_to_signal, _apply_monthly_gate, COST
 from features.dynamic_selector import greedy_ic_select
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 
+try:
+    from features.batch_backtest import _BT_CPP, run_backtest_fast, pred_to_signal_fast
+except ImportError:
+    _BT_CPP = False
+
 logger = logging.getLogger(__name__)
 
 # ── Regime detection ─────────────────────────────────────────
@@ -237,6 +242,8 @@ def run_fold(
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
     dd_cooldown: int = 48,
+    cost_model_type: str = "flat",
+    volumes: Optional[np.ndarray] = None,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -388,71 +395,141 @@ def run_fold(
             ic = float(_spearman_ic(_rankdata(y_pred_v), _rankdata(y_test_v)))
 
     # Trade simulation on test
-    signal = _pred_to_signal(y_pred, target_mode=target_mode,
-                             deadzone=deadzone, min_hold=min_hold)
+    # C++ fast path: when no complex Python-only modifiers are active
+    _use_cpp = (_BT_CPP and not continuous_sizing and not regime_gate
+                and not adaptive_sizing and not trend_follow)
 
-    # Continuous sizing: replace binary magnitude with z-score-based sizing
-    if continuous_sizing:
-        mu = np.mean(y_pred)
-        std = np.std(y_pred)
-        if std > 1e-12:
-            z = (y_pred - mu) / std
-            continuous = np.clip(z / 2.0, 0.0, 1.0)
-            signal = np.where(signal != 0, continuous, 0.0)
+    if _use_cpp:
+        cfg = {
+            "deadzone": deadzone, "min_hold": min_hold,
+            "zscore_window": 720, "cost_per_trade": COST_PER_TRADE,
+        }
+        if monthly_gate:
+            cfg["monthly_gate"] = True
+            cfg["ma_window"] = monthly_gate_window
+        if long_only:
+            cfg["long_only"] = True
+        if vol_target is not None and vol_feature in test_df.columns:
+            cfg["vol_adaptive"] = True
+            cfg["vol_target"] = vol_target
+        if dd_limit is not None:
+            cfg["dd_breaker"] = True
+            cfg["dd_limit"] = dd_limit
+            cfg["dd_cooldown"] = dd_cooldown
 
-    # Apply regime gating / long-only / adaptive sizing
-    if long_only or regime_gate or adaptive_sizing:
-        test_regimes = _compute_regime_labels(test_df) if (regime_gate or adaptive_sizing) else None
-        signal = _apply_signal_filters(
-            signal, test_regimes, long_only, regime_gate, adaptive_sizing)
+        test_ts = test_df.index.values.astype(np.int64) if hasattr(test_df.index, 'values') else np.arange(len(test_closes), dtype=np.int64) * 3600_000
 
-    # Trend-following hold extension
-    if trend_follow and trend_indicator in test_df.columns:
-        trend_vals = test_df[trend_indicator].values.astype(np.float64)
-        signal = _apply_trend_hold(signal, trend_vals, trend_threshold, max_hold)
+        vol_vals = (test_df[vol_feature].values.astype(np.float64)
+                    if vol_target is not None and vol_feature in test_df.columns
+                    else np.empty(0, dtype=np.float64))
 
-    # Monthly gate: zero signal when close <= SMA(window)
-    if monthly_gate:
-        signal = _apply_monthly_gate(signal, test_closes, monthly_gate_window)
+        # Funding
+        fr_arr = np.empty(0, dtype=np.float64)
+        fr_ts_arr = np.empty(0, dtype=np.int64)
+        if "funding_rate" in test_df.columns:
+            fr_vals = test_df["funding_rate"].values.astype(np.float64)
+            fr_vals = np.nan_to_num(fr_vals, 0.0)
+            fr_arr = fr_vals
+            fr_ts_arr = test_ts[:len(fr_vals)]
 
-    # Vol-adaptive sizing
-    if vol_target is not None and vol_feature in test_df.columns:
-        vol_vals = test_df[vol_feature].values.astype(np.float64)
-        for i in range(len(signal)):
-            if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
-                signal[i] *= min(vol_target / vol_vals[i], 1.0)
+        # Volumes for realistic cost
+        vo = np.empty(0, dtype=np.float64)
+        v20 = np.empty(0, dtype=np.float64)
+        if cost_model_type == "realistic" and volumes is not None:
+            cfg["realistic_cost"] = True
+            vo = volumes[fold.test_start:fold.test_end][:len(test_closes)].astype(np.float64)
+            v20 = (test_df["vol_20"].values[:len(test_closes)].astype(np.float64)
+                   if "vol_20" in test_df.columns
+                   else np.full(len(test_closes), np.nan))
 
-    # DD breaker
-    if dd_limit is not None:
-        from scripts.backtest_alpha_v8 import _apply_dd_breaker
-        signal = _apply_dd_breaker(signal, test_closes, dd_limit, dd_cooldown)
+        cpp_result = run_backtest_fast(
+            test_ts[:len(test_closes)], test_closes, y_pred,
+            volumes=vo if len(vo) > 0 else None,
+            vol_20=v20 if len(v20) > 0 else None,
+            vol_values=vol_vals if len(vol_vals) > 0 else None,
+            funding_rates=fr_arr if len(fr_arr) > 0 else None,
+            funding_ts=fr_ts_arr if len(fr_ts_arr) > 0 else None,
+            config=cfg,
+        )
+        sharpe = float(cpp_result["sharpe"])
+        total_return = float(cpp_result["total_return"])
+    else:
+        signal = _pred_to_signal(y_pred, target_mode=target_mode,
+                                 deadzone=deadzone, min_hold=min_hold)
 
-    ret_1bar = np.diff(test_closes) / test_closes[:-1]
-    signal_for_trade = signal[:len(ret_1bar)]
-    turnover = np.abs(np.diff(signal_for_trade, prepend=0))
-    gross_pnl = signal_for_trade * ret_1bar
-    cost = turnover * COST_PER_TRADE
+        # Continuous sizing: replace binary magnitude with z-score-based sizing
+        if continuous_sizing:
+            mu = np.mean(y_pred)
+            std = np.std(y_pred)
+            if std > 1e-12:
+                z = (y_pred - mu) / std
+                continuous = np.clip(z / 2.0, 0.0, 1.0)
+                signal = np.where(signal != 0, continuous, 0.0)
 
-    # Funding cost: long pays positive funding, short receives it
-    funding_cost = np.zeros(len(signal_for_trade))
-    if "funding_rate" in test_df.columns:
-        fr = test_df["funding_rate"].values[:len(signal_for_trade)].astype(np.float64)
-        fr = np.nan_to_num(fr, 0.0)
-        funding_cost = signal_for_trade * fr / 8.0
+        # Apply regime gating / long-only / adaptive sizing
+        if long_only or regime_gate or adaptive_sizing:
+            test_regimes = _compute_regime_labels(test_df) if (regime_gate or adaptive_sizing) else None
+            signal = _apply_signal_filters(
+                signal, test_regimes, long_only, regime_gate, adaptive_sizing)
 
-    net_pnl = gross_pnl - cost - funding_cost
+        # Trend-following hold extension
+        if trend_follow and trend_indicator in test_df.columns:
+            trend_vals = test_df[trend_indicator].values.astype(np.float64)
+            signal = _apply_trend_hold(signal, trend_vals, trend_threshold, max_hold)
 
-    active = signal_for_trade != 0
-    n_active = int(active.sum())
+        # Monthly gate: zero signal when close <= SMA(window)
+        if monthly_gate:
+            signal = _apply_monthly_gate(signal, test_closes, monthly_gate_window)
 
-    sharpe = 0.0
-    if n_active > 1:
-        active_pnl = net_pnl[active]
-        std_a = float(np.std(active_pnl, ddof=1))
-        if std_a > 0:
-            sharpe = float(np.mean(active_pnl)) / std_a * np.sqrt(8760)
+        # Vol-adaptive sizing
+        if vol_target is not None and vol_feature in test_df.columns:
+            vol_vals = test_df[vol_feature].values.astype(np.float64)
+            for i in range(len(signal)):
+                if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
+                    signal[i] *= min(vol_target / vol_vals[i], 1.0)
 
-    total_return = float(np.sum(net_pnl))
+        # DD breaker
+        if dd_limit is not None:
+            from scripts.backtest_alpha_v8 import _apply_dd_breaker
+            signal = _apply_dd_breaker(signal, test_closes, dd_limit, dd_cooldown)
+
+        ret_1bar = np.diff(test_closes) / test_closes[:-1]
+        signal_for_trade = signal[:len(ret_1bar)]
+        gross_pnl = signal_for_trade * ret_1bar
+
+        if cost_model_type == "realistic" and volumes is not None:
+            from execution.sim.cost_model import RealisticCostModel
+            cm = RealisticCostModel()
+            test_vols = volumes[fold.test_start:fold.test_end][:len(signal_for_trade)]
+            vol_20 = test_df["vol_20"].values[:len(signal_for_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(signal_for_trade), np.nan)
+            breakdown = cm.compute_costs(signal_for_trade, test_closes[:len(signal_for_trade)], test_vols, vol_20)
+            cost = breakdown.total_cost
+            signal_for_trade = breakdown.clipped_signal
+            gross_pnl = signal_for_trade * ret_1bar
+        else:
+            turnover = np.abs(np.diff(signal_for_trade, prepend=0))
+            cost = turnover * COST_PER_TRADE
+
+        # Funding cost: long pays positive funding, short receives it
+        funding_cost = np.zeros(len(signal_for_trade))
+        if "funding_rate" in test_df.columns:
+            fr = test_df["funding_rate"].values[:len(signal_for_trade)].astype(np.float64)
+            fr = np.nan_to_num(fr, 0.0)
+            funding_cost = signal_for_trade * fr / 8.0
+
+        net_pnl = gross_pnl - cost - funding_cost
+
+        active = signal_for_trade != 0
+        n_active = int(active.sum())
+
+        sharpe = 0.0
+        if n_active > 1:
+            active_pnl = net_pnl[active]
+            std_a = float(np.std(active_pnl, ddof=1))
+            if std_a > 0:
+                sharpe = float(np.mean(active_pnl)) / std_a * np.sqrt(8760)
+
+        total_return = float(np.sum(net_pnl))
 
     return FoldResult(
         idx=fold.idx,
@@ -540,6 +617,8 @@ def run_fold_strategy_f(
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
     dd_cooldown: int = 48,
+    cost_model_type: str = "flat",
+    volumes: Optional[np.ndarray] = None,
 ) -> FoldResult:
     """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
 
@@ -758,9 +837,20 @@ def run_fold_strategy_f(
     # PnL
     ret_1bar = np.diff(test_closes) / test_closes[:-1]
     sig_trade = signal[:len(ret_1bar)]
-    turnover = np.abs(np.diff(sig_trade, prepend=0))
     gross_pnl = sig_trade * ret_1bar
-    cost = turnover * COST_PER_TRADE
+
+    if cost_model_type == "realistic" and volumes is not None:
+        from execution.sim.cost_model import RealisticCostModel
+        cm = RealisticCostModel()
+        test_vols = volumes[fold.test_start:fold.test_end][:len(sig_trade)]
+        vol_20 = test_df["vol_20"].values[:len(sig_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(sig_trade), np.nan)
+        breakdown = cm.compute_costs(sig_trade, test_closes[:len(sig_trade)], test_vols, vol_20)
+        cost = breakdown.total_cost
+        sig_trade = breakdown.clipped_signal
+        gross_pnl = sig_trade * ret_1bar
+    else:
+        turnover = np.abs(np.diff(sig_trade, prepend=0))
+        cost = turnover * COST_PER_TRADE
 
     # Funding cost
     funding_cost = np.zeros(len(sig_trade))
@@ -923,6 +1013,8 @@ def main() -> None:
                         help="Max drawdown circuit breaker (e.g. -0.15)")
     parser.add_argument("--dd-cooldown", type=int, default=48,
                         help="Bars to stay flat after DD breach (default: 48)")
+    parser.add_argument("--cost-model", choices=["flat", "realistic"], default="flat",
+                        help="Cost model: flat (6bps) or realistic (sqrt-impact + spread)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -958,6 +1050,7 @@ def main() -> None:
     vol_feature_name = args.vol_feature
     dd_limit = args.dd_limit
     dd_cooldown = args.dd_cooldown
+    cost_model_type = args.cost_model
 
     print(f"\n  Walk-Forward Validation: {symbol}")
     if strategy_f:
@@ -1015,6 +1108,7 @@ def main() -> None:
         print("  Feature computation failed")
         return
     closes = feat_df["close"].values.astype(np.float64) if "close" in feat_df.columns else df["close"].values.astype(np.float64)
+    volumes_all = df["volume"].values.astype(np.float64) if "volume" in df.columns else np.ones(len(df))
     print(f"  Features computed in {time.time()-t0:.1f}s ({len(feat_df.columns)} columns)")
 
     # Available feature names (exclude close, non-feature columns)
@@ -1053,6 +1147,7 @@ def main() -> None:
                 bear_thresholds=bear_thresholds,
                 vol_target=vol_target, vol_feature=vol_feature_name,
                 dd_limit=dd_limit, dd_cooldown=dd_cooldown,
+                cost_model_type=cost_model_type, volumes=volumes_all,
             )
         else:
             result = run_fold(fold, feat_df, closes, all_feature_names,
@@ -1071,7 +1166,8 @@ def main() -> None:
                               monthly_gate=monthly_gate,
                               monthly_gate_window=monthly_gate_window,
                               vol_target=vol_target, vol_feature=vol_feature_name,
-                              dd_limit=dd_limit, dd_cooldown=dd_cooldown)
+                              dd_limit=dd_limit, dd_cooldown=dd_cooldown,
+                              cost_model_type=cost_model_type, volumes=volumes_all)
         result.period = period
         fold_results.append(result)
 

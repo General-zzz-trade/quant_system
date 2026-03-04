@@ -8,6 +8,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+try:
+    from features._quant_rolling import cpp_compute_4h_features as _cpp_4h
+    _MTF_CPP = True
+except ImportError:
+    _MTF_CPP = False
+
 TF4H_FEATURE_NAMES = (
     "tf4h_ret_1",            # 4h return (= 4h lookback)
     "tf4h_ret_3",            # 12h return
@@ -74,6 +80,19 @@ def compute_4h_features(df_1h: pd.DataFrame) -> pd.DataFrame:
     """
     ts_col = "open_time" if "open_time" in df_1h.columns else "timestamp"
     ts = df_1h[ts_col].values.astype(np.int64)
+
+    if _MTF_CPP:
+        raw = _cpp_4h(
+            np.ascontiguousarray(ts),
+            np.ascontiguousarray(df_1h["open"].values, dtype=np.float64),
+            np.ascontiguousarray(df_1h["high"].values, dtype=np.float64),
+            np.ascontiguousarray(df_1h["low"].values, dtype=np.float64),
+            np.ascontiguousarray(df_1h["close"].values, dtype=np.float64),
+            np.ascontiguousarray(df_1h["volume"].values, dtype=np.float64),
+        )
+        result = pd.DataFrame(raw, columns=list(TF4H_FEATURE_NAMES), dtype=np.float64)
+        result = result.ffill()
+        return result
 
     # Group into 4h bars by flooring timestamp
     four_hours_ms = 4 * 3600 * 1000

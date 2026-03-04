@@ -30,6 +30,8 @@ Thumbs.db
 # Local DB / logs
 *.sqlite
 *.db
+*.db-shm
+*.db-wal
 *.log
 
 # Data artifacts
@@ -43,3 +45,6 @@ results/
 *.pkl
 *.pkl.sig
 .hypothesis/
+
+# Rust build artifacts
+ext/rust/target/

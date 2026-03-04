@@ -10,6 +10,13 @@ from typing import Optional
 from event.factory.market import MarketEventFactory
 from event.types import MarketEvent
 
+try:
+    from _quant_hotpath import rust_parse_kline
+    _HAS_RUST = True
+except ImportError:
+    rust_parse_kline = None  # type: ignore
+    _HAS_RUST = False
+
 
 @dataclass(frozen=True, slots=True)
 class KlineProcessor:
@@ -24,6 +31,28 @@ class KlineProcessor:
     only_closed: bool = True
 
     def process_raw(self, raw: str) -> Optional[MarketEvent]:
+        if _HAS_RUST:
+            return self._process_raw_rust(raw)
+        return self._process_raw_py(raw)
+
+    def _process_raw_rust(self, raw: str) -> Optional[MarketEvent]:
+        d = rust_parse_kline(raw, self.only_closed)
+        if d is None:
+            return None
+        ts = datetime.fromtimestamp(d["ts_ms"] / 1000.0, tz=timezone.utc)
+        return MarketEventFactory.bar(
+            ts=ts,
+            symbol=d["symbol"],
+            open=Decimal(d["open"]),
+            high=Decimal(d["high"]),
+            low=Decimal(d["low"]),
+            close=Decimal(d["close"]),
+            volume=Decimal(d["volume"]),
+            source=self.source,
+            run_id=self.run_id,
+        )
+
+    def _process_raw_py(self, raw: str) -> Optional[MarketEvent]:
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):

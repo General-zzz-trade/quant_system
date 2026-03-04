@@ -26,7 +26,10 @@ class FeatureComputeHook:
                  oi_source: Any = None,
                  ls_ratio_source: Any = None,
                  spot_close_source: Any = None,
-                 fgi_source: Any = None) -> None:
+                 fgi_source: Any = None,
+                 implied_vol_source: Any = None,
+                 put_call_ratio_source: Any = None,
+                 onchain_source: Any = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._funding_rate_source = funding_rate_source
@@ -35,6 +38,9 @@ class FeatureComputeHook:
         self._ls_ratio_source = ls_ratio_source
         self._spot_close_source = spot_close_source
         self._fgi_source = fgi_source
+        self._implied_vol_source = implied_vol_source
+        self._put_call_ratio_source = put_call_ratio_source
+        self._onchain_source = onchain_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         # Check once which extra params computer.on_bar accepts
         import inspect
@@ -46,6 +52,8 @@ class FeatureComputeHook:
         self._pass_oi = "open_interest" in sig.parameters
         self._pass_spot_close = "spot_close" in sig.parameters
         self._pass_fgi = "fear_greed" in sig.parameters
+        self._pass_implied_vol = "implied_vol" in sig.parameters
+        self._pass_onchain = "onchain_metrics" in sig.parameters
 
         # Schema validation: warn if model requires features the computer doesn't provide
         if inference_bridge is not None:
@@ -137,6 +145,21 @@ class FeatureComputeHook:
             fgi_val = self._fgi_source()
             if fgi_val is not None:
                 bar_kwargs["fear_greed"] = fgi_val
+
+        if self._pass_implied_vol:
+            if self._implied_vol_source is not None:
+                iv_val = self._implied_vol_source()
+                if iv_val is not None:
+                    bar_kwargs["implied_vol"] = iv_val
+            if self._put_call_ratio_source is not None:
+                pcr_val = self._put_call_ratio_source()
+                if pcr_val is not None:
+                    bar_kwargs["put_call_ratio"] = pcr_val
+
+        if self._pass_onchain and self._onchain_source is not None:
+            oc_val = self._onchain_source()
+            if oc_val is not None:
+                bar_kwargs["onchain_metrics"] = oc_val
 
         self._computer.on_bar(symbol, **bar_kwargs)
 

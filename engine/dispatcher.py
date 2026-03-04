@@ -7,6 +7,13 @@ import time as _time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 import threading
 
+try:
+    from _quant_hotpath import DuplicateGuard as _RustDedupGuard
+    _HAS_RUST = True
+except ImportError:
+    _RustDedupGuard = None  # type: ignore
+    _HAS_RUST = False
+
 # event 侧（你的 event 层）
 try:
     from event.types import EventType  # Enum 风格
@@ -78,6 +85,9 @@ class EventDispatcher:
         self._dedup_ttl_sec: float = 86400.0  # 24h TTL
         self._dedup_max_size: int = 500_000
         self._dedup_last_prune: float = _time.monotonic()
+        self._rust_dedup: Optional[Any] = (
+            _RustDedupGuard(ttl_sec=86400.0, max_size=500_000) if _HAS_RUST else None
+        )
 
     # --------------------------------------------------------
     # Registration
@@ -116,15 +126,19 @@ class EventDispatcher:
             header = getattr(event, "header", None)
             event_id = getattr(header, "event_id", None)
             if isinstance(event_id, str):
-                if event_id in self._seen_event_ids:
-                    raise DuplicateEventError(f"重复 event_id: {event_id}")
                 now = _time.monotonic()
-                self._seen_event_ids[event_id] = now
-                # 定期清理过期条目（每 60 秒或超容量时）
-                if (now - self._dedup_last_prune > 60.0) or len(self._seen_event_ids) > self._dedup_max_size:
-                    cutoff = now - self._dedup_ttl_sec
-                    self._seen_event_ids = {k: v for k, v in self._seen_event_ids.items() if v > cutoff}
-                    self._dedup_last_prune = now
+                if self._rust_dedup is not None:
+                    if not self._rust_dedup.check_and_insert(event_id, now):
+                        raise DuplicateEventError(f"重复 event_id: {event_id}")
+                else:
+                    if event_id in self._seen_event_ids:
+                        raise DuplicateEventError(f"重复 event_id: {event_id}")
+                    self._seen_event_ids[event_id] = now
+                    # 定期清理过期条目（每 60 秒或超容量时）
+                    if (now - self._dedup_last_prune > 60.0) or len(self._seen_event_ids) > self._dedup_max_size:
+                        cutoff = now - self._dedup_ttl_sec
+                        self._seen_event_ids = {k: v for k, v in self._seen_event_ids.items() if v > cutoff}
+                        self._dedup_last_prune = now
 
             route = self._route_for(event)
             ctx = DispatchContext(

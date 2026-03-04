@@ -15,6 +15,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+try:
+    from _quant_hotpath import RustRateLimitPolicy as _RustPolicy
+    _HAS_RUST = True
+except ImportError:
+    _RustPolicy = None  # type: ignore
+    _HAS_RUST = False
+
 
 # Binance Futures endpoint weights (approximation)
 # See: https://binance-docs.github.io/apidocs/futures/en/#limits
@@ -102,3 +109,26 @@ class BinanceRateLimitPolicy:
     def sync_used_weight(self, used_weight: int) -> None:
         """Calibrate weight pool from X-MBX-USED-WEIGHT-1M header."""
         self.weight_pool.sync_from_header(used_weight)
+
+
+class RustBinanceRateLimitPolicy:
+    """Rust-accelerated rate limiter with same API as BinanceRateLimitPolicy."""
+
+    def __init__(self) -> None:
+        self._inner = _RustPolicy()
+        self._lock = threading.Lock()
+
+    def check(self, path: str) -> bool:
+        with self._lock:
+            return self._inner.check(path, time.monotonic())
+
+    def sync_used_weight(self, used_weight: int) -> None:
+        with self._lock:
+            self._inner.sync_used_weight(used_weight)
+
+
+def make_rate_limit_policy() -> BinanceRateLimitPolicy:
+    """Factory: returns Rust-backed policy if available, else Python."""
+    if _HAS_RUST:
+        return RustBinanceRateLimitPolicy()  # type: ignore[return-value]
+    return BinanceRateLimitPolicy()

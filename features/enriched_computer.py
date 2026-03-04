@@ -116,6 +116,13 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "implied_vol_zscore_24",      # IV z-score over 24 bars
     "iv_rv_spread",               # implied vol - realized vol (vol_20)
     "put_call_ratio",             # Deribit options put/call OI ratio
+    # --- V10: On-chain features (Coin Metrics, daily) ---
+    "exchange_netflow_zscore",    # zscore_7d(exchange inflow - outflow)
+    "exchange_supply_change",     # daily pct change of exchange-held supply
+    "exchange_supply_zscore_30",  # zscore_30d(SplyExNtv)
+    "active_addr_zscore_14",      # zscore_14d(AdrActCnt)
+    "tx_count_zscore_14",         # zscore_14d(TxTfrCnt)
+    "hashrate_momentum",          # (HashRate - EMA14) / EMA14
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -323,6 +330,15 @@ class _SymbolState:
     _last_implied_vol: Optional[float] = None
     _last_put_call_ratio: Optional[float] = None
 
+    # V10: On-chain features (daily, from Coin Metrics)
+    _onchain_netflow_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=7))
+    _onchain_supply_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+    _onchain_addr_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
+    _onchain_tx_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
+    _onchain_hashrate_ema: _EMA = field(default_factory=lambda: _EMA(span=14))
+    _last_onchain_supply: Optional[float] = None
+    _last_onchain_hashrate: Optional[float] = None
+
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
     _last_close: Optional[float] = None
@@ -346,7 +362,8 @@ class _SymbolState:
              spot_close: Optional[float] = None,
              fear_greed: Optional[float] = None,
              implied_vol: Optional[float] = None,
-             put_call_ratio: Optional[float] = None) -> None:
+             put_call_ratio: Optional[float] = None,
+             onchain_metrics: Optional[Dict[str, float]] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -402,6 +419,31 @@ class _SymbolState:
             self.iv_window_24.push(implied_vol)
         if put_call_ratio is not None:
             self._last_put_call_ratio = put_call_ratio
+
+        # V10: On-chain metrics (daily)
+        if onchain_metrics is not None:
+            flow_in = onchain_metrics.get("FlowInExUSD")
+            flow_out = onchain_metrics.get("FlowOutExUSD")
+            if flow_in is not None and flow_out is not None:
+                self._onchain_netflow_buf.append(flow_in - flow_out)
+
+            supply = onchain_metrics.get("SplyExNtv")
+            if supply is not None:
+                self._onchain_supply_buf.append(supply)
+                self._last_onchain_supply = supply
+
+            addr = onchain_metrics.get("AdrActCnt")
+            if addr is not None:
+                self._onchain_addr_buf.append(addr)
+
+            tx = onchain_metrics.get("TxTfrCnt")
+            if tx is not None:
+                self._onchain_tx_buf.append(tx)
+
+            hr = onchain_metrics.get("HashRate")
+            if hr is not None:
+                self._onchain_hashrate_ema.push(hr)
+                self._last_onchain_hashrate = hr
 
         # Microstructure state
         self._last_trades = trades
@@ -1044,6 +1086,65 @@ class _SymbolState:
         # put_call_ratio (passthrough from external feed)
         feats["put_call_ratio"] = self._last_put_call_ratio
 
+        # --- V10: On-chain features ---
+        # exchange_netflow_zscore: zscore_7d(inflow - outflow)
+        if len(self._onchain_netflow_buf) >= 7:
+            vals = list(self._onchain_netflow_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["exchange_netflow_zscore"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["exchange_netflow_zscore"] = None
+
+        # exchange_supply_change: (today - yesterday) / yesterday
+        if len(self._onchain_supply_buf) >= 2:
+            prev = self._onchain_supply_buf[-2]
+            curr = self._onchain_supply_buf[-1]
+            feats["exchange_supply_change"] = (curr - prev) / prev if prev > 1e-8 else 0.0
+        else:
+            feats["exchange_supply_change"] = None
+
+        # exchange_supply_zscore_30: zscore_30d(SplyExNtv)
+        if len(self._onchain_supply_buf) >= 30:
+            vals = list(self._onchain_supply_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["exchange_supply_zscore_30"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["exchange_supply_zscore_30"] = None
+
+        # active_addr_zscore_14: zscore_14d(AdrActCnt)
+        if len(self._onchain_addr_buf) >= 14:
+            vals = list(self._onchain_addr_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["active_addr_zscore_14"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["active_addr_zscore_14"] = None
+
+        # tx_count_zscore_14: zscore_14d(TxTfrCnt)
+        if len(self._onchain_tx_buf) >= 14:
+            vals = list(self._onchain_tx_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["tx_count_zscore_14"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["tx_count_zscore_14"] = None
+
+        # hashrate_momentum: (HashRate - EMA14) / EMA14
+        if self._onchain_hashrate_ema.ready and self._last_onchain_hashrate is not None:
+            ema_val = self._onchain_hashrate_ema.value
+            if ema_val is not None and abs(ema_val) > 1e-8:
+                feats["hashrate_momentum"] = (self._last_onchain_hashrate - ema_val) / ema_val
+            else:
+                feats["hashrate_momentum"] = None
+        else:
+            feats["hashrate_momentum"] = None
+
         return feats
 
 
@@ -1079,6 +1180,7 @@ class EnrichedFeatureComputer:
         fear_greed: Optional[float] = None,
         implied_vol: Optional[float] = None,
         put_call_ratio: Optional[float] = None,
+        onchain_metrics: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features."""
         if symbol not in self._states:
@@ -1100,7 +1202,8 @@ class EnrichedFeatureComputer:
                    taker_buy_quote_volume=taker_buy_quote_volume,
                    open_interest=open_interest, ls_ratio=ls_ratio,
                    spot_close=spot_close, fear_greed=fear_greed,
-                   implied_vol=implied_vol, put_call_ratio=put_call_ratio)
+                   implied_vol=implied_vol, put_call_ratio=put_call_ratio,
+                   onchain_metrics=onchain_metrics)
         return state.get_features()
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:

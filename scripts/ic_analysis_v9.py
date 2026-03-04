@@ -21,7 +21,17 @@ def load_schedule(path: str, ts_col: str, val_col: str) -> Dict[int, float]:
         return schedule
     with open(path, newline="") as f:
         for row in csv.DictReader(f):
-            schedule[int(row[ts_col])] = float(row[val_col])
+            raw_ts = row[ts_col]
+            # Support ISO timestamps (from Deribit IV CSV)
+            if "T" in raw_ts or "-" in raw_ts:
+                dt = datetime.fromisoformat(raw_ts)
+                ts_ms = int(dt.timestamp() * 1000)
+            else:
+                ts_ms = int(raw_ts)
+            val_str = row[val_col]
+            if val_str == "":
+                continue
+            schedule[ts_ms] = float(val_str)
     return schedule
 
 
@@ -33,6 +43,8 @@ def main() -> None:
     ls = load_schedule(f"data_files/{symbol}_ls_ratio.csv", "timestamp", "long_short_ratio")
     spot = load_schedule(f"data_files/{symbol}_spot_1h.csv", "open_time", "close")
     fgi = load_schedule("data_files/fear_greed_index.csv", "timestamp", "value")
+    iv = load_schedule(f"data_files/{symbol}_deribit_iv.csv", "timestamp", "implied_vol")
+    pcr = load_schedule(f"data_files/{symbol}_deribit_iv.csv", "timestamp", "put_call_ratio")
 
     all_schedules = [
         (sorted(funding.keys()), funding),
@@ -40,6 +52,8 @@ def main() -> None:
         (sorted(ls.keys()), ls),
         (sorted(spot.keys()), spot),
         (sorted(fgi.keys()), fgi),
+        (sorted(iv.keys()), iv),
+        (sorted(pcr.keys()), pcr),
     ]
     idxs = [0] * len(all_schedules)
 
@@ -75,7 +89,7 @@ def main() -> None:
                 val = sched[times[idxs[i] - 1]]
             vals.append(val)
 
-        fr, oi_val, ls_val, sp_val, fg_val = vals
+        fr, oi_val, ls_val, sp_val, fg_val, iv_val, pcr_val = vals
 
         feats = comp.on_bar(
             symbol, close=close, volume=volume, high=high, low=low,
@@ -84,6 +98,7 @@ def main() -> None:
             taker_buy_quote_volume=tbqv,
             open_interest=oi_val, ls_ratio=ls_val,
             spot_close=sp_val, fear_greed=fg_val,
+            implied_vol=iv_val, put_call_ratio=pcr_val,
         )
         records.append(feats)
 

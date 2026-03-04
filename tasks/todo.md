@@ -114,8 +114,30 @@
 - [x] BTC Strategy F WF regression: 15/21 PASS, Avg Sharpe=1.82, Return=+63.83% (no degradation)
 - [x] Removed 4 duplicate test files (tests_unit/ collisions with tests/unit/)
 
+## Phase 5: ABC 三路线并行实施 (DONE)
+
+### Route A: BTC Testnet Dry-Run 准备
+- [x] A.1 docker-compose.yml — testnet-trader service, models_v8 volume, 去掉 monitoring profiles
+- [x] A.2 Prometheus scrape target — quant:9090 → live-trader:9090
+- [x] A.3 Grafana Dashboard — 8 panels (PnL, P99 Latency, ML Score, Inference Latency, WS State, Rejections, Position, Data Age)
+- [x] A.4 Production checklist — tasks/production_checklist.md (5 phases: paper→shadow→live→longrun→compare)
+- [x] A.5 Testnet config verified — models_v8/BTCUSDT_gate_v2/config.json has all Strategy F params
+
+### Route B: Deribit IV + Live Pipeline
+- [x] B.1 Downloaded Deribit IV — 384 rows → data_files/BTCUSDT_deribit_iv.csv
+- [x] B.2 Fixed ic_analysis_v9.py — ISO→epoch ms, on_bar传入implied_vol/put_call_ratio
+- [x] B.3 IC Results: implied_vol_zscore_24 IC=-0.1078 PASS, iv_rv_spread IC=0.0801 PASS, put_call_ratio FAIL
+- [x] B.4 Wired IV into live pipeline — FeatureComputeHook + LiveRunner + LivePaperRunner + testnet_validation (all 4 phases)
+- [x] B.5 Added implied_vol_zscore_24 + iv_rv_spread to candidate_pool (strategy_config.py + config.json)
+
+### Route C: Engineering Quality
+- [x] C.1 Fixed embargo.py vars() bug — is_dataclass() + fields() for frozen+slots dataclass
+- [x] C.2 3 embargo stamp tests (SimpleNamespace, frozen+slots, regular dataclass)
+- [x] C.3 4 DeribitIVPoller tests (before_fetch, parse_hv, put_call_ratio, lifecycle)
+- [x] Fixed risk_gate tests (fail-open → fail-closed to match code behavior)
+
 ## Verification
-- 2226 tests passing, 0 regressions
+- 3215 tests passing, 0 failures
 - Coverage baseline: 59%, fail_under=57
 - All new functions unit-tested
 
@@ -147,3 +169,24 @@ python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo \
   --bear-thresholds '[[0.7,-1.0],[0.6,-0.5],[0.5,0.0]]' \
   --out-dir results/walkforward_fixed
 ```
+
+## Backtest Realism + C++ Acceleration (DONE)
+
+### Phase 1: C++ Feature Engine
+- [x] `ext/rolling/feature_engine.hpp` — batch feature engine (91 features, 23x speedup on 56k bars)
+- [x] `ext/rolling/bindings.cpp` — registered cpp_compute_all_features + cpp_feature_names
+- [x] `features/batch_feature_engine.py` — Python wrapper with C++/Python fallback
+- [x] `tests/unit/features/test_feature_engine_parity.py` — 91 feature parity tests (atol=1e-10)
+- [x] Integration: `backtest_alpha_v8.py`, `train_v7_alpha.py` use batch engine
+- [x] Performance: 22.7s → 0.98s on 56k bars (23.2x speedup)
+
+### Phase 2: Realistic Cost Model
+- [x] `execution/sim/cost_model.py` — RealisticCostModel with 5 components
+  - Trading fees (maker/taker weighted)
+  - Market impact (Almgren-Chriss sqrt model)
+  - Bid-ask spread (volatility-proportional)
+  - Volume participation constraint
+  - Funding costs (unchanged)
+- [x] `tests/unit/execution/test_cost_model.py` — 10 unit tests
+- [x] `--cost-model flat|realistic` flag in backtest_alpha_v8.py + walkforward_validate.py
+- [x] 2284 tests passing (0 regressions)

@@ -5,10 +5,23 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+try:
+    from _quant_hotpath import (
+        rust_sanitize as _rust_sanitize,
+        rust_short_hash as _rust_short_hash,
+        rust_make_idempotency_key as _rust_make_idempotency_key,
+        rust_client_order_id as _rust_client_order_id,
+    )
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 _SAFE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def _sanitize(s: str) -> str:
+    if _HAS_RUST:
+        return _rust_sanitize(s or "")
     s = (s or "").strip()
     s = _SAFE.sub("-", s)
     s = s.strip("-")
@@ -16,6 +29,8 @@ def _sanitize(s: str) -> str:
 
 
 def _short_hash(text: str, n: int = 10) -> str:
+    if _HAS_RUST:
+        return _rust_short_hash(text, n)
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return h[:n]
 
@@ -24,6 +39,8 @@ def make_idempotency_key(*, venue: str, action: str, key: str) -> str:
     """
     稳定幂等键：同输入 => 同输出（用于 retry / reconnect / replay）
     """
+    if _HAS_RUST:
+        return _rust_make_idempotency_key(venue, action, key)
     base = f"{_sanitize(venue).lower()}|{_sanitize(action).lower()}|{_sanitize(key)}"
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 

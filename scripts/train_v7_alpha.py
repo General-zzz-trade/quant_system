@@ -761,109 +761,26 @@ def _load_and_compute_features(
     cross_df: Optional[pd.DataFrame] = None,
 ) -> Optional[pd.DataFrame]:
     """Compute features from raw OHLCV dataframe (V7: +basis +FGI +4h)."""
-    from datetime import datetime, timezone
+    from features.batch_feature_engine import compute_features_batch
 
-    funding = _load_schedule(
-        Path(f"data_files/{symbol}_funding.csv"), "timestamp", "funding_rate")
-    oi = _load_schedule(
-        Path(f"data_files/{symbol}_open_interest.csv"), "timestamp", "sum_open_interest")
-    ls = _load_schedule(
-        Path(f"data_files/{symbol}_ls_ratio.csv"), "timestamp", "long_short_ratio")
+    feat_df = compute_features_batch(symbol, df)
 
-    # V7: new data sources
-    spot_closes = _load_spot_closes(symbol)
-    fgi_schedule = _load_fgi_schedule()
-
-    funding_times = sorted(funding.keys())
-    oi_times = sorted(oi.keys())
-    ls_times = sorted(ls.keys())
-    spot_times = sorted(spot_closes.keys())
-    fgi_times = sorted(fgi_schedule.keys())
-    f_idx, oi_idx, ls_idx, spot_idx, fgi_idx = 0, 0, 0, 0, 0
-
-    comp = EnrichedFeatureComputer()
-    records = []
-
-    for _, row in df.iterrows():
-        close = float(row["close"])
-        volume = float(row.get("volume", 0))
-        high = float(row.get("high", close))
-        low = float(row.get("low", close))
-        open_ = float(row.get("open", close))
-        trades = float(row.get("trades", 0) or 0)
-        taker_buy_volume = float(row.get("taker_buy_volume", 0) or 0)
-        quote_volume = float(row.get("quote_volume", 0) or 0)
-        taker_buy_quote_volume = float(row.get("taker_buy_quote_volume", 0) or 0)
-
-        ts_raw = row.get("timestamp") or row.get("open_time", "")
-        hour, dow, ts_ms = -1, -1, 0
-        if ts_raw:
-            try:
-                ts_ms = int(ts_raw)
-                dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-                hour, dow = dt.hour, dt.weekday()
-            except (ValueError, OSError):
-                pass
-
-        funding_rate = None
-        while f_idx < len(funding_times) and funding_times[f_idx] <= ts_ms:
-            funding_rate = funding[funding_times[f_idx]]
-            f_idx += 1
-        if funding_rate is None and f_idx > 0:
-            funding_rate = funding[funding_times[f_idx - 1]]
-
-        open_interest = None
-        while oi_idx < len(oi_times) and oi_times[oi_idx] <= ts_ms:
-            open_interest = oi[oi_times[oi_idx]]
-            oi_idx += 1
-        if open_interest is None and oi_idx > 0:
-            open_interest = oi[oi_times[oi_idx - 1]]
-
-        ls_ratio = None
-        while ls_idx < len(ls_times) and ls_times[ls_idx] <= ts_ms:
-            ls_ratio = ls[ls_times[ls_idx]]
-            ls_idx += 1
-        if ls_ratio is None and ls_idx > 0:
-            ls_ratio = ls[ls_times[ls_idx - 1]]
-
-        # V7: spot close (pointer-based forward-fill)
-        spot_close = None
-        while spot_idx < len(spot_times) and spot_times[spot_idx] <= ts_ms:
-            spot_close = spot_closes[spot_times[spot_idx]]
-            spot_idx += 1
-        if spot_close is None and spot_idx > 0:
-            spot_close = spot_closes[spot_times[spot_idx - 1]]
-
-        # V7: fear & greed (daily, forward-fill to hourly)
-        fear_greed = None
-        while fgi_idx < len(fgi_times) and fgi_times[fgi_idx] <= ts_ms:
-            fear_greed = fgi_schedule[fgi_times[fgi_idx]]
-            fgi_idx += 1
-        if fear_greed is None and fgi_idx > 0:
-            fear_greed = fgi_schedule[fgi_times[fgi_idx - 1]]
-
-        feats = comp.on_bar(
-            symbol, close=close, volume=volume, high=high, low=low,
-            open_=open_, hour=hour, dow=dow, funding_rate=funding_rate,
-            trades=trades, taker_buy_volume=taker_buy_volume,
-            quote_volume=quote_volume,
-            taker_buy_quote_volume=taker_buy_quote_volume,
-            open_interest=open_interest, ls_ratio=ls_ratio,
-            spot_close=spot_close, fear_greed=fear_greed,
-        )
-
-        if cross_df is not None and symbol != "BTCUSDT" and ts_ms in cross_df.index:
-            cross_row = cross_df.loc[ts_ms]
-            for name in CROSS_ASSET_FEATURE_NAMES:
-                val = cross_row.get(name)
-                feats[name] = None if pd.isna(val) else float(val)
-        elif symbol != "BTCUSDT":
-            for name in CROSS_ASSET_FEATURE_NAMES:
-                feats[name] = None
-
-        records.append(feats)
-
-    feat_df = pd.DataFrame(records)
+    # Cross-asset features (for non-BTC symbols)
+    if cross_df is not None and symbol != "BTCUSDT":
+        ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
+        timestamps = df[ts_col].values.astype(np.int64)
+        for name in CROSS_ASSET_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        for i, ts_ms in enumerate(timestamps):
+            if ts_ms in cross_df.index:
+                cross_row = cross_df.loc[ts_ms]
+                for name in CROSS_ASSET_FEATURE_NAMES:
+                    val = cross_row.get(name)
+                    if not pd.isna(val):
+                        feat_df.at[i, name] = float(val)
+    elif symbol != "BTCUSDT":
+        for name in CROSS_ASSET_FEATURE_NAMES:
+            feat_df[name] = np.nan
 
     for int_name, feat_a, feat_b in INTERACTION_FEATURES:
         if feat_a in feat_df.columns and feat_b in feat_df.columns:

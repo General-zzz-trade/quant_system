@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence, Tuple
 
+try:
+    from _quant_hotpath import rust_parse_depth
+    _HAS_RUST = True
+except ImportError:
+    rust_parse_depth = None  # type: ignore
+    _HAS_RUST = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +77,33 @@ class DepthProcessor:
 
         Handles both combined stream format and direct format.
         """
+        if _HAS_RUST:
+            return self._process_raw_rust(raw)
+        return self._process_raw_py(raw)
+
+    def _process_raw_rust(self, raw: str) -> Optional[OrderBookSnapshot]:
+        d = rust_parse_depth(raw, self._max_levels)
+        if d is None:
+            return None
+        bids = tuple(
+            OrderBookLevel(price=Decimal(p), qty=Decimal(q))
+            for p, q in d["bids"]
+            if Decimal(q) > 0
+        )
+        asks = tuple(
+            OrderBookLevel(price=Decimal(p), qty=Decimal(q))
+            for p, q in d["asks"]
+            if Decimal(q) > 0
+        )
+        return OrderBookSnapshot(
+            symbol=d["symbol"],
+            bids=bids,
+            asks=asks,
+            ts_ms=d["ts_ms"],
+            last_update_id=d["last_update_id"],
+        )
+
+    def _process_raw_py(self, raw: str) -> Optional[OrderBookSnapshot]:
         try:
             msg = json.loads(raw)
         except (json.JSONDecodeError, TypeError):

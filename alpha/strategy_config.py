@@ -32,6 +32,7 @@ SYMBOL_CONFIG = {
             "funding_zscore_24", "basis_momentum", "vol_ma_ratio_5_20",
             "mean_reversion_20", "funding_sign_persist", "hour_sin",
             "liquidation_cascade_score",
+            "implied_vol_zscore_24", "iv_rv_spread",
         ],
         n_flexible=4,
         deadzone=0.5,

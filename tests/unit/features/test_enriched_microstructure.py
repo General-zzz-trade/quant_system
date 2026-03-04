@@ -259,7 +259,15 @@ class TestFeatureCountConsistency:
                         spot_close=close - 0.5,
                         fear_greed=50.0 + (i % 8) * 5,
                         implied_vol=0.5 + i * 0.001,
-                        put_call_ratio=0.8 + i * 0.002)
+                        put_call_ratio=0.8 + i * 0.002,
+                        onchain_metrics={
+                            "FlowInExUSD": 1e8 + i * 1e6,
+                            "FlowOutExUSD": 9e7 + i * 1e6,
+                            "SplyExNtv": 2.3e6 + i * 100,
+                            "AdrActCnt": 800000 + i * 1000,
+                            "TxTfrCnt": 300000 + i * 500,
+                            "HashRate": 5.5e17 + i * 1e15,
+                        })
         feats = comp.get_features_dict("BTC")
         # cross_tf_regime_sync is computed externally by multi-TF aggregator
         external_features = {"cross_tf_regime_sync"}

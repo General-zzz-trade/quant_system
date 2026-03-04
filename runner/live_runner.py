@@ -183,6 +183,9 @@ class LiveRunner:
         ls_ratio_source: Any = None,
         spot_close_source: Any = None,
         fgi_source: Any = None,
+        implied_vol_source: Any = None,
+        put_call_ratio_source: Any = None,
+        onchain_source: Any = None,
         bear_model: Any = None,
     ) -> "LiveRunner":
         """Build the full production stack.
@@ -330,6 +333,9 @@ class LiveRunner:
                 ls_ratio_source=ls_ratio_source,
                 spot_close_source=spot_close_source,
                 fgi_source=fgi_source,
+                implied_vol_source=implied_vol_source,
+                put_call_ratio_source=put_call_ratio_source,
+                onchain_source=onchain_source,
             )
 
         coord_cfg = CoordinatorConfig(
