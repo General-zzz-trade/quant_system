@@ -330,7 +330,7 @@ def run_paper(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "paper_equity.csv", runner.fills, 10000.0)
@@ -366,7 +366,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment = _start_pollers(symbols[0], testnet=True)
 
     runner = LiveRunner.build(
         config,
@@ -381,6 +381,10 @@ def run_shadow(config_path: Path, duration: int) -> None:
         implied_vol_source=lambda: deribit_iv.get_current()[0],
         put_call_ratio_source=lambda: deribit_iv.get_current()[1],
         onchain_source=onchain.get_current,
+        liquidation_source=liquidation.get_current,
+        mempool_source=mempool.get_current,
+        macro_source=macro.get_current,
+        sentiment_source=sentiment.get_current,
     )
 
     def _timeout(*_: Any) -> None:
@@ -396,7 +400,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment)
 
     out = _output_dir(config_path)
     with (out / "shadow_events.json").open("w") as f:
@@ -451,7 +455,7 @@ def run_live(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment = _start_pollers(symbols[0], testnet=True)
 
     runner = LiveRunner.build(
         config,
@@ -466,6 +470,10 @@ def run_live(config_path: Path, duration: int) -> None:
         implied_vol_source=lambda: deribit_iv.get_current()[0],
         put_call_ratio_source=lambda: deribit_iv.get_current()[1],
         onchain_source=onchain.get_current,
+        liquidation_source=liquidation.get_current,
+        mempool_source=mempool.get_current,
+        macro_source=macro.get_current,
+        sentiment_source=sentiment.get_current,
     )
 
     if runner.user_stream is not None:
@@ -487,7 +495,7 @@ def run_live(config_path: Path, duration: int) -> None:
     except KeyboardInterrupt:
         runner.stop()
     finally:
-        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment)
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "live_equity.csv", runner.fills, 10000.0)
@@ -584,7 +592,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
         **signal_kwargs,
     )
 
-    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment = _start_pollers(symbols[0], testnet=True)
 
     ws_transport = ReconnectingWsTransport(
         inner=WebsocketClientTransport(),
@@ -606,6 +614,10 @@ def run_longrun(config_path: Path, duration: int) -> None:
         implied_vol_source=lambda: deribit_iv.get_current()[0],
         put_call_ratio_source=lambda: deribit_iv.get_current()[1],
         onchain_source=onchain.get_current,
+        liquidation_source=liquidation.get_current,
+        mempool_source=mempool.get_current,
+        macro_source=macro.get_current,
+        sentiment_source=sentiment.get_current,
     )
 
     status_stop = threading.Event()
@@ -618,7 +630,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
         runner.stop()
     finally:
         status_stop.set()
-        _stop_pollers(funding, oi, fgi, deribit_iv, onchain)
+        _stop_pollers(funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment)
 
     _write_equity_csv(output_dir / "longrun_equity.csv", runner.fills, 10000.0)
     logger.info(

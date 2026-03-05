@@ -186,6 +186,10 @@ class LiveRunner:
         implied_vol_source: Any = None,
         put_call_ratio_source: Any = None,
         onchain_source: Any = None,
+        liquidation_source: Any = None,
+        mempool_source: Any = None,
+        macro_source: Any = None,
+        sentiment_source: Any = None,
         bear_model: Any = None,
     ) -> "LiveRunner":
         """Build the full production stack.
@@ -336,6 +340,10 @@ class LiveRunner:
                 implied_vol_source=implied_vol_source,
                 put_call_ratio_source=put_call_ratio_source,
                 onchain_source=onchain_source,
+                liquidation_source=liquidation_source,
+                mempool_source=mempool_source,
+                macro_source=macro_source,
+                sentiment_source=sentiment_source,
             )
 
         coord_cfg = CoordinatorConfig(

@@ -98,6 +98,10 @@ class LivePaperRunner:
         implied_vol_source: Any = None,
         put_call_ratio_source: Any = None,
         onchain_source: Any = None,
+        liquidation_source: Any = None,
+        mempool_source: Any = None,
+        macro_source: Any = None,
+        sentiment_source: Any = None,
         min_hold_bars: Optional[Dict[str, int]] = None,
         long_only_symbols: Optional[set] = None,
         deadzone: float = 0.5,
@@ -183,6 +187,10 @@ class LivePaperRunner:
                 implied_vol_source=implied_vol_source,
                 put_call_ratio_source=put_call_ratio_source,
                 onchain_source=onchain_source,
+                liquidation_source=liquidation_source,
+                mempool_source=mempool_source,
+                macro_source=macro_source,
+                sentiment_source=sentiment_source,
             )
 
         coord_cfg = CoordinatorConfig(
