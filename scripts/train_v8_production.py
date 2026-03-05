@@ -56,6 +56,11 @@ FIXED_FEATURES = [
 CANDIDATE_POOL = [
     "funding_zscore_24", "basis_momentum", "vol_ma_ratio_5_20",
     "mean_reversion_20", "funding_sign_persist", "hour_sin",
+    "liquidation_cascade_score",
+    "implied_vol_zscore_24", "iv_rv_spread",
+    "exchange_supply_zscore_30",
+    "mempool_size_zscore_24",
+    "spx_overnight_ret",
 ]
 
 

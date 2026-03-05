@@ -62,7 +62,7 @@ class OnchainPoller:
     def _fetch(self) -> None:
         url = (
             f"{_API_BASE}?assets={self._asset}&metrics={_METRICS}"
-            f"&frequency=1d&page_size=1&sort=time&sort_direction=desc"
+            f"&page_size=1&sort=time"
         )
         req = urllib.request.Request(url)
         req.add_header("User-Agent", "quant-system/1.0")

@@ -77,9 +77,18 @@ static const std::vector<std::string> FEATURE_NAMES = {
     // V10: On-chain
     "exchange_netflow_zscore", "exchange_supply_change", "exchange_supply_zscore_30",
     "active_addr_zscore_14", "tx_count_zscore_14", "hashrate_momentum",
+    // V11: Liquidation
+    "liquidation_volume_zscore_24", "liquidation_imbalance",
+    "liquidation_volume_ratio", "liquidation_cluster_flag",
+    // V11: Mempool
+    "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
+    // V11: Macro
+    "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
+    // V11: Sentiment
+    "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
 };
 
-static constexpr int N_FEATURES = 91;  // FEATURE_NAMES.size()
+static constexpr int N_FEATURES = 105;  // FEATURE_NAMES.size()
 static constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
 static constexpr double PI = 3.14159265358979323846;
 
@@ -117,6 +126,15 @@ enum FIdx {
     F_implied_vol_zscore_24, F_iv_rv_spread, F_put_call_ratio,
     F_exchange_netflow_zscore, F_exchange_supply_change, F_exchange_supply_zscore_30,
     F_active_addr_zscore_14, F_tx_count_zscore_14, F_hashrate_momentum,
+    // V11: Liquidation
+    F_liquidation_volume_zscore_24, F_liquidation_imbalance,
+    F_liquidation_volume_ratio, F_liquidation_cluster_flag,
+    // V11: Mempool
+    F_mempool_fee_zscore_24, F_mempool_size_zscore_24, F_fee_urgency_ratio,
+    // V11: Macro
+    F_dxy_change_5d, F_spx_btc_corr_30d, F_spx_overnight_ret, F_vix_zscore_14,
+    // V11: Sentiment
+    F_social_volume_zscore_24, F_social_sentiment_score, F_social_volume_price_div,
 };
 
 // ============================================================
@@ -384,6 +402,33 @@ struct BarState {
     double last_onchain_supply = NaN;
     double last_onchain_hashrate = NaN;
 
+    // V11: Liquidation
+    CircBuf<24> liq_volume_buf;
+    CircBuf<6> liq_imbalance_buf;
+    double last_liq_volume = NaN;
+    double last_liq_imbalance = NaN;
+    double last_liq_count = 0.0;
+
+    // V11: Mempool
+    CircBuf<24> mempool_fee_buf;
+    CircBuf<24> mempool_size_buf;
+    double last_fee_urgency = NaN;
+
+    // V11: Macro
+    CircBuf<10> dxy_buf;
+    CircBuf<30> spx_buf;
+    CircBuf<30> btc_close_buf_30;
+    double last_spx_close = NaN;
+    double prev_spx_close = NaN;
+    double last_vix = NaN;
+    CircBuf<14> vix_buf;
+    int64_t last_macro_day = -1;  // day index for date dedup
+
+    // V11: Sentiment
+    CircBuf<24> social_vol_buf;
+    double last_sentiment_score = NaN;
+    double last_social_volume = NaN;
+
     // Scalar state
     double prev_momentum = NaN;
     double last_close = NaN;
@@ -433,7 +478,18 @@ struct BarState {
               // On-chain: 6 values, all NaN if not provided
               double oc_flow_in, double oc_flow_out,
               double oc_supply, double oc_addr,
-              double oc_tx, double oc_hashrate) noexcept
+              double oc_tx, double oc_hashrate,
+              // V11: Liquidation (4 values, all NaN if not provided)
+              double liq_total_vol, double liq_buy_vol, double liq_sell_vol,
+              double liq_count,
+              // V11: Mempool (3 values, all NaN if not provided)
+              double mempool_fastest_fee, double mempool_economy_fee,
+              double mempool_size,
+              // V11: Macro (3 values + day index, all NaN if not provided)
+              double macro_dxy, double macro_spx, double macro_vix,
+              int64_t macro_day,   // -1 = not provided
+              // V11: Sentiment (2 values, all NaN if not provided)
+              double social_volume, double sentiment_score) noexcept
     {
         last_hour = hour;
         last_dow = dow;
@@ -518,6 +574,60 @@ struct BarState {
         if (!std::isnan(oc_hashrate)) {
             onchain_hashrate_ema.push(oc_hashrate);
             last_onchain_hashrate = oc_hashrate;
+        }
+
+        // --- V11: Liquidation ---
+        if (!std::isnan(liq_total_vol)) {
+            liq_volume_buf.push(liq_total_vol);
+            last_liq_volume = liq_total_vol;
+            last_liq_count = std::isnan(liq_count) ? 0.0 : liq_count;
+            double imb = 0.0;
+            if (liq_total_vol > 0 && !std::isnan(liq_buy_vol) && !std::isnan(liq_sell_vol)) {
+                imb = (liq_buy_vol - liq_sell_vol) / liq_total_vol;
+            }
+            liq_imbalance_buf.push(imb);
+            last_liq_imbalance = imb;
+        }
+
+        // --- V11: Mempool ---
+        if (!std::isnan(mempool_fastest_fee)) {
+            mempool_fee_buf.push(mempool_fastest_fee);
+        }
+        if (!std::isnan(mempool_size)) {
+            mempool_size_buf.push(mempool_size);
+        }
+        if (!std::isnan(mempool_fastest_fee) && !std::isnan(mempool_economy_fee) && mempool_economy_fee > 0) {
+            last_fee_urgency = mempool_fastest_fee / mempool_economy_fee;
+        }
+
+        // --- V11: Macro (daily — only push when day changes) ---
+        if (macro_day >= 0 && macro_day != last_macro_day) {
+            last_macro_day = macro_day;
+            if (!std::isnan(macro_dxy)) {
+                dxy_buf.push(macro_dxy);
+            }
+            if (!std::isnan(macro_spx)) {
+                prev_spx_close = last_spx_close;
+                last_spx_close = macro_spx;
+                spx_buf.push(macro_spx);
+            }
+            if (!std::isnan(macro_vix)) {
+                last_vix = macro_vix;
+                vix_buf.push(macro_vix);
+            }
+        }
+        // Always track BTC close for SPX-BTC correlation (when macro data exists)
+        if (macro_day >= 0) {
+            btc_close_buf_30.push(close);
+        }
+
+        // --- V11: Sentiment ---
+        if (!std::isnan(social_volume)) {
+            social_vol_buf.push(social_volume);
+            last_social_volume = social_volume;
+        }
+        if (!std::isnan(sentiment_score)) {
+            last_sentiment_score = sentiment_score;
         }
 
         // --- Microstructure state ---
@@ -1078,6 +1188,136 @@ struct BarState {
             if (std::abs(ema_val) > 1e-8)
                 out[F_hashrate_momentum] = (last_onchain_hashrate - ema_val) / ema_val;
         }
+
+        // --- V11: Liquidation features ---
+        // liquidation_volume_zscore_24
+        if (liq_volume_buf.size() >= 24) {
+            double tmp[24];
+            int start = liq_volume_buf.size() - 24;
+            for (int i = 0; i < 24; ++i) tmp[i] = liq_volume_buf[start + i];
+            out[F_liquidation_volume_zscore_24] = zscore_buf(tmp, 24, tmp[23], 1e-8);
+        }
+
+        // liquidation_imbalance
+        out[F_liquidation_imbalance] = last_liq_imbalance;
+
+        // liquidation_volume_ratio
+        if (!std::isnan(last_liq_volume) && last_quote_volume > 0) {
+            out[F_liquidation_volume_ratio] = last_liq_volume / last_quote_volume;
+        }
+
+        // liquidation_cluster_flag
+        if (liq_imbalance_buf.size() >= 6 && liq_volume_buf.size() >= 6) {
+            double recent[6];
+            int start = liq_volume_buf.size() - 6;
+            for (int i = 0; i < 6; ++i) recent[i] = liq_volume_buf[start + i];
+            double sum6 = 0.0;
+            for (int i = 0; i < 6; ++i) sum6 += recent[i];
+            double mean6 = sum6 / 6.0;
+            double var6 = 0.0;
+            for (int i = 0; i < 6; ++i) { double d = recent[i] - mean6; var6 += d * d; }
+            var6 /= 6.0;
+            double std6 = std::sqrt(var6);
+            out[F_liquidation_cluster_flag] = (std6 > 1e-8 && recent[5] > mean6 + 3.0 * std6) ? 1.0 : 0.0;
+        }
+
+        // --- V11: Mempool features ---
+        if (mempool_fee_buf.size() >= 24) {
+            double tmp[24];
+            int start = mempool_fee_buf.size() - 24;
+            for (int i = 0; i < 24; ++i) tmp[i] = mempool_fee_buf[start + i];
+            out[F_mempool_fee_zscore_24] = zscore_buf(tmp, 24, tmp[23], 1e-8);
+        }
+
+        if (mempool_size_buf.size() >= 24) {
+            double tmp[24];
+            int start = mempool_size_buf.size() - 24;
+            for (int i = 0; i < 24; ++i) tmp[i] = mempool_size_buf[start + i];
+            out[F_mempool_size_zscore_24] = zscore_buf(tmp, 24, tmp[23], 1e-8);
+        }
+
+        out[F_fee_urgency_ratio] = last_fee_urgency;
+
+        // --- V11: Macro features ---
+        // dxy_change_5d
+        if (dxy_buf.size() >= 6) {
+            double old_dxy = dxy_buf[dxy_buf.size() - 6];
+            double new_dxy = dxy_buf.back();
+            out[F_dxy_change_5d] = (old_dxy > 1e-8) ? (new_dxy - old_dxy) / old_dxy : 0.0;
+        }
+
+        // spx_btc_corr_30d
+        {
+            int n_spx = spx_buf.size();
+            int n_btc = btc_close_buf_30.size();
+            int nc = std::min(n_spx, n_btc);
+            if (nc >= 10) {
+                // Compute returns from both series
+                int m = nc - 1;  // number of return pairs
+                if (m >= 5) {
+                    double spx_rets[29], btc_rets[29];
+                    int spx_off = n_spx - nc;
+                    int btc_off = n_btc - nc;
+                    for (int i = 0; i < m; ++i) {
+                        double s0 = spx_buf[spx_off + i];
+                        double s1 = spx_buf[spx_off + i + 1];
+                        spx_rets[i] = (s0 > 0) ? (s1 - s0) / s0 : 0.0;
+                        double b0 = btc_close_buf_30[btc_off + i];
+                        double b1 = btc_close_buf_30[btc_off + i + 1];
+                        btc_rets[i] = (b0 > 0) ? (b1 - b0) / b0 : 0.0;
+                    }
+                    // Means
+                    double mean_s = 0.0, mean_b = 0.0;
+                    for (int i = 0; i < m; ++i) { mean_s += spx_rets[i]; mean_b += btc_rets[i]; }
+                    mean_s /= m; mean_b /= m;
+                    // Covariance and variances
+                    double cov = 0.0, var_s = 0.0, var_b = 0.0;
+                    for (int i = 0; i < m; ++i) {
+                        double ds = spx_rets[i] - mean_s;
+                        double db = btc_rets[i] - mean_b;
+                        cov += ds * db;
+                        var_s += ds * ds;
+                        var_b += db * db;
+                    }
+                    cov /= m; var_s /= m; var_b /= m;
+                    double denom = std::sqrt(var_s * var_b);
+                    out[F_spx_btc_corr_30d] = (denom > 1e-8) ? cov / denom : 0.0;
+                }
+            }
+        }
+
+        // spx_overnight_ret
+        if (!std::isnan(last_spx_close) && !std::isnan(prev_spx_close) && prev_spx_close > 0) {
+            out[F_spx_overnight_ret] = (last_spx_close - prev_spx_close) / prev_spx_close;
+        }
+
+        // vix_zscore_14
+        if (vix_buf.size() >= 14) {
+            double tmp[14];
+            for (int i = 0; i < 14; ++i) tmp[i] = vix_buf[i];
+            out[F_vix_zscore_14] = zscore_buf(tmp, 14, tmp[13], 1e-8);
+        }
+
+        // --- V11: Social sentiment features ---
+        if (social_vol_buf.size() >= 24) {
+            double tmp[24];
+            int start = social_vol_buf.size() - 24;
+            for (int i = 0; i < 24; ++i) tmp[i] = social_vol_buf[start + i];
+            out[F_social_volume_zscore_24] = zscore_buf(tmp, 24, tmp[23], 1e-8);
+        }
+
+        out[F_social_sentiment_score] = last_sentiment_score;
+
+        // social_volume_price_div
+        if (!std::isnan(last_social_volume) && social_vol_buf.size() >= 2 && close_history.size() >= 2) {
+            double sv_change = social_vol_buf.back() - social_vol_buf.back_n(1);
+            double price_change = close_history.back() - close_history.back_n(1);
+            if ((sv_change > 0 && price_change < 0) || (sv_change < 0 && price_change > 0)) {
+                out[F_social_volume_price_div] = 1.0;
+            } else {
+                out[F_social_volume_price_div] = 0.0;
+            }
+        }
     }
 };
 
@@ -1127,6 +1367,66 @@ struct OnchainCursor {
     }
 };
 
+// V11: Liquidation cursor (M, 4): [ts, total_vol, buy_vol, sell_vol]
+struct LiqCursor {
+    const double* data;
+    int rows;
+    int idx = 0;
+    double total_vol = NaN, buy_vol = NaN, sell_vol = NaN;
+
+    LiqCursor(const double* data, int rows) : data(data), rows(rows) {}
+
+    void advance(double bar_ts) noexcept {
+        while (idx < rows && data[idx * 4] <= bar_ts) {
+            const double* row = data + idx * 4;
+            total_vol = row[1]; buy_vol = row[2]; sell_vol = row[3];
+            ++idx;
+        }
+    }
+};
+
+// V11: Mempool cursor (M, 4): [ts, fastest_fee, economy_fee, mempool_size]
+struct MempoolCursor {
+    const double* data;
+    int rows;
+    int idx = 0;
+    double fastest_fee = NaN, economy_fee = NaN, mempool_size = NaN;
+
+    MempoolCursor(const double* data, int rows) : data(data), rows(rows) {}
+
+    void advance(double bar_ts) noexcept {
+        while (idx < rows && data[idx * 4] <= bar_ts) {
+            const double* row = data + idx * 4;
+            fastest_fee = row[1]; economy_fee = row[2]; mempool_size = row[3];
+            ++idx;
+        }
+    }
+};
+
+// V11: Macro cursor (M, 4): [ts, dxy, spx, vix]
+struct MacroCursor {
+    const double* data;
+    int rows;
+    int idx = 0;
+    double dxy = NaN, spx = NaN, vix = NaN;
+    int64_t day = -1;  // for date dedup
+
+    MacroCursor(const double* data, int rows) : data(data), rows(rows) {}
+
+    void advance(double bar_ts) noexcept {
+        while (idx < rows && data[idx * 4] <= bar_ts) {
+            const double* row = data + idx * 4;
+            // Compute day index from timestamp (ms)
+            int64_t ts_sec = static_cast<int64_t>(row[0] / 1000.0);
+            day = ts_sec / 86400;
+            if (!std::isnan(row[1])) dxy = row[1];
+            if (!std::isnan(row[2])) spx = row[2];
+            if (!std::isnan(row[3])) vix = row[3];
+            ++idx;
+        }
+    }
+};
+
 // ============================================================
 // cpp_compute_all_features — batch compute features for all bars
 // ============================================================
@@ -1149,7 +1449,11 @@ inline py::array_t<double> cpp_compute_all_features(
     py::array_t<double, py::array::c_style | py::array::forcecast> fgi_sched,
     py::array_t<double, py::array::c_style | py::array::forcecast> iv_sched,
     py::array_t<double, py::array::c_style | py::array::forcecast> pcr_sched,
-    py::array_t<double, py::array::c_style | py::array::forcecast> onchain_sched
+    py::array_t<double, py::array::c_style | py::array::forcecast> onchain_sched,
+    // V11 schedules
+    py::array_t<double, py::array::c_style | py::array::forcecast> liq_sched,
+    py::array_t<double, py::array::c_style | py::array::forcecast> mempool_sched,
+    py::array_t<double, py::array::c_style | py::array::forcecast> macro_sched
 ) {
     auto ts_buf = timestamps.request();
     int n_bars = static_cast<int>(ts_buf.shape[0]);
@@ -1208,6 +1512,30 @@ inline py::array_t<double> cpp_compute_all_features(
         oc_rows
     );
 
+    // V11: Liquidation cursor (M, 4)
+    auto liq_buf = liq_sched.request();
+    int liq_rows = (liq_buf.ndim >= 1) ? static_cast<int>(liq_buf.shape[0]) : 0;
+    LiqCursor liq_cur(
+        (liq_rows > 0 && liq_buf.ndim >= 2) ? static_cast<const double*>(liq_buf.ptr) : nullptr,
+        liq_rows
+    );
+
+    // V11: Mempool cursor (M, 4)
+    auto mp_buf = mempool_sched.request();
+    int mp_rows = (mp_buf.ndim >= 1) ? static_cast<int>(mp_buf.shape[0]) : 0;
+    MempoolCursor mp_cur(
+        (mp_rows > 0 && mp_buf.ndim >= 2) ? static_cast<const double*>(mp_buf.ptr) : nullptr,
+        mp_rows
+    );
+
+    // V11: Macro cursor (M, 4)
+    auto macro_buf = macro_sched.request();
+    int macro_rows = (macro_buf.ndim >= 1) ? static_cast<int>(macro_buf.shape[0]) : 0;
+    MacroCursor macro_cur(
+        (macro_rows > 0 && macro_buf.ndim >= 2) ? static_cast<const double*>(macro_buf.ptr) : nullptr,
+        macro_rows
+    );
+
     // Allocate output array (n_bars, N_FEATURES)
     auto result = py::array_t<double>({n_bars, N_FEATURES});
     auto result_buf = result.request();
@@ -1263,6 +1591,11 @@ inline py::array_t<double> cpp_compute_all_features(
         // Advance on-chain cursor
         oc_cur.advance(ts);
 
+        // Advance V11 cursors
+        liq_cur.advance(ts);
+        mp_cur.advance(ts);
+        macro_cur.advance(ts);
+
         // Push bar data
         state.push(close, volume, high, low, open_,
                    hour, dow,
@@ -1272,7 +1605,16 @@ inline py::array_t<double> cpp_compute_all_features(
                    implied_vol, put_call_ratio_val,
                    oc_cur.flow_in, oc_cur.flow_out,
                    oc_cur.supply, oc_cur.addr,
-                   oc_cur.tx, oc_cur.hashrate);
+                   oc_cur.tx, oc_cur.hashrate,
+                   // V11: Liquidation
+                   liq_cur.total_vol, liq_cur.buy_vol, liq_cur.sell_vol,
+                   (!std::isnan(liq_cur.total_vol) ? 1.0 : NaN),
+                   // V11: Mempool
+                   mp_cur.fastest_fee, mp_cur.economy_fee, mp_cur.mempool_size,
+                   // V11: Macro
+                   macro_cur.dxy, macro_cur.spx, macro_cur.vix, macro_cur.day,
+                   // V11: Sentiment (no historical data in batch mode)
+                   NaN, NaN);
 
         // Get features
         double* row_out = out_ptr + i * N_FEATURES;

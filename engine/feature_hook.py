@@ -29,7 +29,11 @@ class FeatureComputeHook:
                  fgi_source: Any = None,
                  implied_vol_source: Any = None,
                  put_call_ratio_source: Any = None,
-                 onchain_source: Any = None) -> None:
+                 onchain_source: Any = None,
+                 liquidation_source: Any = None,
+                 mempool_source: Any = None,
+                 macro_source: Any = None,
+                 sentiment_source: Any = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._funding_rate_source = funding_rate_source
@@ -41,6 +45,10 @@ class FeatureComputeHook:
         self._implied_vol_source = implied_vol_source
         self._put_call_ratio_source = put_call_ratio_source
         self._onchain_source = onchain_source
+        self._liquidation_source = liquidation_source
+        self._mempool_source = mempool_source
+        self._macro_source = macro_source
+        self._sentiment_source = sentiment_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         # Check once which extra params computer.on_bar accepts
         import inspect
@@ -54,6 +62,10 @@ class FeatureComputeHook:
         self._pass_fgi = "fear_greed" in sig.parameters
         self._pass_implied_vol = "implied_vol" in sig.parameters
         self._pass_onchain = "onchain_metrics" in sig.parameters
+        self._pass_liquidation = "liquidation_metrics" in sig.parameters
+        self._pass_mempool = "mempool_metrics" in sig.parameters
+        self._pass_macro = "macro_metrics" in sig.parameters
+        self._pass_sentiment = "sentiment_metrics" in sig.parameters
 
         # Schema validation: warn if model requires features the computer doesn't provide
         if inference_bridge is not None:
@@ -160,6 +172,26 @@ class FeatureComputeHook:
             oc_val = self._onchain_source()
             if oc_val is not None:
                 bar_kwargs["onchain_metrics"] = oc_val
+
+        if self._pass_liquidation and self._liquidation_source is not None:
+            liq_val = self._liquidation_source()
+            if liq_val is not None:
+                bar_kwargs["liquidation_metrics"] = liq_val
+
+        if self._pass_mempool and self._mempool_source is not None:
+            mp_val = self._mempool_source()
+            if mp_val is not None:
+                bar_kwargs["mempool_metrics"] = mp_val
+
+        if self._pass_macro and self._macro_source is not None:
+            macro_val = self._macro_source()
+            if macro_val is not None:
+                bar_kwargs["macro_metrics"] = macro_val
+
+        if self._pass_sentiment and self._sentiment_source is not None:
+            sent_val = self._sentiment_source()
+            if sent_val is not None:
+                bar_kwargs["sentiment_metrics"] = sent_val
 
         self._computer.on_bar(symbol, **bar_kwargs)
 

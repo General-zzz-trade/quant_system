@@ -29,7 +29,7 @@ _RATE_LIMIT_SLEEP = 0.7  # 10 req / 6s → ~0.6s per req, add margin
 def _fetch_page(asset: str, metrics: str, start: str, next_page_token: str | None = None) -> dict:
     url = (
         f"{_API_BASE}?assets={asset}&metrics={metrics}"
-        f"&frequency=1d&page_size={_PAGE_SIZE}&start_time={start}&sort=time"
+        f"&page_size={_PAGE_SIZE}&start_time={start}&sort=time"
     )
     if next_page_token:
         url += f"&next_page_token={next_page_token}"

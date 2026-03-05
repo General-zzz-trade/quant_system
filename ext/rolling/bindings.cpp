@@ -184,7 +184,8 @@ PYBIND11_MODULE(_quant_rolling, m) {
           py::arg("trades"), py::arg("tbv"), py::arg("qv"), py::arg("tbqv"),
           py::arg("funding_sched"), py::arg("oi_sched"), py::arg("ls_sched"),
           py::arg("spot_sched"), py::arg("fgi_sched"), py::arg("iv_sched"),
-          py::arg("pcr_sched"), py::arg("onchain_sched"));
+          py::arg("pcr_sched"), py::arg("onchain_sched"),
+          py::arg("liq_sched"), py::arg("mempool_sched"), py::arg("macro_sched"));
     m.def("cpp_feature_names", &cpp_feature_names);
 
     // Backtest engine

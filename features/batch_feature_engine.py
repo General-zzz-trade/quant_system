@@ -105,6 +105,7 @@ def compute_features_batch(
     *,
     include_iv: bool = False,
     include_onchain: bool = False,
+    include_v11: bool = False,
 ) -> pd.DataFrame:
     """Compute enriched features for all bars in df.
 
@@ -164,12 +165,23 @@ def compute_features_batch(
     else:
         onchain_arr = np.empty((0, 7), dtype=np.float64)
 
+    # V11 schedules
+    if include_v11:
+        liq_arr = _load_liq_schedule(symbol)
+        mempool_arr = _load_mempool_schedule()
+        macro_arr = _load_macro_schedule_arr()
+    else:
+        liq_arr = np.empty((0, 4), dtype=np.float64)
+        mempool_arr = np.empty((0, 4), dtype=np.float64)
+        macro_arr = np.empty((0, 4), dtype=np.float64)
+
     # Call C++ engine
     result = cpp_compute_all_features(
         timestamps, opens, highs, lows, closes, volumes,
         trades, tbv, qv, tbqv,
         funding_arr, oi_arr, ls_arr, spot_arr, fgi_arr,
         iv_arr, pcr_arr, onchain_arr,
+        liq_arr, mempool_arr, macro_arr,
     )
 
     # Wrap as DataFrame
@@ -180,6 +192,92 @@ def compute_features_batch(
     feat_df["close"] = closes
 
     return feat_df
+
+
+def _load_liq_schedule(symbol: str) -> np.ndarray:
+    """Load liquidation proxy as (M, 4): [ts, total_vol, buy_vol, sell_vol]."""
+    path = Path(f"data_files/{symbol}_liquidation_proxy.csv")
+    if not path.exists():
+        return np.empty((0, 4), dtype=np.float64)
+    rows = []
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ts = float(row.get("ts", 0))
+            if ts == 0:
+                continue
+            total = float(row.get("liq_proxy_volume", 0))
+            buy = float(row.get("liq_proxy_buy", 0))
+            sell = float(row.get("liq_proxy_sell", 0))
+            rows.append([ts, total, buy, sell])
+    if not rows:
+        return np.empty((0, 4), dtype=np.float64)
+    arr = np.array(rows, dtype=np.float64)
+    arr = arr[arr[:, 0].argsort()]
+    return arr
+
+
+def _load_mempool_schedule() -> np.ndarray:
+    """Load mempool fees as (M, 4): [ts, fastest_fee, economy_fee, mempool_size]."""
+    path = Path("data_files/btc_mempool_fees.csv")
+    if not path.exists():
+        return np.empty((0, 4), dtype=np.float64)
+    rows = []
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ts = float(row.get("timestamp", 0))
+            if ts == 0:
+                continue
+            fastest = float(row.get("max_fee", row.get("avg_fee", 0)))
+            economy = float(row.get("min_fee", 1))
+            size = float(row.get("avg_fee", 0)) * 1000
+            rows.append([ts, fastest, economy, size])
+    if not rows:
+        return np.empty((0, 4), dtype=np.float64)
+    arr = np.array(rows, dtype=np.float64)
+    arr = arr[arr[:, 0].argsort()]
+    return arr
+
+
+def _load_macro_schedule_arr() -> np.ndarray:
+    """Load macro daily as (M, 4): [ts_ms, dxy, spx, vix]."""
+    path = Path("data_files/macro_daily.csv")
+    if not path.exists():
+        return np.empty((0, 4), dtype=np.float64)
+    # Merge all values per date
+    date_data: Dict[str, Dict] = {}
+    date_ts: Dict[str, float] = {}
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            date = row.get("date", "")
+            ts_ms = float(row.get("timestamp_ms", 0))
+            if not date or ts_ms == 0:
+                continue
+            if date not in date_data:
+                date_data[date] = {}
+                date_ts[date] = ts_ms
+            else:
+                date_ts[date] = min(date_ts[date], ts_ms)
+            for key in ("dxy", "spx", "vix"):
+                val = row.get(key, "")
+                if val != "":
+                    date_data[date][key] = float(val)
+    rows = []
+    for date in sorted(date_data.keys()):
+        d = date_data[date]
+        if not d:
+            continue
+        ts = date_ts[date]
+        rows.append([ts, d.get("dxy", float("nan")),
+                     d.get("spx", float("nan")),
+                     d.get("vix", float("nan"))])
+    if not rows:
+        return np.empty((0, 4), dtype=np.float64)
+    arr = np.array(rows, dtype=np.float64)
+    arr = arr[arr[:, 0].argsort()]
+    return arr
 
 
 def _load_onchain_schedule(symbol: str) -> np.ndarray:

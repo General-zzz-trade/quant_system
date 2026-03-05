@@ -221,7 +221,7 @@ class TestFundingCarryFeatures(_Base):
 class TestV5FeatureCount(_Base):
 
     def test_enriched_feature_names_count(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 91, f"Expected 91, got {len(ENRICHED_FEATURE_NAMES)}"
+        assert len(ENRICHED_FEATURE_NAMES) == 105, f"Expected 105, got {len(ENRICHED_FEATURE_NAMES)}"
 
     def test_all_v5_features_present_after_warmup(self):
         comp = EnrichedFeatureComputer()
@@ -269,7 +269,14 @@ class TestV5FeatureCount(_Base):
                             "HashRate": 5.5e17 + i * 1e15,
                         })
         feats = comp.get_features_dict("BTC")
-        external_features = {"cross_tf_regime_sync"}
+        external_features = {
+            "cross_tf_regime_sync",
+            "liquidation_volume_zscore_24", "liquidation_imbalance",
+            "liquidation_volume_ratio", "liquidation_cluster_flag",
+            "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
+            "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
+            "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
+        }
         for name in ENRICHED_FEATURE_NAMES:
             if name in external_features:
                 continue

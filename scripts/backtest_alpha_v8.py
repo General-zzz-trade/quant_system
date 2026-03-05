@@ -307,6 +307,88 @@ def _load_fgi_schedule() -> Dict[int, float]:
     return schedule
 
 
+def _load_macro_schedule() -> Dict[int, Dict]:
+    """Load macro data, merging all values per date."""
+    import csv as _csv
+    path = Path("data_files/macro_daily.csv")
+    if not path.exists():
+        return {}
+    date_data: Dict[str, Dict] = {}
+    date_ts: Dict[str, int] = {}
+    with open(path, newline="") as f:
+        for row in _csv.DictReader(f):
+            date = row.get("date", "")
+            ts_ms = int(row.get("timestamp_ms", 0))
+            if not date or ts_ms == 0:
+                continue
+            if date not in date_data:
+                date_data[date] = {"date": date}
+                date_ts[date] = ts_ms
+            else:
+                date_ts[date] = min(date_ts[date], ts_ms)
+            for key in ("dxy", "spx", "vix"):
+                val = row.get(key, "")
+                if val != "":
+                    date_data[date][key] = float(val)
+    result: Dict[int, Dict] = {}
+    for date, d in date_data.items():
+        if len(d) > 1:
+            result[date_ts[date]] = d
+    return result
+
+
+def _load_mempool_schedule() -> Dict[int, Dict]:
+    """Load mempool fee data as schedule."""
+    import csv as _csv
+    path = Path("data_files/btc_mempool_fees.csv")
+    if not path.exists():
+        return {}
+    result: Dict[int, Dict] = {}
+    with open(path, newline="") as f:
+        for row in _csv.DictReader(f):
+            ts_ms = int(row.get("timestamp", 0))
+            if ts_ms == 0:
+                continue
+            result[ts_ms] = {
+                "fastest_fee": float(row.get("max_fee", row.get("avg_fee", 0))),
+                "economy_fee": float(row.get("min_fee", 1)),
+                "mempool_size": float(row.get("avg_fee", 0)) * 1000,
+            }
+    return result
+
+
+def _load_liq_proxy_schedule(symbol: str) -> Dict[int, Dict]:
+    """Load liquidation proxy data as schedule."""
+    import csv as _csv
+    path = Path(f"data_files/{symbol}_liquidation_proxy.csv")
+    if not path.exists():
+        return {}
+    result: Dict[int, Dict] = {}
+    with open(path, newline="") as f:
+        for row in _csv.DictReader(f):
+            ts = int(float(row.get("ts", 0)))
+            if ts == 0:
+                continue
+            result[ts] = {
+                "liq_total_volume": float(row.get("liq_proxy_volume", 0)),
+                "liq_buy_volume": float(row.get("liq_proxy_buy", 0)),
+                "liq_sell_volume": float(row.get("liq_proxy_sell", 0)),
+                "liq_count": 1.0 if float(row.get("liq_proxy_volume", 0)) > 0 else 0.0,
+            }
+    return result
+
+
+def _advance_dict_schedule(times, sched, idx, ts_ms):
+    """Advance a dict-valued schedule pointer. Returns (value, new_idx)."""
+    val = None
+    while idx < len(times) and times[idx] <= ts_ms:
+        val = sched[times[idx]]
+        idx += 1
+    if val is None and idx > 0:
+        val = sched[times[idx - 1]]
+    return val, idx
+
+
 def compute_oos_features(
     symbol: str, df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -320,12 +402,21 @@ def compute_oos_features(
     spot_closes = _load_spot_closes(symbol)
     fgi_schedule = _load_fgi_schedule()
 
+    # V11: Load new schedules
+    macro_schedule = _load_macro_schedule()
+    mempool_schedule = _load_mempool_schedule()
+    liq_schedule = _load_liq_proxy_schedule(symbol)
+
     funding_times = sorted(funding.keys())
     oi_times = sorted(oi.keys())
     ls_times = sorted(ls.keys())
     spot_times = sorted(spot_closes.keys())
     fgi_times = sorted(fgi_schedule.keys())
+    macro_times = sorted(macro_schedule.keys())
+    mempool_times = sorted(mempool_schedule.keys())
+    liq_times = sorted(liq_schedule.keys())
     f_idx, oi_idx, ls_idx, spot_idx, fgi_idx = 0, 0, 0, 0, 0
+    macro_idx, mempool_idx, liq_idx = 0, 0, 0
 
     comp = EnrichedFeatureComputer()
     records = []
@@ -386,6 +477,11 @@ def compute_oos_features(
         if fear_greed is None and fgi_idx > 0:
             fear_greed = fgi_schedule[fgi_times[fgi_idx - 1]]
 
+        # V11: Advance new schedule pointers
+        macro_val, macro_idx = _advance_dict_schedule(macro_times, macro_schedule, macro_idx, ts_ms)
+        mempool_val, mempool_idx = _advance_dict_schedule(mempool_times, mempool_schedule, mempool_idx, ts_ms)
+        liq_val, liq_idx = _advance_dict_schedule(liq_times, liq_schedule, liq_idx, ts_ms)
+
         feats = comp.on_bar(
             symbol, close=close, volume=volume, high=high, low=low,
             open_=open_, hour=hour, dow=dow, funding_rate=funding_rate,
@@ -394,6 +490,9 @@ def compute_oos_features(
             taker_buy_quote_volume=taker_buy_quote_volume,
             open_interest=open_interest, ls_ratio=ls_ratio,
             spot_close=spot_close, fear_greed=fear_greed,
+            macro_metrics=macro_val,
+            mempool_metrics=mempool_val,
+            liquidation_metrics=liq_val,
         )
         records.append(feats)
 

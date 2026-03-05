@@ -763,7 +763,10 @@ def _load_and_compute_features(
     """Compute features from raw OHLCV dataframe (V7: +basis +FGI +4h)."""
     from features.batch_feature_engine import compute_features_batch
 
-    feat_df = compute_features_batch(symbol, df)
+    # V11: use Python path if macro data exists (C++ doesn't have V11 features)
+    from pathlib import Path as _Path
+    _has_v11 = _Path("data_files/macro_daily.csv").exists()
+    feat_df = compute_features_batch(symbol, df, include_v11=_has_v11)
 
     # Cross-asset features (for non-BTC symbols)
     if cross_df is not None and symbol != "BTCUSDT":

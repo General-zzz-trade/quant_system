@@ -123,6 +123,24 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "active_addr_zscore_14",      # zscore_14d(AdrActCnt)
     "tx_count_zscore_14",         # zscore_14d(TxTfrCnt)
     "hashrate_momentum",          # (HashRate - EMA14) / EMA14
+    # --- V11: Liquidation features (Binance force orders) ---
+    "liquidation_volume_zscore_24",   # z-score of hourly liquidation volume over 24 bars
+    "liquidation_imbalance",          # (buy_liq - sell_liq) / total_liq — directional
+    "liquidation_volume_ratio",       # liq_volume / trade_volume — leverage flush intensity
+    "liquidation_cluster_flag",       # short-window cluster detection flag
+    # --- V11: Mempool features (BTC-only, mempool.space) ---
+    "mempool_fee_zscore_24",          # z-score of recommended fee over 24 bars
+    "mempool_size_zscore_24",         # z-score of mempool size over 24 bars
+    "fee_urgency_ratio",             # fastest_fee / economy_fee
+    # --- V11: Macro features (DXY/SPX/VIX, daily) ---
+    "dxy_change_5d",                  # 5-day DXY return
+    "spx_btc_corr_30d",              # 30-day SPX-BTC correlation
+    "spx_overnight_ret",              # SPX overnight return
+    "vix_zscore_14",                  # 14-day VIX z-score
+    # --- V11: Social sentiment ---
+    "social_volume_zscore_24",        # z-score of social volume over 24 bars
+    "social_sentiment_score",         # normalized sentiment score
+    "social_volume_price_div",        # social volume vs price direction divergence
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -339,6 +357,33 @@ class _SymbolState:
     _last_onchain_supply: Optional[float] = None
     _last_onchain_hashrate: Optional[float] = None
 
+    # V11: Liquidation features
+    _liq_volume_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    _liq_imbalance_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=6))
+    _last_liq_volume: Optional[float] = None
+    _last_liq_imbalance: Optional[float] = None
+    _last_liq_count: float = 0.0
+
+    # V11: Mempool features (BTC-only)
+    _mempool_fee_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    _mempool_size_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    _last_fee_urgency: Optional[float] = None
+
+    # V11: Macro features (daily)
+    _dxy_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=10))
+    _spx_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+    _btc_close_buf_30: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+    _last_spx_close: Optional[float] = None
+    _prev_spx_close: Optional[float] = None
+    _last_vix: Optional[float] = None
+    _vix_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
+    _last_macro_date: Optional[str] = None
+
+    # V11: Social sentiment
+    _social_vol_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    _last_sentiment_score: Optional[float] = None
+    _last_social_volume: Optional[float] = None
+
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
     _last_close: Optional[float] = None
@@ -363,7 +408,11 @@ class _SymbolState:
              fear_greed: Optional[float] = None,
              implied_vol: Optional[float] = None,
              put_call_ratio: Optional[float] = None,
-             onchain_metrics: Optional[Dict[str, float]] = None) -> None:
+             onchain_metrics: Optional[Dict[str, float]] = None,
+             liquidation_metrics: Optional[Dict[str, float]] = None,
+             mempool_metrics: Optional[Dict[str, float]] = None,
+             macro_metrics: Optional[Dict[str, float]] = None,
+             sentiment_metrics: Optional[Dict[str, float]] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -444,6 +493,63 @@ class _SymbolState:
             if hr is not None:
                 self._onchain_hashrate_ema.push(hr)
                 self._last_onchain_hashrate = hr
+
+        # V11: Liquidation metrics
+        if liquidation_metrics is not None:
+            total = liquidation_metrics.get("liq_total_volume", 0.0)
+            buy = liquidation_metrics.get("liq_buy_volume", 0.0)
+            sell = liquidation_metrics.get("liq_sell_volume", 0.0)
+            self._liq_volume_buf.append(total)
+            self._last_liq_volume = total
+            self._last_liq_count = liquidation_metrics.get("liq_count", 0.0)
+            if total > 0:
+                imb = (buy - sell) / total
+            else:
+                imb = 0.0
+            self._liq_imbalance_buf.append(imb)
+            self._last_liq_imbalance = imb
+
+        # V11: Mempool metrics
+        if mempool_metrics is not None:
+            fee = mempool_metrics.get("fastest_fee")
+            if fee is not None:
+                self._mempool_fee_buf.append(fee)
+            size = mempool_metrics.get("mempool_size")
+            if size is not None:
+                self._mempool_size_buf.append(size)
+            eco = mempool_metrics.get("economy_fee")
+            if fee is not None and eco is not None and eco > 0:
+                self._last_fee_urgency = fee / eco
+
+        # V11: Macro metrics (daily — only push when date changes)
+        if macro_metrics is not None:
+            date_str = macro_metrics.get("date")
+            if date_str is None or date_str != self._last_macro_date:
+                self._last_macro_date = date_str
+                dxy = macro_metrics.get("dxy")
+                if dxy is not None:
+                    self._dxy_buf.append(dxy)
+                spx = macro_metrics.get("spx")
+                if spx is not None:
+                    self._prev_spx_close = self._last_spx_close
+                    self._last_spx_close = spx
+                    self._spx_buf.append(spx)
+                vix = macro_metrics.get("vix")
+                if vix is not None:
+                    self._last_vix = vix
+                    self._vix_buf.append(vix)
+            # Always track BTC close for SPX-BTC correlation
+            self._btc_close_buf_30.append(close)
+
+        # V11: Social sentiment metrics
+        if sentiment_metrics is not None:
+            sv = sentiment_metrics.get("social_volume")
+            if sv is not None:
+                self._social_vol_buf.append(sv)
+                self._last_social_volume = sv
+            ss = sentiment_metrics.get("sentiment_score")
+            if ss is not None:
+                self._last_sentiment_score = ss
 
         # Microstructure state
         self._last_trades = trades
@@ -1145,6 +1251,131 @@ class _SymbolState:
         else:
             feats["hashrate_momentum"] = None
 
+        # --- V11: Liquidation features ---
+        # liquidation_volume_zscore_24
+        if len(self._liq_volume_buf) >= 24:
+            vals = list(self._liq_volume_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["liquidation_volume_zscore_24"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["liquidation_volume_zscore_24"] = None
+
+        # liquidation_imbalance
+        feats["liquidation_imbalance"] = self._last_liq_imbalance
+
+        # liquidation_volume_ratio: liq_vol / quote_vol
+        if self._last_liq_volume is not None and self._last_quote_volume > 0:
+            feats["liquidation_volume_ratio"] = self._last_liq_volume / self._last_quote_volume
+        else:
+            feats["liquidation_volume_ratio"] = None
+
+        # liquidation_cluster_flag: >3 std liq volume in short window (6 bars)
+        if len(self._liq_imbalance_buf) >= 6 and len(self._liq_volume_buf) >= 6:
+            recent = list(self._liq_volume_buf)[-6:]
+            mean = sum(recent) / len(recent)
+            var = sum((v - mean) ** 2 for v in recent) / len(recent)
+            std = sqrt(var) if var > 0 else 0.0
+            if std > 1e-8 and recent[-1] > mean + 3.0 * std:
+                feats["liquidation_cluster_flag"] = 1.0
+            else:
+                feats["liquidation_cluster_flag"] = 0.0
+        else:
+            feats["liquidation_cluster_flag"] = None
+
+        # --- V11: Mempool features ---
+        if len(self._mempool_fee_buf) >= 24:
+            vals = list(self._mempool_fee_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["mempool_fee_zscore_24"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["mempool_fee_zscore_24"] = None
+
+        if len(self._mempool_size_buf) >= 24:
+            vals = list(self._mempool_size_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["mempool_size_zscore_24"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["mempool_size_zscore_24"] = None
+
+        feats["fee_urgency_ratio"] = self._last_fee_urgency
+
+        # --- V11: Macro features ---
+        # dxy_change_5d
+        if len(self._dxy_buf) >= 6:
+            feats["dxy_change_5d"] = (self._dxy_buf[-1] - self._dxy_buf[-6]) / self._dxy_buf[-6] if self._dxy_buf[-6] > 1e-8 else 0.0
+        else:
+            feats["dxy_change_5d"] = None
+
+        # spx_btc_corr_30d
+        if len(self._spx_buf) >= 10 and len(self._btc_close_buf_30) >= 10:
+            n = min(len(self._spx_buf), len(self._btc_close_buf_30))
+            spx_vals = list(self._spx_buf)[-n:]
+            btc_vals = list(self._btc_close_buf_30)[-n:]
+            # Compute returns
+            if n >= 2:
+                spx_rets = [(spx_vals[i] - spx_vals[i-1]) / spx_vals[i-1] if spx_vals[i-1] > 0 else 0.0 for i in range(1, n)]
+                btc_rets = [(btc_vals[i] - btc_vals[i-1]) / btc_vals[i-1] if btc_vals[i-1] > 0 else 0.0 for i in range(1, n)]
+                m = len(spx_rets)
+                if m >= 5:
+                    mean_s = sum(spx_rets) / m
+                    mean_b = sum(btc_rets) / m
+                    cov = sum((spx_rets[i] - mean_s) * (btc_rets[i] - mean_b) for i in range(m)) / m
+                    var_s = sum((r - mean_s) ** 2 for r in spx_rets) / m
+                    var_b = sum((r - mean_b) ** 2 for r in btc_rets) / m
+                    denom = sqrt(var_s * var_b)
+                    feats["spx_btc_corr_30d"] = cov / denom if denom > 1e-8 else 0.0
+                else:
+                    feats["spx_btc_corr_30d"] = None
+            else:
+                feats["spx_btc_corr_30d"] = None
+        else:
+            feats["spx_btc_corr_30d"] = None
+
+        # spx_overnight_ret
+        if self._last_spx_close is not None and self._prev_spx_close is not None and self._prev_spx_close > 0:
+            feats["spx_overnight_ret"] = (self._last_spx_close - self._prev_spx_close) / self._prev_spx_close
+        else:
+            feats["spx_overnight_ret"] = None
+
+        # vix_zscore_14
+        if len(self._vix_buf) >= 14:
+            vals = list(self._vix_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["vix_zscore_14"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["vix_zscore_14"] = None
+
+        # --- V11: Social sentiment features ---
+        if len(self._social_vol_buf) >= 24:
+            vals = list(self._social_vol_buf)
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = sqrt(var) if var > 0 else 0.0
+            feats["social_volume_zscore_24"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
+        else:
+            feats["social_volume_zscore_24"] = None
+
+        feats["social_sentiment_score"] = self._last_sentiment_score
+
+        # social_volume_price_div: social volume up + price down (or vice versa) → divergence
+        if self._last_social_volume is not None and len(self._social_vol_buf) >= 2 and len(self.close_history) >= 2:
+            sv_change = self._social_vol_buf[-1] - self._social_vol_buf[-2]
+            price_change = self.close_history[-1] - self.close_history[-2]
+            if (sv_change > 0 and price_change < 0) or (sv_change < 0 and price_change > 0):
+                feats["social_volume_price_div"] = 1.0
+            else:
+                feats["social_volume_price_div"] = 0.0
+        else:
+            feats["social_volume_price_div"] = None
+
         return feats
 
 
@@ -1181,6 +1412,10 @@ class EnrichedFeatureComputer:
         implied_vol: Optional[float] = None,
         put_call_ratio: Optional[float] = None,
         onchain_metrics: Optional[Dict[str, float]] = None,
+        liquidation_metrics: Optional[Dict[str, float]] = None,
+        mempool_metrics: Optional[Dict[str, float]] = None,
+        macro_metrics: Optional[Dict[str, float]] = None,
+        sentiment_metrics: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features."""
         if symbol not in self._states:
@@ -1203,7 +1438,11 @@ class EnrichedFeatureComputer:
                    open_interest=open_interest, ls_ratio=ls_ratio,
                    spot_close=spot_close, fear_greed=fear_greed,
                    implied_vol=implied_vol, put_call_ratio=put_call_ratio,
-                   onchain_metrics=onchain_metrics)
+                   onchain_metrics=onchain_metrics,
+                   liquidation_metrics=liquidation_metrics,
+                   mempool_metrics=mempool_metrics,
+                   macro_metrics=macro_metrics,
+                   sentiment_metrics=sentiment_metrics)
         return state.get_features()
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:

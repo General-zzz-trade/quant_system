@@ -235,12 +235,16 @@ def _write_equity_csv(path: Path, fills: List[Dict[str, Any]], starting_balance:
 
 
 def _start_pollers(symbol: str, testnet: bool = True):
-    """Start all data pollers. Returns (funding, oi, fgi, deribit_iv, onchain) pollers."""
+    """Start all data pollers. Returns dict of pollers by name."""
     from execution.adapters.binance.funding_poller import BinanceFundingPoller
     from execution.adapters.binance.oi_poller import BinanceOIPoller
     from execution.adapters.fgi_poller import FGIPoller
     from execution.adapters.deribit_iv_poller import DeribitIVPoller
     from execution.adapters.onchain_poller import OnchainPoller
+    from execution.adapters.binance.liquidation_poller import BinanceLiquidationPoller
+    from execution.adapters.mempool_poller import MempoolPoller
+    from execution.adapters.macro_poller import MacroPoller
+    from execution.adapters.sentiment_poller import SentimentPoller
 
     currency = symbol.replace("USDT", "")
     asset = currency.lower()
@@ -249,12 +253,20 @@ def _start_pollers(symbol: str, testnet: bool = True):
     fgi = FGIPoller()
     deribit_iv = DeribitIVPoller(currency=currency)
     onchain = OnchainPoller(asset=asset)
+    liquidation = BinanceLiquidationPoller(symbol=symbol, testnet=testnet)
+    mempool = MempoolPoller()
+    macro = MacroPoller()
+    sentiment = SentimentPoller()
     funding.start()
     oi.start()
     fgi.start()
     deribit_iv.start()
     onchain.start()
-    return funding, oi, fgi, deribit_iv, onchain
+    liquidation.start()
+    mempool.start()
+    macro.start()
+    sentiment.start()
+    return funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment
 
 
 def _stop_pollers(*pollers: Any) -> None:
@@ -285,7 +297,7 @@ def run_paper(config_path: Path, duration: int) -> None:
     )
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
-    funding, oi, fgi, deribit_iv, onchain = _start_pollers(symbols[0], testnet=True)
+    funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment = _start_pollers(symbols[0], testnet=True)
 
     runner = LivePaperRunner.build(
         config,
@@ -298,6 +310,10 @@ def run_paper(config_path: Path, duration: int) -> None:
         implied_vol_source=lambda: deribit_iv.get_current()[0],
         put_call_ratio_source=lambda: deribit_iv.get_current()[1],
         onchain_source=onchain.get_current,
+        liquidation_source=liquidation.get_current,
+        mempool_source=mempool.get_current,
+        macro_source=macro.get_current,
+        sentiment_source=sentiment.get_current,
         **signal_kwargs,
     )
 

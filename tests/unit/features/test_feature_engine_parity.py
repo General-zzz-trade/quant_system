@@ -18,6 +18,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from features.enriched_computer import ENRICHED_FEATURE_NAMES
 
+# V11 features that need external data (sentiment has no historical data)
+_SENTIMENT_FEATURES = {
+    "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
+}
+# All features except sentiment (which has no batch historical data)
+_CPP_FEATURE_NAMES = [f for f in ENRICHED_FEATURE_NAMES if f not in _SENTIMENT_FEATURES]
+
 # Load data once
 DATA_PATH = Path("data_files/BTCUSDT_1h.csv")
 N_TEST_BARS = 2000
@@ -49,12 +56,12 @@ def cpp_features():
         pytest.skip("C++ feature engine not available")
 
     df = pd.read_csv(DATA_PATH).head(N_TEST_BARS)
-    return compute_features_batch("BTCUSDT", df)
+    return compute_features_batch("BTCUSDT", df, include_v11=True)
 
 
 @pytest.fixture(scope="module")
 def feature_names():
-    return list(ENRICHED_FEATURE_NAMES)
+    return list(_CPP_FEATURE_NAMES)
 
 
 class TestFeatureEngineParity:
@@ -70,7 +77,7 @@ class TestFeatureEngineParity:
         """Same number of rows."""
         assert len(python_features) == len(cpp_features)
 
-    @pytest.mark.parametrize("feat_name", list(ENRICHED_FEATURE_NAMES))
+    @pytest.mark.parametrize("feat_name", list(_CPP_FEATURE_NAMES))
     def test_feature_parity(self, python_features, cpp_features, feat_name):
         """Each feature matches between C++ and Python within tolerance."""
         py_vals = python_features[feat_name].values.astype(np.float64)

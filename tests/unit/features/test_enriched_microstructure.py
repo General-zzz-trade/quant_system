@@ -269,8 +269,16 @@ class TestFeatureCountConsistency:
                             "HashRate": 5.5e17 + i * 1e15,
                         })
         feats = comp.get_features_dict("BTC")
-        # cross_tf_regime_sync is computed externally by multi-TF aggregator
-        external_features = {"cross_tf_regime_sync"}
+        # Features that require external data sources not provided in this test
+        external_features = {
+            "cross_tf_regime_sync",
+            # V11: require liquidation/mempool/macro/sentiment data
+            "liquidation_volume_zscore_24", "liquidation_imbalance",
+            "liquidation_volume_ratio", "liquidation_cluster_flag",
+            "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
+            "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
+            "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
+        }
         for name in ENRICHED_FEATURE_NAMES:
             if name in external_features:
                 continue
