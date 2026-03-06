@@ -176,8 +176,8 @@ def _build_ml_stack(
 
     fc = EnrichedFeatureComputer()
 
-    dd_limit = pos_mgmt.get("dd_limit", 0.0)
-    dd_cooldown = pos_mgmt.get("dd_cooldown", 48)
+    dd_limit = pos_mgmt.get("dd_limit") or 0.0
+    dd_cooldown = pos_mgmt.get("dd_cooldown") or 48
 
     dms = [
         MLDecisionModule(
@@ -299,6 +299,24 @@ def run_paper(config_path: Path, duration: int) -> None:
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
     funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment = _start_pollers(symbols[0], testnet=True)
 
+    # Cross-asset computer for non-BTC symbols (BTC-lead features)
+    cross_asset = None
+    btc_kline_poller = None
+    if symbols[0] != "BTCUSDT":
+        from features.cross_asset_computer import CrossAssetComputer
+        from execution.adapters.binance.btc_kline_poller import BtcKlinePoller
+        from execution.adapters.binance.funding_poller import BinanceFundingPoller
+
+        cross_asset = CrossAssetComputer()
+        btc_funding = BinanceFundingPoller(symbol="BTCUSDT", testnet=True)
+        btc_funding.start()
+        btc_kline_poller = BtcKlinePoller(
+            cross_asset, testnet=True,
+            funding_source=btc_funding.get_rate,
+        )
+        btc_kline_poller.start()
+        logger.info("Cross-asset enabled: BTC kline poller feeding CrossAssetComputer")
+
     runner = LivePaperRunner.build(
         config,
         feature_computer=fc,
@@ -314,6 +332,7 @@ def run_paper(config_path: Path, duration: int) -> None:
         mempool_source=mempool.get_current,
         macro_source=macro.get_current,
         sentiment_source=sentiment.get_current,
+        cross_asset_computer=cross_asset,
         **signal_kwargs,
     )
 
@@ -331,6 +350,8 @@ def run_paper(config_path: Path, duration: int) -> None:
         runner.stop()
     finally:
         _stop_pollers(funding, oi, fgi, deribit_iv, onchain, liquidation, mempool, macro, sentiment)
+        if btc_kline_poller is not None:
+            btc_kline_poller.stop()
 
     out = _output_dir(config_path)
     _write_equity_csv(out / "paper_equity.csv", runner.fills, 10000.0)

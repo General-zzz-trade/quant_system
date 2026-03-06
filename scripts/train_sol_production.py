@@ -272,12 +272,12 @@ def main():
 
     lgbm_path = OUT_DIR / "lgbm_v8.pkl"
     with open(lgbm_path, "wb") as f:
-        pickle.dump(lgbm_model, f)
+        pickle.dump({"model": lgbm_model, "features": tuple(selected)}, f)
     print(f"\n  Saved LGBM: {lgbm_path}")
 
     xgb_path = OUT_DIR / "xgb_v8.pkl"
     with open(xgb_path, "wb") as f:
-        pickle.dump(xgb_model, f)
+        pickle.dump({"model": xgb_model, "features": tuple(selected)}, f)
     print(f"  Saved XGB: {xgb_path}")
 
     config = {
