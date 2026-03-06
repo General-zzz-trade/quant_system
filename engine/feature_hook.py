@@ -201,7 +201,9 @@ class FeatureComputeHook:
 
         if self._cross_asset is not None:
             funding_rate = bar_kwargs.get("funding_rate")
-            self._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate)
+            self._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
+                                     high=bar_kwargs.get("high"),
+                                     low=bar_kwargs.get("low"))
             cross_feats = self._cross_asset.get_features(symbol)
             features.update(cross_feats)
 

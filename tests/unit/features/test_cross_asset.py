@@ -107,12 +107,47 @@ class TestCrossAssetComputer:
             assert feats[name] is None
 
     def test_feature_names_complete(self):
-        assert len(CROSS_ASSET_FEATURE_NAMES) == 10
+        assert len(CROSS_ASSET_FEATURE_NAMES) == 17
         expected = [
             "btc_ret_1", "btc_ret_3", "btc_ret_6",
+            "btc_ret_12", "btc_ret_24",
+            "btc_rsi_14", "btc_macd_line",
+            "btc_mean_reversion_20", "btc_atr_norm_14", "btc_bb_width_20",
             "rolling_beta_30", "rolling_beta_60",
             "relative_strength_20", "rolling_corr_30",
             "funding_diff", "funding_diff_ma8",
             "spread_zscore_20",
         ]
         assert set(CROSS_ASSET_FEATURE_NAMES) == set(expected)
+
+    def test_btc_lead_features_after_warmup(self):
+        comp = CrossAssetComputer()
+        # Push 35 bars with high/low for BTC
+        for i in range(35):
+            btc_close = 40000.0 + i * 10.0
+            comp.on_bar("BTCUSDT", close=btc_close, funding_rate=0.0001,
+                        high=btc_close + 50, low=btc_close - 50)
+            comp.on_bar("ETHUSDT", close=3000.0 + i * 8.0)
+        feats = comp.get_features("ETHUSDT")
+        assert feats["btc_ret_12"] is not None
+        assert feats["btc_ret_24"] is not None
+        assert feats["btc_rsi_14"] is not None
+        assert feats["btc_macd_line"] is not None
+        assert feats["btc_mean_reversion_20"] is not None
+        assert feats["btc_atr_norm_14"] is not None
+        assert feats["btc_bb_width_20"] is not None
+        # RSI should be between 0 and 100
+        assert 0 <= feats["btc_rsi_14"] <= 100
+        # BB width should be positive
+        assert feats["btc_bb_width_20"] > 0
+
+    def test_btc_lead_features_none_during_warmup(self):
+        comp = CrossAssetComputer()
+        for i in range(5):
+            comp.on_bar("BTCUSDT", close=40000.0 + i * 10, high=40050, low=39950)
+            comp.on_bar("ETHUSDT", close=3000.0 + i * 8)
+        feats = comp.get_features("ETHUSDT")
+        assert feats["btc_ret_12"] is None  # need > 12 bars
+        assert feats["btc_ret_24"] is None
+        assert feats["btc_rsi_14"] is None  # need >= 15 bars
+        assert feats["btc_mean_reversion_20"] is None  # need >= 20 bars

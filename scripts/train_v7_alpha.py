@@ -856,8 +856,12 @@ def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame
 
             if ts in btc_map:
                 bi = btc_map[ts]
-                btc_close = float(btc_df.iloc[bi]["close"])
-                comp.on_bar("BTCUSDT", close=btc_close, funding_rate=btc_fr)
+                btc_row = btc_df.iloc[bi]
+                btc_close = float(btc_row["close"])
+                btc_high = float(btc_row.get("high", btc_close))
+                btc_low = float(btc_row.get("low", btc_close))
+                comp.on_bar("BTCUSDT", close=btc_close, funding_rate=btc_fr,
+                            high=btc_high, low=btc_low)
 
             sym_close = float(sym_df.iloc[i]["close"])
             comp.on_bar(sym, close=sym_close, funding_rate=sym_fr)

@@ -18,6 +18,12 @@ from features.rolling import RollingWindow
 
 CROSS_ASSET_FEATURE_NAMES: tuple[str, ...] = (
     "btc_ret_1", "btc_ret_3", "btc_ret_6",
+    "btc_ret_12", "btc_ret_24",
+    "btc_rsi_14",
+    "btc_macd_line",
+    "btc_mean_reversion_20",
+    "btc_atr_norm_14",
+    "btc_bb_width_20",
     "rolling_beta_30", "rolling_beta_60",
     "relative_strength_20",
     "rolling_corr_30",
@@ -31,15 +37,47 @@ _BENCHMARK = "BTCUSDT"
 @dataclass
 class _AssetState:
     """Per-asset state for cross-asset computations."""
-    close_history: Deque[float] = field(default_factory=lambda: deque(maxlen=65))
+    close_history: Deque[float] = field(default_factory=lambda: deque(maxlen=70))
     _last_funding_rate: Optional[float] = None
     _bar_count: int = 0
+    # Extended state for BTC technical indicators
+    _high_history: Deque[float] = field(default_factory=lambda: deque(maxlen=25))
+    _low_history: Deque[float] = field(default_factory=lambda: deque(maxlen=25))
+    _rsi_gain_ema: Optional[float] = None
+    _rsi_loss_ema: Optional[float] = None
+    _ema_12: Optional[float] = None
+    _ema_26: Optional[float] = None
 
-    def push(self, close: float, *, funding_rate: Optional[float] = None) -> None:
+    def push(self, close: float, *, funding_rate: Optional[float] = None,
+             high: Optional[float] = None, low: Optional[float] = None) -> None:
+        prev_close = self.close_history[-1] if self.close_history else None
         self.close_history.append(close)
         self._bar_count += 1
         if funding_rate is not None:
             self._last_funding_rate = funding_rate
+        if high is not None:
+            self._high_history.append(high)
+        if low is not None:
+            self._low_history.append(low)
+        # Update RSI EMAs
+        if prev_close is not None:
+            delta = close - prev_close
+            gain = max(delta, 0.0)
+            loss = max(-delta, 0.0)
+            if self._rsi_gain_ema is None:
+                self._rsi_gain_ema = gain
+                self._rsi_loss_ema = loss
+            else:
+                alpha = 1.0 / 14.0
+                self._rsi_gain_ema = alpha * gain + (1 - alpha) * self._rsi_gain_ema
+                self._rsi_loss_ema = alpha * loss + (1 - alpha) * self._rsi_loss_ema
+        # Update MACD EMAs
+        if self._ema_12 is None:
+            self._ema_12 = close
+            self._ema_26 = close
+        else:
+            self._ema_12 = (2.0 / 13.0) * close + (11.0 / 13.0) * self._ema_12
+            self._ema_26 = (2.0 / 27.0) * close + (25.0 / 27.0) * self._ema_26
 
     def ret(self, lag: int) -> Optional[float]:
         n = len(self.close_history)
@@ -49,6 +87,64 @@ class _AssetState:
         if base == 0:
             return None
         return (self.close_history[-1] - base) / base
+
+    def rsi_14(self) -> Optional[float]:
+        if self._rsi_gain_ema is None or self._bar_count < 15:
+            return None
+        if self._rsi_loss_ema < 1e-12:
+            return 100.0
+        rs = self._rsi_gain_ema / self._rsi_loss_ema
+        return 100.0 - 100.0 / (1.0 + rs)
+
+    def macd_line(self) -> Optional[float]:
+        if self._ema_12 is None or self._bar_count < 27:
+            return None
+        return self._ema_12 - self._ema_26
+
+    def mean_reversion_20(self) -> Optional[float]:
+        n = len(self.close_history)
+        if n < 20:
+            return None
+        recent = list(self.close_history)[-20:]
+        sma = sum(recent) / 20
+        if sma == 0:
+            return None
+        return (self.close_history[-1] - sma) / sma
+
+    def atr_norm_14(self) -> Optional[float]:
+        nh = len(self._high_history)
+        nl = len(self._low_history)
+        nc = len(self.close_history)
+        if nh < 14 or nl < 14 or nc < 15:
+            return None
+        highs = list(self._high_history)[-14:]
+        lows = list(self._low_history)[-14:]
+        closes = list(self.close_history)[-(14 + 1):]
+        atr_sum = 0.0
+        for i in range(14):
+            tr = max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i]),
+                abs(lows[i] - closes[i]),
+            )
+            atr_sum += tr
+        atr = atr_sum / 14.0
+        cur = self.close_history[-1]
+        if cur == 0:
+            return None
+        return atr / cur
+
+    def bb_width_20(self) -> Optional[float]:
+        n = len(self.close_history)
+        if n < 20:
+            return None
+        recent = list(self.close_history)[-20:]
+        sma = sum(recent) / 20
+        if sma == 0:
+            return None
+        var = sum((x - sma) ** 2 for x in recent) / 20
+        std = var ** 0.5
+        return (4.0 * std) / sma
 
 
 @dataclass
@@ -131,11 +227,14 @@ class CrossAssetComputer:
     _pairs: Dict[str, _PairState] = field(default_factory=dict, init=False)
 
     def on_bar(self, symbol: str, *, close: float,
-               funding_rate: Optional[float] = None) -> None:
+               funding_rate: Optional[float] = None,
+               high: Optional[float] = None,
+               low: Optional[float] = None) -> None:
         """Update asset state. Non-benchmark symbols also update pair state."""
         if symbol not in self._assets:
             self._assets[symbol] = _AssetState()
-        self._assets[symbol].push(close, funding_rate=funding_rate)
+        self._assets[symbol].push(close, funding_rate=funding_rate,
+                                  high=high, low=low)
 
         if symbol != _BENCHMARK:
             bench_state = self._assets.get(_BENCHMARK)
@@ -171,6 +270,13 @@ class CrossAssetComputer:
         feats["btc_ret_1"] = bench_state.ret(1)
         feats["btc_ret_3"] = bench_state.ret(3)
         feats["btc_ret_6"] = bench_state.ret(6)
+        feats["btc_ret_12"] = bench_state.ret(12)
+        feats["btc_ret_24"] = bench_state.ret(24)
+        feats["btc_rsi_14"] = bench_state.rsi_14()
+        feats["btc_macd_line"] = bench_state.macd_line()
+        feats["btc_mean_reversion_20"] = bench_state.mean_reversion_20()
+        feats["btc_atr_norm_14"] = bench_state.atr_norm_14()
+        feats["btc_bb_width_20"] = bench_state.bb_width_20()
 
         pair_key = f"{symbol}_{benchmark}"
         pair = self._pairs.get(pair_key)
