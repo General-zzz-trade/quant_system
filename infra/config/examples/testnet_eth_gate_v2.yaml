@@ -1,0 +1,41 @@
+# ETH V8 gate_v2 Paper Trading — Strategy F (regime-switch)
+# WF: 15/21 positive Sharpe, BTC-lead + ETH-optimized features
+# Signal constraints loaded from models_v8/ETHUSDT_gate_v2/config.json
+
+trading:
+  symbols: [ETHUSDT]
+  exchange: binance
+  testnet: true
+  mode: live
+
+strategy:
+  model_path: models_v8/ETHUSDT_gate_v2
+  bear_model_path: models_v8/ETHUSDT_bear_c
+  threshold: 0.0001
+  threshold_short: 999.0   # long-only
+  risk_pct: 0.30
+  order_qty: "0.1"
+  monthly_gate: true
+  monthly_gate_window: 480
+
+risk:
+  max_position_notional: 500.0
+  max_leverage: 2.0
+  max_drawdown_pct: 5.0
+  max_orders_per_minute: 10
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+logging:
+  level: DEBUG
+  structured: true
+  file: logs/eth_paper_trading.log
+
+monitoring:
+  health_check_interval: 30.0

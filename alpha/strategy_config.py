@@ -60,6 +60,23 @@ SYMBOL_CONFIG = {
         monthly_gate_window=480,
         model_dir="models_v8/SOLUSDT_gate_v2",
     ),
+    "ETHUSDT": SymbolStrategyConfig(
+        fixed_features=[
+            "ret_24", "atr_norm_14", "parkinson_vol", "bb_width_20", "vol_20",
+            "rsi_14", "tf4h_atr_norm_14", "tf4h_ret_6", "basis_zscore_24",
+            "basis_momentum", "btc_ret_24", "btc_rsi_14", "btc_mean_reversion_20",
+        ],
+        candidate_pool=[
+            "mean_reversion_20", "rsi_6", "ma_cross_10_30", "close_vs_ma50",
+            "vol_of_vol", "fgi_normalized", "funding_ma8", "vwap_dev_20",
+            "btc_atr_norm_14", "btc_bb_width_20",
+        ],
+        n_flexible=4,
+        deadzone=0.5,
+        min_hold=24,
+        monthly_gate_window=480,
+        model_dir="models_v8/ETHUSDT_gate_v2",
+    ),
 }
 
 
