@@ -216,6 +216,7 @@ class TestMinHoldPreventsEarlyChange:
             models=[model],
             min_hold_bars={"BTCUSDT": 4},
             deadzone=0.5,
+            zscore_warmup=0,
         )
         scores = _run_n(bridge, "BTCUSDT", 6)
         # Bars 0-3: +1 held despite alternating raw scores
@@ -231,6 +232,7 @@ class TestMinHoldAllowsChangeAfterExpiry:
             models=[model],
             min_hold_bars={"BTCUSDT": 5},
             deadzone=0.5,
+            zscore_warmup=0,
         )
         scores = _run_n(bridge, "BTCUSDT", 7)
         assert scores[0] == 1.0
@@ -249,6 +251,7 @@ class TestLongOnlyClipsShort:
             min_hold_bars={"SOLUSDT": 1},
             long_only_symbols={"SOLUSDT"},
             deadzone=0.5,
+            zscore_warmup=0,
         )
         scores = _run_n(bridge, "SOLUSDT", 3)
         # raw=-0.8 → long_only clip to 0 → |0| < 0.5 → desired=0
@@ -274,6 +277,7 @@ class TestNoMinHoldPreservesRawBehavior:
             models=[model],
             min_hold_bars={"BTCUSDT": 24},  # only BTC constrained
             deadzone=0.5,
+            zscore_warmup=0,
         )
         ts = datetime(2024, 1, 1)
         feats: Dict[str, Any] = {}
@@ -298,6 +302,7 @@ class TestTrendHoldKeepsPosition:
             min_hold_bars={"BTCUSDT": 2},
             long_only_symbols={"BTCUSDT"},
             deadzone=0.5,
+            zscore_warmup=0,
             trend_follow=True,
             trend_indicator="trend",
             trend_threshold=0.0,
@@ -325,6 +330,7 @@ class TestTrendHoldKeepsPosition:
             min_hold_bars={"BTCUSDT": 2},
             long_only_symbols={"BTCUSDT"},
             deadzone=0.5,
+            zscore_warmup=0,
             trend_follow=True,
             trend_indicator="trend",
             trend_threshold=0.0,
@@ -347,6 +353,7 @@ class TestTrendHoldKeepsPosition:
             min_hold_bars={"BTCUSDT": 2},
             long_only_symbols={"BTCUSDT"},
             deadzone=0.5,
+            zscore_warmup=0,
             trend_follow=False,
         )
         features_per_bar = [{"trend": 1.0}] * 3
@@ -367,6 +374,7 @@ class TestMonthlyGate:
             models=[model],
             min_hold_bars={"BTCUSDT": 1},
             deadzone=0.5,
+            zscore_warmup=0,
             monthly_gate=True,
             monthly_gate_window=3,
         )
@@ -387,6 +395,7 @@ class TestMonthlyGate:
             models=[model],
             min_hold_bars={"BTCUSDT": 1},
             deadzone=0.5,
+            zscore_warmup=0,
             monthly_gate=True,
             monthly_gate_window=3,
         )
@@ -414,6 +423,7 @@ class TestMonthlyGate:
             models=[model],
             min_hold_bars={"BTCUSDT": 1},
             deadzone=0.5,
+            zscore_warmup=0,
             monthly_gate=False,  # default
         )
         # Declining prices — without gate, signal should still be +1
@@ -421,3 +431,57 @@ class TestMonthlyGate:
         features_per_bar = [{"close": p} for p in prices]
         scores = _run_n(bridge, "BTCUSDT", 4, features_per_bar)
         assert all(s == 1.0 for s in scores)
+
+
+# ── Z-score normalization tests ──────────────────────────────
+
+class TestZscoreNormalization:
+    def test_warmup_returns_flat(self):
+        """During z-score warmup, position stays flat."""
+        model = SequenceModel(_scores=[0.8] * 10)
+        bridge = LiveInferenceBridge(
+            models=[model],
+            min_hold_bars={"BTCUSDT": 1},
+            deadzone=0.5,
+            zscore_warmup=5,
+        )
+        scores = _run_n(bridge, "BTCUSDT", 4)
+        # All within warmup (4 < 5) → flat
+        assert all(s == 0.0 for s in scores)
+
+    def test_zscore_triggers_after_warmup(self):
+        """After warmup, z-score normalization produces non-zero signals."""
+        # Feed constant 0.5 for warmup, then a spike at 0.8
+        # z-score of 0.8 relative to mean=0.5 should be large
+        n_warmup = 10
+        baseline = [0.5] * n_warmup + [0.8, 0.8, 0.8]
+        model = SequenceModel(_scores=baseline)
+        bridge = LiveInferenceBridge(
+            models=[model],
+            min_hold_bars={"BTCUSDT": 1},
+            deadzone=0.5,
+            zscore_window=20,
+            zscore_warmup=n_warmup,
+        )
+        scores = _run_n(bridge, "BTCUSDT", n_warmup + 3)
+        # Warmup bars: flat
+        assert all(s == 0.0 for s in scores[:n_warmup])
+        # After warmup: 0.8 is well above mean(0.5), z >> 0.5 → +1
+        assert scores[n_warmup] == 1.0
+
+    def test_zscore_long_only_clips_negative_z(self):
+        """With long_only, negative z-scores are clipped to 0."""
+        n_warmup = 10
+        baseline = [0.5] * n_warmup + [-0.8, -0.8]
+        model = SequenceModel(_scores=baseline)
+        bridge = LiveInferenceBridge(
+            models=[model],
+            min_hold_bars={"BTCUSDT": 1},
+            long_only_symbols={"BTCUSDT"},
+            deadzone=0.5,
+            zscore_window=20,
+            zscore_warmup=n_warmup,
+        )
+        scores = _run_n(bridge, "BTCUSDT", n_warmup + 2)
+        # After warmup: -0.8 has very negative z → clipped to 0 by long_only → flat
+        assert scores[n_warmup] == 0.0

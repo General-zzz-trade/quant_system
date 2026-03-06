@@ -2,7 +2,7 @@
 """Tests for model hot-reload (SIGHUP) pipeline."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from alpha.base import AlphaModel, Signal
@@ -51,9 +51,10 @@ def test_update_models_clears_state():
         models=[m1],
         min_hold_bars={"BTCUSDT": 5},
         long_only_symbols={"BTCUSDT"},
+        zscore_warmup=0,
     )
     # Warm up state
-    bridge.enrich("BTCUSDT", datetime.utcnow(), {"close": 100.0})
+    bridge.enrich("BTCUSDT", datetime.now(timezone.utc), {"close": 100.0})
     assert bridge._position != {} or bridge._hold_counter != {} or bridge._close_history != {}
 
     m2 = _DummyModel("m2", 0.9)
@@ -62,6 +63,7 @@ def test_update_models_clears_state():
     assert bridge._position == {}
     assert bridge._hold_counter == {}
     assert bridge._close_history == {}
+    assert bridge._zscore_buf == {}
     assert bridge._engine._models[0].name == "m2"
 
 

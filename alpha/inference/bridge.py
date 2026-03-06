@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Sequence, Set, Union
 
 from alpha.base import AlphaModel
@@ -46,6 +46,8 @@ class LiveInferenceBridge:
         bear_thresholds: Optional[Sequence[tuple]] = None,
         vol_target: Union[None, float, Dict[str, Optional[float]]] = None,
         vol_feature: Union[str, Dict[str, str]] = "atr_norm_14",
+        zscore_window: int = 720,
+        zscore_warmup: int = 168,
     ) -> None:
         self._engine = InferenceEngine(models=list(models))
         self._score_key = score_key
@@ -75,12 +77,17 @@ class LiveInferenceBridge:
         self._hold_counter: Dict[str, int] = {}
         # Per-symbol close history for monthly gate
         self._close_history: Dict[str, deque] = {}
+        # Per-symbol rolling z-score buffer (matches backtest pred_to_signal)
+        self._zscore_window = zscore_window
+        self._zscore_warmup = zscore_warmup
+        self._zscore_buf: Dict[str, deque] = {}
 
     def update_models(self, models: Sequence[AlphaModel]) -> None:
         self._engine.set_models(models)
         self._position.clear()
         self._hold_counter.clear()
         self._close_history.clear()
+        self._zscore_buf.clear()
         logger.info("Models hot-swapped: %d model(s)", len(models))
 
     @staticmethod
@@ -90,25 +97,51 @@ class LiveInferenceBridge:
             return param.get(symbol, default)
         return param if param is not None else default
 
+    def _zscore_normalize(self, symbol: str, raw_score: float) -> Optional[float]:
+        """Rolling z-score normalization matching backtest pred_to_signal."""
+        buf = self._zscore_buf.get(symbol)
+        if buf is None:
+            buf = deque(maxlen=self._zscore_window)
+            self._zscore_buf[symbol] = buf
+        buf.append(raw_score)
+        if len(buf) < self._zscore_warmup:
+            return None  # warmup period — no signal
+        vals = list(buf)
+        n = len(vals)
+        mu = sum(vals) / n
+        var = sum((v - mu) ** 2 for v in vals) / n
+        std = var ** 0.5
+        if std < 1e-12:
+            return None
+        return (raw_score - mu) / std
+
     def _apply_constraints(
         self, symbol: str, raw_score: float, features: Optional[Dict[str, Any]] = None,
     ) -> float:
-        """Apply long_only clip, discretization, min_hold, and trend_hold constraints."""
+        """Apply z-score normalization, long_only clip, discretization, min_hold, and trend_hold."""
         min_hold = self._min_hold_bars.get(symbol)
         if min_hold is None:
             # No constraints — raw float passthrough (backward-compatible)
             return raw_score
 
-        # Long-only clip
-        score = raw_score
+        # Rolling z-score normalization (matches backtest pred_to_signal)
+        if self._zscore_warmup > 0:
+            z = self._zscore_normalize(symbol, raw_score)
+            if z is None:
+                # Warmup period — hold previous position or stay flat
+                return self._position.get(symbol, 0.0)
+        else:
+            z = raw_score
+
+        # Long-only clip (on z-score)
         if symbol in self._long_only_symbols:
-            score = max(0.0, score)
+            z = max(0.0, z)
 
         # Discretize: z > deadzone → +1, z < -deadzone → -1, else 0
         dz = self._resolve(self._deadzone, symbol, 0.5)
-        if score > dz:
+        if z > dz:
             desired = 1.0
-        elif score < -dz:
+        elif z < -dz:
             desired = -1.0
         else:
             desired = 0.0
@@ -167,7 +200,7 @@ class LiveInferenceBridge:
     ) -> Dict[str, Any]:
         """Run inference and add ml_score to features dict."""
         if ts is None:
-            ts = datetime.utcnow()
+            ts = datetime.now(timezone.utc)
 
         # Track close for monthly gate
         close_val = features.get("close")
@@ -235,8 +268,8 @@ class LiveInferenceBridge:
                 features[self._score_key] = score
 
                 logger.debug(
-                    "Inference %s/%s: side=%s strength=%.4f latency=%.1fms",
-                    r.model_name, symbol, r.signal.side, r.signal.strength, r.latency_ms,
+                    "Inference %s/%s: side=%s strength=%.4f score=%.4f latency=%.1fms",
+                    r.model_name, symbol, r.signal.side, r.signal.strength, score, r.latency_ms,
                 )
                 if self._metrics is not None:
                     self._metrics.observe_histogram(
