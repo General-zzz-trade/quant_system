@@ -597,6 +597,9 @@ def run_backtest(
         vol_feature = pm.get("vol_feature", vol_feature)
     if dd_limit is None and pm.get("dd_limit") is not None:
         dd_limit = pm["dd_limit"]
+        # Config stores positive (e.g. 0.10), breaker expects negative (e.g. -0.10)
+        if dd_limit > 0:
+            dd_limit = -dd_limit
         dd_cooldown = pm.get("dd_cooldown", dd_cooldown)
 
     print(f"\n{'='*70}")
@@ -624,7 +627,38 @@ def run_backtest(
     # Compute features
     print("  Computing features...")
     from features.batch_feature_engine import compute_features_batch
-    feat_df = compute_features_batch(symbol, oos_df)
+    # Enable V11 features (macro/mempool/liquidation) if any are needed
+    v11_features = {"spx_overnight_ret", "mempool_size_zscore_24", "mempool_fee_zscore_24",
+                    "fee_urgency_ratio", "exchange_supply_zscore_30", "liquidation_cascade_score",
+                    "dxy_change_5d", "vix_zscore_14"}
+    needs_v11 = bool(set(feature_names) & v11_features)
+    feat_df = compute_features_batch(symbol, oos_df, include_v11=needs_v11)
+
+    # Cross-asset features for non-BTC symbols (BTC-lead alpha)
+    cross_features = {"btc_ret_1", "btc_ret_3", "btc_ret_6", "btc_ret_12", "btc_ret_24",
+                      "btc_rsi_14", "btc_macd_line", "btc_mean_reversion_20",
+                      "btc_atr_norm_14", "btc_bb_width_20",
+                      "rolling_beta_30", "rolling_beta_60", "relative_strength_20",
+                      "rolling_corr_30", "funding_diff", "funding_diff_ma8", "spread_zscore_20"}
+    needs_cross = symbol != "BTCUSDT" and bool(set(feature_names) & cross_features)
+    if needs_cross:
+        print("  Computing cross-asset (BTC-lead) features...")
+        from scripts.train_v7_alpha import _build_cross_features
+        cross_map = _build_cross_features([symbol])
+        if cross_map and symbol in cross_map:
+            cross_df = cross_map[symbol]
+            ts_col_name = "timestamp" if "timestamp" in oos_df.columns else "open_time"
+            oos_ts = oos_df[ts_col_name].values.astype(np.int64)
+            for cname in cross_df.columns:
+                if cname in feature_names or cname in cross_features:
+                    vals = np.full(len(oos_df), np.nan)
+                    for i, ts in enumerate(oos_ts):
+                        if ts in cross_df.index:
+                            v = cross_df.loc[ts].get(cname)
+                            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                                vals[i] = float(v)
+                    feat_df[cname] = vals
+            print(f"    Merged {len([c for c in cross_df.columns if c in feat_df.columns])} cross-asset features")
 
     # Prepare X matrix
     for fname in feature_names:

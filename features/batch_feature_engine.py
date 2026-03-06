@@ -191,6 +191,13 @@ def compute_features_batch(
     # Replace NaN features with NaN (already done by C++ via NaN sentinel)
     feat_df["close"] = closes
 
+    # Multi-timeframe 4h features (not in C++ engine)
+    from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+    tf4h = compute_4h_features(df)
+    for col in TF4H_FEATURE_NAMES:
+        if col in tf4h.columns:
+            feat_df[col] = tf4h[col].values
+
     return feat_df
 
 
