@@ -75,19 +75,23 @@ class LiveInferenceBridge:
         # Per-symbol state for min_hold enforcement
         self._position: Dict[str, float] = {}
         self._hold_counter: Dict[str, int] = {}
-        # Per-symbol close history for monthly gate
+        # Per-symbol close history for monthly gate (hourly resolution)
         self._close_history: Dict[str, deque] = {}
+        self._gate_last_hour: Dict[str, int] = {}  # track last hour appended
         # Per-symbol rolling z-score buffer (matches backtest pred_to_signal)
         self._zscore_window = zscore_window
         self._zscore_warmup = zscore_warmup
         self._zscore_buf: Dict[str, deque] = {}
+        self._zscore_last_hour: Dict[str, int] = {}  # track last hour appended
 
     def update_models(self, models: Sequence[AlphaModel]) -> None:
         self._engine.set_models(models)
         self._position.clear()
         self._hold_counter.clear()
         self._close_history.clear()
+        self._gate_last_hour.clear()
         self._zscore_buf.clear()
+        self._zscore_last_hour.clear()
         logger.info("Models hot-swapped: %d model(s)", len(models))
 
     @staticmethod
@@ -97,13 +101,27 @@ class LiveInferenceBridge:
             return param.get(symbol, default)
         return param if param is not None else default
 
-    def _zscore_normalize(self, symbol: str, raw_score: float) -> Optional[float]:
-        """Rolling z-score normalization matching backtest pred_to_signal."""
+    def _zscore_normalize(self, symbol: str, raw_score: float, ts: Optional[datetime] = None) -> Optional[float]:
+        """Rolling z-score normalization matching backtest pred_to_signal.
+
+        Only accumulates on hourly boundaries to match backtest (1h bars).
+        Returns z-score using the latest raw_score against the hourly buffer.
+        """
         buf = self._zscore_buf.get(symbol)
         if buf is None:
             buf = deque(maxlen=self._zscore_window)
             self._zscore_buf[symbol] = buf
-        buf.append(raw_score)
+
+        # Only append to buffer on new hour boundary
+        if ts is not None:
+            hour_key = int(ts.timestamp()) // 3600
+        else:
+            hour_key = int(datetime.now(timezone.utc).timestamp()) // 3600
+        last_hour = self._zscore_last_hour.get(symbol, -1)
+        if hour_key != last_hour:
+            buf.append(raw_score)
+            self._zscore_last_hour[symbol] = hour_key
+
         if len(buf) < self._zscore_warmup:
             return None  # warmup period — no signal
         vals = list(buf)
@@ -117,6 +135,7 @@ class LiveInferenceBridge:
 
     def _apply_constraints(
         self, symbol: str, raw_score: float, features: Optional[Dict[str, Any]] = None,
+        ts: Optional[datetime] = None,
     ) -> float:
         """Apply z-score normalization, long_only clip, discretization, min_hold, and trend_hold."""
         min_hold = self._min_hold_bars.get(symbol)
@@ -126,7 +145,7 @@ class LiveInferenceBridge:
 
         # Rolling z-score normalization (matches backtest pred_to_signal)
         if self._zscore_warmup > 0:
-            z = self._zscore_normalize(symbol, raw_score)
+            z = self._zscore_normalize(symbol, raw_score, ts)
             if z is None:
                 # Warmup period — hold previous position or stay flat
                 return self._position.get(symbol, 0.0)
@@ -177,8 +196,13 @@ class LiveInferenceBridge:
             self._hold_counter[symbol] = hold_count + 1
         return desired
 
-    def _check_monthly_gate(self, symbol: str, close: float) -> bool:
-        """Return True if signal is allowed (close > MA), False if gated."""
+    def _check_monthly_gate(self, symbol: str, close: float, ts: Optional[datetime] = None) -> bool:
+        """Return True if signal is allowed (close > MA), False if gated.
+
+        Only appends close on hourly boundaries to match backtest SMA(480h).
+        During warmup (< w hourly bars), returns True to allow trading
+        while accumulating history.
+        """
         if not self._monthly_gate:
             return True
         w = self._resolve(self._monthly_gate_window, symbol, 480)
@@ -186,9 +210,19 @@ class LiveInferenceBridge:
         if hist is None:
             hist = deque(maxlen=w)
             self._close_history[symbol] = hist
-        hist.append(close)
+
+        # Only append on new hour boundary
+        if ts is not None:
+            hour_key = int(ts.timestamp()) // 3600
+        else:
+            hour_key = int(datetime.now(timezone.utc).timestamp()) // 3600
+        last_hour = self._gate_last_hour.get(symbol, -1)
+        if hour_key != last_hour:
+            hist.append(close)
+            self._gate_last_hour[symbol] = hour_key
+
         if len(hist) < w:
-            return False  # not enough data yet — conservative: gate off
+            return True  # not enough hourly data yet — allow trading (optimistic)
         ma = sum(hist) / w
         return close > ma
 
@@ -202,11 +236,11 @@ class LiveInferenceBridge:
         if ts is None:
             ts = datetime.now(timezone.utc)
 
-        # Track close for monthly gate
+        # Track close for monthly gate (hourly resolution)
         close_val = features.get("close")
         gate_ok = True
         if close_val is not None:
-            gate_ok = self._check_monthly_gate(symbol, float(close_val))
+            gate_ok = self._check_monthly_gate(symbol, float(close_val), ts)
 
         results = self._engine.run(symbol=symbol, ts=ts, features=features)
 
@@ -229,7 +263,7 @@ class LiveInferenceBridge:
                 elif r.signal.side == "flat":
                     score = 0.0
 
-                score = self._apply_constraints(symbol, score, features)
+                score = self._apply_constraints(symbol, score, features, ts)
 
                 # Monthly gate: bear regime — run bear model or go flat
                 if not gate_ok:

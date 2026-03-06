@@ -195,13 +195,16 @@ def _run_n(
     n: int,
     features_per_bar: Optional[list] = None,
 ) -> list[float]:
+    from datetime import timedelta
     ts = datetime(2024, 1, 1)
     out = []
     for i in range(n):
         feats: Dict[str, Any] = {}
         if features_per_bar is not None and i < len(features_per_bar):
             feats.update(features_per_bar[i])
-        bridge.enrich(symbol, ts, feats)
+        # Each call gets a unique hour so hourly-gated buffers advance
+        bar_ts = ts + timedelta(hours=i)
+        bridge.enrich(symbol, bar_ts, feats)
         out.append(feats.get("ml_score", 0.0))
     return out
 
@@ -379,14 +382,14 @@ class TestMonthlyGate:
             monthly_gate_window=3,
         )
         # Prices: declining → close < MA → gated
-        # Bar 0-2: filling deque (len < window) → gated (conservative)
+        # Bar 0-2: filling deque (len < window) → allowed (optimistic warmup)
         # Bar 3: close=97, MA(3)=mean(100,99,98)=99 → 97<99 → gated
         # Bar 4: close=96, MA(3)=mean(99,98,97)=98 → 96<98 → gated
         prices = [100, 99, 98, 97, 96, 95]
         features_per_bar = [{"close": p} for p in prices]
         scores = _run_n(bridge, "BTCUSDT", 6, features_per_bar)
-        # All gated (deque not full for first 2, then declining)
-        assert all(s == 0.0 for s in scores)
+        # Bars 0-2: warmup (optimistic → signal passes), Bars 3-5: gated
+        assert all(s == 0.0 for s in scores[3:])
 
     def test_gate_allows_above_ma(self):
         """When close > MA(window), signal passes through."""
@@ -407,9 +410,9 @@ class TestMonthlyGate:
         prices = [100, 101, 102, 103, 104, 105]
         features_per_bar = [{"close": p} for p in prices]
         scores = _run_n(bridge, "BTCUSDT", 6, features_per_bar)
-        # First 2 bars: gated (deque not full)
-        assert scores[0] == 0.0
-        assert scores[1] == 0.0
+        # First 2 bars: warmup (optimistic → signal passes through)
+        assert scores[0] == 1.0
+        assert scores[1] == 1.0
         # Bar 2+: above MA → signal passes
         assert scores[2] == 1.0
         assert scores[3] == 1.0
