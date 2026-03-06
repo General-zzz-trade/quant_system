@@ -72,7 +72,9 @@ class EventDispatcher:
             return
         self._stop_event.set()
         if self._thread:
-            self._thread.join(timeout=5)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=5.0)
         self._started = False
 
     # --------------------------------------------------------

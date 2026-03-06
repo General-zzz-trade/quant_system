@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -19,6 +19,6 @@ class EventLogger:
 
     def write(self, event: Dict[str, Any]) -> None:
         row = dict(event)
-        row.setdefault("ts", datetime.utcnow().isoformat())
+        row.setdefault("ts", datetime.now(timezone.utc).isoformat())
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")

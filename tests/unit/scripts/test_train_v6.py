@@ -111,6 +111,7 @@ class TestBlacklistV6:
             assert feat not in BLACKLIST
 
 
+@pytest.mark.filterwarnings("ignore:X does not have valid feature names.*:UserWarning")
 class TestSampleWeightPropagation:
     """Test that fit() and fit_classifier() accept sample_weight."""
 
@@ -197,6 +198,7 @@ class TestRegimeFeature:
         assert (result["regime_vol"].values[250:] == 2).all()
 
 
+@pytest.mark.filterwarnings("ignore:X does not have valid feature names.*:UserWarning")
 class TestInnerCVFixed:
     """Test that inner CV returns reasonable floats."""
 

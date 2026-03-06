@@ -59,8 +59,11 @@ class ModuleReloader:
 
         # Register SIGHUP handler
         if self._config.enable_sighup and hasattr(signal, "SIGHUP"):
-            self._prev_handler = signal.getsignal(signal.SIGHUP)
-            signal.signal(signal.SIGHUP, self._handle_sighup)
+            if threading.current_thread() is threading.main_thread():
+                self._prev_handler = signal.getsignal(signal.SIGHUP)
+                signal.signal(signal.SIGHUP, self._handle_sighup)
+            else:
+                logger.warning("Skipping SIGHUP registration: not running in main thread")
 
         # Initialize file mtimes
         for path_str in self._config.watch_paths:
@@ -91,7 +94,9 @@ class ModuleReloader:
                     pass
 
         if self._thread is not None:
-            self._thread.join(timeout=2.0)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=2.0)
             self._thread = None
 
         logger.info("ModuleReloader stopped")

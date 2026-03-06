@@ -40,7 +40,9 @@ class BinanceOIPoller:
     def stop(self) -> None:
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=5.0)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=5.0)
             self._thread = None
 
     def get_oi(self) -> Optional[float]:

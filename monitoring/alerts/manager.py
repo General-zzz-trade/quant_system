@@ -123,7 +123,9 @@ class AlertManager:
         """Stop the periodic check thread."""
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=5.0)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=5.0)
             self._thread = None
         logger.info("AlertManager stopped")
 

@@ -120,6 +120,19 @@ class TestProductionWiring:
         assert config.log_level == "DEBUG"
         assert config.log_file == "custom.log"
 
+    def test_health_auth_token_env_missing_raises(self, monkeypatch):
+        monkeypatch.delenv("MISSING_HEALTH_TOKEN", raising=False)
+        config = LiveRunnerConfig(
+            health_port=18080,
+            health_auth_token_env="MISSING_HEALTH_TOKEN",
+        )
+        with pytest.raises(ValueError, match="health_auth_token_env"):
+            LiveRunner.build(
+                config,
+                venue_clients={"binance": _FakeVenueClient()},
+                transport=_FakeTransport(),
+            )
+
 
 def _make_binance_rest_client():
     from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
@@ -207,4 +220,3 @@ class TestUserStreamWiring:
         )
         assert runner.user_stream is not None
         assert runner.user_stream.cfg.ws_base_url == "wss://fstream.binance.com/ws"
-

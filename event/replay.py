@@ -10,6 +10,7 @@ from event.clock import EventClock
 from event.errors import EventReplayError
 from event.factory.market import MarketEventFactory
 from event.runtime import EventRuntime
+from event.security import RunMode, make_actor
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,12 @@ class EventReplay:
         self._runtime = runtime
         self._clock = clock
         self._cfg = cfg
+        self._actor = make_actor(
+            module="event.replay",
+            roles={"replay"},
+            mode=RunMode.REPLAY,
+            source=cfg.source,
+        )
 
     def replay_bars(self, bars: Iterable[HistoricalBar]) -> None:
         last_ts: datetime | None = None
@@ -68,7 +75,7 @@ class EventReplay:
                     volume=bar.volume,
                     source=self._cfg.source,
                 )
-                self._runtime.emit(ev)
+                self._runtime.emit(ev, actor=self._actor)
 
 
 # ---------------------------------------------------------------------------

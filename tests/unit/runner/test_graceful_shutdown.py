@@ -5,6 +5,7 @@ from __future__ import annotations
 import signal
 import sys
 import time
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -162,3 +163,19 @@ class TestSignalHandling:
             calls = {args[0] for args, _ in mock_signal.call_args_list}
             assert signal.SIGTERM in calls
             assert signal.SIGINT in calls
+
+    def test_install_handlers_skipped_outside_main_thread(self):
+        shutdown = GracefulShutdown()
+        worker = MagicMock()
+        worker.name = "worker-thread"
+        main = MagicMock()
+        main.name = "MainThread"
+
+        with (
+            patch.object(signal, "signal") as mock_signal,
+            patch.object(threading, "current_thread", return_value=worker),
+            patch.object(threading, "main_thread", return_value=main),
+        ):
+            shutdown.install_handlers()
+
+        mock_signal.assert_not_called()

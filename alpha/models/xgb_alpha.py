@@ -150,10 +150,8 @@ class XGBAlphaModel:
     def load(self, path: str | Path) -> None:
         """Load model from disk."""
         path = Path(path)
-        from infra.model_signing import verify_file
-        verify_file(path)
-        with open(path, "rb") as f:
-            data = pickle.load(f)
+        from infra.model_signing import load_verified_pickle
+        data = load_verified_pickle(path)
         self._model = data["model"]
         if "features" in data:
             object.__setattr__(self, "feature_names", data["features"])

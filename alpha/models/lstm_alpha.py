@@ -224,7 +224,7 @@ class LSTMAlphaModel:
     def load(self, path: str | Path) -> None:
         try:
             import torch
-            data = torch.load(path, weights_only=False)
+            data = torch.load(path, weights_only=True)
             if data.get("config"):
                 cfg = data["config"]
                 n_features = len(data.get("features", self.feature_names))

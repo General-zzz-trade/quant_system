@@ -209,8 +209,9 @@ class SQLiteCheckpointStore(CheckpointStore):
         self._path = path
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL;")
-        self._init_schema()
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+            self._init_schema()
 
     def _init_schema(self) -> None:
         self._conn.execute(
@@ -272,18 +273,20 @@ class SQLiteCheckpointStore(CheckpointStore):
             raise RuntimeError("Checkpoint version 冲突，保存失败")
 
     def load_latest(self, *, run_id: str, name: str) -> Optional[Checkpoint]:
-        cur = self._conn.execute(
-            """
-            SELECT payload FROM checkpoints
-            WHERE run_id=? AND name=?
-            ORDER BY version DESC LIMIT 1
-            """,
-            (run_id, name),
-        )
-        row = cur.fetchone()
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT payload FROM checkpoints
+                WHERE run_id=? AND name=?
+                ORDER BY version DESC LIMIT 1
+                """,
+                (run_id, name),
+            )
+            row = cur.fetchone()
         if not row:
             return None
         return Checkpoint.from_dict(json.loads(row[0]))
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()

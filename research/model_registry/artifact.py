@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,10 @@ class ArtifactStore:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         artifact_path = artifact_dir / artifact_type
         artifact_path.write_bytes(data)
+        if artifact_type == "weights" and os.environ.get("QUANT_MODEL_SIGN_KEY"):
+            from infra.model_signing import sign_file
+
+            sign_file(artifact_path)
 
         meta = ArtifactMeta(
             model_id=model_id,

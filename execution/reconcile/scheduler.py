@@ -70,7 +70,9 @@ class ReconcileScheduler:
     def stop(self) -> None:
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=self.cfg.interval_sec * 2)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=self.cfg.interval_sec * 2)
             self._thread = None
         logger.info("ReconcileScheduler stopped")
 

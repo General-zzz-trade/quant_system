@@ -66,7 +66,9 @@ class MarginMonitor:
         with self._lock:
             self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=self.config.check_interval_sec + 2.0)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=self.config.check_interval_sec + 2.0)
             self._thread = None
         logger.info("MarginMonitor stopped")
 

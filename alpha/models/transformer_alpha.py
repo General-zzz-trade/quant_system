@@ -235,7 +235,7 @@ class TransformerAlphaModel:
     def load(self, path: str | Path) -> None:
         try:
             import torch
-            data = torch.load(path, weights_only=False)
+            data = torch.load(path, weights_only=True)
             if "features" in data:
                 object.__setattr__(self, "feature_names", tuple(data["features"]))
         except ImportError:

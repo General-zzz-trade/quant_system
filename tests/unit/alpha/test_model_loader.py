@@ -103,7 +103,10 @@ class TestProductionModelLoader:
         weights = pickle.dumps(model_data)
 
         registry = FakeRegistry({"alpha_btc": version})
-        store = FakeArtifactStore({("m-lgbm-1", "weights"): weights})
+        store = FakeArtifactStore({
+            ("m-lgbm-1", "weights"): weights,
+            ("m-lgbm-1", "weights.sig"): b"dummy",
+        })
         loader = ProductionModelLoader(registry, store)
 
         # Patch verify_file to skip signature check in tests
@@ -123,10 +126,14 @@ class TestProductionModelLoader:
         weights = pickle.dumps(model_data)
 
         registry = FakeRegistry({"xgb_alpha_eth": version})
-        store = FakeArtifactStore({("m-xgb-1", "weights"): weights})
+        store = FakeArtifactStore({
+            ("m-xgb-1", "weights"): weights,
+            ("m-xgb-1", "weights.sig"): b"dummy",
+        })
         loader = ProductionModelLoader(registry, store)
 
-        models = loader.load_production_models(["xgb_alpha_eth"])
+        with patch("infra.model_signing.verify_file", return_value=None):
+            models = loader.load_production_models(["xgb_alpha_eth"])
         assert len(models) == 1
         assert models[0].name == "xgb_alpha_eth"
 
@@ -136,7 +143,10 @@ class TestProductionModelLoader:
         weights = pickle.dumps(model_data)
 
         registry = FakeRegistry({"alpha": version})
-        store = FakeArtifactStore({("m1", "weights"): weights})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+        })
         loader = ProductionModelLoader(registry, store)
 
         with patch("infra.model_signing.verify_file", return_value=None):
@@ -151,7 +161,12 @@ class TestProductionModelLoader:
         weights = pickle.dumps(model_data)
 
         registry = FakeRegistry({"alpha": v1})
-        store = FakeArtifactStore({("m1", "weights"): weights, ("m2", "weights"): weights})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+            ("m2", "weights"): weights,
+            ("m2", "weights.sig"): b"dummy",
+        })
         loader = ProductionModelLoader(registry, store)
 
         with patch("infra.model_signing.verify_file", return_value=None):
@@ -174,7 +189,12 @@ class TestProductionModelLoader:
         weights = pickle.dumps(model_data)
 
         registry = FakeRegistry({"btc": v1, "eth": v2})
-        store = FakeArtifactStore({("m1", "weights"): weights, ("m2", "weights"): weights})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+            ("m2", "weights"): weights,
+            ("m2", "weights.sig"): b"dummy",
+        })
         loader = ProductionModelLoader(registry, store)
 
         with patch("infra.model_signing.verify_file", return_value=None):

@@ -90,6 +90,8 @@ class LiveRunnerConfig:
     max_avg_correlation: float = 0.7
     # Health HTTP endpoint
     health_port: Optional[int] = None
+    health_host: str = "127.0.0.1"
+    health_auth_token_env: Optional[str] = None
     # Testnet mode
     testnet: bool = False
     # ModelRegistry auto-loading
@@ -910,6 +912,14 @@ class LiveRunner:
             from dataclasses import asdict
 
             _stale_thresh = config.health_stale_data_sec
+            health_token = None
+            if config.health_auth_token_env:
+                health_token = os.environ.get(config.health_auth_token_env)
+                if not health_token:
+                    raise ValueError(
+                        "health_auth_token_env is set but env var is missing: "
+                        f"{config.health_auth_token_env}"
+                    )
 
             def _health_status_fn() -> Dict[str, Any]:
                 st = health.get_status()
@@ -922,6 +932,8 @@ class LiveRunner:
             health_server = HealthServer(
                 port=config.health_port,
                 status_fn=_health_status_fn,
+                host=config.health_host,
+                auth_token=health_token,
             )
 
         runner = cls(
@@ -1013,6 +1025,12 @@ class LiveRunner:
             pass  # no direct LiveRunnerConfig field; handled by execution layer
         if monitoring.get("health_check_interval") is not None:
             kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
+        if monitoring.get("health_port") is not None:
+            kwargs["health_port"] = int(monitoring["health_port"])
+        if monitoring.get("health_host") is not None:
+            kwargs["health_host"] = str(monitoring["health_host"])
+        if monitoring.get("health_auth_token_env") is not None:
+            kwargs["health_auth_token_env"] = str(monitoring["health_auth_token_env"])
 
         runner_config = LiveRunnerConfig(
             symbols=symbols,
@@ -1067,12 +1085,16 @@ class LiveRunner:
         # SIGHUP: schedule model reload on next main loop iteration
         if self.model_loader is not None:
             import signal as _signal
+            import threading as _threading
             def _sighup_handler(signum: int, frame: Any) -> None:
                 logger.info("SIGHUP received — scheduling model reload")
                 self._reload_models_pending = True
             try:
-                _signal.signal(_signal.SIGHUP, _sighup_handler)
-            except (OSError, AttributeError):
+                if _threading.current_thread() is _threading.main_thread():
+                    _signal.signal(_signal.SIGHUP, _sighup_handler)
+                else:
+                    logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
+            except (OSError, AttributeError, ValueError):
                 pass
 
         self.runtime.start()
@@ -1142,7 +1164,9 @@ class LiveRunner:
             except Exception:
                 logger.warning("User stream close error", exc_info=True)
             if self._user_stream_thread is not None:
-                self._user_stream_thread.join(timeout=5.0)
+                from infra.threading_utils import safe_join_thread
+
+                safe_join_thread(self._user_stream_thread, timeout=5.0)
         if self.freshness_monitor is not None:
             self.freshness_monitor.stop()
         if self.data_scheduler is not None:
@@ -1236,7 +1260,7 @@ if __name__ == "__main__":
     from infra.config.loader import load_config_secure, resolve_credentials
 
     raw = load_config_secure(args.config)
-    resolve_credentials(raw)
+    creds = resolve_credentials(raw)
 
     venue_clients: Dict[str, Any] = {}
     exchange = raw.get("trading", {}).get("exchange", "binance")
@@ -1247,7 +1271,6 @@ if __name__ == "__main__":
         from execution.adapters.binance.urls import resolve_binance_urls
 
         binance_urls = resolve_binance_urls(testnet)
-        creds = raw.get("credentials", {})
         client = BinanceRestClient(
             cfg=BinanceRestConfig(
                 base_url=binance_urls.rest_base,

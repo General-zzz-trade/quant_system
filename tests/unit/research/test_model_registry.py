@@ -145,6 +145,16 @@ class TestArtifactStore:
         loaded = store.load("model-1", "weights")
         assert loaded == data
 
+    def test_save_weights_writes_signature_when_key_present(self, store, monkeypatch):
+        monkeypatch.setenv("QUANT_MODEL_SIGN_KEY", "test-key")
+        data = b"model weights binary data"
+
+        store.save("model-1", "weights", data)
+
+        sig = store.load("model-1", "weights.sig")
+        assert sig is not None
+        assert sig.decode("utf-8")
+
     def test_load_nonexistent_returns_none(self, store):
         assert store.load("no-model", "weights") is None
 

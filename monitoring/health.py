@@ -140,7 +140,12 @@ class SystemHealthMonitor:
     def stop(self) -> None:
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=self._cfg.check_interval_sec * 2)
+            try:
+                if self._thread.is_alive():
+                    self._thread.join(timeout=self._cfg.check_interval_sec * 2)
+            except RuntimeError:
+                # Defensive against rare startup/shutdown races in tests/embedded runners.
+                pass
 
     # ── Internal check loop ───────────────────────────────────
 

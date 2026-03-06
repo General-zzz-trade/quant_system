@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import threading
 from typing import Iterable, List, Tuple
 
 from event.types import BaseEvent
@@ -83,23 +84,25 @@ class SQLiteEventStore(EventStore):
         import os
         import sqlite3
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._lock = threading.Lock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id   TEXT,
-                event_type TEXT NOT NULL,
-                version    INTEGER NOT NULL,
-                ts_iso     TEXT,
-                payload    TEXT NOT NULL,
-                saved_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS events (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id   TEXT,
+                    event_type TEXT NOT NULL,
+                    version    INTEGER NOT NULL,
+                    ts_iso     TEXT,
+                    payload    TEXT NOT NULL,
+                    saved_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                )
+                """
             )
-            """
-        )
-        self._conn.commit()
+            self._conn.commit()
 
     def append(self, event: BaseEvent) -> None:
         if not isinstance(event, BaseEvent):
@@ -112,25 +115,29 @@ class SQLiteEventStore(EventStore):
         event_id = getattr(header, "event_id", None)
         ts = getattr(header, "ts", None)
         ts_iso = ts.isoformat() if ts is not None else None
-        self._conn.execute(
-            "INSERT INTO events(event_id, event_type, version, ts_iso, payload) VALUES(?,?,?,?,?)",
-            (event_id, event.event_type.value, event.version, ts_iso, payload_json),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO events(event_id, event_type, version, ts_iso, payload) VALUES(?,?,?,?,?)",
+                (event_id, event.event_type.value, event.version, ts_iso, payload_json),
+            )
+            self._conn.commit()
 
     def iter_events(self) -> Iterable[BaseEvent]:
         from event.codec import decode_event_json
-        rows = self._conn.execute(
-            "SELECT payload FROM events ORDER BY id ASC"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT payload FROM events ORDER BY id ASC"
+            ).fetchall()
         return tuple(decode_event_json(row[0]) for row in rows)
 
     def size(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM events").fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) FROM events").fetchone()
         return row[0]
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> "SQLiteEventStore":
         return self

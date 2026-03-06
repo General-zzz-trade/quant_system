@@ -72,6 +72,7 @@ python_functions = "test_*"
 addopts = "-q --tb=short"
 markers = [
     "benchmark: performance benchmark tests (deselect with '-m \"not benchmark\"')",
+    "slow: longer-running tests",
 ]
 
 [tool.coverage.run]

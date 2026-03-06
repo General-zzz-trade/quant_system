@@ -60,9 +60,10 @@ class ProductionModelLoader:
         if weights is None:
             logger.error("No weights artifact for model %s (id=%s)", name, version.model_id)
             return None
+        weights_sig = self._store.load(version.model_id, "weights.sig")
 
         model_type = self._detect_type(version)
-        model = self._instantiate(model_type, name, version, weights)
+        model = self._instantiate(model_type, name, version, weights, weights_sig)
         if model is not None:
             self._loaded_ids[name] = version.model_id
             logger.info(
@@ -84,11 +85,20 @@ class ProductionModelLoader:
             return "xgb"
         return "lgbm"  # default
 
-    def _instantiate(self, model_type: str, name: str, version: Any, weights: bytes) -> Optional[Any]:
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            f.write(weights)
-            tmp_path = Path(f.name)
-
+    def _instantiate(
+        self,
+        model_type: str,
+        name: str,
+        version: Any,
+        weights: bytes,
+        weights_sig: bytes | None,
+    ) -> Optional[Any]:
+        tmp_dir_obj = tempfile.TemporaryDirectory()
+        tmp_dir = Path(tmp_dir_obj.name)
+        tmp_path = tmp_dir / "weights.pkl"
+        tmp_path.write_bytes(weights)
+        if weights_sig is not None:
+            (tmp_path.with_suffix(tmp_path.suffix + ".sig")).write_bytes(weights_sig)
         try:
             if model_type == "lgbm":
                 from alpha.models.lgbm_alpha import LGBMAlphaModel
@@ -106,4 +116,4 @@ class ProductionModelLoader:
             logger.exception("Failed to load model %s (type=%s)", name, model_type)
             return None
         finally:
-            tmp_path.unlink(missing_ok=True)
+            tmp_dir_obj.cleanup()

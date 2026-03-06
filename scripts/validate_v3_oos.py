@@ -131,9 +131,9 @@ def train_config(
 def score_distribution(model_path: Path, symbol: str, test_df: pd.DataFrame, train_df: pd.DataFrame) -> np.ndarray:
     """Compute raw model scores on test data (with warmup from training tail)."""
     from features.enriched_computer import EnrichedFeatureComputer
+    from infra.model_signing import load_verified_pickle
 
-    with open(model_path, "rb") as f:
-        data = pickle.load(f)
+    data = load_verified_pickle(model_path)
     model = data["model"]
     feature_names = data["features"]
 

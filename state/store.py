@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -219,44 +220,48 @@ class SqliteStateStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._keep_history = keep_history
         self._history_limit = history_limit
+        self._lock = threading.Lock()
 
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute(_CREATE_SQL)
-        if keep_history:
-            self._conn.executescript(_CREATE_HISTORY_SQL)
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute(_CREATE_SQL)
+            if keep_history:
+                self._conn.executescript(_CREATE_HISTORY_SQL)
+            self._conn.commit()
 
     def save(self, snapshot: StateSnapshot) -> None:
         blob = _serialize_snapshot(snapshot)
         ts_str = snapshot.ts.isoformat() if snapshot.ts else None
 
-        with self._conn:
-            self._conn.execute(
-                """INSERT INTO checkpoints (symbol, bar_index, event_id, ts, snapshot)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(symbol) DO UPDATE SET
-                       bar_index = excluded.bar_index,
-                       event_id  = excluded.event_id,
-                       ts        = excluded.ts,
-                       snapshot  = excluded.snapshot,
-                       saved_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                """,
-                (snapshot.symbol, snapshot.bar_index, snapshot.event_id, ts_str, blob),
-            )
-            if self._keep_history:
+        with self._lock:
+            with self._conn:
                 self._conn.execute(
-                    """INSERT INTO checkpoint_history (symbol, bar_index, event_id, ts, snapshot)
-                       VALUES (?, ?, ?, ?, ?)""",
+                    """INSERT INTO checkpoints (symbol, bar_index, event_id, ts, snapshot)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                           bar_index = excluded.bar_index,
+                           event_id  = excluded.event_id,
+                           ts        = excluded.ts,
+                           snapshot  = excluded.snapshot,
+                           saved_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    """,
                     (snapshot.symbol, snapshot.bar_index, snapshot.event_id, ts_str, blob),
                 )
+                if self._keep_history:
+                    self._conn.execute(
+                        """INSERT INTO checkpoint_history (symbol, bar_index, event_id, ts, snapshot)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (snapshot.symbol, snapshot.bar_index, snapshot.event_id, ts_str, blob),
+                    )
 
     def latest(self, symbol: str) -> Optional[StateCheckpoint]:
-        row = self._conn.execute(
-            "SELECT symbol, bar_index, event_id, ts, snapshot FROM checkpoints WHERE symbol = ?",
-            (symbol,),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT symbol, bar_index, event_id, ts, snapshot FROM checkpoints WHERE symbol = ?",
+                (symbol,),
+            ).fetchone()
         if row is None:
             return None
         snap = _deserialize_snapshot(row[4])
@@ -269,11 +274,13 @@ class SqliteStateStore:
         )
 
     def all_symbols(self) -> List[str]:
-        rows = self._conn.execute("SELECT symbol FROM checkpoints ORDER BY symbol").fetchall()
+        with self._lock:
+            rows = self._conn.execute("SELECT symbol FROM checkpoints ORDER BY symbol").fetchall()
         return [r[0] for r in rows]
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> "SqliteStateStore":
         return self

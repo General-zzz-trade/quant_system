@@ -141,7 +141,9 @@ class SLOTracker:
     def stop(self) -> None:
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=self._cfg.check_interval_sec * 2)
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=self._cfg.check_interval_sec * 2)
 
     def _run_loop(self) -> None:
         while self._running:

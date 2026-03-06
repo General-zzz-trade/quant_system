@@ -69,10 +69,8 @@ class RegimeModelBundle:
 
     @classmethod
     def load(cls, path: Path) -> "RegimeModelBundle":
-        from infra.model_signing import verify_file
-        verify_file(path)
-        with open(path, "rb") as f:
-            bundle = pickle.load(f)
+        from infra.model_signing import load_verified_pickle
+        bundle = load_verified_pickle(path)
         result = cls(
             feature_names=tuple(bundle["feature_names"]),
             regime_col=bundle.get("regime_col", "regime_vol"),

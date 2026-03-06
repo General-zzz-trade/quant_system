@@ -14,7 +14,7 @@ import logging
 import sys
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +28,7 @@ class Experiment:
     name: str
     params: Dict[str, Any] = field(default_factory=dict)
     dataset: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def with_params(self, **kwargs: Any) -> "Experiment":
         p = dict(self.params)
@@ -120,7 +120,7 @@ class ExperimentRunner:
             model_path=str(run_dir / "lgbm_alpha_final.pkl"),
             feature_importance=feature_importance,
             duration_sec=duration,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         with open(run_dir / "result.json", "w") as f:
@@ -159,7 +159,7 @@ def compare_experiments(results_dir: Path) -> None:
 def _make_id(config: Dict[str, Any]) -> str:
     cfg_str = json.dumps(config, sort_keys=True, default=str)
     h = hashlib.md5(cfg_str.encode()).hexdigest()[:8]
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"{ts}_{h}"
 
 

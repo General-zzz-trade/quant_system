@@ -782,8 +782,6 @@ def run_strategy_regime_switch(
     print(f"  Strategy F: Regime-Switch Portfolio")
     print(f"{'='*70}")
 
-    import pickle
-
     closes = feat_df["close"].values.astype(np.float64)
     bear_mask = _compute_bear_bull_mask(closes)
 
@@ -799,10 +797,10 @@ def run_strategy_regime_switch(
     features_v8 = cfg["features"]
     ensemble_weights = cfg.get("ensemble_weights", [])
 
+    from infra.model_signing import load_verified_pickle
     raw_models = []
     for fname in cfg.get("models", []):
-        with open(model_dir / fname, "rb") as f:
-            data = pickle.load(f)
+        data = load_verified_pickle(model_dir / fname)
         raw_models.append(data["model"])
 
     if len(ensemble_weights) < len(raw_models):
@@ -921,7 +919,6 @@ def run_strategy_f_walkforward(
     Bull = V8 gate_v2 long-only, Bear = C detector short.
     V8 predictions computed once globally; C retrained per fold on bear bars.
     """
-    import pickle
     import xgboost as xgb
 
     print(f"\n{'='*70}")
@@ -944,10 +941,10 @@ def run_strategy_f_walkforward(
 
     features_v8 = cfg["features"]
     ensemble_weights = cfg.get("ensemble_weights", [])
+    from infra.model_signing import load_verified_pickle
     raw_models = []
     for fname in cfg.get("models", []):
-        with open(model_dir / fname, "rb") as f:
-            data = pickle.load(f)
+        data = load_verified_pickle(model_dir / fname)
         raw_models.append(data["model"])
 
     if len(ensemble_weights) < len(raw_models):

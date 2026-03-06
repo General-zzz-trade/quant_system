@@ -9,6 +9,8 @@ import logging
 import threading
 from typing import Any, Callable, Optional
 
+from infra.threading_utils import safe_join_thread
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,7 +101,7 @@ class ZmqMessageBus:
         """Stop sockets and receiver thread."""
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=2.0)
+            safe_join_thread(self._thread, timeout=2.0)
             self._thread = None
         if self._pub_socket is not None:
             self._pub_socket.close()

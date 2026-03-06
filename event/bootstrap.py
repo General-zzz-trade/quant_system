@@ -8,6 +8,7 @@ from typing import Tuple
 from event.codec import EventCodecRegistry
 from event.errors import EventValidationError
 from event.runtime import EventRuntime
+from event.security import EventSecurity, SecurityConfig, default_security_rules
 from event.schema import EventSchema, FieldSpec, SchemaRegistry
 from event.store import EventStore, InMemoryEventStore
 from event.types import (
@@ -207,6 +208,10 @@ def bootstrap_event_layer(store: "EventStore | None" = None) -> Tuple[EventRunti
         tracer=None,
         metrics=None,
         policy=None,
+        security=EventSecurity(
+            rules=default_security_rules(),
+            config=SecurityConfig(deny_by_default=True, allow_system_bypass=False),
+        ),
     )
 
     return runtime, store

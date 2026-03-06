@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -63,47 +64,54 @@ class SQLiteDedupStore(DedupStore):
     path: str
     ttl_sec: Optional[float] = None
     _conn: sqlite3.Connection = field(init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS dedup (key TEXT PRIMARY KEY, digest TEXT NOT NULL, ts REAL NOT NULL)"
-        )
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup_ts ON dedup(ts)")
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS dedup (key TEXT PRIMARY KEY, digest TEXT NOT NULL, ts REAL NOT NULL)"
+            )
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_dedup_ts ON dedup(ts)")
+            self._conn.commit()
 
     def get(self, key: str) -> Optional[str]:
-        row = self._conn.execute("SELECT digest, ts FROM dedup WHERE key=?", (key,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT digest, ts FROM dedup WHERE key=?", (key,)).fetchone()
         if row is None:
             return None
         digest, ts = row[0], float(row[1])
         if self.ttl_sec is not None and (time.time() - ts) > float(self.ttl_sec):
-            self._conn.execute("DELETE FROM dedup WHERE key=?", (key,))
-            self._conn.commit()
+            with self._lock:
+                self._conn.execute("DELETE FROM dedup WHERE key=?", (key,))
+                self._conn.commit()
             return None
         return str(digest)
 
     def put(self, key: str, digest: str) -> None:
         now = time.time()
         # Prefer insert; if exists, update ts but keep digest unchanged.
-        self._conn.execute(
-            "INSERT OR IGNORE INTO dedup(key, digest, ts) VALUES(?,?,?)",
-            (key, str(digest), now),
-        )
-        self._conn.execute("UPDATE dedup SET ts=? WHERE key=?", (now, key))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO dedup(key, digest, ts) VALUES(?,?,?)",
+                (key, str(digest), now),
+            )
+            self._conn.execute("UPDATE dedup SET ts=? WHERE key=?", (now, key))
+            self._conn.commit()
 
     def prune(self) -> int:
         if self.ttl_sec is None:
             return 0
         cutoff = time.time() - float(self.ttl_sec)
-        cur = self._conn.execute("DELETE FROM dedup WHERE ts < ?", (cutoff,))
-        self._conn.commit()
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM dedup WHERE ts < ?", (cutoff,))
+            self._conn.commit()
         return int(cur.rowcount)
 
     def close(self) -> None:
         try:
-            self._conn.close()
+            with self._lock:
+                self._conn.close()
         except Exception:
             pass

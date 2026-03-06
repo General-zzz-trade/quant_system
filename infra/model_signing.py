@@ -10,11 +10,13 @@ import hashlib
 import hmac
 import logging
 import os
+import pickle
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _ENV_KEY = "QUANT_MODEL_SIGN_KEY"
+_ALLOW_UNSIGNED_ENV = "QUANT_ALLOW_UNSIGNED_MODELS"
 _SIG_SUFFIX = ".sig"
 
 
@@ -23,6 +25,17 @@ def _get_key() -> bytes | None:
     if not key:
         return None
     return key.encode("utf-8")
+
+
+def allow_unsigned_models() -> bool:
+    """Whether unsigned model loading is explicitly allowed (dev-only)."""
+    raw = os.environ.get(_ALLOW_UNSIGNED_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def is_verification_enforced() -> bool:
+    """Whether model signature verification must be enforced."""
+    return _get_key() is not None or not allow_unsigned_models()
 
 
 def sign_file(path: Path) -> None:
@@ -47,8 +60,17 @@ def verify_file(path: Path) -> bool:
     """
     key = _get_key()
     if key is None:
-        logger.warning("Model signature verification skipped: %s not set", _ENV_KEY)
-        return True
+        if allow_unsigned_models():
+            logger.warning(
+                "Model signature verification skipped: %s not set and %s enabled",
+                _ENV_KEY,
+                _ALLOW_UNSIGNED_ENV,
+            )
+            return True
+        raise ValueError(
+            f"Model signature verification requires {_ENV_KEY}. "
+            f"For development only, set {_ALLOW_UNSIGNED_ENV}=1 to allow unsigned models."
+        )
 
     sig_path = path.with_suffix(path.suffix + _SIG_SUFFIX)
     if not sig_path.exists():
@@ -66,3 +88,11 @@ def verify_file(path: Path) -> bool:
             f"Signature mismatch for {path}. Artifact may be tampered."
         )
     return True
+
+
+def load_verified_pickle(path: str | Path):
+    """Verify an artifact, then load it via pickle."""
+    p = Path(path)
+    verify_file(p)
+    with p.open("rb") as f:
+        return pickle.load(f)

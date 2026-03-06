@@ -506,7 +506,8 @@ def _load_models_from_dir(model_dir: Path) -> Tuple[list, list, dict]:
 
     Returns (raw_models, weights, config_dict).
     """
-    import pickle
+    from infra.model_signing import load_verified_pickle
+
     config_path = model_dir / "config.json"
     with open(config_path) as f:
         cfg = json.load(f)
@@ -515,8 +516,7 @@ def _load_models_from_dir(model_dir: Path) -> Tuple[list, list, dict]:
     weights = cfg.get("ensemble_weights", [])
     for fname in cfg.get("models", []):
         pkl_path = model_dir / fname
-        with open(pkl_path, "rb") as f:
-            data = pickle.load(f)
+        data = load_verified_pickle(pkl_path)
         raw_models.append(data["model"])
 
     if len(weights) < len(raw_models):
@@ -570,15 +570,14 @@ def run_backtest(
         target_mode = sym_config["target_mode"]
 
     # Load model(s) — support model directory (ensemble) or single pkl
-    import pickle
+    from infra.model_signing import load_verified_pickle
     ensemble_mode = False
     if model_path.is_dir():
         raw_models, weights, dir_cfg = _load_models_from_dir(model_path)
         ensemble_mode = dir_cfg.get("ensemble", False) and len(raw_models) > 1
         model_label = f"{model_path} (ensemble {len(raw_models)} models)"
     else:
-        with open(model_path, "rb") as f:
-            model_dict = pickle.load(f)
+        model_dict = load_verified_pickle(model_path)
         raw_models = [model_dict["model"]]
         weights = [1.0]
         model_label = str(model_path)
@@ -682,9 +681,9 @@ def run_backtest(
                 bear_cfg = json.load(f)
             bear_pkl = bear_dir / bear_cfg["models"][0]
             if bear_pkl.exists():
-                import pickle
-                with open(bear_pkl, "rb") as f:
-                    bear_data = pickle.load(f)
+                from infra.model_signing import load_verified_pickle
+
+                bear_data = load_verified_pickle(bear_pkl)
                 bear_model_raw = bear_data["model"]
                 bear_features = bear_data.get("features", bear_cfg.get("features", []))
                 print(f"  Bear model loaded: {bear_pkl} ({len(bear_features)} features)")

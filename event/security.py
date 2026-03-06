@@ -123,7 +123,7 @@ class EventSecurity:
 
         matched = False
         for r in self._rules:
-            if not fnmatch(event_type, r.event_pattern):
+            if not fnmatch(event_type.lower(), r.event_pattern.lower()):
                 continue
 
             matched = True
@@ -133,7 +133,7 @@ class EventSecurity:
                 raise EventSecurityError(
                     f"事件权限拒绝：mode 不允许 "
                     f"(event_type={event_type}, actor_mode={actor.mode}, rule_modes={sorted(m.value for m in r.allowed_modes)})",
-                    event=event,
+                    event_type=event_type,
                 )
 
             # source 限制（可选）
@@ -141,7 +141,7 @@ class EventSecurity:
                 raise EventSecurityError(
                     f"事件权限拒绝：source 不允许 "
                     f"(event_type={event_type}, actor_source={actor.source}, rule_sources={sorted(r.allowed_sources)})",
-                    event=event,
+                    event_type=event_type,
                 )
 
             # role 限制（必须命中至少一个）
@@ -149,7 +149,7 @@ class EventSecurity:
                 raise EventSecurityError(
                     f"事件权限拒绝：role 不匹配 "
                     f"(event_type={event_type}, actor_roles={sorted(actor.roles)}, rule_roles={sorted(r.allowed_roles)})",
-                    event=event,
+                    event_type=event_type,
                 )
 
             # 命中且通过：直接放行
@@ -159,7 +159,7 @@ class EventSecurity:
         if self._cfg.deny_by_default and not matched:
             raise EventSecurityError(
                 f"事件权限拒绝：未命中任何白名单规则 (event_type={event_type}, actor_module={actor.module})",
-                event=event,
+                event_type=event_type,
             )
 
         # 原型模式：未命中规则放行
@@ -181,6 +181,14 @@ class EventSecurity:
         et = getattr(event, "EVENT_TYPE", None)
         if isinstance(et, str) and et:
             return et
+
+        et2 = getattr(event, "event_type", None)
+        if isinstance(et2, str) and et2:
+            return et2
+        if hasattr(et2, "value"):
+            val = getattr(et2, "value")
+            if isinstance(val, str) and val:
+                return val
 
         header = getattr(event, "header", None)
         if header is not None:

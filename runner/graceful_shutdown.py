@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -68,6 +69,9 @@ class GracefulShutdown:
 
     def install_handlers(self) -> None:
         """Install SIGTERM/SIGINT handlers."""
+        if threading.current_thread() is not threading.main_thread():
+            logger.warning("Skipping signal handler install: not running in main thread")
+            return
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
