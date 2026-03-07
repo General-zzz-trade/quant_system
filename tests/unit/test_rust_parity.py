@@ -8,20 +8,14 @@ import pytest
 from decimal import Decimal
 
 # ── Rust imports ──
-try:
-    from _quant_hotpath import (
-        DuplicateGuard,
-        RustRateLimitPolicy,
-        RustMLDecision,
-        rust_parse_kline,
-        rust_parse_depth,
-        rust_demux_user_stream,
-    )
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
-
-pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust _quant_hotpath not built")
+from _quant_hotpath import (
+    DuplicateGuard,
+    RustRateLimitPolicy,
+    RustMLDecision,
+    rust_parse_kline,
+    rust_parse_depth,
+    rust_demux_user_stream,
+)
 
 
 # ============================================================
@@ -212,19 +206,15 @@ class TestRustParseKline:
         assert d is not None
         assert d["symbol"] == "ETHUSDT"
 
-    def test_parity_with_python(self):
-        """Compare Rust parse result with Python KlineProcessor."""
+    def test_kline_processor_uses_rust(self):
+        """KlineProcessor delegates to Rust parse."""
         from execution.adapters.binance.kline_processor import KlineProcessor
         proc = KlineProcessor(only_closed=True)
-        # Force Python path
-        py_result = proc._process_raw_py(KLINE_MSG)
-        rust_d = rust_parse_kline(KLINE_MSG, True)
+        result = proc.process_raw(KLINE_MSG)
 
-        assert py_result is not None
-        assert rust_d is not None
-        assert Decimal(rust_d["open"]) == py_result.open
-        assert Decimal(rust_d["close"]) == py_result.close
-        assert Decimal(rust_d["volume"]) == py_result.volume
+        assert result is not None
+        assert result.symbol == "BTCUSDT"
+        assert result.close == Decimal("36550.40")
 
 
 # ============================================================
@@ -267,23 +257,17 @@ class TestRustParseDepth:
         msg = json.dumps({"e": "kline", "s": "BTCUSDT"})
         assert rust_parse_depth(msg, 20) is None
 
-    def test_parity_with_python(self):
-        """Compare Rust depth result with Python DepthProcessor."""
+    def test_depth_processor_uses_rust(self):
+        """DepthProcessor delegates to Rust parse."""
         from execution.adapters.binance.depth_processor import DepthProcessor
         proc = DepthProcessor(max_levels=20)
-        py_result = proc._process_raw_py(DEPTH_MSG)
-        rust_d = rust_parse_depth(DEPTH_MSG, 20)
+        result = proc.process_raw(DEPTH_MSG)
 
-        assert py_result is not None
-        assert rust_d is not None
-        assert py_result.symbol == rust_d["symbol"]
-        assert py_result.ts_ms == rust_d["ts_ms"]
-        assert py_result.last_update_id == rust_d["last_update_id"]
-        # Bids: Python filters zero-qty, Rust returns all
-        py_bids = [(str(b.price), str(b.qty)) for b in py_result.bids]
-        # Filter zero-qty from Rust for comparison
-        rust_bids = [(p, q) for p, q in rust_d["bids"] if Decimal(q) > 0]
-        assert len(py_bids) == len(rust_bids)
+        assert result is not None
+        assert result.symbol == "BTCUSDT"
+        assert result.ts_ms == 1700000000123
+        assert result.last_update_id == 9999
+        assert len(result.bids) == 2  # zero-qty filtered
 
 
 # ============================================================

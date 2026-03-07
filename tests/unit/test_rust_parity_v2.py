@@ -8,27 +8,21 @@ import time
 import pytest
 from decimal import Decimal
 
-try:
-    from _quant_hotpath import (
-        rust_payload_digest,
-        rust_stable_hash,
-        RustFillDedupGuard,
-        RustSequenceBuffer,
-        rust_event_id,
-        rust_now_ns,
-        rust_sanitize,
-        rust_short_hash,
-        rust_make_idempotency_key,
-        rust_client_order_id,
-        rust_hmac_sign,
-        rust_hmac_verify,
-        rust_route_event_type,
-    )
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
-
-pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust _quant_hotpath not built")
+from _quant_hotpath import (
+    rust_payload_digest,
+    rust_stable_hash,
+    RustFillDedupGuard,
+    RustSequenceBuffer,
+    rust_event_id,
+    rust_now_ns,
+    rust_sanitize,
+    rust_short_hash,
+    rust_make_idempotency_key,
+    rust_client_order_id,
+    rust_hmac_sign,
+    rust_hmac_verify,
+    rust_route_event_type,
+)
 
 
 # ============================================================

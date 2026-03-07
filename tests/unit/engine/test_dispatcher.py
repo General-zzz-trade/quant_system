@@ -141,6 +141,14 @@ class TestStringStyleRouting:
         d.dispatch(event=e)
         assert len(c.events) == 1
 
+    def test_header_event_type_routes_when_event_attr_missing(self) -> None:
+        d = EventDispatcher()
+        c = _Collector()
+        d.register(route=Route.PIPELINE, handler=c)
+        e = SimpleNamespace(header=SimpleNamespace(event_type="market", ts=None))
+        d.dispatch(event=e)
+        assert len(c.events) == 1
+
 
 # ---------------------------------------------------------------------------
 # Tests: deduplication

@@ -48,4 +48,6 @@ results/
 
 # Rust build artifacts
 ext/rust/target/
+_quant_hotpath/
+quant_hotpath-*.dist-info/
 logs/

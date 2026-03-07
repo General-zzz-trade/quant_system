@@ -360,6 +360,7 @@ class LiveRunner:
                 mempool_source=mempool_source,
                 macro_source=macro_source,
                 sentiment_source=sentiment_source,
+                use_rust=True,
             )
 
         # Wire inference_bridge to monitoring hook
@@ -522,7 +523,12 @@ class LiveRunner:
                 view = coordinator.get_state_view()
                 markets = view.get("markets", {})
                 m = markets.get(sym)
-                close = getattr(m, "close", None) if m else None
+                if m is None:
+                    return None
+                cf = getattr(m, "close_f", None)
+                if cf is not None:
+                    return _Dec(str(cf))
+                close = getattr(m, "close", None)
                 return _Dec(str(close)) if close is not None else None
 
             exec_adapter = ShadowExecutionAdapter(price_source=_shadow_price)

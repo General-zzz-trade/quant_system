@@ -1,7 +1,6 @@
 # engine/coordinator.py
 from __future__ import annotations
 
-from decimal import Decimal
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
@@ -13,10 +12,13 @@ from engine.pipeline import PipelineConfig, PipelineInput, PipelineOutput, State
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 
-# state 侧（用于初始化）
-from state.market import MarketState
-from state.account import AccountState
-from state.position import PositionState
+from _quant_hotpath import (
+    RustMarketState,
+    RustAccountState,
+    RustPositionState,
+)
+
+_SCALE = 100_000_000
 
 
 # ============================================================
@@ -97,6 +99,7 @@ class EngineCoordinator:
         decision_bridge: Optional[DecisionBridge] = None,
         execution_bridge: Optional[ExecutionBridge] = None,
         runtime: Optional[Any] = None,
+        store: Optional[Any] = None,
     ) -> None:
         self._lock = threading.RLock()
         self._cfg = cfg
@@ -104,7 +107,13 @@ class EngineCoordinator:
 
         # core modules
         self._dispatcher = dispatcher or EventDispatcher()
-        self._pipeline = pipeline or StatePipeline(config=cfg.pipeline_config)
+        self._store = store
+        if pipeline is not None:
+            self._pipeline = pipeline
+        elif store is not None:
+            self._pipeline = StatePipeline(store=store, config=cfg.pipeline_config)
+        else:
+            self._pipeline = StatePipeline(config=cfg.pipeline_config)
 
         # bridges（允许外部注入实现）
         self._decision_bridge = decision_bridge
@@ -114,16 +123,16 @@ class EngineCoordinator:
         self._runtime = runtime
         self._runtime_handler: Optional[Callable[[Any], None]] = None
 
-        # ---- engine state (single source of truth) ----
+        # ---- engine state (single source of truth, Rust types) ----
         effective_symbols = cfg.symbols or (cfg.symbol_default,)
-        self._markets: Dict[str, MarketState] = {
-            s: MarketState.empty(symbol=s) for s in effective_symbols
+        self._markets: Dict[str, Any] = {
+            s: RustMarketState.empty(s) for s in effective_symbols
         }
-        self._account: AccountState = self._init_account_state(
+        self._account: Any = RustAccountState.initial(
             currency=cfg.currency,
-            starting_balance=cfg.starting_balance,
+            balance=int(cfg.starting_balance * _SCALE),
         )
-        self._positions: Dict[str, PositionState] = {}
+        self._positions: Dict[str, Any] = {}
         self._event_index: int = 0
         self._last_event_id: Optional[str] = None
         self._last_ts: Optional[Any] = None
@@ -242,7 +251,8 @@ class EngineCoordinator:
         self._execution_bridge = bridge
 
     def restore_from_snapshot(self, snapshot: Any) -> None:
-        """Restore engine state from a StateSnapshot. Only valid during INIT phase."""
+        """Restore engine state from a StateSnapshot. Only valid during INIT phase.
+        Accepts snapshots with either Python or Rust state types."""
         with self._lock:
             if self._phase != EnginePhase.INIT:
                 raise RuntimeError("Can only restore during INIT phase")
@@ -348,51 +358,4 @@ class EngineCoordinator:
             raise RuntimeError("ExecutionBridge is not attached")
         self._execution_bridge.handle_event(event)
 
-    # --------------------------------------------------------
-    # Helpers
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _init_account_state(*, currency: str, starting_balance: float) -> AccountState:
-        """
-        兼容不同 AccountState 初始化制度：
-        - AccountState.empty(...)
-        - AccountState.initial(...)
-        - 兜底：AccountState(currency=..., balance=Decimal(...))
-        """
-        bal_dec = Decimal(str(starting_balance))
-
-        # 1) 优先：AccountState.empty（如果存在）
-        empty_fn = getattr(AccountState, "empty", None)
-        if callable(empty_fn):
-            for kwargs in (
-                    {"currency": currency, "starting_balance": starting_balance},
-                    {"currency": currency, "starting_balance": bal_dec},
-                    {"currency": currency, "balance": starting_balance},
-                    {"currency": currency, "balance": bal_dec},
-                    {"currency": currency, "equity": starting_balance},
-                    {"currency": currency, "equity": bal_dec},
-                    {"starting_balance": starting_balance},
-                    {"starting_balance": bal_dec},
-                    {"balance": starting_balance},
-                    {"balance": bal_dec},
-                    {},
-            ):
-                try:
-                    return empty_fn(**kwargs)  # type: ignore[misc]
-                except TypeError:
-                    continue
-
-        # 2) 其次：AccountState.initial（你当前 state/account.py 的制度）
-        init_fn = getattr(AccountState, "initial", None)
-        if callable(init_fn):
-            try:
-                return init_fn(currency=currency, balance=bal_dec)  # type: ignore[misc]
-            except TypeError:
-                pass
-
-        # 3) 最后兜底：直接构造（你的 AccountState 允许这样）
-        try:
-            return AccountState(currency=currency, balance=bal_dec)
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError("Unable to initialize AccountState") from e
+    # (no helpers needed — state init uses Rust types directly)

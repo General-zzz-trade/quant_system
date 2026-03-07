@@ -2,10 +2,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
 
+use crate::fixed_decimal::{Fd8, SCALE};
+
 // ---------------------------------------------------------------------------
-// Helper: compare two Option<String> for equality
+// Helper: compare two Option<String> for equality (used by Portfolio/Risk)
 // ---------------------------------------------------------------------------
-fn opt_eq(a: &Option<String>, b: &Option<String>) -> bool {
+fn opt_str_eq(a: &Option<String>, b: &Option<String>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a == b,
         (None, None) => true,
@@ -13,15 +15,26 @@ fn opt_eq(a: &Option<String>, b: &Option<String>) -> bool {
     }
 }
 
-fn opt_repr(v: &Option<String>) -> String {
+fn opt_str_repr(v: &Option<String>) -> String {
     match v {
         Some(s) => format!("'{}'", s),
         None => "None".to_string(),
     }
 }
 
+fn opt_i64_repr(v: &Option<i64>) -> String {
+    match v {
+        Some(raw) => format!("'{}'", Fd8::from_raw(*raw).to_string_stripped()),
+        None => "None".to_string(),
+    }
+}
+
+fn i64_repr(raw: i64) -> String {
+    Fd8::from_raw(raw).to_string_stripped()
+}
+
 // ===========================================================================
-// MarketState
+// MarketState — i64 fixed-point (×10^8)
 // ===========================================================================
 #[pyclass(name = "RustMarketState", frozen)]
 #[derive(Clone)]
@@ -29,17 +42,17 @@ pub struct RustMarketState {
     #[pyo3(get)]
     pub symbol: String,
     #[pyo3(get)]
-    pub last_price: Option<String>,
+    pub last_price: Option<i64>,
     #[pyo3(get)]
-    pub open: Option<String>,
+    pub open: Option<i64>,
     #[pyo3(get)]
-    pub high: Option<String>,
+    pub high: Option<i64>,
     #[pyo3(get)]
-    pub low: Option<String>,
+    pub low: Option<i64>,
     #[pyo3(get)]
-    pub close: Option<String>,
+    pub close: Option<i64>,
     #[pyo3(get)]
-    pub volume: Option<String>,
+    pub volume: Option<i64>,
     #[pyo3(get)]
     pub last_ts: Option<String>,
 }
@@ -50,19 +63,19 @@ impl RustMarketState {
     #[pyo3(signature = (symbol, last_price=None, open=None, high=None, low=None, close=None, volume=None, last_ts=None))]
     fn new(
         symbol: String,
-        last_price: Option<String>,
-        open: Option<String>,
-        high: Option<String>,
-        low: Option<String>,
-        close: Option<String>,
-        volume: Option<String>,
+        last_price: Option<i64>,
+        open: Option<i64>,
+        high: Option<i64>,
+        low: Option<i64>,
+        close: Option<i64>,
+        volume: Option<i64>,
         last_ts: Option<String>,
     ) -> Self {
         Self { symbol, last_price, open, high, low, close, volume, last_ts }
     }
 
     #[staticmethod]
-    fn empty(symbol: String) -> Self {
+    pub fn empty(symbol: String) -> Self {
         Self {
             symbol,
             last_price: None,
@@ -76,15 +89,15 @@ impl RustMarketState {
     }
 
     #[pyo3(signature = (*, price, ts=None))]
-    fn with_tick(&self, price: String, ts: Option<String>) -> Self {
+    fn with_tick(&self, price: i64, ts: Option<String>) -> Self {
         Self {
             symbol: self.symbol.clone(),
             last_price: Some(price),
-            open: self.open.clone(),
-            high: self.high.clone(),
-            low: self.low.clone(),
-            close: self.close.clone(),
-            volume: self.volume.clone(),
+            open: self.open,
+            high: self.high,
+            low: self.low,
+            close: self.close,
+            volume: self.volume,
             last_ts: ts,
         }
     }
@@ -92,16 +105,16 @@ impl RustMarketState {
     #[pyo3(signature = (*, o, h, l, c, v, ts=None))]
     fn with_bar(
         &self,
-        o: String,
-        h: String,
-        l: String,
-        c: String,
-        v: String,
+        o: i64,
+        h: i64,
+        l: i64,
+        c: i64,
+        v: i64,
         ts: Option<String>,
     ) -> Self {
         Self {
             symbol: self.symbol.clone(),
-            last_price: Some(c.clone()),
+            last_price: Some(c),
             open: Some(o),
             high: Some(h),
             low: Some(l),
@@ -115,30 +128,61 @@ impl RustMarketState {
         format!(
             "RustMarketState(symbol='{}', last_price={}, open={}, high={}, low={}, close={}, volume={}, last_ts={})",
             self.symbol,
-            opt_repr(&self.last_price),
-            opt_repr(&self.open),
-            opt_repr(&self.high),
-            opt_repr(&self.low),
-            opt_repr(&self.close),
-            opt_repr(&self.volume),
-            opt_repr(&self.last_ts),
+            opt_i64_repr(&self.last_price),
+            opt_i64_repr(&self.open),
+            opt_i64_repr(&self.high),
+            opt_i64_repr(&self.low),
+            opt_i64_repr(&self.close),
+            opt_i64_repr(&self.volume),
+            opt_str_repr(&self.last_ts),
         )
+    }
+
+    // Float accessors for Python consumers (i64 ÷ SCALE → f64)
+    #[getter]
+    fn last_price_f(&self) -> Option<f64> {
+        self.last_price.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn open_f(&self) -> Option<f64> {
+        self.open.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn high_f(&self) -> Option<f64> {
+        self.high.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn low_f(&self) -> Option<f64> {
+        self.low.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn close_f(&self) -> Option<f64> {
+        self.close.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn volume_f(&self) -> Option<f64> {
+        self.volume.map(|v| v as f64 / SCALE as f64)
     }
 
     fn __eq__(&self, other: &Self) -> bool {
         self.symbol == other.symbol
-            && opt_eq(&self.last_price, &other.last_price)
-            && opt_eq(&self.open, &other.open)
-            && opt_eq(&self.high, &other.high)
-            && opt_eq(&self.low, &other.low)
-            && opt_eq(&self.close, &other.close)
-            && opt_eq(&self.volume, &other.volume)
-            && opt_eq(&self.last_ts, &other.last_ts)
+            && self.last_price == other.last_price
+            && self.open == other.open
+            && self.high == other.high
+            && self.low == other.low
+            && self.close == other.close
+            && self.volume == other.volume
+            && opt_str_eq(&self.last_ts, &other.last_ts)
     }
 }
 
 // ===========================================================================
-// PositionState
+// PositionState — i64 fixed-point (×10^8)
 // ===========================================================================
 #[pyclass(name = "RustPositionState", frozen)]
 #[derive(Clone)]
@@ -146,11 +190,11 @@ pub struct RustPositionState {
     #[pyo3(get)]
     pub symbol: String,
     #[pyo3(get)]
-    pub qty: String,
+    pub qty: i64,
     #[pyo3(get)]
-    pub avg_price: Option<String>,
+    pub avg_price: Option<i64>,
     #[pyo3(get)]
-    pub last_price: Option<String>,
+    pub last_price: Option<i64>,
     #[pyo3(get)]
     pub last_ts: Option<String>,
 }
@@ -158,22 +202,22 @@ pub struct RustPositionState {
 #[pymethods]
 impl RustPositionState {
     #[new]
-    #[pyo3(signature = (symbol, qty="0".to_string(), avg_price=None, last_price=None, last_ts=None))]
+    #[pyo3(signature = (symbol, qty=0, avg_price=None, last_price=None, last_ts=None))]
     fn new(
         symbol: String,
-        qty: String,
-        avg_price: Option<String>,
-        last_price: Option<String>,
+        qty: i64,
+        avg_price: Option<i64>,
+        last_price: Option<i64>,
         last_ts: Option<String>,
     ) -> Self {
         Self { symbol, qty, avg_price, last_price, last_ts }
     }
 
     #[staticmethod]
-    fn empty(symbol: String) -> Self {
+    pub fn empty(symbol: String) -> Self {
         Self {
             symbol,
-            qty: "0".to_string(),
+            qty: 0,
             avg_price: None,
             last_price: None,
             last_ts: None,
@@ -182,19 +226,15 @@ impl RustPositionState {
 
     #[getter]
     fn is_flat(&self) -> bool {
-        // "0", "0.0", "0.00", etc. all mean flat
-        match self.qty.parse::<f64>() {
-            Ok(v) => v == 0.0,
-            Err(_) => self.qty == "0",
-        }
+        self.qty == 0
     }
 
     #[pyo3(signature = (*, qty, avg_price, last_price, ts=None))]
     fn with_update(
         &self,
-        qty: String,
-        avg_price: Option<String>,
-        last_price: Option<String>,
+        qty: i64,
+        avg_price: Option<i64>,
+        last_price: Option<i64>,
         ts: Option<String>,
     ) -> Self {
         Self {
@@ -210,24 +250,40 @@ impl RustPositionState {
         format!(
             "RustPositionState(symbol='{}', qty='{}', avg_price={}, last_price={}, last_ts={})",
             self.symbol,
-            self.qty,
-            opt_repr(&self.avg_price),
-            opt_repr(&self.last_price),
-            opt_repr(&self.last_ts),
+            i64_repr(self.qty),
+            opt_i64_repr(&self.avg_price),
+            opt_i64_repr(&self.last_price),
+            opt_str_repr(&self.last_ts),
         )
+    }
+
+    // Float accessors for Python consumers
+    #[getter]
+    fn qty_f(&self) -> f64 {
+        self.qty as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn avg_price_f(&self) -> Option<f64> {
+        self.avg_price.map(|v| v as f64 / SCALE as f64)
+    }
+
+    #[getter]
+    fn last_price_f(&self) -> Option<f64> {
+        self.last_price.map(|v| v as f64 / SCALE as f64)
     }
 
     fn __eq__(&self, other: &Self) -> bool {
         self.symbol == other.symbol
             && self.qty == other.qty
-            && opt_eq(&self.avg_price, &other.avg_price)
-            && opt_eq(&self.last_price, &other.last_price)
-            && opt_eq(&self.last_ts, &other.last_ts)
+            && self.avg_price == other.avg_price
+            && self.last_price == other.last_price
+            && opt_str_eq(&self.last_ts, &other.last_ts)
     }
 }
 
 // ===========================================================================
-// AccountState
+// AccountState — i64 fixed-point (×10^8)
 // ===========================================================================
 #[pyclass(name = "RustAccountState", frozen)]
 #[derive(Clone)]
@@ -235,17 +291,17 @@ pub struct RustAccountState {
     #[pyo3(get)]
     pub currency: String,
     #[pyo3(get)]
-    pub balance: String,
+    pub balance: i64,
     #[pyo3(get)]
-    pub margin_used: String,
+    pub margin_used: i64,
     #[pyo3(get)]
-    pub margin_available: String,
+    pub margin_available: i64,
     #[pyo3(get)]
-    pub realized_pnl: String,
+    pub realized_pnl: i64,
     #[pyo3(get)]
-    pub unrealized_pnl: String,
+    pub unrealized_pnl: i64,
     #[pyo3(get)]
-    pub fees_paid: String,
+    pub fees_paid: i64,
     #[pyo3(get)]
     pub last_ts: Option<String>,
 }
@@ -253,15 +309,15 @@ pub struct RustAccountState {
 #[pymethods]
 impl RustAccountState {
     #[new]
-    #[pyo3(signature = (currency, balance, margin_used="0".to_string(), margin_available="0".to_string(), realized_pnl="0".to_string(), unrealized_pnl="0".to_string(), fees_paid="0".to_string(), last_ts=None))]
+    #[pyo3(signature = (currency, balance, margin_used=0, margin_available=0, realized_pnl=0, unrealized_pnl=0, fees_paid=0, last_ts=None))]
     fn new(
         currency: String,
-        balance: String,
-        margin_used: String,
-        margin_available: String,
-        realized_pnl: String,
-        unrealized_pnl: String,
-        fees_paid: String,
+        balance: i64,
+        margin_used: i64,
+        margin_available: i64,
+        realized_pnl: i64,
+        unrealized_pnl: i64,
+        fees_paid: i64,
         last_ts: Option<String>,
     ) -> Self {
         Self {
@@ -278,15 +334,15 @@ impl RustAccountState {
 
     #[staticmethod]
     #[pyo3(signature = (*, currency, balance))]
-    fn initial(currency: String, balance: String) -> Self {
+    fn initial(currency: String, balance: i64) -> Self {
         Self {
             currency,
             balance,
-            margin_used: "0".to_string(),
-            margin_available: "0".to_string(),
-            realized_pnl: "0".to_string(),
-            unrealized_pnl: "0".to_string(),
-            fees_paid: "0".to_string(),
+            margin_used: 0,
+            margin_available: 0,
+            realized_pnl: 0,
+            unrealized_pnl: 0,
+            fees_paid: 0,
             last_ts: None,
         }
     }
@@ -294,18 +350,18 @@ impl RustAccountState {
     #[pyo3(signature = (*, balance, margin_used, realized_pnl, unrealized_pnl, fees_paid, ts=None))]
     fn with_update(
         &self,
-        balance: String,
-        margin_used: String,
-        realized_pnl: String,
-        unrealized_pnl: String,
-        fees_paid: String,
+        balance: i64,
+        margin_used: i64,
+        realized_pnl: i64,
+        unrealized_pnl: i64,
+        fees_paid: i64,
         ts: Option<String>,
     ) -> Self {
         Self {
             currency: self.currency.clone(),
             balance,
             margin_used,
-            margin_available: self.margin_available.clone(),
+            margin_available: self.margin_available,
             realized_pnl,
             unrealized_pnl,
             fees_paid,
@@ -317,13 +373,44 @@ impl RustAccountState {
         format!(
             "RustAccountState(currency='{}', balance='{}', margin_used='{}', realized_pnl='{}', unrealized_pnl='{}', fees_paid='{}', last_ts={})",
             self.currency,
-            self.balance,
-            self.margin_used,
-            self.realized_pnl,
-            self.unrealized_pnl,
-            self.fees_paid,
-            opt_repr(&self.last_ts),
+            i64_repr(self.balance),
+            i64_repr(self.margin_used),
+            i64_repr(self.realized_pnl),
+            i64_repr(self.unrealized_pnl),
+            i64_repr(self.fees_paid),
+            opt_str_repr(&self.last_ts),
         )
+    }
+
+    // Float accessors for Python consumers
+    #[getter]
+    fn balance_f(&self) -> f64 {
+        self.balance as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn margin_used_f(&self) -> f64 {
+        self.margin_used as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn margin_available_f(&self) -> f64 {
+        self.margin_available as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn realized_pnl_f(&self) -> f64 {
+        self.realized_pnl as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn unrealized_pnl_f(&self) -> f64 {
+        self.unrealized_pnl as f64 / SCALE as f64
+    }
+
+    #[getter]
+    fn fees_paid_f(&self) -> f64 {
+        self.fees_paid as f64 / SCALE as f64
     }
 
     fn __eq__(&self, other: &Self) -> bool {
@@ -334,12 +421,12 @@ impl RustAccountState {
             && self.realized_pnl == other.realized_pnl
             && self.unrealized_pnl == other.unrealized_pnl
             && self.fees_paid == other.fees_paid
-            && opt_eq(&self.last_ts, &other.last_ts)
+            && opt_str_eq(&self.last_ts, &other.last_ts)
     }
 }
 
 // ===========================================================================
-// PortfolioState
+// PortfolioState (keeps String — not on pipeline hot path)
 // ===========================================================================
 #[pyclass(name = "RustPortfolioState", frozen)]
 #[derive(Clone)]
@@ -424,12 +511,7 @@ impl RustPortfolioState {
     }
 
     /// Compute a PortfolioState from account + positions + market data.
-    ///
-    /// positions: dict[str, RustPositionState]
-    /// market: dict[str, RustMarketState]
-    ///
-    /// All arithmetic is done in f64 then serialized back to String.
-    /// Python side wraps with Decimal for downstream use.
+    /// Now reads i64 fields from core types.
     #[staticmethod]
     #[pyo3(signature = (account, positions, market))]
     fn compute(
@@ -437,64 +519,53 @@ impl RustPortfolioState {
         positions: &Bound<'_, PyDict>,
         market: &Bound<'_, PyDict>,
     ) -> PyResult<Self> {
-        let balance: f64 = account.balance.parse().unwrap_or(0.0);
-        let margin_used: f64 = account.margin_used.parse().unwrap_or(0.0);
-        let margin_available: f64 = account.margin_available.parse().unwrap_or(0.0);
-        let realized_pnl: f64 = account.realized_pnl.parse().unwrap_or(0.0);
-        let fees_paid: f64 = account.fees_paid.parse().unwrap_or(0.0);
+        let balance = Fd8::from_raw(account.balance);
+        let margin_used = Fd8::from_raw(account.margin_used);
+        let margin_available = Fd8::from_raw(account.margin_available);
+        let realized_pnl = Fd8::from_raw(account.realized_pnl);
+        let fees_paid = Fd8::from_raw(account.fees_paid);
 
-        let mut gross_exposure: f64 = 0.0;
-        let mut net_exposure: f64 = 0.0;
-        let mut total_unrealized: f64 = 0.0;
+        let mut gross_exposure = Fd8::ZERO;
+        let mut net_exposure = Fd8::ZERO;
+        let mut total_unrealized = Fd8::ZERO;
         let mut symbols: Vec<String> = Vec::new();
         let mut latest_ts: Option<String> = account.last_ts.clone();
 
         // Build market price lookup
-        let mut market_prices: HashMap<String, f64> = HashMap::new();
+        let mut market_prices: HashMap<String, Fd8> = HashMap::new();
         for (key, val) in market.iter() {
             let sym: String = key.extract()?;
             let ms: RustMarketState = val.extract()?;
-            if let Some(ref p) = ms.last_price {
-                if let Ok(px) = p.parse::<f64>() {
-                    market_prices.insert(sym, px);
-                }
+            if let Some(p) = ms.last_price {
+                market_prices.insert(sym, Fd8::from_raw(p));
             }
         }
 
         for (key, val) in positions.iter() {
             let sym: String = key.extract()?;
             let pos: RustPositionState = val.extract()?;
-            let qty: f64 = pos.qty.parse().unwrap_or(0.0);
-            if qty == 0.0 {
+            let qty = Fd8::from_raw(pos.qty);
+            if qty.is_zero() {
                 continue;
             }
             symbols.push(sym.clone());
 
-            // Determine mark price: position's last_price > market last_price > avg_price
             let mark = pos
                 .last_price
-                .as_ref()
-                .and_then(|s| s.parse::<f64>().ok())
+                .map(Fd8::from_raw)
                 .or_else(|| market_prices.get(&sym).copied())
-                .or_else(|| {
-                    pos.avg_price
-                        .as_ref()
-                        .and_then(|s| s.parse::<f64>().ok())
-                })
-                .unwrap_or(0.0);
+                .or_else(|| pos.avg_price.map(Fd8::from_raw))
+                .unwrap_or(Fd8::ZERO);
 
             let notional = qty.abs() * mark;
-            gross_exposure += notional;
-            net_exposure += qty * mark;
+            gross_exposure = gross_exposure + notional;
+            net_exposure = net_exposure + qty * mark;
 
-            // Unrealized PnL
-            if let Some(ref avg_str) = pos.avg_price {
-                if let Ok(avg) = avg_str.parse::<f64>() {
-                    total_unrealized += qty * (mark - avg);
-                }
+            if let Some(avg_raw) = pos.avg_price {
+                let avg = Fd8::from_raw(avg_raw);
+                total_unrealized = total_unrealized + qty * (mark - avg);
             }
 
-            // Track latest timestamp
             if pos.last_ts.is_some() && (latest_ts.is_none() || pos.last_ts > latest_ts) {
                 latest_ts = pos.last_ts.clone();
             }
@@ -503,28 +574,32 @@ impl RustPortfolioState {
         symbols.sort();
 
         let total_equity = balance + total_unrealized;
-        let leverage = if total_equity.abs() > 1e-12 {
-            Some(format!("{}", gross_exposure / total_equity))
+        let te_f = total_equity.to_f64();
+        let ge_f = gross_exposure.to_f64();
+        let mu_f = margin_used.to_f64();
+
+        let leverage = if te_f.abs() > 1e-12 {
+            Some(format!("{}", ge_f / te_f))
         } else {
             None
         };
-        let margin_ratio = if total_equity.abs() > 1e-12 {
-            Some(format!("{}", margin_used / total_equity))
+        let margin_ratio = if te_f.abs() > 1e-12 {
+            Some(format!("{}", mu_f / te_f))
         } else {
             None
         };
 
         Ok(Self {
-            total_equity: format!("{}", total_equity),
-            cash_balance: format!("{}", balance),
-            realized_pnl: format!("{}", realized_pnl),
-            unrealized_pnl: format!("{}", total_unrealized),
-            fees_paid: format!("{}", fees_paid),
-            gross_exposure: format!("{}", gross_exposure),
-            net_exposure: format!("{}", net_exposure),
+            total_equity: total_equity.to_string_stripped(),
+            cash_balance: balance.to_string_stripped(),
+            realized_pnl: realized_pnl.to_string_stripped(),
+            unrealized_pnl: total_unrealized.to_string_stripped(),
+            fees_paid: fees_paid.to_string_stripped(),
+            gross_exposure: gross_exposure.to_string_stripped(),
+            net_exposure: net_exposure.to_string_stripped(),
             leverage,
-            margin_used: format!("{}", margin_used),
-            margin_available: format!("{}", margin_available),
+            margin_used: margin_used.to_string_stripped(),
+            margin_available: margin_available.to_string_stripped(),
             margin_ratio,
             symbols,
             last_ts: latest_ts,
@@ -538,7 +613,7 @@ impl RustPortfolioState {
             self.cash_balance,
             self.gross_exposure,
             self.net_exposure,
-            opt_repr(&self.leverage),
+            opt_str_repr(&self.leverage),
             self.symbols,
         )
     }
@@ -551,17 +626,17 @@ impl RustPortfolioState {
             && self.fees_paid == other.fees_paid
             && self.gross_exposure == other.gross_exposure
             && self.net_exposure == other.net_exposure
-            && opt_eq(&self.leverage, &other.leverage)
+            && opt_str_eq(&self.leverage, &other.leverage)
             && self.margin_used == other.margin_used
             && self.margin_available == other.margin_available
-            && opt_eq(&self.margin_ratio, &other.margin_ratio)
+            && opt_str_eq(&self.margin_ratio, &other.margin_ratio)
             && self.symbols == other.symbols
-            && opt_eq(&self.last_ts, &other.last_ts)
+            && opt_str_eq(&self.last_ts, &other.last_ts)
     }
 }
 
 // ===========================================================================
-// RiskLimits
+// RiskLimits (keeps String — not on pipeline hot path)
 // ===========================================================================
 #[pyclass(name = "RustRiskLimits", frozen)]
 #[derive(Clone)]
@@ -598,7 +673,7 @@ impl RustRiskLimits {
         format!(
             "RustRiskLimits(max_leverage='{}', max_position_notional={}, max_drawdown_pct='{}', block_on_equity_le_zero={})",
             self.max_leverage,
-            opt_repr(&self.max_position_notional),
+            opt_str_repr(&self.max_position_notional),
             self.max_drawdown_pct,
             self.block_on_equity_le_zero,
         )
@@ -606,14 +681,14 @@ impl RustRiskLimits {
 
     fn __eq__(&self, other: &Self) -> bool {
         self.max_leverage == other.max_leverage
-            && opt_eq(&self.max_position_notional, &other.max_position_notional)
+            && opt_str_eq(&self.max_position_notional, &other.max_position_notional)
             && self.max_drawdown_pct == other.max_drawdown_pct
             && self.block_on_equity_le_zero == other.block_on_equity_le_zero
     }
 }
 
 // ===========================================================================
-// RiskState
+// RiskState (keeps String — not on pipeline hot path)
 // ===========================================================================
 #[pyclass(name = "RustRiskState", frozen)]
 #[derive(Clone)]
@@ -691,7 +766,7 @@ impl RustRiskState {
             "RustRiskState(blocked={}, halted={}, level={}, equity_peak='{}', drawdown_pct='{}', flags={:?})",
             self.blocked,
             self.halted,
-            opt_repr(&self.level),
+            opt_str_repr(&self.level),
             self.equity_peak,
             self.drawdown_pct,
             self.flags,
@@ -701,12 +776,12 @@ impl RustRiskState {
     fn __eq__(&self, other: &Self) -> bool {
         self.blocked == other.blocked
             && self.halted == other.halted
-            && opt_eq(&self.level, &other.level)
-            && opt_eq(&self.message, &other.message)
+            && opt_str_eq(&self.level, &other.level)
+            && opt_str_eq(&self.message, &other.message)
             && self.flags == other.flags
             && self.equity_peak == other.equity_peak
             && self.drawdown_pct == other.drawdown_pct
-            && opt_eq(&self.last_ts, &other.last_ts)
+            && opt_str_eq(&self.last_ts, &other.last_ts)
     }
 }
 
@@ -752,7 +827,7 @@ impl RustReducerResult {
             "RustReducerResult(state={}, changed={}, note={})",
             state_repr,
             self.changed,
-            opt_repr(&self.note),
+            opt_str_repr(&self.note),
         )
     }
 

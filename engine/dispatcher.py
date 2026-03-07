@@ -7,12 +7,8 @@ import time as _time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 import threading
 
-try:
-    from _quant_hotpath import DuplicateGuard as _RustDedupGuard
-    _HAS_RUST = True
-except ImportError:
-    _RustDedupGuard = None  # type: ignore
-    _HAS_RUST = False
+from _quant_hotpath import DuplicateGuard as _RustDedupGuard
+from _quant_hotpath import rust_route_event_type as _rust_route_event_type
 
 # event 侧（你的 event 层）
 try:
@@ -81,13 +77,7 @@ class EventDispatcher:
             Route.EXECUTION: [],
         }
         self._seq: int = 0
-        self._seen_event_ids: Dict[str, float] = {}  # event_id -> monotonic timestamp
-        self._dedup_ttl_sec: float = 86400.0  # 24h TTL
-        self._dedup_max_size: int = 500_000
-        self._dedup_last_prune: float = _time.monotonic()
-        self._rust_dedup: Optional[Any] = (
-            _RustDedupGuard(ttl_sec=86400.0, max_size=500_000) if _HAS_RUST else None
-        )
+        self._rust_dedup = _RustDedupGuard(ttl_sec=86400.0, max_size=500_000)
 
     # --------------------------------------------------------
     # Registration
@@ -127,18 +117,8 @@ class EventDispatcher:
             event_id = getattr(header, "event_id", None)
             if isinstance(event_id, str):
                 now = _time.monotonic()
-                if self._rust_dedup is not None:
-                    if not self._rust_dedup.check_and_insert(event_id, now):
-                        raise DuplicateEventError(f"重复 event_id: {event_id}")
-                else:
-                    if event_id in self._seen_event_ids:
-                        raise DuplicateEventError(f"重复 event_id: {event_id}")
-                    self._seen_event_ids[event_id] = now
-                    # 定期清理过期条目（每 60 秒或超容量时）
-                    if (now - self._dedup_last_prune > 60.0) or len(self._seen_event_ids) > self._dedup_max_size:
-                        cutoff = now - self._dedup_ttl_sec
-                        self._seen_event_ids = {k: v for k, v in self._seen_event_ids.items() if v > cutoff}
-                        self._dedup_last_prune = now
+                if not self._rust_dedup.check_and_insert(event_id, now):
+                    raise DuplicateEventError(f"重复 event_id: {event_id}")
 
             route = self._route_for(event)
             ctx = DispatchContext(
@@ -165,56 +145,44 @@ class EventDispatcher:
         - 命令事件 → EXECUTION
         - 其余 → DROP
         """
-        # 风格 A：EventType Enum
         et = getattr(event, "event_type", None)
-        if EventType is not None and et is not None:
+        if et is None:
+            header = getattr(event, "header", None)
+            et = getattr(header, "event_type", None)
+
+        # 风格 A：EventType Enum / header.event_type
+        if et is not None:
             try:
                 et_val = et.value if hasattr(et, "value") else et
-                return self._route_from_type(str(et_val).upper())
+                return self._route_from_label(str(et_val))
             except Exception:
                 pass
 
         # 风格 B：EVENT_TYPE 字符串
         name = getattr(event, "EVENT_TYPE", None)
         if isinstance(name, str):
-            return self._route_from_name(name.lower())
+            return self._route_from_label(name)
 
+        return Route.DROP
+
+    @staticmethod
+    def _route_from_label(label: str) -> Route:
+        routed = _rust_route_event_type(label)
+        if routed == "pipeline":
+            return Route.PIPELINE
+        if routed == "decision":
+            return Route.DECISION
+        if routed == "execution":
+            return Route.EXECUTION
         return Route.DROP
 
     @staticmethod
     def _route_from_type(et: str) -> Route:
-        et_u = et.upper()
-
-        # 订单“回报/状态”属于事实流（PIPELINE），必须先于泛 ORDER 判断
-        if ("ORDER_UPDATE" in et_u) or ("ORDER_REPORT" in et_u) or ("ORDER_STATUS" in et_u):
-            return Route.PIPELINE
-
-        if "MARKET" in et_u or "FILL" in et_u or "FUNDING" in et_u:
-            return Route.PIPELINE
-        if "SIGNAL" in et_u or "INTENT" in et_u or "RISK" in et_u:
-            return Route.DECISION
-
-        # 订单“命令”才走 EXECUTION（submit/cancel/replace）
-        if "ORDER" in et_u:
-            return Route.EXECUTION
-
-        return Route.DROP
+        return EventDispatcher._route_from_label(et)
 
     @staticmethod
     def _route_from_name(name: str) -> Route:
-        n = name.lower()
-
-        if ("order_update" in n) or ("order_report" in n) or ("order_status" in n):
-            return Route.PIPELINE
-
-        if "market" in n or "fill" in n or "funding" in n:
-            return Route.PIPELINE
-        if "signal" in n or "intent" in n or "risk" in n:
-            return Route.DECISION
-        if "order" in n:
-            return Route.EXECUTION
-
-        return Route.DROP
+        return EventDispatcher._route_from_label(name)
 
 
     # --------------------------------------------------------

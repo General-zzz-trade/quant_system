@@ -5,12 +5,31 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_DOWN
 from typing import Any, Iterable, Optional
 
-try:
-    from _quant_hotpath import RustMLDecision as _RustMLDecision
-    _HAS_RUST = True
-except ImportError:
-    _RustMLDecision = None  # type: ignore
-    _HAS_RUST = False
+from _quant_hotpath import RustMLDecision as _RustMLDecision
+
+def _get_close(market: Any) -> Optional[float]:
+    """Get close price as float from Rust (close_f) or Python (close) market state."""
+    cf = getattr(market, "close_f", None)
+    if cf is not None:
+        return cf
+    c = getattr(market, "close", None)
+    return float(c) if c is not None else None
+
+
+def _get_balance(account: Any) -> float:
+    """Get balance as float from Rust (balance_f) or Python (balance) account state."""
+    bf = getattr(account, "balance_f", None)
+    if bf is not None:
+        return bf
+    return float(Decimal(str(getattr(account, "balance", 0))))
+
+
+def _get_qty(pos: Any) -> float:
+    """Get qty as float from Rust (qty_f) or Python (qty) position state."""
+    qf = getattr(pos, "qty_f", None)
+    if qf is not None:
+        return qf
+    return float(Decimal(str(getattr(pos, "qty", 0))))
 
 
 class MLDecisionModule:
@@ -77,13 +96,10 @@ class MLDecisionModule:
         if market is None:
             return ()
 
-        close = getattr(market, "close", None)
-        if close is None:
+        close_f = _get_close(market)
+        if close_f is None or close_f <= 0:
             return ()
-        close_f = float(close)
-        close_d = Decimal(str(close))
-        if close_d <= 0:
-            return ()
+        close_d = Decimal(str(close_f))
 
         ml_score = features.get("ml_score")
         if ml_score is None:
@@ -91,12 +107,13 @@ class MLDecisionModule:
 
         # Track high-water mark for DD breaker (must run every tick)
         if self.dd_limit > 0 and account is not None:
-            balance_f = float(Decimal(str(getattr(account, "balance", 0))))
+            balance_f = _get_balance(account)
             self._hwm = max(self._hwm, balance_f)
 
         # Current position
         pos = positions.get(self.symbol)
-        current_qty = Decimal(str(getattr(pos, "qty", 0))) if pos else Decimal("0")
+        current_qty_f = _get_qty(pos) if pos else 0.0
+        current_qty = Decimal(str(current_qty_f))
         current_side = "long" if current_qty > 0 else ("short" if current_qty < 0 else "flat")
 
         # ATR from features (used for stops and vol sizing)
@@ -118,7 +135,7 @@ class MLDecisionModule:
         # ── Phase 1: Stop-loss checks (before signal) ──
         stop_exit = self._check_stops(current_side, close_f, atr_norm)
         if stop_exit is not None:
-            orders = self._flatten(current_qty, close, stop_exit)
+            orders = self._flatten(current_qty, close_f, stop_exit)
             self._clear_entry_state()
             return orders
 
@@ -138,17 +155,17 @@ class MLDecisionModule:
         if desired == current_side and desired != "flat":
             balance = Decimal("10000")
             if account is not None:
-                balance = Decimal(str(getattr(account, "balance", balance)))
+                balance = Decimal(str(_get_balance(account)))
             target_qty = self._compute_qty(balance, close_d, close_f, atr_norm, ml_score)
             delta = target_qty - abs(current_qty)
             if abs(delta) > abs(current_qty) * Decimal("0.01"):
                 orders: list = []
                 if delta > 0:
                     side = "BUY" if current_side == "long" else "SELL"
-                    orders.append(self._make_order(side, delta, close, "rebalance_up"))
+                    orders.append(self._make_order(side, delta, close_f, "rebalance_up"))
                 else:
                     side = "SELL" if current_side == "long" else "BUY"
-                    orders.append(self._make_order(side, abs(delta), close, "rebalance_down"))
+                    orders.append(self._make_order(side, abs(delta), close_f, "rebalance_down"))
                 return orders
             return ()
 
@@ -159,19 +176,19 @@ class MLDecisionModule:
 
         # ── Phase 3.5: Drawdown circuit breaker ──
         if self.dd_limit > 0 and account is not None:
-            dd = 1.0 - float(Decimal(str(getattr(account, "balance", 0)))) / self._hwm if self._hwm > 0 else 0.0
+            dd = 1.0 - _get_balance(account) / self._hwm if self._hwm > 0 else 0.0
             if dd >= self.dd_limit:
                 self._dd_cooldown_remaining = self.dd_cooldown
             if self._dd_cooldown_remaining > 0:
                 self._dd_cooldown_remaining -= 1
                 if current_side != "flat":
-                    return self._flatten(current_qty, close, "dd_breaker")
+                    return self._flatten(current_qty, close_f, "dd_breaker")
                 return ()
 
         # ── Phase 4: Compute target qty ──
         balance = Decimal("10000")
         if account is not None:
-            balance = Decimal(str(getattr(account, "balance", balance)))
+            balance = Decimal(str(_get_balance(account)))
 
         if desired in ("long", "short"):
             target_qty = self._compute_qty(balance, close_d, close_f, atr_norm, ml_score)
@@ -185,17 +202,17 @@ class MLDecisionModule:
         orders = []
         if desired == "long":
             if current_qty < 0:
-                orders.append(self._make_order("BUY", abs(current_qty), close, "close_short"))
-            orders.append(self._make_order("BUY", target_qty, close, "open_long"))
+                orders.append(self._make_order("BUY", abs(current_qty), close_f, "close_short"))
+            orders.append(self._make_order("BUY", target_qty, close_f, "open_long"))
             self._record_entry(close_f, atr_norm)
         elif desired == "short":
             if current_qty > 0:
-                orders.append(self._make_order("SELL", current_qty, close, "close_long"))
-            orders.append(self._make_order("SELL", target_qty, close, "open_short"))
+                orders.append(self._make_order("SELL", current_qty, close_f, "close_long"))
+            orders.append(self._make_order("SELL", target_qty, close_f, "open_short"))
             self._record_entry(close_f, atr_norm)
         elif desired == "flat" and current_qty != 0:
             side = "SELL" if current_qty > 0 else "BUY"
-            orders.append(self._make_order(side, abs(current_qty), close, "flatten"))
+            orders.append(self._make_order(side, abs(current_qty), close_f, "flatten"))
             self._clear_entry_state()
 
         return orders
@@ -319,11 +336,8 @@ class RustMLDecisionModule:
         if market is None:
             return ()
 
-        close = getattr(market, "close", None)
-        if close is None:
-            return ()
-        close_f = float(close)
-        if close_f <= 0:
+        close_f = _get_close(market)
+        if close_f is None or close_f <= 0:
             return ()
 
         ml_score = features.get("ml_score")
@@ -331,16 +345,16 @@ class RustMLDecisionModule:
             return ()
 
         pos = positions.get(self.symbol)
-        current_qty = float(Decimal(str(getattr(pos, "qty", 0)))) if pos else 0.0
+        current_qty = _get_qty(pos) if pos else 0.0
 
         balance = 10000.0
         if account is not None:
-            balance = float(Decimal(str(getattr(account, "balance", balance))))
+            balance = _get_balance(account)
 
         atr_norm = features.get("atr_norm_14")
 
         intents = self._rust.decide(close_f, ml_score, current_qty, balance, atr_norm)
-        return self._wrap_intents(intents, close)
+        return self._wrap_intents(intents, close_f)
 
     def _wrap_intents(self, intents: list, price: Any) -> list:
         from types import SimpleNamespace
@@ -365,7 +379,5 @@ class RustMLDecisionModule:
 
 
 def make_ml_decision(**kwargs: Any) -> MLDecisionModule:
-    """Factory: returns Rust-backed decision module if available, else Python."""
-    if _HAS_RUST:
-        return RustMLDecisionModule(**kwargs)  # type: ignore[return-value]
-    return MLDecisionModule(**kwargs)
+    """Factory: returns Rust-backed decision module."""
+    return RustMLDecisionModule(**kwargs)  # type: ignore[return-value]

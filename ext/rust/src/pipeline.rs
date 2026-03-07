@@ -1,6 +1,10 @@
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 
+use crate::rust_events::{RustMarketEvent, RustFillEvent, RustFundingEvent};
+use crate::state_types::{RustAccountState, RustMarketState, RustPositionState};
+use crate::state_reducers::{RustAccountReducer, RustMarketReducer, RustPositionReducer};
+
 // ---------------------------------------------------------------------------
 // Helper: read an attribute from a Python object, returning None on failure
 // ---------------------------------------------------------------------------
@@ -45,7 +49,18 @@ fn to_float(py: Python<'_>, obj: &Bound<'_, PyAny>, attr: &str, default: f64) ->
 // ---------------------------------------------------------------------------
 // _detect_kind: classify an event by its event_type / EVENT_TYPE attrs
 // ---------------------------------------------------------------------------
-fn detect_kind_inner(event: &Bound<'_, PyAny>) -> String {
+pub fn detect_kind_inner(event: &Bound<'_, PyAny>) -> String {
+    // Fast path: check for native Rust event types (no getattr needed)
+    if event.downcast::<RustMarketEvent>().is_ok() {
+        return "MARKET".to_string();
+    }
+    if event.downcast::<RustFillEvent>().is_ok() {
+        return "FILL".to_string();
+    }
+    if event.downcast::<RustFundingEvent>().is_ok() {
+        return "FUNDING".to_string();
+    }
+
     // Style A: event.event_type (may be Enum with .value or plain string)
     if let Ok(et) = event.getattr("event_type") {
         if !et.is_none() {
@@ -152,6 +167,7 @@ pub fn rust_normalize_to_facts(py: Python<'_>, event: &Bound<'_, PyAny>) -> PyRe
                 ("symbol", getattr_or_none(py, event, "symbol")),
                 ("funding_rate", getattr_or_none(py, event, "funding_rate")),
                 ("mark_price", getattr_or_none(py, event, "mark_price")),
+                ("position_qty", getattr_or_none(py, event, "position_qty")),
                 ("ts", getattr_or_none(py, event, "ts")),
             ])?;
             Ok(vec![ns])
@@ -228,6 +244,7 @@ pub fn rust_normalize_to_facts(py: Python<'_>, event: &Bound<'_, PyAny>) -> PyRe
             let fee_f = to_float(py, event, "fee", 0.0);
             let realized_pnl_f = to_float(py, event, "realized_pnl", 0.0);
             let margin_change_f = to_float(py, event, "margin_change", 0.0);
+            let cash_delta_f = to_float(py, event, "cash_delta", 0.0);
 
             let ns = make_namespace(py, vec![
                 ("event_type", PyString::new(py, "FILL").into_any().unbind()),
@@ -240,10 +257,82 @@ pub fn rust_normalize_to_facts(py: Python<'_>, event: &Bound<'_, PyAny>) -> PyRe
                 ("fee", fee_f.into_pyobject(py)?.into_any().unbind()),
                 ("realized_pnl", realized_pnl_f.into_pyobject(py)?.into_any().unbind()),
                 ("margin_change", margin_change_f.into_pyobject(py)?.into_any().unbind()),
+                ("cash_delta", cash_delta_f.into_pyobject(py)?.into_any().unbind()),
             ])?;
             Ok(vec![ns])
         }
 
         _ => Ok(vec![]),
     }
+}
+
+// ---------------------------------------------------------------------------
+// rust_pipeline_apply: single-call fast path that bypasses JSON serialization
+// ---------------------------------------------------------------------------
+
+/// Apply the full pipeline (detect kind → reduce all) in a single Rust call.
+///
+/// Skips normalize_to_facts and the JSON serialization boundary entirely.
+/// The three reducers are applied directly to the raw event.
+///
+/// Returns `None` if the event is not a fact event (SIGNAL, INTENT, etc.).
+/// Returns `Some((new_market, new_position, new_account, any_changed))` for
+/// fact events (MARKET, FILL, FUNDING, ORDER).
+#[pyfunction]
+#[pyo3(signature = (market_state, position_state, account_state, event))]
+pub fn rust_pipeline_apply(
+    py: Python<'_>,
+    market_state: &RustMarketState,
+    position_state: &RustPositionState,
+    account_state: &RustAccountState,
+    event: &Bound<'_, PyAny>,
+) -> PyResult<Option<(PyObject, PyObject, PyObject, bool)>> {
+    let mr = RustMarketReducer;
+    let ar = RustAccountReducer;
+    let pr = RustPositionReducer;
+
+    // ── Fast path: native Rust events ──
+    if let Ok(me) = event.downcast::<RustMarketEvent>() {
+        let me_ref = me.borrow();
+        let m_res = mr.reduce_rust_market(market_state, &me_ref);
+        let m_obj = m_res.state.into_pyobject(py)?.into_any().unbind();
+        let p_obj = position_state.clone().into_pyobject(py)?.into_any().unbind();
+        let a_obj = account_state.clone().into_pyobject(py)?.into_any().unbind();
+        return Ok(Some((m_obj, p_obj, a_obj, m_res.changed)));
+    }
+
+    if let Ok(fe) = event.downcast::<RustFillEvent>() {
+        let fe_ref = fe.borrow();
+        let p_res = pr.reduce_rust_fill(position_state, &fe_ref)?;
+        let a_res = ar.reduce_rust_fill(account_state, &fe_ref);
+        let m_obj = market_state.clone().into_pyobject(py)?.into_any().unbind();
+        let p_obj = p_res.state.into_pyobject(py)?.into_any().unbind();
+        let a_obj = a_res.state.into_pyobject(py)?.into_any().unbind();
+        return Ok(Some((m_obj, p_obj, a_obj, p_res.changed || a_res.changed)));
+    }
+
+    if let Ok(fe) = event.downcast::<RustFundingEvent>() {
+        let fe_ref = fe.borrow();
+        let a_res = ar.reduce_rust_funding(account_state, &fe_ref);
+        let m_obj = market_state.clone().into_pyobject(py)?.into_any().unbind();
+        let p_obj = position_state.clone().into_pyobject(py)?.into_any().unbind();
+        let a_obj = a_res.state.into_pyobject(py)?.into_any().unbind();
+        return Ok(Some((m_obj, p_obj, a_obj, a_res.changed)));
+    }
+
+    // ── Slow path: Python event objects ──
+    let kind = detect_kind_inner(event);
+
+    // Non-fact events: return None → Python interprets as "no change, not advanced"
+    if !matches!(kind.as_str(), "MARKET" | "FILL" | "FUNDING" | "ORDER") {
+        return Ok(None);
+    }
+
+    let m_res = mr.reduce(py, market_state, event)?;
+    let a_res = ar.reduce(py, account_state, event)?;
+    let p_res = pr.reduce(py, position_state, event)?;
+
+    let any_changed = m_res.changed || a_res.changed || p_res.changed;
+
+    Ok(Some((m_res.state, p_res.state, a_res.state, any_changed)))
 }

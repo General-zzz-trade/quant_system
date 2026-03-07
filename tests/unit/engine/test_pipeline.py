@@ -16,7 +16,6 @@ from engine.pipeline import (
     StatePipeline,
     _detect_kind,
     _event_id_ts,
-    _to_float,
     normalize_to_facts,
 )
 from state.account import AccountState
@@ -172,33 +171,13 @@ class TestEventIdTs:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _to_float
-# ---------------------------------------------------------------------------
-
-class TestToFloat:
-    def test_none_returns_default(self) -> None:
-        assert _to_float(None) == 0.0
-
-    def test_string_conversion(self) -> None:
-        assert _to_float("3.14") == pytest.approx(3.14)
-
-    def test_int_conversion(self) -> None:
-        assert _to_float(42) == 42.0
-
-    def test_invalid_returns_default(self) -> None:
-        assert _to_float("abc", default=99.0) == 99.0
-
-    def test_decimal_conversion(self) -> None:
-        assert _to_float(Decimal("1.5")) == 1.5
-
-
-# ---------------------------------------------------------------------------
 # Tests: normalize_to_facts
 # ---------------------------------------------------------------------------
 
 class TestNormalizeToFacts:
     def test_fill_event_normalized(self) -> None:
         e = _fill_event(side="buy", qty=2.0, price=50000.0)
+        e.cash_delta = 12.5
         facts = normalize_to_facts(e)
         assert len(facts) == 1
         f = facts[0]
@@ -206,6 +185,7 @@ class TestNormalizeToFacts:
         assert f.side == "buy"
         assert f.qty == 2.0
         assert f.price == 50000.0
+        assert f.cash_delta == 12.5
 
     def test_fill_sell_side(self) -> None:
         e = _fill_event(side="sell", qty=1.0)
@@ -275,11 +255,13 @@ class TestNormalizeToFacts:
             symbol="BTCUSDT",
             funding_rate="0.0001",
             mark_price="42000",
+            position_qty="0.5",
         )
         facts = normalize_to_facts(e)
         assert len(facts) == 1
         assert facts[0].event_type == "funding"
         assert facts[0].funding_rate == "0.0001"
+        assert facts[0].position_qty == "0.5"
 
 
 # ---------------------------------------------------------------------------
@@ -376,5 +358,6 @@ class TestPipelineApply:
         out = pipeline.apply(inp)
         assert out.advanced is True
         assert out.event_index == 1
-        assert out.market.close == Decimal("42500")
-        assert out.market.last_price == Decimal("42500")
+        # Pipeline now returns Rust types — use float accessor
+        close_f = getattr(out.market, "close_f", None) or float(out.market.close)
+        assert close_f == pytest.approx(42500.0)

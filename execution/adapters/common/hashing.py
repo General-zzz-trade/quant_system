@@ -6,12 +6,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 
-try:
-    from _quant_hotpath import rust_stable_hash as _rust_stable_hash
-    _HAS_RUST = True
-except ImportError:
-    _rust_stable_hash = None  # type: ignore
-    _HAS_RUST = False
+from _quant_hotpath import rust_stable_hash as _rust_stable_hash
 
 
 def payload_digest(data: Mapping[str, Any], *, length: int = 16) -> str:
@@ -29,10 +24,7 @@ def payload_digest(data: Mapping[str, Any], *, length: int = 16) -> str:
 
 def stable_hash(text: str, *, length: int = 16) -> str:
     """对纯文本做稳定 hash。"""
-    if _HAS_RUST:
-        return _rust_stable_hash(text, length)
-    h = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return h[:length]
+    return _rust_stable_hash(text, length)
 
 
 def fill_key(*, venue: str, symbol: str, fill_id: str) -> str:

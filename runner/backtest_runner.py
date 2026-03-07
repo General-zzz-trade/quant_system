@@ -226,26 +226,51 @@ def run_backtest(
         a = out.account
         positions = out.positions
         ts = getattr(m, "last_ts", None)
-        close = getattr(m, "close", None) or getattr(m, "last_price", None)
-        if ts is None or close is None:
+        if ts is None:
             return
+        # Rust types return last_ts as ISO string; convert to datetime
+        if isinstance(ts, str):
+            from state._util import ensure_utc
+            from datetime import datetime as _dt
+            raw = ts.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            ts = ensure_utc(_dt.fromisoformat(raw))
 
-        pos = positions.get(symbol_u) or PositionState.empty(symbol_u)
-        qty = getattr(pos, "qty", Decimal("0"))
-        avg = getattr(pos, "avg_price", None)
+        # Use float accessors if available (Rust types), else Decimal
+        close_f = getattr(m, "close_f", None)
+        if close_f is not None:
+            close_d = Decimal(str(close_f))
+        else:
+            close = getattr(m, "close", None) or getattr(m, "last_price", None)
+            if close is None:
+                return
+            close_d = Decimal(str(close))
+
+        pos = positions.get(symbol_u)
+        if pos is None:
+            qty = Decimal("0")
+            avg = None
+        else:
+            qf = getattr(pos, "qty_f", None)
+            qty = Decimal(str(qf)) if qf is not None else Decimal(str(getattr(pos, "qty", 0)))
+            af = getattr(pos, "avg_price_f", None)
+            avg = Decimal(str(af)) if af is not None else getattr(pos, "avg_price", None)
 
         unreal = Decimal("0")
         if qty != 0 and avg is not None:
-            unreal = (Decimal(str(close)) - avg) * qty
+            unreal = (close_d - avg) * qty
 
-        bal = getattr(a, "balance", Decimal("0"))
-        realized = getattr(a, "realized_pnl", Decimal("0"))
+        bf = getattr(a, "balance_f", None)
+        bal = Decimal(str(bf)) if bf is not None else getattr(a, "balance", Decimal("0"))
+        rf = getattr(a, "realized_pnl_f", None)
+        realized = Decimal(str(rf)) if rf is not None else getattr(a, "realized_pnl", Decimal("0"))
         eq = bal + unreal
 
         equity.append(
             EquityPoint(
                 ts=ts,
-                close=Decimal(str(close)),
+                close=close_d,
                 position_qty=qty,
                 avg_price=avg,
                 balance=bal,
@@ -633,34 +658,59 @@ def run_multi_backtest(
         a = out.account
         positions = out.positions
         ts = getattr(m, "last_ts", None)
-        close = getattr(m, "close", None) or getattr(m, "last_price", None)
-        if ts is None or close is None:
+        if ts is None:
             return
+        if isinstance(ts, str):
+            from state._util import ensure_utc
+            from datetime import datetime as _dt
+            raw = ts.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            ts = ensure_utc(_dt.fromisoformat(raw))
+
+        close_f = getattr(m, "close_f", None)
+        if close_f is not None:
+            close_d = Decimal(str(close_f))
+        else:
+            close = getattr(m, "close", None) or getattr(m, "last_price", None)
+            if close is None:
+                return
+            close_d = Decimal(str(close))
 
         # Sum unrealized across all positions
         total_unreal = Decimal("0")
         for sym in symbols:
-            pos = positions.get(sym.upper()) or PositionState.empty(sym.upper())
-            qty = getattr(pos, "qty", Decimal("0"))
-            avg = getattr(pos, "avg_price", None)
+            pos = positions.get(sym.upper())
+            if pos is None:
+                continue
+            qf = getattr(pos, "qty_f", None)
+            qty = Decimal(str(qf)) if qf is not None else Decimal(str(getattr(pos, "qty", 0)))
+            af = getattr(pos, "avg_price_f", None)
+            avg = Decimal(str(af)) if af is not None else getattr(pos, "avg_price", None)
             if qty != 0 and avg is not None:
-                sym_close = getattr(m, "close", None) or getattr(m, "last_price", None)
-                if sym_close is not None:
-                    total_unreal += (Decimal(str(sym_close)) - avg) * qty
+                total_unreal += (close_d - avg) * qty
 
-        bal = getattr(a, "balance", Decimal("0"))
-        realized = getattr(a, "realized_pnl", Decimal("0"))
+        bf = getattr(a, "balance_f", None)
+        bal = Decimal(str(bf)) if bf is not None else getattr(a, "balance", Decimal("0"))
+        rf = getattr(a, "realized_pnl_f", None)
+        realized = Decimal(str(rf)) if rf is not None else getattr(a, "realized_pnl", Decimal("0"))
         eq = bal + total_unreal
 
         # Use first symbol's position for the equity point
-        pos = positions.get(first_symbol.upper()) or PositionState.empty(first_symbol.upper())
-        qty = getattr(pos, "qty", Decimal("0"))
-        avg = getattr(pos, "avg_price", None)
+        pos = positions.get(first_symbol.upper())
+        if pos is None:
+            qty = Decimal("0")
+            avg = None
+        else:
+            qf = getattr(pos, "qty_f", None)
+            qty = Decimal(str(qf)) if qf is not None else Decimal(str(getattr(pos, "qty", 0)))
+            af = getattr(pos, "avg_price_f", None)
+            avg = Decimal(str(af)) if af is not None else getattr(pos, "avg_price", None)
 
         equity.append(
             EquityPoint(
                 ts=ts,
-                close=Decimal(str(close)),
+                close=close_d,
                 position_qty=qty,
                 avg_price=avg,
                 balance=bal,

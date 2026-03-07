@@ -51,6 +51,14 @@ def _make_input(event, *, markets=None, account=None, positions=None, idx=0):
     )
 
 
+def _close_f(market) -> float:
+    cf = getattr(market, "close_f", None)
+    if cf is not None:
+        return cf
+    c = getattr(market, "close", None)
+    return float(c) if c is not None else None
+
+
 class TestMultiSymbolMarketIsolation:
     def test_btc_market_event_only_updates_btc(self):
         pipeline = StatePipeline()
@@ -58,7 +66,7 @@ class TestMultiSymbolMarketIsolation:
         out = pipeline.apply(inp)
 
         assert out.advanced is True
-        assert out.markets["BTCUSDT"].close == Decimal("42000")
+        assert _close_f(out.markets["BTCUSDT"]) == pytest.approx(42000.0)
         assert out.markets["ETHUSDT"].close is None  # unchanged
 
     def test_eth_market_event_only_updates_eth(self):
@@ -66,7 +74,7 @@ class TestMultiSymbolMarketIsolation:
         inp = _make_input(_market_event("ETHUSDT", "3000"))
         out = pipeline.apply(inp)
 
-        assert out.markets["ETHUSDT"].close == Decimal("3000")
+        assert _close_f(out.markets["ETHUSDT"]) == pytest.approx(3000.0)
         assert out.markets["BTCUSDT"].close is None  # unchanged
 
     def test_sequential_market_events_accumulate(self):
@@ -80,8 +88,8 @@ class TestMultiSymbolMarketIsolation:
         )
         out2 = pipeline.apply(inp2)
 
-        assert out2.markets["BTCUSDT"].close == Decimal("42000")
-        assert out2.markets["ETHUSDT"].close == Decimal("3000")
+        assert _close_f(out2.markets["BTCUSDT"]) == pytest.approx(42000.0)
+        assert _close_f(out2.markets["ETHUSDT"]) == pytest.approx(3000.0)
         assert out2.event_index == 2
 
 
@@ -139,7 +147,7 @@ class TestUnknownSymbolAutoCreation:
         out = pipeline.apply(inp)
 
         assert "SOLUSDT" in out.markets
-        assert out.markets["SOLUSDT"].close == Decimal("150")
+        assert _close_f(out.markets["SOLUSDT"]) == pytest.approx(150.0)
 
     def test_unknown_symbol_fill_creates_position(self):
         pipeline = StatePipeline()

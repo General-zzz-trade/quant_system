@@ -29,6 +29,7 @@ mod sequence_buffer;
 mod signer;
 mod target;
 mod technical;
+pub mod fixed_decimal;
 pub mod state_types;
 mod state_reducers;
 mod pipeline;
@@ -37,6 +38,10 @@ mod risk_engine;
 mod core_types;
 mod event_types;
 mod event_validators;
+mod kernel_boundary;
+mod decision_math;
+mod state_store;
+pub mod rust_events;
 
 #[pymodule]
 fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -118,6 +123,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // C++ migration — Sprint 5: feature engine + backtest engine
     m.add_function(wrap_pyfunction!(feature_engine::cpp_compute_all_features, m)?)?;
     m.add_function(wrap_pyfunction!(feature_engine::cpp_feature_names, m)?)?;
+    m.add_class::<feature_engine::RustFeatureEngine>()?;
     m.add_function(wrap_pyfunction!(backtest_engine::cpp_run_backtest, m)?)?;
     m.add_function(wrap_pyfunction!(backtest_engine::cpp_pred_to_signal, m)?)?;
 
@@ -140,6 +146,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Engine layer — Sprint B: pipeline + guards
     m.add_function(wrap_pyfunction!(pipeline::rust_detect_event_kind, m)?)?;
     m.add_function(wrap_pyfunction!(pipeline::rust_normalize_to_facts, m)?)?;
+    m.add_function(wrap_pyfunction!(pipeline::rust_pipeline_apply, m)?)?;
     m.add_class::<engine_guards::RustGuardConfig>()?;
     m.add_class::<engine_guards::RustBasicGuard>()?;
 
@@ -148,6 +155,8 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<risk_engine::RustCircuitBreaker>()?;
     m.add_class::<risk_engine::RustOrderLimiter>()?;
     m.add_class::<risk_engine::RustRiskGate>()?;
+    m.add_class::<risk_engine::RustRiskEvaluator>()?;
+    m.add_class::<risk_engine::RustRiskResult>()?;
 
     // Sprint C: core types
     m.add_class::<core_types::RustInterceptorChain>()?;
@@ -176,6 +185,22 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_venue, m)?)?;
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_order_type, m)?)?;
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_tif, m)?)?;
+    m.add_function(wrap_pyfunction!(kernel_boundary::rust_detect_kernel_event_kind, m)?)?;
+    m.add_function(wrap_pyfunction!(kernel_boundary::rust_normalize_kernel_event_to_facts, m)?)?;
+
+    // Rust event types (Phase 2: hot-path events)
+    m.add_class::<rust_events::RustMarketEvent>()?;
+    m.add_class::<rust_events::RustFillEvent>()?;
+    m.add_class::<rust_events::RustFundingEvent>()?;
+
+    // State store (unified pipeline)
+    m.add_class::<state_store::RustStateStore>()?;
+    m.add_class::<state_store::RustProcessResult>()?;
+
+    // Decision math
+    m.add_function(wrap_pyfunction!(decision_math::rust_fixed_fraction_qty, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_math::rust_volatility_adjusted_qty, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_math::rust_apply_allocation_constraints, m)?)?;
 
     Ok(())
 }

@@ -1,35 +1,45 @@
-# P1: 内核 Python → Rust PyO3 迁移 — COMPLETED
+# Python → Rust Deep Migration: 4 Phases
 
-## Sprint A: state/ 层 — 数据结构 + reducers [DONE]
-- [x] A1: `state_types.rs` (769 LOC) — RustMarketState, RustPositionState, RustAccountState, RustPortfolioState, RustRiskState, RustRiskLimits, RustReducerResult
-- [x] A2: `state_reducers.rs` (953 LOC) — RustMarketReducer, RustPositionReducer, RustAccountReducer, RustPortfolioReducer, RustRiskReducer
-- [x] A3: Registered in lib.rs
-- [x] A4: Build + 2569 tests pass
+## Phase 1: Eliminate Python State Types from Pipeline [DONE]
+- [x] Add float-returning properties to Rust state types (state_types.rs)
+- [x] Rebuild Rust crate
+- [x] Update PipelineOutput to hold Rust types directly (skip market_from_rust conversion)
+- [x] Update coordinator.py internal state to Rust types
+- [x] Update snapshot.py to accept Rust types
+- [x] Update ml_decision.py to read Rust type fields
+- [x] Update decision/sizing modules
+- [x] Update backtest_runner.py and live_runner.py for Rust types
+- [x] Run all tests and fix breakages (2550 passed)
 
-## Sprint B: engine/pipeline + guards [DONE]
-- [x] B1: `pipeline.rs` (249 LOC) — rust_detect_event_kind, rust_normalize_to_facts
-- [x] B2: Dispatcher routing already in `route_match.rs` (existing)
-- [x] B3: `engine_guards.rs` (219 LOC) — RustGuardConfig, RustBasicGuard
-- [x] B4: Build + tests pass
+## Phase 2: Event Hot-Path Rust Types [DONE]
+- [x] Add RustMarketEvent, RustFillEvent, RustFundingEvent structs in Rust (rust_events.rs)
+- [x] Fast-path reducers: reduce_rust_market, reduce_rust_fill, reduce_rust_funding (state_reducers.rs)
+- [x] RustStateStore.process_event() fast path via downcast (state_store.rs)
+- [x] rust_pipeline_apply() fast path via downcast (pipeline.rs)
+- [x] detect_kind_inner() fast path via downcast (pipeline.rs)
+- [x] Keep Python event compat path (getattr slow path unchanged)
+- [x] Register new types in lib.rs
+- [x] 12 parity tests pass (test_rust_events.py), 23.9x speedup
+- [x] All 2550 tests pass
+- [~] WebSocket Rust events: deferred — RustMarketEvent lacks trades/taker_buy fields, benefit minimal
 
-## Sprint C: risk/ + execution/safety/ + core/ [DONE]
-- [x] C1: `risk_engine.rs` (635 LOC) — RustKillSwitch, RustCircuitBreaker, RustOrderLimiter, RustRiskGate
-- [x] C2: `core_types.rs` (254 LOC) — RustInterceptorChain, RustSystemClock, RustSimulatedClock, RustTradingGate
-- [x] C3: Build + tests pass
+## Phase 3: Risk Rules Rust Migration [DONE]
+- [x] RustRiskEvaluator: unified hot-path evaluator (risk_engine.rs)
+- [x] 6 rules: max_position, leverage_cap, max_drawdown, gross_exposure, net_exposure, concentration
+- [x] Auto-reduce support (max_qty calculation)
+- [x] Quick check methods: check_drawdown(), check_leverage()
+- [x] RustRiskResult return type for violations
+- [x] 21 parity tests pass (test_rust_risk_evaluator.py)
+- [x] Python rules remain for Protocol interface + meta extraction (aggregator unchanged)
+- [x] All 2583 tests pass
 
-## Sprint D: event/ types + validators [DONE]
-- [x] D1: `event_types.rs` (340 LOC) — enums + RustSignalResult, RustDecisionOutput, RustTargetPosition, RustOrderSpec
-- [x] D2: `event_validators.rs` (212 LOC) — 10 validation functions
-- [x] D3: Build + 2615 tests pass
-
-## Summary
-| Sprint | New Rust Files | New LOC | Exports |
-|--------|---------------|---------|---------|
-| A | state_types.rs, state_reducers.rs | 1,722 | 7 cls + 5 cls |
-| B | pipeline.rs, engine_guards.rs | 468 | 2 fn + 2 cls |
-| C | risk_engine.rs, core_types.rs | 889 | 4 cls + 4 cls |
-| D | event_types.rs, event_validators.rs | 552 | 4 cls + 6 fn + 10 fn |
-| **Total** | **8 files** | **3,631** | **26 cls + 18 fn** |
-
-Combined with existing crate: **11,480 total Rust LOC** in `_quant_hotpath`.
-Tests: **2615 passing**.
+## Phase 4: Feature Engine Rust Migration [DONE]
+- [x] Create RustFeatureEngine with rolling state (wraps BarState, cached features + prev_momentum tracking)
+- [x] 105 features computed incrementally via push_bar() → get_features()/get_features_array()
+- [x] Registered in lib.rs, exposed as RustFeatureEngine class
+- [x] 5 parity tests pass (test_rust_feature_engine.py): batch-vs-incremental, smoke, names, warmup, perf
+- [x] All 2588 tests pass
+- [x] FeatureComputeHook Rust integration: per-symbol RustFeatureEngine, dict→flat args mapping
+- [x] live_runner.py + live_paper_runner.py pass use_rust=True
+- [x] 6 hook parity tests pass (test_feature_hook_rust.py)
+- [x] All 2594 tests pass

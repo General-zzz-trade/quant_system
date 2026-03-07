@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Mapping
 
+from _quant_hotpath import rust_apply_allocation_constraints as _rust_constraints
+
 
 @dataclass(frozen=True, slots=True)
 class AllocationConstraints:
@@ -12,9 +14,7 @@ class AllocationConstraints:
     def apply(self, weights: Mapping[str, Decimal]) -> Mapping[str, Decimal]:
         if not weights:
             return {}
-        items = sorted(weights.items(), key=lambda kv: abs(kv[1]), reverse=True)
-        items = items[: self.max_positions]
-        total = sum([abs(w) for _, w in items])
-        if total <= 0:
-            return {k: Decimal("0") for k, _ in items}
-        return {k: (w / total) for k, w in items}
+
+        float_weights = {k: float(v) for k, v in weights.items()}
+        result = _rust_constraints(float_weights, self.max_positions)
+        return {k: Decimal(str(v)) for k, v in result.items()}

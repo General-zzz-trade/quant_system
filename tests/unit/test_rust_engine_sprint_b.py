@@ -2,18 +2,12 @@
 import pytest
 from types import SimpleNamespace
 
-try:
-    from _quant_hotpath import (
-        rust_detect_event_kind,
-        rust_normalize_to_facts,
-        RustGuardConfig,
-        RustBasicGuard,
-    )
-    _HAS_RUST = True
-except ImportError:
-    _HAS_RUST = False
-
-pytestmark = pytest.mark.skipif(not _HAS_RUST, reason="Rust extension not available")
+from _quant_hotpath import (
+    rust_detect_event_kind,
+    rust_normalize_to_facts,
+    RustGuardConfig,
+    RustBasicGuard,
+)
 
 
 # ============================================================

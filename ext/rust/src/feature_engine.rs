@@ -2031,3 +2031,165 @@ pub fn cpp_compute_all_features(
 pub fn cpp_feature_names() -> Vec<String> {
     FEATURE_NAMES.iter().map(|s| s.to_string()).collect()
 }
+
+// ============================================================
+// RustFeatureEngine — Incremental feature computer for live trading
+// ============================================================
+// Wraps BarState as a PyO3 class. Holds all rolling state on the Rust heap.
+// Call push_bar() once per bar, then get_features() to read the 105-feature vector.
+
+#[pyclass(name = "RustFeatureEngine")]
+pub struct RustFeatureEngine {
+    state: BarState,
+    cached_features: [f64; N_FEATURES],
+    prev_momentum_val: f64,
+}
+
+#[pymethods]
+impl RustFeatureEngine {
+    #[new]
+    fn new() -> Self {
+        Self {
+            state: BarState::new(),
+            cached_features: [f64::NAN; N_FEATURES],
+            prev_momentum_val: f64::NAN,
+        }
+    }
+
+    /// Push a new bar and update all rolling state.
+    ///
+    /// Args:
+    ///   close, volume, high, low, open: OHLCV data
+    ///   hour, dow: cyclical time features (-1 if unknown)
+    ///   funding_rate: NaN if not available
+    ///   trades: trade count (0 if unknown)
+    ///   taker_buy_volume, quote_volume, taker_buy_quote_volume: microstructure
+    ///   open_interest, ls_ratio, spot_close, fear_greed: NaN if unavailable
+    ///   implied_vol, put_call_ratio: NaN if unavailable
+    ///   All on-chain/liquidation/mempool/macro/social: NaN if unavailable
+    #[pyo3(signature = (
+        close, volume, high, low, open,
+        hour=-1, dow=-1,
+        funding_rate=f64::NAN,
+        trades=0.0,
+        taker_buy_volume=0.0,
+        quote_volume=0.0,
+        taker_buy_quote_volume=0.0,
+        open_interest=f64::NAN,
+        ls_ratio=f64::NAN,
+        spot_close=f64::NAN,
+        fear_greed=f64::NAN,
+        implied_vol=f64::NAN,
+        put_call_ratio=f64::NAN,
+        oc_flow_in=f64::NAN, oc_flow_out=f64::NAN,
+        oc_supply=f64::NAN, oc_addr=f64::NAN,
+        oc_tx=f64::NAN, oc_hashrate=f64::NAN,
+        liq_total_vol=f64::NAN, liq_buy_vol=f64::NAN, liq_sell_vol=f64::NAN,
+        liq_count=f64::NAN,
+        mempool_fastest_fee=f64::NAN, mempool_economy_fee=f64::NAN,
+        mempool_size=f64::NAN,
+        macro_dxy=f64::NAN, macro_spx=f64::NAN, macro_vix=f64::NAN,
+        macro_day=-1_i64,
+        social_volume=f64::NAN, sentiment_score=f64::NAN,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn push_bar(
+        &mut self,
+        close: f64, volume: f64, high: f64, low: f64, open: f64,
+        hour: i32, dow: i32,
+        funding_rate: f64,
+        trades: f64,
+        taker_buy_volume: f64,
+        quote_volume: f64,
+        taker_buy_quote_volume: f64,
+        open_interest: f64,
+        ls_ratio: f64,
+        spot_close: f64,
+        fear_greed: f64,
+        implied_vol: f64,
+        put_call_ratio: f64,
+        oc_flow_in: f64, oc_flow_out: f64,
+        oc_supply: f64, oc_addr: f64,
+        oc_tx: f64, oc_hashrate: f64,
+        liq_total_vol: f64, liq_buy_vol: f64, liq_sell_vol: f64,
+        liq_count: f64,
+        mempool_fastest_fee: f64, mempool_economy_fee: f64,
+        mempool_size: f64,
+        macro_dxy: f64, macro_spx: f64, macro_vix: f64,
+        macro_day: i64,
+        social_volume: f64, sentiment_score: f64,
+    ) {
+        self.state.push(
+            close, volume, high, low, open,
+            hour, dow,
+            funding_rate, trades,
+            taker_buy_volume, quote_volume, taker_buy_quote_volume,
+            open_interest, ls_ratio, spot_close, fear_greed,
+            implied_vol, put_call_ratio,
+            oc_flow_in, oc_flow_out,
+            oc_supply, oc_addr,
+            oc_tx, oc_hashrate,
+            liq_total_vol, liq_buy_vol, liq_sell_vol,
+            liq_count,
+            mempool_fastest_fee, mempool_economy_fee,
+            mempool_size,
+            macro_dxy, macro_spx, macro_vix,
+            macro_day,
+            social_volume, sentiment_score,
+        );
+        // Ensure BarState uses our tracked prev_momentum
+        self.state.prev_momentum = self.prev_momentum_val;
+        // Compute features and cache them (same sequence as batch mode)
+        let mut out = [f64::NAN; N_FEATURES];
+        self.state.get_features(&mut out);
+        // Read momentum BEFORE caching (avoid optimizer issues)
+        let new_mom = out[F_MA_CROSS_10_30];
+        // Cache the feature output
+        self.cached_features.copy_from_slice(&out);
+        // Update prev_momentum AFTER get_features (same as batch mode)
+        self.state.prev_momentum = new_mom;
+        self.prev_momentum_val = new_mom;
+    }
+
+    /// Get the current 105-feature vector as a dict {name: value}.
+    /// NaN values are converted to None. Returns cached features from last push_bar().
+    #[pyo3(signature = ())]
+    fn get_features(&self) -> std::collections::HashMap<String, Option<f64>> {
+        let mut result = std::collections::HashMap::with_capacity(N_FEATURES);
+        for (i, name) in FEATURE_NAMES.iter().enumerate() {
+            let val = self.cached_features[i];
+            result.insert(name.to_string(), if val.is_nan() { None } else { Some(val) });
+        }
+        result
+    }
+
+    /// Get features as a flat list of f64 (NaN for unavailable).
+    /// Returns cached features from last push_bar().
+    #[pyo3(signature = ())]
+    fn get_features_array(&self) -> Vec<f64> {
+        self.cached_features.to_vec()
+    }
+
+    /// Get feature names in order.
+    #[pyo3(signature = ())]
+    fn feature_names(&self) -> Vec<String> {
+        FEATURE_NAMES.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Number of bars pushed so far.
+    #[getter]
+    fn bar_count(&self) -> i32 {
+        self.state.bar_count
+    }
+
+    /// Whether warmup is complete (enough bars for all features).
+    #[getter]
+    fn warmed_up(&self) -> bool {
+        self.state.bar_count >= 65  // _WARMUP_BARS
+    }
+
+
+    fn __repr__(&self) -> String {
+        format!("RustFeatureEngine(bar_count={}, warmed_up={})", self.state.bar_count, self.state.bar_count >= 65)
+    }
+}

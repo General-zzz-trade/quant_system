@@ -11,6 +11,8 @@ from typing import Any, Mapping, Protocol
 
 from state.snapshot import StateSnapshot
 
+from _quant_hotpath import rust_volatility_adjusted_qty as _rust_va_qty
+
 
 class PositionSizer(Protocol):
     """Protocol for position sizing."""
@@ -48,9 +50,14 @@ class VolatilityAdjustedSizer:
         if price <= 0 or vol <= 0:
             return Decimal("0")
 
-        risk_budget = equity * self.risk_fraction * weight
-        qty = risk_budget / (vol * price)
-        return qty.quantize(Decimal("0.001"))
+        qty_f = _rust_va_qty(
+            float(equity),
+            float(price),
+            float(vol),
+            float(self.risk_fraction),
+            float(weight),
+        )
+        return Decimal(str(qty_f))
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -59,6 +66,9 @@ def _get_equity(snapshot: StateSnapshot) -> Decimal:
     acct = getattr(snapshot, "account", None)
     if acct is None:
         return Decimal("0")
+    bf = getattr(acct, "balance_f", None)
+    if bf is not None:
+        return Decimal(str(bf))
     return getattr(acct, "balance", Decimal("0"))
 
 
@@ -66,6 +76,9 @@ def _get_price(snapshot: StateSnapshot) -> Decimal:
     market = getattr(snapshot, "market", None)
     if market is None:
         return Decimal("0")
+    cf = getattr(market, "close_f", None)
+    if cf is not None:
+        return Decimal(str(cf))
     p = getattr(market, "close", None) or getattr(market, "last_price", None)
     if p is None:
         return Decimal("0")

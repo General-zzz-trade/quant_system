@@ -4,18 +4,12 @@ Processes both snapshot and incremental depth update messages.
 """
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Tuple
 
-try:
-    from _quant_hotpath import rust_parse_depth
-    _HAS_RUST = True
-except ImportError:
-    rust_parse_depth = None  # type: ignore
-    _HAS_RUST = False
+from _quant_hotpath import rust_parse_depth
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +71,6 @@ class DepthProcessor:
 
         Handles both combined stream format and direct format.
         """
-        if _HAS_RUST:
-            return self._process_raw_rust(raw)
-        return self._process_raw_py(raw)
-
-    def _process_raw_rust(self, raw: str) -> Optional[OrderBookSnapshot]:
         d = rust_parse_depth(raw, self._max_levels)
         if d is None:
             return None
@@ -101,46 +90,6 @@ class DepthProcessor:
             asks=asks,
             ts_ms=d["ts_ms"],
             last_update_id=d["last_update_id"],
-        )
-
-    def _process_raw_py(self, raw: str) -> Optional[OrderBookSnapshot]:
-        try:
-            msg = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-        data = msg.get("data", msg)
-        event_type = data.get("e", "")
-
-        if event_type == "depthUpdate":
-            return self._process_depth_update(data)
-        return None
-
-    def _process_depth_update(self, data: Dict) -> Optional[OrderBookSnapshot]:
-        symbol = data.get("s", "")
-        ts_ms = data.get("E", 0)
-        last_id = data.get("u", 0)
-
-        bids_raw = data.get("b", [])
-        asks_raw = data.get("a", [])
-
-        bids = tuple(
-            OrderBookLevel(price=Decimal(str(b[0])), qty=Decimal(str(b[1])))
-            for b in bids_raw[:self._max_levels]
-            if Decimal(str(b[1])) > 0
-        )
-        asks = tuple(
-            OrderBookLevel(price=Decimal(str(a[0])), qty=Decimal(str(a[1])))
-            for a in asks_raw[:self._max_levels]
-            if Decimal(str(a[1])) > 0
-        )
-
-        return OrderBookSnapshot(
-            symbol=symbol,
-            bids=bids,
-            asks=asks,
-            ts_ms=ts_ms,
-            last_update_id=last_id,
         )
 
     def process_snapshot(self, data: Dict) -> Optional[OrderBookSnapshot]:

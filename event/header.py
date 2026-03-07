@@ -1,27 +1,17 @@
 # event/header.py
 from __future__ import annotations
 
-import time
-import uuid
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 from .types import EventType
 from .errors import EventValidationError
 
-try:
-    from _quant_hotpath import rust_event_id as _rust_event_id, rust_now_ns as _rust_now_ns
-    _HAS_RUST = True
-except ImportError:
-    _rust_event_id = None  # type: ignore
-    _rust_now_ns = None  # type: ignore
-    _HAS_RUST = False
+from _quant_hotpath import rust_event_id as _rust_event_id, rust_now_ns as _rust_now_ns
 
 
 def _now_ns() -> int:
-    if _HAS_RUST:
-        return _rust_now_ns()
-    return int(time.time() * 1e9)
+    return _rust_now_ns()
 
 
 @dataclass(frozen=True)
@@ -53,7 +43,7 @@ class EventHeader:
         run_id: Optional[str] = None,
         correlation_id: Optional[str] = None,
     ) -> EventHeader:
-        eid = _rust_event_id() if _HAS_RUST else str(uuid.uuid4())
+        eid = _rust_event_id()
         return EventHeader(
             event_id=eid,
             event_type=event_type,
@@ -75,7 +65,7 @@ class EventHeader:
         source: str,
     ) -> EventHeader:
         return EventHeader(
-            event_id=_rust_event_id() if _HAS_RUST else str(uuid.uuid4()),
+            event_id=_rust_event_id(),
             event_type=event_type,
             version=version,
             ts_ns=_now_ns(),

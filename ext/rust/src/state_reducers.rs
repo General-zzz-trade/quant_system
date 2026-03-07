@@ -2,19 +2,25 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashSet;
 
+use crate::fixed_decimal::{Fd8, fd8_from_pyany, opt_fd8_from_pyany};
+use crate::rust_events::{RustMarketEvent, RustFillEvent, RustFundingEvent};
 use crate::state_types::{
     RustAccountState, RustMarketState, RustPortfolioState, RustPositionState, RustReducerResult,
     RustRiskLimits, RustRiskState,
 };
 
+/// Pure Rust result type — no PyObject allocation.
+pub struct InnerReducerResult<S> {
+    pub state: S,
+    pub changed: bool,
+    pub note: Option<String>,
+}
+
 // ===========================================================================
 // Helper functions
 // ===========================================================================
 
-/// Normalize event_type: check header.event_type, then event.event_type.
-/// Handles enum-like objects with .value or .name attributes.
 fn get_event_type(event: &Bound<'_, PyAny>) -> PyResult<String> {
-    // Try header.event_type first
     let raw = if let Ok(header) = event.getattr("header") {
         if !header.is_none() {
             if let Ok(et) = header.getattr("event_type") {
@@ -41,7 +47,6 @@ fn get_event_type(event: &Bound<'_, PyAny>) -> PyResult<String> {
         },
     };
 
-    // Handle enum-like: .value > .name > str()
     let val = if let Ok(v) = raw.getattr("value") {
         v
     } else if let Ok(n) = raw.getattr("name") {
@@ -54,14 +59,12 @@ fn get_event_type(event: &Bound<'_, PyAny>) -> PyResult<String> {
     Ok(s.trim().to_lowercase())
 }
 
-/// Extract symbol from event. Checks event.symbol, then event.bar.symbol.
 fn get_symbol(event: &Bound<'_, PyAny>, default: &str) -> PyResult<String> {
     if let Ok(sym) = event.getattr("symbol") {
         if !sym.is_none() {
             return Ok(sym.str()?.to_string());
         }
     }
-    // Nested bar.symbol
     if let Ok(bar) = event.getattr("bar") {
         if !bar.is_none() {
             if let Ok(sym) = bar.getattr("symbol") {
@@ -74,10 +77,7 @@ fn get_symbol(event: &Bound<'_, PyAny>, default: &str) -> PyResult<String> {
     Ok(default.to_string())
 }
 
-/// Extract timestamp as Option<String> (ISO format or whatever Python gives us).
-/// Checks header.ts, then event.ts.
 fn get_event_ts(event: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
-    // Try header.ts first
     if let Ok(header) = event.getattr("header") {
         if !header.is_none() {
             if let Ok(ts) = header.getattr("ts") {
@@ -95,55 +95,6 @@ fn get_event_ts(event: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
     Ok(None)
 }
 
-/// Convert a Python value to f64. Handles int, float, Decimal, str.
-fn to_f64(val: &Bound<'_, PyAny>) -> PyResult<f64> {
-    // Try direct float extraction first (fastest path)
-    if let Ok(f) = val.extract::<f64>() {
-        return Ok(f);
-    }
-    // Fall back to str -> parse
-    let s = val.str()?.to_string();
-    s.parse::<f64>().map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("cannot convert to f64: {} ({})", s, e))
-    })
-}
-
-/// Try to extract an optional attribute as f64. Returns Ok(None) if attr missing or None.
-fn opt_attr_f64(event: &Bound<'_, PyAny>, name: &str) -> PyResult<Option<f64>> {
-    match event.getattr(name) {
-        Ok(v) if !v.is_none() => Ok(Some(to_f64(&v)?)),
-        _ => Ok(None),
-    }
-}
-
-/// Format f64 back to string with sufficient precision, stripping trailing zeros.
-fn fmt_decimal(v: f64) -> String {
-    if v == 0.0 {
-        return "0".to_string();
-    }
-    let s = format!("{:.18}", v);
-    // Strip trailing zeros after decimal point
-    if s.contains('.') {
-        let s = s.trim_end_matches('0');
-        let s = s.trim_end_matches('.');
-        s.to_string()
-    } else {
-        s
-    }
-}
-
-/// Apply side to qty: buy/long -> +abs, sell/short -> -abs.
-fn signed_qty_f64(qty: f64, side: &str) -> f64 {
-    let s = side.trim().to_lowercase();
-    match s.as_str() {
-        "buy" | "long" => qty.abs(),
-        "sell" | "short" => -qty.abs(),
-        _ => qty,
-    }
-}
-
-/// Convert Python ts object to string representation for Rust state.
-/// Passes through to Python str() if present.
 fn ts_to_opt_string(py: Python<'_>, ts: &Option<PyObject>) -> PyResult<Option<String>> {
     match ts {
         Some(t) => {
@@ -155,6 +106,16 @@ fn ts_to_opt_string(py: Python<'_>, ts: &Option<PyObject>) -> PyResult<Option<St
             }
         }
         None => Ok(None),
+    }
+}
+
+/// Apply side to qty: buy/long -> +abs, sell/short -> -abs.
+fn signed_qty(qty: Fd8, side: &str) -> Fd8 {
+    let s = side.trim().to_lowercase();
+    match s.as_str() {
+        "buy" | "long" => qty.abs(),
+        "sell" | "short" => -qty.abs(),
+        _ => qty,
     }
 }
 
@@ -172,18 +133,72 @@ impl RustMarketReducer {
         Self
     }
 
-    fn reduce(
+    pub fn reduce(
         &self,
         py: Python<'_>,
         state: &RustMarketState,
         event: &Bound<'_, PyAny>,
     ) -> PyResult<RustReducerResult> {
+        let inner = self.reduce_inner(py, state, event)?;
+        Ok(RustReducerResult {
+            state: inner.state.into_pyobject(py)?.into_any().unbind(),
+            changed: inner.changed,
+            note: inner.note,
+        })
+    }
+}
+
+impl RustMarketReducer {
+    /// Fast path: reduce a RustMarketEvent directly (no getattr overhead).
+    pub fn reduce_rust_market(
+        &self,
+        state: &RustMarketState,
+        event: &RustMarketEvent,
+    ) -> InnerReducerResult<RustMarketState> {
+        if event.symbol != state.symbol {
+            return InnerReducerResult { state: state.clone(), changed: false, note: None };
+        }
+        let c = Fd8::from_raw(event.close);
+        if !c.is_positive() {
+            return InnerReducerResult { state: state.clone(), changed: false, note: None };
+        }
+        let h = Fd8::from_raw(event.high);
+        let l = Fd8::from_raw(event.low);
+        if h < l {
+            return InnerReducerResult { state: state.clone(), changed: false, note: None };
+        }
+        let v = Fd8::from_raw(event.volume);
+        if v.is_negative() {
+            return InnerReducerResult { state: state.clone(), changed: false, note: None };
+        }
+        InnerReducerResult {
+            state: RustMarketState {
+                symbol: state.symbol.clone(),
+                last_price: Some(event.close),
+                open: Some(event.open),
+                high: Some(event.high),
+                low: Some(event.low),
+                close: Some(event.close),
+                volume: Some(event.volume),
+                last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+            },
+            changed: true,
+            note: Some("market_bar".to_string()),
+        }
+    }
+
+    pub fn reduce_inner(
+        &self,
+        py: Python<'_>,
+        state: &RustMarketState,
+        event: &Bound<'_, PyAny>,
+    ) -> PyResult<InnerReducerResult<RustMarketState>> {
         let et = get_event_type(event)?;
         let sym = get_symbol(event, &state.symbol)?;
 
         if sym != state.symbol {
-            return Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
+            return Ok(InnerReducerResult {
+                state: state.clone(),
                 changed: false,
                 note: None,
             });
@@ -194,105 +209,71 @@ impl RustMarketReducer {
 
         // Bar-like events
         if matches!(et.as_str(), "market" | "market_bar" | "bar" | "marketbar") {
-            let mut o = opt_attr_f64(event, "open")?;
-            let mut h = opt_attr_f64(event, "high")?;
-            let mut l = opt_attr_f64(event, "low")?;
-            let mut c = opt_attr_f64(event, "close")?;
-            let mut v = opt_attr_f64(event, "volume")?;
+            let mut o = opt_fd8_from_pyany(event, "open")?;
+            let mut h = opt_fd8_from_pyany(event, "high")?;
+            let mut l = opt_fd8_from_pyany(event, "low")?;
+            let mut c = opt_fd8_from_pyany(event, "close")?;
+            let mut v = opt_fd8_from_pyany(event, "volume")?;
 
             // Support nested bar object
             if c.is_none() {
                 if let Ok(bar) = event.getattr("bar") {
                     if !bar.is_none() {
-                        if o.is_none() {
-                            o = opt_attr_f64(&bar, "open")?;
-                        }
-                        if h.is_none() {
-                            h = opt_attr_f64(&bar, "high")?;
-                        }
-                        if l.is_none() {
-                            l = opt_attr_f64(&bar, "low")?;
-                        }
-                        c = opt_attr_f64(&bar, "close")?;
-                        if v.is_none() {
-                            v = opt_attr_f64(&bar, "volume")?;
-                        }
+                        if o.is_none() { o = opt_fd8_from_pyany(&bar, "open")?; }
+                        if h.is_none() { h = opt_fd8_from_pyany(&bar, "high")?; }
+                        if l.is_none() { l = opt_fd8_from_pyany(&bar, "low")?; }
+                        c = opt_fd8_from_pyany(&bar, "close")?;
+                        if v.is_none() { v = opt_fd8_from_pyany(&bar, "volume")?; }
                     }
                 }
             }
 
-            if let Some(c_f) = c {
-                // Validate close > 0 and finite
-                if c_f <= 0.0 || !c_f.is_finite() {
-                    return Ok(RustReducerResult {
-                        state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                        changed: false,
-                        note: None,
-                    });
+            if let Some(c_fd) = c {
+                if !c_fd.is_positive() {
+                    return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
                 }
-            }
-
-            // Validate high >= low
-            if let (Some(h_f), Some(l_f)) = (h, l) {
-                if h_f < l_f {
-                    return Ok(RustReducerResult {
-                        state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                        changed: false,
-                        note: None,
-                    });
+                if let (Some(h_fd), Some(l_fd)) = (h, l) {
+                    if h_fd < l_fd {
+                        return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
+                    }
                 }
-            }
-
-            // Validate volume >= 0
-            if let Some(v_f) = v {
-                if v_f < 0.0 {
-                    return Ok(RustReducerResult {
-                        state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                        changed: false,
-                        note: None,
-                    });
+                if let Some(v_fd) = v {
+                    if v_fd.is_negative() {
+                        return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
+                    }
                 }
-            }
-
-            if let Some(c_f) = c {
-                let o_s = fmt_decimal(o.unwrap_or(c_f));
-                let h_s = fmt_decimal(h.unwrap_or(c_f));
-                let l_s = fmt_decimal(l.unwrap_or(c_f));
-                let c_s = fmt_decimal(c_f);
-                let v_s = v.map(fmt_decimal);
 
                 let new_state = RustMarketState {
                     symbol: state.symbol.clone(),
-                    last_price: Some(c_s.clone()),
-                    open: Some(o_s),
-                    high: Some(h_s),
-                    low: Some(l_s),
-                    close: Some(c_s),
-                    volume: v_s,
+                    last_price: Some(c_fd.raw()),
+                    open: Some(o.unwrap_or(c_fd).raw()),
+                    high: Some(h.unwrap_or(c_fd).raw()),
+                    low: Some(l.unwrap_or(c_fd).raw()),
+                    close: Some(c_fd.raw()),
+                    volume: v.map(|fd| fd.raw()),
                     last_ts: ts_str.or_else(|| state.last_ts.clone()),
                 };
-                return Ok(RustReducerResult {
-                    state: new_state.into_pyobject(py)?.into_any().unbind(),
+                return Ok(InnerReducerResult {
+                    state: new_state,
                     changed: true,
                     note: Some("market_bar".to_string()),
                 });
             }
 
-            // No close: check for price (tick fallback)
-            let price = opt_attr_f64(event, "price")?;
+            let price = opt_fd8_from_pyany(event, "price")?;
             if let Some(p) = price {
                 let new_state = RustMarketState {
                     symbol: state.symbol.clone(),
-                    last_price: Some(fmt_decimal(p)),
-                    open: state.open.clone(),
-                    high: state.high.clone(),
-                    low: state.low.clone(),
-                    close: state.close.clone(),
-                    volume: state.volume.clone(),
+                    last_price: Some(p.raw()),
+                    open: state.open,
+                    high: state.high,
+                    low: state.low,
+                    close: state.close,
+                    volume: state.volume,
                     last_ts: ts_str.or_else(|| state.last_ts.clone()),
                 };
-                return Ok(RustReducerResult {
-                    state: new_state.into_pyobject(py)?.into_any().unbind(),
+                return Ok(InnerReducerResult {
+                    state: new_state,
                     changed: true,
                     note: Some("market_tick".to_string()),
                 });
@@ -304,21 +285,21 @@ impl RustMarketReducer {
 
         // Tick-like events
         if matches!(et.as_str(), "market_tick" | "tick") {
-            let price = opt_attr_f64(event, "price")?;
+            let price = opt_fd8_from_pyany(event, "price")?;
             match price {
                 Some(p) => {
                     let new_state = RustMarketState {
                         symbol: state.symbol.clone(),
-                        last_price: Some(fmt_decimal(p)),
-                        open: state.open.clone(),
-                        high: state.high.clone(),
-                        low: state.low.clone(),
-                        close: state.close.clone(),
-                        volume: state.volume.clone(),
+                        last_price: Some(p.raw()),
+                        open: state.open,
+                        high: state.high,
+                        low: state.low,
+                        close: state.close,
+                        volume: state.volume,
                         last_ts: ts_str.or_else(|| state.last_ts.clone()),
                     };
-                    Ok(RustReducerResult {
-                        state: new_state.into_pyobject(py)?.into_any().unbind(),
+                    Ok(InnerReducerResult {
+                        state: new_state,
                         changed: true,
                         note: Some("market_tick".to_string()),
                     })
@@ -328,9 +309,8 @@ impl RustMarketReducer {
                 )),
             }
         } else {
-            // Unrecognized event type
-            Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
+            Ok(InnerReducerResult {
+                state: state.clone(),
                 changed: false,
                 note: None,
             })
@@ -352,42 +332,121 @@ impl RustPositionReducer {
         Self
     }
 
-    fn reduce(
+    pub fn reduce(
         &self,
         py: Python<'_>,
         state: &RustPositionState,
         event: &Bound<'_, PyAny>,
     ) -> PyResult<RustReducerResult> {
+        let inner = self.reduce_inner(py, state, event)?;
+        Ok(RustReducerResult {
+            state: inner.state.into_pyobject(py)?.into_any().unbind(),
+            changed: inner.changed,
+            note: inner.note,
+        })
+    }
+}
+
+impl RustPositionReducer {
+    /// Fast path: reduce a RustFillEvent directly (no getattr overhead).
+    pub fn reduce_rust_fill(
+        &self,
+        state: &RustPositionState,
+        event: &RustFillEvent,
+    ) -> PyResult<InnerReducerResult<RustPositionState>> {
+        if event.symbol != state.symbol {
+            return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
+        }
+
+        let qty_raw = Fd8::from_raw(event.qty);
+        let qty = signed_qty(qty_raw, &event.side);
+        if qty.is_zero() {
+            return Err(pyo3::exceptions::PyValueError::new_err("fill qty cannot be 0"));
+        }
+        let price = Fd8::from_raw(event.price);
+        if !price.is_positive() {
+            return Err(pyo3::exceptions::PyValueError::new_err("fill price must be > 0"));
+        }
+
+        let prev_qty = Fd8::from_raw(state.qty);
+        let new_qty = prev_qty + qty;
+
+        if new_qty.abs().raw() < 1 {
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: 0, avg_price: None,
+                    last_price: Some(price.raw()),
+                    last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+                },
+                changed: true,
+                note: Some("position_flat".to_string()),
+            });
+        }
+        if prev_qty.is_zero() || (prev_qty.is_positive() == qty.is_positive()) {
+            let new_avg = if prev_qty.is_zero() || state.avg_price.is_none() {
+                price
+            } else {
+                let old_avg = Fd8::from_raw(state.avg_price.unwrap_or(price.raw()));
+                (prev_qty.abs() * old_avg + qty.abs() * price) / new_qty.abs()
+            };
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: new_qty.raw(),
+                    avg_price: Some(new_avg.raw()), last_price: Some(price.raw()),
+                    last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+                },
+                changed: true,
+                note: Some("position_add".to_string()),
+            });
+        }
+        if qty.abs() < prev_qty.abs() {
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: new_qty.raw(),
+                    avg_price: state.avg_price, last_price: Some(price.raw()),
+                    last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+                },
+                changed: true,
+                note: Some("position_reduce".to_string()),
+            });
+        }
+        Ok(InnerReducerResult {
+            state: RustPositionState {
+                symbol: state.symbol.clone(), qty: new_qty.raw(),
+                avg_price: Some(price.raw()), last_price: Some(price.raw()),
+                last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+            },
+            changed: true,
+            note: Some("position_reverse".to_string()),
+        })
+    }
+
+    pub fn reduce_inner(
+        &self,
+        py: Python<'_>,
+        state: &RustPositionState,
+        event: &Bound<'_, PyAny>,
+    ) -> PyResult<InnerReducerResult<RustPositionState>> {
         let et = get_event_type(event)?;
 
         if !matches!(et.as_str(), "fill" | "trade_fill" | "execution_fill") {
-            return Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                changed: false,
-                note: None,
-            });
+            return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
         }
 
         let sym = get_symbol(event, &state.symbol)?;
         if sym != state.symbol {
-            return Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                changed: false,
-                note: None,
-            });
+            return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
         }
 
         let ts = get_event_ts(event)?;
         let ts_str = ts_to_opt_string(py, &ts)?;
 
-        // Extract qty
-        let qty_raw = opt_attr_f64(event, "qty")?
-            .or(opt_attr_f64(event, "quantity")?)
+        let qty_raw = opt_fd8_from_pyany(event, "qty")?
+            .or(opt_fd8_from_pyany(event, "quantity")?)
             .ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err("fill event missing qty/quantity")
             })?;
 
-        // Extract side
         let side_obj = event.getattr("side").ok();
         let side_str = match &side_obj {
             Some(s) if !s.is_none() => s.str()?.to_string(),
@@ -398,65 +457,49 @@ impl RustPositionReducer {
             }
         };
 
-        let qty = signed_qty_f64(qty_raw, &side_str);
-        if qty == 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "fill qty cannot be 0",
-            ));
+        let qty = signed_qty(qty_raw, &side_str);
+        if qty.is_zero() {
+            return Err(pyo3::exceptions::PyValueError::new_err("fill qty cannot be 0"));
         }
 
-        // Extract price
-        let price = opt_attr_f64(event, "price")?.ok_or_else(|| {
+        let price = opt_fd8_from_pyany(event, "price")?.ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("fill event missing price")
         })?;
-        if price <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "fill price must be > 0",
-            ));
+        if !price.is_positive() {
+            return Err(pyo3::exceptions::PyValueError::new_err("fill price must be > 0"));
         }
 
-        let prev_qty: f64 = state.qty.parse().unwrap_or(0.0);
+        let prev_qty = Fd8::from_raw(state.qty);
         let new_qty = prev_qty + qty;
-        let price_s = fmt_decimal(price);
 
         // 1) flat
-        if new_qty.abs() < 1e-18 {
-            let new_state = RustPositionState {
-                symbol: state.symbol.clone(),
-                qty: "0".to_string(),
-                avg_price: None,
-                last_price: Some(price_s),
-                last_ts: ts_str.or_else(|| state.last_ts.clone()),
-            };
-            return Ok(RustReducerResult {
-                state: new_state.into_pyobject(py)?.into_any().unbind(),
+        if new_qty.abs().raw() < 1 {
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: 0, avg_price: None,
+                    last_price: Some(price.raw()),
+                    last_ts: ts_str.or_else(|| state.last_ts.clone()),
+                },
                 changed: true,
                 note: Some("position_flat".to_string()),
             });
         }
 
         // 2) opening or adding (same direction)
-        if prev_qty == 0.0 || (prev_qty > 0.0) == (qty > 0.0) {
-            let new_avg = if prev_qty == 0.0 || state.avg_price.is_none() {
+        if prev_qty.is_zero() || (prev_qty.is_positive() == qty.is_positive()) {
+            let new_avg = if prev_qty.is_zero() || state.avg_price.is_none() {
                 price
             } else {
-                let old_avg: f64 = state
-                    .avg_price
-                    .as_ref()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(price);
-                (prev_qty.abs() * old_avg + qty.abs() * price) / new_qty.abs()
+                let old_avg = Fd8::from_raw(state.avg_price.unwrap_or(price.raw()));
+                let num = prev_qty.abs() * old_avg + qty.abs() * price;
+                num / new_qty.abs()
             };
-
-            let new_state = RustPositionState {
-                symbol: state.symbol.clone(),
-                qty: fmt_decimal(new_qty),
-                avg_price: Some(fmt_decimal(new_avg)),
-                last_price: Some(price_s),
-                last_ts: ts_str.or_else(|| state.last_ts.clone()),
-            };
-            return Ok(RustReducerResult {
-                state: new_state.into_pyobject(py)?.into_any().unbind(),
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: new_qty.raw(),
+                    avg_price: Some(new_avg.raw()), last_price: Some(price.raw()),
+                    last_ts: ts_str.or_else(|| state.last_ts.clone()),
+                },
                 changed: true,
                 note: Some("position_add".to_string()),
             });
@@ -464,30 +507,24 @@ impl RustPositionReducer {
 
         // 3) reducing (opposite direction, not crossing zero)
         if qty.abs() < prev_qty.abs() {
-            let new_state = RustPositionState {
-                symbol: state.symbol.clone(),
-                qty: fmt_decimal(new_qty),
-                avg_price: state.avg_price.clone(),
-                last_price: Some(price_s),
-                last_ts: ts_str.or_else(|| state.last_ts.clone()),
-            };
-            return Ok(RustReducerResult {
-                state: new_state.into_pyobject(py)?.into_any().unbind(),
+            return Ok(InnerReducerResult {
+                state: RustPositionState {
+                    symbol: state.symbol.clone(), qty: new_qty.raw(),
+                    avg_price: state.avg_price, last_price: Some(price.raw()),
+                    last_ts: ts_str.or_else(|| state.last_ts.clone()),
+                },
                 changed: true,
                 note: Some("position_reduce".to_string()),
             });
         }
 
-        // 4) crossing zero -> reverse: avg resets to fill price
-        let new_state = RustPositionState {
-            symbol: state.symbol.clone(),
-            qty: fmt_decimal(new_qty),
-            avg_price: Some(price_s.clone()),
-            last_price: Some(price_s),
-            last_ts: ts_str.or_else(|| state.last_ts.clone()),
-        };
-        Ok(RustReducerResult {
-            state: new_state.into_pyobject(py)?.into_any().unbind(),
+        // 4) crossing zero -> reverse
+        Ok(InnerReducerResult {
+            state: RustPositionState {
+                symbol: state.symbol.clone(), qty: new_qty.raw(),
+                avg_price: Some(price.raw()), last_price: Some(price.raw()),
+                last_ts: ts_str.or_else(|| state.last_ts.clone()),
+            },
             changed: true,
             note: Some("position_reverse".to_string()),
         })
@@ -508,111 +545,188 @@ impl RustAccountReducer {
         Self
     }
 
-    fn reduce(
+    pub fn reduce(
         &self,
         py: Python<'_>,
         state: &RustAccountState,
         event: &Bound<'_, PyAny>,
     ) -> PyResult<RustReducerResult> {
-        let et = get_event_type(event)?;
-
-        if et == "funding" {
-            return self.reduce_funding(py, state, event);
-        }
-
-        if !matches!(et.as_str(), "fill" | "trade_fill" | "execution_fill") {
-            return Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                changed: false,
-                note: None,
-            });
-        }
-
-        let ts = get_event_ts(event)?;
-        let ts_str = ts_to_opt_string(py, &ts)?;
-
-        let fee = opt_attr_f64(event, "fee")?.unwrap_or(0.0);
-        let realized = opt_attr_f64(event, "realized_pnl")?.unwrap_or(0.0);
-        let cash_delta = opt_attr_f64(event, "cash_delta")?.unwrap_or(0.0);
-        let margin_change = opt_attr_f64(event, "margin_change")?.unwrap_or(0.0);
-
-        let balance: f64 = state.balance.parse().unwrap_or(0.0);
-        let margin_used: f64 = state.margin_used.parse().unwrap_or(0.0);
-        let realized_pnl: f64 = state.realized_pnl.parse().unwrap_or(0.0);
-        let unrealized_pnl: f64 = state.unrealized_pnl.parse().unwrap_or(0.0);
-        let fees_paid: f64 = state.fees_paid.parse().unwrap_or(0.0);
-
-        let new_balance = balance + realized + cash_delta - fee;
-        let new_margin_used = margin_used + margin_change;
-        let new_margin_available = new_balance - new_margin_used;
-
-        let new_state = RustAccountState {
-            currency: state.currency.clone(),
-            balance: fmt_decimal(new_balance),
-            margin_used: fmt_decimal(new_margin_used),
-            margin_available: fmt_decimal(new_margin_available),
-            realized_pnl: fmt_decimal(realized_pnl + realized),
-            unrealized_pnl: fmt_decimal(unrealized_pnl),
-            fees_paid: fmt_decimal(fees_paid + fee),
-            last_ts: ts_str.or_else(|| state.last_ts.clone()),
-        };
+        let inner = self.reduce_inner(py, state, event)?;
         Ok(RustReducerResult {
-            state: new_state.into_pyobject(py)?.into_any().unbind(),
-            changed: true,
-            note: Some("fill_account".to_string()),
+            state: inner.state.into_pyobject(py)?.into_any().unbind(),
+            changed: inner.changed,
+            note: inner.note,
         })
     }
 }
 
 impl RustAccountReducer {
-    fn reduce_funding(
+    /// Fast path: reduce a RustFillEvent directly (no getattr overhead).
+    pub fn reduce_rust_fill(
+        &self,
+        state: &RustAccountState,
+        event: &RustFillEvent,
+    ) -> InnerReducerResult<RustAccountState> {
+        let fee = Fd8::from_raw(event.fee);
+        let realized = Fd8::from_raw(event.realized_pnl);
+        let cash_delta = Fd8::from_raw(event.cash_delta);
+        let margin_change = Fd8::from_raw(event.margin_change);
+
+        let balance = Fd8::from_raw(state.balance);
+        let margin_used = Fd8::from_raw(state.margin_used);
+        let realized_pnl = Fd8::from_raw(state.realized_pnl);
+        let fees_paid = Fd8::from_raw(state.fees_paid);
+
+        let new_balance = balance + realized + cash_delta - fee;
+        let new_margin_used = margin_used + margin_change;
+        let new_margin_available = new_balance - new_margin_used;
+
+        InnerReducerResult {
+            state: RustAccountState {
+                currency: state.currency.clone(),
+                balance: new_balance.raw(),
+                margin_used: new_margin_used.raw(),
+                margin_available: new_margin_available.raw(),
+                realized_pnl: (realized_pnl + realized).raw(),
+                unrealized_pnl: state.unrealized_pnl,
+                fees_paid: (fees_paid + fee).raw(),
+                last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+            },
+            changed: true,
+            note: Some("fill_account".to_string()),
+        }
+    }
+
+    /// Fast path: reduce a RustFundingEvent directly.
+    pub fn reduce_rust_funding(
+        &self,
+        state: &RustAccountState,
+        event: &RustFundingEvent,
+    ) -> InnerReducerResult<RustAccountState> {
+        let fr = Fd8::from_raw(event.funding_rate);
+        let mp = Fd8::from_raw(event.mark_price);
+        let pq = Fd8::from_raw(event.position_qty);
+
+        if pq.is_zero() {
+            return InnerReducerResult { state: state.clone(), changed: false, note: None };
+        }
+
+        let balance = Fd8::from_raw(state.balance);
+        let margin_used = Fd8::from_raw(state.margin_used);
+        let realized_pnl = Fd8::from_raw(state.realized_pnl);
+        let fees_paid = Fd8::from_raw(state.fees_paid);
+
+        let funding_payment = pq * mp * fr;
+        let new_balance = balance - funding_payment;
+        let new_margin_available = new_balance - margin_used;
+
+        InnerReducerResult {
+            state: RustAccountState {
+                currency: state.currency.clone(),
+                balance: new_balance.raw(),
+                margin_used: margin_used.raw(),
+                margin_available: new_margin_available.raw(),
+                realized_pnl: (realized_pnl - funding_payment).raw(),
+                unrealized_pnl: state.unrealized_pnl,
+                fees_paid: (fees_paid + funding_payment.abs()).raw(),
+                last_ts: event.ts.clone().or_else(|| state.last_ts.clone()),
+            },
+            changed: true,
+            note: Some("funding_settlement".to_string()),
+        }
+    }
+
+    pub fn reduce_inner(
         &self,
         py: Python<'_>,
         state: &RustAccountState,
         event: &Bound<'_, PyAny>,
-    ) -> PyResult<RustReducerResult> {
+    ) -> PyResult<InnerReducerResult<RustAccountState>> {
+        let et = get_event_type(event)?;
+
+        if et == "funding" {
+            return self.reduce_funding_inner(py, state, event);
+        }
+
+        if !matches!(et.as_str(), "fill" | "trade_fill" | "execution_fill") {
+            return Ok(InnerReducerResult { state: state.clone(), changed: false, note: None });
+        }
+
         let ts = get_event_ts(event)?;
         let ts_str = ts_to_opt_string(py, &ts)?;
 
-        let funding_rate = opt_attr_f64(event, "funding_rate")?;
-        let mark_price = opt_attr_f64(event, "mark_price")?;
-        let position_qty = opt_attr_f64(event, "position_qty")?;
+        let fee = opt_fd8_from_pyany(event, "fee")?.unwrap_or(Fd8::ZERO);
+        let realized = opt_fd8_from_pyany(event, "realized_pnl")?.unwrap_or(Fd8::ZERO);
+        let cash_delta = opt_fd8_from_pyany(event, "cash_delta")?.unwrap_or(Fd8::ZERO);
+        let margin_change = opt_fd8_from_pyany(event, "margin_change")?.unwrap_or(Fd8::ZERO);
 
-        // If any required field is missing or position is zero, no-op
+        let balance = Fd8::from_raw(state.balance);
+        let margin_used = Fd8::from_raw(state.margin_used);
+        let realized_pnl = Fd8::from_raw(state.realized_pnl);
+        let unrealized_pnl = Fd8::from_raw(state.unrealized_pnl);
+        let fees_paid = Fd8::from_raw(state.fees_paid);
+
+        let new_balance = balance + realized + cash_delta - fee;
+        let new_margin_used = margin_used + margin_change;
+        let new_margin_available = new_balance - new_margin_used;
+
+        Ok(InnerReducerResult {
+            state: RustAccountState {
+                currency: state.currency.clone(),
+                balance: new_balance.raw(),
+                margin_used: new_margin_used.raw(),
+                margin_available: new_margin_available.raw(),
+                realized_pnl: (realized_pnl + realized).raw(),
+                unrealized_pnl: unrealized_pnl.raw(),
+                fees_paid: (fees_paid + fee).raw(),
+                last_ts: ts_str.or_else(|| state.last_ts.clone()),
+            },
+            changed: true,
+            note: Some("fill_account".to_string()),
+        })
+    }
+
+    fn reduce_funding_inner(
+        &self,
+        py: Python<'_>,
+        state: &RustAccountState,
+        event: &Bound<'_, PyAny>,
+    ) -> PyResult<InnerReducerResult<RustAccountState>> {
+        let ts = get_event_ts(event)?;
+        let ts_str = ts_to_opt_string(py, &ts)?;
+
+        let funding_rate = opt_fd8_from_pyany(event, "funding_rate")?;
+        let mark_price = opt_fd8_from_pyany(event, "mark_price")?;
+        let position_qty = opt_fd8_from_pyany(event, "position_qty")?;
+
         match (funding_rate, mark_price, position_qty) {
-            (Some(fr), Some(mp), Some(pq)) if pq != 0.0 => {
-                let balance: f64 = state.balance.parse().unwrap_or(0.0);
-                let margin_used: f64 = state.margin_used.parse().unwrap_or(0.0);
-                let realized_pnl: f64 = state.realized_pnl.parse().unwrap_or(0.0);
-                let unrealized_pnl: f64 = state.unrealized_pnl.parse().unwrap_or(0.0);
-                let fees_paid: f64 = state.fees_paid.parse().unwrap_or(0.0);
+            (Some(fr), Some(mp), Some(pq)) if !pq.is_zero() => {
+                let balance = Fd8::from_raw(state.balance);
+                let margin_used = Fd8::from_raw(state.margin_used);
+                let realized_pnl = Fd8::from_raw(state.realized_pnl);
+                let unrealized_pnl = Fd8::from_raw(state.unrealized_pnl);
+                let fees_paid = Fd8::from_raw(state.fees_paid);
 
-                // funding_payment > 0 means account pays
                 let funding_payment = pq * mp * fr;
                 let new_balance = balance - funding_payment;
                 let new_margin_available = new_balance - margin_used;
 
-                let new_state = RustAccountState {
-                    currency: state.currency.clone(),
-                    balance: fmt_decimal(new_balance),
-                    margin_used: fmt_decimal(margin_used),
-                    margin_available: fmt_decimal(new_margin_available),
-                    realized_pnl: fmt_decimal(realized_pnl - funding_payment),
-                    unrealized_pnl: fmt_decimal(unrealized_pnl),
-                    fees_paid: fmt_decimal(fees_paid + funding_payment.abs()),
-                    last_ts: ts_str.or_else(|| state.last_ts.clone()),
-                };
-                Ok(RustReducerResult {
-                    state: new_state.into_pyobject(py)?.into_any().unbind(),
+                Ok(InnerReducerResult {
+                    state: RustAccountState {
+                        currency: state.currency.clone(),
+                        balance: new_balance.raw(),
+                        margin_used: margin_used.raw(),
+                        margin_available: new_margin_available.raw(),
+                        realized_pnl: (realized_pnl - funding_payment).raw(),
+                        unrealized_pnl: unrealized_pnl.raw(),
+                        fees_paid: (fees_paid + funding_payment.abs()).raw(),
+                        last_ts: ts_str.or_else(|| state.last_ts.clone()),
+                    },
                     changed: true,
                     note: Some("funding_settlement".to_string()),
                 })
             }
-            _ => Ok(RustReducerResult {
-                state: state.clone().into_pyobject(py)?.into_any().unbind(),
-                changed: false,
-                note: None,
-            }),
+            _ => Ok(InnerReducerResult { state: state.clone(), changed: false, note: None }),
         }
     }
 }
@@ -621,8 +735,6 @@ impl RustAccountReducer {
 // RustPortfolioReducer
 // ===========================================================================
 
-/// Portfolio is derived state: recomputed from account + positions + market on every event.
-/// Stores Python callables (get_account, get_positions, get_market) to fetch current state.
 #[pyclass(name = "RustPortfolioReducer")]
 pub struct RustPortfolioReducer {
     get_account: PyObject,
@@ -651,7 +763,6 @@ impl RustPortfolioReducer {
         let ts = get_event_ts(event)?;
         let ts_str = ts_to_opt_string(py, &ts)?;
 
-        // Call the Python callables to get current state
         let account_obj = self.get_account.call0(py)?;
         let account: RustAccountState = account_obj.extract(py)?;
 
@@ -661,52 +772,43 @@ impl RustPortfolioReducer {
         let market_obj = self.get_market.call0(py)?;
         let market: RustMarketState = market_obj.extract(py)?;
 
-        // Compute portfolio from components
-        let balance: f64 = account.balance.parse().unwrap_or(0.0);
-        let margin_used: f64 = account.margin_used.parse().unwrap_or(0.0);
-        let margin_available: f64 = account.margin_available.parse().unwrap_or(0.0);
-        let realized_pnl: f64 = account.realized_pnl.parse().unwrap_or(0.0);
-        let fees_paid: f64 = account.fees_paid.parse().unwrap_or(0.0);
+        // Read i64 fields from core types
+        let balance = Fd8::from_raw(account.balance);
+        let margin_used = Fd8::from_raw(account.margin_used);
+        let margin_available = Fd8::from_raw(account.margin_available);
+        let realized_pnl = Fd8::from_raw(account.realized_pnl);
+        let fees_paid = Fd8::from_raw(account.fees_paid);
 
-        let market_price: Option<f64> = market
-            .last_price
-            .as_ref()
-            .and_then(|s| s.parse().ok());
+        let market_price: Option<Fd8> = market.last_price.map(Fd8::from_raw);
 
-        let mut gross: f64 = 0.0;
-        let mut net: f64 = 0.0;
-        let mut unreal: f64 = 0.0;
+        let mut gross = Fd8::ZERO;
+        let mut net = Fd8::ZERO;
+        let mut unreal = Fd8::ZERO;
         let mut syms: Vec<String> = Vec::new();
 
         for (key, val) in positions.iter() {
             let sym: String = key.extract()?;
             let pos: RustPositionState = val.extract()?;
-            let qty: f64 = pos.qty.parse().unwrap_or(0.0);
-            if qty == 0.0 {
+            let qty = Fd8::from_raw(pos.qty);
+            if qty.is_zero() {
                 continue;
             }
 
-            // Mark price: market for primary symbol, otherwise pos.last_price
             let mark = if sym == market.symbol {
                 market_price
             } else {
                 None
             }
-            .or_else(|| {
-                pos.last_price
-                    .as_ref()
-                    .and_then(|s| s.parse().ok())
-            });
+            .or_else(|| pos.last_price.map(Fd8::from_raw));
 
             if let Some(m) = mark {
                 let notional = qty.abs() * m;
-                gross += notional;
-                net += qty * m;
+                gross = gross + notional;
+                net = net + qty * m;
 
-                if let Some(ref avg_s) = pos.avg_price {
-                    if let Ok(avg) = avg_s.parse::<f64>() {
-                        unreal += (m - avg) * qty;
-                    }
+                if let Some(avg_raw) = pos.avg_price {
+                    let avg = Fd8::from_raw(avg_raw);
+                    unreal = unreal + (m - avg) * qty;
                 }
             }
 
@@ -716,37 +818,40 @@ impl RustPortfolioReducer {
         syms.sort();
 
         let total_equity = balance + unreal;
-        let leverage = if total_equity > 0.0 && gross != 0.0 {
-            Some(fmt_decimal(gross / total_equity))
-        } else if total_equity > 0.0 {
+        let te_f = total_equity.to_f64();
+        let ge_f = gross.to_f64();
+
+        let leverage = if te_f > 0.0 && ge_f != 0.0 {
+            Some(Fd8::from_f64(ge_f / te_f).to_string_stripped())
+        } else if te_f > 0.0 {
             Some("0".to_string())
         } else {
             None
         };
 
-        let margin_ratio = if margin_used > 0.0 && total_equity > 0.0 {
-            Some(fmt_decimal(total_equity / margin_used))
+        let mu_f = margin_used.to_f64();
+        let margin_ratio = if mu_f > 0.0 && te_f > 0.0 {
+            Some(Fd8::from_f64(te_f / mu_f).to_string_stripped())
         } else {
             None
         };
 
         let new_state = RustPortfolioState {
-            total_equity: fmt_decimal(total_equity),
-            cash_balance: fmt_decimal(balance),
-            realized_pnl: fmt_decimal(realized_pnl),
-            unrealized_pnl: fmt_decimal(unreal),
-            fees_paid: fmt_decimal(fees_paid),
-            gross_exposure: fmt_decimal(gross),
-            net_exposure: fmt_decimal(net),
+            total_equity: total_equity.to_string_stripped(),
+            cash_balance: balance.to_string_stripped(),
+            realized_pnl: realized_pnl.to_string_stripped(),
+            unrealized_pnl: unreal.to_string_stripped(),
+            fees_paid: fees_paid.to_string_stripped(),
+            gross_exposure: gross.to_string_stripped(),
+            net_exposure: net.to_string_stripped(),
             leverage,
-            margin_used: fmt_decimal(margin_used),
-            margin_available: fmt_decimal(margin_available),
+            margin_used: margin_used.to_string_stripped(),
+            margin_available: margin_available.to_string_stripped(),
             margin_ratio,
             symbols: syms,
             last_ts: ts_str,
         };
 
-        // Check if changed by comparing key fields
         let changed = new_state.total_equity != state.total_equity
             || new_state.gross_exposure != state.gross_exposure
             || new_state.net_exposure != state.net_exposure
@@ -801,12 +906,10 @@ impl RustRiskReducer {
         let ts = get_event_ts(event)?;
         let ts_str = ts_to_opt_string(py, &ts)?;
 
-        // Get current portfolio
         let portfolio_obj = self.get_portfolio.call0(py)?;
         let portfolio: RustPortfolioState = portfolio_obj.extract(py)?;
         let equity: f64 = portfolio.total_equity.parse().unwrap_or(0.0);
 
-        // Parse limits
         let max_leverage: f64 = self.limits.max_leverage.parse().unwrap_or(5.0);
         let max_drawdown_pct: f64 = self.limits.max_drawdown_pct.parse().unwrap_or(0.30);
         let max_position_notional: Option<f64> = self
@@ -815,7 +918,6 @@ impl RustRiskReducer {
             .as_ref()
             .and_then(|s| s.parse().ok());
 
-        // Peak/drawdown tracking
         let mut peak: f64 = state.equity_peak.parse().unwrap_or(0.0);
         if equity > peak {
             peak = equity;
@@ -834,7 +936,6 @@ impl RustRiskReducer {
         let mut message = state.message.clone();
         let mut flags: HashSet<String> = state.flags.iter().cloned().collect();
 
-        // Manual risk events
         if et == "risk" {
             if let Ok(lvl) = event.getattr("level") {
                 if !lvl.is_none() {
@@ -873,7 +974,6 @@ impl RustRiskReducer {
             }
         }
 
-        // Limit checks
         if self.limits.block_on_equity_le_zero && equity <= 0.0 {
             flags.insert("equity_le_zero".to_string());
         }
@@ -890,18 +990,17 @@ impl RustRiskReducer {
             let positions: &Bound<'_, PyDict> = positions_obj.downcast_bound(py)?;
             for (_key, val) in positions.iter() {
                 let pos: RustPositionState = val.extract()?;
-                let qty: f64 = pos.qty.parse().unwrap_or(0.0);
-                if qty == 0.0 {
+                let qty = Fd8::from_raw(pos.qty);
+                if qty.is_zero() {
                     continue;
                 }
-                if let Some(ref lp) = pos.last_price {
-                    if let Ok(mark) = lp.parse::<f64>() {
-                        let notional = qty.abs() * mark;
-                        if notional > cap {
-                            let sym = &pos.symbol;
-                            flags.insert(format!("max_position_notional:{}", sym));
-                            break;
-                        }
+                if let Some(lp_raw) = pos.last_price {
+                    let mark = Fd8::from_raw(lp_raw);
+                    let notional = (qty.abs() * mark).to_f64();
+                    if notional > cap {
+                        let sym = &pos.symbol;
+                        flags.insert(format!("max_position_notional:{}", sym));
+                        break;
                     }
                 }
             }
@@ -911,7 +1010,6 @@ impl RustRiskReducer {
             flags.insert("max_drawdown".to_string());
         }
 
-        // blocked = halted or any critical flags
         let blocked = halted
             || (!flags.is_empty()
                 && (flags.contains("risk_block_event")
@@ -923,18 +1021,20 @@ impl RustRiskReducer {
         let mut new_flags: Vec<String> = flags.into_iter().collect();
         new_flags.sort();
 
+        let fmt_peak = Fd8::from_f64(peak).to_string_stripped();
+        let fmt_dd = Fd8::from_f64(dd).to_string_stripped();
+
         let new_state = RustRiskState {
             blocked,
             halted,
             level,
             message,
             flags: new_flags.clone(),
-            equity_peak: fmt_decimal(peak),
-            drawdown_pct: fmt_decimal(dd),
+            equity_peak: fmt_peak,
+            drawdown_pct: fmt_dd,
             last_ts: ts_str.or_else(|| state.last_ts.clone()),
         };
 
-        // Check changed
         let changed = new_state.blocked != state.blocked
             || new_state.halted != state.halted
             || new_state.level != state.level

@@ -6,29 +6,23 @@ identical results to the Python implementations.
 import math
 import pytest
 
-try:
-    from _quant_hotpath import (
-        RollingWindow as RustRW,
-        VWAPWindow as RustVW,
-        cpp_sma,
-        cpp_ema,
-        cpp_returns,
-        cpp_volatility,
-        cpp_rsi,
-        cpp_macd,
-        cpp_bollinger_bands,
-        cpp_atr,
-        cpp_ols,
-        cpp_vwap,
-        cpp_order_flow_imbalance,
-        cpp_rolling_volatility,
-        cpp_price_impact,
-    )
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
-
-pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust extension not built")
+from _quant_hotpath import (
+    RollingWindow as RustRW,
+    VWAPWindow as RustVW,
+    cpp_sma,
+    cpp_ema,
+    cpp_returns,
+    cpp_volatility,
+    cpp_rsi,
+    cpp_macd,
+    cpp_bollinger_bands,
+    cpp_atr,
+    cpp_ols,
+    cpp_vwap,
+    cpp_order_flow_imbalance,
+    cpp_rolling_volatility,
+    cpp_price_impact,
+)
 
 
 # ── Helpers ──
