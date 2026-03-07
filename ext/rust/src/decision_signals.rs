@@ -145,20 +145,7 @@ pub fn rust_rolling_sharpe(
     annualize_factor: f64,
     min_obs: usize,
 ) -> Option<f64> {
-    let n = returns.len();
-    if n < min_obs {
-        return None;
-    }
-    let start = if n > window { n - window } else { 0 };
-    let slice = &returns[start..];
-    let count = slice.len() as f64;
-    let mean = slice.iter().sum::<f64>() / count;
-    let var = slice.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (count - 1.0).max(1.0);
-    let std = var.max(0.0).sqrt();
-    if std < 1e-12 {
-        return Some(if mean > 0.0 { 99.0 } else { 0.0 });
-    }
-    Some(mean / std * annualize_factor.sqrt())
+    compute_sharpe(&returns, window, annualize_factor, min_obs)
 }
 
 /// Compute maximum drawdown from an equity curve or returns array.

@@ -409,26 +409,31 @@ impl RustCrossAssetComputer {
         high: Option<f64>,
         low: Option<f64>,
     ) {
-        let asset = self.assets.entry(symbol.to_string()).or_insert_with(AssetState::new);
+        let sym_key = symbol.to_string();
+        let asset = self.assets.entry(sym_key.clone()).or_insert_with(AssetState::new);
         asset.push(close, funding_rate, high, low);
 
         if symbol != self.benchmark {
-            let bench_state = match self.assets.get(&self.benchmark) {
-                Some(bs) => bs,
-                None => return,
-            };
-            let sym_ret = self.assets[symbol].ret(1);
-            let bench_ret = bench_state.ret(1);
-            if let (Some(sr), Some(br)) = (sym_ret, bench_ret) {
-                let f_diff = {
-                    let sym_fr = self.assets[symbol].last_funding_rate;
-                    let bench_fr = bench_state.last_funding_rate;
-                    match (sym_fr, bench_fr) {
-                        (Some(sf), Some(bf)) => Some(sf - bf),
-                        _ => None,
-                    }
+            // Gather data from immutable refs before mutable pair access
+            let (sym_ret, bench_ret, f_diff) = {
+                let sym_state = match self.assets.get(symbol) {
+                    Some(s) => s,
+                    None => return,
                 };
-                let pair_key = format!("{}_{}", symbol, self.benchmark);
+                let bench_state = match self.assets.get(&self.benchmark) {
+                    Some(bs) => bs,
+                    None => return,
+                };
+                let sr = sym_state.ret(1);
+                let br = bench_state.ret(1);
+                let fd = match (sym_state.last_funding_rate, bench_state.last_funding_rate) {
+                    (Some(sf), Some(bf)) => Some(sf - bf),
+                    _ => None,
+                };
+                (sr, br, fd)
+            };
+            if let (Some(sr), Some(br)) = (sym_ret, bench_ret) {
+                let pair_key = [symbol, "_", &self.benchmark].concat();
                 let pair = self.pairs.entry(pair_key).or_insert_with(PairState::new);
                 pair.push(sr, br, f_diff);
             }
@@ -458,10 +463,9 @@ impl RustCrossAssetComputer {
             Some(bs) => bs,
             None => return Ok(dict),
         };
-        let _sym_state = match self.assets.get(symbol) {
-            Some(ss) => ss,
-            None => return Ok(dict),
-        };
+        if !self.assets.contains_key(symbol) {
+            return Ok(dict);
+        }
 
         set_opt(&dict, "btc_ret_1", bench_state.ret(1))?;
         set_opt(&dict, "btc_ret_3", bench_state.ret(3))?;
@@ -474,7 +478,7 @@ impl RustCrossAssetComputer {
         set_opt(&dict, "btc_atr_norm_14", bench_state.atr_norm_14())?;
         set_opt(&dict, "btc_bb_width_20", bench_state.bb_width_20())?;
 
-        let pair_key = format!("{}_{}", symbol, bench);
+        let pair_key = [symbol, "_", bench].concat();
         let pair = match self.pairs.get(&pair_key) {
             Some(p) => p,
             None => return Ok(dict),
@@ -517,7 +521,7 @@ impl RustCrossAssetComputer {
             let mean_s = pair.spread_window_20.mean();
             let std_s = pair.spread_window_20.std();
             let beta30 = beta_from_deques(&pair.sym_rets_30, &pair.bench_rets_30, 30);
-            let sym_ret_1 = self.assets[symbol].ret(1);
+            let sym_ret_1 = self.assets.get(symbol).and_then(|s| s.ret(1));
             let bench_ret_1 = bench_state.ret(1);
             if let (Some(b30), Some(sr1), Some(br1)) = (beta30, sym_ret_1, bench_ret_1) {
                 if std_s > 1e-12 {
