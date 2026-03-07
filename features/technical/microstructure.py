@@ -10,7 +10,7 @@ from typing import List, Optional, Sequence
 from features.types import Bar, FeatureSeries
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_vwap as _cpp_vwap,
         cpp_order_flow_imbalance as _cpp_ofi,
         cpp_rolling_volatility as _cpp_rolling_vol,

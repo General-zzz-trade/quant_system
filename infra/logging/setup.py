@@ -6,6 +6,7 @@ for wiring into the Effects system.
 from __future__ import annotations
 
 import logging
+import logging.handlers
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +33,9 @@ def setup_logging(
         if log_file:
             p = Path(log_file)
             p.parent.mkdir(parents=True, exist_ok=True)
-            fh = logging.FileHandler(p, encoding="utf-8")
+            fh = logging.handlers.RotatingFileHandler(
+                p, maxBytes=100_000_000, backupCount=7, encoding="utf-8",
+            )
             fh.setFormatter(formatter)
             logger.addHandler(fh)
 

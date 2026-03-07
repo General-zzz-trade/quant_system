@@ -11,7 +11,7 @@ from typing import Dict, List, Mapping, Optional, Sequence
 from features.types import FeatureSeries
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_momentum_rank as _cpp_momentum_rank,
         cpp_rolling_beta as _cpp_rolling_beta,
         cpp_relative_strength as _cpp_relative_strength,

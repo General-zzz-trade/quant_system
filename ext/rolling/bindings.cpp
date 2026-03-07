@@ -19,6 +19,7 @@
 #include "backtest_engine.hpp"
 #include "feature_selector.hpp"
 #include "multi_timeframe.hpp"
+#include "fast_1m_features.hpp"
 
 namespace py = pybind11;
 
@@ -286,4 +287,10 @@ PYBIND11_MODULE(_quant_rolling, m) {
           py::arg("ts"), py::arg("opens"), py::arg("highs"),
           py::arg("lows"), py::arg("closes"), py::arg("volumes"));
     m.def("cpp_4h_feature_names", &mtf::cpp_4h_feature_names);
+
+    // Fast 1m features
+    m.def("cpp_compute_fast_1m_features", &fast1m::cpp_compute_fast_1m_features,
+          py::arg("opens"), py::arg("highs"), py::arg("lows"),
+          py::arg("closes"), py::arg("volumes"), py::arg("trades"), py::arg("tbv"));
+    m.def("cpp_fast_1m_feature_names", &fast1m::cpp_fast_1m_feature_names);
 }

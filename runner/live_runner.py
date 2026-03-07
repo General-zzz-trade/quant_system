@@ -211,6 +211,20 @@ class LiveRunner:
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
 
+        # ── Auto-wire Telegram alerts from env vars ──────────
+        if alert_sink is None:
+            tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+            if tg_token and tg_chat:
+                from monitoring.alerts.telegram import TelegramAlertSink
+                from monitoring.alerts.base import CompositeAlertSink
+                from monitoring.alerts.console import ConsoleAlertSink
+                alert_sink = CompositeAlertSink(sinks=[
+                    ConsoleAlertSink(),
+                    TelegramAlertSink(tg_token, tg_chat),
+                ])
+                logger.info("Telegram alerts auto-wired (chat_id=%s)", tg_chat)
+
         # ── 0) Structured logging ─────────────────────────────
         if config.enable_structured_logging:
             from infra.logging.structured import setup_structured_logging
@@ -347,6 +361,10 @@ class LiveRunner:
                 macro_source=macro_source,
                 sentiment_source=sentiment_source,
             )
+
+        # Wire inference_bridge to monitoring hook
+        if hook is not None and inference_bridge is not None:
+            hook.inference_bridge = inference_bridge
 
         coord_cfg = CoordinatorConfig(
             symbol_default=symbol_default,

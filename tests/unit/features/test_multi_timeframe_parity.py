@@ -6,7 +6,7 @@ import pytest
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 
 try:
-    from features._quant_rolling import cpp_compute_4h_features, cpp_4h_feature_names
+    from _quant_hotpath import cpp_compute_4h_features, cpp_4h_feature_names
     HAS_CPP = True
 except ImportError:
     HAS_CPP = False
@@ -167,14 +167,14 @@ class Test4HFeaturesParity:
         four_hours_ms = 4 * 3600 * 1000
         group_keys = ts // four_hours_ms
 
-        cpp_raw = cpp_compute_4h_features(
+        cpp_raw = np.asarray(cpp_compute_4h_features(
             ts,
             df["open"].values.astype(np.float64),
             df["high"].values.astype(np.float64),
             df["low"].values.astype(np.float64),
             df["close"].values.astype(np.float64),
             df["volume"].values.astype(np.float64),
-        )
+        ), dtype=np.float64)
 
         # First bar of each new group should use G-1's features
         # which means bars in the first 4h group should be NaN

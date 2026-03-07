@@ -10,13 +10,13 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 try:
-    from features._quant_rolling import cpp_greedy_ic_select_np as _cpp_greedy_np
+    from _quant_hotpath import cpp_greedy_ic_select_np as _cpp_greedy_np
     _GREEDY_CPP = True
 except ImportError:
     _GREEDY_CPP = False
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_rolling_ic_select as _cpp_rolling_ic,
         cpp_spearman_ic_select as _cpp_spearman_ic,
         cpp_icir_select as _cpp_icir,
@@ -323,7 +323,8 @@ def compute_feature_icir_report(
     if _SELECTOR_CPP:
         X_c = np.ascontiguousarray(X, dtype=np.float64)
         y_c = np.ascontiguousarray(y, dtype=np.float64)
-        arr = _cpp_icir_report(X_c, y_c, ic_window=ic_window, n_windows=n_windows)
+        raw = _cpp_icir_report(X_c, y_c, ic_window=ic_window, n_windows=n_windows)
+        arr = np.asarray(raw, dtype=np.float64).reshape(n_features, 5)
         report: Dict[str, Dict[str, float]] = {}
         for j in range(n_features):
             report[feature_names[j]] = {

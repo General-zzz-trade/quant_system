@@ -15,7 +15,7 @@ from typing import Any, Optional, Sequence
 logger = logging.getLogger(__name__)
 
 try:
-    from features._quant_rolling import cpp_ols as _cpp_ols
+    from _quant_hotpath import cpp_ols as _cpp_ols
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

@@ -21,6 +21,7 @@ class FeatureComputeHook:
     """
 
     def __init__(self, computer: Any, inference_bridge: Any = None,
+                 warmup_bars: int = 65,
                  funding_rate_source: Any = None,
                  cross_asset_computer: Any = None,
                  oi_source: Any = None,
@@ -36,6 +37,7 @@ class FeatureComputeHook:
                  sentiment_source: Any = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
+        self._warmup_bars = warmup_bars
         self._funding_rate_source = funding_rate_source
         self._cross_asset = cross_asset_computer
         self._oi_source = oi_source
@@ -50,6 +52,7 @@ class FeatureComputeHook:
         self._macro_source = macro_source
         self._sentiment_source = sentiment_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
+        self._bar_count: Dict[str, int] = {}
         # Check once which extra params computer.on_bar accepts
         import inspect
         sig = inspect.signature(computer.on_bar)
@@ -195,6 +198,12 @@ class FeatureComputeHook:
 
         self._computer.on_bar(symbol, **bar_kwargs)
 
+        count = self._bar_count.get(symbol, 0) + 1
+        self._bar_count[symbol] = count
+        if count < self._warmup_bars:
+            if count == 1 or count % 10 == 0:
+                logger.warning("Warmup %s: %d/%d bars (skipping inference)", symbol, count, self._warmup_bars)
+
         features = self._computer.get_features_dict(symbol)
         features["close"] = close_f
         features["volume"] = volume
@@ -207,7 +216,7 @@ class FeatureComputeHook:
             cross_feats = self._cross_asset.get_features(symbol)
             features.update(cross_feats)
 
-        if self._inference is not None:
+        if self._inference is not None and self._bar_count.get(symbol, 0) >= self._warmup_bars:
             ts = getattr(event, "ts", None)
             if isinstance(ts, str):
                 try:

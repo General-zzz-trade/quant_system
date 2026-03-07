@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pytest
 
-from features._quant_rolling import cpp_pred_to_signal, cpp_run_backtest
+from _quant_hotpath import cpp_pred_to_signal, cpp_run_backtest
 from scripts.backtest_alpha_v8 import (
     _apply_dd_breaker,
     _apply_monthly_gate,

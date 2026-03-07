@@ -26,6 +26,17 @@ except Exception:  # pragma: no cover
 
 
 # -------------------------
+# Rust acceleration (PyO3)
+# -------------------------
+try:
+    from _quant_hotpath import rust_detect_event_kind as _rust_detect_kind
+    from _quant_hotpath import rust_normalize_to_facts as _rust_normalize
+    _HAS_RUST_PIPELINE = True
+except ImportError:
+    _HAS_RUST_PIPELINE = False
+
+
+# -------------------------
 # event 侧（你的 event 层）
 # -------------------------
 try:
@@ -138,6 +149,9 @@ def _detect_kind(event: Any) -> str:
     """
     返回：MARKET / FILL / ORDER / SIGNAL / INTENT / RISK / CONTROL / FUNDING / UNKNOWN
     """
+    if _HAS_RUST_PIPELINE:
+        return _rust_detect_kind(event)
+
     et = getattr(event, "event_type", None)
     if et is not None:
         try:
@@ -201,6 +215,12 @@ def normalize_to_facts(event: Any) -> List[Any]:
     """
     event -> reducers 可消费的 facts（非空才会推进 event_index）
     """
+    if _HAS_RUST_PIPELINE:
+        try:
+            return _rust_normalize(event)
+        except RuntimeError as e:
+            raise FactNormalizationError(str(e)) from e
+
     kind = _detect_kind(event)
     header = getattr(event, "header", None)
 

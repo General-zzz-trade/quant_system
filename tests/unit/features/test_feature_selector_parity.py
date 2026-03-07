@@ -11,7 +11,7 @@ from features.dynamic_selector import (
 )
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_rolling_ic_select,
         cpp_spearman_ic_select,
         cpp_icir_select,
@@ -168,7 +168,8 @@ class TestFeatureICIRReportParity:
 
         X_c = np.ascontiguousarray(X, dtype=np.float64)
         y_c = np.ascontiguousarray(y, dtype=np.float64)
-        cpp_arr = cpp_feature_icir_report(X_c, y_c, ic_window=200, n_windows=5)
+        cpp_raw = cpp_feature_icir_report(X_c, y_c, ic_window=200, n_windows=5)
+        cpp_arr = np.asarray(cpp_raw, dtype=np.float64).reshape(10, 5)
 
         assert cpp_arr.shape == (10, 5)
         for j, name in enumerate(names):

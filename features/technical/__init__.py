@@ -7,7 +7,7 @@ from features.rolling import RollingWindow
 from features.types import Bar, Bars, FeatureSeries
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_sma,
         cpp_ema,
         cpp_returns,

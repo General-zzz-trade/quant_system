@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import cpp_ewma_covariance as _cpp_ewma_covariance
+    from _quant_hotpath import cpp_ewma_covariance as _cpp_ewma_covariance
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

@@ -21,6 +21,7 @@ class FGIPoller:
     def __init__(self, interval_sec: float = 300.0) -> None:
         self._interval = interval_sec
         self._value: Optional[float] = None
+        self._last_updated: Optional[float] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -43,6 +44,11 @@ class FGIPoller:
     def get_value(self) -> Optional[float]:
         return self._value
 
+    def age_seconds(self) -> Optional[float]:
+        if self._last_updated is None:
+            return None
+        return time.monotonic() - self._last_updated
+
     def _poll_loop(self) -> None:
         while self._running:
             try:
@@ -58,11 +64,12 @@ class FGIPoller:
         import urllib.request
 
         req = urllib.request.Request(_URL, headers={"User-Agent": "quant-system/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
         entries = data.get("data", [])
         if entries:
             val = entries[0].get("value")
             if val is not None:
                 self._value = float(val)
+                self._last_updated = time.monotonic()
                 logger.debug("FGIPoller value=%s", self._value)

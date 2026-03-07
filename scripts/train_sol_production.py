@@ -2,7 +2,10 @@
 """Train SOL production models with BTC-lead features (WF-validated 13/17 PASS).
 
 Trains LGBM + XGB ensemble on all available data, runs OOS backtest,
-bootstrap significance test, and saves to models_v8/SOLUSDT_gate_v2/.
+bootstrap significance test, and saves to models_v8/SOLUSDT_gate_v3/.
+
+V3 key change: dz=1.0, mh=48 (very selective signal for SOL volatility),
+n_flexible=5 with mempool features in pool.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ from scripts.backtest_alpha_v8 import _pred_to_signal, _apply_monthly_gate
 from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
 
 SYMBOL = "SOLUSDT"
-OUT_DIR = Path("models_v8/SOLUSDT_gate_v2")
+OUT_DIR = Path("models_v8/SOLUSDT_gate_v3")
 HORIZON = 5
 TARGET_MODE = "clipped"
 WARMUP = 720
@@ -38,11 +41,12 @@ CANDIDATE_POOL = [
     "funding_zscore_24", "basis_momentum", "vol_ma_ratio_5_20",
     "mean_reversion_20", "funding_sign_persist", "hour_sin",
     "btc_ret_12", "btc_macd_line", "btc_atr_norm_14", "btc_bb_width_20",
+    "mempool_fee_zscore_24", "mempool_size_zscore_24",
 ]
 
-N_FLEXIBLE = 4
-DEADZONE = 0.5
-MIN_HOLD = 24
+N_FLEXIBLE = 5
+DEADZONE = 1.0
+MIN_HOLD = 48
 MONTHLY_GATE_WINDOW = 480
 COST_PER_TRADE = 4e-4
 

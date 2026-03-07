@@ -203,69 +203,7 @@ def _apply_dd_breaker(
     return out
 
 
-def _pred_to_signal(
-    y_pred: np.ndarray,
-    target_mode: str = "",
-    deadzone: float = 0.5,
-    min_hold: int = 24,
-    zscore_window: int = 720,
-) -> np.ndarray:
-    """Convert raw predictions to discrete positions {-1, 0, +1} with min hold.
-
-    Uses rolling-window z-score normalization (causal — no lookahead).
-    Each bar's z-score is computed using the last `zscore_window` predictions.
-
-    Args:
-        y_pred: Raw model predictions.
-        target_mode: "binary" or continuous.
-        deadzone: z-score threshold to enter a position.
-        min_hold: Minimum bars to hold before allowing signal change.
-        zscore_window: Rolling window size for z-score (default: 720 = 30 days).
-    """
-    # Step 1: raw discrete signal from predictions
-    if target_mode == "binary":
-        centered = y_pred - 0.5
-        raw = np.sign(centered)
-        raw = np.where(np.abs(centered) < 0.02, 0.0, raw)
-    else:
-        # Rolling-window z-score: causal, adapts to recent distribution
-        n = len(y_pred)
-        raw = np.zeros(n)
-        buf = np.empty(zscore_window)
-        buf_idx = 0
-        buf_count = 0
-        for i in range(n):
-            buf[buf_idx] = y_pred[i]
-            buf_idx = (buf_idx + 1) % zscore_window
-            buf_count = min(buf_count + 1, zscore_window)
-            if buf_count < min(168, zscore_window):
-                continue  # warmup: need at least 168 bars (1 week)
-            window = buf[:buf_count] if buf_count < zscore_window else buf
-            mu = np.mean(window)
-            std = np.std(window)
-            if std < 1e-12:
-                continue
-            z = (y_pred[i] - mu) / std
-            if z > deadzone:
-                raw[i] = 1.0
-            elif z < -deadzone:
-                raw[i] = -1.0
-
-    # Step 2: enforce minimum holding period
-    signal = np.zeros_like(raw)
-    signal[0] = raw[0]
-    hold_count = 1
-    for i in range(1, len(raw)):
-        if hold_count < min_hold:
-            signal[i] = signal[i - 1]
-            hold_count += 1
-        else:
-            signal[i] = raw[i]
-            if raw[i] != signal[i - 1]:
-                hold_count = 1
-            else:
-                hold_count += 1
-    return signal
+from alpha.signal_transform import pred_to_signal as _pred_to_signal  # noqa: E302
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:

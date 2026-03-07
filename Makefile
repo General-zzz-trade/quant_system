@@ -1,23 +1,9 @@
-CXX      := g++
-STD      := -std=c++17
-OPTS     := -O3 -march=native -fvisibility=hidden -fPIC -DNDEBUG
-WARN     := -Wall -Wextra -Wno-unused-parameter
-PY_INC   := $(shell python3 -m pybind11 --includes)
-PY_EXT   := $(shell python3 -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-ROLLING_OUT := features/_quant_rolling$(PY_EXT)
+.PHONY: all rust clean
 
-.PHONY: all rolling rust clean
-
-all: rolling rust
+all: rust
 
 rust:
 	cd ext/rust && PATH="$(HOME)/.cargo/bin:$(PATH)" maturin build --release && pip install --break-system-packages --force-reinstall target/wheels/*.whl
 
-rolling: $(ROLLING_OUT)
-
-$(ROLLING_OUT): ext/rolling/bindings.cpp ext/rolling/rolling_window.hpp ext/rolling/technical.hpp ext/rolling/vwap_window.hpp ext/rolling/ols.hpp ext/rolling/cross_sectional.hpp ext/rolling/portfolio_math.hpp ext/rolling/factor_math.hpp ext/rolling/feature_selection.hpp ext/rolling/linalg.hpp ext/rolling/fast_rng.hpp ext/rolling/bootstrap.hpp ext/rolling/monte_carlo.hpp ext/rolling/target.hpp ext/rolling/greedy_select.hpp ext/rolling/feature_engine.hpp ext/rolling/backtest_engine.hpp ext/rolling/feature_selector.hpp ext/rolling/multi_timeframe.hpp
-	$(CXX) $(STD) $(OPTS) $(WARN) $(PY_INC) -Iext/rolling -shared -o $@ $<
-
 clean:
-	rm -f features/_quant_rolling*.so
 	rm -rf ext/rust/target

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_sample_covariance as _cpp_sample_covariance,
         cpp_factor_model_covariance as _cpp_factor_model_covariance,
     )

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import cpp_black_litterman_posterior as _cpp_bl_posterior
+    from _quant_hotpath import cpp_black_litterman_posterior as _cpp_bl_posterior
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

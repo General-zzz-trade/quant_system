@@ -26,6 +26,7 @@ class BinanceFundingPoller:
         self._interval = interval_sec
         self._base_url = _URL_TESTNET if testnet else _URL_PROD
         self._rate: Optional[float] = None
+        self._last_updated: Optional[float] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -48,6 +49,11 @@ class BinanceFundingPoller:
     def get_rate(self) -> Optional[float]:
         return self._rate
 
+    def age_seconds(self) -> Optional[float]:
+        if self._last_updated is None:
+            return None
+        return time.monotonic() - self._last_updated
+
     def _poll_loop(self) -> None:
         while self._running:
             try:
@@ -65,9 +71,10 @@ class BinanceFundingPoller:
 
         url = f"{self._base_url}?symbol={self._symbol}"
         req = urllib.request.Request(url, headers={"User-Agent": "quant-system/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
         rate_str = data.get("lastFundingRate")
         if rate_str is not None:
             self._rate = float(rate_str)
+            self._last_updated = time.monotonic()
             logger.debug("FundingPoller %s rate=%.6f", self._symbol, self._rate)

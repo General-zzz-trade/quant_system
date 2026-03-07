@@ -4,12 +4,16 @@ Tracks key operational metrics and emits alerts when thresholds are breached.
 """
 from __future__ import annotations
 
+import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 from monitoring.alerts.base import Alert, AlertSink, Severity
 from monitoring.alerts.console import ConsoleAlertSink
@@ -20,6 +24,8 @@ class HealthConfig:
     """Thresholds for health checks."""
     # Data freshness: alert if no market data for this many seconds
     stale_data_sec: float = 30.0
+    # Force exit if no market data for this many seconds (0 = disabled)
+    max_stale_exit_sec: float = 600.0
     # Balance: alert if USDT balance drops below this
     min_balance_usdt: Decimal = Decimal("100")
     # Drawdown: alert at warning level, critical at 2x
@@ -171,6 +177,21 @@ class SystemHealthMonitor:
         # Check 1: Data freshness
         age = status.data_age_sec
         if age is not None and age > self._cfg.stale_data_sec:
+            # Fatal: stale beyond recovery threshold → exit for container restart
+            if self._cfg.max_stale_exit_sec > 0 and age > self._cfg.max_stale_exit_sec:
+                self._emit(Alert(
+                    title="Fatal: market data timeout",
+                    message=f"No market data for {age:.0f}s (limit: {self._cfg.max_stale_exit_sec}s). Exiting for restart.",
+                    severity=Severity.CRITICAL,
+                    source="health_monitor",
+                    ts=ts_now,
+                    meta={"age_sec": round(age, 1)},
+                ))
+                logger.critical(
+                    "Market data stale for %.0fs (limit: %.0fs). Forcing exit.",
+                    age, self._cfg.max_stale_exit_sec,
+                )
+                os._exit(1)
             self._emit(Alert(
                 title="Stale market data",
                 message=f"No market data for {age:.0f}s (threshold: {self._cfg.stale_data_sec}s)",
@@ -220,7 +241,7 @@ class SystemHealthMonitor:
         try:
             self._sink.emit(alert)
         except Exception:
-            pass
+            logger.exception("Alert emit failed")
 
     def get_status(self) -> HealthStatus:
         with self._lock:

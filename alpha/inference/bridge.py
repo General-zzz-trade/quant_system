@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Sequence, Set, Union
@@ -83,6 +84,34 @@ class LiveInferenceBridge:
         self._zscore_warmup = zscore_warmup
         self._zscore_buf: Dict[str, deque] = {}
         self._zscore_last_hour: Dict[str, int] = {}  # track last hour appended
+
+    def checkpoint(self) -> dict:
+        """Serialize bridge state for persistence."""
+        return {
+            "position": dict(self._position),
+            "hold_counter": dict(self._hold_counter),
+            "close_history": {k: list(v) for k, v in self._close_history.items()},
+            "gate_last_hour": dict(self._gate_last_hour),
+            "zscore_buf": {k: list(v) for k, v in self._zscore_buf.items()},
+            "zscore_last_hour": dict(self._zscore_last_hour),
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore bridge state from checkpoint."""
+        self._position = data.get("position", {})
+        self._hold_counter = data.get("hold_counter", {})
+        self._close_history = {}
+        for k, v in data.get("close_history", {}).items():
+            w = self._resolve(self._monthly_gate_window, k, 480)
+            d = deque(v, maxlen=w)
+            self._close_history[k] = d
+        self._gate_last_hour = data.get("gate_last_hour", {})
+        self._zscore_buf = {}
+        for k, v in data.get("zscore_buf", {}).items():
+            d = deque(v, maxlen=self._zscore_window)
+            self._zscore_buf[k] = d
+        self._zscore_last_hour = data.get("zscore_last_hour", {})
+        logger.info("Bridge state restored: %d symbols", len(self._position))
 
     def update_models(self, models: Sequence[AlphaModel]) -> None:
         self._engine.set_models(models)
@@ -268,21 +297,30 @@ class LiveInferenceBridge:
                 # Monthly gate: bear regime — run bear model or go flat
                 if not gate_ok:
                     if self._bear_model is not None:
-                        bear_sig = self._bear_model.predict(
-                            symbol=symbol, ts=ts, features=features)
-                        if bear_sig is not None and bear_sig.side == "long":
-                            # Graded bear scoring by probability thresholds
-                            if self._bear_thresholds:
-                                prob = bear_sig.strength
-                                score = 0.0
-                                for thresh, s in self._bear_thresholds:
-                                    if prob > thresh:
-                                        score = s
-                                        break
-                            else:
-                                score = -1.0
-                        else:
+                        # NaN guard: skip bear model if features contain NaN
+                        _has_nan = any(
+                            isinstance(v, float) and math.isnan(v)
+                            for v in features.values()
+                        )
+                        if _has_nan:
+                            logger.warning("NaN in features for %s, skipping bear model", symbol)
                             score = 0.0
+                        else:
+                            bear_sig = self._bear_model.predict(
+                                symbol=symbol, ts=ts, features=features)
+                            if bear_sig is not None and bear_sig.side == "long":
+                                # Graded bear scoring by probability thresholds
+                                if self._bear_thresholds:
+                                    prob = bear_sig.strength
+                                    score = 0.0
+                                    for thresh, s in self._bear_thresholds:
+                                        if prob > thresh:
+                                            score = s
+                                            break
+                                else:
+                                    score = -1.0
+                            else:
+                                score = 0.0
                     elif score != 0.0:
                         score = 0.0
                     # Sync hold state on regime switch

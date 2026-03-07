@@ -1,84 +1,57 @@
-services:
-  live-trader:
-    build:
-      context: .
-      target: live
-    env_file: .env
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./data/live:/app/data/live
-      - ./models_v8:/app/models_v8:ro
-      - ./data_files:/app/data_files:ro
-    command: >
-      python3 -m runner.live_runner
-      --config /app/infra/config/examples/live.yaml
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/metrics')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+x-paper-base: &paper-base
+  build:
+    context: .
+    target: paper
+  image: quant-paper:latest
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    - ./models_v8:/app/models_v8:ro
+    - ./data_files:/app/data_files:ro
+    - ./logs:/app/logs
+    # Hot-mount Python source — edit code without rebuilding
+    - ./alpha:/app/alpha:ro
+    - ./engine:/app/engine:ro
+    - ./event:/app/event:ro
+    - ./execution:/app/execution:ro
+    - ./features:/app/features:ro
+    - ./infra:/app/infra:ro
+    - ./monitoring:/app/monitoring:ro
+    - ./runner:/app/runner:ro
+    - ./scripts:/app/scripts:ro
+    - ./state:/app/state:ro
+    - ./strategies:/app/strategies:ro
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if any('testnet_validation' in open(f'/proc/{p}/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()) else 1)"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 60s
 
-  testnet-trader:
-    build:
-      context: .
-      target: live
-    env_file: .env
-    restart: unless-stopped
-    ports:
-      - "9092:9090"
-    volumes:
-      - ./data/live:/app/data/live
-      - ./models_v8:/app/models_v8:ro
-      - ./data_files:/app/data_files:ro
+services:
+  # ── Paper Trading (TestNet) ──────────────────────────────
+  paper-btc:
+    <<: *paper-base
     command: >
       python3 -m runner.testnet_validation
-      --config /app/infra/config/examples/testnet_v8_gate_v2.yaml
-      --phase longrun
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/metrics')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      --config /app/infra/config/examples/testnet_btc_gate_v2.yaml
+      --phase paper --duration 0
 
-  paper-trader:
-    build:
-      context: .
-      target: live
-    env_file: .env
-    restart: unless-stopped
-    volumes:
-      - paper-output:/app/output
-    profiles: ["paper"]
+  paper-sol:
+    <<: *paper-base
     command: >
-      python3 -m runner.paper_runner
-      --mode live
-      --symbol BTCUSDT
-      --balance 10000
-      --out /app/output
+      python3 -m runner.testnet_validation
+      --config /app/infra/config/examples/testnet_sol_gate_v2.yaml
+      --phase paper --duration 0
 
-  backtest:
-    build:
-      context: .
-      target: ml
-    volumes:
-      - ./data_files:/app/data_files:ro
-      - backtest-output:/app/output
-    profiles: ["research"]
+  paper-eth:
+    <<: *paper-base
     command: >
-      python3 -m runner.backtest_runner
-      --csv /app/data_files/bars.csv
-      --symbol BTCUSDT
-      --out /app/output
+      python3 -m runner.testnet_validation
+      --config /app/infra/config/examples/testnet_eth_gate_v2.yaml
+      --phase paper --duration 0
 
-  tests:
-    build:
-      context: .
-      target: dev
-    profiles: ["dev"]
-    command: python3 -m pytest tests_unit/ -x -q
-
+  # ── Monitoring ───────────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest
     restart: unless-stopped
@@ -88,8 +61,7 @@ services:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
-    depends_on:
-      - live-trader
+    profiles: ["monitoring"]
 
   grafana:
     image: grafana/grafana:latest
@@ -97,16 +69,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
-    depends_on:
-      - prometheus
+    profiles: ["monitoring"]
 
 volumes:
-  paper-output:
-  backtest-output:
   prometheus_data:
   grafana_data:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import cpp_portfolio_variance as _cpp_portfolio_variance
+    from _quant_hotpath import cpp_portfolio_variance as _cpp_portfolio_variance
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

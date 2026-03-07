@@ -72,7 +72,7 @@ from scripts.train_v7_alpha import (
 )
 
 try:
-    from features._quant_rolling import cpp_bootstrap_sharpe_ci
+    from _quant_hotpath import cpp_bootstrap_sharpe_ci
     _BOOTSTRAP_CPP = True
 except ImportError:
     _BOOTSTRAP_CPP = False

@@ -6,7 +6,7 @@ import math
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import cpp_compute_exposures as _cpp_compute_exposures
+    from _quant_hotpath import cpp_compute_exposures as _cpp_compute_exposures
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

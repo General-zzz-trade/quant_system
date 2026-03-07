@@ -143,7 +143,8 @@ def _build_ml_stack(
             signal_kwargs["vol_feature"] = pos_mgmt["vol_feature"]
 
         # Bear model for regime-switch (Strategy F)
-        bear_model_path = mcfg.get("bear_model_path")
+        # Check model config.json first, then YAML strategy section as fallback
+        bear_model_path = mcfg.get("bear_model_path") or strategy.get("bear_model_path")
         if bear_model_path:
             bear_dir = Path(bear_model_path)
             bear_cfg_path = bear_dir / "config.json"
@@ -335,6 +336,25 @@ def run_paper(config_path: Path, duration: int) -> None:
         cross_asset_computer=cross_asset,
         **signal_kwargs,
     )
+
+    # Wire Telegram alerts if configured
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if tg_token and tg_chat:
+        from monitoring.alerts.telegram import TelegramAlertSink
+        from monitoring.alerts.base import CompositeAlertSink, DedupAlertSink
+        from monitoring.alerts.console import ConsoleAlertSink
+        from monitoring.health import SystemHealthMonitor
+
+        tg_sink = DedupAlertSink(
+            delegate=CompositeAlertSink(sinks=[
+                ConsoleAlertSink(),
+                TelegramAlertSink(tg_token, tg_chat),
+            ]),
+        )
+        health_monitor = SystemHealthMonitor(sink=tg_sink)
+        health_monitor.start()
+        logger.info("Telegram alerts enabled (chat_id=%s)", tg_chat)
 
     def _timeout(*_: Any) -> None:
         logger.info("Paper phase duration reached (%ds), stopping...", duration)
@@ -643,6 +663,29 @@ def run_longrun(config_path: Path, duration: int) -> None:
 
     status_stop = threading.Event()
     _start_status_logger(runner, ws_transport, status_stop)
+
+    # Bridge checkpoint: restore on startup, periodic save
+    checkpoint_path = output_dir / "bridge_checkpoint.json"
+    bridge = getattr(runner, "inference_bridge", None)
+    if bridge is not None and checkpoint_path.exists():
+        try:
+            with checkpoint_path.open() as cf:
+                bridge.restore(json.load(cf))
+            logger.info("Restored bridge checkpoint from %s", checkpoint_path)
+        except Exception:
+            logger.warning("Failed to restore bridge checkpoint, starting fresh")
+
+    def _checkpoint_loop(stop_ev: threading.Event) -> None:
+        while not stop_ev.wait(timeout=60.0):
+            if bridge is not None:
+                try:
+                    with checkpoint_path.open("w") as cf:
+                        json.dump(bridge.checkpoint(), cf)
+                except Exception:
+                    logger.warning("Bridge checkpoint save failed")
+
+    ckpt_thread = threading.Thread(target=_checkpoint_loop, args=(status_stop,), daemon=True)
+    ckpt_thread.start()
 
     logger.info("Starting LONGRUN mode (Ctrl+C or SIGTERM to stop)...")
     try:

@@ -14,10 +14,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import os
 import pickle
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,8 +36,9 @@ from scripts.train_v7_alpha import (
     INTERACTION_FEATURES,
     BLACKLIST,
 )
-from scripts.backtest_alpha_v8 import _pred_to_signal, _apply_monthly_gate, COST_PER_TRADE
-from features.dynamic_selector import greedy_ic_select
+from alpha.signal_transform import pred_to_signal as _pred_to_signal
+from scripts.backtest_alpha_v8 import _apply_monthly_gate, COST_PER_TRADE
+from features.dynamic_selector import greedy_ic_select, stable_icir_select
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 
 try:
@@ -166,6 +170,34 @@ DEADZONE = 0.5
 HPO_TRIALS = 10
 NN_SEQ_LEN = 20
 NN_EPOCHS = 30
+FEATURE_VERSION = "v11.1"
+
+_HPO_CACHE_DIR = Path(".cache/hpo")
+_HPO_CACHE_ENABLED = True
+
+
+def _hpo_cache_key(selected_features: List[str], n_train: int) -> str:
+    raw = json.dumps(sorted(selected_features)) + f"_{n_train}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _load_hpo_cache(key: str) -> Optional[dict]:
+    if not _HPO_CACHE_ENABLED:
+        return None
+    path = _HPO_CACHE_DIR / f"{key}.json"
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return None
+
+
+def _save_hpo_cache(key: str, params: dict) -> None:
+    if not _HPO_CACHE_ENABLED:
+        return
+    _HPO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _HPO_CACHE_DIR / f"{key}.json"
+    with open(path, "w") as f:
+        json.dump(params, f)
 
 
 # ── NN Ensemble helpers ─────────────────────────────────────
@@ -349,6 +381,16 @@ def generate_wf_folds(
     return folds
 
 
+# ── Feature selection dispatch ─────────────────────────────────
+
+def _select_features_dispatch(selector: str):
+    """Return a feature selection function based on selector name."""
+    if selector == "stable_icir":
+        return lambda X, y, names, top_k: stable_icir_select(X, y, names, top_k=top_k)
+    # Default: greedy
+    return lambda X, y, names, top_k: greedy_ic_select(X, y, names, top_k=top_k)
+
+
 # ── Single fold execution ────────────────────────────────────
 
 @dataclass
@@ -396,6 +438,8 @@ def run_fold(
     nn_ensemble: bool = False,
     nn_seq_len: int = NN_SEQ_LEN,
     nn_epochs: int = NN_EPOCHS,
+    selector: str = "greedy",
+    lgbm_threads: Optional[int] = None,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -432,8 +476,9 @@ def run_fold(
         )
 
     # Feature selection on train data
+    _select = _select_features_dispatch(selector)
     if fixed_features:
-        # Fixed mode: lock stable features + greedy-select flexible from candidate pool
+        # Fixed mode: lock stable features + select flexible from candidate pool
         selected = list(fixed_features)
         if n_flexible > 0:
             pool = candidate_pool if candidate_pool else [
@@ -442,11 +487,10 @@ def run_fold(
             if pool_in_data:
                 pool_idx = [feature_names.index(f) for f in pool_in_data]
                 X_pool = X_train[:, pool_idx]
-                flex = greedy_ic_select(
-                    X_pool, y_train, pool_in_data, top_k=n_flexible)
+                flex = _select(X_pool, y_train, pool_in_data, top_k=n_flexible)
                 selected.extend(flex)
     else:
-        selected = greedy_ic_select(X_train, y_train, feature_names, top_k=TOP_K)
+        selected = _select(X_train, y_train, feature_names, top_k=TOP_K)
     if not selected:
         return FoldResult(
             idx=fold.idx, period="", ic=0.0, sharpe=0.0,
@@ -459,48 +503,57 @@ def run_fold(
 
     # HPO or default params
     params = dict(V7_DEFAULT_PARAMS)
+    if lgbm_threads is not None:
+        params["num_threads"] = lgbm_threads
     if use_hpo:
-        try:
-            from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
-            import lightgbm as lgb
+        hpo_key = _hpo_cache_key(selected, len(X_train_sel))
+        cached_hpo = _load_hpo_cache(hpo_key)
+        if cached_hpo is not None:
+            params = {**params, **cached_hpo}
+        else:
+            try:
+                from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
+                import lightgbm as lgb
 
-            n_tr = len(X_train_sel)
-            val_size = min(n_tr // 4, TEST_BARS)
-            X_hpo_train = X_train_sel[:-val_size]
-            y_hpo_train = y_train[:-val_size]
-            X_hpo_val = X_train_sel[-val_size:]
-            y_hpo_val = y_train[-val_size:]
+                n_tr = len(X_train_sel)
+                val_size = min(n_tr // 4, TEST_BARS)
+                X_hpo_train = X_train_sel[:-val_size]
+                y_hpo_train = y_train[:-val_size]
+                X_hpo_val = X_train_sel[-val_size:]
+                y_hpo_val = y_train[-val_size:]
 
-            def objective(trial_params):
-                p = {**V7_DEFAULT_PARAMS, **trial_params}
-                dtrain = lgb.Dataset(X_hpo_train, label=y_hpo_train)
-                dval = lgb.Dataset(X_hpo_val, label=y_hpo_val, reference=dtrain)
-                bst = lgb.train(
-                    p, dtrain,
-                    num_boost_round=p["n_estimators"],
-                    valid_sets=[dval],
-                    callbacks=[lgb.early_stopping(50, verbose=False),
-                               lgb.log_evaluation(0)],
+                def objective(trial_params):
+                    p = {**V7_DEFAULT_PARAMS, **trial_params}
+                    dtrain = lgb.Dataset(X_hpo_train, label=y_hpo_train)
+                    dval = lgb.Dataset(X_hpo_val, label=y_hpo_val, reference=dtrain)
+                    bst = lgb.train(
+                        p, dtrain,
+                        num_boost_round=p["n_estimators"],
+                        valid_sets=[dval],
+                        callbacks=[lgb.early_stopping(50, verbose=False),
+                                   lgb.log_evaluation(0)],
+                    )
+                    y_hat = bst.predict(X_hpo_val)
+                    valid_mask = ~np.isnan(y_hpo_val)
+                    if valid_mask.sum() < 10:
+                        return 0.0
+                    from features.dynamic_selector import _rankdata, _spearman_ic
+                    return float(_spearman_ic(
+                        _rankdata(y_hat[valid_mask]),
+                        _rankdata(y_hpo_val[valid_mask]),
+                    ))
+
+                opt = HyperOptimizer(
+                    search_space=V7_SEARCH_SPACE,
+                    objective_fn=objective,
+                    config=HyperOptConfig(n_trials=hpo_trials, direction="maximize"),
                 )
-                y_hat = bst.predict(X_hpo_val)
-                valid_mask = ~np.isnan(y_hpo_val)
-                if valid_mask.sum() < 10:
-                    return 0.0
-                from features.dynamic_selector import _rankdata, _spearman_ic
-                return float(_spearman_ic(
-                    _rankdata(y_hat[valid_mask]),
-                    _rankdata(y_hpo_val[valid_mask]),
-                ))
-
-            opt = HyperOptimizer(
-                search_space=V7_SEARCH_SPACE,
-                objective_fn=objective,
-                config=HyperOptConfig(n_trials=hpo_trials, direction="maximize"),
-            )
-            result = opt.optimize()
-            params = {**V7_DEFAULT_PARAMS, **result.best_params}
-        except Exception as e:
-            logger.warning("HPO failed for fold %d: %s, using defaults", fold.idx, e)
+                result = opt.optimize()
+                best = result.best_params
+                params = {**params, **best}
+                _save_hpo_cache(hpo_key, best)
+            except Exception as e:
+                logger.warning("HPO failed for fold %d: %s, using defaults", fold.idx, e)
 
     # Train model
     import lightgbm as lgb
@@ -526,6 +579,8 @@ def run_fold(
                 "subsample": params.get("subsample", 0.8),
                 "colsample_bytree": params.get("colsample_bytree", 0.8),
             }
+            if lgbm_threads is not None:
+                xgb_params["nthread"] = lgbm_threads
             dtrain_xgb = xgb.DMatrix(X_train_sel, label=y_train)
             dtest_xgb = xgb.DMatrix(X_test_sel)
             xgb_bst = xgb.train(
@@ -781,6 +836,8 @@ def run_fold_strategy_f(
     nn_ensemble: bool = False,
     nn_seq_len: int = NN_SEQ_LEN,
     nn_epochs: int = NN_EPOCHS,
+    selector: str = "greedy",
+    lgbm_threads: Optional[int] = None,
 ) -> FoldResult:
     """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
 
@@ -812,6 +869,7 @@ def run_fold_strategy_f(
                           total_return=0.0, features=[], n_train=len(X_train), n_test=0)
 
     # Feature selection
+    _select = _select_features_dispatch(selector)
     if fixed_features:
         selected = list(fixed_features)
         if n_flexible > 0:
@@ -820,10 +878,10 @@ def run_fold_strategy_f(
             if pool_in_data:
                 pool_idx = [feature_names.index(f) for f in pool_in_data]
                 X_pool = X_train[:, pool_idx]
-                flex = greedy_ic_select(X_pool, y_train, pool_in_data, top_k=n_flexible)
+                flex = _select(X_pool, y_train, pool_in_data, top_k=n_flexible)
                 selected.extend(flex)
     else:
-        selected = greedy_ic_select(X_train, y_train, feature_names, top_k=TOP_K)
+        selected = _select(X_train, y_train, feature_names, top_k=TOP_K)
 
     if not selected:
         return FoldResult(idx=fold.idx, period="", ic=0.0, sharpe=0.0,
@@ -835,37 +893,46 @@ def run_fold_strategy_f(
 
     # V8 HPO or default
     params = dict(V7_DEFAULT_PARAMS)
+    if lgbm_threads is not None:
+        params["num_threads"] = lgbm_threads
     if use_hpo:
-        try:
-            from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
-            n_tr = len(X_train_sel)
-            val_size = min(n_tr // 4, TEST_BARS)
-            X_hpo_train = X_train_sel[:-val_size]
-            y_hpo_train = y_train[:-val_size]
-            X_hpo_val = X_train_sel[-val_size:]
-            y_hpo_val = y_train[-val_size:]
+        hpo_key = _hpo_cache_key(selected, len(X_train_sel))
+        cached_hpo = _load_hpo_cache(hpo_key)
+        if cached_hpo is not None:
+            params = {**params, **cached_hpo}
+        else:
+            try:
+                from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
+                n_tr = len(X_train_sel)
+                val_size = min(n_tr // 4, TEST_BARS)
+                X_hpo_train = X_train_sel[:-val_size]
+                y_hpo_train = y_train[:-val_size]
+                X_hpo_val = X_train_sel[-val_size:]
+                y_hpo_val = y_train[-val_size:]
 
-            def objective(trial_params):
-                p = {**V7_DEFAULT_PARAMS, **trial_params}
-                dtrain = lgb.Dataset(X_hpo_train, label=y_hpo_train)
-                dval = lgb.Dataset(X_hpo_val, label=y_hpo_val, reference=dtrain)
-                bst = lgb.train(p, dtrain, num_boost_round=p["n_estimators"],
-                                valid_sets=[dval],
-                                callbacks=[lgb.early_stopping(50, verbose=False),
-                                           lgb.log_evaluation(0)])
-                y_hat = bst.predict(X_hpo_val)
-                vm = ~np.isnan(y_hpo_val)
-                if vm.sum() < 10:
-                    return 0.0
-                from features.dynamic_selector import _rankdata, _spearman_ic
-                return float(_spearman_ic(_rankdata(y_hat[vm]), _rankdata(y_hpo_val[vm])))
+                def objective(trial_params):
+                    p = {**V7_DEFAULT_PARAMS, **trial_params}
+                    dtrain = lgb.Dataset(X_hpo_train, label=y_hpo_train)
+                    dval = lgb.Dataset(X_hpo_val, label=y_hpo_val, reference=dtrain)
+                    bst = lgb.train(p, dtrain, num_boost_round=p["n_estimators"],
+                                    valid_sets=[dval],
+                                    callbacks=[lgb.early_stopping(50, verbose=False),
+                                               lgb.log_evaluation(0)])
+                    y_hat = bst.predict(X_hpo_val)
+                    vm = ~np.isnan(y_hpo_val)
+                    if vm.sum() < 10:
+                        return 0.0
+                    from features.dynamic_selector import _rankdata, _spearman_ic
+                    return float(_spearman_ic(_rankdata(y_hat[vm]), _rankdata(y_hpo_val[vm])))
 
-            opt = HyperOptimizer(search_space=V7_SEARCH_SPACE, objective_fn=objective,
-                                 config=HyperOptConfig(n_trials=hpo_trials, direction="maximize"))
-            result = opt.optimize()
-            params = {**V7_DEFAULT_PARAMS, **result.best_params}
-        except Exception as e:
-            logger.warning("HPO failed for fold %d: %s", fold.idx, e)
+                opt = HyperOptimizer(search_space=V7_SEARCH_SPACE, objective_fn=objective,
+                                     config=HyperOptConfig(n_trials=hpo_trials, direction="maximize"))
+                result = opt.optimize()
+                best = result.best_params
+                params = {**params, **best}
+                _save_hpo_cache(hpo_key, best)
+            except Exception as e:
+                logger.warning("HPO failed for fold %d: %s", fold.idx, e)
 
     # Train LGBM
     dtrain = lgb.Dataset(X_train_sel, label=y_train)
@@ -885,6 +952,8 @@ def run_fold_strategy_f(
             "subsample": params.get("subsample", 0.8),
             "colsample_bytree": params.get("colsample_bytree", 0.8),
         }
+        if lgbm_threads is not None:
+            xgb_params["nthread"] = lgbm_threads
         dtrain_xgb = xgb.DMatrix(X_train_sel, label=y_train)
         dtest_xgb = xgb.DMatrix(X_test_sel)
         xgb_bst = xgb.train(xgb_params, dtrain_xgb,
@@ -932,6 +1001,8 @@ def run_fold_strategy_f(
 
         bear_params = dict(_BEAR_CLS_PARAMS)
         bear_params["scale_pos_weight"] = scale_pos
+        if lgbm_threads is not None:
+            bear_params["num_threads"] = lgbm_threads
 
         dtrain_bear = lgb.Dataset(X_bear, label=y_bear)
         bear_bst = lgb.train(bear_params, dtrain_bear,
@@ -1051,6 +1122,40 @@ def run_fold_strategy_f(
         n_train=len(X_train),
         n_test=n_test,
     )
+
+
+# ── Fold helpers for parallel execution ──────────────────────
+
+def _fold_period_label(fold: Fold, timestamps: np.ndarray, n_bars: int) -> str:
+    """Compute human-readable period label for a fold."""
+    from datetime import datetime, timezone
+    try:
+        ts_start = datetime.fromtimestamp(timestamps[fold.test_start] / 1000, tz=timezone.utc)
+        ts_end = datetime.fromtimestamp(
+            timestamps[min(fold.test_end - 1, n_bars - 1)] / 1000, tz=timezone.utc)
+        return f"{ts_start:%Y-%m}→{ts_end:%Y-%m}"
+    except (ValueError, OSError, IndexError):
+        return f"fold_{fold.idx}"
+
+
+def _run_single_fold(kwargs: dict) -> Tuple[int, FoldResult, float, str]:
+    """Module-level wrapper for ProcessPoolExecutor (must be picklable).
+
+    Dispatches to run_fold() or run_fold_strategy_f() based on kwargs.
+    Returns (fold_idx, FoldResult, elapsed_seconds, period_label).
+    """
+    fold = kwargs.pop("fold")
+    strategy_f = kwargs.pop("strategy_f", False)
+    period = kwargs.pop("period", "")
+
+    t1 = time.time()
+    if strategy_f:
+        result = run_fold_strategy_f(fold, **kwargs)
+    else:
+        result = run_fold(fold, **kwargs)
+    elapsed = time.time() - t1
+    result.period = period
+    return (fold.idx, result, elapsed, period)
 
 
 # ── Stitched results & reporting ─────────────────────────────
@@ -1190,6 +1295,13 @@ def main() -> None:
                         help=f"NN sliding window length (default: {NN_SEQ_LEN})")
     parser.add_argument("--nn-epochs", type=int, default=NN_EPOCHS,
                         help=f"NN max training epochs (default: {NN_EPOCHS})")
+    parser.add_argument("--selector", choices=["greedy", "stable_icir"],
+                        default="greedy",
+                        help="Feature selector: greedy (default) or stable_icir")
+    parser.add_argument("--parallel", type=int, default=1,
+                        help="Number of parallel fold workers (default: 1 = serial)")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Skip feature/HPO caching, recompute everything")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -1229,10 +1341,18 @@ def main() -> None:
     nn_ensemble = args.nn_ensemble
     nn_seq_len = args.nn_seq_len
     nn_epochs = args.nn_epochs
+    selector = args.selector
+    parallel = max(1, args.parallel)
+    no_cache = args.no_cache
+
+    global _HPO_CACHE_ENABLED
+    _HPO_CACHE_ENABLED = not no_cache
 
     print(f"\n  Walk-Forward Validation: {symbol}")
     if strategy_f:
         print(f"  MODE: Strategy F (per-fold V8 + bear C regime-switch)")
+    if selector != "greedy":
+        print(f"  Selector: {selector}")
     print(f"  HPO: {'ON' if use_hpo else 'OFF (default params)'}"
           f"{f' ({hpo_trials} trials)' if use_hpo else ''}")
     print(f"  Signal: deadzone={deadzone}, min_hold={min_hold}"
@@ -1258,6 +1378,8 @@ def main() -> None:
         filters.append(f"adaptive-sizing={adaptive_sizing}")
     if filters:
         print(f"  Filters: {', '.join(filters)}")
+    if parallel > 1:
+        print(f"  Parallel: {parallel} workers")
     print(f"  Min train: {MIN_TRAIN_BARS} bars ({MIN_TRAIN_BARS//24:.0f} days)")
     print(f"  Test window: {TEST_BARS} bars ({TEST_BARS//24:.0f} days)")
 
@@ -1281,15 +1403,34 @@ def main() -> None:
 
     # Compute features for entire dataset once (expanding window means
     # we always train from bar 0, so features are computed up-front)
-    print("  Computing features for full dataset...")
-    t0 = time.time()
-    feat_df = _load_and_compute_features(symbol, df)
+    feat_df = None
+    cache_dir = Path(".cache/features")
+    if not no_cache:
+        csv_stat = csv_path.stat()
+        cache_key_raw = f"{symbol}_{csv_stat.st_mtime}_{csv_stat.st_size}_{FEATURE_VERSION}"
+        cache_key = hashlib.sha256(cache_key_raw.encode()).hexdigest()[:16]
+        cache_file = cache_dir / f"{symbol}_{cache_key}.pkl"
+        if cache_file.exists():
+            print(f"  Loading cached features from {cache_file}...")
+            t0 = time.time()
+            feat_df = pd.read_pickle(cache_file)
+            print(f"  Cached features loaded in {time.time()-t0:.1f}s ({len(feat_df.columns)} columns)")
+
     if feat_df is None:
-        print("  Feature computation failed")
-        return
+        print("  Computing features for full dataset...")
+        t0 = time.time()
+        feat_df = _load_and_compute_features(symbol, df)
+        if feat_df is None:
+            print("  Feature computation failed")
+            return
+        print(f"  Features computed in {time.time()-t0:.1f}s ({len(feat_df.columns)} columns)")
+        if not no_cache:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            feat_df.to_pickle(cache_file)
+            print(f"  Features cached to {cache_file}")
+
     closes = feat_df["close"].values.astype(np.float64) if "close" in feat_df.columns else df["close"].values.astype(np.float64)
     volumes_all = df["volume"].values.astype(np.float64) if "volume" in df.columns else np.ones(len(df))
-    print(f"  Features computed in {time.time()-t0:.1f}s ({len(feat_df.columns)} columns)")
 
     # Available feature names (exclude close, non-feature columns)
     all_feature_names = [c for c in feat_df.columns
@@ -1300,25 +1441,16 @@ def main() -> None:
     ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
     timestamps = df[ts_col].values.astype(np.int64)
 
-    # Run folds
-    fold_results: List[FoldResult] = []
+    # Build per-fold kwargs
+    lgbm_threads = max(1, os.cpu_count() // parallel) if parallel > 1 else None
+    fold_kwargs_list = []
     for fold in folds:
-        from datetime import datetime, timezone
-        try:
-            ts_start = datetime.fromtimestamp(timestamps[fold.test_start] / 1000, tz=timezone.utc)
-            ts_end = datetime.fromtimestamp(
-                timestamps[min(fold.test_end - 1, n_bars - 1)] / 1000, tz=timezone.utc)
-            period = f"{ts_start:%Y-%m}→{ts_end:%Y-%m}"
-        except (ValueError, OSError, IndexError):
-            period = f"fold_{fold.idx}"
-
-        print(f"\n  Fold {fold.idx}: {period} "
-              f"(train={fold.train_end - fold.train_start}, test={fold.test_end - fold.test_start})")
-
-        t1 = time.time()
+        period = _fold_period_label(fold, timestamps, n_bars)
         if strategy_f:
-            result = run_fold_strategy_f(
-                fold, feat_df, closes, all_feature_names,
+            kw = dict(
+                fold=fold, feat_df=feat_df, closes=closes,
+                feature_names=all_feature_names,
+                strategy_f=True, period=period,
                 fixed_features=fixed_features,
                 candidate_pool=candidate_pool, n_flexible=n_flexible,
                 use_hpo=use_hpo, hpo_trials=hpo_trials,
@@ -1329,35 +1461,76 @@ def main() -> None:
                 dd_limit=dd_limit, dd_cooldown=dd_cooldown,
                 cost_model_type=cost_model_type, volumes=volumes_all,
                 nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
+                selector=selector, lgbm_threads=lgbm_threads,
             )
         else:
-            result = run_fold(fold, feat_df, closes, all_feature_names,
-                              use_hpo=use_hpo, fixed_features=fixed_features,
-                              candidate_pool=candidate_pool, n_flexible=n_flexible,
-                              regime_gate=regime_gate, long_only=long_only,
-                              adaptive_sizing=adaptive_sizing,
-                              deadzone=deadzone, min_hold=min_hold,
-                              continuous_sizing=continuous_sizing,
-                              hpo_trials=hpo_trials,
-                              ensemble=ensemble, target_mode=target_mode,
-                              trend_follow=trend_follow,
-                              trend_indicator=trend_indicator,
-                              trend_threshold=trend_threshold,
-                              max_hold=max_hold_bars,
-                              monthly_gate=monthly_gate,
-                              monthly_gate_window=monthly_gate_window,
-                              vol_target=vol_target, vol_feature=vol_feature_name,
-                              dd_limit=dd_limit, dd_cooldown=dd_cooldown,
-                              cost_model_type=cost_model_type, volumes=volumes_all,
-                              nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len,
-                              nn_epochs=nn_epochs)
-        result.period = period
-        fold_results.append(result)
+            kw = dict(
+                fold=fold, feat_df=feat_df, closes=closes,
+                feature_names=all_feature_names,
+                strategy_f=False, period=period,
+                use_hpo=use_hpo, fixed_features=fixed_features,
+                candidate_pool=candidate_pool, n_flexible=n_flexible,
+                regime_gate=regime_gate, long_only=long_only,
+                adaptive_sizing=adaptive_sizing,
+                deadzone=deadzone, min_hold=min_hold,
+                continuous_sizing=continuous_sizing,
+                hpo_trials=hpo_trials,
+                ensemble=ensemble, target_mode=target_mode,
+                trend_follow=trend_follow,
+                trend_indicator=trend_indicator,
+                trend_threshold=trend_threshold,
+                max_hold=max_hold_bars,
+                monthly_gate=monthly_gate,
+                monthly_gate_window=monthly_gate_window,
+                vol_target=vol_target, vol_feature=vol_feature_name,
+                dd_limit=dd_limit, dd_cooldown=dd_cooldown,
+                cost_model_type=cost_model_type, volumes=volumes_all,
+                nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len,
+                nn_epochs=nn_epochs, selector=selector,
+                lgbm_threads=lgbm_threads,
+            )
+        fold_kwargs_list.append(kw)
 
-        elapsed = time.time() - t1
-        print(f"    IC={result.ic:.4f}  Sharpe={result.sharpe:.2f}  "
-              f"Return={result.total_return*100:+.2f}%  "
-              f"Features={len(result.features)}  ({elapsed:.1f}s)")
+    # Run folds
+    fold_results: List[FoldResult] = []
+
+    if parallel <= 1:
+        # Serial execution
+        for kw in fold_kwargs_list:
+            fold = kw["fold"]
+            period = kw["period"]
+            print(f"\n  Fold {fold.idx}: {period} "
+                  f"(train={fold.train_end - fold.train_start}, "
+                  f"test={fold.test_end - fold.test_start})")
+            fold_idx, result, elapsed, _ = _run_single_fold(dict(kw))
+            fold_results.append(result)
+            print(f"    IC={result.ic:.4f}  Sharpe={result.sharpe:.2f}  "
+                  f"Return={result.total_return*100:+.2f}%  "
+                  f"Features={len(result.features)}  ({elapsed:.1f}s)")
+    else:
+        # Parallel execution (fork = CoW shared feat_df, zero copy)
+        mp_ctx = "fork"
+        if nn_ensemble:
+            mp_ctx = "spawn"
+            print(f"  WARNING: nn_ensemble uses spawn context — high memory usage")
+        import multiprocessing as mp
+        ctx = mp.get_context(mp_ctx)
+        print(f"\n  Running {len(folds)} folds with {parallel} workers "
+              f"(lgbm_threads={lgbm_threads})...")
+        results_by_idx: Dict[int, FoldResult] = {}
+        with ProcessPoolExecutor(max_workers=parallel, mp_context=ctx) as executor:
+            futures = {
+                executor.submit(_run_single_fold, dict(kw)): kw["fold"].idx
+                for kw in fold_kwargs_list
+            }
+            for future in as_completed(futures):
+                fold_idx, result, elapsed, period = future.result()
+                results_by_idx[fold_idx] = result
+                print(f"  Fold {fold_idx} ({period}): "
+                      f"IC={result.ic:.4f}  Sharpe={result.sharpe:.2f}  "
+                      f"Return={result.total_return*100:+.2f}%  ({elapsed:.1f}s)")
+        # Sort by fold index
+        fold_results = [results_by_idx[i] for i in sorted(results_by_idx)]
 
     # Aggregate
     summary = stitch_results(fold_results)
@@ -1394,6 +1567,8 @@ def main() -> None:
         "nn_ensemble": nn_ensemble,
         "nn_seq_len": nn_seq_len,
         "nn_epochs": nn_epochs,
+        "selector": selector,
+        "parallel": parallel,
         "folds": [
             {
                 "idx": r.idx,

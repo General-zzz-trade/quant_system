@@ -24,6 +24,7 @@ class MempoolPoller:
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
+        self._last_updated: Optional[float] = None
 
     def start(self) -> None:
         if self._running:
@@ -45,6 +46,12 @@ class MempoolPoller:
         with self._lock:
             return dict(self._data) if self._data is not None else None
 
+    def age_seconds(self) -> Optional[float]:
+        """Seconds since last successful fetch, or None if never fetched."""
+        if self._last_updated is None:
+            return None
+        return time.monotonic() - self._last_updated
+
     def _poll_loop(self) -> None:
         while self._running:
             try:
@@ -60,12 +67,12 @@ class MempoolPoller:
 
         # Fetch fee rates
         req = urllib.request.Request(_FEES_URL, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             fees = json.loads(resp.read())
 
         # Fetch mempool stats
         req2 = urllib.request.Request(_MEMPOOL_URL, headers=headers)
-        with urllib.request.urlopen(req2, timeout=10) as resp:
+        with urllib.request.urlopen(req2, timeout=5) as resp:
             mempool = json.loads(resp.read())
 
         result = {
@@ -80,5 +87,6 @@ class MempoolPoller:
 
         with self._lock:
             self._data = result
+        self._last_updated = time.monotonic()
         logger.debug("MempoolPoller: fastest=%.0f economy=%.0f size=%.0f",
                       result["fastest_fee"], result["economy_fee"], result["mempool_size"])

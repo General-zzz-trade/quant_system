@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
+from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from alpha.training.regime_split import (
     RegimeModelBundle,
     compute_vol_regime,
@@ -48,7 +49,7 @@ from research.model_registry.registry import ModelRegistry
 from research.overfit_detection import deflated_sharpe_ratio
 
 try:
-    from features._quant_rolling import cpp_bootstrap_sharpe_ci
+    from _quant_hotpath import cpp_bootstrap_sharpe_ci
     _BOOTSTRAP_CPP = True
 except ImportError:
     _BOOTSTRAP_CPP = False
@@ -134,24 +135,7 @@ SPARSE_FEATURES = {
 }
 
 
-# ── Signal generation ───────────────────────────────────────
-
-def _pred_to_signal(
-    y_pred: np.ndarray,
-    target_mode: str = "",
-    deadzone: float = 0.5,
-) -> np.ndarray:
-    if target_mode == "binary":
-        centered = y_pred - 0.5
-        signal = np.sign(centered)
-        return np.where(np.abs(centered) < 0.02, 0.0, signal)
-
-    mu = np.mean(y_pred)
-    std = np.std(y_pred)
-    if std < 1e-12:
-        return np.zeros_like(y_pred)
-    scaled = np.clip((y_pred - mu) / std, -1.0, 1.0)
-    return np.where(np.abs(scaled) < deadzone, 0.0, scaled)
+# _pred_to_signal imported from alpha.signal_transform (canonical, rolling z-score)
 
 
 # ── Target variable ─────────────────────────────────────────

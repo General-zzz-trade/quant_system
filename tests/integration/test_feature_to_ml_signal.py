@@ -47,7 +47,7 @@ def test_features_flow_to_ml_score():
     computer = LiveFeatureComputer(fast_ma=3, slow_ma=5, vol_window=3)
     model = MockAlphaModel()
     bridge = LiveInferenceBridge(models=[model])
-    hook = FeatureComputeHook(computer=computer, inference_bridge=bridge)
+    hook = FeatureComputeHook(computer=computer, inference_bridge=bridge, warmup_bars=0)
 
     cfg = CoordinatorConfig(
         symbol_default="BTCUSDT",
@@ -73,7 +73,7 @@ def test_model_runner_signal_consumes_ml_score():
     computer = LiveFeatureComputer(fast_ma=3, slow_ma=5, vol_window=3)
     model = MockAlphaModel()
     bridge = LiveInferenceBridge(models=[model])
-    hook = FeatureComputeHook(computer=computer, inference_bridge=bridge)
+    hook = FeatureComputeHook(computer=computer, inference_bridge=bridge, warmup_bars=0)
 
     cfg = CoordinatorConfig(
         symbol_default="BTCUSDT",

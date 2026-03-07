@@ -37,7 +37,7 @@ class BinanceLiquidationPoller:
         self._window_sec = window_sec
         self._ws_url = f"{_WS_TESTNET if testnet else _WS_PROD}/{symbol.lower()}@forceOrder"
         # (timestamp_ms, side, quote_qty) tuples
-        self._events: Deque[Tuple[int, str, float]] = deque()
+        self._events: Deque[Tuple[int, str, float]] = deque(maxlen=10000)
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -108,7 +108,7 @@ class BinanceLiquidationPoller:
             return
 
         ws = websocket.WebSocket()
-        ws.settimeout(30)
+        ws.settimeout(10)
         ws.connect(self._ws_url)
         logger.info("LiquidationPoller WS connected: %s", self._ws_url)
 

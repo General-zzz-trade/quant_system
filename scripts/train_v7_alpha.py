@@ -27,6 +27,7 @@ from alpha.models.lgbm_alpha import LGBMAlphaModel
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
 from features.cross_asset_computer import CrossAssetComputer, CROSS_ASSET_FEATURE_NAMES
 from features.dynamic_selector import greedy_ic_select, _rankdata
+from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 
 from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
@@ -34,7 +35,7 @@ from research.hyperopt.search_space import SearchSpace, ParamRange
 from research.overfit_detection import deflated_sharpe_ratio
 
 try:
-    from features._quant_rolling import cpp_bootstrap_sharpe_ci
+    from _quant_hotpath import cpp_bootstrap_sharpe_ci
     _BOOTSTRAP_CPP = True
 except ImportError:
     _BOOTSTRAP_CPP = False
@@ -101,36 +102,7 @@ TARGET_MODES = ("raw", "clipped", "vol_norm", "binary")
 DEFAULT_HORIZONS = (3, 6, 12, 24)
 
 
-# ── Signal generation ───────────────────────────────────────
-
-def _pred_to_signal(
-    y_pred: np.ndarray,
-    target_mode: str = "",
-    deadzone: float = 0.5,
-) -> np.ndarray:
-    """Convert raw predictions to position sizes [-1, 1].
-
-    For continuous targets (raw/clipped/vol_norm):
-      z-score normalize → clip to [-1, 1] → apply deadzone.
-    For binary:
-      sign(pred - 0.5) with threshold — binary predictions have too
-      narrow a range for z-score scaling to work.
-
-    Deadzone eliminates low-confidence trades, reducing turnover.
-    Continuous sizing means gradual position changes instead of sign flips.
-    """
-    if target_mode == "binary":
-        centered = y_pred - 0.5
-        signal = np.sign(centered)
-        # Deadzone: skip when model is near 50/50
-        return np.where(np.abs(centered) < 0.02, 0.0, signal)
-
-    mu = np.mean(y_pred)
-    std = np.std(y_pred)
-    if std < 1e-12:
-        return np.zeros_like(y_pred)
-    scaled = np.clip((y_pred - mu) / std, -1.0, 1.0)
-    return np.where(np.abs(scaled) < deadzone, 0.0, scaled)
+# _pred_to_signal imported from alpha.signal_transform (canonical, rolling z-score)
 
 
 # ── Target variable (same as V6) ────────────────────────────

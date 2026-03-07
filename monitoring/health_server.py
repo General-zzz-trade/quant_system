@@ -1,6 +1,7 @@
 """Minimal HTTP health endpoint using stdlib only."""
 from __future__ import annotations
 
+import hmac
 import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -41,7 +42,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
         if not token:
             return True
         auth = self.headers.get("Authorization", "")
-        return auth == f"Bearer {token}"
+        return hmac.compare_digest(auth, f"Bearer {token}")
 
 
 class HealthServer:

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 try:
-    from features._quant_rolling import cpp_simulate_paths as _cpp_simulate
+    from _quant_hotpath import cpp_simulate_paths as _cpp_simulate
     _MC_CPP = True
 except ImportError:
     _MC_CPP = False

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    from features._quant_rolling import cpp_compute_4h_features as _cpp_4h
+    from _quant_hotpath import cpp_compute_4h_features as _cpp_4h
     _MTF_CPP = True
 except ImportError:
     _MTF_CPP = False

@@ -29,6 +29,7 @@ class OnchainPoller:
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
+        self._last_updated: Optional[float] = None
 
     def start(self) -> None:
         if self._running:
@@ -51,6 +52,12 @@ class OnchainPoller:
         with self._lock:
             return dict(self._data) if self._data is not None else None
 
+    def age_seconds(self) -> Optional[float]:
+        """Seconds since last successful fetch, or None if never fetched."""
+        if self._last_updated is None:
+            return None
+        return time.monotonic() - self._last_updated
+
     def _poll_loop(self) -> None:
         while self._running:
             try:
@@ -68,7 +75,7 @@ class OnchainPoller:
         )
         req = urllib.request.Request(url)
         req.add_header("User-Agent", "quant-system/1.0")
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             body = json.loads(resp.read())
 
         rows = body.get("data", [])
@@ -85,6 +92,7 @@ class OnchainPoller:
         if parsed:
             with self._lock:
                 self._data = parsed
+            self._last_updated = time.monotonic()
             logger.debug(
                 "OnchainPoller %s: %d metrics fetched",
                 self._asset,

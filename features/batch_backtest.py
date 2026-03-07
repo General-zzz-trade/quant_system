@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from features._quant_rolling import cpp_run_backtest, cpp_pred_to_signal
+    from _quant_hotpath import cpp_run_backtest, cpp_pred_to_signal
     _BT_CPP = True
 except ImportError:
     _BT_CPP = False

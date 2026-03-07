@@ -10,8 +10,10 @@ Connects:
 """
 from __future__ import annotations
 
+import json
 import logging
 import signal
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -74,10 +76,13 @@ class LivePaperRunner:
     coordinator: EngineCoordinator
     runtime: BinanceMarketDataRuntime
     health: Optional[SystemHealthMonitor]
+    inference_bridge: Optional[Any] = None
+    checkpoint_path: Optional[Path] = None
     _on_fill: Optional[Callable[[Any], None]] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _bar_count: int = field(default=0, init=False)
     _running: bool = field(default=False, init=False)
+    _ckpt_stop: threading.Event = field(default_factory=threading.Event, init=False)
 
     @classmethod
     def build(
@@ -103,6 +108,8 @@ class LivePaperRunner:
         macro_source: Any = None,
         sentiment_source: Any = None,
         cross_asset_computer: Any = None,
+        alert_sink: Any = None,
+        checkpoint_dir: Optional[Path] = None,
         min_hold_bars: Optional[Dict[str, int]] = None,
         long_only_symbols: Optional[set] = None,
         deadzone: float = 0.5,
@@ -133,6 +140,21 @@ class LivePaperRunner:
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
 
+        # Auto-wire Telegram alerts from env vars
+        import os
+        if alert_sink is None:
+            tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+            if tg_token and tg_chat:
+                from monitoring.alerts.telegram import TelegramAlertSink
+                from monitoring.alerts.base import CompositeAlertSink
+                from monitoring.alerts.console import ConsoleAlertSink
+                alert_sink = CompositeAlertSink(sinks=[
+                    ConsoleAlertSink(),
+                    TelegramAlertSink(tg_token, tg_chat),
+                ])
+                logger.info("Telegram alerts auto-wired (chat_id=%s)", tg_chat)
+
         def _record_fill(fill: Any) -> None:
             fills.append({
                 "ts": str(getattr(fill, "ts", "")),
@@ -151,18 +173,20 @@ class LivePaperRunner:
         if config.enable_monitoring:
             health = SystemHealthMonitor(
                 config=HealthConfig(stale_data_sec=config.health_stale_data_sec),
+                sink=alert_sink,
             )
             hook = EngineMonitoringHook(health=health, metrics=metrics_exporter)
 
         # Feature compute hook (same pattern as backtest_runner)
         feat_hook = None
+        inference_bridge = None
         if feature_computer is not None:
             from engine.feature_hook import FeatureComputeHook
-            inference_bridge = None
             if alpha_models:
                 from alpha.inference.bridge import LiveInferenceBridge
                 inference_bridge = LiveInferenceBridge(
                     models=list(alpha_models),
+                    metrics_exporter=metrics_exporter,
                     min_hold_bars=min_hold_bars,
                     long_only_symbols=long_only_symbols,
                     deadzone=deadzone,
@@ -194,6 +218,15 @@ class LivePaperRunner:
                 macro_source=macro_source,
                 sentiment_source=sentiment_source,
             )
+
+        # Wire inference_bridge to monitoring hook
+        if hook is not None and inference_bridge is not None:
+            hook.inference_bridge = inference_bridge
+
+        # Checkpoint path for bridge state persistence
+        ckpt_path = None
+        if checkpoint_dir is not None and inference_bridge is not None:
+            ckpt_path = checkpoint_dir / "bridge_checkpoint.json"
 
         coord_cfg = CoordinatorConfig(
             symbol_default=symbol_default,
@@ -296,14 +329,40 @@ class LivePaperRunner:
             coordinator=coordinator,
             runtime=runtime,
             health=health,
+            inference_bridge=inference_bridge,
+            checkpoint_path=ckpt_path,
             _on_fill=_record_fill,
             _fills=fills,
         )
+
+    def _restore_checkpoint(self) -> None:
+        if self.inference_bridge is not None and self.checkpoint_path is not None and self.checkpoint_path.exists():
+            try:
+                with self.checkpoint_path.open() as f:
+                    self.inference_bridge.restore(json.load(f))
+                logger.info("Restored bridge checkpoint from %s", self.checkpoint_path)
+            except Exception:
+                logger.warning("Failed to restore bridge checkpoint, starting fresh")
+
+    def _save_checkpoint(self) -> None:
+        if self.inference_bridge is not None and self.checkpoint_path is not None:
+            try:
+                self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                with self.checkpoint_path.open("w") as f:
+                    json.dump(self.inference_bridge.checkpoint(), f)
+            except Exception:
+                logger.warning("Bridge checkpoint save failed")
+
+    def _checkpoint_loop(self) -> None:
+        while not self._ckpt_stop.wait(timeout=60.0):
+            self._save_checkpoint()
 
     def start(self) -> None:
         """Start the live paper trading system. Blocks until stop() is called."""
         self._running = True
         logger.info("Starting live paper trading system...")
+
+        self._restore_checkpoint()
 
         # Start subsystems
         self.coordinator.start()
@@ -311,6 +370,11 @@ class LivePaperRunner:
             self.health.start()
         self.runtime.start()
         self.loop.start_background()
+
+        # Periodic checkpoint saving
+        if self.inference_bridge is not None and self.checkpoint_path is not None:
+            self._ckpt_stop.clear()
+            threading.Thread(target=self._checkpoint_loop, daemon=True).start()
 
         logger.info("System running. Press Ctrl+C to stop.")
 
@@ -334,6 +398,8 @@ class LivePaperRunner:
         self._running = False
 
         logger.info("Stopping live paper trading system...")
+        self._ckpt_stop.set()
+        self._save_checkpoint()
         self.runtime.stop()
         self.loop.stop_background()
         self.coordinator.stop()

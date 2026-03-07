@@ -29,6 +29,7 @@ import pandas as pd
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from alpha.signal_transform import pred_to_signal as _pred_to_signal, enforce_min_hold as _enforce_min_hold
 
 logger = logging.getLogger(__name__)
 
@@ -110,39 +111,7 @@ def _compute_bear_target(closes: np.ndarray, horizon: int = 24, threshold: float
     return np.where(np.isnan(raw), np.nan, (raw < threshold).astype(np.float64))
 
 
-def _enforce_min_hold(signal: np.ndarray, min_hold: int = 24) -> np.ndarray:
-    """Enforce minimum holding period on discrete signal. Vectorized where possible."""
-    out = np.zeros_like(signal)
-    out[0] = signal[0]
-    hold = 1
-    for i in range(1, len(signal)):
-        if hold < min_hold:
-            out[i] = out[i - 1]
-            hold += 1
-        else:
-            out[i] = signal[i]
-            if signal[i] != out[i - 1]:
-                hold = 1
-            else:
-                hold += 1
-    return out
-
-
-def _pred_to_signal(y_pred: np.ndarray, target_mode: str = "", deadzone: float = 0.5,
-                    min_hold: int = 24) -> np.ndarray:
-    """Convert predictions to {-1, 0, +1} with min hold (replicates backtest_alpha_v8)."""
-    if target_mode == "binary":
-        centered = y_pred - 0.5
-        raw = np.sign(centered)
-        raw = np.where(np.abs(centered) < 0.02, 0.0, raw)
-    else:
-        mu = np.mean(y_pred)
-        std = np.std(y_pred)
-        if std < 1e-12:
-            return np.zeros_like(y_pred)
-        z = (y_pred - mu) / std
-        raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
-    return _enforce_min_hold(raw, min_hold)
+# _pred_to_signal and _enforce_min_hold imported from alpha.signal_transform (canonical)
 
 
 # ── Shared backtest ───────────────────────────────────────────

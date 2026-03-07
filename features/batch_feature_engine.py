@@ -16,7 +16,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 try:
-    from features._quant_rolling import cpp_compute_all_features, cpp_feature_names
+    from _quant_hotpath import cpp_compute_all_features, cpp_feature_names
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False
@@ -59,6 +59,15 @@ def _load_fgi_schedule() -> Dict[int, float]:
     return schedule
 
 
+def _parse_ts_ms(raw: str) -> int:
+    """Parse timestamp string — supports both epoch ms and ISO 8601."""
+    if "T" in raw or "-" in raw:
+        from datetime import datetime
+        dt = datetime.fromisoformat(raw)
+        return int(dt.timestamp() * 1000)
+    return int(raw)
+
+
 def _load_iv_schedule(symbol: str) -> Dict[int, float]:
     path = Path(f"data_files/{symbol}_deribit_iv.csv")
     schedule: Dict[int, float] = {}
@@ -71,7 +80,7 @@ def _load_iv_schedule(symbol: str) -> Dict[int, float]:
             val_col = "implied_vol" if "implied_vol" in row else "mark_iv"
             if val_col not in row:
                 continue
-            schedule[int(row[ts_col])] = float(row[val_col])
+            schedule[_parse_ts_ms(row[ts_col])] = float(row[val_col])
     return schedule
 
 
@@ -87,7 +96,7 @@ def _load_pcr_schedule(symbol: str) -> Dict[int, float]:
             val_col = "put_call_ratio" if "put_call_ratio" in row else "pcr"
             if val_col not in row:
                 continue
-            schedule[int(row[ts_col])] = float(row[val_col])
+            schedule[_parse_ts_ms(row[ts_col])] = float(row[val_col])
     return schedule
 
 
@@ -298,12 +307,12 @@ def _load_onchain_schedule(symbol: str) -> np.ndarray:
         reader = csv.DictReader(f)
         for row in reader:
             ts = int(row.get("timestamp", 0))
-            flow_in = float(row.get("FlowInExUSD", "nan"))
-            flow_out = float(row.get("FlowOutExUSD", "nan"))
-            supply = float(row.get("SplyExNtv", "nan"))
-            addr = float(row.get("AdrActCnt", "nan"))
-            tx = float(row.get("TxTfrCnt", "nan"))
-            hr = float(row.get("HashRate", "nan"))
+            flow_in = float(row.get("FlowInExUSD", "nan") or "nan")
+            flow_out = float(row.get("FlowOutExUSD", "nan") or "nan")
+            supply = float(row.get("SplyExNtv", "nan") or "nan")
+            addr = float(row.get("AdrActCnt", "nan") or "nan")
+            tx = float(row.get("TxTfrCnt", "nan") or "nan")
+            hr = float(row.get("HashRate", "nan") or "nan")
             rows.append([ts, flow_in, flow_out, supply, addr, tx, hr])
 
     if not rows:

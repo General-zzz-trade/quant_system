@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import logging
+import math
+
 from state.errors import ReducerError
 from state.market import MarketState
 from state.reducers.base import ReducerResult
 from state._util import get_event_type, get_event_ts, get_symbol, to_decimal
+
+_logger = logging.getLogger(__name__)
 
 
 class MarketReducer:
@@ -42,6 +47,32 @@ class MarketReducer:
                 l = getattr(bar, "low", l)
                 c = getattr(bar, "close", c)
                 v = getattr(bar, "volume", v)
+
+            if c is not None:
+                try:
+                    c_f = float(c)
+                    if c_f <= 0 or not math.isfinite(c_f):
+                        _logger.warning("Invalid close price for %s: %s, skipping", sym, c)
+                        return ReducerResult(state=state, changed=False)
+                except (TypeError, ValueError):
+                    pass
+
+            # Validate high >= low and volume >= 0
+            if h is not None and l is not None:
+                try:
+                    h_f, l_f = float(h), float(l)
+                    if h_f < l_f:
+                        _logger.warning("Invalid candle for %s: high=%.4f < low=%.4f, skipping", sym, h_f, l_f)
+                        return ReducerResult(state=state, changed=False)
+                except (TypeError, ValueError):
+                    pass
+            if v is not None:
+                try:
+                    if float(v) < 0:
+                        _logger.warning("Invalid candle for %s: volume < 0, skipping", sym)
+                        return ReducerResult(state=state, changed=False)
+                except (TypeError, ValueError):
+                    pass
 
             if c is None:
                 # If only tick price exists, treat as tick

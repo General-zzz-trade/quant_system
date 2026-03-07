@@ -7,7 +7,7 @@ from typing import Mapping, Sequence
 from portfolio.risk_model.factor.exposure import compute_beta
 
 try:
-    from features._quant_rolling import cpp_estimate_specific_risk as _cpp_estimate_specific_risk
+    from _quant_hotpath import cpp_estimate_specific_risk as _cpp_estimate_specific_risk
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

@@ -13,4 +13,10 @@ build/
 .ruff_cache
 .claude/
 tasks/
-research.md
+logs/
+archive/
+.cache/
+results/
+ext/rust/target/
+data_files/*.csv
+.last_good_deploy

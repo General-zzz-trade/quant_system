@@ -30,6 +30,7 @@ class MacroPoller:
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
+        self._last_success_ts: Optional[float] = None
 
     def start(self) -> None:
         if self._running:
@@ -50,6 +51,11 @@ class MacroPoller:
     def get_current(self) -> Optional[Dict[str, float]]:
         with self._lock:
             return dict(self._data) if self._data is not None else None
+
+    def is_fresh(self, max_age_sec: float = 7200.0) -> bool:
+        if self._last_success_ts is None:
+            return False
+        return (time.monotonic() - self._last_success_ts) < max_age_sec
 
     def _poll_loop(self) -> None:
         while self._running:
@@ -72,7 +78,7 @@ class MacroPoller:
                 req = urllib.request.Request(url, headers={
                     "User-Agent": "Mozilla/5.0 (quant-system/1.0)",
                 })
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read())
 
                 chart = data.get("chart", {}).get("result", [{}])[0]
@@ -89,4 +95,5 @@ class MacroPoller:
         if len(result) > 1:  # at least date + one ticker
             with self._lock:
                 self._data = result
+            self._last_success_ts = time.monotonic()
             logger.debug("MacroPoller: %s", {k: f"{v:.2f}" if isinstance(v, float) else v for k, v in result.items()})

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import (
+    from _quant_hotpath import (
         cpp_correlation_select as _cpp_correlation_select,
         cpp_mutual_info_select as _cpp_mutual_info_select,
     )

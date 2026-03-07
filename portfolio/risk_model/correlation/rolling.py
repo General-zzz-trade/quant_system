@@ -6,7 +6,7 @@ import math
 from typing import Mapping, Sequence
 
 try:
-    from features._quant_rolling import cpp_rolling_correlation as _cpp_rolling_correlation
+    from _quant_hotpath import cpp_rolling_correlation as _cpp_rolling_correlation
     _USING_CPP = True
 except ImportError:
     _USING_CPP = False

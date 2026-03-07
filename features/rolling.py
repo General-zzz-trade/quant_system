@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 try:
-    from features._quant_rolling import RollingWindow
+    from _quant_hotpath import RollingWindow
 except ImportError:
     from features._rolling_py import RollingWindow
 
