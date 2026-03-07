@@ -21,6 +21,13 @@ from engine.pipeline import (
 from state.account import AccountState
 from state.market import MarketState
 from state.position import PositionState
+from _quant_hotpath import RustStateStore
+
+_SCALE = 100_000_000
+
+
+def _make_store(symbols=("BTCUSDT",), balance="10000"):
+    return RustStateStore(list(symbols), "USDT", int(Decimal(balance) * _SCALE))
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +277,7 @@ class TestNormalizeToFacts:
 
 class TestPipelineApply:
     def test_non_fact_event_not_advanced(self) -> None:
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_pipeline_input(_signal_event(), event_index=5)
         out = pipeline.apply(inp)
         assert out.advanced is False
@@ -278,14 +285,14 @@ class TestPipelineApply:
         assert out.snapshot is None
 
     def test_fill_event_advances_index(self) -> None:
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_pipeline_input(_fill_event(), event_index=0)
         out = pipeline.apply(inp)
         assert out.advanced is True
         assert out.event_index == 1
 
     def test_fill_updates_position(self) -> None:
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_pipeline_input(_fill_event(side="buy", qty=1.0, price=50000.0))
         out = pipeline.apply(inp)
         assert "BTCUSDT" in out.positions
@@ -293,41 +300,41 @@ class TestPipelineApply:
         assert pos.qty != Decimal("0") or pos.qty != 0  # position should have changed
 
     def test_order_event_advances_index(self) -> None:
-        pipeline = StatePipeline()
-        inp = _make_pipeline_input(_order_event(), event_index=10)
+        pipeline = StatePipeline(store=_make_store())
+        inp = _make_pipeline_input(_order_event(), event_index=0)
         out = pipeline.apply(inp)
         assert out.advanced is True
-        assert out.event_index == 11
+        assert out.event_index == 1
 
     def test_snapshot_generated_on_change(self) -> None:
-        pipeline = StatePipeline(config=PipelineConfig(build_snapshot_on_change_only=True))
+        pipeline = StatePipeline(store=_make_store(), config=PipelineConfig(build_snapshot_on_change_only=True))
         inp = _make_pipeline_input(_fill_event(side="buy", qty=1.0, price=50000.0))
         out = pipeline.apply(inp)
         # Fill should change state → snapshot generated
         assert out.snapshot is not None
 
     def test_snapshot_always_generated_when_config_off(self) -> None:
-        pipeline = StatePipeline(config=PipelineConfig(build_snapshot_on_change_only=False))
+        pipeline = StatePipeline(store=_make_store(), config=PipelineConfig(build_snapshot_on_change_only=False))
         inp = _make_pipeline_input(_order_event())
         out = pipeline.apply(inp)
         # Even if no state change, snapshot should be generated
         assert out.snapshot is not None
 
     def test_new_symbol_creates_empty_position(self) -> None:
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_pipeline_input(_fill_event(symbol="ETHUSDT", side="buy", qty=2.0, price=3000.0))
         out = pipeline.apply(inp)
         assert "ETHUSDT" in out.positions
 
     def test_last_event_id_tracked(self) -> None:
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_pipeline_input(_fill_event(event_id="test-evt-99"))
         out = pipeline.apply(inp)
         assert out.last_event_id == "test-evt-99"
 
     def test_multiple_facts_in_sequence(self) -> None:
         """Multiple applies accumulate state correctly."""
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp1 = _make_pipeline_input(_fill_event(side="buy", qty=1.0, price=100.0), event_index=0)
         out1 = pipeline.apply(inp1)
         assert out1.event_index == 1
@@ -345,7 +352,7 @@ class TestPipelineApply:
 
     def test_market_event_advances_pipeline(self) -> None:
         """MARKET events produce facts and advance pipeline, updating MarketState."""
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         ev = SimpleNamespace(
             event_type="market",
             header=SimpleNamespace(event_type="market", ts=None, event_id="m-1"),

@@ -583,8 +583,8 @@ impl RustPortfolioState {
         } else {
             None
         };
-        let margin_ratio = if te_f.abs() > 1e-12 {
-            Some(format!("{}", mu_f / te_f))
+        let margin_ratio = if mu_f > 1e-12 && te_f.abs() > 1e-12 {
+            Some(format!("{}", te_f / mu_f))
         } else {
             None
         };

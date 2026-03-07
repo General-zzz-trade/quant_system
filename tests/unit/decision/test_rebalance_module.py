@@ -242,3 +242,35 @@ class TestEdgeCases:
             ts=None,
         )
         assert list(mod.decide(snap)) == []
+
+    def test_supports_rust_state_inputs(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        mod = RebalanceModule(
+            target_weights={"BTCUSDT": 0.5},
+            drift_threshold=0.01,
+            min_rebalance_interval=timedelta(0),
+        )
+        snap = SimpleNamespace(
+            markets={
+                "BTCUSDT": rust.RustMarketState(
+                    symbol="BTCUSDT",
+                    close=4_000_000_000_000,
+                    last_price=4_000_000_000_000,
+                )
+            },
+            positions={
+                "BTCUSDT": rust.RustPositionState(
+                    symbol="BTCUSDT",
+                    qty=100_000_000,
+                    avg_price=4_000_000_000_000,
+                    last_price=4_000_000_000_000,
+                )
+            },
+            account=rust.RustAccountState.initial(currency="USDT", balance=10_000_000_000_000),
+            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+
+        intents = list(mod.decide(snap))
+
+        assert len(intents) == 1
+        assert intents[0].side == "buy"

@@ -2,6 +2,11 @@
 
 ## Goal
 
+See also:
+
+- `docs/rust_replacement_matrix.md`
+- `docs/rust_rewrite_backlog.md`
+
 Make Rust the only implementation of the runtime kernel.
 
 Python should remain only as:

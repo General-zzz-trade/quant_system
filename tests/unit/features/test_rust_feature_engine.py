@@ -153,6 +153,7 @@ def test_warmup_period():
     assert features["vol_20"] is None  # needs 20 bars
 
 
+@pytest.mark.benchmark
 def test_performance_vs_python():
     """RustFeatureEngine should be faster than Python EnrichedFeatureComputer."""
     import time

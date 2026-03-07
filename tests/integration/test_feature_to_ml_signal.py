@@ -14,20 +14,21 @@ from decision.signals.ml.model_runner import ModelRunnerSignal
 
 
 class MockAlphaModel:
-    """Mock model that returns momentum-based signals."""
+    """Mock model that returns signals based on ma_cross feature."""
 
     name = "mock_momentum"
 
     def predict(self, *, symbol, ts, features):
-        momentum = features.get("momentum")
-        if momentum is None:
+        # Use ma_cross_5_20 which RustFeatureEngine produces
+        signal_val = features.get("ma_cross_5_20")
+        if signal_val is None:
             return None
-        side = "long" if momentum > 0 else ("short" if momentum < 0 else "flat")
+        side = "long" if signal_val > 0 else ("short" if signal_val < 0 else "flat")
         return Signal(
             symbol=symbol,
             ts=ts,
             side=side,
-            strength=min(abs(momentum) * 100, 1.0),
+            strength=min(abs(signal_val), 1.0),
         )
 
 
@@ -58,9 +59,9 @@ def test_features_flow_to_ml_score():
     coord = EngineCoordinator(cfg=cfg)
     coord.start()
 
-    # Pump enough bars for all windows to fill (slow_ma=5)
-    for i in range(10):
-        coord.emit(_market(100.0 + i, i), actor="test")
+    # Pump enough bars for Rust engine windows to fill (needs ~35 for slow MA + momentum)
+    for i in range(40):
+        coord.emit(_market(100.0 + i * 0.5, i), actor="test")
 
     snap = coord.get_state_view()["last_snapshot"]
     assert snap.features is not None
@@ -84,8 +85,8 @@ def test_model_runner_signal_consumes_ml_score():
     coord = EngineCoordinator(cfg=cfg)
     coord.start()
 
-    for i in range(10):
-        coord.emit(_market(100.0 + i, i), actor="test")
+    for i in range(40):
+        coord.emit(_market(100.0 + i * 0.5, i), actor="test")
 
     snap = coord.get_state_view()["last_snapshot"]
 

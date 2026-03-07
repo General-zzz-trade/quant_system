@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from _quant_hotpath import rust_build_delta_order_fields as _rust_build_delta_order_fields
+
 from state.snapshot import StateSnapshot
 from decision.types import TargetPosition, OrderSpec
 
@@ -16,11 +18,11 @@ class TargetPositionIntentBuilder:
     def build(self, snapshot: StateSnapshot, target: TargetPosition) -> OrderSpec | None:
         pos = snapshot.positions.get(target.symbol)
         cur = pos.qty if pos is not None else Decimal("0")
-        delta = target.target_qty - cur
-        if delta == 0:
+        built = _rust_build_delta_order_fields(str(target.target_qty), str(cur))
+        if built is None:
             return None
-        side = "buy" if delta > 0 else "sell"
-        qty = abs(delta)
+        side, qty_raw = built
+        qty = Decimal(str(qty_raw))
         # price decided by execution policy later
         return OrderSpec(
             order_id="",

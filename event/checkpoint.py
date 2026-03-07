@@ -7,8 +7,12 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from hashlib import sha256
-from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
+
+from _quant_hotpath import (
+    RustCheckpointStore as _RustCheckpointStore,
+    rust_stable_hash as _rust_stable_hash,
+)
 
 
 # ============================================================
@@ -21,7 +25,7 @@ def _utc_now() -> str:
 
 def _hash_payload(payload: Mapping[str, Any]) -> str:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return sha256(data.encode("utf-8")).hexdigest()
+    return _rust_stable_hash(data, 64)
 
 
 def _is_jsonable(x: Any) -> bool:
@@ -188,16 +192,19 @@ class CheckpointStore:
 
 class InMemoryCheckpointStore(CheckpointStore):
     def __init__(self) -> None:
-        self._items: Dict[Tuple[str, str], Checkpoint] = {}
+        self._rust = _RustCheckpointStore()
 
     def save(self, checkpoint: Checkpoint) -> Checkpoint:
         checkpoint.validate()
-        key = (checkpoint.run_id, checkpoint.name)
-        self._items[key] = checkpoint
+        payload = json.dumps(checkpoint.to_dict(), separators=(",", ":"))
+        self._rust.save_latest(checkpoint.run_id, checkpoint.name, payload)
         return checkpoint
 
     def load_latest(self, *, run_id: str, name: str) -> Optional[Checkpoint]:
-        return self._items.get((run_id, name))
+        payload = self._rust.load_latest(run_id, name)
+        if payload is None:
+            return None
+        return Checkpoint.from_dict(json.loads(payload))
 
 
 # ============================================================

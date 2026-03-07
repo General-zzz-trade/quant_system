@@ -138,6 +138,7 @@ class TestFeatureEngineParity:
 class TestPerformance:
     """Benchmark C++ vs Python feature computation."""
 
+    @pytest.mark.benchmark
     def test_cpp_faster_than_python(self):
         """C++ should be significantly faster than Python."""
         _skip_if_no_data()

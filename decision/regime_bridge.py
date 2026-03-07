@@ -3,55 +3,21 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from dataclasses import dataclass, field
-from math import sqrt
-from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from _quant_hotpath import RustRegimeBuffer
 from regime.base import RegimeDetector, RegimeLabel
 from regime.volatility import VolatilityRegimeDetector
 from regime.trend import TrendRegimeDetector
+from decision.market_access import get_float_attr
 from decision.regime_policy import RegimePolicy
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _PriceBuffer:
-    """Per-symbol price buffer for feature computation."""
-    maxlen: int = 100
-    _prices: Deque[float] = field(default=None, init=False)
-
-    def __post_init__(self) -> None:
-        self._prices = deque(maxlen=self.maxlen)
-
-    def push(self, price: float) -> None:
-        self._prices.append(price)
-
-    @property
-    def n(self) -> int:
-        return len(self._prices)
-
-    def rolling_vol(self, window: int = 20) -> Optional[float]:
-        if self.n < window + 1:
-            return None
-        prices = list(self._prices)
-        rets = [
-            (prices[i] - prices[i - 1]) / prices[i - 1]
-            for i in range(len(prices) - window, len(prices))
-            if prices[i - 1] != 0
-        ]
-        if len(rets) < 2:
-            return None
-        mean = sum(rets) / len(rets)
-        var = sum((r - mean) ** 2 for r in rets) / len(rets)
-        return sqrt(max(var, 0.0))
-
-    def ma(self, window: int) -> Optional[float]:
-        if self.n < window:
-            return None
-        prices = list(self._prices)
-        return sum(prices[-window:]) / window
+def _make_buffer(maxlen: int = 100) -> RustRegimeBuffer:
+    return RustRegimeBuffer(maxlen)
 
 
 @dataclass
@@ -78,7 +44,7 @@ class RegimeAwareDecisionModule:
     vol_window: int = 20
     buffer_maxlen: int = 100
 
-    _buffers: Dict[str, _PriceBuffer] = field(default_factory=dict, init=False)
+    _buffers: Dict[str, RustRegimeBuffer] = field(default_factory=dict, init=False)
     _last_labels: List[RegimeLabel] = field(default_factory=list, init=False)
 
     def decide(self, snapshot: Any) -> Iterable[Any]:
@@ -87,12 +53,12 @@ class RegimeAwareDecisionModule:
 
         # Update price buffers from snapshot
         for sym, mkt in markets.items():
-            price = getattr(mkt, "close", None) or getattr(mkt, "last_price", None)
+            price = get_float_attr(mkt, "close", "last_price")
             if price is None:
                 continue
             if sym not in self._buffers:
-                self._buffers[sym] = _PriceBuffer(maxlen=self.buffer_maxlen)
-            self._buffers[sym].push(float(price))
+                self._buffers[sym] = _make_buffer(self.buffer_maxlen)
+            self._buffers[sym].push(price)
 
         # Compute features and detect regimes
         all_labels: List[RegimeLabel] = []

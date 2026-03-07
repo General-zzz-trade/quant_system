@@ -1,14 +1,14 @@
 # execution/state_machine/machine.py
-"""Order state machine — tracks order lifecycle and enforces valid transitions."""
+"""Order state machine backed by Rust."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
-from threading import RLock
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
-from execution.state_machine.transitions import OrderStatus, Transition, VALID_TRANSITIONS
+from execution.state_machine.transitions import OrderStatus, Transition
+
+from _quant_hotpath import RustOrderStateMachine as _RustOrderStateMachine
 
 
 class OrderStateMachineError(RuntimeError):
@@ -41,23 +41,56 @@ class OrderState:
 
     @property
     def is_terminal(self) -> bool:
-        return self.status in (OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED)
+        return self.status in (
+            OrderStatus.FILLED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        )
+
+
+def _status_from_any(value: object) -> OrderStatus:
+    raw = getattr(value, "value", value)
+    return OrderStatus(str(raw).lower())
+
+
+def _dec_opt(value: object) -> Optional[Decimal]:
+    if value is None:
+        return None
+    return Decimal(str(value))
+
+
+def _transition_from_rust(raw: object) -> Transition:
+    return Transition(
+        from_status=_status_from_any(getattr(raw, "from_status")),
+        to_status=_status_from_any(getattr(raw, "to_status")),
+        ts_ms=int(getattr(raw, "ts_ms", 0)),
+        reason=str(getattr(raw, "reason", "")),
+    )
+
+
+def _state_from_rust(raw: object) -> OrderState:
+    return OrderState(
+        order_id=str(getattr(raw, "order_id")),
+        client_order_id=getattr(raw, "client_order_id", None),
+        symbol=str(getattr(raw, "symbol")),
+        side=str(getattr(raw, "side")),
+        order_type=str(getattr(raw, "order_type")),
+        status=_status_from_any(getattr(raw, "status")),
+        qty=Decimal(str(getattr(raw, "qty"))),
+        price=_dec_opt(getattr(raw, "price", None)),
+        filled_qty=Decimal(str(getattr(raw, "filled_qty", "0"))),
+        avg_price=_dec_opt(getattr(raw, "avg_price", None)),
+        last_update_ts=int(getattr(raw, "last_update_ts", 0)),
+        transitions=[_transition_from_rust(t) for t in getattr(raw, "transitions", ())],
+    )
 
 
 class OrderStateMachine:
-    """
-    订单状态机
-
-    管理所有活跃订单的生命周期：
-    - 只允许有效的状态转换
-    - 追踪所有状态变更历史
-    - 在终态时自动归档
-    """
+    """Rust-backed order state machine with Python compatibility wrappers."""
 
     def __init__(self) -> None:
-        self._lock = RLock()
-        self._orders: Dict[str, OrderState] = {}
-        self._archived: Dict[str, OrderState] = {}
+        self._rust = _RustOrderStateMachine()
 
     def register(
         self,
@@ -70,21 +103,19 @@ class OrderStateMachine:
         qty: Decimal,
         price: Optional[Decimal] = None,
     ) -> OrderState:
-        with self._lock:
-            if order_id in self._orders:
-                raise OrderStateMachineError(f"order {order_id} already registered")
-            state = OrderState(
-                order_id=order_id,
+        try:
+            raw = self._rust.register(
+                order_id=str(order_id),
                 client_order_id=client_order_id,
-                symbol=symbol,
-                side=side,
-                order_type=order_type,
-                qty=qty,
-                price=price,
-                status=OrderStatus.PENDING_NEW,
+                symbol=str(symbol),
+                side=str(side),
+                order_type=str(order_type),
+                qty=str(qty),
+                price=(str(price) if price is not None else None),
             )
-            self._orders[order_id] = state
-            return state
+        except RuntimeError as exc:
+            raise OrderStateMachineError(str(exc)) from exc
+        return _state_from_rust(raw)
 
     def transition(
         self,
@@ -96,45 +127,31 @@ class OrderStateMachine:
         ts_ms: int = 0,
         reason: str = "",
     ) -> OrderState:
-        with self._lock:
-            state = self._orders.get(order_id)
-            if state is None:
-                raise OrderStateMachineError(f"unknown order: {order_id}")
-
-            old_status = state.status
-            allowed = VALID_TRANSITIONS.get(old_status, set())
-            if new_status not in allowed:
-                raise InvalidTransitionError(
-                    f"order {order_id}: {old_status.value} → {new_status.value} not allowed"
-                )
-
-            t = Transition(
-                from_status=old_status,
-                to_status=new_status,
-                ts_ms=ts_ms,
-                reason=reason,
+        status = _status_from_any(new_status)
+        try:
+            raw = self._rust.transition(
+                order_id=str(order_id),
+                new_status=status.value,
+                filled_qty=(str(filled_qty) if filled_qty is not None else None),
+                avg_price=(str(avg_price) if avg_price is not None else None),
+                ts_ms=int(ts_ms),
+                reason=str(reason),
             )
-            state.status = new_status
-            state.transitions.append(t)
-            if filled_qty is not None:
-                state.filled_qty = filled_qty
-            if avg_price is not None:
-                state.avg_price = avg_price
-            state.last_update_ts = ts_ms
-
-            if state.is_terminal:
-                self._archived[order_id] = self._orders.pop(order_id)
-
-            return state
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "not allowed" in msg or "unknown order status" in msg:
+                raise InvalidTransitionError(msg) from exc
+            raise OrderStateMachineError(msg) from exc
+        return _state_from_rust(raw)
 
     def get(self, order_id: str) -> Optional[OrderState]:
-        with self._lock:
-            return self._orders.get(order_id) or self._archived.get(order_id)
+        raw = self._rust.get(str(order_id))
+        if raw is None:
+            return None
+        return _state_from_rust(raw)
 
     def active_orders(self) -> Sequence[OrderState]:
-        with self._lock:
-            return list(self._orders.values())
+        return [_state_from_rust(state) for state in self._rust.active_orders()]
 
     def active_count(self) -> int:
-        with self._lock:
-            return len(self._orders)
+        return int(self._rust.active_count())

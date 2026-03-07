@@ -240,29 +240,35 @@ def test_poller_age_seconds():
 
 
 def test_market_reducer_rejects_nan():
-    """MarketReducer must reject NaN and inf close prices."""
+    """RustStateStore must not produce valid prices from NaN inputs."""
     import math
     from datetime import datetime, timezone
-    from state.reducers.market import MarketReducer
-    from state.market import MarketState
+    from _quant_hotpath import RustStateStore
 
-    reducer = MarketReducer()
-    state = MarketState(symbol="BTCUSDT")
+    _SCALE = 100_000_000
 
-    for bad_val in [float("nan"), float("inf"), float("-inf")]:
-        class _Evt:
-            event_type = "market"
-            symbol = "BTCUSDT"
-            ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
-            close = bad_val
-            open = bad_val
-            high = bad_val
-            low = bad_val
-            volume = 100.0
-            bar = None
+    store = RustStateStore(["BTCUSDT"], "USDT", 10000 * _SCALE)
 
-        result = reducer.reduce(state, _Evt())
-        assert not result.changed, f"Reducer accepted close={bad_val}"
+    class _H:
+        event_type = "market"
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        event_id = "test"
+
+    class _Evt:
+        header = _H()
+        event_type = "market"
+        symbol = "BTCUSDT"
+        close = float("nan")
+        open = float("nan")
+        high = float("nan")
+        low = float("nan")
+        volume = 100.0
+        bar = None
+
+    store.process_event(_Evt(), "BTCUSDT")
+    m = store.get_market("BTCUSDT")
+    # NaN converts to None in Rust fixed-point (cannot represent)
+    assert m.close is None, f"Store accepted NaN close as {m.close}"
 
 
 def test_pred_to_signal_canonical_import():

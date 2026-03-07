@@ -181,6 +181,8 @@ class TestFeatureHookV11:
 
     def test_hook_accepts_new_sources(self):
         from engine.feature_hook import FeatureComputeHook
+        from types import SimpleNamespace
+        from datetime import datetime
         comp = EnrichedFeatureComputer()
         hook = FeatureComputeHook(
             comp,
@@ -189,7 +191,13 @@ class TestFeatureHookV11:
             macro_source=lambda: {"date": "2024-01-01", "dxy": 100, "spx": 4500, "vix": 15},
             sentiment_source=lambda: {"social_volume": 50, "sentiment_score": 0.75},
         )
-        assert hook._pass_liquidation is True
-        assert hook._pass_mempool is True
-        assert hook._pass_macro is True
-        assert hook._pass_sentiment is True
+        assert hook._liquidation_source is not None
+        assert hook._mempool_source is not None
+        assert hook._macro_source is not None
+        assert hook._sentiment_source is not None
+        # Verify sources flow through to Rust path
+        ev = SimpleNamespace(event_type="MARKET", symbol="BTCUSDT",
+                             close=50000.0, volume=100.0, high=50100.0,
+                             low=49900.0, open=49950.0, ts=datetime(2024, 1, 1))
+        feats = hook.on_event(ev)
+        assert feats is not None

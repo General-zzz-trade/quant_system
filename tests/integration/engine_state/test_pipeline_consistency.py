@@ -64,11 +64,11 @@ def test_features_in_snapshot():
     coord = EngineCoordinator(cfg=cfg)
     coord.start()
 
-    for i in range(10):
+    for i in range(40):
         coord.emit(_market(40000.0 + i * 10, i), actor="test")
 
     snap = coord.get_state_view()["last_snapshot"]
     assert snap.features is not None
-    assert "ma_fast" in snap.features
     assert "close" in snap.features
-    assert snap.features["ma_fast"] is not None  # window should be full after 10 bars
+    # Rust engine produces ma_cross features after enough bars
+    assert "ma_cross_10_30" in snap.features or "ma_cross_5_20" in snap.features

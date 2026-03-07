@@ -2,25 +2,24 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from state._util import ensure_utc, to_decimal
 from state.account import AccountState
 from state.errors import ReducerError
 from state.market import MarketState
+from state.portfolio import PortfolioState
 from state.position import PositionState
-from state.reducers.base import ReducerResult
+from state.risk import RiskLimits, RiskState
 
 from _quant_hotpath import (
-    RustAccountReducer,
     RustAccountState,
-    RustMarketReducer,
     RustMarketState,
-    RustPositionReducer,
+    RustPortfolioState,
     RustPositionState,
+    RustRiskLimits,
+    RustRiskState,
 )
-
-HAS_RUST_STATE_REDUCERS = True
 
 # ---------------------------------------------------------------------------
 # Fixed-point scale: 10^8 (8 decimal places, matches crypto exchange precision)
@@ -151,63 +150,81 @@ def account_from_rust(state: Any) -> AccountState:
 
 
 # ---------------------------------------------------------------------------
-# Coerce note helper
+# Portfolio / risk converters
 # ---------------------------------------------------------------------------
 
-def _coerce_note(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    note = str(value)
-    return note or None
+def portfolio_to_rust(state: PortfolioState) -> Any:
+    return RustPortfolioState(
+        total_equity=str(state.total_equity),
+        cash_balance=str(state.cash_balance),
+        realized_pnl=str(state.realized_pnl),
+        unrealized_pnl=str(state.unrealized_pnl),
+        fees_paid=str(state.fees_paid),
+        gross_exposure=str(state.gross_exposure),
+        net_exposure=str(state.net_exposure),
+        leverage=(str(state.leverage) if state.leverage is not None else None),
+        margin_used=str(state.margin_used),
+        margin_available=str(state.margin_available),
+        margin_ratio=(str(state.margin_ratio) if state.margin_ratio is not None else None),
+        symbols=list(state.symbols),
+        last_ts=_ts_to_rust(state.last_ts),
+    )
 
 
-# ---------------------------------------------------------------------------
-# Reducer adapters (used by slow path when fast path is disabled)
-# ---------------------------------------------------------------------------
-
-class RustMarketReducerAdapter:
-    def __init__(self) -> None:
-        self._inner = RustMarketReducer()
-
-    def reduce(self, state: MarketState, event: Any) -> ReducerResult[MarketState]:
-        try:
-            res = self._inner.reduce(market_to_rust(state), event)
-        except Exception as e:
-            raise ReducerError(str(e)) from e
-        return ReducerResult(
-            state=market_from_rust(res.state),
-            changed=bool(res.changed),
-            note=_coerce_note(getattr(res, "note", None)),
-        )
+def portfolio_from_rust(state: Any) -> PortfolioState:
+    return PortfolioState(
+        total_equity=to_decimal(state.total_equity),
+        cash_balance=to_decimal(state.cash_balance),
+        realized_pnl=to_decimal(state.realized_pnl),
+        unrealized_pnl=to_decimal(state.unrealized_pnl),
+        fees_paid=to_decimal(state.fees_paid),
+        gross_exposure=to_decimal(state.gross_exposure),
+        net_exposure=to_decimal(state.net_exposure),
+        leverage=to_decimal(state.leverage) if getattr(state, "leverage", None) is not None else None,
+        margin_used=to_decimal(state.margin_used),
+        margin_available=to_decimal(state.margin_available),
+        margin_ratio=to_decimal(state.margin_ratio) if getattr(state, "margin_ratio", None) is not None else None,
+        symbols=tuple(getattr(state, "symbols", ()) or ()),
+        last_ts=_ts_from_rust(getattr(state, "last_ts", None)),
+    )
 
 
-class RustPositionReducerAdapter:
-    def __init__(self) -> None:
-        self._inner = RustPositionReducer()
-
-    def reduce(self, state: PositionState, event: Any) -> ReducerResult[PositionState]:
-        try:
-            res = self._inner.reduce(position_to_rust(state), event)
-        except Exception as e:
-            raise ReducerError(str(e)) from e
-        return ReducerResult(
-            state=position_from_rust(res.state),
-            changed=bool(res.changed),
-            note=_coerce_note(getattr(res, "note", None)),
-        )
+def risk_limits_to_rust(limits: RiskLimits) -> Any:
+    return RustRiskLimits(
+        max_leverage=str(limits.max_leverage),
+        max_position_notional=(
+            str(limits.max_position_notional)
+            if limits.max_position_notional is not None
+            else None
+        ),
+        max_drawdown_pct=str(limits.max_drawdown_pct),
+        block_on_equity_le_zero=bool(limits.block_on_equity_le_zero),
+    )
 
 
-class RustAccountReducerAdapter:
-    def __init__(self) -> None:
-        self._inner = RustAccountReducer()
+def risk_to_rust(state: RiskState) -> Any:
+    return RustRiskState(
+        blocked=bool(state.blocked),
+        halted=bool(state.halted),
+        level=state.level,
+        message=state.message,
+        flags=list(state.flags),
+        equity_peak=str(state.equity_peak),
+        drawdown_pct=str(state.drawdown_pct),
+        last_ts=_ts_to_rust(state.last_ts),
+    )
 
-    def reduce(self, state: AccountState, event: Any) -> ReducerResult[AccountState]:
-        try:
-            res = self._inner.reduce(account_to_rust(state), event)
-        except Exception as e:
-            raise ReducerError(str(e)) from e
-        return ReducerResult(
-            state=account_from_rust(res.state),
-            changed=bool(res.changed),
-            note=_coerce_note(getattr(res, "note", None)),
-        )
+
+def risk_from_rust(state: Any) -> RiskState:
+    return RiskState(
+        blocked=bool(state.blocked),
+        halted=bool(state.halted),
+        level=getattr(state, "level", None),
+        message=getattr(state, "message", None),
+        flags=tuple(getattr(state, "flags", ()) or ()),
+        equity_peak=to_decimal(state.equity_peak),
+        drawdown_pct=to_decimal(state.drawdown_pct),
+        last_ts=_ts_from_rust(getattr(state, "last_ts", None)),
+    )
+
+

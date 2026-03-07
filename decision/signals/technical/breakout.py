@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from decision.market_access import get_decimal_attr
 from decision.types import SignalResult
 
 
@@ -16,14 +17,10 @@ class BreakoutSignal:
         m = getattr(snapshot, "market", None)
         if m is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-        c = getattr(m, "close", None)
-        h = getattr(m, "high", None)
-        l = getattr(m, "low", None)
-        try:
-            c = Decimal(str(c))
-            h = Decimal(str(h))
-            l = Decimal(str(l))
-        except Exception:
+        c = get_decimal_attr(m, "close", "last_price")
+        h = get_decimal_attr(m, "high")
+        l = get_decimal_attr(m, "low")
+        if c is None or h is None or l is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if h > 0 and c >= h:
             return SignalResult(symbol=symbol, side="buy", score=Decimal("1"), confidence=Decimal("1"), meta={"c": str(c), "h": str(h)})

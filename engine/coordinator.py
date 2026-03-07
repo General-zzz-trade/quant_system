@@ -1,9 +1,9 @@
 # engine/coordinator.py
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 import threading
 
@@ -149,21 +149,6 @@ class EngineCoordinator:
         self._runtime = runtime
         self._runtime_handler: Optional[Callable[[Any], None]] = None
 
-        # ---- engine state (single source of truth, Rust types) ----
-        effective_symbols = cfg.symbols or (cfg.symbol_default,)
-        self._markets: Dict[str, Any] = {
-            s: RustMarketState.empty(s) for s in effective_symbols
-        }
-        self._account: Any = RustAccountState.initial(
-            currency=cfg.currency,
-            balance=int(cfg.starting_balance * _SCALE),
-        )
-        self._positions: Dict[str, Any] = {}
-        self._portfolio: Optional[Any] = None
-        self._risk: Optional[Any] = None
-        self._event_index: int = 0
-        self._last_event_id: Optional[str] = None
-        self._last_ts: Optional[Any] = None
         self._last_snapshot: Optional[Any] = None
 
         # ---- register handlers (single chain) ----
@@ -193,64 +178,34 @@ class EngineCoordinator:
         return self._pipeline
 
     def get_state_view(self) -> Mapping[str, Any]:
-        """
-        对外只暴露只读视图（便于 debug/监控；不承诺稳定字段）
-        """
+        """对外只暴露只读视图（便于 debug/监控；不承诺稳定字段）"""
         with self._lock:
-            if self._store is not None:
-                bundle = dict(self._store.export_state())
-                markets = {
-                    sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
-                    for sym, mkt in dict(bundle["markets"]).items()
-                }
-                account = (
-                    account_from_rust(bundle["account"])
-                    if isinstance(bundle["account"], RustAccountState)
-                    else bundle["account"]
-                )
-                positions = {
-                    sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
-                    for sym, pos in dict(bundle["positions"]).items()
-                }
-                return {
-                    "phase": self._phase.value,
-                    "symbol_default": self._cfg.symbol_default,
-                    "event_index": int(bundle["event_index"]),
-                    "last_event_id": bundle.get("last_event_id"),
-                    "last_ts": bundle.get("last_ts"),
-                    "markets": markets,
-                    "market": markets.get(self._cfg.symbol_default, next(iter(markets.values()))),
-                    "account": account,
-                    "positions": positions,
-                    "portfolio": portfolio_from_rust(bundle["portfolio"]),
-                    "risk": risk_from_rust(bundle["risk"]),
-                    "last_snapshot": self._last_snapshot,
-                }
+            bundle = dict(self._store.export_state())
             markets = {
                 sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
-                for sym, mkt in self._markets.items()
+                for sym, mkt in dict(bundle["markets"]).items()
             }
             account = (
-                account_from_rust(self._account)
-                if isinstance(self._account, RustAccountState)
-                else self._account
+                account_from_rust(bundle["account"])
+                if isinstance(bundle["account"], RustAccountState)
+                else bundle["account"]
             )
             positions = {
                 sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
-                for sym, pos in self._positions.items()
+                for sym, pos in dict(bundle["positions"]).items()
             }
             return {
                 "phase": self._phase.value,
                 "symbol_default": self._cfg.symbol_default,
-                "event_index": self._event_index,
-                "last_event_id": self._last_event_id,
-                "last_ts": self._last_ts,
+                "event_index": int(bundle["event_index"]),
+                "last_event_id": bundle.get("last_event_id"),
+                "last_ts": bundle.get("last_ts"),
                 "markets": markets,
                 "market": markets.get(self._cfg.symbol_default, next(iter(markets.values()))),
                 "account": account,
                 "positions": positions,
-                "portfolio": self._portfolio,
-                "risk": self._risk,
+                "portfolio": portfolio_from_rust(bundle["portfolio"]),
+                "risk": risk_from_rust(bundle["risk"]),
                 "last_snapshot": self._last_snapshot,
             }
 
@@ -348,26 +303,16 @@ class EngineCoordinator:
             if getattr(snapshot, "risk", None) is not None:
                 rust_risk = risk_to_rust(snapshot.risk)
 
-            if self._store is not None:
-                self._store.load_exported(
-                    rust_markets,
-                    rust_positions,
-                    rust_account,
-                    event_index=snapshot.bar_index,
-                    last_event_id=snapshot.event_id,
-                    last_ts=(snapshot.ts.isoformat() if getattr(snapshot, "ts", None) is not None else None),
-                    portfolio=rust_portfolio,
-                    risk=rust_risk,
-                )
-
-            self._markets = rust_markets
-            self._account = rust_account
-            self._positions = rust_positions
-            self._portfolio = getattr(snapshot, "portfolio", None)
-            self._risk = getattr(snapshot, "risk", None)
-            self._event_index = snapshot.bar_index
-            self._last_event_id = snapshot.event_id
-            self._last_ts = snapshot.ts
+            self._store.load_exported(
+                rust_markets,
+                rust_positions,
+                rust_account,
+                event_index=snapshot.bar_index,
+                last_event_id=snapshot.event_id,
+                last_ts=(snapshot.ts.isoformat() if getattr(snapshot, "ts", None) is not None else None),
+                portfolio=rust_portfolio,
+                risk=rust_risk,
+            )
 
     def detach_runtime(self) -> None:
         with self._lock:
@@ -390,40 +335,24 @@ class EngineCoordinator:
     # --------------------------------------------------------
 
     def _handle_pipeline_event(self, event: Any) -> None:
-        """
-        PIPELINE handler：事实事件推进 state 的唯一入口
-        """
+        """PIPELINE handler：事实事件推进 state 的唯一入口"""
         features = None
         if self._cfg.feature_hook is not None:
             features = self._cfg.feature_hook.on_event(event)
 
-        with self._lock:
-            inp = PipelineInput(
-                event=event,
-                event_index=self._event_index,
-                symbol_default=self._cfg.symbol_default,
-                markets=dict(self._markets),
-                account=self._account,
-                positions=self._positions,
-                portfolio=self._portfolio,
-                risk=self._risk,
-                features=features,
-            )
+        inp = PipelineInput(
+            event=event,
+            event_index=0,
+            symbol_default=self._cfg.symbol_default,
+            markets={},
+            account=None,
+            positions={},
+            features=features,
+        )
 
         out = self._pipeline.apply(inp)
 
-        # 统一更新 engine state（即使未 advanced，也允许替换为同对象；但我们仍按制度控制回调）
         with self._lock:
-            self._markets = dict(out.markets)
-            self._account = out.account
-            self._positions = dict(out.positions)
-            self._portfolio = out.portfolio
-            self._risk = out.risk
-            if out.advanced:
-                self._event_index = int(out.event_index)
-                self._last_event_id = getattr(out, "last_event_id", None)
-                self._last_ts = getattr(out, "last_ts", None)
-
             if out.snapshot is not None:
                 self._last_snapshot = out.snapshot
 
@@ -435,7 +364,7 @@ class EngineCoordinator:
         if self._cfg.on_snapshot is not None and out.snapshot is not None:
             self._cfg.on_snapshot(out.snapshot)
 
-        # 决策触发制度：仅在 MARKET 事件推进时触发（FILL/ORDER 更新 state 但不触发新决策）
+        # 决策触发制度：仅在 MARKET 事件推进时触发
         if self._decision_bridge is not None and out.advanced and out.snapshot is not None:
             from engine.pipeline import _detect_kind
             if _detect_kind(event) == "MARKET":
@@ -465,5 +394,3 @@ class EngineCoordinator:
         if self._execution_bridge is None:
             raise RuntimeError("ExecutionBridge is not attached")
         self._execution_bridge.handle_event(event)
-
-    # (no helpers needed — state init uses Rust types directly)

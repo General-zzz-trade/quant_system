@@ -5,43 +5,34 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from execution.store.interfaces import AckStore
+
+from _quant_hotpath import RustAckStore as _RustAckStore
 
 
 @dataclass(slots=True)
 class InMemoryAckStore(AckStore):
-    """Simple in-memory idempotency store. Suitable for backtests and short-lived runs."""
-    _m: Dict[str, Mapping[str, Any]] = field(default_factory=dict)
+    """In-memory idempotency store backed by Rust. Suitable for backtests and short-lived runs."""
     ttl_sec: Optional[float] = None
-    _ts: Dict[str, float] = field(default_factory=dict)
+    _rust: Any = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._rust = _RustAckStore(ttl_sec=self.ttl_sec)
 
     def get(self, key: str) -> Optional[Mapping[str, Any]]:
-        v = self._m.get(key)
-        if v is None:
+        payload_json = self._rust.get_json(key, time.time())
+        if payload_json is None:
             return None
-        if self.ttl_sec is not None:
-            ts = self._ts.get(key, 0.0)
-            if (time.time() - ts) > float(self.ttl_sec):
-                self._m.pop(key, None)
-                self._ts.pop(key, None)
-                return None
-        return v
+        return json.loads(payload_json)
 
     def put(self, key: str, value: Mapping[str, Any]) -> None:
-        self._m[key] = dict(value)
-        self._ts[key] = time.time()
+        payload_json = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+        self._rust.put_json(key, payload_json, time.time())
 
     def prune(self) -> int:
-        if self.ttl_sec is None:
-            return 0
-        now = time.time()
-        dead = [k for k, ts in self._ts.items() if (now - ts) > float(self.ttl_sec)]
-        for k in dead:
-            self._m.pop(k, None)
-            self._ts.pop(k, None)
-        return len(dead)
+        return int(self._rust.prune(time.time()))
 
 
 @dataclass(slots=True)

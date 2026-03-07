@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
+from _quant_hotpath import rust_compute_feature_signal
+from decision.market_access import get_float_attr
 from decision.types import SignalResult
 from features.live_computer import LiveFeatureComputer
 
@@ -38,49 +40,29 @@ class FeatureSignal:
         if mkt is None:
             return self._neutral(symbol)
 
-        close = getattr(mkt, "close", None) or getattr(mkt, "last_price", None)
+        close = get_float_attr(mkt, "close", "last_price")
         if close is None:
             return self._neutral(symbol)
 
-        volume = getattr(mkt, "volume", 0.0)
+        volume = get_float_attr(mkt, "volume") or 0.0
 
         # Feed bar to computer
         features = self.computer.on_bar(
-            symbol, close=float(close), volume=float(volume or 0),
+            symbol, close=close, volume=volume,
         )
 
         # Need minimum data
         if features.ma_fast is None or features.ma_slow is None:
             return self._neutral(symbol)
 
-        # Base score from momentum
         momentum = features.momentum or 0.0
-        if abs(momentum) < self.momentum_threshold:
-            side = "flat"
-            raw_score = 0.0
-        elif momentum > 0:
-            side = "buy"
-            raw_score = min(momentum / self.momentum_threshold, 5.0) / 5.0
-        else:
-            side = "sell"
-            raw_score = max(momentum / self.momentum_threshold, -5.0) / 5.0
+        volatility = features.volatility or 0.0
+        vwap_ratio = features.vwap_ratio if features.vwap_ratio is not None else 1.0
 
-        # VWAP confirmation
-        vwap_bonus = 0.0
-        if features.vwap_ratio is not None:
-            vwap_dev = features.vwap_ratio - 1.0
-            if (side == "buy" and vwap_dev > 0) or (side == "sell" and vwap_dev < 0):
-                vwap_bonus = self.vwap_weight * abs(vwap_dev)
-            elif side != "flat":
-                vwap_bonus = -self.vwap_weight * abs(vwap_dev) * 0.5
-
-        score = raw_score + vwap_bonus
-
-        # Confidence: reduced by high volatility
-        confidence = 1.0
-        if features.volatility is not None and features.volatility > 0:
-            vol_penalty = min(features.volatility * self.vol_penalty_factor * 100, 0.8)
-            confidence = max(1.0 - vol_penalty, 0.2)
+        side, score, confidence = rust_compute_feature_signal(
+            momentum, volatility, vwap_ratio,
+            self.momentum_threshold, self.vol_penalty_factor, self.vwap_weight,
+        )
 
         return SignalResult(
             symbol=symbol,

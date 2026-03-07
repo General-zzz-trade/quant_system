@@ -146,3 +146,19 @@ class TestFeatureSignal:
         result = sig.compute(self._snapshot("BTCUSDT", 105.0), "BTCUSDT")
         # Confidence should be reduced by volatility
         assert float(result.confidence) <= 1.0
+
+    def test_supports_rust_market_state(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        sig = FeatureSignal(computer=LiveFeatureComputer(fast_ma=3, slow_ma=5))
+        snap = SimpleNamespace(
+            markets={
+                "BTCUSDT": rust.RustMarketState(
+                    symbol="BTCUSDT",
+                    close=10_000_000_000,
+                    last_price=10_000_000_000,
+                    volume=1_000_000_000,
+                )
+            }
+        )
+        result = sig.compute(snap, "BTCUSDT")
+        assert result.side == "flat"

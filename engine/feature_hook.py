@@ -9,15 +9,11 @@ from typing import Any, Dict, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine
-    _HAS_RUST_FEATURES = True
-except ImportError:
-    _HAS_RUST_FEATURES = False
+from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine
 
 
 class FeatureComputeHook:
-    """Bridges LiveFeatureComputer into the engine pipeline.
+    """Bridges RustFeatureEngine into the engine pipeline.
 
     Called before pipeline.apply() to compute features from market events.
     Features are injected into PipelineInput.features and flow through
@@ -26,8 +22,8 @@ class FeatureComputeHook:
     Optionally integrates LiveInferenceBridge to run ML models and inject
     ml_score into the features dict.
 
-    When use_rust=True (default if available), uses per-symbol RustFeatureEngine
-    instances for ~5-10x faster incremental feature computation.
+    Uses per-symbol RustFeatureEngine instances for fast incremental
+    feature computation.
     """
 
     def __init__(self, computer: Any, inference_bridge: Any = None,
@@ -44,8 +40,7 @@ class FeatureComputeHook:
                  liquidation_source: Any = None,
                  mempool_source: Any = None,
                  macro_source: Any = None,
-                 sentiment_source: Any = None,
-                 use_rust: Optional[bool] = None) -> None:
+                 sentiment_source: Any = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._warmup_bars = warmup_bars
@@ -64,30 +59,7 @@ class FeatureComputeHook:
         self._sentiment_source = sentiment_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
-
-        # Rust feature engine: per-symbol instances (opt-in via use_rust=True)
-        self._use_rust = bool(use_rust) and _HAS_RUST_FEATURES
         self._rust_engines: Dict[str, Any] = {}
-
-        if self._use_rust:
-            logger.info("FeatureComputeHook: using RustFeatureEngine (fast path)")
-        else:
-            # Check once which extra params computer.on_bar accepts
-            import inspect
-            sig = inspect.signature(computer.on_bar)
-            self._pass_open = "open_" in sig.parameters
-            self._pass_hour = "hour" in sig.parameters
-            self._pass_funding = "funding_rate" in sig.parameters
-            self._pass_trades = "trades" in sig.parameters
-            self._pass_oi = "open_interest" in sig.parameters
-            self._pass_spot_close = "spot_close" in sig.parameters
-            self._pass_fgi = "fear_greed" in sig.parameters
-            self._pass_implied_vol = "implied_vol" in sig.parameters
-            self._pass_onchain = "onchain_metrics" in sig.parameters
-            self._pass_liquidation = "liquidation_metrics" in sig.parameters
-            self._pass_mempool = "mempool_metrics" in sig.parameters
-            self._pass_macro = "macro_metrics" in sig.parameters
-            self._pass_sentiment = "sentiment_metrics" in sig.parameters
 
         # Schema validation: warn if model requires features the computer doesn't provide
         if inference_bridge is not None:
@@ -287,86 +259,7 @@ class FeatureComputeHook:
         low = float(getattr(event, "low", 0) or 0)
         open_ = float(getattr(event, "open", 0) or 0)
 
-        if self._use_rust:
-            features = self._rust_push(symbol, close_f, volume, high, low, open_, event)
-        else:
-            bar_kwargs = {"close": close_f, "volume": volume, "high": high, "low": low}
-            if self._pass_open:
-                bar_kwargs["open_"] = open_
-
-            if self._pass_hour:
-                ts = getattr(event, "ts", None)
-                if isinstance(ts, datetime):
-                    bar_kwargs["hour"] = ts.hour
-                    bar_kwargs["dow"] = ts.weekday()
-
-            if self._pass_funding and self._funding_rate_source is not None:
-                rate = self._funding_rate_source()
-                if rate is not None:
-                    bar_kwargs["funding_rate"] = rate
-
-            if self._pass_trades:
-                bar_kwargs["trades"] = float(getattr(event, "trades", 0) or 0)
-                bar_kwargs["taker_buy_volume"] = float(getattr(event, "taker_buy_volume", 0) or 0)
-                bar_kwargs["quote_volume"] = float(getattr(event, "quote_volume", 0) or 0)
-
-            if self._pass_oi:
-                if self._oi_source is not None:
-                    oi_val = self._oi_source()
-                    if oi_val is not None:
-                        bar_kwargs["open_interest"] = oi_val
-                if self._ls_ratio_source is not None:
-                    ls_val = self._ls_ratio_source()
-                    if ls_val is not None:
-                        bar_kwargs["ls_ratio"] = ls_val
-
-            if self._pass_spot_close and self._spot_close_source is not None:
-                spot_val = self._spot_close_source()
-                if spot_val is not None:
-                    bar_kwargs["spot_close"] = spot_val
-
-            if self._pass_fgi and self._fgi_source is not None:
-                fgi_val = self._fgi_source()
-                if fgi_val is not None:
-                    bar_kwargs["fear_greed"] = fgi_val
-
-            if self._pass_implied_vol:
-                if self._implied_vol_source is not None:
-                    iv_val = self._implied_vol_source()
-                    if iv_val is not None:
-                        bar_kwargs["implied_vol"] = iv_val
-                if self._put_call_ratio_source is not None:
-                    pcr_val = self._put_call_ratio_source()
-                    if pcr_val is not None:
-                        bar_kwargs["put_call_ratio"] = pcr_val
-
-            if self._pass_onchain and self._onchain_source is not None:
-                oc_val = self._onchain_source()
-                if oc_val is not None:
-                    bar_kwargs["onchain_metrics"] = oc_val
-
-            if self._pass_liquidation and self._liquidation_source is not None:
-                liq_val = self._liquidation_source()
-                if liq_val is not None:
-                    bar_kwargs["liquidation_metrics"] = liq_val
-
-            if self._pass_mempool and self._mempool_source is not None:
-                mp_val = self._mempool_source()
-                if mp_val is not None:
-                    bar_kwargs["mempool_metrics"] = mp_val
-
-            if self._pass_macro and self._macro_source is not None:
-                macro_val = self._macro_source()
-                if macro_val is not None:
-                    bar_kwargs["macro_metrics"] = macro_val
-
-            if self._pass_sentiment and self._sentiment_source is not None:
-                sent_val = self._sentiment_source()
-                if sent_val is not None:
-                    bar_kwargs["sentiment_metrics"] = sent_val
-
-            self._computer.on_bar(symbol, **bar_kwargs)
-            features = self._computer.get_features_dict(symbol)
+        features = self._rust_push(symbol, close_f, volume, high, low, open_, event)
 
         count = self._bar_count.get(symbol, 0) + 1
         self._bar_count[symbol] = count

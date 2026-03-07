@@ -4,10 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import hashlib
 import json
+
+from _quant_hotpath import RustPayloadDedupGuard as _RustPayloadDedupGuard
 
 
 # ============================================================
@@ -56,16 +58,11 @@ class FillDeduplicator:
     - Same (venue, symbol, fill_key) with different digest: FAIL FAST (data corruption)
     """
     def __init__(self) -> None:
-        self._seen: Dict[Tuple[str, str, str], str] = {}
+        self._rust = _RustPayloadDedupGuard()
 
     def accept_or_raise(self, *, key: Tuple[str, str, str], digest: str) -> bool:
-        prev = self._seen.get(key)
-        if prev is None:
-            self._seen[key] = digest
-            return True
-        if prev == digest:
-            return False
-        raise ValueError(f"duplicate fill key payload mismatch: key={key}, prev={prev}, now={digest}")
+        packed = "\x1f".join(str(part) for part in key)
+        return bool(self._rust.check_and_insert(packed, digest))
 
 
 # ============================================================

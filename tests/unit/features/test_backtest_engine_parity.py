@@ -314,6 +314,7 @@ class TestFullBacktest:
 # ── Performance ───────────────────────────────────────────────
 
 class TestPerformance:
+    @pytest.mark.benchmark
     def test_speed_vs_python(self):
         ts, closes, volumes, vol_20, y_pred, f_ts, f_rates = _make_synthetic_data(13000)
         cfg_json = json.dumps({"deadzone": 0.5, "min_hold": 24, "zscore_window": 720,

@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
+
+from decision.market_access import get_decimal_attr
 from decision.types import SignalResult
 
 
@@ -22,7 +24,7 @@ class BollingerBandSignal:
         raw_close = feats.get(self.close_key)
         if raw_close is None:
             market = getattr(snapshot, "market", None)
-            raw_close = getattr(market, "close", None)
+            raw_close = get_decimal_attr(market, "close", "last_price") if market is not None else None
 
         raw_upper = feats.get(self.upper_key)
         raw_lower = feats.get(self.lower_key)

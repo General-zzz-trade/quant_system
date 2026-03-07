@@ -159,6 +159,19 @@ class TestMarketableLimitPolicy:
         result = pol.apply(snap, self._order("sell"))
         assert result.price < Decimal("100")
 
+    def test_uses_rust_market_state_float_accessors(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        snap = SimpleNamespace(
+            market=rust.RustMarketState(
+                symbol="BTCUSDT",
+                close=10_000_000_000,
+                last_price=10_000_000_000,
+            )
+        )
+        pol = MarketableLimitPolicy(slippage_bps=Decimal("10"))
+        result = pol.apply(snap, self._order("buy"))
+        assert result.price < Decimal("100.2")
+
 
 # ── PassivePolicy ────────────────────────────────────────────────────
 
@@ -184,6 +197,19 @@ class TestPassivePolicy:
         snap = self._snap(100)
         result = pol.apply(snap, self._order("sell"))
         assert result.price > Decimal("100")
+
+    def test_uses_rust_market_state_float_accessors(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        snap = SimpleNamespace(
+            market=rust.RustMarketState(
+                symbol="BTCUSDT",
+                close=10_000_000_000,
+                last_price=10_000_000_000,
+            )
+        )
+        pol = PassivePolicy(offset_bps=Decimal("5"))
+        result = pol.apply(snap, self._order("buy"))
+        assert result.price > Decimal("99.9")
 
 
 # ── BasicKillOverlay ─────────────────────────────────────────────────

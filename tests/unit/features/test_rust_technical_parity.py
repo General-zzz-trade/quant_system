@@ -1,7 +1,6 @@
-"""Parity tests: Rust PyO3 technical indicators vs Python fallback.
+"""Tests for Rust PyO3 technical indicators.
 
-Verifies that the Rust implementations in _quant_hotpath produce
-identical results to the Python implementations.
+Verifies correctness of the Rust implementations in _quant_hotpath.
 """
 import math
 import pytest
@@ -106,7 +105,6 @@ class TestRollingWindow:
             rust_rw.push(p)
             assert py_rw.full == rust_rw.full
             if py_rw.full:
-                # rel=1e-9: Python adds-then-subtracts, Rust subtracts-then-adds
                 assert py_rw.mean == pytest.approx(rust_rw.mean, rel=1e-9)
                 assert py_rw.variance == pytest.approx(rust_rw.variance, rel=1e-9)
                 assert py_rw.std == pytest.approx(rust_rw.std, rel=1e-9)
@@ -150,17 +148,6 @@ class TestSMA:
         assert result[3] == pytest.approx(3.0)
         assert result[4] == pytest.approx(4.0)
 
-    def test_parity(self):
-        from features.technical import sma as py_sma
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_result = py_sma(prices, 20)
-        tech._USING_CPP = saved
-        rust_result = cpp_sma(prices, 20)
-        _approx_series(py_result, rust_result)
-
     def test_window_sizes(self):
         prices = _make_prices(100)
         for w in [2, 5, 10, 50]:
@@ -178,17 +165,6 @@ class TestEMA:
         assert result[0] == pytest.approx(1.0)
         alpha = 2.0 / 3.0
         assert result[1] == pytest.approx(alpha * 2.0 + (1 - alpha) * 1.0)
-
-    def test_parity(self):
-        from features.technical import ema as py_ema
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_result = py_ema(prices, 20)
-        tech._USING_CPP = saved
-        rust_result = cpp_ema(prices, 20)
-        _approx_series(py_result, rust_result)
 
 
 # ── Returns ──
@@ -208,48 +184,10 @@ class TestReturns:
         result = cpp_returns([0.0, 100.0], False)
         assert result[1] is None
 
-    def test_parity(self):
-        from features.technical import returns as py_returns
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_result = py_returns(prices)
-        tech._USING_CPP = saved
-        rust_result = cpp_returns(prices, False)
-        _approx_series(py_result, rust_result)
-
-
-# ── Volatility ──
-
-class TestVolatility:
-    def test_parity(self):
-        from features.technical import volatility as py_vol
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        rets = cpp_returns(prices, False)
-        py_result = py_vol(rets, 20)
-        tech._USING_CPP = saved
-        rust_result = cpp_volatility(rets, 20)
-        _approx_series(py_result, rust_result)
-
 
 # ── RSI ──
 
 class TestRSI:
-    def test_parity(self):
-        from features.technical import rsi as py_rsi
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_result = py_rsi(prices, 14)
-        tech._USING_CPP = saved
-        rust_result = cpp_rsi(prices, 14)
-        _approx_series(py_result, rust_result)
-
     def test_edge_all_up(self):
         vals = list(range(1, 21))
         result = cpp_rsi(vals, 14)
@@ -266,55 +204,18 @@ class TestRSI:
 # ── MACD ──
 
 class TestMACD:
-    def test_parity(self):
-        from features.technical import macd as py_macd
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_ml, py_sl, py_hist = py_macd(prices, 12, 26, 9)
-        tech._USING_CPP = saved
-        rust_ml, rust_sl, rust_hist = cpp_macd(prices, 12, 26, 9)
-        _approx_series(py_ml, rust_ml)
-        _approx_series(py_sl, rust_sl)
-        _approx_series(py_hist, rust_hist)
-
     def test_invalid(self):
         with pytest.raises(Exception):
             cpp_macd([1.0, 2.0], 26, 12, 9)
 
 
-# ── Bollinger Bands ──
-
-class TestBollingerBands:
-    def test_parity(self):
-        from features.technical import bollinger_bands as py_bb
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-        prices = _make_prices(200)
-        py_u, py_m, py_l = py_bb(prices, 20, 2.0)
-        tech._USING_CPP = saved
-        rust_u, rust_m, rust_l = cpp_bollinger_bands(prices, 20, 2.0)
-        _approx_series(py_u, rust_u)
-        _approx_series(py_m, rust_m)
-        _approx_series(py_l, rust_l)
-
-
 # ── ATR ──
 
 class TestATR:
-    def test_parity(self):
+    def test_parity_manual(self):
         opens, highs, lows, closes, volumes = _make_ohlcv(200)
         rust_result = cpp_atr(highs, lows, closes, 14)
 
-        # Python fallback
-        from features.technical import atr as py_atr
-        import features.technical as tech
-        saved = tech._USING_CPP
-        tech._USING_CPP = False
-
-        # ATR expects Bar objects; compute manually for parity
         n = len(closes)
         trs = []
         for i in range(n):
@@ -341,7 +242,6 @@ class TestATR:
             atr_prev = (atr_prev * 13 + trs[i]) / 14
             py_result[i] = atr_prev
 
-        tech._USING_CPP = saved
         _approx_series(py_result, rust_result)
 
 
@@ -393,7 +293,6 @@ class TestVWAP:
     def test_parity(self):
         _, _, _, closes, volumes = _make_ohlcv(200)
         rust_result = cpp_vwap(closes, volumes, 20)
-        # Manual Python
         n = len(closes)
         py_result = []
         for i in range(n):
@@ -412,17 +311,15 @@ class TestVWAP:
 class TestOrderFlowImbalance:
     def test_basic(self):
         opens = [100.0, 100.0, 100.0]
-        closes = [110.0, 90.0, 110.0]  # buy, sell, buy
+        closes = [110.0, 90.0, 110.0]
         volumes = [10.0, 10.0, 10.0]
         result = cpp_order_flow_imbalance(opens, closes, volumes, 2)
         assert result[0] is None
-        # Window [0,1]: sv = +10 + (-10) = 0, abs = 20, OFI = 0
         assert result[1] == pytest.approx(0.0)
 
     def test_parity(self):
         opens, _, _, closes, volumes = _make_ohlcv(200)
         rust_result = cpp_order_flow_imbalance(opens, closes, volumes, 20)
-        # Manual Python
         n = len(closes)
         sv = [(1.0 if closes[i] >= opens[i] else -1.0) * volumes[i] for i in range(n)]
         py_result = []
@@ -451,7 +348,6 @@ class TestRollingVolatility:
         prices = _make_prices(200)
         rets = cpp_returns(prices, False)
         rust_result = cpp_rolling_volatility(rets, 20)
-        # Not None after warmup
         assert all(r is None for r in rust_result[:19])
         valid = [r for r in rust_result[20:] if r is not None]
         assert len(valid) > 100
@@ -474,9 +370,10 @@ class TestPriceImpact:
 
 class TestDispatchIntegration:
     def test_sma_dispatches_to_rust(self):
-        """Verify that importing features.technical dispatches to Rust."""
-        import features.technical as tech
-        assert tech._USING_CPP is True
+        """Verify that features.technical.sma calls Rust directly."""
+        from features.technical import sma
+        result = sma([1.0, 2.0, 3.0], 2)
+        assert result[1] == pytest.approx(1.5)
 
     def test_rolling_dispatches_to_rust(self):
         """Verify that features.rolling imports from Rust."""

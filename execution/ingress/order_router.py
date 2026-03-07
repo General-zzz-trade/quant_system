@@ -4,11 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 import hashlib
 import json
 
 from engine.coordinator import EngineCoordinator
+
+from _quant_hotpath import RustPayloadDedupGuard as _RustPayloadDedupGuard
 
 
 def _stable_sha256(obj: Any) -> str:
@@ -29,7 +31,7 @@ class OrderIngressRouter:
     default_actor: str = "venue:unknown"
 
     # slots=True 时，内部状态必须声明成字段
-    _seen: Dict[str, str] = field(default_factory=dict, init=False, repr=False)
+    _dedup: Any = field(default_factory=_RustPayloadDedupGuard, init=False, repr=False)
 
     def ingest_canonical_order(self, order: Any, *, actor: Optional[str] = None) -> bool:
         venue = getattr(order, "venue", None) or "unknown"
@@ -78,13 +80,8 @@ class OrderIngressRouter:
                 }
             )
 
-        prev = self._seen.get(order_key)
-        if prev is not None:
-            if prev == payload_digest:
-                return False
-            raise ValueError(f"Order payload mismatch for duplicate key: {order_key}")
-
-        self._seen[order_key] = payload_digest
+        if not self._dedup.check_and_insert(order_key, payload_digest):
+            return False
 
         ev_id = f"order_update:{order_key}:{payload_digest[:12]}"
         header = SimpleNamespace(ts=ts, event_id=ev_id)

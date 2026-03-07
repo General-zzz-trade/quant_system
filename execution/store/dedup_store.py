@@ -5,48 +5,30 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Any, Optional
 
 from execution.store.interfaces import DedupStore
+
+from _quant_hotpath import RustDedupStore as _RustDedupStore
 
 
 @dataclass(slots=True)
 class InMemoryDedupStore(DedupStore):
-    """In-memory dedup store keyed by string -> digest.
-
-    Notes:
-    - Suitable for backtests / short-lived runs.
-    - Not restart-safe.
-    """
+    """In-memory dedup store backed by Rust. Not restart-safe."""
     ttl_sec: Optional[float] = None
-    _m: Dict[str, str] = field(default_factory=dict, init=False)
-    _ts: Dict[str, float] = field(default_factory=dict, init=False)
+    _rust: Any = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._rust = _RustDedupStore(ttl_sec=self.ttl_sec)
 
     def get(self, key: str) -> Optional[str]:
-        v = self._m.get(key)
-        if v is None:
-            return None
-        if self.ttl_sec is not None:
-            ts = self._ts.get(key)
-            if ts is not None and (time.time() - ts) > float(self.ttl_sec):
-                self._m.pop(key, None)
-                self._ts.pop(key, None)
-                return None
-        return v
+        return self._rust.get(key, time.time())
 
     def put(self, key: str, digest: str) -> None:
-        self._m[key] = str(digest)
-        self._ts[key] = time.time()
+        self._rust.put(key, str(digest), time.time())
 
     def prune(self) -> int:
-        if self.ttl_sec is None:
-            return 0
-        now = time.time()
-        dead = [k for k, ts in self._ts.items() if (now - ts) > float(self.ttl_sec)]
-        for k in dead:
-            self._m.pop(k, None)
-            self._ts.pop(k, None)
-        return len(dead)
+        return int(self._rust.prune(time.time()))
 
 
 @dataclass(slots=True)

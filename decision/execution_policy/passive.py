@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
+from _quant_hotpath import rust_limit_price as _rust_limit_price
+
+from decision.market_access import get_decimal_attr
 from state.snapshot import StateSnapshot
 from decision.types import OrderSpec
 
@@ -14,10 +17,8 @@ class PassivePolicy:
 
     def apply(self, snapshot: StateSnapshot, order: OrderSpec) -> OrderSpec:
         m = snapshot.market
-        px = Decimal(str(getattr(m, "close", None) or getattr(m, "last_price", None)))
-        bps = self.offset_bps / Decimal("10000")
-        if order.side == "buy":
-            price = px * (Decimal("1") - bps)
-        else:
-            price = px * (Decimal("1") + bps)
+        px = get_decimal_attr(m, "close", "last_price")
+        if px is None:
+            raise ValueError("No market price available for passive policy")
+        price = Decimal(str(_rust_limit_price(order.side, str(px), str(self.offset_bps), False)))
         return replace(order, price=price, order_type="limit")

@@ -1,12 +1,13 @@
-# event/store.py
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import threading
-from typing import Iterable, List, Tuple
+from typing import Iterable
 
 from event.types import BaseEvent
 from event.errors import EventFatalError
+
+from _quant_hotpath import RustInMemoryEventStore as _RustInMemoryEventStore
 
 
 # ============================================================
@@ -41,32 +42,23 @@ class EventStore(ABC):
 # ============================================================
 
 class InMemoryEventStore(EventStore):
-    """
-    InMemoryEventStore —— 内存事件事实仓库
-
-    用途：
-    - 回测
-    - Replay
-    - 单元测试
-    - event 层制度封顶阶段
-    """
+    """In-memory event store backed by Rust."""
 
     def __init__(self) -> None:
-        self._events: List[BaseEvent] = []
+        self._rust = _RustInMemoryEventStore()
 
     def append(self, event: BaseEvent) -> None:
         if not isinstance(event, BaseEvent):
             raise EventFatalError(
                 f"EventStore.append only accepts BaseEvent, got {type(event)}"
             )
-        self._events.append(event)
+        self._rust.append(event)
 
     def iter_events(self) -> Iterable[BaseEvent]:
-        # 返回不可变快照，防止外部篡改事实
-        return tuple(self._events)
+        return tuple(self._rust.iter_events())
 
     def size(self) -> int:
-        return len(self._events)
+        return int(self._rust.size())
 
 
 # ============================================================

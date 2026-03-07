@@ -360,7 +360,6 @@ class LiveRunner:
                 mempool_source=mempool_source,
                 macro_source=macro_source,
                 sentiment_source=sentiment_source,
-                use_rust=True,
             )
 
         # Wire inference_bridge to monitoring hook

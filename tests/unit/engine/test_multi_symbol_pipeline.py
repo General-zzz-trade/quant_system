@@ -11,6 +11,13 @@ from engine.pipeline import PipelineInput, StatePipeline
 from state.account import AccountState
 from state.market import MarketState
 from state.position import PositionState
+from _quant_hotpath import RustStateStore
+
+_SCALE = 100_000_000
+
+
+def _make_store(symbols=("BTCUSDT", "ETHUSDT"), balance=100000):
+    return RustStateStore(list(symbols), "USDT", int(balance * _SCALE))
 
 
 def _market_event(symbol: str, close: str, *, event_id: str = "m-1") -> SimpleNamespace:
@@ -61,7 +68,7 @@ def _close_f(market) -> float:
 
 class TestMultiSymbolMarketIsolation:
     def test_btc_market_event_only_updates_btc(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_input(_market_event("BTCUSDT", "42000"))
         out = pipeline.apply(inp)
 
@@ -70,7 +77,7 @@ class TestMultiSymbolMarketIsolation:
         assert out.markets["ETHUSDT"].close is None  # unchanged
 
     def test_eth_market_event_only_updates_eth(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_input(_market_event("ETHUSDT", "3000"))
         out = pipeline.apply(inp)
 
@@ -78,7 +85,7 @@ class TestMultiSymbolMarketIsolation:
         assert out.markets["BTCUSDT"].close is None  # unchanged
 
     def test_sequential_market_events_accumulate(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp1 = _make_input(_market_event("BTCUSDT", "42000", event_id="m-1"))
         out1 = pipeline.apply(inp1)
 
@@ -95,7 +102,7 @@ class TestMultiSymbolMarketIsolation:
 
 class TestMultiSymbolFillIsolation:
     def test_btc_fill_does_not_affect_eth_position(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_input(_fill_event("BTCUSDT", "buy", 1.0, 42000.0))
         out = pipeline.apply(inp)
 
@@ -108,7 +115,7 @@ class TestMultiSymbolFillIsolation:
         assert eth_pos is None or eth_pos.qty == Decimal("0")
 
     def test_fills_for_different_symbols_track_separately(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
 
         inp1 = _make_input(_fill_event("BTCUSDT", "buy", 1.0, 42000.0, event_id="f-1"))
         out1 = pipeline.apply(inp1)
@@ -126,7 +133,7 @@ class TestMultiSymbolFillIsolation:
 
 class TestMultiSymbolSnapshot:
     def test_snapshot_contains_all_markets(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store())
         inp = _make_input(_market_event("BTCUSDT", "42000"))
         out = pipeline.apply(inp)
 
@@ -139,7 +146,7 @@ class TestMultiSymbolSnapshot:
 
 class TestUnknownSymbolAutoCreation:
     def test_unknown_symbol_market_event_creates_state(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store(symbols=("BTCUSDT",)))
         inp = _make_input(
             _market_event("SOLUSDT", "150"),
             markets={"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
@@ -150,7 +157,7 @@ class TestUnknownSymbolAutoCreation:
         assert _close_f(out.markets["SOLUSDT"]) == pytest.approx(150.0)
 
     def test_unknown_symbol_fill_creates_position(self):
-        pipeline = StatePipeline()
+        pipeline = StatePipeline(store=_make_store(symbols=("BTCUSDT",)))
         inp = _make_input(
             _fill_event("SOLUSDT", "buy", 100.0, 150.0),
             markets={"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},

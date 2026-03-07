@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from decision.market_access import get_decimal_attr
 from decision.types import SignalResult
 
 
@@ -16,12 +17,9 @@ class MeanReversionSignal:
         m = getattr(snapshot, "market", None)
         if m is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-        o = getattr(m, "open", None)
-        c = getattr(m, "close", None)
-        try:
-            o = Decimal(str(o))
-            c = Decimal(str(c))
-        except Exception:
+        o = get_decimal_attr(m, "open")
+        c = get_decimal_attr(m, "close", "last_price")
+        if o is None or c is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if c < o:
             return SignalResult(symbol=symbol, side="buy", score=(o - c) / max(o, Decimal("1")), confidence=Decimal("0.6"), meta={"o": str(o), "c": str(c)})

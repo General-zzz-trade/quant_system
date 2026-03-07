@@ -59,6 +59,34 @@ def _dc_to_dict(obj: Any) -> Any:
         return {"__decimal__": str(obj)}
     if isinstance(obj, datetime):
         return {"__datetime__": obj.isoformat()}
+    try:
+        from _quant_hotpath import (
+            RustAccountState,
+            RustMarketState,
+            RustPortfolioState,
+            RustPositionState,
+            RustRiskState,
+        )
+        from state.rust_adapters import (
+            account_from_rust,
+            market_from_rust,
+            portfolio_from_rust,
+            position_from_rust,
+            risk_from_rust,
+        )
+
+        if isinstance(obj, RustMarketState):
+            return _dc_to_dict(market_from_rust(obj))
+        if isinstance(obj, RustPositionState):
+            return _dc_to_dict(position_from_rust(obj))
+        if isinstance(obj, RustAccountState):
+            return _dc_to_dict(account_from_rust(obj))
+        if isinstance(obj, RustPortfolioState):
+            return _dc_to_dict(portfolio_from_rust(obj))
+        if isinstance(obj, RustRiskState):
+            return _dc_to_dict(risk_from_rust(obj))
+    except Exception:
+        pass
     if hasattr(obj, "__dataclass_fields__"):
         return {f: _dc_to_dict(getattr(obj, f)) for f in obj.__dataclass_fields__}
     if isinstance(obj, dict):

@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 from types import SimpleNamespace
 
+from decision.market_access import get_decimal_attr
 from decision.rebalancing.schedule import RebalanceSchedule, AlwaysRebalance
 from event.types import IntentEvent
 
@@ -115,7 +116,7 @@ class RebalanceModule:
         if account is None:
             return None
         for attr in ("equity", "balance", "nav"):
-            v = getattr(account, attr, None)
+            v = get_decimal_attr(account, attr)
             if v is not None:
                 return _d(v)
         return None
@@ -130,7 +131,7 @@ class RebalanceModule:
         weights: dict[str, Decimal] = {}
         for sym in self.target_weights:
             pos = positions.get(sym)
-            qty = _d(getattr(pos, "qty", 0)) if pos else Decimal("0")
+            qty = _d(get_decimal_attr(pos, "qty") if pos else Decimal("0"))
             px = self._get_price(sym, markets)
             if px is None or px <= 0:
                 weights[sym] = Decimal("0")
@@ -142,11 +143,7 @@ class RebalanceModule:
         m = markets.get(sym)
         if m is None:
             return None
-        for attr in ("close", "last_price", "mark_price"):
-            v = getattr(m, attr, None)
-            if v is not None:
-                return _d(v)
-        return None
+        return get_decimal_attr(m, "close", "last_price", "mark_price")
 
     def _generate_intents(
         self,

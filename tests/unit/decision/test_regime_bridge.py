@@ -10,7 +10,8 @@ import pytest
 
 from regime.base import RegimeLabel
 from decision.regime_policy import RegimePolicy
-from decision.regime_bridge import RegimeAwareDecisionModule, _PriceBuffer
+from _quant_hotpath import RustRegimeBuffer
+from decision.regime_bridge import RegimeAwareDecisionModule
 
 
 # ── Stubs ────────────────────────────────────────────────────
@@ -101,11 +102,11 @@ class TestRegimePolicy:
         assert ok is True
 
 
-# ── PriceBuffer tests ────────────────────────────────────────
+# ── RustRegimeBuffer tests ──────────────────────────────────
 
 class TestPriceBuffer:
     def test_ma_computation(self):
-        buf = _PriceBuffer(maxlen=50)
+        buf = RustRegimeBuffer(50)
         for i in range(10):
             buf.push(float(100 + i))
         ma = buf.ma(5)
@@ -113,19 +114,19 @@ class TestPriceBuffer:
         assert ma == pytest.approx(107.0)
 
     def test_ma_returns_none_if_insufficient(self):
-        buf = _PriceBuffer(maxlen=50)
+        buf = RustRegimeBuffer(50)
         buf.push(100.0)
         assert buf.ma(5) is None
 
     def test_rolling_vol_constant_price(self):
-        buf = _PriceBuffer(maxlen=200)
+        buf = RustRegimeBuffer(200)
         for _ in range(50):
             buf.push(100.0)
         vol = buf.rolling_vol(20)
         assert vol == pytest.approx(0.0, abs=1e-12)
 
     def test_rolling_vol_returns_none_if_insufficient(self):
-        buf = _PriceBuffer(maxlen=50)
+        buf = RustRegimeBuffer(50)
         for i in range(10):
             buf.push(float(100 + i))
         assert buf.rolling_vol(20) is None

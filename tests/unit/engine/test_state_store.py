@@ -312,15 +312,12 @@ class TestStorePathPipeline:
 
 class TestStateStoreBenchmark:
     @pytest.mark.benchmark
-    def test_benchmark_vs_fast_path(self):
-        """RustStateStore should be faster than Phase 0 fast path."""
+    def test_benchmark_raw_vs_pipeline(self):
+        """RustStateStore raw vs pipeline throughput."""
         from engine.pipeline import StatePipeline, PipelineInput
-        from state.market import MarketState
-        from state.account import AccountState
 
         N = 1000
 
-        # Build events
         events = []
         for i in range(N):
             if i % 3 == 0:
@@ -341,19 +338,6 @@ class TestStateStoreBenchmark:
             store.process_event(ev, "BTCUSDT")
         store_ms = (time.perf_counter() - t0) * 1000
 
-        # Benchmark fast path pipeline
-        pipeline = StatePipeline()
-        t0 = time.perf_counter()
-        for ev in events:
-            inp = PipelineInput(
-                event=ev, event_index=0, symbol_default="BTCUSDT",
-                markets={"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
-                account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
-                positions={},
-            )
-            pipeline.apply(inp)
-        fast_ms = (time.perf_counter() - t0) * 1000
-
         # Benchmark store path pipeline
         store2 = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
         store_pipeline = StatePipeline(store=store2)
@@ -364,16 +348,13 @@ class TestStateStoreBenchmark:
                 markets={}, account=None, positions={},
             )
             store_pipeline.apply(inp)
-        store_path_ms = (time.perf_counter() - t0) * 1000
+        pipeline_ms = (time.perf_counter() - t0) * 1000
 
-        speedup_raw = fast_ms / store_ms if store_ms > 0 else float("inf")
-        speedup_path = fast_ms / store_path_ms if store_path_ms > 0 else float("inf")
-        print(f"\nRaw store: {store_ms:.2f}ms, Fast path: {fast_ms:.2f}ms, "
-              f"Store path: {store_path_ms:.2f}ms")
-        print(f"Raw speedup: {speedup_raw:.2f}x, Store path speedup: {speedup_path:.2f}x "
-              f"({N} events)")
+        overhead = pipeline_ms / store_ms if store_ms > 0 else float("inf")
+        print(f"\nRaw store: {store_ms:.2f}ms, Pipeline: {pipeline_ms:.2f}ms, "
+              f"Overhead: {overhead:.2f}x ({N} events)")
 
-        assert store_ms < fast_ms * 2.0, (
-            f"StateStore ({store_ms:.2f}ms) should not be much slower than "
-            f"fast path ({fast_ms:.2f}ms)"
+        assert pipeline_ms < store_ms * 3.0, (
+            f"Pipeline ({pipeline_ms:.2f}ms) overhead too high vs "
+            f"raw store ({store_ms:.2f}ms)"
         )

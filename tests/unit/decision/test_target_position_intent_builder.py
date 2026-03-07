@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from decision.intents.target_position import TargetPositionIntentBuilder
+from decision.types import TargetPosition
+from state.account import AccountState
+from state.market import MarketState
+from state.position import PositionState
+from state.snapshot import StateSnapshot
+
+
+def _snapshot(pos_qty: str = '0') -> StateSnapshot:
+    ts = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
+    return StateSnapshot(
+        symbol='BTCUSDT',
+        ts=ts,
+        event_id='e-1',
+        event_type='market',
+        bar_index=1,
+        markets={
+            'BTCUSDT': MarketState(
+                symbol='BTCUSDT',
+                last_price=Decimal('100'),
+                open=Decimal('100'),
+                high=Decimal('101'),
+                low=Decimal('99'),
+                close=Decimal('100'),
+                volume=Decimal('1'),
+                last_ts=ts,
+            )
+        },
+        positions={
+            'BTCUSDT': PositionState(
+                symbol='BTCUSDT',
+                qty=Decimal(pos_qty),
+                avg_price=None,
+                last_price=Decimal('100'),
+                last_ts=ts,
+            )
+        },
+        account=AccountState(
+            currency='USDT',
+            balance=Decimal('1000'),
+            margin_used=Decimal('0'),
+            margin_available=Decimal('1000'),
+            realized_pnl=Decimal('0'),
+            unrealized_pnl=Decimal('0'),
+            fees_paid=Decimal('0'),
+            last_ts=ts,
+        ),
+        portfolio=None,
+        risk=None,
+    )
+
+
+class TestTargetPositionIntentBuilder:
+    def test_builds_buy_delta(self) -> None:
+        builder = TargetPositionIntentBuilder()
+        order = builder.build(_snapshot('0.5'), TargetPosition(symbol='BTCUSDT', target_qty=Decimal('1.25')))
+
+        assert order is not None
+        assert order.side == 'buy'
+        assert order.qty == Decimal('0.75')
+        assert order.meta == {'reason_code': 'signal', 'origin': 'decision'}
+
+    def test_builds_sell_delta(self) -> None:
+        builder = TargetPositionIntentBuilder()
+        order = builder.build(_snapshot('2'), TargetPosition(symbol='BTCUSDT', target_qty=Decimal('0.5')))
+
+        assert order is not None
+        assert order.side == 'sell'
+        assert order.qty == Decimal('1.5')
+
+    def test_returns_none_for_zero_delta(self) -> None:
+        builder = TargetPositionIntentBuilder()
+        order = builder.build(_snapshot('1'), TargetPosition(symbol='BTCUSDT', target_qty=Decimal('1')))
+
+        assert order is None

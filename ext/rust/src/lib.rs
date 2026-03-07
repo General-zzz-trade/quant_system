@@ -2,10 +2,12 @@ use pyo3::prelude::*;
 
 mod backtest_engine;
 mod bootstrap;
+mod checkpoint_store;
 mod cross_sectional;
 mod dedup_guard;
 mod digest;
 mod event_id;
+mod event_store;
 mod factor_math;
 mod fast_1m_features;
 pub mod fast_rng;
@@ -20,11 +22,13 @@ mod linalg_math;
 mod ml_decision;
 mod monte_carlo;
 mod multi_timeframe;
+mod payload_dedup;
 mod portfolio_math;
 mod rate_limiter;
 mod request_id;
 mod rolling_window;
 mod route_match;
+mod order_state_machine;
 mod sequence_buffer;
 mod signer;
 mod target;
@@ -40,6 +44,11 @@ mod event_types;
 mod event_validators;
 mod kernel_boundary;
 mod decision_math;
+mod decision_policy;
+mod decision_signals;
+mod execution_store;
+mod microstructure;
+mod regime_buffer;
 mod state_store;
 pub mod rust_events;
 
@@ -47,8 +56,12 @@ pub mod rust_events;
 fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Phase 1 classes
     m.add_class::<dedup_guard::DuplicateGuard>()?;
+    m.add_class::<checkpoint_store::RustCheckpointStore>()?;
     m.add_class::<rate_limiter::RustRateLimitPolicy>()?;
+    m.add_class::<payload_dedup::RustPayloadDedupGuard>()?;
     m.add_class::<ml_decision::RustMLDecision>()?;
+    m.add_class::<execution_store::RustAckStore>()?;
+    m.add_class::<execution_store::RustDedupStore>()?;
     m.add_function(wrap_pyfunction!(json_parse::rust_parse_kline, m)?)?;
     m.add_function(wrap_pyfunction!(json_parse::rust_parse_depth, m)?)?;
     m.add_function(wrap_pyfunction!(json_parse::rust_demux_user_stream, m)?)?;
@@ -60,6 +73,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<sequence_buffer::RustSequenceBuffer>()?;
     m.add_function(wrap_pyfunction!(event_id::rust_event_id, m)?)?;
     m.add_function(wrap_pyfunction!(event_id::rust_now_ns, m)?)?;
+    m.add_class::<event_store::RustInMemoryEventStore>()?;
     m.add_function(wrap_pyfunction!(request_id::rust_sanitize, m)?)?;
     m.add_function(wrap_pyfunction!(request_id::rust_short_hash, m)?)?;
     m.add_function(wrap_pyfunction!(request_id::rust_make_idempotency_key, m)?)?;
@@ -67,6 +81,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(signer::rust_hmac_sign, m)?)?;
     m.add_function(wrap_pyfunction!(signer::rust_hmac_verify, m)?)?;
     m.add_function(wrap_pyfunction!(route_match::rust_route_event_type, m)?)?;
+    m.add_class::<order_state_machine::RustOrderTransition>()?;
+    m.add_class::<order_state_machine::RustOrderState>()?;
+    m.add_class::<order_state_machine::RustOrderStateMachine>()?;
 
     // C++ migration — Sprint 1: rolling windows + technical indicators
     m.add_class::<rolling_window::RollingWindow>()?;
@@ -201,6 +218,22 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decision_math::rust_fixed_fraction_qty, m)?)?;
     m.add_function(wrap_pyfunction!(decision_math::rust_volatility_adjusted_qty, m)?)?;
     m.add_function(wrap_pyfunction!(decision_math::rust_apply_allocation_constraints, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_policy::rust_build_delta_order_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_policy::rust_limit_price, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_policy::rust_validate_order_constraints, m)?)?;
+
+    // Microstructure
+    m.add_function(wrap_pyfunction!(microstructure::rust_extract_orderbook_features, m)?)?;
+    m.add_class::<microstructure::RustVPINCalculator>()?;
+    m.add_class::<microstructure::RustVPINResult>()?;
+    m.add_class::<microstructure::RustStreamingMicrostructure>()?;
+
+    // Regime buffer
+    m.add_class::<regime_buffer::RustRegimeBuffer>()?;
+
+    // Decision signals
+    m.add_function(wrap_pyfunction!(decision_signals::rust_compute_rebalance_intents, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_signals::rust_compute_feature_signal, m)?)?;
 
     Ok(())
 }

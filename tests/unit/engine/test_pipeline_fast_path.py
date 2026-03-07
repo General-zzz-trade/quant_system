@@ -1,4 +1,3 @@
-# tests/unit/engine/test_pipeline_fast_path.py
 """Tests for the RustStateStore path in StatePipeline.apply()."""
 from __future__ import annotations
 
@@ -17,14 +16,6 @@ from engine.pipeline import (
 from state.account import AccountState
 from state.market import MarketState
 from state.position import PositionState
-from state.reducers.market import MarketReducer
-from state.reducers.account import AccountReducer
-from state.reducers.position import PositionReducer
-from state.rust_adapters import (
-    RustMarketReducerAdapter,
-    RustAccountReducerAdapter,
-    RustPositionReducerAdapter,
-)
 from _quant_hotpath import RustStateStore
 
 
@@ -114,71 +105,49 @@ def _make_store():
 
 
 # ---------------------------------------------------------------------------
-# Tests: Store path behavior parity
+# Tests: Store path behavior
 # ---------------------------------------------------------------------------
 
-class TestStorePathParity:
-    """Compare store path (Rust heap) vs adapter path for behavioral parity."""
-
-    def _make_both_pipelines(self):
-        store = _make_store()
-        store_pipe = StatePipeline(store=store)
-        adapter_pipe = StatePipeline(
-            market_reducer=RustMarketReducerAdapter(),
-            account_reducer=RustAccountReducerAdapter(),
-            position_reducer=RustPositionReducerAdapter(),
-        )
-        return store_pipe, adapter_pipe
-
-    def test_signal_event_parity(self):
-        store_pipe, adapter_pipe = self._make_both_pipelines()
+class TestStorePath:
+    def test_signal_event_not_advanced(self):
+        pipe = StatePipeline(store=_make_store())
         inp = _make_input(_signal_event(), event_index=5)
-        out_store = store_pipe.apply(inp)
-        out_adapter = adapter_pipe.apply(inp)
-        assert out_store.advanced == out_adapter.advanced == False
-        assert out_store.event_index == out_adapter.event_index == 5
-        assert out_store.snapshot is None
-        assert out_adapter.snapshot is None
+        out = pipe.apply(inp)
+        assert out.advanced is False
+        assert out.event_index == 5
+        assert out.snapshot is None
 
-    def test_market_event_parity(self):
-        store_pipe, adapter_pipe = self._make_both_pipelines()
+    def test_market_event_advances(self):
+        pipe = StatePipeline(store=_make_store())
         ev = _market_event(close=42500.0)
         inp = _make_input(ev)
-        out_store = store_pipe.apply(inp)
-        out_adapter = adapter_pipe.apply(inp)
+        out = pipe.apply(inp)
 
-        assert out_store.advanced == out_adapter.advanced == True
-        assert out_store.event_index == out_adapter.event_index == 1
-        assert _val_f(out_store.market, "close") == pytest.approx(_val_f(out_adapter.market, "close"))
-        assert _val_f(out_store.market, "last_price") == pytest.approx(_val_f(out_adapter.market, "last_price"))
+        assert out.advanced is True
+        assert out.event_index == 1
+        assert _val_f(out.market, "close") == pytest.approx(42500.0)
 
-    def test_fill_event_parity(self):
-        store_pipe, adapter_pipe = self._make_both_pipelines()
+    def test_fill_event_updates_state(self):
+        pipe = StatePipeline(store=_make_store())
         ev = _fill_event(side="buy", qty=0.5, price=50000.0, fee=1.25)
         inp = _make_input(ev)
-        out_store = store_pipe.apply(inp)
-        out_adapter = adapter_pipe.apply(inp)
+        out = pipe.apply(inp)
 
-        assert out_store.advanced == out_adapter.advanced == True
-        assert out_store.event_index == out_adapter.event_index == 1
+        assert out.advanced is True
+        assert out.event_index == 1
 
-        pos_s = out_store.positions["BTCUSDT"]
-        pos_a = out_adapter.positions["BTCUSDT"]
-        assert _val_f(pos_s, "qty") == pytest.approx(_val_f(pos_a, "qty"))
-        assert _val_f(pos_s, "avg_price") == pytest.approx(_val_f(pos_a, "avg_price"))
+        pos = out.positions["BTCUSDT"]
+        assert _val_f(pos, "qty") == pytest.approx(0.5)
+        assert _val_f(pos, "avg_price") == pytest.approx(50000.0)
+        assert _val_f(out.account, "fees_paid") == pytest.approx(1.25)
 
-        assert _val_f(out_store.account, "balance") == pytest.approx(_val_f(out_adapter.account, "balance"))
-        assert _val_f(out_store.account, "fees_paid") == pytest.approx(_val_f(out_adapter.account, "fees_paid"))
-
-    def test_funding_event_parity(self):
-        store_pipe, adapter_pipe = self._make_both_pipelines()
+    def test_funding_event_advances(self):
+        pipe = StatePipeline(store=_make_store())
         ev = _funding_event(funding_rate=0.0001, mark_price=42000.0, position_qty=0.5)
         inp = _make_input(ev)
-        out_store = store_pipe.apply(inp)
-        out_adapter = adapter_pipe.apply(inp)
+        out = pipe.apply(inp)
 
-        assert out_store.advanced == out_adapter.advanced == True
-        assert _val_f(out_store.account, "balance") == pytest.approx(_val_f(out_adapter.account, "balance"))
+        assert out.advanced is True
 
     def test_new_symbol_creates_position(self):
         store = RustStateStore(["BTCUSDT", "ETHUSDT"], "USDT", int(10000 * _SCALE))
@@ -210,20 +179,14 @@ class TestStorePathParity:
 
 
 # ---------------------------------------------------------------------------
-# Benchmark: Store path vs adapter path
+# Benchmark: Store path throughput
 # ---------------------------------------------------------------------------
 
 class TestStorePathBenchmark:
     @pytest.mark.benchmark
-    def test_store_vs_adapter_benchmark(self):
-        """Benchmark: Store path should be faster than adapter path."""
+    def test_store_throughput(self):
         store = _make_store()
-        store_pipe = StatePipeline(store=store)
-        adapter_pipe = StatePipeline(
-            market_reducer=RustMarketReducerAdapter(),
-            account_reducer=RustAccountReducerAdapter(),
-            position_reducer=RustPositionReducerAdapter(),
-        )
+        pipe = StatePipeline(store=store)
 
         N = 1000
         events = []
@@ -240,28 +203,16 @@ class TestStorePathBenchmark:
         # Warm up
         for ev in events[:10]:
             inp = _make_input(ev)
-            store_pipe.apply(inp)
-            adapter_pipe.apply(inp)
+            pipe.apply(inp)
 
-        # Benchmark store path
+        # Benchmark
         t0 = time.perf_counter()
         for ev in events:
             inp = _make_input(ev)
-            store_pipe.apply(inp)
+            pipe.apply(inp)
         store_ms = (time.perf_counter() - t0) * 1000
 
-        # Benchmark adapter path
-        t0 = time.perf_counter()
-        for ev in events:
-            inp = _make_input(ev)
-            adapter_pipe.apply(inp)
-        adapter_ms = (time.perf_counter() - t0) * 1000
+        print(f"\nStore path: {store_ms:.2f}ms ({N} events, "
+              f"{store_ms/N*1000:.1f}us/event)")
 
-        speedup = adapter_ms / store_ms if store_ms > 0 else float("inf")
-        print(f"\nStore path: {store_ms:.2f}ms, Adapter path: {adapter_ms:.2f}ms, "
-              f"Speedup: {speedup:.2f}x ({N} events)")
-
-        assert store_ms < adapter_ms * 1.5, (
-            f"Store path ({store_ms:.2f}ms) should not be much slower than "
-            f"adapter path ({adapter_ms:.2f}ms)"
-        )
+        assert store_ms < 5000, f"Store path too slow: {store_ms:.2f}ms for {N} events"

@@ -84,6 +84,16 @@ class TestGridSignal:
         assert "close" in r.meta
         assert "ref" in r.meta
 
+    def test_close_from_rust_market_fallback(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        snap = SimpleNamespace(
+            features={"grid_ref_price": 100},
+            market=rust.RustMarketState(symbol="BTCUSDT", close=9_500_000_000, last_price=9_500_000_000),
+        )
+        sig = GridSignal(grid_spacing=Decimal("0.01"))
+        r = sig.compute(snap, "BTC")
+        assert r.side == "buy"
+
 
 # ── BollingerBandSignal ─────────────────────────────────────────────
 
@@ -131,6 +141,16 @@ class TestBollingerBandSignal:
         snap = SimpleNamespace(
             features={"bb_upper": 105, "bb_lower": 95, "bb_middle": 100},
             market=SimpleNamespace(close=110),
+        )
+        sig = BollingerBandSignal()
+        r = sig.compute(snap, "ETH")
+        assert r.side == "sell"
+
+    def test_close_from_rust_market(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        snap = SimpleNamespace(
+            features={"bb_upper": 105, "bb_lower": 95, "bb_middle": 100},
+            market=rust.RustMarketState(symbol="ETHUSDT", close=11_000_000_000, last_price=11_000_000_000),
         )
         sig = BollingerBandSignal()
         r = sig.compute(snap, "ETH")
@@ -199,6 +219,21 @@ class TestBreakoutSignal:
         sig = BreakoutSignal()
         r = sig.compute(snap, "BTC")
         assert "c" in r.meta and "h" in r.meta and "l" in r.meta
+
+    def test_supports_rust_market_state(self):
+        rust = pytest.importorskip("_quant_hotpath")
+        snap = SimpleNamespace(
+            market=rust.RustMarketState(
+                symbol="BTCUSDT",
+                close=10_000_000_000,
+                last_price=10_000_000_000,
+                high=10_000_000_000,
+                low=9_000_000_000,
+            )
+        )
+        sig = BreakoutSignal()
+        r = sig.compute(snap, "BTC")
+        assert r.side == "buy"
 
 
 # ── RSISignal ────────────────────────────────────────────────────────
