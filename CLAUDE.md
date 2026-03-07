@@ -1,49 +1,65 @@
-## Workflow Orchestration
+## Commands
 
-1. **Plan Node Default**
-   * Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-   * If something goes sideways, STOP and re-plan immediately – don't keep pushing
-   * Use plan mode for verification steps, not just building
-   * Write detailed specs upfront to reduce ambiguity
+```bash
+make rust                    # Build Rust crate (maturin + pip install)
+pytest tests/ -x -q          # Run all tests
+pytest tests/unit/ -x -q     # Unit tests only
+pytest -m benchmark          # Performance benchmarks
+```
 
-2. **Subagent Strategy**
-   * Use subagents liberally to keep main context window clean
-   * Offload research, exploration, and parallel analysis to subagents
-   * For complex problems, throw more compute at it via subagents
-   * One tack per subagent for focused execution
+**CRITICAL after Rust build**: copy .so to local package (shadows system install):
+```bash
+cp /usr/local/lib/python3.12/dist-packages/_quant_hotpath/*.so /opt/quant_system/_quant_hotpath/
+```
 
-3. **Self-Improvement Loop**
-   * After ANY correction from the user: update tasks/lessons.md with the pattern
-   * Write rules for yourself that prevent the same mistake
-   * Ruthlessly iterate on these lessons until mistake rate drops
-   * Review lessons at session start for relevant project
+## Architecture
 
-4. **Verification Before Done**
-   * Never mark a task complete without proving it works
-   * Diff behavior between main and your changes when relevant
-   * Ask yourself: "Would a staff engineer approve this?"
-   * Run tests, check logs, demonstrate correctness
+```
+engine/          Pipeline + coordinator (event -> state transitions)
+features/        Feature computation (EnrichedFeatureComputer, 105 features)
+decision/        Trading signals, regime detection, rebalancing
+alpha/           ML models + inference bridge
+execution/       Order routing, state machine, dedup
+state/           State types + Rust adapters
+ext/rust/        Unified Rust crate -> _quant_hotpath (50 modules, ~15K LOC)
+runner/          Live/paper/backtest entry points
+regime/          Regime detection (volatility, trend)
+risk/            Risk limits + kill switch
+```
 
-5. **Demand Elegance (Balanced)**
-   * For non-trivial changes: pause and ask "is there a more elegant way?"
-   * If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-   * Skip this for simple, obvious fixes – don't over-engineer
-   * Challenge your own work before presenting it
+**Data flow**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
+  (RustStateStore) -> DecisionModule -> ExecutionPolicy -> OrderRouter
 
-6. **Autonomous Bug Fixing**
-   * When given a bug report: just fix it. Don't ask for hand-holding
-   * Point at logs, errors, failing tests – then resolve them
-   * Zero context switching required from the user
-   * Go fix failing CI tests without being told how
+## Rust Crate (`ext/rust/`)
+
+- Single crate `_quant_hotpath`, 50 .rs modules, ~15,300 LOC
+- Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
+- State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
+- feature_hook.py always uses Rust (no Python fallback)
+- `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
+
+## Key Files
+
+- `engine/coordinator.py` — Main event loop orchestrator
+- `engine/pipeline.py` — State transition pipeline (Rust fast path)
+- `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
+- `features/enriched_computer.py` — 105 enriched feature definitions
+- `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
+- `runner/live_runner.py` — Production entry point
+
+## Gotchas
+
+- `_quant_hotpath/` at project root shadows pip-installed package — always copy .so after build
+- `RustFeatureEngine` uses its own window sizes (not LiveFeatureComputer params)
+- Tests require `_quant_hotpath` built; `pytest.importorskip("_quant_hotpath")` guards Rust tests
+- Production models in `models_v8/` (LightGBM)
 
 ## Task Management
 
 1. **Plan First**: Write plan to tasks/todo.md with checkable items
 2. **Verify Plan**: Check in before starting implementation
 3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to tasks/todo.md
-6. **Capture Lessons**: Update tasks/lessons.md after corrections
+4. **Capture Lessons**: Update tasks/lessons.md after corrections
 
 ## Core Principles
 
