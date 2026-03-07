@@ -21,7 +21,7 @@ decision/        Trading signals, regime detection, rebalancing
 alpha/           ML models + inference bridge
 execution/       Order routing, state machine, dedup
 state/           State types + Rust adapters
-ext/rust/        Unified Rust crate -> _quant_hotpath (50 modules, ~15K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (53 modules, ~16K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
@@ -32,7 +32,7 @@ risk/            Risk limits + kill switch
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 50 .rs modules, ~15,300 LOC
+- Single crate `_quant_hotpath`, 53 .rs modules, ~16,300 LOC
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)

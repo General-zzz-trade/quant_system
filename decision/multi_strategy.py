@@ -9,6 +9,7 @@ from decimal import Decimal
 from math import sqrt
 from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from _quant_hotpath import rust_rolling_sharpe, rust_max_drawdown
 from decision.types import SignalResult
 
 logger = logging.getLogger(__name__)
@@ -39,30 +40,13 @@ class StrategyPerformance:
 
     @property
     def rolling_sharpe(self) -> Optional[float]:
-        if len(self._returns) < 10:
-            return None
-        rets = list(self._returns)
-        mean = sum(rets) / len(rets)
-        var = sum((r - mean) ** 2 for r in rets) / max(len(rets) - 1, 1)
-        std = sqrt(max(var, 0.0))
-        if std < 1e-12:
-            return 99.0 if mean > 0 else 0.0
-        return mean / std * sqrt(252)
+        return rust_rolling_sharpe(list(self._returns), window=self.lookback, min_obs=10)
 
     @property
     def rolling_max_drawdown(self) -> float:
         if not self._returns:
             return 0.0
-        eq = 1.0
-        peak = 1.0
-        max_dd = 0.0
-        for r in self._returns:
-            eq *= (1.0 + r)
-            if eq > peak:
-                peak = eq
-            dd = (peak - eq) / peak if peak > 0 else 0.0
-            max_dd = max(max_dd, dd)
-        return max_dd
+        return rust_max_drawdown(list(self._returns), is_returns=True)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

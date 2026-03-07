@@ -45,9 +45,11 @@ mod event_validators;
 mod kernel_boundary;
 mod decision_math;
 mod decision_policy;
+mod cross_asset;
 mod decision_signals;
 mod execution_store;
 mod microstructure;
+mod portfolio_allocator;
 mod regime_buffer;
 mod state_store;
 pub mod rust_events;
@@ -234,6 +236,15 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Decision signals
     m.add_function(wrap_pyfunction!(decision_signals::rust_compute_rebalance_intents, m)?)?;
     m.add_function(wrap_pyfunction!(decision_signals::rust_compute_feature_signal, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_signals::rust_rolling_sharpe, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_signals::rust_max_drawdown, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_signals::rust_strategy_weights, m)?)?;
+
+    // Cross-asset computer
+    m.add_class::<cross_asset::RustCrossAssetComputer>()?;
+
+    // Portfolio allocator
+    m.add_function(wrap_pyfunction!(portfolio_allocator::rust_allocate_portfolio, m)?)?;
 
     Ok(())
 }
