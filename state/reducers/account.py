@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by Rust AccountReducer (rust_pipeline_apply). Retained for parity tests.
 from __future__ import annotations
 
 from typing import Any

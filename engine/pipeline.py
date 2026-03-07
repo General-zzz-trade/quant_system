@@ -309,6 +309,8 @@ class StatePipeline:
         if self._use_rust_fast_path:
             return self._apply_rust_fast(inp, raw_event)
 
+        # LEGACY slow path: only reached when custom Python reducers are injected.
+        # Production uses _apply_rust_fast() or _apply_store_path() above.
         facts = normalize_to_facts(raw_event)
 
         # 非事实事件：不改变任何 state，也不推进 event_index

@@ -173,7 +173,7 @@ def run_backtests(
 ) -> dict:
     """Run full backtest for multiple thresholds."""
     from alpha.models.lgbm_alpha import LGBMAlphaModel
-    from decision.ml_decision import MLDecisionModule
+    from decision.ml_decision import make_ml_decision
     from features.enriched_computer import EnrichedFeatureComputer
     from runner.backtest_runner import run_backtest
 
@@ -182,7 +182,7 @@ def run_backtests(
 
     results = {}
     for th in THRESHOLDS:
-        dm = MLDecisionModule(
+        dm = make_ml_decision(
             symbol=symbol, risk_pct=0.30, threshold=th,
             threshold_short=999.0,  # long-only
         )

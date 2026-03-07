@@ -1,4 +1,4 @@
-# state/reducers/position.py
+# DEPRECATED: Superseded by Rust PositionReducer (rust_pipeline_apply). Retained for parity tests.
 from __future__ import annotations
 
 from decimal import Decimal

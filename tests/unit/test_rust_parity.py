@@ -468,8 +468,8 @@ class TestRustMLDecision:
 # ── helpers ──
 
 def _make_python_ml_decision(**kwargs):
-    from decision.ml_decision import MLDecisionModule
-    return MLDecisionModule(**kwargs)
+    from decision.ml_decision import make_ml_decision
+    return make_ml_decision(**kwargs)
 
 
 def _make_snapshot(close, ml_score, qty, balance, atr_norm=None):

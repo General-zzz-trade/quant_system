@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from decision.ml_decision import MLDecisionModule
+from decision.ml_decision import make_ml_decision
 
 
 def run_one(
@@ -50,7 +50,7 @@ def run_one(
         from features.live_computer import LiveFeatureComputer
         feature_computer = LiveFeatureComputer(fast_ma=10, slow_ma=30, vol_window=20)
 
-    module = MLDecisionModule(
+    module = make_ml_decision(
         symbol=symbol, risk_pct=risk_pct, threshold=threshold,
         threshold_short=threshold_short,
         atr_stop=atr_stop,

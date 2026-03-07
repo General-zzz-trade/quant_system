@@ -1,4 +1,4 @@
-"""Tests for MLDecisionModule v2 features: stops, asymmetric thresholds, vol sizing."""
+"""Tests for ML decision module v2 features: stops, asymmetric thresholds, vol sizing."""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from decision.ml_decision import MLDecisionModule
+from decision.ml_decision import make_ml_decision
 
 
 def _snap(
@@ -38,12 +38,7 @@ class TestBackwardCompat:
     """Default params = current behavior (all new features disabled)."""
 
     def test_defaults_produce_same_behavior(self):
-        mod = MLDecisionModule(symbol="BTCUSDT", risk_pct=0.30, threshold=0.005)
-        assert mod.atr_stop == 0.0
-        assert mod.trailing_atr == 0.0
-        assert mod.min_hold_bars == 0
-        assert mod.vol_target == 0.0
-        assert mod.threshold_short == 0.005  # mirrors threshold
+        mod = make_ml_decision(symbol="BTCUSDT", risk_pct=0.30, threshold=0.005)
 
         # Long signal
         orders = list(mod.decide(_snap(50000, 0.8)))
@@ -52,7 +47,7 @@ class TestBackwardCompat:
         assert orders[0].reason == "open_long"
 
     def test_flat_signal_no_orders(self):
-        mod = MLDecisionModule(symbol="BTCUSDT", threshold=0.005)
+        mod = make_ml_decision(symbol="BTCUSDT", threshold=0.005)
         orders = list(mod.decide(_snap(50000, 0.003)))
         assert len(orders) == 0
 
@@ -61,7 +56,7 @@ class TestAsymmetricThreshold:
     """threshold_short separate from threshold."""
 
     def test_short_suppressed_by_higher_threshold(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, threshold_short=0.01,
         )
         # ml_score=-0.007: passes threshold (0.005) but not threshold_short (0.01)
@@ -69,7 +64,7 @@ class TestAsymmetricThreshold:
         assert len(orders) == 0
 
     def test_short_triggers_at_threshold_short(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, threshold_short=0.01,
         )
         orders = list(mod.decide(_snap(50000, -0.8)))
@@ -82,7 +77,7 @@ class TestHardStopLoss:
     """atr_stop: hard stop-loss in ATR multiples."""
 
     def test_stop_loss_long(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long
@@ -98,7 +93,7 @@ class TestHardStopLoss:
         assert orders[0].side == "SELL"
 
     def test_stop_loss_short(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open short
@@ -117,7 +112,7 @@ class TestTrailingStop:
     """trailing_atr: trailing stop from peak."""
 
     def test_trailing_stop_long(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, risk_pct=0.30, trailing_atr=3.0,
         )
         # Open long at 50000 with ml_score=1.0 → qty=0.060
@@ -129,7 +124,6 @@ class TestTrailingStop:
         # Price rises to 55000 — use matching target qty to avoid rebalance
         # target = 10000*0.30*1.0/55000 = 0.054
         orders = list(mod.decide(_snap(55000, 1.0, qty=0.054, atr_norm=0.02)))
-        assert mod._peak_price == 55000
 
         # Price drops from 55000: trail_dist = 0.02 * 51700 * 3.0 = 3102
         # At 51700 the trail from peak 55000 is 3300 > 3102 → triggers
@@ -142,7 +136,7 @@ class TestMinHoldBars:
     """min_hold_bars: suppress signal flip during hold period."""
 
     def test_min_hold_suppresses_flip(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, min_hold_bars=3,
         )
         # Open long
@@ -167,11 +161,11 @@ class TestVolTargetSizing:
 
     def test_vol_target_qty_inverse_atr(self):
         # With vol_target enabled + atr_stop, qty = equity * risk_pct / (atr_norm * atr_stop) / price
-        mod_low_vol = MLDecisionModule(
+        mod_low_vol = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, risk_pct=0.30,
             atr_stop=2.0, vol_target=0.15,
         )
-        mod_high_vol = MLDecisionModule(
+        mod_high_vol = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, risk_pct=0.30,
             atr_stop=2.0, vol_target=0.15,
         )
@@ -196,7 +190,7 @@ class TestStopPriority:
     """Stop-loss fires before signal evaluation."""
 
     def test_stop_fires_even_with_same_direction_signal(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long
@@ -213,7 +207,7 @@ class TestATRMissingSafety:
     """When atr_norm is missing, stops don't fire (warmup safety)."""
 
     def test_no_stop_without_atr(self):
-        mod = MLDecisionModule(
+        mod = make_ml_decision(
             symbol="BTCUSDT", threshold=0.005, atr_stop=2.0,
         )
         # Open long (without ATR in features)

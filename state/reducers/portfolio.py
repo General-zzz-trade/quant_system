@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by Rust pipeline. Retained for parity tests.
 from __future__ import annotations
 
 from typing import Any, Callable, Mapping

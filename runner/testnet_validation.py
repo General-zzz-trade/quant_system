@@ -46,7 +46,7 @@ def _build_ml_stack(
 
     from alpha.models.lgbm_alpha import LGBMAlphaModel
     from alpha.models.xgb_alpha import XGBAlphaModel
-    from decision.ml_decision import MLDecisionModule
+    from decision.ml_decision import make_ml_decision
     from features.enriched_computer import EnrichedFeatureComputer
 
     model_dir = Path(model_path)
@@ -181,7 +181,7 @@ def _build_ml_stack(
     dd_cooldown = pos_mgmt.get("dd_cooldown") or 48
 
     dms = [
-        MLDecisionModule(
+        make_ml_decision(
             symbol=sym,
             threshold=threshold,
             threshold_short=threshold_short,

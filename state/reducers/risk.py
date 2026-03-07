@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by RustRiskEvaluator. Retained for parity tests.
 from __future__ import annotations
 
 from decimal import Decimal

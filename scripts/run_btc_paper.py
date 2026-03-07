@@ -55,9 +55,9 @@ def main() -> None:
     poller.start()
 
     # 4. Decision module
-    from decision.ml_decision import MLDecisionModule
+    from decision.ml_decision import make_ml_decision
 
-    decision = MLDecisionModule(
+    decision = make_ml_decision(
         symbol="BTCUSDT", risk_pct=args.risk_pct, threshold=args.threshold,
     )
 
