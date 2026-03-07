@@ -1,6 +1,6 @@
 # Quant System
 
-Production-grade quantitative trading system for crypto perpetual futures. ML-driven alpha generation, multi-exchange execution, institutional risk management, and C++ accelerated compute.
+Production-grade quantitative trading system for crypto perpetual futures. ML-driven alpha generation, multi-exchange execution, institutional risk management, and **Rust-accelerated kernel** (PyO3).
 
 ## Architecture
 
@@ -11,28 +11,28 @@ Production-grade quantitative trading system for crypto perpetual futures. ML-dr
                                    |
                           +--------v---------+
                           |  EngineCoordinator|
-                          |  (event loop)     |
+                          |  (Python shell)   |
                           +--------+---------+
                                    |
               +--------------------+--------------------+
               |                    |                    |
      +--------v--------+  +-------v--------+  +-------v--------+
      |  StatePipeline  |  |  FeatureHook   |  |  ML Inference  |
-     |  (state updates)|  |  (C++ accel)   |  |  (LightGBM/XGB)|
+     |  (Rust kernel)  |  |  (Rust engine) |  |  (LightGBM C++)|
      +--------+--------+  +-------+--------+  +-------+--------+
               |                    |                    |
               +--------------------+--------------------+
                                    |
                           +--------v---------+
                           |  DecisionBridge  |
-                          |  (strategy logic)|
+                          |  (Rust sizing)   |
                           +--------+---------+
                                    |
               +--------------------+--------------------+
               |                    |                    |
      +--------v--------+  +-------v--------+  +-------v--------+
-     |  RiskGate       |  | CorrelationGate|  |  KillSwitch    |
-     |  (size/notional)|  | (concentration)|  |  (circuit break)|
+     |  RiskEvaluator  |  | CorrelationGate|  |  KillSwitch    |
+     |  (Rust, 6 rules)|  | (concentration)|  |  (circuit break)|
      +--------+--------+  +-------+--------+  +-------+--------+
               |                    |                    |
               +--------------------+--------------------+
@@ -48,21 +48,61 @@ Production-grade quantitative trading system for crypto perpetual futures. ML-dr
                           +------------------+
 ```
 
-**Event flow**: MarketEvent -> StatePipeline -> DecisionBridge -> RiskGates -> ExecutionBridge -> Exchange
+**Event flow**: MarketEvent -> StatePipeline (Rust) -> FeatureEngine (Rust) -> ML Inference -> DecisionBridge (Rust sizing) -> RiskEvaluator (Rust) -> ExecutionBridge -> Exchange
 
-All state mutations go through `StatePipeline.apply()`. Decision modules are read-only — they return "opinion events" (IntentEvent, OrderEvent), never modify state directly.
+All state mutations go through `rust_pipeline_apply()`. Decision modules are read-only -- they return "opinion events" (IntentEvent, OrderEvent), never modify state directly.
+
+## Rust Kernel
+
+The system's hot path runs on a unified Rust crate (`ext/rust/` -> `_quant_hotpath`), built via PyO3 + maturin.
+
+### Performance
+
+| Component | Speedup vs Python | Description |
+|-----------|------------------|-------------|
+| Pipeline (state reduction) | **5.67x** | Single `rust_pipeline_apply()` call per event |
+| Event processing | **23.9x** | `RustMarketEvent` / `RustFillEvent` zero-FFI fields |
+| Feature computation | **5-10x** | `RustFeatureEngine` 105 features incremental |
+| Sizing math | **3-5x** | `rust_fixed_fraction_qty()` f64 vs Decimal |
+
+### What Rust Owns
+
+| Layer | Rust Module | Exports |
+|-------|-------------|---------|
+| State types | `state_types.rs` | `RustMarketState`, `RustAccountState`, `RustPositionState` (Fd8 i64 fixed-point) |
+| State reduction | `state_reducers.rs` | `RustMarketReducer`, `RustAccountReducer`, `RustPositionReducer` |
+| Pipeline | `pipeline.rs` | `rust_pipeline_apply()`, `rust_normalize_to_facts()`, `rust_detect_event_kind()` |
+| State store | `state_store.rs` | `RustStateStore` -- state on Rust heap, export on demand |
+| Events | `rust_events.rs` | `RustMarketEvent`, `RustFillEvent`, `RustFundingEvent` |
+| Risk engine | `risk_engine.rs` | `RustRiskEvaluator` (max_position, leverage, drawdown, exposure, concentration) |
+| Feature engine | `feature_engine.rs` | `RustFeatureEngine` -- 105 features, incremental `push_bar()` |
+| Decision math | `decision_math.rs` | `rust_fixed_fraction_qty()`, `rust_volatility_adjusted_qty()`, `rust_apply_allocation_constraints()` |
+| Fixed-point | `fixed_decimal.rs` | `Fd8` type (i64 x 10^8), eliminates Decimal parsing |
+
+**Crate stats**: 44 Rust modules, ~16,500 LOC, 125 exports (43 classes + 82 functions), 2,594 tests passing.
+
+### What Python Owns
+
+| Layer | Reason |
+|-------|--------|
+| ML inference | LightGBM C++ binding, pickle models |
+| Exchange adapters | IO-bound (WebSocket/REST), not CPU bottleneck |
+| Strategy research | Rapid iteration, notebooks, walk-forward |
+| Config / logging / monitoring | Infrastructure glue |
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.12+
-- C++ compiler with C++17 support (optional, for acceleration)
-- `pybind11` (optional, for C++ bindings)
+- Rust toolchain (rustc 1.75+, maturin)
 
 ### Installation
 
 ```bash
+# Build Rust kernel (required)
+make rust
+
 # Core only (stdlib, zero dependencies)
 pip install -e .
 
@@ -100,7 +140,10 @@ python -m runner.backtest_runner \
 # Production
 python -m runner.live_runner --config config/local.yaml
 
-# Shadow mode (simulated orders, real market data)
+# Paper trading (simulated orders, real market data)
+python -m runner.live_paper_runner --config config/paper.yaml
+
+# Shadow mode
 python -m runner.live_runner --config config/local.yaml --shadow
 ```
 
@@ -108,23 +151,21 @@ python -m runner.live_runner --config config/local.yaml --shadow
 
 | Module | Description |
 |--------|-------------|
-| `engine/` | EngineCoordinator event loop, StatePipeline, dispatcher, guards |
-| `alpha/` | ML models (LightGBM, XGBoost), inference bridge, drift detection |
-| `risk/` | KillSwitch, CorrelationGate, CorrelationComputer, risk aggregation |
+| `engine/` | EngineCoordinator event loop, StatePipeline, dispatcher, feature hook |
+| `ext/rust/` | Rust PyO3 kernel -- state, pipeline, features, risk, events, sizing |
+| `alpha/` | ML models (LightGBM), inference bridge, drift detection |
+| `risk/` | KillSwitch, CorrelationGate, risk aggregation |
 | `execution/` | Exchange adapters (Binance), rate limiting, reconciliation |
-| `portfolio/` | Black-Litterman, Kelly allocator, MVO, risk parity, rebalancing |
-| `decision/` | DecisionEngine, regime-aware gating, intent validation, sizing |
-| `strategies/` | Multi-timeframe ensemble, factor strategies, stat-arb, HFT |
-| `research/` | Walk-forward validation, overfit detection, combinatorial CV |
-| `features/` | Feature computation, C++ accelerated rolling windows |
-| `data/` | Quality monitoring, lineage tracking, backup management |
-| `monitoring/` | SLO/SLI tracking, Prometheus metrics, Grafana dashboards, alerts |
+| `portfolio/` | Black-Litterman, Kelly allocator, MVO, risk parity |
+| `decision/` | DecisionEngine, ML decision, regime gating, sizing |
+| `features/` | Feature computation, enriched computer (105 features) |
+| `strategies/` | Multi-timeframe ensemble, factor strategies |
+| `research/` | Walk-forward validation, overfit detection |
+| `state/` | State types, Rust adapters, snapshot management |
 | `event/` | Event types (Market, Signal, Intent, Order, Fill, Risk, Control) |
-| `state/` | MarketState, AccountState, PositionState, StateSnapshot |
-| `runner/` | LiveRunner, BacktestRunner, preflight checks, graceful shutdown |
-| `ext/` | C++ pybind11 extensions (rolling, cross-sectional, portfolio math) |
+| `runner/` | LiveRunner, PaperRunner, BacktestRunner |
 | `infra/` | Config loader, structured logging, secret resolution |
-| `deploy/` | K8s manifests, Dockerfile, CI/CD workflows |
+| `monitoring/` | SLO/SLI tracking, Prometheus metrics, alerts |
 
 ## Event Types
 
@@ -139,77 +180,59 @@ python -m runner.live_runner --config config/local.yaml --shadow
 | `ControlEvent` | System control (halt/resume/shutdown) |
 | `FundingEvent` | Perpetual funding rate settlement |
 
+## Walk-Forward Results
+
+| Asset | WF Pass | Sharpe | Return | Strategy |
+|-------|---------|--------|--------|----------|
+| BTC | 18/21 | 2.39 | +262% | Strategy F (stable_icir) |
+| ETH | 15/21 | 1.19 | +189% | Strategy F |
+| SOL | 13/17 | 1.80 | +301% | Greedy selector |
+
 ## Testing
 
 ```bash
 # Unit tests (fast, no external deps)
-python -m pytest tests_unit/ -x -q
+python -m pytest tests/ -x -q
 
-# Integration tests
-python -m pytest tests/ -x -q --tb=short
+# With Rust parity checks
+python -m pytest tests/ -x -q -k "rust"
 
 # All tests with coverage
-python -m pytest tests/ tests_unit/ --cov=. --cov-report=term-missing
-
-# Performance benchmarks
-python -m pytest tests/ -m benchmark -v
+python -m pytest tests/ --cov=. --cov-report=term-missing
 ```
 
-## C++ Acceleration
-
-Six pybind11 modules provide 5x-90x speedups over pure Python:
-
-| Module | Functions | Speedup |
-|--------|-----------|---------|
-| `rolling_window` | SMA, EMA, RSI, MACD, Bollinger, ATR, VWAP | 8-15x |
-| `cross_sectional` | momentum_rank, rolling_beta, relative_strength | 8-76x |
-| `portfolio_math` | sample_cov, ewma_cov, rolling_corr | 39-90x |
-| `factor_math` | factor exposures, factor_model_cov, specific_risk | 21-45x |
-| `feature_selection` | correlation_select, mutual_info_select | 5-26x |
-| `linalg` | Black-Litterman posterior, matrix inverse | 34x |
+## Build
 
 ```bash
-make rolling    # Build all C++ extensions
-make clean      # Remove compiled .so files
+# Build Rust kernel
+make rust
+
+# Or manually:
+cd ext/rust && maturin build --release
+pip install target/wheels/*.whl --force-reinstall
+cp /usr/local/lib/python3.12/dist-packages/_quant_hotpath/*.so /opt/quant_system/_quant_hotpath/
 ```
-
-Automatic fallback to Python implementations if C++ is not built.
-
-## Deployment
-
-```bash
-# Docker build (multi-stage)
-docker build --target live -t quant-system:latest .
-
-# Kubernetes
-kubectl apply -f deploy/k8s/
-```
-
-See [docs/operations.md](docs/operations.md) for the full production operations manual.
 
 ## Project Structure
 
 ```
 quant_system/
-  engine/          # Core event loop and coordination
-  alpha/           # ML alpha models and inference
-  risk/            # Risk management and kill switch
-  execution/       # Exchange connectivity
-  portfolio/       # Portfolio optimization
-  decision/        # Trading decision logic
-  strategies/      # Strategy implementations
-  research/        # Research and validation tools
-  features/        # Feature engineering
-  data/            # Data management
-  monitoring/      # Observability stack
-  event/           # Event type definitions
-  state/           # State management
-  runner/          # Entry points (live, backtest)
-  ext/rolling/     # C++ pybind11 source
-  infra/           # Config, logging, secrets
-  deploy/          # K8s, Docker, CI/CD
-  tests/           # Integration tests
-  tests_unit/      # Unit tests
+  engine/            # Core event loop and coordination
+  ext/rust/           # Rust PyO3 kernel (44 modules, ~16,500 LOC)
+  alpha/              # ML alpha models and inference
+  risk/               # Risk management and kill switch
+  execution/          # Exchange connectivity
+  portfolio/          # Portfolio optimization
+  decision/           # Trading decision logic
+  features/           # Feature engineering
+  state/              # State management + Rust adapters
+  event/              # Event type definitions
+  runner/             # Entry points (live, paper, backtest)
+  _quant_hotpath/     # Built Rust shared library
+  research/           # Research and validation tools
+  monitoring/         # Observability stack
+  infra/              # Config, logging, secrets
+  tests/              # Unit + integration tests (2,594 passing)
 ```
 
 ## License
