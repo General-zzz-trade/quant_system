@@ -99,6 +99,62 @@ class TestRustStateStore:
         account = store.get_account()
         assert account.balance != _balance_i64("10000")  # fee deducted
 
+    def test_get_portfolio(self):
+        store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
+        store.process_event(_market_event(close=50000.0), "BTCUSDT")
+        store.process_event(
+            _fill_event(side="buy", qty=0.1, price=50000.0, fee=0.5),
+            "BTCUSDT",
+        )
+        portfolio = store.get_portfolio()
+        assert portfolio.total_equity == "9999.5"
+        assert portfolio.gross_exposure == "5000"
+
+    def test_get_risk(self):
+        store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
+        store.process_event(_market_event(close=50000.0), "BTCUSDT")
+        risk = store.get_risk()
+        assert risk.blocked is False
+        assert risk.equity_peak == "10000"
+
+    def test_export_state_bundle(self):
+        store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
+        store.process_event(_market_event(close=50000.0), "BTCUSDT")
+        bundle = dict(store.export_state())
+        assert "markets" in bundle
+        assert "positions" in bundle
+        assert "account" in bundle
+        assert "portfolio" in bundle
+        assert "risk" in bundle
+        assert int(bundle["event_index"]) == 1
+        assert dict(bundle["markets"])["BTCUSDT"].close_f == pytest.approx(50000.0)
+
+    def test_load_exported_round_trip(self):
+        store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
+        store.process_event(_market_event(close=50000.0), "BTCUSDT")
+        store.process_event(_fill_event(side="buy", qty=0.1, price=50000.0, fee=1.0), "BTCUSDT")
+        bundle = dict(store.export_state())
+
+        restored = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("1"))
+        restored.load_exported(
+            bundle["markets"],
+            bundle["positions"],
+            bundle["account"],
+            event_index=int(bundle["event_index"]),
+            last_event_id=bundle["last_event_id"],
+            last_ts=bundle["last_ts"],
+            portfolio=bundle["portfolio"],
+            risk=bundle["risk"],
+        )
+
+        restored_bundle = dict(restored.export_state())
+        assert int(restored_bundle["event_index"]) == int(bundle["event_index"])
+        assert dict(restored_bundle["markets"])["BTCUSDT"].close_f == pytest.approx(
+            dict(bundle["markets"])["BTCUSDT"].close_f
+        )
+        assert restored_bundle["portfolio"].total_equity == bundle["portfolio"].total_equity
+        assert restored_bundle["risk"].blocked == bundle["risk"].blocked
+
     def test_get_positions(self):
         store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
         store.process_event(
@@ -156,7 +212,7 @@ class TestStorePathPipeline:
         from engine.pipeline import StatePipeline, PipelineInput
         store = RustStateStore(["BTCUSDT"], "USDT", _balance_i64("10000"))
         pipeline = StatePipeline(store=store)
-        assert not pipeline._use_rust_fast_path
+        assert pipeline._store is not None
         inp = PipelineInput(
             event=_signal_event(), event_index=0, symbol_default="BTCUSDT",
             markets={}, account=None, positions={},
@@ -179,6 +235,8 @@ class TestStorePathPipeline:
         assert out.snapshot is not None
         # Market state should be exported
         assert "BTCUSDT" in out.markets
+        assert out.portfolio is not None
+        assert out.risk is not None
 
     def test_fill_updates_account_and_position(self):
         from engine.pipeline import StatePipeline, PipelineInput
@@ -195,6 +253,8 @@ class TestStorePathPipeline:
         assert "BTCUSDT" in out.positions
         assert out.positions["BTCUSDT"].qty != Decimal("0")
         assert out.account.balance != Decimal("10000")
+        assert out.portfolio.total_equity == Decimal("9999")
+        assert out.risk.blocked is False
 
     def test_snapshot_only_on_change(self):
         from engine.pipeline import StatePipeline, PipelineInput, PipelineConfig
@@ -251,6 +311,7 @@ class TestStorePathPipeline:
 
 
 class TestStateStoreBenchmark:
+    @pytest.mark.benchmark
     def test_benchmark_vs_fast_path(self):
         """RustStateStore should be faster than Phase 0 fast path."""
         from engine.pipeline import StatePipeline, PipelineInput

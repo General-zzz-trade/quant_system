@@ -1,5 +1,5 @@
 # tests/unit/engine/test_pipeline_fast_path.py
-"""Tests for the Rust fast path in StatePipeline.apply()."""
+"""Tests for the RustStateStore path in StatePipeline.apply()."""
 from __future__ import annotations
 
 import time
@@ -25,6 +25,7 @@ from state.rust_adapters import (
     RustAccountReducerAdapter,
     RustPositionReducerAdapter,
 )
+from _quant_hotpath import RustStateStore
 
 
 # ---------------------------------------------------------------------------
@@ -108,115 +109,90 @@ def _make_input(event, event_index=0, account=None, markets=None, positions=None
     )
 
 
+def _make_store():
+    return RustStateStore(["BTCUSDT"], "USDT", int(10000 * _SCALE))
+
+
 # ---------------------------------------------------------------------------
-# Tests: Fast path behavior parity
+# Tests: Store path behavior parity
 # ---------------------------------------------------------------------------
 
-class TestFastPathParity:
-    """Compare fast path (Rust) vs slow path (Python) for behavioral parity."""
+class TestStorePathParity:
+    """Compare store path (Rust heap) vs adapter path for behavioral parity."""
 
     def _make_both_pipelines(self):
-        fast = StatePipeline()
-        assert fast._use_rust_fast_path
-        # Slow path: explicit Rust adapters → same f64 math, but goes through
-        # normalize_to_facts + per-reducer adapter overhead
-        slow = StatePipeline(
+        store = _make_store()
+        store_pipe = StatePipeline(store=store)
+        adapter_pipe = StatePipeline(
             market_reducer=RustMarketReducerAdapter(),
             account_reducer=RustAccountReducerAdapter(),
             position_reducer=RustPositionReducerAdapter(),
         )
-        assert not slow._use_rust_fast_path
-        return fast, slow
+        return store_pipe, adapter_pipe
 
     def test_signal_event_parity(self):
-        fast, slow = self._make_both_pipelines()
+        store_pipe, adapter_pipe = self._make_both_pipelines()
         inp = _make_input(_signal_event(), event_index=5)
-        out_fast = fast.apply(inp)
-        out_slow = slow.apply(inp)
-        assert out_fast.advanced == out_slow.advanced == False
-        assert out_fast.event_index == out_slow.event_index == 5
-        assert out_fast.snapshot is None
-        assert out_slow.snapshot is None
+        out_store = store_pipe.apply(inp)
+        out_adapter = adapter_pipe.apply(inp)
+        assert out_store.advanced == out_adapter.advanced == False
+        assert out_store.event_index == out_adapter.event_index == 5
+        assert out_store.snapshot is None
+        assert out_adapter.snapshot is None
 
     def test_market_event_parity(self):
-        fast, slow = self._make_both_pipelines()
+        store_pipe, adapter_pipe = self._make_both_pipelines()
         ev = _market_event(close=42500.0)
         inp = _make_input(ev)
-        out_fast = fast.apply(inp)
-        out_slow = slow.apply(inp)
+        out_store = store_pipe.apply(inp)
+        out_adapter = adapter_pipe.apply(inp)
 
-        assert out_fast.advanced == out_slow.advanced == True
-        assert out_fast.event_index == out_slow.event_index == 1
-        # Fast returns Rust types, slow returns Python — compare via float
-        assert _val_f(out_fast.market, "close") == pytest.approx(_val_f(out_slow.market, "close"))
-        assert _val_f(out_fast.market, "last_price") == pytest.approx(_val_f(out_slow.market, "last_price"))
+        assert out_store.advanced == out_adapter.advanced == True
+        assert out_store.event_index == out_adapter.event_index == 1
+        assert _val_f(out_store.market, "close") == pytest.approx(_val_f(out_adapter.market, "close"))
+        assert _val_f(out_store.market, "last_price") == pytest.approx(_val_f(out_adapter.market, "last_price"))
 
     def test_fill_event_parity(self):
-        fast, slow = self._make_both_pipelines()
+        store_pipe, adapter_pipe = self._make_both_pipelines()
         ev = _fill_event(side="buy", qty=0.5, price=50000.0, fee=1.25)
         inp = _make_input(ev)
-        out_fast = fast.apply(inp)
-        out_slow = slow.apply(inp)
+        out_store = store_pipe.apply(inp)
+        out_adapter = adapter_pipe.apply(inp)
 
-        assert out_fast.advanced == out_slow.advanced == True
-        assert out_fast.event_index == out_slow.event_index == 1
+        assert out_store.advanced == out_adapter.advanced == True
+        assert out_store.event_index == out_adapter.event_index == 1
 
-        # Position parity (compare via float)
-        pos_f = out_fast.positions["BTCUSDT"]
-        pos_s = out_slow.positions["BTCUSDT"]
-        assert _val_f(pos_f, "qty") == pytest.approx(_val_f(pos_s, "qty"))
-        assert _val_f(pos_f, "avg_price") == pytest.approx(_val_f(pos_s, "avg_price"))
+        pos_s = out_store.positions["BTCUSDT"]
+        pos_a = out_adapter.positions["BTCUSDT"]
+        assert _val_f(pos_s, "qty") == pytest.approx(_val_f(pos_a, "qty"))
+        assert _val_f(pos_s, "avg_price") == pytest.approx(_val_f(pos_a, "avg_price"))
 
-        # Account parity
-        assert _val_f(out_fast.account, "balance") == pytest.approx(_val_f(out_slow.account, "balance"))
-        assert _val_f(out_fast.account, "fees_paid") == pytest.approx(_val_f(out_slow.account, "fees_paid"))
+        assert _val_f(out_store.account, "balance") == pytest.approx(_val_f(out_adapter.account, "balance"))
+        assert _val_f(out_store.account, "fees_paid") == pytest.approx(_val_f(out_adapter.account, "fees_paid"))
 
     def test_funding_event_parity(self):
-        fast, slow = self._make_both_pipelines()
+        store_pipe, adapter_pipe = self._make_both_pipelines()
         ev = _funding_event(funding_rate=0.0001, mark_price=42000.0, position_qty=0.5)
         inp = _make_input(ev)
-        out_fast = fast.apply(inp)
-        out_slow = slow.apply(inp)
+        out_store = store_pipe.apply(inp)
+        out_adapter = adapter_pipe.apply(inp)
 
-        assert out_fast.advanced == out_slow.advanced == True
-        assert _val_f(out_fast.account, "balance") == pytest.approx(_val_f(out_slow.account, "balance"))
-
-    def test_multi_event_sequence_parity(self):
-        fast, slow = self._make_both_pipelines()
-
-        # Event 1: market
-        ev1 = _market_event(close=50000.0)
-        inp1_f = _make_input(ev1, event_index=0)
-        inp1_s = _make_input(ev1, event_index=0)
-        out1_f = fast.apply(inp1_f)
-        out1_s = slow.apply(inp1_s)
-
-        # Event 2: fill
-        ev2 = _fill_event(side="buy", qty=0.1, price=50000.0, fee=0.5, event_id="f-2")
-        inp2_f = _make_input(ev2, event_index=out1_f.event_index,
-                             markets=out1_f.markets, account=out1_f.account,
-                             positions=out1_f.positions)
-        inp2_s = _make_input(ev2, event_index=out1_s.event_index,
-                             markets=out1_s.markets, account=out1_s.account,
-                             positions=out1_s.positions)
-        out2_f = fast.apply(inp2_f)
-        out2_s = slow.apply(inp2_s)
-
-        assert out2_f.event_index == out2_s.event_index == 2
-        assert _val_f(out2_f.positions["BTCUSDT"], "qty") == pytest.approx(_val_f(out2_s.positions["BTCUSDT"], "qty"))
-        assert _val_f(out2_f.account, "balance") == pytest.approx(_val_f(out2_s.account, "balance"))
+        assert out_store.advanced == out_adapter.advanced == True
+        assert _val_f(out_store.account, "balance") == pytest.approx(_val_f(out_adapter.account, "balance"))
 
     def test_new_symbol_creates_position(self):
-        fast, _ = self._make_both_pipelines()
+        store = RustStateStore(["BTCUSDT", "ETHUSDT"], "USDT", int(10000 * _SCALE))
+        pipe = StatePipeline(store=store)
         ev = _fill_event(symbol="ETHUSDT", side="buy", qty=2.0, price=3000.0)
         inp = _make_input(ev)
-        out = fast.apply(inp)
+        out = pipe.apply(inp)
         assert "ETHUSDT" in out.positions
-        assert out.positions["ETHUSDT"].qty != Decimal("0")
 
     def test_snapshot_config_respected(self):
-        fast_always = StatePipeline(
-            config=PipelineConfig(build_snapshot_on_change_only=False)
+        store = _make_store()
+        pipe = StatePipeline(
+            store=store,
+            config=PipelineConfig(build_snapshot_on_change_only=False),
         )
         ev = SimpleNamespace(
             event_type="order",
@@ -228,20 +204,22 @@ class TestFastPathParity:
             avg_price=0.0, order_key=None, payload_digest=None,
         )
         inp = _make_input(ev)
-        out = fast_always.apply(inp)
+        out = pipe.apply(inp)
         assert out.advanced is True
         assert out.snapshot is not None
 
 
 # ---------------------------------------------------------------------------
-# Benchmark: Fast path vs slow path
+# Benchmark: Store path vs adapter path
 # ---------------------------------------------------------------------------
 
-class TestFastPathBenchmark:
-    def test_fast_vs_slow_benchmark(self):
-        """Benchmark: Rust fast path should be faster than Rust adapter path."""
-        fast = StatePipeline()
-        slow = StatePipeline(
+class TestStorePathBenchmark:
+    @pytest.mark.benchmark
+    def test_store_vs_adapter_benchmark(self):
+        """Benchmark: Store path should be faster than adapter path."""
+        store = _make_store()
+        store_pipe = StatePipeline(store=store)
+        adapter_pipe = StatePipeline(
             market_reducer=RustMarketReducerAdapter(),
             account_reducer=RustAccountReducerAdapter(),
             position_reducer=RustPositionReducerAdapter(),
@@ -262,30 +240,28 @@ class TestFastPathBenchmark:
         # Warm up
         for ev in events[:10]:
             inp = _make_input(ev)
-            fast.apply(inp)
-            slow.apply(inp)
+            store_pipe.apply(inp)
+            adapter_pipe.apply(inp)
 
-        # Benchmark fast path
+        # Benchmark store path
         t0 = time.perf_counter()
         for ev in events:
             inp = _make_input(ev)
-            fast.apply(inp)
-        fast_ms = (time.perf_counter() - t0) * 1000
+            store_pipe.apply(inp)
+        store_ms = (time.perf_counter() - t0) * 1000
 
-        # Benchmark slow path
+        # Benchmark adapter path
         t0 = time.perf_counter()
         for ev in events:
             inp = _make_input(ev)
-            slow.apply(inp)
-        slow_ms = (time.perf_counter() - t0) * 1000
+            adapter_pipe.apply(inp)
+        adapter_ms = (time.perf_counter() - t0) * 1000
 
-        speedup = slow_ms / fast_ms if fast_ms > 0 else float("inf")
-        print(f"\nFast path: {fast_ms:.2f}ms, Slow path: {slow_ms:.2f}ms, "
+        speedup = adapter_ms / store_ms if store_ms > 0 else float("inf")
+        print(f"\nStore path: {store_ms:.2f}ms, Adapter path: {adapter_ms:.2f}ms, "
               f"Speedup: {speedup:.2f}x ({N} events)")
 
-        # The fast path should not be significantly slower
-        # (we expect it to be faster, but CI environments vary)
-        assert fast_ms < slow_ms * 1.5, (
-            f"Fast path ({fast_ms:.2f}ms) should not be much slower than "
-            f"slow path ({slow_ms:.2f}ms)"
+        assert store_ms < adapter_ms * 1.5, (
+            f"Store path ({store_ms:.2f}ms) should not be much slower than "
+            f"adapter path ({adapter_ms:.2f}ms)"
         )

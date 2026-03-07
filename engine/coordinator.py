@@ -11,11 +11,24 @@ from engine.dispatcher import EventDispatcher, Route
 from engine.pipeline import PipelineConfig, PipelineInput, PipelineOutput, StatePipeline
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
+from state.rust_adapters import (
+    account_from_rust,
+    account_to_rust,
+    market_from_rust,
+    market_to_rust,
+    portfolio_from_rust,
+    portfolio_to_rust,
+    position_from_rust,
+    position_to_rust,
+    risk_from_rust,
+    risk_to_rust,
+)
 
 from _quant_hotpath import (
-    RustMarketState,
     RustAccountState,
+    RustMarketState,
     RustPositionState,
+    RustStateStore,
 )
 
 _SCALE = 100_000_000
@@ -107,13 +120,26 @@ class EngineCoordinator:
 
         # core modules
         self._dispatcher = dispatcher or EventDispatcher()
-        self._store = store
+
+        # Auto-create RustStateStore when no explicit store/pipeline given.
+        # This makes the store path (state on Rust heap) the default,
+        # eliminating per-event Python↔Rust conversions.
+        if store is not None:
+            self._store = store
+        elif pipeline is not None:
+            self._store = None
+        else:
+            effective_symbols = cfg.symbols or (cfg.symbol_default,)
+            self._store = RustStateStore(
+                list(effective_symbols),
+                cfg.currency,
+                int(cfg.starting_balance * _SCALE),
+            )
+
         if pipeline is not None:
             self._pipeline = pipeline
-        elif store is not None:
-            self._pipeline = StatePipeline(store=store, config=cfg.pipeline_config)
         else:
-            self._pipeline = StatePipeline(config=cfg.pipeline_config)
+            self._pipeline = StatePipeline(store=self._store, config=cfg.pipeline_config)
 
         # bridges（允许外部注入实现）
         self._decision_bridge = decision_bridge
@@ -133,6 +159,8 @@ class EngineCoordinator:
             balance=int(cfg.starting_balance * _SCALE),
         )
         self._positions: Dict[str, Any] = {}
+        self._portfolio: Optional[Any] = None
+        self._risk: Optional[Any] = None
         self._event_index: int = 0
         self._last_event_id: Optional[str] = None
         self._last_ts: Optional[Any] = None
@@ -169,16 +197,60 @@ class EngineCoordinator:
         对外只暴露只读视图（便于 debug/监控；不承诺稳定字段）
         """
         with self._lock:
+            if self._store is not None:
+                bundle = dict(self._store.export_state())
+                markets = {
+                    sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
+                    for sym, mkt in dict(bundle["markets"]).items()
+                }
+                account = (
+                    account_from_rust(bundle["account"])
+                    if isinstance(bundle["account"], RustAccountState)
+                    else bundle["account"]
+                )
+                positions = {
+                    sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
+                    for sym, pos in dict(bundle["positions"]).items()
+                }
+                return {
+                    "phase": self._phase.value,
+                    "symbol_default": self._cfg.symbol_default,
+                    "event_index": int(bundle["event_index"]),
+                    "last_event_id": bundle.get("last_event_id"),
+                    "last_ts": bundle.get("last_ts"),
+                    "markets": markets,
+                    "market": markets.get(self._cfg.symbol_default, next(iter(markets.values()))),
+                    "account": account,
+                    "positions": positions,
+                    "portfolio": portfolio_from_rust(bundle["portfolio"]),
+                    "risk": risk_from_rust(bundle["risk"]),
+                    "last_snapshot": self._last_snapshot,
+                }
+            markets = {
+                sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
+                for sym, mkt in self._markets.items()
+            }
+            account = (
+                account_from_rust(self._account)
+                if isinstance(self._account, RustAccountState)
+                else self._account
+            )
+            positions = {
+                sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
+                for sym, pos in self._positions.items()
+            }
             return {
                 "phase": self._phase.value,
                 "symbol_default": self._cfg.symbol_default,
                 "event_index": self._event_index,
                 "last_event_id": self._last_event_id,
                 "last_ts": self._last_ts,
-                "markets": dict(self._markets),
-                "market": self._markets.get(self._cfg.symbol_default, next(iter(self._markets.values()))),
-                "account": self._account,
-                "positions": dict(self._positions),
+                "markets": markets,
+                "market": markets.get(self._cfg.symbol_default, next(iter(markets.values()))),
+                "account": account,
+                "positions": positions,
+                "portfolio": self._portfolio,
+                "risk": self._risk,
                 "last_snapshot": self._last_snapshot,
             }
 
@@ -256,12 +328,46 @@ class EngineCoordinator:
         with self._lock:
             if self._phase != EnginePhase.INIT:
                 raise RuntimeError("Can only restore during INIT phase")
-            for sym, mkt in snapshot.markets.items():
-                self._markets[sym] = mkt
-            self._account = snapshot.account
-            self._positions = dict(snapshot.positions)
+            rust_markets = {
+                sym: mkt if isinstance(mkt, RustMarketState) else market_to_rust(mkt)
+                for sym, mkt in snapshot.markets.items()
+            }
+            rust_account = (
+                snapshot.account
+                if isinstance(snapshot.account, RustAccountState)
+                else account_to_rust(snapshot.account)
+            )
+            rust_positions = {
+                sym: pos if isinstance(pos, RustPositionState) else position_to_rust(pos)
+                for sym, pos in dict(snapshot.positions).items()
+            }
+            rust_portfolio = None
+            if getattr(snapshot, "portfolio", None) is not None:
+                rust_portfolio = portfolio_to_rust(snapshot.portfolio)
+            rust_risk = None
+            if getattr(snapshot, "risk", None) is not None:
+                rust_risk = risk_to_rust(snapshot.risk)
+
+            if self._store is not None:
+                self._store.load_exported(
+                    rust_markets,
+                    rust_positions,
+                    rust_account,
+                    event_index=snapshot.bar_index,
+                    last_event_id=snapshot.event_id,
+                    last_ts=(snapshot.ts.isoformat() if getattr(snapshot, "ts", None) is not None else None),
+                    portfolio=rust_portfolio,
+                    risk=rust_risk,
+                )
+
+            self._markets = rust_markets
+            self._account = rust_account
+            self._positions = rust_positions
+            self._portfolio = getattr(snapshot, "portfolio", None)
+            self._risk = getattr(snapshot, "risk", None)
             self._event_index = snapshot.bar_index
             self._last_event_id = snapshot.event_id
+            self._last_ts = snapshot.ts
 
     def detach_runtime(self) -> None:
         with self._lock:
@@ -299,8 +405,8 @@ class EngineCoordinator:
                 markets=dict(self._markets),
                 account=self._account,
                 positions=self._positions,
-                portfolio=None,
-                risk=None,
+                portfolio=self._portfolio,
+                risk=self._risk,
                 features=features,
             )
 
@@ -311,6 +417,8 @@ class EngineCoordinator:
             self._markets = dict(out.markets)
             self._account = out.account
             self._positions = dict(out.positions)
+            self._portfolio = out.portfolio
+            self._risk = out.risk
             if out.advanced:
                 self._event_index = int(out.event_index)
                 self._last_event_id = getattr(out, "last_event_id", None)

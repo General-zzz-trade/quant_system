@@ -30,19 +30,17 @@ except Exception:  # pragma: no cover
 # -------------------------
 from _quant_hotpath import rust_detect_event_kind as _rust_detect_kind
 from _quant_hotpath import rust_normalize_to_facts as _rust_normalize
-from _quant_hotpath import rust_pipeline_apply as _rust_pipeline_apply
 
 from state.rust_adapters import (
-    HAS_RUST_STATE_REDUCERS,
     RustAccountReducerAdapter,
     RustMarketReducerAdapter,
     RustPositionReducerAdapter,
     account_from_rust,
-    account_to_rust,
+    derive_portfolio_and_risk,
     market_from_rust,
-    market_to_rust,
+    portfolio_from_rust,
     position_from_rust,
-    position_to_rust,
+    risk_from_rust,
 )
 
 from _quant_hotpath import (
@@ -50,11 +48,6 @@ from _quant_hotpath import (
     RustPositionState as _RustPositionState,
     RustAccountState as _RustAccountState,
 )
-
-try:
-    from _quant_hotpath import RustStateStore as _RustStateStore
-except ImportError:
-    _RustStateStore = None
 
 # -------------------------
 # event 侧（你的 event 层）
@@ -203,6 +196,15 @@ def _build_snapshot(
     - 否则：生成最小可审计 dict（仍然冻结为只读对象由外层 store/codec 负责）
     """
     event_id, ts = _event_id_ts(raw_event)
+    snapshot_markets = {
+        sym: market_from_rust(state) if isinstance(state, _RustMarketState) else state
+        for sym, state in markets.items()
+    }
+    snapshot_account = account_from_rust(account) if isinstance(account, _RustAccountState) else account
+    snapshot_positions = {
+        sym: position_from_rust(state) if isinstance(state, _RustPositionState) else state
+        for sym, state in positions.items()
+    }
 
     if _HAS_STRICT_SNAPSHOT:
         event_type_str = getattr(raw_event, "event_type", "unknown")
@@ -214,9 +216,9 @@ def _build_snapshot(
             event_id=event_id,
             event_type=str(event_type_str),
             bar_index=event_index,
-            markets=markets,
-            positions=positions,
-            account=account,
+            markets=snapshot_markets,
+            positions=snapshot_positions,
+            account=snapshot_account,
             portfolio=portfolio,
             risk=risk,
             features=features,
@@ -226,13 +228,32 @@ def _build_snapshot(
         "event_id": event_id,
         "event_index": event_index,
         "ts": ts,
-        "markets": markets,
-        "account": account,
-        "positions": positions,
+        "markets": snapshot_markets,
+        "account": snapshot_account,
+        "positions": snapshot_positions,
         "portfolio": portfolio,
         "risk": risk,
         "features": features,
     }
+
+
+def _export_store_state(store: Any) -> Tuple[Mapping[str, Any], Any, Mapping[str, Any], Any, Any, Any, Any, Any]:
+    bundle = dict(store.export_state())
+    markets = dict(bundle["markets"])
+    positions = dict(bundle["positions"])
+    account = bundle["account"]
+    portfolio = portfolio_from_rust(bundle["portfolio"])
+    risk = risk_from_rust(bundle["risk"])
+    return (
+        markets,
+        account,
+        positions,
+        portfolio,
+        risk,
+        bundle.get("event_index"),
+        bundle.get("last_event_id"),
+        bundle.get("last_ts"),
+    )
 
 
 # ============================================================
@@ -277,19 +298,33 @@ class StatePipeline:
         self._ar = account_reducer or RustAccountReducerAdapter()
         self._pr = position_reducer or RustPositionReducerAdapter()
         self._cfg = config or PipelineConfig()
-        self._store = store  # Optional RustStateStore
-        # Fast path: single Rust call bypassing normalize overhead.
-        # Only when no custom reducers are provided and no store.
-        self._use_rust_fast_path = (
-            store is None
-            and market_reducer is None
-            and account_reducer is None
-            and position_reducer is None
-        )
+        self._store = store
 
     @property
     def config(self) -> PipelineConfig:
         return self._cfg
+
+    def _derive_state(
+        self,
+        *,
+        raw_event: Any,
+        inp: PipelineInput,
+        markets: Mapping[str, Any],
+        account: Any,
+        positions: Mapping[str, Any],
+        recompute: bool,
+    ) -> Tuple[Any, Any]:
+        if not recompute and inp.portfolio is not None and inp.risk is not None:
+            return inp.portfolio, inp.risk
+        return derive_portfolio_and_risk(
+            event=raw_event,
+            symbol_default=inp.symbol_default,
+            markets=markets,
+            account=account,
+            positions=positions,
+            prior_portfolio=inp.portfolio,
+            prior_risk=inp.risk,
+        )
 
     def apply(self, inp: PipelineInput) -> PipelineOutput:
         """
@@ -301,16 +336,11 @@ class StatePipeline:
         """
         raw_event = inp.event
 
-        # Store path: state lives on Rust heap, no Python↔Rust conversion per event
+        # Store path (default): state on Rust heap, no per-event Python↔Rust conversion
         if self._store is not None:
             return self._apply_store_path(inp, raw_event)
 
-        # Fast path: single Rust call, skips JSON/normalize_to_facts entirely
-        if self._use_rust_fast_path:
-            return self._apply_rust_fast(inp, raw_event)
-
-        # LEGACY slow path: only reached when custom Python reducers are injected.
-        # Production uses _apply_rust_fast() or _apply_store_path() above.
+        # Slow path: only reached when custom Python reducers are injected (tests).
         facts = normalize_to_facts(raw_event)
 
         # 非事实事件：不改变任何 state，也不推进 event_index
@@ -369,6 +399,14 @@ class StatePipeline:
         # 推进 event_index（只对事实事件推进）
         next_index = int(inp.event_index) + 1
         event_id, ts = _event_id_ts(raw_event)
+        portfolio, risk = self._derive_state(
+            raw_event=raw_event,
+            inp=inp,
+            markets=markets,
+            account=account,
+            positions=positions,
+            recompute=any_changed or inp.portfolio is None or inp.risk is None,
+        )
 
         # snapshot 生成策略
         snapshot: Optional[Any] = None
@@ -379,8 +417,8 @@ class StatePipeline:
                 markets=markets,
                 account=account,
                 positions=positions,
-                portfolio=inp.portfolio,
-                risk=inp.risk,
+                portfolio=portfolio,
+                risk=risk,
                 features=inp.features,
             )
 
@@ -388,8 +426,8 @@ class StatePipeline:
             markets=markets,
             account=account,
             positions=positions,
-            portfolio=inp.portfolio,
-            risk=inp.risk,
+            portfolio=portfolio,
+            risk=risk,
             features=inp.features,
             event_index=next_index,
             last_event_id=event_id,
@@ -424,13 +462,26 @@ class StatePipeline:
 
         next_index = int(result.event_index)
 
-        # Only export state from Rust when we need a snapshot
-        need_export = (not self._cfg.build_snapshot_on_change_only) or result.changed
+        # Export when snapshot is needed or when coordinator has not yet received
+        # the derived state carried by the Rust store.
+        need_export = (
+            (not self._cfg.build_snapshot_on_change_only)
+            or result.changed
+            or inp.portfolio is None
+            or inp.risk is None
+        )
 
         if need_export:
-            markets = dict(store.get_markets())
-            account = store.get_account()
-            positions = dict(store.get_positions())
+            (
+                markets,
+                account,
+                positions,
+                portfolio,
+                risk,
+                bundled_event_index,
+                bundled_last_event_id,
+                bundled_last_ts,
+            ) = _export_store_state(store)
 
             snapshot: Optional[Any] = _build_snapshot(
                 raw_event=raw_event,
@@ -438,8 +489,8 @@ class StatePipeline:
                 markets=markets,
                 account=account,
                 positions=positions,
-                portfolio=inp.portfolio,
-                risk=inp.risk,
+                portfolio=portfolio,
+                risk=risk,
                 features=inp.features,
             )
 
@@ -447,12 +498,12 @@ class StatePipeline:
                 markets=markets,
                 account=account,
                 positions=positions,
-                portfolio=inp.portfolio,
-                risk=inp.risk,
+                portfolio=portfolio,
+                risk=risk,
                 features=inp.features,
-                event_index=next_index,
-                last_event_id=store.last_event_id,
-                last_ts=store.last_ts,
+                event_index=int(bundled_event_index),
+                last_event_id=bundled_last_event_id,
+                last_ts=bundled_last_ts,
                 snapshot=snapshot,
                 advanced=True,
             )
@@ -472,94 +523,3 @@ class StatePipeline:
             advanced=True,
         )
 
-    def _apply_rust_fast(self, inp: PipelineInput, raw_event: Any) -> PipelineOutput:
-        """
-        Fast path: single rust_pipeline_apply call.
-        Bypasses normalize_to_facts + JSON serialization + per-reducer adapter overhead.
-        """
-        # Determine symbol from event
-        sym = getattr(raw_event, "symbol", None)
-        if not isinstance(sym, str) or not sym:
-            if self._cfg.fail_on_missing_symbol:
-                raise FactNormalizationError("事实事件缺少 symbol")
-            sym = inp.symbol_default
-
-        # Convert relevant states to Rust types (if not already)
-        raw_market = inp.markets.get(sym)
-        raw_position = inp.positions.get(sym)
-        if isinstance(raw_market, _RustMarketState):
-            rust_m = raw_market
-        elif raw_market is not None:
-            rust_m = market_to_rust(raw_market)
-        else:
-            rust_m = _RustMarketState.empty(sym)
-
-        if isinstance(raw_position, _RustPositionState):
-            rust_p = raw_position
-        elif raw_position is not None:
-            rust_p = position_to_rust(raw_position)
-        else:
-            rust_p = _RustPositionState.empty(sym)
-
-        if isinstance(inp.account, _RustAccountState):
-            rust_a = inp.account
-        else:
-            rust_a = account_to_rust(inp.account)
-
-        # Single Rust call: detect_kind → reduce_all
-        result = _rust_pipeline_apply(rust_m, rust_p, rust_a, raw_event)
-
-        # None means not a fact event
-        if result is None:
-            return PipelineOutput(
-                markets=inp.markets,
-                account=inp.account,
-                positions=inp.positions,
-                portfolio=inp.portfolio,
-                risk=inp.risk,
-                features=inp.features,
-                event_index=int(inp.event_index),
-                last_event_id=getattr(inp, "last_event_id", None),
-                last_ts=getattr(inp, "last_ts", None),
-                snapshot=None,
-                advanced=False,
-            )
-
-        new_m, new_p, new_a, any_changed = result
-
-        # Keep Rust types — no conversion back to Python
-        markets: Dict[str, Any] = dict(inp.markets)
-        markets[sym] = new_m
-        positions: Dict[str, Any] = dict(inp.positions)
-        positions[sym] = new_p
-        account = new_a
-
-        next_index = int(inp.event_index) + 1
-        event_id, ts = _event_id_ts(raw_event)
-
-        snapshot: Optional[Any] = None
-        if (not self._cfg.build_snapshot_on_change_only) or any_changed:
-            snapshot = _build_snapshot(
-                raw_event=raw_event,
-                event_index=next_index,
-                markets=markets,
-                account=account,
-                positions=positions,
-                portfolio=inp.portfolio,
-                risk=inp.risk,
-                features=inp.features,
-            )
-
-        return PipelineOutput(
-            markets=markets,
-            account=account,
-            positions=positions,
-            portfolio=inp.portfolio,
-            risk=inp.risk,
-            features=inp.features,
-            event_index=next_index,
-            last_event_id=event_id,
-            last_ts=ts,
-            snapshot=snapshot,
-            advanced=True,
-        )
