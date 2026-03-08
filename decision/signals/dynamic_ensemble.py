@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
-from math import exp, sqrt
+from math import exp
 from typing import Any, Deque, Dict, List, Sequence, Tuple
 
 from _quant_hotpath import rust_rolling_sharpe

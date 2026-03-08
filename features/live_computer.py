@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from features.rolling import RollingWindow
 

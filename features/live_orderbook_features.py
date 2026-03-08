@@ -5,7 +5,6 @@ Collects depth snapshots during a bar interval and computes aggregated statistic
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 

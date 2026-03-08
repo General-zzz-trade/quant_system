@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from math import log, sqrt
 from typing import List, Optional, Sequence
 
 from features.rolling import RollingWindow

@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from math import sqrt
 from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence
 
-from _quant_hotpath import rust_rolling_sharpe, rust_max_drawdown
+from _quant_hotpath import rust_rolling_sharpe, rust_max_drawdown, rust_strategy_weights
 
 logger = logging.getLogger(__name__)
 
@@ -129,60 +128,14 @@ class MultiStrategyModule:
             tracker.record_return(ret)
 
     def _update_weights(self) -> None:
-        """Recompute weights based on allocation method."""
-        names = list(self._trackers.keys())
-        n = len(names)
-
-        if self.allocation_method == "equal" or n == 0:
-            for name in names:
-                self._weights[name] = 1.0 / max(n, 1)
-            return
-
-        if self.allocation_method == "sharpe":
-            sharpes = {}
-            for name, tracker in self._trackers.items():
-                sr = tracker.rolling_sharpe
-                sharpes[name] = max(sr, 0.0) if sr is not None else 0.0
-
-            total = sum(sharpes.values())
-            if total > 0:
-                for name in names:
-                    self._weights[name] = sharpes[name] / total
-            else:
-                for name in names:
-                    self._weights[name] = 1.0 / n
-
-        elif self.allocation_method == "inverse_vol":
-            inv_vols = {}
-            for name, tracker in self._trackers.items():
-                if tracker.n_observations < 10:
-                    inv_vols[name] = 1.0
-                    continue
-                rets = list(tracker._returns)
-                mean = sum(rets) / len(rets)
-                var = sum((r - mean) ** 2 for r in rets) / max(len(rets) - 1, 1)
-                vol = sqrt(max(var, 0.0))
-                inv_vols[name] = 1.0 / max(vol, 1e-8)
-
-            total = sum(inv_vols.values())
-            if total > 0:
-                for name in names:
-                    self._weights[name] = inv_vols[name] / total
-            else:
-                for name in names:
-                    self._weights[name] = 1.0 / n
-
-        # Apply min/max weight constraints
-        self._clamp_weights()
-
-    def _clamp_weights(self) -> None:
-        """Enforce min/max weight bounds and renormalize."""
-        for name in self._weights:
-            self._weights[name] = max(self.min_weight, min(self.max_weight, self._weights[name]))
-        total = sum(self._weights.values())
-        if total > 0:
-            for name in self._weights:
-                self._weights[name] /= total
+        """Recompute weights based on allocation method (delegated to Rust)."""
+        performances = {
+            name: {"returns": list(tracker._returns)}
+            for name, tracker in self._trackers.items()
+        }
+        self._weights = rust_strategy_weights(
+            self.allocation_method, performances, self.min_weight, self.max_weight,
+        )
 
     @property
     def weights(self) -> Dict[str, float]:
