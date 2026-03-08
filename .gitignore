@@ -16,6 +16,8 @@ __pycache__/
 
 # Local runtime
 .pytest_cache/
+.mypy_cache/
+.cache/
 .coverage
 htmlcov/
 
@@ -42,6 +44,7 @@ models_v*/
 output/
 outputs/
 results/
+validation_output/
 *.pkl
 *.pkl.sig
 .hypothesis/
