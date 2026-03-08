@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, List
 
+from _quant_hotpath import rust_volume_price_div_score
 from decision.types import SignalResult
 
 
@@ -15,44 +16,13 @@ class VolumePriceDivergenceSignal:
 
     def compute(self, snapshot: Any, symbol: str) -> SignalResult:
         closes, volumes = _get_close_volume(snapshot, symbol)
-        if len(closes) < self.lookback + 1 or len(volumes) < self.lookback + 1:
-            return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-
-        recent_c = closes[-self.lookback - 1:]
-        recent_v = volumes[-self.lookback:]
-
-        # Price change over lookback
-        if recent_c[0] == 0:
-            return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-        price_change = (recent_c[-1] - recent_c[0]) / abs(recent_c[0])
-
-        # Volume trend: simple linear slope
-        mean_v = sum(recent_v) / len(recent_v)
-        if mean_v == 0:
-            return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-
-        n = len(recent_v)
-        mean_i = (n - 1) / 2.0
-        num = sum((i - mean_i) * (v - mean_v) for i, v in enumerate(recent_v))
-        den = sum((i - mean_i) ** 2 for i in range(n))
-        vol_slope = (num / den) / mean_v if den > 0 else 0.0  # normalized slope
-
-        if abs(price_change) < 1e-6:
-            score = Decimal("0")
-            return SignalResult(symbol=symbol, side="flat", score=score, confidence=Decimal("0"))
-
-        # Divergence: volume slope should confirm price direction
-        # price↑ vol↓ → bearish (sell), price↓ vol↑ → bullish (buy)
-        # score = vol_slope if price going up, -vol_slope if price going down
-        # This way: price↑ + vol↓ → vol_slope<0 → negative score → sell
-        #           price↓ + vol↑ → -vol_slope<0... no.
-        # Simplest: multiply by sign of price change
-        direction = 1.0 if price_change > 0 else -1.0
-        divergence_score = vol_slope * direction  # negative = divergence
-        score = Decimal(str(round(divergence_score * 100, 6)))
-        conf = Decimal(str(round(min(abs(divergence_score) * 10, 1.0), 4)))
-        side = "buy" if score > 0 else ("sell" if score < 0 else "flat")
-        return SignalResult(symbol=symbol, side=side, score=score, confidence=conf)
+        side, score, conf = rust_volume_price_div_score(closes, volumes, self.lookback)
+        return SignalResult(
+            symbol=symbol,
+            side=side,
+            score=Decimal(str(score)),
+            confidence=Decimal(str(conf)),
+        )
 
 
 def _get_close_volume(snapshot: Any, symbol: str) -> tuple[List[float], List[float]]:

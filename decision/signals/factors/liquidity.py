@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from math import sqrt
 from typing import Any, List
 
+from _quant_hotpath import rust_liquidity_score
 from decision.types import SignalResult
 
 
@@ -16,23 +16,13 @@ class LiquiditySignal:
 
     def compute(self, snapshot: Any, symbol: str) -> SignalResult:
         volumes = _get_volumes(snapshot, symbol)
-        if len(volumes) < self.lookback:
-            return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-
-        recent = volumes[-self.lookback:]
-        mean_vol = sum(recent) / len(recent)
-        var = sum((v - mean_vol) ** 2 for v in recent) / len(recent)
-        std = sqrt(var) if var > 0 else 1e-10
-
-        current = recent[-1]
-        z = (current - mean_vol) / std if std > 1e-10 else 0.0
-
-        # High volume (positive z) → liquidity available → slight buy bias (liquidity premium)
-        # Low volume (negative z) → illiquidity → slight sell bias (risk)
-        score = Decimal(str(round(z, 6)))
-        conf = Decimal(str(round(min(abs(z) / 3.0, 1.0), 4)))
-        side = "buy" if score > 0 else ("sell" if score < 0 else "flat")
-        return SignalResult(symbol=symbol, side=side, score=score, confidence=conf)
+        side, score, conf = rust_liquidity_score(volumes, self.lookback)
+        return SignalResult(
+            symbol=symbol,
+            side=side,
+            score=Decimal(str(score)),
+            confidence=Decimal(str(conf)),
+        )
 
 
 def _get_volumes(snapshot: Any, symbol: str) -> List[float]:

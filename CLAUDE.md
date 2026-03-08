@@ -2,10 +2,10 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
-pytest tests/ -x -q          # Run all tests (2654 Python tests)
+pytest tests/ -x -q          # Run all tests (2653 Python tests)
 pytest tests/unit/ -x -q     # Unit tests only
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test    # Rust unit tests (41 tests)
+cd ext/rust && cargo test    # Rust unit tests (52 tests)
 ```
 
 **CRITICAL after Rust build**: copy .so to local package (shadows system install):
@@ -37,8 +37,8 @@ scripts/         Training, walk-forward validation, alpha research
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 54 .rs modules, ~16,300 LOC
-- Exports: 56 classes + 92 functions
+- Single crate `_quant_hotpath`, 55 .rs modules, ~16,600 LOC
+- Exports: 56 classes + 98 functions
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -52,6 +52,7 @@ Key exports:
 - Decision: `rust_rolling_sharpe`, `rust_max_drawdown`, `rust_strategy_weights`
 - Portfolio: `rust_allocate_portfolio`, `rust_fixed_fraction_qty`
 - Pipeline: `rust_pipeline_apply`, `RustProcessResult`
+- Factors: `rust_momentum_score`, `rust_volatility_score`, `rust_adx`, `rust_carry_score`
 
 ## Key Files
 
@@ -71,3 +72,6 @@ Key exports:
 - CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar
 - Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
 - `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
+- `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
+- No Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
+- `features/_rolling_py.py` only has `rolling_apply` (RollingWindow class deleted)

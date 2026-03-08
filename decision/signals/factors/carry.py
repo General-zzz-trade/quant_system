@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from _quant_hotpath import rust_carry_score
 from decision.types import SignalResult
 
 
@@ -17,12 +18,13 @@ class CarrySignal:
         if rate is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
 
-        # Negative funding → longs pay less / receive → go long
-        # Positive funding → shorts receive → go short
-        score = Decimal(str(round(-rate * 10000, 6)))  # scale for readability
-        conf = Decimal(str(round(min(abs(rate) * 10000, 1.0), 4)))
-        side = "buy" if score > 0 else ("sell" if score < 0 else "flat")
-        return SignalResult(symbol=symbol, side=side, score=score, confidence=conf)
+        side, score, conf = rust_carry_score(rate)
+        return SignalResult(
+            symbol=symbol,
+            side=side,
+            score=Decimal(str(score)),
+            confidence=Decimal(str(conf)),
+        )
 
 
 def _get_funding_rate(snapshot: Any, symbol: str) -> float | None:

@@ -50,6 +50,7 @@ mod decision_signals;
 mod execution_store;
 mod microstructure;
 mod portfolio_allocator;
+mod factor_signals;
 mod regime_buffer;
 mod state_store;
 pub mod rust_events;
@@ -245,6 +246,14 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Portfolio allocator
     m.add_function(wrap_pyfunction!(portfolio_allocator::rust_allocate_portfolio, m)?)?;
+
+    // Factor signals
+    m.add_function(wrap_pyfunction!(factor_signals::rust_momentum_score, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_signals::rust_volatility_score, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_signals::rust_liquidity_score, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_signals::rust_volume_price_div_score, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_signals::rust_adx, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_signals::rust_carry_score, m)?)?;
 
     Ok(())
 }

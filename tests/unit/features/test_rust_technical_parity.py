@@ -95,19 +95,6 @@ class TestRollingWindow:
         with pytest.raises(Exception):
             RustRW(-1)
 
-    def test_parity_with_python(self):
-        from features._rolling_py import RollingWindow as PyRW
-        prices = _make_prices(100)
-        py_rw = PyRW(20)
-        rust_rw = RustRW(20)
-        for p in prices:
-            py_rw.push(p)
-            rust_rw.push(p)
-            assert py_rw.full == rust_rw.full
-            if py_rw.full:
-                assert py_rw.mean == pytest.approx(rust_rw.mean, rel=1e-9)
-                assert py_rw.variance == pytest.approx(rust_rw.variance, rel=1e-9)
-                assert py_rw.std == pytest.approx(rust_rw.std, rel=1e-9)
 
 
 # ── VWAPWindow ──
