@@ -49,9 +49,7 @@ def cpp_features():
     """Compute features using C++ batch engine."""
     _skip_if_no_data()
     try:
-        from features.batch_feature_engine import compute_features_batch, _USING_CPP
-        if not _USING_CPP:
-            pytest.skip("C++ feature engine not compiled")
+        from features.batch_feature_engine import compute_features_batch
     except ImportError:
         pytest.skip("C++ feature engine not available")
 
@@ -145,9 +143,7 @@ class TestPerformance:
         import time
 
         try:
-            from features.batch_feature_engine import compute_features_batch, _USING_CPP
-            if not _USING_CPP:
-                pytest.skip("C++ not available")
+            from features.batch_feature_engine import compute_features_batch
         except ImportError:
             pytest.skip("C++ not available")
 

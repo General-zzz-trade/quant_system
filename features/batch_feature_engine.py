@@ -15,12 +15,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-try:
-    from _quant_hotpath import cpp_compute_all_features, cpp_feature_names
-    _USING_CPP = True
-except ImportError:
-    _USING_CPP = False
-    logger.warning("C++ feature engine not available, using Python fallback")
+from _quant_hotpath import cpp_compute_all_features, cpp_feature_names
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
@@ -121,10 +116,6 @@ def compute_features_batch(
     C++ accelerated replacement for compute_oos_features().
     Falls back to Python if C++ module not available.
     """
-    if not _USING_CPP:
-        from scripts.backtest_alpha_v8 import compute_oos_features
-        return compute_oos_features(symbol, df)
-
     # Extract bar data as numpy arrays
     ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
     timestamps = df[ts_col].values.astype(np.float64)

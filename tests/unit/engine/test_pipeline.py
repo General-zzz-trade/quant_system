@@ -15,7 +15,6 @@ from engine.pipeline import (
     PipelineOutput,
     StatePipeline,
     _detect_kind,
-    _event_id_ts,
     normalize_to_facts,
 )
 from state.account import AccountState
@@ -155,26 +154,6 @@ class TestDetectKind:
         assert _detect_kind(e) == "FILL"
 
 
-# ---------------------------------------------------------------------------
-# Tests: _event_id_ts
-# ---------------------------------------------------------------------------
-
-class TestEventIdTs:
-    def test_with_header(self) -> None:
-        e = SimpleNamespace(header=SimpleNamespace(event_id="e-1", ts="2024-01-01"))
-        eid, ts = _event_id_ts(e)
-        assert eid == "e-1"
-        assert ts == "2024-01-01"
-
-    def test_no_header(self) -> None:
-        eid, ts = _event_id_ts(object())
-        assert eid is None
-        assert ts is None
-
-    def test_non_string_event_id(self) -> None:
-        e = SimpleNamespace(header=SimpleNamespace(event_id=123, ts=None))
-        eid, ts = _event_id_ts(e)
-        assert eid is None  # non-string → None
 
 
 # ---------------------------------------------------------------------------

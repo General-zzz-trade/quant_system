@@ -6,10 +6,9 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 from math import sqrt
-from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence
 
 from _quant_hotpath import rust_rolling_sharpe, rust_max_drawdown
-from decision.types import SignalResult
 
 logger = logging.getLogger(__name__)
 

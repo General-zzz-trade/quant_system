@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from math import sqrt
 from typing import Any, Deque, Dict, List, Optional, Sequence
 
 from features.rolling import RollingWindow

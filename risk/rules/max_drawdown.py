@@ -25,10 +25,6 @@ def _d(x: Any) -> Decimal:
     return Decimal(str(x))
 
 
-def _abs(x: Decimal) -> Decimal:
-    return x if x >= 0 else -x
-
-
 def _norm_symbol(s: Symbol | str) -> str:
     return s.normalized if hasattr(s, "normalized") else str(s)
 

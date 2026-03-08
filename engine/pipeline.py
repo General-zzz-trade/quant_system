@@ -2,11 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Tuple
-
-from state.market import MarketState
-from state.account import AccountState
-from state.position import PositionState
+from typing import Any, List, Mapping, Optional, Tuple
 
 try:
     from state.snapshot import StateSnapshot
@@ -97,13 +93,6 @@ class PipelineOutput:
 # ============================================================
 # Utilities
 # ============================================================
-
-def _event_id_ts(event: Any) -> Tuple[Optional[str], Optional[Any]]:
-    header = getattr(event, "header", None)
-    event_id = getattr(header, "event_id", None)
-    ts = getattr(header, "ts", None)
-    return (event_id if isinstance(event_id, str) else None, ts)
-
 
 def _detect_kind(event: Any) -> str:
     return _rust_detect_kind(event)

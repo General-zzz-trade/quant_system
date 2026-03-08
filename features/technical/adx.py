@@ -1,8 +1,6 @@
 """Average Directional Index (ADX) feature — delegates to Rust."""
 from __future__ import annotations
 
-from typing import Optional
-
 from _quant_hotpath import rust_adx
 from features.types import Bars, FeatureSeries
 
