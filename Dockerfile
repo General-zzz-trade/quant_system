@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Build tools (no g++ needed — Rust only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    make curl && \
+    make curl gcc libc6-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Rust for PyO3

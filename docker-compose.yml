@@ -4,6 +4,9 @@ x-paper-base: &paper-base
     target: paper
   image: quant-paper:latest
   env_file: .env
+  environment:
+    - QUANT_ALLOW_UNSIGNED_MODELS=1
+    - PYTHONUNBUFFERED=1
   restart: unless-stopped
   volumes:
     - ./models_v8:/app/models_v8:ro

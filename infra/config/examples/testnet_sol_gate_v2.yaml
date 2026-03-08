@@ -1,7 +1,6 @@
-# SOL V8 gate_v3 Paper Trading
-# WF: 13/17 positive Sharpe, Avg S=1.80, Return=+301%
-# Key: dz=1.0, mh=48 (very selective signal for SOL volatility)
-# Signal constraints loaded from models_v8/SOLUSDT_gate_v3/config.json
+# SOL V8 gate_v2 Paper Trading — Strategy F (regime-switch)
+# Portfolio optimized: dz=0.1, mh=8, bear graded thresholds
+# Signal constraints loaded from models_v8/SOLUSDT_gate_v2/config.json
 
 trading:
   symbols: [SOLUSDT]
@@ -10,10 +9,10 @@ trading:
   mode: live
 
 strategy:
-  model_path: models_v8/SOLUSDT_gate_v3
-  bear_model_path: ""      # SOL does not use Strategy F — bear model damages bull folds (tested 20+ experiments)
+  model_path: models_v8/SOLUSDT_gate_v2
+  bear_model_path: models_v8/SOLUSDT_bear_c
   threshold: 0.0001
-  threshold_short: 999.0   # long-only
+  threshold_short: 0.0001
   risk_pct: 0.30
   order_qty: "1.0"
   monthly_gate: true
