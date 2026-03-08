@@ -1,0 +1,153 @@
+{
+  "version": "v8",
+  "symbol": "ETHUSDT",
+  "ensemble": true,
+  "ensemble_weights": [
+    0.5,
+    0.5
+  ],
+  "models": [
+    "lgbm_v8.pkl",
+    "xgb_v8.pkl"
+  ],
+  "features": [
+    "ret_24",
+    "atr_norm_14",
+    "parkinson_vol",
+    "bb_width_20",
+    "vol_20",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "tf4h_ret_6",
+    "basis_zscore_24",
+    "basis_momentum",
+    "btc_ret_24",
+    "btc_rsi_14",
+    "btc_mean_reversion_20",
+    "fgi_normalized",
+    "vol_of_vol",
+    "vwap_dev_20",
+    "rsi_6"
+  ],
+  "fixed_features": [
+    "ret_24",
+    "atr_norm_14",
+    "parkinson_vol",
+    "bb_width_20",
+    "vol_20",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "tf4h_ret_6",
+    "basis_zscore_24",
+    "basis_momentum",
+    "btc_ret_24",
+    "btc_rsi_14",
+    "btc_mean_reversion_20"
+  ],
+  "candidate_pool": [
+    "mean_reversion_20",
+    "rsi_6",
+    "ma_cross_10_30",
+    "close_vs_ma50",
+    "vol_of_vol",
+    "fgi_normalized",
+    "funding_ma8",
+    "vwap_dev_20",
+    "btc_atr_norm_14",
+    "btc_bb_width_20"
+  ],
+  "n_flexible": 4,
+  "long_only": true,
+  "deadzone": 0.5,
+  "min_hold": 8,
+  "monthly_gate_window": 480,
+  "horizon": 24,
+  "target_mode": "clipped",
+  "params": {
+    "n_estimators": 500,
+    "max_depth": 5,
+    "learning_rate": 0.01,
+    "num_leaves": 16,
+    "min_child_samples": 80,
+    "reg_alpha": 0.1,
+    "reg_lambda": 2.0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "objective": "regression",
+    "verbosity": -1
+  },
+  "xgb_params": {
+    "max_depth": 5,
+    "learning_rate": 0.01,
+    "objective": "reg:squarederror",
+    "verbosity": 0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7
+  },
+  "bear_model_path": "models_v8/ETHUSDT_bear_c",
+  "position_management": {
+    "bear_thresholds": [
+      [
+        0.7,
+        -1.0
+      ],
+      [
+        0.6,
+        -0.5
+      ],
+      [
+        0.5,
+        0.0
+      ]
+    ],
+    "vol_target": null,
+    "dd_limit": 0.1,
+    "dd_cooldown": 48
+  },
+  "metrics": {
+    "sharpe": 7.484417332138579,
+    "total_return": 0.6768449531132148,
+    "max_drawdown": -0.10304440295426405,
+    "ic": 0.2908626227957511,
+    "h2_ic": 0.30254274720668073,
+    "bootstrap_p_positive": 0.9986,
+    "bootstrap_ci_95": [
+      2.534154594410318,
+      12.405259676988598
+    ],
+    "n_months": 20,
+    "positive_months": 10,
+    "monthly_returns": [
+      0.0,
+      0.0369636288674512,
+      -0.04969697473538888,
+      0.14486382855636493,
+      0.04106578450769041,
+      -0.04555959409341501,
+      0.0,
+      0.0,
+      0.01520120631958477,
+      0.32771672361481025,
+      -0.002465482769276472,
+      0.12334359420670658,
+      0.025741606018644458,
+      0.005082431020563782,
+      0.060917196465170895,
+      0.0,
+      0.004045786281504531,
+      -0.010374781147196716,
+      0.0,
+      0.0
+    ],
+    "n_active_bars": 1356,
+    "n_total_bars": 13712
+  },
+  "checks": {
+    "OOS Sharpe > 0": true,
+    "H2 IC > 0": true,
+    "Bootstrap P(S>0) > 50%": true,
+    "Max DD > -30%": true,
+    "Positive months >= 10/20": true
+  },
+  "passed": true
+}

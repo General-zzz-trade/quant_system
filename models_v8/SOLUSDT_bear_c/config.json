@@ -1,0 +1,36 @@
+{
+  "version": "bear_c_v1",
+  "symbol": "SOLUSDT",
+  "is_classifier": true,
+  "models": [
+    "lgbm_bear.pkl"
+  ],
+  "features": [
+    "funding_zscore_24",
+    "funding_momentum",
+    "funding_extreme",
+    "funding_sign_persist",
+    "funding_cumulative_8",
+    "basis",
+    "basis_zscore_24",
+    "basis_momentum",
+    "vol_20",
+    "vol_regime",
+    "parkinson_vol",
+    "atr_norm_14",
+    "fgi_normalized",
+    "fgi_extreme",
+    "rsi_14",
+    "bb_pctb_20",
+    "oi_acceleration",
+    "leverage_proxy"
+  ],
+  "threshold": -0.02,
+  "metrics": {
+    "val_logloss": 0.675179,
+    "direction_accuracy": 0.579316
+  },
+  "n_train": 23542,
+  "n_pos": 7548,
+  "n_neg": 15994
+}

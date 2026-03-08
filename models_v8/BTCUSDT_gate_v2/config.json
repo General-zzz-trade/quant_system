@@ -1,0 +1,145 @@
+{
+  "version": "v8",
+  "symbol": "BTCUSDT",
+  "ensemble": true,
+  "ensemble_weights": [
+    0.5,
+    0.5
+  ],
+  "models": [
+    "lgbm_v8.pkl",
+    "xgb_v8.pkl"
+  ],
+  "features": [
+    "basis",
+    "ret_24",
+    "fgi_normalized",
+    "fgi_extreme",
+    "parkinson_vol",
+    "atr_norm_14",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "basis_zscore_24",
+    "cvd_20",
+    "funding_zscore_24",
+    "basis_momentum",
+    "spx_overnight_ret",
+    "mempool_size_zscore_24"
+  ],
+  "fixed_features": [
+    "basis",
+    "ret_24",
+    "fgi_normalized",
+    "fgi_extreme",
+    "parkinson_vol",
+    "atr_norm_14",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "basis_zscore_24",
+    "cvd_20"
+  ],
+  "candidate_pool": [
+    "funding_zscore_24",
+    "basis_momentum",
+    "vol_ma_ratio_5_20",
+    "mean_reversion_20",
+    "funding_sign_persist",
+    "hour_sin",
+    "liquidation_cascade_score",
+    "implied_vol_zscore_24",
+    "iv_rv_spread",
+    "exchange_supply_zscore_30",
+    "mempool_size_zscore_24",
+    "spx_overnight_ret"
+  ],
+  "n_flexible": 4,
+  "long_only": true,
+  "deadzone": 0.5,
+  "min_hold": 8,
+  "horizon": 24,
+  "target_mode": "clipped",
+  "params": {
+    "n_estimators": 500,
+    "max_depth": 7,
+    "learning_rate": 0.008833343453820633,
+    "num_leaves": 28,
+    "min_child_samples": 70,
+    "reg_alpha": 0.015385315262552074,
+    "reg_lambda": 0.5032511084379974,
+    "subsample": 0.645762683458437,
+    "colsample_bytree": 0.8570242937153285,
+    "objective": "regression",
+    "verbosity": -1
+  },
+  "xgb_params": {
+    "max_depth": 7,
+    "learning_rate": 0.008833343453820633,
+    "objective": "reg:squarederror",
+    "verbosity": 0,
+    "subsample": 0.645762683458437,
+    "colsample_bytree": 0.8570242937153285
+  },
+  "hpo_trials": 30,
+  "metrics": {
+    "sharpe": 1.4449132176445532,
+    "total_return": 0.19790681556545459,
+    "ic": 0.058509052323426534,
+    "h2_ic": 0.05890670687696528,
+    "bootstrap_p_positive": 0.8442,
+    "bootstrap_ci_95": [
+      -1.4294735313103146,
+      4.419699209300637
+    ],
+    "n_months": 18,
+    "positive_months": 12,
+    "monthly_returns": [
+      0.007346545222574198,
+      0.007653494596685458,
+      0.06664649125728292,
+      0.023383101169919207,
+      0.01993642086403155,
+      -0.07576169195376868,
+      0.07857876497104596,
+      0.04348494868424549,
+      0.04015118684901947,
+      0.033305408731080954,
+      0.06835110990671171,
+      0.02334482577518209,
+      0.020715159389951616,
+      -0.030900650198305853,
+      -0.06477820560312414,
+      -0.009743788420488432,
+      -0.023947181054541408,
+      -0.040042181572080726
+    ],
+    "n_active_bars": 3308,
+    "n_total_bars": 13139
+  },
+  "checks": {
+    "OOS Sharpe > 0.5": "True",
+    "H2 IC > 0": true,
+    "Bootstrap P(S>0) > 80%": true,
+    "Positive months >= 10/18": true
+  },
+  "passed": true,
+  "bear_model_path": "models_v8/BTCUSDT_bear_c",
+  "position_management": {
+    "bear_thresholds": [
+      [
+        0.7,
+        -1.0
+      ],
+      [
+        0.6,
+        -0.5
+      ],
+      [
+        0.5,
+        0.0
+      ]
+    ],
+    "vol_target": null,
+    "dd_limit": 0.1,
+    "dd_cooldown": 48
+  }
+}

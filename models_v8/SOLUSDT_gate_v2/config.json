@@ -1,0 +1,151 @@
+{
+  "version": "v8",
+  "symbol": "SOLUSDT",
+  "ensemble": true,
+  "ensemble_weights": [
+    0.5,
+    0.5
+  ],
+  "models": [
+    "lgbm_v8.pkl",
+    "xgb_v8.pkl"
+  ],
+  "features": [
+    "basis",
+    "ret_24",
+    "fgi_normalized",
+    "fgi_extreme",
+    "parkinson_vol",
+    "atr_norm_14",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "basis_zscore_24",
+    "cvd_20",
+    "btc_ret_24",
+    "btc_rsi_14",
+    "btc_mean_reversion_20",
+    "funding_zscore_24",
+    "basis_momentum",
+    "funding_sign_persist",
+    "hour_sin"
+  ],
+  "fixed_features": [
+    "basis",
+    "ret_24",
+    "fgi_normalized",
+    "fgi_extreme",
+    "parkinson_vol",
+    "atr_norm_14",
+    "rsi_14",
+    "tf4h_atr_norm_14",
+    "basis_zscore_24",
+    "cvd_20",
+    "btc_ret_24",
+    "btc_rsi_14",
+    "btc_mean_reversion_20"
+  ],
+  "candidate_pool": [
+    "funding_zscore_24",
+    "basis_momentum",
+    "vol_ma_ratio_5_20",
+    "mean_reversion_20",
+    "funding_sign_persist",
+    "hour_sin",
+    "btc_ret_12",
+    "btc_macd_line",
+    "btc_atr_norm_14",
+    "btc_bb_width_20"
+  ],
+  "n_flexible": 4,
+  "long_only": true,
+  "bear_model_path": "models_v8/SOLUSDT_bear_c",
+  "deadzone": 0.5,
+  "min_hold": 8,
+  "monthly_gate_window": 480,
+  "horizon": 5,
+  "target_mode": "clipped",
+  "params": {
+    "n_estimators": 500,
+    "max_depth": 5,
+    "learning_rate": 0.01,
+    "num_leaves": 16,
+    "min_child_samples": 80,
+    "reg_alpha": 0.1,
+    "reg_lambda": 2.0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "objective": "regression",
+    "verbosity": -1
+  },
+  "xgb_params": {
+    "max_depth": 5,
+    "learning_rate": 0.01,
+    "objective": "reg:squarederror",
+    "verbosity": 0,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7
+  },
+  "position_management": {
+    "bear_thresholds": [
+      [
+        0.7,
+        -1.0
+      ],
+      [
+        0.6,
+        -0.5
+      ],
+      [
+        0.5,
+        0.0
+      ]
+    ],
+    "vol_target": null,
+    "vol_feature": "atr_norm_14",
+    "dd_limit": 0.1,
+    "dd_cooldown": 48
+  },
+  "metrics": {
+    "sharpe": 2.1391524817340066,
+    "total_return": 0.2645861452464833,
+    "max_drawdown": -0.3416107854181537,
+    "ic": 0.15500639403015798,
+    "h2_ic": 0.13937524175224777,
+    "bootstrap_p_positive": 0.8182,
+    "bootstrap_ci_95": [
+      -2.7959825457402707,
+      7.223999707847968
+    ],
+    "n_months": 17,
+    "positive_months": 7,
+    "monthly_returns": [
+      -0.020897118113089627,
+      0.06583079106844687,
+      0.06902877421975459,
+      0.2357634239942854,
+      0.0,
+      0.04366466901308759,
+      0.0015009947081278709,
+      -0.030036375981985143,
+      0.09657751737942785,
+      0.0895497573095963,
+      -0.07871037087735287,
+      -0.07052538834725813,
+      0.0,
+      -0.07592912726958342,
+      -0.02717412568449617,
+      -0.03405727617247787,
+      0.0
+    ],
+    "n_active_bars": 1344,
+    "n_total_bars": 11960
+  },
+  "checks": {
+    "OOS Sharpe > 0": true,
+    "H2 IC > 0": true,
+    "Bootstrap P(S>0) > 50%": true,
+    "Max DD > -30%": false,
+    "Positive months >= 8/17": false
+  },
+  "passed": false
+}

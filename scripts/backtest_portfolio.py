@@ -68,6 +68,10 @@ def _generate_symbol_signal(
     model_dir: Path,
     oos_bars: int,
     full: bool,
+    *,
+    deadzone_override: Optional[float] = None,
+    min_hold_override: Optional[int] = None,
+    sym_dd_override: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """Generate signal for a single symbol. Returns dict with arrays or None."""
     config_path = model_dir / "config.json"
@@ -160,11 +164,23 @@ def _generate_symbol_signal(
         preds.append(p * weights[i])
     y_pred = np.sum(preds, axis=0) / sum(weights)
 
-    # Signal
-    signal = _pred_to_signal(y_pred, target_mode=target_mode)
+    # Signal with deadzone + min_hold (CLI override or config)
+    deadzone = deadzone_override if deadzone_override is not None else cfg.get("deadzone", 0.5)
+    min_hold = min_hold_override if min_hold_override is not None else cfg.get("min_hold", 24)
+    signal = _pred_to_signal(y_pred, target_mode=target_mode,
+                             deadzone=deadzone, min_hold=min_hold)
 
-    # Regime switch with bear model
+    # Apply long_only from config (clip shorts in bull regime)
+    is_long_only = cfg.get("long_only", False)
+    ma_window = cfg.get("ma_window", 480)
+
+    # Strategy F: regime switch with bear model
     bear_model_path = cfg.get("bear_model_path")
+    pm = cfg.get("position_management", {})
+    bear_thresholds = None
+    if pm.get("bear_thresholds"):
+        bear_thresholds = [tuple(x) for x in pm["bear_thresholds"]]
+
     if bear_model_path:
         bear_dir = Path(bear_model_path)
         bear_cfg_path = bear_dir / "config.json"
@@ -176,7 +192,7 @@ def _generate_symbol_signal(
                 bear_data = load_verified_pickle(bear_pkl)
                 bear_model = bear_data["model"]
                 bear_features = bear_data.get("features", bear_cfg.get("features", []))
-                bear_mask = _compute_bear_mask(closes)
+                bear_mask = _compute_bear_mask(closes, ma_window)
 
                 feat_df_trimmed = feat_df.iloc[warmup:].reset_index(drop=True)
                 X_bear = np.column_stack([
@@ -185,9 +201,39 @@ def _generate_symbol_signal(
                     for f in bear_features
                 ])
                 prob = bear_model.predict_proba(X_bear)[:, 1]
+
+                # Bull regime: long-only signal
+                if is_long_only:
+                    signal = np.clip(signal, 0.0, None)
+
+                # Bear regime: graded thresholds from config
                 for i in range(n):
                     if bear_mask[i]:
-                        signal[i] = -1.0 if prob[i] > 0.5 else 0.0
+                        if bear_thresholds:
+                            score = 0.0
+                            for thresh, s in bear_thresholds:
+                                if prob[i] > thresh:
+                                    score = s
+                                    break
+                            signal[i] = score
+                        else:
+                            signal[i] = -1.0 if prob[i] > 0.5 else 0.0
+
+                n_bull = int((~bear_mask).sum())
+                n_bear = int(bear_mask.sum())
+                print(f"  [{symbol}] Strategy F: bull={n_bull}, bear={n_bear}")
+    elif is_long_only:
+        # No bear model, pure long-only
+        signal = np.clip(signal, 0.0, None)
+
+    # Per-symbol DD breaker (CLI override or config)
+    sym_dd_limit = sym_dd_override if sym_dd_override is not None else pm.get("dd_limit")
+    sym_dd_cooldown = pm.get("dd_cooldown", 48)
+    if sym_dd_limit is not None:
+        if sym_dd_limit > 0:
+            sym_dd_limit = -sym_dd_limit
+        from scripts.backtest_alpha_v8 import _apply_dd_breaker
+        signal = _apply_dd_breaker(signal, closes, sym_dd_limit, sym_dd_cooldown)
 
     # Volatility (atr_norm_14 for allocation)
     vol_col = "atr_norm_14"
@@ -293,19 +339,33 @@ def run_portfolio_backtest(
     oos_bars: int = 13140,
     full: bool = False,
     out_dir: Optional[Path] = None,
+    deadzone_override: Optional[float] = None,
+    min_hold_override: Optional[int] = None,
+    sym_dd_override: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Run multi-symbol portfolio backtest."""
     print(f"\n{'='*70}")
     print(f"  Portfolio Backtest: {' + '.join(symbols)}")
     print(f"  Allocation: {alloc_method}, Max leverage: {max_leverage}")
     print(f"  DD limit: {dd_limit*100:.1f}%, Rebalance freq: {rebalance_freq}h")
+    if deadzone_override is not None:
+        print(f"  Deadzone override: {deadzone_override}")
+    if min_hold_override is not None:
+        print(f"  Min hold override: {min_hold_override}")
+    if sym_dd_override is not None:
+        print(f"  Per-symbol DD override: {sym_dd_override*100:.1f}%")
     print(f"{'='*70}")
 
     # Generate per-symbol signals
     symbol_data = []
     for sym in symbols:
         model_dir = Path(f"models_v8/{sym}_gate_v2")
-        result = _generate_symbol_signal(sym, model_dir, oos_bars, full)
+        result = _generate_symbol_signal(
+            sym, model_dir, oos_bars, full,
+            deadzone_override=deadzone_override,
+            min_hold_override=min_hold_override,
+            sym_dd_override=sym_dd_override,
+        )
         if result is not None:
             symbol_data.append(result)
 
@@ -346,12 +406,17 @@ def run_portfolio_backtest(
 
     cool_remaining = 0
     current_weights = np.ones(n_sym) / n_sym
+    dd_peak = INITIAL_CAPITAL  # track peak for DD; resets after cooldown
+    dd_breaker_count = 0
 
     for t in range(n_bars):
         # DD circuit breaker
         if cool_remaining > 0:
             cool_remaining -= 1
             equity[t + 1] = equity[t]
+            if cool_remaining == 0:
+                # Reset peak to current equity after cooldown — fresh start
+                dd_peak = equity[t + 1]
             continue
 
         # Rebalance weights
@@ -394,12 +459,15 @@ def run_portfolio_backtest(
             portfolio_pnl[t] = bar_pnl
             equity[t + 1] = equity[t] * (1 + bar_pnl)
 
-            # DD check
-            peak = np.max(equity[:t + 2])
-            dd = (equity[t + 1] - peak) / peak
+            # DD check against rolling peak (resets after cooldown)
+            dd_peak = max(dd_peak, equity[t + 1])
+            dd = (equity[t + 1] - dd_peak) / dd_peak
             if dd < dd_limit:
                 cool_remaining = dd_cooldown
-                print(f"  DD breaker at bar {t}: dd={dd*100:.2f}%")
+                dd_breaker_count += 1
+
+    # Last bar has no next-bar return; carry forward
+    equity[-1] = equity[-2]
 
     # ── Compute metrics ──
     final_equity = equity[-1]
@@ -430,6 +498,7 @@ def run_portfolio_backtest(
     print(f"  Annual return: {annual_return*100:+.2f}%")
     print(f"  Sharpe: {sharpe:.2f}")
     print(f"  Max DD: {max_dd*100:.2f}%")
+    print(f"  DD breaker triggered: {dd_breaker_count} times")
 
     print(f"\n  --- Per-Symbol Attribution ---")
     print(f"  {'Symbol':<12} {'Return':>8} {'Contribution':>14} {'Avg Weight':>12}")
@@ -545,6 +614,12 @@ def main() -> None:
     parser.add_argument("--full", action="store_true",
                         help="Use all available data")
     parser.add_argument("--out", default=None, help="Output directory")
+    parser.add_argument("--deadzone", type=float, default=None,
+                        help="Override deadzone for all symbols (default: from config)")
+    parser.add_argument("--min-hold", type=int, default=None,
+                        help="Override min_hold for all symbols (default: from config)")
+    parser.add_argument("--sym-dd", type=float, default=None,
+                        help="Override per-symbol DD limit (e.g. -0.15). None=from config")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)
@@ -560,6 +635,9 @@ def main() -> None:
         oos_bars=args.oos_bars,
         full=args.full,
         out_dir=out_dir,
+        deadzone_override=args.deadzone,
+        min_hold_override=args.min_hold,
+        sym_dd_override=args.sym_dd,
     )
 
 
