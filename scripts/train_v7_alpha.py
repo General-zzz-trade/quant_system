@@ -780,7 +780,10 @@ def run_walkforward(
               # V7: basis/FGI may be sparse if no spot/FGI data
               "basis", "basis_zscore_24", "basis_momentum", "basis_extreme",
               "basis_x_funding", "basis_x_vol_regime",
-              "fgi_normalized", "fgi_zscore_7", "fgi_extreme", "fgi_x_rsi14"}
+              "fgi_normalized", "fgi_zscore_7", "fgi_extreme", "fgi_x_rsi14",
+              # External data — may not be available
+              "spx_overnight_ret", "mempool_size_zscore_24",
+              "liquidation_cascade_score"}
     core = [c for c in available if c not in SPARSE]
     X_full = feat_df[available].values.astype(np.float64)
 

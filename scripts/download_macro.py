@@ -86,25 +86,44 @@ def download_macro(start: str, out_dir: str) -> Path:
             logger.exception("Failed to fetch %s", key)
             ticker_data[key] = {}
 
-    # Merge all timestamps
-    all_ts = set()
-    for td in ticker_data.values():
-        all_ts.update(td.keys())
-    all_ts_sorted = sorted(all_ts)
+    # Group by date and merge — each ticker may have different UTC timestamps
+    # for the same trading day due to different market close times.
+    # Use the latest timestamp per date as the row timestamp.
+    from collections import defaultdict
+    date_data: dict[str, dict] = defaultdict(lambda: {"ts": 0})
+    for key, td in ticker_data.items():
+        for ts, val in td.items():
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            date_str = dt.strftime("%Y-%m-%d")
+            date_data[date_str][key] = val
+            date_data[date_str]["ts"] = max(date_data[date_str]["ts"], ts)
 
-    # Write combined CSV
+    # Write combined CSV — one row per trading day, all fields populated
     fields = ["timestamp", "timestamp_ms", "date", "dxy", "spx", "vix"]
     rows_out = []
-    for ts in all_ts_sorted:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    for date_str in sorted(date_data.keys()):
+        dd = date_data[date_str]
+        # Skip days with no actual data
+        if not any(dd.get(k) for k in ("dxy", "spx", "vix")):
+            continue
+        ts = dd["ts"]
         row = {
             "timestamp": ts,
             "timestamp_ms": ts * 1000,
-            "date": dt.strftime("%Y-%m-%d"),
+            "date": date_str,
         }
         for key in ("dxy", "spx", "vix"):
-            row[key] = ticker_data.get(key, {}).get(ts, "")
+            row[key] = dd.get(key, "")
         rows_out.append(row)
+
+    # Forward-fill missing values (weekends/holidays have gaps)
+    prev = {}
+    for row in rows_out:
+        for key in ("dxy", "spx", "vix"):
+            if row[key] != "" and row[key] is not None:
+                prev[key] = row[key]
+            elif key in prev:
+                row[key] = prev[key]
 
     with out_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)

@@ -50,7 +50,17 @@
     "iv_rv_spread",
     "exchange_supply_zscore_30",
     "mempool_size_zscore_24",
-    "spx_overnight_ret"
+    "spx_overnight_ret",
+    "close_vs_ma20",
+    "vwap_dev_20",
+    "vol_20",
+    "vol_5",
+    "ma_cross_10_30",
+    "ret_12",
+    "bb_pctb_20",
+    "funding_vs_vol",
+    "volume_momentum_10",
+    "bb_width_20"
   ],
   "n_flexible": 4,
   "long_only": true,

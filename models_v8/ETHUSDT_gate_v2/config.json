@@ -54,7 +54,14 @@
     "funding_ma8",
     "vwap_dev_20",
     "btc_atr_norm_14",
-    "btc_bb_width_20"
+    "btc_bb_width_20",
+    "vol_5",
+    "funding_sign_persist",
+    "tf4h_vol_20",
+    "close_vs_ma20",
+    "bb_pctb_20",
+    "btc_ret_12",
+    "volume_momentum_10"
   ],
   "n_flexible": 4,
   "long_only": true,

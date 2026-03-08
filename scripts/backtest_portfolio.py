@@ -119,7 +119,11 @@ def _generate_symbol_signal(
 
     # Compute features
     from features.batch_feature_engine import compute_features_batch
-    feat_df = compute_features_batch(symbol, oos_df)
+    v11_features = {"spx_overnight_ret", "dxy_change_5d", "vix_zscore_14",
+                    "mempool_size_zscore_24", "fee_urgency_ratio",
+                    "exchange_supply_zscore_30", "liquidation_cascade_score"}
+    needs_v11 = bool(set(feature_names) & v11_features)
+    feat_df = compute_features_batch(symbol, oos_df, include_v11=needs_v11)
 
     # Cross-asset features for non-BTC
     cross_features = {"btc_ret_1", "btc_ret_3", "btc_ret_6", "btc_ret_12", "btc_ret_24",
