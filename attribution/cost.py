@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Mapping
+from typing import Mapping, Sequence
+
+from _quant_hotpath import rust_compute_cost_attribution
 
 
 @dataclass(frozen=True)
@@ -20,19 +22,8 @@ def estimate_slippage(
     reference_prices: Mapping[str, float],
 ) -> float:
     """估计滑点 (bps)。"""
-    total_slip = 0.0
-    total_notional = 0.0
-    for fill in fills:
-        symbol = str(fill.get("symbol", ""))
-        price = float(fill.get("price", 0))
-        qty = float(fill.get("qty", 0))
-        ref = reference_prices.get(symbol, price)
-        if ref > 0:
-            slip = abs(price - ref) / ref
-            notional = qty * price
-            total_slip += slip * notional
-            total_notional += notional
-    return (total_slip / total_notional * 10000) if total_notional > 0 else 0.0
+    r = rust_compute_cost_attribution(list(fills), dict(reference_prices))
+    return r["slippage_bps"]
 
 
 def compute_cost_attribution(
@@ -40,18 +31,12 @@ def compute_cost_attribution(
     reference_prices: Mapping[str, float] | None = None,
 ) -> CostBreakdown:
     """计算完整交易成本归因。"""
-    total_fees = 0.0
-    total_notional = 0.0
-    for fill in fills:
-        total_fees += float(fill.get("fee", 0))
-        total_notional += float(fill.get("qty", 0)) * float(fill.get("price", 0))
-
-    fee_bps = (total_fees / total_notional * 10000) if total_notional > 0 else 0.0
-    slip_bps = estimate_slippage(fills, reference_prices or {}) if reference_prices else 0.0
-
+    r = rust_compute_cost_attribution(
+        list(fills), dict(reference_prices) if reference_prices else None
+    )
     return CostBreakdown(
-        total_cost_bps=fee_bps + slip_bps,
-        fee_bps=fee_bps,
-        slippage_bps=slip_bps,
-        market_impact_bps=0.0,
+        total_cost_bps=r["total_cost_bps"],
+        fee_bps=r["fee_bps"],
+        slippage_bps=r["slippage_bps"],
+        market_impact_bps=r["market_impact_bps"],
     )

@@ -84,10 +84,14 @@ The system's hot path runs on a unified Rust crate (`ext/rust/` -> `_quant_hotpa
 | Portfolio | `portfolio_allocator.rs` | `rust_allocate_portfolio()` -- leverage/turnover/notional caps |
 | Factor signals | `factor_signals.rs` | `rust_momentum_score`, `rust_volatility_score`, `rust_adx`, `rust_carry_score` |
 | Microstructure | `microstructure.rs` | `RustVPINCalculator`, `RustStreamingMicrostructure` |
+| Attribution | `attribution.rs` | `rust_compute_pnl`, `rust_compute_cost_attribution`, `rust_attribute_by_signal`, `rust_flush_orderbook_bar` |
+| Ensemble | `ensemble_calibrate.rs` | `rust_adaptive_ensemble_calibrate` (IC/inverse-vol/ridge) |
+| Inference | `inference_bridge.rs` | `RustInferenceBridge` (z-score, min-hold, monthly gate) |
+| Tree predict | `tree_predict.rs` | `RustTreePredictor` (native LightGBM/XGBoost inference) |
 | Regime | `regime_buffer.rs` | `RustRegimeBuffer` -- regime detection buffer |
 | Fixed-point | `fixed_decimal.rs` | `Fd8` type (i64 x 10^8), eliminates Decimal parsing |
 
-**Crate stats**: 55 Rust modules, ~16,700 LOC, 154 exports, 52 Rust tests + 2,650 Python tests passing.
+**Crate stats**: 58 Rust modules, ~18,100 LOC, 161 exports (58 classes + 103 functions), 52 Rust tests + 2,644 Python tests passing.
 
 ### What Python Owns
 
@@ -173,23 +177,23 @@ python3 -m runner.live_runner --config config/local.yaml
 | Module | Files | Description |
 |--------|-------|-------------|
 | `engine/` | 21 | EngineCoordinator event loop, StatePipeline, dispatcher, feature hook |
-| `ext/rust/` | 55 | Rust PyO3 kernel -- state, pipeline, features, risk, events, sizing |
+| `ext/rust/` | 58 | Rust PyO3 kernel -- state, pipeline, features, risk, events, sizing |
 | `features/` | 31 | Feature computation, enriched computer (105 features), cross-asset |
 | `decision/` | 82 | DecisionEngine, signals (technical + factor + ML), sizing, execution policy |
 | `alpha/` | 31 | ML models (LightGBM, XGBoost, LSTM, Transformer), inference bridge, drift detection |
-| `risk/` | 24 | KillSwitch, CorrelationGate, risk aggregation, 6 risk rules |
+| `risk/` | 18 | KillSwitch, CorrelationGate, risk aggregation, 6 risk rules |
 | `execution/` | 192 | Exchange adapters (Binance, Bitget), order state machine, dedup, reconciliation |
 | `portfolio/` | 80 | Black-Litterman, Kelly, risk parity, risk model (vol, correlation, covariance, tail) |
-| `state/` | 14 | State types, Rust adapters, snapshot management |
-| `event/` | 26 | Event types, header, store, checkpoint, replay, security |
-| `regime/` | 7 | Regime detection (volatility, trend, HMM) |
+| `state/` | 12 | State types, Rust adapters, snapshot management |
+| `event/` | 22 | Event types, header, store, checkpoint, security |
+| `regime/` | 4 | Regime detection (volatility, trend) |
 | `strategies/` | 19 | HFT strategies, imbalance scalper |
 | `runner/` | 14 | LiveRunner, PaperRunner, BacktestRunner, graceful shutdown |
 | `monitoring/` | 27 | Prometheus metrics, Grafana dashboards, Telegram alerts, health server |
 | `infra/` | 25 | Config loader, structured JSON logging, model signing, threading utils |
 | `scripts/` | 55 | Training, walk-forward validation, alpha research, data download |
 | `research/` | 30 | Experiment tracking, Monte Carlo, sensitivity analysis, model registry |
-| `tests/` | 212 | Unit + integration + regression tests (2,650 passing) |
+| `tests/` | 212 | Unit + integration + regression tests (2,644 passing) |
 
 ## Event Types
 
@@ -207,7 +211,7 @@ python3 -m runner.live_runner --config config/local.yaml
 ## Testing
 
 ```bash
-# All tests (2,650 Python + 52 Rust)
+# All tests (2,644 Python + 52 Rust)
 python3 -m pytest tests/ -x -q
 cd ext/rust && cargo test
 
@@ -248,16 +252,16 @@ kubectl apply -f deploy/k8s/
 ```
 quant_system/
   engine/            # Core event loop and coordination (21 files)
-  ext/rust/          # Rust PyO3 kernel (55 modules, ~16,700 LOC)
+  ext/rust/          # Rust PyO3 kernel (58 modules, ~18,100 LOC)
   features/          # Feature engineering (31 files, 105 features)
   decision/          # Trading decision logic (82 files)
   alpha/             # ML alpha models and inference (31 files)
-  risk/              # Risk management and kill switch (24 files)
+  risk/              # Risk management and kill switch (18 files)
   execution/         # Exchange connectivity (192 files)
   portfolio/         # Portfolio optimization (80 files)
-  state/             # State management + Rust adapters (14 files)
-  event/             # Event type definitions (26 files)
-  regime/            # Market regime detection (7 files)
+  state/             # State management + Rust adapters (12 files)
+  event/             # Event type definitions (22 files)
+  regime/            # Market regime detection (4 files)
   strategies/        # HFT strategies (19 files)
   runner/            # Entry points: live, paper, backtest (14 files)
   monitoring/        # Prometheus, Grafana, Telegram (27 files)
@@ -265,7 +269,7 @@ quant_system/
   scripts/           # Training, research, data download (55 files)
   research/          # Experiment tracking, Monte Carlo (30 files)
   _quant_hotpath/    # Built Rust shared library
-  tests/             # Unit + integration + regression (212 files, 2,650 tests)
+  tests/             # Unit + integration + regression (212 files, 2,644 tests)
   deploy/            # Docker, K8s, Prometheus, Grafana configs
 ```
 

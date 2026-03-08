@@ -209,8 +209,8 @@ venue_client.cancel_order(symbol="BTCUSDT", order_id="12345")
 
 1. Check `quant_pipeline_latency_ms` histogram in Grafana
 2. Identify which pipeline stage is slow (feature compute, decision, execution)
-3. Check C++ extension status: `python -c "from features._quant_rolling import *; print('OK')"`
-4. If C++ not loaded, rebuild: `make rolling`
+3. Check Rust extension status: `python -c "from _quant_hotpath import RustFeatureEngine; print('OK')"`
+4. If Rust not loaded, rebuild: `make rust`
 5. Check exchange API latency (network, rate limiting)
 6. Review open order count — reduce if > 15 concurrent orders
 

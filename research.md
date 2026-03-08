@@ -3,8 +3,8 @@
 > 版本: v3.0.0 (Rust 内核完成)
 > 语言: Python 3.12 + Rust (PyO3)
 > 定位: 事件驱动的加密货币永续合约量化交易系统
-> 规模: 942 Python 文件 + 55 Rust 模块 (~16,700 LOC)
-> 测试: 2,650 Python + 52 Rust 测试
+> 规模: 942 Python 文件 + 58 Rust 模块 (~18,100 LOC)
+> 测试: 2,644 Python + 52 Rust 测试
 > 交易所: Binance, Bitget
 
 ---
@@ -68,7 +68,7 @@
 
 ```
 quant_system/
-├── ext/rust/        # Rust PyO3 内核 (55 模块, ~16,700 LOC)
+├── ext/rust/        # Rust PyO3 内核 (58 模块, ~18,100 LOC)
 ├── _quant_hotpath/  # 编译后的 Rust .so 文件
 ├── engine/          # 引擎层：Coordinator, Pipeline, Dispatcher, FeatureHook
 ├── state/           # 状态层：Rust 适配器 + Python 类型定义
@@ -89,7 +89,7 @@ quant_system/
 ├── core/            # 基础抽象：时钟、Effects、类型
 ├── attribution/     # PnL 归因
 ├── deploy/          # Docker, K8s, Prometheus, Grafana 配置
-└── tests/           # 2,650 测试 (212 文件)
+└── tests/           # 2,644 测试 (212 文件)
 ```
 
 ### 模块依赖层级
@@ -114,9 +114,9 @@ Layer 6 (Integration):  runner/ → monitoring/ → infra/
 
 | 指标 | 值 |
 |------|-----|
-| 模块数 | 55 .rs 文件 |
-| 代码量 | ~16,700 LOC |
-| 导出数 | 154 (类 + 函数) |
+| 模块数 | 58 .rs 文件 |
+| 代码量 | ~18,100 LOC |
+| 导出数 | 161 (58 类 + 103 函数) |
 | Rust 测试 | 52 |
 | Cargo 依赖 | pyo3 0.23, serde 1, sha2, hmac, uuid |
 
@@ -638,7 +638,7 @@ Docker 多阶段构建：builder (Rust 编译) → runtime (非 root 用户)。
 
 | 类型 | 数量 |
 |------|------|
-| Python 测试 | 2,650 |
+| Python 测试 | 2,644 |
 | Rust 测试 | 52 |
 | 测试文件 | 212 |
 | 测试分类 | unit, integration, regression |
@@ -762,7 +762,7 @@ CrossAsset (582 LOC Rust)、Portfolio Allocator、Multi-Strategy 数学。
 
 Factor signals (280 LOC Rust)、RollingWindow/multi_timeframe fallback 删除、全量死代码清理。
 
-**最终状态**：55 模块，~16,700 LOC Rust，零 Python fallback。
+**最终状态**：58 模块，~18,100 LOC Rust，零 Python fallback。
 
 ---
 

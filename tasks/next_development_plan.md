@@ -1,6 +1,6 @@
 # 下一步开发计划
 
-> 基于 2026-02-28 全项目深度分析，838 个源文件、1091 测试通过
+> 基于 2026-02-28 全项目深度分析，更新于 2026-03-08（2,644 测试通过，58 Rust 模块）
 
 ---
 
@@ -14,9 +14,9 @@
 | 策略层 (strategies) | 80% | 5 个策略框架，缺多时间框架 |
 | ML 层 (alpha) | 75% | LightGBM/XGBoost 生产就绪，LSTM/Transformer 实验性 |
 | 执行层 (execution) | 90% | Binance 完整（Bitget 已删除，专注单交易所） |
-| 基础设施 (infra/deploy) | 60% | K8s 缺 HPA/PDB/安全上下文，CI 缺安全扫描 |
-| 测试覆盖 | 50% | 1091 测试，但 alpha/decision/portfolio 覆盖极低（5-10%） |
-| 文档 | 30% | 无 README、无运维手册、无 API 文档 |
+| 基础设施 (infra/deploy) | 95% | K8s 安全加固、CI/CD 安全扫描、密钥管理已完成 |
+| 测试覆盖 | 85% | 2,644 测试通过，核心模块覆盖完整 |
+| 文档 | 90% | README、运维手册、API 文档、CHANGELOG 已完成 |
 
 ---
 

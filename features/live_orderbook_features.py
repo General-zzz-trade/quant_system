@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from _quant_hotpath import rust_flush_orderbook_bar
 from execution.adapters.binance.depth_processor import OrderBookSnapshot
 
 
@@ -56,16 +57,13 @@ class LiveOrderbookFeatureAggregator:
             ask_vol = sum(float(snapshot.asks[i].qty) for i in range(n))
             total = bid_vol + ask_vol
             if total > 0:
-                imb = (bid_vol - ask_vol) / total
-                acc.imbalances.append(imb)
+                acc.imbalances.append((bid_vol - ask_vol) / total)
 
-            # Depth ratio (dollar depth)
             bid_depth = sum(float(snapshot.bids[i].price * snapshot.bids[i].qty) for i in range(n))
             ask_depth = sum(float(snapshot.asks[i].price * snapshot.asks[i].qty) for i in range(n))
             if ask_depth > 0:
                 acc.depth_ratios.append(bid_depth / ask_depth)
 
-        # Spread in bps
         spread_bps = snapshot.spread_bps
         if spread_bps is not None:
             acc.spreads_bps.append(float(spread_bps))
@@ -78,37 +76,8 @@ class LiveOrderbookFeatureAggregator:
         if acc is None or acc.n_snapshots < 2:
             return feats
 
-        # Imbalance mean
-        if acc.imbalances:
-            imb_mean = sum(acc.imbalances) / len(acc.imbalances)
-            feats["ob_imbalance_mean"] = imb_mean
-
-            # Imbalance slope (linear regression y = a + bx)
-            if len(acc.imbalances) >= 3:
-                n = len(acc.imbalances)
-                x_mean = (n - 1) / 2.0
-                y_mean = imb_mean
-                num = sum((i - x_mean) * (v - y_mean) for i, v in enumerate(acc.imbalances))
-                denom = sum((i - x_mean) ** 2 for i in range(n))
-                feats["ob_imbalance_slope"] = num / denom if denom > 0 else 0.0
-
-        # Spread
-        if acc.spreads_bps:
-            feats["ob_spread_mean_bps"] = sum(acc.spreads_bps) / len(acc.spreads_bps)
-            feats["ob_spread_max_bps"] = max(acc.spreads_bps)
-
-        # Depth ratio
-        if acc.depth_ratios:
-            feats["ob_depth_ratio_mean"] = sum(acc.depth_ratios) / len(acc.depth_ratios)
-
-        # Pressure score: imbalance * (1 - spread_norm)
-        imb = feats.get("ob_imbalance_mean")
-        spread_mean = feats.get("ob_spread_mean_bps")
-        if imb is not None and spread_mean is not None:
-            # Normalize spread: lower spread = higher confidence
-            spread_norm = min(spread_mean / 20.0, 1.0)  # 20 bps = max normalization
-            feats["ob_pressure_score"] = imb * (1.0 - spread_norm)
-
+        r = rust_flush_orderbook_bar(acc.imbalances, acc.spreads_bps, acc.depth_ratios)
+        feats.update(r)
         return feats
 
     def reset(self, symbol: Optional[str] = None) -> None:

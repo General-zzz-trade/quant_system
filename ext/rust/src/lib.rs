@@ -55,6 +55,8 @@ mod regime_buffer;
 mod state_store;
 mod inference_bridge;
 mod tree_predict;
+mod attribution;
+mod ensemble_calibrate;
 pub mod rust_events;
 
 #[pymodule]
@@ -254,6 +256,15 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Tree prediction (native ML inference)
     m.add_class::<tree_predict::RustTreePredictor>()?;
+
+    // Ensemble calibration
+    m.add_function(wrap_pyfunction!(ensemble_calibrate::rust_adaptive_ensemble_calibrate, m)?)?;
+
+    // Attribution
+    m.add_function(wrap_pyfunction!(attribution::rust_compute_pnl, m)?)?;
+    m.add_function(wrap_pyfunction!(attribution::rust_compute_cost_attribution, m)?)?;
+    m.add_function(wrap_pyfunction!(attribution::rust_attribute_by_signal, m)?)?;
+    m.add_function(wrap_pyfunction!(attribution::rust_flush_orderbook_bar, m)?)?;
 
     // Factor signals
     m.add_function(wrap_pyfunction!(factor_signals::rust_momentum_score, m)?)?;

@@ -1,7 +1,7 @@
 # event/runtime.py
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Protocol
 
 from event.types import BaseEvent
 from event.schema import SchemaRegistry
@@ -11,7 +11,15 @@ from event.errors import (
     EventFatalError,
     EventValidationError,
 )
-from event.trace import EventTracer
+
+
+class EventTracer(Protocol):
+    """Tracing hook for the event system."""
+
+    def on_emit(self, event: BaseEvent) -> None: ...
+    def on_error(self, error: Exception, *, context: object = None) -> None: ...
+    def on_reject(self, event: BaseEvent, reason: str) -> None: ...
+
 from event.metrics import EventMetrics
 from event.policy import EventPolicy
 

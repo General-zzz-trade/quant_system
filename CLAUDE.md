@@ -2,7 +2,7 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
-pytest tests/ -x -q          # Run all tests (2653 Python tests)
+pytest tests/ -x -q          # Run all tests (2644 Python tests)
 pytest tests/unit/ -x -q     # Unit tests only
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (52 tests)
@@ -22,7 +22,10 @@ decision/        Trading signals, ensemble, regime detection, rebalancing
 alpha/           ML models + inference bridge
 execution/       Order routing, state machine, dedup
 state/           State types + Rust adapters
-ext/rust/        Unified Rust crate -> _quant_hotpath (56 modules, ~17K LOC)
+attribution/     P&L + cost + signal attribution (thin Rust wrappers)
+event/           Event types + runtime protocol
+strategies/      HFT + multi-factor strategy implementations
+ext/rust/        Unified Rust crate -> _quant_hotpath (58 modules, ~18K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
@@ -37,8 +40,8 @@ scripts/         Training, walk-forward validation, alpha research
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 56 .rs modules, ~17,100 LOC
-- Exports: 57 classes + 98 functions
+- Single crate `_quant_hotpath`, 58 .rs modules, ~18,100 LOC
+- Exports: 58 classes + 103 functions
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -54,6 +57,9 @@ Key exports:
 - Pipeline: `rust_pipeline_apply`, `RustProcessResult`
 - Factors: `rust_momentum_score`, `rust_volatility_score`, `rust_adx`, `rust_carry_score`
 - Inference: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
+- Attribution: `rust_compute_pnl`, `rust_compute_cost_attribution`, `rust_attribute_by_signal`
+- Orderbook: `rust_flush_orderbook_bar`, `rust_extract_orderbook_features`
+- Ensemble: `rust_adaptive_ensemble_calibrate`
 
 ## Key Files
 

@@ -12,7 +12,7 @@ from typing import Optional
 
 from event.tick_types import DepthUpdateEvent, TradeTickEvent
 from features.microstructure.kyle_lambda import KyleLambdaEstimator
-from features.microstructure.vpin import VPINCalculator
+from _quant_hotpath import RustVPINCalculator
 from strategies.hft.order_book import analyze_book, OrderBookSignal
 
 logger = logging.getLogger(__name__)
@@ -51,8 +51,8 @@ class StreamingMicrostructureComputer:
         kyle_window: int = 100,
     ) -> None:
         self._trades: deque[TradeTickEvent] = deque(maxlen=trade_buffer_size)
-        self._vpin_calc = VPINCalculator(
-            bucket_volume=vpin_bucket_volume,
+        self._vpin_calc = RustVPINCalculator(
+            bucket_volume=float(vpin_bucket_volume),
             n_buckets=vpin_n_buckets,
         )
         self._kyle_est = KyleLambdaEstimator(window=kyle_window)
