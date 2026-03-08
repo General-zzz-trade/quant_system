@@ -25,7 +25,7 @@ import pandas as pd
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
-from features.cross_asset_computer import CrossAssetComputer, CROSS_ASSET_FEATURE_NAMES
+from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
 from features.dynamic_selector import greedy_ic_select, _rankdata
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
@@ -682,51 +682,6 @@ def _print_extended_oos(symbol: str, ext: Dict[str, Any]) -> None:
 
 # ── Data loading ─────────────────────────────────────────────
 
-def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
-    import csv
-    schedule: Dict[int, float] = {}
-    if not path.exists():
-        return schedule
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            schedule[int(row[ts_col])] = float(row[val_col])
-    return schedule
-
-
-def _load_spot_closes(symbol: str) -> Dict[int, float]:
-    """Load spot close prices as {timestamp_ms: close}."""
-    import csv
-    path = Path(f"data_files/{symbol}_spot_1h.csv")
-    closes: Dict[int, float] = {}
-    if not path.exists():
-        return closes
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ts_col = "open_time" if "open_time" in row else "timestamp"
-            closes[int(row[ts_col])] = float(row["close"])
-    return closes
-
-
-def _load_fgi_schedule() -> Dict[int, float]:
-    """Load Fear & Greed Index as {day_timestamp_ms: value}.
-
-    FGI is daily data. We forward-fill to hourly by returning the map
-    and doing pointer-based lookup in the main loop.
-    """
-    import csv
-    path = Path("data_files/fear_greed_index.csv")
-    schedule: Dict[int, float] = {}
-    if not path.exists():
-        return schedule
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            schedule[int(row["timestamp"])] = float(row["value"])
-    return schedule
-
-
 def _load_and_compute_features(
     symbol: str,
     df: pd.DataFrame,
@@ -744,15 +699,13 @@ def _load_and_compute_features(
     if cross_df is not None and symbol != "BTCUSDT":
         ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
         timestamps = df[ts_col].values.astype(np.int64)
+        # Vectorized merge: reindex cross_df to match bar timestamps
+        cross_aligned = cross_df.reindex(timestamps)
         for name in CROSS_ASSET_FEATURE_NAMES:
-            feat_df[name] = np.nan
-        for i, ts_ms in enumerate(timestamps):
-            if ts_ms in cross_df.index:
-                cross_row = cross_df.loc[ts_ms]
-                for name in CROSS_ASSET_FEATURE_NAMES:
-                    val = cross_row.get(name)
-                    if not pd.isna(val):
-                        feat_df.at[i, name] = float(val)
+            if name in cross_aligned.columns:
+                feat_df[name] = cross_aligned[name].values
+            else:
+                feat_df[name] = np.nan
     elif symbol != "BTCUSDT":
         for name in CROSS_ASSET_FEATURE_NAMES:
             feat_df[name] = np.nan
@@ -776,75 +729,8 @@ def _load_and_compute_features(
 # ── Cross-asset feature building ─────────────────────────────
 
 def _build_cross_features(symbols: List[str]) -> Optional[Dict[str, pd.DataFrame]]:
-    btc_path = Path("data_files/BTCUSDT_1h.csv")
-    if not btc_path.exists():
-        return None
-
-    btc_df = pd.read_csv(btc_path)
-    btc_ts_col = "timestamp" if "timestamp" in btc_df.columns else "open_time"
-    btc_timestamps = btc_df[btc_ts_col]
-
-    result: Dict[str, pd.DataFrame] = {}
-
-    for sym in symbols:
-        if sym == "BTCUSDT":
-            continue
-        sym_path = Path(f"data_files/{sym}_1h.csv")
-        if not sym_path.exists():
-            continue
-
-        sym_df = pd.read_csv(sym_path)
-        sym_ts_col = "timestamp" if "timestamp" in sym_df.columns else "open_time"
-        sym_ts = sym_df[sym_ts_col]
-
-        comp = CrossAssetComputer()
-        records = []
-        timestamps = []
-
-        btc_map = {int(btc_timestamps.iloc[i]): i for i in range(len(btc_df))}
-
-        btc_funding = _load_schedule(Path("data_files/BTCUSDT_funding.csv"), "timestamp", "funding_rate")
-        sym_funding = _load_schedule(Path(f"data_files/{sym}_funding.csv"), "timestamp", "funding_rate")
-        btc_f_times = sorted(btc_funding.keys())
-        sym_f_times = sorted(sym_funding.keys())
-        btc_fi, sym_fi = 0, 0
-
-        for i in range(len(sym_df)):
-            ts = int(sym_ts.iloc[i])
-
-            btc_fr = None
-            while btc_fi < len(btc_f_times) and btc_f_times[btc_fi] <= ts:
-                btc_fr = btc_funding[btc_f_times[btc_fi]]
-                btc_fi += 1
-            if btc_fr is None and btc_fi > 0:
-                btc_fr = btc_funding[btc_f_times[btc_fi - 1]]
-
-            sym_fr = None
-            while sym_fi < len(sym_f_times) and sym_f_times[sym_fi] <= ts:
-                sym_fr = sym_funding[sym_f_times[sym_fi]]
-                sym_fi += 1
-            if sym_fr is None and sym_fi > 0:
-                sym_fr = sym_funding[sym_f_times[sym_fi - 1]]
-
-            if ts in btc_map:
-                bi = btc_map[ts]
-                btc_row = btc_df.iloc[bi]
-                btc_close = float(btc_row["close"])
-                btc_high = float(btc_row.get("high", btc_close))
-                btc_low = float(btc_row.get("low", btc_close))
-                comp.on_bar("BTCUSDT", close=btc_close, funding_rate=btc_fr,
-                            high=btc_high, low=btc_low)
-
-            sym_close = float(sym_df.iloc[i]["close"])
-            comp.on_bar(sym, close=sym_close, funding_rate=sym_fr)
-            feats = comp.get_features(sym)
-            records.append(feats)
-            timestamps.append(ts)
-
-        cross_df = pd.DataFrame(records, index=timestamps)
-        result[sym] = cross_df
-
-    return result if result else None
+    from features.batch_cross_asset import build_cross_features_batch
+    return build_cross_features_batch(symbols)
 
 
 # ── Main walk-forward engine ─────────────────────────────────

@@ -670,21 +670,17 @@ def run_backtest(
     needs_cross = symbol != "BTCUSDT" and bool(set(feature_names) & cross_features)
     if needs_cross:
         print("  Computing cross-asset (BTC-lead) features...")
-        from scripts.train_v7_alpha import _build_cross_features
-        cross_map = _build_cross_features([symbol])
+        from features.batch_cross_asset import build_cross_features_batch
+        cross_map = build_cross_features_batch([symbol])
         if cross_map and symbol in cross_map:
             cross_df = cross_map[symbol]
             ts_col_name = "timestamp" if "timestamp" in oos_df.columns else "open_time"
             oos_ts = oos_df[ts_col_name].values.astype(np.int64)
-            for cname in cross_df.columns:
+            # Vectorized merge: reindex cross_df to match OOS timestamps
+            cross_aligned = cross_df.reindex(oos_ts)
+            for cname in cross_aligned.columns:
                 if cname in feature_names or cname in cross_features:
-                    vals = np.full(len(oos_df), np.nan)
-                    for i, ts in enumerate(oos_ts):
-                        if ts in cross_df.index:
-                            v = cross_df.loc[ts].get(cname)
-                            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                                vals[i] = float(v)
-                    feat_df[cname] = vals
+                    feat_df[cname] = cross_aligned[cname].values
             print(f"    Merged {len([c for c in cross_df.columns if c in feat_df.columns])} cross-asset features")
 
     # Prepare X matrix

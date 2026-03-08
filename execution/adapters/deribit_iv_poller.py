@@ -70,7 +70,7 @@ class DeribitIVPoller:
         url_hv = f"{_API_BASE}/get_historical_volatility?currency={self._currency}"
         req = urllib.request.Request(url_hv)
         req.add_header("User-Agent", "quant-system/1.0")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
         result = data.get("result", [])
         if result:
@@ -82,7 +82,7 @@ class DeribitIVPoller:
         url_bs = f"{_API_BASE}/get_book_summary_by_currency?currency={self._currency}&kind=option"
         req2 = urllib.request.Request(url_bs)
         req2.add_header("User-Agent", "quant-system/1.0")
-        with urllib.request.urlopen(req2, timeout=5) as resp2:
+        with urllib.request.urlopen(req2, timeout=3) as resp2:
             data2 = json.loads(resp2.read())
         summaries = data2.get("result", [])
         put_oi = 0.0

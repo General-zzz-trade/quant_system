@@ -285,14 +285,6 @@ class LiveRunner:
             config=CorrelationGateConfig(max_avg_correlation=config.max_avg_correlation),
         )
 
-        # ── RiskGate (pre-execution size/notional checks) ────
-        from execution.safety.risk_gate import RiskGate, RiskGateConfig
-        risk_gate = RiskGate(
-            config=RiskGateConfig(),
-            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
-            is_killed=lambda: kill_switch.is_killed() is not None,
-        )
-
         # ── Portfolio Risk Aggregator — deferred until coordinator exists ──
         # (built below after coordinator creation; referenced by _emit closure)
         portfolio_aggregator = None
@@ -300,6 +292,15 @@ class LiveRunner:
         # ── OrderStateMachine (order lifecycle tracking) ────
         from execution.state_machine.machine import OrderStateMachine
         order_state_machine = OrderStateMachine()
+
+        # ── RiskGate (pre-execution size/notional checks) ────
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
+        risk_gate = RiskGate(
+            config=RiskGateConfig(),
+            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
+            get_open_order_count=lambda: len(order_state_machine.active_orders()),
+            is_killed=lambda: kill_switch.is_killed() is not None,
+        )
 
         # ── TimeoutTracker (stale order detection) ──────────
         from execution.safety.timeout_tracker import OrderTimeoutTracker

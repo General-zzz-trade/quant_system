@@ -227,18 +227,20 @@ class TestV7AvailableFeatures:
 class TestV7DataLoading:
     """Test V7-specific data loading functions."""
 
-    def test_load_fgi_schedule_missing_file(self):
-        from scripts.train_v7_alpha import _load_fgi_schedule
-        # Should return empty dict when file doesn't exist
-        schedule = _load_fgi_schedule()
+    def test_batch_cross_asset_load_schedule_empty(self):
+        from features.batch_cross_asset import _load_schedule
+        from pathlib import Path
+        schedule = _load_schedule(Path("/nonexistent/path.csv"), "ts", "val")
         assert isinstance(schedule, dict)
+        assert len(schedule) == 0
 
-    def test_load_spot_closes_missing_file(self):
-        from scripts.train_v7_alpha import _load_spot_closes
-        # Should return empty dict for nonexistent symbol
-        closes = _load_spot_closes("XYZNONEXISTENT")
-        assert isinstance(closes, dict)
-        assert len(closes) == 0
+    def test_batch_cross_asset_forward_fill_empty(self):
+        import numpy as np
+        from features.batch_cross_asset import _forward_fill_schedule
+        ts = np.array([100, 200], dtype=np.int64)
+        filled = _forward_fill_schedule(ts, {})
+        assert np.isnan(filled[0])
+        assert np.isnan(filled[1])
 
 
 # ── V7 interaction features test ─────────────────────────────

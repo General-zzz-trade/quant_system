@@ -72,7 +72,7 @@ class MempoolPoller:
 
         # Fetch mempool stats
         req2 = urllib.request.Request(_MEMPOOL_URL, headers=headers)
-        with urllib.request.urlopen(req2, timeout=5) as resp:
+        with urllib.request.urlopen(req2, timeout=3) as resp:
             mempool = json.loads(resp.read())
 
         result = {
