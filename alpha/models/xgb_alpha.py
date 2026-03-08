@@ -30,38 +30,32 @@ class XGBAlphaModel:
     """XGBoost-based alpha model.
 
     Predicts return direction: positive → long, negative → short.
-
-    The model must be trained first via fit() or loaded via load().
+    Uses RustTreePredictor for inference when .json companion file exists.
     """
 
     name: str = "xgb_alpha"
     feature_names: Sequence[str] = ()
     threshold: float = 0.0
     _model: Any = None
+    _rust_predictor: Any = None
 
     def predict(
         self, *, symbol: str, ts: datetime, features: Dict[str, Any],
     ) -> Optional[_Signal]:
-        if self._model is None:
+        if self._rust_predictor is None and self._model is None:
             return None
 
-        try:
-            import numpy as np
-        except ImportError:
-            return None
-
-        x = np.array([[features.get(f, float("nan")) for f in self.feature_names]])
-
-        # Handle both XGBRegressor (sklearn API) and raw Booster
-        try:
-            import xgboost as xgb
-        except ImportError:
-            return None
-        if isinstance(self._model, xgb.Booster):
-            dm = xgb.DMatrix(x, feature_names=list(self.feature_names))
-            pred = self._model.predict(dm)[0]
+        if self._rust_predictor is not None:
+            pred = self._rust_predictor.predict_dict(features)
         else:
-            pred = self._model.predict(x)[0]
+            import numpy as np
+            x = np.array([[features.get(f, float("nan")) for f in self.feature_names]])
+            import xgboost as xgb
+            if isinstance(self._model, xgb.Booster):
+                dm = xgb.DMatrix(x, feature_names=list(self.feature_names))
+                pred = self._model.predict(dm)[0]
+            else:
+                pred = self._model.predict(x)[0]
 
         if pred > self.threshold:
             return _Signal(symbol=symbol, ts=ts, side="long", strength=min(abs(pred), 1.0))
@@ -148,10 +142,17 @@ class XGBAlphaModel:
         sign_file(path)
 
     def load(self, path: str | Path) -> None:
-        """Load model from disk."""
         path = Path(path)
-        from infra.model_signing import load_verified_pickle
+        from infra.model_signing import load_verified_pickle  # HMAC-signed model artifacts
         data = load_verified_pickle(path)
         self._model = data["model"]
         if "features" in data:
             object.__setattr__(self, "feature_names", data["features"])
+        json_path = path.with_suffix(".json")
+        if json_path.exists():
+            try:
+                from _quant_hotpath import RustTreePredictor
+                self._rust_predictor = RustTreePredictor.load(str(json_path))
+                logger.info("Rust native inference: %s", self._rust_predictor.info())
+            except Exception as e:
+                logger.warning("Rust predictor load failed, using Python: %s", e)

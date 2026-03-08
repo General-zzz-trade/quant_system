@@ -55,15 +55,15 @@ def test_update_models_clears_state():
     )
     # Warm up state
     bridge.enrich("BTCUSDT", datetime.now(timezone.utc), {"close": 100.0})
-    assert bridge._position != {} or bridge._hold_counter != {} or bridge._close_history != {}
+    cp = bridge.checkpoint()
+    assert cp.get("position", {}) != {}
 
     m2 = _DummyModel("m2", 0.9)
     bridge.update_models([m2])
 
-    assert bridge._position == {}
-    assert bridge._hold_counter == {}
-    assert bridge._close_history == {}
-    assert bridge._zscore_buf == {}
+    cp = bridge.checkpoint()
+    assert cp.get("position", {}) == {}
+    assert cp.get("hold_counter", {}) == {}
     assert bridge._engine._models[0].name == "m2"
 
 

@@ -254,16 +254,14 @@ class TestOLS:
         assert slope == 0.0
         assert r2 == 0.0
 
-    def test_parity(self):
-        from features.microstructure.kyle_lambda import _ols
+    def test_known_values(self):
         import random
         rng = random.Random(42)
         x = [rng.gauss(0, 1) for _ in range(100)]
         y = [2.0 * xi + rng.gauss(0, 0.1) for xi in x]
-        py_slope, py_r2 = _ols(x, y)
-        rust_slope, rust_r2 = cpp_ols(x, y)
-        assert py_slope == pytest.approx(rust_slope, rel=1e-10)
-        assert py_r2 == pytest.approx(rust_r2, rel=1e-10)
+        slope, r2 = cpp_ols(x, y)
+        assert slope == pytest.approx(2.0, abs=0.05)
+        assert r2 > 0.99
 
 
 # ── VWAP (batch) ──
@@ -369,7 +367,7 @@ class TestDispatchIntegration:
         rw.push(1.0)
         assert rw.n == 1
 
-    def test_kyle_lambda_dispatches_to_rust(self):
-        """Verify microstructure OLS dispatches to Rust."""
-        from features.microstructure.kyle_lambda import _USING_CPP
-        assert _USING_CPP is True
+    def test_kyle_lambda_imports_rust(self):
+        """Verify microstructure OLS imports from Rust directly."""
+        from features.microstructure.kyle_lambda import _cpp_ols
+        assert callable(_cpp_ols)

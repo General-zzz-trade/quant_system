@@ -4,18 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Mapping, Sequence
-
-try:
-    from _quant_hotpath import cpp_portfolio_variance as _cpp_portfolio_variance
-    _USING_CPP = True
-except ImportError:
-    _USING_CPP = False
-
-# Note: C++ dispatch for portfolio_variance is not used here because
-# the dict→vector conversion overhead exceeds the computation benefit
-# for typical portfolio sizes (N<100). The C++ kernel is still available
-# for direct use when data is already in vector form.
+from typing import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,10 +34,9 @@ def compute_portfolio_risk(
 
     ann_var = variance * annualization
     vol = math.sqrt(max(ann_var, 0.0))
-    # 参数法 VaR (正态假设)
     var_95 = vol * 1.645
     var_99 = vol * 2.326
-    es_95 = vol * 2.063  # E[X | X > VaR_95] for normal
+    es_95 = vol * 2.063
     return PortfolioRisk(
         variance=ann_var,
         volatility=vol,

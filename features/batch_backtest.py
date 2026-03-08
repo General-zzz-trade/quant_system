@@ -1,23 +1,16 @@
-"""C++ accelerated backtest wrapper with Python fallback.
+"""Rust-accelerated backtest wrapper.
 
 Usage:
     from features.batch_backtest import run_backtest_fast, pred_to_signal_fast
-
-If the C++ extension is available, uses cpp_run_backtest / cpp_pred_to_signal.
-Otherwise falls back to the Python implementation in backtest_alpha_v8.py.
 """
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import numpy as np
 
-try:
-    from _quant_hotpath import cpp_run_backtest, cpp_pred_to_signal
-    _BT_CPP = True
-except ImportError:
-    _BT_CPP = False
+from _quant_hotpath import cpp_run_backtest, cpp_pred_to_signal
 
 
 def pred_to_signal_fast(
@@ -27,13 +20,9 @@ def pred_to_signal_fast(
     zscore_window: int = 720,
     zscore_warmup: int = 168,
 ) -> np.ndarray:
-    if _BT_CPP:
-        return np.asarray(cpp_pred_to_signal(
-            y_pred.astype(np.float64, copy=False),
-            deadzone, min_hold, zscore_window, zscore_warmup))
-    from scripts.backtest_alpha_v8 import _pred_to_signal
-    return _pred_to_signal(y_pred, deadzone=deadzone, min_hold=min_hold,
-                           zscore_window=zscore_window)
+    return np.asarray(cpp_pred_to_signal(
+        y_pred.astype(np.float64, copy=False),
+        deadzone, min_hold, zscore_window, zscore_warmup))
 
 
 def run_backtest_fast(
@@ -49,9 +38,6 @@ def run_backtest_fast(
     funding_ts: Optional[np.ndarray] = None,
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    if not _BT_CPP:
-        raise ImportError("C++ backtest engine not available; use Python fallback")
-
     cfg = config or {}
     config_json = json.dumps(cfg)
 

@@ -53,6 +53,8 @@ mod portfolio_allocator;
 mod factor_signals;
 mod regime_buffer;
 mod state_store;
+mod inference_bridge;
+mod tree_predict;
 pub mod rust_events;
 
 #[pymodule]
@@ -246,6 +248,12 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Portfolio allocator
     m.add_function(wrap_pyfunction!(portfolio_allocator::rust_allocate_portfolio, m)?)?;
+
+    // Inference bridge
+    m.add_class::<inference_bridge::RustInferenceBridge>()?;
+
+    // Tree prediction (native ML inference)
+    m.add_class::<tree_predict::RustTreePredictor>()?;
 
     // Factor signals
     m.add_function(wrap_pyfunction!(factor_signals::rust_momentum_score, m)?)?;

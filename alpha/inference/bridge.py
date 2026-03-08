@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import math
-from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Sequence, Set, Union
 
+from _quant_hotpath import RustInferenceBridge as _RustBridge
 from alpha.base import AlphaModel
 from alpha.inference import InferenceEngine
 
@@ -45,6 +45,8 @@ class LiveInferenceBridge:
         monthly_gate_window: Union[int, Dict[str, int]] = 480,
         bear_model: Optional[AlphaModel] = None,
         bear_thresholds: Optional[Sequence[tuple]] = None,
+        short_model: Optional[AlphaModel] = None,
+        short_score_key: str = "ml_short_score",
         vol_target: Union[None, float, Dict[str, Optional[float]]] = None,
         vol_feature: Union[str, Dict[str, str]] = "atr_norm_14",
         zscore_window: int = 720,
@@ -71,56 +73,27 @@ class LiveInferenceBridge:
                     f"got: {bear_thresholds}"
                 )
         self._bear_thresholds = bear_thresholds
+        self._short_model = short_model
+        self._short_score_key = short_score_key
         self._vol_target = vol_target
         self._vol_feature = vol_feature
-        # Per-symbol state for min_hold enforcement
-        self._position: Dict[str, float] = {}
-        self._hold_counter: Dict[str, int] = {}
-        # Per-symbol close history for monthly gate (hourly resolution)
-        self._close_history: Dict[str, deque] = {}
-        self._gate_last_hour: Dict[str, int] = {}  # track last hour appended
-        # Per-symbol rolling z-score buffer (matches backtest pred_to_signal)
         self._zscore_window = zscore_window
         self._zscore_warmup = zscore_warmup
-        self._zscore_buf: Dict[str, deque] = {}
-        self._zscore_last_hour: Dict[str, int] = {}  # track last hour appended
+        # Rust kernel for per-symbol signal processing state
+        self._rust = _RustBridge(zscore_window, zscore_warmup, 480)
 
     def checkpoint(self) -> dict:
         """Serialize bridge state for persistence."""
-        return {
-            "position": dict(self._position),
-            "hold_counter": dict(self._hold_counter),
-            "close_history": {k: list(v) for k, v in self._close_history.items()},
-            "gate_last_hour": dict(self._gate_last_hour),
-            "zscore_buf": {k: list(v) for k, v in self._zscore_buf.items()},
-            "zscore_last_hour": dict(self._zscore_last_hour),
-        }
+        return dict(self._rust.checkpoint())
 
     def restore(self, data: dict) -> None:
         """Restore bridge state from checkpoint."""
-        self._position = data.get("position", {})
-        self._hold_counter = data.get("hold_counter", {})
-        self._close_history = {}
-        for k, v in data.get("close_history", {}).items():
-            w = self._resolve(self._monthly_gate_window, k, 480)
-            d = deque(v, maxlen=w)
-            self._close_history[k] = d
-        self._gate_last_hour = data.get("gate_last_hour", {})
-        self._zscore_buf = {}
-        for k, v in data.get("zscore_buf", {}).items():
-            d = deque(v, maxlen=self._zscore_window)
-            self._zscore_buf[k] = d
-        self._zscore_last_hour = data.get("zscore_last_hour", {})
-        logger.info("Bridge state restored: %d symbols", len(self._position))
+        self._rust.restore(data)
+        logger.info("Bridge state restored")
 
     def update_models(self, models: Sequence[AlphaModel]) -> None:
         self._engine.set_models(models)
-        self._position.clear()
-        self._hold_counter.clear()
-        self._close_history.clear()
-        self._gate_last_hour.clear()
-        self._zscore_buf.clear()
-        self._zscore_last_hour.clear()
+        self._rust.reset()
         logger.info("Models hot-swapped: %d model(s)", len(models))
 
     @staticmethod
@@ -130,130 +103,38 @@ class LiveInferenceBridge:
             return param.get(symbol, default)
         return param if param is not None else default
 
-    def _zscore_normalize(self, symbol: str, raw_score: float, ts: Optional[datetime] = None) -> Optional[float]:
-        """Rolling z-score normalization matching backtest pred_to_signal.
-
-        Only accumulates on hourly boundaries to match backtest (1h bars).
-        Returns z-score using the latest raw_score against the hourly buffer.
-        """
-        buf = self._zscore_buf.get(symbol)
-        if buf is None:
-            buf = deque(maxlen=self._zscore_window)
-            self._zscore_buf[symbol] = buf
-
-        # Only append to buffer on new hour boundary
-        if ts is not None:
-            hour_key = int(ts.timestamp()) // 3600
-        else:
-            hour_key = int(datetime.now(timezone.utc).timestamp()) // 3600
-        last_hour = self._zscore_last_hour.get(symbol, -1)
-        if hour_key != last_hour:
-            buf.append(raw_score)
-            self._zscore_last_hour[symbol] = hour_key
-
-        if len(buf) < self._zscore_warmup:
-            return None  # warmup period — no signal
-        vals = list(buf)
-        n = len(vals)
-        mu = sum(vals) / n
-        var = sum((v - mu) ** 2 for v in vals) / n
-        std = var ** 0.5
-        if std < 1e-12:
-            return None
-        return (raw_score - mu) / std
-
     def _apply_constraints(
         self, symbol: str, raw_score: float, features: Optional[Dict[str, Any]] = None,
         ts: Optional[datetime] = None,
     ) -> float:
         """Apply z-score normalization, long_only clip, discretization, min_hold, and trend_hold."""
-        min_hold = self._min_hold_bars.get(symbol)
-        if min_hold is None:
-            # No constraints — raw float passthrough (backward-compatible)
+        min_hold = self._min_hold_bars.get(symbol, 0)
+        if not min_hold:
             return raw_score
 
-        # Rolling z-score normalization (matches backtest pred_to_signal)
-        if self._zscore_warmup > 0:
-            z = self._zscore_normalize(symbol, raw_score, ts)
-            if z is None:
-                # Warmup period — hold previous position or stay flat
-                return self._position.get(symbol, 0.0)
-        else:
-            z = raw_score
-
-        # Long-only clip (on z-score)
-        if symbol in self._long_only_symbols:
-            z = max(0.0, z)
-
-        # Discretize: z > deadzone → +1, z < -deadzone → -1, else 0
+        hour_key = int((ts or datetime.now(timezone.utc)).timestamp()) // 3600
         dz = self._resolve(self._deadzone, symbol, 0.5)
-        if z > dz:
-            desired = 1.0
-        elif z < -dz:
-            desired = -1.0
-        else:
-            desired = 0.0
+        long_only = symbol in self._long_only_symbols
 
-        # Min-hold enforcement
-        prev_pos = self._position.get(symbol, 0.0)
-        hold_count = self._hold_counter.get(symbol, min_hold)
+        # Trend indicator value
+        trend_val = float("nan")
+        if self._trend_follow and features is not None:
+            tv = features.get(self._trend_indicator)
+            if tv is not None:
+                trend_val = float(tv)
 
-        if hold_count < min_hold:
-            # Still in holding period — keep previous position
-            self._hold_counter[symbol] = hold_count + 1
-            return prev_pos
-
-        # Trend hold: when model says exit (desired=0) but trend is still favorable,
-        # keep position up to max_hold bars
-        if (
-            self._trend_follow
-            and desired == 0.0
-            and prev_pos > 0.0
-            and features is not None
-            and hold_count < self._max_hold
-        ):
-            trend_val = features.get(self._trend_indicator)
-            if trend_val is not None and trend_val > self._trend_threshold:
-                self._hold_counter[symbol] = hold_count + 1
-                return prev_pos
-
-        # Holding period expired — allow change
-        if desired != prev_pos:
-            self._position[symbol] = desired
-            self._hold_counter[symbol] = 1
-        else:
-            self._hold_counter[symbol] = hold_count + 1
-        return desired
+        return self._rust.apply_constraints(
+            symbol, raw_score, hour_key, dz, min_hold, long_only,
+            self._trend_follow, trend_val, self._trend_threshold, self._max_hold,
+        )
 
     def _check_monthly_gate(self, symbol: str, close: float, ts: Optional[datetime] = None) -> bool:
-        """Return True if signal is allowed (close > MA), False if gated.
-
-        Only appends close on hourly boundaries to match backtest SMA(480h).
-        During warmup (< w hourly bars), returns True to allow trading
-        while accumulating history.
-        """
+        """Return True if signal is allowed (close > MA), False if gated."""
         if not self._monthly_gate:
             return True
         w = self._resolve(self._monthly_gate_window, symbol, 480)
-        hist = self._close_history.get(symbol)
-        if hist is None:
-            hist = deque(maxlen=w)
-            self._close_history[symbol] = hist
-
-        # Only append on new hour boundary
-        if ts is not None:
-            hour_key = int(ts.timestamp()) // 3600
-        else:
-            hour_key = int(datetime.now(timezone.utc).timestamp()) // 3600
-        last_hour = self._gate_last_hour.get(symbol, -1)
-        if hour_key != last_hour:
-            hist.append(close)
-            self._gate_last_hour[symbol] = hour_key
-
-        if len(hist) < w:
-            return True  # not enough hourly data yet — allow trading (optimistic)
-        ma = sum(hist) / w
-        return close > ma
+        hour_key = int((ts or datetime.now(timezone.utc)).timestamp()) // 3600
+        return self._rust.check_monthly_gate(symbol, close, hour_key, w)
 
     def enrich(
         self,
@@ -324,9 +205,8 @@ class LiveInferenceBridge:
                     elif score != 0.0:
                         score = 0.0
                     # Sync hold state on regime switch
-                    if score != self._position.get(symbol, 0.0):
-                        self._position[symbol] = score
-                        self._hold_counter[symbol] = 1
+                    if score != self._rust.get_position(symbol):
+                        self._rust.set_position(symbol, score, 1)
 
                 # Vol-adaptive sizing
                 vt = self._resolve(self._vol_target, symbol)
@@ -353,6 +233,50 @@ class LiveInferenceBridge:
                         "ml_score",
                         score,
                         labels={"model": r.model_name, "symbol": symbol},
+                    )
+
+        # ── Independent short model (runs unconditionally, no regime gate) ──
+        if self._short_model is not None:
+            _has_nan = any(
+                isinstance(v, float) and math.isnan(v)
+                for v in features.values()
+            )
+            if _has_nan:
+                logger.warning("NaN in features for %s, skipping short model", symbol)
+                features[self._short_score_key] = 0.0
+            else:
+                short_sig = self._short_model.predict(
+                    symbol=symbol, ts=ts, features=features)
+                short_score = 0.0
+                if short_sig is not None and short_sig.strength is not None:
+                    raw = short_sig.strength
+                    if short_sig.side == "short":
+                        raw = -raw
+                    elif short_sig.side == "flat":
+                        raw = 0.0
+
+                    min_hold = self._min_hold_bars.get(symbol, 0)
+                    hour_key = int(ts.timestamp()) // 3600
+                    dz = self._resolve(self._deadzone, symbol, 0.5)
+                    short_score = self._rust.process_short_signal(
+                        symbol, raw, hour_key, dz, min_hold)
+
+                    # Vol-adaptive sizing for short
+                    vt = self._resolve(self._vol_target, symbol)
+                    if short_score != 0.0 and vt is not None:
+                        vf = self._resolve(self._vol_feature, symbol, "atr_norm_14")
+                        vol_val = features.get(vf)
+                        if vol_val is not None and vol_val > 1e-8:
+                            scale = min(vt / float(vol_val), 1.0)
+                            short_score *= scale
+
+                features[self._short_score_key] = short_score
+
+                if self._metrics is not None:
+                    self._metrics.set_gauge(
+                        "ml_short_score",
+                        short_score,
+                        labels={"model": "short", "symbol": symbol},
                     )
 
         return features

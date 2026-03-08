@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-try:
-    from _quant_hotpath import cpp_ewma_covariance as _cpp_ewma_covariance
-    _USING_CPP = True
-except ImportError:
-    _USING_CPP = False
+from _quant_hotpath import cpp_ewma_covariance as _cpp_ewma_covariance
 
 
 class EWMACovariance:
@@ -27,34 +23,9 @@ class EWMACovariance:
         if n_obs < 2:
             return {s1: {s2: 0.0 for s2 in symbols} for s1 in symbols}
 
-        if _USING_CPP:
-            matrix = [list(returns[s][:n_obs]) for s in symbols]
-            cov_mat = _cpp_ewma_covariance(matrix, self.alpha)
-            return {
-                s1: {s2: cov_mat[i][j] for j, s2 in enumerate(symbols)}
-                for i, s1 in enumerate(symbols)
-            }
-
-        # 初始化为第一期外积
-        cov: dict[tuple[str, str], float] = {}
-        for s1 in symbols:
-            for s2 in symbols:
-                cov[(s1, s2)] = returns[s1][0] * returns[s2][0]
-
-        # EWMA 递推
-        for t in range(1, n_obs):
-            for s1 in symbols:
-                for s2 in symbols:
-                    key = (s1, s2)
-                    cov[key] = (
-                        self.alpha * returns[s1][t] * returns[s2][t]
-                        + (1 - self.alpha) * cov[key]
-                    )
-
-        result: dict[str, dict[str, float]] = {}
-        for s1 in symbols:
-            row: dict[str, float] = {}
-            for s2 in symbols:
-                row[s2] = cov[(s1, s2)]
-            result[s1] = row
-        return result
+        matrix = [list(returns[s][:n_obs]) for s in symbols]
+        cov_mat = _cpp_ewma_covariance(matrix, self.alpha)
+        return {
+            s1: {s2: cov_mat[i][j] for j, s2 in enumerate(symbols)}
+            for i, s1 in enumerate(symbols)
+        }

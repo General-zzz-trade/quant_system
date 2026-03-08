@@ -41,10 +41,7 @@ from scripts.backtest_alpha_v8 import _apply_monthly_gate, COST_PER_TRADE
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 
-try:
-    from features.batch_backtest import _BT_CPP, run_backtest_fast, pred_to_signal_fast
-except ImportError:
-    _BT_CPP = False
+from features.batch_backtest import run_backtest_fast, pred_to_signal_fast
 
 try:
     import torch as _torch
@@ -610,7 +607,7 @@ def run_fold(
 
     # Trade simulation on test
     # C++ fast path: when no complex Python-only modifiers are active
-    _use_cpp = (_BT_CPP and not continuous_sizing and not regime_gate
+    _use_cpp = (not continuous_sizing and not regime_gate
                 and not adaptive_sizing and not trend_follow)
 
     if _use_cpp:
@@ -838,11 +835,14 @@ def run_fold_strategy_f(
     nn_epochs: int = NN_EPOCHS,
     selector: str = "greedy",
     lgbm_threads: Optional[int] = None,
+    short_supplement: bool = False,
 ) -> FoldResult:
     """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
 
     Bull regime (close > SMA): V8 LGBM+XGB long-only signal.
     Bear regime (close <= SMA): bear C classifier short signal.
+    When short_supplement=True, also trains an independent short regression model
+    that fills gaps where the combined signal is flat during bear regime.
     Both models trained exclusively on the fold's train window.
     """
     import lightgbm as lgb
@@ -1033,6 +1033,76 @@ def run_fold_strategy_f(
     bear_mask_test = _compute_bear_mask(test_closes, monthly_gate_window)
     signal = np.where(bear_mask_test[:n_test], sig_bear[:n_test], sig_v8[:n_test])
 
+    # ── 3b. Short model supplement (fills flat gaps in bear regime) ──
+    if short_supplement:
+        from scripts.train_short_production import (
+            SHORT_FIXED_FEATURES as _SF_FIXED,
+            SHORT_CANDIDATE_POOL as _SF_POOL,
+            N_FLEXIBLE as _SF_NFLEX,
+            DEADZONE as _SF_DZ,
+            MIN_HOLD as _SF_MH,
+            MA_WINDOW as _SF_MA,
+            BEAR_WEIGHT as _SF_BW,
+        )
+        # Train short regression on ALL train bars with bear weighting
+        short_fixed_in = [f for f in _SF_FIXED if f in feature_names]
+        short_pool_in = [f for f in _SF_POOL if f in feature_names]
+        short_sel = list(short_fixed_in)
+        if short_pool_in and _SF_NFLEX > 0:
+            neg_mask_s = y_train < 0
+            sp_idx = [feature_names.index(f) for f in short_pool_in]
+            if neg_mask_s.sum() > 1000:
+                X_sp_neg = X_train[neg_mask_s][:, sp_idx]
+                y_sp_neg = y_train[neg_mask_s]
+                short_flex = stable_icir_select(X_sp_neg, y_sp_neg, short_pool_in, top_k=_SF_NFLEX)
+            else:
+                short_flex = stable_icir_select(X_train[:, sp_idx], y_train, short_pool_in, top_k=_SF_NFLEX)
+            short_sel.extend(short_flex)
+
+        if short_sel:
+            ss_idx = [feature_names.index(f) for f in short_sel]
+            X_train_ss = X_train[:, ss_idx]
+            X_test_ss = X_test[:, ss_idx]
+
+            # Bear sample weighting
+            sw_short = np.ones(len(y_train))
+            bear_mask_tr_short = _compute_bear_mask(train_closes, _SF_MA)
+            tr_bear_s = bear_mask_tr_short[WARMUP:][train_valid]
+            sw_short[tr_bear_s] = _SF_BW
+
+            # Train LGBM + XGB short ensemble
+            dt_ss = lgb.Dataset(X_train_ss, label=y_train, weight=sw_short)
+            ss_params = dict(V7_DEFAULT_PARAMS)
+            if lgbm_threads is not None:
+                ss_params["num_threads"] = lgbm_threads
+            ss_bst = lgb.train(ss_params, dt_ss,
+                               num_boost_round=ss_params.get("n_estimators", 500),
+                               callbacks=[lgb.log_evaluation(0)])
+            ss_pred = ss_bst.predict(X_test_ss)
+
+            try:
+                import xgboost as xgb
+                xp_ss = {"max_depth": 6, "learning_rate": 0.05, "objective": "reg:squarederror",
+                          "verbosity": 0, "subsample": 0.8, "colsample_bytree": 0.8}
+                if lgbm_threads is not None:
+                    xp_ss["nthread"] = lgbm_threads
+                dt_xgb_ss = xgb.DMatrix(X_train_ss, label=y_train, weight=sw_short)
+                xgb_ss = xgb.train(xp_ss, dt_xgb_ss, num_boost_round=500)
+                ss_pred = 0.5 * ss_pred + 0.5 * xgb_ss.predict(xgb.DMatrix(X_test_ss))
+            except Exception:
+                pass
+
+            # Short-only signal with regime gate
+            sig_short = _pred_to_signal(ss_pred, target_mode=TARGET_MODE,
+                                         deadzone=_SF_DZ, min_hold=_SF_MH)
+            np.clip(sig_short, -1.0, 0.0, out=sig_short)
+            sig_short[~bear_mask_test[:len(sig_short)]] = 0.0
+
+            # Supplementary: only fill flat gaps
+            for i in range(min(len(signal), len(sig_short))):
+                if sig_short[i] < 0 and signal[i] == 0.0:
+                    signal[i] = sig_short[i]
+
     # Vol-adaptive sizing
     if vol_target is not None and vol_feature in test_df.columns:
         vol_vals = test_df[vol_feature].values.astype(np.float64)
@@ -1152,6 +1222,7 @@ def _run_single_fold(kwargs: dict) -> Tuple[int, FoldResult, float, str]:
     if strategy_f:
         result = run_fold_strategy_f(fold, **kwargs)
     else:
+        kwargs.pop("short_supplement", None)  # not used by run_fold
         result = run_fold(fold, **kwargs)
     elapsed = time.time() - t1
     result.period = period
@@ -1298,6 +1369,8 @@ def main() -> None:
     parser.add_argument("--selector", choices=["greedy", "stable_icir"],
                         default="greedy",
                         help="Feature selector: greedy (default) or stable_icir")
+    parser.add_argument("--short-supplement", action="store_true",
+                        help="Add independent short model supplement to Strategy F (fills flat gaps in bear regime)")
     parser.add_argument("--parallel", type=int, default=1,
                         help="Number of parallel fold workers (default: 1 = serial)")
     parser.add_argument("--no-cache", action="store_true",
@@ -1342,6 +1415,7 @@ def main() -> None:
     nn_seq_len = args.nn_seq_len
     nn_epochs = args.nn_epochs
     selector = args.selector
+    short_supplement = args.short_supplement
     parallel = max(1, args.parallel)
     no_cache = args.no_cache
 
@@ -1351,6 +1425,8 @@ def main() -> None:
     print(f"\n  Walk-Forward Validation: {symbol}")
     if strategy_f:
         print(f"  MODE: Strategy F (per-fold V8 + bear C regime-switch)")
+        if short_supplement:
+            print(f"  SHORT SUPPLEMENT: ON (independent short model fills bear flat gaps)")
     if selector != "greedy":
         print(f"  Selector: {selector}")
     print(f"  HPO: {'ON' if use_hpo else 'OFF (default params)'}"
@@ -1462,6 +1538,7 @@ def main() -> None:
                 cost_model_type=cost_model_type, volumes=volumes_all,
                 nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
                 selector=selector, lgbm_threads=lgbm_threads,
+                short_supplement=short_supplement,
             )
         else:
             kw = dict(

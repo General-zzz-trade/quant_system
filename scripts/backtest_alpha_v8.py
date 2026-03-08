@@ -27,10 +27,7 @@ logger = logging.getLogger(__name__)
 
 # ── C++ acceleration ─────────────────────────────────────────────
 
-try:
-    from features.batch_backtest import _BT_CPP, run_backtest_fast, pred_to_signal_fast
-except ImportError:
-    _BT_CPP = False
+from features.batch_backtest import run_backtest_fast, pred_to_signal_fast
 
 # ── Constants ────────────────────────────────────────────────────
 
@@ -204,6 +201,97 @@ def _apply_dd_breaker(
 
 
 from alpha.signal_transform import pred_to_signal as _pred_to_signal  # noqa: E302
+
+
+def _apply_short_model(
+    signal: np.ndarray,
+    closes: np.ndarray,
+    feat_df: "pd.DataFrame",
+    warmup: int,
+    n: int,
+    short_model_path: str,
+) -> np.ndarray:
+    """Load independent short model and combine with existing signal.
+
+    Short signal overrides long signal when active (parallel priority).
+    Short model is regime-gated (only active when close <= SMA).
+    """
+    short_dir = Path(short_model_path)
+    short_cfg_path = short_dir / "config.json"
+    if not short_cfg_path.exists():
+        print(f"  Short model config not found: {short_cfg_path}")
+        return signal
+
+    with open(short_cfg_path) as f:
+        short_cfg = json.load(f)
+
+    short_features = short_cfg["features"]
+    short_deadzone = short_cfg.get("deadzone", 1.5)
+    short_min_hold = short_cfg.get("min_hold", 24)
+    short_ma_window = short_cfg.get("ma_window", 480)
+
+    from infra.model_signing import load_verified_pickle
+    short_models = []
+    short_weights = short_cfg.get("ensemble_weights", [1.0])
+    for mp in short_cfg["models"]:
+        pkl_path = short_dir / mp
+        if pkl_path.exists():
+            sd = load_verified_pickle(pkl_path)
+            short_models.append(sd["model"])
+
+    if not short_models:
+        print(f"  Short model files not found in {short_dir}")
+        return signal
+
+    # Prepare short feature matrix
+    feat_df_short = feat_df.iloc[warmup:].reset_index(drop=True)
+    X_short = np.column_stack([
+        np.nan_to_num(feat_df_short[f].values.astype(np.float64), nan=0.0)
+        if f in feat_df_short.columns else np.zeros(n)
+        for f in short_features
+    ])
+
+    # Predict with short ensemble
+    import xgboost as xgb
+    short_preds = []
+    for i, sm in enumerate(short_models):
+        w = short_weights[i] if i < len(short_weights) else 1.0
+        if isinstance(sm, xgb.core.Booster):
+            dm = xgb.DMatrix(X_short)
+            sp = sm.predict(dm)
+        else:
+            sp = sm.predict(X_short)
+        short_preds.append(sp * w)
+    short_pred = np.sum(short_preds, axis=0) / sum(short_weights[:len(short_models)])
+
+    # Generate short signal
+    short_signal = _pred_to_signal(
+        short_pred,
+        target_mode=short_cfg.get("target_mode", "clipped"),
+        deadzone=short_deadzone,
+        min_hold=short_min_hold,
+    )
+    np.clip(short_signal, -1.0, 0.0, out=short_signal)
+
+    # Regime gate
+    if short_cfg.get("regime_gated", True):
+        bear_mask_short = _compute_bear_mask(closes, short_ma_window)
+        short_signal[~bear_mask_short] = 0.0
+
+    # Supplementary mode: short model only fills gaps where signal is flat (0)
+    # during bear regime. Does NOT override existing bear classifier shorts.
+    out = signal.copy()
+    n_supplement = 0
+    for i in range(min(len(out), len(short_signal))):
+        if short_signal[i] < 0 and out[i] == 0.0:
+            out[i] = short_signal[i]
+            n_supplement += 1
+
+    n_short_active = int((short_signal < 0).sum())
+    print(f"  Short model: {short_dir} ({len(short_features)} features)")
+    print(f"    Short signal active: {n_short_active}, supplemented: {n_supplement}")
+
+    return out
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
@@ -475,6 +563,7 @@ def run_backtest(
     oos_bars: int = 13140,
     bear_model_path: Optional[str] = None,
     bear_thresholds: Optional[List[Tuple[float, float]]] = None,
+    short_model_path: Optional[str] = None,
     vol_target: Optional[float] = None,
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
@@ -691,6 +780,12 @@ def run_backtest(
     if dd_limit is not None and bear_model_raw is None:
         signal = _apply_dd_breaker(signal, closes, dd_limit, dd_cooldown)
         print(f"  DD breaker: limit={dd_limit*100:.1f}%, cooldown={dd_cooldown} bars")
+
+    # ── Independent short model (parallel combination) ──
+    # Uses HMAC-verified pickle (same as all model loading in this codebase)
+    if short_model_path is not None:
+        signal = _apply_short_model(
+            signal, closes, feat_df, warmup, n, short_model_path)
 
     # Position management info
     if bear_thresholds is not None and bear_model_raw is not None:
@@ -1001,6 +1096,8 @@ def main() -> None:
                         help="Max drawdown circuit breaker (e.g. -0.15). Negative value.")
     parser.add_argument("--dd-cooldown", type=int, default=48,
                         help="Bars to stay flat after DD breach (default: 48)")
+    parser.add_argument("--short-model", default=None,
+                        help="Short model directory (parallel short model, e.g. models_v8/BTCUSDT_short)")
     parser.add_argument("--cost-model", choices=["flat", "realistic"], default="flat",
                         help="Cost model: flat (6bps) or realistic (sqrt-impact + spread)")
     args = parser.parse_args()
@@ -1047,6 +1144,7 @@ def main() -> None:
                  oos_bars=args.oos_bars,
                  bear_model_path=args.bear_model,
                  bear_thresholds=bear_thresholds,
+                 short_model_path=args.short_model,
                  vol_target=args.vol_target,
                  vol_feature=args.vol_feature,
                  dd_limit=args.dd_limit,

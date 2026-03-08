@@ -7,6 +7,7 @@ from decimal import Decimal
 from math import exp, sqrt
 from typing import Any, Deque, Dict, List, Sequence, Tuple
 
+from _quant_hotpath import rust_rolling_sharpe
 from decision.types import SignalResult
 from decision.signals.base import SignalModel
 
@@ -60,7 +61,7 @@ class DynamicEnsembleSignal:
 
         sharpes: Dict[str, float] = {}
         for name, ret_deque in self._returns.items():
-            sharpes[name] = _rolling_sharpe(ret_deque)
+            sharpes[name] = rust_rolling_sharpe(list(ret_deque))
 
         self._reweight(sharpes)
 
@@ -107,16 +108,3 @@ class DynamicEnsembleSignal:
 
     def get_weights(self) -> Dict[str, Decimal]:
         return dict(self._weights)
-
-
-def _rolling_sharpe(returns: Deque[float], annualize: float = sqrt(252)) -> float:
-    if len(returns) < 2:
-        return 0.0
-    n = len(returns)
-    mean = sum(returns) / n
-    var = sum((r - mean) ** 2 for r in returns) / n
-    std = sqrt(var) if var > 0 else 0.0
-    if std < 1e-12:
-        # Zero variance: sign of mean determines direction, capped magnitude
-        return mean * 1e6 if mean != 0 else 0.0
-    return (mean / std) * annualize

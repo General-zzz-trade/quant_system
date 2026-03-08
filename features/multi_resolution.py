@@ -22,12 +22,7 @@ from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 
 logger = logging.getLogger(__name__)
 
-try:
-    from _quant_hotpath import cpp_compute_fast_1m_features, cpp_fast_1m_feature_names
-    _USING_CPP_1M = True
-except ImportError:
-    _USING_CPP_1M = False
-    logger.warning("C++ fast 1m features not available, using Python fallback")
+from _quant_hotpath import cpp_compute_fast_1m_features, cpp_fast_1m_feature_names
 
 # Fast features computed directly on 1m bars (short windows)
 FAST_FEATURE_NAMES = (
@@ -104,94 +99,8 @@ def _compute_fast_features_cpp(df_1m: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_fast_features(df_1m: pd.DataFrame) -> pd.DataFrame:
-    """Compute short-window features directly on 1m bars.
-
-    Uses C++ when available (~10x faster), falls back to pandas vectorized.
-    """
-    if _USING_CPP_1M:
-        return _compute_fast_features_cpp(df_1m)
-    return _compute_fast_features_py(df_1m)
-
-
-def _compute_fast_features_py(df_1m: pd.DataFrame) -> pd.DataFrame:
-    """Compute short-window features directly on 1m bars.
-
-    All operations are vectorized via pandas/numpy for performance on >1M bars.
-    """
-    n = len(df_1m)
-    close = pd.Series(df_1m["close"].values.astype(np.float64))
-    open_ = pd.Series(df_1m["open"].values.astype(np.float64)) if "open" in df_1m.columns else close.copy()
-    high = pd.Series(df_1m["high"].values.astype(np.float64)) if "high" in df_1m.columns else close.copy()
-    low = pd.Series(df_1m["low"].values.astype(np.float64)) if "low" in df_1m.columns else close.copy()
-    volume = pd.Series(df_1m["volume"].values.astype(np.float64)) if "volume" in df_1m.columns else pd.Series(np.zeros(n))
-    trades = pd.Series(df_1m["trades"].values.astype(np.float64)) if "trades" in df_1m.columns else pd.Series(np.zeros(n))
-    tbv = pd.Series(df_1m["taker_buy_volume"].values.astype(np.float64)) if "taker_buy_volume" in df_1m.columns else pd.Series(np.zeros(n))
-
-    result = {}
-
-    # Returns at multiple short horizons (vectorized)
-    for h in (1, 3, 5, 10):
-        result[f"ret_{h}"] = close.pct_change(h).values
-
-    # RSI-6 via pandas EWM (vectorized)
-    pct = close.pct_change()
-    gains = pct.clip(lower=0.0)
-    losses = (-pct).clip(lower=0.0)
-    avg_gain = gains.ewm(span=6, adjust=False).mean()
-    avg_loss = losses.ewm(span=6, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100.0 - 100.0 / (1.0 + rs)
-    rsi.iloc[0] = np.nan
-    result["rsi_6"] = rsi.values
-
-    # Volatility via pandas rolling (vectorized)
-    result["vol_5"] = pct.rolling(5, min_periods=3).std().values
-    result["vol_20"] = pct.rolling(20, min_periods=10).std().values
-
-    # Taker imbalance (vectorized)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        taker_ratio = np.where(volume.values > 0, tbv.values / volume.values, 0.5)
-    result["taker_imbalance"] = 2.0 * taker_ratio - 1.0
-
-    # Trade intensity: trades / EMA(trades, 20) (vectorized)
-    ema_trades = trades.ewm(span=20, adjust=False).mean()
-    trade_int = trades / ema_trades.replace(0, np.nan)
-    result["trade_intensity"] = trade_int.values
-
-    # CVD-10: rolling sum of volume delta, normalized (vectorized)
-    delta = tbv - (volume - tbv)  # buy - sell volume
-    cvd_10_raw = delta.rolling(10, min_periods=10).sum()
-    ema_vol = volume.ewm(span=20, adjust=False).mean()
-    cvd_10 = cvd_10_raw / (ema_vol * 10).replace(0, np.nan)
-    result["cvd_10"] = cvd_10.values
-
-    # Candle structure (vectorized)
-    body = (close - open_).abs()
-    full_range = high - low
-    with np.errstate(invalid="ignore", divide="ignore"):
-        fr_vals = full_range.values
-        body_ratio = np.where(fr_vals > 0, body.values / fr_vals, 0.0)
-        upper_shadow = np.where(fr_vals > 0,
-                                (high.values - np.maximum(close.values, open_.values)) / fr_vals, 0.0)
-        lower_shadow = np.where(fr_vals > 0,
-                                (np.minimum(close.values, open_.values) - low.values) / fr_vals, 0.0)
-    result["body_ratio"] = body_ratio
-    result["upper_shadow"] = upper_shadow
-    result["lower_shadow"] = lower_shadow
-
-    # Volume ratio: vol / EMA(vol, 20) (vectorized)
-    vol_ratio = volume / ema_vol.replace(0, np.nan)
-    result["vol_ratio_20"] = vol_ratio.values
-
-    # Aggressive flow z-score: rolling z-score of taker_buy_ratio over 24 bars (vectorized)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        tbr = pd.Series(np.where(volume.values > 0, tbv.values / volume.values, 0.5))
-    tbr_mean = tbr.rolling(24, min_periods=24).mean()
-    tbr_std = tbr.rolling(24, min_periods=24).std()
-    agg_flow_z = (tbr - tbr_mean) / tbr_std.replace(0, np.nan)
-    result["aggressive_flow_zscore"] = agg_flow_z.values
-
-    return pd.DataFrame(result, index=df_1m.index)
+    """Compute short-window features directly on 1m bars via Rust."""
+    return _compute_fast_features_cpp(df_1m)
 
 
 # Slow features: computed on 1h resampled data, forward-filled to 1m

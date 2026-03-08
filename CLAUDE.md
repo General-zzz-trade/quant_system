@@ -22,7 +22,7 @@ decision/        Trading signals, ensemble, regime detection, rebalancing
 alpha/           ML models + inference bridge
 execution/       Order routing, state machine, dedup
 state/           State types + Rust adapters
-ext/rust/        Unified Rust crate -> _quant_hotpath (54 modules, ~16K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (56 modules, ~17K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
@@ -37,8 +37,8 @@ scripts/         Training, walk-forward validation, alpha research
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 55 .rs modules, ~16,600 LOC
-- Exports: 56 classes + 98 functions
+- Single crate `_quant_hotpath`, 56 .rs modules, ~17,100 LOC
+- Exports: 57 classes + 98 functions
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -53,6 +53,7 @@ Key exports:
 - Portfolio: `rust_allocate_portfolio`, `rust_fixed_fraction_qty`
 - Pipeline: `rust_pipeline_apply`, `RustProcessResult`
 - Factors: `rust_momentum_score`, `rust_volatility_score`, `rust_adx`, `rust_carry_score`
+- Inference: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
 
 ## Key Files
 

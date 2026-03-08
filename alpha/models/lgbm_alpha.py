@@ -28,6 +28,7 @@ class LGBMAlphaModel:
     """LightGBM-based alpha model.
 
     Faster training than XGBoost, handles categorical features natively.
+    Uses RustTreePredictor for inference when .json companion file exists.
     """
 
     name: str = "lgbm_alpha"
@@ -35,24 +36,22 @@ class LGBMAlphaModel:
     threshold: float = 0.0
     _model: Any = None
     _is_classifier: bool = False
+    _rust_predictor: Any = None
 
     def predict(
         self, *, symbol: str, ts: datetime, features: Dict[str, Any],
     ) -> Optional[_Signal]:
-        if self._model is None:
+        if self._rust_predictor is None and self._model is None:
             return None
 
-        try:
-            import numpy as np
-        except ImportError:
-            return None
-
-        x = [[features.get(f, float("nan")) for f in self.feature_names]]
-
-        if self._is_classifier:
+        if self._rust_predictor is not None:
+            pred = self._rust_predictor.predict_dict(features)
+        elif self._is_classifier:
+            x = [[features.get(f, float("nan")) for f in self.feature_names]]
             prob = self._model.predict_proba(x)[0, 1]
-            pred = prob - 0.5  # center at 0
+            pred = prob - 0.5
         else:
+            x = [[features.get(f, float("nan")) for f in self.feature_names]]
             pred = self._model.predict(x)[0]
 
         if pred > self.threshold:
@@ -241,9 +240,21 @@ class LGBMAlphaModel:
 
     def load(self, path: str | Path) -> None:
         path = Path(path)
-        from infra.model_signing import load_verified_pickle
+        from infra.model_signing import load_verified_pickle  # HMAC-signed artifacts
         data = load_verified_pickle(path)
         self._model = data["model"]
         if "features" in data:
             object.__setattr__(self, "feature_names", data["features"])
         self._is_classifier = data.get("is_classifier", False)
+        self._try_load_rust(path)
+
+    def _try_load_rust(self, pkl_path: Path) -> None:
+        json_path = pkl_path.with_suffix(".json")
+        if not json_path.exists():
+            return
+        try:
+            from _quant_hotpath import RustTreePredictor
+            self._rust_predictor = RustTreePredictor.load(str(json_path))
+            logger.info("Rust native inference: %s", self._rust_predictor.info())
+        except Exception as e:
+            logger.warning("Rust predictor load failed, using Python: %s", e)

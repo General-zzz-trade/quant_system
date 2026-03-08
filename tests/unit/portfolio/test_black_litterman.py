@@ -12,10 +12,6 @@ from portfolio.optimizer.black_litterman import (
     BlackLittermanModel,
     BlackLittermanResult,
     ViewSpec,
-    _mat_identity,
-    _mat_inverse,
-    _mat_multiply,
-    _mat_transpose,
 )
 
 
@@ -36,49 +32,6 @@ _MARKET_WEIGHTS = {"A": 0.6, "B": 0.4}
 
 def _model(tau: float = 0.05, delta: float = 2.5) -> BlackLittermanModel:
     return BlackLittermanModel(BlackLittermanConfig(tau=tau, risk_aversion=delta))
-
-
-# ── matrix helpers ───────────────────────────────────────────────────
-
-class TestMatrixHelpers:
-    def test_identity_inverse(self):
-        I = _mat_identity(3)
-        inv = _mat_inverse(I)
-        for i in range(3):
-            for j in range(3):
-                expected = 1.0 if i == j else 0.0
-                assert inv[i][j] == pytest.approx(expected, abs=1e-12)
-
-    def test_inverse_2x2(self):
-        # [[2, 1], [1, 3]] -> inverse = [[3, -1], [-1, 2]] / 5
-        mat = [[2.0, 1.0], [1.0, 3.0]]
-        inv = _mat_inverse(mat)
-        assert inv[0][0] == pytest.approx(0.6, abs=1e-10)
-        assert inv[0][1] == pytest.approx(-0.2, abs=1e-10)
-        assert inv[1][0] == pytest.approx(-0.2, abs=1e-10)
-        assert inv[1][1] == pytest.approx(0.4, abs=1e-10)
-
-    def test_inverse_roundtrip(self):
-        mat = [[4.0, 2.0], [1.0, 3.0]]
-        inv = _mat_inverse(mat)
-        product = _mat_multiply(mat, inv)
-        for i in range(2):
-            for j in range(2):
-                expected = 1.0 if i == j else 0.0
-                assert product[i][j] == pytest.approx(expected, abs=1e-10)
-
-    def test_transpose(self):
-        mat = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-        t = _mat_transpose(mat)
-        assert len(t) == 3
-        assert len(t[0]) == 2
-        assert t[0][0] == 1.0
-        assert t[2][1] == 6.0
-
-    def test_singular_matrix_raises(self):
-        mat = [[1.0, 2.0], [2.0, 4.0]]
-        with pytest.raises(ValueError, match="Singular"):
-            _mat_inverse(mat)
 
 
 # ── equilibrium returns ──────────────────────────────────────────────

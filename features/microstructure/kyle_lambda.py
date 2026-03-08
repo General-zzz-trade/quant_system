@@ -14,11 +14,7 @@ from typing import Any, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-try:
-    from _quant_hotpath import cpp_ols as _cpp_ols
-    _USING_CPP = True
-except ImportError:
-    _USING_CPP = False
+from _quant_hotpath import cpp_ols as _cpp_ols
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,42 +80,10 @@ class KyleLambdaEstimator:
             )
 
         # OLS: slope = cov(x,y) / var(x)
-        if _USING_CPP:
-            slope, r_sq = _cpp_ols(signed_volumes, price_changes)
-        else:
-            slope, r_sq = _ols(signed_volumes, price_changes)
+        slope, r_sq = _cpp_ols(signed_volumes, price_changes)
 
         return KyleLambdaResult(
             kyle_lambda=slope,
             r_squared=r_sq,
             n_observations=n,
         )
-
-
-def _ols(x: list[float], y: list[float]) -> tuple[float, float]:
-    """Simple OLS regression: y = slope * x + intercept.
-
-    Returns (slope, r_squared).
-    """
-    n = len(x)
-    if n == 0:
-        return 0.0, 0.0
-
-    mean_x = sum(x) / n
-    mean_y = sum(y) / n
-
-    cov_xy = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y)) / n
-    var_x = sum((xi - mean_x) ** 2 for xi in x) / n
-    var_y = sum((yi - mean_y) ** 2 for yi in y) / n
-
-    if var_x < 1e-15:
-        return 0.0, 0.0
-
-    slope = cov_xy / var_x
-
-    if var_y < 1e-15:
-        r_squared = 1.0 if var_x < 1e-15 else 0.0
-    else:
-        r_squared = (cov_xy ** 2) / (var_x * var_y)
-
-    return slope, r_squared

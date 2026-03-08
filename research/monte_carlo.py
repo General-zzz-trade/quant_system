@@ -7,11 +7,7 @@ import random
 from dataclasses import dataclass
 from typing import List, Tuple
 
-try:
-    from _quant_hotpath import cpp_simulate_paths as _cpp_simulate
-    _MC_CPP = True
-except ImportError:
-    _MC_CPP = False
+from _quant_hotpath import cpp_simulate_paths as _cpp_simulate
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,51 +128,17 @@ class MonteCarloSimulator:
                 max_drawdown_mean=0.0, max_drawdown_95=0.0,
             )
 
-        if _MC_CPP:
-            parametric = (method == "parametric")
-            r = _cpp_simulate(
-                returns, n_paths, horizon, parametric,
-                target_return, 5, self._rng.randint(0, 2**63),
-            )
-            return MonteCarloResult(
-                paths=r.paths, mean_final=r.mean_final,
-                median_final=r.median_final,
-                percentile_5=r.percentile_5,
-                percentile_95=r.percentile_95,
-                prob_loss=r.prob_loss, prob_target=r.prob_target,
-                max_drawdown_mean=r.max_drawdown_mean,
-                max_drawdown_95=r.max_drawdown_95,
-            )
-
-        finals: List[float] = []
-        drawdowns: List[float] = []
-        target_wealth = 1.0 + target_return
-
-        for _ in range(n_paths):
-            equity = self.simulate_single_path(returns, horizon, method)
-            finals.append(equity[-1])
-            drawdowns.append(_max_drawdown(equity))
-
-        finals_sorted = sorted(finals)
-        dd_sorted = sorted(drawdowns)
-
-        mean_final = sum(finals) / n_paths
-        median_final = _percentile(finals_sorted, 50)
-        p5 = _percentile(finals_sorted, 5)
-        p95 = _percentile(finals_sorted, 95)
-        prob_loss = sum(1 for f in finals if f < 1.0) / n_paths
-        prob_target = sum(1 for f in finals if f >= target_wealth) / n_paths
-        dd_mean = sum(drawdowns) / n_paths
-        dd_95 = _percentile(dd_sorted, 95)
-
+        parametric = (method == "parametric")
+        r = _cpp_simulate(
+            returns, n_paths, horizon, parametric,
+            target_return, 5, self._rng.randint(0, 2**63),
+        )
         return MonteCarloResult(
-            paths=n_paths,
-            mean_final=mean_final,
-            median_final=median_final,
-            percentile_5=p5,
-            percentile_95=p95,
-            prob_loss=prob_loss,
-            prob_target=prob_target,
-            max_drawdown_mean=dd_mean,
-            max_drawdown_95=dd_95,
+            paths=r.paths, mean_final=r.mean_final,
+            median_final=r.median_final,
+            percentile_5=r.percentile_5,
+            percentile_95=r.percentile_95,
+            prob_loss=r.prob_loss, prob_target=r.prob_target,
+            max_drawdown_mean=r.max_drawdown_mean,
+            max_drawdown_95=r.max_drawdown_95,
         )

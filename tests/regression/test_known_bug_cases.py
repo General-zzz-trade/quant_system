@@ -91,14 +91,18 @@ def test_monthly_gate_hourly_resolution():
     ts_same = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
     for _ in range(3):
         bridge._check_monthly_gate("TEST", 100.0, ts_same)
-    assert len(bridge._close_history["TEST"]) == 1, "Same hour should only add once"
+    # During warmup (window=3, only 1 entry), gate should allow trading
+    assert bridge._check_monthly_gate("TEST", 100.0, ts_same) is True
 
-    # Push at different hours
+    # Push at different hours to fill window
     for h in range(11, 14):
         ts_h = datetime(2024, 1, 1, h, 0, tzinfo=timezone.utc)
         bridge._check_monthly_gate("TEST", 100.0, ts_h)
-    # 1 (from same hour) + 3 (new hours) = 4, but maxlen=3, so 3
-    assert len(bridge._close_history["TEST"]) == 3, "Should accumulate on hourly boundaries"
+    # Now window is full (3 entries), gate should work:
+    # close=100 == MA=100, so close > MA is False
+    ts_check = datetime(2024, 1, 1, 14, 0, tzinfo=timezone.utc)
+    assert bridge._check_monthly_gate("TEST", 99.0, ts_check) is False, "Below MA should gate"
+    assert bridge._check_monthly_gate("TEST", 101.0, ts_check) is True, "Above MA should pass"
 
 
 def test_bridge_warmup_optimistic():
@@ -205,12 +209,14 @@ def test_checkpoint_restore_preserves_state():
         zscore_warmup=0,
     )
 
-    # Simulate some state accumulation
-    bridge._hold_counter["SYM"] = 2
-    bridge._position["SYM"] = 1.0
+    # Simulate some state accumulation via Rust bridge
+    bridge._rust.set_position("SYM", 1.0, 2)
 
     # Checkpoint
     state = bridge.checkpoint()
+    assert state["position"]["SYM"] == 1.0
+    assert state["hold_counter"]["SYM"] == 2
+
     # Restore into a new bridge
     bridge2 = LiveInferenceBridge(
         models=[_ConstModel()],
@@ -219,8 +225,9 @@ def test_checkpoint_restore_preserves_state():
         zscore_warmup=0,
     )
     bridge2.restore(state)
-    assert bridge2._hold_counter["SYM"] == 2, "Hold counter not restored"
-    assert bridge2._position["SYM"] == 1.0, "Position not restored"
+    cp2 = bridge2.checkpoint()
+    assert cp2["hold_counter"]["SYM"] == 2, "Hold counter not restored"
+    assert cp2["position"]["SYM"] == 1.0, "Position not restored"
 
 
 def test_poller_age_seconds():
