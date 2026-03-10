@@ -1,22 +1,43 @@
-__pycache__
-*.pyc
-*.pyo
+# VCS + IDE
 .git
-.env
-.env.*
-!.env.example
-*.egg-info
-dist/
-build/
+.github
+.claude/
 .mypy_cache
 .pytest_cache
 .ruff_cache
-.claude/
-tasks/
-logs/
-archive/
 .cache/
-results/
+
+# Python build artifacts
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist/
+build/
+
+# Env + secrets
+.env
+.env.*
+!.env.example
+
+# Rust build (compiled inside Docker)
 ext/rust/target/
-data_files/*.csv
+
+# Data — mounted as volumes, not baked into image
+data_files/
+data/*.csv
+data/*.parquet
+output/
+results/
+logs/
+models_v8/
+models/
+
+# Dev/research artifacts
+tasks/
+archive/
+tests/
+scripts/
 .last_good_deploy
+*.csv
+*.jsonl

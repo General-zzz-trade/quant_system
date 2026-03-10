@@ -105,6 +105,33 @@ def normalize_to_facts(event: Any) -> List[Any]:
         raise FactNormalizationError(str(e)) from e
 
 
+class _LazyConvertMapping(Mapping):
+    """Lazily converts Rust state types to Python on first access per key."""
+
+    __slots__ = ("_raw", "_converted", "_converter", "_check_type")
+
+    def __init__(self, raw: Mapping[str, Any], converter, check_type) -> None:
+        self._raw = raw
+        self._converted: dict = {}
+        self._converter = converter
+        self._check_type = check_type
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self._converted:
+            return self._converted[key]
+        val = self._raw[key]
+        if isinstance(val, self._check_type):
+            val = self._converter(val)
+        self._converted[key] = val
+        return val
+
+    def __iter__(self):
+        return iter(self._raw)
+
+    def __len__(self):
+        return len(self._raw)
+
+
 def _build_snapshot(
     *,
     raw_event: Any,
@@ -115,6 +142,7 @@ def _build_snapshot(
     portfolio: Any,
     risk: Any,
     features: Optional[Mapping[str, Any]] = None,
+    skip_convert: bool = False,
 ) -> Any:
     header = getattr(raw_event, "header", None)
     event_id = getattr(header, "event_id", None)
@@ -122,15 +150,15 @@ def _build_snapshot(
     if event_id is not None and not isinstance(event_id, str):
         event_id = None
 
-    snapshot_markets = {
-        sym: market_from_rust(state) if isinstance(state, _RustMarketState) else state
-        for sym, state in markets.items()
-    }
-    snapshot_account = account_from_rust(account) if isinstance(account, _RustAccountState) else account
-    snapshot_positions = {
-        sym: position_from_rust(state) if isinstance(state, _RustPositionState) else state
-        for sym, state in positions.items()
-    }
+    if skip_convert:
+        # Fast path: pass Rust objects directly (duck-typed, consumers use _f fields)
+        snapshot_markets = markets
+        snapshot_account = account
+        snapshot_positions = positions
+    else:
+        snapshot_markets = _LazyConvertMapping(markets, market_from_rust, _RustMarketState)
+        snapshot_account = account_from_rust(account) if isinstance(account, _RustAccountState) else account
+        snapshot_positions = _LazyConvertMapping(positions, position_from_rust, _RustPositionState)
 
     if _HAS_STRICT_SNAPSHOT:
         event_type_str = getattr(raw_event, "event_type", "unknown")
@@ -164,17 +192,16 @@ def _build_snapshot(
 
 
 def _export_store_state(store: Any) -> Tuple[Mapping[str, Any], Any, Mapping[str, Any], Any, Any, Any, Any, Any]:
-    bundle = dict(store.export_state())
-    markets = dict(bundle["markets"])
-    positions = dict(bundle["positions"])
-    account = bundle["account"]
-    portfolio = portfolio_from_rust(bundle["portfolio"])
-    risk = risk_from_rust(bundle["risk"])
+    markets = store.get_markets()
+    positions = store.get_positions()
+    account = store.get_account()
+    portfolio = portfolio_from_rust(store.get_portfolio())
+    risk = risk_from_rust(store.get_risk())
     return (
         markets, account, positions, portfolio, risk,
-        bundle.get("event_index"),
-        bundle.get("last_event_id"),
-        bundle.get("last_ts"),
+        store.event_index,
+        store.last_event_id,
+        store.last_ts,
     )
 
 

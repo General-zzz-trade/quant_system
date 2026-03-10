@@ -11,26 +11,22 @@ use pyo3::types::PyDict;
 use std::collections::{HashMap, VecDeque};
 
 /// Per-symbol signal processing state.
-struct SymbolState {
-    // Z-score buffer (hourly resolution)
-    zscore_buf: VecDeque<f64>,
-    zscore_last_hour: i64,
-    // Position + hold state
-    position: f64,
-    hold_counter: i32,
-    // Close history for monthly gate
-    close_history: VecDeque<f64>,
-    gate_last_hour: i64,
-    gate_window: usize,
-    // Short model state
-    short_zscore_buf: VecDeque<f64>,
-    short_zscore_last_hour: i64,
-    short_position: f64,
-    short_hold_counter: i32,
+pub(crate) struct SymbolState {
+    pub(crate) zscore_buf: VecDeque<f64>,
+    pub(crate) zscore_last_hour: i64,
+    pub(crate) position: f64,
+    pub(crate) hold_counter: i32,
+    pub(crate) close_history: VecDeque<f64>,
+    pub(crate) gate_last_hour: i64,
+    pub(crate) gate_window: usize,
+    pub(crate) short_zscore_buf: VecDeque<f64>,
+    pub(crate) short_zscore_last_hour: i64,
+    pub(crate) short_position: f64,
+    pub(crate) short_hold_counter: i32,
 }
 
 impl SymbolState {
-    fn new(zscore_window: usize, gate_window: usize) -> Self {
+    pub(crate) fn new(zscore_window: usize, gate_window: usize) -> Self {
         Self {
             zscore_buf: VecDeque::with_capacity(zscore_window),
             zscore_last_hour: -1,
@@ -49,7 +45,7 @@ impl SymbolState {
 
 /// Compute mean and std from a VecDeque.
 #[inline]
-fn mean_std(buf: &VecDeque<f64>) -> (f64, f64) {
+pub(crate) fn mean_std(buf: &VecDeque<f64>) -> (f64, f64) {
     let n = buf.len() as f64;
     if n < 1.0 {
         return (0.0, 0.0);
@@ -68,7 +64,7 @@ fn mean_std(buf: &VecDeque<f64>) -> (f64, f64) {
 
 /// Append value to buffer on new hour, return z-score if enough data.
 #[inline]
-fn zscore_from_buf(
+pub(crate) fn zscore_from_buf(
     buf: &mut VecDeque<f64>,
     last_hour: &mut i64,
     raw_score: f64,
@@ -95,10 +91,10 @@ fn zscore_from_buf(
 
 #[pyclass]
 pub struct RustInferenceBridge {
-    symbols: HashMap<String, SymbolState>,
-    zscore_window: usize,
-    zscore_warmup: usize,
-    default_gate_window: usize,
+    pub(crate) symbols: HashMap<String, SymbolState>,
+    pub(crate) zscore_window: usize,
+    pub(crate) zscore_warmup: usize,
+    pub(crate) default_gate_window: usize,
 }
 
 #[pymethods]
@@ -407,7 +403,7 @@ impl RustInferenceBridge {
 }
 
 impl RustInferenceBridge {
-    fn get_or_create(&mut self, symbol: &str) -> &mut SymbolState {
+    pub(crate) fn get_or_create(&mut self, symbol: &str) -> &mut SymbolState {
         if !self.symbols.contains_key(symbol) {
             self.symbols.insert(
                 symbol.to_string(),

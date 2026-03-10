@@ -17,4 +17,5 @@ class AllocationConstraints:
 
         float_weights = {k: float(v) for k, v in weights.items()}
         result = _rust_constraints(float_weights, self.max_positions)
-        return {k: Decimal(str(v)) for k, v in result.items()}
+        # Construct Decimal from float directly (avoids str() round-trip)
+        return {k: Decimal(v) for k, v in result.items()}

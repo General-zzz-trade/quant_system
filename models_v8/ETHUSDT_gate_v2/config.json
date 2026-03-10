@@ -65,7 +65,8 @@
   ],
   "n_flexible": 4,
   "long_only": true,
-  "deadzone": 0.5,
+  "deadzone": 0.3,
+  "monthly_gate": true,
   "min_hold": 8,
   "monthly_gate_window": 480,
   "horizon": 24,
@@ -91,25 +92,13 @@
     "subsample": 0.7,
     "colsample_bytree": 0.7
   },
-  "bear_model_path": "models_v8/ETHUSDT_bear_c",
+  "bear_model_path": null,
   "position_management": {
-    "bear_thresholds": [
-      [
-        0.7,
-        -1.0
-      ],
-      [
-        0.6,
-        -0.5
-      ],
-      [
-        0.5,
-        0.0
-      ]
-    ],
-    "vol_target": null,
-    "dd_limit": 0.1,
-    "dd_cooldown": 48
+    "bear_thresholds": null,
+    "vol_target": 0.012,
+    "dd_limit": 0.3,
+    "dd_cooldown": 48,
+    "trailing_atr": 2.0
   },
   "metrics": {
     "sharpe": 7.484417332138579,

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Protocol, Tuple
-import queue
 import threading
 import time
 
 import logging
+
+from _quant_hotpath import RustSpscRing
 
 from engine.coordinator import EngineCoordinator
 from engine.errors import EngineErrorContext
@@ -26,15 +27,15 @@ class LoopConfig:
     """
     生产级最小 Loop 配置（v1.0）
 
-    - inbox_maxsize：背压边界
+    - inbox_maxsize：背压边界（会向上取到 2 的幂）
     - drop_on_full：inbox 满时是否丢弃（True=保护进程；False=阻塞调用方）
     - retry_limit：RETRY 的最大重试次数（超过后 DROP）
     - idle_sleep_s：空转时 sleep，避免 busy loop
     """
-    inbox_maxsize: int = 100_000
+    inbox_maxsize: int = 131_072
     drop_on_full: bool = True
     retry_limit: int = 3
-    idle_sleep_s: float = 0.002
+    idle_sleep_s: float = 0.001
 
 
 @dataclass(slots=True)
@@ -79,15 +80,13 @@ def _extract_ctx(event: Any, *, actor: str, stage: str) -> EngineErrorContext:
 
 class EngineLoop:
     """
-    EngineLoop（生产骨架 v1.0）
+    EngineLoop（生产骨架 v2.0 — lock-free SPSC ring buffer）
 
     核心职责：
-    1) IO/回调线程只负责 submit() 进 inbox
+    1) IO/回调线程只负责 submit() 进 inbox（lock-free push）
     2) 单线程 drain() 串行处理 -> coordinator.emit()（保证确定性）
     3) 统一 Guard 执行点：before_event / on_error / after_event
-    4) 提供背压（Queue maxsize）
-
-    重要：Loop 不替你“做 IO”，它只隔离 IO 的并发风险。
+    4) 提供背压（ring capacity）
     """
 
     def __init__(
@@ -101,11 +100,10 @@ class EngineLoop:
         self._guard: Guard = guard or build_basic_guard(GuardConfig())
         self._cfg = cfg or LoopConfig()
 
-        self._inbox: "queue.Queue[_Envelope]" = queue.Queue(maxsize=int(self._cfg.inbox_maxsize))
+        self._ring = RustSpscRing(int(self._cfg.inbox_maxsize))
         self._running = False
-        self._drop_count: int = 0
 
-        # 可选：后台线程模式（你也可以不用，手动 step/drain）
+        # 可选：后台线程模式
         self._thread: Optional[threading.Thread] = None
 
         # runtime 订阅（可选）
@@ -121,28 +119,30 @@ class EngineLoop:
         return self._guard
 
     # -------------------------
-    # Ingress (thread-safe)
+    # Ingress (thread-safe, lock-free)
     # -------------------------
 
     def submit(self, event: Any, *, actor: str = "live") -> bool:
         """
-        线程安全：把事件放入 inbox。
+        线程安全（lock-free）：把事件放入 SPSC ring。
 
         返回：
         - True：成功入队
-        - False：inbox 满且 drop_on_full=True，被丢弃
+        - False：ring 满，被丢弃
         """
         env = _Envelope(event=event, actor=actor, retries=0, received_at=time.time())
-        try:
-            if self._cfg.drop_on_full:
-                self._inbox.put_nowait(env)
-            else:
-                self._inbox.put(env)  # block
+        if self._ring.push(env):
             return True
-        except queue.Full:
-            self._drop_count += 1
-            logger.warning("EngineLoop inbox full, event dropped (total_drops=%d, actor=%s)", self._drop_count, actor)
-            return False
+        if not self._cfg.drop_on_full:
+            # Spin until space available (blocks caller)
+            while not self._ring.push(env):
+                time.sleep(0.0001)
+            return True
+        logger.warning(
+            "EngineLoop inbox full, event dropped (total_drops=%d, actor=%s)",
+            self._ring.drop_count(), actor,
+        )
+        return False
 
     # -------------------------
     # Processing (single-thread)
@@ -151,16 +151,14 @@ class EngineLoop:
     def step(self, *, max_events: int = 1) -> int:
         """
         单步处理（推荐在你的主循环里调用）。
-        - 处理至多 max_events 个事件
         """
         if max_events <= 0:
             return 0
 
         processed = 0
         for _ in range(max_events):
-            try:
-                env = self._inbox.get_nowait()
-            except queue.Empty:
+            env = self._ring.pop()
+            if env is None:
                 break
             self._process_one(env)
             processed += 1
@@ -177,15 +175,13 @@ class EngineLoop:
         actor = env.actor
 
         # 1) before_event
-        ctx = _extract_ctx(event, actor=actor, stage="before_event")
-        d0 = self._guard.before_event(event, actor=actor, ctx=ctx)
+        d0 = self._guard.before_event(event, actor=actor, ctx=None)
         if d0.action == GuardAction.DROP:
             return
         if d0.action == GuardAction.STOP:
             self._coord.stop()
             self.stop_background()
             return
-        # RETRY 在 before_event 通常不用；这里按 DROP 处理
         if d0.action == GuardAction.RETRY:
             self._retry_or_drop(env, d0)
             return
@@ -200,8 +196,7 @@ class EngineLoop:
             return
 
         # 3) after_event
-        ctx2 = _extract_ctx(event, actor=actor, stage="after_event")
-        d2 = self._guard.after_event(event, actor=actor, ctx=ctx2)
+        d2 = self._guard.after_event(event, actor=actor, ctx=None)
         if d2.action == GuardAction.STOP:
             self._coord.stop()
             self.stop_background()
@@ -222,29 +217,22 @@ class EngineLoop:
         if d.action == GuardAction.RETRY:
             self._retry_or_drop(env, d)
             return
-        # ALLOW：虽然发生异常但 guard 决定允许继续 → 重新提交事件进行处理
+        # ALLOW：虽然发生异常但 guard 决定允许继续
         if d.action == GuardAction.ALLOW:
             try:
                 self._coord.emit(env.event, actor=env.actor)
             except BaseException:
-                pass  # 二次失败不再重试
+                pass
             return
 
     def _retry_or_drop(self, env: _Envelope, d: GuardDecision) -> None:
         if env.retries >= int(self._cfg.retry_limit):
             return
-        # 等待一小会儿再重试（避免 tight loop）
         if d.retry_after_s is not None and d.retry_after_s > 0:
             time.sleep(float(d.retry_after_s))
         env.retries += 1
         env.received_at = time.time()
-        # 重试不改变 actor
-        try:
-            self._inbox.put_nowait(env)
-        except queue.Full:
-            # inbox 满：按 drop_on_full 策略
-            if not self._cfg.drop_on_full:
-                self._inbox.put(env)
+        self._ring.push(env)
 
     # -------------------------
     # Background mode (optional)
@@ -259,29 +247,24 @@ class EngineLoop:
 
     def stop_background(self) -> None:
         self._running = False
-        t = self._thread
         self._thread = None
-        # 不强 join：daemon 线程允许自然退出
 
     def run_forever(self) -> None:
         """
         后台线程模式：一直处理 inbox。
-        生产建议：更常见的是你自己写主循环（scheduler.poll + loop.drain）。
         """
         self._running = True
+        idle_s = self._cfg.idle_sleep_s
         while self._running and self._coord.phase.value != "stopped":
             n = self.drain(max_events=10_000)
             if n == 0:
-                time.sleep(self._cfg.idle_sleep_s)
+                time.sleep(idle_s)
 
     # -------------------------
     # Runtime attach (IO -> inbox)
     # -------------------------
 
     def attach_runtime(self, runtime: Any) -> None:
-        """
-        让 runtime 回调只做 submit（不直接触发 dispatch），保证并发隔离。
-        """
         self._runtime = runtime
 
         def _handler(ev: Any) -> None:
@@ -294,7 +277,6 @@ class EngineLoop:
         elif hasattr(runtime, "on") and callable(getattr(runtime, "on")):
             runtime.on(_handler)
         else:
-            # runtime 不支持订阅：忽略
             self._runtime_handler = None
 
     def detach_runtime(self) -> None:

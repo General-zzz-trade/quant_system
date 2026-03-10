@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
+from _quant_hotpath import rust_stable_hash as _rust_hash
+
 
 def stable_hash(parts: list[str], *, prefix: str) -> str:
-    h = hashlib.sha1()
-    for p in parts:
-        h.update(p.encode("utf-8"))
-        h.update(b"\x1f")
-    return f"{prefix}-{h.hexdigest()[:16]}"
+    text = "\x1f".join(parts)
+    return f"{prefix}-{_rust_hash(text, 16)}"
 
 
 def dec_str(x: Any) -> str:

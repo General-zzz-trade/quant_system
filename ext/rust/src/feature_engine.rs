@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-const N_FEATURES: usize = 105;
+pub(crate) const N_FEATURES: usize = 105;
 const PI: f64 = std::f64::consts::PI;
 
 // Feature index constants
@@ -110,7 +110,7 @@ const F_SOCIAL_VOLUME_ZSCORE_24: usize = 102;
 const F_SOCIAL_SENTIMENT_SCORE: usize = 103;
 const F_SOCIAL_VOLUME_PRICE_DIV: usize = 104;
 
-const FEATURE_NAMES: [&str; N_FEATURES] = [
+pub(crate) const FEATURE_NAMES: [&str; N_FEATURES] = [
     "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
     "ma_cross_10_30", "ma_cross_5_20", "close_vs_ma20", "close_vs_ma50",
     "rsi_14", "rsi_6",
@@ -154,11 +154,11 @@ const FEATURE_NAMES: [&str; N_FEATURES] = [
 // CircBuf — runtime-sized circular buffer
 // ============================================================
 
-struct CircBuf {
-    buf: Vec<f64>,
-    max_size: usize,
-    count: usize,
-    head: usize,
+pub(crate) struct CircBuf {
+    pub(crate) buf: Vec<f64>,
+    pub(crate) max_size: usize,
+    pub(crate) count: usize,
+    pub(crate) head: usize,
 }
 
 impl CircBuf {
@@ -222,13 +222,13 @@ impl CircBuf {
 // RollingWindow — online mean/std via sum/sumsq
 // ============================================================
 
-struct RollingWindow {
-    buf: Vec<f64>,
-    size: usize,
-    head: usize,
-    count: usize,
-    sum: f64,
-    sumsq: f64,
+pub(crate) struct RollingWindow {
+    pub(crate) buf: Vec<f64>,
+    pub(crate) size: usize,
+    pub(crate) head: usize,
+    pub(crate) count: usize,
+    pub(crate) sum: f64,
+    pub(crate) sumsq: f64,
 }
 
 impl RollingWindow {
@@ -288,10 +288,10 @@ impl RollingWindow {
 // EMAState
 // ============================================================
 
-struct EMAState {
-    alpha: f64,
-    value: f64,
-    n: i32,
+pub(crate) struct EMAState {
+    pub(crate) alpha: f64,
+    pub(crate) value: f64,
+    pub(crate) n: i32,
 }
 
 impl EMAState {
@@ -329,14 +329,14 @@ impl EMAState {
 // RSIState
 // ============================================================
 
-struct RSIState {
-    period: i32,
-    avg_gain: f64,
-    avg_loss: f64,
-    n: i32,
-    prev_close: f64,
-    init_gains: f64,
-    init_losses: f64,
+pub(crate) struct RSIState {
+    pub(crate) period: i32,
+    pub(crate) avg_gain: f64,
+    pub(crate) avg_loss: f64,
+    pub(crate) n: i32,
+    pub(crate) prev_close: f64,
+    pub(crate) init_gains: f64,
+    pub(crate) init_losses: f64,
 }
 
 impl RSIState {
@@ -393,12 +393,12 @@ impl RSIState {
 // ATRState
 // ============================================================
 
-struct ATRState {
-    period: i32,
-    atr: f64,
-    n: i32,
-    prev_close: f64,
-    init_sum: f64,
+pub(crate) struct ATRState {
+    pub(crate) period: i32,
+    pub(crate) atr: f64,
+    pub(crate) n: i32,
+    pub(crate) prev_close: f64,
+    pub(crate) init_sum: f64,
 }
 
 impl ATRState {
@@ -485,7 +485,7 @@ fn sign_f64(x: f64) -> f64 {
 // BarState
 // ============================================================
 
-struct BarState {
+pub(crate) struct BarState {
     close_history: CircBuf,
     open_history: CircBuf,
     high_history: CircBuf,
@@ -605,7 +605,7 @@ struct BarState {
 }
 
 impl BarState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         BarState {
             close_history: CircBuf::new(30),
             open_history: CircBuf::new(2),
@@ -726,7 +726,7 @@ impl BarState {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn push(
+    pub(crate) fn push(
         &mut self,
         close: f64, volume: f64, high: f64, low: f64, open_: f64,
         hour: i32, dow: i32,
@@ -986,7 +986,7 @@ impl BarState {
         self.atr_14.push(high, low, close);
     }
 
-    fn get_features(&self, out: &mut [f64; N_FEATURES]) {
+    pub(crate) fn get_features(&self, out: &mut [f64; N_FEATURES]) {
         // Initialize all to NaN
         for v in out.iter_mut() {
             *v = f64::NAN;
@@ -2040,9 +2040,9 @@ pub fn cpp_feature_names() -> Vec<String> {
 
 #[pyclass(name = "RustFeatureEngine")]
 pub struct RustFeatureEngine {
-    state: BarState,
-    cached_features: [f64; N_FEATURES],
-    prev_momentum_val: f64,
+    pub(crate) state: BarState,
+    pub(crate) cached_features: [f64; N_FEATURES],
+    pub(crate) prev_momentum_val: f64,
 }
 
 #[pymethods]

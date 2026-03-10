@@ -1,5 +1,5 @@
-# SOL V8 gate_v2 Paper Trading — Strategy F (regime-switch)
-# Portfolio optimized: dz=0.1, mh=8, bear graded thresholds
+# SOL V8 gate_v2 Paper Trading — Strategy F (long-only, no gate)
+# Optimized: dz=1.0, mh=8, no monthly gate, no bear model, dd_limit=0.2
 # Signal constraints loaded from models_v8/SOLUSDT_gate_v2/config.json
 
 trading:
@@ -10,16 +10,14 @@ trading:
 
 strategy:
   model_path: models_v8/SOLUSDT_gate_v2
-  bear_model_path: models_v8/SOLUSDT_bear_c
   threshold: 0.0001
   threshold_short: 0.0001
-  risk_pct: 0.30
+  risk_pct: 0.60           # 2x target leverage (Half-Kelly: SOL 2.1x)
   order_qty: "1.0"
-  monthly_gate: true
-  monthly_gate_window: 480
+  monthly_gate: false
 
 risk:
-  max_position_notional: 500.0
+  max_position_notional: 1000.0
   max_leverage: 2.0
   max_drawdown_pct: 5.0
   max_orders_per_minute: 10

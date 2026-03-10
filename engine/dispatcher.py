@@ -9,6 +9,7 @@ import threading
 
 from _quant_hotpath import DuplicateGuard as _RustDedupGuard
 from _quant_hotpath import rust_route_event_type as _rust_route_event_type
+from _quant_hotpath import rust_route_event as _rust_route_event
 
 # event 侧（你的 event 层）
 try:
@@ -110,7 +111,6 @@ class EventDispatcher:
         """
         with self._lock:
             self._seq += 1
-            seq = self._seq
 
             # 事件去重（仅当 event_id 存在），带 TTL + 容量上限
             header = getattr(event, "header", None)
@@ -121,49 +121,27 @@ class EventDispatcher:
                     raise DuplicateEventError(f"重复 event_id: {event_id}")
 
             route = self._route_for(event)
-            ctx = DispatchContext(
-                event=event,
-                route=route,
-                actor=actor,
-                seq=seq,
-            )
 
         # 锁外执行 handlers，避免阻塞 dispatcher
-        self._invoke(ctx)
+        handlers = self._handlers.get(route)
+        if handlers:
+            for h in handlers:
+                h(event)
 
     # --------------------------------------------------------
     # Routing Rules (制度核心)
     # --------------------------------------------------------
 
+    _ROUTE_MAP = {
+        "pipeline": Route.PIPELINE,
+        "decision": Route.DECISION,
+        "execution": Route.EXECUTION,
+    }
+
     def _route_for(self, event: Any) -> Route:
-        """
-        决定 event 该走哪条路
-
-        规则：
-        - 事实事件 → PIPELINE
-        - 意见事件 → DECISION
-        - 命令事件 → EXECUTION
-        - 其余 → DROP
-        """
-        et = getattr(event, "event_type", None)
-        if et is None:
-            header = getattr(event, "header", None)
-            et = getattr(header, "event_type", None)
-
-        # 风格 A：EventType Enum / header.event_type
-        if et is not None:
-            try:
-                et_val = et.value if hasattr(et, "value") else et
-                return self._route_from_label(str(et_val))
-            except Exception:
-                pass
-
-        # 风格 B：EVENT_TYPE 字符串
-        name = getattr(event, "EVENT_TYPE", None)
-        if isinstance(name, str):
-            return self._route_from_label(name)
-
-        return Route.DROP
+        """Single Rust call routes event — no Python getattr chain."""
+        routed = _rust_route_event(event)
+        return self._ROUTE_MAP.get(routed, Route.DROP)
 
     @staticmethod
     def _route_from_label(label: str) -> Route:

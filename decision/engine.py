@@ -29,6 +29,19 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Sentinel empty explain — avoids allocating 20+ dicts when no auditor attached.
+_EMPTY_EXPLAIN = DecisionExplain(
+    ts=datetime(2000, 1, 1, tzinfo=timezone.utc),
+    strategy_id="",
+    gates={},
+    universe=(),
+    signals=(),
+    candidates=(),
+    targets=(),
+    orders=(),
+)
+
+
 @dataclass
 class DecisionEngine:
     """Institutional-grade decision engine (pure, deterministic).
@@ -137,52 +150,55 @@ class DecisionEngine:
 
             orders.append(ospec)
 
-        explain = DecisionExplain(
-            ts=ctx.now,
-            strategy_id=self.cfg.strategy_id,
-            gates=gates,
-            universe=tuple(universe),
-            signals=[
-                {
-                    "symbol": s.symbol,
-                    "side": s.side,
-                    "score": str(s.score),
-                    "confidence": str(s.confidence),
-                    "meta": s.meta,
-                }
-                for s in sigs
-            ],
-            candidates=[
-                {
-                    "symbol": c.symbol,
-                    "side": c.side,
-                    "score": str(c.score),
-                    "meta": c.meta,
-                }
-                for c in candidates
-            ],
-            targets=[
-                {
-                    "symbol": t.symbol,
-                    "target_qty": str(t.target_qty),
-                    "reason_code": t.reason_code,
-                    "origin": t.origin,
-                }
-                for t in targets
-            ],
-            orders=[
-                {
-                    "order_id": o.order_id,
-                    "intent_id": o.intent_id,
-                    "symbol": o.symbol,
-                    "side": o.side,
-                    "qty": str(o.qty),
-                    "price": (str(o.price) if o.price is not None else None),
-                    "tif": o.tif,
-                }
-                for o in orders
-            ],
-        )
+        if self.auditor:
+            explain = DecisionExplain(
+                ts=ctx.now,
+                strategy_id=self.cfg.strategy_id,
+                gates=gates,
+                universe=tuple(universe),
+                signals=[
+                    {
+                        "symbol": s.symbol,
+                        "side": s.side,
+                        "score": str(s.score),
+                        "confidence": str(s.confidence),
+                        "meta": s.meta,
+                    }
+                    for s in sigs
+                ],
+                candidates=[
+                    {
+                        "symbol": c.symbol,
+                        "side": c.side,
+                        "score": str(c.score),
+                        "meta": c.meta,
+                    }
+                    for c in candidates
+                ],
+                targets=[
+                    {
+                        "symbol": t.symbol,
+                        "target_qty": str(t.target_qty),
+                        "reason_code": t.reason_code,
+                        "origin": t.origin,
+                    }
+                    for t in targets
+                ],
+                orders=[
+                    {
+                        "order_id": o.order_id,
+                        "intent_id": o.intent_id,
+                        "symbol": o.symbol,
+                        "side": o.side,
+                        "qty": str(o.qty),
+                        "price": (str(o.price) if o.price is not None else None),
+                        "tif": o.tif,
+                    }
+                    for o in orders
+                ],
+            )
+        else:
+            explain = _EMPTY_EXPLAIN
 
         out = DecisionOutput(ts=ctx.now, strategy_id=self.cfg.strategy_id, targets=tuple(targets), orders=tuple(orders), explain=explain)
         if self.auditor:

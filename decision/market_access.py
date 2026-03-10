@@ -23,7 +23,18 @@ def get_decimal_attr(obj: Any, *fields: str) -> Optional[Decimal]:
 
 
 def get_float_attr(obj: Any, *fields: str) -> Optional[float]:
-    value = get_decimal_attr(obj, *fields)
-    if value is None:
-        return None
-    return float(value)
+    # Fast path: try _f (float) fields directly to avoid Decimal round-trip
+    for field in fields:
+        float_field = f"{field}_f"
+        float_value = getattr(obj, float_field, None)
+        if float_value is not None:
+            return float(float_value)
+    # Fallback: try raw fields
+    for field in fields:
+        raw = getattr(obj, field, None)
+        if raw is not None:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                continue
+    return None

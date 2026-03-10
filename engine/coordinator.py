@@ -6,9 +6,14 @@ from enum import Enum
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 import threading
+import time as _time_mod
+from datetime import datetime as _datetime_type
 
 from engine.dispatcher import EventDispatcher, Route
-from engine.pipeline import PipelineConfig, PipelineInput, PipelineOutput, StatePipeline
+from engine.pipeline import (
+    PipelineConfig, PipelineInput, PipelineOutput, StatePipeline,
+    _detect_kind, _LazyConvertMapping, _build_snapshot,
+)
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from state.rust_adapters import (
@@ -32,6 +37,7 @@ from _quant_hotpath import (
 )
 
 _SCALE = 100_000_000
+_time_mod_time = lambda: int(_time_mod.time())
 
 
 # ============================================================
@@ -86,6 +92,10 @@ class CoordinatorConfig:
     #（默认 False：只在事实事件推进时触发，保持因果清晰）
     emit_on_non_advanced: bool = False
 
+    # RustTickProcessor — full hot-path (features + predict + state update + export)
+    # When set, bypasses feature_hook + pipeline for MARKET events.
+    tick_processor: Optional[Any] = None
+
 
 class EngineCoordinator:
     """
@@ -121,13 +131,32 @@ class EngineCoordinator:
         # core modules
         self._dispatcher = dispatcher or EventDispatcher()
 
+        # Tick processor fast path (replaces feature_hook + pipeline for MARKET events)
+        # Can be a single RustTickProcessor or a dict of {symbol: RustTickProcessor}
+        self._tick_processor_raw = cfg.tick_processor
+        self._tick_processors: Optional[dict] = None
+        if isinstance(cfg.tick_processor, dict):
+            self._tick_processors = cfg.tick_processor
+        elif cfg.tick_processor is not None:
+            self._tick_processors = {cfg.symbol_default: cfg.tick_processor}
+
+        self._feature_hook = cfg.feature_hook
+
         # Auto-create RustStateStore when no explicit store/pipeline given.
-        # This makes the store path (state on Rust heap) the default,
-        # eliminating per-event Python↔Rust conversions.
-        if store is not None:
+        # When tick_processor is set, it owns the state — no separate store needed.
+        if self._tick_processors is not None:
+            # Use first tick_processor as the store for get_state_view compat
+            self._store = next(iter(self._tick_processors.values()))
+            self._pipeline = None
+        elif store is not None:
             self._store = store
+            if pipeline is not None:
+                self._pipeline = pipeline
+            else:
+                self._pipeline = StatePipeline(store=self._store, config=cfg.pipeline_config)
         elif pipeline is not None:
             self._store = None
+            self._pipeline = pipeline
         else:
             effective_symbols = cfg.symbols or (cfg.symbol_default,)
             self._store = RustStateStore(
@@ -135,10 +164,6 @@ class EngineCoordinator:
                 cfg.currency,
                 int(cfg.starting_balance * _SCALE),
             )
-
-        if pipeline is not None:
-            self._pipeline = pipeline
-        else:
             self._pipeline = StatePipeline(store=self._store, config=cfg.pipeline_config)
 
         # bridges（允许外部注入实现）
@@ -150,6 +175,7 @@ class EngineCoordinator:
         self._runtime_handler: Optional[Callable[[Any], None]] = None
 
         self._last_snapshot: Optional[Any] = None
+        self._cached_view: Optional[Mapping[str, Any]] = None
 
         # ---- register handlers (single chain) ----
         self._dispatcher.register(route=Route.PIPELINE, handler=self._handle_pipeline_event)
@@ -178,8 +204,13 @@ class EngineCoordinator:
         return self._pipeline
 
     def get_state_view(self) -> Mapping[str, Any]:
-        """对外只暴露只读视图（便于 debug/监控；不承诺稳定字段）"""
+        """对外只暴露只读视图（便于 debug/监控；不承诺稳定字段）
+
+        Cached per event cycle — invalidated on each emit().
+        """
         with self._lock:
+            if self._cached_view is not None:
+                return self._cached_view
             bundle = dict(self._store.export_state())
             markets = {
                 sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
@@ -194,7 +225,7 @@ class EngineCoordinator:
                 sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
                 for sym, pos in dict(bundle["positions"]).items()
             }
-            return {
+            view = {
                 "phase": self._phase.value,
                 "symbol_default": self._cfg.symbol_default,
                 "event_index": int(bundle["event_index"]),
@@ -208,6 +239,18 @@ class EngineCoordinator:
                 "risk": risk_from_rust(bundle["risk"]),
                 "last_snapshot": self._last_snapshot,
             }
+            self._cached_view = view
+            return view
+
+    def get_positions_raw(self) -> Mapping[str, Any]:
+        """Fast path: export only positions from Rust (no Decimal conversion)."""
+        with self._lock:
+            return dict(self._store.get_positions())
+
+    def get_account_raw(self) -> Any:
+        """Fast path: export only account from Rust (no Decimal conversion)."""
+        with self._lock:
+            return self._store.get_account()
 
     def start(self) -> None:
         with self._lock:
@@ -238,6 +281,8 @@ class EngineCoordinator:
             if self._phase == EnginePhase.STOPPED:
                 raise RuntimeError("EngineCoordinator is stopped")
 
+        # Invalidate cached view on state change
+        self._cached_view = None
         # 不要在 lock 内 dispatch（防止 handler 再次 emit 导致死锁/长锁）
         self._dispatcher.dispatch(event=event, actor=actor)
 
@@ -336,6 +381,24 @@ class EngineCoordinator:
 
     def _handle_pipeline_event(self, event: Any) -> None:
         """PIPELINE handler：事实事件推进 state 的唯一入口"""
+        if self._tick_processors is not None:
+            kind = _detect_kind(event)
+            symbol = getattr(event, "symbol", self._cfg.symbol_default)
+            tp = self._tick_processors.get(symbol)
+            if tp is None:
+                tp = next(iter(self._tick_processors.values()))
+            if kind == "MARKET":
+                self._handle_market_tick_fast(event, tp)
+                return
+            if kind == "FILL":
+                tp.process_fill(event)
+                return
+            if kind == "FUNDING":
+                tp.process_funding(event)
+                return
+            return
+
+        # ── Original slow path ──
         features = None
         if self._cfg.feature_hook is not None:
             features = self._cfg.feature_hook.on_event(event)
@@ -366,9 +429,134 @@ class EngineCoordinator:
 
         # 决策触发制度：仅在 MARKET 事件推进时触发
         if self._decision_bridge is not None and out.advanced and out.snapshot is not None:
-            from engine.pipeline import _detect_kind
             if _detect_kind(event) == "MARKET":
                 self._decision_bridge.on_pipeline_output(out)
+
+    def _handle_market_tick_fast(self, event: Any, tp: Any) -> None:
+        """Fast path: single Rust call for features + predict + state update."""
+        symbol = getattr(event, "symbol", self._cfg.symbol_default)
+        close_f = float(getattr(event, "close", 0))
+        volume = float(getattr(event, "volume", 0) or 0)
+        high = float(getattr(event, "high", 0) or 0)
+        low = float(getattr(event, "low", 0) or 0)
+        open_ = float(getattr(event, "open", 0) or 0)
+
+        ts = getattr(event, "ts", None)
+        if isinstance(ts, _datetime_type):
+            hour_key = int(ts.timestamp()) // 3600
+            ts_str = ts.isoformat()
+        elif isinstance(ts, str):
+            ts_str = ts
+            hour_key = _time_mod_time() // 3600
+        else:
+            ts_str = None
+            hour_key = _time_mod_time() // 3600
+
+        # Push external data (delegated to feature_hook sources via tick_processor)
+        fh = self._feature_hook
+        if fh is not None:
+            ext_count = fh._ext_push_count.get(symbol, 0)
+            if ext_count % 5 == 0:
+                src = fh._resolve_bar_sources(symbol, event)
+                fh._ext_cache[symbol] = src
+                tp.push_external_data(symbol, **src)
+            else:
+                cached = fh._ext_cache.get(symbol)
+                if cached is not None:
+                    trades = float(getattr(event, "trades", 0) or 0)
+                    taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
+                    quote_volume = float(getattr(event, "quote_volume", 0) or 0)
+                    taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
+                    ts_ev = ts
+                    cached["hour"] = ts_ev.hour if isinstance(ts_ev, _datetime_type) else -1
+                    cached["dow"] = ts_ev.weekday() if isinstance(ts_ev, _datetime_type) else -1
+                    cached["trades"] = trades
+                    cached["taker_buy_volume"] = taker_buy_volume
+                    cached["quote_volume"] = quote_volume
+                    cached["taker_buy_quote_volume"] = taker_buy_quote_volume
+                    tp.push_external_data(symbol, **cached)
+                else:
+                    src = fh._resolve_bar_sources(symbol, event)
+                    fh._ext_cache[symbol] = src
+                    tp.push_external_data(symbol, **src)
+            fh._ext_push_count[symbol] = ext_count + 1
+
+        # Single Rust call: features + predict + state update + export
+        result = tp.process_tick(
+            symbol, close_f, volume, high, low, open_, hour_key, ts=ts_str,
+        )
+
+        # Build features dict
+        features = result.get_features()
+        features["close"] = close_f
+        features["volume"] = volume
+
+        # Warmup check for ML scores
+        if fh is not None:
+            bar_count = fh._bar_count.get(symbol, 0) + 1
+            fh._bar_count[symbol] = bar_count
+            if bar_count >= fh._warmup_bars:
+                features["ml_score"] = result.ml_score
+                if result.ml_short_score != 0.0:
+                    features["ml_short_score"] = result.ml_short_score
+
+            # Cross-asset features
+            if fh._cross_asset is not None:
+                funding_rate = features.get("funding_rate")
+                fh._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
+                                       high=high, low=low)
+                cross_feats = fh._cross_asset.get_features(symbol)
+                features.update(cross_feats)
+        else:
+            features["ml_score"] = result.ml_score
+            if result.ml_short_score != 0.0:
+                features["ml_short_score"] = result.ml_short_score
+
+        # Store last features in feature_hook for non-market event lookups
+        if fh is not None:
+            fh._last_features[symbol] = features
+
+        # Skip Decimal conversion: pass Rust objects directly to snapshot/output.
+        # Decision bridge and monitoring hook don't access portfolio/risk fields.
+        # Consumers (fixed_fraction sizing) use _f float fields on Rust types.
+        snapshot = _build_snapshot(
+            raw_event=event,
+            event_index=result.event_index,
+            markets=result.markets,
+            account=result.account,
+            positions=result.positions,
+            portfolio=result.portfolio,
+            risk=result.risk,
+            features=features,
+            skip_convert=True,
+        )
+
+        with self._lock:
+            self._last_snapshot = snapshot
+
+        # Build PipelineOutput for hooks + decision bridge
+        out = PipelineOutput(
+            markets=result.markets,
+            account=result.account,
+            positions=result.positions,
+            portfolio=result.portfolio,
+            risk=result.risk,
+            features=features,
+            event_index=result.event_index,
+            last_event_id=result.last_event_id,
+            last_ts=result.last_ts,
+            snapshot=snapshot,
+            advanced=True,
+        )
+
+        if self._cfg.on_pipeline_output is not None:
+            self._cfg.on_pipeline_output(out)
+
+        if self._cfg.on_snapshot is not None:
+            self._cfg.on_snapshot(snapshot)
+
+        if self._decision_bridge is not None:
+            self._decision_bridge.on_pipeline_output(out)
 
     def _handle_decision_event(self, event: Any) -> None:
         """

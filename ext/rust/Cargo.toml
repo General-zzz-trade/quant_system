@@ -15,3 +15,14 @@ sha2 = "0.10"
 hmac = "0.12"
 uuid = { version = "1", features = ["v4"] }
 getrandom = { version = "0.3", features = ["std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+crossbeam-channel = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

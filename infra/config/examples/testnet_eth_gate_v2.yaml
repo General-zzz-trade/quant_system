@@ -1,5 +1,5 @@
-# ETH V8 gate_v2 Paper Trading — Strategy F (regime-switch)
-# WF: 15/21 positive Sharpe, BTC-lead + ETH-optimized features
+# ETH V8 gate_v2 Paper Trading (gate ON, no bear — kernel-optimized)
+# Kernel backtest: Sharpe 5.13, Return +127.94%, DD -13.7%
 # Signal constraints loaded from models_v8/ETHUSDT_gate_v2/config.json
 
 trading:
@@ -10,16 +10,14 @@ trading:
 
 strategy:
   model_path: models_v8/ETHUSDT_gate_v2
-  bear_model_path: models_v8/ETHUSDT_bear_c
   threshold: 0.0001
   threshold_short: 999.0   # long-only
-  risk_pct: 0.30
+  risk_pct: 0.60           # 2x target leverage (Half-Kelly: ETH 4.1x)
   order_qty: "0.1"
   monthly_gate: true
-  monthly_gate_window: 480
 
 risk:
-  max_position_notional: 500.0
+  max_position_notional: 1000.0
   max_leverage: 2.0
   max_drawdown_pct: 5.0
   max_orders_per_minute: 10

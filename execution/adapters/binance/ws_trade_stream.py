@@ -4,12 +4,13 @@ Mirrors the BinanceDepthStreamClient pattern for trade ticks.
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
+
+from _quant_hotpath import rust_parse_agg_trade
 
 from event.tick_types import TradeTickEvent
 from execution.adapters.binance.ws_transport import WsTransport
@@ -70,27 +71,16 @@ class BinanceTradeStreamClient:
         return self._parse(raw)
 
     def _parse(self, raw: str) -> Optional[TradeTickEvent]:
-        try:
-            msg = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        parsed = rust_parse_agg_trade(raw)
+        if parsed is None:
             return None
-
-        data = msg.get("data", msg)
-        event_type = data.get("e", "")
-
-        if event_type != "aggTrade":
-            return None
-
-        # m = True means buyer is maker → trade is a sell (taker sold)
-        buyer_is_maker = data.get("m", False)
-        side = "sell" if buyer_is_maker else "buy"
 
         return TradeTickEvent(
-            symbol=data.get("s", ""),
-            price=Decimal(str(data["p"])),
-            qty=Decimal(str(data["q"])),
-            side=side,
-            trade_id=data.get("a", 0),
-            ts_ms=data.get("T", 0),
+            symbol=parsed["symbol"],
+            price=Decimal(parsed["price"]),
+            qty=Decimal(parsed["qty"]),
+            side=parsed["side"],
+            trade_id=parsed["trade_id"],
+            ts_ms=parsed["ts_ms"],
             received_at=time.monotonic(),
         )

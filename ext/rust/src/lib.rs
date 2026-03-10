@@ -55,6 +55,10 @@ mod regime_buffer;
 mod state_store;
 mod inference_bridge;
 mod tree_predict;
+mod unified_predictor;
+mod tick_processor;
+mod ws_client;
+mod spsc_ring;
 mod attribution;
 mod ensemble_calibrate;
 pub mod rust_events;
@@ -72,6 +76,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(json_parse::rust_parse_kline, m)?)?;
     m.add_function(wrap_pyfunction!(json_parse::rust_parse_depth, m)?)?;
     m.add_function(wrap_pyfunction!(json_parse::rust_demux_user_stream, m)?)?;
+    m.add_function(wrap_pyfunction!(json_parse::rust_parse_agg_trade, m)?)?;
 
     // Phase 2 classes + functions
     m.add_function(wrap_pyfunction!(digest::rust_payload_digest, m)?)?;
@@ -88,6 +93,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(signer::rust_hmac_sign, m)?)?;
     m.add_function(wrap_pyfunction!(signer::rust_hmac_verify, m)?)?;
     m.add_function(wrap_pyfunction!(route_match::rust_route_event_type, m)?)?;
+    m.add_function(wrap_pyfunction!(route_match::rust_route_event, m)?)?;
     m.add_class::<order_state_machine::RustOrderTransition>()?;
     m.add_class::<order_state_machine::RustOrderState>()?;
     m.add_class::<order_state_machine::RustOrderStateMachine>()?;
@@ -227,6 +233,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decision_math::rust_apply_allocation_constraints, m)?)?;
     m.add_function(wrap_pyfunction!(decision_policy::rust_build_delta_order_fields, m)?)?;
     m.add_function(wrap_pyfunction!(decision_policy::rust_limit_price, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_policy::rust_limit_price_f64, m)?)?;
     m.add_function(wrap_pyfunction!(decision_policy::rust_validate_order_constraints, m)?)?;
 
     // Microstructure
@@ -273,6 +280,19 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factor_signals::rust_volume_price_div_score, m)?)?;
     m.add_function(wrap_pyfunction!(factor_signals::rust_adx, m)?)?;
     m.add_function(wrap_pyfunction!(factor_signals::rust_carry_score, m)?)?;
+
+    // Unified predictor (zero-copy feature→predict→signal pipeline)
+    m.add_class::<unified_predictor::RustUnifiedPredictor>()?;
+
+    // Tick processor (full hot-path: features + predict + state update + export)
+    m.add_class::<tick_processor::RustTickProcessor>()?;
+    m.add_class::<tick_processor::RustTickResult>()?;
+
+    // WebSocket client (GIL-free recv)
+    m.add_class::<ws_client::RustWsClient>()?;
+
+    // SPSC ring buffer (lock-free event queue)
+    m.add_class::<spsc_ring::RustSpscRing>()?;
 
     Ok(())
 }

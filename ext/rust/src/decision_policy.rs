@@ -48,6 +48,30 @@ pub fn rust_limit_price(
     Ok((px * factor).to_string_stripped())
 }
 
+/// Float-based limit price (avoids Decimal→str→Fd8 round-trip).
+#[pyfunction]
+#[pyo3(signature = (side, reference_price, bps, aggressive=true))]
+pub fn rust_limit_price_f64(
+    side: &str,
+    reference_price: f64,
+    bps: f64,
+    aggressive: bool,
+) -> PyResult<f64> {
+    let ratio = bps / 10_000.0;
+    let factor = match (side.to_ascii_lowercase().as_str(), aggressive) {
+        ("buy", true) => 1.0 + ratio,
+        ("sell", true) => 1.0 - ratio,
+        ("buy", false) => 1.0 - ratio,
+        ("sell", false) => 1.0 + ratio,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "invalid side '{}', must be buy or sell", side
+            )))
+        }
+    };
+    Ok(reference_price * factor)
+}
+
 #[pyfunction]
 #[pyo3(signature = (qty, price=None, price_hint=None, min_qty="0", min_notional="0"))]
 pub fn rust_validate_order_constraints(

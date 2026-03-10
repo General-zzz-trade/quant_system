@@ -1,5 +1,5 @@
-# BTC V8 gate_v2 Paper Trading (Strategy F — regime-switch)
-# WF: 16/21 positive Sharpe, Avg Sharpe=1.91
+# BTC V8 gate_v2 Paper Trading (no gate, no bear — kernel-optimized)
+# Kernel backtest: Sharpe 3.65, Return +34.64%, DD -11.7%
 # Signal constraints loaded from models_v8/BTCUSDT_gate_v2/config.json
 
 trading:
@@ -10,16 +10,14 @@ trading:
 
 strategy:
   model_path: models_v8/BTCUSDT_gate_v2
-  bear_model_path: models_v8/BTCUSDT_bear_c
   threshold: 0.0001
   threshold_short: 0.0001
-  risk_pct: 0.30
+  risk_pct: 0.60           # 2x target leverage (Half-Kelly: BTC 3.3x)
   order_qty: "0.001"
-  monthly_gate: true
-  monthly_gate_window: 480
+  monthly_gate: false
 
 risk:
-  max_position_notional: 500.0
+  max_position_notional: 1000.0
   max_leverage: 2.0
   max_drawdown_pct: 5.0
   max_orders_per_minute: 10

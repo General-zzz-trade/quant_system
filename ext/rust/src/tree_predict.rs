@@ -10,30 +10,30 @@ use serde::Deserialize;
 // ── JSON schema ──
 
 #[derive(Deserialize, Clone)]
-struct ModelJson {
-    format: String,           // "lgbm" or "xgb"
-    features: Vec<String>,
-    num_features: usize,
-    num_trees: usize,
+pub(crate) struct ModelJson {
+    pub(crate) format: String,
+    pub(crate) features: Vec<String>,
+    pub(crate) num_features: usize,
+    pub(crate) num_trees: usize,
     #[serde(default)]
-    is_classifier: bool,
+    pub(crate) is_classifier: bool,
     #[serde(default)]
-    base_score: f64,          // XGBoost only
-    trees: Vec<TreeJson>,
+    pub(crate) base_score: f64,
+    pub(crate) trees: Vec<TreeJson>,
 }
 
 #[derive(Deserialize, Clone)]
-struct TreeJson {
+pub(crate) struct TreeJson {
     #[serde(default = "default_shrinkage")]
-    shrinkage: f64,
-    nodes: Vec<NodeJson>,
+    pub(crate) shrinkage: f64,
+    pub(crate) nodes: Vec<NodeJson>,
 }
 
 fn default_shrinkage() -> f64 { 1.0 }
 
 #[derive(Deserialize, Clone)]
 #[serde(tag = "type")]
-enum NodeJson {
+pub(crate) enum NodeJson {
     #[serde(rename = "split")]
     Split {
         feature: usize,
@@ -51,7 +51,7 @@ enum NodeJson {
 // ── Compiled model (optimized for prediction) ──
 
 #[derive(Clone)]
-enum Node {
+pub(crate) enum Node {
     Split {
         feature: u16,
         threshold: f64,
@@ -64,13 +64,13 @@ enum Node {
 }
 
 #[derive(Clone)]
-struct Tree {
-    shrinkage: f64,
-    nodes: Vec<Node>,
+pub(crate) struct Tree {
+    pub(crate) shrinkage: f64,
+    pub(crate) nodes: Vec<Node>,
 }
 
 impl Tree {
-    fn predict(&self, features: &[f64]) -> f64 {
+    pub(crate) fn predict(&self, features: &[f64]) -> f64 {
         let mut idx = 0usize;
         loop {
             match &self.nodes[idx] {
@@ -102,12 +102,12 @@ impl Tree {
 
 #[pyclass]
 pub struct RustTreePredictor {
-    trees: Vec<Tree>,
-    features: Vec<String>,
-    num_features: usize,
-    is_classifier: bool,
-    base_score: f64,
-    format: String,
+    pub(crate) trees: Vec<Tree>,
+    pub(crate) features: Vec<String>,
+    pub(crate) num_features: usize,
+    pub(crate) is_classifier: bool,
+    pub(crate) base_score: f64,
+    pub(crate) format: String,
 }
 
 #[pymethods]
@@ -233,7 +233,7 @@ impl RustTreePredictor {
 }
 
 impl RustTreePredictor {
-    fn predict_raw(&self, features: &[f64]) -> f64 {
+    pub(crate) fn predict_raw(&self, features: &[f64]) -> f64 {
         let mut sum = if self.format == "xgb" { self.base_score } else { 0.0 };
         for tree in &self.trees {
             sum += tree.predict(features);

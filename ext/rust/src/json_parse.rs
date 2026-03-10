@@ -163,6 +163,48 @@ pub fn rust_demux_user_stream<'py>(
     Ok(Some(dict))
 }
 
+/// Parse Binance aggTrade WebSocket JSON → Python dict.
+///
+/// Returns dict with symbol, price, qty, side, trade_id, ts_ms.
+/// Prices/qty as strings for Decimal construction.
+#[pyfunction]
+pub fn rust_parse_agg_trade<'py>(
+    py: Python<'py>,
+    raw: &str,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let v: Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
+
+    let data = if v.get("data").is_some() {
+        &v["data"]
+    } else {
+        &v
+    };
+
+    if data.get("e").and_then(|e| e.as_str()) != Some("aggTrade") {
+        return Ok(None);
+    }
+
+    let symbol = data.get("s").and_then(|s| s.as_str()).unwrap_or("");
+    let price = data.get("p").and_then(|p| p.as_str()).unwrap_or("0");
+    let qty = data.get("q").and_then(|q| q.as_str()).unwrap_or("0");
+    let buyer_is_maker = data.get("m").and_then(|m| m.as_bool()).unwrap_or(false);
+    let side = if buyer_is_maker { "sell" } else { "buy" };
+    let trade_id = data.get("a").and_then(|a| a.as_i64()).unwrap_or(0);
+    let ts_ms = data.get("T").and_then(|t| t.as_i64()).unwrap_or(0);
+
+    let dict = PyDict::new(py);
+    dict.set_item("symbol", symbol)?;
+    dict.set_item("price", price)?;
+    dict.set_item("qty", qty)?;
+    dict.set_item("side", side)?;
+    dict.set_item("trade_id", trade_id)?;
+    dict.set_item("ts_ms", ts_ms)?;
+    Ok(Some(dict))
+}
+
 // ── helpers ──
 
 fn json_str(obj: &Value, key: &str) -> String {

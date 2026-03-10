@@ -1,0 +1,39 @@
+# XRP V8 gate_v2 Paper Trading — Strategy F (long-only)
+# Sharpe=2.38 OOS, 10/18 positive months, Sharpe=9.75 kernel w/ risk controls
+# Signal constraints loaded from models_v8/XRPUSDT_gate_v2/config.json
+
+trading:
+  symbols: [XRPUSDT]
+  exchange: binance
+  testnet: true
+  mode: live
+
+strategy:
+  model_path: models_v8/XRPUSDT_gate_v2
+  threshold: 0.0001
+  threshold_short: 0.0001
+  risk_pct: 0.60           # 2x target leverage
+  order_qty: "1.0"
+  monthly_gate: false
+
+risk:
+  max_position_notional: 1000.0
+  max_leverage: 2.0
+  max_drawdown_pct: 5.0
+  max_orders_per_minute: 10
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+logging:
+  level: DEBUG
+  structured: true
+  file: logs/xrp_paper_trading.log
+
+monitoring:
+  health_check_interval: 30.0

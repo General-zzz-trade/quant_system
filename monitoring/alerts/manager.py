@@ -80,7 +80,7 @@ class AlertManager:
             rules_snapshot = list(self._rules)
 
         for rule in rules_snapshot:
-            last = self._last_fired.get(rule.name, 0.0)
+            last = self._last_fired.get(rule.name, float("-inf"))
             if now - last < rule.cooldown_sec:
                 continue
 

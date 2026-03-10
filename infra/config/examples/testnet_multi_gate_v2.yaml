@@ -1,0 +1,51 @@
+# Multi-symbol V8 gate_v2 Paper Trading — single process
+# Consolidates BTC/ETH/SOL/XRP into one process for lower overhead
+
+trading:
+  symbols: [BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT]
+  exchange: binance
+  testnet: true
+  mode: live
+
+# Per-symbol model paths + strategy overrides
+# Signal constraints (deadzone, min_hold, monthly_gate, etc.) are loaded
+# from each model's config.json automatically
+models:
+  BTCUSDT:
+    model_path: models_v8/BTCUSDT_gate_v2
+    risk_pct: 0.60
+  ETHUSDT:
+    model_path: models_v8/ETHUSDT_gate_v2
+    risk_pct: 0.60
+  SOLUSDT:
+    model_path: models_v8/SOLUSDT_gate_v2
+    risk_pct: 0.60
+  XRPUSDT:
+    model_path: models_v8/XRPUSDT_gate_v2
+    risk_pct: 0.60
+
+strategy:
+  threshold: 0.0001
+  threshold_short: 0.0001
+
+risk:
+  max_position_notional: 1000.0
+  max_leverage: 2.0
+  max_drawdown_pct: 5.0
+  max_orders_per_minute: 10
+
+execution:
+  fee_bps: 4.0
+  slippage_bps: 2.0
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+logging:
+  level: DEBUG
+  structured: true
+  file: logs/multi_paper_trading.log
+
+monitoring:
+  health_check_interval: 30.0

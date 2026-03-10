@@ -10,6 +10,14 @@ from state.risk import RiskState
 
 
 def _freeze_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    # If already a lazy-convert mapping or MappingProxyType, return as-is
+    if hasattr(mapping, "_converter"):
+        return mapping
+    if isinstance(mapping, MappingProxyType):
+        return mapping
+    # For small dicts (1-3 symbols), skip sort overhead
+    if len(mapping) <= 3:
+        return MappingProxyType(dict(mapping))
     ordered = {k: mapping[k] for k in sorted(mapping.keys())}
     return MappingProxyType(ordered)
 

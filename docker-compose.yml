@@ -7,7 +7,18 @@ x-paper-base: &paper-base
   environment:
     - QUANT_ALLOW_UNSIGNED_MODELS=1
     - PYTHONUNBUFFERED=1
+    - PYTHONOPTIMIZE=1
+    - PYTHONDONTWRITEBYTECODE=1
+    - MALLOC_ARENA_MAX=2
+    - LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
   restart: unless-stopped
+  network_mode: host
+  cap_add:
+    - SYS_NICE
+  ulimits:
+    memlock:
+      soft: -1
+      hard: -1
   volumes:
     - ./models_v8:/app/models_v8:ro
     - ./data_files:/app/data_files:ro
@@ -32,27 +43,21 @@ x-paper-base: &paper-base
     start_period: 60s
 
 services:
-  # ── Paper Trading (TestNet) ──────────────────────────────
-  paper-btc:
+  # ── Paper Trading (TestNet) — single process, all symbols ─
+  paper-multi:
     <<: *paper-base
     command: >
-      python3 -m runner.testnet_validation
-      --config /app/infra/config/examples/testnet_btc_gate_v2.yaml
+      chrt -f 50 nice -n -10 python3 -m runner.testnet_validation
+      --config /app/infra/config/examples/testnet_multi_gate_v2.yaml
       --phase paper --duration 0
-
-  paper-sol:
-    <<: *paper-base
-    command: >
-      python3 -m runner.testnet_validation
-      --config /app/infra/config/examples/testnet_sol_gate_v2.yaml
-      --phase paper --duration 0
-
-  paper-eth:
-    <<: *paper-base
-    command: >
-      python3 -m runner.testnet_validation
-      --config /app/infra/config/examples/testnet_eth_gate_v2.yaml
-      --phase paper --duration 0
+    cpuset: "1"
+    mem_swappiness: 0
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 384M
 
   # ── Monitoring ───────────────────────────────────────────
   prometheus:

@@ -20,8 +20,12 @@ class WebsocketClientTransport(WsTransport):
         except Exception as e:
             raise RuntimeError("missing dependency: websocket-client. Run: pip install websocket-client") from e
 
-        # 默认启用 ping/pong，保持连接
+        import socket
         self._ws = websocket.create_connection(url, timeout=10)
+        # Low-latency: disable Nagle's algorithm
+        sock = self._ws.sock
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def recv(self, *, timeout_s: Optional[float] = None) -> str:
         if self._ws is None:

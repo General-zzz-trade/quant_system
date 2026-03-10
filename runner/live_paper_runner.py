@@ -95,6 +95,9 @@ class LivePaperRunner:
         on_fill: Callable[[Any], None] | None = None,
         feature_computer: Any = None,
         alpha_models: Sequence[Any] | None = None,
+        inference_bridges: Optional[Dict[str, Any]] = None,
+        unified_predictors: Optional[Dict[str, Any]] = None,
+        tick_processors: Optional[Dict[str, Any]] = None,
         funding_rate_source: Any = None,
         oi_source: Any = None,
         ls_ratio_source: Any = None,
@@ -123,6 +126,7 @@ class LivePaperRunner:
         bear_thresholds: Optional[list] = None,
         vol_target: Any = None,
         vol_feature: str = "atr_norm_14",
+        ensemble_weights: Optional[list] = None,
     ) -> "LivePaperRunner":
         """Build the full production stack.
 
@@ -182,7 +186,12 @@ class LivePaperRunner:
         inference_bridge = None
         if feature_computer is not None:
             from engine.feature_hook import FeatureComputeHook
-            if alpha_models:
+
+            if inference_bridges is not None:
+                # Multi-symbol: per-symbol bridges already constructed
+                inference_bridge = inference_bridges
+            elif alpha_models:
+                # Single-symbol: create one shared bridge
                 from alpha.inference.bridge import LiveInferenceBridge
                 inference_bridge = LiveInferenceBridge(
                     models=list(alpha_models),
@@ -200,10 +209,13 @@ class LivePaperRunner:
                     bear_thresholds=bear_thresholds,
                     vol_target=vol_target,
                     vol_feature=vol_feature,
+                    ensemble_weights=ensemble_weights,
                 )
+
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
-                inference_bridge=inference_bridge,
+                inference_bridge=inference_bridge if unified_predictors is None else None,
+                unified_predictor=unified_predictors,
                 funding_rate_source=funding_rate_source,
                 cross_asset_computer=cross_asset_computer,
                 oi_source=oi_source,
@@ -220,8 +232,15 @@ class LivePaperRunner:
             )
 
         # Wire inference_bridge to monitoring hook
-        if hook is not None and inference_bridge is not None:
-            hook.inference_bridge = inference_bridge
+        # For per-symbol bridges (dict), use first bridge for monitoring
+        _first_bridge = None
+        if inference_bridge is not None:
+            if isinstance(inference_bridge, dict):
+                _first_bridge = next(iter(inference_bridge.values()), None)
+            else:
+                _first_bridge = inference_bridge
+        if hook is not None and _first_bridge is not None:
+            hook.inference_bridge = _first_bridge
 
         # Checkpoint path for bridge state persistence
         ckpt_path = None
@@ -235,6 +254,7 @@ class LivePaperRunner:
             starting_balance=config.starting_balance,
             on_pipeline_output=hook,
             feature_hook=feat_hook,
+            tick_processor=tick_processors,
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
 
@@ -291,15 +311,8 @@ class LivePaperRunner:
 
         # 6) Market data runtime
         if transport is None:
-            try:
-                from execution.adapters.binance.ws_transport_websocket_client import (
-                    WebsocketClientTransport,
-                )
-                transport = WebsocketClientTransport()
-            except ImportError:
-                raise RuntimeError(
-                    "websocket-client not installed. Run: pip install websocket-client"
-                )
+            from execution.adapters.binance.transport_factory import create_ws_transport
+            transport = create_ws_transport()
 
         if config.testnet:
             from execution.adapters.binance.urls import resolve_binance_urls
@@ -336,32 +349,80 @@ class LivePaperRunner:
         )
 
     def _restore_checkpoint(self) -> None:
-        if self.inference_bridge is not None and self.checkpoint_path is not None and self.checkpoint_path.exists():
-            try:
-                with self.checkpoint_path.open() as f:
-                    self.inference_bridge.restore(json.load(f))
-                logger.info("Restored bridge checkpoint from %s", self.checkpoint_path)
-            except Exception:
-                logger.warning("Failed to restore bridge checkpoint, starting fresh")
+        if self.inference_bridge is None or self.checkpoint_path is None:
+            return
+        if not self.checkpoint_path.exists():
+            return
+        try:
+            with self.checkpoint_path.open() as f:
+                data = json.load(f)
+            if isinstance(self.inference_bridge, dict):
+                # Per-symbol bridges: data keyed by symbol
+                for sym, bridge in self.inference_bridge.items():
+                    sym_data = data.get(sym)
+                    if sym_data:
+                        bridge.restore(sym_data)
+            else:
+                self.inference_bridge.restore(data)
+            logger.info("Restored bridge checkpoint from %s", self.checkpoint_path)
+        except Exception:
+            logger.warning("Failed to restore bridge checkpoint, starting fresh")
 
     def _save_checkpoint(self) -> None:
-        if self.inference_bridge is not None and self.checkpoint_path is not None:
-            try:
-                self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-                with self.checkpoint_path.open("w") as f:
-                    json.dump(self.inference_bridge.checkpoint(), f)
-            except Exception:
-                logger.warning("Bridge checkpoint save failed")
+        if self.inference_bridge is None or self.checkpoint_path is None:
+            return
+        try:
+            self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(self.inference_bridge, dict):
+                data = {sym: bridge.checkpoint() for sym, bridge in self.inference_bridge.items()}
+            else:
+                data = self.inference_bridge.checkpoint()
+            with self.checkpoint_path.open("w") as f:
+                json.dump(data, f)
+        except Exception:
+            logger.warning("Bridge checkpoint save failed")
 
     def _checkpoint_loop(self) -> None:
         while not self._ckpt_stop.wait(timeout=60.0):
             self._save_checkpoint()
+
+    @staticmethod
+    def _apply_perf_tuning() -> None:
+        """Apply OS-level performance tuning for low-latency trading."""
+        import os
+        try:
+            nohz_cpus = set()
+            try:
+                with open("/sys/devices/system/cpu/nohz_full") as f:
+                    for part in f.read().strip().split(","):
+                        if "-" in part:
+                            lo, hi = part.split("-")
+                            nohz_cpus.update(range(int(lo), int(hi) + 1))
+                        elif part.strip():
+                            nohz_cpus.add(int(part))
+            except FileNotFoundError:
+                pass
+
+            if nohz_cpus:
+                os.sched_setaffinity(0, nohz_cpus)
+                logger.info("CPU affinity pinned to nohz_full cores: %s", nohz_cpus)
+            else:
+                ncpu = os.cpu_count() or 1
+                if ncpu > 1:
+                    os.sched_setaffinity(0, {ncpu - 1})
+                    logger.info("CPU affinity pinned to core %d", ncpu - 1)
+
+            os.nice(-10)
+            logger.info("Process priority raised (nice=-10)")
+        except (OSError, PermissionError) as e:
+            logger.warning("Performance tuning partially failed: %s", e)
 
     def start(self) -> None:
         """Start the live paper trading system. Blocks until stop() is called."""
         self._running = True
         logger.info("Starting live paper trading system...")
 
+        self._apply_perf_tuning()
         self._restore_checkpoint()
 
         # Start subsystems

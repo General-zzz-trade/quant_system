@@ -67,9 +67,10 @@
   ],
   "n_flexible": 4,
   "long_only": true,
-  "bear_model_path": "models_v8/SOLUSDT_bear_c",
-  "deadzone": 0.1,
+  "bear_model_path": null,
+  "deadzone": 1.0,
   "min_hold": 8,
+  "monthly_gate": false,
   "monthly_gate_window": 480,
   "horizon": 5,
   "target_mode": "clipped",
@@ -95,24 +96,12 @@
     "colsample_bytree": 0.7
   },
   "position_management": {
-    "bear_thresholds": [
-      [
-        0.7,
-        -1.0
-      ],
-      [
-        0.6,
-        -0.5
-      ],
-      [
-        0.5,
-        0.0
-      ]
-    ],
-    "vol_target": null,
+    "bear_thresholds": null,
+    "vol_target": 0.012,
     "vol_feature": "atr_norm_14",
-    "dd_limit": 0.1,
-    "dd_cooldown": 48
+    "dd_limit": 0.4,
+    "dd_cooldown": 48,
+    "trailing_atr": 2.0
   },
   "metrics": {
     "sharpe": 2.1391524817340066,

@@ -37,11 +37,12 @@ scripts/         Training, walk-forward validation, alpha research
 
 **Data flow**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
   (RustStateStore) -> DecisionModule -> ExecutionPolicy -> OrderRouter
+**Fast path**: Market event -> RustTickProcessor.process_tick() (features+predict+state in one Rust call) -> DecisionModule
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 58 .rs modules, ~18,100 LOC
-- Exports: 58 classes + 103 functions
+- Single crate `_quant_hotpath`, 62 .rs modules, ~20,100 LOC
+- Exports: 62 classes + 106 functions
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -60,6 +61,10 @@ Key exports:
 - Attribution: `rust_compute_pnl`, `rust_compute_cost_attribution`, `rust_attribute_by_signal`
 - Orderbook: `rust_flush_orderbook_bar`, `rust_extract_orderbook_features`
 - Ensemble: `rust_adaptive_ensemble_calibrate`
+- Unified: `RustUnifiedPredictor` (zero-copy feature→predict→signal pipeline, 2.9x faster)
+- TickProcessor: `RustTickProcessor` (full hot path: features+predict+state in single call), `RustTickResult`
+- WebSocket: `RustWsClient` (tokio-tungstenite, GIL-free recv), `rust_parse_agg_trade`
+- Transport: `RustWsTransport` in `execution/adapters/binance/ws_transport_rust.py`
 
 ## Key Files
 

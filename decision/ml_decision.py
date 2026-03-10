@@ -5,7 +5,12 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_DOWN
 from typing import Any, Iterable, Optional
 
+from types import SimpleNamespace as _SimpleNamespace
+
 from _quant_hotpath import RustMLDecision as _RustMLDecision
+
+from event.header import EventHeader as _EventHeader
+from event.types import EventType as _EventType
 
 def _get_close(market: Any) -> Optional[float]:
     """Get close price as float from Rust (close_f) or Python (close) market state."""
@@ -82,16 +87,12 @@ class RustMLDecisionModule:
         return self._wrap_intents(intents, close_f)
 
     def _wrap_intents(self, intents: list, price: Any) -> list:
-        from types import SimpleNamespace
-        from event.header import EventHeader
-        from event.types import EventType
-
         result = []
         for intent in intents:
-            h = EventHeader.new_root(event_type=EventType.ORDER, version=1, source="ml_decision")
-            result.append(SimpleNamespace(
+            h = _EventHeader.new_root(event_type=_EventType.ORDER, version=1, source="ml_decision")
+            result.append(_SimpleNamespace(
                 header=h,
-                event_type=EventType.ORDER,
+                event_type=_EventType.ORDER,
                 symbol=self.symbol,
                 side=intent.side,
                 qty=Decimal(str(intent.qty)),

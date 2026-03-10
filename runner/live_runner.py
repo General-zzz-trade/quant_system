@@ -123,6 +123,8 @@ class LiveRunnerConfig:
     # Vol-adaptive sizing (scalar or per-symbol dict)
     vol_target: Union[None, float, Dict[str, Optional[float]]] = None
     vol_feature: Union[str, Dict[str, str]] = "atr_norm_14"
+    # Ensemble weights for model averaging (matches config.json ensemble_weights)
+    ensemble_weights: Optional[List[float]] = None
 
 
 @dataclass
@@ -179,6 +181,9 @@ class LiveRunner:
         alert_sink: Optional[Any] = None,
         feature_computer: Any = None,
         alpha_models: Sequence[Any] | None = None,
+        inference_bridges: Optional[Dict[str, Any]] = None,
+        unified_predictors: Optional[Dict[str, Any]] = None,
+        tick_processors: Optional[Dict[str, Any]] = None,
         user_stream_transport: Any = None,
         funding_rate_source: Any = None,
         oi_source: Any = None,
@@ -327,7 +332,10 @@ class LiveRunner:
         feat_hook = None
         inference_bridge = None
         if feature_computer is not None:
-            if alpha_models:
+            if inference_bridges is not None:
+                # Multi-symbol: per-symbol bridges already constructed
+                inference_bridge = inference_bridges
+            elif alpha_models:
                 from alpha.inference.bridge import LiveInferenceBridge
                 inference_bridge = LiveInferenceBridge(
                     models=list(alpha_models),
@@ -345,10 +353,12 @@ class LiveRunner:
                     bear_thresholds=config.bear_thresholds,
                     vol_target=config.vol_target,
                     vol_feature=config.vol_feature,
+                    ensemble_weights=config.ensemble_weights,
                 )
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
-                inference_bridge=inference_bridge,
+                inference_bridge=inference_bridge if unified_predictors is None else None,
+                unified_predictor=unified_predictors,
                 funding_rate_source=funding_rate_source,
                 oi_source=oi_source,
                 ls_ratio_source=ls_ratio_source,
@@ -364,8 +374,14 @@ class LiveRunner:
             )
 
         # Wire inference_bridge to monitoring hook
-        if hook is not None and inference_bridge is not None:
-            hook.inference_bridge = inference_bridge
+        _first_bridge = None
+        if inference_bridge is not None:
+            if isinstance(inference_bridge, dict):
+                _first_bridge = next(iter(inference_bridge.values()), None)
+            else:
+                _first_bridge = inference_bridge
+        if hook is not None and _first_bridge is not None:
+            hook.inference_bridge = _first_bridge
 
         coord_cfg = CoordinatorConfig(
             symbol_default=symbol_default,
@@ -374,6 +390,7 @@ class LiveRunner:
             on_pipeline_output=hook,
             on_snapshot=_update_correlation,
             feature_hook=feat_hook,
+            tick_processor=tick_processors,
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
 
@@ -584,15 +601,8 @@ class LiveRunner:
         binance_urls = resolve_binance_urls(config.testnet)
 
         if transport is None:
-            try:
-                from execution.adapters.binance.ws_transport_websocket_client import (
-                    WebsocketClientTransport,
-                )
-                transport = WebsocketClientTransport()
-            except ImportError:
-                raise RuntimeError(
-                    "websocket-client not installed. Run: pip install websocket-client"
-                )
+            from execution.adapters.binance.transport_factory import create_ws_transport
+            transport = create_ws_transport()
 
         ws_url = config.ws_base_url
         if config.testnet:
@@ -672,10 +682,8 @@ class LiveRunner:
 
                     us_transport = user_stream_transport
                     if us_transport is None:
-                        from execution.adapters.binance.ws_transport_websocket_client import (
-                            WebsocketClientTransport as _WsCT,
-                        )
-                        us_transport = _WsCT()
+                        from execution.adapters.binance.transport_factory import create_ws_transport as _cwt
+                        us_transport = _cwt()
 
                     user_stream_client = BinanceUmUserStreamWsClient(
                         transport=us_transport,
@@ -1081,9 +1089,37 @@ class LiveRunner:
             alert_sink=alert_sink,
         )
 
+    @staticmethod
+    def _apply_perf_tuning() -> None:
+        """Apply OS-level performance tuning for low-latency trading."""
+        import os as _os
+        try:
+            nohz_cpus = set()
+            try:
+                with open("/sys/devices/system/cpu/nohz_full") as f:
+                    for part in f.read().strip().split(","):
+                        if "-" in part:
+                            lo, hi = part.split("-")
+                            nohz_cpus.update(range(int(lo), int(hi) + 1))
+                        elif part.strip():
+                            nohz_cpus.add(int(part))
+            except FileNotFoundError:
+                pass
+
+            if nohz_cpus:
+                _os.sched_setaffinity(0, nohz_cpus)
+                logger.info("CPU affinity pinned to nohz_full cores: %s", nohz_cpus)
+
+            _os.nice(-10)
+            logger.info("Process priority raised (nice=-10)")
+        except (OSError, PermissionError) as e:
+            logger.warning("Performance tuning partially failed: %s", e)
+
     def start(self) -> None:
         """Start the live trading system. Blocks until stop() or signal."""
         self._running = True
+
+        self._apply_perf_tuning()
 
         if self.shutdown_handler is not None:
             self.shutdown_handler.install_handlers()
@@ -1272,6 +1308,21 @@ class _FillRecordingAdapter:
 
 
 if __name__ == "__main__":
+    import gc
+    gc.set_threshold(50_000, 50, 10)
+
+    # Pin to isolated CPU1 + mlock all memory
+    try:
+        os.sched_setaffinity(0, {1})
+    except OSError:
+        pass
+    try:
+        import ctypes
+        _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        _libc.mlockall(3)  # MCL_CURRENT | MCL_FUTURE
+    except OSError:
+        pass
+
     import argparse
     from pathlib import Path
 

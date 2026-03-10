@@ -65,6 +65,10 @@ class EngineMonitoringHook:
         if self.metrics is not None:
             self.metrics.observe_histogram("model_inference_seconds", latency_sec, labels={"model": model})
 
+    # Metrics decimation: non-critical gauges update every _METRICS_DECIMATION ticks.
+    # Critical metrics (equity, balance, drawdown, event counter) update every tick.
+    _METRICS_DECIMATION: int = 10
+
     def __call__(self, out: PipelineOutput) -> None:
         self._event_count += 1
 
@@ -79,12 +83,13 @@ class EngineMonitoringHook:
 
         if self.health is not None and (balance is not None or equity is not None):
             self.health.on_balance_update(
-                balance=Decimal(str(balance)) if balance is not None else None,
-                equity=Decimal(str(equity)) if equity is not None else None,
+                balance=Decimal(balance) if isinstance(balance, (int, float)) else balance,
+                equity=Decimal(equity) if isinstance(equity, (int, float)) else equity,
             )
 
         # Prometheus metrics
         if self.metrics is not None:
+            # ── Critical metrics: every tick ──
             if balance is not None:
                 self.metrics.set_gauge("balance_usdt", float(balance))
             if equity is not None:
@@ -97,52 +102,47 @@ class EngineMonitoringHook:
                     self.metrics.set_gauge("drawdown_pct", dd_pct)
 
             self.metrics.inc_counter("pipeline_events_total")
+
+            # ── Non-critical metrics: decimated (always fire on first tick) ──
+            if self._event_count > 1 and self._event_count % self._METRICS_DECIMATION != 0:
+                return
+
             self.metrics.set_gauge("event_index", float(out.event_index))
 
-            # Market data age
+            # Market data age + prices + positions
+            now = time.time()
             for sym, mkt in out.markets.items():
                 ts = getattr(mkt, "ts", None) or getattr(mkt, "last_ts", None)
                 if ts is not None:
                     try:
-                        age = time.time() - float(ts)
-                        self.metrics.set_gauge("market_data_age_seconds", age, labels={"symbol": sym})
+                        self.metrics.set_gauge("market_data_age_seconds", now - float(ts), labels={"symbol": sym})
                     except (TypeError, ValueError):
                         pass
+                price = getattr(mkt, "close", None) or getattr(mkt, "last_price", None)
+                if price is not None:
+                    self.metrics.set_gauge("price", float(price), labels={"symbol": sym})
 
-            # Kill switch state
+            for sym, pos in out.positions.items():
+                qty = getattr(pos, "qty", None) or getattr(pos, "quantity", None)
+                if qty is not None:
+                    qty_f = float(qty)
+                    self.metrics.set_gauge("position_qty", qty_f, labels={"symbol": sym})
+                    self.metrics.set_gauge("position_size", abs(qty_f), labels={"symbol": sym})
+                upnl = getattr(pos, "unrealized_pnl", None)
+                if upnl is not None:
+                    self.metrics.set_gauge("unrealized_pnl", float(upnl), labels={"symbol": sym})
+
+            # Kill switch + counters
             if self.kill_switch is not None:
                 active = getattr(self.kill_switch, "is_active", False)
                 if callable(active):
                     active = active()
                 self.metrics.set_gauge("kill_switch_active", 1.0 if active else 0.0)
 
-            # Order counters
             self.metrics.set_gauge("orders_total", float(self._order_count))
             self.metrics.set_gauge("order_rejections_total", float(self._order_rejection_count))
             self.metrics.set_gauge("reconcile_failures_total", float(self._reconcile_failure_count))
             self.metrics.set_gauge("reconcile_drift_count", float(self._reconcile_drift_count))
-
-            # Per-symbol prices
-            for sym, mkt in out.markets.items():
-                price = getattr(mkt, "close", None) or getattr(mkt, "last_price", None)
-                if price is not None:
-                    self.metrics.set_gauge("price", float(price), labels={"symbol": sym})
-
-            # Per-symbol position sizes and unrealized PnL
-            for sym, pos in out.positions.items():
-                qty = getattr(pos, "qty", None) or getattr(pos, "quantity", None)
-                if qty is not None:
-                    self.metrics.set_gauge(
-                        "position_qty", float(qty), labels={"symbol": sym},
-                    )
-                    self.metrics.set_gauge(
-                        "position_size", abs(float(qty)), labels={"symbol": sym},
-                    )
-                upnl = getattr(pos, "unrealized_pnl", None)
-                if upnl is not None:
-                    self.metrics.set_gauge(
-                        "unrealized_pnl", float(upnl), labels={"symbol": sym},
-                    )
 
             # Execution quality metrics (optional)
             if self.execution_quality is not None:

@@ -51,8 +51,10 @@ class LiveInferenceBridge:
         vol_feature: Union[str, Dict[str, str]] = "atr_norm_14",
         zscore_window: int = 720,
         zscore_warmup: int = 168,
+        ensemble_weights: Optional[Sequence[float]] = None,
     ) -> None:
         self._engine = InferenceEngine(models=list(models))
+        self._ensemble_weights = list(ensemble_weights) if ensemble_weights else None
         self._score_key = score_key
         self._metrics = metrics_exporter
         self._min_hold_bars = min_hold_bars or {}
@@ -154,6 +156,9 @@ class LiveInferenceBridge:
 
         results = self._engine.run(symbol=symbol, ts=ts, features=features)
 
+        # Collect raw scores from all models for weighted averaging
+        raw_scores: list[float] = []
+        total_latency = 0.0
         for r in results:
             if r.error is not None:
                 logger.warning(
@@ -167,73 +172,83 @@ class LiveInferenceBridge:
                     )
                 continue
             if r.signal is not None:
-                score = r.signal.strength
+                s = r.signal.strength
                 if r.signal.side == "short":
-                    score = -score
+                    s = -s
                 elif r.signal.side == "flat":
-                    score = 0.0
-
-                score = self._apply_constraints(symbol, score, features, ts)
-
-                # Monthly gate: bear regime — run bear model or go flat
-                if not gate_ok:
-                    if self._bear_model is not None:
-                        # NaN guard: skip bear model if features contain NaN
-                        _has_nan = any(
-                            isinstance(v, float) and math.isnan(v)
-                            for v in features.values()
-                        )
-                        if _has_nan:
-                            logger.warning("NaN in features for %s, skipping bear model", symbol)
-                            score = 0.0
-                        else:
-                            bear_sig = self._bear_model.predict(
-                                symbol=symbol, ts=ts, features=features)
-                            if bear_sig is not None and bear_sig.side == "long":
-                                # Graded bear scoring by probability thresholds
-                                if self._bear_thresholds:
-                                    prob = bear_sig.strength
-                                    score = 0.0
-                                    for thresh, s in self._bear_thresholds:
-                                        if prob > thresh:
-                                            score = s
-                                            break
-                                else:
-                                    score = -1.0
-                            else:
-                                score = 0.0
-                    elif score != 0.0:
-                        score = 0.0
-                    # Sync hold state on regime switch
-                    if score != self._rust.get_position(symbol):
-                        self._rust.set_position(symbol, score, 1)
-
-                # Vol-adaptive sizing
-                vt = self._resolve(self._vol_target, symbol)
-                if score != 0.0 and vt is not None:
-                    vf = self._resolve(self._vol_feature, symbol, "atr_norm_14")
-                    vol_val = features.get(vf)
-                    if vol_val is not None and vol_val > 1e-8:
-                        scale = min(vt / float(vol_val), 1.0)
-                        score *= scale
-
-                features[self._score_key] = score
-
-                logger.debug(
-                    "Inference %s/%s: side=%s strength=%.4f score=%.4f latency=%.1fms",
-                    r.model_name, symbol, r.signal.side, r.signal.strength, score, r.latency_ms,
-                )
+                    s = 0.0
+                raw_scores.append(s)
+                total_latency += r.latency_ms
                 if self._metrics is not None:
                     self._metrics.observe_histogram(
                         "inference_latency_seconds",
                         r.latency_ms / 1000.0,
                         labels={"model": r.model_name},
                     )
-                    self._metrics.set_gauge(
-                        "ml_score",
-                        score,
-                        labels={"model": r.model_name, "symbol": symbol},
+
+        if raw_scores:
+            # Weighted average across ensemble models
+            if self._ensemble_weights and len(self._ensemble_weights) >= len(raw_scores):
+                w = self._ensemble_weights[:len(raw_scores)]
+                raw_score = sum(s * wi for s, wi in zip(raw_scores, w)) / sum(w)
+            else:
+                raw_score = sum(raw_scores) / len(raw_scores)
+
+            score = self._apply_constraints(symbol, raw_score, features, ts)
+
+            # Monthly gate: bear regime — run bear model or go flat
+            if not gate_ok:
+                if self._bear_model is not None:
+                    _has_nan = any(
+                        isinstance(v, float) and math.isnan(v)
+                        for v in features.values()
                     )
+                    if _has_nan:
+                        logger.warning("NaN in features for %s, skipping bear model", symbol)
+                        score = 0.0
+                    else:
+                        bear_sig = self._bear_model.predict(
+                            symbol=symbol, ts=ts, features=features)
+                        if bear_sig is not None and bear_sig.side == "long":
+                            if self._bear_thresholds:
+                                # strength = abs(prob - 0.5), side="long" → prob > 0.5
+                                prob = 0.5 + bear_sig.strength
+                                score = 0.0
+                                for thresh, s in self._bear_thresholds:
+                                    if prob > thresh:
+                                        score = s
+                                        break
+                            else:
+                                score = -1.0
+                        else:
+                            score = 0.0
+                elif score != 0.0:
+                    score = 0.0
+                # Sync hold state on regime switch
+                if score != self._rust.get_position(symbol):
+                    self._rust.set_position(symbol, score, 1)
+
+            # Vol-adaptive sizing
+            vt = self._resolve(self._vol_target, symbol)
+            if score != 0.0 and vt is not None:
+                vf = self._resolve(self._vol_feature, symbol, "atr_norm_14")
+                vol_val = features.get(vf)
+                if vol_val is not None and vol_val > 1e-8:
+                    scale = min(vt / float(vol_val), 1.0)
+                    score *= scale
+
+            features[self._score_key] = score
+
+            logger.debug(
+                "Ensemble %s: raw_scores=%s avg=%.4f score=%.4f latency=%.1fms",
+                symbol, [f"{s:.4f}" for s in raw_scores], raw_score, score, total_latency,
+            )
+            if self._metrics is not None:
+                self._metrics.set_gauge(
+                    "ml_score",
+                    score,
+                    labels={"model": "ensemble", "symbol": symbol},
+                )
 
         # ── Independent short model (runs unconditionally, no regime gate) ──
         if self._short_model is not None:

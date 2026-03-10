@@ -30,9 +30,9 @@ class GuardDecision:
 
 
 class Guard(Protocol):
-    def before_event(self, event: Any, *, actor: str, ctx: EngineErrorContext) -> GuardDecision: ...
-    def on_error(self, exc: BaseException, *, actor: str, ctx: EngineErrorContext) -> GuardDecision: ...
-    def after_event(self, event: Any, *, actor: str, ctx: EngineErrorContext) -> GuardDecision: ...
+    def before_event(self, event: Any, *, actor: str, ctx: Optional[EngineErrorContext]) -> GuardDecision: ...
+    def on_error(self, exc: BaseException, *, actor: str, ctx: Optional[EngineErrorContext]) -> GuardDecision: ...
+    def after_event(self, event: Any, *, actor: str, ctx: Optional[EngineErrorContext]) -> GuardDecision: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,17 +77,17 @@ class BasicGuard:
         self._domain_consecutive: Dict[ErrorDomain, int] = {}
         self._execution_consecutive: int = 0
 
-    def before_event(self, event: Any, *, actor: str, ctx: EngineErrorContext) -> GuardDecision:
+    def before_event(self, event: Any, *, actor: str, ctx: Optional[EngineErrorContext] = None) -> GuardDecision:
         return GuardDecision(action=GuardAction.ALLOW, reason="ok")
 
-    def after_event(self, event: Any, *, actor: str, ctx: EngineErrorContext) -> GuardDecision:
+    def after_event(self, event: Any, *, actor: str, ctx: Optional[EngineErrorContext] = None) -> GuardDecision:
         # 事件成功处理后：清空连续错误计数（机构级默认策略）
         self._consecutive_errors = 0
         self._domain_consecutive.clear()
         self._execution_consecutive = 0
         return GuardDecision(action=GuardAction.ALLOW, reason="ok")
 
-    def on_error(self, exc: BaseException, *, actor: str, ctx: EngineErrorContext) -> GuardDecision:
+    def on_error(self, exc: BaseException, *, actor: str, ctx: Optional[EngineErrorContext] = None) -> GuardDecision:
         classified = classify_exception(exc, ctx=ctx)
 
         # 更新计数
