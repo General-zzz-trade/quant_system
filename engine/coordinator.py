@@ -433,7 +433,7 @@ class EngineCoordinator:
                 self._decision_bridge.on_pipeline_output(out)
 
     def _handle_market_tick_fast(self, event: Any, tp: Any) -> None:
-        """Fast path: single Rust call for features + predict + state update."""
+        """Fast path: single Rust call for features + predict + state + features dict."""
         symbol = getattr(event, "symbol", self._cfg.symbol_default)
         close_f = float(getattr(event, "close", 0))
         volume = float(getattr(event, "volume", 0) or 0)
@@ -481,44 +481,35 @@ class EngineCoordinator:
                     tp.push_external_data(symbol, **src)
             fh._ext_push_count[symbol] = ext_count + 1
 
-        # Single Rust call: features + predict + state update + export
-        result = tp.process_tick(
-            symbol, close_f, volume, high, low, open_, hour_key, ts=ts_str,
-        )
-
-        # Build features dict
-        features = result.get_features()
-        features["close"] = close_f
-        features["volume"] = volume
-
-        # Warmup check for ML scores
+        # Determine warmup status
+        warmup_done = True
         if fh is not None:
             bar_count = fh._bar_count.get(symbol, 0) + 1
             fh._bar_count[symbol] = bar_count
-            if bar_count >= fh._warmup_bars:
-                features["ml_score"] = result.ml_score
-                if result.ml_short_score != 0.0:
-                    features["ml_short_score"] = result.ml_short_score
+            warmup_done = bar_count >= fh._warmup_bars
 
-            # Cross-asset features
-            if fh._cross_asset is not None:
-                funding_rate = features.get("funding_rate")
-                fh._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
-                                       high=high, low=low)
-                cross_feats = fh._cross_asset.get_features(symbol)
-                features.update(cross_feats)
-        else:
-            features["ml_score"] = result.ml_score
-            if result.ml_short_score != 0.0:
-                features["ml_short_score"] = result.ml_short_score
+        # Single Rust call: features + predict + state + pre-built features dict
+        result = tp.process_tick_full(
+            symbol, close_f, volume, high, low, open_, hour_key,
+            warmup_done=warmup_done, ts=ts_str,
+        )
+
+        # Use pre-built features dict from Rust (eliminates ~35μs Python dict ops)
+        features = result.features_dict
+
+        # Cross-asset features (if enabled)
+        if fh is not None and fh._cross_asset is not None:
+            funding_rate = features.get("funding_rate")
+            fh._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
+                                   high=high, low=low)
+            cross_feats = fh._cross_asset.get_features(symbol)
+            features.update(cross_feats)
 
         # Store last features in feature_hook for non-market event lookups
         if fh is not None:
             fh._last_features[symbol] = features
 
         # Skip Decimal conversion: pass Rust objects directly to snapshot/output.
-        # Decision bridge and monitoring hook don't access portfolio/risk fields.
-        # Consumers (fixed_fraction sizing) use _f float fields on Rust types.
         snapshot = _build_snapshot(
             raw_event=event,
             event_index=result.event_index,
@@ -531,8 +522,7 @@ class EngineCoordinator:
             skip_convert=True,
         )
 
-        with self._lock:
-            self._last_snapshot = snapshot
+        self._last_snapshot = snapshot
 
         # Build PipelineOutput for hooks + decision bridge
         out = PipelineOutput(

@@ -15,6 +15,7 @@ use tokio::runtime::Runtime;
 /// Internal command sent to the WS worker thread.
 enum WsCommand {
     Connect { url: String, subscribe_msgs: Vec<String> },
+    Send { text: String },
     Close,
 }
 
@@ -98,6 +99,16 @@ impl RustWsClient {
         result.map(|s| PyString::new(py, &s))
     }
 
+    /// Send a text message through the WebSocket connection.
+    ///
+    /// Non-blocking: queues the message for the background worker to send.
+    fn send(&self, text: &str) -> PyResult<()> {
+        self.cmd_tx.send(WsCommand::Send { text: text.to_string() })
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
+                format!("WS worker not running: {}", e)
+            ))
+    }
+
     /// Close the connection and shut down the worker.
     fn close(&self) -> PyResult<()> {
         self.running.store(false, Ordering::Relaxed);
@@ -129,6 +140,7 @@ async fn ws_worker_loop(
 ) {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::Message;
 
     let mut current_url: Option<String> = None;
     let mut subscribe_msgs: Vec<String> = Vec::new();
@@ -144,6 +156,7 @@ async fn ws_worker_loop(
                 current_url = Some(url);
                 subscribe_msgs = subs;
             }
+            Ok(WsCommand::Send { .. }) => { /* Not connected yet, drop */ }
             Ok(WsCommand::Close) => {
                 break;
             }
@@ -172,38 +185,49 @@ async fn ws_worker_loop(
 
         // Send subscription messages
         for sub in &subscribe_msgs {
-            use tokio_tungstenite::tungstenite::Message;
             if let Err(e) = write.send(Message::Text(sub.clone().into())).await {
                 eprintln!("WS subscribe failed: {}", e);
                 break;
             }
         }
 
-        // Read loop
+        // Read + Send loop
         loop {
             if !running.load(Ordering::Relaxed) {
                 break;
             }
 
-            // Check for new commands
-            match cmd_rx.try_recv() {
-                Ok(WsCommand::Connect { url: new_url, subscribe_msgs: subs }) => {
-                    current_url = Some(new_url);
-                    subscribe_msgs = subs;
-                    break; // Reconnect with new URL
+            // Drain all pending commands (non-blocking)
+            loop {
+                match cmd_rx.try_recv() {
+                    Ok(WsCommand::Connect { url: new_url, subscribe_msgs: subs }) => {
+                        current_url = Some(new_url);
+                        subscribe_msgs = subs;
+                        // Signal reconnect by breaking inner + outer
+                        break;
+                    }
+                    Ok(WsCommand::Send { text }) => {
+                        if let Err(e) = write.send(Message::Text(text.into())).await {
+                            eprintln!("WS send failed: {}", e);
+                        }
+                    }
+                    Ok(WsCommand::Close) => {
+                        running.store(false, Ordering::Relaxed);
+                        break;
+                    }
+                    Err(_) => break,
                 }
-                Ok(WsCommand::Close) => {
-                    running.store(false, Ordering::Relaxed);
-                    break;
-                }
-                Err(_) => {}
+            }
+
+            if !running.load(Ordering::Relaxed) {
+                break;
             }
 
             // Read with timeout
-            let msg = tokio::time::timeout(Duration::from_secs(30), read.next()).await;
+            let msg = tokio::time::timeout(Duration::from_millis(100), read.next()).await;
             match msg {
                 Ok(Some(Ok(frame))) => {
-                    if let tokio_tungstenite::tungstenite::Message::Text(text) = frame {
+                    if let Message::Text(text) = frame {
                         // Non-blocking send; drop message if buffer full
                         let _ = msg_tx.try_send(text.to_string());
                     }
@@ -213,12 +237,11 @@ async fn ws_worker_loop(
                     break;
                 }
                 Ok(None) => {
-                    // Stream ended
                     eprintln!("WS stream ended — reconnecting");
                     break;
                 }
                 Err(_) => {
-                    // Timeout — send ping or just continue
+                    // Timeout — check commands on next iteration
                     continue;
                 }
             }

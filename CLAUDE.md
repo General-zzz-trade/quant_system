@@ -2,7 +2,7 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
-pytest tests/ -x -q          # Run all tests (2644 Python tests)
+pytest tests/ -x -q          # Run all tests (2775 Python tests)
 pytest tests/unit/ -x -q     # Unit tests only
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (52 tests)
@@ -37,12 +37,13 @@ scripts/         Training, walk-forward validation, alpha research
 
 **Data flow**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
   (RustStateStore) -> DecisionModule -> ExecutionPolicy -> OrderRouter
-**Fast path**: Market event -> RustTickProcessor.process_tick() (features+predict+state in one Rust call) -> DecisionModule
+**Fast path**: Market event -> RustTickProcessor.process_tick_full() (features+predict+state+features_dict in one Rust call) -> DecisionModule
+**Order path**: DecisionModule -> BinanceWsOrderGateway (WS-API, ~4ms) or REST fallback (~30ms)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 62 .rs modules, ~20,100 LOC
-- Exports: 62 classes + 106 functions
+- Single crate `_quant_hotpath`, 63 .rs modules, ~20,400 LOC
+- Exports: 63 classes + 106 functions
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -63,7 +64,8 @@ Key exports:
 - Ensemble: `rust_adaptive_ensemble_calibrate`
 - Unified: `RustUnifiedPredictor` (zero-copy feature→predict→signal pipeline, 2.9x faster)
 - TickProcessor: `RustTickProcessor` (full hot path: features+predict+state in single call), `RustTickResult`
-- WebSocket: `RustWsClient` (tokio-tungstenite, GIL-free recv), `rust_parse_agg_trade`
+- WebSocket: `RustWsClient` (tokio-tungstenite, GIL-free recv+send), `rust_parse_agg_trade`
+- OrderGateway: `RustWsOrderGateway` (WS-API order submission with Rust HMAC signing, ~4ms vs ~30ms REST)
 - Transport: `RustWsTransport` in `execution/adapters/binance/ws_transport_rust.py`
 
 ## Key Files

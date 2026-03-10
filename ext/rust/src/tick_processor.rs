@@ -55,6 +55,9 @@ pub struct RustTickResult {
     pub risk: PyObject,
     // Features buffer (not exposed directly)
     features_buf: [f64; N_FEATURES],
+    // Pre-built features dict (set by process_tick_full)
+    #[pyo3(get)]
+    features_dict: Option<PyObject>,
 }
 
 #[pymethods]
@@ -424,6 +427,49 @@ impl RustTickProcessor {
         ext.sentiment_score = sentiment_score;
     }
 
+    /// Full hot path with pre-built features dict.
+    ///
+    /// Combines process_tick + get_features + ml_score injection into one call.
+    /// Eliminates Python-side dict operations (~35μs saved).
+    ///
+    /// Returns RustTickResult with features dict already containing:
+    ///   close, volume, ml_score (if warmup_done), ml_short_score (if non-zero)
+    #[pyo3(signature = (symbol, close, volume, high, low, open, hour_key, warmup_done=true, ts=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn process_tick_full(
+        &mut self,
+        py: Python<'_>,
+        symbol: &str,
+        close: f64,
+        volume: f64,
+        high: f64,
+        low: f64,
+        open: f64,
+        hour_key: i64,
+        warmup_done: bool,
+        ts: Option<String>,
+    ) -> PyResult<RustTickResult> {
+        let mut result = self.process_tick(py, symbol, close, volume, high, low, open, hour_key, ts)?;
+        // Pre-build features dict inside Rust (avoids Python dict ops)
+        let dict = PyDict::new(py);
+        for (i, &name) in FEATURE_NAMES.iter().enumerate() {
+            let v = result.features_buf[i];
+            if !v.is_nan() {
+                dict.set_item(name, v)?;
+            }
+        }
+        dict.set_item("close", close)?;
+        dict.set_item("volume", volume)?;
+        if warmup_done {
+            dict.set_item("ml_score", result.ml_score)?;
+            if result.ml_short_score != 0.0 {
+                dict.set_item("ml_short_score", result.ml_short_score)?;
+            }
+        }
+        result.features_dict = Some(dict.into_any().unbind());
+        Ok(result)
+    }
+
     /// Core hot path: push bar → compute features → predict → update state → export.
     ///
     /// Returns RustTickResult with ML scores + exported state.
@@ -556,6 +602,7 @@ impl RustTickProcessor {
             portfolio: portfolio_py,
             risk: risk_py,
             features_buf: self.features_buf,
+            features_dict: None,
         })
     }
 

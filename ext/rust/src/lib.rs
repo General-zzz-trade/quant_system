@@ -59,6 +59,7 @@ mod unified_predictor;
 mod tick_processor;
 mod ws_client;
 mod spsc_ring;
+mod order_submit;
 mod attribution;
 mod ensemble_calibrate;
 pub mod rust_events;
@@ -293,6 +294,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // SPSC ring buffer (lock-free event queue)
     m.add_class::<spsc_ring::RustSpscRing>()?;
+
+    // WS order gateway (signed JSON-RPC messages)
+    m.add_class::<order_submit::RustWsOrderGateway>()?;
 
     Ok(())
 }

@@ -252,13 +252,54 @@ class EngineLoop:
     def run_forever(self) -> None:
         """
         后台线程模式：一直处理 inbox。
+        GC frozen, CPU pinned, SCHED_FIFO for low-latency.
         """
+        import gc
+        import os
+        import ctypes
+
         self._running = True
         idle_s = self._cfg.idle_sleep_s
+
+        # ── F.1: Freeze GC — eliminate stop-the-world pauses ──
+        gc.disable()
+        gc_tick = 0
+
+        # ── G.1: Pin trading thread to isolated CPU1 ──
+        try:
+            os.sched_setaffinity(0, {1})
+            logger.info("Engine loop pinned to CPU1 (isolated)")
+        except (OSError, AttributeError):
+            pass
+
+        # ── G.2: Elevate to SCHED_FIFO real-time priority ──
+        try:
+            param = os.sched_param(50)
+            os.sched_setscheduler(0, os.SCHED_FIFO, param)
+            logger.info("Engine loop set to SCHED_FIFO priority 50")
+        except (OSError, AttributeError, PermissionError):
+            pass
+
+        # ── F.3: Lock memory pages — prevent swap-out ──
+        try:
+            libc = ctypes.CDLL("libc.so.6")
+            MCL_CURRENT = 1
+            MCL_FUTURE = 2
+            libc.mlockall(MCL_CURRENT | MCL_FUTURE)
+            logger.info("Memory locked (mlockall)")
+        except (OSError, AttributeError):
+            pass
+
         while self._running and self._coord.phase.value != "stopped":
             n = self.drain(max_events=10_000)
             if n == 0:
                 time.sleep(idle_s)
+
+            # ── F.1: Periodic GC maintenance (every ~5000 events) ──
+            gc_tick += n
+            if gc_tick >= 5000:
+                gc.collect(0)  # gen0 only, fast ~50μs
+                gc_tick = 0
 
     # -------------------------
     # Runtime attach (IO -> inbox)
