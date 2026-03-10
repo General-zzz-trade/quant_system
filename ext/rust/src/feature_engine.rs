@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-pub(crate) const N_FEATURES: usize = 105;
+pub const N_FEATURES: usize = 105;
 const PI: f64 = std::f64::consts::PI;
 
 // Feature index constants
@@ -110,7 +110,7 @@ const F_SOCIAL_VOLUME_ZSCORE_24: usize = 102;
 const F_SOCIAL_SENTIMENT_SCORE: usize = 103;
 const F_SOCIAL_VOLUME_PRICE_DIV: usize = 104;
 
-pub(crate) const FEATURE_NAMES: [&str; N_FEATURES] = [
+pub const FEATURE_NAMES: [&str; N_FEATURES] = [
     "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
     "ma_cross_10_30", "ma_cross_5_20", "close_vs_ma20", "close_vs_ma50",
     "rsi_14", "rsi_6",
@@ -482,10 +482,32 @@ fn sign_f64(x: f64) -> f64 {
 }
 
 // ============================================================
+// RawBar — checkpoint serialization of raw bar data
+// ============================================================
+
+pub struct RawBar {
+    pub close: f64, pub volume: f64, pub high: f64, pub low: f64, pub open: f64,
+    pub hour: i32, pub dow: i32,
+    pub funding_rate: f64, pub trades: f64,
+    pub taker_buy_volume: f64, pub quote_volume: f64, pub taker_buy_quote_volume: f64,
+    pub open_interest: f64, pub ls_ratio: f64, pub spot_close: f64, pub fear_greed: f64,
+    pub implied_vol: f64, pub put_call_ratio: f64,
+    pub oc_flow_in: f64, pub oc_flow_out: f64,
+    pub oc_supply: f64, pub oc_addr: f64, pub oc_tx: f64, pub oc_hashrate: f64,
+    pub liq_total_vol: f64, pub liq_buy_vol: f64, pub liq_sell_vol: f64, pub liq_count: f64,
+    pub mempool_fastest_fee: f64, pub mempool_economy_fee: f64, pub mempool_size: f64,
+    pub macro_dxy: f64, pub macro_spx: f64, pub macro_vix: f64, pub macro_day: i64,
+    pub social_volume: f64, pub sentiment_score: f64,
+}
+
+const BAR_HISTORY_CAP: usize = 720;
+
+// ============================================================
 // BarState
 // ============================================================
 
 pub(crate) struct BarState {
+    bar_history: std::collections::VecDeque<RawBar>,
     close_history: CircBuf,
     open_history: CircBuf,
     high_history: CircBuf,
@@ -607,6 +629,7 @@ pub(crate) struct BarState {
 impl BarState {
     pub(crate) fn new() -> Self {
         BarState {
+            bar_history: std::collections::VecDeque::with_capacity(BAR_HISTORY_CAP),
             close_history: CircBuf::new(30),
             open_history: CircBuf::new(2),
             high_history: CircBuf::new(2),
@@ -752,6 +775,23 @@ impl BarState {
         macro_day: i64,
         social_volume: f64, sentiment_score: f64,
     ) {
+        // Record raw bar for checkpoint persistence
+        if self.bar_history.len() >= BAR_HISTORY_CAP {
+            self.bar_history.pop_front();
+        }
+        self.bar_history.push_back(RawBar {
+            close, volume, high, low, open: open_,
+            hour, dow, funding_rate, trades,
+            taker_buy_volume, quote_volume, taker_buy_quote_volume,
+            open_interest, ls_ratio, spot_close, fear_greed,
+            implied_vol, put_call_ratio: put_call_ratio_val,
+            oc_flow_in, oc_flow_out, oc_supply, oc_addr, oc_tx, oc_hashrate,
+            liq_total_vol, liq_buy_vol, liq_sell_vol, liq_count,
+            mempool_fastest_fee, mempool_economy_fee, mempool_size,
+            macro_dxy, macro_spx, macro_vix, macro_day,
+            social_volume, sentiment_score,
+        });
+
         self.last_hour = hour;
         self.last_dow = dow;
 
@@ -984,6 +1024,10 @@ impl BarState {
 
         // ATR
         self.atr_14.push(high, low, close);
+    }
+
+    pub fn get_bar_history(&self) -> &std::collections::VecDeque<RawBar> {
+        &self.bar_history
     }
 
     pub(crate) fn get_features(&self, out: &mut [f64; N_FEATURES]) {

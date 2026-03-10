@@ -100,7 +100,7 @@ impl LoadedModel {
 // ── Per-symbol cached external data ──
 
 #[derive(Clone)]
-pub(crate) struct ExternalData {
+pub struct ExternalData {
     pub(crate) hour: i32,
     pub(crate) dow: i32,
     pub(crate) funding_rate: f64,

@@ -142,6 +142,7 @@ class TestAlgoCreation:
                 default_algo="twap",
                 twap_slices=5,
                 twap_duration_sec=10,
+                tick_interval_sec=0.01,
             ),
         )
         order = _order_event(qty="1.0", price="1000")
@@ -161,6 +162,7 @@ class TestAlgoCreation:
                 large_order_notional=Decimal("100"),
                 default_algo="vwap",
                 vwap_slices=3,
+                tick_interval_sec=0.01,
             ),
         )
         order = _order_event(qty="1.0", price="1000")
@@ -179,6 +181,7 @@ class TestAlgoCreation:
                 large_order_notional=Decimal("100"),
                 default_algo="iceberg",
                 iceberg_clip_fraction=0.25,
+                tick_interval_sec=0.01,
             ),
         )
         order = _order_event(qty="1.0", price="1000")

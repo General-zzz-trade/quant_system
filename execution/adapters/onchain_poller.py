@@ -66,7 +66,7 @@ class OnchainPoller:
                 logger.exception("OnchainPoller fetch error")
             deadline = time.monotonic() + self._interval
             while self._running and time.monotonic() < deadline:
-                time.sleep(1.0)
+                time.sleep(0.1)
 
     def _fetch(self) -> None:
         url = (

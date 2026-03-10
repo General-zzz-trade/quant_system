@@ -174,11 +174,11 @@ class TestPeriodicScheduling:
             controller=controller,
             get_local_state=lambda: _local_state(),
             fetch_venue_state=lambda: {},
-            cfg=ReconcileSchedulerConfig(interval_sec=0.1),
+            cfg=ReconcileSchedulerConfig(interval_sec=0.02),
         )
         scheduler.start()
         assert scheduler._running is True
-        time.sleep(0.3)
+        time.sleep(0.05)
         scheduler.stop()
         assert scheduler._running is False
 
@@ -196,12 +196,12 @@ class TestPeriodicScheduling:
             controller=controller,
             get_local_state=lambda: orig_local,
             fetch_venue_state=_fetch,
-            cfg=ReconcileSchedulerConfig(interval_sec=0.1),
+            cfg=ReconcileSchedulerConfig(interval_sec=0.02),
         )
         scheduler.start()
-        time.sleep(0.5)
+        time.sleep(0.1)
         scheduler.stop()
-        assert call_count >= 2  # at least 2 runs in 0.5s with 0.1s interval
+        assert call_count >= 2  # at least 2 runs in 0.1s with 0.02s interval
 
     def test_last_report_updated(self):
         controller = ReconcileController()
@@ -209,13 +209,13 @@ class TestPeriodicScheduling:
             controller=controller,
             get_local_state=lambda: _local_state(positions={"BTCUSDT": "1.0"}),
             fetch_venue_state=lambda: _venue_state(positions={"BTCUSDT": "1.0"}),
-            cfg=ReconcileSchedulerConfig(interval_sec=0.1),
+            cfg=ReconcileSchedulerConfig(interval_sec=0.02),
         )
         assert scheduler.last_report is None
         scheduler.start()
-        deadline = time.monotonic() + 2.0
+        deadline = time.monotonic() + 1.0
         while scheduler.last_report is None and time.monotonic() < deadline:
-            time.sleep(0.05)
+            time.sleep(0.01)
         scheduler.stop()
         assert scheduler.last_report is not None
 

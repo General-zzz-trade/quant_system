@@ -62,6 +62,7 @@ def feature_names():
     return list(_CPP_FEATURE_NAMES)
 
 
+@pytest.mark.slow
 class TestFeatureEngineParity:
     """Compare C++ and Python feature outputs."""
 

@@ -91,7 +91,7 @@ class TestShutdownSequence:
 class TestPendingOrderTimeout:
     def test_timeout_triggers_cancel(self):
         call_order: list[str] = []
-        cfg = ShutdownConfig(pending_order_timeout_sec=0.3, poll_interval_sec=0.05)
+        cfg = ShutdownConfig(pending_order_timeout_sec=0.1, poll_interval_sec=0.02)
 
         shutdown = GracefulShutdown(
             config=cfg,
@@ -103,7 +103,7 @@ class TestPendingOrderTimeout:
         elapsed = time.monotonic() - start
 
         assert "cancel" in call_order
-        assert elapsed >= 0.25
+        assert elapsed >= 0.08
 
     def test_pending_drained_before_timeout(self):
         counter = {"n": 0}

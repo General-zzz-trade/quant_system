@@ -2,8 +2,10 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
-pytest tests/ -x -q          # Run all tests (2775 Python tests)
+pytest tests/ -x -q          # Fast tests (~27s, excludes slow+benchmark)
+pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
+pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (52 tests)
 ```

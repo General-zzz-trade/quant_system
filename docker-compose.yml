@@ -43,6 +43,38 @@ x-paper-base: &paper-base
     start_period: 60s
 
 services:
+  # ── Rust Trader (TestNet) — standalone Rust binary ─────────
+  trader-rust:
+    build:
+      context: .
+      dockerfile: Dockerfile.trader
+      target: trader
+    image: quant-trader-rust:latest
+    env_file: .env
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./models_v8:/app/models_v8:ro
+      - ./ext/rust/config.testnet.yaml:/app/config.yaml:ro
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   # ── Paper Trading (TestNet) — single process, all symbols ─
   paper-multi:
     <<: *paper-base

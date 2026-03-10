@@ -1,0 +1,60 @@
+# quant_trader 1-second alpha exploration config
+# Usage: quant_trader --config config.1s-explore.yaml --dry-run
+#
+# Purpose: Collect 1s signal data to evaluate alpha quality
+# Start with --dry-run to observe signals without trading
+#
+# Micro-alpha: automatically subscribes to @aggTrade stream and computes
+# trade flow imbalance, volume spikes, large trade detection, price acceleration.
+# These signals combine with ML score for enhanced 1s decision making.
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: false     # mainnet data (dry-run = no orders)
+  mode: paper
+  starting_balance: 10000.0
+  currency: USDT
+  interval: "1s"
+
+# Aggressive signal settings for 1s exploration
+strategy:
+  deadzone: 0.3        # lower threshold to see more signals
+  min_hold: 0           # no hold constraint — pure signal
+  max_hold: 60          # max 60 bars = 60 seconds
+  long_only: false
+  trend_follow: false
+  monthly_gate: false
+  trend_indicator: tf4h_close_vs_ma20
+  vol_feature: atr_norm_14
+  bear_thresholds: []
+
+position_sizing:
+  fraction: 0.01        # conservative for exploration
+  lot_sizes:
+    BTCUSDT: 0.001
+
+risk:
+  max_leverage: 1.0     # conservative
+  max_drawdown_pct: 0.02
+  max_position_notional: 500.0
+
+models:
+  BTCUSDT:
+    model_path: /opt/quant_system/models_v8/BTCUSDT_gate_v2
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+# Tick-by-tick mode: decide on every aggTrade (~50-100ms), not just bar close
+micro_alpha:
+  tick_by_tick: true
+  min_order_interval_ms: 200    # max 5 orders/sec per symbol
+  micro_threshold: 0.4          # min |micro_score| to trigger tick decision
+  window_ms: 10000              # 10s rolling window for micro signals
+  large_trade_mult: 5.0         # 5x average = "large trade"
+
+logging:
+  level: info
+  json: false

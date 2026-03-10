@@ -197,6 +197,7 @@ class TestLGBMAlphaModel:
 # ── XGBAlphaModel ──────────────────────────────────────────
 
 
+@pytest.mark.slow
 @pytest.mark.filterwarnings("ignore:.*joblib will operate in serial mode.*:UserWarning")
 class TestXGBAlphaModel:
     def test_predict_none_without_model(self):

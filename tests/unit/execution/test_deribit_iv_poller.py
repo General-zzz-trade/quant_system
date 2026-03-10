@@ -66,8 +66,10 @@ def test_fetch_computes_put_call_ratio():
 def test_start_stop_lifecycle():
     poller = DeribitIVPoller(currency="BTC", interval_sec=9999)
     assert poller._running is False
-    poller.start()
-    assert poller._running is True
-    assert poller._thread is not None
-    poller.stop()
+    with patch("execution.adapters.deribit_iv_poller.urllib.request.urlopen",
+               side_effect=Exception("mocked")):
+        poller.start()
+        assert poller._running is True
+        assert poller._thread is not None
+        poller.stop()
     assert poller._running is False

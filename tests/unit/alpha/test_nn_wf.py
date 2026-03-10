@@ -53,6 +53,7 @@ class TestComputeEnsembleWeights:
         assert abs(sum(weights) - 1.0) < 1e-10
 
 
+@pytest.mark.slow
 class TestApplyNnEnsemble:
     def test_no_torch_returns_lgbm(self):
         """When torch is not available, should return LGBM predictions unchanged."""
@@ -86,6 +87,7 @@ class TestApplyNnEnsemble:
         result = wf._apply_nn_ensemble(lgbm_pred, X_train, y_train, X_test, nn_seq_len=20)
         np.testing.assert_array_equal(result, lgbm_pred)
 
+    @pytest.mark.slow
     @pytest.mark.skipif(
         not __import__("importlib").util.find_spec("torch"),
         reason="torch not installed",
@@ -107,6 +109,7 @@ class TestApplyNnEnsemble:
         )
         assert len(result) == len(lgbm_pred)
 
+    @pytest.mark.slow
     @pytest.mark.skipif(
         not __import__("importlib").util.find_spec("torch"),
         reason="torch not installed",

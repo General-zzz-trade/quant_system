@@ -120,17 +120,17 @@ class TestHistoricalBackfiller:
         config = BackfillConfig(
             symbols=("BTCUSDT",),
             interval="1h",
-            max_requests_per_minute=60,  # 1 req/sec
+            max_requests_per_minute=600,  # 10 req/sec → 0.1s gap
             batch_size=1,
         )
         backfiller = HistoricalBackfiller(
             fetch_klines=tracking_fetch, bar_store=store, config=config
         )
         backfiller.backfill("BTCUSDT", T0, T0 + timedelta(hours=1))
-        # With 60 rpm = 1 per second, there should be a gap
+        # With 600 rpm = 10/sec, gap should be ~0.1s
         if len(call_times) >= 2:
             gap = call_times[1] - call_times[0]
-            assert gap >= 0.5  # at least half a second between calls
+            assert gap >= 0.05  # at least 50ms between calls
 
     def test_empty_fetch_returns_zero(self) -> None:
         fetch = MagicMock(return_value=[])

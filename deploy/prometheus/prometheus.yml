@@ -8,6 +8,6 @@ rule_files:
 scrape_configs:
   - job_name: "quant_system"
     static_configs:
-      - targets: ["live-trader:9090"]
+      - targets: ["localhost:9090"]
     metrics_path: /metrics
     scrape_interval: 5s

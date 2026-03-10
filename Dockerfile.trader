@@ -1,0 +1,51 @@
+# ---- Build stage: compile Rust binary ----
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Build tools + OpenSSL vendored build deps (perl needed by openssl-sys)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    make curl gcc libc6-dev pkg-config libssl-dev perl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy Rust source
+COPY ext/rust/Cargo.toml ext/rust/Cargo.lock* ext/rust/
+COPY ext/rust/src/ ext/rust/src/
+
+# Build binary (links against libpython3.12 for PyO3 types)
+# Official Python Docker image installs to /usr/local/lib
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/build/ext/rust/target \
+    cd ext/rust && \
+    PYTHON_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))") && \
+    echo "Python lib dir: $PYTHON_LIB" && \
+    RUSTFLAGS="-C target-cpu=native -L${PYTHON_LIB}" \
+    cargo rustc --release --bin quant_trader -- -C link-arg=-lpython3.12 && \
+    cp target/release/quant_trader /build/quant_trader
+
+# ---- Runtime stage (minimal) ----
+FROM python:3.12-slim AS trader
+
+WORKDIR /app
+
+# Runtime deps: libssl (for TLS), libpython3.12 (PyO3 link)
+# python:3.12-slim already has libpython3.12
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy binary
+COPY --from=builder /build/quant_trader /app/quant_trader
+
+# Copy config
+COPY ext/rust/config.testnet.yaml /app/config.yaml
+
+# Models mounted as volume at runtime
+# .env loaded via env_file in docker-compose
+
+ENTRYPOINT ["/app/quant_trader"]
+CMD ["--config", "/app/config.yaml"]

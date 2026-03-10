@@ -1,0 +1,56 @@
+# quant_trader 3-minute alpha exploration config
+# Usage: quant_trader --config config.3m-explore.yaml --dry-run
+#
+# Purpose: Explore 3m alpha with ML model + micro-alpha confirmation
+# BTC moves ~0.1% per 3m bar vs 0.08% fee = feasible edge
+#
+# Data: native kline_3m from Binance futures + aggTrade for micro signals
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: false       # mainnet data (dry-run = no orders)
+  mode: paper
+  starting_balance: 10000.0
+  currency: USDT
+  interval: "3m"
+
+strategy:
+  deadzone: 0.3        # lower threshold to see more signals during exploration
+  min_hold: 0           # no hold constraint for exploration
+  max_hold: 40          # max 40 bars = 2 hours
+  long_only: false
+  trend_follow: false
+  monthly_gate: false
+  trend_indicator: tf4h_close_vs_ma20
+  vol_feature: atr_norm_14
+  bear_thresholds: []
+
+position_sizing:
+  fraction: 0.02        # standard for 3m
+  lot_sizes:
+    BTCUSDT: 0.001
+
+risk:
+  max_leverage: 2.0
+  max_drawdown_pct: 0.05
+  max_position_notional: 1000.0
+
+models:
+  BTCUSDT:
+    model_path: /opt/quant_system/models_v8/BTCUSDT_gate_v2
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+# Micro-alpha: aggTrade signals to confirm/dampen ML decisions
+# tick_by_tick disabled — decisions on 3m bar close only
+micro_alpha:
+  tick_by_tick: false
+  window_ms: 30000              # 30s rolling window (wider for 3m bars)
+  large_trade_mult: 5.0
+
+logging:
+  level: info
+  json: false

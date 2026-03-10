@@ -1,3 +1,4 @@
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 mod backtest_engine;
@@ -11,13 +12,13 @@ mod event_store;
 mod factor_math;
 mod fast_1m_features;
 pub mod fast_rng;
-mod feature_engine;
+pub mod feature_engine;
 mod feature_selection;
 mod feature_selector;
 mod fill_dedup;
 mod greedy_select;
 pub mod indicators;
-mod json_parse;
+pub mod json_parse;
 mod linalg_math;
 mod ml_decision;
 mod monte_carlo;
@@ -35,16 +36,16 @@ mod target;
 mod technical;
 pub mod fixed_decimal;
 pub mod state_types;
-mod state_reducers;
+pub mod state_reducers;
 mod pipeline;
 mod engine_guards;
-mod risk_engine;
+pub mod risk_engine;
 mod core_types;
 mod event_types;
 mod event_validators;
 mod kernel_boundary;
-mod decision_math;
-mod decision_policy;
+pub mod decision_math;
+pub mod decision_policy;
 mod cross_asset;
 mod decision_signals;
 mod execution_store;
@@ -52,18 +53,20 @@ mod microstructure;
 mod portfolio_allocator;
 mod factor_signals;
 mod regime_buffer;
-mod state_store;
-mod inference_bridge;
-mod tree_predict;
-mod unified_predictor;
-mod tick_processor;
+pub mod state_store;
+pub mod inference_bridge;
+pub mod tree_predict;
+pub mod unified_predictor;
+pub mod tick_processor;
 mod ws_client;
 mod spsc_ring;
-mod order_submit;
+pub mod order_submit;
+pub mod micro_alpha;
 mod attribution;
 mod ensemble_calibrate;
 pub mod rust_events;
 
+#[cfg(feature = "python")]
 #[pymodule]
 fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Phase 1 classes

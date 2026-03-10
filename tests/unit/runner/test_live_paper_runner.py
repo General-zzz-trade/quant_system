@@ -176,7 +176,7 @@ class TestMarketDataFlow:
         runner.runtime.start()
         runner.loop.start_background()
 
-        time.sleep(0.5)  # give time for processing
+        time.sleep(0.1)  # give time for processing
 
         runner.runtime.stop()
         runner.loop.stop_background()

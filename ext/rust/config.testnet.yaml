@@ -1,0 +1,59 @@
+# quant_trader testnet production config
+# Usage: quant_trader --config config.testnet.yaml
+#
+# 7-day paper trading validation on Binance Futures testnet
+# Conservative risk: max 2x leverage, 5% drawdown limit, $1000 max position
+# 3-minute bars with micro-alpha confirmation
+
+trading:
+  symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+  exchange: binance
+  testnet: true
+  mode: paper
+  starting_balance: 5000.0
+  currency: USDT
+  interval: "3m"
+
+strategy:
+  deadzone: 0.5
+  min_hold: 3             # minimum 3 bars = 9 minutes
+  max_hold: 40            # max 40 bars = 2 hours
+  long_only: false
+  trend_follow: false
+  monthly_gate: false
+  trend_indicator: tf4h_close_vs_ma20
+  vol_feature: atr_norm_14
+  bear_thresholds: []
+
+position_sizing:
+  fraction: 0.05           # ~$250 notional at BTC $100k (above $100 min)
+  lot_sizes:
+    BTCUSDT: 0.001
+    ETHUSDT: 0.01
+    SOLUSDT: 0.1
+
+risk:
+  max_leverage: 2.0
+  max_drawdown_pct: 0.05
+  max_position_notional: 1000.0
+
+models:
+  BTCUSDT:
+    model_path: /app/models_v8/BTCUSDT_gate_v2
+  ETHUSDT:
+    model_path: /app/models_v8/ETHUSDT_gate_v2
+  SOLUSDT:
+    model_path: /app/models_v8/SOLUSDT_gate_v2
+
+credentials:
+  api_key_env: BINANCE_TESTNET_API_KEY
+  api_secret_env: BINANCE_TESTNET_API_SECRET
+
+micro_alpha:
+  tick_by_tick: false
+  window_ms: 30000
+  large_trade_mult: 5.0
+
+logging:
+  level: info
+  json: false

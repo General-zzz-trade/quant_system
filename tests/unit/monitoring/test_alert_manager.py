@@ -153,7 +153,7 @@ class TestAlertManagerPeriodic:
         sink = _RecordingSink()
         rule = _make_rule("periodic-test", cooldown=0.0)
         mgr = AlertManager(sink=sink, rules=[rule])
-        mgr.start_periodic(interval_sec=0.05)
-        time.sleep(0.2)
+        mgr.start_periodic(interval_sec=0.02)
+        time.sleep(0.08)
         mgr.stop()
         assert len(sink.alerts) >= 1

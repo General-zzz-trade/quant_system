@@ -221,6 +221,16 @@ impl RustWsOrderGateway {
         Ok((json, req_id))
     }
 
+    /// Build a userDataStream.start message to get a listenKey.
+    fn build_listen_key_start(&self) -> PyResult<(String, String)> {
+        Ok(self.build_listen_key_start_native())
+    }
+
+    /// Build a userDataStream.ping keepalive message.
+    fn build_listen_key_ping(&self, listen_key: &str) -> PyResult<(String, String)> {
+        Ok(self.build_listen_key_ping_native(listen_key))
+    }
+
     /// Build a query order status message.
     #[pyo3(signature = (symbol, order_id=None, orig_client_order_id=None))]
     fn build_query_message(
@@ -276,5 +286,114 @@ impl RustWsOrderGateway {
         json.push_str("\"}}");
 
         Ok((json, req_id))
+    }
+}
+
+// ── Native (Python-free) methods ──
+
+impl RustWsOrderGateway {
+    /// Create without PyO3.
+    pub fn new_native(api_key: &str, api_secret: &str, recv_window: i64) -> Self {
+        Self {
+            api_key: api_key.to_string(),
+            api_secret: api_secret.to_string(),
+            recv_window,
+        }
+    }
+
+    /// Build order message without PyResult wrapper.
+    pub fn build_order_message_native(
+        &self,
+        symbol: &str,
+        side: &str,
+        order_type: &str,
+        quantity: Option<&str>,
+        price: Option<&str>,
+        time_in_force: Option<&str>,
+        reduce_only: Option<bool>,
+        new_client_order_id: Option<&str>,
+    ) -> (String, String) {
+        // Reuse the PyO3 method (it never actually fails with PyErr from logic)
+        self.build_order_message(
+            symbol, side, order_type, quantity, price, time_in_force,
+            reduce_only, new_client_order_id,
+        )
+        .expect("build_order_message infallible")
+    }
+
+    /// Build a signed WS-API request with arbitrary method and params.
+    fn build_signed_request(&self, method: &str, extra_params: &[(&str, String)]) -> (String, String) {
+        let prefix = method.split('.').next().unwrap_or("req");
+        let req_id = format!("{}_{}", prefix, REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let ts = now_ms();
+
+        let mut params: Vec<(&str, String)> = Vec::with_capacity(extra_params.len() + 4);
+        params.push(("apiKey", self.api_key.clone()));
+        for (k, v) in extra_params {
+            params.push((k, v.clone()));
+        }
+        params.push(("recvWindow", self.recv_window.to_string()));
+        params.push(("timestamp", ts.to_string()));
+
+        params.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, url_encode_val(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let signature = hmac_sha256_hex(&self.api_secret, &query);
+
+        let mut json = String::with_capacity(384);
+        json.push_str("{\"id\":\"");
+        json.push_str(&req_id);
+        json.push_str("\",\"method\":\"");
+        json.push_str(method);
+        json.push_str("\",\"params\":{");
+
+        let mut first = true;
+        for (k, v) in &params {
+            if !first {
+                json.push(',');
+            }
+            first = false;
+            json.push('"');
+            json.push_str(k);
+            json.push_str("\":\"");
+            json.push_str(v);
+            json.push('"');
+        }
+        json.push_str(",\"signature\":\"");
+        json.push_str(&signature);
+        json.push_str("\"}}");
+
+        (json, req_id)
+    }
+
+    /// Build userDataStream.start message (no extra params needed).
+    pub fn build_listen_key_start_native(&self) -> (String, String) {
+        self.build_signed_request("userDataStream.start", &[])
+    }
+
+    /// Build userDataStream.ping keepalive message.
+    pub fn build_listen_key_ping_native(&self, listen_key: &str) -> (String, String) {
+        self.build_signed_request("userDataStream.ping", &[("listenKey", listen_key.to_string())])
+    }
+
+    /// Build account.status query message (get balance + positions).
+    pub fn build_account_status_native(&self) -> (String, String) {
+        self.build_signed_request("v2/account.status", &[])
+    }
+
+    /// Build cancel message without PyResult wrapper.
+    pub fn build_cancel_message_native(
+        &self,
+        symbol: &str,
+        order_id: Option<i64>,
+        orig_client_order_id: Option<&str>,
+    ) -> (String, String) {
+        self.build_cancel_message(symbol, order_id, orig_client_order_id)
+            .expect("build_cancel_message infallible")
     }
 }

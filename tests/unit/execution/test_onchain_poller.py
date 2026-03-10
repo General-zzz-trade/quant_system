@@ -102,10 +102,12 @@ def test_fetch_error_returns_none():
 def test_start_stop_lifecycle():
     poller = OnchainPoller(asset="btc", interval_sec=9999)
     assert poller._running is False
-    poller.start()
-    assert poller._running is True
-    assert poller._thread is not None
-    poller.stop()
+    with patch("execution.adapters.onchain_poller.urllib.request.urlopen",
+               side_effect=Exception("mocked")):
+        poller.start()
+        assert poller._running is True
+        assert poller._thread is not None
+        poller.stop()
     assert poller._running is False
 
 

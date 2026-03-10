@@ -214,6 +214,99 @@ fn json_str(obj: &Value, key: &str) -> String {
         .to_owned()
 }
 
+// ── Native (Python-free) kline parser ──
+
+/// Parsed kline bar without Python dependency.
+pub struct NativeKlineBar {
+    pub symbol: String,
+    pub ts_ms: i64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: f64,
+    pub closed: bool,
+}
+
+fn json_f64(obj: &Value, key: &str) -> f64 {
+    obj.get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+/// Parse Binance kline WS JSON into a native Rust struct.
+pub fn parse_kline_native(raw: &str) -> Option<NativeKlineBar> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+
+    let data = if v.get("data").is_some() { &v["data"] } else { &v };
+
+    if data.get("e").and_then(|e| e.as_str()) != Some("kline") {
+        return None;
+    }
+
+    let k = data.get("k")?;
+    if !k.is_object() {
+        return None;
+    }
+
+    let ts_ms = k.get("t").and_then(|t| t.as_i64())?;
+    let closed = k.get("x").and_then(|x| x.as_bool()).unwrap_or(false);
+    let symbol = data
+        .get("s")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_uppercase();
+
+    Some(NativeKlineBar {
+        symbol,
+        ts_ms,
+        open: json_f64(k, "o"),
+        high: json_f64(k, "h"),
+        low: json_f64(k, "l"),
+        close: json_f64(k, "c"),
+        volume: json_f64(k, "v"),
+        closed,
+    })
+}
+
+/// Parsed aggTrade without Python dependency.
+pub struct NativeAggTrade {
+    pub symbol: String,
+    pub price: f64,
+    pub qty: f64,
+    pub is_buy: bool,
+    pub trade_id: i64,
+    pub ts_ms: i64,
+}
+
+/// Parse Binance aggTrade WS JSON into a native Rust struct.
+pub fn parse_agg_trade_native(raw: &str) -> Option<NativeAggTrade> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+
+    let data = if v.get("data").is_some() { &v["data"] } else { &v };
+
+    if data.get("e").and_then(|e| e.as_str()) != Some("aggTrade") {
+        return None;
+    }
+
+    let symbol = data.get("s").and_then(|s| s.as_str()).unwrap_or("").to_uppercase();
+    let price = data.get("p").and_then(|p| p.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let qty = data.get("q").and_then(|q| q.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let buyer_is_maker = data.get("m").and_then(|m| m.as_bool()).unwrap_or(false);
+    let trade_id = data.get("a").and_then(|a| a.as_i64()).unwrap_or(0);
+    let ts_ms = data.get("T").and_then(|t| t.as_i64()).unwrap_or(0);
+
+    Some(NativeAggTrade {
+        symbol,
+        price,
+        qty,
+        is_buy: !buyer_is_maker,
+        trade_id,
+        ts_ms,
+    })
+}
+
 fn extract_levels(arr: Option<&Value>, max_levels: usize) -> Vec<(String, String)> {
     match arr.and_then(|a| a.as_array()) {
         Some(levels) => levels
