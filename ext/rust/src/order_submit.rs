@@ -21,7 +21,7 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn hmac_sha256_hex(secret: &str, payload: &str) -> String {
+pub fn hmac_sha256_hex(secret: &str, payload: &str) -> String {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC key");
     mac.update(payload.as_bytes());
     let result = mac.finalize();

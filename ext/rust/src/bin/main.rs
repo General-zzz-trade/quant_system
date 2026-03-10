@@ -37,7 +37,7 @@ use tracing::{error, info, warn};
 use _quant_hotpath::decision_math::rust_fixed_fraction_qty;
 use _quant_hotpath::json_parse::{parse_agg_trade_native, parse_kline_native};
 use _quant_hotpath::micro_alpha::{MicroAlpha, MicroAlphaConfig, MicroAlphaSignal};
-use _quant_hotpath::order_submit::RustWsOrderGateway;
+use _quant_hotpath::order_submit::{hmac_sha256_hex, RustWsOrderGateway};
 use _quant_hotpath::tick_processor::RustTickProcessor;
 
 use config::Config;
@@ -484,6 +484,27 @@ fn try_submit_order(
     true
 }
 
+/// Compute combined ML + micro-alpha score for bar-close decisions.
+fn combined_bar_score(ml_score: f64, micro_sig: Option<&MicroAlphaSignal>, tick_by_tick: bool) -> f64 {
+    let micro_score = micro_sig.map(|s| s.micro_score).unwrap_or(0.0);
+    let micro_valid = micro_sig.map(|s| s.valid).unwrap_or(false);
+
+    if ml_score.abs() > 0.0 && micro_valid {
+        let agreement = ml_score.signum() == micro_score.signum() || micro_score.abs() < 0.1;
+        if agreement {
+            ml_score * (1.0 + micro_score.abs() * 0.3)
+        } else {
+            ml_score * (1.0 - micro_score.abs() * 0.5).max(0.1)
+        }
+    } else if ml_score.abs() > 0.0 {
+        ml_score
+    } else if !tick_by_tick && micro_valid && micro_score.abs() > 0.5 {
+        micro_score * 0.3
+    } else {
+        0.0
+    }
+}
+
 // ── Historical kline backfill for instant warmup ──
 
 const FAPI_REST_MAINNET: &str = "https://fapi.binance.com";
@@ -577,21 +598,6 @@ async fn backfill_historical_klines(
 }
 
 // ── Sync exchange state at startup via REST API ──
-
-fn hmac_sha256_hex(secret: &str, payload: &str) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC key");
-    mac.update(payload.as_bytes());
-    let result = mac.finalize();
-    let bytes = result.into_bytes();
-    let mut hex = String::with_capacity(bytes.len() * 2);
-    for b in bytes.iter() {
-        hex.push_str(&format!("{:02x}", b));
-    }
-    hex
-}
 
 async fn sync_exchange_state(
     testnet: bool,
@@ -1273,6 +1279,7 @@ async fn main() {
     let mut last_data_time = std::time::Instant::now();
     let mut md_backoff_secs = 1u64;
     let mut kill_switch_active = false;
+    let mut last_kill_check = std::time::Instant::now() - std::time::Duration::from_secs(2);
     let kill_switch_path = cli
         .config
         .parent()
@@ -1306,8 +1313,10 @@ async fn main() {
                 break 'outer;
             }
 
-            // Kill switch: check file every iteration, close all positions once
-            if !kill_switch_active && kill_switch_path.exists() {
+            // Kill switch: check file at most once per second (avoid stat() on every WS message)
+            if !kill_switch_active && last_kill_check.elapsed() >= std::time::Duration::from_secs(1) {
+                last_kill_check = std::time::Instant::now();
+                if kill_switch_path.exists() {
                 kill_switch_active = true;
                 error!("KILL SWITCH activated — closing all positions");
 
@@ -1322,7 +1331,6 @@ async fn main() {
 
                 for (sym, qty) in &open_positions {
                     let close_side = if *qty > 0.0 { "SELL" } else { "BUY" };
-                    let close_qty = format!("{:.6}", qty.abs());
                     let lot = lot_sizes.get(sym.as_str()).copied().unwrap_or(0.001);
                     let close_qty_str = format_qty(qty.abs(), lot);
                     let (msg, req_id) = order_gateway.build_order_message_native(
@@ -1338,7 +1346,7 @@ async fn main() {
                     error!(
                         symbol = %sym,
                         side = close_side,
-                        qty = close_qty,
+                        qty = %close_qty_str,
                         req_id = %req_id,
                         "KILL: closing position"
                     );
@@ -1347,6 +1355,7 @@ async fn main() {
 
                 if open_positions.is_empty() {
                     error!("KILL: no open positions to close");
+                }
                 }
             }
 
@@ -1496,27 +1505,7 @@ async fn main() {
 
                         // Bar-close combined decision
                         if !cli.dry_run && !kill_switch_active {
-                            let micro_score =
-                                micro_sig.as_ref().map(|s| s.micro_score).unwrap_or(0.0);
-                            let micro_valid =
-                                micro_sig.as_ref().map(|s| s.valid).unwrap_or(false);
-
-                            let combined_score = if result.ml_score.abs() > 0.0 && micro_valid {
-                                let agreement = result.ml_score.signum()
-                                    == micro_score.signum()
-                                    || micro_score.abs() < 0.1;
-                                if agreement {
-                                    result.ml_score * (1.0 + micro_score.abs() * 0.3)
-                                } else {
-                                    result.ml_score * (1.0 - micro_score.abs() * 0.5).max(0.1)
-                                }
-                            } else if result.ml_score.abs() > 0.0 {
-                                result.ml_score
-                            } else if !tick_by_tick && micro_valid && micro_score.abs() > 0.5 {
-                                micro_score * 0.3
-                            } else {
-                                0.0
-                            };
+                            let combined_score = combined_bar_score(result.ml_score, micro_sig.as_ref(), tick_by_tick);
 
                             if combined_score.abs() > 0.0 {
                                 let lot_size = lot_sizes
@@ -1767,26 +1756,7 @@ async fn main() {
 
             // Bar-close combined decision
             if !cli.dry_run && !kill_switch_active {
-                let ms = &micro_sig;
-                let micro_score = ms.as_ref().map(|s| s.micro_score).unwrap_or(0.0);
-                let micro_valid = ms.as_ref().map(|s| s.valid).unwrap_or(false);
-
-                let combined_score = if result.ml_score.abs() > 0.0 && micro_valid {
-                    let agreement =
-                        result.ml_score.signum() == micro_score.signum() || micro_score.abs() < 0.1;
-                    if agreement {
-                        result.ml_score * (1.0 + micro_score.abs() * 0.3)
-                    } else {
-                        result.ml_score * (1.0 - micro_score.abs() * 0.5).max(0.1)
-                    }
-                } else if result.ml_score.abs() > 0.0 {
-                    result.ml_score
-                } else if !tick_by_tick && micro_valid && micro_score.abs() > 0.5 {
-                    // Only use pure micro on bar close if tick-by-tick is disabled
-                    micro_score * 0.3
-                } else {
-                    0.0
-                };
+                let combined_score = combined_bar_score(result.ml_score, micro_sig.as_ref(), tick_by_tick);
 
                 if combined_score.abs() > 0.0 {
                     let lot_size = lot_sizes
@@ -1811,7 +1781,7 @@ async fn main() {
                             &order_tx,
                             &pending_orders,
                             &order_failure_count,
-                            ms.as_ref(),
+                            micro_sig.as_ref(),
                         );
                     }
                 }

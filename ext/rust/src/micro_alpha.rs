@@ -52,6 +52,7 @@ pub struct MicroAlphaSignal {
 
 struct TradeRecord {
     ts_ms: i64,
+    qty: f64,
     is_buy: bool,
     notional: f64,
 }
@@ -60,9 +61,9 @@ struct TradeRecord {
 pub struct MicroAlpha {
     config: MicroAlphaConfig,
     trades: VecDeque<TradeRecord>,
-    // Running stats for large trade detection
-    total_qty: f64,
-    trade_count: u64,
+    // Windowed running stats for large trade detection (decremented on eviction)
+    window_qty_sum: f64,
+    window_trade_count: u64,
     // Large trade events: (ts_ms, signed_notional)
     large_trades: VecDeque<(i64, f64)>,
     // Price samples for acceleration: (ts_ms, price)
@@ -74,8 +75,8 @@ impl MicroAlpha {
         Self {
             config,
             trades: VecDeque::with_capacity(2048),
-            total_qty: 0.0,
-            trade_count: 0,
+            window_qty_sum: 0.0,
+            window_trade_count: 0,
             large_trades: VecDeque::with_capacity(128),
             price_samples: VecDeque::with_capacity(256),
         }
@@ -85,13 +86,17 @@ impl MicroAlpha {
     pub fn push_trade(&mut self, ts_ms: i64, price: f64, qty: f64, is_buy: bool) {
         let notional = price * qty;
 
-        // Update running average for large trade detection
-        self.total_qty += qty;
-        self.trade_count += 1;
-        let mean_qty = self.total_qty / self.trade_count as f64;
+        // Update windowed running stats for large trade detection
+        self.window_qty_sum += qty;
+        self.window_trade_count += 1;
+        let mean_qty = if self.window_trade_count > 0 {
+            self.window_qty_sum / self.window_trade_count as f64
+        } else {
+            0.0
+        };
 
         // Detect large trade
-        if qty > mean_qty * self.config.large_trade_mult && self.trade_count > self.config.min_trades as u64 {
+        if qty > mean_qty * self.config.large_trade_mult && self.window_trade_count > self.config.min_trades as u64 {
             let signed = if is_buy { notional } else { -notional };
             self.large_trades.push_back((ts_ms, signed));
         }
@@ -99,6 +104,7 @@ impl MicroAlpha {
         // Record trade
         self.trades.push_back(TradeRecord {
             ts_ms,
+            qty,
             is_buy,
             notional,
         });
@@ -112,9 +118,13 @@ impl MicroAlpha {
         }
 
         // Evict old data (keep 2x window for stats stability)
+        // Decrement windowed stats when evicting trades
         let cutoff = ts_ms - self.config.window_ms * 2;
         while self.trades.front().map(|t| t.ts_ms < cutoff).unwrap_or(false) {
-            self.trades.pop_front();
+            if let Some(evicted) = self.trades.pop_front() {
+                self.window_qty_sum -= evicted.qty;
+                self.window_trade_count -= 1;
+            }
         }
         while self.large_trades.front().map(|(ts, _)| *ts < cutoff).unwrap_or(false) {
             self.large_trades.pop_front();
@@ -128,11 +138,25 @@ impl MicroAlpha {
     /// Compute all micro-alpha signals at current time.
     pub fn compute(&self, now_ms: i64) -> MicroAlphaSignal {
         let cutoff = now_ms - self.config.window_ms;
-        let window_trades: Vec<&TradeRecord> = self.trades.iter()
-            .filter(|t| t.ts_ms >= cutoff)
-            .collect();
 
-        let valid = window_trades.len() >= self.config.min_trades;
+        // Single pass over trades in window — no Vec allocation
+        let (mut buy_not, mut sell_not) = (0.0, 0.0);
+        let mut window_count = 0usize;
+        let mut window_vol = 0.0;
+        for t in self.trades.iter().rev() {
+            if t.ts_ms < cutoff {
+                break; // trades are time-ordered, no more in window
+            }
+            if t.is_buy {
+                buy_not += t.notional;
+            } else {
+                sell_not += t.notional;
+            }
+            window_vol += t.notional;
+            window_count += 1;
+        }
+
+        let valid = window_count >= self.config.min_trades;
 
         if !valid {
             return MicroAlphaSignal {
@@ -141,29 +165,18 @@ impl MicroAlpha {
                 large_trade_signal: 0.0,
                 price_acceleration: 0.0,
                 micro_score: 0.0,
-                trade_count: window_trades.len(),
+                trade_count: window_count,
                 valid: false,
             };
         }
 
         // 1. Trade flow imbalance: (buy_notional - sell_notional) / total_notional
-        let (mut buy_not, mut sell_not) = (0.0, 0.0);
-        for t in &window_trades {
-            if t.is_buy {
-                buy_not += t.notional;
-            } else {
-                sell_not += t.notional;
-            }
-        }
         let total_not = buy_not + sell_not;
         let trade_flow_imbalance = if total_not > 0.0 {
             (buy_not - sell_not) / total_not
         } else {
             0.0
         };
-
-        // 2. Volume spike: window volume rate vs overall average
-        let window_vol: f64 = window_trades.iter().map(|t| t.notional).sum();
         let window_secs = self.config.window_ms as f64 / 1000.0;
         let window_rate = window_vol / window_secs;
 
@@ -229,7 +242,7 @@ impl MicroAlpha {
             large_trade_signal,
             price_acceleration,
             micro_score,
-            trade_count: window_trades.len(),
+            trade_count: window_count,
             valid,
         }
     }

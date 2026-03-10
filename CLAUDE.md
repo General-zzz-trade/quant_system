@@ -7,12 +7,26 @@ pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test    # Rust unit tests (52 tests)
+cd ext/rust && cargo test    # Rust unit tests (57 tests)
 ```
 
 **CRITICAL after Rust build**: copy .so to local package (shadows system install):
 ```bash
 cp /usr/local/lib/python3.12/dist-packages/_quant_hotpath/*.so /opt/quant_system/_quant_hotpath/
+```
+
+**Binary build** (standalone Rust trader, requires Python linkage):
+```bash
+cd ext/rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-lpython3.12" cargo build --release --bin quant_trader
+./target/release/quant_trader --config config.testnet.yaml [--dry-run]
+```
+
+**Docker deployment**:
+```bash
+docker compose up -d trader-rust      # Start Rust trader (testnet)
+docker compose logs -f trader-rust    # Follow logs
+curl localhost:9090/metrics           # Prometheus metrics
+curl -X POST localhost:9090/kill      # Emergency kill switch
 ```
 
 ## Architecture
@@ -27,7 +41,8 @@ state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
 strategies/      HFT + multi-factor strategy implementations
-ext/rust/        Unified Rust crate -> _quant_hotpath (58 modules, ~18K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (67 modules, ~25K LOC)
+ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
@@ -37,15 +52,17 @@ infra/           Logging (structured JSON), networking
 scripts/         Training, walk-forward validation, alpha research
 ```
 
-**Data flow**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
+**Data flow (Python)**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
   (RustStateStore) -> DecisionModule -> ExecutionPolicy -> OrderRouter
-**Fast path**: Market event -> RustTickProcessor.process_tick_full() (features+predict+state+features_dict in one Rust call) -> DecisionModule
+**Fast path (Python)**: Market event -> RustTickProcessor.process_tick_full() (features+predict+state+features_dict in one Rust call) -> DecisionModule
+**Binary path**: Binance WS → parse_kline/aggTrade → RustTickProcessor.process_tick_native() → risk gates → WS-API order
 **Order path**: DecisionModule -> BinanceWsOrderGateway (WS-API, ~4ms) or REST fallback (~30ms)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 63 .rs modules, ~20,400 LOC
-- Exports: 63 classes + 106 functions
+- Single crate `_quant_hotpath`, 67 .rs modules, ~25,000 LOC
+- Exports: 64 classes + 106 functions
+- Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
@@ -68,6 +85,7 @@ Key exports:
 - TickProcessor: `RustTickProcessor` (full hot path: features+predict+state in single call), `RustTickResult`
 - WebSocket: `RustWsClient` (tokio-tungstenite, GIL-free recv+send), `rust_parse_agg_trade`
 - OrderGateway: `RustWsOrderGateway` (WS-API order submission with Rust HMAC signing, ~4ms vs ~30ms REST)
+- MicroAlpha: `MicroAlpha` (aggTrade-driven trade flow/volume/large trade signals)
 - Transport: `RustWsTransport` in `execution/adapters/binance/ws_transport_rust.py`
 
 ## Key Files
@@ -77,7 +95,9 @@ Key exports:
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
 - `features/enriched_computer.py` — 105 enriched feature definitions
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
-- `runner/live_runner.py` — Production entry point
+- `ext/rust/src/bin/main.rs` — Standalone Rust trading binary (WS + ML + orders)
+- `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
+- `runner/live_runner.py` — Production entry point (Python)
 
 ## Gotchas
 
@@ -91,3 +111,6 @@ Key exports:
 - `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
 - No Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
 - `features/_rolling_py.py` only has `rolling_apply` (RollingWindow class deleted)
+- Binary build requires `-lpython3.12` link flag (PyO3 symbols)
+- Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
+- Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet
