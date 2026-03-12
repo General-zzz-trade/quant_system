@@ -37,7 +37,14 @@ from scripts.train_v7_alpha import (
     BLACKLIST,
 )
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
-from scripts.backtest_alpha_v8 import _apply_monthly_gate, COST_PER_TRADE
+from scripts.backtest_alpha_v8 import COST_PER_TRADE
+from scripts.signal_postprocess import (
+    _apply_monthly_gate,
+    _apply_trend_hold,
+    _apply_vol_target,
+    _compute_bear_mask,
+    _enforce_min_hold,
+)
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 
@@ -121,36 +128,6 @@ def _apply_signal_filters(
                 sig[i] *= adaptive_sizing[r]
     return sig
 
-
-def _apply_trend_hold(
-    signal: np.ndarray,
-    trend_vals: np.ndarray,
-    trend_threshold: float,
-    max_hold: int,
-) -> np.ndarray:
-    """Extend long positions when trend is intact.
-
-    When signal transitions from positive to 0 (model says exit), check if the
-    trend indicator is still above threshold. If so, keep holding instead of
-    exiting, up to max_hold total bars in position.
-    """
-    out = signal.copy()
-    hold_count = 0
-    for i in range(len(out)):
-        if out[i] > 0:
-            hold_count += 1
-        elif i > 0 and out[i - 1] > 0 and out[i] == 0:
-            tv = trend_vals[i] if i < len(trend_vals) else float("nan")
-            if (not np.isnan(tv)
-                    and tv > trend_threshold
-                    and hold_count < max_hold):
-                out[i] = out[i - 1]
-                hold_count += 1
-            else:
-                hold_count = 0
-        else:
-            hold_count = 0
-    return out
 
 
 # ── Constants ────────────────────────────────────────────────
@@ -695,9 +672,7 @@ def run_fold(
         # Vol-adaptive sizing
         if vol_target is not None and vol_feature in test_df.columns:
             vol_vals = test_df[vol_feature].values.astype(np.float64)
-            for i in range(len(signal)):
-                if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
-                    signal[i] *= min(vol_target / vol_vals[i], 1.0)
+            signal = _apply_vol_target(signal, vol_vals, vol_target)
 
         # DD breaker
         if dd_limit is not None:
@@ -781,22 +756,6 @@ _BEAR_CLS_PARAMS = {
     "metric": "binary_logloss",
     "verbosity": -1,
 }
-
-
-def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
-    """Return boolean mask: True where close <= SMA(ma_window)."""
-    n = len(closes)
-    mask = np.zeros(n, dtype=bool)
-    if n < ma_window:
-        mask[:] = True
-        return mask
-    cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
-    mask = np.isnan(ma) | (closes <= ma)
-    return mask
-
 
 def _compute_bear_target(closes: np.ndarray, horizon: int = 24,
                           threshold: float = -0.02) -> np.ndarray:
@@ -1106,25 +1065,10 @@ def run_fold_strategy_f(
     # Vol-adaptive sizing
     if vol_target is not None and vol_feature in test_df.columns:
         vol_vals = test_df[vol_feature].values.astype(np.float64)
-        for i in range(len(signal)):
-            if signal[i] != 0.0 and not np.isnan(vol_vals[i]) and vol_vals[i] > 1e-8:
-                signal[i] *= min(vol_target / vol_vals[i], 1.0)
+        signal = _apply_vol_target(signal, vol_vals, vol_target)
 
     # Enforce min_hold (direct — signal is already discrete, not raw predictions)
-    held = np.zeros_like(signal)
-    held[0] = signal[0]
-    hold_count = 1
-    for i in range(1, len(signal)):
-        if hold_count < min_hold:
-            held[i] = held[i - 1]
-            hold_count += 1
-        else:
-            held[i] = signal[i]
-            if signal[i] != held[i - 1]:
-                hold_count = 1
-            else:
-                hold_count += 1
-    signal = held
+    signal = _enforce_min_hold(signal, min_hold)
 
     # DD breaker
     if dd_limit is not None:

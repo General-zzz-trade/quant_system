@@ -14,6 +14,8 @@ from scripts.walkforward_validate import (
     _compute_regime_labels,
     _apply_signal_filters,
     _apply_trend_hold,
+    _apply_vol_target,
+    _enforce_min_hold,
     WARMUP,
     DEADZONE,
     MIN_HOLD,
@@ -601,4 +603,42 @@ class TestApplyTrendHold:
         original = signal.copy()
         trend = np.array([0.05, 0.05, 0.05])
         _apply_trend_hold(signal, trend, trend_threshold=0.0, max_hold=10)
+        np.testing.assert_array_equal(signal, original)
+
+
+class TestApplyVolTarget:
+    def test_scales_non_zero_signals(self):
+        signal = np.array([1.0, -1.0, 0.0])
+        vol = np.array([0.05, 0.30, 0.10])
+        out = _apply_vol_target(signal, vol, vol_target=0.15)
+        np.testing.assert_allclose(out, np.array([1.0, -0.5, 0.0]))
+
+    def test_ignores_nan_and_zero_vol(self):
+        signal = np.array([1.0, 1.0, 1.0])
+        vol = np.array([np.nan, 0.0, 1e-12])
+        out = _apply_vol_target(signal, vol, vol_target=0.15)
+        np.testing.assert_allclose(out, signal)
+
+    def test_does_not_mutate_input(self):
+        signal = np.array([1.0, 0.5])
+        original = signal.copy()
+        _apply_vol_target(signal, np.array([0.1, 0.2]), vol_target=0.15)
+        np.testing.assert_array_equal(signal, original)
+
+
+class TestEnforceMinHold:
+    def test_holds_discrete_signal_until_expiry(self):
+        signal = np.array([1.0, -1.0, -1.0, -1.0])
+        out = _enforce_min_hold(signal, min_hold=3)
+        np.testing.assert_allclose(out, np.array([1.0, 1.0, 1.0, -1.0]))
+
+    def test_empty_input_safe(self):
+        signal = np.array([])
+        out = _enforce_min_hold(signal, min_hold=3)
+        assert out.size == 0
+
+    def test_does_not_mutate_input(self):
+        signal = np.array([1.0, 0.0, -1.0])
+        original = signal.copy()
+        _enforce_min_hold(signal, min_hold=2)
         np.testing.assert_array_equal(signal, original)

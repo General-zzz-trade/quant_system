@@ -33,6 +33,7 @@ from scripts.train_v7_alpha import (
     BLACKLIST,
 )
 from scripts.backtest_alpha_v8 import _pred_to_signal, COST_PER_TRADE
+from scripts.signal_postprocess import _compute_bear_mask as _shared_compute_bear_mask
 from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
 from infra.model_signing import sign_file
 
@@ -110,16 +111,9 @@ def _bootstrap_sharpe_pvalue(
 
 def _compute_bear_mask(closes: np.ndarray, ma_window: int = MA_WINDOW) -> np.ndarray:
     """Return boolean mask where close <= SMA(ma_window)."""
-    n = len(closes)
-    mask = np.zeros(n, dtype=bool)
-    if n < ma_window:
-        return mask
-    # Vectorized SMA via cumsum
-    cumsum = np.cumsum(closes)
-    cumsum = np.insert(cumsum, 0, 0.0)
-    sma = (cumsum[ma_window:] - cumsum[:-ma_window]) / ma_window
-    mask[ma_window - 1:] = closes[ma_window - 1:] <= sma
-    return mask
+    if len(closes) < ma_window:
+        return np.zeros(len(closes), dtype=bool)
+    return _shared_compute_bear_mask(closes, ma_window)
 
 
 def _evaluate_oos_short(

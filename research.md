@@ -1,792 +1,516 @@
-# Quant System — 深度代码库研究报告
+# Quant System 代码库研究报告
 
-> 版本: v3.0.0 (Rust 内核完成)
-> 语言: Python 3.12 + Rust (PyO3)
-> 定位: 事件驱动的加密货币永续合约量化交易系统
-> 规模: 942 Python 文件 + 58 Rust 模块 (~18,100 LOC)
-> 测试: 2,644 Python + 52 Rust 测试
-> 交易所: Binance, Bitget
+> 更新时间: 2026-03-12
+> 研究方式: 基于当前源码、运行时真相源、契约文档、改造计划、模型资产和测试结构逐层核对
+> 结论基准: 以当前代码和已落地文档为准，不以历史 README、旧计划或过时注释为准
 
 ---
 
-## 目录
+## 1. 执行摘要
 
-1. [系统概览与设计哲学](#1-系统概览与设计哲学)
-2. [顶层架构与模块地图](#2-顶层架构与模块地图)
-3. [Rust 内核 (`ext/rust/`)](#3-rust-内核-extrust)
-4. [引擎层 (`engine/`)](#4-引擎层-engine)
-5. [状态管理 (`state/`)](#5-状态管理-state)
-6. [事件系统 (`event/`)](#6-事件系统-event)
-7. [特征工程 (`features/`)](#7-特征工程-features)
-8. [决策系统 (`decision/`)](#8-决策系统-decision)
-9. [Alpha 模型 (`alpha/`)](#9-alpha-模型-alpha)
-10. [风控系统 (`risk/`)](#10-风控系统-risk)
-11. [执行层 (`execution/`)](#11-执行层-execution)
-12. [投资组合 (`portfolio/`)](#12-投资组合-portfolio)
-13. [市场体制识别 (`regime/`)](#13-市场体制识别-regime)
-14. [基础设施 (`infra/`, `monitoring/`)](#14-基础设施-infra-monitoring)
-15. [运行器 (`runner/`)](#15-运行器-runner)
-16. [研究与脚本 (`research/`, `scripts/`)](#16-研究与脚本-research-scripts)
-17. [测试体系](#17-测试体系)
-18. [端到端数据流](#18-端到端数据流)
-19. [关键设计模式](#19-关键设计模式)
-20. [Rust 迁移历程](#20-rust-迁移历程)
-21. [Walk-Forward 策略表现](#21-walk-forward-策略表现)
+这个仓库已经不是“策略脚本集合”，而是一个完整的量化交易平台雏形。它覆盖了：
 
----
+- 数据采集与质量校验
+- 事件模型与事件存储
+- 状态推进与快照
+- 特征计算与在线推理
+- 决策、风控、执行、对账、恢复
+- 回测、回放、paper、live
+- 研究、训练、模型注册、模型加载
+- 监控、告警、部署、运维脚本
 
-## 1. 系统概览与设计哲学
+当前最准确的判断是：
 
-### 1.1 定位
+> 代码库已经形成了功能闭环和较强的生产候选能力，但仍处于“持续收口”的中后期，而不是完全定型的最终形态。
 
-**机构级加密货币永续合约量化交易系统**，支持 Binance / Bitget 等交易所：
+最重要的现状有 6 条：
 
-- **回测** (backtest)：读取历史 CSV OHLCV 数据，模拟完整交易生命周期
-- **模拟盘** (paper trading)：与实时数据连接但不实际下单
-- **实盘** (live trading)：通过交易所 API 实际执行订单
+1. 默认生产主路径仍然是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
+2. 当前运行时是“Python 主编排 + Rust 热路径内核”的混合架构
+3. 状态推进已经显著收口到 Rust `process_event()` 写通道
+4. live / backtest / replay / scripts 的关键约束已经做过一轮系统收口
+5. execution recovery、incident policy、model governance 已从隐式习惯变成显式文档和测试
+6. Rust 第二阶段迁移已开始围绕 parity tests 和小范围 fallback 删除推进，但还没有完成 runtime 总替换
 
-### 1.2 核心设计哲学
+当前客观规模：
 
-| 原则 | 实现方式 |
-|------|----------|
-| **Rust 热路径** | 所有计算密集型代码在 Rust 中执行，Python 仅做编排 |
-| **事件驱动** | 所有状态变更由事件触发，通过 Dispatcher 路由 |
-| **确定性** | 相同事件序列 → 相同状态结果 |
-| **不可变状态** | 所有 State/Event 都是 frozen dataclass 或 Rust i64 定点数 |
-| **单写通道** | 状态仅通过 `rust_pipeline_apply()` 修改 |
-| **可审计** | EventHeader 因果链追溯、事件去重、全链路日志 |
-
-### 1.3 双语代码风格
-
-- 类/函数名：英文
-- 注释和文档：中文
-- 事件术语：事实事件(MARKET/FILL)、意见事件(SIGNAL/INTENT)、命令事件(ORDER)
+| 指标 | 当前值 |
+|---|---:|
+| Python 文件 | 971 |
+| Rust 文件 | 67 |
+| Markdown 文档 | 29 |
+| `tests/test_*.py` 文件 | 230 |
+| 顶层主功能目录 | `engine/`, `event/`, `state/`, `decision/`, `execution/`, `risk/`, `runner/`, `scripts/`, `research/`, `ext/rust/` |
 
 ---
 
-## 2. 顶层架构与模块地图
+## 2. 当前真实定位
 
-```
-quant_system/
-├── ext/rust/        # Rust PyO3 内核 (58 模块, ~18,100 LOC)
-├── _quant_hotpath/  # 编译后的 Rust .so 文件
-├── engine/          # 引擎层：Coordinator, Pipeline, Dispatcher, FeatureHook
-├── state/           # 状态层：Rust 适配器 + Python 类型定义
-├── event/           # 事件层：事件类型、Header、存储、回放、安全
-├── features/        # 特征工程：105 特征定义、跨资产、微观结构
-├── decision/        # 决策层：信号、定量、分配、执行策略
-├── alpha/           # Alpha 模型：LightGBM, XGBoost, LSTM, Transformer
-├── risk/            # 风控层：规则聚合器、Kill Switch、熔断器
-├── execution/       # 执行层：交易所适配器、订单状态机、安全机制
-├── portfolio/       # 组合层：优化器、风险模型
-├── regime/          # 体制识别：波动率、趋势
-├── strategies/      # HFT 策略：imbalance scalper
-├── runner/          # 运行器：live, paper, backtest
-├── monitoring/      # 监控：Prometheus, Grafana, Telegram
-├── infra/           # 基础设施：配置、日志、模型签名
-├── scripts/         # 训练、验证、数据下载、研究
-├── research/        # 实验追踪、Monte Carlo、灵敏度分析
-├── core/            # 基础抽象：时钟、Effects、类型
-├── attribution/     # PnL 归因
-├── deploy/          # Docker, K8s, Prometheus, Grafana 配置
-└── tests/           # 2,644 测试 (212 文件)
-```
+这个仓库的真实产品形态是：
 
-### 模块依赖层级
+- 场景: 加密永续合约 / 多资产量化交易
+- 形态: 平台型系统，不是单策略回测仓库
+- 架构: 事件驱动、事实推进状态、decision/execution 与 state 解耦
+- 运行: live、backtest、replay、paper 均存在
+- 技术方向: Python 控制面 + Rust 运行内核逐步上收
 
-```
-Layer 0 (Rust Kernel):  ext/rust/ → _quant_hotpath
-Layer 1 (Foundation):   core/, event/, state/
-Layer 2 (Engine):       engine/ (pipeline, coordinator, dispatcher, feature_hook)
-Layer 3 (Intelligence): features/ → decision/ → alpha/
-Layer 4 (Safety):       risk/ → portfolio/
-Layer 5 (Execution):    execution/ (adapters, state_machine, reconcile)
-Layer 6 (Integration):  runner/ → monitoring/ → infra/
-```
+更准确地说，它现在不是“Rust-only runtime”，也不是“Python-only monolith”，而是：
+
+> Python 负责装配、生态集成、研究训练和大量运行控制；Rust 负责越来越多的热路径、状态、特征、校验与确定性逻辑。
 
 ---
 
-## 3. Rust 内核 (`ext/rust/`)
+## 3. 代码库地图
 
-### 3.1 概述
+从目录结构看，仓库已经形成了清晰的平台分层。
 
-单一 Rust crate `_quant_hotpath`，通过 PyO3 + maturin 构建，覆盖所有计算热路径。
+### 3.1 核心运行层
 
-| 指标 | 值 |
-|------|-----|
-| 模块数 | 58 .rs 文件 |
-| 代码量 | ~18,100 LOC |
-| 导出数 | 161 (58 类 + 103 函数) |
-| Rust 测试 | 52 |
-| Cargo 依赖 | pyo3 0.23, serde 1, sha2, hmac, uuid |
+- [`engine`](/quant_system/engine): 协调器、dispatcher、pipeline、loop、replay
+- [`event`](/quant_system/event): 事件类型、header、codec、runtime、store、checkpoint
+- [`state`](/quant_system/state): 状态视图、Rust adapter、snapshot、versioning
+- [`runner`](/quant_system/runner): live/backtest/replay/paper 等运行入口
 
-### 3.2 模块分类
+### 3.2 决策与智能层
 
-#### 状态与管道 (核心)
+- [`features`](/quant_system/features): 技术指标、跨周期、微观结构、batch/live feature engine
+- [`alpha`](/quant_system/alpha): 模型封装、在线推理、training、model loader
+- [`decision`](/quant_system/decision): 信号、intents、allocators、execution policy、sizing、risk overlay
+- [`regime`](/quant_system/regime): regime 判定与桥接
 
-| 模块 | 职责 | 关键导出 |
-|------|------|----------|
-| `state_types.rs` | Fd8 定点数状态类型 | `RustMarketState`, `RustAccountState`, `RustPositionState` |
-| `state_reducers.rs` | 纯函数状态转换 | `RustMarketReducer`, `RustAccountReducer`, `RustPositionReducer` |
-| `state_store.rs` | 状态存储（Rust 堆） | `RustStateStore` — 状态常驻 Rust，按需导出 |
-| `pipeline.rs` | 事件→状态管道 | `rust_pipeline_apply()` — 单次 FFI 调用 |
-| `fixed_decimal.rs` | i64×10^8 定点数 | `Fd8` — 消除 Decimal 解析开销 |
-| `rust_events.rs` | 原生事件类型 | `RustMarketEvent`, `RustFillEvent`, `RustFundingEvent` |
+### 3.3 安全与执行层
 
-#### 特征计算
+- [`risk`](/quant_system/risk): kill switch、aggregator、correlation gate、rules
+- [`portfolio`](/quant_system/portfolio): 组合分配、优化、风险模型
+- [`execution`](/quant_system/execution): adapters、ingress、state machine、safety、reconcile、tca、latency、routing
 
-| 模块 | 职责 | 关键导出 |
-|------|------|----------|
-| `feature_engine.rs` | 105 特征增量计算 | `RustFeatureEngine` — `push_bar()` 增量推送 |
-| `cross_asset.rs` | 跨资产特征 | `RustCrossAssetComputer` — beta, correlation, EMA |
-| `factor_signals.rs` | 因子信号 | `rust_momentum_score`, `rust_volatility_score`, `rust_adx` |
-| `indicators.rs` | 技术指标内核 | EMA, RSI, MACD, Bollinger, ATR |
-| `microstructure.rs` | 微观结构 | `RustVPINCalculator`, `RustStreamingMicrostructure` |
-| `feature_selector.rs` | 特征选择 | IC/ICIR 计算、贪心选择 |
-| `fast_1m_features.rs` | 1 分钟高频特征 | 快速 1m bar 特征计算 |
-| `multi_timeframe.rs` | 多时间框架 | 4h 特征计算 |
+### 3.4 研究与运维层
 
-#### 风控与决策
+- [`research`](/quant_system/research): walk-forward、hyperopt、registry、retrain
+- [`scripts`](/quant_system/scripts): 训练、验证、研究、数据刷新、ops 工具层
+- [`monitoring`](/quant_system/monitoring): health、alerts、metrics、dashboards
+- [`deploy`](/quant_system/deploy): docker、k8s、prometheus、grafana、systemd
+- [`ext/rust`](/quant_system/ext/rust): `_quant_hotpath` PyO3 crate 和 standalone Rust trader
 
-| 模块 | 职责 | 关键导出 |
-|------|------|----------|
-| `risk_engine.rs` | 6 条风控规则 | `RustRiskEvaluator` |
-| `decision_math.rs` | 仓位定量 | `rust_fixed_fraction_qty()`, `rust_volatility_adjusted_qty()` |
-| `decision_signals.rs` | 策略数学 | `rust_rolling_sharpe`, `rust_max_drawdown`, `rust_strategy_weights` |
-| `decision_policy.rs` | 执行策略 | 限价/被动单策略 |
-| `portfolio_allocator.rs` | 组合分配 | `rust_allocate_portfolio()` |
-| `regime_buffer.rs` | 体制检测缓冲 | `RustRegimeBuffer` |
+结论不是“execution 很大”，而是：
 
-#### 基础设施
-
-| 模块 | 职责 |
-|------|------|
-| `event_store.rs` | 事件存储 |
-| `checkpoint_store.rs` | 检查点存储 |
-| `dedup_guard.rs` | 事件去重 |
-| `rate_limiter.rs` | 限速器 |
-| `signer.rs` | HMAC 签名 |
-| `order_state_machine.rs` | 订单状态机 |
-| `sequence_buffer.rs` | 序列缓冲 |
-
-### 3.3 命名约定
-
-- `cpp_*` 函数：C++ 迁移而来（保留原名兼容）
-- `rust_*` 函数：新写 Rust 内核
-- `Rust*` 类：Rust 原生类型
-
-### 3.4 Fd8 定点数
-
-所有价格/数量字段使用 `i64` 定点数（×10^8），消除 Python `Decimal` 的解析和格式化开销：
-
-```
-Python float → × 100_000_000 → Rust i64
-Rust i64 → ÷ 100_000_000 → Python float
-```
-
-`_SCALE = 100_000_000` 定义在 `state/rust_adapters.py`。
+> 这个仓库已经拥有交易系统的完整平台横截面，而不是一个研究仓库外挂执行器。
 
 ---
 
-## 4. 引擎层 (`engine/`)
+## 4. 当前运行时真相
 
-### 4.1 核心组件
+当前运行时真相以 [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md) 为准。
 
-| 文件 | 职责 |
-|------|------|
-| `coordinator.py` | 总控：持有状态，注册路由 handler，`emit()` 统一入口 |
-| `pipeline.py` | 状态管道：`rust_pipeline_apply()` 快速路径 + Python 后备 |
-| `dispatcher.py` | 事件路由：按类型分发到 PIPELINE/DECISION/EXECUTION |
-| `feature_hook.py` | 特征钩子：`RustFeatureEngine` 桥接 |
-| `loop.py` | 事件循环：线程安全入队 + 单线程批量处理 |
-| `tick_engine.py` | Tick 引擎：HFT tick 级处理 |
-| `execution_bridge.py` | 执行桥接：OrderEvent → 交易所 |
-| `module_reloader.py` | 模块热重载 |
+### 4.1 默认生产入口
 
-### 4.2 StatePipeline
+当前默认生产入口是：
 
-状态更新的唯一合法路径：
+- [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
 
-1. **事件归一化** (`normalize_to_facts`)：MARKET/FILL/ORDER → 标准化事实事件
-2. **Rust 快速路径**：`rust_pipeline_apply()` — 单次 FFI 调用完成所有 reducer
-3. **快照生成**：仅在状态变更时生成（`build_snapshot_on_change_only=True`）
-4. **event_index 推进**：仅有事实事件时 +1
+其他路径的定位：
 
-当无自定义 reducer 时自动使用 Rust 路径（`RustStateStore`）。
+- [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py): 历史回测入口
+- [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py): 回放与一致性验证入口
+- [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs): 重要的 standalone Rust trader 演进路径，但不是当前默认生产入口
 
-### 4.3 FeatureHook
+### 4.2 `LiveRunner` 的真实定位
 
-`feature_hook.py` 将 `RustFeatureEngine` 嵌入管道：
+[`runner/live_runner.py`](/quant_system/runner/live_runner.py) 不是一个薄入口，而是完整 runtime 装配器。当前会装配的关键部件包括：
 
-- 每个 MarketEvent 触发 `push_bar()`
-- 增量计算 105 个特征
-- 无 Python fallback — 必须有 Rust crate
+- `EngineCoordinator`
+- `EngineLoop`
+- `DecisionBridge`
+- `ExecutionBridge`
+- `FeatureComputeHook`
+- `KillSwitch`
+- `MarginMonitor`
+- `ReconcileScheduler`
+- `SystemHealthMonitor`
+- `AlertManager`
+- `LatencyTracker`
+- `OrderTimeoutTracker`
+- `OrderStateMachine`
+- `ModelRegistry` 自动加载相关 loader
+- user stream / venue client / health endpoint / persistence 等外围能力
 
-### 4.4 EventDispatcher 路由规则
+这意味着：
 
-| 事件类型 | 路由 |
-|----------|------|
-| MARKET, FILL, ORDER_UPDATE | `Route.PIPELINE` → 状态更新 |
-| SIGNAL, INTENT, RISK | `Route.DECISION` → 决策模块 |
-| ORDER | `Route.EXECUTION` → 执行层 |
-
-### 4.5 EngineCoordinator
-
-运行时总控，生命周期：INIT → RUNNING → STOPPED
-
-核心职责：
-- 持有所有引擎状态
-- 注册三条路由的 handler
-- Pipeline 输出后触发 DecisionBridge
-- DecisionBridge 产生的 OrderEvent 经 Dispatcher 路由到 ExecutionBridge
-- ExecutionBridge 产生的 FillEvent 经 Dispatcher 路由回 Pipeline
+> 生产 runtime 的复杂度主要在 Python 装配层，而不是已经完全下沉到了 Rust binary。
 
 ---
 
-## 5. 状态管理 (`state/`)
+## 5. 事件链与状态链
 
-### 5.1 双层状态
+### 5.1 当前统一事件链
 
-**Rust 层** (热路径)：
-- `RustStateStore` 持有 `RustMarketState`, `RustAccountState`, `RustPositionState`
-- 所有字段为 i64 定点数 (Fd8)
-- 状态常驻 Rust 堆，通过 `get_*()` 方法按需导出到 Python
+当前标准闭环可以概括为：
 
-**Python 层** (兼容)：
-- `MarketState`, `AccountState`, `PositionState` — frozen dataclass
-- 用于决策模块输入（只读快照）
-- `state/rust_adapters.py` 提供 Rust↔Python 转换
+```text
+Market / Replay / Backtest input
+  -> coordinator.emit()
+  -> EventDispatcher route
+  -> StatePipeline / RustStateStore.process_event()
+  -> snapshot
+  -> DecisionBridge
+  -> IntentEvent / OrderEvent
+  -> ExecutionBridge
+  -> venue adapter / algo / reconcile path
+  -> fill / reject / report-like result
+  -> dispatcher reinjection
+  -> pipeline 再推进状态
+```
 
-### 5.2 Reducer 模式
+这条链上的约束很清楚：
 
-纯函数状态转换：输入旧状态 + 事件 → 输出新状态 + changed 标志
+- decision 不直接改状态
+- execution 不直接改状态
+- 状态由事实事件推进
+- snapshot 是 decision 的标准输入
 
-Rust reducer 接受 Python 事件对象 (`&Bound<'_, PyAny>`)，返回 `RustReducerResult`。
+### 5.2 `EventDispatcher`
 
-### 5.3 Snapshot
+[`engine/dispatcher.py`](/quant_system/engine/dispatcher.py) 现在已经明显朝“Rust route matcher + Python handler dispatch”收口：
 
-`build_snapshot()` 将 Market + Account + Positions 打包为只读快照，供决策系统使用。
+- 路由决策使用 Rust `rust_route_event`
+- 去重使用 Rust `DuplicateGuard`
+- Python 负责 handler 注册和顺序执行
+
+并且此前残留的 `EventType` 导入 fallback 已删除，说明 dispatcher routing 现在已经以 Rust 路由器为真相源。
+
+### 5.3 `StatePipeline`
+
+[`engine/pipeline.py`](/quant_system/engine/pipeline.py) 是当前最关键的制度边界之一。
+
+当前事实：
+
+- `normalize_to_facts()` 走 Rust `rust_normalize_to_facts`
+- `event kind` 检测走 Rust `rust_detect_event_kind`
+- 真正状态推进走 `store.process_event(inp.event, inp.symbol_default)`
+- Python 负责快照生成、Rust state lazy conversion、向决策层暴露可读视图
+
+这说明系统已经不是“Python reducer 为主、Rust 做优化”，而是：
+
+> Rust 已经是状态推进和事实归一化的真正内核；Python 主要承担外层编排、导出和桥接。
 
 ---
 
-## 6. 事件系统 (`event/`)
+## 6. Ownership Matrix 结论
 
-### 6.1 事件类型
+基于当前代码和文档，ownership 可以归纳为：
 
-| 事件 | 类型 | 用途 |
-|------|------|------|
-| `MarketEvent` | 事实 | OHLCV K线/行情 |
-| `FillEvent` | 事实 | 成交回报 |
-| `FundingEvent` | 事实 | 资金费率结算 |
-| `SignalEvent` | 意见 | 策略信号 (side + strength) |
-| `IntentEvent` | 意见 | 交易意图 (target_qty + reason) |
-| `OrderEvent` | 命令 | 订单指令 (price + qty) |
-| `RiskEvent` | 裁决 | 风控结果 |
-| `ControlEvent` | 控制 | 系统控制 (halt/resume/shutdown) |
-
-### 6.2 EventHeader
-
-每个事件携带 `EventHeader`：
-- `event_id`: UUID 唯一标识
-- `root_event_id`: 根因事件 ID
-- `parent_event_id`: 父事件 ID
-- `ts_ns`: 纳秒级时间戳
-
-### 6.3 Rust 原生事件
-
-`RustMarketEvent`, `RustFillEvent`, `RustFundingEvent` 在 Rust 侧直接构造，避免 Python 对象创建开销（23.9x 加速）。
-
-### 6.4 其他组件
-
-| 文件 | 职责 |
-|------|------|
-| `store.py` | 事件持久化存储 |
-| `checkpoint.py` | 检查点保存/恢复 |
-| `replay.py` | 事件重放 |
-| `security.py` | 事件安全（白名单授权） |
-| `bootstrap.py` | 事件系统初始化 |
+| 子系统 | 当前 owner | 说明 |
+|---|---|---|
+| 运行时总控 | Python | `LiveRunner`, `EngineCoordinator`, `EngineLoop` |
+| 事件路由与去重热路径 | Rust 主导，Python 包装 | dispatcher 已显著上收 |
+| 状态推进 | Rust 主导 | `RustStateStore.process_event()` 是核心写通道 |
+| pipeline 外层 | Python | snapshot、导出、桥接 |
+| 特征热路径 | 混合，Rust 更重 | `FeatureComputeHook` 管理 Rust engines |
+| 推理约束状态 | Rust 主导，Python 编排 | live inference bridge 已与 Rust 强耦合 |
+| 决策编排 | Python | `DecisionBridge`, modules, strategy assembly |
+| execution transport / adapter | Python | 交易所 IO 和生态 glue 仍在 Python |
+| execution 纯逻辑 | 混合，向 Rust 迁移 | safety / sequence / route / state machine 已有候选 |
+| 研究训练 | Python | `research/`, `scripts/`, model training |
+| 监控与运维 | Python | dashboards、alerts、deploy、ops |
 
 ---
 
-## 7. 特征工程 (`features/`)
+## 7. 执行层评估
 
-### 7.1 核心组件
+[`execution`](/quant_system/execution) 是当前最大的生产子系统，也是最像真正实盘平台的一层。
 
-| 文件 | 职责 |
-|------|------|
-| `enriched_computer.py` | 105 特征定义 (`ENRICHED_FEATURE_NAMES`) |
-| `live_computer.py` | 在线特征计算（实盘/模拟盘） |
-| `batch_feature_engine.py` | 批量特征计算（回测） |
-| `cross_asset_computer.py` | 跨资产特征 → 委托 `RustCrossAssetComputer` |
-| `dynamic_selector.py` | 动态特征选择（IC/ICIR） |
-| `cross_sectional.py` | 截面特征 |
-| `multi_timeframe.py` | 多时间框架特征（4h） |
-| `multi_resolution.py` | 多分辨率特征 |
-| `rolling.py` | 滚动窗口 → `RollingWindow` (Rust) |
+它包含：
 
-### 7.2 特征计算架构
+- `adapters/`: Binance、generic venue、stream transport、REST/WS glue
+- `ingress/`: payload dedup、router、sequence handling
+- `safety/`: duplicate guard、out-of-order guard、timeout tracker、risk gate
+- `state_machine/`: transitions、machine、projection
+- `reconcile/`: drift 检测、scheduler、healer
+- `routing/`, `algos/`, `sim/`, `latency/`, `tca/`, `observability/`
 
-**实盘路径**：
-```
-MarketEvent → FeatureHook → RustFeatureEngine.push_bar() → 105 features (增量)
-```
+### 7.1 当前 execution contract
 
-**回测路径**：
-```
-DataFrame → batch_feature_engine.compute_features_batch() → cpp_compute_all_features() → DataFrame
-```
+[`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md) 已经把以下东西显式化：
 
-### 7.3 105 特征分类
+- 合法订单状态
+- `pending_cancel -> filled` 是允许路径
+- timeout 是本地观测超时，不是 venue 未成交的证明
+- `CanonicalFill` 是执行层标准成交事实对象
+- incident matrix 定义了 timeout、late fill、duplicate fill、restart drift 的默认动作
 
-- **价格类**: 多窗口收益率、log 收益率、z-score
-- **波动率类**: 实现波动率、Parkinson、ATR
-- **动量类**: RSI、MACD、ROC、ADX
-- **成交量类**: VWAP 偏离、OBV、成交量 z-score
-- **微观结构**: Kyle Lambda、VPIN、order imbalance
-- **跨资产**: BTC beta、correlation、relative strength
-- **体制**: 波动率体制、趋势同步
-- **多时间框架**: 4h EMA/RSI/volatility
+### 7.2 当前 recovery 现状
 
-### 7.4 CrossAssetComputer
+此前已经补齐的恢复类测试，意味着 execution recovery 已经不只是“模块存在”，而是有组合测试护栏：
 
-跨资产特征计算委托给 `RustCrossAssetComputer`：
-- 滚动 beta、correlation、EMA
-- **关键约束**：必须先推送 benchmark (BTCUSDT)，再推送 altcoins
+- [`tests/integration/test_execution_recovery_e2e.py`](/quant_system/tests/integration/test_execution_recovery_e2e.py)
+- [`tests/integration/test_execution_timeout_restart_recovery.py`](/quant_system/tests/integration/test_execution_timeout_restart_recovery.py)
+- [`tests/execution_safety/test_late_execution_report.py`](/quant_system/tests/execution_safety/test_late_execution_report.py)
+- [`tests/execution_safety/test_cancel_replace_flow.py`](/quant_system/tests/execution_safety/test_cancel_replace_flow.py)
+
+这说明系统已经开始从“能恢复”转向“恢复行为可验证”。
+
+### 7.3 仍未完全收口的点
+
+execution 仍然有一个重要未完事项：
+
+- 公共事件层 `FillEvent` 与执行层 `CanonicalFill` 还没有完全统一成单一事实模型
+
+因此 execution 已经很强，但还没到“语义完全收官”的状态。
 
 ---
 
-## 8. 决策系统 (`decision/`)
+## 8. 决策、约束与跨路径一致性
 
-### 8.1 决策引擎流水线
+这部分是最近收口最明显的区域。
 
-```
-Snapshot → Risk Overlay Gate → Signal Generation → Candidate Generation
-    → Candidate Filtering → Allocation → Constraints → Sizing
-    → Target Position → Intent Building → Execution Policy → OrderSpec
-```
+### 8.1 当前三层真相源
 
-### 8.2 信号模型
+当前关键约束语义由三层构成：
 
-```
-decision/signals/
-├── technical/        # MA交叉, 突破, RSI, MACD, 布林带, 均值回归, 网格
-├── factors/          # momentum, volatility, liquidity, carry, volume_price_div
-│                     # (全部委托 Rust: rust_*_score)
-├── feature_signal.py # 特征信号 → rust_compute_feature_signal()
-└── ensemble.py       # 信号集成
-```
+- live 语义源: [`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py)
+- backtest 对齐实现: [`decision/backtest_module.py`](/quant_system/decision/backtest_module.py)
+- scripts 共享后处理: [`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py)
 
-### 8.3 仓位定量
+### 8.2 已收口的约束
 
-- `rust_fixed_fraction_qty()` — 固定比例定量 (Rust)
-- `rust_volatility_adjusted_qty()` — 波动率调整定量 (Rust)
-- `rust_apply_allocation_constraints()` — 约束应用 (Rust)
+基于最近的改造，以下约束已经做过跨路径对齐：
 
-### 8.4 执行策略
+- `deadzone`
+- `min_hold`
+- `trend_follow / trend_hold`
+- `monthly_gate`
+- `vol_target`
+- 离散退出规则 `should_exit_position`
+- `rolling_zscore`
 
-- `marketable_limit.py` — 可成交限价单（市价 + 滑点偏移）
-- `passive.py` — 被动挂单
+### 8.3 已落地的 parity / contract 护栏
 
-### 8.5 多策略管理
+关键测试包括：
 
-`multi_strategy.py` 支持多策略权重分配：
-- `rust_rolling_sharpe()` — 滚动 Sharpe ratio
-- `rust_max_drawdown()` — 最大回撤
-- `rust_strategy_weights()` — 权重计算 (equal/sharpe/inverse_vol)
+- [`tests/unit/decision/test_backtest_live_parity.py`](/quant_system/tests/unit/decision/test_backtest_live_parity.py)
+- [`tests/unit/decision/test_backtest_module_constraints.py`](/quant_system/tests/unit/decision/test_backtest_module_constraints.py)
+- [`tests/unit/scripts/test_backtest_engine_constraints.py`](/quant_system/tests/unit/scripts/test_backtest_engine_constraints.py)
+- [`tests/contract/test_runtime_contracts.py`](/quant_system/tests/contract/test_runtime_contracts.py)
+- [`tests/replay/test_replay_vs_live_equivalence.py`](/quant_system/tests/replay/test_replay_vs_live_equivalence.py)
 
-### 8.6 Regime Bridge
+结论：
 
-`regime_bridge.py` 使用 `RustRegimeBuffer` 进行体制检测缓冲，替代 Python `_PriceBuffer`。
+> 这部分已经不再是“大家大概一致”，而是开始有系统的行为级护栏。
 
 ---
 
-## 9. Alpha 模型 (`alpha/`)
+## 9. `scripts/` 模块评估
 
-### 9.1 模型架构
+[`scripts`](/quant_system/scripts) 当前不是线上主 runtime，而是围绕主系统的工具层。
 
-| 文件 | 模型 | 用途 |
-|------|------|------|
-| `models/lgbm_alpha.py` | LightGBM | **生产主力** (models_v8/) |
-| `models/xgb_alpha.py` | XGBoost | 备选 |
-| `models/lstm_alpha.py` | LSTM | 深度学习实验 |
-| `models/transformer_alpha.py` | Transformer | 深度学习实验 |
-| `models/ensemble.py` | 集成模型 | 多模型融合 |
-| `models/ma_cross.py` | 均线交叉 | 基线策略 |
+### 9.1 当前定位
 
-### 9.2 推理管道
+[`scripts/README.md`](/quant_system/scripts/README.md) 已明确：
 
-```
-alpha/inference/bridge.py → model_loader.py → LightGBM predict
-```
+- `train`
+- `validate`
+- `research`
+- `data`
+- `ops`
+- `shared`
 
-- 模型签名验证 (`infra/model_signing.py`)：HMAC-SHA256
-- 漂移检测 (`monitoring/drift_adapter.py`)
-- OOD 检测 (`monitoring/ood_detector.py`)
+六大逻辑分组，并由 [`scripts/catalog.py`](/quant_system/scripts/catalog.py) 作为分类真相源。
 
-### 9.3 训练
+### 9.2 当前主力入口
 
-- `training/purged_split.py` — Purged K-Fold（防前视偏差）
-- `training/regime_split.py` — 按体制分割
-- `signal_transform.py` — 信号变换
+当前已经被显式标记为 `official` / `recommended` / `specialized` / `legacy-reference` 的主脚本包括：
 
----
+- `train_v11.py`
+- `backtest_engine.py`
+- `walkforward_validate.py`
+- `run_paper_trading.py`
+- `testnet_smoke.py`
+- `refresh_data.py`
+- 多个 specialized 训练和验证脚本
 
-## 10. 风控系统 (`risk/`)
+### 9.3 当前共享 helper
 
-### 10.1 RustRiskEvaluator (6 条规则)
+[`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py) 已经成为 scripts 层的后处理真相源，承载：
 
-在 Rust 中实现，单次 FFI 调用评估所有规则：
+- `rolling_zscore`
+- `_apply_monthly_gate`
+- `_apply_trend_hold`
+- `_apply_vol_target`
+- `_enforce_min_hold`
+- `should_exit_position`
+- `_compute_bear_mask`
 
-| 规则 | 职责 |
-|------|------|
-| MaxPosition | 单品种最大持仓 |
-| MaxLeverage | 杠杆上限 |
-| MaxDrawdown | 最大回撤限制 |
-| MaxExposure | 总敞口限制 |
-| Concentration | 集中度限制 |
-| CircuitBreaker | 连续亏损熔断 |
+### 9.4 结论
 
-### 10.2 Python 编排层
+`scripts/` 仍然是历史沉积最重的目录之一，但和此前不同的是：
 
-| 文件 | 职责 |
-|------|------|
-| `aggregator.py` | 规则聚合器（可插拔、短路优化） |
-| `kill_switch.py` | 熔断开关（HARD_KILL / REDUCE_ONLY，支持 TTL） |
-| `rules/max_drawdown.py` | 最大回撤规则（Python，触发后允许减仓） |
-| `margin_monitor.py` | 保证金监控 |
-| `meta_builder_live.py` | 实盘 meta 构建 |
-
-### 10.3 风控决策模型
-
-```
-RiskAction: ALLOW / REJECT / REDUCE / KILL
-RiskScope: SYMBOL / STRATEGY / PORTFOLIO / ACCOUNT / GLOBAL
-合并策略: KILL > REJECT > REDUCE > ALLOW
-```
+> 它现在已经开始被治理，而不是继续无边界增长。
 
 ---
 
-## 11. 执行层 (`execution/`)
+## 10. 模型层与模型治理
 
-### 11.1 交易所适配器
+### 10.1 模型类型
 
-**Binance** (`execution/adapters/binance/`):
-- REST API 调用（下单/查询/取消）
-- WebSocket 实时推送
-- K线/深度/资金费率/清算/OI 数据源
-- HMAC 签名认证
-- 限速管理
+代码层支持的模型类型包括：
 
-**Bitget** (`execution/adapters/bitget/`):
-- REST + WebSocket
-- 订单/成交/仓位/余额映射器
-- 去重机制
+- [`LGBMAlphaModel`](/quant_system/alpha/models/lgbm_alpha.py)
+- [`XGBAlphaModel`](/quant_system/alpha/models/xgb_alpha.py)
+- [`EnsembleAlphaModel`](/quant_system/alpha/models/ensemble.py)
+- [`LSTMAlphaModel`](/quant_system/alpha/models/lstm_alpha.py)
+- [`TransformerAlphaModel`](/quant_system/alpha/models/transformer_alpha.py)
 
-### 11.2 订单状态机
+实际仓库资产的主力仍然是 tree-based / ensemble 路径，而不是深度序列模型。
 
-`execution/state_machine/machine.py`:
-```
-PENDING_NEW → NEW → PARTIALLY_FILLED → FILLED
-    │          │
-    ↓          ↓
-  REJECTED   CANCELED / EXPIRED
-```
+### 10.2 当前模型资产
 
-线程安全，严格状态转换验证，历史追踪。
+[`models_v8`](/quant_system/models_v8) 下的主资产仍然集中在：
 
-### 11.3 安全机制
+- BTC gate 系列
+- ETH gate 系列
+- 4h / 15m / 30m 等 specialized 资产
+- SOL gate / bear 路径
 
-| 文件 | 职责 |
-|------|------|
-| `safety/duplicate_guard.py` | 重复订单检测 |
-| `safety/risk_gate.py` | 执行前风控闸门 |
-| `safety/timeout_tracker.py` | 订单超时追踪 |
-| `reconcile/scheduler.py` | 定期对账 |
+当前 registry 中标记为 production 的模型有 2 个：
 
-### 11.4 模拟执行
+- `alpha_v8_4h_BTCUSDT`
+- `alpha_v8_BTCUSDT`
 
-`execution/sim/` 提供回测执行适配器：即时成交、滑点模拟、手续费计算、embargo 机制。
+### 10.3 当前治理现状
 
----
+[`docs/model_governance.md`](/quant_system/docs/model_governance.md) 已经明确了：
 
-## 12. 投资组合 (`portfolio/`)
+- `ModelRegistry` 负责注册、元数据、production 标记
+- `ProductionModelLoader` 负责加载当前 production model 并在 `model_id` 变化时 reload
+- `shadow_compare.py` 负责 candidate vs production 的准入比较
 
-### 12.1 优化器
+最近已落地的关键收口：
 
-- Black-Litterman 模型
-- 目标函数：最小方差、最大夏普、风险平价
-- 约束：权重范围、杠杆限制、资产数
+- loader 增加了 feature schema mismatch 拒绝加载
+- registry / loader / rollback / reload 已有测试
 
-### 12.2 风险模型
-
-```
-portfolio/risk_model/
-├── volatility/     # 波动率估计 (历史, EWMA)
-├── correlation/    # 滚动相关性
-├── covariance/     # 协方差矩阵 (EWMA, 样本)
-├── factor/         # 因子模型 (暴露, 协方差, 特异风险)
-├── stress/         # 压力测试
-├── calibration/    # 模型校准
-└── aggregation/    # 风险聚合
-```
-
-### 12.3 Rust 组合分配
-
-`rust_allocate_portfolio()` 在 Rust 中执行约束数学：
-- 杠杆上限缩放
-- 单品种名义值上限
-- 换手率上限
-- weight → notional → qty 转换
+这说明模型治理已经从“脚本习惯”开始转向“制度 + 测试”。
 
 ---
 
-## 13. 市场体制识别 (`regime/`)
+## 11. Rust 内核现状
 
-| 文件 | 职责 |
-|------|------|
-| `base.py` | `RegimeLabel` 基类 |
-| `state.py` | `RegimeState` — 存储最新体制标签 |
-| `volatility.py` | 波动率体制检测（阈值比较） |
-| `trend.py` | 趋势体制检测（阈值比较） |
+[`ext/rust`](/quant_system/ext/rust) 不是装饰层，而是真正的热路径内核。
 
-`RustRegimeBuffer` 在 Rust 中维护价格缓冲区，`regime_bridge.py` 使用它进行体制判定。
+### 11.1 当前已深度接管的区域
 
----
+从代码和替换矩阵看，Rust 已深度进入：
 
-## 14. 基础设施 (`infra/`, `monitoring/`)
+- dispatcher routing
+- event kind / fact normalization
+- state store / reducers
+- feature hot path
+- inference constraint 部分逻辑
+- duplicate / payload dedup / sequence buffer
+- 一部分 execution store / hashing / request id / signer
 
-### 14.1 基础设施
+### 11.2 当前 Phase 4 候选
 
-| 文件 | 职责 |
-|------|------|
-| `config/load.py` | 配置加载（YAML + 环境变量） |
-| `logging/setup.py` | 结构化 JSON 日志 |
-| `model_signing.py` | 模型签名与验证（HMAC-SHA256） |
-| `runtime/run_context.py` | 运行时上下文 |
-| `threading_utils.py` | 线程安全工具 |
-| `messaging/zmq_backend.py` | ZMQ 消息后端 |
+[`docs/rust_replacement_matrix.md`](/quant_system/docs/rust_replacement_matrix.md) 已明确第二阶段候选：
 
-### 14.2 监控
+- timeout / sequencing helpers
+- dispatcher routing core
+- order projection / reconcile kernel
+- backtest signal constraint kernel
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Prometheus | `monitoring/metrics.py` | 指标导出 |
-| Grafana | `deploy/grafana/` | 交易仪表盘 |
-| Telegram | `monitoring/alerts/telegram.py` | 告警推送 |
-| Health | `monitoring/health_server.py` | 健康检查 HTTP 端点 (127.0.0.1) |
-| SLO | `monitoring/slo.py` | SLO/SLI 追踪 |
-| Drift | `alpha/monitoring/drift_adapter.py` | 模型漂移检测 |
+### 11.3 当前真实状态
 
-### 14.3 部署
+必须强调：
 
-```
-deploy/
-├── k8s/          # Kubernetes: deployment, HPA, leader election, secrets
-├── argocd/       # ArgoCD: rollout, analysis template, rollback
-├── prometheus/   # Prometheus: alerts, alertmanager
-├── grafana/      # Grafana: dashboards, datasources
-└── systemd/      # systemd service + logrotate
-```
-
-Docker 多阶段构建：builder (Rust 编译) → runtime (非 root 用户)。
+- Rust 已经非常深入
+- 但系统还没有切到“Rust-only runtime”
+- Python 仍然掌管 runtime 装配、adapter IO、研究训练、ops 生态
 
 ---
 
-## 15. 运行器 (`runner/`)
+## 12. 测试结构评估
 
-| 文件 | 模式 | 说明 |
-|------|------|------|
-| `live_runner.py` | 实盘 | 连接交易所 API，实际下单 |
-| `live_paper_runner.py` | 模拟盘 | 实时数据 + 模拟执行 |
-| `backtest_runner.py` | 回测 | CSV 数据 + 模拟执行 |
-| `graceful_shutdown.py` | 优雅关闭 | 信号处理 + 状态保存 |
-| `testnet_validation.py` | Testnet 验证 | 测试网冒烟测试 |
+当前测试结构已经明显超出普通量化仓库水平，至少覆盖了：
 
----
+- unit
+- contract
+- replay
+- integration
+- persistence
+- regression
+- performance
+- execution safety
 
-## 16. 研究与脚本 (`research/`, `scripts/`)
+其中更高价值的测试类型包括：
 
-### 16.1 研究工具
+- live/backtest parity
+- replay vs live equivalence
+- timeout / restart / late fill 恢复
+- dispatcher / sequence buffer 的 Rust parity
+- model loader / registry / rollback / schema mismatch
 
-| 文件 | 职责 |
-|------|------|
-| `monte_carlo.py` | Monte Carlo 模拟 |
-| `sensitivity.py` | 参数灵敏度分析 |
-| `significance.py` | 统计显著性检验 |
-| `experiment.py` | 实验追踪框架 |
-| `model_registry/artifact.py` | 模型版本管理 |
+结论不是“测试很多”，而是：
 
-### 16.2 关键脚本
-
-| 脚本 | 用途 |
-|------|------|
-| `backtest_alpha_v8.py` | V8 回测主入口 |
-| `walkforward_validate.py` | Walk-forward 验证 |
-| `train_v8_production.py` | BTC 生产模型训练 |
-| `train_eth_production.py` | ETH 生产模型训练 |
-| `train_sol_production.py` | SOL 生产模型训练 |
-| `ic_analysis_v9.py` | IC 分析 |
-| `download_binance_klines.py` | 历史数据下载 |
-| `sweep_params.py` | 参数扫描 |
-| `oos_eval.py` | 样本外评估 |
+> 当前测试已经开始承担架构收口工具的角色，而不是只做功能回归。
 
 ---
 
-## 17. 测试体系
+## 13. 完成度评估
 
-### 17.1 测试规模
+### 13.1 已经完成的部分
 
-| 类型 | 数量 |
-|------|------|
-| Python 测试 | 2,644 |
-| Rust 测试 | 52 |
-| 测试文件 | 212 |
-| 测试分类 | unit, integration, regression |
+- 功能闭环已经形成
+- 默认生产主路径已经明确
+- 运行时真相源已建立
+- execution incident policy 已成文档
+- model governance 已开始成体系
+- scripts 已开始治理
+- Rust 第二阶段迁移已有候选和 parity tests
 
-### 17.2 测试结构
+### 13.2 尚未完全完成的部分
 
-```
-tests/
-├── unit/                    # 单元测试
-│   ├── engine/              # 管道、调度、特征钩子、状态存储
-│   ├── features/            # 特征计算、Rust 一致性、选择器
-│   ├── decision/            # 信号、定量、rebalance
-│   ├── alpha/               # 模型、推理、漂移
-│   ├── execution/           # 适配器、状态机、Bitget
-│   ├── state/               # 状态类型、Rust 适配器
-│   ├── risk/                # Rust 风控评估器
-│   ├── portfolio/           # 优化器、风险模型
-│   ├── event/               # 事件存储、检查点
-│   ├── runner/              # 运行器、预检
-│   ├── scripts/             # 脚本单元测试
-│   └── ...
-├── integration/             # 集成测试
-│   ├── engine_state/        # 引擎-状态一致性
-│   ├── test_production_integration_e2e.py
-│   └── ...
-└── regression/              # 回归测试
-    ├── test_known_bug_cases.py
-    ├── test_pnl_regression.py
-    └── test_strategy_regression.py
-```
+- `CanonicalFill` 与公共 `FillEvent` 的彻底统一
+- Python/Rust 双栈边界的进一步简化
+- 更多 execution 纯逻辑向 Rust 上收
+- 部分研究脚本的局部差异语义是否长期保留
+- standalone Rust trader 何时取代 Python live runtime，当前仍未完成
 
-### 17.3 关键一致性测试
+### 13.3 最准确的整体判断
 
-- `test_rust_parity.py` / `test_rust_parity_v2.py` — Rust vs Python 计算一致性
-- `test_feature_engine_parity.py` — C++ 批量引擎 vs Python 特征一致性
-- `test_rust_technical_parity.py` — Rust 技术指标一致性
-- `test_cross_asset.py` — Rust 跨资产计算一致性
-- `test_pipeline_consistency.py` — 管道状态一致性
+如果必须用一句话总结：
+
+> 这是一个已经具备真实量化交易平台骨架、测试护栏和生产候选能力的中大型代码库；当前主要任务已从“补功能”转为“继续收口真相源、统一语义并降低双栈维护成本”。
 
 ---
 
-## 18. 端到端数据流
+## 14. 当前风险与技术债
 
-### 18.1 实盘数据流
+最重要的技术债已经不再是“缺模块”，而是下面这些收口问题：
 
-```
-Binance WebSocket → MarketEvent
-    ↓
-EngineCoordinator.emit()
-    ↓
-EventDispatcher.dispatch()
-    ↓
-StatePipeline → rust_pipeline_apply() → RustStateStore 状态更新
-    ↓
-FeatureHook → RustFeatureEngine.push_bar() → 105 features
-    ↓
-ML Inference → LightGBM predict
-    ↓
-DecisionBridge → Signal → Intent → OrderSpec
-    ↓
-RiskEvaluator → RustRiskEvaluator (6 rules)
-    ↓
-ExecutionBridge → Binance REST API
-    ↓
-FillEvent → 回注 Dispatcher → Pipeline 更新 Account + Position
-```
+1. execution 公共事实模型仍未完全统一
+2. Python runtime 与 standalone Rust runtime 并存，长期 ownership 解释成本仍高
+3. `scripts/` 虽已治理，但历史沉积仍深
+4. 一些 specialized / research 语义仍有局部包装，不是完全统一实现
 
-### 18.2 回测数据流
+但相比前一阶段，当前明显改善的是：
 
-```
-CSV OHLCV → MarketEvent → [同上流程]
-    ↓
-BacktestExecutionAdapter (即时成交, 滑点, 手续费)
-    ↓
-equity_curve.csv + fills.csv + summary.json
-```
+- 真相源已经成文档
+- 关键差异已开始有 parity tests
+- 恢复类 case 已开始有组合集成测试
+- 模型上线不再完全依赖人工约定
 
 ---
 
-## 19. 关键设计模式
+## 15. 结论
 
-| 模式 | 位置 | 说明 |
-|------|------|------|
-| **Rust FFI 加速** | `ext/rust/` | Python 编排 + Rust 计算的双层架构 |
-| **事件溯源** | `engine/pipeline.py` | 状态由事件序列确定性推导 |
-| **CQRS** | `engine/coordinator.py` | 写路径 (Pipeline) 与读路径 (Snapshot) 分离 |
-| **Reducer** | `state/reducers/` | 纯函数状态转换 (Redux-like) |
-| **Protocol Design** | 全局 | Python Protocol 定义接口契约 |
-| **薄包装模式** | `features/`, `decision/signals/factors/` | Python 提取数据 → Rust 计算 → Python 包装结果 |
-| **固定点数** | `fixed_decimal.rs` | i64×10^8 消除 Decimal 开销 |
+当前代码库的真实结论如下：
 
----
+- 它已经形成了研究、验证、回测、paper、live、恢复、运维的完整闭环
+- 它当前默认仍以 Python live runtime 为生产主路径
+- Rust 已经深度接管运行内核的关键热路径
+- 最近一轮改造已经把约束状态机、execution incident policy、scripts 治理、model governance、Rust parity 护栏明显收口
+- 它还没有完全开发收官，但已经进入“收尾与定型”阶段，而不是“早期搭框架”阶段
 
-## 20. Rust 迁移历程
+因此，当前最准确的总体评价是：
 
-### P0: C++ → Rust (完成)
-
-5,744 LOC C++ pybind11 → ~5,100 LOC Rust PyO3。`ext/rolling/` 已归档。
-
-### P1: 内核迁移 (完成)
-
-+3,631 LOC Rust — state types, reducers, pipeline, guards, validators。
-
-### P2: 深度集成 (完成)
-
-4 个子阶段：JSON 消除 (5.67x)、Fd8 定点数、决策数学、RustStateStore (5.11x)。
-
-### P3: 热路径迁移 (完成)
-
-事件 (23.9x)、风控 (RustRiskEvaluator)、特征引擎 (RustFeatureEngine 105 features)。
-
-### P4: Fallback 删除 + 新模块 (完成)
-
-删除 Python fallback、添加微观结构/regime/signal Rust 模块。
-
-### P5: 最终内核迁移 (完成)
-
-CrossAsset (582 LOC Rust)、Portfolio Allocator、Multi-Strategy 数学。
-
-### P6: 因子信号 + 清理 (完成)
-
-Factor signals (280 LOC Rust)、RollingWindow/multi_timeframe fallback 删除、全量死代码清理。
-
-**最终状态**：58 模块，~18,100 LOC Rust，零 Python fallback。
-
----
-
-## 21. Walk-Forward 策略表现
-
-### 当前最佳结果
-
-| 品种 | WF 通过率 | Sharpe | 累计收益 | 策略 | 特征选择 |
-|------|-----------|--------|----------|------|----------|
-| **BTC** | 18/21 (86%) | 2.39 | +262% | Strategy F | stable_icir |
-| **ETH** | 15/21 (71%) | 1.19 | +189.5% | Strategy F | stable_icir |
-| **SOL** | 13/17 (76%) | 1.80 | +301% | Strategy F | greedy (dz=1.0, mh=48) |
-
-### 验证方法
-
-Walk-forward 验证确保策略的样本外有效性：
-- 滚动训练/测试窗口
-- 每个窗口独立训练模型
-- 测试窗口为纯样本外
-- 通过率 > 60% 视为合格
-
-### 生产模型
-
-- 位置：`models_v8/`
-- 类型：LightGBM
-- 特征：105 enriched features
-- 训练脚本：`scripts/train_v8_production.py`
+> 这是一个功能闭环已形成、生产候选能力很强、并正在系统性收口的量化交易平台代码库。

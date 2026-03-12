@@ -6,10 +6,11 @@ import time
 import threading
 from typing import Any, List, Optional
 from unittest.mock import MagicMock
+from types import SimpleNamespace
 
 import pytest
 
-from runner.live_runner import LiveRunner, LiveRunnerConfig
+from runner.live_runner import LiveRunner, LiveRunnerConfig, _reconcile_startup
 from risk.kill_switch import KillMode, KillScope, KillSwitch
 from risk.margin_monitor import MarginConfig, MarginMonitor
 
@@ -177,6 +178,171 @@ class TestLifecycle:
         runner.stop()
         t.join(timeout=3.0)
         assert runner._running is False
+
+    def test_start_reconnects_user_stream_after_step_error(self, monkeypatch):
+        monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))
+
+        class _FakeCoordinator:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeLoop:
+            def start_background(self) -> None:
+                pass
+
+            def stop_background(self) -> None:
+                pass
+
+        class _FakeRuntime:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeUserStream:
+            def __init__(self, owner: LiveRunner) -> None:
+                self.owner = owner
+                self.connect_calls = 0
+                self.step_calls = 0
+                self.close_calls = 0
+
+            def connect(self) -> None:
+                self.connect_calls += 1
+
+            def step(self) -> None:
+                self.step_calls += 1
+                if self.step_calls == 1:
+                    raise RuntimeError("user stream dropped")
+                self.owner._running = False
+
+            def close(self) -> None:
+                self.close_calls += 1
+
+        runner = LiveRunner(
+            loop=_FakeLoop(),
+            coordinator=_FakeCoordinator(),
+            runtime=_FakeRuntime(),
+            kill_switch=KillSwitch(),
+        )
+        runner.user_stream = _FakeUserStream(runner)
+
+        real_sleep = time.sleep
+
+        def _fast_sleep(seconds: float) -> None:
+            real_sleep(0.01)
+
+        monkeypatch.setattr("runner.live_runner.time.sleep", _fast_sleep)
+
+        runner.start()
+
+        assert runner.user_stream.connect_calls >= 2
+        assert runner.user_stream.step_calls >= 2
+        assert runner.user_stream.close_calls == 1
+
+    def test_start_checks_timeout_tracker_each_loop(self, monkeypatch):
+        monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))
+
+        class _FakeCoordinator:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeLoop:
+            def start_background(self) -> None:
+                pass
+
+            def stop_background(self) -> None:
+                pass
+
+        class _FakeRuntime:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeTimeoutTracker:
+            def __init__(self, owner: LiveRunner) -> None:
+                self.owner = owner
+                self.calls = 0
+
+            def check_timeouts(self) -> list[str]:
+                self.calls += 1
+                self.owner._running = False
+                return ["order-1"]
+
+        runner = LiveRunner(
+            loop=_FakeLoop(),
+            coordinator=_FakeCoordinator(),
+            runtime=_FakeRuntime(),
+            kill_switch=KillSwitch(),
+        )
+        runner.timeout_tracker = _FakeTimeoutTracker(runner)
+
+        real_sleep = time.sleep
+
+        def _fast_sleep(seconds: float) -> None:
+            real_sleep(0.01)
+
+        monkeypatch.setattr("runner.live_runner.time.sleep", _fast_sleep)
+
+        runner.start()
+
+        assert runner.timeout_tracker.calls >= 1
+
+
+class TestPerfTuning:
+    def test_apply_perf_tuning_ignores_null_nohz_cpu_list(self, monkeypatch):
+        from io import StringIO
+
+        monkeypatch.setattr("builtins.open", lambda *args, **kwargs: StringIO("(null)\n"))
+        sched = MagicMock()
+        nice = MagicMock()
+        monkeypatch.setattr("runner.live_runner.os.sched_setaffinity", sched, raising=False)
+        monkeypatch.setattr("runner.live_runner.os.nice", nice, raising=False)
+
+        LiveRunner._apply_perf_tuning()
+
+        sched.assert_not_called()
+        nice.assert_called_once_with(-10)
+
+
+class TestStartupReconcile:
+    def test_detects_position_mismatch(self):
+        mismatches = _reconcile_startup(
+            local_view={
+                "positions": {"BTCUSDT": SimpleNamespace(qty=1.0)},
+                "account": SimpleNamespace(balance=1000.0),
+            },
+            venue_state={
+                "positions": {"BTCUSDT": {"qty": 0.5}},
+                "balance": 1000.0,
+            },
+            symbols=("BTCUSDT",),
+        )
+
+        assert mismatches == ["BTCUSDT position: local=1.0, venue=0.5"]
+
+    def test_detects_balance_mismatch_from_account_view(self):
+        mismatches = _reconcile_startup(
+            local_view={
+                "positions": {},
+                "account": SimpleNamespace(balance=1000.0),
+            },
+            venue_state={
+                "positions": {},
+                "balance": 995.0,
+            },
+            symbols=("BTCUSDT",),
+        )
+
+        assert mismatches == ["Balance: local=1000.00, venue=995.00"]
 
 
 # ── Fills tracking ─────────────────────────────────────────────

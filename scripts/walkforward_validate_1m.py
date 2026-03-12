@@ -44,6 +44,7 @@ from scripts.train_1m_alpha import (
 )
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
+from scripts.signal_postprocess import _apply_monthly_gate, _compute_bear_mask
 
 logger = logging.getLogger(__name__)
 
@@ -93,32 +94,6 @@ def _select_features_dispatch(selector: str):
     if selector == "stable_icir":
         return lambda X, y, names, top_k: stable_icir_select(X, y, names, top_k=top_k)
     return lambda X, y, names, top_k: greedy_ic_select(X, y, names, top_k=top_k)
-
-
-# ── Bear mask for monthly gate ────────────────────────────────
-
-def _compute_bear_mask(closes: np.ndarray, ma_window: int = MONTHLY_GATE_WINDOW) -> np.ndarray:
-    """Return boolean mask: True where close <= SMA(ma_window)."""
-    n = len(closes)
-    mask = np.zeros(n, dtype=bool)
-    if n < ma_window:
-        mask[:] = True
-        return mask
-    cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
-    mask = np.isnan(ma) | (closes <= ma)
-    return mask
-
-
-def _apply_monthly_gate(signal: np.ndarray, closes: np.ndarray,
-                         ma_window: int = MONTHLY_GATE_WINDOW) -> np.ndarray:
-    out = signal.copy()
-    bear = _compute_bear_mask(closes, ma_window)
-    out[bear] = 0.0
-    return out
-
 
 # ── Single fold execution ────────────────────────────────────
 

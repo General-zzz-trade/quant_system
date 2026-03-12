@@ -4,6 +4,12 @@ This package implements an institutional-grade decision layer:
 
 `StateSnapshot -> DecisionOutput (targets/intents/orders + explain)`
 
+Current contract references:
+
+- Runtime truth: [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+- Runtime contracts: [`docs/runtime_contracts.md`](/quant_system/docs/runtime_contracts.md)
+- Full system assessment: [`research.md`](/quant_system/research.md)
+
 ## Contracts
 - **No IO / no side effects** in `DecisionEngine.run()`.
 - **Deterministic**: same snapshot + same config => same output (including IDs).

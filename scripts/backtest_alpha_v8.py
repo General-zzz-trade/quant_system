@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from features.enriched_computer import EnrichedFeatureComputer
+from scripts.signal_postprocess import _apply_monthly_gate, _compute_bear_mask
 
 logger = logging.getLogger(__name__)
 
@@ -35,37 +36,6 @@ FEE_BPS = 4e-4          # 4 bps per trade (maker/taker average)
 SLIPPAGE_BPS = 2e-4     # 2 bps slippage
 COST_PER_TRADE = FEE_BPS + SLIPPAGE_BPS  # 6 bps total
 INITIAL_CAPITAL = 10000.0
-
-
-def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
-    """Return boolean mask: True where close <= SMA(ma_window)."""
-    n = len(closes)
-    mask = np.zeros(n, dtype=bool)
-    if n < ma_window:
-        mask[:] = True  # not enough data — conservative
-        return mask
-    cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
-    mask = np.isnan(ma) | (closes <= ma)
-    return mask
-
-
-def _apply_monthly_gate(
-    signal: np.ndarray,
-    closes: np.ndarray,
-    ma_window: int = 480,
-) -> np.ndarray:
-    """Zero out signal when close <= SMA(ma_window). Vectorized via cumsum."""
-    n = len(signal)
-    if n != len(closes):
-        raise ValueError("signal and closes must have same length")
-    out = signal.copy()
-    bear = _compute_bear_mask(closes, ma_window)
-    out[bear] = 0.0
-    return out
-
 
 def _prob_to_score(
     prob: float,

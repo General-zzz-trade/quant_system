@@ -27,6 +27,7 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from scripts.signal_postprocess import rolling_zscore, should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
@@ -82,27 +83,6 @@ def compute_target(closes, horizon):
     return y
 
 
-def rolling_zscore(pred, window=720, warmup=180):
-    """Causal rolling z-score — matches live/backtest decision module exactly."""
-    n = len(pred)
-    z = np.zeros(n)
-    buf = []
-    for i in range(n):
-        buf.append(pred[i])
-        if len(buf) > window:
-            buf.pop(0)
-        if len(buf) < warmup:
-            z[i] = 0.0
-            continue
-        arr = np.array(buf)
-        std = float(np.std(arr))
-        if std < 1e-12:
-            z[i] = 0.0
-        else:
-            z[i] = (pred[i] - float(np.mean(arr))) / std
-    return z
-
-
 def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
                     cost_bps, long_only=True, zscore_window=720):
     n = len(pred)
@@ -113,13 +93,13 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
     for i in range(n):
         if pos != 0:
             held = i - entry_bar
-            should_exit = False
-            if held >= max_hold:
-                should_exit = True
-            elif held >= min_hold:
-                if pos * z[i] < -0.3 or abs(z[i]) < 0.2:
-                    should_exit = True
-            if should_exit:
+            if should_exit_position(
+                position=pos,
+                z_value=float(z[i]),
+                held_bars=held,
+                min_hold=min_hold,
+                max_hold=max_hold,
+            ):
                 pnl_pct = pos * (closes[i] - closes[entry_bar]) / closes[entry_bar]
                 net = pnl_pct * 500.0 - cost_frac * 500.0
                 trades.append(net)
@@ -350,9 +330,13 @@ def main():
     for i in range(len(z)):
         if pos != 0:
             held = i - eb
-            should_exit = held >= best_config["max_hold"]
-            if not should_exit and held >= best_config["min_hold"]:
-                should_exit = pos * z[i] < -0.3 or abs(z[i]) < 0.2
+            should_exit = should_exit_position(
+                position=pos,
+                z_value=float(z[i]),
+                held_bars=held,
+                min_hold=best_config["min_hold"],
+                max_hold=best_config["max_hold"],
+            )
             if should_exit:
                 pnl = pos * (closes_test[i] - closes_test[eb]) / closes_test[eb]
                 trade_pnls.append(pnl * 500 - COST_BPS_RT / 10000 * 500)

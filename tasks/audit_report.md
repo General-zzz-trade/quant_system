@@ -1,4 +1,13 @@
 # Quant System Full Audit Report
+
+> Status: historical audit snapshot (2026-03-06)
+> Current runtime / contract / governance truth now lives in:
+> [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md),
+> [`docs/runtime_contracts.md`](/quant_system/docs/runtime_contracts.md),
+> [`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md),
+> [`docs/model_governance.md`](/quant_system/docs/model_governance.md),
+> and [`research.md`](/quant_system/research.md)
+
 Date: 2026-03-06
 
 ## Executive Summary

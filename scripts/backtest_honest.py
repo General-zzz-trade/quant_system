@@ -25,6 +25,7 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from scripts.signal_postprocess import rolling_zscore, should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
@@ -53,22 +54,6 @@ def fast_ic(x, y):
         return 0.0
     r, _ = spearmanr(x[m], y[m])
     return float(r) if not np.isnan(r) else 0.0
-
-
-def zscore_signal(pred, window=720, warmup=50):
-    """Causal rolling z-score (backward-looking only)."""
-    n = len(pred)
-    z = np.zeros(n)
-    for i in range(n):
-        start = max(0, i - window + 1)
-        buf = pred[start:i+1]
-        buf = buf[~np.isnan(buf)]
-        if len(buf) < warmup:
-            continue
-        std = np.std(buf)
-        if std > 1e-12:
-            z[i] = (pred[i] - np.mean(buf)) / std
-    return z
 
 
 def compute_dynamic_leverage(z_blend, closes_recent, deadzone,
@@ -128,14 +113,13 @@ def run_backtest(symbol, z_signal, closes, timestamps,
         # ── Check exit (at next bar close) ──
         if pos != 0:
             held = i - eb
-            should_exit = False
-            if held >= max_hold:
-                should_exit = True
-            elif held >= min_hold:
-                if pos * z_signal[i] < -0.3 or abs(z_signal[i]) < 0.2:
-                    should_exit = True
-
-            if should_exit:
+            if should_exit_position(
+                position=pos,
+                z_value=float(z_signal[i]),
+                held_bars=held,
+                min_hold=min_hold,
+                max_hold=max_hold,
+            ):
                 # Execute exit at NEXT bar's close
                 exit_price = closes[i + 1]
                 pnl_pct = pos * (exit_price - ep) / ep
@@ -371,7 +355,7 @@ def main():
                    0.5 * xgb_data["model"].predict(xgb.DMatrix(X_pred))
 
         # Z-score on the prediction window
-        z_full = zscore_signal(pred_raw, window=ZSCORE_WINDOW)
+        z_full = rolling_zscore(pred_raw, window=ZSCORE_WINDOW, warmup=180)
 
         # Trim to OOS only
         warmup_used = oos_start - pred_start

@@ -20,6 +20,7 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
+from scripts.signal_postprocess import should_exit_position
 from scipy.stats import spearmanr
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -139,7 +140,13 @@ def backtest(pred, closes, horizon, deadzone, cost_bps):
     for i in range(len(closes)):
         if pos != 0:
             held = i - eb
-            ex = held >= max_hold or (held >= min_hold and (pos*z[i] < -0.3 or abs(z[i]) < 0.2))
+            ex = should_exit_position(
+                position=float(pos),
+                z_value=float(z[i]),
+                held_bars=held,
+                min_hold=min_hold,
+                max_hold=max_hold,
+            )
             if ex:
                 pnl = pos * (closes[i] - ep) / ep
                 tg.append(pnl); tn.append(pnl - cost_frac); pos = 0

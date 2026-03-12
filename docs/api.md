@@ -2,6 +2,13 @@
 
 Key interfaces, protocols, and event types for the quant trading system.
 
+Scope note:
+
+- This document describes the current Python-default production runtime unless stated otherwise.
+- For runtime ownership and path selection, see [`runtime_truth.md`](/quant_system/docs/runtime_truth.md).
+- For execution semantics, see [`execution_contracts.md`](/quant_system/docs/execution_contracts.md).
+- For model loading and promotion semantics, see [`model_governance.md`](/quant_system/docs/model_governance.md).
+
 ## Core Protocols
 
 ### AlphaModel
@@ -145,7 +152,7 @@ class CoordinatorConfig:
 
 ### LiveRunner
 
-Production entry point. Defined in `runner/live_runner.py`.
+Current default production entry point. Defined in [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
 
 ```python
 # Build from config object
@@ -180,7 +187,7 @@ runner.kill_switch    # Direct kill switch access
 runner.coordinator    # Engine coordinator access
 ```
 
-`LiveRunner.build()` assembles the full production stack:
+`LiveRunner.build()` assembles the current default production stack:
 - EngineCoordinator + EngineLoop
 - KillSwitchBridge (wraps venue client)
 - CorrelationComputer + CorrelationGate
@@ -192,6 +199,11 @@ runner.coordinator    # Engine coordinator access
 - Optional: FeatureComputeHook + LiveInferenceBridge
 - Optional: persistent SQLite stores
 - Optional: HTTP health endpoint
+
+Note:
+
+- The repository also contains a standalone Rust trader under [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs).
+- That binary is an important runtime path, but it is not the default production truth source today.
 
 ## Risk Components
 

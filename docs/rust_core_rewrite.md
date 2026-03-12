@@ -1,5 +1,9 @@
 # Rust Core Rewrite
 
+> 状态: 前瞻性重写说明，非当前运行时真相源
+> 更新时间: 2026-03-12
+> 当前事实请优先参考: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), [`rust_replacement_matrix.md`](/quant_system/docs/rust_replacement_matrix.md), [`research.md`](/quant_system/research.md)
+
 ## Goal
 
 See also:

@@ -1,5 +1,9 @@
 # 极限优化方案 — 基于阿里云东京 ECS 实际硬件
 
+> 状态: 硬件/OS 性能专项计划，非当前运行时真相源
+> 更新时间: 2026-03-12
+> 当前总体架构与收口状态请参考: [`research.md`](/quant_system/research.md) 和 [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+
 ## 硬件约束
 
 | 项目 | 值 | 影响 |

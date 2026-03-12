@@ -111,9 +111,23 @@ class ProductionModelLoader:
             else:
                 logger.error("Unknown model type: %s", model_type)
                 return None
+            if not self._features_match(version, model):
+                logger.error(
+                    "Feature schema mismatch for %s (id=%s)",
+                    name, version.model_id,
+                )
+                return None
             return model
         except Exception:
             logger.exception("Failed to load model %s (type=%s)", name, model_type)
             return None
         finally:
             tmp_dir_obj.cleanup()
+
+    @staticmethod
+    def _features_match(version: Any, model: Any) -> bool:
+        expected = tuple(getattr(version, "features", ()) or ())
+        actual = tuple(getattr(model, "feature_names", ()) or ())
+        if not expected or not actual:
+            return True
+        return expected == actual

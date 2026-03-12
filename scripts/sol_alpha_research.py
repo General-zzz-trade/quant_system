@@ -135,7 +135,6 @@ def _compute_bear_mask(closes: np.ndarray, ma_window: int = MA_WINDOW) -> np.nda
     ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
     return (~np.isnan(ma)) & (closes < ma)
 
-
 def _fold_period_str(feat_df: pd.DataFrame, fold: Fold) -> str:
     ts = feat_df["timestamp"].values if "timestamp" in feat_df.columns else None
     if ts is not None:

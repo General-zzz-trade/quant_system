@@ -1,5 +1,12 @@
 # Production Deployment Checklist
 
+> 状态: 历史 testnet/testnet-validation 检查表，默认面向旧版 `testnet_v8_gate_v2` 路径
+> 更新时间: 2026-03-12
+> 当前默认生产路径与恢复制度请优先参考:
+> [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md),
+> [`docs/operations.md`](/quant_system/docs/operations.md),
+> [`docs/production_runbook.md`](/quant_system/docs/production_runbook.md)
+
 ## Pre-deployment
 
 - [ ] Model files exist: `models_v8/BTCUSDT_gate_v2/config.json`, `lgbm_v8.pkl`, `xgb_v8.pkl`

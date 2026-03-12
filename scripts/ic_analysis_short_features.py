@@ -15,6 +15,7 @@ import pandas as pd
 from pathlib import Path
 
 from features.dynamic_selector import _rankdata, _spearman_ic
+from scripts.signal_postprocess import _compute_bear_mask as _shared_compute_bear_mask
 from scripts.train_v7_alpha import _load_and_compute_features, _compute_target, BLACKLIST
 
 
@@ -24,14 +25,10 @@ HORIZONS = [5, 12, 24]
 
 
 def _compute_bear_mask(closes: np.ndarray, ma_window: int = MA_WINDOW) -> np.ndarray:
-    n = len(closes)
-    mask = np.zeros(n, dtype=bool)
-    if n < ma_window:
-        return mask
-    cumsum = np.cumsum(closes)
-    cumsum = np.insert(cumsum, 0, 0.0)
-    sma = (cumsum[ma_window:] - cumsum[:-ma_window]) / ma_window
-    mask[ma_window - 1:] = closes[ma_window - 1:] <= sma
+    mask = _shared_compute_bear_mask(closes, ma_window).copy()
+    if len(closes) < ma_window:
+        return np.zeros(len(closes), dtype=bool)
+    mask[: ma_window - 1] = False
     return mask
 
 

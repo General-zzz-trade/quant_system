@@ -12,6 +12,7 @@ from engine.dispatcher import (
     EventDispatcher,
     Route,
 )
+from _quant_hotpath import rust_route_event
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +149,39 @@ class TestStringStyleRouting:
         e = SimpleNamespace(header=SimpleNamespace(event_type="market", ts=None))
         d.dispatch(event=e)
         assert len(c.events) == 1
+
+
+class TestRustParity:
+    def test_route_event_parity_for_event_object_shapes(self) -> None:
+        d = EventDispatcher()
+        cases = [
+            _event("market"),
+            _event("fill"),
+            _event("signal"),
+            _event("intent"),
+            _event("order"),
+            _event_name("order_report"),
+            SimpleNamespace(header=SimpleNamespace(event_type="risk", ts=None)),
+            SimpleNamespace(header=SimpleNamespace(event_type="order_update", ts=None)),
+            SimpleNamespace(EVENT_TYPE="some_unknown_type", header=SimpleNamespace(ts=None)),
+        ]
+
+        route_map = {
+            "pipeline": Route.PIPELINE,
+            "decision": Route.DECISION,
+            "execution": Route.EXECUTION,
+            "drop": Route.DROP,
+        }
+
+        for event in cases:
+            rust_route = route_map[rust_route_event(event)]
+            py_route = d._route_for(event)
+            assert rust_route == py_route
+
+    def test_route_from_label_matches_route_for(self) -> None:
+        d = EventDispatcher()
+        event = SimpleNamespace(EVENT_TYPE="trade_fill", header=SimpleNamespace(ts=None))
+        assert d._route_for(event) == EventDispatcher._route_from_name("trade_fill")
 
 
 # ---------------------------------------------------------------------------

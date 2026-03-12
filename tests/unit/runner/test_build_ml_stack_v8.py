@@ -100,6 +100,31 @@ class TestBuildMlStackV8:
         assert signal_kwargs["monthly_gate_window"] == 480
 
     @patch("infra.model_signing.verify_file", return_value=True)
+    def test_trend_and_vol_overrides_from_strategy(self, _mock_verify, v8_model_dir: Path):
+        raw = {
+            "strategy": {
+                "model_path": str(v8_model_dir),
+                "trend_follow": True,
+                "trend_indicator": "trend",
+                "trend_threshold": 0.1,
+                "max_hold": 72,
+                "position_management": {
+                    "vol_target": 0.2,
+                    "vol_feature": "atr_norm_14",
+                },
+            },
+            "trading": {"symbols": ["BTCUSDT"]},
+        }
+        _, _, _, signal_kwargs = _build_ml_stack(raw)
+
+        assert signal_kwargs["trend_follow"] is True
+        assert signal_kwargs["trend_indicator"] == "trend"
+        assert signal_kwargs["trend_threshold"] == 0.1
+        assert signal_kwargs["max_hold"] == 72
+        assert signal_kwargs["vol_target"] == 0.2
+        assert signal_kwargs["vol_feature"] == "atr_norm_14"
+
+    @patch("infra.model_signing.verify_file", return_value=True)
     def test_legacy_fallback(self, _mock_verify, legacy_model_dir: Path):
         raw = {
             "strategy": {

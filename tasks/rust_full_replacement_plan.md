@@ -1,5 +1,9 @@
 # Python → Rust 全量替代计划
 
+> 状态: 远期愿景文档，不代表当前默认运行时
+> 更新时间: 2026-03-12
+> 当前事实请优先参考 [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md) 和 [`research.md`](/quant_system/research.md)
+
 ## 现状
 
 | 指标 | 值 |

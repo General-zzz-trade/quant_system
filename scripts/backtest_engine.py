@@ -156,6 +156,13 @@ def build_decision_module(
         min_hold=cfg.get("min_hold", 24),
         max_hold=cfg.get("max_hold", 120),
         long_only=cfg.get("long_only", False),
+        trend_follow=cfg.get("trend_follow", False),
+        trend_indicator=cfg.get("trend_indicator", "tf4h_close_vs_ma20"),
+        trend_threshold=cfg.get("trend_threshold", 0.0),
+        monthly_gate=cfg.get("monthly_gate", False),
+        monthly_gate_window=cfg.get("monthly_gate_window", 480),
+        vol_target=cfg.get("position_management", {}).get("vol_target"),
+        vol_feature=cfg.get("position_management", {}).get("vol_feature", "atr_norm_14"),
         zscore_window=720,
         leverage=leverage,
     )

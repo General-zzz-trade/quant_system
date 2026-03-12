@@ -551,6 +551,16 @@ def _build_ml_stack(
     if strategy.get("monthly_gate", False) and "monthly_gate" not in signal_kwargs:
         signal_kwargs["monthly_gate"] = True
         signal_kwargs["monthly_gate_window"] = strategy.get("monthly_gate_window", 480)
+    if strategy.get("trend_follow", False):
+        signal_kwargs["trend_follow"] = True
+        signal_kwargs["trend_indicator"] = strategy.get("trend_indicator", "tf4h_close_vs_ma20")
+        signal_kwargs["trend_threshold"] = strategy.get("trend_threshold", 0.0)
+        signal_kwargs["max_hold"] = strategy.get("max_hold", 120)
+    strategy_pm = strategy.get("position_management", {})
+    if "vol_target" not in signal_kwargs and strategy_pm.get("vol_target") is not None:
+        signal_kwargs["vol_target"] = strategy_pm["vol_target"]
+    if "vol_feature" not in signal_kwargs and strategy_pm.get("vol_feature"):
+        signal_kwargs["vol_feature"] = strategy_pm["vol_feature"]
     bear_model_path = strategy.get("bear_model_path")
     if bear_model_path and "bear_model" not in signal_kwargs:
         from alpha.models.lgbm_alpha import LGBMAlphaModel

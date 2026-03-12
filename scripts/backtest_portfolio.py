@@ -24,6 +24,7 @@ import pandas as pd
 
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from features.enriched_computer import EnrichedFeatureComputer
+from scripts.signal_postprocess import _compute_bear_mask
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +36,6 @@ COST_PER_TRADE = FEE_BPS + SLIPPAGE_BPS
 INITIAL_CAPITAL = 10000.0
 
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-
-
-# ── Helpers (reuse from backtest_alpha_v8) ───────────────────────
-
-def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
-    n = len(closes)
-    if n < ma_window:
-        return np.ones(n, dtype=bool)
-    cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[:n - ma_window]) / ma_window
-    return np.isnan(ma) | (closes <= ma)
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:

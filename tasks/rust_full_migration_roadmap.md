@@ -1,5 +1,11 @@
 # Python → Rust 全面迁移路线图
 
+> 状态: 历史迁移路线图快照（2026-03-07）
+> 当前 Rust 迁移边界请优先参考:
+> [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md),
+> [`docs/rust_replacement_matrix.md`](/quant_system/docs/rust_replacement_matrix.md),
+> [`tasks/refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+
 ## 当前状态 (2026-03-07)
 
 **Rust**: 41 .rs 模块, ~12,300 LOC, 33 classes + 69 functions

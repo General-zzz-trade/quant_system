@@ -23,6 +23,7 @@ sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 from features.dynamic_selector import _rankdata, _spearman_ic
+from scripts.signal_postprocess import should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
@@ -71,11 +72,14 @@ def apply_signal(z: np.ndarray, deadzone: float, min_hold: int,
     for i in range(n):
         if current != 0:
             held = i - entry_bar
-            if held >= max_hold:
+            if should_exit_position(
+                position=current,
+                z_value=float(z[i]),
+                held_bars=held,
+                min_hold=min_hold,
+                max_hold=max_hold,
+            ):
                 current = 0.0
-            elif held >= min_hold:
-                if current * z[i] < -0.3 or abs(z[i]) < 0.2:
-                    current = 0.0
         if current == 0:
             if z[i] > deadzone:
                 current = 1.0

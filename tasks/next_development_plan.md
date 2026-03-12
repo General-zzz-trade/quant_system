@@ -1,165 +1,207 @@
 # 下一步开发计划
 
-> 基于 2026-02-28 全项目深度分析，更新于 2026-03-08（2,644 测试通过，58 Rust 模块）
+> 状态: 已被更完整的 [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md) 取代
+> 更新时间: 2026-03-12
+> 本文保留为阶段性计划快照，不再作为当前执行主计划
+
+> 基准日期: 2026-03-12
+> 基准来源: 当前源码，而非历史 README / 迁移路线图
+> 当前判断: 系统已形成核心闭环，但尚未完全收口；下一阶段目标是收敛生产主路径、统一契约、强化恢复能力
 
 ---
 
-## 现状总览
+## 当前阶段判断
 
-| 维度 | 完成度 | 关键短板 |
-|------|--------|---------|
-| 引擎层 (engine/runner) | 95% | coordinator decision handler 仍为 no-op（设计选择） |
-| 风控层 (risk) | 90% | 缺 Kelly 仓位、完整 Risk Parity |
-| 组合优化 (portfolio) | 85% | Black-Litterman/多求解器完整，缺参数化风险预算 |
-| 策略层 (strategies) | 80% | 5 个策略框架，缺多时间框架 |
-| ML 层 (alpha) | 75% | LightGBM/XGBoost 生产就绪，LSTM/Transformer 实验性 |
-| 执行层 (execution) | 90% | Binance 完整（Bitget 已删除，专注单交易所） |
-| 基础设施 (infra/deploy) | 95% | K8s 安全加固、CI/CD 安全扫描、密钥管理已完成 |
-| 测试覆盖 | 85% | 2,644 测试通过，核心模块覆盖完整 |
-| 文档 | 90% | README、运维手册、API 文档、CHANGELOG 已完成 |
+| 维度 | 当前状态 | 结论 |
+|---|---|---|
+| 功能闭环 | 已具备行情、状态、特征、决策、风控、执行、监控、回测、实盘 | 核心闭环已形成 |
+| 生产真相源 | 分散在 `runner/live_runner.py`、`ext/rust/`、若干文档中 | 需要收口 |
+| Python / Rust 边界 | 已混合运行，Rust 已覆盖大量热路径，Python 仍主编排 | 迁移未最终完成 |
+| live/backtest/replay 一致性 | 大方向一致，但约束与边界仍需明确 | 需要统一契约 |
+| 故障恢复 | 已有 reconcile / healer / timeout / checkpoint / replay | 需要制度化演练与补强 |
 
 ---
 
-## P0：生产阻断项（1-2 周）
+## P0：运行时收口（当前最高优先级）
 
-### ~~1. Bitget 适配器补全~~ — 已取消
-> Bitget 适配器已于 2026-03-01 删除（部分实现、增加维护负担）。项目专注 Binance 单交易所。
+### 1. 定义唯一生产主路径
 
-### 2. 关键模块测试补齐
-**问题**：alpha（0%）、decision（5%）、portfolio（10%）几乎无测试覆盖
-- [ ] Alpha 推理管道测试：LiveInferenceBridge、LgbmAlpha.predict、模型注册表
-- [ ] Decision 决策链路测试：allocators、candidates、sizing、execution_policy
-- [ ] Portfolio 优化器测试：Black-Litterman、objectives、constraints、solvers
-- [ ] 创建共享 conftest.py fixtures（MockVenueFactory、SnapshotBuilder、EventStreamBuilder）
+**目标**
+- 明确当前唯一生产入口
+- 明确 Python / Rust ownership
+- 明确 standalone Rust trader 的定位
 
-**影响**：关键业务逻辑无回归保护
-**文件**：`tests/unit/alpha/`、`tests/unit/decision/`、`tests/unit/portfolio/`
+**要做的事**
+- [x] 新建 `docs/runtime_truth.md`
+- [ ] 明确 `runner/live_runner.py` 为当前 Python 生产主入口
+- [ ] 明确 `ext/rust/src/bin/main.rs` 为候选/演进路径，而非当前默认真相源
+- [ ] 梳理核心子系统 owner：`engine` / `state` / `features` / `risk` / `execution`
+- [ ] 清理 README / operations / api 中与现状冲突的说法
 
-### 3. RiskGate 接入 live_runner
-**问题**：`execution/safety/risk_gate.py` 已实现但未接入
-- [ ] 在 ExecutionBridge 前插入 RiskGate 检查
-- [ ] 与现有 CorrelationGate 和 KillSwitchBridge 形成三层防线
-- [ ] 集成测试验证 RiskGate 拒绝场景
+**交付物**
+- `docs/runtime_truth.md`
+- 一份 Python vs Rust ownership matrix
+- 一份运行路径说明：live / backtest / replay / rust binary
 
-**影响**：执行安全层不完整
-**文件**：`runner/live_runner.py:257-306`、`execution/safety/risk_gate.py`
+### 2. 统一 live / backtest / replay 契约
 
----
+**目标**
+- 统一事件语义
+- 统一状态快照最小字段
+- 统一线上与回测约束
 
-## P1：生产加固（2-4 周）✅ 已完成
+**要做的事**
+- [x] 在 `docs/runtime_truth.md` 中定义契约基线
+- [x] 列出 `Event` / `Snapshot` / `OrderSpec` / `Fill` 最小字段集
+- [ ] 对齐 live 与 backtest 的 `deadzone` / `min_hold` / trend hold / monthly gate / vol target
+- [x] 补一组契约对齐测试
 
-### 4. K8s 生产安全加固 ✅
-- [x] 添加安全上下文：runAsNonRoot, readOnlyRootFilesystem, drop ALL capabilities
-- [x] 添加 PodDisruptionBudget（minAvailable: 1）
-- [x] 添加 NetworkPolicy（限制入站/出站）
-- [x] 探针超时从 5s 调至 10s
-- [x] 添加 priorityClassName 保证交易优先级
+**交付物**
+- `docs/runtime_truth.md` 中的契约基线章节
+- `docs/runtime_contracts.md`
+- 新增契约测试：`tests/contract/test_runtime_contracts.py`
+- 新增 replay 基线测试：`tests/replay/test_event_ordering.py`、`tests/replay/test_replay_determinism.py`、`tests/replay/test_replay_vs_live_equivalence.py`
+- 回测约束对齐第一轮：`decision/backtest_module.py`、`tests/unit/decision/test_backtest_module_constraints.py`
+- 回测入口透传：`scripts/backtest_engine.py`、`tests/unit/scripts/test_backtest_engine_constraints.py`
+- 配置层透传对齐：`runner/testnet_validation.py`、`tests/unit/runner/test_build_ml_stack_v8.py`
 
-**文件**：`deploy/k8s/deployment.yaml`、`deploy/k8s/network-policy.yaml`、`deploy/k8s/pdb.yaml`、`deploy/k8s/priority-class.yaml`
+### 3. 强化故障恢复闭环
 
-### 5. CI/CD 安全增强 ✅
-- [x] 添加 Trivy 镜像漏洞扫描
-- [x] 添加 pip-audit 依赖安全审计
-- [x] 添加 ruff + mypy 严格模式
-- [x] 部署后自动冒烟测试
+**目标**
+- 让系统不仅能跑，而且在异常时能恢复
 
-**文件**：`.github/workflows/ci.yml`、`.github/workflows/deploy.yml`
+**要做的事**
+- [x] 明确 crash recovery 标准流程
+- [ ] 明确 checkpoint restore 与 replay 恢复边界
+- [x] 强化 user stream 断连后的 reconcile 策略
+- [x] 梳理 timeout tracker / order state machine / reconcile scheduler 的联动
+- [ ] 为断连、重复 fill、乱序 fill、重启恢复补集成测试
 
-### 6. 密钥管理升级 ✅
-- [x] 集成 External Secrets Operator
-- [x] API 密钥定期轮换机制（CronJob 检查密钥年龄）
-- [x] 凭证访问审计日志
-
-**文件**：`deploy/k8s/external-secret.yaml`、`deploy/k8s/secret-rotation-cronjob.yaml`
-
-### 7. Kelly 仓位定量 + Volatility Targeting ✅
-- [x] 实现 `KellyAllocator`（多资产 Kelly: w* = Σ⁻¹·μ，支持分数 Kelly）
-- [x] 头寸浓度约束（max_concentration 参数）
-- [x] 17 个单元测试（矩阵求逆 5 + Kelly 核心 12）
-
-**文件**：`portfolio/allocator_kelly.py`、`tests/unit/portfolio/test_allocator_kelly.py`
-
----
-
-## P2：功能增强（4-8 周）✅ 已完成
-
-### 8. 监控可观测性完善 ✅
-- [x] SLO/SLI 追踪器（延迟 P99、可用率、数据新鲜度、成交率、错误预算）
-- [x] 数据质量告警（NaN 检测、分布漂移 z-score、常量特征检测）
-- [x] Grafana 仪表板自动导入/导出脚本
-- [x] 告警通知渠道已有（Telegram/Webhook/Console/Log）
-
-**文件**：`monitoring/slo.py`、`monitoring/data_quality_alerts.py`、`scripts/grafana_import.py`
-
-### 9. 回测引擎对齐增强 ✅
-- [x] backtest_runner 集成 FeatureComputeHook（ML 因子回测）
-- [x] backtest_runner 集成 AttributionTracker（回测信号归因）
-- [x] 回测与实盘 PnL 对比工具（对齐、相关性、跟踪误差、回撤对比）
-
-**文件**：`runner/backtest_runner.py`、`runner/backtest/pnl_compare.py`
-
-### 10. 多时间框架策略框架 ✅
-- [x] BarAggregator（1m → 5m/15m/30m/1h/4h/1d 聚合）
-- [x] MultiTimeframeEnsemble（3 种融合：weighted_vote/majority/cascade）
-- [x] 跨时间框架信号同步（自动对齐 + 最新信号缓存）
-- [x] 22 个测试覆盖聚合正确性和融合逻辑
-
-**文件**：`strategies/multi_timeframe/aggregator.py`、`strategies/multi_timeframe/ensemble.py`
-
-### 11. 数据管道加固 ✅
-- [x] 数据分布验证（RollingDistribution + DistributionTracker，z-score 均值漂移 + 方差变化）
-- [x] 数据血统追踪（LineageTracker，JSONL 持久化，全链路 trace）
-- [x] 备份策略（BackupManager，快照 + 保留策略 + 恢复）
-
-**文件**：`data/quality/distribution.py`、`data/lineage.py`、`data/backup.py`
+**交付物**
+- `docs/production_runbook.md`
+- 恢复类集成测试
 
 ---
 
-## P3：长期演进（8+ 周）✅ 已完成
+## P1：生产行为收口
 
-### 12. 深度学习生产验证 ✅
-- [x] LSTM/Transformer 保持 EXPERIMENTAL 标记（LightGBM/XGBoost 已满足生产需求）
-- [x] 在线异常检测（OOD detection）— Mahalanobis 距离检测器
-- [x] 概念漂移适应器（concept drift adaptation）— 滚动命中率/IC/Sharpe 监控 + 自动推荐
+### 4. 执行层行为统一
 
-**文件**：`alpha/monitoring/ood_detector.py`、`alpha/monitoring/drift_adapter.py`、`tests/unit/alpha/test_ood_drift.py`（21 测试）
+**目标**
+- 收敛 `ExecutionBridge`、`LiveExecutionBridge`、algo adapter 的边界
 
-### 13. 高级研究工具 ✅
-- [x] 蒙特卡洛路径模拟（block bootstrap + 参数化正态）
-- [x] 敏感性分析框架（one-at-a-time 扫描 + 参数排名）
-- [x] 因子显著性检验（T-test + Bonferroni/Holm/FDR-BH 多重测试修正）
-- [x] 样本外最小期间要求检查（Bailey & López de Prado）
+**要做的事**
+- [ ] 明确 direct execution 与 algo execution 的路由标准
+- [ ] 统一 ack / reject / fill 的 canonical result
+- [ ] 收敛 order state machine 与 user stream 的一致性语义
+- [ ] 强化 latency / TCA / reject reason 可观测性
 
-**文件**：`research/monte_carlo.py`、`research/sensitivity.py`、`research/significance.py`、`tests/unit/research/test_advanced_tools.py`（34 测试）
+### 5. 风控体系分层固化
 
-### 14. 文档体系 ✅
-- [x] 项目 README.md（快速入门 + ASCII 架构图 + 模块概览）
-- [x] 运维手册（部署、监控、故障排查、5 个 Runbook、SOP）
-- [x] API 文档（核心协议、事件类型、领域类型）
-- [x] CHANGELOG.md（v0.1.0 — v0.9.0 + Unreleased）
+**目标**
+- 把现在多层 gate 的职责说清楚，并落成统一动作语义
 
-**文件**：`README.md`、`docs/operations.md`、`docs/api.md`、`CHANGELOG.md`
+**要做的事**
+- [ ] 明确 decision overlay、execution boundary、portfolio/account hard risk 的分层
+- [ ] 统一 `allow / reduce / reject / kill`
+- [ ] 梳理 margin / stale data / kill switch / portfolio risk 的联动
+- [ ] 补风控回放测试
 
-### 15. GitOps + 金丝雀部署 ✅
-- [x] ArgoCD Application + AppProject（自动同步 + 自愈）
-- [x] Argo Rollouts 金丝雀（10% → 30% → 60% → 100%，Prometheus 分析）
-- [x] 自动回滚机制（AnalysisTemplate 错误率/延迟/成交率检查）
+### 6. 模型上线闭环固定
 
-**文件**：`deploy/argocd/application.yaml`、`deploy/argocd/project.yaml`、`deploy/argocd/rollout.yaml`、`deploy/argocd/analysis-template.yaml`、`deploy/argocd/rollback-config.yaml`、`deploy/k8s/namespace.yaml`
+**目标**
+- 把 research -> registry -> live autoload 变成稳定制度
+
+**要做的事**
+- [ ] 统一训练特征 schema 与线上特征 schema
+- [ ] 固定 model registry / artifact store / autoload 规则
+- [ ] 把 walk-forward / significance / overfit detection 结果变成准入门槛
+- [ ] 定义模型晋升、回滚、灰度流程
 
 ---
 
-## 建议执行顺序
+## P2：Rust 迁移第二阶段
 
+### 7. 删除无效双栈维护成本
+
+**目标**
+- 继续把高频纯逻辑向 Rust 收口，但不做无意义重写
+
+**要做的事**
+- [ ] 识别仍在 Python 热路径中的高频逻辑
+- [ ] 删除已无意义的 fallback / 兼容层
+- [ ] 明确哪些 Python 模块长期保留
+- [ ] 扩充 parity tests，保证替换安全
+
+**优先迁移候选**
+- execution ingress / sequencing
+- replay / backtest kernel 的统一纯逻辑
+- dispatcher 周边高频纯逻辑
+- order lifecycle 的纯状态变换
+
+---
+
+## P3：文档与运维真相源统一
+
+### 8. 文档体系收口
+
+**目标**
+- 让新开发者不再依赖过时文档猜现状
+
+**要做的事**
+- [ ] 更新 `README.md` 的规模、能力边界、运行方式
+- [ ] 更新 `docs/operations.md` 的生产路径说明
+- [ ] 更新 `docs/api.md` 的契约与 owner 说明
+- [ ] 区分“当前现状文档”与“迁移规划文档”
+
+**建议新增文档**
+- [x] `docs/runtime_truth.md`
+- [ ] `docs/testing_matrix.md`
+- [ ] `docs/production_runbook.md`
+
+---
+
+## 执行顺序
+
+```text
+Phase 1:
+  P0-1 生产主路径真相源
+  P0-2 live/backtest/replay 契约基线
+
+Phase 2:
+  P0-3 故障恢复闭环
+  P1-4 执行层行为统一
+  P1-5 风控分层固化
+
+Phase 3:
+  P1-6 模型上线闭环
+  P2-7 Rust 迁移第二阶段
+  P3-8 文档与运维统一
 ```
-Week 1:    P0 #2 测试补齐（alpha/decision/portfolio）
-Week 2:    P0 #3 RiskGate 接入 live_runner
-Week 3+:   架构演进（视需求排期）
-```
 
-## 关键风险
+---
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| 测试补齐工作量大 | 进度拖延 | 优先覆盖关键路径，非全量补齐 |
-| LSTM/Transformer 无法生产化 | ML 能力受限 | LightGBM/XGBoost 已足够，深度学习可推迟 |
+## 本轮已开始执行
+
+- [x] 重写 `research.md`
+- [x] 新建 `docs/runtime_truth.md`
+- [x] 新建 `docs/runtime_contracts.md`
+- [x] 更新 `tasks/next_development_plan.md`
+- [x] 修正文档中与真实生产路径冲突的内容（README / operations / api 第一轮）
+- [x] 补最小契约测试与 replay 真测试
+- [x] 回测约束对齐第一轮：补 `monthly_gate` / `trend_follow` / `vol_target`
+- [x] `trend_follow` 语义第一轮收口：从入场门禁改为更接近 live 的持仓延续逻辑
+- [x] `monthly_gate` 语义第一轮收口：从仅限制开仓改为更接近 live 的门限失效平仓逻辑
+- [x] 配置层透传对齐：补 strategy-level `trend_follow` / `vol_target` 覆盖
+- [x] 新增 cross-path parity tests：直接对比 live `LiveInferenceBridge` 与 backtest module 的 trend hold / monthly gate / min_hold / vol_target 行为
+- [x] 恢复路径第一轮加固：补 `LiveRunner` 的 user stream reconnect / timeout loop / startup reconcile 定向测试
+- [x] 修复 `LiveRunner.stop()` 在 `_running` 已清零时漏清理资源的问题
+- [x] 修复 `LiveRunner._apply_perf_tuning()` 对 `nohz_full=(null)` 的健壮性问题
+- [x] 修复 startup reconcile 读取本地余额字段错误的问题
+- [x] 补晚到执行回报测试：验证 timeout cancel 后的 `pending_cancel -> filled` 恢复路径
+- [x] 补 cancel-replace 安全测试：锁定“原单终态后不可被晚到 fill 复活”的边界
+- [x] 补恢复集成测试：覆盖乱序/重复 fill + checkpoint/restart + reconcile 联动
+- [x] 研究脚本收口第一轮：提取 `scripts/signal_postprocess.py`，统一 monthly gate / trend hold / vol_target / min_hold / rolling z-score / discrete exit rule helper，并接入 `walkforward_validate.py` / `walkforward_validate_1m.py` / `backtest_alpha_v8.py` / `backtest_portfolio.py` / `train_short_production.py` / `train_multi_horizon.py` / `backtest_small_cap.py` / `backtest_honest.py` / `train_btc_v9b.py` / `train_eth_v9.py`
+- [x] 研究脚本收口第二轮：`ic_analysis_short_features.py` 改为复用共享 bear mask helper，并保留原有 warmup 全 False 语义
+- [x] `scripts/` 架构整理第一轮：新增 `scripts/catalog.py` 和 `scripts/README.md`，明确 train / validate / research / data / ops / shared 六类分层与当前主力入口
+- [ ] 下一步：继续把 backtest 约束状态机向 live `LiveInferenceBridge` 靠拢，并补更深的恢复类集成测试

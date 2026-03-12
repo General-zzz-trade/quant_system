@@ -77,6 +77,20 @@ class MLSignalDecisionModule:
         Maximum bars before forced exit.
     long_only : bool
         Only take long positions.
+    trend_follow : bool
+        Extend existing positions when trend remains favorable.
+    trend_indicator : str
+        Feature name used for trend gating.
+    trend_threshold : float
+        Threshold applied to trend feature.
+    monthly_gate : bool
+        If enabled, only allow entries when close is above trailing MA window.
+    monthly_gate_window : int
+        Window size for the monthly gate moving average.
+    vol_target : float, optional
+        If set, scale position size by target_vol / realized_vol_feature.
+    vol_feature : str
+        Feature name used for vol targeting.
     zscore_window : int
         Rolling z-score window (bars).
     leverage : float
@@ -95,6 +109,13 @@ class MLSignalDecisionModule:
         min_hold: int | None = None,
         max_hold: int | None = None,
         long_only: bool = False,
+        trend_follow: bool = False,
+        trend_indicator: str = "tf4h_close_vs_ma20",
+        trend_threshold: float = 0.0,
+        monthly_gate: bool = False,
+        monthly_gate_window: int = 480,
+        vol_target: float | None = None,
+        vol_feature: str = "atr_norm_14",
         zscore_window: int = 720,
         leverage: float = 2.0,
         v11_config=None,
@@ -169,6 +190,13 @@ class MLSignalDecisionModule:
         self._max_hold = max_hold if max_hold is not None else cfg.max_hold
         self._long_only = long_only if long_only else cfg.long_only
         self._lgbm_xgb_w = lgbm_xgb_w
+        self._trend_follow = bool(trend_follow)
+        self._trend_indicator = str(trend_indicator)
+        self._trend_threshold = float(trend_threshold)
+        self._monthly_gate = bool(monthly_gate)
+        self._monthly_gate_window = max(int(monthly_gate_window), 1)
+        self._vol_target = None if vol_target is None else float(vol_target)
+        self._vol_feature = str(vol_feature)
 
         # State (single z-score buf used only in non-multi-horizon mode)
         self._zscore_buf = _ZScoreBuf(window=zscore_window, warmup=warmup)
@@ -176,6 +204,7 @@ class MLSignalDecisionModule:
         self._entry_bar: int = 0
         self._bar_count: int = 0
         self._current_qty = Decimal("0")
+        self._close_buf: Deque[float] = deque(maxlen=self._monthly_gate_window)
 
         # V11 modules
         from decision.exit_manager import ExitManager
@@ -239,6 +268,7 @@ class MLSignalDecisionModule:
         close = self._get_close(snapshot)
         if close is None or close <= 0:
             return ()
+        self._close_buf.append(close)
 
         # Update trailing stop price tracking
         if self._position != 0:
@@ -252,9 +282,41 @@ class MLSignalDecisionModule:
         # Extract hour for time filter
         hour_utc = self._get_hour_utc(snapshot)
 
+        desired = self._discretize_signal(z)
+        trend_hold_active = self._should_trend_hold(features, desired)
+
         # ── Exit logic ──
         events: List[Any] = []
         if self._position != 0:
+            if not self._passes_monthly_gate(close):
+                side = "sell" if self._position > 0 else "buy"
+                events.extend(self._make_order(
+                    side=side,
+                    qty=abs(current_qty),
+                    event_id=event_id,
+                    reason="monthly_gate",
+                ))
+                self._exit_mgr.on_exit(self.symbol)
+                self._position = 0.0
+                return events
+
+            # Match live constraint behavior: once the discretized score falls
+            # back inside the deadzone, flatten unless trend-follow explicitly
+            # extends the position.
+            if desired == 0 and not trend_hold_active:
+                held = self._bar_count - self._entry_bar
+                if held >= self._min_hold:
+                    side = "sell" if self._position > 0 else "buy"
+                    events.extend(self._make_order(
+                        side=side,
+                        qty=abs(current_qty),
+                        event_id=event_id,
+                        reason=f"signal_flat_z={z:.2f}",
+                    ))
+                    self._exit_mgr.on_exit(self.symbol)
+                    self._position = 0.0
+                    return events
+
             should_exit, reason = self._exit_mgr.check_exit(
                 symbol=self.symbol,
                 price=close,
@@ -262,6 +324,9 @@ class MLSignalDecisionModule:
                 z_score=z,
                 position=self._position,
             )
+            if should_exit and trend_hold_active and reason.startswith("deadzone_fade"):
+                should_exit = False
+                reason = ""
             if should_exit:
                 side = "sell" if self._position > 0 else "buy"
                 events.extend(self._make_order(
@@ -279,17 +344,19 @@ class MLSignalDecisionModule:
             if not self._exit_mgr.allow_entry(z, hour_utc):
                 return events
 
-            desired = 0
-            if z > self._deadzone:
-                desired = 1
-            elif not self._long_only and z < -self._deadzone:
-                desired = -1
+            if desired != 0 and not self._passes_monthly_gate(close):
+                desired = 0
 
             if desired != 0:
                 # Compute order qty: equity × risk_fraction × leverage × regime_scale / price
                 notional = Decimal(str(
                     self._equity * self._risk_fraction * self._leverage * position_scale
                 ))
+                if self._vol_target is not None:
+                    vol_val = features.get(self._vol_feature)
+                    if vol_val is not None and vol_val > 1e-8:
+                        scale = min(self._vol_target / float(vol_val), 1.0)
+                        notional *= Decimal(str(scale))
                 qty = notional / Decimal(str(close))
                 # Adaptive rounding: use finer precision for high-price assets
                 if close > 10000:
@@ -424,6 +491,31 @@ class MLSignalDecisionModule:
         if isinstance(snapshot, dict):
             return snapshot.get("event_id")
         return getattr(snapshot, "event_id", None)
+
+    def _discretize_signal(self, z_score: float) -> int:
+        if z_score > self._deadzone:
+            return 1
+        if not self._long_only and z_score < -self._deadzone:
+            return -1
+        return 0
+
+    def _should_trend_hold(self, features: Dict[str, float], desired: int) -> bool:
+        if not self._trend_follow or self._position == 0 or desired != 0:
+            return False
+        trend_val = features.get(self._trend_indicator)
+        if trend_val is None:
+            return False
+        if self._position > 0:
+            return float(trend_val) > self._trend_threshold
+        return float(trend_val) < -self._trend_threshold
+
+    def _passes_monthly_gate(self, close: float) -> bool:
+        if not self._monthly_gate:
+            return True
+        if len(self._close_buf) < self._monthly_gate_window:
+            return True
+        ma = sum(self._close_buf) / len(self._close_buf)
+        return close > ma
 
     def _make_order(self, *, side: str, qty: Decimal,
                     event_id: Optional[str], reason: str) -> Sequence[Any]:

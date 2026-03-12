@@ -1,5 +1,9 @@
 # OS HFT 改造计划（基于当前硬件）
 
+> 状态: OS / kernel / host tuning 专项计划，依赖特定部署环境
+> 更新时间: 2026-03-12
+> 当前系统总体状态请参考 [`research.md`](/quant_system/research.md)；当前生产路径请参考 [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+
 ## 当前系统摸底
 
 | 项目 | 当前值 | 评估 |

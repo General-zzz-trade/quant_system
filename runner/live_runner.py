@@ -163,6 +163,7 @@ class LiveRunner:
     freshness_monitor: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
+    _stopped: bool = field(default=False, init=False)
     _reload_models_pending: bool = field(default=False, init=False)
     _user_stream_thread: Optional[Any] = field(default=None, init=False)
 
@@ -1098,10 +1099,14 @@ class LiveRunner:
             try:
                 with open("/sys/devices/system/cpu/nohz_full") as f:
                     for part in f.read().strip().split(","):
+                        part = part.strip()
+                        if not part or part == "(null)":
+                            continue
                         if "-" in part:
                             lo, hi = part.split("-")
-                            nohz_cpus.update(range(int(lo), int(hi) + 1))
-                        elif part.strip():
+                            if lo.isdigit() and hi.isdigit():
+                                nohz_cpus.update(range(int(lo), int(hi) + 1))
+                        elif part.isdigit():
                             nohz_cpus.add(int(part))
             except FileNotFoundError:
                 pass
@@ -1117,6 +1122,7 @@ class LiveRunner:
 
     def start(self) -> None:
         """Start the live trading system. Blocks until stop() or signal."""
+        self._stopped = False
         self._running = True
 
         self._apply_perf_tuning()
@@ -1213,8 +1219,9 @@ class LiveRunner:
 
     def stop(self) -> None:
         """Stop all subsystems gracefully."""
-        if not self._running:
+        if self._stopped:
             return
+        self._stopped = True
         self._running = False
 
         logger.info("Stopping LiveRunner...")
@@ -1227,6 +1234,7 @@ class LiveRunner:
                 from infra.threading_utils import safe_join_thread
 
                 safe_join_thread(self._user_stream_thread, timeout=5.0)
+                self._user_stream_thread = None
         if self.freshness_monitor is not None:
             self.freshness_monitor.stop()
         if self.data_scheduler is not None:
@@ -1281,7 +1289,8 @@ def _reconcile_startup(
                 f"{sym} position: local={local_qty}, venue={venue_qty}"
             )
 
-    local_balance = float(local_view.get("balance", 0))
+    local_account = local_view.get("account")
+    local_balance = float(getattr(local_account, "balance", 0) if local_account else 0)
     venue_balance = float(venue_state.get("balance", 0))
     if abs(local_balance - venue_balance) > 0.01:
         mismatches.append(

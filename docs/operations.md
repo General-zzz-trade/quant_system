@@ -2,6 +2,19 @@
 
 Production deployment, monitoring, and incident response for the quant trading system.
 
+Status:
+
+- This is a current operations guide for the Python-default production runtime.
+- When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), [`production_runbook.md`](/quant_system/docs/production_runbook.md), or [`execution_contracts.md`](/quant_system/docs/execution_contracts.md), those more specialized documents win.
+
+Current runtime truth:
+
+- Default production runtime: [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
+- Rust owns hot-path state/features/primitives, but Python still owns the default production orchestration path
+- Standalone Rust trader (`ext/rust/src/bin/main.rs`) is an evolving alternative runtime, not the default production entrypoint
+
+When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), treat [`runtime_truth.md`](/quant_system/docs/runtime_truth.md) as authoritative.
+
 ## Deployment
 
 ### Docker Build
@@ -56,7 +69,7 @@ K8s deployment runs as single replica with `Recreate` strategy (no dual-trading)
 
 ## Configuration
 
-Primary config file: YAML loaded by `infra/config/loader.py`. Example at `infra/config/examples/live.yaml`.
+Primary config for the default production runtime is YAML loaded by [`infra/config_loader.py`](/quant_system/infra/config_loader.py), with examples under [`infra/config/examples/`](/quant_system/infra/config/examples/).
 
 ### Key Parameters
 
@@ -145,7 +158,7 @@ Pre-configured dashboard panels in `monitoring/dashboards/panels.py`:
 
 ### Built-in Alert Rules
 
-LiveRunner registers these alerts automatically:
+`LiveRunner` registers these alerts automatically:
 
 | Alert | Severity | Condition | Cooldown |
 |-------|----------|-----------|----------|
@@ -217,7 +230,7 @@ venue_client.cancel_order(symbol="BTCUSDT", order_id="12345")
 ### Stale Market Data (> 60s)
 
 1. Check WebSocket connection status in logs
-2. `BinanceMarketDataRuntime` has automatic reconnection with REST fallback
+2. `BinanceMarketDataRuntime` is the default Python production market-data runtime and has automatic reconnection with REST fallback
 3. Verify exchange status: `curl -s https://fapi.binance.com/fapi/v1/ping`
 4. Check NetworkPolicy if running in K8s — ensure egress to `*.binance.com:443`
 5. If persistent, restart the pod: `kubectl -n quant rollout restart deploy/quant-engine`

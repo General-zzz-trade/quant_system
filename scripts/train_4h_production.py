@@ -32,6 +32,7 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from scripts.signal_postprocess import should_exit_position
 from scripts.train_v7_alpha import (
     V7_DEFAULT_PARAMS, V7_SEARCH_SPACE, INTERACTION_FEATURES, BLACKLIST,
 )
@@ -182,9 +183,13 @@ def pred_to_signal(pred: np.ndarray, deadzone: float, min_hold: int,
     for i in range(len(pred)):
         if current != 0:
             held = i - entry_bar
-            # Exit conditions
-            exit_signal = (held >= max_hold or
-                           (held >= min_hold and (current * z[i] < -0.3 or abs(z[i]) < 0.2)))
+            exit_signal = should_exit_position(
+                position=current,
+                z_value=float(z[i]),
+                held_bars=held,
+                min_hold=min_hold,
+                max_hold=max_hold,
+            )
             if exit_signal:
                 current = 0.0
         if current == 0:

@@ -83,6 +83,22 @@ class TestModelRegistry:
         old = registry.get(mv1.model_id)
         assert not old.is_production
 
+    def test_promote_previous_version_behaves_like_rollback(self, registry):
+        mv1 = registry.register(name="model_r", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        mv2 = registry.register(name="model_r", params={"v": 2}, features=[], metrics={"sharpe": 1.5})
+
+        registry.promote(mv2.model_id)
+        assert registry.get_production("model_r").model_id == mv2.model_id
+
+        # Current rollback mechanism is promotion of a previous stable version.
+        registry.promote(mv1.model_id)
+        prod = registry.get_production("model_r")
+
+        assert prod is not None
+        assert prod.model_id == mv1.model_id
+        assert prod.version == 1
+        assert not registry.get(mv2.model_id).is_production
+
     def test_promote_nonexistent_raises(self, registry):
         with pytest.raises(ValueError, match="not found"):
             registry.promote("nonexistent")

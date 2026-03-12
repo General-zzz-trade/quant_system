@@ -1,5 +1,9 @@
 # 性能压榨里程碑规划 (ALL COMPLETE 2026-03-09)
 
+> 状态: 已完成的性能优化里程碑记录
+> 更新时间: 2026-03-12
+> 当前系统总体状态请结合 [`research.md`](/quant_system/research.md) 阅读
+
 ## 当前基线
 
 每 tick 热路径延迟分布（3 symbol 场景）：

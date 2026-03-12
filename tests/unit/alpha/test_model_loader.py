@@ -182,6 +182,34 @@ class TestProductionModelLoader:
         assert result is not None
         assert len(result) == 1
 
+    def test_reload_if_changed_detects_rollback_to_previous_model(self):
+        v1 = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
+        v2 = FakeModelVersion(model_id="m2", name="alpha", version=2, tags=("lgbm",))
+        model_data = {"model": None, "features": (), "is_classifier": False}
+        weights = pickle.dumps(model_data)
+
+        registry = FakeRegistry({"alpha": v2})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+            ("m2", "weights"): weights,
+            ("m2", "weights.sig"): b"dummy",
+        })
+        loader = ProductionModelLoader(registry, store)
+
+        with patch("infra.model_signing.verify_file", return_value=None):
+            loader.load_production_models(["alpha"])
+
+        # Simulate rollback by promoting the previous model_id again.
+        registry._versions["alpha"] = v1
+
+        with patch("infra.model_signing.verify_file", return_value=None):
+            result = loader.reload_if_changed(["alpha"])
+
+        assert result is not None
+        assert len(result) == 1
+        assert loader._loaded_ids["alpha"] == "m1"
+
     def test_load_multiple_models(self):
         v1 = FakeModelVersion(model_id="m1", name="btc", version=1, tags=("lgbm",))
         v2 = FakeModelVersion(model_id="m2", name="eth", version=1, tags=("xgb",))
@@ -209,4 +237,31 @@ class TestProductionModelLoader:
         loader = ProductionModelLoader(registry, store)
 
         models = loader.load_production_models(["alpha"])
+        assert models == []
+
+    def test_feature_schema_mismatch_returns_empty(self):
+        version = FakeModelVersion(
+            model_id="m1",
+            name="alpha",
+            version=1,
+            tags=("lgbm",),
+            features=("expected_a", "expected_b"),
+        )
+        model_data = {
+            "model": None,
+            "features": ("actual_a", "actual_b"),
+            "is_classifier": False,
+        }
+        weights = pickle.dumps(model_data)
+
+        registry = FakeRegistry({"alpha": version})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+        })
+        loader = ProductionModelLoader(registry, store)
+
+        with patch("infra.model_signing.verify_file", return_value=None):
+            models = loader.load_production_models(["alpha"])
+
         assert models == []

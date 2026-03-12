@@ -1,5 +1,9 @@
 # Rust Replacement Matrix
 
+> 状态: 当前 Rust 第二阶段迁移边界与替换优先级说明
+> 更新时间: 2026-03-12
+> 该文档是迁移规划，不是当前运行时真相源；运行时现状请优先参考 [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+
 ## Purpose
 
 This document defines what should be rewritten to Rust, what should stay in Python,
@@ -257,6 +261,105 @@ final kernel design.
 ### `runner/`
 
 Keep Python shell:
+
+## Current Phase 4 Candidates
+
+These are the highest-signal candidates for the next Rust migration wave based
+on current code ownership, available Rust modules, and testability.
+
+### Candidate 1: Execution Timeout / Sequencing Helpers
+
+Python today:
+
+- [`execution/safety/timeout_tracker.py`](/quant_system/execution/safety/timeout_tracker.py)
+- [`execution/safety/out_of_order_guard.py`](/quant_system/execution/safety/out_of_order_guard.py)
+
+Rust already available:
+
+- `ext/rust/src/sequence_buffer.rs`
+- `ext/rust/src/fill_dedup.rs`
+- `ext/rust/src/payload_dedup.rs`
+
+Why this is a good target:
+
+- pure logic
+- explicit contracts already documented in `docs/execution_contracts.md`
+- recovery tests already exist for timeout / duplicate / late fill paths
+
+### Candidate 2: Dispatcher Routing Core
+
+Python today:
+
+- [`engine/dispatcher.py`](/quant_system/engine/dispatcher.py)
+
+Rust already available:
+
+- `ext/rust/src/route_match.rs`
+- `ext/rust/src/event_types.rs`
+- `ext/rust/src/event_validators.rs`
+
+Why this is a good target:
+
+- deterministic routing logic
+- hot-path on every event
+- parity is measurable through live/replay routing tests
+
+Keep in Python for now:
+
+- callback wiring
+- handler registration
+- integration shell around the route result
+
+### Candidate 3: Order Lifecycle Projection / Reconcile Kernel
+
+Python today:
+
+- [`execution/state_machine/projection.py`](/quant_system/execution/state_machine/projection.py)
+- [`execution/state_machine/reconciliation_rules.py`](/quant_system/execution/state_machine/reconciliation_rules.py)
+
+Rust already available:
+
+- `ext/rust/src/order_state_machine.rs`
+- `ext/rust/src/execution_store.rs`
+
+Why this is a good target:
+
+- deterministic state derivation
+- already close to kernel semantics
+- directly affects replay / reconcile correctness
+
+### Candidate 4: Backtest Signal Constraint Kernel
+
+Python today:
+
+- [`decision/backtest_module.py`](/quant_system/decision/backtest_module.py)
+- [`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py)
+
+Rust already available:
+
+- `ext/rust/src/inference_bridge.rs`
+- `ext/rust/src/ml_decision.rs`
+- `ext/rust/src/backtest_engine.rs`
+
+Why this is a good target:
+
+- live side already leans on Rust constraints
+- parity tests now exist for `deadzone`, `min_hold`, `trend_hold`, `monthly_gate`, `vol_target`
+- moving more backtest constraint logic to Rust reduces live/backtest divergence risk
+
+## Not Recommended Yet
+
+These areas should not be the next migration wave even if they eventually move:
+
+- [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
+- [`engine/coordinator.py`](/quant_system/engine/coordinator.py)
+- exchange transport glue under [`execution/adapters`](/quant_system/execution/adapters)
+
+Reason:
+
+- they are orchestration-heavy
+- they mix IO and dependency wiring
+- parity is harder to lock than for the deterministic kernels above
 
 - `live_runner.py`
 - `paper_runner.py`

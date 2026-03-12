@@ -13,6 +13,19 @@ All notable changes to the quant trading system.
 - ArgoCD application manifests and canary deployment configuration
 - System documentation: README, operations manual, API docs
 
+### Changed
+- Established explicit runtime truth, runtime contract, production runbook, execution contract, and model governance documents as current sources of truth
+- Rewrote `research.md` against the current codebase rather than historical README assumptions
+- Consolidated script-layer signal post-processing into `scripts/signal_postprocess.py`
+- Added script catalog / status classification for current, experimental, and legacy-reference entrypoints
+- Strengthened live/backtest parity around `deadzone`, `min_hold`, `trend_hold`, `monthly_gate`, and `vol_target`
+
+### Fixed
+- `LiveRunner.stop()` cleanup now runs correctly even after `_running` is cleared
+- `LiveRunner` startup reconcile now checks account balance drift
+- `LiveRunner` perf tuning now tolerates `nohz_full=(null)`
+- Missing `data/quality/live_validator.py` restored so default live build path resolves cleanly
+
 ## [0.9.0] - 2026-02-28
 
 ### Added

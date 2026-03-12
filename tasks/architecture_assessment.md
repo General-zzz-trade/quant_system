@@ -1,5 +1,9 @@
 # 项目架构水平评估报告
 
+> 状态: 历史阶段性评估（2026-02-22）
+> 当前代码库评估请优先参考: [`research.md`](/quant_system/research.md)
+> 当前收口状态请参考: [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+
 > 评估日期: 2026-02-22
 > 评估视角: Staff/Principal Engineer 级架构评审
 

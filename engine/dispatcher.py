@@ -11,12 +11,6 @@ from _quant_hotpath import DuplicateGuard as _RustDedupGuard
 from _quant_hotpath import rust_route_event_type as _rust_route_event_type
 from _quant_hotpath import rust_route_event as _rust_route_event
 
-# event 侧（你的 event 层）
-try:
-    from event.types import EventType  # Enum 风格
-except Exception:  # pragma: no cover
-    EventType = None  # type: ignore
-
 
 # ============================================================
 # Dispatcher Errors
