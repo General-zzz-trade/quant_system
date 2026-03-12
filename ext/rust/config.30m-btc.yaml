@@ -1,0 +1,47 @@
+# 30-Minute BTCUSDT Trading Config (Paper Trading / Dry-Run)
+# Model: LGBM v8_30m, 112 trees, 15 features
+# Walk-forward: IC=0.045, Sharpe=2.62, avg net +8.6bp/trade
+# Expected: ~0.3-1.1 trades/day
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: false
+  mode: paper
+  starting_balance: 10000.0
+  currency: USDT
+  interval: "30m"
+
+strategy:
+  deadzone: 3.0          # High threshold — only trade strong signals
+  min_hold: 1            # 1 bar = 30 min minimum hold
+  max_hold: 12           # 12 bars = 6 hours max hold
+  long_only: false
+  trend_follow: false
+  monthly_gate: false
+  zscore_window: 48      # 48 bars = 24h for z-score normalization
+
+position_sizing:
+  fraction: 0.05         # 5% of equity per trade (~$500 at $10k)
+  lot_sizes:
+    BTCUSDT: 0.001
+
+risk:
+  max_leverage: 2.0
+  max_drawdown_pct: 0.05
+  max_position_notional: 1000.0
+
+models:
+  BTCUSDT:
+    model_path: /quant_system/models_v8/BTCUSDT_30m_v1
+
+micro_alpha:
+  tick_by_tick: false
+
+credentials:
+  api_key: "dummy_dry_run_key_no_trading"
+  api_secret: "dummy_dry_run_secret_no_trading"
+
+logging:
+  level: info
+  json: false

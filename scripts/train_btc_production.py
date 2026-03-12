@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Train ETHUSDT 1h production model — V8-level pipeline.
+"""Train BTCUSDT 1h production model — V8-level pipeline with causal z-score.
 
-Uses same architecture as BTCUSDT_gate_v2:
+Uses same architecture as ETHUSDT:
   - LGBM + XGB ensemble (50/50)
   - Optuna HPO (10 trials)
-  - Walk-forward validation
+  - Causal rolling z-score (matches live/backtest exactly)
   - Bootstrap Sharpe + 4 production checks
 
 Usage:
-    python3 -m scripts.train_eth_production
+    python3 -m scripts.train_btc_production
 """
 from __future__ import annotations
 import sys, os, time, json, pickle
@@ -25,8 +25,8 @@ from features.dynamic_selector import greedy_ic_select
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
-SYMBOL = "ETHUSDT"
-MODEL_DIR = Path("models_v8/ETHUSDT_gate_v2")
+SYMBOL = "BTCUSDT"
+MODEL_DIR = Path("models_v8/BTCUSDT_gate_v2")
 HORIZON = 24
 WARMUP = 30
 COST_BPS_RT = 4
@@ -372,7 +372,6 @@ def main():
         }
         with open(MODEL_DIR / "config.json", "w") as f:
             json.dump(config, f, indent=2)
-        # Save features list
         with open(MODEL_DIR / "features.json", "w") as f:
             json.dump(selected_features, f)
 

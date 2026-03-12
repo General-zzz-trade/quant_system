@@ -316,6 +316,7 @@ fn try_submit_order(
     order_tx: &mpsc::Sender<String>,
     pending_orders: &Arc<tokio::sync::Mutex<HashMap<String, PendingOrder>>>,
     order_failure_count: &Arc<AtomicU32>,
+    dry_run: bool,
     micro_sig: Option<&MicroAlphaSignal>,
 ) -> bool {
     if score.abs() < 1e-9 {
@@ -446,6 +447,23 @@ fn try_submit_order(
     let micro_score_str = micro_sig
         .map(|s| format!("{:.4}", s.micro_score))
         .unwrap_or_else(|| "n/a".to_string());
+
+    if dry_run {
+        info!(
+            symbol = symbol,
+            side = desired_side,
+            qty = %qty_str,
+            notional = format!("{:.2}", order_notional),
+            leverage = format!("{:.2}x", projected_leverage),
+            equity = format!("{:.2}", equity),
+            score = format!("{:.4}", score),
+            micro = micro_score_str,
+            source = source,
+            "DRY-RUN order (simulated)"
+        );
+        sym_state.last_order_time = std::time::Instant::now();
+        return true;
+    }
 
     info!(
         symbol = symbol,
@@ -1034,6 +1052,12 @@ async fn main() {
     for s in &config.trading.symbols {
         streams.push(format!("{}@aggTrade", s.to_lowercase()));
     }
+    // V2: subscribe to depth5@100ms for tick-level depth imbalance signals
+    if tick_by_tick {
+        for s in &config.trading.symbols {
+            streams.push(format!("{}@depth5@100ms", s.to_lowercase()));
+        }
+    }
     let base_url = if config.trading.testnet {
         WS_FAPI_TESTNET
     } else {
@@ -1504,7 +1528,7 @@ async fn main() {
                         }
 
                         // Bar-close combined decision
-                        if !cli.dry_run && !kill_switch_active {
+                        if !kill_switch_active {
                             let combined_score = combined_bar_score(result.ml_score, micro_sig.as_ref(), tick_by_tick);
 
                             if combined_score.abs() > 0.0 {
@@ -1529,6 +1553,7 @@ async fn main() {
                                         &order_tx,
                                         &pending_orders,
                                         &order_failure_count,
+                                        cli.dry_run,
                                         micro_sig.as_ref(),
                                     );
                                 }
@@ -1537,56 +1562,51 @@ async fn main() {
                     }
                 }
 
-                // Tick-by-tick decision on every aggTrade
-                if tick_by_tick && !cli.dry_run && !kill_switch_active {
+                // Tick-by-tick decision on every aggTrade (V2: pure tick signals, no ML dependency)
+                if tick_by_tick && !kill_switch_active {
                     let sym = &trade.symbol;
+                    // V2: Use enhanced multi-timeframe tick signal
+                    let tick_sig = micro_alphas.get(sym).map(|ma| ma.compute_tick_signal(trade.ts_ms));
+                    // Legacy signal for logging/compatibility
                     let micro_sig = micro_alphas.get(sym).map(|ma| ma.compute(trade.ts_ms));
 
-                    if let Some(ref sig) = micro_sig {
-                        if sig.valid && sig.micro_score.abs() >= micro_threshold {
-                            let ml = sym_states.get(sym).map(|s| s.last_ml_score).unwrap_or(0.0);
+                    if let Some(ref tsig) = tick_sig {
+                        if tsig.valid && tsig.tick_score.abs() >= micro_threshold
+                            && tsig.confidence >= 0.5
+                        {
+                            // Pure tick score — no ML gating
+                            let score = tsig.tick_score;
 
-                            let score = if ml.abs() > 0.0 {
-                                if ml.signum() == sig.micro_score.signum() {
-                                    sig.micro_score * (1.0 + ml.abs() * 0.5)
-                                } else {
-                                    0.0
-                                }
-                            } else {
-                                sig.micro_score * 0.5
-                            };
+                            let processor =
+                                match processors.iter().find(|(s, _)| s == sym) {
+                                    Some((_, tp)) => tp,
+                                    None => continue,
+                                };
+                            let lot_size =
+                                lot_sizes.get(sym.as_str()).copied().unwrap_or(0.001);
 
-                            if score.abs() > 0.0 {
-                                let processor =
-                                    match processors.iter().find(|(s, _)| s == sym) {
-                                        Some((_, tp)) => tp,
-                                        None => continue,
-                                    };
-                                let lot_size =
-                                    lot_sizes.get(sym.as_str()).copied().unwrap_or(0.001);
-
-                                if let Some(ss) = sym_states.get_mut(sym) {
-                                    let ex_state = exchange_state.lock().unwrap();
-                                    let submitted = try_submit_order(
-                                        sym,
-                                        score,
-                                        trade.price,
-                                        "tick",
-                                        processor,
-                                        ss,
-                                        &ex_state,
-                                        &risk,
-                                        lot_size,
-                                        peak_equity,
-                                        &order_gateway,
-                                        &order_tx,
-                                        &pending_orders,
-                                        &order_failure_count,
-                                        micro_sig.as_ref(),
-                                    );
-                                    if submitted {
-                                        micro_order_count += 1;
-                                    }
+                            if let Some(ss) = sym_states.get_mut(sym) {
+                                let ex_state = exchange_state.lock().unwrap();
+                                let submitted = try_submit_order(
+                                    sym,
+                                    score,
+                                    trade.price,
+                                    "tick_v2",
+                                    processor,
+                                    ss,
+                                    &ex_state,
+                                    &risk,
+                                    lot_size,
+                                    peak_equity,
+                                    &order_gateway,
+                                    &order_tx,
+                                    &pending_orders,
+                                    &order_failure_count,
+                                    cli.dry_run,
+                                    micro_sig.as_ref(),
+                                );
+                                if submitted {
+                                    micro_order_count += 1;
                                 }
                             }
                         }
@@ -1596,25 +1616,48 @@ async fn main() {
                 // Periodic aggTrade stats (every 1000 trades)
                 if let Some(ss) = sym_states.get(&trade.symbol) {
                     if ss.trade_count % 1000 == 0 && ss.trade_count > 0 {
-                        let sig = micro_alphas
+                        let tsig = micro_alphas
                             .get(&trade.symbol)
-                            .map(|ma| ma.compute(trade.ts_ms));
-                        if let Some(sig) = sig {
+                            .map(|ma| ma.compute_tick_signal(trade.ts_ms));
+                        if let Some(tsig) = tsig {
                             info!(
                                 symbol = %trade.symbol,
                                 trades = ss.trade_count,
-                                flow = format!("{:.3}", sig.trade_flow_imbalance),
-                                vol_spike = format!("{:.2}", sig.volume_spike),
-                                large = format!("{:.3}", sig.large_trade_signal),
-                                micro = format!("{:.4}", sig.micro_score),
+                                f3s = format!("{:.3}", tsig.flow_3s),
+                                f10s = format!("{:.3}", tsig.flow_10s),
+                                f30s = format!("{:.3}", tsig.flow_30s),
+                                vol_spike = format!("{:.2}", tsig.volume_spike),
+                                cluster = format!("{:.3}", tsig.large_cluster),
+                                momentum = format!("{:.3}", tsig.price_momentum),
+                                depth = format!("{:.3}", tsig.depth_imbalance),
+                                tick = format!("{:.4}", tsig.tick_score),
+                                conf = format!("{:.2}", tsig.confidence),
                                 micro_orders = micro_order_count,
-                                valid = sig.valid,
-                                "aggTrade stats"
+                                "tick_v2 stats"
                             );
                         }
                     }
                 }
 
+                continue;
+            }
+
+            // ── depth5 path (V2: orderbook depth for tick-level signals) ──
+            if msg.contains("\"depthUpdate\"") || msg.contains("\"lastUpdateId\"") {
+                if let Some(depth) = parse_depth5(&msg) {
+                    if let Some(ma) = micro_alphas.get_mut(&depth.0) {
+                        ma.update_depth(_quant_hotpath::micro_alpha::DepthSnapshot {
+                            ts_ms: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as i64,
+                            best_bid: depth.1,
+                            best_ask: depth.2,
+                            bid_qty: depth.3,
+                            ask_qty: depth.4,
+                        });
+                    }
+                }
                 continue;
             }
 
@@ -1755,7 +1798,7 @@ async fn main() {
             }
 
             // Bar-close combined decision
-            if !cli.dry_run && !kill_switch_active {
+            if !kill_switch_active {
                 let combined_score = combined_bar_score(result.ml_score, micro_sig.as_ref(), tick_by_tick);
 
                 if combined_score.abs() > 0.0 {
@@ -1781,6 +1824,7 @@ async fn main() {
                             &order_tx,
                             &pending_orders,
                             &order_failure_count,
+                            cli.dry_run,
                             micro_sig.as_ref(),
                         );
                     }
@@ -2041,6 +2085,32 @@ async fn process_order_response(
 }
 
 // ── Qty formatting ──
+
+/// Parse depth5 message: returns (symbol, best_bid, best_ask, bid_qty_sum, ask_qty_sum)
+fn parse_depth5(msg: &str) -> Option<(String, f64, f64, f64, f64)> {
+    let v: serde_json::Value = serde_json::from_str(msg).ok()?;
+    // Combined stream format: {"stream":"btcusdt@depth5@100ms","data":{...}}
+    let data = v.get("data").unwrap_or(&v);
+    let stream = v.get("stream").and_then(|s| s.as_str()).unwrap_or("");
+    let symbol = stream.split('@').next().unwrap_or("").to_uppercase();
+    if symbol.is_empty() { return None; }
+
+    let bids = data.get("b")?.as_array()?;
+    let asks = data.get("a")?.as_array()?;
+    if bids.is_empty() || asks.is_empty() { return None; }
+
+    let best_bid: f64 = bids[0].get(0)?.as_str()?.parse().ok()?;
+    let best_ask: f64 = asks[0].get(0)?.as_str()?.parse().ok()?;
+
+    let bid_qty: f64 = bids.iter()
+        .filter_map(|b| b.get(1)?.as_str()?.parse::<f64>().ok())
+        .sum();
+    let ask_qty: f64 = asks.iter()
+        .filter_map(|a| a.get(1)?.as_str()?.parse::<f64>().ok())
+        .sum();
+
+    Some((symbol, best_bid, best_ask, bid_qty, ask_qty))
+}
 
 fn format_qty(qty: f64, lot_size: f64) -> String {
     if lot_size >= 1.0 {

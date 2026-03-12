@@ -1,0 +1,60 @@
+# Micro-Alpha Scalping — 1m bars with trained ML model
+# Usage: quant_trader --config config.micro-scalp.yaml --dry-run
+#
+# Strategy: 1-minute ML model + aggTrade micro-alpha signals
+# - ML model: 12 kline features, 5-min forward return prediction
+# - Micro-alpha: trade flow imbalance + volume spike + large trade
+# - Hold time: 5-60 seconds (micro-alpha) / 1-5 minutes (ML)
+#
+# Server: AWS Tokyo ap-northeast-1 (1.57ms to Binance)
+# Mode: dry-run on REAL mainnet market data (no orders sent)
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: false          # use mainnet for real market data
+  mode: paper
+  starting_balance: 10000.0
+  currency: USDT
+  interval: "1m"          # 1-minute bars (matches ML model training)
+
+# ML-tuned strategy params (from training: horizon=5, deadzone=0.3, min_hold=3)
+strategy:
+  deadzone: 0.3           # matches training config
+  min_hold: 3             # 3 bars = 3 minutes minimum hold
+  max_hold: 60            # max 60 bars = 60 minutes
+  long_only: false        # both directions
+  trend_follow: false
+  monthly_gate: false
+
+position_sizing:
+  fraction: 0.05          # ~$500 notional
+  lot_sizes:
+    BTCUSDT: 0.001        # min lot size
+
+risk:
+  max_leverage: 2.0       # conservative for scalping
+  max_drawdown_pct: 0.03  # 3% max drawdown
+  max_position_notional: 500.0
+  max_daily_orders: 500
+  max_order_notional: 300.0
+
+models:
+  BTCUSDT:
+    model_path: /quant_system/models_v8/BTCUSDT_1m_v1
+
+credentials:
+  api_key: "dummy_dry_run_key_no_trading"
+  api_secret: "dummy_dry_run_secret_no_trading"
+
+# Micro-alpha: aggTrade confirmation signals
+micro_alpha:
+  tick_by_tick: true
+  min_order_interval_ms: 500    # max 2 orders/sec
+  micro_threshold: 0.35         # min micro_score for tick decisions
+  window_ms: 10000              # 10s rolling window
+  large_trade_mult: 5.0         # 5x avg qty = large trade
+
+logging:
+  level: info
+  json: false

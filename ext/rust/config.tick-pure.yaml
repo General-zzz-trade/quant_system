@@ -1,0 +1,61 @@
+# Pure Tick-Level Strategy — V2 Multi-Timeframe Micro-Alpha
+# Usage: quant_trader --config config.tick-pure.yaml --dry-run
+#
+# Strategy: Pure aggTrade + depth signals, NO ML model dependency
+# - Multi-timeframe flow ensemble (3s/10s/30s)
+# - Large trade clustering detection
+# - EMA-based price momentum
+# - Depth imbalance from @depth5 stream
+# - Confidence filter: only trade when 2+ signals agree
+#
+# Server: AWS Tokyo ap-northeast-1 (1.57ms to Binance)
+# Mode: dry-run on REAL mainnet market data
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: false
+  mode: paper
+  starting_balance: 10000.0
+  currency: USDT
+  interval: "1s"            # sub-minute: bars from aggTrade, no kline stream
+
+strategy:
+  deadzone: 0.0             # no ML deadzone — tick signals handle filtering
+  min_hold: 0               # no bar hold constraint — tick-level exits
+  max_hold: 300             # safety: max 5 min hold
+  long_only: false
+  trend_follow: false
+  monthly_gate: false
+
+position_sizing:
+  fraction: 0.03            # ~$300 per trade
+  lot_sizes:
+    BTCUSDT: 0.001
+
+risk:
+  max_leverage: 2.0
+  max_drawdown_pct: 0.03
+  max_position_notional: 500.0
+  max_daily_orders: 1000
+  max_order_notional: 300.0
+
+models:
+  BTCUSDT:
+    model_path: /quant_system/models_v8/BTCUSDT_1m_v1
+
+credentials:
+  api_key: "dummy_dry_run_key_no_trading"
+  api_secret: "dummy_dry_run_secret_no_trading"
+
+# V2: Pure tick-level signals
+micro_alpha:
+  tick_by_tick: true
+  min_order_interval_ms: 1000   # max 1 order/sec (conservative start)
+  micro_threshold: 0.20         # |tick_score| >= 0.20 + confidence >= 0.5
+  window_ms: 10000              # primary window (also uses 3s and 30s internally)
+  large_trade_mult: 5.0
+
+logging:
+  level: info
+  json: false

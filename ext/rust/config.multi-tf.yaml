@@ -1,0 +1,48 @@
+# Multi-Timeframe Ensemble: 1h + 4h blended z-score
+# P0 validated: Sharpe 9.20 (shorts), 6.79 (adaptive dz+shorts)
+# Method: 50/50 z-score blend, adaptive deadzone, long+short
+#
+# Baseline: 32 trades, 71% WR, Sharpe 7.59
+# +Shorts:  39 trades, 72% WR, Sharpe 9.20  (shorts: 86% WR, +$45.6/trade)
+# +Adp DZ:  51 trades, 63% WR, Sharpe 6.79  (moderate dz_min=2.0)
+
+trading:
+  symbols: [BTCUSDT]
+  exchange: binance
+  testnet: true
+  mode: paper
+  starting_balance: 10000.0
+  interval: "1h"              # Base interval (1h ticks drive the system)
+
+strategy:
+  signal_type: multi_tf       # Use MultiTimeframeSignal
+  deadzone: 2.5               # Base deadzone (blended z-score threshold)
+  adaptive_dz: true           # Lower deadzone when both models agree
+  dz_agreement_discount: 0.8  # dz *= 0.8 when both z-scores agree (2.5→2.0)
+  dz_min: 2.0                 # Floor for adaptive deadzone
+  min_hold: 24                # 24h minimum hold
+  max_hold: 120               # 5 day maximum hold
+  long_only: false            # Enable shorts (86% WR, +$45.6/trade in backtest)
+  blend_weight_1h: 0.5
+  blend_weight_4h: 0.5
+  zscore_window_1h: 720       # 30 days rolling window
+  zscore_window_4h: 180       # 30 days in 4h bars
+  leverage_min: 2.0           # Floor leverage (at deadzone, or high vol)
+  leverage_max: 3.0           # Ceiling leverage (strong signal + low vol)
+  leverage_mode: dynamic      # Scale between min/max by signal strength × vol discount
+
+models:
+  BTCUSDT:
+    # 1h model (primary, runs every bar)
+    model_path: /quant_system/models_v8/BTCUSDT_gate_v2
+    # 4h model (secondary, runs every 4 bars)
+    model_path_4h: /quant_system/models_v8/BTCUSDT_4h_v1
+
+risk:
+  max_position_pct: 0.05      # 5% of equity per position
+  kill_switch_drawdown: 0.10  # 10% portfolio drawdown kills trading
+  daily_loss_limit: 0.03      # 3% daily loss limit
+
+monitoring:
+  prometheus_port: 9091       # Different port from single-model trader
+  log_level: INFO

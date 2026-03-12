@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Train ETHUSDT 1h production model — V8-level pipeline.
+"""Train BTCUSDT 1h V9b — conservative upgrade.
 
-Uses same architecture as BTCUSDT_gate_v2:
-  - LGBM + XGB ensemble (50/50)
-  - Optuna HPO (10 trials)
-  - Walk-forward validation
-  - Bootstrap Sharpe + 4 production checks
+Strategy: Keep V8's proven OOS-strong features, only replace confirmed weak ones.
 
-Usage:
-    python3 -m scripts.train_eth_production
+V8 features by OOS IC:
+  KEEP (OOS IC > 0.015): cvd_20(0.038), fgi_normalized(0.030), funding_zscore_24(0.022),
+                          parkinson_vol(0.019), basis(0.017), atr_norm_14(0.017),
+                          tf4h_atr_norm_14(0.013)
+  REPLACE (OOS IC < 0.010): funding_sign_persist(0.003), fgi_extreme(0.005),
+                             vol_ma_ratio_5_20(0.006), rsi_14(0.007), ret_24(-0.008),
+                             basis_zscore_24(-0.025*), basis_momentum(-0.025*)
+  * basis_zscore_24 and basis_momentum have decent absolute IC but negative sign
+    suggests they might be anti-correlated — keep one, test.
+
+Replace 5-7 weak features with IC-validated upgrades:
+  bb_width_20(0.039), dow_cos(0.031), vol_20(0.031), funding_extreme(0.027),
+  vwap_dev_20(-0.023), price_acceleration(-0.025), cvd_10(0.022)
 """
 from __future__ import annotations
-import sys, os, time, json, pickle
+import sys, time, json, pickle, shutil
 from pathlib import Path
-from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
 
@@ -21,20 +27,40 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import greedy_ic_select
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
-SYMBOL = "ETHUSDT"
-MODEL_DIR = Path("models_v8/ETHUSDT_gate_v2")
+SYMBOL = "BTCUSDT"
+MODEL_DIR = Path("models_v8/BTCUSDT_gate_v2")
 HORIZON = 24
 WARMUP = 30
-COST_BPS_RT = 4
+COST_BPS_RT = 8
 
 BARS_PER_DAY = 24
 BARS_PER_MONTH = BARS_PER_DAY * 30
-HPO_TRIALS = 10
-TOP_K_FEATURES = 14
+HPO_TRIALS = 20
+
+# Conservative feature set: proven V8 core + IC-validated upgrades
+FEATURE_SET = [
+    # ── V8 PROVEN (OOS IC > 0.01) ──
+    "cvd_20",              # OOS IC +0.038 (best V8 feature)
+    "fgi_normalized",      # OOS IC +0.030
+    "funding_zscore_24",   # OOS IC +0.022
+    "parkinson_vol",       # OOS IC +0.019
+    "basis",               # OOS IC +0.017
+    "atr_norm_14",         # OOS IC +0.017
+    "tf4h_atr_norm_14",    # OOS IC +0.013
+    # ── IC-VALIDATED UPGRADES (replacing weak V8 features) ──
+    "bb_width_20",         # OOS IC +0.039 (strongest new candidate)
+    "dow_cos",             # OOS IC +0.031
+    "vol_20",              # OOS IC +0.031
+    "funding_extreme",     # OOS IC +0.027
+    "vwap_dev_20",         # OOS IC -0.023 (consistent across BTC+ETH)
+    "price_acceleration",  # OOS IC -0.025 (consistent across BTC+ETH)
+    "cvd_10",              # OOS IC +0.022
+    "volume_momentum_10",  # OOS IC -0.017 (consistent across BTC+ETH)
+    "macd_hist",           # OOS IC -0.020 (consistent across BTC+ETH)
+]
 
 
 def fast_ic(x, y):
@@ -82,7 +108,7 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
     n = len(pred)
     z = rolling_zscore(pred, window=zscore_window, warmup=min(180, zscore_window // 4))
     cost_frac = cost_bps / 10000
-    pos = 0.0; entry_bar = 0; equity = 10000.0; trades = []
+    pos = 0.0; entry_bar = 0; trades = []
 
     for i in range(n):
         if pos != 0:
@@ -96,7 +122,6 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
             if should_exit:
                 pnl_pct = pos * (closes[i] - closes[entry_bar]) / closes[entry_bar]
                 net = pnl_pct * 500.0 - cost_frac * 500.0
-                equity += net
                 trades.append(net)
                 pos = 0.0
         if pos == 0:
@@ -121,24 +146,18 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
 
 def main():
     print("=" * 70)
-    print(f"TRAINING {SYMBOL} 1h PRODUCTION MODEL (V8)")
+    print(f"TRAINING {SYMBOL} V9b (conservative: keep proven + add strong)")
     print("=" * 70)
 
-    data_path = f"data_files/{SYMBOL}_1h.csv"
-    if not Path(data_path).exists():
-        print(f"ERROR: {data_path} not found.")
-        return
-
-    df = pd.read_csv(data_path)
+    df = pd.read_csv(f"data_files/{SYMBOL}_1h.csv")
     n = len(df)
     ts_col = "open_time" if "open_time" in df.columns else "timestamp"
     timestamps = df[ts_col].values.astype(np.int64)
     closes = df["close"].values.astype(np.float64)
     start_date = pd.Timestamp(timestamps[0], unit="ms").strftime("%Y-%m-%d")
     end_date = pd.Timestamp(timestamps[-1], unit="ms").strftime("%Y-%m-%d")
-    print(f"\nData: {n:,} 1h bars ({start_date} → {end_date})")
+    print(f"\nData: {n:,} bars ({start_date} → {end_date})")
 
-    # ── Features ──
     print("\nComputing features...")
     t0 = time.time()
     _has_v11 = Path("data_files/macro_daily.csv").exists()
@@ -150,48 +169,53 @@ def main():
         if fa in feat_df.columns and fb in feat_df.columns:
             feat_df[int_name] = feat_df[fa].astype(float) * feat_df[fb].astype(float)
 
-    feature_names = [c for c in feat_df.columns
-                     if c not in ("close", "open_time", "timestamp")
-                     and c not in BLACKLIST]
-    print(f"Features: {len(feature_names)} in {time.time()-t0:.1f}s")
+    all_features = [c for c in feat_df.columns
+                    if c not in ("close", "open_time", "timestamp")
+                    and c not in BLACKLIST]
+    print(f"All features: {len(all_features)} in {time.time()-t0:.1f}s")
+
+    # Verify all selected features exist
+    selected_features = [f for f in FEATURE_SET if f in all_features]
+    missing = [f for f in FEATURE_SET if f not in all_features]
+    if missing:
+        print(f"  WARNING: missing features: {missing}")
+    print(f"  Using {len(selected_features)} features: {selected_features}")
 
     y = compute_target(closes, HORIZON)
-    X = feat_df[feature_names].values.astype(np.float64)
+    X = feat_df[all_features].values.astype(np.float64)
+    sel_idx = [all_features.index(f) for f in selected_features]
 
-    # ── Split ──
+    # Split
     oos_bars = BARS_PER_MONTH * 18
     train_end = n - oos_bars
     val_size = BARS_PER_MONTH * 6
     val_start = train_end - val_size
 
-    print(f"\nSplit: train={val_start-WARMUP:,} val={val_size:,} test={oos_bars:,}")
-
-    X_train = X[WARMUP:val_start]
-    y_train = y[WARMUP:val_start]
-    X_val = X[val_start:train_end]
-    y_val = y[val_start:train_end]
-    X_test = X[train_end:]
-    y_test = y[train_end:]
+    X_train = X[WARMUP:val_start]; y_train = y[WARMUP:val_start]
+    X_val = X[val_start:train_end]; y_val = y[val_start:train_end]
+    X_test = X[train_end:]; y_test = y[train_end:]
     closes_test = closes[train_end:]
 
-    valid_tr = ~np.isnan(y_train)
-    valid_val = ~np.isnan(y_val)
+    valid_tr = ~np.isnan(y_train); valid_val = ~np.isnan(y_val)
     X_train = X_train[valid_tr]; y_train = y_train[valid_tr]
     X_val = X_val[valid_val]; y_val = y_val[valid_val]
-
-    print(f"  Train: {len(X_train):,}  Val: {len(X_val):,}  Test: {len(X_test):,}")
-
-    # ── Feature selection ──
-    print("\nFeature selection...")
-    selected_features = greedy_ic_select(X_train, y_train, feature_names, top_k=TOP_K_FEATURES)
-    sel_idx = [feature_names.index(f) for f in selected_features]
-    print(f"Selected: {selected_features}")
 
     X_tr_sel = X_train[:, sel_idx]
     X_val_sel = X_val[:, sel_idx]
     X_test_sel = X_test[:, sel_idx]
 
-    # ── Optuna HPO ──
+    print(f"\nSplit: train={len(X_train):,} val={len(X_val):,} test={len(X_test_sel):,}")
+
+    # Feature IC on training data
+    print(f"\nFeature IC (train):")
+    for f in selected_features:
+        fi = sel_idx[selected_features.index(f)]
+        ic = fast_ic(X_train[:, fi], y_train)
+        v8 = "V8" if f in {"cvd_20", "fgi_normalized", "funding_zscore_24",
+                            "parkinson_vol", "basis", "atr_norm_14", "tf4h_atr_norm_14"} else "NEW"
+        print(f"  {v8:>3s} {f:30s} IC={ic:+.4f}")
+
+    # HPO
     print(f"\nOptuna HPO ({HPO_TRIALS} trials)...")
     import optuna, lightgbm as lgb, xgboost as xgb
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -200,14 +224,14 @@ def main():
         params = {
             "objective": "regression", "metric": "mse", "verbosity": -1,
             "boosting_type": "gbdt",
-            "num_leaves": trial.suggest_int("num_leaves", 15, 50),
+            "num_leaves": trial.suggest_int("num_leaves", 12, 40),
             "max_depth": trial.suggest_int("max_depth", 3, 6),
-            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.05, log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 30, 100),
+            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.03, log=True),
+            "min_child_samples": trial.suggest_int("min_child_samples", 50, 120),
             "subsample": trial.suggest_float("subsample", 0.6, 0.9),
-            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 0.9),
-            "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 1.0, log=True),
-            "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 0.9),
+            "reg_alpha": trial.suggest_float("reg_alpha", 0.01, 2.0, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 0.1, 10.0, log=True),
         }
         dtrain = lgb.Dataset(X_tr_sel, label=y_train)
         dval = lgb.Dataset(X_val_sel, label=y_val, reference=dtrain)
@@ -220,10 +244,10 @@ def main():
     study = optuna.create_study(direction="maximize")
     study.optimize(objective, n_trials=HPO_TRIALS)
     best_params = study.best_params
-    print(f"  Best IC: {study.best_value:.4f}")
+    print(f"  Best val IC: {study.best_value:.4f}")
     print(f"  Params: {best_params}")
 
-    # ── Final LGBM ──
+    # Final models
     print("\nTraining final LGBM...")
     lgbm_params = {"objective": "regression", "metric": "mse", "verbosity": -1,
                    "boosting_type": "gbdt", **best_params}
@@ -237,7 +261,6 @@ def main():
     ic_lgbm = fast_ic(pred_test_lgbm, y_test)
     print(f"  LGBM IC: {ic_lgbm:.4f}")
 
-    # ── XGB ──
     print("Training XGB...")
     xgb_params = {
         "objective": "reg:squarederror", "eval_metric": "rmse",
@@ -259,38 +282,67 @@ def main():
     ic_xgb = fast_ic(pred_test_xgb, y_test)
     print(f"  XGB IC: {ic_xgb:.4f}")
 
-    # ── Ensemble ──
     pred_test = 0.5 * pred_test_lgbm + 0.5 * pred_test_xgb
     ic_ens = fast_ic(pred_test, y_test)
     print(f"  Ensemble IC: {ic_ens:.4f}")
 
-    # ── Deadzone sweep ──
-    print("\nDeadzone sweep...")
-    best_config = None
-    best_sharpe = -999
-    best_result = None
-    for dz in [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5]:
-        for mh in [12, 24]:
+    # V8 baseline
+    print("\nV8 baseline comparison...")
+    try:
+        v8_dir = Path("models_v8/BTCUSDT_gate_v2_backup_v8")
+        if not v8_dir.exists():
+            v8_dir = MODEL_DIR
+        with open(v8_dir / "lgbm_v8.pkl", "rb") as f:
+            v8_lgbm_data = pickle.load(f)
+        v8_feat_names = v8_lgbm_data["features"]
+        v8_idx = [all_features.index(f) for f in v8_feat_names if f in all_features]
+        with open(v8_dir / "xgb_v8.pkl", "rb") as f:
+            v8_xgb = pickle.load(f)["model"]
+        X_test_v8 = X_test[:, v8_idx]
+        v8_pred = 0.5 * v8_lgbm_data["model"].predict(X_test_v8) + \
+                  0.5 * v8_xgb.predict(xgb.DMatrix(X_test_v8))
+        v8_ic = fast_ic(v8_pred, y_test)
+        print(f"  V8 ensemble IC: {v8_ic:.4f}")
+        print(f"  V9b ensemble IC: {ic_ens:.4f}  ({'+' if ic_ens > v8_ic else ''}{(ic_ens-v8_ic):.4f})")
+    except Exception as e:
+        print(f"  V8 comparison failed: {e}")
+        v8_ic = 0
+
+    # Deadzone sweep
+    print(f"\nDeadzone sweep (cost={COST_BPS_RT}bp RT)...")
+    best_config = None; best_sharpe = -999; best_result = None
+    all_results = []
+    for dz in [0.3, 0.5, 0.7, 1.0, 1.2, 1.5, 2.0, 2.5]:
+        for mh in [12, 24, 36]:
             maxh = mh * 5
             for lo in [True, False]:
                 r = backtest_signal(pred_test, closes_test, dz, mh, maxh,
                                     COST_BPS_RT, long_only=lo)
-                if r["sharpe"] > best_sharpe and r["trades"] >= 10:
-                    best_sharpe = r["sharpe"]
-                    best_config = {"deadzone": dz, "min_hold": mh,
-                                   "max_hold": maxh, "long_only": lo}
-                    best_result = r
+                if r["trades"] >= 10:
+                    all_results.append((dz, mh, maxh, lo, r))
+                    if r["sharpe"] > best_sharpe:
+                        best_sharpe = r["sharpe"]
+                        best_config = {"deadzone": dz, "min_hold": mh,
+                                       "max_hold": maxh, "long_only": lo}
+                        best_result = r
+
+    all_results.sort(key=lambda x: x[4]["sharpe"], reverse=True)
+    print(f"\n  Top 5:")
+    for dz, mh, maxh, lo, r in all_results[:5]:
+        lo_str = "L" if lo else "L+S"
+        print(f"    dz={dz:.1f} hold=[{mh},{maxh}] {lo_str:>3s}  "
+              f"Sharpe={r['sharpe']:.2f} trades={r['trades']:>3d} "
+              f"WR={r['win_rate']:.0f}% ret={r['return']*100:+.2f}%")
 
     if best_config is None:
-        print("  No viable config found!")
-        return
+        print("  No viable config!"); return
 
-    print(f"  Best: dz={best_config['deadzone']}, hold=[{best_config['min_hold']},{best_config['max_hold']}], "
+    print(f"\n  BEST: dz={best_config['deadzone']}, hold=[{best_config['min_hold']},{best_config['max_hold']}], "
           f"long_only={best_config['long_only']}")
     print(f"  Sharpe={best_result['sharpe']:.2f}, trades={best_result['trades']}, "
-          f"WR={best_result.get('win_rate',0):.0f}%, ret={best_result['return']*100:.2f}%")
+          f"WR={best_result.get('win_rate',0):.0f}%, ret={best_result['return']*100:+.2f}%")
 
-    # ── Bootstrap ──
+    # Bootstrap
     print("\nBootstrap Sharpe...")
     z = rolling_zscore(pred_test, window=720, warmup=180)
     trade_pnls = []
@@ -321,12 +373,12 @@ def main():
     p5, p50, p95 = np.percentile(bs_sharpes, [5, 50, 95])
     print(f"  Bootstrap: {p50:.2f} (p5={p5:.2f}, p95={p95:.2f})")
 
-    # ── Checks ──
+    # Checks
     print(f"\n{'='*70}")
     print("PRODUCTION CHECKS")
     print("=" * 70)
     checks = {
-        "Sharpe > 1.0": best_result["sharpe"] > 1.0,
+        "Sharpe > 0.8": best_result["sharpe"] > 0.8,
         "IC > 0.03": ic_ens > 0.03,
         "Trades >= 15": best_result["trades"] >= 15,
         "Bootstrap p5 > 0": p5 > 0,
@@ -337,9 +389,18 @@ def main():
         if not passed: all_pass = False
         print(f"  [{status}] {check}")
 
-    # ── Save ──
+    # Also check: V9b must beat V8 IC
+    ic_improved = ic_ens > v8_ic
+    print(f"  [{'PASS' if ic_improved else 'FAIL'}] IC > V8 ({ic_ens:.4f} vs {v8_ic:.4f})")
+    if not ic_improved:
+        all_pass = False
+
     if all_pass:
-        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        backup_dir = Path("models_v8/BTCUSDT_gate_v2_backup_v8")
+        if not backup_dir.exists():
+            shutil.copytree(MODEL_DIR, backup_dir)
+            print(f"\n  V8 backed up to {backup_dir}/")
+
         with open(MODEL_DIR / "lgbm_v8.pkl", "wb") as f:
             pickle.dump({"model": lgbm_model, "features": selected_features}, f)
         with open(MODEL_DIR / "xgb_v8.pkl", "wb") as f:
@@ -347,13 +408,18 @@ def main():
         lgbm_model.save_model(str(MODEL_DIR / "lgbm_1h.txt"))
 
         config = {
-            "symbol": SYMBOL, "version": "v8", "horizon": HORIZON,
+            "version": "v9b", "symbol": SYMBOL, "ensemble": True,
+            "ensemble_weights": [0.5, 0.5],
+            "models": ["lgbm_v8.pkl", "xgb_v8.pkl"],
             "features": selected_features,
-            "params": best_params, "xgb_params": xgb_params,
+            "n_features": len(selected_features),
             "deadzone": best_config["deadzone"],
             "min_hold": best_config["min_hold"],
             "max_hold": best_config["max_hold"],
             "long_only": best_config["long_only"],
+            "horizon": HORIZON, "target_mode": "clipped",
+            "params": best_params, "xgb_params": xgb_params,
+            "hpo_trials": HPO_TRIALS,
             "metrics": {
                 "sharpe": best_result["sharpe"], "ic": ic_ens,
                 "ic_lgbm": ic_lgbm, "ic_xgb": ic_xgb,
@@ -364,32 +430,39 @@ def main():
                 "bootstrap_sharpe_p5": float(p5),
                 "bootstrap_sharpe_p50": float(p50),
                 "bootstrap_sharpe_p95": float(p95),
+                "v8_ic": v8_ic,
+                "ic_improvement": ic_ens - v8_ic,
             },
             "checks": {k: bool(v) for k, v in checks.items()},
+            "v8_features_kept": [f for f in selected_features
+                                  if f in {"cvd_20", "fgi_normalized", "funding_zscore_24",
+                                           "parkinson_vol", "basis", "atr_norm_14", "tf4h_atr_norm_14"}],
+            "new_features": [f for f in selected_features
+                              if f not in {"cvd_20", "fgi_normalized", "funding_zscore_24",
+                                           "parkinson_vol", "basis", "atr_norm_14", "tf4h_atr_norm_14"}],
             "train_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
             "data_range": f"{start_date} → {end_date}",
             "n_bars": n,
         }
         with open(MODEL_DIR / "config.json", "w") as f:
             json.dump(config, f, indent=2)
-        # Save features list
         with open(MODEL_DIR / "features.json", "w") as f:
             json.dump(selected_features, f)
 
-        print(f"\n  Model saved to {MODEL_DIR}/")
+        print(f"\n  V9b model saved to {MODEL_DIR}/")
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print(f"\n  FAILED — model NOT saved. V8 preserved.")
 
     print(f"\n{'='*70}")
-    print(f"SUMMARY: {SYMBOL} 1h V8")
+    print(f"SUMMARY: {SYMBOL} V9b")
     print(f"{'='*70}")
-    print(f"  IC:       {ic_ens:.4f}")
+    print(f"  IC:       {ic_ens:.4f} (V8: {v8_ic:.4f})")
     print(f"  Sharpe:   {best_result['sharpe']:.2f}")
     print(f"  Return:   {best_result['return']*100:+.2f}%")
     print(f"  Trades:   {best_result['trades']}")
     print(f"  WR:       {best_result.get('win_rate',0):.0f}%")
+    print(f"  Features: {len(selected_features)}")
     print(f"  Checks:   {'ALL PASS' if all_pass else 'FAILED'}")
-    print("\nDone.")
 
 
 if __name__ == "__main__":

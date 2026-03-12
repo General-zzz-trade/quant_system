@@ -189,6 +189,7 @@ def run_backtest(
     funding_csv: Optional[str] = None,
     decision_modules: Optional[List[Any]] = None,
     feature_computer: Any = None,
+    feature_hook: Any = None,
     alpha_models: Optional[List[Any]] = None,
     enable_attribution: bool = False,
     enable_regime_gate: bool = False,
@@ -281,8 +282,9 @@ def run_backtest(
         )
 
     # Feature compute hook (same as live runner)
-    feat_hook = None
-    if feature_computer is not None:
+    # feature_hook takes precedence (pre-built hook, e.g. PrecomputedFeatureHook)
+    feat_hook = feature_hook
+    if feat_hook is None and feature_computer is not None:
         from engine.feature_hook import FeatureComputeHook
         inference_bridge = None
         if alpha_models:
@@ -397,18 +399,28 @@ def run_backtest(
         if bar.ts in funding_schedule:
             fr = funding_schedule[bar.ts]
             pos_qty = base_adapter._pos_qty.get(symbol_u, Decimal("0"))
-            if pos_qty != 0:
+            if pos_qty != 0 and fr.funding_rate != 0:
+                # Funding payment: rate × position notional
+                # Positive rate + long position = you pay; negative = you receive
+                close_px = bar.c
+                funding_cost = fr.funding_rate * pos_qty * close_px
+                # Record as a fill with zero qty (funding settlement)
                 fh = EventHeader.new_root(event_type=EventType.FILL, version=1, source="funding")
-                funding_ev = SimpleNamespace(
+                funding_fill = SimpleNamespace(
                     header=fh,
-                    event_type="funding",
+                    event_type=EventType.FILL,
                     ts=bar.ts,
                     symbol=symbol_u,
-                    funding_rate=fr.funding_rate,
-                    mark_price=fr.mark_price,
-                    position_qty=pos_qty,
+                    side="buy" if pos_qty > 0 else "sell",
+                    qty=Decimal("0"),
+                    price=close_px,
+                    fee=abs(funding_cost),
+                    realized_pnl=-funding_cost,  # Cost reduces PnL
+                    cash_delta=float(-funding_cost),
+                    margin_change=0.0,
                 )
-                coordinator.emit(funding_ev, actor="funding")
+                if _on_fill is not None:
+                    _on_fill(funding_fill)
 
     if embargo_bars > 0 and bar_list:
         # End-of-data flush: no next bar available, use last bar's close
