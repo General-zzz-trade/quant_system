@@ -100,7 +100,7 @@ pub struct RustInferenceBridge {
 #[pymethods]
 impl RustInferenceBridge {
     #[new]
-    #[pyo3(signature = (zscore_window=720, zscore_warmup=168, default_gate_window=480))]
+    #[pyo3(signature = (zscore_window=720, zscore_warmup=180, default_gate_window=480))]
     fn new(zscore_window: usize, zscore_warmup: usize, default_gate_window: usize) -> Self {
         Self {
             symbols: HashMap::new(),
