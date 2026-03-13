@@ -1,516 +1,705 @@
 # Quant System 代码库研究报告
 
-> 更新时间: 2026-03-12
-> 研究方式: 基于当前源码、运行时真相源、契约文档、改造计划、模型资产和测试结构逐层核对
-> 结论基准: 以当前代码和已落地文档为准，不以历史 README、旧计划或过时注释为准
+> 更新时间: 2026-03-13
+> 研究方式: 基于当前源码、真相源文档、测试结构、CI 与部署工件逐层核对
+> 判断原则: 以当前代码和已落地契约为准，不以历史 README 口径、旧脚本名或未接线清单为准
 
 ---
 
 ## 1. 执行摘要
 
-这个仓库已经不是“策略脚本集合”，而是一个完整的量化交易平台雏形。它覆盖了：
+这不是一个“策略脚本仓库”，而是一个已经具备完整横截面的量化交易平台代码库。它已经覆盖：
 
-- 数据采集与质量校验
-- 事件模型与事件存储
-- 状态推进与快照
-- 特征计算与在线推理
-- 决策、风控、执行、对账、恢复
-- 回测、回放、paper、live
-- 研究、训练、模型注册、模型加载
-- 监控、告警、部署、运维脚本
+- 市场数据接入、事件建模、状态推进、快照读取
+- 特征工程、在线推理、决策编排、风险裁决、执行与对账
+- 回测、回放、paper、testnet、live wiring
+- 研究分析、模型注册、模型热加载、重训练、运维控制面
+- 监控、告警、审计、CI、Docker、K8s、Argo Rollouts
 
-当前最准确的判断是：
+当前最准确的总体判断是：
 
-> 代码库已经形成了功能闭环和较强的生产候选能力，但仍处于“持续收口”的中后期，而不是完全定型的最终形态。
+> 这是一个“Python 主编排 + Rust 深度接管热路径”的中大型量化平台；功能闭环已经形成，强项在运行时制度、风险与执行语义、以及测试护栏，主要问题已经从“缺功能”转成“收口真相源、消化脚本/部署分叉、降低双栈维护成本”。
 
-最重要的现状有 6 条：
+本轮核对后，最关键的 8 条结论如下：
 
-1. 默认生产主路径仍然是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
-2. 当前运行时是“Python 主编排 + Rust 热路径内核”的混合架构
-3. 状态推进已经显著收口到 Rust `process_event()` 写通道
-4. live / backtest / replay / scripts 的关键约束已经做过一轮系统收口
-5. execution recovery、incident policy、model governance 已从隐式习惯变成显式文档和测试
-6. Rust 第二阶段迁移已开始围绕 parity tests 和小范围 fallback 删除推进，但还没有完成 runtime 总替换
+1. 当前唯一默认生产主路径仍然是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)，不是 Rust standalone binary。
+2. Rust 已经深度接管状态推进、路由、特征、约束状态机、去重和部分执行原语，但 Python 仍拥有 runtime 装配、交易所 IO、研究训练和 ops glue。
+3. [`decision/engine.py`](/quant_system/decision/engine.py) 和 [`engine/decision_bridge.py`](/quant_system/engine/decision_bridge.py) 已形成比较清晰的“只读快照 -> 意见事件”制度中心。
+4. [`execution/`](/quant_system/execution) 已经不是 adapter 集合，而是包含 canonical model、ingress、state machine、reconcile、safety、observability、store、sim 的完整执行子平台。
+5. [`risk/`](/quant_system/risk) 的成熟度高于常见量化仓库水位，尤其是 [`risk/aggregator.py`](/quant_system/risk/aggregator.py) 与 [`risk/kill_switch.py`](/quant_system/risk/kill_switch.py) 体现出明显的制度化设计。
+6. `research/`、`scripts/`、`model governance` 并非空壳，但成熟度不均衡；其中一部分已产品化，另一部分仍带明显历史沉积。
+7. 测试强项在 Python runtime wiring、契约、恢复链路和 operator/control 面；弱项在部署工件验证、CI 自身、Rust 默认门禁和部分遗留 research 入口活性。
+8. 当前最需要正视的不是功能缺失，而是具体的漂移点：部署脚本与 compose 不一致、Dockerfile 工件疑似过时、配置 schema 与 runtime 解析存在偏差、以及部分测试不在默认 CI 门里。
 
-当前客观规模：
+---
+
+## 2. 仓库规模与复杂度
+
+### 2.1 客观规模
+
+按 2026-03-13 当前工作树统计：
 
 | 指标 | 当前值 |
 |---|---:|
-| Python 文件 | 971 |
+| Python 文件 | 996 |
+| Python 代码行 | 154,645 |
 | Rust 文件 | 67 |
-| Markdown 文档 | 29 |
-| `tests/test_*.py` 文件 | 230 |
-| 顶层主功能目录 | `engine/`, `event/`, `state/`, `decision/`, `execution/`, `risk/`, `runner/`, `scripts/`, `research/`, `ext/rust/` |
-
----
-
-## 2. 当前真实定位
-
-这个仓库的真实产品形态是：
-
-- 场景: 加密永续合约 / 多资产量化交易
-- 形态: 平台型系统，不是单策略回测仓库
-- 架构: 事件驱动、事实推进状态、decision/execution 与 state 解耦
-- 运行: live、backtest、replay、paper 均存在
-- 技术方向: Python 控制面 + Rust 运行内核逐步上收
-
-更准确地说，它现在不是“Rust-only runtime”，也不是“Python-only monolith”，而是：
-
-> Python 负责装配、生态集成、研究训练和大量运行控制；Rust 负责越来越多的热路径、状态、特征、校验与确定性逻辑。
-
----
-
-## 3. 代码库地图
-
-从目录结构看，仓库已经形成了清晰的平台分层。
-
-### 3.1 核心运行层
-
-- [`engine`](/quant_system/engine): 协调器、dispatcher、pipeline、loop、replay
-- [`event`](/quant_system/event): 事件类型、header、codec、runtime、store、checkpoint
-- [`state`](/quant_system/state): 状态视图、Rust adapter、snapshot、versioning
-- [`runner`](/quant_system/runner): live/backtest/replay/paper 等运行入口
-
-### 3.2 决策与智能层
-
-- [`features`](/quant_system/features): 技术指标、跨周期、微观结构、batch/live feature engine
-- [`alpha`](/quant_system/alpha): 模型封装、在线推理、training、model loader
-- [`decision`](/quant_system/decision): 信号、intents、allocators、execution policy、sizing、risk overlay
-- [`regime`](/quant_system/regime): regime 判定与桥接
-
-### 3.3 安全与执行层
-
-- [`risk`](/quant_system/risk): kill switch、aggregator、correlation gate、rules
-- [`portfolio`](/quant_system/portfolio): 组合分配、优化、风险模型
-- [`execution`](/quant_system/execution): adapters、ingress、state machine、safety、reconcile、tca、latency、routing
-
-### 3.4 研究与运维层
-
-- [`research`](/quant_system/research): walk-forward、hyperopt、registry、retrain
-- [`scripts`](/quant_system/scripts): 训练、验证、研究、数据刷新、ops 工具层
-- [`monitoring`](/quant_system/monitoring): health、alerts、metrics、dashboards
-- [`deploy`](/quant_system/deploy): docker、k8s、prometheus、grafana、systemd
-- [`ext/rust`](/quant_system/ext/rust): `_quant_hotpath` PyO3 crate 和 standalone Rust trader
-
-结论不是“execution 很大”，而是：
-
-> 这个仓库已经拥有交易系统的完整平台横截面，而不是一个研究仓库外挂执行器。
-
----
-
-## 4. 当前运行时真相
-
-当前运行时真相以 [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md) 为准。
-
-### 4.1 默认生产入口
-
-当前默认生产入口是：
-
-- [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
-
-其他路径的定位：
-
-- [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py): 历史回测入口
-- [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py): 回放与一致性验证入口
-- [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs): 重要的 standalone Rust trader 演进路径，但不是当前默认生产入口
-
-### 4.2 `LiveRunner` 的真实定位
-
-[`runner/live_runner.py`](/quant_system/runner/live_runner.py) 不是一个薄入口，而是完整 runtime 装配器。当前会装配的关键部件包括：
-
-- `EngineCoordinator`
-- `EngineLoop`
-- `DecisionBridge`
-- `ExecutionBridge`
-- `FeatureComputeHook`
-- `KillSwitch`
-- `MarginMonitor`
-- `ReconcileScheduler`
-- `SystemHealthMonitor`
-- `AlertManager`
-- `LatencyTracker`
-- `OrderTimeoutTracker`
-- `OrderStateMachine`
-- `ModelRegistry` 自动加载相关 loader
-- user stream / venue client / health endpoint / persistence 等外围能力
+| Rust 代码行 | 25,493 |
+| Markdown 文档 | 30 |
+| `tests/` 下 `test_*.py` | 247 |
+| `execution/tests/` 下额外 `test_*.py` | 28 |
+| 已发现测试文件合计 | 275 |
 
 这意味着：
 
-> 生产 runtime 的复杂度主要在 Python 装配层，而不是已经完全下沉到了 Rust binary。
+> 这个仓库已经进入“中大型单仓平台”量级，复杂度来源并不只在 runtime，本地研究工具、运维脚本和测试护栏也占了非常高的体量。
+
+### 2.2 Python 代码热点
+
+按目录统计，当前最重的 Python 区域如下：
+
+| 目录 | Python 文件数 | 代码行 | 结论 |
+|---|---:|---:|---|
+| `scripts/` | 115 | 46,432 | 最大的历史沉积区，也是当前研究/运维工作层 |
+| `tests/` | 252 | 44,231 | 测试已经是架构护栏，不只是回归补丁 |
+| `execution/` | 202 | 16,296 | 最大的生产子系统 |
+| `runner/` | 15 | 6,899 | 入口不多，但装配责任非常集中 |
+| `decision/` | 88 | 5,507 | 决策框架与回测兼容逻辑并存 |
+| `portfolio/` | 78 | 5,002 | 能力面很强，但 live 接线深度不如 execution/risk |
+
+从体量上看，当前仓库的复杂度分布不是“所有难点都在 engine”，而是：
+
+- 生产复杂度集中在 [`runner/`](/quant_system/runner)、[`engine/`](/quant_system/engine)、[`execution/`](/quant_system/execution)、[`risk/`](/quant_system/risk)
+- 维护复杂度集中在 [`scripts/`](/quant_system/scripts) 与测试体系
+- 演进复杂度集中在 [`ext/rust/`](/quant_system/ext/rust) 与 Python/Rust 双栈边界
 
 ---
 
-## 5. 事件链与状态链
+## 3. 当前真实定位
 
-### 5.1 当前统一事件链
+### 3.1 产品形态
+
+当前代码库的真实产品定位是：
+
+- 场景: 加密永续合约量化交易
+- 架构: 事件驱动、事实推进状态、快照驱动决策
+- 形态: 平台型系统，不是单策略研究仓
+- 运行模式: live、backtest、replay、paper、testnet 都存在
+- 技术路线: Python 控制面 + Rust 热路径内核
+
+### 3.2 当前真相源
+
+当前应优先相信以下文档，而不是历史规划文档：
+
+- 运行时真相: [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+- 跨路径契约: [`docs/runtime_contracts.md`](/quant_system/docs/runtime_contracts.md)
+- 执行制度: [`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md)
+- 模型治理: [`docs/model_governance.md`](/quant_system/docs/model_governance.md)
+
+### 3.3 不应继续当作“当前事实”的说法
+
+以下说法现在都不够准确：
+
+- “系统已经 Rust-only runtime”
+- “Python 只剩配置和胶水”
+- “standalone Rust binary 已经是默认生产入口”
+- “所有 fallback 都已删除”
+
+更准确的当前描述是：
+
+> Python 仍控制 runtime 装配、exchange IO、研究训练与运维生态；Rust 已经深度掌管状态、路由、特征、部分约束状态机与多个执行/去重原语。
+
+---
+
+## 4. 运行时主链与 Ownership
+
+### 4.1 当前入口分工
+
+当前几条关键入口的真实定位如下：
+
+| 路径 | 当前定位 |
+|---|---|
+| [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 默认生产主路径 |
+| [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py) | 历史回测与验证入口 |
+| [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py) | 事件重放与一致性验证 |
+| [`runner/live_paper_runner.py`](/quant_system/runner/live_paper_runner.py) | 更接近 live 语义的 paper 路径 |
+| [`runner/paper_runner.py`](/quant_system/runner/paper_runner.py) | 简化 demo / stdin paper runner |
+| [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs) | 候选 Rust runtime，不是默认生产入口 |
+
+### 4.2 当前统一事件链
 
 当前标准闭环可以概括为：
 
 ```text
 Market / Replay / Backtest input
-  -> coordinator.emit()
-  -> EventDispatcher route
+  -> EngineLoop.submit()
+  -> EventDispatcher.dispatch()
   -> StatePipeline / RustStateStore.process_event()
-  -> snapshot
+  -> StateSnapshot
   -> DecisionBridge
   -> IntentEvent / OrderEvent
-  -> ExecutionBridge
-  -> venue adapter / algo / reconcile path
-  -> fill / reject / report-like result
+  -> ExecutionBridge / LiveExecutionBridge
+  -> Fill / Reject / synthetic ingress event
   -> dispatcher reinjection
-  -> pipeline 再推进状态
+  -> pipeline 再次推进状态
 ```
 
-这条链上的约束很清楚：
+关键边界已经比较清楚：
 
-- decision 不直接改状态
-- execution 不直接改状态
-- 状态由事实事件推进
-- snapshot 是 decision 的标准输入
+- decision 读 snapshot，不直接写状态
+- execution 不直接写状态
+- state 只能经由 pipeline/store 的事实写通道推进
+- replay 与 live 共用事件语义，但并不是完整等价装配器
 
-### 5.2 `EventDispatcher`
+### 4.3 `LiveRunner` 的真实角色
 
-[`engine/dispatcher.py`](/quant_system/engine/dispatcher.py) 现在已经明显朝“Rust route matcher + Python handler dispatch”收口：
+[`runner/live_runner.py`](/quant_system/runner/live_runner.py) 不是薄入口，而是当前最重的运行时装配器。它会把以下能力接到一个 runtime 中：
 
-- 路由决策使用 Rust `rust_route_event`
-- 去重使用 Rust `DuplicateGuard`
-- Python 负责 handler 注册和顺序执行
+- [`engine/coordinator.py`](/quant_system/engine/coordinator.py) 与 [`engine/loop.py`](/quant_system/engine/loop.py)
+- [`engine/feature_hook.py`](/quant_system/engine/feature_hook.py) 与在线推理桥
+- [`engine/decision_bridge.py`](/quant_system/engine/decision_bridge.py)
+- [`engine/execution_bridge.py`](/quant_system/engine/execution_bridge.py) / live execution wiring
+- [`risk/kill_switch.py`](/quant_system/risk/kill_switch.py)、[`risk/margin_monitor.py`](/quant_system/risk/margin_monitor.py)、相关性和组合风险聚合
+- [`execution/reconcile/scheduler.py`](/quant_system/execution/reconcile/scheduler.py)、timeout tracker、order state machine
+- [`monitoring/health.py`](/quant_system/monitoring/health.py)、[`monitoring/health_server.py`](/quant_system/monitoring/health_server.py)、[`monitoring/alerts/manager.py`](/quant_system/monitoring/alerts/manager.py)
+- model loader、SIGHUP 热重载、operator control、ops timeline、user stream 重连
 
-并且此前残留的 `EventType` 导入 fallback 已删除，说明 dispatcher routing 现在已经以 Rust 路由器为真相源。
+这带来两个判断：
 
-### 5.3 `StatePipeline`
+1. 当前 runtime 能力非常完整，说明系统已经过了“只会跑策略”的阶段。
+2. [`runner/live_runner.py`](/quant_system/runner/live_runner.py) 也形成了明显的责任集中点，它既是优势，也是后续收口时最大的复杂度汇聚点。
 
-[`engine/pipeline.py`](/quant_system/engine/pipeline.py) 是当前最关键的制度边界之一。
-
-当前事实：
-
-- `normalize_to_facts()` 走 Rust `rust_normalize_to_facts`
-- `event kind` 检测走 Rust `rust_detect_event_kind`
-- 真正状态推进走 `store.process_event(inp.event, inp.symbol_default)`
-- Python 负责快照生成、Rust state lazy conversion、向决策层暴露可读视图
-
-这说明系统已经不是“Python reducer 为主、Rust 做优化”，而是：
-
-> Rust 已经是状态推进和事实归一化的真正内核；Python 主要承担外层编排、导出和桥接。
-
----
-
-## 6. Ownership Matrix 结论
-
-基于当前代码和文档，ownership 可以归纳为：
+### 4.4 Ownership Matrix
 
 | 子系统 | 当前 owner | 说明 |
 |---|---|---|
-| 运行时总控 | Python | `LiveRunner`, `EngineCoordinator`, `EngineLoop` |
-| 事件路由与去重热路径 | Rust 主导，Python 包装 | dispatcher 已显著上收 |
-| 状态推进 | Rust 主导 | `RustStateStore.process_event()` 是核心写通道 |
-| pipeline 外层 | Python | snapshot、导出、桥接 |
-| 特征热路径 | 混合，Rust 更重 | `FeatureComputeHook` 管理 Rust engines |
-| 推理约束状态 | Rust 主导，Python 编排 | live inference bridge 已与 Rust 强耦合 |
-| 决策编排 | Python | `DecisionBridge`, modules, strategy assembly |
-| execution transport / adapter | Python | 交易所 IO 和生态 glue 仍在 Python |
-| execution 纯逻辑 | 混合，向 Rust 迁移 | safety / sequence / route / state machine 已有候选 |
-| 研究训练 | Python | `research/`, `scripts/`, model training |
-| 监控与运维 | Python | dashboards、alerts、deploy、ops |
+| 运行时总控 | Python | `LiveRunner` / `EngineLoop` / `EngineCoordinator` |
+| 路由与 dispatcher dedup | Rust 主导，Python 包装 | [`engine/dispatcher.py`](/quant_system/engine/dispatcher.py) |
+| 状态推进 | Rust 主导 | [`engine/pipeline.py`](/quant_system/engine/pipeline.py) + `RustStateStore` |
+| pipeline 外层快照桥 | Python | snapshot、懒转换、导出视图 |
+| 特征热路径 | Rust 主导，Python 编排 | per-symbol `RustFeatureEngine` |
+| 在线约束状态机 | Rust 主导，Python 编排 | [`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py) |
+| 决策编排 | Python | [`decision/engine.py`](/quant_system/decision/engine.py)、[`engine/decision_bridge.py`](/quant_system/engine/decision_bridge.py) |
+| 风控聚合与熔断动作 | Python | [`risk/aggregator.py`](/quant_system/risk/aggregator.py)、[`risk/kill_switch.py`](/quant_system/risk/kill_switch.py) |
+| 执行 transport / adapter | Python 主导 | Binance REST/WS、user stream、reconcile wiring |
+| 执行纯逻辑原语 | 混合 | state machine、dedup、payload guards、sequence buffer 已有 Rust 接入 |
+| 研究训练与模型治理 | Python | [`research/`](/quant_system/research)、[`scripts/`](/quant_system/scripts) |
+| 监控与运维 | Python | [`monitoring/`](/quant_system/monitoring)、[`infra/`](/quant_system/infra)、[`deploy/`](/quant_system/deploy) |
 
 ---
 
-## 7. 执行层评估
+## 5. Rust 内核现状
 
-[`execution`](/quant_system/execution) 是当前最大的生产子系统，也是最像真正实盘平台的一层。
+[`ext/rust/Cargo.toml`](/quant_system/ext/rust/Cargo.toml) 当前同时产出：
 
-它包含：
+- PyO3 扩展库 `_quant_hotpath`
+- 独立二进制 `quant_trader`
 
-- `adapters/`: Binance、generic venue、stream transport、REST/WS glue
-- `ingress/`: payload dedup、router、sequence handling
-- `safety/`: duplicate guard、out-of-order guard、timeout tracker、risk gate
-- `state_machine/`: transitions、machine、projection
-- `reconcile/`: drift 检测、scheduler、healer
-- `routing/`, `algos/`, `sim/`, `latency/`, `tca/`, `observability/`
+`lib.rs` 当前导出/组织了 60+ 个 Rust 模块，能力覆盖：
 
-### 7.1 当前 execution contract
+- state types / reducers / store / pipeline
+- route matcher / duplicate guard / payload dedup / sequence buffer
+- feature engine / cross asset / microstructure
+- inference bridge / unified predictor / tick processor
+- risk engine / decision math / portfolio allocator
+- order state machine / execution store / signer / request id
+- standalone WS client / backtest engine / attribution 等
 
-[`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md) 已经把以下东西显式化：
+这说明 Rust 的地位已经不是“优化器”，而是真正的内核层。
 
-- 合法订单状态
-- `pending_cancel -> filled` 是允许路径
-- timeout 是本地观测超时，不是 venue 未成交的证明
-- `CanonicalFill` 是执行层标准成交事实对象
-- incident matrix 定义了 timeout、late fill、duplicate fill、restart drift 的默认动作
+### 5.1 Rust 已深度接管的区域
 
-### 7.2 当前 recovery 现状
+当前已经能从 Python 主路径上明确看到 Rust ownership 的区域包括：
 
-此前已经补齐的恢复类测试，意味着 execution recovery 已经不只是“模块存在”，而是有组合测试护栏：
+- dispatcher 路由与 dedup: [`engine/dispatcher.py`](/quant_system/engine/dispatcher.py)
+- event kind / fact normalization: [`engine/pipeline.py`](/quant_system/engine/pipeline.py)
+- state store 与 event apply: [`engine/coordinator.py`](/quant_system/engine/coordinator.py)
+- live feature engine: [`engine/feature_hook.py`](/quant_system/engine/feature_hook.py)
+- inference 约束状态机: [`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py)
+- ingress payload dedup: [`execution/ingress/router.py`](/quant_system/execution/ingress/router.py)
+- order status / sequence / dedup parity 支撑: [`execution/state_machine/machine.py`](/quant_system/execution/state_machine/machine.py) 等
 
-- [`tests/integration/test_execution_recovery_e2e.py`](/quant_system/tests/integration/test_execution_recovery_e2e.py)
-- [`tests/integration/test_execution_timeout_restart_recovery.py`](/quant_system/tests/integration/test_execution_timeout_restart_recovery.py)
-- [`tests/execution_safety/test_late_execution_report.py`](/quant_system/tests/execution_safety/test_late_execution_report.py)
-- [`tests/execution_safety/test_cancel_replace_flow.py`](/quant_system/tests/execution_safety/test_cancel_replace_flow.py)
+### 5.2 当前真实状态
 
-这说明系统已经开始从“能恢复”转向“恢复行为可验证”。
+必须强调两点：
 
-### 7.3 仍未完全收口的点
+- Rust 深度已经很高，这是真的。
+- Rust 完全取代 Python runtime 这件事还没有发生，这也是真的。
 
-execution 仍然有一个重要未完事项：
+最准确的表述仍然是：
 
-- 公共事件层 `FillEvent` 与执行层 `CanonicalFill` 还没有完全统一成单一事实模型
-
-因此 execution 已经很强，但还没到“语义完全收官”的状态。
-
----
-
-## 8. 决策、约束与跨路径一致性
-
-这部分是最近收口最明显的区域。
-
-### 8.1 当前三层真相源
-
-当前关键约束语义由三层构成：
-
-- live 语义源: [`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py)
-- backtest 对齐实现: [`decision/backtest_module.py`](/quant_system/decision/backtest_module.py)
-- scripts 共享后处理: [`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py)
-
-### 8.2 已收口的约束
-
-基于最近的改造，以下约束已经做过跨路径对齐：
-
-- `deadzone`
-- `min_hold`
-- `trend_follow / trend_hold`
-- `monthly_gate`
-- `vol_target`
-- 离散退出规则 `should_exit_position`
-- `rolling_zscore`
-
-### 8.3 已落地的 parity / contract 护栏
-
-关键测试包括：
-
-- [`tests/unit/decision/test_backtest_live_parity.py`](/quant_system/tests/unit/decision/test_backtest_live_parity.py)
-- [`tests/unit/decision/test_backtest_module_constraints.py`](/quant_system/tests/unit/decision/test_backtest_module_constraints.py)
-- [`tests/unit/scripts/test_backtest_engine_constraints.py`](/quant_system/tests/unit/scripts/test_backtest_engine_constraints.py)
-- [`tests/contract/test_runtime_contracts.py`](/quant_system/tests/contract/test_runtime_contracts.py)
-- [`tests/replay/test_replay_vs_live_equivalence.py`](/quant_system/tests/replay/test_replay_vs_live_equivalence.py)
-
-结论：
-
-> 这部分已经不再是“大家大概一致”，而是开始有系统的行为级护栏。
+> 当前系统是“Python 主编排、Rust 深度接管热路径”的混合运行时，而不是已经切换到 Rust-only runtime。
 
 ---
 
-## 9. `scripts/` 模块评估
+## 6. 核心业务层分析
 
-[`scripts`](/quant_system/scripts) 当前不是线上主 runtime，而是围绕主系统的工具层。
+### 6.1 `features/` 与 `alpha/`
 
-### 9.1 当前定位
+这两个目录已经深度 live-wired，而不是纯研究代码。
 
-[`scripts/README.md`](/quant_system/scripts/README.md) 已明确：
+关键链路是：
 
-- `train`
-- `validate`
-- `research`
-- `data`
-- `ops`
-- `shared`
+- [`engine/feature_hook.py`](/quant_system/engine/feature_hook.py) 负责从 `MarketEvent` 驱动 per-symbol feature engine
+- `FeatureComputeHook` 不只接 OHLCV，还接 funding、OI、long/short ratio、spot、FGI、IV、PCR、on-chain、liquidation、mempool、macro、sentiment 等外源
+- [`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py) 在特征完成后直接注入 `ml_score`
 
-六大逻辑分组，并由 [`scripts/catalog.py`](/quant_system/scripts/catalog.py) 作为分类真相源。
+[`alpha/inference/bridge.py`](/quant_system/alpha/inference/bridge.py) 的成熟度尤其高，它不只是“跑模型”：
 
-### 9.2 当前主力入口
+- 支持 ensemble averaging
+- 支持 `deadzone`
+- 支持 `min_hold`
+- 支持 `trend_follow`
+- 支持 `monthly_gate`
+- 支持 bear model / short model
+- 支持 vol targeting
+- 支持 checkpoint / restore
+- 支持 model hot swap
+- 关键约束状态由 Rust bridge 保存
 
-当前已经被显式标记为 `official` / `recommended` / `specialized` / `legacy-reference` 的主脚本包括：
+因此：
 
-- `train_v11.py`
-- `backtest_engine.py`
-- `walkforward_validate.py`
-- `run_paper_trading.py`
-- `testnet_smoke.py`
-- `refresh_data.py`
-- 多个 specialized 训练和验证脚本
+> `alpha/` 的真实定位不是模型类集合，而是 live 语义和研究语义之间最关键的桥。
 
-### 9.3 当前共享 helper
+最大的风险在这里也很明确：
 
-[`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py) 已经成为 scripts 层的后处理真相源，承载：
+- 特征空间很大，schema 漂移风险高
+- live / backtest / research 若不持续共用 helper，很容易“名字对上了，语义却偏了”
 
-- `rolling_zscore`
-- `_apply_monthly_gate`
-- `_apply_trend_hold`
-- `_apply_vol_target`
-- `_enforce_min_hold`
-- `should_exit_position`
-- `_compute_bear_mask`
+### 6.2 `decision/`、`regime/`、`strategies/`
 
-### 9.4 结论
+[`decision/engine.py`](/quant_system/decision/engine.py) 当前是业务制度中心之一。它把决策过程拆成：
 
-`scripts/` 仍然是历史沉积最重的目录之一，但和此前不同的是：
+1. risk overlay
+2. universe selection
+3. signal generation
+4. candidate generation / filtering
+5. allocation / constraints
+6. sizing
+7. intent -> order spec -> execution policy -> validate
 
-> 它现在已经开始被治理，而不是继续无边界增长。
+这层的优点很明确：
 
----
+- 强调 determinism
+- 强调 no side effects
+- explain/audit 结构完整
+- `DecisionBridge` 只重新注入意见事件，不直接触发执行副作用
 
-## 10. 模型层与模型治理
+[`decision/backtest_module.py`](/quant_system/decision/backtest_module.py) 则体现了另一个现实：
 
-### 10.1 模型类型
+- live 语义已经相当复杂
+- backtest 需要一个兼容实现去逼近 live
+- 仓库当前仍然维护“平台决策框架”和“历史回测兼容模块”两条线
 
-代码层支持的模型类型包括：
+`regime` 当前更像 gating / scaling 原语，而不是 runtime 的统一状态层。[`decision/regime_bridge.py`](/quant_system/decision/regime_bridge.py) 说明 regime 主要用于策略准入，而不是最底层事实状态。
 
-- [`LGBMAlphaModel`](/quant_system/alpha/models/lgbm_alpha.py)
-- [`XGBAlphaModel`](/quant_system/alpha/models/xgb_alpha.py)
-- [`EnsembleAlphaModel`](/quant_system/alpha/models/ensemble.py)
-- [`LSTMAlphaModel`](/quant_system/alpha/models/lstm_alpha.py)
-- [`TransformerAlphaModel`](/quant_system/alpha/models/transformer_alpha.py)
+[`strategies/`](/quant_system/strategies) 的真实定位更接近“可插拔策略库 + 实验层”，而不是系统真相源。这里的抽象层级并不完全一致：
 
-实际仓库资产的主力仍然是 tree-based / ensemble 路径，而不是深度序列模型。
+- 有些模块偏平台式 decision module
+- 有些模块更像研究代码搬入主仓
+- 有些模块强调 HFT / order book / stat arb 实验
 
-### 10.2 当前模型资产
+因此应明确：
 
-[`models_v8`](/quant_system/models_v8) 下的主资产仍然集中在：
+> `decision/` 是制度中心，`strategies/` 更像实验实现库，不应把后者误写成运行时真相源。
 
-- BTC gate 系列
-- ETH gate 系列
-- 4h / 15m / 30m 等 specialized 资产
-- SOL gate / bear 路径
+### 6.3 `risk/` 与 `portfolio/`
 
-当前 registry 中标记为 production 的模型有 2 个：
+[`risk/aggregator.py`](/quant_system/risk/aggregator.py) 和 [`risk/kill_switch.py`](/quant_system/risk/kill_switch.py) 显示出明显的生产系统设计意识：
 
-- `alpha_v8_4h_BTCUSDT`
-- `alpha_v8_BTCUSDT`
+- rule protocol + meta builder 解耦
+- enable/disable 和快照
+- 统计与错误计数
+- fail-safe
+- 多作用域 kill switch
+- `HARD_KILL` / `REDUCE_ONLY`
+- 审计元信息与 TTL
 
-### 10.3 当前治理现状
+这不是“几条 if 语句”级别的风控。
 
-[`docs/model_governance.md`](/quant_system/docs/model_governance.md) 已经明确了：
+[`portfolio/`](/quant_system/portfolio) 的能力面也很完整：
 
-- `ModelRegistry` 负责注册、元数据、production 标记
-- `ProductionModelLoader` 负责加载当前 production model 并在 `model_id` 变化时 reload
-- `shadow_compare.py` 负责 candidate vs production 的准入比较
+- allocator / rebalance / risk budget
+- Black-Litterman
+- factor constraints
+- transaction-cost-aware objective
+- risk model registry
 
-最近已落地的关键收口：
+但它的现状更像“强平台能力储备 + 部分已接线 live 能力”，而不是像 `execution`、`risk`、`decision` 那样能直接证明自己处于当前生产主链中心。
 
-- loader 增加了 feature schema mismatch 拒绝加载
-- registry / loader / rollback / reload 已有测试
+因此：
 
-这说明模型治理已经从“脚本习惯”开始转向“制度 + 测试”。
-
----
-
-## 11. Rust 内核现状
-
-[`ext/rust`](/quant_system/ext/rust) 不是装饰层，而是真正的热路径内核。
-
-### 11.1 当前已深度接管的区域
-
-从代码和替换矩阵看，Rust 已深度进入：
-
-- dispatcher routing
-- event kind / fact normalization
-- state store / reducers
-- feature hot path
-- inference constraint 部分逻辑
-- duplicate / payload dedup / sequence buffer
-- 一部分 execution store / hashing / request id / signer
-
-### 11.2 当前 Phase 4 候选
-
-[`docs/rust_replacement_matrix.md`](/quant_system/docs/rust_replacement_matrix.md) 已明确第二阶段候选：
-
-- timeout / sequencing helpers
-- dispatcher routing core
-- order projection / reconcile kernel
-- backtest signal constraint kernel
-
-### 11.3 当前真实状态
-
-必须强调：
-
-- Rust 已经非常深入
-- 但系统还没有切到“Rust-only runtime”
-- Python 仍然掌管 runtime 装配、adapter IO、研究训练、ops 生态
+> `portfolio/` 的设计成熟度很高，但当前 live ownership 相对弱于 `decision/risk/execution`，是典型的“平台能力大于当前主路径接入深度”的模块。
 
 ---
 
-## 12. 测试结构评估
+## 7. 执行子系统评估
 
-当前测试结构已经明显超出普通量化仓库水平，至少覆盖了：
+[`execution/`](/quant_system/execution) 是当前最大的生产子系统，也是最接近独立平台的一层。
 
-- unit
-- contract
-- replay
-- integration
-- persistence
-- regression
-- performance
-- execution safety
+### 7.1 当前结构
 
-其中更高价值的测试类型包括：
+按职责看，`execution/` 已经拆成完整分层：
 
-- live/backtest parity
-- replay vs live equivalence
-- timeout / restart / late fill 恢复
-- dispatcher / sequence buffer 的 Rust parity
-- model loader / registry / rollback / schema mismatch
+| 分层 | 代表文件 | 当前职责 |
+|---|---|---|
+| adapters | [`execution/adapters/binance/venue_client_um.py`](/quant_system/execution/adapters/binance/venue_client_um.py)、[`execution/adapters/binance/user_stream_processor_um.py`](/quant_system/execution/adapters/binance/user_stream_processor_um.py) | 交易所接入、payload 解析、venue client |
+| bridge | [`execution/bridge/execution_bridge.py`](/quant_system/execution/bridge/execution_bridge.py)、[`execution/bridge/live_execution_bridge.py`](/quant_system/execution/bridge/live_execution_bridge.py) | 下单、ack 归一化、synthetic fill / rejection 观察面 |
+| ingress | [`execution/ingress/router.py`](/quant_system/execution/ingress/router.py)、[`execution/ingress/order_router.py`](/quant_system/execution/ingress/order_router.py) | 事实回流、去重、payload mismatch fail-fast |
+| state machine | [`execution/state_machine/machine.py`](/quant_system/execution/state_machine/machine.py)、[`execution/state_machine/transitions.py`](/quant_system/execution/state_machine/transitions.py) | 订单生命周期制度 |
+| reconcile | [`execution/reconcile/controller.py`](/quant_system/execution/reconcile/controller.py)、[`execution/reconcile/scheduler.py`](/quant_system/execution/reconcile/scheduler.py) | 本地与 venue 收敛 |
+| safety | [`execution/safety/risk_gate.py`](/quant_system/execution/safety/risk_gate.py)、[`execution/safety/timeout_tracker.py`](/quant_system/execution/safety/timeout_tracker.py) | 下单前后安全护栏 |
+| models | [`execution/models/fills.py`](/quant_system/execution/models/fills.py)、[`execution/models/rejections.py`](/quant_system/execution/models/rejections.py) | canonical execution model |
+| observability | [`execution/observability/incidents.py`](/quant_system/execution/observability/incidents.py)、[`execution/observability/rejections.py`](/quant_system/execution/observability/rejections.py) | incident、alert、审计 |
+| algos / sim | [`execution/algo_adapter.py`](/quant_system/execution/algo_adapter.py)、[`execution/algos/`](/quant_system/execution/algos)、[`execution/sim/`](/quant_system/execution/sim) | TWAP/VWAP/Iceberg 与 paper/sim |
+| store | [`execution/store/event_log.py`](/quant_system/execution/store/event_log.py) | ack / dedup / event persistence |
 
-结论不是“测试很多”，而是：
+### 7.2 当前核心架构
 
-> 当前测试已经开始承担架构收口工具的角色，而不是只做功能回归。
+当前执行层最重要的结构不是“下单”，而是“双通道收敛”：
 
----
+1. `LiveExecutionBridge` 负责命令发送，以及 direct ack -> synthetic fill / rejection
+2. Binance user stream 负责把真实 venue order/fill 事实重新送回 ingress
+3. ingress + dedup + state machine + reconcile 负责把 synthetic path 与 venue fact path 收敛起来
 
-## 13. 完成度评估
+这个设计非常像真实生产系统，而不是回测仓外挂 execution adapter。
 
-### 13.1 已经完成的部分
+### 7.3 当前优势
 
-- 功能闭环已经形成
-- 默认生产主路径已经明确
-- 运行时真相源已建立
-- execution incident policy 已成文档
-- model governance 已开始成体系
-- scripts 已开始治理
-- Rust 第二阶段迁移已有候选和 parity tests
+执行层最强的地方有 4 个：
 
-### 13.2 尚未完全完成的部分
+1. 语义制度化。状态机、timeout、late fill、rejection、incident taxonomy 已成代码和文档。
+2. 恢复意识强。`pending_cancel -> filled`、timeout -> cancel -> restart -> late fill 这类真实场景已经被显式建模。
+3. 观测面完整。rejection 和 synthetic fill 已进入统一 incident / alert 链路。
+4. Rust 已开始接管关键热路径，如 dedup、payload guard、state machine parity 支撑。
 
-- `CanonicalFill` 与公共 `FillEvent` 的彻底统一
-- Python/Rust 双栈边界的进一步简化
-- 更多 execution 纯逻辑向 Rust 上收
-- 部分研究脚本的局部差异语义是否长期保留
-- standalone Rust trader 何时取代 Python live runtime，当前仍未完成
+### 7.4 当前未完全收口的点
 
-### 13.3 最准确的整体判断
+执行层最大的剩余结构问题有 3 个：
 
-如果必须用一句话总结：
+1. `CanonicalFill`、公共 `FillEvent`、ingress fill event 仍然不是单一类型，只是通过映射 helper 收口。
+2. synthetic fill、真实 fill、order update、timeout/restart/reconcile 并存，语义强但复杂度也高。
+3. 抽象上支持多 venue，但从代码成熟度看，当前明显是 Binance-heavy 实现。
 
-> 这是一个已经具备真实量化交易平台骨架、测试护栏和生产候选能力的中大型代码库；当前主要任务已从“补功能”转为“继续收口真相源、统一语义并降低双栈维护成本”。
+因此对执行层最准确的评价是：
 
----
-
-## 14. 当前风险与技术债
-
-最重要的技术债已经不再是“缺模块”，而是下面这些收口问题：
-
-1. execution 公共事实模型仍未完全统一
-2. Python runtime 与 standalone Rust runtime 并存，长期 ownership 解释成本仍高
-3. `scripts/` 虽已治理，但历史沉积仍深
-4. 一些 specialized / research 语义仍有局部包装，不是完全统一实现
-
-但相比前一阶段，当前明显改善的是：
-
-- 真相源已经成文档
-- 关键差异已开始有 parity tests
-- 恢复类 case 已开始有组合集成测试
-- 模型上线不再完全依赖人工约定
+> 它已经具备完整执行平台雏形，强项在制度边界和恢复意识，主要风险在跨模型身份一致性、双通道收敛复杂度，以及 generic abstraction 与 Binance 实际成熟度之间的不对称。
 
 ---
 
-## 15. 结论
+## 8. 研究层、脚本层与模型治理
 
-当前代码库的真实结论如下：
+### 8.1 `research/` 的真实定位
 
-- 它已经形成了研究、验证、回测、paper、live、恢复、运维的完整闭环
-- 它当前默认仍以 Python live runtime 为生产主路径
-- Rust 已经深度接管运行内核的关键热路径
-- 最近一轮改造已经把约束状态机、execution incident policy、scripts 治理、model governance、Rust parity 护栏明显收口
-- 它还没有完全开发收官，但已经进入“收尾与定型”阶段，而不是“早期搭框架”阶段
+[`research/`](/quant_system/research) 不是单一平台，而是两类东西的混合：
+
+- 已经较产品化、且接入模型生命周期的模块
+  - [`research/model_registry/registry.py`](/quant_system/research/model_registry/registry.py)
+  - [`research/model_registry/artifact.py`](/quant_system/research/model_registry/artifact.py)
+  - [`research/retrain/pipeline.py`](/quant_system/research/retrain/pipeline.py)
+  - [`research/retrain/scheduler.py`](/quant_system/research/retrain/scheduler.py)
+- 更偏研究工具箱的统计/验证模块
+  - combinatorial CV
+  - overfit detection
+  - walk-forward optimizer
+  - hyperopt
+  - factor evaluation / significance / monte carlo
+
+因此应写成：
+
+> `research/` 当前是一组“部分已产品化、部分仍偏工具化”的研究与治理模块集合。
+
+### 8.2 `scripts/` 的真实状态
+
+[`scripts/README.md`](/quant_system/scripts/README.md) 与 [`scripts/catalog.py`](/quant_system/scripts/catalog.py) 已经给 flat `scripts/` 建立了治理骨架：
+
+- 有逻辑分组: train / validate / research / data / ops / shared
+- 有主入口状态: `current` / `experimental` / `archive-adjacent`
+- 有共享后处理真相源: [`scripts/signal_postprocess.py`](/quant_system/scripts/signal_postprocess.py)
+- 有 CLI 入口: [`scripts/cli.py`](/quant_system/scripts/cli.py)
+
+这是非常明确的正向变化。
+
+但也必须说清楚：
+
+- `scripts/` 仍然是仓库中最大的历史沉积区
+- 当前 catalog 只治理主力入口，不等于整个平铺目录已经收口
+- 许多 specialized / legacy / archive-adjacent 路径仍然并存
+
+因此最准确的判断是：
+
+> `scripts/` 已经从“平铺工具箱”进入“受治理工作层”，但还没有完成结构性收口。
+
+### 8.3 模型治理现状
+
+当前模型治理链条已经比较清晰：
+
+- registry: [`research/model_registry/registry.py`](/quant_system/research/model_registry/registry.py)
+- artifact store: [`research/model_registry/artifact.py`](/quant_system/research/model_registry/artifact.py)
+- production loader: [`alpha/model_loader.py`](/quant_system/alpha/model_loader.py)
+- compare/promote/rollback CLI: [`scripts/cli.py`](/quant_system/scripts/cli.py)
+- shadow compare: [`scripts/shadow_compare.py`](/quant_system/scripts/shadow_compare.py)
+
+目前已经做到：
+
+- register / promote / rollback / history audit
+- production model pointer 查询
+- loader `reload_if_changed()`
+- feature schema mismatch 拒绝加载
+- ops audit 把 model ops 和 runtime control timeline 合并观察
+
+这表明模型治理已经从“人工约定”升级到“代码 + 文档 + 测试”的阶段。
+
+### 8.4 模型资产的现实特征
+
+[`models_v8/`](/quant_system/models_v8) 直接存放了当前主力模型资产及多个 backup 目录。这说明：
+
+- monorepo 同时承载代码与模型运维历史
+- operator 使用体验直接
+- 仓库重量和资产分支历史也随之变重
+
+这不是错误，但它会放大：
+
+- 资产命名治理成本
+- backup/rollback 语义解释成本
+- 仓库级别的操作复杂度
+
+---
+
+## 9. 监控、配置、安全与部署
+
+### 9.1 监控与 operator control
+
+监控层的成熟度是这个仓库的亮点之一。
+
+关键组件包括：
+
+- [`monitoring/health.py`](/quant_system/monitoring/health.py): 系统健康评估
+- [`monitoring/health_server.py`](/quant_system/monitoring/health_server.py): `/health`、`/operator`、`/control`、`/ops-audit`
+- [`monitoring/alerts/manager.py`](/quant_system/monitoring/alerts/manager.py): 规则告警引擎
+- [`monitoring/metrics/prometheus.py`](/quant_system/monitoring/metrics/prometheus.py): Prometheus exporter
+- [`monitoring/engine_hook.py`](/quant_system/monitoring/engine_hook.py): engine 侧接线
+
+这意味着控制面已经不是外部文档，而是 runtime 内建能力。
+
+### 9.2 配置与安全
+
+[`infra/config/loader.py`](/quant_system/infra/config/loader.py) 已经体现出安全意识：
+
+- 支持 YAML/JSON
+- 支持 plaintext secret 扫描
+- 支持 env-based credential resolution
+- 支持 schema validation
+
+这层已经具备“生产级配置入口”的基本意识，而不是随手 `yaml.safe_load`。
+
+### 9.3 部署现状
+
+仓库当前并存至少 4 套部署叙事：
+
+1. 根目录 [`docker-compose.yml`](/quant_system/docker-compose.yml)
+   - 当前更像 paper/testnet/runtime 组合
+2. 根目录 [`Dockerfile`](/quant_system/Dockerfile) 与 [`Dockerfile.trader`](/quant_system/Dockerfile.trader)
+   - 分别对应 Python+Rust paper 运行时与 Rust trader
+3. [`deploy/docker/docker-compose.yml`](/quant_system/deploy/docker/docker-compose.yml)
+   - 另一套 engine + timescaledb + prometheus + grafana 栈
+4. [`deploy/k8s/deployment.yaml`](/quant_system/deploy/k8s/deployment.yaml) 与 [`deploy/argocd/rollout.yaml`](/quant_system/deploy/argocd/rollout.yaml)
+   - 候选生产 / GitOps / canary 形态
+
+结论不是“支持很多部署方式”，而是：
+
+> 当前部署层存在明显多轨并存现象，且它们并不完全共享同一条当前主路径。
+
+### 9.4 CI 现状
+
+[`/.github/workflows/ci.yml`](/quant_system/.github/workflows/ci.yml) 与 [`/.github/workflows/deploy.yml`](/quant_system/.github/workflows/deploy.yml) 当前反映出以下事实：
+
+- CI 只跑在 self-hosted `quant-server`
+- 默认测试门是 `pytest tests/`
+- performance tests 被排除
+- lint 只跑 Ruff 的 E/W/F
+- 没看到显式 `cargo test`
+- 覆盖率门槛是 57%
+
+这是一套“可用的基本护栏”，但还不是“强约束发布门”。
+
+---
+
+## 10. 测试结构评估
+
+### 10.1 测试分布
+
+`tests/` 当前分层相当清晰：
+
+| 类别 | 文件数 |
+|---|---:|
+| unit | 209 |
+| integration | 16 |
+| replay | 5 |
+| execution_safety | 5 |
+| contract | 4 |
+| performance | 4 |
+| regression | 3 |
+| persistence | 1 |
+
+此外，[`execution/tests/`](/quant_system/execution/tests) 还有 28 个额外测试文件。
+
+### 10.2 当前最有价值的测试护栏
+
+当前最能体现架构成熟度的测试不是“数量多”，而是下列类型已经落地：
+
+- runtime contract: [`tests/contract/test_runtime_contracts.py`](/quant_system/tests/contract/test_runtime_contracts.py)
+- replay vs live equivalence: [`tests/replay/test_replay_vs_live_equivalence.py`](/quant_system/tests/replay/test_replay_vs_live_equivalence.py)
+- live/backtest signal parity: [`tests/unit/decision/test_backtest_live_parity.py`](/quant_system/tests/unit/decision/test_backtest_live_parity.py)
+- execution timeout / restart / late fill recovery: [`tests/integration/test_execution_timeout_restart_recovery.py`](/quant_system/tests/integration/test_execution_timeout_restart_recovery.py)
+- execution rejection contract: [`tests/integration/test_execution_rejection_contract.py`](/quant_system/tests/integration/test_execution_rejection_contract.py)
+- production wiring / model loader / operator control: [`tests/integration/test_production_integration_e2e.py`](/quant_system/tests/integration/test_production_integration_e2e.py)、[`tests/integration/test_operator_control_recovery_flow.py`](/quant_system/tests/integration/test_operator_control_recovery_flow.py)
+- health server / CLI / model ops / scripts catalog
+
+因此：
+
+> 当前测试体系已经开始承担“架构收口工具”的角色，而不是只做功能回归。
+
+### 10.3 当前测试盲区
+
+测试的主要弱项也非常明确：
+
+1. [`execution/tests/`](/quant_system/execution/tests) 不在默认 `pytest tests/` 与 `pyproject.toml` 的 `testpaths = ["tests"]` 门里。
+2. performance tests 默认被 CI 忽略。
+3. 部署清单和 GitHub workflow 本身没有看到对应验证。
+4. Rust 默认发布门里没有显式 `cargo test`。
+5. 部分遗留 research 入口没有活性测试，因此旧 import 漂移不会自动暴露。
+
+---
+
+## 11. 已确认的具体漂移与风险
+
+这部分不是抽象技术债，而是已经能从当前代码直接确认的偏差。
+
+### 11.1 Deploy workflow 与当前 compose 不一致
+
+[`scripts/deploy.sh`](/quant_system/scripts/deploy.sh) 和 [`/.github/workflows/deploy.yml`](/quant_system/.github/workflows/deploy.yml) 会滚动重启：
+
+- `paper-btc`
+- `paper-sol`
+- `paper-eth`
+
+但当前根 [`docker-compose.yml`](/quant_system/docker-compose.yml) 实际定义的是：
+
+- `paper-multi`
+
+这说明部署自动化和当前 compose 真相并不一致，是明确的运维风险。
+
+### 11.2 Docker 工件存在过时迹象
+
+已经能直接确认两个具体问题：
+
+1. 根 [`Dockerfile`](/quant_system/Dockerfile) 中有 `COPY _quant_hotpath/ /app/_quant_hotpath/`，但当前仓库根目录并不存在 `_quant_hotpath/` 路径。
+2. [`deploy/docker/Dockerfile`](/quant_system/deploy/docker/Dockerfile) 依赖 `requirements.txt`，但当前仓库并没有对应 `requirements*.txt` 文件。
+
+这说明：
+
+> 仓库中的多套 Docker 工件至少有一部分已经脱离当前代码现实，不能把它们都当成当前生产真相源。
+
+### 11.3 Config schema 与 runtime 解析存在偏差
+
+[`infra/config/schema.py`](/quant_system/infra/config/schema.py) 当前记录了 `monitoring.metrics_port`，而 [`runner/live_runner.py`](/quant_system/runner/live_runner.py) 的 `from_config()` 实际处理的是：
+
+- `health_port`
+- `health_host`
+- `health_auth_token_env`
+
+[`infra/config/examples/live.yaml`](/quant_system/infra/config/examples/live.yaml) 里又使用了 `monitoring.metrics_port`。
+
+这代表配置文档、schema 与 runtime 解析之间存在明显漂移。
+
+### 11.4 `research/experiment.py` 仍引用已迁入 archive 的训练入口
+
+[`research/experiment.py`](/quant_system/research/experiment.py) 当前仍然：
+
+- `from scripts.train_lgbm import ...`
+
+但仓库中实际存在的是：
+
+- [`scripts/archive/train_lgbm.py`](/quant_system/scripts/archive/train_lgbm.py)
+
+这是一个非常典型的“遗留 research 入口未纳入当前治理和测试护栏”的信号。
+
+### 11.5 一部分 execution tests 不在默认 CI 门里
+
+当前默认 CI 执行的是：
+
+- `pytest tests/`
+
+而不是：
+
+- `pytest tests/ execution/tests/`
+
+所以像 [`execution/tests/e2e/test_um_user_stream_trade_updates_state.py`](/quant_system/execution/tests/e2e/test_um_user_stream_trade_updates_state.py) 这类 execution 子树测试，默认并不在当前主测试门中。
+
+### 11.6 K8s / Argo 工件更像候选生产形态
+
+[`deploy/argocd/application.yaml`](/quant_system/deploy/argocd/application.yaml) 仍包含 `repoURL` placeholder，[`deploy/argocd/rollback-config.yaml`](/quant_system/deploy/argocd/rollback-config.yaml) 仍包含 Slack webhook placeholder。
+
+这说明 K8s/GitOps 清单的成熟度不低，但当前更像候选生产形态，而不是唯一已落地真相源。
+
+---
+
+## 12. 总体完成度评估
+
+### 12.1 已经形成的东西
+
+当前已经明确形成的能力包括：
+
+- 完整事件闭环
+- 默认生产主路径
+- Python + Rust 混合运行时
+- 决策、风险、执行、恢复、监控、operator control 的制度边界
+- model registry / loader / promote / rollback / audit
+- script catalog 与共享 postprocess helper
+- 跨路径 parity / contract / recovery 测试护栏
+
+### 12.2 尚未完全收官的东西
+
+当前最重要的未完成项包括：
+
+1. 执行公共事实模型尚未完全统一成单一 fill / rejection 语义
+2. Python/Rust 双栈 ownership 仍然需要持续收口
+3. `scripts/` 的 flat 目录仍然很重，治理还未覆盖全部历史沉积
+4. 部署工件与 CI 门的统一程度明显落后于 runtime 和 execution 代码本身
+5. `portfolio/`、generic venue abstraction、standalone Rust runtime 等能力强于当前主路径整合度
+
+### 12.3 最准确的阶段判断
+
+如果必须用一句话总结当前所处阶段：
+
+> 这个仓库已经从“搭平台”阶段进入“平台已经成立、但需要系统性收口真相源和维护边界”的阶段。
+
+---
+
+## 13. 下一阶段最值得做的事
+
+从代码现状看，下一阶段最值得优先处理的不是再加功能，而是继续做 5 件收口工作：
+
+1. 把部署真相源统一下来，修复 compose / deploy script / Dockerfile / K8s 清单之间的漂移。
+2. 把 `execution/tests/` 和 Rust tests 纳入默认 CI 门，提升真实发布可信度。
+3. 继续收敛 live/backtest/research 共享约束状态机，减少重复实现。
+4. 继续统一 `CanonicalFill`、公共事件层和 ingress 事实模型。
+5. 明确长期 runtime 方向: Python 主装配长期保留，还是逐步让 Rust binary 成为默认入口。
+
+---
+
+## 14. 结论
+
+当前对整个项目最准确、也最不失真的总结如下：
+
+- 这是一个已经具备完整交易平台横截面的代码库，而不是策略脚本集合。
+- 当前默认生产路径仍是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py) 主导的 Python runtime。
+- Rust 已经深度进入 state / route / feature / constraint / execution 原语，但尚未完成对 Python runtime 的总替换。
+- `decision`、`risk`、`execution`、`monitoring` 这几层已经具有明显的制度化和生产候选气质。
+- `research`、`scripts`、`deploy` 则体现出典型的“功能很强，但仍在治理收口中”的特征。
+- 项目当前最大的风险不是功能缺失，而是多轨工件、遗留入口、配置与部署漂移、以及双栈带来的长期维护成本。
 
 因此，当前最准确的总体评价是：
 
-> 这是一个功能闭环已形成、生产候选能力很强、并正在系统性收口的量化交易平台代码库。
+> 这是一个功能闭环已形成、生产候选能力很强、执行与风险子系统明显成熟、但仍需继续收口脚本层与部署层真相源的量化交易平台代码库。
