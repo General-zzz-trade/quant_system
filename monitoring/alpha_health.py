@@ -4,9 +4,9 @@ Tracks per-horizon IC in real time, exports to Prometheus, and triggers
 automatic position reduction or halt when alpha decays.
 
 Three response levels:
-1. Warning: rolling IC < 0 for 7+ days → log warning, Prometheus alert
-2. Reduce:  rolling IC < 0 for 14+ days → scale position to 50%
-3. Halt:    rolling IC < -0.02 for 14+ days → stop trading, trigger retrain
+1. Warning: rolling IC < 0 for 5+ days → log warning, Prometheus alert
+2. Reduce:  rolling IC < 0 for 10+ days → scale position to 50%
+3. Halt:    rolling IC < -0.02 for 10+ days → stop trading, trigger retrain
 
 Integrates with:
 - alpha/ic_monitor.py (per-horizon ICMonitor)
@@ -43,8 +43,8 @@ class AlphaHealthAlert:
 class AlphaHealthConfig:
     """Configuration for alpha health monitoring."""
     # IC thresholds
-    ic_warning_days: int = 7           # days of IC < 0 before warning
-    ic_reduce_days: int = 14           # days of IC < 0 before position reduction
+    ic_warning_days: int = 5           # days of IC < 0 before warning
+    ic_reduce_days: int = 10           # days of IC < 0 before position reduction
     ic_halt_threshold: float = -0.02   # IC below this for reduce_days → halt
     ic_recovery_threshold: float = 0.01  # IC above this to clear alerts
 

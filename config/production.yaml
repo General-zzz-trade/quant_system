@@ -7,6 +7,7 @@
 # ── Symbols & venue ──────────────────────────────────────────
 symbols:
   - BTCUSDT
+  - ETHUSDT
 currency: USDT
 venue: binance
 testnet: false  # CHANGE TO true FOR INITIAL TESTING
@@ -20,12 +21,15 @@ kline_interval: 1m
 # Changing them without re-validation risks signal divergence.
 min_hold_bars:
   BTCUSDT: 12
-deadzone: 0.5
+  ETHUSDT: 12
+deadzone:
+  BTCUSDT: 0.5
+  ETHUSDT: 0.3
 # long_only_symbols: []
 
 # ── Z-score normalization ────────────────────────────────────
 # zscore_window: 720      # 30 days of hourly bars
-# zscore_warmup: 168      # 7 days warmup
+# zscore_warmup: 180      # 7.5 days warmup (must match Rust default)
 
 # ── Trend hold ───────────────────────────────────────────────
 trend_follow: false
@@ -126,6 +130,8 @@ multi_tf_models:
   BTCUSDT:
     - gate_v2
     - "15m"
+  ETHUSDT:
+    - gate_v2
 ensemble_conflict_policy: flat  # flat = go flat on signal conflict
 
 # ── Burn-in protocol (Direction 14) ────────────────────────

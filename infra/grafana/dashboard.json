@@ -131,10 +131,38 @@
         }
       },
       {
+        "id": 9,
+        "title": "Rolling IC (Alpha Quality)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "alpha_rolling_ic",
+            "legendFormat": "{{symbol}} h{{horizon}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "thresholdsStyle": {"mode": "line"}
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 0},
+                {"color": "green", "value": 0.02}
+              ]
+            }
+          }
+        }
+      },
+      {
         "id": 7,
         "title": "Position & Orders",
         "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24},
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 32},
         "targets": [
           {
             "expr": "position_qty",
@@ -146,7 +174,7 @@
         "id": 8,
         "title": "Kill Switch Status",
         "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24},
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 32},
         "targets": [
           {
             "expr": "kill_switch_active",
