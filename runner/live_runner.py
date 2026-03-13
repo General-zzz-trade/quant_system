@@ -1455,66 +1455,121 @@ class LiveRunner:
         on_fill: Optional[Callable[[Any], None]] = None,
         alert_sink: Optional[Any] = None,
         shadow_mode: bool = False,
+        feature_computer: Any = None,
+        inference_bridges: Optional[Dict[str, Any]] = None,
     ) -> "LiveRunner":
         """Build a LiveRunner from a YAML/JSON config file.
 
-        Loads the config securely (rejects plaintext secrets), validates
-        against the trading config schema, maps config sections to
-        LiveRunnerConfig fields, and delegates to build().
+        Supports two config formats:
+          - Flat: keys map 1:1 to LiveRunnerConfig fields (production.yaml)
+          - Nested: trading.symbol, risk.*, execution.* sections (legacy)
+
+        When feature_computer and inference_bridges are not provided,
+        auto-discovers and loads models from models_v8/.
         """
+        import dataclasses
         from infra.config.loader import load_config_secure, resolve_credentials
-        from infra.config.schema import validate_trading_config
 
         raw = load_config_secure(config_path)
 
-        errors = validate_trading_config(raw)
-        if errors:
+        # ── Detect config format: flat vs nested ──
+        is_flat = "symbols" in raw or "venue" in raw
+        is_nested = "trading" in raw
+
+        if is_flat:
+            # Flat format: keys map directly to LiveRunnerConfig fields
+            config_fields = {f.name for f in dataclasses.fields(LiveRunnerConfig)}
+            kwargs: Dict[str, Any] = {}
+            for k, v in raw.items():
+                if k in config_fields:
+                    kwargs[k] = v
+            # Ensure symbols is a tuple
+            if "symbols" in kwargs:
+                kwargs["symbols"] = tuple(kwargs["symbols"])
+            # Apply shadow_mode override from CLI
+            kwargs["shadow_mode"] = shadow_mode
+            runner_config = LiveRunnerConfig(**kwargs)
+        elif is_nested:
+            # Legacy nested format: validate against nested schema
+            from infra.config.schema import validate_trading_config
+            errors = validate_trading_config(raw)
+            if errors:
+                raise ValueError(
+                    f"Config validation failed ({config_path}):\n"
+                    + "\n".join(f"  - {e}" for e in errors)
+                )
+            trading = raw.get("trading", {})
+            risk = raw.get("risk", {})
+            monitoring = raw.get("monitoring", {})
+            log_cfg = raw.get("logging", {})
+
+            symbol = trading.get("symbol", "BTCUSDT")
+            symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+
+            kwargs = {}
+            if risk.get("max_leverage") is not None:
+                kwargs["margin_warning_ratio"] = float(risk["max_leverage"])
+            if risk.get("max_drawdown_pct") is not None:
+                kwargs["margin_critical_ratio"] = float(risk["max_drawdown_pct"]) / 100.0
+            if monitoring.get("health_check_interval") is not None:
+                kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
+            if monitoring.get("health_port") is not None:
+                kwargs["health_port"] = int(monitoring["health_port"])
+            if monitoring.get("health_host") is not None:
+                kwargs["health_host"] = str(monitoring["health_host"])
+            if monitoring.get("health_auth_token_env") is not None:
+                kwargs["health_auth_token_env"] = str(monitoring["health_auth_token_env"])
+
+            runner_config = LiveRunnerConfig(
+                symbols=symbols,
+                venue=trading.get("exchange", "binance"),
+                enable_structured_logging=log_cfg.get("structured", True),
+                log_level=log_cfg.get("level", "INFO"),
+                log_file=log_cfg.get("file"),
+                shadow_mode=shadow_mode,
+                testnet=bool(trading.get("testnet", False)),
+                **kwargs,
+            )
+        else:
             raise ValueError(
-                f"Config validation failed ({config_path}):\n"
-                + "\n".join(f"  - {e}" for e in errors)
+                f"Config format not recognized ({config_path}): "
+                "expected flat keys (symbols, venue) or nested sections (trading, risk)"
             )
 
-        trading = raw.get("trading", {})
-        risk = raw.get("risk", {})
-        execution = raw.get("execution", {})
-        monitoring = raw.get("monitoring", {})
-        log_cfg = raw.get("logging", {})
-
-        symbol = trading.get("symbol", "BTCUSDT")
-        symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
-
-        kwargs: Dict[str, Any] = {}
-        if risk.get("max_leverage") is not None:
-            kwargs["margin_warning_ratio"] = float(risk["max_leverage"])
-        if risk.get("max_drawdown_pct") is not None:
-            kwargs["margin_critical_ratio"] = float(risk["max_drawdown_pct"]) / 100.0
-        if risk.get("max_position_notional") is not None:
-            pass  # no direct LiveRunnerConfig field; handled by decision modules
-        if execution.get("fee_bps") is not None:
-            pass  # no direct LiveRunnerConfig field; handled by execution layer
-        if execution.get("slippage_bps") is not None:
-            pass  # no direct LiveRunnerConfig field; handled by execution layer
-        if monitoring.get("health_check_interval") is not None:
-            kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
-        if monitoring.get("health_port") is not None:
-            kwargs["health_port"] = int(monitoring["health_port"])
-        if monitoring.get("health_host") is not None:
-            kwargs["health_host"] = str(monitoring["health_host"])
-        if monitoring.get("health_auth_token_env") is not None:
-            kwargs["health_auth_token_env"] = str(monitoring["health_auth_token_env"])
-
-        runner_config = LiveRunnerConfig(
-            symbols=symbols,
-            venue=trading.get("exchange", "binance"),
-            enable_structured_logging=log_cfg.get("structured", True),
-            log_level=log_cfg.get("level", "INFO"),
-            log_file=log_cfg.get("file"),
-            shadow_mode=shadow_mode,
-            testnet=bool(trading.get("testnet", False)),
-            **kwargs,
-        )
-
         resolve_credentials(raw)
+
+        # ── Auto-discover and load models if not provided ──
+        if feature_computer is None or inference_bridges is None:
+            from runner.model_discovery import (
+                discover_active_models,
+                load_symbol_models,
+                build_inference_bridge,
+                build_feature_computer,
+            )
+
+            if feature_computer is None:
+                feature_computer = build_feature_computer()
+
+            if inference_bridges is None:
+                active = discover_active_models()
+                bridges: Dict[str, Any] = {}
+                for sym in runner_config.symbols:
+                    if sym in active:
+                        info = active[sym]
+                        models, weights = load_symbol_models(
+                            sym, info["dir"], info["config"],
+                        )
+                        if models:
+                            bridges[sym] = build_inference_bridge(
+                                sym, models, info["config"], runner_config,
+                                metrics_exporter=metrics_exporter,
+                                ensemble_weights=weights,
+                            )
+                        else:
+                            logger.warning("No models loaded for %s — no inference bridge", sym)
+                    else:
+                        logger.warning("No active model found for %s in models_v8/", sym)
+                inference_bridges = bridges if bridges else None
 
         return cls.build(
             runner_config,
@@ -1526,6 +1581,8 @@ class LiveRunner:
             fetch_margin=fetch_margin,
             on_fill=on_fill,
             alert_sink=alert_sink,
+            feature_computer=feature_computer,
+            inference_bridges=inference_bridges,
         )
 
     @staticmethod
@@ -2590,8 +2647,8 @@ if __name__ == "__main__":
     creds = resolve_credentials(raw)
 
     venue_clients: Dict[str, Any] = {}
-    exchange = raw.get("trading", {}).get("exchange", "binance")
-    testnet = bool(raw.get("trading", {}).get("testnet", False))
+    exchange = raw.get("venue", raw.get("trading", {}).get("exchange", "binance"))
+    testnet = bool(raw.get("testnet", raw.get("trading", {}).get("testnet", False)))
 
     if exchange == "binance":
         from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
