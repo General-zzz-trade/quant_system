@@ -129,6 +129,28 @@ class ExecutionQualityTracker:
             total_slippage_cost=total_slippage_cost,
         )
 
+    def should_reduce_size(self, symbol: str, threshold_bps: float = 30.0) -> float:
+        """Return position scale factor (0.0-1.0) based on recent slippage.
+
+        If recent average slippage exceeds 2x threshold -> 0.0 (halt).
+        If recent average slippage exceeds threshold -> 0.5 (reduce).
+        Otherwise -> 1.0 (no reduction).
+        Requires at least 5 records for the symbol.
+        """
+        records = self._by_symbol.get(symbol, [])
+        if len(records) < 5:
+            return 1.0
+        recent = records[-20:]
+        avg_slip = sum(
+            _slippage_bps(r.side, r.intended_price, r.avg_fill_price)
+            for r in recent
+        ) / len(recent)
+        if avg_slip > threshold_bps * 2:
+            return 0.0
+        if avg_slip > threshold_bps:
+            return 0.5
+        return 1.0
+
     def venue_comparison(self) -> Dict[str, QualityMetrics]:
         """Compare execution quality across venues."""
         result: Dict[str, QualityMetrics] = {}

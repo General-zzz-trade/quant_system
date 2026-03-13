@@ -77,6 +77,358 @@ from runner.recovery import (
 logger = logging.getLogger(__name__)
 
 
+# ── Sub-builder helpers (extracted from build()) ─────────────────────────
+
+@dataclass
+class _SubsystemReport:
+    """Structured startup logging: track which subsystems succeeded/failed."""
+    succeeded: List[str] = field(default_factory=list)
+    failed: Dict[str, str] = field(default_factory=dict)
+
+    def record(self, name: str, ok: bool, error: str = "") -> None:
+        if ok:
+            self.succeeded.append(name)
+        else:
+            self.failed[name] = error
+
+    def log_summary(self) -> None:
+        if self.succeeded:
+            logger.info(
+                "Subsystems OK (%d): %s", len(self.succeeded), ", ".join(self.succeeded),
+            )
+        if self.failed:
+            logger.warning(
+                "Subsystems FAILED (%d): %s",
+                len(self.failed),
+                "; ".join(f"{k}: {v}" for k, v in self.failed.items()),
+            )
+
+
+def _build_multi_tf_ensemble(
+    config: "LiveRunnerConfig",
+    inference_bridge: Any,
+    metrics_exporter: Any,
+    report: _SubsystemReport,
+) -> Any:
+    """Build multi-timeframe ensemble bridges (Direction 13).
+
+    Returns potentially modified inference_bridge (dict of per-symbol bridges).
+    """
+    try:
+        from decision.ensemble_combiner import EnsembleCombiner
+        from alpha.inference.bridge import LiveInferenceBridge as _LIB
+        import json as _json
+
+        multi_tf = config.multi_tf_models or {}
+        combiners: Dict[str, Any] = {}
+
+        for sym, tf_names in multi_tf.items():
+            bridges_for_sym = []
+            for tf_name in tf_names:
+                model_dir = Path(f"models_v8/{sym}_{tf_name}")
+                if not model_dir.exists():
+                    logger.warning("Multi-TF model dir not found: %s", model_dir)
+                    continue
+
+                cfg_path = model_dir / "config.json"
+                if not cfg_path.exists():
+                    logger.warning("Multi-TF config not found: %s", cfg_path)
+                    continue
+
+                with open(cfg_path) as f:
+                    model_cfg = _json.load(f)
+
+                from alpha.models.lgbm_alpha import LGBMAlphaModel
+                tf_models = []
+                for pkl in sorted(model_dir.glob("*.pkl")):
+                    try:
+                        m = LGBMAlphaModel(name=f"{sym}_{tf_name}_{pkl.stem}")
+                        m.load(pkl)
+                        tf_models.append(m)
+                    except Exception as e:
+                        logger.warning("Failed to load %s: %s", pkl, e)
+                if not tf_models:
+                    logger.warning("No models loaded from %s", model_dir)
+                    continue
+
+                tf_min_hold = {sym: model_cfg.get("min_hold", 12)}
+                tf_deadzone: Any = {sym: model_cfg.get("deadzone", 0.5)}
+                tf_long_only = {sym} if model_cfg.get("long_only") else set()
+                tf_bridge = _LIB(
+                    models=tf_models,
+                    metrics_exporter=metrics_exporter,
+                    min_hold_bars=tf_min_hold,
+                    deadzone=tf_deadzone,
+                    max_hold=model_cfg.get("max_hold", 120),
+                    long_only_symbols=tf_long_only,
+                    ensemble_weights=model_cfg.get("ensemble_weights"),
+                    monthly_gate=config.monthly_gate,
+                    monthly_gate_window=config.monthly_gate_window,
+                    vol_target=config.vol_target,
+                    vol_feature=config.vol_feature,
+                )
+                bridges_for_sym.append((tf_name, tf_bridge))
+                logger.info(
+                    "Multi-TF bridge: %s/%s (min_hold=%d, deadzone=%.1f, max_hold=%d)",
+                    sym, tf_name,
+                    model_cfg.get("min_hold", 12),
+                    model_cfg.get("deadzone", 0.5),
+                    model_cfg.get("max_hold", 120),
+                )
+
+            if len(bridges_for_sym) > 1:
+                combiner = EnsembleCombiner(
+                    bridges=bridges_for_sym,
+                    conflict_policy=config.ensemble_conflict_policy,
+                )
+                combiners[sym] = combiner
+                logger.info(
+                    "Ensemble combiner for %s: %d bridges (%s)",
+                    sym, len(bridges_for_sym),
+                    [n for n, _ in bridges_for_sym],
+                )
+            elif len(bridges_for_sym) == 1:
+                combiners[sym] = bridges_for_sym[0][1]
+
+        if combiners:
+            if isinstance(inference_bridge, dict):
+                inference_bridge.update(combiners)
+            else:
+                new_bridge: Dict[str, Any] = {}
+                for sym in config.symbols:
+                    if sym in combiners:
+                        new_bridge[sym] = combiners[sym]
+                    else:
+                        new_bridge[sym] = inference_bridge
+                inference_bridge = new_bridge
+            logger.info("Multi-TF ensemble enabled for %d symbols", len(combiners))
+
+        report.record("multi_tf_ensemble", True)
+    except Exception as e:
+        report.record("multi_tf_ensemble", False, str(e))
+        logger.warning("Multi-TF ensemble setup failed - using single bridge", exc_info=True)
+
+    return inference_bridge
+
+
+def _build_alert_rules(
+    alert_manager: Any,
+    health: Optional[Any],
+    kill_switch: Any,
+    latency_tracker: Optional[Any],
+    alpha_health_monitor: Optional[Any],
+    correlation_computer: Any,
+    config: "LiveRunnerConfig",
+    report: _SubsystemReport,
+) -> None:
+    """Add default alert rules to the AlertManager."""
+    from monitoring.alerts.base import Severity
+    from monitoring.alerts.manager import AlertRule
+
+    # Stale market data
+    if health is not None:
+        def _stale_data_condition(h=health, cfg=config) -> bool:
+            age = h.get_status().data_age_sec
+            return age is not None and age > cfg.health_stale_data_sec
+
+        alert_manager.add_rule(AlertRule(
+            name="stale_data",
+            condition=_stale_data_condition,
+            severity=Severity.WARNING,
+            message_template="Market data is stale — check feed connectivity",
+            cooldown_sec=120.0,
+        ))
+
+    # High drawdown (>15%)
+    if health is not None:
+        def _high_drawdown_condition(h=health) -> bool:
+            dd = h.get_status().drawdown_pct
+            return dd is not None and dd > 15.0
+
+        alert_manager.add_rule(AlertRule(
+            name="high_drawdown",
+            condition=_high_drawdown_condition,
+            severity=Severity.ERROR,
+            message_template="Portfolio drawdown exceeds 15%",
+            cooldown_sec=300.0,
+        ))
+
+    # Kill switch triggered
+    def _kill_switch_condition(ks=kill_switch) -> bool:
+        return ks.is_killed() is not None
+
+    alert_manager.add_rule(AlertRule(
+        name="kill_switch_triggered",
+        condition=_kill_switch_condition,
+        severity=Severity.CRITICAL,
+        message_template="Kill switch has been triggered — trading halted",
+        cooldown_sec=60.0,
+    ))
+
+    # Latency SLA breach
+    if latency_tracker is not None:
+        from execution.latency.report import LatencyReporter
+        _reporter = LatencyReporter(latency_tracker)
+
+        def _latency_sla_condition(reporter=_reporter, thresh=config.latency_p99_threshold_ms) -> bool:
+            stats = reporter.compute_stats()
+            for s in stats:
+                if s.metric == "signal_to_fill" and s.count >= 10 and s.p99_ms > thresh:
+                    return True
+            return False
+
+        alert_manager.add_rule(AlertRule(
+            name="latency_sla_breach",
+            condition=_latency_sla_condition,
+            severity=Severity.WARNING,
+            message_template="Latency SLA breach — signal_to_fill P99 exceeds threshold",
+            cooldown_sec=300.0,
+        ))
+
+    # Alpha health degradation
+    if alpha_health_monitor is not None:
+        def _alpha_degradation_condition(
+            ahm=alpha_health_monitor, syms=config.symbols,
+        ) -> bool:
+            return any(ahm.position_scale(sym) < 1.0 for sym in syms)
+
+        alert_manager.add_rule(AlertRule(
+            name="alpha_degradation",
+            condition=_alpha_degradation_condition,
+            severity=Severity.WARNING,
+            message_template="Alpha health degraded — position scaling active",
+            cooldown_sec=3600.0,
+        ))
+
+        def _alpha_retrain_needed_condition(
+            ahm=alpha_health_monitor, syms=config.symbols,
+        ) -> bool:
+            return any(ahm.should_retrain(sym) for sym in syms)
+
+        alert_manager.add_rule(AlertRule(
+            name="alpha_retrain_needed",
+            condition=_alpha_retrain_needed_condition,
+            severity=Severity.ERROR,
+            message_template="Alpha IC halted — model retraining required",
+            cooldown_sec=86400.0,
+        ))
+
+    # High portfolio correlation
+    def _high_correlation_condition(
+        cc=correlation_computer, syms=config.symbols, thresh=config.max_avg_correlation,
+    ) -> bool:
+        avg = cc.portfolio_avg_correlation(list(syms))
+        return avg is not None and avg > thresh
+
+    alert_manager.add_rule(AlertRule(
+        name="high_correlation",
+        condition=_high_correlation_condition,
+        severity=Severity.WARNING,
+        message_template="Portfolio avg correlation exceeds threshold",
+        cooldown_sec=300.0,
+    ))
+
+    report.record("alert_rules", True)
+
+
+def _build_health_server(
+    config: "LiveRunnerConfig",
+    health: Any,
+    alpha_health_monitor: Optional[Any],
+    regime_sizer: Optional[Any],
+    portfolio_allocator: Optional[Any],
+    live_signal_tracker: Optional[Any],
+    report: _SubsystemReport,
+) -> tuple:
+    """Build health HTTP server and operator control plane.
+
+    Returns (health_server, control_plane).
+    """
+    if config.health_port is None or health is None:
+        return None, None
+
+    from monitoring.health_server import HealthServer
+    from dataclasses import asdict as _asdict
+    from runner.control_plane import OperatorControlPlane
+
+    _stale_thresh = config.health_stale_data_sec
+    health_token = None
+    if config.health_auth_token_env:
+        health_token = os.environ.get(config.health_auth_token_env)
+        if not health_token:
+            raise ValueError(
+                "health_auth_token_env is set but env var is missing: "
+                f"{config.health_auth_token_env}"
+            )
+
+    def _health_status_fn() -> Dict[str, Any]:
+        st = health.get_status()
+        d = _asdict(st)
+        age = st.data_age_sec
+        if age is not None and age > _stale_thresh:
+            d["status"] = "critical"
+        if alpha_health_monitor is not None:
+            ah_status = {}
+            for sym in config.symbols:
+                ah_status[sym] = alpha_health_monitor.get_status(sym)
+            d["alpha_health"] = ah_status
+        if regime_sizer is not None:
+            d["regime_sizer"] = regime_sizer.get_status()
+        if portfolio_allocator is not None:
+            d["portfolio_allocator"] = portfolio_allocator.get_status()
+        return d
+
+    control_plane = OperatorControlPlane(SimpleNamespace())
+    control_plane.runner = None
+
+    health_server = HealthServer(
+        port=config.health_port,
+        status_fn=_health_status_fn,
+        operator_fn=lambda: control_plane.runner.operator_status() if control_plane.runner is not None else {"error": "runner unavailable"},
+        control_history_fn=lambda: [
+            {
+                "command": rec.command,
+                "reason": rec.reason,
+                "source": rec.source,
+                "result": rec.result,
+                "ts": rec.ts.isoformat(),
+            }
+            for rec in (control_plane.runner.control_history if control_plane.runner is not None else [])
+        ],
+        control_fn=lambda body: control_plane.execute(body).to_dict() if control_plane.runner is not None else {
+            "accepted": False,
+            "command": str(body.get("command", "")),
+            "outcome": "rejected",
+            "reason": str(body.get("reason", "")),
+            "source": str(body.get("source", "operator")),
+            "status": None,
+            "detail": None,
+            "error": "runner unavailable",
+            "error_code": "runner_unavailable",
+        },
+        alerts_fn=lambda: control_plane.runner.execution_alert_history() if control_plane.runner is not None else [],
+        ops_audit_fn=lambda: control_plane.runner.ops_audit_snapshot() if control_plane.runner is not None else {
+            "operator": {"error": "runner unavailable"},
+            "control_history": [],
+            "execution_alerts": [],
+            "model_alerts": [],
+            "model_actions": [],
+            "model_status": [],
+            "timeline": [],
+        },
+        attribution_fn=lambda: (
+            live_signal_tracker.get_status()
+            if live_signal_tracker is not None
+            else {"error": "attribution tracker unavailable"}
+        ),
+        host=config.health_host,
+        auth_token=health_token,
+    )
+
+    report.record("health_server", True)
+    return health_server, control_plane
+
+
 @dataclass
 class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     """Full live trading runner with reconciliation, kill switch, and margin monitoring.
@@ -180,6 +532,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         """
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
+        report = _SubsystemReport()
 
         # ── Auto-wire Telegram alerts from env vars ──────────
         if alert_sink is None:
@@ -409,102 +762,9 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
 
             # ── Multi-timeframe Ensemble (Direction 13) ──────────────
             if config.enable_multi_tf_ensemble and inference_bridge is not None:
-                try:
-                    from decision.ensemble_combiner import EnsembleCombiner
-                    from alpha.inference.bridge import LiveInferenceBridge as _LIB
-                    import json as _json
-
-                    multi_tf = config.multi_tf_models or {}
-                    combiners: Dict[str, Any] = {}
-
-                    for sym, tf_names in multi_tf.items():
-                        bridges_for_sym = []
-                        for tf_name in tf_names:
-                            model_dir = Path(f"models_v8/{sym}_{tf_name}")
-                            if not model_dir.exists():
-                                logger.warning("Multi-TF model dir not found: %s", model_dir)
-                                continue
-
-                            cfg_path = model_dir / "config.json"
-                            if not cfg_path.exists():
-                                logger.warning("Multi-TF config not found: %s", cfg_path)
-                                continue
-
-                            with open(cfg_path) as f:
-                                model_cfg = _json.load(f)
-
-                            # Load models (lgbm + xgb) from the timeframe directory
-                            from alpha.models.lgbm_alpha import LGBMAlphaModel
-                            tf_models = []
-                            for pkl in sorted(model_dir.glob("*.pkl")):
-                                try:
-                                    m = LGBMAlphaModel(name=f"{sym}_{tf_name}_{pkl.stem}")
-                                    m.load(pkl)
-                                    tf_models.append(m)
-                                except Exception:
-                                    logger.warning("Failed to load %s", pkl, exc_info=True)
-                            if not tf_models:
-                                logger.warning("No models loaded from %s", model_dir)
-                                continue
-
-                            # Create per-timeframe bridge with its own constraints
-                            tf_min_hold = {sym: model_cfg.get("min_hold", 12)}
-                            tf_deadzone: Any = {sym: model_cfg.get("deadzone", 0.5)}
-                            tf_long_only = {sym} if model_cfg.get("long_only") else set()
-                            tf_bridge = _LIB(
-                                models=tf_models,
-                                metrics_exporter=metrics_exporter,
-                                min_hold_bars=tf_min_hold,
-                                deadzone=tf_deadzone,
-                                max_hold=model_cfg.get("max_hold", 120),
-                                long_only_symbols=tf_long_only,
-                                ensemble_weights=model_cfg.get("ensemble_weights"),
-                                monthly_gate=config.monthly_gate,
-                                monthly_gate_window=config.monthly_gate_window,
-                                vol_target=config.vol_target,
-                                vol_feature=config.vol_feature,
-                            )
-                            bridges_for_sym.append((tf_name, tf_bridge))
-                            logger.info(
-                                "Multi-TF bridge: %s/%s (min_hold=%d, deadzone=%.1f, max_hold=%d)",
-                                sym, tf_name,
-                                model_cfg.get("min_hold", 12),
-                                model_cfg.get("deadzone", 0.5),
-                                model_cfg.get("max_hold", 120),
-                            )
-
-                        if len(bridges_for_sym) > 1:
-                            combiner = EnsembleCombiner(
-                                bridges=bridges_for_sym,
-                                conflict_policy=config.ensemble_conflict_policy,
-                            )
-                            combiners[sym] = combiner
-                            logger.info(
-                                "Ensemble combiner for %s: %d bridges (%s)",
-                                sym, len(bridges_for_sym),
-                                [n for n, _ in bridges_for_sym],
-                            )
-                        elif len(bridges_for_sym) == 1:
-                            # Single TF loaded -- just use the bridge directly
-                            combiners[sym] = bridges_for_sym[0][1]
-
-                    if combiners:
-                        # Replace single bridge with per-symbol dict of combiners
-                        if isinstance(inference_bridge, dict):
-                            inference_bridge.update(combiners)
-                        else:
-                            # Convert single bridge to dict: combiners override, original is fallback
-                            new_bridge: Dict[str, Any] = {}
-                            for sym in config.symbols:
-                                if sym in combiners:
-                                    new_bridge[sym] = combiners[sym]
-                                else:
-                                    new_bridge[sym] = inference_bridge
-                            inference_bridge = new_bridge
-                        logger.info("Multi-TF ensemble enabled for %d symbols", len(combiners))
-
-                except Exception:
-                    logger.warning("Multi-TF ensemble setup failed - using single bridge", exc_info=True)
+                inference_bridge = _build_multi_tf_ensemble(
+                    config, inference_bridge, metrics_exporter, report,
+                )
 
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
@@ -533,6 +793,12 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 _first_bridge = inference_bridge
         if hook is not None and _first_bridge is not None:
             hook.inference_bridge = _first_bridge
+
+        # Decision recording (replay support)
+        if config.enable_decision_recording and hook is not None:
+            from decision.persistence.decision_store import DecisionStore
+            hook.decision_store = DecisionStore(path=config.decision_recording_path)
+            logger.info("Decision recording enabled: %s", config.decision_recording_path)
 
         # Event recording: chain onto on_pipeline_output if event_log available
         _event_recorder_ref: List[Optional[EventRecorder]] = [None]
@@ -579,7 +845,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     "Portfolio risk enabled: gross<=%.1f, net<=%.1f, concentration<=%.1f",
                     config.max_gross_leverage, config.max_net_leverage, config.max_concentration,
                 )
-            except Exception:
+            except Exception as e:
+                report.record("portfolio_risk", False, str(e))
                 logger.warning("Portfolio risk setup failed — continuing without", exc_info=True)
 
         def _emit(ev: Any) -> None:
@@ -672,9 +939,39 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                                     sym, float(raw_qty), scaled_qty,
                                 )
 
-                # Gate 7: Attribution feedback — live signal tracker
-                if live_signal_tracker is not None:
-                    live_signal_tracker.on_fill(ev, origin=sym)
+                # Gate 7: Execution quality feedback (slippage-based sizing)
+                if hook is not None and hook.execution_quality is not None:
+                    eq_scale = hook.execution_quality.should_reduce_size(sym)
+                    if eq_scale < 1.0:
+                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
+                        if raw_qty is not None:
+                            if eq_scale <= 0.0:
+                                logger.warning(
+                                    "ExecQuality HALTED order for %s: slippage too high", sym,
+                                )
+                                return
+                            scaled_qty = float(raw_qty) * eq_scale
+                            object.__setattr__(ev, "qty", scaled_qty)
+                            logger.info(
+                                "ExecQuality scaled order for %s: scale=%.2f", sym, eq_scale,
+                            )
+
+                # Gate 8: Attribution weight recommendations (execution feedback)
+                if hook is not None and hook.weight_recommendations:
+                    wr = hook.weight_recommendations.get(sym, 1.0)
+                    if wr < 1.0:
+                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
+                        if raw_qty is not None:
+                            if wr <= 0.0:
+                                logger.warning(
+                                    "WeightRec HALTED order for %s: weight=0.0", sym,
+                                )
+                                return
+                            scaled_qty = float(raw_qty) * wr
+                            object.__setattr__(ev, "qty", scaled_qty)
+                            logger.info(
+                                "WeightRec scaled order for %s: weight=%.2f", sym, wr,
+                            )
 
                 # Track order submission in state machine + timeout tracker
                 order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
@@ -717,6 +1014,10 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 # Record fill event to event_log for replay recovery
                 if event_recorder is not None:
                     event_recorder.record_fill(ev)
+                # Attribution feedback — live signal tracker (must be in FILL branch)
+                if live_signal_tracker is not None:
+                    fill_sym = getattr(ev, "symbol", "")
+                    live_signal_tracker.on_fill(ev, origin=fill_sym)
 
             coordinator.emit(ev, actor="live")
 
@@ -767,7 +1068,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     logger.info("WS-API order gateway enabled (testnet=%s)", config.testnet)
                 else:
                     logger.warning("WS orders require BinanceRestClient — skipping")
-            except Exception:
+            except Exception as e:
+                report.record("ws_order_gateway", False, str(e))
                 logger.warning("WS order gateway setup failed — using REST", exc_info=True)
 
         kill_bridge = KillSwitchBridge(
@@ -941,8 +1243,9 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     logger.info(
                         "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
                     )
-                except Exception:
+                except Exception as e:
                     user_stream_client = None
+                    report.record("user_stream", False, str(e))
                     logger.warning("User stream setup failed — continuing without", exc_info=True)
             else:
                 user_stream_client = None
@@ -985,109 +1288,10 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
 
         # ── 10) AlertManager + default rules ────────────────
         alert_manager = AlertManager(sink=alert_sink)
-
-        # Default rule: stale market data
-        if health is not None:
-            def _stale_data_condition(h=health, cfg=config) -> bool:
-                age = h.get_status().data_age_sec
-                return age is not None and age > cfg.health_stale_data_sec
-
-            alert_manager.add_rule(AlertRule(
-                name="stale_data",
-                condition=_stale_data_condition,
-                severity=Severity.WARNING,
-                message_template="Market data is stale — check feed connectivity",
-                cooldown_sec=120.0,
-            ))
-
-        # Default rule: high drawdown (>15%)
-        if health is not None:
-            def _high_drawdown_condition(h=health) -> bool:
-                dd = h.get_status().drawdown_pct
-                return dd is not None and dd > 15.0
-
-            alert_manager.add_rule(AlertRule(
-                name="high_drawdown",
-                condition=_high_drawdown_condition,
-                severity=Severity.ERROR,
-                message_template="Portfolio drawdown exceeds 15%",
-                cooldown_sec=300.0,
-            ))
-
-        # Default rule: kill switch triggered
-        def _kill_switch_condition(ks=kill_switch) -> bool:
-            return ks.is_killed() is not None
-
-        alert_manager.add_rule(AlertRule(
-            name="kill_switch_triggered",
-            condition=_kill_switch_condition,
-            severity=Severity.CRITICAL,
-            message_template="Kill switch has been triggered — trading halted",
-            cooldown_sec=60.0,
-        ))
-
-        # Default rule: latency SLA breach
-        if latency_tracker is not None:
-            from execution.latency.report import LatencyReporter
-            _reporter = LatencyReporter(latency_tracker)
-
-            def _latency_sla_condition(reporter=_reporter, thresh=config.latency_p99_threshold_ms) -> bool:
-                stats = reporter.compute_stats()
-                for s in stats:
-                    if s.metric == "signal_to_fill" and s.count >= 10 and s.p99_ms > thresh:
-                        return True
-                return False
-
-            alert_manager.add_rule(AlertRule(
-                name="latency_sla_breach",
-                condition=_latency_sla_condition,
-                severity=Severity.WARNING,
-                message_template="Latency SLA breach — signal_to_fill P99 exceeds threshold",
-                cooldown_sec=300.0,
-            ))
-
-        # Default rule: alpha health degradation
-        if alpha_health_monitor is not None:
-            def _alpha_degradation_condition(
-                ahm=alpha_health_monitor, syms=config.symbols,
-            ) -> bool:
-                return any(ahm.position_scale(sym) < 1.0 for sym in syms)
-
-            alert_manager.add_rule(AlertRule(
-                name="alpha_degradation",
-                condition=_alpha_degradation_condition,
-                severity=Severity.WARNING,
-                message_template="Alpha health degraded — position scaling active",
-                cooldown_sec=3600.0,
-            ))
-
-            def _alpha_retrain_needed_condition(
-                ahm=alpha_health_monitor, syms=config.symbols,
-            ) -> bool:
-                return any(ahm.should_retrain(sym) for sym in syms)
-
-            alert_manager.add_rule(AlertRule(
-                name="alpha_retrain_needed",
-                condition=_alpha_retrain_needed_condition,
-                severity=Severity.ERROR,
-                message_template="Alpha IC halted — model retraining required",
-                cooldown_sec=86400.0,
-            ))
-
-        # Default rule: high portfolio correlation (uses correlation_computer created earlier)
-        def _high_correlation_condition(
-            cc=correlation_computer, syms=config.symbols, thresh=config.max_avg_correlation,
-        ) -> bool:
-            avg = cc.portfolio_avg_correlation(list(syms))
-            return avg is not None and avg > thresh
-
-        alert_manager.add_rule(AlertRule(
-            name="high_correlation",
-            condition=_high_correlation_condition,
-            severity=Severity.WARNING,
-            message_template="Portfolio avg correlation exceeds threshold",
-            cooldown_sec=300.0,
-        ))
+        _build_alert_rules(
+            alert_manager, health, kill_switch, latency_tracker,
+            alpha_health_monitor, correlation_computer, config, report,
+        )
 
         # ── 11) Persistent stores (conditional) ─────────────
         state_store = None
@@ -1166,7 +1370,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     ),
                 ))
                 logger.info("DataScheduler + FreshnessMonitor configured")
-            except Exception:
+            except Exception as e:
+                report.record("data_scheduler", False, str(e))
                 logger.warning("DataScheduler setup failed — continuing without", exc_info=True)
 
         # ── 12) GracefulShutdown ─────────────────────────────
@@ -1235,89 +1440,10 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
 
         # ── 13) Health HTTP endpoint (optional) ────────────────
-        health_server = None
-        if config.health_port is not None and health is not None:
-            from monitoring.health_server import HealthServer
-            from dataclasses import asdict
-            from runner.control_plane import OperatorControlPlane
-
-            _stale_thresh = config.health_stale_data_sec
-            health_token = None
-            if config.health_auth_token_env:
-                health_token = os.environ.get(config.health_auth_token_env)
-                if not health_token:
-                    raise ValueError(
-                        "health_auth_token_env is set but env var is missing: "
-                        f"{config.health_auth_token_env}"
-                    )
-
-            def _health_status_fn() -> Dict[str, Any]:
-                st = health.get_status()
-                d = asdict(st)
-                age = st.data_age_sec
-                if age is not None and age > _stale_thresh:
-                    d["status"] = "critical"
-                # Include alpha health status
-                if alpha_health_monitor is not None:
-                    ah_status = {}
-                    for sym in config.symbols:
-                        ah_status[sym] = alpha_health_monitor.get_status(sym)
-                    d["alpha_health"] = ah_status
-                # Include regime sizer status (Direction 17)
-                if regime_sizer is not None:
-                    d["regime_sizer"] = regime_sizer.get_status()
-                if portfolio_allocator is not None:
-                    d["portfolio_allocator"] = portfolio_allocator.get_status()
-                return d
-
-            control_plane = OperatorControlPlane(SimpleNamespace())
-            control_plane.runner = None
-
-            health_server = HealthServer(
-                port=config.health_port,
-                status_fn=_health_status_fn,
-                operator_fn=lambda: control_plane.runner.operator_status() if control_plane.runner is not None else {"error": "runner unavailable"},
-                control_history_fn=lambda: [
-                    {
-                        "command": rec.command,
-                        "reason": rec.reason,
-                        "source": rec.source,
-                        "result": rec.result,
-                        "ts": rec.ts.isoformat(),
-                    }
-                    for rec in (control_plane.runner.control_history if control_plane.runner is not None else [])
-                ],
-                control_fn=lambda body: control_plane.execute(body).to_dict() if control_plane.runner is not None else {
-                    "accepted": False,
-                    "command": str(body.get("command", "")),
-                    "outcome": "rejected",
-                    "reason": str(body.get("reason", "")),
-                    "source": str(body.get("source", "operator")),
-                    "status": None,
-                    "detail": None,
-                    "error": "runner unavailable",
-                    "error_code": "runner_unavailable",
-                },
-                alerts_fn=lambda: control_plane.runner.execution_alert_history() if control_plane.runner is not None else [],
-                ops_audit_fn=lambda: control_plane.runner.ops_audit_snapshot() if control_plane.runner is not None else {
-                    "operator": {"error": "runner unavailable"},
-                    "control_history": [],
-                    "execution_alerts": [],
-                    "model_alerts": [],
-                    "model_actions": [],
-                    "model_status": [],
-                    "timeline": [],
-                },
-                attribution_fn=lambda: (
-                    live_signal_tracker.get_status()
-                    if live_signal_tracker is not None
-                    else {"error": "attribution tracker unavailable"}
-                ),
-                host=config.health_host,
-                auth_token=health_token,
-            )
-        else:
-            control_plane = None
+        health_server, control_plane = _build_health_server(
+            config, health, alpha_health_monitor, regime_sizer,
+            portfolio_allocator, live_signal_tracker, report,
+        )
 
         # ── 14) Recovery infrastructure ────────────────────────
         # Periodic checkpointer: saves state every 60s (not just on shutdown)
@@ -1383,6 +1509,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         # Patch event recorder into pipeline output hook
         if event_recorder is not None:
             _event_recorder_ref[0] = event_recorder
+        report.log_summary()
         return runner
 
     @classmethod

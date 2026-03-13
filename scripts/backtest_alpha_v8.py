@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from features.enriched_computer import EnrichedFeatureComputer
-from scripts.signal_postprocess import _apply_monthly_gate, _compute_bear_mask
+from scripts.signal_postprocess import _apply_monthly_gate, _compute_bear_mask, _enforce_min_hold
 
 logger = logging.getLogger(__name__)
 
@@ -111,20 +111,8 @@ def _apply_regime_switch(
                 scale = min(vol_target / vol_vals[i], 1.0)
                 out[i] *= scale
 
-    # Re-apply min_hold across regime switches
-    held = np.zeros_like(out)
-    held[0] = out[0]
-    hold_count = 1
-    for i in range(1, len(out)):
-        if hold_count < min_hold:
-            held[i] = held[i - 1]
-            hold_count += 1
-        else:
-            held[i] = out[i]
-            if out[i] != held[i - 1]:
-                hold_count = 1
-            else:
-                hold_count += 1
+    # Re-apply min_hold across regime switches (single-pass, delegates to Rust)
+    held = _enforce_min_hold(out, min_hold)
 
     # Drawdown circuit breaker: force flat when rolling DD exceeds limit
     if dd_limit is not None:

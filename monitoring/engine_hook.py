@@ -52,9 +52,12 @@ class EngineMonitoringHook:
     _equity_hwm: float = field(default=0.0, init=False)
     _last_signal_ts: float = field(default=0.0, init=False)
     execution_quality: Optional[Any] = None
+    decision_store: Optional[Any] = None  # DecisionStore for replay recording
     # Alpha health: buffer (close, ml_score) per symbol for lagged IC computation
     _alpha_pred_buffer: Dict[str, Deque[Tuple[float, float]]] = field(default_factory=dict, init=False)
     _ALPHA_MAX_LAG: int = 50  # max horizon to support
+    _weight_recs: Dict[str, float] = field(default_factory=dict, init=False)
+    _WEIGHT_REC_INTERVAL: int = 100  # recompute every N bars
 
     def on_order(self) -> None:
         self._order_count += 1
@@ -67,6 +70,11 @@ class EngineMonitoringHook:
 
     def on_reconcile_drift(self) -> None:
         self._reconcile_drift_count += 1
+
+    @property
+    def weight_recommendations(self) -> Dict[str, float]:
+        """Latest weight recommendations from attribution feedback loop."""
+        return self._weight_recs
 
     def on_rest_fallback(self) -> None:
         """Record a REST fallback event (WS order failed, fell back to REST)."""
@@ -102,6 +110,19 @@ class EngineMonitoringHook:
         # ── Alpha Health Monitor: feed predictions and check IC ──
         if self.alpha_health_monitor is not None and out.features is not None:
             self._update_alpha_health(out)
+
+        # ── Decision recording: append ML score for replay support ──
+        if self.decision_store is not None and out.features is not None:
+            features = out.features
+            ml_score = features.get("ml_score") if features else None
+            if ml_score is not None:
+                sym = features.get("_symbol", "")
+                self.decision_store.append({
+                    "ts": time.time(),
+                    "symbol": sym,
+                    "ml_score": float(ml_score),
+                    "event_index": out.event_index,
+                })
 
         # ── Regime Position Sizer: feed volatility regime (Direction 17) ──
         if self.regime_sizer is not None and out.features is not None:
@@ -149,6 +170,16 @@ class EngineMonitoringHook:
             # ── Live signal attribution export ──
             if self.live_signal_tracker is not None:
                 self.live_signal_tracker.export_metrics()
+
+            # ── Weight recommendations (execution feedback loop) ──
+            if (self._event_count % self._WEIGHT_REC_INTERVAL == 0
+                    and self.live_signal_tracker is not None):
+                try:
+                    self._weight_recs = self.live_signal_tracker.compute_weight_recommendations(
+                        alpha_health_monitor=self.alpha_health_monitor,
+                    )
+                except Exception:
+                    logger.debug("Weight recommendation compute failed", exc_info=True)
 
             self.metrics.set_gauge("event_index", float(out.event_index))
 

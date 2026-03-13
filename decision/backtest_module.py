@@ -198,13 +198,25 @@ class MLSignalDecisionModule:
         self._vol_target = None if vol_target is None else float(vol_target)
         self._vol_feature = str(vol_feature)
 
-        # State (single z-score buf used only in non-multi-horizon mode)
+        # State (z-score buf used only to feed ExitManager z_score input)
         self._zscore_buf = _ZScoreBuf(window=zscore_window, warmup=warmup)
         self._position: float = 0.0  # +1 long, -1 short, 0 flat
         self._entry_bar: int = 0
         self._bar_count: int = 0
         self._current_qty = Decimal("0")
         self._close_buf: Deque[float] = deque(maxlen=self._monthly_gate_window)
+
+        # Rust constraint bridge: z-score + discretize + min-hold in one call
+        self._rust_bridge = None
+        try:
+            from _quant_hotpath import RustInferenceBridge
+            self._rust_bridge = RustInferenceBridge(
+                zscore_window=zscore_window,
+                zscore_warmup=warmup,
+                default_gate_window=self._monthly_gate_window,
+            )
+        except ImportError:
+            pass  # Fall back to Python _ZScoreBuf + _discretize_signal
 
         # V11 modules
         from decision.exit_manager import ExitManager
@@ -252,6 +264,7 @@ class MLSignalDecisionModule:
             self._position = 0.0
 
         # ML prediction + z-score normalization
+        _constrained_from_rust = None  # Rust-constrained signal (if available)
         if self._multi_horizon and self._ensemble is not None:
             z = self._ensemble.predict(features)
         elif self._multi_horizon:
@@ -260,7 +273,26 @@ class MLSignalDecisionModule:
             pred = self._predict(features)
             if pred is None:
                 return ()
-            z = self._zscore_buf.push(pred)
+            z = self._zscore_buf.push(pred)  # always feed for ExitManager
+            # Use Rust bridge for unified z-score + discretize + min-hold
+            if self._rust_bridge is not None:
+                trend_val = float("nan")
+                if self._trend_follow:
+                    tv = features.get(self._trend_indicator)
+                    if tv is not None:
+                        trend_val = float(tv)
+                _constrained_from_rust = int(self._rust_bridge.apply_constraints(
+                    self.symbol,
+                    pred,
+                    self._bar_count,
+                    deadzone=self._deadzone,
+                    min_hold=self._min_hold,
+                    long_only=self._long_only,
+                    trend_follow=self._trend_follow,
+                    trend_val=trend_val,
+                    trend_threshold=self._trend_threshold,
+                    max_hold=self._max_hold,
+                ))
         if z is None:
             return ()
 
@@ -282,7 +314,10 @@ class MLSignalDecisionModule:
         # Extract hour for time filter
         hour_utc = self._get_hour_utc(snapshot)
 
-        desired = self._discretize_signal(z)
+        if _constrained_from_rust is not None:
+            desired = _constrained_from_rust
+        else:
+            desired = self._discretize_signal(z)
         trend_hold_active = self._should_trend_hold(features, desired)
 
         # ── Exit logic ──
@@ -303,9 +338,10 @@ class MLSignalDecisionModule:
             # Match live constraint behavior: once the discretized score falls
             # back inside the deadzone, flatten unless trend-follow explicitly
             # extends the position.
+            # When Rust bridge is active, min-hold is already enforced in
+            # apply_constraints — desired stays non-zero until hold expires.
             if desired == 0 and not trend_hold_active:
-                held = self._bar_count - self._entry_bar
-                if held >= self._min_hold:
+                if _constrained_from_rust is not None or (self._bar_count - self._entry_bar) >= self._min_hold:
                     side = "sell" if self._position > 0 else "buy"
                     events.extend(self._make_order(
                         side=side,

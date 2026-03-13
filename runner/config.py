@@ -103,6 +103,9 @@ class LiveRunnerConfig:
     # Burn-in gate (Direction 14)
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
+    # Decision recording (replay support)
+    enable_decision_recording: bool = False
+    decision_recording_path: str = "data/live/decisions.jsonl"
 
 
 @dataclass(frozen=True, slots=True)

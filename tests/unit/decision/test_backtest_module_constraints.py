@@ -38,7 +38,9 @@ def _build_module(tmp_path: Path, **kwargs) -> MLSignalDecisionModule:
     )
     with (model_dir / "lgbm_v8.pkl").open("wb") as f:
         pickle.dump({"model": None, "features": ["atr_norm_14", "trend"]}, f)
-    return MLSignalDecisionModule(symbol="BTCUSDT", model_dir=model_dir, **kwargs)
+    mod = MLSignalDecisionModule(symbol="BTCUSDT", model_dir=model_dir, **kwargs)
+    mod._rust_bridge = None  # tests control z-scores directly via _zscore_buf.push
+    return mod
 
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)

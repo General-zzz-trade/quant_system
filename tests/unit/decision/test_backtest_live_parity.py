@@ -90,6 +90,7 @@ def _run_backtest_position_signs(
     out: list[int] = []
     z_iter = iter(zscores)
     mod._zscore_buf.push = lambda _: next(z_iter)
+    mod._rust_bridge = None  # disable Rust bridge when controlling z-scores directly
 
     for close, feats in zip(closes, features_per_bar):
         events = list(mod.decide(_snapshot(close=close, features=feats, qty=qty)))
@@ -114,6 +115,7 @@ def _run_backtest_qtys(
     out: list[float] = []
     z_iter = iter(zscores)
     mod._zscore_buf.push = lambda _: next(z_iter)
+    mod._rust_bridge = None  # disable Rust bridge when controlling z-scores directly
 
     for close, feats in zip(closes, features_per_bar):
         events = list(mod.decide(_snapshot(close=close, features=feats, qty=qty)))
@@ -135,6 +137,7 @@ def _entry_qty(
     zscore: float,
 ) -> float:
     mod._zscore_buf.push = lambda _: zscore
+    mod._rust_bridge = None  # disable Rust bridge when controlling z-scores directly
     events = list(mod.decide(_snapshot(close=close, features=features, qty=0.0)))
     assert events
     return float(events[-1].qty)
