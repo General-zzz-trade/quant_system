@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Rolling deploy for paper trading services.
-# Restarts each service one-by-one, waiting for healthcheck between each.
+# Recreates each service one-by-one so updated images/config are applied.
 # Exits non-zero (triggering rollback in CI) if any service fails.
 
 set -euo pipefail
 
-SERVICES=(paper-btc paper-sol paper-eth)
+SERVICES=(paper-multi)
 TIMEOUT=120  # seconds per service
 
 notify() {
@@ -21,6 +21,7 @@ notify() {
 wait_healthy() {
     local svc="$1"
     local elapsed=0
+    local status="missing"
     while [ $elapsed -lt $TIMEOUT ]; do
         status=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "missing")
         if [ "$status" = "healthy" ]; then
@@ -40,8 +41,8 @@ notify "*[DEPLOY]* Starting rolling deploy at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 failed=""
 for svc in "${SERVICES[@]}"; do
-    echo "--- Restarting $svc ---"
-    docker compose restart "$svc"
+    echo "--- Recreating $svc ---"
+    docker compose up -d --no-deps --force-recreate "$svc"
 
     if wait_healthy "$svc"; then
         echo "$svc OK"

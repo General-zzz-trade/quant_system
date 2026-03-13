@@ -33,4 +33,4 @@ data:
 
 monitoring:
   health_check_interval: 5.0
-  metrics_port: 9090
+  health_port: 9090

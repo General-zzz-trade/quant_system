@@ -14,13 +14,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run tests in Docker builder
+      - name: Build CI image
         run: |
-          docker build --target builder -t quant-ci:test .
-          docker run --rm quant-ci:test \
+          docker build --target ci -t quant-ci:test .
+
+      - name: Run Python tests
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
             python -m pytest tests/ -x -q --tb=short \
             --ignore=tests/performance \
             --cov=. --cov-report=term-missing --cov-fail-under=57
+
+      - name: Run execution tests
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
+            python -m pytest execution/tests/ -x -q --tb=short
+
+      - name: Run Rust tests
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
+            sh -lc 'cargo test --manifest-path /app/ext/rust/Cargo.toml --locked'
 
   lint:
     runs-on: [self-hosted, quant-server]
@@ -31,6 +44,6 @@ jobs:
 
       - name: Ruff check
         run: |
-          docker build --target builder -t quant-ci:lint .
-          docker run --rm quant-ci:lint \
+          docker build --target ci -t quant-ci:lint .
+          docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
             ruff check --select E,W,F .

@@ -46,7 +46,9 @@ SCHEMA: Dict[str, Dict[str, Any]] = {
 
     # Monitoring
     "monitoring.health_check_interval": {"type": float, "required": False, "description": "Health check interval (s)"},
-    "monitoring.metrics_port": {"type": int, "required": False, "description": "Prometheus metrics port"},
+    "monitoring.health_port": {"type": int, "required": False, "description": "Health/control API port"},
+    "monitoring.health_host": {"type": str, "required": False, "description": "Health/control API bind host"},
+    "monitoring.health_auth_token_env": {"type": str, "required": False, "description": "Env var for health/control API bearer token"},
 }
 
 

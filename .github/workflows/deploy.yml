@@ -15,6 +15,9 @@ jobs:
     runs-on: [self-hosted, quant-server]
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     timeout-minutes: 10
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -48,9 +51,6 @@ jobs:
         run: docker compose build --no-cache
 
       - name: Rolling deploy
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: bash scripts/deploy.sh
 
       - name: Record successful deploy
@@ -60,15 +60,15 @@ jobs:
       - name: Rollback on failure
         if: failure()
         run: |
-          echo "Deploy failed — rolling back"
+          echo "Deploy failed; rolling back"
           PREV="${{ steps.changes.outputs.prev_commit }}"
           # Restore rollback image if we rebuilt
           if docker image inspect quant-paper:rollback >/dev/null 2>&1; then
             docker tag quant-paper:rollback quant-paper:latest
             echo "Restored quant-paper:rollback -> quant-paper:latest"
           fi
-          # Restart all services with previous image
-          docker compose restart paper-btc paper-sol paper-eth || true
+          # Recreate the live service so it picks up the restored image.
+          docker compose up -d --no-deps --force-recreate paper-multi || true
           # Notify
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

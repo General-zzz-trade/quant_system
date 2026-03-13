@@ -61,7 +61,7 @@ class ExperimentRunner:
 
         from alpha.models.lgbm_alpha import LGBMAlphaModel
         from alpha.training.trainer import ModelTrainer
-        from scripts.train_lgbm import FEATURE_NAMES, compute_features_from_ohlcv, compute_target
+        from scripts.archive.train_lgbm import FEATURE_NAMES, compute_features_from_ohlcv, compute_target
 
         experiment_id = _make_id(config)
         run_dir = self.out_dir / experiment_id

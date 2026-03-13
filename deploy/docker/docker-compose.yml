@@ -4,18 +4,19 @@ services:
   engine:
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile
+      dockerfile: Dockerfile
+      target: paper
     container_name: quant-engine
     restart: unless-stopped
     ports:
       - "9090:9090"
+    command: ["python3", "-m", "runner.live_runner", "--config", "/app/infra/config/examples/live.yaml"]
     environment:
       - QUANT_ENV=production
       - QUANT_LOG_LEVEL=INFO
       - QUANT_DB_HOST=timescaledb
       - QUANT_DB_PORT=5432
       - QUANT_DB_NAME=quant
-      - QUANT_PROMETHEUS_PORT=9090
     env_file:
       - .env
     depends_on:
@@ -23,6 +24,12 @@ services:
         condition: service_healthy
     volumes:
       - engine-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - quant-net
 

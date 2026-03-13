@@ -27,6 +27,16 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     cd ext/rust && RUSTFLAGS="-C target-cpu=skylake-avx512" maturin build --release && \
     pip install --force-reinstall target/wheels/*.whl
 
+# ---- CI stage (bind-mount checkout, keep prod image slim) ----
+FROM builder AS ci
+
+RUN pip install --no-cache-dir \
+    aiohttp websockets pyarrow \
+    pytest pytest-cov pytest-timeout hypothesis ruff
+
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 # ---- Runtime stage (slim) ────────────────────────────────
 FROM python:3.12-slim AS paper
 
@@ -57,7 +67,6 @@ COPY decision/ /app/decision/
 COPY risk/ /app/risk/
 COPY regime/ /app/regime/
 COPY attribution/ /app/attribution/
-COPY _quant_hotpath/ /app/_quant_hotpath/
 COPY core/ /app/core/
 COPY data/ /app/data/
 
