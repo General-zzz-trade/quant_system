@@ -48,4 +48,8 @@ logging:
   file: logs/multi_paper_trading.log
 
 monitoring:
+  # Used by all testnet phases as the stale-data alert window.
   health_check_interval: 30.0
+  # LiveRunner-based phases (shadow/live/longrun) also expose the health/control API.
+  health_port: 9090
+  health_host: 127.0.0.1

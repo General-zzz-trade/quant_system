@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+SUPPORTED = "supported"
+EXPERIMENTAL = "experimental"
+LEGACY = "legacy"
+
 
 @dataclass(frozen=True)
 class ScriptGroup:
@@ -85,148 +89,152 @@ SCRIPT_GROUPS: tuple[ScriptGroup, ...] = (
 PRIMARY_ENTRYPOINTS: tuple[ScriptEntrypoint, ...] = (
     ScriptEntrypoint(
         name="train_v11.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="official",
         description="Current production-oriented multi-horizon training entrypoint.",
     ),
     ScriptEntrypoint(
         name="backtest_engine.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="official",
         description="Backtest runner aligned to model config-driven constraints.",
     ),
     ScriptEntrypoint(
         name="walkforward_validate.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="official",
         description="Main walk-forward validator for the 1h alpha stack.",
     ),
     ScriptEntrypoint(
         name="run_paper_trading.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="recommended",
         description="Paper trading helper around the live runtime.",
     ),
     ScriptEntrypoint(
         name="testnet_smoke.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="recommended",
         description="Testnet connectivity and order-path smoke checks.",
     ),
     ScriptEntrypoint(
         name="refresh_data.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="recommended",
         description="Refresh local market and factor datasets.",
     ),
     ScriptEntrypoint(
         name="train_multi_horizon.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Feature-rich multi-horizon research training path used to iterate on gate-style models.",
     ),
     ScriptEntrypoint(
         name="train_btc_production.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Current BTC-specific production training path retained alongside the generic v11 trainer.",
     ),
     ScriptEntrypoint(
         name="train_eth_production.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Current ETH-specific production training path retained alongside the generic v11 trainer.",
     ),
     ScriptEntrypoint(
         name="train_short_production.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Current short/bear production training path with intentionally wrapped bear-mask semantics.",
     ),
     ScriptEntrypoint(
         name="train_4h_production.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Current 4h production training path for slower-horizon deployment and comparison.",
     ),
     ScriptEntrypoint(
         name="backtest_portfolio.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Portfolio-level backtest path for multi-asset allocation validation.",
     ),
     ScriptEntrypoint(
         name="backtest_multi_tf.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Multi-timeframe backtest path used when validating cross-timeframe signal composition.",
     ),
     ScriptEntrypoint(
         name="walkforward_short.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Short-side walk-forward validator for bear/short production research.",
     ),
     ScriptEntrypoint(
         name="sol_alpha_research.py",
-        status="experimental",
+        status=EXPERIMENTAL,
         recommendation="specialized",
         description="Deep-dive SOL-specific research path with intentionally custom regime semantics.",
     ),
     ScriptEntrypoint(
         name="backtest_hybrid_15m.py",
-        status="experimental",
+        status=EXPERIMENTAL,
         recommendation="specialized",
         description="Hybrid timeframe backtest experiment rather than the default validation path.",
     ),
     ScriptEntrypoint(
         name="train_15m.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Dedicated 15m model training path for shorter-horizon research and deployment.",
     ),
     ScriptEntrypoint(
         name="walk_forward.py",
-        status="archive-adjacent",
+        status=LEGACY,
         recommendation="legacy-reference",
         description="Older walk-forward framework retained for comparison against the current validator path.",
     ),
     ScriptEntrypoint(
         name="backtest_adaptive.py",
-        status="experimental",
+        status=EXPERIMENTAL,
         recommendation="specialized",
         description="Adaptive-parameter backtest used for regime adaptation research rather than the default backtest path.",
     ),
     ScriptEntrypoint(
         name="train_btc_v9.py",
-        status="archive-adjacent",
+        status=LEGACY,
         recommendation="legacy-reference",
         description="Superseded BTC training path kept for historical comparison against newer production pipelines.",
     ),
     ScriptEntrypoint(
         name="train_eth_v9.py",
-        status="archive-adjacent",
+        status=LEGACY,
         recommendation="legacy-reference",
         description="Superseded ETH training path kept for historical comparison against newer production pipelines.",
     ),
     ScriptEntrypoint(
         name="train_30m_production.py",
-        status="current",
+        status=SUPPORTED,
         recommendation="specialized",
         description="Current 30m production training path for longer-hold intraday experiments.",
     ),
     ScriptEntrypoint(
         name="research_15m_alpha.py",
-        status="experimental",
+        status=EXPERIMENTAL,
         recommendation="specialized",
         description="15m alpha transfer research path used to evaluate shorter-horizon model viability.",
     ),
 )
 
+SUPPORTED_ENTRYPOINTS: tuple[ScriptEntrypoint, ...] = tuple(
+    entry for entry in PRIMARY_ENTRYPOINTS if entry.status == SUPPORTED
+)
+
 
 ARCHIVE_NOTE = (
     "Historical superseded training scripts live under `scripts/archive/` and "
-    "should not be treated as current entrypoints."
+    "should not be treated as supported entrypoints."
 )
 
 

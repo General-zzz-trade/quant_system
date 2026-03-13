@@ -1,3 +1,5 @@
+# Status: experimental/candidate GitOps manifest.
+# This is not the current default release path.
 # ArgoCD Application for quant-system
 # GitOps: cluster state is driven by this repo. ArgoCD watches the deploy/k8s
 # path and reconciles automatically. Manual kubectl apply is discouraged once

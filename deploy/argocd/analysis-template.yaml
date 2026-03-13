@@ -1,3 +1,5 @@
+# Status: experimental/candidate GitOps manifest.
+# This is not the current default release path.
 # AnalysisTemplate for canary health checks
 #
 # These metrics are queried from Prometheus during the canary rollout.

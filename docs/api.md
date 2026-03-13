@@ -6,8 +6,14 @@ Scope note:
 
 - This document describes the current Python-default production runtime unless stated otherwise.
 - For runtime ownership and path selection, see [`runtime_truth.md`](/quant_system/docs/runtime_truth.md).
+- For the current runtime direction freeze, see [`runtime_direction.md`](/quant_system/docs/runtime_direction.md).
 - For execution semantics, see [`execution_contracts.md`](/quant_system/docs/execution_contracts.md).
 - For model loading and promotion semantics, see [`model_governance.md`](/quant_system/docs/model_governance.md).
+
+Release path note:
+
+- The only default release path is repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh).
+- Candidate deploy manifests under [`deploy/`](/quant_system/deploy) are non-default unless explicitly promoted.
 
 Model ops note:
 
@@ -26,6 +32,10 @@ Health / ops note:
 - `GET /control-history`: 返回最近 control actions 审计历史
 - `GET /execution-alerts`: 返回最近 execution alert 观察记录
 - `GET /ops-audit`: 返回统一 ops 视图，汇总 operator、control history、execution alerts、model alerts、model actions、model status、model reload、timeline，以及同名 incident 聚合字段
+- 如配置 `health_auth_token_env`，上述 health/control 端点当前统一要求 `Authorization: Bearer <token>`
+- 空结果的稳定 shape：
+  - `GET /control-history` -> `{"history": []}`
+  - `GET /execution-alerts` -> `{"alerts": []}`
 
 ## Core Protocols
 
@@ -319,7 +329,11 @@ runner.ops_audit_snapshot(limit=50)        # operator + execution + model ops vi
 - `timeline`: 按时间倒序聚合的统一 ops 时间线，当前覆盖 `control / execution_alert / execution_incident / model_alert / model_action / model_reload`
   - runtime 内优先复用持久化 `event_log` 的 `operator_control / execution_incident / model_reload` 记录，与 registry `model_action` 共同重建近期时间线
   - `timeline` 的稳定语义是“先聚合，再按 `ts` 倒序排序，最后按 `limit` 裁剪”
-  - `GET /ops-audit` 与 `quant ops-audit` 当前都遵守同一时间线排序/裁剪约束
+- `GET /ops-audit` 与 `quant ops-audit` 当前都遵守同一时间线排序/裁剪约束
+- runtime 通过 checkpoint/restore 重启后，`GET /ops-audit` 仍应从同一 `event_log + registry` 重建近期 incident 复盘链
+- model rollback 当前会作为带 rollback metadata 的 `model_action` 暴露在 `ops_audit` / timeline 中，而不是单独的 event kind
+
+- replay 当前不承担新的 alert runtime 角色；在 incident 维度，它只用于验证同一事实序列会映射到相同 `execution_fill / execution_reconcile` 等 category
 
 统一外部入口：
 
@@ -514,3 +528,66 @@ weights = allocator.allocate(
     cov_matrix=cov,
 )
 ```
+
+## Alpha Health Monitoring
+
+### AlphaHealthMonitor
+
+Defined in `monitoring/alpha_health.py`. Real-time IC tracking with automatic risk response.
+
+```python
+from monitoring.alpha_health import AlphaHealthMonitor
+
+monitor = AlphaHealthMonitor(
+    horizons=[12, 24],
+    warning_days=7,       # Warning after 7 days negative IC
+    reduce_days=14,       # Reduce position after 14 days
+    halt_threshold=-0.02, # Halt if IC below this for reduce_days
+)
+
+# Update with new prediction
+monitor.update(horizon=12, prediction=0.5, actual_return=0.02)
+
+# Check position scaling
+scale = monitor.position_scale()  # 1.0 (normal), 0.5 (reduce), 0.0 (halt)
+
+# Check if retrain needed
+if monitor.should_retrain():
+    trigger_retrain()
+
+# Get status for all horizons
+status = monitor.status()
+# Returns: {12: {"state": "normal", "ic": 0.03, "days_negative": 0}, ...}
+```
+
+Response levels:
+| Level | Condition | `position_scale()` | Action |
+|-------|-----------|---------------------|--------|
+| Normal | IC positive | 1.0 | Full trading |
+| Warning | IC negative for 7d | 1.0 | Log warning |
+| Reduce | IC negative for 14d | 0.5 | Half position size |
+| Halt | IC < -0.02 for 14d | 0.0 | Stop trading, trigger retrain |
+
+### AdaptiveConfigSelector
+
+Defined in `alpha/adaptive_config.py`. Experimental adaptive parameter selection.
+
+```python
+from alpha.adaptive_config import AdaptiveConfigSelector
+
+selector = AdaptiveConfigSelector(
+    lookback_months=6,
+    deadzone_grid=[0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5],
+    hold_grid=[(8, 40), (8, 64), (12, 60), (12, 96), (24, 120), (24, 192)],
+    long_only_grid=[True, False],
+)
+
+# Select best config from recent data
+params = selector.select(predictions, returns, current_config=None)
+# Returns: AdaptiveParams(deadzone, min_hold, max_hold, long_only, sharpe, trades, confidence)
+
+# Multi-window robust selection
+params = selector.select_robust(predictions, returns, windows=[3, 6, 9])
+```
+
+Status: experimental. Validated via `scripts/backtest_adaptive.py`. Results show adaptive helps BTC (+437% vs +259% total return) but not ETH (fixed config already optimal at 100% positive Sharpe).

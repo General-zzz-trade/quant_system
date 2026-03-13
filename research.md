@@ -703,3 +703,369 @@ Market / Replay / Backtest input
 因此，当前最准确的总体评价是：
 
 > 这是一个功能闭环已形成、生产候选能力很强、执行与风险子系统明显成熟、但仍需继续收口脚本层与部署层真相源的量化交易平台代码库。
+
+---
+
+## 15. Alpha 研究与模型演进 (2026-03 更新)
+
+本节记录近期完成的 alpha 研究、模型改进与自动化基础设施。
+
+### 15.1 IC 加权集成与 h48 剔除
+
+**背景**: 原 v8 模型使用 `mean_zscore` 平均加权 h12/h24/h48 三个 horizon。分析发现 h48 (48小时) horizon 在多个市场环境下 IC 为负或接近零，拖累整体信号质量。
+
+**改进**:
+- 将 `ensemble_method` 从 `mean_zscore` 改为 `ic_weighted`
+- `ic_ema_span: 720` (30天 EMA 滚动 IC)，`ic_min_threshold: -0.01`
+- 剔除 h48 horizon，保留 `horizons: [12, 24]`
+
+**结果**:
+| 指标 | ETHUSDT 旧 | ETHUSDT 新 | BTCUSDT 旧 | BTCUSDT 新 |
+|---|---|---|---|---|
+| Horizons | [12,24,48] | [12,24] | [12,24,48] | [12,24] |
+| Sharpe | 2.32 | 2.32 | 1.79 | 1.60 |
+| Avg IC | 0.054 | 0.061 | — | 0.021 |
+| h12 IC | — | 0.047 | — | 0.002 |
+| h24 IC | — | 0.074 | — | 0.040 |
+| Trades | 565 | 565 | — | 100 |
+
+**结论**: ETH IC 从 0.054 提升到 0.061，确认 h48 是拖累项。IC 加权机制可自动降权表现差的 horizon，不再需要手动剔除。
+
+### 15.2 15 分钟 Alpha 研究
+
+**研究目标**: 测试 1h 特征在 15m bar 上是否有预测力，以及是否值得训练专用 15m 模型。
+
+**方法**: `scripts/research_15m_alpha.py`
+- 从 1m 数据聚合 15m bars (76,861 bars BTC, 76,930 bars ETH)
+- 计算 105 特征，测试 IC across horizons [4,8,16,32,64] (对应 1h/2h/4h/8h/16h)
+- 训练 LightGBM per horizon，sweeps deadzone/hold params
+
+**结果**:
+| 品种 | 最强 Horizon | IC | 回测 Sharpe | 结论 |
+|---|---|---|---|---|
+| BTCUSDT | h64 (16h) | +0.061 | 2.48 | 可用，长 horizon 有信号 |
+| ETHUSDT | h8 (2h) | +0.019 | — | 太弱，不足以建模 |
+
+**15m 模型训练** (`scripts/train_15m.py`):
+- BTC h64 单 horizon 模型: PASSED (Sharpe 2.76, 162 trades, IC 0.053, bootstrap p5=+0.16)
+- ETH 所有尝试: FAILED (IC 太弱，早停在 iteration 1)
+- 模型保存: `models_v8/BTCUSDT_15m/` (v11-15m)
+
+**结论**: BTC 在 15m 上存在长 horizon alpha (h64=16h)；ETH 15m alpha 太弱，不适合独立建模。
+
+### 15.3 混合 15m 执行策略
+
+**研究目标**: 测试"1h 模型给方向 + 15m bars 做精确入场/出场"是否优于纯 1h 执行。
+
+**实现**: `decision/hybrid_15m_executor.py`
+- `MicroTiming`: 15m RSI、MA、pullback/momentum 检测
+- `Hybrid15mExecutor`: 入场 (pullback_entry, momentum_entry, strong_signal, timeout_entry)，出场 (trailing_stop, micro_exit, signal_reversal, deadzone_fade)
+
+**Walk-Forward 验证** (`scripts/backtest_hybrid_15m.py`):
+- 6 期 walk-forward: hybrid 赢 3/6 (50%)
+- Avg Sharpe: hybrid 2.31 vs baseline 2.48
+- 初始看起来好的结果 (Sharpe 3.15) 是特定时段 (2024-09→2025-03) 的过拟合
+
+**结论**: 15m 微观择时在趋势市场中引入噪音，**不一致地优于** 1h baseline。不推荐生产使用。
+
+### 15.4 Walk-Forward 验证框架
+
+**实现**: `scripts/walk_forward.py`
+- 滚动 N 期 train/test，每 fold 独立训练 LightGBM
+- Per-fold 最优配置选择 (deadzone/hold/long_only grid sweep)
+- 聚合指标: mean/median/min Sharpe, stability ratio, config stability
+- 判定系统: STRONG (100% positive + mean > 2) / GOOD (>90%) / MARGINAL / WEAK / NO ALPHA
+
+**结果** (21 folds, 2020-01 → 2026-03):
+| 指标 | ETHUSDT | BTCUSDT |
+|---|---|---|
+| 判定 | **STRONG** | **GOOD** |
+| Sharpe>0 比例 | 100% (21/21) | 95% (20/21) |
+| Mean Best Sharpe | 3.66 | 3.42 |
+| Stability Ratio | 1.89 | 1.83 |
+
+**关键发现**: Alpha 存在且跨周期稳健，但**最优参数随 regime 显著漂移**：
+- ETH deadzone 范围: 0.3 - 2.5
+- ETH min_hold 范围: [8,40] - [24,192]
+- ETH long_only 在不同 fold 间反复切换
+- 固定参数 ETH 总回报 -34%，而 oracle 最优参数 +612%
+
+### 15.5 自适应参数选择器
+
+**实现**: `alpha/adaptive_config.py`
+- `AdaptiveConfigSelector.select()`: 在最近 N 月数据上 sweep grid，返回 `AdaptiveParams`
+- `select_robust()`: 多窗口 (3/6/9 月) 选择，惩罚方差
+- 稳定性惩罚: 与前次选择差异过大时降分
+- 置信度: high/medium/low (基于 Sharpe 和交易数)
+
+**回测验证** (`scripts/backtest_adaptive.py`, 21 periods):
+
+| 指标 | ETH Fixed | ETH Adaptive | BTC Fixed | BTC Adaptive |
+|---|---|---|---|---|
+| Mean Sharpe | **4.63** | 4.50 | 1.71 | **1.88** |
+| Sharpe>0 | **100%** | 86% | **81%** | 76% |
+| Total Return | **+1783%** | +1245% | +259% | **+437%** |
+| Beats Fixed | — | 48% | — | 57% |
+
+**结论**:
+- **ETH**: 固定配置已经最优 (100% 正 Sharpe)，自适应反而引入不稳定
+- **BTC**: 自适应显著提升总回报 (+437% vs +259%)，但稳定性略降
+- **Oracle gap 巨大** (ETH 4.63→7.48, BTC 1.71→4.53)，说明参数空间有未被捕获的 alpha
+- **建议**: ETH 保持固定配置，BTC 可启用自适应但限 confidence=high
+
+### 15.6 Alpha 健康监控
+
+**实现**: `monitoring/alpha_health.py`
+- `AlphaHealthMonitor`: per-horizon IC 实时追踪
+- 三级响应: warning (7d negative IC) → reduce (14d) → halt (IC < -0.02 for 14d)
+- `position_scale()` 返回 0.0/0.5/1.0，集成到 order sizing
+- `should_retrain()` 触发自动重训练
+- Prometheus gauge 导出
+
+**测试**: `tests/unit/monitoring/test_alpha_health.py` — 10 tests, all pass
+
+### 15.7 自动重训练管线
+
+**实现**: `scripts/auto_retrain.py`
+- `check_needs_retrain()`: 检查模型年龄、IC 衰减、平均 IC 阈值
+- `retrain_symbol()`: 通过 `train_v11.py` 训练，验证门 (IC>0.02, Sharpe>1.0, comparison>70%)
+- 训练后自动恢复 `ic_weighted` 集成 (因 train_v11 默认输出 mean_zscore)
+- 自动备份/恢复，日志 `logs/retrain_history.jsonl`
+- Cron: `0 2 * * 0` (每周日 2am UTC)
+
+### 15.8 当前模型资产状态
+
+| 模型目录 | 版本 | Horizons | Sharpe | IC | Trades | 特殊说明 |
+|---|---|---|---|---|---|---|
+| `BTCUSDT_gate_v2` | v11 | [12,24] | 1.60 | 0.021 | 100 | deadzone=2.0 |
+| `ETHUSDT_gate_v2` | v11 | [12,24] | 2.32 | 0.061 | 565 | deadzone=0.3, long_only=false |
+| `BTCUSDT_15m` | v11-15m | [64] | 2.76 | 0.053 | 162 | 仅 BTC, 15m bar |
+
+### 15.9 研究结论汇总
+
+1. **Alpha 存在且稳健**: Walk-forward 21 folds 验证，ETH=STRONG (100%), BTC=GOOD (95%)
+2. **最优参数不稳定**: 固定参数可能严重亏损，regime-adaptive 是重要方向
+3. **IC 加权集成有效**: 自动降权差 horizon，优于固定权重
+4. **15m 微观择时无效**: 1h 信号 + 15m 执行不一致优于 1h baseline
+5. **BTC 15m 有长 horizon alpha**: h64 (16h) IC=0.053, 可作为辅助信号
+6. **ETH 15m alpha 过弱**: 不建议独立 15m 模型
+7. **自适应参数对 BTC 有效**: 总回报提升 1.7x，但对 ETH 反而有害
+8. **自动化基础设施已到位**: auto_retrain + alpha_health + ic_weighted 形成闭环
+
+---
+
+## 16. Rust 内核详细清单 (2026-03 更新)
+
+### 16.1 规模与构建
+
+| 指标 | 当前值 |
+|---|---:|
+| Rust 源文件 | 65 |
+| Rust 代码行 | ~25,000 |
+| PyO3 导出类 | 64 |
+| PyO3 导出函数 | 106+ |
+| Cargo 测试 | 57 |
+| 二进制 | quant_trader (standalone) |
+
+构建配置: `opt-level=3, lto="fat", codegen-units=1, strip=true, panic="abort"`
+
+### 16.2 模块分层
+
+**状态层** (i64 定点, Fd8 × 10^8):
+- `state_types.rs`: RustMarketState, RustPositionState, RustAccountState, RustPortfolioState, RustRiskState
+- `state_store.rs`: 堆上统一状态管理，RustProcessResult
+- `state_reducers.rs`: 5 个 reducer (Market/Position/Account/Portfolio/Risk)
+- `rust_events.rs`: RustMarketEvent, RustFillEvent, RustFundingEvent (零 getattr 开销)
+
+**特征引擎** (105 features, ~50μs):
+- `feature_engine.rs`: RustFeatureEngine, 增量窗口计算
+- `rolling_window.rs`: 在线 mean/std via sum/sumsq
+- `technical.rs`: 13 个 `cpp_*` 技术指标 (SMA/EMA/RSI/MACD/BB/ATR/OLS/VWAP/OFI)
+- `multi_timeframe.rs`: 4h 多时间框架聚合
+- `fast_1m_features.rs`: 1 分钟子集 (47 features)
+
+**ML 管线** (零拷贝预测):
+- `tree_predict.rs`: LightGBM/XGBoost 决策树执行器
+- `unified_predictor.rs`: 特征→预测→信号一次调用 (2.9x faster)
+- `inference_bridge.rs`: z-score 归一化、deadzone、min_hold、monthly_gate、trend_hold
+- `tick_processor.rs`: 全热路径: features+predict+state+export (~80μs)
+
+**风控**:
+- `risk_engine.rs`: RustKillSwitch, RustCircuitBreaker, RustOrderLimiter, RustRiskGate, RustRiskEvaluator
+- `decision_math.rs`: rust_fixed_fraction_qty, rust_volatility_adjusted_qty
+- `decision_policy.rs`: 订单构建、限价计算、订单验证
+- `decision_signals.rs`: rolling_sharpe, max_drawdown, strategy_weights
+
+**执行与 WebSocket**:
+- `ws_client.rs`: tokio-tungstenite, GIL-free recv+send, crossbeam channel
+- `order_submit.rs`: RustWsOrderGateway, HMAC-SHA256 签名 (~4ms vs ~30ms REST)
+- `json_parse.rs`: Binance JSON 解析 (kline, depth, aggTrade, user stream)
+- `payload_dedup.rs` / `fill_dedup.rs`: 去重护栏
+- `order_state_machine.rs`: 订单生命周期状态机
+
+**高级特征**:
+- `micro_alpha.rs`: MicroAlpha, aggTrade 驱动的 trade flow/volume/large trade 信号
+- `cross_asset.rs`: RustCrossAssetComputer (多资产特征)
+- `ensemble_calibrate.rs`: 自适应集成权重校准
+- `attribution.rs`: P&L, 成本归因, 信号归因
+- `microstructure.rs`: 订单簿特征, VPIN, 流式微观结构
+
+**工具与基础设施**:
+- `spsc_ring.rs`: 无锁单生产者/单消费者环形缓冲
+- `sequence_buffer.rs`: 乱序序列缓冲
+- `rate_limiter.rs`: 令牌桶限流
+- `signer.rs`: HMAC 签名/验证
+- `event_id.rs` / `request_id.rs`: 事件 ID 与幂等性键生成
+- `digest.rs`: payload 哈希
+- `fast_rng.rs`: 快速伪随机
+
+### 16.3 Standalone Binary (quant_trader)
+
+`ext/rust/src/bin/main.rs` (~2,600 LOC):
+
+**数据流**:
+- Kline stream → bar close → RustTickProcessor.process_tick_full() → ML 预测 + 信号约束
+- AggTrade stream → MicroAlpha (trade flow, volume spike, large trade clusters)
+- User data stream → 仓位/余额同步
+- Order gateway → RustWsOrderGateway, JSON-RPC + HMAC-SHA256, WS 发送
+
+**运行模式**:
+- bar-based (默认): 每根 K 线收盘检查 ML 信号
+- tick-by-tick: 每笔 aggTrade 触发 MicroAlpha
+- dry-run: 不实际下单
+
+**弹性**:
+- 指数退避 WS 重连
+- 待处理订单超时追踪
+- Checkpoint 持久化 (SIGINT 保存)
+- 订单去重 (client_order_id)
+
+### 16.4 性能基准
+
+| 操作 | 延迟 | 说明 |
+|---|---|---|
+| `process_tick_full()` | ~80μs | features + predict + state, 零 Python |
+| 订单提交 (WS) | ~4ms | vs ~30-200ms REST |
+| 特征计算 (105) | ~50μs | RustFeatureEngine |
+| 树预测 (ensemble) | ~15-30μs | 单模型, ~1ms for 50-tree |
+| z-score 归一化 | ~5μs | 滚动缓冲查找 |
+| 状态更新 | ~10μs | Rust 堆原地修改 |
+
+**热路径对比**: Python glue ~1020μs vs Rust unified ~80-100μs = **10-12x 加速**
+
+---
+
+## 17. 测试体系详细清单 (2026-03 更新)
+
+### 17.1 规模
+
+| 类别 | 文件数 | 约 LOC |
+|---|---:|---:|
+| unit | 214 | ~30,000 |
+| integration | 16 | ~4,500 |
+| execution_safety | 5 | ~400 |
+| contract | 4 | ~300 |
+| performance | 4 | ~100 |
+| regression | 3 | ~200 |
+| replay | 5 | ~400 |
+| persistence | 1 | ~50 |
+| **Python 合计** | **252** | **~36,000** |
+| Rust tests | 57 | — |
+| execution/tests/ | 28 | — |
+
+### 17.2 覆盖分布 (unit)
+
+| 模块 | 测试数 | 重点领域 |
+|---|---:|---|
+| execution | 36 | 订单状态机, adapters, routing, gateway, risk gates |
+| decision | 18 | ensemble, regime gates, multi-strategy, allocators |
+| portfolio | 17 | Kelly, fixed fraction, rebalancers, optimizer |
+| features | 17 | RustFeatureEngine parity, enriched, cross-asset |
+| runner | 13 | live/paper/backtest runners, control plane |
+| engine | 13 | coordinator, pipeline, bridges, hooks |
+| scripts | 12 | catalog validation, training, backtest contracts |
+| alpha | 12 | model loading, inference bridge, signal generation |
+| risk | 9 | kill switch, circuit breaker, limits |
+| strategies | 7 | multi-factor, HFT, pairs, regime |
+| event | 7 | event types, headers, versioning |
+| monitoring | 6 | alerts, health, metrics, alpha_health |
+| infra | 6 | config, signing, logging |
+| data | 6 | backfill, quality, ingestion |
+| state | 4 | snapshot, reducer purity |
+| hft | 3 | tick pipeline, imbalance scalper |
+| attribution | 3 | P&L, cost, signal attribution |
+
+### 17.3 CI 管线
+
+`.github/workflows/ci.yml` (self-hosted quant-server, 20min timeout):
+1. Build CI image (`quant-ci:test`)
+2. Build runtime image (`quant-ci:paper`)
+3. Validate docker-compose
+4. Smoke test default deploy (`scripts/ci_default_release_smoke.sh`)
+5. Python tests (`pytest tests/ -x -q --cov-fail-under=57`)
+6. Execution tests (`pytest execution/tests/`)
+7. Rust tests (`cargo test`)
+8. Ruff lint (E, W, F)
+
+### 17.4 pytest 配置
+
+```ini
+testpaths = tests, tests_unit, execution/tests
+addopts = -q --tb=short -m "not benchmark and not slow" --import-mode=importlib
+markers: benchmark, slow
+coverage: fail_under=57
+```
+
+---
+
+## 18. 新增基础设施清单
+
+### 18.1 新增模块
+
+| 文件 | 类型 | 用途 |
+|---|---|---|
+| `monitoring/alpha_health.py` | 生产 | 实时 IC 监控 + 三级自动响应 |
+| `alpha/adaptive_config.py` | 实验 | 自适应参数选择器 |
+| `decision/hybrid_15m_executor.py` | 实验 | 1h 信号 + 15m 执行 (已验证无效) |
+| `scripts/auto_retrain.py` | 生产 | 自动 walk-forward 重训练 |
+| `scripts/walk_forward.py` | 实验 | Walk-forward 验证框架 |
+| `scripts/research_15m_alpha.py` | 研究 | 15m alpha 转移研究 |
+| `scripts/train_15m.py` | 特化 | 15m 专用训练脚本 |
+| `scripts/backtest_hybrid_15m.py` | 实验 | 混合策略回测比较 |
+| `scripts/backtest_adaptive.py` | 实验 | 自适应参数回测验证 |
+
+### 18.2 Cron Job
+
+```
+0 2 * * 0  /usr/bin/python3 -m scripts.auto_retrain --horizons 12,24 >> /quant_system/logs/retrain_cron.log 2>&1
+```
+
+### 18.3 数据资产
+
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| `data_files/BTCUSDT_15m.csv` | 76,861 bars | 2024-01 → 2026-03 |
+| `data_files/ETHUSDT_15m.csv` | 76,930 bars | 2024-01 → 2026-03 |
+| `logs/walk_forward_results.json` | 21 folds | BTC+ETH walk-forward 完整结果 |
+| `logs/retrain_history.jsonl` | — | 重训练审计日志 |
+
+---
+
+## 19. 更新后的总体评估
+
+### 19.1 相比上次评估的变化
+
+| 维度 | 上次状态 | 当前状态 |
+|---|---|---|
+| 模型验证 | 单次回测 | 21-fold walk-forward, STRONG/GOOD |
+| 集成方法 | 固定权重 mean_zscore | IC 加权自适应 |
+| Horizon 选择 | 固定 [12,24,48] | 数据驱动 [12,24], h48 剔除 |
+| Alpha 监控 | 无 | 三级自动响应 + Prometheus |
+| 重训练 | 手动 | 自动 cron + validation gates |
+| 参数选择 | 固定 | 自适应 (BTC) + 固定 (ETH) |
+| 15m 研究 | 未探索 | 完成，BTC 有 alpha，ETH 无 |
+| 混合执行 | 未探索 | 完成，已验证无效 |
+
+### 19.2 当前最准确的阶段判断
+
+> 这个仓库已从"平台搭建 + 收口"阶段进入"alpha 验证完成、自动化基础设施已到位、进入 regime-adaptive 与执行优化"阶段。核心 alpha 已通过 21-fold walk-forward 验证 (ETH STRONG, BTC GOOD)，关键问题已从"是否有 alpha"转变为"如何在 regime 切换中稳定捕获 alpha"。

@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, quant-server]
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +17,22 @@ jobs:
       - name: Build CI image
         run: |
           docker build --target ci -t quant-ci:test .
+
+      - name: Build default runtime image
+        run: |
+          docker build --target paper -t quant-ci:paper .
+
+      - name: Validate default compose
+        run: |
+          cp .env.example .env
+          trap 'rm -f .env' EXIT
+          docker compose config >/dev/null
+
+      - name: Smoke default deploy path
+        env:
+          COMPOSE_PROJECT_NAME: quant-ci-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          bash scripts/ci_default_release_smoke.sh
 
       - name: Run Python tests
         run: |

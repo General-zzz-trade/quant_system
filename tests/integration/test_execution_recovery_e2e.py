@@ -10,6 +10,7 @@ import json
 
 from engine.dispatcher import EventDispatcher, Route
 from engine.replay import EventReplay, ReplayConfig
+from execution.observability.incidents import reconcile_report_to_alert, synthetic_fill_to_alert
 from execution.reconcile.controller import ReconcileController
 
 
@@ -282,6 +283,20 @@ def _run(processor: _FillProcessor, events: List[_ExecutionFillEvent]) -> None:
     ).run()
 
 
+def _incident_categories_for_replay(
+    *,
+    fills: List[_ExecutionFillEvent],
+    report: Optional[Any] = None,
+) -> set[str]:
+    categories = {
+        str((synthetic_fill_to_alert(fill).meta or {}).get("category", ""))
+        for fill in fills
+    }
+    if report is not None:
+        categories.add(str((reconcile_report_to_alert(report).meta or {}).get("category", "")))
+    return categories
+
+
 def test_restart_after_out_of_order_and_duplicate_stream_reconciles_cleanly(tmp_path: Path) -> None:
     ckpt = _CheckpointStore(tmp_path / "exec_recovery.json")
 
@@ -341,3 +356,33 @@ def test_restart_reconcile_detects_missing_late_fill_on_venue(tmp_path: Path) ->
 
     assert not report.ok
     assert len(report.all_drifts) >= 1
+
+
+def test_replay_incident_categories_match_fill_and_reconcile_semantics(tmp_path: Path) -> None:
+    ckpt = _CheckpointStore(tmp_path / "exec_replay_incidents.json")
+
+    base = [
+        _make_fill("e20", 0, order_id="o-3", fill_id="rf1", fill_seq=1, side="buy", qty=1.0, price=300.0),
+        _make_fill("e21", 1, order_id="o-3", fill_id="rf2", fill_seq=2, side="buy", qty=1.0, price=301.0),
+    ]
+    late_fill = _make_fill("e22", 2, order_id="o-3", fill_id="rf3", fill_seq=3, side="sell", qty=0.5, price=302.0)
+
+    proc = _FillProcessor()
+    _run(proc, base)
+    ckpt.save(proc.snapshot())
+    restored = _FillProcessor.from_snapshot(ckpt.load())
+    _run(restored, [late_fill])
+
+    report = ReconcileController().reconcile(
+        venue="binance",
+        local_positions={"BTCUSDT": Decimal(str(restored.state.position_qty))},
+        venue_positions={"BTCUSDT": Decimal("0.5")},
+        local_fill_ids=restored.idem.fill_ids,
+        venue_fill_ids={"rf1", "rf2"},
+        fill_symbol="BTCUSDT",
+    )
+
+    categories = _incident_categories_for_replay(fills=[late_fill], report=report)
+
+    assert "execution_fill" in categories
+    assert "execution_reconcile" in categories

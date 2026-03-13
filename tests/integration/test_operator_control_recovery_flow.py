@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pickle
 import threading
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -590,6 +591,73 @@ def test_model_reload_failure_keeps_autoload_pending_and_records_failed_status(_
 
 
 @patch("infra.model_signing.verify_file", return_value=True)
+def test_model_rollback_is_visible_in_ops_audit_and_timeline(_mock_verify, tmp_path) -> None:
+    from research.model_registry.artifact import ArtifactStore
+    from research.model_registry.registry import ModelRegistry
+
+    db_path = tmp_path / "models.db"
+    artifact_root = tmp_path / "artifacts"
+    registry = ModelRegistry(db_path)
+    store = ArtifactStore(artifact_root)
+
+    mv1 = registry.register(
+        name="test_alpha",
+        params={"n_estimators": 50},
+        features=["sma_20", "rsi_14"],
+        metrics={"sharpe": 1.2},
+        tags=("lgbm",),
+    )
+    store.save(mv1.model_id, "weights", _create_stub_model_weights())
+    registry.promote(mv1.model_id, reason="initial_go", actor="ops")
+
+    config = LiveRunnerConfig(
+        symbols=("BTCUSDT",),
+        enable_monitoring=False,
+        enable_reconcile=False,
+        enable_persistent_stores=False,
+        enable_structured_logging=False,
+        enable_preflight=False,
+        model_registry_db=str(db_path),
+        artifact_store_root=str(artifact_root),
+        model_names=("test_alpha",),
+    )
+    runner = LiveRunner.build(
+        config,
+        venue_clients={"binance": _FakeVenueClient()},
+        transport=_FakeTransport(),
+        alert_sink=_RecordingSink(),
+    )
+    runner.inference_bridge = SimpleNamespace(update_models=lambda models: None)
+
+    mv2 = registry.register(
+        name="test_alpha",
+        params={"n_estimators": 80},
+        features=["sma_20", "rsi_14"],
+        metrics={"sharpe": 1.4},
+        tags=("lgbm",),
+    )
+    store.save(mv2.model_id, "weights", _create_stub_model_weights())
+    registry.promote(mv2.model_id, reason="shadow_win_v2", actor="ops")
+    registry.rollback_to_previous("test_alpha", reason="incident_rollback", actor="ops")
+
+    audit = runner.ops_audit_snapshot()
+
+    assert audit["model_status"][0]["model_id"] == mv1.model_id
+    assert audit["model_status"][0]["loaded_model_id"] == mv1.model_id
+    assert audit["model_status"][0]["autoload_pending"] is False
+    assert audit["model_actions"][0]["action"] == "promote"
+    assert audit["model_actions"][0]["reason"] == "incident_rollback"
+    assert audit["model_actions"][0]["to_model_id"] == mv1.model_id
+    assert any(
+        row["kind"] == "model_action"
+        and row["detail"]["action"] == "promote"
+        and row["detail"]["reason"] == "incident_rollback"
+        and row["detail"]["metadata"]["rollback_from_model_id"] == mv2.model_id
+        for row in audit["timeline"]
+    )
+
+
+@patch("infra.model_signing.verify_file", return_value=True)
 def test_restart_rebuilds_ops_timeline_from_persistent_event_log_and_registry(_mock_verify, tmp_path) -> None:
     from research.model_registry.artifact import ArtifactStore
     from research.model_registry.registry import ModelRegistry
@@ -717,6 +785,144 @@ def test_restart_rebuilds_ops_timeline_from_persistent_event_log_and_registry(_m
     assert any(row["title"] == "operator_halt" for row in body["timeline"])
     assert any(row["title"] == "execution-timeout" for row in body["timeline"])
     assert any(row["title"] == "model_reload_failed" for row in body["timeline"])
+
+
+@patch("infra.model_signing.verify_file", return_value=True)
+def test_live_runner_build_restores_checkpoint_and_persistent_ops_audit_timeline(_mock_verify, tmp_path) -> None:
+    from research.model_registry.artifact import ArtifactStore
+    from research.model_registry.registry import ModelRegistry
+
+    data_dir = tmp_path / "live_data"
+    data_dir.mkdir()
+    db_path = tmp_path / "models.db"
+    artifact_root = tmp_path / "artifacts"
+    registry = ModelRegistry(db_path)
+    store = ArtifactStore(artifact_root)
+    mv = registry.register(
+        name="test_alpha",
+        params={"n_estimators": 50},
+        features=["sma_20", "rsi_14"],
+        metrics={"sharpe": 1.2},
+        tags=("lgbm",),
+    )
+    registry.promote(mv.model_id, reason="shadow_win", actor="ops")
+    store.save(mv.model_id, "weights", _create_stub_model_weights())
+
+    config = LiveRunnerConfig(
+        symbols=("BTCUSDT",),
+        enable_monitoring=False,
+        enable_reconcile=False,
+        enable_persistent_stores=True,
+        enable_structured_logging=False,
+        enable_preflight=False,
+        reconcile_on_startup=False,
+        data_dir=str(data_dir),
+        model_registry_db=str(db_path),
+        artifact_store_root=str(artifact_root),
+        model_names=("test_alpha",),
+    )
+
+    first = LiveRunner.build(
+        config,
+        venue_clients={"binance": _FakeVenueClient()},
+        transport=_FakeTransport(),
+        alert_sink=_RecordingSink(),
+    )
+    for i in range(3):
+        first.coordinator.emit(_market("BTCUSDT", 40000.0 + i * 100, i), actor="test")
+    first.state_store.save(first.coordinator.get_state_view()["last_snapshot"])
+    first.halt(reason="manual_halt", source="ops")
+    first._emit_execution_incident(
+        Alert(
+            title="execution-timeout",
+            message="timeout",
+            severity=Severity.WARNING,
+            source="execution:test",
+            meta={"category": "execution_timeout", "routing_key": "binance:BTCUSDT:timeout"},
+        )
+    )
+    first._record_model_reload(
+        outcome="failed",
+        model_names=("test_alpha",),
+        detail=None,
+        error="model_hot_reload_failed",
+    )
+    saved_index = first.coordinator.get_state_view()["event_index"]
+
+    second = LiveRunner.build(
+        config,
+        venue_clients={"binance": _FakeVenueClient()},
+        transport=_FakeTransport(),
+        alert_sink=_RecordingSink(),
+    )
+    restored_view = second.coordinator.get_state_view()
+    audit = second.ops_audit_snapshot()
+
+    assert restored_view["event_index"] == saved_index
+    assert restored_view["markets"]["BTCUSDT"].close == first.coordinator.get_state_view()["markets"]["BTCUSDT"].close
+    kinds = {row["kind"] for row in audit["timeline"]}
+    assert "control" in kinds
+    assert "execution_incident" in kinds
+    assert "model_reload" in kinds
+    assert "model_action" in kinds
+    assert any(row["title"] == "operator_halt" for row in audit["timeline"])
+    assert any(row["title"] == "execution-timeout" for row in audit["timeline"])
+    assert any(row["title"] == "model_reload_failed" for row in audit["timeline"])
+
+    handler_cls = type(
+        "Handler",
+        (_HealthHandler,),
+        {
+            "status_fn": staticmethod(lambda: {"status": "ok"}),
+            "operator_fn": staticmethod(second.operator_status),
+            "control_history_fn": staticmethod(
+                lambda: [
+                    {
+                        "command": rec.command,
+                        "reason": rec.reason,
+                        "source": rec.source,
+                        "result": rec.result,
+                        "ts": rec.ts.isoformat(),
+                    }
+                    for rec in second.control_history
+                ]
+            ),
+            "control_fn": staticmethod(lambda body: {"accepted": False}),
+            "alerts_fn": staticmethod(second.execution_alert_history),
+            "ops_audit_fn": staticmethod(second.ops_audit_snapshot),
+            "auth_token": None,
+        },
+    )
+    handler = handler_cls.__new__(handler_cls)
+    handler.path = "/ops-audit"
+    handler.headers = {"Content-Length": "2"}
+    handler.rfile = io.BytesIO(b"{}")
+    handler.wfile = io.BytesIO()
+    response: dict[str, object] = {"code": None}
+    handler.send_response = lambda code: response.__setitem__("code", code)
+    handler.send_header = lambda _name, _value: None
+    handler.end_headers = lambda: None
+    handler.do_GET()
+
+    body = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert response["code"] == 200
+    assert {row["kind"] for row in body["timeline"]} == kinds
+    assert any(row["title"] == "operator_halt" for row in body["timeline"])
+
+
+def _market(symbol: str, close: float, idx: int) -> SimpleNamespace:
+    ts = datetime(2024, 1, 1, idx // 60, idx % 60)
+    return SimpleNamespace(
+        event_type="MARKET",
+        symbol=symbol,
+        open=close,
+        high=close + 1,
+        low=close - 1,
+        close=close,
+        volume=50.0,
+        ts=ts,
+        header=SimpleNamespace(event_id=f"e{idx}", ts=ts),
+    )
 
 
 def test_restart_reconnect_late_fill_reconcile_is_visible_via_ops_audit(monkeypatch, tmp_path) -> None:

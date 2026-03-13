@@ -1,3 +1,5 @@
+# Status: experimental/candidate GitOps manifest.
+# This is not the current default release path.
 # Rollback configuration and notification settings
 #
 # This ConfigMap holds thresholds and operational parameters for the

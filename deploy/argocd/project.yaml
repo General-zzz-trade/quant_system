@@ -1,3 +1,5 @@
+# Status: experimental/candidate GitOps manifest.
+# This is not the current default release path.
 # ArgoCD AppProject for quant-system
 # Restricts what the Application can deploy: only the quant namespace,
 # only known resource kinds. Prevents accidental cluster-wide changes

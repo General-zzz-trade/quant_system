@@ -1,3 +1,5 @@
+# Status: candidate-production systemd unit.
+# Default release truth lives at repo-root docker-compose.yml + GitHub Actions.
 [Unit]
 Description=Quant Trading System
 After=network-online.target

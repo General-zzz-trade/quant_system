@@ -1,3 +1,5 @@
+# Status: candidate-production Kubernetes manifest.
+# This is not the current default release path.
 # ============================================================================
 # HorizontalPodAutoscaler for quant-system
 # ============================================================================

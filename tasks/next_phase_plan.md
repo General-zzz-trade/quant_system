@@ -1,7 +1,7 @@
 # 下一阶段开发计划
 
-> 状态: 当前主计划已从第一轮“收口”进入第二轮“统一 execution 公共事实模型 + Rust 第二阶段迁移”
-> 更新时间: 2026-03-12
+> 状态: 当前主计划已从第一轮”收口”进入第三轮”alpha 自动化 + regime-adaptive 参数 + 执行优化”
+> 更新时间: 2026-03-13
 > 上位现状文档: [`research.md`](/quant_system/research.md)
 > 当前收口成果: [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
 
@@ -174,3 +174,64 @@
 - [x] runtime 重启后的 `ops_audit.timeline` 已补 integration coverage，可从同一 `event_log + registry` 重建 control / execution incident / model reload / model action 复盘链
 - [x] health `/ops-audit` 已补重启后端到端复盘覆盖，外部观察口与 runtime `ops_audit_snapshot()` 在持久化 timeline 上保持一致
 - [x] runtime `ops_timeline(limit=...)` 与 CLI `quant ops-audit --limit ...` 已补排序/裁剪合同测试，锁住“先聚合、按 `ts` 倒序、再裁剪”的稳定语义
+- [x] `LiveRunner.build()` 的真实 checkpoint/restore 已补 ops-audit 连续性覆盖，state 恢复与持久化 incident timeline 同时验证
+- [x] health `/control` 与 `/ops-audit` 已补 auth 合同测试，`/control-history` 空历史 shape 已锁住
+- [x] replay 已补最小 incident category 对照测试，验证事实序列与 `execution_fill / execution_reconcile` 映射一致
+- [x] execution incident payload 最小字段已补合同测试，锁住 timeout / reconcile / fill / rejection 的稳定 taxonomy/meta
+- [x] health `/control-history` 与 `/execution-alerts` 已补 auth / 空 shape 合同测试
+- [x] model rollback 已补 `ops_audit / timeline` 可见性覆盖，当前制度按带 rollback metadata 的 `model_action` 暴露
+
+---
+
+## 8. Workstream G: Alpha 自动化与模型演进 (2026-03-13 新增)
+
+### 目标
+
+- 从"手动训练 + 固定参数"进入"自动重训练 + 自适应参数 + IC 监控"阶段
+
+### 已完成
+
+- [x] IC 加权集成 (`ensemble_method: "ic_weighted"`) 替换固定权重 `mean_zscore`
+- [x] h48 horizon 剔除，保留 [12, 24]，ETH IC 从 0.054 提升到 0.061
+- [x] Alpha 健康监控 (`monitoring/alpha_health.py`)，三级自动响应 + Prometheus 导出
+- [x] 自动重训练管线 (`scripts/auto_retrain.py`)，cron 每周日 2am UTC
+- [x] 重训练验证门控 (IC>0.02, Sharpe>1.0, comparison>70%, bootstrap p5>0)
+- [x] 训练后自动恢复 `ic_weighted` 集成 (修复 train_v11 默认输出 mean_zscore 的问题)
+- [x] Walk-forward 验证框架 (`scripts/walk_forward.py`)，21 folds，ETH=STRONG，BTC=GOOD
+- [x] 自适应参数选择器 (`alpha/adaptive_config.py`)，含 `select_robust()` 多窗口选择
+- [x] 自适应参数回测验证 (`scripts/backtest_adaptive.py`)
+- [x] 15m alpha 研究完成 (BTC h64 有 alpha IC=0.053, ETH 无)
+- [x] BTC 15m 模型训练完成 (`models_v8/BTCUSDT_15m/`)
+- [x] 混合 15m 执行策略验证完成 (已证明不一致优于 1h baseline)
+
+### 待做
+
+- [ ] BTC 自适应参数集成到 live runner (仅 confidence=high 时覆盖固定配置)
+- [ ] ETH 保持固定配置，不启用自适应
+- [ ] Alpha 健康监控集成到 live runner order sizing
+- [ ] BTC 15m 模型作为辅助信号集成 (非替代 1h 主模型)
+- [ ] 监控 auto_retrain cron 实际运行情况与日志
+- [ ] Walk-forward 定期重跑验证 alpha 持续性
+
+---
+
+## 9. Workstream H: 下一步方向候选
+
+### 方向 1: Regime-Adaptive 参数优化
+
+当前核心发现: 最优参数随 regime 显著漂移 (ETH deadzone 0.3-2.5, long_only 反复切换)。
+- 研究更好的 regime 检测方法 (volatility clustering, trend detection)
+- 基于 regime 切换参数，而不是基于 lookback period 选择
+- Oracle gap 巨大 (Sharpe 4.63→7.48)，说明参数空间有大量未捕获 alpha
+
+### 方向 2: 执行优化
+
+- WS-API 订单路径 (~4ms) 已就绪，集成到 live runner
+- 订单执行质量分析 (滑点、填充率)
+- TWAP/VWAP 算法订单在大仓位时使用
+
+### 方向 3: 多资产与因子组合
+
+- SOL、XRP 等 altcoin alpha 研究
+- 跨资产因子组合 (momentum/vol/carry)
+- portfolio-level rebalancing 集成

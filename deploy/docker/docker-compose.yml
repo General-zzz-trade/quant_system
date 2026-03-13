@@ -1,3 +1,5 @@
+# Status: non-default deployment example.
+# Default release truth lives at repo-root docker-compose.yml + GitHub Actions.
 version: "3.8"
 
 services:

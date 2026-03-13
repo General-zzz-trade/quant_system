@@ -1,3 +1,5 @@
+# Status: experimental/candidate GitOps manifest.
+# This is not the current default release path.
 # Argo Rollouts Canary for quant-system
 #
 # TRADING-SPECIFIC CONSIDERATIONS:

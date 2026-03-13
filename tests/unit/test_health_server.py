@@ -105,6 +105,37 @@ def test_control_history_endpoint():
     assert body["history"][0]["command"] == "halt"
 
 
+def test_control_history_endpoint_empty_shape_is_stable():
+    code, body = _dispatch(
+        "/control-history",
+        status_fn=lambda: {"status": "ok"},
+        control_history_fn=lambda: [],
+    )
+    assert code == 200
+    assert body == {"history": []}
+
+
+def test_control_history_endpoint_requires_auth_token():
+    code, body = _dispatch(
+        "/control-history",
+        status_fn=lambda: {"status": "ok"},
+        control_history_fn=lambda: [{"command": "halt"}],
+        auth_token="secret",
+    )
+    assert code == 401
+    assert body["error"] == "unauthorized"
+
+    ok_code, ok_body = _dispatch(
+        "/control-history",
+        status_fn=lambda: {"status": "ok"},
+        control_history_fn=lambda: [{"command": "halt"}],
+        auth_token="secret",
+        request_token="secret",
+    )
+    assert ok_code == 200
+    assert ok_body["history"][0]["command"] == "halt"
+
+
 def test_control_endpoint():
     code, body = _dispatch(
         "/control",
@@ -116,6 +147,31 @@ def test_control_endpoint():
     assert code == 200
     assert body["accepted"] is True
     assert body["command"] == "halt"
+
+
+def test_control_endpoint_requires_auth_token():
+    code, body = _dispatch(
+        "/control",
+        status_fn=lambda: {"status": "ok"},
+        control_fn=lambda payload: {"accepted": True, "command": payload["command"], "outcome": "hard_kill"},
+        method="POST",
+        body={"command": "halt", "reason": "manual_halt"},
+        auth_token="secret",
+    )
+    assert code == 401
+    assert body["error"] == "unauthorized"
+
+    ok_code, ok_body = _dispatch(
+        "/control",
+        status_fn=lambda: {"status": "ok"},
+        control_fn=lambda payload: {"accepted": True, "command": payload["command"], "outcome": "hard_kill"},
+        method="POST",
+        body={"command": "halt", "reason": "manual_halt"},
+        auth_token="secret",
+        request_token="secret",
+    )
+    assert ok_code == 200
+    assert ok_body["accepted"] is True
 
 
 def test_control_endpoint_invalid_json_object():
@@ -140,6 +196,37 @@ def test_execution_alerts_endpoint():
     assert body["alerts"][0]["title"] == "execution-timeout"
 
 
+def test_execution_alerts_endpoint_empty_shape_is_stable():
+    code, body = _dispatch(
+        "/execution-alerts",
+        status_fn=lambda: {"status": "ok"},
+        alerts_fn=lambda: [],
+    )
+    assert code == 200
+    assert body == {"alerts": []}
+
+
+def test_execution_alerts_endpoint_requires_auth_token():
+    code, body = _dispatch(
+        "/execution-alerts",
+        status_fn=lambda: {"status": "ok"},
+        alerts_fn=lambda: [{"title": "execution-timeout"}],
+        auth_token="secret",
+    )
+    assert code == 401
+    assert body["error"] == "unauthorized"
+
+    ok_code, ok_body = _dispatch(
+        "/execution-alerts",
+        status_fn=lambda: {"status": "ok"},
+        alerts_fn=lambda: [{"title": "execution-timeout"}],
+        auth_token="secret",
+        request_token="secret",
+    )
+    assert ok_code == 200
+    assert ok_body["alerts"][0]["title"] == "execution-timeout"
+
+
 def test_ops_audit_endpoint():
     code, body = _dispatch(
         "/ops-audit",
@@ -156,6 +243,27 @@ def test_ops_audit_endpoint():
     assert body["control_history"][0]["command"] == "halt"
     assert body["execution_alerts"][0]["title"] == "execution-timeout"
     assert body["model_actions"][0]["action"] == "promote"
+
+
+def test_ops_audit_endpoint_requires_auth_token():
+    code, body = _dispatch(
+        "/ops-audit",
+        status_fn=lambda: {"status": "ok"},
+        ops_audit_fn=lambda: {"timeline": []},
+        auth_token="secret",
+    )
+    assert code == 401
+    assert body["error"] == "unauthorized"
+
+    ok_code, ok_body = _dispatch(
+        "/ops-audit",
+        status_fn=lambda: {"status": "ok"},
+        ops_audit_fn=lambda: {"timeline": []},
+        auth_token="secret",
+        request_token="secret",
+    )
+    assert ok_code == 200
+    assert ok_body == {"timeline": []}
 
 
 def test_404_endpoint():

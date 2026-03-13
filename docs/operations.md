@@ -6,6 +6,8 @@ Status:
 
 - This is a current operations guide for the Python-default production runtime.
 - When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), [`production_runbook.md`](/quant_system/docs/production_runbook.md), or [`execution_contracts.md`](/quant_system/docs/execution_contracts.md), those more specialized documents win.
+- The only default release path is repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh).
+- Candidate deploy manifests under [`deploy/README.md`](/quant_system/deploy/README.md) remain non-default unless explicitly promoted.
 
 Current runtime truth:
 
@@ -17,45 +19,34 @@ When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtim
 
 ## Deployment
 
-### Docker Build
+### Default Release Path
 
-Multi-stage Dockerfile with three targets:
-
-```bash
-# Production live trading (minimal deps)
-docker build --target live -t quant-system:latest .
-
-# ML training/inference
-docker build --target ml -t quant-system:ml .
-
-# Development (all deps + test tools)
-docker build --target dev -t quant-system:dev .
-```
-
-### Kubernetes
+Use the repo-root compose/workflow path first:
 
 ```bash
-# Create namespace
-kubectl create namespace quant
-
-# Apply all manifests
-kubectl apply -f deploy/k8s/priority-class.yaml
-kubectl apply -f deploy/k8s/network-policy.yaml
-kubectl apply -f deploy/k8s/external-secret.yaml
-kubectl apply -f deploy/k8s/pdb.yaml
-kubectl apply -f deploy/k8s/deployment.yaml
-
-# Verify
-kubectl -n quant get pods
-kubectl -n quant logs -f deploy/quant-engine
+cp .env.example .env
+docker build --target paper -t quant-paper:latest .
+docker compose config >/dev/null
+bash scripts/deploy.sh
 ```
 
-K8s deployment runs as single replica with `Recreate` strategy (no dual-trading). Security hardening:
-- Non-root user (UID 1000)
-- Read-only root filesystem
-- All capabilities dropped
-- Seccomp RuntimeDefault profile
-- NetworkPolicy restricts egress to exchange APIs and DNS only
+Operational notes:
+
+- The default compose service is `paper-multi`.
+- `.github/workflows/ci.yml` is the default release gate.
+- `.github/workflows/deploy.yml` is the default deploy/rollback workflow.
+
+### Candidate Paths
+
+```bash
+# Candidate-production Kubernetes path
+kubectl apply -f deploy/k8s/
+
+# Experimental/candidate GitOps path
+kubectl apply -f deploy/argocd/
+```
+
+These are not the current default release path; see [`deploy/README.md`](/quant_system/deploy/README.md) before using them.
 
 ### Environment Variables
 
@@ -69,7 +60,7 @@ K8s deployment runs as single replica with `Recreate` strategy (no dual-trading)
 
 ## Configuration
 
-Primary config for the default production runtime is YAML loaded by [`infra/config_loader.py`](/quant_system/infra/config_loader.py), with examples under [`infra/config/examples/`](/quant_system/infra/config/examples/).
+Primary config for the default production runtime is loaded through [`infra/config/loader.py`](/quant_system/infra/config/loader.py), with examples under [`infra/config/examples/`](/quant_system/infra/config/examples/).
 
 ### Key Parameters
 
@@ -91,7 +82,9 @@ execution:
 
 monitoring:
   health_check_interval: 10.0  # Stale data detection (seconds)
-  metrics_port: 9090           # Prometheus metrics port
+  health_port: 9090            # Health/control API port
+  health_host: 127.0.0.1       # Bind host for health/control API
+  health_auth_token_env: HEALTH_API_TOKEN  # Optional bearer token env var
 ```
 
 ### Risk Gate Defaults (RiskGateConfig)
@@ -122,6 +115,8 @@ monitoring:
 | `latency_p99_threshold_ms` | 5000 | SLA breach threshold for signal-to-fill |
 | `shadow_mode` | false | Simulate orders without executing |
 | `health_port` | null | HTTP health endpoint port |
+| `health_host` | `127.0.0.1` | HTTP health endpoint bind host |
+| `health_auth_token_env` | null | Bearer-token env var for health/control API |
 
 ## Monitoring
 
@@ -281,9 +276,9 @@ On startup, LiveRunner automatically:
 3. Runs startup reconciliation against exchange state
 4. Logs any mismatches (local vs exchange position/balance)
 
-### K8s Persistent Volume
+### Candidate K8s Persistent Volume
 
-The deployment mounts a PVC at `/app/data/live` for state persistence:
+The candidate-production K8s deployment mounts a PVC at `/app/data/live` for state persistence:
 
 ```yaml
 volumes:
@@ -294,7 +289,7 @@ volumes:
 
 ## Secret Management
 
-### External Secrets Operator
+### Candidate External Secrets Operator
 
 Exchange credentials are managed via External Secrets (`deploy/k8s/external-secret.yaml`):
 
@@ -308,7 +303,7 @@ SecretStore (quant-secret-store)
 Supports AWS Secrets Manager (production) or K8s native secrets (dev/staging).
 Refresh interval: 1 hour.
 
-### Secret Rotation
+### Candidate Secret Rotation
 
 Weekly CronJob (`deploy/k8s/secret-rotation-cronjob.yaml`) checks API key age:
 - Schedule: Monday 06:00 UTC
@@ -328,9 +323,66 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 | Job | Trigger | Description |
 |-----|---------|-------------|
-| `test` | push/PR | Unit + integration tests (Python 3.11, 3.12) |
-| `lint` | push/PR | Ruff + Mypy strict checks |
-| `security` | push/PR | pip-audit dependency vulnerability scan |
-| `docker` | main only | Docker build + Trivy container scan (CRITICAL/HIGH) |
+| `test` | push/PR | Default release gate: CI image build, default runtime image build, compose validation, deploy smoke, Python tests, `execution/tests/`, Rust tests |
+| `lint` | push/PR | Ruff checks inside the CI container |
 
-Coverage threshold: 60% minimum.
+The default gate now validates the single release path rather than maintaining a separate “docs only” CI story.
+
+## Model Retraining
+
+### Automatic Retraining
+
+Automated walk-forward retraining runs via cron:
+
+```
+0 2 * * 0  /usr/bin/python3 -m scripts.auto_retrain --horizons 12,24 >> /quant_system/logs/retrain_cron.log 2>&1
+```
+
+The `auto_retrain.py` pipeline:
+1. Checks if retrain is needed (model age, IC decay, avg IC threshold)
+2. Trains via `train_v11.py` with walk-forward validation
+3. Validates with gates: IC > 0.02, Sharpe > 1.0, comparison > 70% vs old model
+4. Auto-backup old model before replacement
+5. Restores `ic_weighted` ensemble method post-train (train_v11 defaults to mean_zscore)
+6. Logs to `logs/retrain_history.jsonl`
+
+Manual retrain:
+```bash
+python3 -m scripts.auto_retrain --symbol ETHUSDT --horizons 12,24
+python3 -m scripts.auto_retrain --symbol BTCUSDT --horizons 12,24
+```
+
+### Alpha Health Monitoring
+
+`monitoring/alpha_health.py` provides real-time IC monitoring with three response levels:
+
+| Level | Condition | Effect |
+|-------|-----------|--------|
+| Warning | IC negative for 7 days | Log warning, continue trading |
+| Reduce | IC negative for 14 days | Scale position to 50% |
+| Halt | IC < -0.02 for 14 days | Stop trading, trigger retrain |
+
+Prometheus gauge `alpha_ic_{horizon}` is exported for each horizon.
+
+### IC-Weighted Ensemble
+
+Current production models use `ensemble_method: “ic_weighted”` instead of `mean_zscore`:
+- `ic_ema_span: 720` (30-day EMA rolling IC)
+- `ic_min_threshold: -0.01` (horizons below this get zero weight)
+- Automatically downweights poorly-performing horizons
+
+### Current Model Versions
+
+| Model | Version | Horizons | Sharpe | Avg IC | Deadzone |
+|-------|---------|----------|--------|--------|----------|
+| BTCUSDT_gate_v2 | v11 | [12, 24] | 1.60 | 0.021 | 2.0 |
+| ETHUSDT_gate_v2 | v11 | [12, 24] | 2.32 | 0.061 | 0.3 |
+| BTCUSDT_15m | v11-15m | [64] | 2.76 | 0.053 | — |
+
+### Walk-Forward Validation
+
+Models validated across 21 rolling 3-month folds (2020-01 to 2026-03):
+- ETHUSDT: STRONG — 100% folds positive Sharpe, mean 3.66
+- BTCUSDT: GOOD — 95% folds positive Sharpe, mean 3.42
+
+Run validation: `python3 -m scripts.walk_forward --symbol ETHUSDT`

@@ -28,6 +28,24 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def _monitoring_runtime_kwargs(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert config monitoring fields into LiveRunner-compatible kwargs."""
+    monitoring = raw.get("monitoring", {})
+    if not isinstance(monitoring, dict):
+        return {}
+
+    kwargs: Dict[str, Any] = {}
+    if monitoring.get("health_check_interval") is not None:
+        kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
+    if monitoring.get("health_port") is not None:
+        kwargs["health_port"] = int(monitoring["health_port"])
+    if monitoring.get("health_host") is not None:
+        kwargs["health_host"] = str(monitoring["health_host"])
+    if monitoring.get("health_auth_token_env") is not None:
+        kwargs["health_auth_token_env"] = str(monitoring["health_auth_token_env"])
+    return kwargs
+
+
 def _load_symbol_models(
     model_dir: Path,
     symbol: str,
@@ -778,11 +796,17 @@ def run_paper(config_path: Path, duration: int) -> None:
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+    monitoring_kwargs = _monitoring_runtime_kwargs(raw)
 
     config = LivePaperConfig(
         symbols=symbols,
         starting_balance=10000.0,
         testnet=True,
+        **(
+            {"health_stale_data_sec": monitoring_kwargs["health_stale_data_sec"]}
+            if "health_stale_data_sec" in monitoring_kwargs
+            else {}
+        ),
     )
 
     fc, models, dms, signal_kwargs = _build_ml_stack(raw)
@@ -895,6 +919,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+    monitoring_kwargs = _monitoring_runtime_kwargs(raw)
 
     # Shadow mode needs a venue client that won't be called
     class _NoOpClient:
@@ -913,6 +938,7 @@ def run_shadow(config_path: Path, duration: int) -> None:
         enable_preflight=False,
         enable_persistent_stores=False,
         **signal_kwargs,
+        **monitoring_kwargs,
     )
 
     pollers = _start_pollers(symbols, testnet=True)
@@ -973,6 +999,7 @@ def run_live(config_path: Path, duration: int) -> None:
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+    monitoring_kwargs = _monitoring_runtime_kwargs(raw)
 
     creds = raw.get("credentials", {})
     key_env = creds.get("api_key_env") or "BINANCE_TESTNET_API_KEY"
@@ -1008,6 +1035,7 @@ def run_live(config_path: Path, duration: int) -> None:
         testnet=True,
         enable_persistent_stores=False,
         **signal_kwargs,
+        **monitoring_kwargs,
     )
 
     pollers = _start_pollers(symbols, testnet=True)
@@ -1113,6 +1141,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
     trading = raw.get("trading", {})
     symbol = trading.get("symbol", "BTCUSDT")
     symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
+    monitoring_kwargs = _monitoring_runtime_kwargs(raw)
 
     creds = raw.get("credentials", {})
     key_env = creds.get("api_key_env") or "BINANCE_TESTNET_API_KEY"
@@ -1151,6 +1180,7 @@ def run_longrun(config_path: Path, duration: int) -> None:
         enable_persistent_stores=True,
         data_dir=str(output_dir),
         **signal_kwargs,
+        **monitoring_kwargs,
     )
 
     pollers = _start_pollers(symbols, testnet=True)
