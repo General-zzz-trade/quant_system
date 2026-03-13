@@ -41,6 +41,7 @@ class ReplayExecutionAdapter:
     fee_bps: Decimal = Decimal("4")
     slippage_bps: Decimal = Decimal("2")
     starting_balance: float = 10_000.0
+    rejection_rules: Optional[Callable[[Any], bool]] = None
     _log: List[Dict[str, Any]] = field(default_factory=list, init=False)
     _balance: float = field(default=0.0, init=False)
     _realized_pnl: float = field(default=0.0, init=False)
@@ -50,6 +51,16 @@ class ReplayExecutionAdapter:
         self._balance = self.starting_balance
 
     def send_order(self, order_event: Any) -> list:
+        # Check rejection rules before processing
+        if self.rejection_rules is not None:
+            try:
+                if self.rejection_rules(order_event):
+                    logger.info("REPLAY order rejected by rejection_rules: %s",
+                                getattr(order_event, "order_id", "?"))
+                    return []
+            except Exception:
+                logger.debug("rejection_rules raised, treating as no rejection", exc_info=True)
+
         symbol = getattr(order_event, "symbol", "UNKNOWN")
         side = getattr(order_event, "side", "UNKNOWN")
         qty = getattr(order_event, "qty", Decimal("0"))

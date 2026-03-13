@@ -1,6 +1,6 @@
 # Quant System 代码库研究报告
 
-> 更新时间: 2026-03-13
+> 更新时间: 2026-03-14
 > 研究方式: 基于当前源码、真相源文档、测试结构、CI 与部署工件逐层核对
 > 判断原则: 以当前代码和已落地契约为准，不以历史 README 口径、旧脚本名或未接线清单为准
 
@@ -41,14 +41,12 @@
 
 | 指标 | 当前值 |
 |---|---:|
-| Python 文件 | 996 |
-| Python 代码行 | 154,645 |
-| Rust 文件 | 67 |
-| Rust 代码行 | 25,493 |
-| Markdown 文档 | 30 |
-| `tests/` 下 `test_*.py` | 247 |
+| Python 文件 | ~1,050 |
+| Rust 文件 | 68 |
+| Markdown 文档 | 30+ |
+| `tests/` 下 `test_*.py` | ~256 |
 | `execution/tests/` 下额外 `test_*.py` | 28 |
-| 已发现测试文件合计 | 275 |
+| 已发现测试文件合计 | ~284 |
 
 这意味着：
 
@@ -60,12 +58,12 @@
 
 | 目录 | Python 文件数 | 代码行 | 结论 |
 |---|---:|---:|---|
-| `scripts/` | 115 | 46,432 | 最大的历史沉积区，也是当前研究/运维工作层 |
-| `tests/` | 252 | 44,231 | 测试已经是架构护栏，不只是回归补丁 |
-| `execution/` | 202 | 16,296 | 最大的生产子系统 |
-| `runner/` | 15 | 6,899 | 入口不多，但装配责任非常集中 |
-| `decision/` | 88 | 5,507 | 决策框架与回测兼容逻辑并存 |
-| `portfolio/` | 78 | 5,002 | 能力面很强，但 live 接线深度不如 execution/risk |
+| `scripts/` | 101 | ~40,000 | 最大的历史沉积区，也是当前研究/运维工作层 |
+| `tests/` | 284 | ~45,000 | 测试已经是架构护栏，不只是回归补丁 |
+| `execution/` | 204 | ~17,000 | 最大的生产子系统 |
+| `runner/` | 28 | ~8,000 | 入口不多，但装配责任非常集中 |
+| `decision/` | 89 | ~5,600 | 决策框架与回测兼容逻辑并存 |
+| `portfolio/` | 80 | ~5,100 | 能力面很强，但 live 接线深度不如 execution/risk |
 
 从体量上看，当前仓库的复杂度分布不是“所有难点都在 engine”，而是：
 
@@ -195,7 +193,7 @@ Market / Replay / Backtest input
 - PyO3 扩展库 `_quant_hotpath`
 - 独立二进制 `quant_trader`
 
-`lib.rs` 当前导出/组织了 60+ 个 Rust 模块，能力覆盖：
+`lib.rs` 当前导出/组织了 66 个 Rust 模块，能力覆盖：
 
 - state types / reducers / store / pipeline
 - route matcher / duplicate guard / payload dedup / sequence buffer
@@ -515,13 +513,13 @@ Market / Replay / Backtest input
 [`/.github/workflows/ci.yml`](/quant_system/.github/workflows/ci.yml) 与 [`/.github/workflows/deploy.yml`](/quant_system/.github/workflows/deploy.yml) 当前反映出以下事实：
 
 - CI 只跑在 self-hosted `quant-server`
-- 默认测试门是 `pytest tests/`
+- 默认测试门包括 `pytest tests/` 和 `pytest execution/tests/`
+- `cargo test` 也在 CI 门中
 - performance tests 被排除
 - lint 只跑 Ruff 的 E/W/F
-- 没看到显式 `cargo test`
 - 覆盖率门槛是 57%
 
-这是一套“可用的基本护栏”，但还不是“强约束发布门”。
+这是一套”可用的基本护栏”，Rust 和 execution 测试已纳入 CI。
 
 ---
 
@@ -564,11 +562,10 @@ Market / Replay / Backtest input
 
 测试的主要弱项也非常明确：
 
-1. [`execution/tests/`](/quant_system/execution/tests) 不在默认 `pytest tests/` 与 `pyproject.toml` 的 `testpaths = ["tests"]` 门里。
+1. [`execution/tests/`](/quant_system/execution/tests) 不在 `pyproject.toml` 的 `testpaths` 中，但 CI 已单独运行。
 2. performance tests 默认被 CI 忽略。
 3. 部署清单和 GitHub workflow 本身没有看到对应验证。
-4. Rust 默认发布门里没有显式 `cargo test`。
-5. 部分遗留 research 入口没有活性测试，因此旧 import 漂移不会自动暴露。
+4. 部分遗留 research 入口没有活性测试，因此旧 import 漂移不会自动暴露。
 
 ---
 
@@ -613,17 +610,9 @@ Market / Replay / Backtest input
 
 这代表配置文档、schema 与 runtime 解析之间存在明显漂移。
 
-### 11.4 `research/experiment.py` 仍引用已迁入 archive 的训练入口
+### 11.4 遗留 research 入口的历史引用
 
-[`research/experiment.py`](/quant_system/research/experiment.py) 当前仍然：
-
-- `from scripts.train_lgbm import ...`
-
-但仓库中实际存在的是：
-
-- [`scripts/archive/train_lgbm.py`](/quant_system/scripts/archive/train_lgbm.py)
-
-这是一个非常典型的“遗留 research 入口未纳入当前治理和测试护栏”的信号。
+~~`research/experiment.py` 曾引用已迁入 archive 的训练入口。~~ 该文件已不存在，此问题已解决。
 
 ### 11.5 一部分 execution tests 不在默认 CI 门里
 
@@ -860,11 +849,11 @@ Market / Replay / Backtest input
 
 | 指标 | 当前值 |
 |---|---:|
-| Rust 源文件 | 65 |
+| Rust 源文件 | 68 |
 | Rust 代码行 | ~25,000 |
 | PyO3 导出类 | 64 |
 | PyO3 导出函数 | 106+ |
-| Cargo 测试 | 57 |
+| Cargo 测试 | 76 |
 | 二进制 | quant_trader (standalone) |
 
 构建配置: `opt-level=3, lto="fat", codegen-units=1, strip=true, panic="abort"`
@@ -961,7 +950,7 @@ Market / Replay / Backtest input
 
 | 类别 | 文件数 | 约 LOC |
 |---|---:|---:|
-| unit | 214 | ~30,000 |
+| unit | 234 | ~32,000 |
 | integration | 16 | ~4,500 |
 | execution_safety | 5 | ~400 |
 | contract | 4 | ~300 |
@@ -969,8 +958,8 @@ Market / Replay / Backtest input
 | regression | 3 | ~200 |
 | replay | 5 | ~400 |
 | persistence | 1 | ~50 |
-| **Python 合计** | **252** | **~36,000** |
-| Rust tests | 57 | — |
+| **Python 合计** | **~272** | **~38,000** |
+| Rust tests | 76 | — |
 | execution/tests/ | 28 | — |
 
 ### 17.2 覆盖分布 (unit)
@@ -997,24 +986,26 @@ Market / Replay / Backtest input
 
 ### 17.3 CI 管线
 
-`.github/workflows/ci.yml` (self-hosted quant-server, 20min timeout):
+`.github/workflows/ci.yml` (self-hosted quant-server):
 1. Build CI image (`quant-ci:test`)
 2. Build runtime image (`quant-ci:paper`)
 3. Validate docker-compose
 4. Smoke test default deploy (`scripts/ci_default_release_smoke.sh`)
 5. Python tests (`pytest tests/ -x -q --cov-fail-under=57`)
-6. Execution tests (`pytest execution/tests/`)
-7. Rust tests (`cargo test`)
+6. Execution tests (`pytest execution/tests/ -x -q`)
+7. Rust tests (`cargo test --locked`)
 8. Ruff lint (E, W, F)
 
 ### 17.4 pytest 配置
 
 ```ini
-testpaths = tests, tests_unit, execution/tests
+testpaths = tests
 addopts = -q --tb=short -m "not benchmark and not slow" --import-mode=importlib
 markers: benchmark, slow
 coverage: fail_under=57
 ```
+
+注意: `execution/tests/` 不在默认 `testpaths` 中，但 CI 单独运行它。
 
 ---
 

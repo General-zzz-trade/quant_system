@@ -7,12 +7,12 @@ pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test    # Rust unit tests (57 tests)
+cd ext/rust && cargo test    # Rust unit tests (79 tests)
 ```
 
 **CRITICAL after Rust build**: copy .so to local package (shadows system install):
 ```bash
-cp /usr/local/lib/python3.12/dist-packages/_quant_hotpath/*.so /opt/quant_system/_quant_hotpath/
+cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
 ```
 
 **Binary build** (standalone Rust trader, requires Python linkage):
@@ -32,6 +32,7 @@ curl -X POST localhost:9090/kill      # Emergency kill switch
 ## Architecture
 
 ```
+core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
 features/        Feature computation (EnrichedFeatureComputer, 105 features)
 decision/        Trading signals, ensemble, regime detection, rebalancing
@@ -41,7 +42,7 @@ state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
 strategies/      HFT + multi-factor strategy implementations
-ext/rust/        Unified Rust crate -> _quant_hotpath (67 modules, ~25K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (68 .rs files, ~25K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
@@ -49,6 +50,7 @@ risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
 monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
 infra/           Logging (structured JSON), networking
+research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         Training, walk-forward validation, alpha research
 ```
 
@@ -60,7 +62,7 @@ scripts/         Training, walk-forward validation, alpha research
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 67 .rs modules, ~25,000 LOC
+- Single crate `_quant_hotpath`, 68 .rs modules, ~26K LOC
 - Exports: 64 classes + 106 functions
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
@@ -68,25 +70,14 @@ scripts/         Training, walk-forward validation, alpha research
 - feature_hook.py always uses Rust (no Python fallback)
 - `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
 
-Key exports:
-- State: `RustStateStore`, `RustMarketState`, `RustPositionState`, `RustAccountState`
-- Events: `RustMarketEvent`, `RustFillEvent`, `RustFundingEvent`
-- Features: `RustFeatureEngine` (105 features), `RustCrossAssetComputer`
-- Risk: `RustRiskEvaluator`, `RustKillSwitch`, `RustCircuitBreaker`
-- Decision: `rust_rolling_sharpe`, `rust_max_drawdown`, `rust_strategy_weights`
-- Portfolio: `rust_allocate_portfolio`, `rust_fixed_fraction_qty`
-- Pipeline: `rust_pipeline_apply`, `RustProcessResult`
-- Factors: `rust_momentum_score`, `rust_volatility_score`, `rust_adx`, `rust_carry_score`
-- Inference: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
-- Attribution: `rust_compute_pnl`, `rust_compute_cost_attribution`, `rust_attribute_by_signal`
-- Orderbook: `rust_flush_orderbook_bar`, `rust_extract_orderbook_features`
-- Ensemble: `rust_adaptive_ensemble_calibrate`
-- Unified: `RustUnifiedPredictor` (zero-copy feature→predict→signal pipeline, 2.9x faster)
-- TickProcessor: `RustTickProcessor` (full hot path: features+predict+state in single call), `RustTickResult`
-- WebSocket: `RustWsClient` (tokio-tungstenite, GIL-free recv+send), `rust_parse_agg_trade`
-- OrderGateway: `RustWsOrderGateway` (WS-API order submission with Rust HMAC signing, ~4ms vs ~30ms REST)
-- MicroAlpha: `MicroAlpha` (aggTrade-driven trade flow/volume/large trade signals)
-- Transport: `RustWsTransport` in `execution/adapters/binance/ws_transport_rust.py`
+Key export categories (see `lib.rs` for full list):
+- **State**: `RustStateStore`, `RustMarketState`, `RustPositionState`, `RustAccountState`
+- **Features**: `RustFeatureEngine` (105 features), `RustCrossAssetComputer`
+- **Risk**: `RustRiskEvaluator`, `RustKillSwitch`, `RustCircuitBreaker`
+- **Pipeline**: `rust_pipeline_apply`, `RustProcessResult`, `RustUnifiedPredictor`
+- **TickProcessor**: `RustTickProcessor` (full hot path: features+predict+state in single call)
+- **Networking**: `RustWsClient`, `RustWsOrderGateway` (WS-API, ~4ms), `MicroAlpha`
+- **Inference**: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
 
 ## Key Files
 
@@ -98,10 +89,12 @@ Key exports:
 - `ext/rust/src/bin/main.rs` — Standalone Rust trading binary (WS + ML + orders)
 - `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
 - `runner/live_runner.py` — Production entry point (Python)
+- `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
+- `runner/recovery.py` — Crash recovery: feature engine checkpoint, inference bridge, event log
 
 ## Live Integration Subsystems
 
-- **Alpha Health Monitor**: `AlphaHealthMonitor` in `monitoring/alpha_health.py` — tracks per-symbol IC, gates orders via `position_scale()` (0.0/0.5/1.0). Wired in `EngineMonitoringHook` and `_emit()` gate in live_runner.
+- **Alpha Health Monitor**: `AlphaHealthMonitor` in `monitoring/alpha_health.py` — tracks per-symbol IC, gates orders via `position_scale()` (0.0/0.5/1.0). Wired in `EngineMonitoringHook` and `LiveEmitHandler` gate chain.
 - **WS-API Orders**: `WsOrderAdapter` in `execution/adapters/binance/ws_order_adapter.py` — ~4ms WS-API with REST fallback. Enable via `LiveRunnerConfig(use_ws_orders=True)`.
 - **Adaptive BTC Config**: `AdaptiveConfigSelector.select_robust()` runs periodically (24h) for BTCUSDT only. Updates `LiveInferenceBridge.update_params()` on `confidence="high"`. Enable via `LiveRunnerConfig(adaptive_btc_enabled=True)`.
 - **Auto-Retrain**: `scripts/auto_retrain.py --notify-runner --alert` sends SIGHUP to runner + Telegram/webhook alerts. Systemd timer in `infra/systemd/auto-retrain.timer` (Sunday 2am UTC).
@@ -118,7 +111,9 @@ Key exports:
 - `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
 - `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
 - No Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
-- `features/_rolling_py.py` only has `rolling_apply` (RollingWindow class deleted)
 - Binary build requires `-lpython3.12` link flag (PyO3 symbols)
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 - Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet
+- `RustFeatureEngine.checkpoint()` / `restore_checkpoint()` persist rolling windows as bar history JSON — crash recovery replays bars to rebuild EMA/RSI/ATR state
+- Event recorder captures risk/control events in addition to market/fill/signal/order
+- Python fallback in `signal_postprocess.py` has known divergence from Rust for `trend_follow` mode (trend_hold max_hold semantics differ)

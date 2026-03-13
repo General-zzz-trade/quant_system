@@ -192,7 +192,7 @@ class EventRecorder:
         et = getattr(event, "event_type", None)
         et_str = getattr(et, "value", str(et) if et else "").lower()
 
-        if et_str in ("market", "fill", "funding", "signal", "intent", "order"):
+        if et_str in ("market", "fill", "funding", "signal", "intent", "order", "risk", "control"):
             self._record_event(event, et_str)
 
     def record_fill(self, fill_event: Any) -> None:
@@ -236,6 +236,18 @@ class EventRecorder:
 
             elif event_type == "order":
                 for fld in ("side", "qty", "price", "order_id", "intent_id"):
+                    val = getattr(event, fld, None)
+                    if val is not None:
+                        payload[fld] = str(val)
+
+            elif event_type == "risk":
+                for fld in ("rule_id", "level", "message"):
+                    val = getattr(event, fld, None)
+                    if val is not None:
+                        payload[fld] = str(val)
+
+            elif event_type == "control":
+                for fld in ("command", "reason"):
                     val = getattr(event, fld, None)
                     if val is not None:
                         payload[fld] = str(val)
@@ -347,7 +359,11 @@ def save_feature_hook_state(
     feature_hook: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist feature hook bar counts and warmup state."""
+    """Persist feature hook bar counts and engine rolling-window state.
+
+    Saves per-symbol RustFeatureEngine checkpoints (bar history) so that
+    crash recovery rebuilds all rolling windows, not just bar_count.
+    """
     if feature_hook is None:
         return
 
@@ -355,20 +371,39 @@ def save_feature_hook_state(
     if not bar_count:
         return
 
-    state = {"bar_count": dict(bar_count)}
+    state: Dict[str, Any] = {"bar_count": dict(bar_count)}
+
+    # Checkpoint per-symbol RustFeatureEngine bar history
+    engines = getattr(feature_hook, "_rust_engines", None)
+    if engines:
+        engine_checkpoints: Dict[str, str] = {}
+        for symbol, engine in engines.items():
+            if hasattr(engine, "checkpoint"):
+                try:
+                    engine_checkpoints[symbol] = engine.checkpoint()
+                except Exception:
+                    logger.debug("Engine checkpoint failed for %s", symbol)
+        if engine_checkpoints:
+            state["engine_checkpoints"] = engine_checkpoints
 
     os.makedirs(data_dir, exist_ok=True)
     path = os.path.join(data_dir, _FEATURE_HOOK_FILE)
     with open(path, "w") as f:
         json.dump(state, f)
-    logger.info("Feature hook state saved (bar_count=%s)", dict(bar_count))
+    logger.info("Feature hook state saved (bar_count=%s, engines=%d)",
+                dict(bar_count), len(state.get("engine_checkpoints", {})))
 
 
 def restore_feature_hook_state(
     feature_hook: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore feature hook bar counts from checkpoint. Returns True if restored."""
+    """Restore feature hook bar counts and engine rolling-window state.
+
+    When engine checkpoints are available, replays stored bars through
+    RustFeatureEngine to rebuild all rolling windows (EMA, RSI, ATR, etc.).
+    Falls back to bar_count-only restore if no engine checkpoints exist.
+    """
     if feature_hook is None:
         return False
 
@@ -383,13 +418,41 @@ def restore_feature_hook_state(
         logger.exception("Failed to read feature hook checkpoint")
         return False
 
+    restored = False
+
+    # Restore engine rolling-window state via checkpoint replay
+    engine_checkpoints = state.get("engine_checkpoints", {})
+    if engine_checkpoints and hasattr(feature_hook, "_rust_engines"):
+        try:
+            from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine
+        except ImportError:
+            _RustFeatureEngine = None
+
+        if _RustFeatureEngine is not None:
+            for symbol, json_str in engine_checkpoints.items():
+                try:
+                    engine = _RustFeatureEngine()
+                    n_replayed = engine.restore_checkpoint(json_str)
+                    feature_hook._rust_engines[symbol] = engine
+                    # Set bar_count from restored engine
+                    if hasattr(feature_hook, "_bar_count"):
+                        feature_hook._bar_count[symbol] = engine.bar_count
+                    logger.info("Feature engine restored for %s (%d bars replayed)", symbol, n_replayed)
+                    restored = True
+                except Exception:
+                    logger.exception("Feature engine restore failed for %s", symbol)
+
+    # Fallback: restore bar_count only (for symbols without engine checkpoints)
     bar_count = state.get("bar_count", {})
     if bar_count and hasattr(feature_hook, "_bar_count"):
-        feature_hook._bar_count = {k: int(v) for k, v in bar_count.items()}
-        logger.info("Feature hook bar_count restored: %s", feature_hook._bar_count)
-        return True
+        for k, v in bar_count.items():
+            if k not in feature_hook._bar_count:
+                feature_hook._bar_count[k] = int(v)
+        if not restored:
+            logger.info("Feature hook bar_count restored (no engine checkpoints): %s", feature_hook._bar_count)
+            restored = True
 
-    return False
+    return restored
 
 
 # ============================================================

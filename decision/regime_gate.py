@@ -1,5 +1,12 @@
 """Regime Gate — scale or skip positions based on market regime.
 
+Gate purpose: Feature-based gate — monitors "is the market in a tradeable regime?"
+This is intentionally separate from AlphaHealthMonitor (monitoring/alpha_health.py),
+which monitors "is the model still predictive?" using IC tracking.
+Both gates may independently scale or block positions:
+  - RegimeGate: scales down in unfavorable regimes (high vol, low trend)
+  - AlphaHealthMonitor: reduces/halts when rolling IC degrades
+
 Uses existing features (bb_width_20, vol_of_vol, adx_14 if available)
 to classify regime and output a position scale factor.
 """

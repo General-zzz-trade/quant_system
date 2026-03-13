@@ -867,67 +867,17 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             hook=hook,
         )
 
-        def _emit(ev: Any) -> None:
-            # Attribution: track all events
-            attribution_tracker.on_event(ev)
-
-            et = getattr(ev, "event_type", None)
-            et_str = (str(et.value) if hasattr(et, "value") else str(et)).upper() if et else ""
-            if et_str == "ORDER":
-                # Run all gates; returns None if any gate rejects
-                result = gate_chain.process(ev, {})
-                if result is None:
-                    return
-                ev = result
-
-                # Track order submission in state machine + timeout tracker
-                sym = getattr(ev, "symbol", "")
-                order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
-                if order_id:
-                    try:
-                        from decimal import Decimal
-                        raw_qty = getattr(ev, "qty", getattr(ev, "quantity", 0))
-                        raw_price = getattr(ev, "price", None)
-                        order_state_machine.register(
-                            order_id=str(order_id),
-                            client_order_id=getattr(ev, "client_order_id", None),
-                            symbol=sym,
-                            side=str(getattr(ev, "side", "")),
-                            order_type=str(getattr(ev, "order_type", "LIMIT")),
-                            qty=Decimal(str(raw_qty)),
-                            price=Decimal(str(raw_price)) if raw_price is not None else None,
-                        )
-                    except Exception:
-                        logger.warning("OSM register failed for order %s", order_id, exc_info=True)
-                    timeout_tracker.on_submit(str(order_id), ev)
-
-            elif et_str == "FILL":
-                # Track fills in state machine + timeout tracker
-                order_id = getattr(ev, "order_id", None)
-                if order_id:
-                    timeout_tracker.on_fill(str(order_id))
-                    try:
-                        from execution.state_machine.transitions import OrderStatus
-                        from decimal import Decimal
-                        fill_qty = getattr(ev, "qty", None)
-                        fill_price = getattr(ev, "price", None)
-                        order_state_machine.transition(
-                            order_id=str(order_id),
-                            new_status=OrderStatus.FILLED,
-                            filled_qty=Decimal(str(fill_qty)) if fill_qty is not None else None,
-                            avg_price=Decimal(str(fill_price)) if fill_price is not None else None,
-                        )
-                    except Exception:
-                        logger.debug("OSM transition failed for order %s", order_id, exc_info=True)
-                # Record fill event to event_log for replay recovery
-                if event_recorder is not None:
-                    event_recorder.record_fill(ev)
-                # Attribution feedback — live signal tracker (must be in FILL branch)
-                if live_signal_tracker is not None:
-                    fill_sym = getattr(ev, "symbol", "")
-                    live_signal_tracker.on_fill(ev, origin=fill_sym)
-
-            coordinator.emit(ev, actor="live")
+        from runner.emit_handler import LiveEmitHandler
+        _emit_handler = LiveEmitHandler(
+            coordinator=coordinator,
+            attribution_tracker=attribution_tracker,
+            gate_chain=gate_chain,
+            order_state_machine=order_state_machine,
+            timeout_tracker=timeout_tracker,
+            event_recorder=None,  # patched after event_recorder is created
+            live_signal_tracker=live_signal_tracker,
+        )
+        _emit = _emit_handler
 
         # ── 4) Execution adapter: KillSwitchBridge (production) ──
         venue_client = venue_clients.get(config.venue)
@@ -1426,9 +1376,10 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         # Patch late-binding reference so cleanup callback can stop the runner
         _runner_ref.append(runner)
         runner._config = config
-        # Patch event recorder into pipeline output hook
+        # Patch event recorder into pipeline output hook and emit handler
         if event_recorder is not None:
             _event_recorder_ref[0] = event_recorder
+            _emit_handler._event_recorder = event_recorder
         report.log_summary()
         return runner
 

@@ -3,6 +3,13 @@
 Tracks per-horizon IC in real time, exports to Prometheus, and triggers
 automatic position reduction or halt when alpha decays.
 
+Gate purpose: IC-based gate — monitors "is the model still predictive?"
+This is intentionally separate from RegimeGate (decision/regime_gate.py),
+which monitors "is the market in a tradeable regime?" using feature-based
+detection. Both gates may independently scale or block positions:
+  - AlphaHealthMonitor: reduces/halts when rolling IC degrades
+  - RegimeGate: scales down in unfavorable regimes (high vol, low trend)
+
 Three response levels:
 1. Warning: rolling IC < 0 for 5+ days → log warning, Prometheus alert
 2. Reduce:  rolling IC < 0 for 10+ days → scale position to 50%

@@ -19,7 +19,14 @@ except ImportError:
 
 
 def rolling_zscore(pred: np.ndarray, window: int = 720, warmup: int = 180) -> np.ndarray:
-    """Causal rolling z-score for prediction streams."""
+    """Causal rolling z-score for prediction streams.
+
+    Note on bar/hourly equivalence: when bars are 1h, bar-level z-score
+    equals hourly z-score (window=720 bars = 720 hours = 30 days).
+    For sub-hourly bars, the effective time window shrinks proportionally
+    (e.g., 5-min bars: 720 bars = 60 hours, not 720 hours), which inflates
+    the z-score relative to the hourly baseline.
+    """
     n = len(pred)
     z = np.zeros(n)
     buf: list[float] = []
