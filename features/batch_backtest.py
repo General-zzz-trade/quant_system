@@ -20,10 +20,16 @@ def pred_to_signal_fast(
     zscore_window: int = 720,
     zscore_warmup: int = 180,
     long_only: bool = False,
+    trend_follow: bool = False,
+    trend_values: Optional[np.ndarray] = None,
+    trend_threshold: float = 0.0,
+    max_hold: int = 120,
 ) -> np.ndarray:
+    tv = trend_values.astype(np.float64, copy=False) if trend_values is not None else []
     return np.asarray(cpp_pred_to_signal(
         y_pred.astype(np.float64, copy=False),
-        deadzone, min_hold, zscore_window, zscore_warmup, long_only))
+        deadzone, min_hold, zscore_window, zscore_warmup, long_only,
+        trend_follow, tv, trend_threshold, max_hold))
 
 
 def run_backtest_fast(
@@ -37,6 +43,7 @@ def run_backtest_fast(
     vol_values: Optional[np.ndarray] = None,
     funding_rates: Optional[np.ndarray] = None,
     funding_ts: Optional[np.ndarray] = None,
+    trend_values: Optional[np.ndarray] = None,
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     cfg = config or {}
@@ -51,5 +58,6 @@ def run_backtest_fast(
     vv = vol_values.astype(np.float64, copy=False) if vol_values is not None else np.empty(0, dtype=np.float64)
     fr = funding_rates.astype(np.float64, copy=False) if funding_rates is not None else np.empty(0, dtype=np.float64)
     ft = funding_ts.astype(np.int64, copy=False) if funding_ts is not None else np.empty(0, dtype=np.int64)
+    tv = trend_values.astype(np.float64, copy=False) if trend_values is not None else np.empty(0, dtype=np.float64)
 
-    return dict(cpp_run_backtest(ts, cl, vo, v20, yp, bp, vv, fr, ft, config_json))
+    return dict(cpp_run_backtest(ts, cl, vo, v20, yp, bp, vv, fr, ft, config_json, tv))

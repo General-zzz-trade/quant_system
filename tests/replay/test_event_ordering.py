@@ -41,8 +41,8 @@ def test_event_ordering_replay_smoke(tmp_path: Path) -> None:
     event_log = tmp_path / "events.jsonl"
     event_log.write_text("\n".join(encode_event_json(e) for e in events) + "\n", encoding="utf-8")
 
-    processed = run_replay(event_log_path=event_log, out_dir=tmp_path / "out")
+    result = run_replay(event_log_path=event_log, out_dir=tmp_path / "out")
 
-    assert processed == 2
+    assert result.events_processed == 2
     summary = json.loads((tmp_path / "out" / "replay_summary.json").read_text(encoding="utf-8"))
     assert summary["events_processed"] == 2

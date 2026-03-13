@@ -10,6 +10,11 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::{HashMap, VecDeque};
 
+use crate::constraint_pipeline::{
+    discretize, enforce_hold_step, enforce_short_hold_step,
+    long_only_clip, discretize_short, update_monthly_gate,
+};
+
 /// Per-symbol signal processing state.
 pub(crate) struct SymbolState {
     pub(crate) zscore_buf: VecDeque<f64>,
@@ -179,43 +184,23 @@ impl RustInferenceBridge {
             raw_score
         };
 
-        // Long-only clip
-        let z = if long_only { z.max(0.0) } else { z };
-
-        // Discretize
-        let desired = if z > deadzone {
-            1.0
-        } else if z < -deadzone {
-            -1.0
-        } else {
-            0.0
-        };
+        // Long-only clip + discretize (shared)
+        let z = long_only_clip(z, long_only);
+        let desired = discretize(z, deadzone);
 
         let prev_pos = state.position;
         let hold_count = if state.hold_counter == 0 { min_hold } else { state.hold_counter };
 
-        // Min-hold check
-        if hold_count < min_hold {
-            state.hold_counter = hold_count + 1;
-            return prev_pos;
+        // Min-hold + trend-hold (shared)
+        let (output, new_hold) = enforce_hold_step(
+            desired, prev_pos, hold_count, min_hold,
+            trend_follow, trend_val, trend_threshold, max_hold,
+        );
+        state.hold_counter = new_hold;
+        if output != prev_pos {
+            state.position = output;
         }
-
-        // Trend hold
-        if trend_follow && desired == 0.0 && prev_pos > 0.0 && hold_count < max_hold {
-            if !trend_val.is_nan() && trend_val > trend_threshold {
-                state.hold_counter = hold_count + 1;
-                return prev_pos;
-            }
-        }
-
-        // Allow change
-        if desired != prev_pos {
-            state.position = desired;
-            state.hold_counter = 1;
-        } else {
-            state.hold_counter = hold_count + 1;
-        }
-        desired
+        output
     }
 
     /// Check monthly gate: close > SMA(window). Returns true if signal allowed.
@@ -223,26 +208,13 @@ impl RustInferenceBridge {
     fn check_monthly_gate(&mut self, symbol: &str, close: f64, hour_key: i64, window: usize) -> bool {
         let state = self.get_or_create(symbol);
         let w = if window > 0 { window } else { state.gate_window };
-
-        // Append on new hour
-        if hour_key != state.gate_last_hour {
-            if state.close_history.len() >= w {
-                state.close_history.pop_front();
-            }
-            state.close_history.push_back(close);
-            state.gate_last_hour = hour_key;
-            // Update gate_window if different
-            if state.gate_window != w {
-                state.gate_window = w;
-            }
+        if state.gate_window != w {
+            state.gate_window = w;
         }
-
-        if state.close_history.len() < w {
-            return true; // warmup — allow trading
-        }
-        let sum: f64 = state.close_history.iter().sum();
-        let ma = sum / w as f64;
-        close > ma
+        update_monthly_gate(
+            &mut state.close_history, &mut state.gate_last_hour,
+            close, hour_key, w,
+        )
     }
 
     /// Process short model signal: z-score → short-only clip → min-hold.
@@ -282,25 +254,19 @@ impl RustInferenceBridge {
             }
         };
 
-        // Short-only clip: only z < -deadzone
-        let desired = if z < -deadzone { -1.0 } else { 0.0 };
+        // Short-only discretize (shared)
+        let desired = discretize_short(z, deadzone);
 
-        // Min-hold enforcement
+        // Min-hold enforcement (shared)
         let prev = state.short_position;
         let hold = if state.short_hold_counter == 0 { min_hold } else { state.short_hold_counter };
 
-        if hold < min_hold {
-            state.short_hold_counter = hold + 1;
-            return prev;
+        let (output, new_hold) = enforce_short_hold_step(desired, prev, hold, min_hold);
+        state.short_hold_counter = new_hold;
+        if output != prev {
+            state.short_position = output;
         }
-
-        if desired != prev {
-            state.short_position = desired;
-            state.short_hold_counter = 1;
-        } else {
-            state.short_hold_counter = hold + 1;
-        }
-        desired
+        output
     }
 
     /// Force-set position and hold state (for regime switch sync).

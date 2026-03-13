@@ -46,9 +46,9 @@ def test_replay_determinism(tmp_path: Path) -> None:
     out1 = tmp_path / "out1"
     out2 = tmp_path / "out2"
 
-    p1 = run_replay(event_log_path=event_log, out_dir=out1)
-    p2 = run_replay(event_log_path=event_log, out_dir=out2)
+    r1 = run_replay(event_log_path=event_log, out_dir=out1)
+    r2 = run_replay(event_log_path=event_log, out_dir=out2)
 
-    assert p1 == 2
-    assert p2 == 2
+    assert r1.events_processed == 2
+    assert r2.events_processed == 2
     assert (out1 / "replay_summary.json").read_text() == (out2 / "replay_summary.json").read_text()

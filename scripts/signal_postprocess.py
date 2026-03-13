@@ -1,9 +1,21 @@
-"""Shared signal post-processing helpers for research/backtest scripts."""
+"""Shared signal post-processing helpers for research/backtest scripts.
+
+These are thin Python wrappers. The canonical implementations live in
+ext/rust/src/constraint_pipeline.rs. The batch Rust path (cpp_pred_to_signal)
+calls the same shared functions. When Rust is unavailable, these pure-Python
+fallbacks produce identical results.
+"""
 from __future__ import annotations
 
 from typing import Optional
 
 import numpy as np
+
+try:
+    from _quant_hotpath import cpp_pred_to_signal as _rust_pred_to_signal
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
 
 
 def rolling_zscore(pred: np.ndarray, window: int = 720, warmup: int = 180) -> np.ndarray:
@@ -27,17 +39,20 @@ def rolling_zscore(pred: np.ndarray, window: int = 720, warmup: int = 180) -> np
 
 
 def _compute_bear_mask(closes: np.ndarray, ma_window: int = 480) -> np.ndarray:
-    """Return boolean mask: True where close <= SMA(ma_window)."""
+    """Return boolean mask: True where close <= SMA(ma_window).
+
+    Warmup bars (first ma_window) return False (allow trading),
+    matching live check_monthly_gate() which returns True during warmup.
+    """
     n = len(closes)
     mask = np.zeros(n, dtype=bool)
     if n < ma_window:
-        mask[:] = True
-        return mask
+        return mask  # All False = allow trading during warmup
     cs = np.cumsum(closes)
-    ma = np.empty(n)
-    ma[:ma_window] = np.nan
-    ma[ma_window:] = (cs[ma_window:] - cs[: n - ma_window]) / ma_window
-    mask = np.isnan(ma) | (closes <= ma)
+    # First ma_window bars: mask stays False (allow trading)
+    for i in range(ma_window, n):
+        ma = (cs[i] - cs[i - ma_window]) / ma_window
+        mask[i] = closes[i] <= ma
     return mask
 
 
@@ -114,6 +129,43 @@ def _enforce_min_hold(signal: np.ndarray, min_hold: int) -> np.ndarray:
             else:
                 hold_count += 1
     return held
+
+
+def pred_to_signal(
+    y_pred: np.ndarray,
+    *,
+    deadzone: float = 0.5,
+    min_hold: int = 24,
+    zscore_window: int = 720,
+    zscore_warmup: int = 180,
+    long_only: bool = False,
+    trend_follow: bool = False,
+    trend_values: Optional[np.ndarray] = None,
+    trend_threshold: float = 0.0,
+    max_hold: int = 120,
+) -> np.ndarray:
+    """Full constraint pipeline: z-score → discretize → min-hold → trend-hold.
+
+    Delegates to Rust (cpp_pred_to_signal) when available, which calls the
+    same shared constraint_pipeline.rs functions as the live/tick paths.
+    Falls back to pure Python with identical semantics.
+    """
+    if _HAS_RUST:
+        tv = list(trend_values) if trend_values is not None else []
+        return np.array(_rust_pred_to_signal(
+            list(y_pred), deadzone, min_hold, zscore_window, zscore_warmup,
+            long_only, trend_follow, tv, trend_threshold, max_hold,
+        ))
+
+    # Pure Python fallback
+    z = rolling_zscore(y_pred, window=zscore_window, warmup=zscore_warmup)
+    if long_only:
+        z = np.maximum(z, 0.0)
+    raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
+    signal = _enforce_min_hold(raw, min_hold)
+    if trend_follow and trend_values is not None:
+        signal = _apply_trend_hold(signal, trend_values, trend_threshold, max_hold)
+    return signal
 
 
 def should_exit_position(

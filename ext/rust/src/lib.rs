@@ -54,6 +54,7 @@ mod portfolio_allocator;
 mod factor_signals;
 mod regime_buffer;
 pub mod state_store;
+pub mod constraint_pipeline;
 pub mod inference_bridge;
 pub mod tree_predict;
 pub mod unified_predictor;

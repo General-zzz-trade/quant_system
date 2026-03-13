@@ -12,6 +12,10 @@ use std::collections::HashMap;
 use crate::feature_engine::{BarState, N_FEATURES, FEATURE_NAMES};
 use crate::fixed_decimal::Fd8;
 use crate::inference_bridge::SymbolState;
+use crate::constraint_pipeline::{
+    discretize, enforce_hold_step, enforce_short_hold_step,
+    long_only_clip, discretize_short, update_monthly_gate, vol_scale,
+};
 use crate::rust_events::{RustFillEvent, RustFundingEvent, RustMarketEvent};
 use crate::state_reducers::{RustAccountReducer, RustMarketReducer, RustPositionReducer};
 use crate::state_store::{compute_portfolio_from, compute_risk_from, RustProcessResult};
@@ -966,21 +970,12 @@ impl RustTickProcessor {
             .entry(symbol.to_string())
             .or_insert_with(|| SymbolState::new(self.zscore_window, gate_w));
 
-        // Monthly gate check
+        // Monthly gate check (shared)
         let gate_ok = if cfg.monthly_gate {
-            if hour_key != state.gate_last_hour {
-                if state.close_history.len() >= gate_w {
-                    state.close_history.pop_front();
-                }
-                state.close_history.push_back(close);
-                state.gate_last_hour = hour_key;
-            }
-            if state.close_history.len() < gate_w {
-                true
-            } else {
-                let sum: f64 = state.close_history.iter().sum();
-                close > sum / gate_w as f64
-            }
+            update_monthly_gate(
+                &mut state.close_history, &mut state.gate_last_hour,
+                close, hour_key, gate_w,
+            )
         } else {
             true
         };
@@ -996,22 +991,25 @@ impl RustTickProcessor {
                 self.zscore_warmup,
             ) {
                 Some(z) => z,
-                None => return state.position,
+                None => {
+                    // Warmup: increment hold counter to match backtest behavior.
+                    if state.hold_counter == 0 {
+                        state.hold_counter = 1;
+                    } else {
+                        state.hold_counter += 1;
+                    }
+                    return state.position;
+                }
             }
         } else {
             raw_score
         };
 
-        let z = if cfg.long_only { z.max(0.0) } else { z };
+        // Long-only clip + discretize (shared)
+        let z = long_only_clip(z, cfg.long_only);
+        let desired = discretize(z, cfg.deadzone);
 
-        let desired = if z > cfg.deadzone {
-            1.0
-        } else if z < -cfg.deadzone {
-            -1.0
-        } else {
-            0.0
-        };
-
+        // Min-hold + trend-hold (shared)
         let prev_pos = state.position;
         let hold_count = if state.hold_counter == 0 {
             cfg.min_hold
@@ -1019,30 +1017,20 @@ impl RustTickProcessor {
             state.hold_counter
         };
 
-        if hold_count < cfg.min_hold {
-            state.hold_counter = hold_count + 1;
-            return prev_pos;
-        }
-
-        // Trend hold
-        if cfg.trend_follow && desired == 0.0 && prev_pos > 0.0 && hold_count < cfg.max_hold {
-            if cfg.trend_indicator_idx < N_FEATURES as u16 {
-                let trend_val = self.features_buf[cfg.trend_indicator_idx as usize];
-                if !trend_val.is_nan() && trend_val > cfg.trend_threshold {
-                    state.hold_counter = hold_count + 1;
-                    return prev_pos;
-                }
-            }
-        }
-
-        let mut score = if desired != prev_pos {
-            state.position = desired;
-            state.hold_counter = 1;
-            desired
+        let trend_val = if cfg.trend_follow && cfg.trend_indicator_idx < N_FEATURES as u16 {
+            self.features_buf[cfg.trend_indicator_idx as usize]
         } else {
-            state.hold_counter = hold_count + 1;
-            desired
+            f64::NAN
         };
+
+        let (mut score, new_hold) = enforce_hold_step(
+            desired, prev_pos, hold_count, cfg.min_hold,
+            cfg.trend_follow, trend_val, cfg.trend_threshold, cfg.max_hold,
+        );
+        state.hold_counter = new_hold;
+        if score != prev_pos {
+            state.position = score;
+        }
 
         // Bear regime handling
         if !gate_ok {
@@ -1073,14 +1061,11 @@ impl RustTickProcessor {
             }
         }
 
-        // Vol-adaptive sizing
+        // Vol-adaptive sizing (shared)
         if let Some(vt) = cfg.vol_target {
-            if score != 0.0 && cfg.vol_feature_idx < N_FEATURES as u16 {
+            if cfg.vol_feature_idx < N_FEATURES as u16 {
                 let vol_val = self.features_buf[cfg.vol_feature_idx as usize];
-                if !vol_val.is_nan() && vol_val > 1e-8 {
-                    let scale = (vt / vol_val).min(1.0);
-                    score *= scale;
-                }
+                score = vol_scale(score, vol_val, vt);
             }
         }
 
@@ -1130,8 +1115,10 @@ impl RustTickProcessor {
             None => return state.short_position,
         };
 
-        let desired = if z < -cfg.deadzone { -1.0 } else { 0.0 };
+        // Short-only discretize (shared)
+        let desired = discretize_short(z, cfg.deadzone);
 
+        // Min-hold enforcement (shared)
         let prev = state.short_position;
         let hold = if state.short_hold_counter == 0 {
             cfg.min_hold
@@ -1139,26 +1126,18 @@ impl RustTickProcessor {
             state.short_hold_counter
         };
 
-        if hold < cfg.min_hold {
-            state.short_hold_counter = hold + 1;
-            return prev;
+        let (output, new_hold) = enforce_short_hold_step(desired, prev, hold, cfg.min_hold);
+        state.short_hold_counter = new_hold;
+        if output != prev {
+            state.short_position = output;
         }
 
-        if desired != prev {
-            state.short_position = desired;
-            state.short_hold_counter = 1;
-        } else {
-            state.short_hold_counter = hold + 1;
-        }
-
-        let mut score = desired;
+        // Vol-adaptive sizing (shared)
+        let mut score = output;
         if let Some(vt) = cfg.vol_target {
-            if score != 0.0 && cfg.vol_feature_idx < N_FEATURES as u16 {
+            if cfg.vol_feature_idx < N_FEATURES as u16 {
                 let vol_val = self.features_buf[cfg.vol_feature_idx as usize];
-                if !vol_val.is_nan() && vol_val > 1e-8 {
-                    let scale = (vt / vol_val).min(1.0);
-                    score *= scale;
-                }
+                score = vol_scale(score, vol_val, vt);
             }
         }
         score

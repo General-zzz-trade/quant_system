@@ -250,9 +250,47 @@ class TestFullBacktest:
         np.testing.assert_allclose(cpp_net, net, atol=1e-10)
 
     def test_monthly_gate_parity(self):
+        """Monthly gate parity: uses unified single-pass semantics.
+
+        The Rust backtest now matches the live path: min-hold runs first,
+        then gate overrides the output (bypassing min-hold protection).
+        The Python reference is computed with the same interleaved approach.
+        """
         ts, closes, volumes, vol_20, y_pred, f_ts, f_rates = _make_synthetic_data(3000)
-        py_sig = _pred_to_signal(y_pred, deadzone=0.5, min_hold=24, zscore_window=720)
-        py_gated = _apply_monthly_gate(py_sig, closes, ma_window=480)
+        from scripts.signal_postprocess import rolling_zscore
+
+        # Step 1: rolling z-score → discretize (same as Rust zscore_discretize_array)
+        z = rolling_zscore(y_pred, window=720, warmup=180)
+        raw = np.where(z > 0.5, 1.0, np.where(z < -0.5, -1.0, 0.0))
+
+        # Step 2: bear mask
+        bear_mask = _compute_bear_mask(closes, ma_window=480)
+
+        # Step 3: single-pass min-hold + gate override (matches live)
+        n = len(raw)
+        signal = np.zeros(n)
+        signal[0] = raw[0]
+        if bear_mask[0]:
+            signal[0] = 0.0
+        hold_count = 1
+        for i in range(1, n):
+            desired = raw[i]
+            # min-hold enforcement
+            if hold_count < 24:
+                sig = signal[i - 1]
+                hold_count += 1
+            else:
+                sig = desired
+                if desired != signal[i - 1]:
+                    hold_count = 1
+                else:
+                    hold_count += 1
+            # gate override (bypasses min-hold)
+            if bear_mask[i]:
+                if sig != 0.0:
+                    sig = 0.0
+                    hold_count = 1
+            signal[i] = sig
 
         cfg = {"deadzone": 0.5, "min_hold": 24, "zscore_window": 720,
                "monthly_gate": True, "ma_window": 480, "cost_per_trade": 0.0006}
@@ -262,7 +300,7 @@ class TestFullBacktest:
             np.empty(0, dtype=np.float64), np.empty(0, dtype=np.int64),
             json.dumps(cfg))
         cpp_sig = np.asarray(result["signal"])
-        np.testing.assert_allclose(cpp_sig, py_gated, atol=1e-10)
+        np.testing.assert_allclose(cpp_sig, signal, atol=1e-10)
 
     def test_metrics_monthly_breakdown(self):
         ts, closes, volumes, vol_20, y_pred, f_ts, f_rates = _make_synthetic_data(5000)

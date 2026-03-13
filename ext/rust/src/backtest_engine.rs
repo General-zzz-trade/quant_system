@@ -5,6 +5,11 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use serde::Deserialize;
 
+use crate::constraint_pipeline::{
+    zscore_discretize_array, enforce_hold_array, enforce_hold_with_gate_array,
+    compute_bear_mask, vol_scale_array,
+};
+
 // ── Configuration ────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -49,6 +54,14 @@ struct BacktestConfig {
     #[serde(default)]
     long_only: bool,
 
+    // Trend hold (matches live inference_bridge.rs)
+    #[serde(default)]
+    trend_follow: bool,
+    #[serde(default)]
+    trend_threshold: f64,
+    #[serde(default = "default_max_hold")]
+    max_hold: i32,
+
     // Cost model
     #[serde(default)]
     realistic_cost: bool,
@@ -84,6 +97,7 @@ fn default_taker_ratio() -> f64 { 0.7 }
 fn default_impact_eta() -> f64 { 0.5 }
 fn default_spread_multiplier() -> f64 { 0.05 }
 fn default_max_participation() -> f64 { 0.10 }
+fn default_max_hold() -> i32 { 120 }
 fn default_capital() -> f64 { 10000.0 }
 
 fn parse_config(json: &str) -> BacktestConfig {
@@ -102,108 +116,25 @@ fn pred_to_signal_impl(
     zscore_window: i32,
     zscore_warmup: i32,
     long_only: bool,
+    trend_follow: bool,
+    trend_values: Option<&[f64]>,
+    trend_threshold: f64,
+    max_hold: i32,
 ) -> Vec<f64> {
-    let n = y_pred.len();
-    if n == 0 {
-        return vec![];
-    }
-    let zw = zscore_window as usize;
-    let warmup = std::cmp::min(zscore_warmup as usize, zw);
+    // Step 1: Rolling z-score → long_only clip → discretize (shared)
+    let raw = zscore_discretize_array(
+        y_pred, deadzone,
+        zscore_window as usize, zscore_warmup as usize,
+        long_only,
+    );
 
-    // Step 1: Rolling z-score -> raw discrete signal
-    let mut buf = vec![0.0_f64; zw];
-    let mut buf_idx: usize = 0;
-    let mut buf_count: usize = 0;
-    let mut raw = vec![0.0_f64; n];
-
-    for i in 0..n {
-        buf[buf_idx] = y_pred[i];
-        buf_idx = (buf_idx + 1) % zw;
-        buf_count = std::cmp::min(buf_count + 1, zw);
-
-        if buf_count < warmup {
-            continue;
-        }
-
-        // Compute mean and population std of buffer
-        let cnt = buf_count;
-        let mut sum = 0.0_f64;
-        let mut sum2 = 0.0_f64;
-        for j in 0..cnt {
-            let v = buf[j];
-            sum += v;
-            sum2 += v * v;
-        }
-        let mu = sum / cnt as f64;
-        let mut var = sum2 / cnt as f64 - mu * mu;
-        if var < 0.0 {
-            var = 0.0;
-        }
-        let std_val = var.sqrt();
-
-        if std_val < 1e-12 {
-            continue;
-        }
-
-        // Long-only clip BEFORE discretization (matches live inference_bridge.rs)
-        let z = (y_pred[i] - mu) / std_val;
-        let z = if long_only { z.max(0.0) } else { z };
-        if z > deadzone {
-            raw[i] = 1.0;
-        } else if z < -deadzone {
-            raw[i] = -1.0;
-        }
-    }
-
-    // Step 2: Min-hold enforcement
-    let mut signal = vec![0.0_f64; n];
-    signal[0] = raw[0];
-    let mut hold_count: i32 = 1;
-    for i in 1..n {
-        if hold_count < min_hold {
-            signal[i] = signal[i - 1];
-            hold_count += 1;
-        } else {
-            signal[i] = raw[i];
-            if raw[i] != signal[i - 1] {
-                hold_count = 1;
-            } else {
-                hold_count += 1;
-            }
-        }
-    }
-
-    signal
+    // Step 2: Min-hold + trend-hold enforcement (shared)
+    enforce_hold_array(&raw, min_hold, trend_follow, trend_values, trend_threshold, max_hold)
 }
 
 // ── Component 2: compute_bear_mask ───────────────────────────
 
-fn compute_bear_mask(closes: &[f64], ma_window: i32) -> Vec<bool> {
-    let n = closes.len();
-    let mw = ma_window as usize;
-    let mut mask = vec![true; n];
-
-    if n < mw {
-        return mask;
-    }
-
-    // Cumsum
-    let mut cs = vec![0.0_f64; n];
-    cs[0] = closes[0];
-    for i in 1..n {
-        cs[i] = cs[i - 1] + closes[i];
-    }
-
-    // First ma_window bars: bear (conservative) — already set to true
-
-    // SMA from cumsum
-    for i in mw..n {
-        let ma = (cs[i] - cs[i - mw]) / mw as f64;
-        mask[i] = closes[i] <= ma;
-    }
-
-    mask
-}
+// compute_bear_mask is now in constraint_pipeline.rs
 
 // ── Component 2b: prob_to_score ──────────────────────────────
 
@@ -252,72 +183,23 @@ fn apply_dd_breaker(signal: &mut [f64], closes: &[f64], dd_limit: f64, cooldown:
 
 // ── Component 2d: apply_regime_switch ─────────────────────────
 
-fn apply_regime_switch(
+/// Post-processing: vol-adaptive sizing and DD circuit breaker.
+/// Gate/bear logic is now handled in the single-pass enforce_hold_with_gate_array
+/// inside run_backtest_impl, matching live semantics exactly.
+fn apply_post_processing(
     signal: &mut [f64],
     closes: &[f64],
-    bear_probs: Option<&[f64]>,
     vol_values: Option<&[f64]>,
     cfg: &BacktestConfig,
 ) {
-    let n = signal.len();
-    let bear_mask = compute_bear_mask(closes, cfg.ma_window);
-
-    if cfg.monthly_gate && bear_probs.is_none() {
-        // Simple monthly gate: zero signal in bear regime
-        for i in 0..n {
-            if bear_mask[i] {
-                signal[i] = 0.0;
-            }
-        }
-    }
-
-    if let Some(bp) = bear_probs {
-        // Regime switch: replace signal in bear regime with bear model score
-        for i in 0..n {
-            if bear_mask[i] {
-                signal[i] = prob_to_score(bp[i], &cfg.bear_thresholds);
-            }
-        }
-    }
-
-    // NOTE: long_only clip is now applied inside pred_to_signal_impl (before
-    // discretization), matching live inference_bridge.rs behavior. No post-hoc
-    // clip needed here.
-
-    // Vol-adaptive sizing
+    // Vol-adaptive sizing (shared)
     if cfg.vol_adaptive {
         if let Some(vv) = vol_values {
-            for i in 0..n {
-                if signal[i] != 0.0 && !vv[i].is_nan() && vv[i] > 1e-8 {
-                    let scale = (cfg.vol_target / vv[i]).min(1.0);
-                    signal[i] *= scale;
-                }
-            }
+            vol_scale_array(signal, vv, cfg.vol_target);
         }
     }
 
-    // Re-apply min_hold across regime switches (only when bear model is used)
-    if cfg.min_hold > 1 && bear_probs.is_some() {
-        let mut held = vec![0.0_f64; n];
-        held[0] = signal[0];
-        let mut hold_count: i32 = 1;
-        for i in 1..n {
-            if hold_count < cfg.min_hold {
-                held[i] = held[i - 1];
-                hold_count += 1;
-            } else {
-                held[i] = signal[i];
-                if signal[i] != held[i - 1] {
-                    hold_count = 1;
-                } else {
-                    hold_count += 1;
-                }
-            }
-        }
-        signal.copy_from_slice(&held);
-    }
-
-    // DD circuit breaker
+    // DD circuit breaker (backtest-only — live uses real-time KillSwitch)
     if cfg.dd_breaker {
         apply_dd_breaker(signal, closes, cfg.dd_limit, cfg.dd_cooldown);
     }
@@ -754,19 +636,55 @@ fn run_backtest_impl(
     vol_values: Option<&[f64]>,
     funding_rates: Option<&[f64]>,
     funding_ts: Option<&[i64]>,
+    trend_values: Option<&[f64]>,
     cfg: &BacktestConfig,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, BacktestMetrics) {
     let n = y_pred.len();
 
-    // Step 1: pred_to_signal (long_only clip applied inside, before discretization)
-    let mut signal = pred_to_signal_impl(
-        y_pred, cfg.deadzone, cfg.min_hold, cfg.zscore_window, cfg.zscore_warmup,
+    // Step 1: Rolling z-score → long_only clip → discretize (shared)
+    let raw = zscore_discretize_array(
+        y_pred, cfg.deadzone,
+        cfg.zscore_window as usize, cfg.zscore_warmup as usize,
         cfg.long_only,
     );
 
-    // Step 2: Regime switch / monthly gate / vol-adaptive / DD breaker
-    if cfg.use_regime_switch || cfg.monthly_gate || cfg.vol_adaptive || cfg.dd_breaker {
-        apply_regime_switch(&mut signal, closes, bear_probs, vol_values, cfg);
+    // Step 2: Compute gate mask + gate scores (for unified single-pass)
+    let needs_gate = cfg.monthly_gate || cfg.use_regime_switch;
+    let gate_mask = if needs_gate {
+        Some(compute_bear_mask(closes, cfg.ma_window as usize))
+    } else {
+        None
+    };
+
+    let gate_scores: Option<Vec<f64>> = if let Some(bp) = bear_probs {
+        // Pre-compute bear model replacement scores
+        Some(bp.iter().map(|&p| prob_to_score(p, &cfg.bear_thresholds)).collect())
+    } else if cfg.monthly_gate {
+        // Simple monthly gate: zero signal in bear regime (no bear model)
+        None  // enforce_hold_with_gate_array defaults to 0.0
+    } else {
+        None
+    };
+
+    // Step 3: Single-pass min-hold + trend-hold + gate override
+    // Matches live apply_signal_pipeline: min-hold runs first, then gate
+    // overrides the output (bypassing min-hold). No re-min-hold second pass.
+    let mut signal = if gate_mask.is_some() {
+        enforce_hold_with_gate_array(
+            &raw, cfg.min_hold,
+            cfg.trend_follow, trend_values, cfg.trend_threshold, cfg.max_hold,
+            gate_mask.as_deref(), gate_scores.as_deref(),
+        )
+    } else {
+        enforce_hold_array(
+            &raw, cfg.min_hold,
+            cfg.trend_follow, trend_values, cfg.trend_threshold, cfg.max_hold,
+        )
+    };
+
+    // Step 4: Vol-adaptive sizing + DD breaker
+    if cfg.vol_adaptive || cfg.dd_breaker {
+        apply_post_processing(&mut signal, closes, vol_values, cfg);
     }
 
     // Step 3: Cost computation
@@ -808,7 +726,7 @@ fn run_backtest_impl(
 // ── PyO3 entry points ────────────────────────────────────────
 
 #[pyfunction]
-#[pyo3(signature = (timestamps, closes, volumes, vol_20, y_pred, bear_probs, vol_values, funding_rates, funding_ts, config_json))]
+#[pyo3(signature = (timestamps, closes, volumes, vol_20, y_pred, bear_probs, vol_values, funding_rates, funding_ts, config_json, trend_values=vec![]))]
 pub fn cpp_run_backtest(
     timestamps: Vec<i64>,
     closes: Vec<f64>,
@@ -820,6 +738,7 @@ pub fn cpp_run_backtest(
     funding_rates: Vec<f64>,
     funding_ts: Vec<i64>,
     config_json: String,
+    trend_values: Vec<f64>,
 ) -> PyResult<PyObject> {
     let cfg = parse_config(&config_json);
 
@@ -829,9 +748,10 @@ pub fn cpp_run_backtest(
     let vv_opt = if vol_values.is_empty() { None } else { Some(vol_values.as_slice()) };
     let fr_opt = if funding_rates.is_empty() { None } else { Some(funding_rates.as_slice()) };
     let ft_opt = if funding_ts.is_empty() { None } else { Some(funding_ts.as_slice()) };
+    let tv_opt = if trend_values.is_empty() { None } else { Some(trend_values.as_slice()) };
 
     let (signal, equity, net_pnl, metrics) = run_backtest_impl(
-        &timestamps, &closes, vol_opt, v20_opt, &y_pred, bp_opt, vv_opt, fr_opt, ft_opt, &cfg,
+        &timestamps, &closes, vol_opt, v20_opt, &y_pred, bp_opt, vv_opt, fr_opt, ft_opt, tv_opt, &cfg,
     );
 
     Python::with_gil(|py| {
@@ -869,7 +789,7 @@ pub fn cpp_run_backtest(
 }
 
 #[pyfunction]
-#[pyo3(signature = (y_pred, deadzone, min_hold, zscore_window, zscore_warmup, long_only=false))]
+#[pyo3(signature = (y_pred, deadzone, min_hold, zscore_window, zscore_warmup, long_only=false, trend_follow=false, trend_values=vec![], trend_threshold=0.0, max_hold=120))]
 pub fn cpp_pred_to_signal(
     y_pred: Vec<f64>,
     deadzone: f64,
@@ -877,6 +797,12 @@ pub fn cpp_pred_to_signal(
     zscore_window: i32,
     zscore_warmup: i32,
     long_only: bool,
+    trend_follow: bool,
+    trend_values: Vec<f64>,
+    trend_threshold: f64,
+    max_hold: i32,
 ) -> Vec<f64> {
-    pred_to_signal_impl(&y_pred, deadzone, min_hold, zscore_window, zscore_warmup, long_only)
+    let tv_opt = if trend_values.is_empty() { None } else { Some(trend_values.as_slice()) };
+    pred_to_signal_impl(&y_pred, deadzone, min_hold, zscore_window, zscore_warmup,
+                        long_only, trend_follow, tv_opt, trend_threshold, max_hold)
 }

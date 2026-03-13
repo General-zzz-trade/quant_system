@@ -1,12 +1,42 @@
+# runner/replay_runner.py
+"""Replay runner — replays recorded events through the full live pipeline.
+
+Supports two modes:
+  1. State-only replay (default): market events → state updates only.
+  2. Full-chain replay (capture_orders=True or decision_modules provided):
+     market → features → decision → order → fill → position update.
+"""
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
+from engine.decision_bridge import DecisionBridge
+from engine.execution_bridge import ExecutionBridge
 from engine.replay import EventReplay, ReplayConfig
 
+
+# ============================================================
+# Result type
+# ============================================================
+
+@dataclass
+class ReplayResult:
+    """Result of a full-chain replay run."""
+    events_processed: int
+    order_log: List[Dict[str, Any]] = field(default_factory=list)
+    captured_orders: List[Any] = field(default_factory=list)
+    captured_signals: List[Any] = field(default_factory=list)
+    final_state: Optional[Dict[str, Any]] = None
+
+
+# ============================================================
+# JSONL event source
+# ============================================================
 
 class JsonlEventSource:
     """Reads events from a JSON Lines file, yielding decoded dicts.
@@ -47,44 +77,200 @@ class JsonlEventSource:
                 yield json.loads(line)
 
 
+# ============================================================
+# Replay runner
+# ============================================================
+
 def run_replay(
     *,
     event_log_path: Path,
     symbol: Optional[str] = None,
     out_dir: Optional[Path] = None,
-) -> int:
+    decision_modules: Optional[Sequence[Any]] = None,
+    capture_orders: bool = False,
+    coordinator_config: Optional[CoordinatorConfig] = None,
+) -> ReplayResult:
     """Replay events from a JSONL event log through the engine coordinator.
 
-    Returns the number of events processed.
+    Args:
+        event_log_path: Path to the JSONL event log file.
+        symbol: Default symbol (default: "BTCUSDT").
+        out_dir: Optional output directory for replay summary.
+        decision_modules: Optional list of DecisionModule instances.
+            When provided, wires DecisionBridge + ExecutionBridge to enable
+            full-chain replay (signal → order → fill → position).
+        capture_orders: If True and decision_modules is provided, captures
+            all order and signal events emitted during replay.
+        coordinator_config: Optional pre-built CoordinatorConfig (overrides symbol).
+
+    Returns:
+        ReplayResult with events_processed, order_log, captured events, and final state.
     """
     source = JsonlEventSource(event_log_path)
-
     symbol_default = symbol or "BTCUSDT"
 
-    coordinator = EngineCoordinator(
-        cfg=CoordinatorConfig(
-            symbol_default=symbol_default.upper(),
-            currency="USDT",
-        )
+    cfg = coordinator_config or CoordinatorConfig(
+        symbol_default=symbol_default.upper(),
+        currency="USDT",
     )
+
+    coordinator = EngineCoordinator(cfg=cfg)
+
+    # Full-chain wiring: decision modules + execution adapter
+    replay_adapter = None
+    captured_orders: List[Any] = []
+    captured_signals: List[Any] = []
+
+    if decision_modules is not None:
+        from execution.sim.replay_adapter import ReplayExecutionAdapter
+
+        # Price source reads last close from coordinator state
+        def _price_source(sym: str) -> Optional[Decimal]:
+            try:
+                view = coordinator.get_state_view()
+                markets = view.get("markets", {})
+                mkt = markets.get(sym)
+                if mkt is not None:
+                    return Decimal(str(getattr(mkt, "close", 0)))
+            except Exception:
+                pass
+            return None
+
+        replay_adapter = ReplayExecutionAdapter(price_source=_price_source)
+
+        # Capturing emit: intercepts events by type before forwarding
+        def _capturing_emit(ev: Any, *, actor: str = "replay") -> None:
+            et = getattr(ev, "event_type", None)
+            et_val = getattr(et, "value", str(et) if et else "").lower()
+            if et_val in ("order",):
+                captured_orders.append(ev)
+            elif et_val in ("signal", "intent"):
+                captured_signals.append(ev)
+            coordinator.emit(ev, actor=actor)
+
+        decision_bridge = DecisionBridge(
+            dispatcher_emit=_capturing_emit,
+            modules=list(decision_modules),
+        )
+        execution_bridge = ExecutionBridge(
+            adapter=replay_adapter,
+            dispatcher_emit=_capturing_emit,
+        )
+
+        coordinator.attach_decision_bridge(decision_bridge)
+        coordinator.attach_execution_bridge(execution_bridge)
 
     coordinator.start()
 
     replay = EventReplay(
-        dispatcher=coordinator._dispatcher,
+        dispatcher=coordinator.dispatcher,
         source=source,
         config=ReplayConfig(strict_order=False, actor="replay"),
     )
 
     processed = replay.run()
+    final_state = dict(coordinator.get_state_view())
     coordinator.stop()
+
+    result = ReplayResult(
+        events_processed=processed,
+        order_log=replay_adapter.order_log if replay_adapter else [],
+        captured_orders=captured_orders,
+        captured_signals=captured_signals,
+        final_state=final_state,
+    )
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
-        summary_path = out_dir / "replay_summary.json"
-        summary_path.write_text(
-            json.dumps({"events_processed": processed, "source": str(event_log_path)}, indent=2)
+        summary = {
+            "events_processed": processed,
+            "source": str(event_log_path),
+            "orders": len(result.order_log),
+            "signals": len(result.captured_signals),
+        }
+        (out_dir / "replay_summary.json").write_text(
+            json.dumps(summary, indent=2)
         )
 
-    print(f"Replayed {processed} events from {event_log_path}")
-    return processed
+    return result
+
+
+def run_replay_from_events(
+    *,
+    events: Sequence[Any],
+    symbol: str = "BTCUSDT",
+    decision_modules: Optional[Sequence[Any]] = None,
+    coordinator_config: Optional[CoordinatorConfig] = None,
+) -> ReplayResult:
+    """Replay a sequence of in-memory events (no JSONL file needed).
+
+    Same full-chain wiring as run_replay() but takes events directly.
+    Useful for tests and programmatic replay.
+    """
+    cfg = coordinator_config or CoordinatorConfig(
+        symbol_default=symbol.upper(),
+        currency="USDT",
+    )
+
+    coordinator = EngineCoordinator(cfg=cfg)
+
+    replay_adapter = None
+    captured_orders: List[Any] = []
+    captured_signals: List[Any] = []
+
+    if decision_modules is not None:
+        from execution.sim.replay_adapter import ReplayExecutionAdapter
+
+        def _price_source(sym: str) -> Optional[Decimal]:
+            try:
+                view = coordinator.get_state_view()
+                markets = view.get("markets", {})
+                mkt = markets.get(sym)
+                if mkt is not None:
+                    return Decimal(str(getattr(mkt, "close", 0)))
+            except Exception:
+                pass
+            return None
+
+        replay_adapter = ReplayExecutionAdapter(price_source=_price_source)
+
+        def _capturing_emit(ev: Any, *, actor: str = "replay") -> None:
+            et = getattr(ev, "event_type", None)
+            et_val = getattr(et, "value", str(et) if et else "").lower()
+            if et_val in ("order",):
+                captured_orders.append(ev)
+            elif et_val in ("signal", "intent"):
+                captured_signals.append(ev)
+            coordinator.emit(ev, actor=actor)
+
+        decision_bridge = DecisionBridge(
+            dispatcher_emit=_capturing_emit,
+            modules=list(decision_modules),
+        )
+        execution_bridge = ExecutionBridge(
+            adapter=replay_adapter,
+            dispatcher_emit=_capturing_emit,
+        )
+
+        coordinator.attach_decision_bridge(decision_bridge)
+        coordinator.attach_execution_bridge(execution_bridge)
+
+    coordinator.start()
+
+    replay = EventReplay(
+        dispatcher=coordinator.dispatcher,
+        source=events,
+        config=ReplayConfig(strict_order=False, actor="replay"),
+    )
+
+    processed = replay.run()
+    final_state = dict(coordinator.get_state_view())
+    coordinator.stop()
+
+    return ReplayResult(
+        events_processed=processed,
+        order_log=replay_adapter.order_log if replay_adapter else [],
+        captured_orders=captured_orders,
+        captured_signals=captured_signals,
+        final_state=final_state,
+    )
