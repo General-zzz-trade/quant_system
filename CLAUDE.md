@@ -99,6 +99,14 @@ Key exports:
 - `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
 - `runner/live_runner.py` — Production entry point (Python)
 
+## Live Integration Subsystems
+
+- **Alpha Health Monitor**: `AlphaHealthMonitor` in `monitoring/alpha_health.py` — tracks per-symbol IC, gates orders via `position_scale()` (0.0/0.5/1.0). Wired in `EngineMonitoringHook` and `_emit()` gate in live_runner.
+- **WS-API Orders**: `WsOrderAdapter` in `execution/adapters/binance/ws_order_adapter.py` — ~4ms WS-API with REST fallback. Enable via `LiveRunnerConfig(use_ws_orders=True)`.
+- **Adaptive BTC Config**: `AdaptiveConfigSelector.select_robust()` runs periodically (24h) for BTCUSDT only. Updates `LiveInferenceBridge.update_params()` on `confidence="high"`. Enable via `LiveRunnerConfig(adaptive_btc_enabled=True)`.
+- **Auto-Retrain**: `scripts/auto_retrain.py --notify-runner --alert` sends SIGHUP to runner + Telegram/webhook alerts. Systemd timer in `infra/systemd/auto-retrain.timer` (Sunday 2am UTC).
+- **SIGHUP Model Reload**: Works with both ModelRegistry (registry-based) and direct file reload (models_v8/*.pkl). Runner always installs SIGHUP handler.
+
 ## Gotchas
 
 - `_quant_hotpath/` at project root shadows pip-installed package — always copy .so after build

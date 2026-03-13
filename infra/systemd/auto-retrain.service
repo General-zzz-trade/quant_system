@@ -1,0 +1,16 @@
+[Unit]
+Description=Quant System Automated Walk-Forward Retraining
+After=network.target data-refresh.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.auto_retrain --notify-runner --alert
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+StandardOutput=append:/quant_system/logs/retrain.log
+StandardError=append:/quant_system/logs/retrain.log
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

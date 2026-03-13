@@ -15,6 +15,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
     control_fn: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     alerts_fn: Optional[Callable[[], list[dict[str, Any]]]] = None
     ops_audit_fn: Optional[Callable[[], dict[str, Any]]] = None
+    attribution_fn: Optional[Callable[[], dict[str, Any]]] = None
     auth_token: str | None = None
 
     def do_GET(self) -> None:
@@ -48,6 +49,11 @@ class _HealthHandler(BaseHTTPRequestHandler):
                 self._json_response(404, {"error": "ops audit unavailable"})
             else:
                 self._json_response(200, self.ops_audit_fn())
+        elif self.path == "/attribution":
+            if self.attribution_fn is None:
+                self._json_response(404, {"error": "attribution unavailable"})
+            else:
+                self._json_response(200, self.attribution_fn())
         else:
             self._json_response(404, {"error": "not found"})
 
@@ -109,6 +115,7 @@ class HealthServer:
         control_fn: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
         alerts_fn: Optional[Callable[[], list[dict[str, Any]]]] = None,
         ops_audit_fn: Optional[Callable[[], dict[str, Any]]] = None,
+        attribution_fn: Optional[Callable[[], dict[str, Any]]] = None,
         host: str = "127.0.0.1",
         auth_token: str | None = None,
     ) -> None:
@@ -120,6 +127,7 @@ class HealthServer:
         self._control_fn = control_fn
         self._alerts_fn = alerts_fn
         self._ops_audit_fn = ops_audit_fn
+        self._attribution_fn = attribution_fn
         self._auth_token = auth_token
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -135,6 +143,7 @@ class HealthServer:
                 "control_fn": staticmethod(self._control_fn) if self._control_fn is not None else None,
                 "alerts_fn": staticmethod(self._alerts_fn) if self._alerts_fn is not None else None,
                 "ops_audit_fn": staticmethod(self._ops_audit_fn) if self._ops_audit_fn is not None else None,
+                "attribution_fn": staticmethod(self._attribution_fn) if self._attribution_fn is not None else None,
                 "auth_token": self._auth_token,
             },
         )

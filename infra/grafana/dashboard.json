@@ -1,0 +1,181 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "quant-system-overview",
+    "title": "Quant System Overview",
+    "tags": ["quant", "trading"],
+    "timezone": "utc",
+    "refresh": "30s",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Portfolio Equity",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "account_equity",
+            "legendFormat": "Equity"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Drawdown",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "portfolio_drawdown",
+            "legendFormat": "Drawdown"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "color": {"mode": "fixed", "fixedColor": "red"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": -0.05},
+                {"color": "red", "value": -0.10}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Alpha Health Scale",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "alpha_health_position_scale",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 1
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Inference Latency (p99)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, rate(inference_latency_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(inference_latency_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "ML Signal",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "ml_score",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": -1,
+            "max": 1
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Pipeline Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "pipeline_stage_latency_seconds",
+            "legendFormat": "{{stage}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Position & Orders",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "position_qty",
+            "legendFormat": "{{symbol}}"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Kill Switch Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24},
+        "targets": [
+          {
+            "expr": "kill_switch_active",
+            "legendFormat": "Kill Switch"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "OK", "color": "green"}}},
+              {"type": "value", "options": {"1": {"text": "ACTIVE", "color": "red"}}}
+            ]
+          }
+        }
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Trades",
+          "datasource": "Prometheus",
+          "expr": "changes(trade_count_total[1m]) > 0",
+          "tagKeys": "symbol",
+          "iconColor": "blue"
+        }
+      ]
+    }
+  }
+}

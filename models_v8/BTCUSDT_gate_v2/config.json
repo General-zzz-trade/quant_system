@@ -3,32 +3,9 @@
   "version": "v11",
   "multi_horizon": true,
   "horizons": [
-    12,
     24
   ],
   "horizon_models": [
-    {
-      "horizon": 12,
-      "lgbm": "lgbm_h12.pkl",
-      "xgb": "xgb_h12.pkl",
-      "features": [
-        "cvd_10",
-        "fgi_normalized",
-        "basis_carry_adj",
-        "atr_norm_14",
-        "tf4h_atr_norm_14",
-        "price_acceleration",
-        "parkinson_vol",
-        "vol_ma_ratio_5_20",
-        "dow_cos",
-        "ret_24",
-        "ret_12",
-        "tf4h_mean_reversion_20",
-        "bb_width_20",
-        "hour_cos"
-      ],
-      "ic": 0.0016408972915270127
-    },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
@@ -82,7 +59,6 @@
     "sharpe": 1.6032202216204294,
     "avg_ic": 0.020815090086786225,
     "per_horizon_ic": {
-      "12": 0.0016408972915270127,
       "24": 0.03998928288204544
     },
     "total_return": 0.02095850146898397,

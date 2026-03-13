@@ -505,6 +505,9 @@ class EngineCoordinator:
             cross_feats = fh._cross_asset.get_features(symbol)
             features.update(cross_feats)
 
+        # Tag features with symbol for downstream hooks (alpha health, etc.)
+        features["_symbol"] = symbol
+
         # Store last features in feature_hook for non-market event lookups
         if fh is not None:
             fh._last_features[symbol] = features

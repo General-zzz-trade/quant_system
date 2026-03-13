@@ -141,6 +141,8 @@ HORIZON = 24
 TARGET_MODE = "clipped"
 MIN_HOLD = 24
 DEADZONE = 0.5
+ZSCORE_WINDOW = 720
+ZSCORE_WARMUP = 168
 HPO_TRIALS = 10
 NN_SEQ_LEN = 20
 NN_EPOCHS = 30
@@ -407,13 +409,15 @@ def run_fold(
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
     dd_cooldown: int = 48,
-    cost_model_type: str = "flat",
+    cost_model_type: str = "realistic",
     volumes: Optional[np.ndarray] = None,
     nn_ensemble: bool = False,
     nn_seq_len: int = NN_SEQ_LEN,
     nn_epochs: int = NN_EPOCHS,
     selector: str = "greedy",
     lgbm_threads: Optional[int] = None,
+    zscore_window: int = ZSCORE_WINDOW,
+    zscore_warmup: int = ZSCORE_WARMUP,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -590,7 +594,8 @@ def run_fold(
     if _use_cpp:
         cfg = {
             "deadzone": deadzone, "min_hold": min_hold,
-            "zscore_window": 720, "cost_per_trade": COST_PER_TRADE,
+            "zscore_window": zscore_window, "zscore_warmup": zscore_warmup,
+            "cost_per_trade": COST_PER_TRADE,
         }
         if monthly_gate:
             cfg["monthly_gate"] = True
@@ -643,7 +648,9 @@ def run_fold(
         total_return = float(cpp_result["total_return"])
     else:
         signal = _pred_to_signal(y_pred, target_mode=target_mode,
-                                 deadzone=deadzone, min_hold=min_hold)
+                                 deadzone=deadzone, min_hold=min_hold,
+                                 zscore_window=zscore_window,
+                                 zscore_warmup=zscore_warmup)
 
         # Continuous sizing: replace binary magnitude with z-score-based sizing
         if continuous_sizing:
@@ -787,7 +794,7 @@ def run_fold_strategy_f(
     vol_feature: str = "atr_norm_14",
     dd_limit: Optional[float] = None,
     dd_cooldown: int = 48,
-    cost_model_type: str = "flat",
+    cost_model_type: str = "realistic",
     volumes: Optional[np.ndarray] = None,
     nn_ensemble: bool = False,
     nn_seq_len: int = NN_SEQ_LEN,
@@ -795,6 +802,8 @@ def run_fold_strategy_f(
     selector: str = "greedy",
     lgbm_threads: Optional[int] = None,
     short_supplement: bool = False,
+    zscore_window: int = ZSCORE_WINDOW,
+    zscore_warmup: int = ZSCORE_WARMUP,
 ) -> FoldResult:
     """Per-fold Strategy F: train V8 ensemble + bear C within each fold.
 
@@ -1302,8 +1311,12 @@ def main() -> None:
                         help="Max drawdown circuit breaker (e.g. -0.15)")
     parser.add_argument("--dd-cooldown", type=int, default=48,
                         help="Bars to stay flat after DD breach (default: 48)")
-    parser.add_argument("--cost-model", choices=["flat", "realistic"], default="flat",
+    parser.add_argument("--cost-model", choices=["flat", "realistic"], default="realistic",
                         help="Cost model: flat (6bps) or realistic (sqrt-impact + spread)")
+    parser.add_argument("--zscore-window", type=int, default=ZSCORE_WINDOW,
+                        help=f"Rolling z-score window in bars (default: {ZSCORE_WINDOW})")
+    parser.add_argument("--zscore-warmup", type=int, default=ZSCORE_WARMUP,
+                        help=f"Z-score warmup bars before signal generation (default: {ZSCORE_WARMUP})")
     parser.add_argument("--nn-ensemble", action="store_true",
                         help="Add LSTM + Transformer to ensemble (IC-weighted)")
     parser.add_argument("--nn-seq-len", type=int, default=NN_SEQ_LEN,
@@ -1355,6 +1368,8 @@ def main() -> None:
     dd_limit = args.dd_limit
     dd_cooldown = args.dd_cooldown
     cost_model_type = args.cost_model
+    zscore_window = args.zscore_window
+    zscore_warmup = args.zscore_warmup
     nn_ensemble = args.nn_ensemble
     nn_seq_len = args.nn_seq_len
     nn_epochs = args.nn_epochs
@@ -1483,6 +1498,7 @@ def main() -> None:
                 nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len, nn_epochs=nn_epochs,
                 selector=selector, lgbm_threads=lgbm_threads,
                 short_supplement=short_supplement,
+                zscore_window=zscore_window, zscore_warmup=zscore_warmup,
             )
         else:
             kw = dict(
@@ -1509,6 +1525,7 @@ def main() -> None:
                 nn_ensemble=nn_ensemble, nn_seq_len=nn_seq_len,
                 nn_epochs=nn_epochs, selector=selector,
                 lgbm_threads=lgbm_threads,
+                zscore_window=zscore_window, zscore_warmup=zscore_warmup,
             )
         fold_kwargs_list.append(kw)
 

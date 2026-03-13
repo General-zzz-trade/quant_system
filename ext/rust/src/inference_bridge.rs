@@ -102,10 +102,14 @@ impl RustInferenceBridge {
     #[new]
     #[pyo3(signature = (zscore_window=720, zscore_warmup=180, default_gate_window=480))]
     fn new(zscore_window: usize, zscore_warmup: usize, default_gate_window: usize) -> Self {
+        // Clamp warmup to window size, matching backtest (backtest_engine.rs:110).
+        // When warmup > window the buffer can never reach warmup threshold,
+        // so signals would never be produced.
+        let clamped_warmup = std::cmp::min(zscore_warmup, zscore_window);
         Self {
             symbols: HashMap::new(),
             zscore_window,
-            zscore_warmup,
+            zscore_warmup: clamped_warmup,
             default_gate_window,
         }
     }
@@ -157,7 +161,19 @@ impl RustInferenceBridge {
                 raw_score, hour_key, window, warmup,
             ) {
                 Some(z) => z,
-                None => return state.position,
+                None => {
+                    // Warmup: increment hold counter to match backtest behavior.
+                    // In backtest, min-hold runs over warmup bars (raw=0.0) starting
+                    // at hold_count=1, so by bar k the count is k+1. Replicating
+                    // that here ensures the first post-warmup bar has the same
+                    // hold state in both paths.
+                    if state.hold_counter == 0 {
+                        state.hold_counter = 1;
+                    } else {
+                        state.hold_counter += 1;
+                    }
+                    return state.position;
+                }
             }
         } else {
             raw_score
@@ -255,7 +271,15 @@ impl RustInferenceBridge {
             raw_score, hour_key, window, warmup,
         ) {
             Some(z) => z,
-            None => return state.short_position,
+            None => {
+                // Warmup: increment hold counter (same fix as apply_constraints)
+                if state.short_hold_counter == 0 {
+                    state.short_hold_counter = 1;
+                } else {
+                    state.short_hold_counter += 1;
+                }
+                return state.short_position;
+            }
         };
 
         // Short-only clip: only z < -deadzone

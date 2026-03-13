@@ -1,0 +1,145 @@
+# Production configuration for Quant System LiveRunner
+# Copy to config/production.local.yaml and customize before deployment.
+#
+# All parameters map to LiveRunnerConfig fields.
+# Values shown are production defaults — uncomment and modify as needed.
+
+# ── Symbols & venue ──────────────────────────────────────────
+symbols:
+  - BTCUSDT
+currency: USDT
+venue: binance
+testnet: false  # CHANGE TO true FOR INITIAL TESTING
+
+# ── WebSocket feed ───────────────────────────────────────────
+ws_base_url: wss://fstream.binance.com/stream
+kline_interval: 1m
+
+# ── Signal constraints (must match backtest parameters) ──────
+# These values come from walk-forward validation results.
+# Changing them without re-validation risks signal divergence.
+min_hold_bars:
+  BTCUSDT: 12
+deadzone: 0.5
+# long_only_symbols: []
+
+# ── Z-score normalization ────────────────────────────────────
+# zscore_window: 720      # 30 days of hourly bars
+# zscore_warmup: 168      # 7 days warmup
+
+# ── Trend hold ───────────────────────────────────────────────
+trend_follow: false
+# trend_indicator: tf4h_close_vs_ma20
+# trend_threshold: 0.0
+# max_hold: 120
+
+# ── Monthly gate ─────────────────────────────────────────────
+monthly_gate: false
+# monthly_gate_window: 480
+
+# ── Regime detection ─────────────────────────────────────────
+enable_regime_gate: true
+
+# ── Risk management ──────────────────────────────────────────
+# margin_check_interval_sec: 30.0
+# margin_warning_ratio: 0.15
+# margin_critical_ratio: 0.08
+
+# ── Reconciliation ───────────────────────────────────────────
+enable_reconcile: true
+reconcile_on_startup: true
+# reconcile_interval_sec: 60.0
+
+# ── Monitoring & health ──────────────────────────────────────
+enable_monitoring: true
+enable_alpha_health: true
+# alpha_health_horizons: [12, 24]
+health_port: 9090
+health_host: 127.0.0.1
+# health_stale_data_sec: 120.0
+# latency_p99_threshold_ms: 5000.0
+
+# ── Portfolio risk ───────────────────────────────────────────
+enable_portfolio_risk: true
+# max_gross_leverage: 3.0
+# max_net_leverage: 1.0
+# max_concentration: 0.4
+# max_avg_correlation: 0.7
+
+# ── Data persistence ─────────────────────────────────────────
+data_dir: data/live
+enable_persistent_stores: true
+enable_structured_logging: true
+log_level: INFO
+log_file: logs/runner.log
+
+# ── Pre-flight checks ────────────────────────────────────────
+enable_preflight: true
+# preflight_min_balance: 100.0  # Set minimum USDT balance
+
+# ── Shutdown ─────────────────────────────────────────────────
+# pending_order_timeout_sec: 30.0
+
+# ── Shadow mode (simulate without executing) ─────────────────
+shadow_mode: false  # SET TO true FOR DRY RUN
+
+# ── WS-API orders (4ms vs 30ms REST) ─────────────────────────
+# Enable after testnet validation (Direction 4)
+use_ws_orders: false
+
+# ── Drawdown circuit breaker (continuous, Direction 8) ──────────
+dd_warning_pct: 10.0
+dd_reduce_pct: 15.0
+dd_kill_pct: 20.0
+
+# ── Adaptive BTC config ──────────────────────────────────────
+# Enable after validation (Direction 5)
+adaptive_btc_enabled: false
+# adaptive_btc_interval_hours: 24
+
+# ── Model registry ───────────────────────────────────────────
+# model_registry_db: data/models/registry.db
+# artifact_store_root: data/models/artifacts
+# model_names: []
+
+# ── Retired models (Direction 7) ──────────────────────────────────
+# BTCUSDT_30m_v1: removed — final Sharpe 0.008, no real alpha
+# BTCUSDT_5m_v1: removed — Sharpe 70.6, suspected data leakage
+# SOLUSDT_gate_v2: removed — validation failed (DD -34%, only 7/17 positive months)
+# BTCUSDT_gate_v2 h12: removed — IC=0.002, no contribution (h24 retained, IC=0.04)
+
+# ── WS-API orders (Direction 12) ──────────────────────────────────
+# Enable after testnet Phase C validation:
+# use_ws_orders: true
+
+# ── Latency SLA enforcement (Direction 12) ────────────────────────
+# latency_p99_threshold_ms: 5000.0
+
+# ── Ensemble weights ─────────────────────────────────────────
+# ensemble_weights: [1.0]  # Single model default
+
+# ── Multi-timeframe Ensemble (Direction 13) ─────────────────
+# Fuses signals from multiple timeframe models per symbol.
+# Conservative conflict policy: go flat when models disagree on direction.
+enable_multi_tf_ensemble: false  # Enable after validation
+multi_tf_models:
+  BTCUSDT:
+    - gate_v2
+    - "15m"
+ensemble_conflict_policy: flat  # flat = go flat on signal conflict
+
+# ── Burn-in protocol (Direction 14) ────────────────────────
+# Prevents production mode unless paper/shadow/testnet phases passed.
+enable_burnin_gate: false  # Enable for production safety
+burnin_report_path: data/live/burnin_report.json
+# Burn-in phases:
+#   Phase A (Paper, 7d):   shadow_mode=true, testnet=false
+#   Phase B (Shadow, 7d):  shadow_mode=true, real WS connection
+#   Phase C (Testnet, 3d): shadow_mode=false, testnet=true
+# Run: python3 -m scripts.burnin_report --phase {A|B|C} --data-dir data/live
+
+# ── Regime-aware position sizing (Direction 17) ────────────
+enable_regime_sizing: false  # Enable after validation
+# regime_low_vol_scale: 1.0
+# regime_mid_vol_scale: 0.6
+# regime_high_vol_scale: 0.25

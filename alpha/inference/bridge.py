@@ -98,6 +98,40 @@ class LiveInferenceBridge:
         self._rust.reset()
         logger.info("Models hot-swapped: %d model(s)", len(models))
 
+    def update_params(
+        self,
+        symbol: str,
+        *,
+        deadzone: Optional[float] = None,
+        min_hold: Optional[int] = None,
+        max_hold: Optional[int] = None,
+        long_only: Optional[bool] = None,
+    ) -> None:
+        """Hot-update signal parameters for a symbol without resetting z-score history.
+
+        Only updates the specified parameters; others are left unchanged.
+        This allows adaptive parameter selection (e.g., BTC) while preserving
+        the Rust bridge's z-score normalization state.
+        """
+        if deadzone is not None:
+            if isinstance(self._deadzone, dict):
+                self._deadzone[symbol] = deadzone
+            else:
+                self._deadzone = {symbol: deadzone}
+        if min_hold is not None:
+            self._min_hold_bars[symbol] = min_hold
+        if max_hold is not None:
+            self._max_hold = max_hold  # global (Rust bridge uses single max_hold)
+        if long_only is not None:
+            if long_only:
+                self._long_only_symbols.add(symbol)
+            else:
+                self._long_only_symbols.discard(symbol)
+        logger.info(
+            "Params updated for %s: deadzone=%s min_hold=%s max_hold=%s long_only=%s",
+            symbol, deadzone, min_hold, max_hold, long_only,
+        )
+
     @staticmethod
     def _resolve(param, symbol: str, default=None):
         """Resolve a scalar-or-dict parameter to a per-symbol value."""

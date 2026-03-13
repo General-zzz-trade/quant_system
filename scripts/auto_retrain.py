@@ -70,6 +70,8 @@ MIN_SHARPE = 1.0                      # minimum Sharpe for new model
 DECAY_TOLERANCE = 0.7                 # new Sharpe >= old × this (30% decay OK)
 MIN_TRADES = 15                       # minimum OOS trades
 BOOTSTRAP_P5_MIN = 0.0               # bootstrap p5 must be positive
+MIN_FINAL_SHARPE = 0.5               # final fold Sharpe must be > this
+MIN_FINAL_AVG_NET_BPS = 2.0          # final fold avg net bps must be > this
 
 
 def load_current_config(symbol: str) -> Optional[Dict[str, Any]]:
@@ -209,6 +211,8 @@ def retrain_symbol(
     new_avg_ic = new_metrics.get("avg_ic", 0)
     new_trades = new_metrics.get("trades", 0)
     new_p5 = new_metrics.get("bootstrap_sharpe_p5", 0)
+    new_final_sharpe = new_metrics.get("final_sharpe", None)
+    new_final_avg_net_bps = new_metrics.get("final_avg_net_bps", None)
 
     result["new_sharpe"] = new_sharpe
     result["new_avg_ic"] = new_avg_ic
@@ -220,6 +224,8 @@ def retrain_symbol(
         "sharpe_gate": new_sharpe >= MIN_SHARPE,
         "trades_gate": new_trades >= MIN_TRADES,
         "bootstrap_gate": new_p5 >= BOOTSTRAP_P5_MIN,
+        "final_sharpe_gate": new_final_sharpe is None or new_final_sharpe >= MIN_FINAL_SHARPE,
+        "final_net_bps_gate": new_final_avg_net_bps is None or new_final_avg_net_bps >= MIN_FINAL_AVG_NET_BPS,
     }
 
     # Comparison gate: new model should not be drastically worse
@@ -279,6 +285,92 @@ def log_retrain_event(result: Dict[str, Any]) -> None:
         f.write(json.dumps(result, default=str) + "\n")
 
 
+def send_sighup_to_runner() -> bool:
+    """Send SIGHUP to the live runner process to trigger model hot-reload.
+
+    Finds the runner PID from the pidfile or by process name match.
+    Returns True if signal was sent successfully.
+    """
+    import os
+    import signal
+
+    # Try pidfile first
+    pidfile = Path("data/live/runner.pid")
+    if pidfile.exists():
+        try:
+            pid = int(pidfile.read_text().strip())
+            os.kill(pid, signal.SIGHUP)
+            logger.info("Sent SIGHUP to runner (pid=%d from pidfile)", pid)
+            return True
+        except (ValueError, ProcessLookupError, PermissionError) as e:
+            logger.warning("Pidfile SIGHUP failed: %s", e)
+
+    # Fallback: find runner by process name
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["pgrep", "-f", "live_runner"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                pid = int(line.strip())
+                if pid != os.getpid():  # Don't signal ourselves
+                    os.kill(pid, signal.SIGHUP)
+                    logger.info("Sent SIGHUP to runner (pid=%d from pgrep)", pid)
+                    return True
+    except Exception as e:
+        logger.warning("pgrep SIGHUP fallback failed: %s", e)
+
+    logger.warning("No runner process found for SIGHUP")
+    return False
+
+
+def send_alert(message: str, *, severity: str = "info") -> None:
+    """Send alert via configured channels (Telegram, webhook, or log-only).
+
+    Reads TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from env vars.
+    Falls back to structured logging if no alert sink configured.
+    """
+    import os
+
+    logger.info("ALERT [%s]: %s", severity, message)
+
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if tg_token and tg_chat:
+        try:
+            import urllib.request
+            import urllib.parse
+            url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+            data = urllib.parse.urlencode({
+                "chat_id": tg_chat,
+                "text": f"[auto_retrain] [{severity.upper()}] {message}",
+                "parse_mode": "HTML",
+            }).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            urllib.request.urlopen(req, timeout=10)
+            logger.info("Telegram alert sent")
+        except Exception as e:
+            logger.warning("Telegram alert failed: %s", e)
+
+    webhook_url = os.environ.get("RETRAIN_WEBHOOK_URL", "")
+    if webhook_url:
+        try:
+            import urllib.request
+            data = json.dumps({
+                "text": f"[auto_retrain] [{severity}] {message}",
+                "severity": severity,
+            }).encode()
+            req = urllib.request.Request(
+                webhook_url, data=data, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            logger.warning("Webhook alert failed: %s", e)
+
+
 def cleanup_old_backups(symbol: str, keep: int = 3) -> None:
     """Keep only the N most recent backups for a symbol."""
     model_dir = Path(MODEL_DIR_TEMPLATE.format(symbol=symbol))
@@ -304,6 +396,10 @@ def main():
                         help="Retrain even if model is healthy")
     parser.add_argument("--max-age-days", type=int, default=90,
                         help="Max model age before forced retrain (default: 90)")
+    parser.add_argument("--notify-runner", action="store_true",
+                        help="Send SIGHUP to runner after successful retrain")
+    parser.add_argument("--alert", action="store_true",
+                        help="Send alerts on success/failure (Telegram/webhook)")
     args = parser.parse_args()
 
     symbols = (
@@ -353,10 +449,12 @@ def main():
     print("  RETRAIN SUMMARY")
     print(f"{'=' * 70}")
 
+    succeeded = []
     for symbol, result in results.items():
         if result.get("skipped"):
             print(f"  {symbol}: SKIPPED ({result.get('reason', '')})")
         elif result.get("success"):
+            succeeded.append(symbol)
             print(
                 f"  {symbol}: SUCCESS "
                 f"(Sharpe {result.get('old_sharpe', 0):.2f}→{result.get('new_sharpe', 0):.2f}, "
@@ -365,9 +463,72 @@ def main():
         else:
             print(f"  {symbol}: FAILED ({result.get('error', 'unknown')})")
 
-    # Return exit code
+    # ── Post-retrain parity check (Direction 15) ──
+    if succeeded and not args.dry_run:
+        logger.info("Running post-retrain parity check...")
+        try:
+            import subprocess
+            parity_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pytest",
+                    "tests/integration/test_live_backtest_parity.py",
+                    "-x", "-q", "--tb=short",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd="/quant_system",
+            )
+            if parity_result.returncode != 0:
+                logger.warning(
+                    "Post-retrain parity check FAILED:\n%s",
+                    parity_result.stdout + parity_result.stderr,
+                )
+                if args.alert:
+                    send_alert(
+                        f"Post-retrain parity check FAILED for {succeeded}",
+                        severity="warning",
+                    )
+            else:
+                logger.info("Post-retrain parity check PASSED")
+        except Exception as e:
+            logger.warning("Post-retrain parity check error: %s", e)
+
+    # Send SIGHUP to runner after successful retrain
+    if args.notify_runner and succeeded and not args.dry_run:
+        sighup_ok = send_sighup_to_runner()
+        if sighup_ok:
+            print("  → SIGHUP sent to runner for model hot-reload")
+        else:
+            print("  → WARNING: SIGHUP failed — manual model reload required")
+
+    # Send alerts
     failed = [s for s, r in results.items()
               if not r.get("success") and not r.get("skipped")]
+
+    if args.alert:
+        if succeeded:
+            summary_parts = []
+            for sym in succeeded:
+                r = results[sym]
+                summary_parts.append(
+                    f"{sym}: Sharpe {r.get('old_sharpe', 0):.2f}→{r.get('new_sharpe', 0):.2f}"
+                )
+            send_alert(
+                f"Retrain SUCCESS: {', '.join(summary_parts)}",
+                severity="info",
+            )
+        if failed:
+            fail_parts = []
+            for sym in failed:
+                r = results[sym]
+                fail_parts.append(f"{sym}: {r.get('error', 'unknown')}")
+            send_alert(
+                f"Retrain FAILED: {', '.join(fail_parts)}",
+                severity="error",
+            )
+
+    # Return exit code
     return 1 if failed else 0
 
 

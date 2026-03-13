@@ -13,6 +13,7 @@ def pred_to_signal(
     deadzone: float = 0.5,
     min_hold: int = 24,
     zscore_window: int = 720,
+    zscore_warmup: int = 168,
 ) -> np.ndarray:
     """Convert raw predictions to discrete positions {-1, 0, +1} with min hold."""
     if target_mode == "binary":
@@ -22,7 +23,8 @@ def pred_to_signal(
         return enforce_min_hold(raw, min_hold)
 
     y_c = np.ascontiguousarray(y_pred, dtype=np.float64)
-    result = _cpp_pred_to_signal(y_c, deadzone, min_hold, zscore_window, min(168, zscore_window))
+    warmup = min(zscore_warmup, zscore_window)
+    result = _cpp_pred_to_signal(y_c, deadzone, min_hold, zscore_window, warmup)
     return np.asarray(result, dtype=np.float64)
 
 

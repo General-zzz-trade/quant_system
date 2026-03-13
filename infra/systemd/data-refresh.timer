@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily data refresh timer (1am UTC, before retrain at 2am)
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

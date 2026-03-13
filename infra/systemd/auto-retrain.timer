@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly auto-retrain timer (Sunday 2am UTC)
+
+[Timer]
+OnCalendar=Sun *-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

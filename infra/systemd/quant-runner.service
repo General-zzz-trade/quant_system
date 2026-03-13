@@ -1,0 +1,34 @@
+[Unit]
+Description=Quant System Live Trading Runner
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=notify
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m runner.live_runner --config config/production.yaml
+User=ubuntu
+Group=ubuntu
+Environment=PYTHONPATH=/quant_system
+Environment=LOG_LEVEL=INFO
+Restart=on-failure
+RestartSec=30
+WatchdogSec=300
+StandardOutput=append:/quant_system/logs/runner.log
+StandardError=append:/quant_system/logs/runner.log
+LimitNOFILE=65536
+TimeoutStopSec=60
+KillSignal=SIGTERM
+# Allow SIGHUP for model hot-reload
+KillMode=mixed
+
+# Security hardening
+ProtectSystem=strict
+ReadWritePaths=/quant_system/data /quant_system/logs /quant_system/models_v8
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

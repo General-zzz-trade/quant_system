@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from engine.pipeline import PipelineOutput
 from monitoring.health import SystemHealthMonitor
@@ -30,6 +31,19 @@ class EngineMonitoringHook:
     metrics: Optional[PrometheusExporter] = None
     kill_switch: Optional[Any] = None
     inference_bridge: Optional[Any] = None
+    alpha_health_monitor: Optional[Any] = None
+    drawdown_breaker: Optional[Any] = None
+    live_signal_tracker: Optional[Any] = None
+    latency_tracker: Optional[Any] = None
+    regime_sizer: Optional[Any] = None  # Direction 17: RegimePositionSizer
+    _vol_detector: Optional[Any] = field(default=None, init=False)  # cached detector
+    _latency_sla_threshold_ms: float = 5000.0
+    _latency_sla_breach_start: Optional[float] = field(default=None, init=False)
+    _latency_sla_reduce_duration_sec: float = 300.0  # 5 minutes reduce-only
+    _rest_fallback_count: int = field(default=0, init=False)
+    _rest_fallback_window_start: float = field(default=0.0, init=False)
+    _REST_FALLBACK_WINDOW_SEC: float = 300.0  # 5 minute window
+    _REST_FALLBACK_THRESHOLD: int = 5  # fallback count threshold for alerting
     _event_count: int = field(default=0, init=False)
     _order_count: int = field(default=0, init=False)
     _order_rejection_count: int = field(default=0, init=False)
@@ -38,6 +52,9 @@ class EngineMonitoringHook:
     _equity_hwm: float = field(default=0.0, init=False)
     _last_signal_ts: float = field(default=0.0, init=False)
     execution_quality: Optional[Any] = None
+    # Alpha health: buffer (close, ml_score) per symbol for lagged IC computation
+    _alpha_pred_buffer: Dict[str, Deque[Tuple[float, float]]] = field(default_factory=dict, init=False)
+    _ALPHA_MAX_LAG: int = 50  # max horizon to support
 
     def on_order(self) -> None:
         self._order_count += 1
@@ -50,6 +67,16 @@ class EngineMonitoringHook:
 
     def on_reconcile_drift(self) -> None:
         self._reconcile_drift_count += 1
+
+    def on_rest_fallback(self) -> None:
+        """Record a REST fallback event (WS order failed, fell back to REST)."""
+        now = time.time()
+        if now - self._rest_fallback_window_start > self._REST_FALLBACK_WINDOW_SEC:
+            self._rest_fallback_count = 0
+            self._rest_fallback_window_start = now
+        self._rest_fallback_count += 1
+        if self.metrics is not None:
+            self.metrics.inc_counter("ws_rest_fallback_total")
 
     def on_signal(self, symbol: str, value: float, latency_sec: float) -> None:
         self._last_signal_ts = time.time()
@@ -71,6 +98,14 @@ class EngineMonitoringHook:
 
     def __call__(self, out: PipelineOutput) -> None:
         self._event_count += 1
+
+        # ── Alpha Health Monitor: feed predictions and check IC ──
+        if self.alpha_health_monitor is not None and out.features is not None:
+            self._update_alpha_health(out)
+
+        # ── Regime Position Sizer: feed volatility regime (Direction 17) ──
+        if self.regime_sizer is not None and out.features is not None:
+            self._update_regime_sizer(out)
 
         # Health: mark data freshness
         if self.health is not None:
@@ -101,11 +136,19 @@ class EngineMonitoringHook:
                     dd_pct = (self._equity_hwm - eq_f) / self._equity_hwm * 100.0
                     self.metrics.set_gauge("drawdown_pct", dd_pct)
 
+            # ── Drawdown circuit breaker: continuous equity monitoring ──
+            if self.drawdown_breaker is not None and equity is not None:
+                self.drawdown_breaker.on_equity_update(float(equity))
+
             self.metrics.inc_counter("pipeline_events_total")
 
             # ── Non-critical metrics: decimated (always fire on first tick) ──
             if self._event_count > 1 and self._event_count % self._METRICS_DECIMATION != 0:
                 return
+
+            # ── Live signal attribution export ──
+            if self.live_signal_tracker is not None:
+                self.live_signal_tracker.export_metrics()
 
             self.metrics.set_gauge("event_index", float(out.event_index))
 
@@ -167,3 +210,89 @@ class EngineMonitoringHook:
                     self.metrics.set_gauge(
                         "bridge_hold_remaining", float(remaining), labels={"symbol": sym},
                     )
+
+            # Alpha health position scale
+            if self.alpha_health_monitor is not None:
+                for sym in out.positions:
+                    scale = self.alpha_health_monitor.position_scale(sym)
+                    self.metrics.set_gauge(
+                        "alpha_position_scale", scale, labels={"symbol": sym},
+                    )
+
+    def _update_alpha_health(self, out: PipelineOutput) -> None:
+        """Feed alpha health monitor with predictions and lagged returns.
+
+        Buffers (close, ml_score) per symbol. When enough bars have passed,
+        computes realized return and calls monitor.update() for each horizon.
+        Then calls on_bar() to check for IC state transitions.
+        """
+        monitor = self.alpha_health_monitor
+        features = out.features
+        if features is None:
+            return
+
+        symbol = features.get("_symbol")
+        if symbol is None:
+            return
+
+        close = features.get("close")
+        ml_score = features.get("ml_score")
+        if close is None:
+            return
+
+        close_f = float(close)
+
+        # Buffer prediction and close
+        if symbol not in self._alpha_pred_buffer:
+            self._alpha_pred_buffer[symbol] = deque(maxlen=self._ALPHA_MAX_LAG + 1)
+        buf = self._alpha_pred_buffer[symbol]
+        buf.append((close_f, float(ml_score) if ml_score is not None else 0.0))
+
+        # Feed lagged returns to monitor for each registered horizon
+        monitors = monitor._monitors.get(symbol)
+        if monitors is not None:
+            for horizon in monitors:
+                if len(buf) > horizon:
+                    # The prediction made `horizon` bars ago
+                    past_close, past_pred = buf[-(horizon + 1)]
+                    # Realized return over the horizon
+                    actual_return = (close_f - past_close) / past_close if past_close != 0 else 0.0
+                    monitor.update(symbol, horizon, past_pred, actual_return)
+
+        # Check for IC state transitions (respects eval_interval_bars internally)
+        alerts = monitor.on_bar(symbol)
+        for alert in alerts:
+            logger.warning(
+                "AlphaHealth %s: %s h%d IC=%.4f days_neg=%d",
+                alert.alert_type, alert.symbol, alert.horizon,
+                alert.rolling_ic, alert.days_negative,
+            )
+
+    def _update_regime_sizer(self, out: PipelineOutput) -> None:
+        """Feed regime sizer with current volatility regime (Direction 17)."""
+        sizer = self.regime_sizer
+        features = out.features
+        if features is None:
+            return
+
+        symbol = features.get("_symbol")
+        if symbol is None:
+            return
+
+        # Lazily create volatility detector
+        if self._vol_detector is None:
+            from regime.volatility import VolatilityRegimeDetector
+            self._vol_detector = VolatilityRegimeDetector()
+
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc)
+        label = self._vol_detector.detect(symbol=symbol, ts=ts, features=features)
+        if label is not None:
+            scale = sizer.update(symbol, label)
+            if self.metrics is not None:
+                self.metrics.set_gauge(
+                    "regime_position_scale", scale, labels={"symbol": symbol},
+                )
+                self.metrics.set_gauge(
+                    "regime_vol_score", label.score, labels={"symbol": symbol},
+                )

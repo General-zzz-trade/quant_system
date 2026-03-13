@@ -129,6 +129,30 @@ class LiveRunnerConfig:
     vol_feature: Union[str, Dict[str, str]] = "atr_norm_14"
     # Ensemble weights for model averaging (matches config.json ensemble_weights)
     ensemble_weights: Optional[List[float]] = None
+    # Alpha health monitoring (IC tracking + position scaling)
+    enable_alpha_health: bool = True
+    alpha_health_horizons: tuple[int, ...] = (12, 24)
+    # WS-API order gateway (4ms vs 30ms REST)
+    use_ws_orders: bool = False
+    # Adaptive config for BTC (select_robust() every 24h)
+    adaptive_btc_enabled: bool = False
+    adaptive_btc_interval_hours: int = 24
+    # Multi-timeframe ensemble (Direction 13)
+    enable_multi_tf_ensemble: bool = False
+    multi_tf_models: Optional[Dict[str, list]] = None  # {"BTCUSDT": ["gate_v2", "15m"]}
+    ensemble_conflict_policy: str = "flat"  # "flat" = go flat on conflict, "average" = ignore
+    # Drawdown circuit breaker (continuous equity monitoring)
+    dd_warning_pct: float = 10.0
+    dd_reduce_pct: float = 15.0
+    dd_kill_pct: float = 20.0
+    # Regime-aware position sizing (Direction 17)
+    enable_regime_sizing: bool = False
+    regime_low_vol_scale: float = 1.0
+    regime_mid_vol_scale: float = 0.6
+    regime_high_vol_scale: float = 0.25
+    # Burn-in gate (Direction 14)
+    enable_burnin_gate: bool = False
+    burnin_report_path: str = "data/live/burnin_report.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +229,12 @@ class LiveRunner:
     portfolio_aggregator: Optional[Any] = None
     data_scheduler: Optional[Any] = None
     freshness_monitor: Optional[Any] = None
+    alpha_health_monitor: Optional[Any] = None
+    ws_order_gateway: Optional[Any] = None
+    ensemble_combiner: Optional[Any] = None  # Direction 13: multi-TF ensemble
+    regime_sizer: Optional[Any] = None  # Direction 17: regime-aware sizing
+    live_signal_tracker: Optional[Any] = None  # Direction 18: attribution feedback
+    portfolio_allocator: Optional[Any] = None  # Direction 19: cross-asset allocator
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _control_history: List[OperatorControlRecord] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
@@ -318,6 +348,92 @@ class LiveRunner:
             )
             hook = EngineMonitoringHook(health=health, metrics=metrics_exporter)
 
+            # ── Drawdown circuit breaker ──
+            from risk.drawdown_breaker import DrawdownCircuitBreaker, DrawdownBreakerConfig
+            dd_breaker = DrawdownCircuitBreaker(
+                kill_switch=kill_switch,
+                config=DrawdownBreakerConfig(
+                    warning_pct=config.dd_warning_pct,
+                    reduce_pct=config.dd_reduce_pct,
+                    kill_pct=config.dd_kill_pct,
+                ),
+            )
+            hook.drawdown_breaker = dd_breaker
+
+        # ── Alpha Health Monitor (IC tracking + position scaling) ──
+        alpha_health_monitor = None
+        if config.enable_alpha_health:
+            from monitoring.alpha_health import AlphaHealthMonitor, AlphaHealthConfig
+
+            alpha_health_monitor = AlphaHealthMonitor(
+                config=AlphaHealthConfig(),
+                prometheus=metrics_exporter,
+            )
+            for sym in config.symbols:
+                alpha_health_monitor.register(sym, horizons=list(config.alpha_health_horizons))
+            if hook is not None:
+                hook.alpha_health_monitor = alpha_health_monitor
+            logger.info(
+                "Alpha health monitor enabled: symbols=%s horizons=%s",
+                config.symbols, config.alpha_health_horizons,
+            )
+
+        # ── Regime Position Sizer (Direction 17) ──
+        regime_sizer = None
+        if config.enable_regime_sizing:
+            from portfolio.regime_sizer import RegimePositionSizer, RegimeSizerConfig
+            regime_sizer = RegimePositionSizer(
+                config=RegimeSizerConfig(
+                    low_vol_scale=config.regime_low_vol_scale,
+                    mid_vol_scale=config.regime_mid_vol_scale,
+                    high_vol_scale=config.regime_high_vol_scale,
+                ),
+            )
+            logger.info(
+                "Regime position sizer enabled: low=%.1f mid=%.1f high=%.1f",
+                config.regime_low_vol_scale, config.regime_mid_vol_scale,
+                config.regime_high_vol_scale,
+            )
+
+        # Wire regime sizer to monitoring hook
+        if regime_sizer is not None and hook is not None:
+            hook.regime_sizer = regime_sizer
+
+        # ── LiveSignalTracker (Direction 18: attribution feedback) ──
+        from attribution.live_tracker import LiveSignalTracker
+        live_signal_tracker = LiveSignalTracker(prometheus=metrics_exporter)
+        if hook is not None:
+            hook.live_signal_tracker = live_signal_tracker
+
+        # ── Portfolio Allocator (Direction 19) ──
+        portfolio_allocator = None
+        if config.enable_portfolio_risk:
+            from portfolio.live_allocator import LivePortfolioAllocator, LiveAllocatorConfig
+            portfolio_allocator = LivePortfolioAllocator(
+                config=LiveAllocatorConfig(
+                    max_gross_leverage=config.max_gross_leverage,
+                    max_net_leverage=config.max_net_leverage,
+                    max_concentration=config.max_concentration,
+                ),
+            )
+            logger.info(
+                "Portfolio allocator enabled: gross=%.1f net=%.1f concentration=%.1f",
+                config.max_gross_leverage, config.max_net_leverage,
+                config.max_concentration,
+            )
+
+        # ── Burn-in Gate (Direction 14) ──
+        if config.enable_burnin_gate and not config.testnet:
+            from runner.preflight import BurninGate
+            burnin_gate = BurninGate(report_path=config.burnin_report_path)
+            burnin_check = burnin_gate.check(testnet=config.testnet)
+            if not burnin_check.passed:
+                raise RuntimeError(
+                    f"Burn-in gate FAILED: {burnin_check.message}\n"
+                    "Complete paper→shadow→testnet phases before production."
+                )
+            logger.info("Burn-in gate passed: %s", burnin_check.message)
+
         # ── CorrelationComputer (created early for on_snapshot) ──
         from risk.correlation_computer import CorrelationComputer
         correlation_computer = CorrelationComputer(window=60)
@@ -405,6 +521,106 @@ class LiveRunner:
                     vol_feature=config.vol_feature,
                     ensemble_weights=config.ensemble_weights,
                 )
+
+            # ── Multi-timeframe Ensemble (Direction 13) ──────────────
+            if config.enable_multi_tf_ensemble and inference_bridge is not None:
+                try:
+                    from decision.ensemble_combiner import EnsembleCombiner
+                    from alpha.inference.bridge import LiveInferenceBridge as _LIB
+                    import json as _json
+
+                    multi_tf = config.multi_tf_models or {}
+                    combiners: Dict[str, Any] = {}
+
+                    for sym, tf_names in multi_tf.items():
+                        bridges_for_sym = []
+                        for tf_name in tf_names:
+                            model_dir = Path(f"models_v8/{sym}_{tf_name}")
+                            if not model_dir.exists():
+                                logger.warning("Multi-TF model dir not found: %s", model_dir)
+                                continue
+
+                            cfg_path = model_dir / "config.json"
+                            if not cfg_path.exists():
+                                logger.warning("Multi-TF config not found: %s", cfg_path)
+                                continue
+
+                            with open(cfg_path) as f:
+                                model_cfg = _json.load(f)
+
+                            # Load models (lgbm + xgb) from the timeframe directory
+                            from alpha.models.lgbm_alpha import LGBMAlphaModel
+                            tf_models = []
+                            for pkl in sorted(model_dir.glob("*.pkl")):
+                                try:
+                                    m = LGBMAlphaModel(name=f"{sym}_{tf_name}_{pkl.stem}")
+                                    m.load(pkl)
+                                    tf_models.append(m)
+                                except Exception:
+                                    logger.warning("Failed to load %s", pkl, exc_info=True)
+                            if not tf_models:
+                                logger.warning("No models loaded from %s", model_dir)
+                                continue
+
+                            # Create per-timeframe bridge with its own constraints
+                            tf_min_hold = {sym: model_cfg.get("min_hold", 12)}
+                            tf_deadzone: Any = {sym: model_cfg.get("deadzone", 0.5)}
+                            tf_long_only = {sym} if model_cfg.get("long_only") else set()
+                            tf_bridge = _LIB(
+                                models=tf_models,
+                                metrics_exporter=metrics_exporter,
+                                min_hold_bars=tf_min_hold,
+                                deadzone=tf_deadzone,
+                                max_hold=model_cfg.get("max_hold", 120),
+                                long_only_symbols=tf_long_only,
+                                ensemble_weights=model_cfg.get("ensemble_weights"),
+                                monthly_gate=config.monthly_gate,
+                                monthly_gate_window=config.monthly_gate_window,
+                                vol_target=config.vol_target,
+                                vol_feature=config.vol_feature,
+                            )
+                            bridges_for_sym.append((tf_name, tf_bridge))
+                            logger.info(
+                                "Multi-TF bridge: %s/%s (min_hold=%d, deadzone=%.1f, max_hold=%d)",
+                                sym, tf_name,
+                                model_cfg.get("min_hold", 12),
+                                model_cfg.get("deadzone", 0.5),
+                                model_cfg.get("max_hold", 120),
+                            )
+
+                        if len(bridges_for_sym) > 1:
+                            combiner = EnsembleCombiner(
+                                bridges=bridges_for_sym,
+                                conflict_policy=config.ensemble_conflict_policy,
+                            )
+                            combiners[sym] = combiner
+                            logger.info(
+                                "Ensemble combiner for %s: %d bridges (%s)",
+                                sym, len(bridges_for_sym),
+                                [n for n, _ in bridges_for_sym],
+                            )
+                        elif len(bridges_for_sym) == 1:
+                            # Single TF loaded -- just use the bridge directly
+                            combiners[sym] = bridges_for_sym[0][1]
+
+                    if combiners:
+                        # Replace single bridge with per-symbol dict of combiners
+                        if isinstance(inference_bridge, dict):
+                            inference_bridge.update(combiners)
+                        else:
+                            # Convert single bridge to dict: combiners override, original is fallback
+                            new_bridge: Dict[str, Any] = {}
+                            for sym in config.symbols:
+                                if sym in combiners:
+                                    new_bridge[sym] = combiners[sym]
+                                else:
+                                    new_bridge[sym] = inference_bridge
+                            inference_bridge = new_bridge
+                        logger.info("Multi-TF ensemble enabled for %d symbols", len(combiners))
+
+                except Exception:
+                    logger.warning("Multi-TF ensemble setup failed - using single bridge", exc_info=True)
+
             feat_hook = FeatureComputeHook(
                 computer=feature_computer,
                 inference_bridge=inference_bridge if unified_predictors is None else None,
@@ -507,6 +723,64 @@ class LiveRunner:
                     except Exception:
                         logger.warning("PortfolioRisk check failed for %s", sym, exc_info=True)
 
+                # Gate 4: Alpha health position scaling
+                if alpha_health_monitor is not None:
+                    ah_scale = alpha_health_monitor.position_scale(sym)
+                    if ah_scale <= 0.0:
+                        logger.warning(
+                            "AlphaHealth HALTED order for %s: position_scale=0.0", sym,
+                        )
+                        return
+                    if ah_scale < 1.0:
+                        # Scale down order quantity
+                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
+                        if raw_qty is not None:
+                            scaled_qty = float(raw_qty) * ah_scale
+                            object.__setattr__(ev, "qty", scaled_qty)
+                            logger.info(
+                                "AlphaHealth scaled order for %s: %.4f → %.4f (scale=%.2f)",
+                                sym, float(raw_qty), scaled_qty, ah_scale,
+                            )
+
+                # Gate 5: Regime-aware position scaling (Direction 17)
+                if regime_sizer is not None:
+                    rs_scale = regime_sizer.position_scale(sym)
+                    if rs_scale < 1.0:
+                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
+                        if raw_qty is not None:
+                            scaled_qty = float(raw_qty) * rs_scale
+                            object.__setattr__(ev, "qty", scaled_qty)
+                            logger.debug(
+                                "RegimeSizer scaled order for %s: scale=%.2f", sym, rs_scale,
+                            )
+
+                # Gate 6: Portfolio allocator order scaling (Direction 19)
+                if portfolio_allocator is not None:
+                    raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
+                    raw_price = getattr(ev, "price", None)
+                    if raw_qty is not None and raw_price is not None:
+                        equity = 0.0
+                        try:
+                            acct = coordinator.get_state_view().get("account")
+                            if acct is not None:
+                                equity = float(getattr(acct, "balance", 0))
+                        except Exception:
+                            pass
+                        if equity > 0:
+                            scaled_qty = portfolio_allocator.scale_order(
+                                sym, float(raw_qty), equity, float(raw_price),
+                            )
+                            if abs(scaled_qty) < abs(float(raw_qty)):
+                                object.__setattr__(ev, "qty", scaled_qty)
+                                logger.info(
+                                    "PortfolioAllocator scaled order for %s: %.4f → %.4f",
+                                    sym, float(raw_qty), scaled_qty,
+                                )
+
+                # Gate 7: Attribution feedback — live signal tracker
+                if live_signal_tracker is not None:
+                    live_signal_tracker.on_fill(ev, origin=sym)
+
                 # Track order submission in state machine + timeout tracker
                 order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
                 if order_id:
@@ -574,6 +848,29 @@ class LiveRunner:
                     )
                 if not result.passed:
                     raise PreflightError(result)
+
+        # ── 4b) WS-API order gateway (optional fast path) ──────
+        ws_order_gateway = None
+        if config.use_ws_orders and not config.shadow_mode:
+            try:
+                from execution.adapters.binance.ws_order_adapter import WsOrderAdapter
+                from execution.adapters.binance.rest import BinanceRestClient as _BRCWS
+
+                if isinstance(venue_client, _BRCWS):
+                    ws_adapter = WsOrderAdapter(
+                        rest_adapter=venue_client,
+                        api_key=venue_client._cfg.api_key,
+                        api_secret=venue_client._cfg.api_secret,
+                        testnet=config.testnet,
+                    )
+                    ws_adapter.start()
+                    ws_order_gateway = ws_adapter
+                    venue_client = ws_adapter  # Replace venue_client with WS-first adapter
+                    logger.info("WS-API order gateway enabled (testnet=%s)", config.testnet)
+                else:
+                    logger.warning("WS orders require BinanceRestClient — skipping")
+            except Exception:
+                logger.warning("WS order gateway setup failed — using REST", exc_info=True)
 
         kill_bridge = KillSwitchBridge(
             inner=venue_client,
@@ -851,6 +1148,34 @@ class LiveRunner:
                 cooldown_sec=300.0,
             ))
 
+        # Default rule: alpha health degradation
+        if alpha_health_monitor is not None:
+            def _alpha_degradation_condition(
+                ahm=alpha_health_monitor, syms=config.symbols,
+            ) -> bool:
+                return any(ahm.position_scale(sym) < 1.0 for sym in syms)
+
+            alert_manager.add_rule(AlertRule(
+                name="alpha_degradation",
+                condition=_alpha_degradation_condition,
+                severity=Severity.WARNING,
+                message_template="Alpha health degraded — position scaling active",
+                cooldown_sec=3600.0,
+            ))
+
+            def _alpha_retrain_needed_condition(
+                ahm=alpha_health_monitor, syms=config.symbols,
+            ) -> bool:
+                return any(ahm.should_retrain(sym) for sym in syms)
+
+            alert_manager.add_rule(AlertRule(
+                name="alpha_retrain_needed",
+                condition=_alpha_retrain_needed_condition,
+                severity=Severity.ERROR,
+                message_template="Alpha IC halted — model retraining required",
+                cooldown_sec=86400.0,
+            ))
+
         # Default rule: high portfolio correlation (uses correlation_computer created earlier)
         def _high_correlation_condition(
             cc=correlation_computer, syms=config.symbols, thresh=config.max_avg_correlation,
@@ -1011,6 +1336,17 @@ class LiveRunner:
                 age = st.data_age_sec
                 if age is not None and age > _stale_thresh:
                     d["status"] = "critical"
+                # Include alpha health status
+                if alpha_health_monitor is not None:
+                    ah_status = {}
+                    for sym in config.symbols:
+                        ah_status[sym] = alpha_health_monitor.get_status(sym)
+                    d["alpha_health"] = ah_status
+                # Include regime sizer status (Direction 17)
+                if regime_sizer is not None:
+                    d["regime_sizer"] = regime_sizer.get_status()
+                if portfolio_allocator is not None:
+                    d["portfolio_allocator"] = portfolio_allocator.get_status()
                 return d
 
             control_plane = OperatorControlPlane(SimpleNamespace())
@@ -1051,6 +1387,11 @@ class LiveRunner:
                     "model_status": [],
                     "timeline": [],
                 },
+                attribution_fn=lambda: (
+                    live_signal_tracker.get_status()
+                    if live_signal_tracker is not None
+                    else {"error": "attribution tracker unavailable"}
+                ),
                 host=config.health_host,
                 auth_token=health_token,
             )
@@ -1082,9 +1423,15 @@ class LiveRunner:
             timeout_tracker=timeout_tracker,
             model_loader=model_loader_inst,
             inference_bridge=inference_bridge,
+            ensemble_combiner=inference_bridge if config.enable_multi_tf_ensemble else None,
             portfolio_aggregator=portfolio_aggregator,
             data_scheduler=data_scheduler,
             freshness_monitor=freshness_monitor,
+            alpha_health_monitor=alpha_health_monitor,
+            ws_order_gateway=ws_order_gateway,
+            regime_sizer=regime_sizer,
+            live_signal_tracker=live_signal_tracker,
+            portfolio_allocator=portfolio_allocator,
             _fills=fills,
         )
         if control_plane is not None:
@@ -1211,12 +1558,59 @@ class LiveRunner:
         except (OSError, PermissionError) as e:
             logger.warning("Performance tuning partially failed: %s", e)
 
+    def _apply_attribution_feedback(self) -> None:
+        """Apply attribution-based weight adjustments to ensemble combiner (Direction 18)."""
+        tracker = self.live_signal_tracker
+        if tracker is None or not hasattr(tracker, 'compute_weight_recommendations'):
+            return
+
+        recommendations = tracker.compute_weight_recommendations(
+            alpha_health_monitor=self.alpha_health_monitor,
+        )
+
+        combiner = self.ensemble_combiner
+        if combiner is None:
+            return
+
+        # Apply to all combiners (may be dict of per-symbol combiners)
+        combiners = combiner.values() if isinstance(combiner, dict) else [combiner]
+        for c in combiners:
+            if hasattr(c, 'update_weight'):
+                for origin, weight_mult in recommendations.items():
+                    if weight_mult < 1.0:
+                        c.update_weight(origin, weight_mult)
+                        logger.info(
+                            "Attribution feedback: %s weight -> %.2f",
+                            origin, weight_mult,
+                        )
+
     def start(self) -> None:
         """Start the live trading system. Blocks until stop() or signal."""
         self._stopped = False
         self._running = True
 
         self._apply_perf_tuning()
+
+        # ── Systemd watchdog notify (Direction 20) ──
+        _sd_notify_fn = None
+        try:
+            import socket
+            _sd_addr = os.environ.get("NOTIFY_SOCKET")
+            if _sd_addr:
+                _sd_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                if _sd_addr.startswith("@"):
+                    _sd_addr = "\0" + _sd_addr[1:]
+
+                def _sd_notify_fn(msg: str) -> None:
+                    try:
+                        _sd_sock.sendto(msg.encode(), _sd_addr)
+                    except Exception:
+                        pass
+
+                _sd_notify_fn("READY=1")
+                logger.info("Systemd notify: READY=1")
+        except Exception:
+            pass
 
         if self.shutdown_handler is not None:
             self.shutdown_handler.install_handlers()
@@ -1240,19 +1634,19 @@ class LiveRunner:
             self.freshness_monitor.start()
 
         # SIGHUP: schedule model reload on next main loop iteration
-        if self.model_loader is not None:
-            import signal as _signal
-            import threading as _threading
-            def _sighup_handler(signum: int, frame: Any) -> None:
-                logger.info("SIGHUP received — scheduling model reload")
-                self._reload_models_pending = True
-            try:
-                if _threading.current_thread() is _threading.main_thread():
-                    _signal.signal(_signal.SIGHUP, _sighup_handler)
-                else:
-                    logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
-            except (OSError, AttributeError, ValueError):
-                pass
+        # Works with both ModelRegistry and direct model file reload
+        import signal as _signal
+        import threading as _threading
+        def _sighup_handler(signum: int, frame: Any) -> None:
+            logger.info("SIGHUP received — scheduling model reload")
+            self._reload_models_pending = True
+        try:
+            if _threading.current_thread() is _threading.main_thread():
+                _signal.signal(_signal.SIGHUP, _sighup_handler)
+            else:
+                logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
+        except (OSError, AttributeError, ValueError):
+            pass
 
         self.runtime.start()
 
@@ -1288,6 +1682,18 @@ class LiveRunner:
 
         self.loop.start_background()
 
+        # ── Adaptive BTC config selector state ──
+        _last_adaptive_check = 0.0
+        _adaptive_selector = None
+        cfg = getattr(self, "_config", None)
+        if cfg is not None and cfg.adaptive_btc_enabled and "BTCUSDT" in cfg.symbols:
+            try:
+                from alpha.adaptive_config import AdaptiveConfigSelector
+                _adaptive_selector = AdaptiveConfigSelector()
+                logger.info("Adaptive BTC config selector enabled (interval=%dh)", cfg.adaptive_btc_interval_hours)
+            except Exception:
+                logger.warning("Adaptive config selector init failed", exc_info=True)
+
         logger.info("LiveRunner started. Press Ctrl+C to stop.")
         try:
             while self._running:
@@ -1313,34 +1719,29 @@ class LiveRunner:
                                 logger.exception("timeout alert emit failed for order=%s", order_id)
                 if self._reload_models_pending:
                     self._reload_models_pending = False
-                    if self.model_loader is not None:
-                        try:
-                            cfg = getattr(self, '_config', None)
-                            names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
-                            new_models = self.model_loader.reload_if_changed(names)
-                            if new_models is not None and self.inference_bridge is not None:
-                                self.inference_bridge.update_models(new_models)
-                                self._record_model_reload(
-                                    outcome="reloaded",
-                                    model_names=names,
-                                    detail={"reloaded_count": len(new_models)},
-                                )
-                            elif new_models is None:
-                                self._record_model_reload(
-                                    outcome="noop",
-                                    model_names=names,
-                                    detail={"reloaded_count": 0},
-                                )
-                        except Exception:
-                            cfg = getattr(self, '_config', None)
-                            names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
-                            self._record_model_reload(
-                                outcome="failed",
-                                model_names=names,
-                                detail=None,
-                                error="model_hot_reload_failed",
-                            )
-                            logger.exception("Model hot-reload failed")
+                    self._handle_model_reload()
+                # ── Adaptive BTC config check (periodic) ──
+                if _adaptive_selector is not None:
+                    now = time.time()
+                    interval_sec = cfg.adaptive_btc_interval_hours * 3600
+                    if now - _last_adaptive_check >= interval_sec:
+                        _last_adaptive_check = now
+                        self._run_adaptive_btc_check(_adaptive_selector)
+
+                # ── Attribution feedback loop (Direction 18) ──
+                if (self.live_signal_tracker is not None
+                        and self.ensemble_combiner is not None):
+                    now = time.time()
+                    if not hasattr(self, '_last_attr_feedback'):
+                        self._last_attr_feedback = now
+                    if now - self._last_attr_feedback >= 3600:  # hourly
+                        self._last_attr_feedback = now
+                        self._apply_attribution_feedback()
+
+                # ── Systemd watchdog notify (Direction 20) ──
+                if _sd_notify_fn is not None:
+                    _sd_notify_fn("WATCHDOG=1")
+
         except KeyboardInterrupt:
             pass
         finally:
@@ -1384,7 +1785,154 @@ class LiveRunner:
         if self.health is not None:
             self.health.stop()
 
+        if self.ws_order_gateway is not None:
+            try:
+                self.ws_order_gateway.stop()
+            except Exception:
+                logger.warning("WS order gateway stop error", exc_info=True)
+
         logger.info("LiveRunner stopped. Total fills: %d", len(self._fills))
+
+    def _run_adaptive_btc_check(self, selector: Any) -> None:
+        """Run adaptive config selection for BTC and update inference bridge params."""
+        try:
+            import numpy as np
+            import pandas as pd
+
+            data_path = "data_files/BTCUSDT_1h.csv"
+            df = pd.read_csv(data_path)
+            if len(df) < 720:
+                logger.warning("Adaptive BTC: insufficient data (%d rows)", len(df))
+                return
+
+            closes = df["close"].values.astype(np.float64)
+
+            # Compute z-scores from close returns (simple approximation)
+            returns = np.diff(np.log(closes))
+            window = 720
+            if len(returns) < window:
+                return
+            rolling_mean = pd.Series(returns).rolling(window).mean().values
+            rolling_std = pd.Series(returns).rolling(window).std().values
+            z_scores = np.where(rolling_std > 1e-10, (returns - rolling_mean) / rolling_std, 0.0)
+
+            result = selector.select_robust(z_scores, closes[1:])
+
+            if result.confidence != "high":
+                logger.info(
+                    "Adaptive BTC: confidence=%s (need 'high'), keeping fixed params. "
+                    "sharpe=%.2f trades=%d",
+                    result.confidence, result.sharpe, result.trades,
+                )
+                return
+
+            # Update inference bridge params for BTCUSDT only
+            bridge = self.inference_bridge
+            if bridge is None:
+                return
+            if isinstance(bridge, dict):
+                bridge = bridge.get("BTCUSDT")
+            if bridge is None or not hasattr(bridge, "update_params"):
+                return
+
+            bridge.update_params(
+                "BTCUSDT",
+                deadzone=result.deadzone,
+                min_hold=result.min_hold,
+                max_hold=result.max_hold,
+                long_only=result.long_only,
+            )
+            logger.info(
+                "Adaptive BTC applied: deadzone=%.1f min_hold=%d max_hold=%d "
+                "long_only=%s sharpe=%.2f confidence=%s",
+                result.deadzone, result.min_hold, result.max_hold,
+                result.long_only, result.sharpe, result.confidence,
+            )
+        except Exception:
+            logger.warning("Adaptive BTC check failed", exc_info=True)
+
+    def _handle_model_reload(self) -> None:
+        """Handle SIGHUP model reload via ModelRegistry or direct file reload."""
+        cfg = getattr(self, '_config', None)
+
+        # Path 1: ModelRegistry-based reload
+        if self.model_loader is not None:
+            try:
+                names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
+                new_models = self.model_loader.reload_if_changed(names)
+                if new_models is not None and self.inference_bridge is not None:
+                    self.inference_bridge.update_models(new_models)
+                    self._record_model_reload(
+                        outcome="reloaded",
+                        model_names=names,
+                        detail={"reloaded_count": len(new_models)},
+                    )
+                elif new_models is None:
+                    self._record_model_reload(
+                        outcome="noop",
+                        model_names=names,
+                        detail={"reloaded_count": 0},
+                    )
+            except Exception:
+                names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
+                self._record_model_reload(
+                    outcome="failed",
+                    model_names=names,
+                    detail=None,
+                    error="model_hot_reload_failed",
+                )
+                logger.exception("Model hot-reload failed")
+            return
+
+        # Path 2: Direct file reload (for auto_retrain.py SIGHUP)
+        if self.inference_bridge is not None:
+            try:
+                from alpha.models.lgbm_alpha import LGBMAlphaModel
+                from pathlib import Path as _Path
+
+                symbols = tuple(cfg.symbols) if cfg else ()
+                models = []
+                for sym in symbols:
+                    model_dir = _Path(f"models_v8/{sym}_gate_v2")
+                    if not model_dir.exists():
+                        continue
+                    pkl_files = sorted(model_dir.glob("*.pkl"))
+                    for pkl in pkl_files:
+                        m = LGBMAlphaModel(name=f"{sym}_{pkl.stem}")
+                        m.load(pkl)
+                        models.append(m)
+                if models:
+                    bridge = self.inference_bridge
+                    if isinstance(bridge, dict):
+                        for sym in symbols:
+                            b = bridge.get(sym)
+                            if b is not None:
+                                sym_models = [m for m in models if sym in m.name]
+                                if sym_models:
+                                    b.update_models(sym_models)
+                    else:
+                        bridge.update_models(models)
+                    self._record_model_reload(
+                        outcome="reloaded",
+                        model_names=symbols,
+                        detail={"reloaded_count": len(models), "source": "file_reload"},
+                    )
+                    logger.info("Direct model reload: %d model(s) from disk", len(models))
+                else:
+                    self._record_model_reload(
+                        outcome="noop",
+                        model_names=symbols,
+                        detail={"reloaded_count": 0, "source": "file_reload"},
+                    )
+            except Exception:
+                symbols = tuple(cfg.symbols) if cfg else ()
+                self._record_model_reload(
+                    outcome="failed",
+                    model_names=symbols,
+                    detail=None,
+                    error="direct_file_reload_failed",
+                )
+                logger.exception("Direct model file reload failed")
 
     def halt(self, *, reason: str = "operator_halt", source: str = "operator") -> Any:
         """Trigger a global HARD_KILL without stopping the process."""
