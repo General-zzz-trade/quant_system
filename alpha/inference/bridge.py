@@ -50,7 +50,7 @@ class LiveInferenceBridge:
         vol_target: Union[None, float, Dict[str, Optional[float]]] = None,
         vol_feature: Union[str, Dict[str, str]] = "atr_norm_14",
         zscore_window: int = 720,
-        zscore_warmup: int = 168,
+        zscore_warmup: int = 180,
         ensemble_weights: Optional[Sequence[float]] = None,
     ) -> None:
         self._engine = InferenceEngine(models=list(models))

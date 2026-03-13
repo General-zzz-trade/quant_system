@@ -197,6 +197,10 @@ def build_inference_bridge(
         if symbol in runner_cfg.long_only_symbols:
             long_only_symbols.add(symbol)
 
+    # zscore params: config.json > defaults (720/180)
+    cfg_zscore_window = model_cfg.get("zscore_window", 720)
+    cfg_zscore_warmup = model_cfg.get("zscore_warmup", 180)
+
     bridge = LiveInferenceBridge(
         models=models,
         metrics_exporter=metrics_exporter,
@@ -209,11 +213,14 @@ def build_inference_bridge(
         monthly_gate_window=getattr(runner_cfg, "monthly_gate_window", 480),
         vol_target=getattr(runner_cfg, "vol_target", None),
         vol_feature=getattr(runner_cfg, "vol_feature", "atr_norm_14"),
+        zscore_window=cfg_zscore_window,
+        zscore_warmup=cfg_zscore_warmup,
     )
 
     logger.info(
-        "%s bridge: deadzone=%.1f, min_hold=%d, max_hold=%d, models=%d",
-        symbol, deadzone_val, min_hold_val, cfg_max_hold, len(models),
+        "%s bridge: deadzone=%.1f, min_hold=%d, max_hold=%d, zscore=%d/%d, models=%d",
+        symbol, deadzone_val, min_hold_val, cfg_max_hold,
+        cfg_zscore_window, cfg_zscore_warmup, len(models),
     )
     return bridge
 
