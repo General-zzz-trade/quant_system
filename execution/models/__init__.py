@@ -2,7 +2,12 @@
 from execution.models.orders import CanonicalOrder, ingress_order_dedup_identity
 from execution.models.fills import CanonicalFill
 from execution.models.acks import CanonicalAck, normalize_ack
-from execution.models.rejections import CanonicalRejection, ack_to_rejection
+from execution.models.rejections import (
+    CanonicalRejection,
+    ack_to_rejection,
+    classify_rejection_reason,
+    rejection_routing_key,
+)
 from execution.models.rejection_events import CanonicalRejectionEvent, rejection_to_event
 from execution.models.fill_events import (
     CanonicalFillIngressEvent,
@@ -41,6 +46,8 @@ __all__ = [
     "CanonicalFillIngressEvent",
     "normalize_ack",
     "ack_to_rejection",
+    "classify_rejection_reason",
+    "rejection_routing_key",
     "rejection_to_event",
     "build_ingress_fill_event",
     "build_synthetic_ingress_fill_event",

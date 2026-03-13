@@ -87,7 +87,8 @@
 - 它还没有并入 `event.types` 或 Rust route matcher
 - 它通过 [`execution/observability/rejections.py`](/quant_system/execution/observability/rejections.py) 进入 unified alert/ops 观察链路
 - 也就是说，它现在不是主事件总线的一部分，但已经是统一运维观察面的一部分
-- 当前 rejection alert 还会统一带上 `category=execution_rejection` 和稳定 `routing_key`
+- 当前 rejection alert 还会统一带上 `category=execution_rejection`、`reason_family` 和稳定 `routing_key`
+- 当前 rejection `routing_key` 语义是 `venue:symbol:status:reason_family`
 - 当前 execution 侧统一 alert taxonomy helper 位于 [`execution/observability/alerts.py`](/quant_system/execution/observability/alerts.py)
 - 当前 execution 侧 incident taxonomy helper 位于 [`execution/observability/incidents.py`](/quant_system/execution/observability/incidents.py)
 - 当前已统一的 execution incident category 包括：
@@ -95,6 +96,13 @@
   - `execution_timeout`
   - `execution_reconcile`
   - `execution_fill`（当前用于 synthetic fill receipt）
+- 当前 execution incident payload 的最小稳定字段要求：
+  - `category`
+  - `routing_key`
+  - timeout: `venue / symbol / order_id / timeout_sec`
+  - reconcile: `venue / drift_count / should_halt / symbols / severity_scope`
+  - synthetic fill: `venue / symbol / fill_id / order_id / qty / side / synthetic`
+  - rejection: `event_type / status / symbol / venue / reason / reason_family / command_id / retryable / deduped`
 
 ---
 
@@ -374,4 +382,4 @@
 1. 增强 restart + reconnect + reconcile 的组合恢复测试
 2. 明确 `CanonicalFill -> event.types.FillEvent` 的映射边界
 3. 为 order projection / reconcile kernel 建立更完整的迁移前 contract tests
-4. 为 rejection alert 增加更细的 dedup / routing policy
+4. 继续收口 rejection reason family 与更细的 routing policy

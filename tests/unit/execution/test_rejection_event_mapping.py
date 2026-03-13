@@ -13,6 +13,7 @@ def test_rejection_to_event_maps_canonical_rejection() -> None:
         venue="binance",
         symbol="BTCUSDT",
         reason="insufficient_balance",
+        reason_family="balance",
         retryable=False,
         deduped=False,
     )
@@ -26,6 +27,8 @@ def test_rejection_to_event_maps_canonical_rejection() -> None:
     assert event.venue == "binance"
     assert event.symbol == "BTCUSDT"
     assert event.reason == "insufficient_balance"
+    assert event.reason_family == "balance"
+    assert event.routing_key == "binance:BTCUSDT:rejected:balance"
     assert event.retryable is False
 
 
@@ -36,6 +39,7 @@ def test_rejection_event_to_alert_maps_non_retryable_to_error() -> None:
         venue="binance",
         symbol="BTCUSDT",
         reason="insufficient_balance",
+        reason_family="balance",
         retryable=False,
         deduped=False,
     )
@@ -47,8 +51,9 @@ def test_rejection_event_to_alert_maps_non_retryable_to_error() -> None:
     assert alert.source == "execution:rejection"
     assert alert.meta is not None
     assert alert.meta["category"] == "execution_rejection"
-    assert alert.meta["routing_key"] == "binance:BTCUSDT:REJECTED"
+    assert alert.meta["routing_key"] == "binance:BTCUSDT:rejected:balance"
     assert alert.meta["status"] == "REJECTED"
+    assert alert.meta["reason_family"] == "balance"
     assert alert.meta["command_id"] == "cmd-1"
     assert alert.meta["retryable"] is False
 
@@ -60,6 +65,7 @@ def test_rejection_event_to_alert_maps_retryable_failed_to_warning() -> None:
         venue="binance",
         symbol="ETHUSDT",
         reason="retryable:TimeoutError:timeout",
+        reason_family="timeout",
         retryable=True,
         deduped=False,
     )
@@ -70,4 +76,6 @@ def test_rejection_event_to_alert_maps_retryable_failed_to_warning() -> None:
     assert alert.severity == Severity.WARNING
     assert alert.meta is not None
     assert alert.meta["status"] == "FAILED"
+    assert alert.meta["routing_key"] == "binance:ETHUSDT:failed:timeout"
+    assert alert.meta["reason_family"] == "timeout"
     assert alert.meta["retryable"] is True

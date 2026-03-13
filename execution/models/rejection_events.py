@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
-from execution.models.rejections import CanonicalRejection
+from execution.models.rejections import CanonicalRejection, rejection_routing_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +19,8 @@ class CanonicalRejectionEvent:
     venue: str
     symbol: str
     reason: str
+    reason_family: str
+    routing_key: str
     retryable: bool
     deduped: bool = False
 
@@ -36,6 +38,13 @@ def rejection_to_event(rejection: CanonicalRejection) -> CanonicalRejectionEvent
         venue=rejection.venue,
         symbol=rejection.symbol,
         reason=rejection.reason,
+        reason_family=rejection.reason_family,
+        routing_key=rejection_routing_key(
+            venue=rejection.venue,
+            symbol=rejection.symbol,
+            status=rejection.status,
+            reason_family=rejection.reason_family,
+        ),
         retryable=rejection.retryable,
         deduped=rejection.deduped,
     )

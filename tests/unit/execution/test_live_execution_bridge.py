@@ -245,6 +245,8 @@ class TestRejected:
         assert alert.title == "execution-rejected"
         assert alert.meta["symbol"] == "ETHUSDT"
         assert alert.meta["status"] == "REJECTED"
+        assert alert.meta["reason_family"] == "balance"
+        assert alert.meta["routing_key"] == "binance:ETHUSDT:rejected:balance"
         assert alert.meta["retryable"] is False
 
     def test_rejected_ack_emits_to_incident_logger(self):
@@ -261,6 +263,7 @@ class TestRejected:
         assert len(incidents) == 1
         assert incidents[0].title == "execution-rejected"
         assert incidents[0].meta["category"] == "execution_rejection"
+        assert incidents[0].meta["reason_family"] == "balance"
 
     def test_success_ack_emits_synthetic_fill_alert(self):
         sink = _RecordingSink()

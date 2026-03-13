@@ -195,6 +195,8 @@ def test_rejection_enters_alert_observation_chain_without_entering_ingress() -> 
     alert = sink.alerts[0]
     assert alert.title == "execution-rejected"
     assert alert.meta["status"] == "REJECTED"
+    assert alert.meta["reason_family"] == "balance"
+    assert alert.meta["routing_key"] == "binance:BTCUSDT:rejected:balance"
     assert alert.meta["retryable"] is False
 
     state = coord.get_state_view()

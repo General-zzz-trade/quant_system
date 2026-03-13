@@ -6,6 +6,7 @@ from execution.observability.incidents import (
     synthetic_fill_to_alert,
     timeout_to_alert,
 )
+from execution.observability.rejections import rejection_event_to_alert
 from monitoring.alerts.base import Severity
 
 
@@ -58,3 +59,58 @@ def test_synthetic_fill_to_alert_builds_fill_taxonomy() -> None:
     assert alert.meta["category"] == "execution_fill"
     assert alert.meta["routing_key"] == "binance:ETHUSDT:synthetic_fill"
     assert alert.meta["synthetic"] is True
+
+
+def test_execution_incident_payload_contracts_are_stable() -> None:
+    timeout = timeout_to_alert(
+        venue="binance",
+        symbol="BTCUSDT",
+        order_id="ord-1",
+        timeout_sec=30.0,
+    )
+    fill = synthetic_fill_to_alert(
+        type(
+            "Fill",
+            (),
+            {
+                "venue": "binance",
+                "symbol": "ETHUSDT",
+                "fill_id": "f-1",
+                "order_id": "o-1",
+                "qty": "1.5",
+                "side": "buy",
+            },
+        )()
+    )
+    rejection = rejection_event_to_alert(
+        type(
+            "Reject",
+            (),
+            {
+                "event_type": "EXECUTION_REJECT",
+                "status": "FAILED",
+                "retryable": True,
+                "symbol": "BTCUSDT",
+                "venue": "binance",
+                "reason": "retryable:timeout",
+                "reason_family": "timeout",
+                "routing_key": "binance:BTCUSDT:failed:timeout",
+                "command_id": "cmd-1",
+                "deduped": False,
+            },
+        )()
+    )
+    report = type("R", (), {"venue": "binance", "all_drifts": [], "should_halt": False})()
+    reconcile = reconcile_report_to_alert(report)
+
+    assert timeout.meta["category"] == "execution_timeout"
+    assert set(timeout.meta) >= {"category", "routing_key", "venue", "symbol", "order_id", "timeout_sec"}
+
+    assert fill.meta["category"] == "execution_fill"
+    assert set(fill.meta) >= {"category", "routing_key", "venue", "symbol", "fill_id", "order_id", "qty", "side", "synthetic"}
+
+    assert rejection.meta["category"] == "execution_rejection"
+    assert set(rejection.meta) >= {"category", "routing_key", "event_type", "status", "symbol", "venue", "reason", "reason_family", "command_id", "retryable", "deduped"}
+
+    assert reconcile.meta["category"] == "execution_reconcile"
+    assert set(reconcile.meta) >= {"category", "routing_key", "venue", "drift_count", "should_halt", "symbols", "severity_scope"}

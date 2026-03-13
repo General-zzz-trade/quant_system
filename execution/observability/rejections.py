@@ -10,7 +10,9 @@ def rejection_event_to_alert(event: object, *, source: str = "execution:rejectio
     symbol = str(getattr(event, "symbol", ""))
     venue = str(getattr(event, "venue", ""))
     reason = str(getattr(event, "reason", ""))
+    reason_family = str(getattr(event, "reason_family", "unknown"))
     command_id = str(getattr(event, "command_id", ""))
+    routing_key = str(getattr(event, "routing_key", "")) or f"{venue}:{symbol}:{status.lower()}:unknown"
 
     return build_execution_alert(
         title=f"execution-{status.lower()}",
@@ -18,13 +20,14 @@ def rejection_event_to_alert(event: object, *, source: str = "execution:rejectio
         severity=Severity.WARNING if retryable else Severity.ERROR,
         source=source,
         category="execution_rejection",
-        routing_key=f"{venue}:{symbol}:{status}",
+        routing_key=routing_key,
         meta={
             "event_type": getattr(event, "event_type", "EXECUTION_REJECT"),
             "status": status,
             "symbol": symbol,
             "venue": venue,
             "reason": reason,
+            "reason_family": reason_family,
             "command_id": command_id,
             "retryable": retryable,
             "deduped": bool(getattr(event, "deduped", False)),
