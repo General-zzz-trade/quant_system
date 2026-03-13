@@ -233,8 +233,8 @@ SUPPORTED_ENTRYPOINTS: tuple[ScriptEntrypoint, ...] = tuple(
 
 
 ARCHIVE_NOTE = (
-    "Historical superseded training scripts live under `scripts/archive/` and "
-    "should not be treated as supported entrypoints."
+    "Historical superseded training scripts (v2-v6) have been removed. "
+    "Git history retains them for reference if needed."
 )
 
 
