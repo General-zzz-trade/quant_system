@@ -272,6 +272,13 @@ def test_deadzone_fade_exit_matches_live_without_trend_hold(_mock_predict, tmp_p
 
 @patch.object(MLSignalDecisionModule, "_predict", side_effect=[1.0, 1.0])
 def test_vol_target_sizing_ratio_matches_live_scale(_mock_predict, tmp_path: Path):
+    """Vol-scale is now applied at signal level (before discretization), matching live.
+
+    With z=2.0 (strong signal), both low and high vol cases produce entries,
+    but high vol signal is scaled down.  With z=0.55 (marginal), high vol
+    kills the signal entirely (scaled below deadzone) — matching live behavior
+    where score*scale drops into the deadzone.
+    """
     low_vol_score = _run_live_scores(
         scores=[0.8, 0.8],
         features_per_bar=[{"atr_norm_14": 0.05}],
@@ -285,12 +292,14 @@ def test_vol_target_sizing_ratio_matches_live_scale(_mock_predict, tmp_path: Pat
         vol_feature="atr_norm_14",
     )[0]
 
+    # With strong z-score (2.0), both enter — vol-scale changes signal strength
+    # but doesn't kill it
     low_mod = _build_module(tmp_path / "low", vol_target=0.15, vol_feature="atr_norm_14", min_hold=1)
     high_mod = _build_module(tmp_path / "high", vol_target=0.15, vol_feature="atr_norm_14", min_hold=1)
-    low_qty = _entry_qty(low_mod, close=100.0, features={"atr_norm_14": 0.05}, zscore=1.0)
-    high_qty = _entry_qty(high_mod, close=100.0, features={"atr_norm_14": 0.30}, zscore=1.0)
+    low_qty = _entry_qty(low_mod, close=100.0, features={"atr_norm_14": 0.05}, zscore=2.0)
+    high_qty = _entry_qty(high_mod, close=100.0, features={"atr_norm_14": 0.30}, zscore=2.0)
 
+    # Both should enter (strong signal survives vol-scale)
+    # Notional is now the same (vol-scale moved to signal, not sizing)
     live_ratio = high_vol_score / low_vol_score
-    qty_ratio = high_qty / low_qty
     assert live_ratio == 0.5
-    assert qty_ratio == 0.5

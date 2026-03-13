@@ -116,6 +116,10 @@ class MLSignalDecisionModule:
         monthly_gate_window: int = 480,
         vol_target: float | None = None,
         vol_feature: str = "atr_norm_14",
+        bear_model: Any | None = None,
+        bear_thresholds: Sequence[tuple] | None = None,
+        short_model: Any | None = None,
+        short_score_key: str = "ml_short_score",
         zscore_window: int = 720,
         leverage: float = 2.0,
         v11_config=None,
@@ -197,6 +201,10 @@ class MLSignalDecisionModule:
         self._monthly_gate_window = max(int(monthly_gate_window), 1)
         self._vol_target = None if vol_target is None else float(vol_target)
         self._vol_feature = str(vol_feature)
+        self._bear_model = bear_model
+        self._bear_thresholds = bear_thresholds
+        self._short_model = short_model
+        self._short_score_key = str(short_score_key)
 
         # State (z-score buf used only to feed ExitManager z_score input)
         self._zscore_buf = _ZScoreBuf(window=zscore_window, warmup=warmup)
@@ -307,12 +315,24 @@ class MLSignalDecisionModule:
             self._exit_mgr.update_price(self.symbol, close)
 
         # Regime gate: get position scale factor
+        # NOTE: Intentional divergence from live. Backtest uses feature-based
+        # RegimeGate for position_scale. Live uses IC-based AlphaHealthMonitor
+        # (see live_runner.py Gate 4). Both produce 0.0/0.5/1.0 scale factors.
         _regime_label, position_scale = self._regime_gate.evaluate(features)
 
         event_id = self._get_event_id(snapshot)
 
         # Extract hour for time filter
         hour_utc = self._get_hour_utc(snapshot)
+
+        # Vol-adaptive sizing: scale z-score BEFORE discretization to match
+        # live behavior (bridge.py applies vol_scale to signal, not notional).
+        # A marginal signal that should be zeroed by vol-scale is caught here
+        # before it can trigger an entry via _discretize_signal.
+        if self._vol_target is not None:
+            vol_val = features.get(self._vol_feature)
+            if vol_val is not None and vol_val > 1e-8:
+                z *= min(self._vol_target / float(vol_val), 1.0)
 
         if _constrained_from_rust is not None:
             desired = _constrained_from_rust
@@ -324,16 +344,40 @@ class MLSignalDecisionModule:
         events: List[Any] = []
         if self._position != 0:
             if not self._passes_monthly_gate(close):
-                side = "sell" if self._position > 0 else "buy"
-                events.extend(self._make_order(
-                    side=side,
-                    qty=abs(current_qty),
-                    event_id=event_id,
-                    reason="monthly_gate",
-                ))
-                self._exit_mgr.on_exit(self.symbol)
-                self._position = 0.0
-                return events
+                bear_score = None
+                if self._bear_model is not None:
+                    ts = self._get_timestamp_utc(snapshot)
+                    bear_sig = self._bear_model.predict(
+                        symbol=self.symbol, ts=ts, features=features)
+                    if bear_sig is not None and bear_sig.side == "long":
+                        if self._bear_thresholds:
+                            prob = 0.5 + bear_sig.strength
+                            bear_score = 0.0
+                            for thresh, s in self._bear_thresholds:
+                                if prob > thresh:
+                                    bear_score = s
+                                    break
+                        else:
+                            bear_score = -1.0
+                    else:
+                        bear_score = 0.0
+
+                if bear_score is not None and bear_score != 0:
+                    # Bear model says stay in position
+                    self._position = bear_score
+                    return events
+                else:
+                    # No bear model or bear score is 0 → flatten
+                    side = "sell" if self._position > 0 else "buy"
+                    events.extend(self._make_order(
+                        side=side,
+                        qty=abs(current_qty),
+                        event_id=event_id,
+                        reason="monthly_gate",
+                    ))
+                    self._exit_mgr.on_exit(self.symbol)
+                    self._position = 0.0
+                    return events
 
             # Match live constraint behavior: once the discretized score falls
             # back inside the deadzone, flatten unless trend-follow explicitly
@@ -381,18 +425,32 @@ class MLSignalDecisionModule:
                 return events
 
             if desired != 0 and not self._passes_monthly_gate(close):
-                desired = 0
+                if self._bear_model is not None:
+                    ts = self._get_timestamp_utc(snapshot)
+                    bear_sig = self._bear_model.predict(
+                        symbol=self.symbol, ts=ts, features=features)
+                    if bear_sig is not None and bear_sig.side == "long":
+                        if self._bear_thresholds:
+                            prob = 0.5 + bear_sig.strength
+                            bear_entry_score = 0.0
+                            for thresh, s in self._bear_thresholds:
+                                if prob > thresh:
+                                    bear_entry_score = s
+                                    break
+                        else:
+                            bear_entry_score = -1.0
+                        desired = int(bear_entry_score) if bear_entry_score != 0 else 0
+                    else:
+                        desired = 0
+                else:
+                    desired = 0
 
             if desired != 0:
                 # Compute order qty: equity × risk_fraction × leverage × regime_scale / price
+                # Vol-scale is already applied to z-score above (signal level).
                 notional = Decimal(str(
                     self._equity * self._risk_fraction * self._leverage * position_scale
                 ))
-                if self._vol_target is not None:
-                    vol_val = features.get(self._vol_feature)
-                    if vol_val is not None and vol_val > 1e-8:
-                        scale = min(self._vol_target / float(vol_val), 1.0)
-                        notional *= Decimal(str(scale))
                 qty = notional / Decimal(str(close))
                 # Adaptive rounding: use finer precision for high-price assets
                 if close > 10000:
@@ -413,6 +471,40 @@ class MLSignalDecisionModule:
                     self._exit_mgr.on_entry(
                         self.symbol, close, self._bar_count, float(desired)
                     )
+
+        # ── Independent short model (mirrors live bridge.py:287-330) ──
+        if self._short_model is not None:
+            ts = self._get_timestamp_utc(snapshot)
+            short_sig = self._short_model.predict(
+                symbol=self.symbol, ts=ts, features=features)
+            short_score = 0.0
+            if short_sig is not None and short_sig.strength is not None:
+                raw = short_sig.strength
+                if short_sig.side == "short":
+                    raw = -raw
+                elif short_sig.side == "flat":
+                    raw = 0.0
+
+                # Apply Rust constraint path if available (same as live)
+                if self._rust_bridge is not None:
+                    hour_key = int(ts.timestamp()) // 3600 if ts is not None else 0
+                    short_score = self._rust_bridge.process_short_signal(
+                        self.symbol, raw, hour_key,
+                        self._deadzone, self._min_hold)
+                else:
+                    # Simple fallback: apply deadzone
+                    if abs(raw) > self._deadzone:
+                        short_score = raw
+
+                # Vol-adaptive sizing for short
+                if short_score != 0.0 and self._vol_target is not None:
+                    vol_val = features.get(self._vol_feature)
+                    if vol_val is not None and vol_val > 1e-8:
+                        scale = min(self._vol_target / float(vol_val), 1.0)
+                        short_score *= scale
+
+            features[self._short_score_key] = short_score
+            self._last_short_score = short_score
 
         return events
 
@@ -506,6 +598,11 @@ class MLSignalDecisionModule:
 
     def _get_hour_utc(self, snapshot: Any) -> Optional[int]:
         """Extract UTC hour from snapshot (for time filter)."""
+        dt = self._get_timestamp_utc(snapshot)
+        return dt.hour if dt is not None else None
+
+    def _get_timestamp_utc(self, snapshot: Any):
+        """Extract UTC datetime from snapshot timestamp."""
         if isinstance(snapshot, dict):
             ts = snapshot.get("timestamp") or snapshot.get("open_time")
         else:
@@ -516,10 +613,8 @@ class MLSignalDecisionModule:
             import datetime
             if isinstance(ts, (int, float)):
                 # Assume milliseconds
-                dt = datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc)
-            else:
-                return None
-            return dt.hour
+                return datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc)
+            return None
         except Exception:
             return None
 

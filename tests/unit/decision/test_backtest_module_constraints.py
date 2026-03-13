@@ -101,17 +101,32 @@ def test_trend_follow_does_not_block_entry(_mock_predict, tmp_path: Path):
 
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
-def test_vol_target_reduces_qty_in_high_vol(_mock_predict, tmp_path: Path):
+def test_vol_target_reduces_signal_in_high_vol(_mock_predict, tmp_path: Path):
+    """Vol-scale is now applied at signal level (before discretization).
+
+    With z=2.0 and vol_target=0.15:
+    - low vol (atr=0.05): scale=1.0, z stays 2.0 → entry
+    - high vol (atr=0.30): scale=0.5, z becomes 1.0 → still enters (above deadzone 0.5)
+    Both enter, but the signal strength differs.
+    """
     low = _build_module(tmp_path / "low", vol_target=0.15, vol_feature="atr_norm_14")
     high = _build_module(tmp_path / "high", vol_target=0.15, vol_feature="atr_norm_14")
-    low._zscore_buf.push = lambda _: 1.0
-    high._zscore_buf.push = lambda _: 1.0
+    low._zscore_buf.push = lambda _: 2.0
+    high._zscore_buf.push = lambda _: 2.0
 
     low_events = list(low.decide(_snapshot(close=100, features={"atr_norm_14": 0.05})))
     high_events = list(high.decide(_snapshot(close=100, features={"atr_norm_14": 0.30})))
 
     assert len(low_events) == 2
     assert len(high_events) == 2
-    low_qty = low_events[1].qty
-    high_qty = high_events[1].qty
-    assert low_qty > high_qty
+
+
+@patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
+def test_vol_target_kills_marginal_signal_in_high_vol(_mock_predict, tmp_path: Path):
+    """Vol-scale at signal level should zero marginal signals in high vol."""
+    mod = _build_module(tmp_path, vol_target=0.15, vol_feature="atr_norm_14")
+    mod._zscore_buf.push = lambda _: 0.55  # just above deadzone
+
+    events = list(mod.decide(_snapshot(close=100, features={"atr_norm_14": 0.30})))
+    # scaled z = 0.55 * min(0.15/0.30, 1.0) = 0.55 * 0.5 = 0.275 → below deadzone
+    assert events == []

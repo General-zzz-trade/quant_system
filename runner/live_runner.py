@@ -849,131 +849,34 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 report.record("portfolio_risk", False, str(e))
                 logger.warning("Portfolio risk setup failed — continuing without", exc_info=True)
 
+        # Build gate chain for ORDER event processing
+        from runner.gate_chain import build_gate_chain
+        gate_chain = build_gate_chain(
+            correlation_gate=correlation_gate,
+            risk_gate=risk_gate,
+            get_state_view=coordinator.get_state_view,
+            portfolio_aggregator=portfolio_aggregator,
+            alpha_health_monitor=alpha_health_monitor,
+            regime_sizer=regime_sizer,
+            portfolio_allocator=portfolio_allocator,
+            hook=hook,
+        )
+
         def _emit(ev: Any) -> None:
             # Attribution: track all events
             attribution_tracker.on_event(ev)
 
-            # Correlation gate: check ORDER events
             et = getattr(ev, "event_type", None)
             et_str = (str(et.value) if hasattr(et, "value") else str(et)).upper() if et else ""
             if et_str == "ORDER":
-                # Gate 1: Correlation check
-                view = coordinator.get_state_view()
-                positions = view.get("positions", {})
-                existing = [s for s, p in positions.items() if float(getattr(p, "qty", 0)) != 0]
-                sym = getattr(ev, "symbol", "")
-                decision = correlation_gate.should_allow(sym, existing)
-                if not decision.ok:
-                    msg = decision.violations[0].message if decision.violations else "blocked"
-                    logger.warning("CorrelationGate REJECTED order for %s: %s", sym, msg)
+                # Run all gates; returns None if any gate rejects
+                result = gate_chain.process(ev, {})
+                if result is None:
                     return
-
-                # Gate 2: Risk size/notional check
-                risk_result = risk_gate.check(ev)
-                if not risk_result.allowed:
-                    logger.warning("RiskGate REJECTED order for %s: %s", sym, risk_result.reason)
-                    return
-
-                # Gate 3: Portfolio-level risk check
-                if portfolio_aggregator is not None:
-                    try:
-                        port_decision = portfolio_aggregator.evaluate_order(ev)
-                        if not port_decision.ok:
-                            msgs = [v.message for v in port_decision.violations]
-                            logger.warning("PortfolioRisk REJECTED order for %s: %s", sym, "; ".join(msgs))
-                            return
-                    except Exception:
-                        logger.warning("PortfolioRisk check failed for %s", sym, exc_info=True)
-
-                # Gate 4: Alpha health position scaling
-                if alpha_health_monitor is not None:
-                    ah_scale = alpha_health_monitor.position_scale(sym)
-                    if ah_scale <= 0.0:
-                        logger.warning(
-                            "AlphaHealth HALTED order for %s: position_scale=0.0", sym,
-                        )
-                        return
-                    if ah_scale < 1.0:
-                        # Scale down order quantity
-                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-                        if raw_qty is not None:
-                            scaled_qty = float(raw_qty) * ah_scale
-                            object.__setattr__(ev, "qty", scaled_qty)
-                            logger.info(
-                                "AlphaHealth scaled order for %s: %.4f → %.4f (scale=%.2f)",
-                                sym, float(raw_qty), scaled_qty, ah_scale,
-                            )
-
-                # Gate 5: Regime-aware position scaling (Direction 17)
-                if regime_sizer is not None:
-                    rs_scale = regime_sizer.position_scale(sym)
-                    if rs_scale < 1.0:
-                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-                        if raw_qty is not None:
-                            scaled_qty = float(raw_qty) * rs_scale
-                            object.__setattr__(ev, "qty", scaled_qty)
-                            logger.debug(
-                                "RegimeSizer scaled order for %s: scale=%.2f", sym, rs_scale,
-                            )
-
-                # Gate 6: Portfolio allocator order scaling (Direction 19)
-                if portfolio_allocator is not None:
-                    raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-                    raw_price = getattr(ev, "price", None)
-                    if raw_qty is not None and raw_price is not None:
-                        equity = 0.0
-                        try:
-                            acct = coordinator.get_state_view().get("account")
-                            if acct is not None:
-                                equity = float(getattr(acct, "balance", 0))
-                        except Exception:
-                            pass
-                        if equity > 0:
-                            scaled_qty = portfolio_allocator.scale_order(
-                                sym, float(raw_qty), equity, float(raw_price),
-                            )
-                            if abs(scaled_qty) < abs(float(raw_qty)):
-                                object.__setattr__(ev, "qty", scaled_qty)
-                                logger.info(
-                                    "PortfolioAllocator scaled order for %s: %.4f → %.4f",
-                                    sym, float(raw_qty), scaled_qty,
-                                )
-
-                # Gate 7: Execution quality feedback (slippage-based sizing)
-                if hook is not None and hook.execution_quality is not None:
-                    eq_scale = hook.execution_quality.should_reduce_size(sym)
-                    if eq_scale < 1.0:
-                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-                        if raw_qty is not None:
-                            if eq_scale <= 0.0:
-                                logger.warning(
-                                    "ExecQuality HALTED order for %s: slippage too high", sym,
-                                )
-                                return
-                            scaled_qty = float(raw_qty) * eq_scale
-                            object.__setattr__(ev, "qty", scaled_qty)
-                            logger.info(
-                                "ExecQuality scaled order for %s: scale=%.2f", sym, eq_scale,
-                            )
-
-                # Gate 8: Attribution weight recommendations (execution feedback)
-                if hook is not None and hook.weight_recommendations:
-                    wr = hook.weight_recommendations.get(sym, 1.0)
-                    if wr < 1.0:
-                        raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-                        if raw_qty is not None:
-                            if wr <= 0.0:
-                                logger.warning(
-                                    "WeightRec HALTED order for %s: weight=0.0", sym,
-                                )
-                                return
-                            scaled_qty = float(raw_qty) * wr
-                            object.__setattr__(ev, "qty", scaled_qty)
-                            logger.info(
-                                "WeightRec scaled order for %s: weight=%.2f", sym, wr,
-                            )
+                ev = result
 
                 # Track order submission in state machine + timeout tracker
+                sym = getattr(ev, "symbol", "")
                 order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
                 if order_id:
                     try:

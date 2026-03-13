@@ -40,7 +40,14 @@ class ReplayExecutionAdapter:
     price_source: Callable[[str], Optional[Decimal]]
     fee_bps: Decimal = Decimal("4")
     slippage_bps: Decimal = Decimal("2")
+    starting_balance: float = 10_000.0
     _log: List[Dict[str, Any]] = field(default_factory=list, init=False)
+    _balance: float = field(default=0.0, init=False)
+    _realized_pnl: float = field(default=0.0, init=False)
+    _account_snapshots: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self._balance = self.starting_balance
 
     def send_order(self, order_event: Any) -> list:
         symbol = getattr(order_event, "symbol", "UNKNOWN")
@@ -77,6 +84,19 @@ class ReplayExecutionAdapter:
         entry["fee"] = str(fee)
         self._log.append(entry)
 
+        # Track balance: deduct fee
+        self._balance -= float(fee)
+
+        # Snapshot account state after this fill
+        position_notional = float(fill_price) * float(abs(Decimal(str(qty))))
+        self._account_snapshots.append({
+            "ts": ts,
+            "balance": self._balance,
+            "symbol": str(symbol),
+            "position_notional": position_notional,
+            "fee": float(fee),
+        })
+
         logger.info(
             "REPLAY order: %s %s %s @ %s",
             side, qty, symbol, fill_price,
@@ -109,3 +129,22 @@ class ReplayExecutionAdapter:
     @property
     def order_log(self) -> List[Dict[str, Any]]:
         return list(self._log)
+
+    @property
+    def account_snapshots(self) -> List[Dict[str, Any]]:
+        return list(self._account_snapshots)
+
+    def get_account_snapshot(self) -> Dict[str, Any]:
+        """Return current balance state."""
+        return {
+            "balance": self._balance,
+            "starting_balance": self.starting_balance,
+            "realized_pnl": self._realized_pnl,
+            "num_fills": len(self._log),
+        }
+
+    def apply_funding(self, rate: float, position_notional: float) -> None:
+        """Adjust balance for a funding rate payment/receipt."""
+        funding = rate * position_notional
+        self._balance -= funding
+        self._realized_pnl -= funding

@@ -32,6 +32,7 @@ class ReplayResult:
     captured_orders: List[Any] = field(default_factory=list)
     captured_signals: List[Any] = field(default_factory=list)
     final_state: Optional[Dict[str, Any]] = None
+    account_snapshots: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # ============================================================
@@ -89,6 +90,7 @@ def run_replay(
     decision_modules: Optional[Sequence[Any]] = None,
     capture_orders: bool = False,
     coordinator_config: Optional[CoordinatorConfig] = None,
+    starting_balance: Optional[float] = None,
 ) -> ReplayResult:
     """Replay events from a JSONL event log through the engine coordinator.
 
@@ -136,7 +138,10 @@ def run_replay(
                 pass
             return None
 
-        replay_adapter = ReplayExecutionAdapter(price_source=_price_source)
+        adapter_kwargs: Dict[str, Any] = {"price_source": _price_source}
+        if starting_balance is not None:
+            adapter_kwargs["starting_balance"] = starting_balance
+        replay_adapter = ReplayExecutionAdapter(**adapter_kwargs)
 
         # Capturing emit: intercepts events by type before forwarding
         def _capturing_emit(ev: Any, *, actor: str = "replay") -> None:
@@ -178,6 +183,7 @@ def run_replay(
         captured_orders=captured_orders,
         captured_signals=captured_signals,
         final_state=final_state,
+        account_snapshots=replay_adapter.account_snapshots if replay_adapter else [],
     )
 
     if out_dir is not None:
