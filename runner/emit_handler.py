@@ -69,14 +69,27 @@ class LiveEmitHandler:
         self._coordinator.emit(ev, actor="live")
 
     def _handle_order(self, ev: Any) -> None:
+        original_qty = getattr(ev, "qty", getattr(ev, "quantity", None))
+        sym = getattr(ev, "symbol", "")
+
         # Run all gates; returns None if any gate rejects
         result = self._gate_chain.process(ev, {})
         if result is None:
+            logger.info(
+                "ORDER_REJECTED symbol=%s order_id=%s original_qty=%s",
+                sym, getattr(ev, "order_id", "?"), original_qty,
+            )
             return
         ev = result
 
-        # Track order submission in state machine + timeout tracker
-        sym = getattr(ev, "symbol", "")
+        # Structured audit: log qty transformation through gate chain
+        final_qty = getattr(ev, "qty", getattr(ev, "quantity", None))
+        if original_qty is not None and final_qty is not None and str(original_qty) != str(final_qty):
+            logger.info(
+                "ORDER_QTY_SCALED symbol=%s original_qty=%s final_qty=%s",
+                sym, original_qty, final_qty,
+            )
+
         order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
         if order_id:
             try:

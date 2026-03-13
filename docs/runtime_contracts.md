@@ -189,10 +189,19 @@ replay 路径当前更偏“事件再注入器”：
 - `decision/backtest_module.py` 的持仓退出语义已进一步收口：
   - 当离散化后的信号回到 deadzone 内时，如果未触发 trend hold 且已满足 `min_hold`，则按 live 语义主动平仓
 
+已在 2026-03-14 进一步收口：
+
+- `backtest_module.py` 的 `_passes_monthly_gate()` 现在优先使用 Rust `check_monthly_gate()`，与 live `bridge.py` 完全相同
+- `backtest_module.py` 的 trend hold 当 Rust bridge 可用时不再重复执行 Python `_should_trend_hold()`
+- `backtest_module.py` 的 vol_target 现在 AFTER discretization 应用（之前是 BEFORE），与 live 一致
+- `backtest_module.py` 的 bear regime 切换现在同步 Rust `set_position()`，与 live 一致
+- 新增 cross-path parity 测试 (`test_cross_path_parity.py`) 和 runtime contract 测试 (`test_runtime_contracts.py`)
+
 仍未完全对齐：
 
-- backtest 模块的信号约束实现仍是 Python 近似实现，不等价于 `LiveInferenceBridge` 的 Rust 约束状态机
-- trend hold / monthly gate / vol targeting 在不同回测脚本之间仍有重复实现
+- live 有 8 层 gate chain（correlation, risk, portfolio, alpha_health, regime, allocator, exec_quality, weight_rec），backtest 无此过滤链（by design: backtest = perfect execution）
+- live 的 ExitManager 逻辑（trailing_stop, reversal_exit, deadzone_fade_exit）在 backtest 中有但在 live bridge 中无
+- trend hold / monthly gate / vol targeting 在不同研究脚本之间仍有重复实现
 - live 与部分研究脚本之间仍存在约束逻辑散落问题
 
 已开始收口：

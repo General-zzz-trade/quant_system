@@ -331,25 +331,22 @@ class MLSignalDecisionModule:
         # Extract hour for time filter
         hour_utc = self._get_hour_utc(snapshot)
 
-        # Vol-adaptive sizing: scale z-score BEFORE discretization to match
-        # live behavior (bridge.py applies vol_scale to signal, not notional).
-        # A marginal signal that should be zeroed by vol-scale is caught here
-        # before it can trigger an entry via _discretize_signal.
-        if self._vol_target is not None:
-            vol_val = features.get(self._vol_feature)
-            if vol_val is not None and vol_val > 1e-8:
-                z *= min(self._vol_target / float(vol_val), 1.0)
-
         if _constrained_from_rust is not None:
             desired = _constrained_from_rust
         else:
             desired = self._discretize_signal(z)
-        trend_hold_active = self._should_trend_hold(features, desired)
+
+        # When Rust bridge is active, trend_hold is already handled inside
+        # apply_constraints(). Only apply Python trend_hold as fallback.
+        if _constrained_from_rust is not None:
+            trend_hold_active = False
+        else:
+            trend_hold_active = self._should_trend_hold(features, desired)
 
         # ── Exit logic ──
         events: List[Any] = []
         if self._position != 0:
-            if not self._passes_monthly_gate(close):
+            if not self._passes_monthly_gate(close, snapshot):
                 bear_score = None
                 if self._bear_model is not None:
                     ts = self._get_timestamp_utc(snapshot)
@@ -369,11 +366,20 @@ class MLSignalDecisionModule:
                         bear_score = 0.0
 
                 if bear_score is not None and bear_score != 0:
-                    # Bear model says stay in position
+                    # Bear model says stay in position — sync Rust hold state
+                    # (matches live bridge.py:262-263)
+                    if self._rust_bridge is not None:
+                        cur_rust_pos = self._rust_bridge.get_position(self.symbol)
+                        if bear_score != cur_rust_pos:
+                            self._rust_bridge.set_position(self.symbol, bear_score, 1)
                     self._position = bear_score
                     return events
                 else:
                     # No bear model or bear score is 0 → flatten
+                    if self._rust_bridge is not None:
+                        cur_rust_pos = self._rust_bridge.get_position(self.symbol)
+                        if cur_rust_pos != 0.0:
+                            self._rust_bridge.set_position(self.symbol, 0.0, 1)
                     side = "sell" if self._position > 0 else "buy"
                     events.extend(self._make_order(
                         side=side,
@@ -430,7 +436,7 @@ class MLSignalDecisionModule:
             if not self._exit_mgr.allow_entry(z, hour_utc):
                 return events
 
-            if desired != 0 and not self._passes_monthly_gate(close):
+            if desired != 0 and not self._passes_monthly_gate(close, snapshot):
                 if self._bear_model is not None:
                     ts = self._get_timestamp_utc(snapshot)
                     bear_sig = self._bear_model.predict(
@@ -453,9 +459,14 @@ class MLSignalDecisionModule:
 
             if desired != 0:
                 # Compute order qty: equity × risk_fraction × leverage × regime_scale / price
-                # Vol-scale is already applied to z-score above (signal level).
+                # Vol-scale applied AFTER discretization to match live (bridge.py:265-272).
+                vol_scale = 1.0
+                if self._vol_target is not None:
+                    vol_val = features.get(self._vol_feature)
+                    if vol_val is not None and vol_val > 1e-8:
+                        vol_scale = min(self._vol_target / float(vol_val), 1.0)
                 notional = Decimal(str(
-                    self._equity * self._risk_fraction * self._leverage * position_scale
+                    self._equity * self._risk_fraction * self._leverage * position_scale * vol_scale
                 ))
                 qty = notional / Decimal(str(close))
                 # Adaptive rounding: use finer precision for high-price assets
@@ -646,9 +657,16 @@ class MLSignalDecisionModule:
             return float(trend_val) > self._trend_threshold
         return float(trend_val) < -self._trend_threshold
 
-    def _passes_monthly_gate(self, close: float) -> bool:
+    def _passes_monthly_gate(self, close: float, snapshot: Any = None) -> bool:
         if not self._monthly_gate:
             return True
+        # Use Rust monthly gate when available (matches live bridge.py:167-173)
+        if self._rust_bridge is not None:
+            ts = self._get_timestamp_utc(snapshot) if snapshot is not None else None
+            hour_key = int(ts.timestamp()) // 3600 if ts is not None else self._bar_count
+            return self._rust_bridge.check_monthly_gate(
+                self.symbol, close, hour_key, self._monthly_gate_window)
+        # Python fallback
         if len(self._close_buf) < self._monthly_gate_window:
             return True
         ma = sum(self._close_buf) / len(self._close_buf)
