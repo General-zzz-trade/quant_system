@@ -13,9 +13,11 @@ from runner.recovery import (
     restore_feature_hook_state,
     restore_inference_bridge_state,
     restore_kill_switch_state,
-    save_feature_hook_state,
-    save_inference_bridge_state,
-    save_kill_switch_state,
+    restore_exit_manager_state,
+    restore_regime_gate_state,
+    restore_correlation_state,
+    restore_timeout_tracker_state,
+    save_all_auxiliary_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,10 @@ def build_recovery_subsystem(
     kill_switch: Any,
     inference_bridge: Any = None,
     feature_hook: Any = None,
+    exit_manager: Any = None,
+    regime_gate: Any = None,
+    correlation_computer: Any = None,
+    timeout_tracker: Any = None,
 ) -> RecoverySubsystem:
     """Build persistent stores, restore state, set up checkpointing."""
     state_store = None
@@ -76,6 +82,26 @@ def build_recovery_subsystem(
     if feature_hook is not None:
         if restore_feature_hook_state(feature_hook, data_dir=data_dir):
             logger.info("Feature hook state restored")
+
+    # Restore exit manager
+    if exit_manager is not None:
+        if restore_exit_manager_state(exit_manager, data_dir=data_dir):
+            logger.info("Exit manager state restored")
+
+    # Restore regime gate
+    if regime_gate is not None:
+        if restore_regime_gate_state(regime_gate, data_dir=data_dir):
+            logger.info("Regime gate state restored")
+
+    # Restore correlation computer
+    if correlation_computer is not None:
+        if restore_correlation_state(correlation_computer, data_dir=data_dir):
+            logger.info("Correlation state restored")
+
+    # Restore timeout tracker
+    if timeout_tracker is not None:
+        if restore_timeout_tracker_state(timeout_tracker, data_dir=data_dir):
+            logger.info("Timeout tracker state restored")
 
     # Periodic checkpointer
     periodic_checkpointer = None

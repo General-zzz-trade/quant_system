@@ -289,10 +289,16 @@ class MLSignalDecisionModule:
                     tv = features.get(self._trend_indicator)
                     if tv is not None:
                         trend_val = float(tv)
+                # Use proper hour_key from timestamp (matching live bridge.py:151)
+                # so z-score aggregation and monthly gate accumulate per-hour,
+                # not per-bar. For 1h bars this is equivalent to bar_count,
+                # but for sub-hourly bars bar_count would inflate the z-score window.
+                ts = self._get_timestamp_utc(snapshot)
+                hour_key = int(ts.timestamp()) // 3600 if ts is not None else self._bar_count
                 _constrained_from_rust = int(self._rust_bridge.apply_constraints(
                     self.symbol,
                     pred,
-                    self._bar_count,
+                    hour_key,
                     deadzone=self._deadzone,
                     min_hold=self._min_hold,
                     long_only=self._long_only,

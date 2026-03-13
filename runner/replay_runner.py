@@ -25,6 +25,17 @@ from engine.replay import EventReplay, ReplayConfig
 # ============================================================
 
 @dataclass
+class DecisionDivergence:
+    """A divergence between original and replayed decision events."""
+    bar_index: int
+    event_type: str
+    original: Dict[str, Any]
+    replayed: Dict[str, Any]
+    field: str
+    delta: Optional[str] = None
+
+
+@dataclass
 class ReplayResult:
     """Result of a full-chain replay run."""
     events_processed: int
@@ -33,6 +44,67 @@ class ReplayResult:
     captured_signals: List[Any] = field(default_factory=list)
     final_state: Optional[Dict[str, Any]] = None
     account_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+
+    def compare_decisions(self, original_log: Any) -> List[DecisionDivergence]:
+        """Compare replay decisions against recorded original decisions.
+
+        Args:
+            original_log: SQLiteEventLog with recorded events from original run.
+
+        Returns:
+            List of DecisionDivergence for any mismatches.
+        """
+        divergences: List[DecisionDivergence] = []
+
+        # Load original decision events
+        original_decisions: List[Dict[str, Any]] = []
+        try:
+            for entry in original_log.iter_all():
+                et = entry.get("event_type", "")
+                if et in ("signal", "intent", "order"):
+                    original_decisions.append(entry)
+        except Exception:
+            return divergences
+
+        # Build replay decision list
+        replay_decisions: List[Dict[str, Any]] = []
+        for ev in self.captured_signals:
+            symbol = getattr(ev, "symbol", "")
+            side = getattr(ev, "side", "")
+            replay_decisions.append({"event_type": "signal", "symbol": symbol, "side": side})
+        for ev in self.captured_orders:
+            symbol = getattr(ev, "symbol", "")
+            side = getattr(ev, "side", "")
+            qty = str(getattr(ev, "qty", ""))
+            replay_decisions.append({"event_type": "order", "symbol": symbol, "side": side, "qty": qty})
+
+        # Compare pairwise
+        for i, (orig, repl) in enumerate(zip(original_decisions, replay_decisions)):
+            for key in ("event_type", "symbol", "side", "qty"):
+                orig_val = orig.get("payload", orig).get(key, orig.get(key))
+                repl_val = repl.get(key)
+                if orig_val is not None and repl_val is not None and str(orig_val) != str(repl_val):
+                    divergences.append(DecisionDivergence(
+                        bar_index=i,
+                        event_type=orig.get("event_type", ""),
+                        original=orig,
+                        replayed=repl,
+                        field=key,
+                        delta=f"{orig_val} -> {repl_val}",
+                    ))
+
+        # Length mismatch
+        if len(original_decisions) != len(replay_decisions):
+            divergences.append(DecisionDivergence(
+                bar_index=max(len(original_decisions), len(replay_decisions)),
+                event_type="count",
+                original={"count": len(original_decisions)},
+                replayed={"count": len(replay_decisions)},
+                field="event_count",
+                delta=f"{len(original_decisions)} -> {len(replay_decisions)}",
+            ))
+
+        return divergences
 
 
 # ============================================================

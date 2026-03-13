@@ -108,6 +108,24 @@ class ExitManager:
 
         return False, ""
 
+    def checkpoint(self) -> dict:
+        """Serialize position tracking state for persistence."""
+        return {
+            sym: {
+                "entry_price": s.entry_price,
+                "peak_price": s.peak_price,
+                "entry_bar": s.entry_bar,
+                "direction": s.direction,
+            }
+            for sym, s in self._positions.items()
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore position tracking state from checkpoint."""
+        self._positions = {
+            sym: _TrailingState(**vals) for sym, vals in data.items()
+        }
+
     def allow_entry(self, z_score: float, hour_utc: Optional[int] = None) -> bool:
         """Check if entry is allowed (z-cap + time filter).
 

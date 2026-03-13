@@ -69,6 +69,11 @@ from runner.recovery import (
     restore_inference_bridge_state,
     restore_kill_switch_state,
     restore_feature_hook_state,
+    restore_exit_manager_state,
+    restore_regime_gate_state,
+    restore_correlation_state,
+    restore_timeout_tracker_state,
+    save_all_auxiliary_state,
     save_inference_bridge_state,
     save_kill_switch_state,
     save_feature_hook_state,
@@ -1237,6 +1242,14 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 if restore_feature_hook_state(feat_hook, data_dir=data_dir):
                     logger.info("Feature hook warmup state restored from checkpoint")
 
+            # Recovery: restore correlation computer
+            if restore_correlation_state(correlation_computer, data_dir=data_dir):
+                logger.info("Correlation computer state restored from checkpoint")
+
+            # Recovery: restore timeout tracker
+            if restore_timeout_tracker_state(timeout_tracker, data_dir=data_dir):
+                logger.info("Timeout tracker state restored from checkpoint")
+
         # ── 11a) Startup reconciliation with healing ─────────
         if config.reconcile_on_startup and fetch_venue_state is not None:
             try:
@@ -1289,12 +1302,16 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 if snapshot is not None:
                     state_store.save(snapshot)
                     logger.info("State snapshot saved on shutdown")
-                # Persist recovery state alongside snapshot
-                save_kill_switch_state(kill_switch, data_dir=data_dir_s)
-                if inference_bridge is not None:
-                    save_inference_bridge_state(inference_bridge, data_dir=data_dir_s)
-                if feat_hook is not None:
-                    save_feature_hook_state(feat_hook, data_dir=data_dir_s)
+                # Persist all auxiliary state atomically
+                save_all_auxiliary_state(
+                    kill_switch=kill_switch,
+                    inference_bridge=inference_bridge,
+                    feature_hook=feat_hook,
+                    exit_manager=getattr(decision_bridge_inst, '_exit_mgr', None) if decision_bridge_inst else None,
+                    correlation_computer=correlation_computer,
+                    timeout_tracker=timeout_tracker,
+                    data_dir=data_dir_s,
+                )
 
         # wait_pending: returns True when no active orders remain
         def _wait_pending() -> bool:

@@ -22,6 +22,18 @@ class CorrelationComputer:
     _returns: Dict[str, List[float]] = field(default_factory=dict, init=False)
     _last_prices: Dict[str, float] = field(default_factory=dict, init=False)
 
+    def checkpoint(self) -> dict:
+        """Serialize state for persistence."""
+        return {
+            "returns": {k: list(v) for k, v in self._returns.items()},
+            "last_prices": dict(self._last_prices),
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore state from checkpoint."""
+        self._returns = {k: list(v) for k, v in data.get("returns", {}).items()}
+        self._last_prices = {k: float(v) for k, v in data.get("last_prices", {}).items()}
+
     def update(self, symbol: str, close: float) -> None:
         """Record a new close price, compute log return."""
         prev = self._last_prices.get(symbol)

@@ -77,6 +77,37 @@ class OrderTimeoutTracker:
 
         return timed_out
 
+    def checkpoint(self) -> dict:
+        """Serialize pending orders for persistence.
+
+        Note: Uses wall-clock time (time.time()) instead of monotonic for
+        cross-process portability. Timeout accuracy may drift slightly on restore.
+        """
+        import time as _time
+        mono_now = self.clock_fn()
+        wall_now = _time.time()
+        with self._lock:
+            entries = {}
+            for order_id, (submit_ts, _cmd) in self._pending.items():
+                # Convert monotonic offset to wall-clock timestamp
+                elapsed = mono_now - submit_ts
+                entries[order_id] = {"wall_submit_ts": wall_now - elapsed}
+            return {"pending": entries, "timeout_sec": self.timeout_sec}
+
+    def restore(self, data: dict) -> None:
+        """Restore pending orders from checkpoint."""
+        import time as _time
+        wall_now = _time.time()
+        mono_now = self.clock_fn()
+        with self._lock:
+            self._pending.clear()
+            for order_id, entry in data.get("pending", {}).items():
+                wall_submit = entry.get("wall_submit_ts", wall_now)
+                elapsed = wall_now - wall_submit
+                # Reconstruct monotonic submit time
+                mono_submit = mono_now - elapsed
+                self._pending[order_id] = (mono_submit, None)
+
     @property
     def pending_count(self) -> int:
         with self._lock:

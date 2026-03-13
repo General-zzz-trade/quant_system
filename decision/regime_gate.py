@@ -29,6 +29,23 @@ class RegimeGate:
         self._bb_width_buf: deque = deque(maxlen=720)
         self._vol_of_vol_buf: deque = deque(maxlen=720)
 
+    @property
+    def _lookback(self) -> int:
+        return self._bb_width_buf.maxlen or 720
+
+    def checkpoint(self) -> dict:
+        """Serialize buffer state for persistence."""
+        return {
+            "bb_width_buf": list(self._bb_width_buf),
+            "vol_of_vol_buf": list(self._vol_of_vol_buf),
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore buffer state from checkpoint."""
+        maxlen = self._lookback
+        self._bb_width_buf = deque(data.get("bb_width_buf", []), maxlen=maxlen)
+        self._vol_of_vol_buf = deque(data.get("vol_of_vol_buf", []), maxlen=maxlen)
+
     def evaluate(self, features: Dict[str, float]) -> Tuple[str, float]:
         """Classify regime and return (regime_label, position_scale).
 

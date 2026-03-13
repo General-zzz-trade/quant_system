@@ -192,7 +192,7 @@ class EventRecorder:
         et = getattr(event, "event_type", None)
         et_str = getattr(et, "value", str(et) if et else "").lower()
 
-        if et_str in ("market", "fill", "funding"):
+        if et_str in ("market", "fill", "funding", "signal", "intent", "order"):
             self._record_event(event, et_str)
 
     def record_fill(self, fill_event: Any) -> None:
@@ -227,6 +227,18 @@ class EventRecorder:
                 rate = getattr(event, "rate", None)
                 if rate is not None:
                     payload["rate"] = str(rate)
+
+            elif event_type in ("signal", "intent"):
+                for fld in ("side", "reason_code", "origin", "target_qty", "score"):
+                    val = getattr(event, fld, None)
+                    if val is not None:
+                        payload[fld] = str(val)
+
+            elif event_type == "order":
+                for fld in ("side", "qty", "price", "order_id", "intent_id"):
+                    val = getattr(event, fld, None)
+                    if val is not None:
+                        payload[fld] = str(val)
 
             ts = getattr(event, "ts", None)
             if ts is not None:
@@ -381,7 +393,373 @@ def restore_feature_hook_state(
 
 
 # ============================================================
-# 6. Startup Reconciliation with Healing
+# 6. Exit Manager Recovery
+# ============================================================
+
+_EXIT_MANAGER_FILE = "exit_manager_checkpoint.json"
+
+
+def save_exit_manager_state(
+    exit_manager: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> None:
+    """Persist exit manager trailing stop state."""
+    if exit_manager is None or not hasattr(exit_manager, "checkpoint"):
+        return
+    try:
+        data = exit_manager.checkpoint()
+    except Exception:
+        logger.debug("Exit manager checkpoint failed")
+        return
+    if not data:
+        return
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, _EXIT_MANAGER_FILE)
+    with open(path, "w") as f:
+        json.dump(data, f)
+    logger.info("Exit manager state saved (%d position(s))", len(data))
+
+
+def restore_exit_manager_state(
+    exit_manager: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> bool:
+    """Restore exit manager state from checkpoint. Returns True if restored."""
+    if exit_manager is None or not hasattr(exit_manager, "restore"):
+        return False
+    path = os.path.join(data_dir, _EXIT_MANAGER_FILE)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read exit manager checkpoint")
+        return False
+    try:
+        exit_manager.restore(data)
+        logger.info("Exit manager state restored (%d position(s))", len(data))
+        return True
+    except Exception:
+        logger.exception("Exit manager restore failed")
+        return False
+
+
+# ============================================================
+# 7. Regime Gate Recovery
+# ============================================================
+
+_REGIME_GATE_FILE = "regime_gate_checkpoint.json"
+
+
+def save_regime_gate_state(
+    regime_gate: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> None:
+    """Persist regime gate buffer state."""
+    if regime_gate is None or not hasattr(regime_gate, "checkpoint"):
+        return
+    try:
+        data = regime_gate.checkpoint()
+    except Exception:
+        logger.debug("Regime gate checkpoint failed")
+        return
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, _REGIME_GATE_FILE)
+    with open(path, "w") as f:
+        json.dump(data, f)
+    logger.info("Regime gate state saved (%d bb_width entries)", len(data.get("bb_width_buf", [])))
+
+
+def restore_regime_gate_state(
+    regime_gate: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> bool:
+    """Restore regime gate state from checkpoint. Returns True if restored."""
+    if regime_gate is None or not hasattr(regime_gate, "restore"):
+        return False
+    path = os.path.join(data_dir, _REGIME_GATE_FILE)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read regime gate checkpoint")
+        return False
+    try:
+        regime_gate.restore(data)
+        logger.info("Regime gate state restored")
+        return True
+    except Exception:
+        logger.exception("Regime gate restore failed")
+        return False
+
+
+# ============================================================
+# 8. Correlation Computer Recovery
+# ============================================================
+
+_CORRELATION_FILE = "correlation_checkpoint.json"
+
+
+def save_correlation_state(
+    correlation_computer: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> None:
+    """Persist correlation computer state."""
+    if correlation_computer is None or not hasattr(correlation_computer, "checkpoint"):
+        return
+    try:
+        data = correlation_computer.checkpoint()
+    except Exception:
+        logger.debug("Correlation computer checkpoint failed")
+        return
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, _CORRELATION_FILE)
+    with open(path, "w") as f:
+        json.dump(data, f)
+    logger.info("Correlation state saved (%d symbols)", len(data.get("last_prices", {})))
+
+
+def restore_correlation_state(
+    correlation_computer: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> bool:
+    """Restore correlation computer state from checkpoint. Returns True if restored."""
+    if correlation_computer is None or not hasattr(correlation_computer, "restore"):
+        return False
+    path = os.path.join(data_dir, _CORRELATION_FILE)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read correlation checkpoint")
+        return False
+    try:
+        correlation_computer.restore(data)
+        logger.info("Correlation state restored (%d symbols)", len(data.get("last_prices", {})))
+        return True
+    except Exception:
+        logger.exception("Correlation restore failed")
+        return False
+
+
+# ============================================================
+# 9. Timeout Tracker Recovery
+# ============================================================
+
+_TIMEOUT_TRACKER_FILE = "timeout_tracker_checkpoint.json"
+
+
+def save_timeout_tracker_state(
+    timeout_tracker: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> None:
+    """Persist timeout tracker pending orders."""
+    if timeout_tracker is None or not hasattr(timeout_tracker, "checkpoint"):
+        return
+    try:
+        data = timeout_tracker.checkpoint()
+    except Exception:
+        logger.debug("Timeout tracker checkpoint failed")
+        return
+    if not data.get("pending"):
+        return
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, _TIMEOUT_TRACKER_FILE)
+    with open(path, "w") as f:
+        json.dump(data, f)
+    logger.info("Timeout tracker state saved (%d pending)", len(data.get("pending", {})))
+
+
+def restore_timeout_tracker_state(
+    timeout_tracker: Any,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> bool:
+    """Restore timeout tracker state from checkpoint. Returns True if restored."""
+    if timeout_tracker is None or not hasattr(timeout_tracker, "restore"):
+        return False
+    path = os.path.join(data_dir, _TIMEOUT_TRACKER_FILE)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("Failed to read timeout tracker checkpoint")
+        return False
+    try:
+        timeout_tracker.restore(data)
+        logger.info("Timeout tracker state restored (%d pending)", len(data.get("pending", {})))
+        return True
+    except Exception:
+        logger.exception("Timeout tracker restore failed")
+        return False
+
+
+# ============================================================
+# 10. Atomic Checkpoint Bundle
+# ============================================================
+
+_AUXILIARY_BUNDLE_FILE = "auxiliary_state_bundle.json"
+
+
+def save_all_auxiliary_state(
+    *,
+    kill_switch: Any = None,
+    inference_bridge: Any = None,
+    feature_hook: Any = None,
+    exit_manager: Any = None,
+    regime_gate: Any = None,
+    correlation_computer: Any = None,
+    timeout_tracker: Any = None,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> None:
+    """Atomically save all auxiliary component state to a single JSON file.
+
+    Uses write-to-temp + os.replace() for POSIX atomicity.
+    Also writes individual files for backwards compatibility.
+    """
+    # Individual saves (backwards compat)
+    save_kill_switch_state(kill_switch, data_dir=data_dir) if kill_switch else None
+    save_inference_bridge_state(inference_bridge, data_dir=data_dir) if inference_bridge else None
+    save_feature_hook_state(feature_hook, data_dir=data_dir) if feature_hook else None
+    save_exit_manager_state(exit_manager, data_dir=data_dir) if exit_manager else None
+    save_regime_gate_state(regime_gate, data_dir=data_dir) if regime_gate else None
+    save_correlation_state(correlation_computer, data_dir=data_dir) if correlation_computer else None
+    save_timeout_tracker_state(timeout_tracker, data_dir=data_dir) if timeout_tracker else None
+
+    # Atomic bundle
+    bundle: Dict[str, Any] = {}
+
+    if inference_bridge is not None:
+        bridges = inference_bridge if isinstance(inference_bridge, dict) else {"_default": inference_bridge}
+        bridge_data = {}
+        for key, bridge in bridges.items():
+            if hasattr(bridge, "checkpoint"):
+                try:
+                    bridge_data[key] = bridge.checkpoint()
+                except Exception:
+                    pass
+        if bridge_data:
+            bundle["inference_bridge"] = bridge_data
+
+    if feature_hook is not None:
+        bar_count = getattr(feature_hook, "_bar_count", None)
+        if bar_count:
+            bundle["feature_hook"] = {"bar_count": dict(bar_count)}
+
+    for name, component in [
+        ("exit_manager", exit_manager),
+        ("regime_gate", regime_gate),
+        ("correlation_computer", correlation_computer),
+        ("timeout_tracker", timeout_tracker),
+    ]:
+        if component is not None and hasattr(component, "checkpoint"):
+            try:
+                bundle[name] = component.checkpoint()
+            except Exception:
+                logger.debug("Bundle checkpoint failed for %s", name)
+
+    if not bundle:
+        return
+
+    os.makedirs(data_dir, exist_ok=True)
+    path = os.path.join(data_dir, _AUXILIARY_BUNDLE_FILE)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(bundle, f)
+    os.replace(tmp_path, path)
+    logger.info("Atomic auxiliary state bundle saved (%d components)", len(bundle))
+
+
+def restore_all_auxiliary_state(
+    *,
+    kill_switch: Any = None,
+    inference_bridge: Any = None,
+    feature_hook: Any = None,
+    exit_manager: Any = None,
+    regime_gate: Any = None,
+    correlation_computer: Any = None,
+    timeout_tracker: Any = None,
+    data_dir: str = _CHECKPOINT_DIR_DEFAULT,
+) -> Dict[str, bool]:
+    """Restore all auxiliary state, preferring atomic bundle over individual files.
+
+    Returns dict of component_name -> restored (bool).
+    """
+    results: Dict[str, bool] = {}
+
+    # Try atomic bundle first
+    bundle_path = os.path.join(data_dir, _AUXILIARY_BUNDLE_FILE)
+    bundle: Optional[Dict[str, Any]] = None
+    if os.path.exists(bundle_path):
+        try:
+            with open(bundle_path) as f:
+                bundle = json.load(f)
+        except Exception:
+            logger.warning("Failed to read auxiliary bundle — falling back to individual files")
+            bundle = None
+
+    # Kill switch: always uses individual file (has its own format)
+    if kill_switch is not None:
+        results["kill_switch"] = restore_kill_switch_state(kill_switch, data_dir=data_dir) > 0
+
+    # Inference bridge
+    if inference_bridge is not None:
+        if bundle and "inference_bridge" in bundle:
+            bridges = inference_bridge if isinstance(inference_bridge, dict) else {"_default": inference_bridge}
+            restored = False
+            for key, bridge in bridges.items():
+                data = bundle["inference_bridge"].get(key)
+                if data is not None and hasattr(bridge, "restore"):
+                    try:
+                        bridge.restore(data)
+                        restored = True
+                    except Exception:
+                        logger.exception("Bundle inference bridge restore failed for %s", key)
+            results["inference_bridge"] = restored
+        else:
+            results["inference_bridge"] = restore_inference_bridge_state(inference_bridge, data_dir=data_dir)
+
+    # Feature hook
+    if feature_hook is not None:
+        if bundle and "feature_hook" in bundle:
+            bar_count = bundle["feature_hook"].get("bar_count", {})
+            if bar_count and hasattr(feature_hook, "_bar_count"):
+                feature_hook._bar_count = {k: int(v) for k, v in bar_count.items()}
+                results["feature_hook"] = True
+            else:
+                results["feature_hook"] = False
+        else:
+            results["feature_hook"] = restore_feature_hook_state(feature_hook, data_dir=data_dir)
+
+    # Simple checkpoint/restore components
+    for name, component, fallback_fn in [
+        ("exit_manager", exit_manager, restore_exit_manager_state),
+        ("regime_gate", regime_gate, restore_regime_gate_state),
+        ("correlation_computer", correlation_computer, restore_correlation_state),
+        ("timeout_tracker", timeout_tracker, restore_timeout_tracker_state),
+    ]:
+        if component is not None:
+            if bundle and name in bundle and hasattr(component, "restore"):
+                try:
+                    component.restore(bundle[name])
+                    results[name] = True
+                except Exception:
+                    logger.exception("Bundle restore failed for %s", name)
+                    results[name] = False
+            else:
+                results[name] = fallback_fn(component, data_dir=data_dir)
+
+    return results
+
+
+# ============================================================
+# 11. Startup Reconciliation with Healing
 # ============================================================
 
 def reconcile_and_heal(

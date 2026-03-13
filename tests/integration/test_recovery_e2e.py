@@ -23,6 +23,8 @@ from runner.recovery import (
     restore_inference_bridge_state,
     save_feature_hook_state,
     restore_feature_hook_state,
+    save_all_auxiliary_state,
+    restore_all_auxiliary_state,
     reconcile_and_heal,
 )
 
@@ -57,6 +59,45 @@ class MockFeatureHook:
 
     def increment(self, symbol: str) -> None:
         self._bar_count[symbol] = self._bar_count.get(symbol, 0) + 1
+
+
+class MockExitManager:
+    """Minimal exit manager with checkpoint/restore."""
+
+    def __init__(self) -> None:
+        self._positions: Dict[str, Dict[str, Any]] = {}
+
+    def on_entry(self, symbol: str, price: float, bar: int, direction: float) -> None:
+        self._positions[symbol] = {
+            "entry_price": price, "peak_price": price,
+            "entry_bar": bar, "direction": direction,
+        }
+
+    def checkpoint(self) -> Dict[str, Any]:
+        return dict(self._positions)
+
+    def restore(self, data: Dict[str, Any]) -> None:
+        self._positions = dict(data)
+
+
+class MockRegimeGate:
+    """Minimal regime gate with checkpoint/restore."""
+
+    def __init__(self) -> None:
+        self._bb_width_buf: list = []
+        self._vol_of_vol_buf: list = []
+
+    def push(self, bb_width: float, vol_of_vol: float) -> None:
+        self._bb_width_buf.append(bb_width)
+        self._vol_of_vol_buf.append(vol_of_vol)
+
+    def checkpoint(self) -> Dict[str, Any]:
+        return {"bb_width_buf": list(self._bb_width_buf),
+                "vol_of_vol_buf": list(self._vol_of_vol_buf)}
+
+    def restore(self, data: Dict[str, Any]) -> None:
+        self._bb_width_buf = list(data.get("bb_width_buf", []))
+        self._vol_of_vol_buf = list(data.get("vol_of_vol_buf", []))
 
 
 def _market_event(symbol: str, close: float, idx: int) -> SimpleNamespace:
@@ -109,6 +150,16 @@ class SimulatedLiveStack:
         # Mock feature hook
         self.feature_hook = MockFeatureHook()
 
+        # Mock exit manager
+        self.exit_manager = MockExitManager()
+
+        # Mock regime gate
+        self.regime_gate = MockRegimeGate()
+
+        # Correlation computer (real, lightweight)
+        from risk.correlation_computer import CorrelationComputer
+        self.correlation_computer = CorrelationComputer(window=60)
+
     def start(self) -> None:
         self.coordinator.start()
 
@@ -116,24 +167,36 @@ class SimulatedLiveStack:
         self.coordinator.emit(_market_event(symbol, close, idx), actor="test")
 
     def save_all(self) -> None:
-        """Save all component state to data_dir."""
-        save_kill_switch_state(self.kill_switch, data_dir=self.data_dir)
-        save_inference_bridge_state(self.inference_bridge, data_dir=self.data_dir)
-        save_feature_hook_state(self.feature_hook, data_dir=self.data_dir)
+        """Save all component state to data_dir using atomic bundle."""
+        save_all_auxiliary_state(
+            kill_switch=self.kill_switch,
+            inference_bridge=self.inference_bridge,
+            feature_hook=self.feature_hook,
+            exit_manager=self.exit_manager,
+            regime_gate=self.regime_gate,
+            correlation_computer=self.correlation_computer,
+            data_dir=self.data_dir,
+        )
 
     def restore_all(self) -> Dict[str, Any]:
         """Restore all component state from data_dir. Returns restore results."""
-        ks_count = restore_kill_switch_state(self.kill_switch, data_dir=self.data_dir)
-        bridge_ok = restore_inference_bridge_state(
-            self.inference_bridge, data_dir=self.data_dir
+        results = restore_all_auxiliary_state(
+            kill_switch=self.kill_switch,
+            inference_bridge=self.inference_bridge,
+            feature_hook=self.feature_hook,
+            exit_manager=self.exit_manager,
+            regime_gate=self.regime_gate,
+            correlation_computer=self.correlation_computer,
+            data_dir=self.data_dir,
         )
-        hook_ok = restore_feature_hook_state(
-            self.feature_hook, data_dir=self.data_dir
-        )
+        # Map to legacy keys for backward compat with existing tests
         return {
-            "kill_switch_restored": ks_count,
-            "bridge_restored": bridge_ok,
-            "hook_restored": hook_ok,
+            "kill_switch_restored": results.get("kill_switch", False),
+            "bridge_restored": results.get("inference_bridge", False),
+            "hook_restored": results.get("feature_hook", False),
+            "exit_manager_restored": results.get("exit_manager", False),
+            "regime_gate_restored": results.get("regime_gate", False),
+            "correlation_restored": results.get("correlation_computer", False),
         }
 
 
@@ -226,7 +289,7 @@ class TestRecoveryE2E:
         assert stack2.kill_switch.is_killed(symbol="BTCUSDT") is None
 
         result = stack2.restore_all()
-        assert result["kill_switch_restored"] == 1
+        assert result["kill_switch_restored"] is True
 
         # After restore: kill switch should be active
         rec2 = stack2.kill_switch.is_killed(symbol="BTCUSDT")
@@ -259,13 +322,19 @@ class TestRecoveryE2E:
 
         stack1.save_all()
 
-        # --- Phase 2: corrupt the inference bridge checkpoint ---
+        # --- Phase 2: corrupt both the atomic bundle AND the individual file ---
         bridge_path = os.path.join(data_dir, "inference_bridge_checkpoint.json")
         assert os.path.exists(bridge_path)
 
-        # Write truncated/corrupt JSON
+        # Write truncated/corrupt JSON to individual file
         with open(bridge_path, "w") as f:
             f.write('{"_default": {"zscore_buffers": {"BTCUSDT": [1.5')  # truncated
+
+        # Also corrupt the atomic bundle (so restore_all can't use it for bridge)
+        bundle_path = os.path.join(data_dir, "auxiliary_state_bundle.json")
+        if os.path.exists(bundle_path):
+            with open(bundle_path, "w") as f:
+                f.write('{"inference_bridge": BROKEN')  # truncated
 
         # --- Phase 3: restore in fresh stack ---
         stack2 = SimulatedLiveStack(data_dir=data_dir)
@@ -388,7 +457,7 @@ class TestRecoveryE2E:
         stack2.start()
         result = stack2.restore_all()
 
-        assert result["kill_switch_restored"] == 0
+        assert result["kill_switch_restored"] is False
         # Bridge checkpoint() returns a dict even when empty, so file is written
         # and restore succeeds — but state remains empty
         assert result["hook_restored"] is False
@@ -419,3 +488,102 @@ class TestRecoveryE2E:
         assert ok is True
         assert bridges2["BTCUSDT"]._zscore_buffers == {"BTCUSDT": [1.1]}
         assert bridges2["ETHUSDT"]._zscore_buffers == {"ETHUSDT": [-0.5, -0.7]}
+
+    def test_exit_manager_checkpoint_restore(self, tmp_path):
+        """Exit manager positions survive checkpoint/restore cycle."""
+        data_dir = str(tmp_path / "live")
+
+        stack1 = SimulatedLiveStack(data_dir=data_dir)
+        stack1.start()
+
+        stack1.exit_manager.on_entry("BTCUSDT", price=40000.0, bar=5, direction=1.0)
+        stack1.save_all()
+
+        stack2 = SimulatedLiveStack(data_dir=data_dir)
+        stack2.start()
+        result = stack2.restore_all()
+
+        assert result["exit_manager_restored"] is True
+        assert "BTCUSDT" in stack2.exit_manager._positions
+        assert stack2.exit_manager._positions["BTCUSDT"]["entry_price"] == 40000.0
+
+    def test_regime_gate_checkpoint_restore(self, tmp_path):
+        """Regime gate buffers survive checkpoint/restore cycle."""
+        data_dir = str(tmp_path / "live")
+
+        stack1 = SimulatedLiveStack(data_dir=data_dir)
+        stack1.start()
+
+        for i in range(100):
+            stack1.regime_gate.push(0.01 * i, 0.005 * i)
+        stack1.save_all()
+
+        stack2 = SimulatedLiveStack(data_dir=data_dir)
+        stack2.start()
+        result = stack2.restore_all()
+
+        assert result["regime_gate_restored"] is True
+        assert len(stack2.regime_gate._bb_width_buf) == 100
+        assert len(stack2.regime_gate._vol_of_vol_buf) == 100
+
+    def test_correlation_computer_checkpoint_restore(self, tmp_path):
+        """Correlation computer returns survive checkpoint/restore cycle."""
+        data_dir = str(tmp_path / "live")
+
+        stack1 = SimulatedLiveStack(data_dir=data_dir)
+        stack1.start()
+
+        for i in range(20):
+            stack1.correlation_computer.update("BTCUSDT", 40000.0 + i * 10)
+            stack1.correlation_computer.update("ETHUSDT", 3000.0 + i * 5)
+
+        corr_before = stack1.correlation_computer.portfolio_avg_correlation(
+            ["BTCUSDT", "ETHUSDT"]
+        )
+        stack1.save_all()
+
+        stack2 = SimulatedLiveStack(data_dir=data_dir)
+        stack2.start()
+        result = stack2.restore_all()
+
+        assert result["correlation_restored"] is True
+        corr_after = stack2.correlation_computer.portfolio_avg_correlation(
+            ["BTCUSDT", "ETHUSDT"]
+        )
+        assert corr_before is not None
+        assert corr_after is not None
+        assert abs(corr_before - corr_after) < 1e-10
+
+    def test_atomic_bundle_roundtrip(self, tmp_path):
+        """Atomic bundle save/restore covers all components."""
+        data_dir = str(tmp_path / "live")
+
+        stack1 = SimulatedLiveStack(data_dir=data_dir)
+        stack1.start()
+
+        # Populate all components
+        for i in range(10):
+            stack1.emit_market("BTCUSDT", 40000.0 + i, i)
+        stack1.inference_bridge.push_zscore("BTCUSDT", 1.5)
+        stack1.feature_hook.increment("BTCUSDT")
+        stack1.exit_manager.on_entry("BTCUSDT", 40000.0, 5, 1.0)
+        for i in range(50):
+            stack1.regime_gate.push(0.01 * i, 0.005 * i)
+        for i in range(10):
+            stack1.correlation_computer.update("BTCUSDT", 40000.0 + i * 10)
+
+        stack1.save_all()
+
+        # Verify bundle file exists
+        bundle_path = os.path.join(data_dir, "auxiliary_state_bundle.json")
+        assert os.path.exists(bundle_path)
+
+        stack2 = SimulatedLiveStack(data_dir=data_dir)
+        stack2.start()
+        result = stack2.restore_all()
+
+        assert result["bridge_restored"] is True
+        assert result["hook_restored"] is True
+        assert result["exit_manager_restored"] is True
+        assert result["regime_gate_restored"] is True
+        assert result["correlation_restored"] is True
