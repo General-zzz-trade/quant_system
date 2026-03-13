@@ -10,9 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from research.model_registry.registry import ModelRegistry
+from monitoring.alerts.base import Alert, Severity
+from monitoring.alerts.manager import AlertManager
 from runner.live_runner import LiveRunner, LiveRunnerConfig, _reconcile_startup
 from risk.kill_switch import KillMode, KillScope, KillSwitch
 from risk.margin_monitor import MarginConfig, MarginMonitor
+from execution.store.event_log import InMemoryEventLog
 
 
 # ── Fake transport ────────────────────────────────────────────
@@ -48,6 +52,25 @@ class _FakeVenueClient:
     def send_order(self, order_event: Any) -> list:
         self.orders.append(order_event)
         return []
+
+
+class _RecordingAlertSink:
+    def __init__(self) -> None:
+        self.alerts: List[Any] = []
+
+    def emit(self, alert: Any) -> None:
+        self.alerts.append(alert)
+
+
+class _TimeoutTracker:
+    def __init__(self, timed_out: list[str], timeout_sec: float = 30.0) -> None:
+        self._timed_out = list(timed_out)
+        self.timeout_sec = timeout_sec
+
+    def check_timeouts(self) -> list[str]:
+        current = list(self._timed_out)
+        self._timed_out.clear()
+        return current
 
 
 # ── Build tests ────────────────────────────────────────────────
@@ -295,6 +318,809 @@ class TestLifecycle:
         runner.start()
 
         assert runner.timeout_tracker.calls >= 1
+
+
+class TestOperatorControl:
+    def test_halt_sets_global_hard_kill(self):
+        runner = LiveRunner.build(
+            LiveRunnerConfig(),
+            venue_clients={"binance": _FakeVenueClient()},
+            transport=_FakeTransport(),
+        )
+
+        rec = runner.halt(reason="manual_halt")
+
+        assert rec.mode == KillMode.HARD_KILL
+        assert rec.reason == "manual_halt"
+        assert runner.kill_switch.is_killed() is not None
+
+    def test_reduce_only_sets_global_reduce_only(self):
+        runner = LiveRunner.build(
+            LiveRunnerConfig(),
+            venue_clients={"binance": _FakeVenueClient()},
+            transport=_FakeTransport(),
+        )
+
+        rec = runner.reduce_only(reason="manual_reduce_only")
+
+        assert rec.mode == KillMode.REDUCE_ONLY
+        assert rec.reason == "manual_reduce_only"
+        assert runner.kill_switch.is_killed() is not None
+
+    def test_resume_clears_global_kill_switch(self):
+        runner = LiveRunner.build(
+            LiveRunnerConfig(),
+            venue_clients={"binance": _FakeVenueClient()},
+            transport=_FakeTransport(),
+        )
+        runner.halt(reason="manual_halt")
+
+        assert runner.resume(reason="manual_resume") is True
+        assert runner.kill_switch.is_killed() is None
+
+    def test_flush_runs_reconcile_once_when_available(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            reconcile_scheduler=SimpleNamespace(run_once=lambda: {"ok": True}),
+        )
+
+        assert runner.flush(reason="manual_flush") == {"ok": True}
+
+    def test_apply_control_dispatches_commands(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            reconcile_scheduler=SimpleNamespace(run_once=lambda: {"ok": True}),
+        )
+
+        halt_result = runner.apply_control(SimpleNamespace(command="halt", reason="manual stop"))
+        assert halt_result.mode == KillMode.HARD_KILL
+        assert runner.kill_switch.is_killed() is not None
+
+        ro_result = runner.apply_control(SimpleNamespace(command="reduce_only", reason="manual ro"))
+        assert ro_result.mode == KillMode.REDUCE_ONLY
+        assert runner.kill_switch.is_killed() is not None
+
+        flush_result = runner.apply_control(SimpleNamespace(command="flush", reason="manual flush"))
+        assert flush_result == {"ok": True}
+
+        assert runner.apply_control(SimpleNamespace(command="resume", reason="manual resume")) is True
+        assert runner.kill_switch.is_killed() is None
+
+    def test_apply_control_shutdown_stops_runner(self):
+        runtime = MagicMock()
+        loop = MagicMock()
+        coordinator = MagicMock()
+        runner = LiveRunner(
+            loop=loop,
+            coordinator=coordinator,
+            runtime=runtime,
+            kill_switch=KillSwitch(),
+        )
+
+        runner.apply_control(SimpleNamespace(command="shutdown", reason="manual shutdown"))
+
+        runtime.stop.assert_called_once()
+        loop.stop_background.assert_called_once()
+        coordinator.stop.assert_called_once()
+
+    def test_apply_control_rejects_unknown_command(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+        )
+
+        with pytest.raises(ValueError, match="Unsupported control command"):
+            runner.apply_control(SimpleNamespace(command="bogus", reason="bad"))
+
+    def test_operator_status_reflects_kill_switch_reconcile_and_last_control(self):
+        report = SimpleNamespace(ok=False, should_halt=True, all_drifts=("d1", "d2"))
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            reconcile_scheduler=SimpleNamespace(last_report=report, run_once=lambda: report),
+        )
+
+        runner.reduce_only(reason="manual_reduce_only")
+        status = runner.operator_status()
+
+        assert status["kill_switch"] is not None
+        assert status["kill_switch"]["mode"] == "reduce_only"
+        assert status["stream_status"] == "ok"
+        assert status["incident_state"] == "critical"
+        assert status["recommended_action"] == "halt"
+        assert status["last_reconcile"] == {"ok": False, "should_halt": True, "drift_count": 2}
+        assert status["last_control"]["command"] == "reduce_only"
+        assert status["last_control"]["result"] == "reduce_only"
+        assert status["last_incident_category"] == "operator_control"
+        assert status["last_incident_ts"] is not None
+
+    def test_operator_status_snapshot_exposes_structured_schema(self):
+        report = SimpleNamespace(ok=True, should_halt=False, all_drifts=())
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            reconcile_scheduler=SimpleNamespace(last_report=report, run_once=lambda: report),
+        )
+
+        runner.halt(reason="manual_halt")
+        snap = runner.operator_status_snapshot()
+
+        assert snap.running is False
+        assert snap.stopped is False
+        assert snap.stream_status == "ok"
+        assert snap.incident_state == "critical"
+        assert snap.recommended_action == "halt"
+        assert snap.kill_switch is not None
+        assert snap.kill_switch.mode == "hard_kill"
+        assert snap.last_reconcile is not None
+        assert snap.last_reconcile.ok is True
+        assert snap.last_control is not None
+        assert snap.last_control.command == "halt"
+        assert snap.last_incident_category == "operator_control"
+        assert snap.last_incident_ts is not None
+
+    def test_operator_status_marks_reduce_only_as_degraded(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+        )
+
+        runner.reduce_only(reason="manual_reduce_only")
+        status = runner.operator_status()
+
+        assert status["stream_status"] == "ok"
+        assert status["incident_state"] == "degraded"
+        assert status["recommended_action"] == "reduce_only"
+
+    def test_control_history_records_flush_outcome(self):
+        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=("d1",))
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            reconcile_scheduler=SimpleNamespace(last_report=report, run_once=lambda: report),
+        )
+
+        runner.flush(reason="manual_flush")
+
+        assert runner.control_history[-1].command == "flush"
+        assert runner.control_history[-1].result == "drift"
+
+    def test_control_actions_emit_alerts(self):
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+            reconcile_scheduler=SimpleNamespace(last_report=None, run_once=lambda: SimpleNamespace(ok=False, should_halt=False, all_drifts=("d1",))),
+        )
+
+        runner.halt(reason="manual_halt")
+        runner.flush(reason="manual_flush")
+        runner.resume(reason="manual_resume")
+
+        assert [a.title for a in sink.alerts] == [
+            "operator_halt",
+            "operator_flush",
+            "execution-reconcile-drift",
+            "operator_resume",
+        ]
+        assert sink.alerts[0].severity == Severity.CRITICAL
+        assert sink.alerts[1].severity == Severity.WARNING
+        assert sink.alerts[2].severity == Severity.WARNING
+        assert sink.alerts[3].severity == Severity.INFO
+
+    def test_control_actions_append_to_event_log_when_available(self):
+        rows: list[dict[str, object]] = []
+
+        class _EventLog:
+            def append(self, *, event_type, payload, correlation_id=None):
+                rows.append(
+                    {
+                        "event_type": event_type,
+                        "payload": dict(payload),
+                        "correlation_id": correlation_id,
+                    }
+                )
+                return len(rows)
+
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            event_log=_EventLog(),
+        )
+
+        runner.halt(reason="manual_halt", source="ops")
+
+        assert rows and rows[-1]["event_type"] == "operator_control"
+        assert rows[-1]["correlation_id"] == "halt"
+        assert rows[-1]["payload"]["result"] == "hard_kill"
+
+    def test_flush_with_drift_emits_reconcile_alert(self):
+        sink = _RecordingAlertSink()
+        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),), venue="binance")
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+            reconcile_scheduler=SimpleNamespace(last_report=report, run_once=lambda: report),
+        )
+
+        runner.flush(reason="manual_flush")
+
+        titles = [a.title for a in sink.alerts]
+        assert "operator_flush" in titles
+        assert "execution-reconcile-drift" in titles
+
+    def test_flush_with_drift_persists_execution_incident_to_event_log(self):
+        rows: list[dict[str, object]] = []
+
+        class _EventLog:
+            def append(self, *, event_type, payload, correlation_id=None):
+                rows.append(
+                    {
+                        "event_type": event_type,
+                        "payload": dict(payload),
+                        "correlation_id": correlation_id,
+                    }
+                )
+                return len(rows)
+
+        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),), venue="binance")
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            event_log=_EventLog(),
+            reconcile_scheduler=SimpleNamespace(last_report=report, run_once=lambda: report),
+            alert_manager=AlertManager(sink=_RecordingAlertSink()),
+        )
+
+        runner.flush(reason="manual_flush")
+
+        assert any(row["event_type"] == "execution_incident" for row in rows)
+        incident = next(row for row in rows if row["event_type"] == "execution_incident")
+        assert incident["payload"]["title"] == "execution-reconcile-drift"
+        assert incident["payload"]["category"] == "execution_reconcile"
+
+    def test_start_emits_timeout_alerts_for_timed_out_orders(self, monkeypatch):
+        monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))
+
+        class _FakeCoordinator:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeLoop:
+            def __init__(self) -> None:
+                self.owner = None
+
+            def start_background(self) -> None:
+                pass
+
+            def stop_background(self) -> None:
+                pass
+
+        class _FakeRuntime:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        tracker = _TimeoutTracker(["ord-timeout-1"], timeout_sec=15.0)
+        original_check = tracker.check_timeouts
+
+        def _check_timeouts_once() -> list[str]:
+            result = original_check()
+            if loop.owner is not None:
+                loop.owner._running = False
+            return result
+
+        sink = _RecordingAlertSink()
+        loop = _FakeLoop()
+        tracker.check_timeouts = _check_timeouts_once  # type: ignore[method-assign]
+        runner = LiveRunner(
+            loop=loop,
+            coordinator=_FakeCoordinator(),
+            runtime=_FakeRuntime(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+            timeout_tracker=tracker,
+        )
+        loop.owner = runner
+        runner._config = LiveRunnerConfig(venue="binance")
+
+        runner.start()
+
+        assert any(a.title == "execution-timeout" for a in sink.alerts)
+
+    def test_start_persists_timeout_incident_to_event_log(self, monkeypatch):
+        monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))
+
+        class _FakeCoordinator:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeLoop:
+            def __init__(self) -> None:
+                self.owner = None
+
+            def start_background(self) -> None:
+                pass
+
+            def stop_background(self) -> None:
+                pass
+
+        class _FakeRuntime:
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class _EventLog:
+            def __init__(self) -> None:
+                self.rows: list[dict[str, object]] = []
+
+            def append(self, *, event_type, payload, correlation_id=None):
+                self.rows.append(
+                    {
+                        "event_type": event_type,
+                        "payload": dict(payload),
+                        "correlation_id": correlation_id,
+                    }
+                )
+                return len(self.rows)
+
+            def list_recent(self, *, event_type: str | None = None, limit: int = 20):
+                rows = list(self.rows)
+                if event_type is not None:
+                    rows = [r for r in rows if r["event_type"] == event_type]
+                return rows[-limit:][::-1]
+
+        tracker = _TimeoutTracker(["ord-timeout-1"], timeout_sec=15.0)
+        original_check = tracker.check_timeouts
+
+        def _check_timeouts_once() -> list[str]:
+            result = original_check()
+            if loop.owner is not None:
+                loop.owner._running = False
+            return result
+
+        sink = _RecordingAlertSink()
+        loop = _FakeLoop()
+        event_log = _EventLog()
+        tracker.check_timeouts = _check_timeouts_once  # type: ignore[method-assign]
+        runner = LiveRunner(
+            loop=loop,
+            coordinator=_FakeCoordinator(),
+            runtime=_FakeRuntime(),
+            kill_switch=KillSwitch(),
+            event_log=event_log,
+            alert_manager=AlertManager(sink=sink),
+            timeout_tracker=tracker,
+        )
+        loop.owner = runner
+        runner._config = LiveRunnerConfig(venue="binance")
+
+        runner.start()
+
+        assert any(a.title == "execution-timeout" for a in sink.alerts)
+        assert any(row["event_type"] == "execution_incident" for row in event_log.rows)
+        incident = next(row for row in event_log.rows if row["event_type"] == "execution_incident")
+        assert incident["payload"]["title"] == "execution-timeout"
+        assert incident["payload"]["category"] == "execution_timeout"
+
+    def test_execution_alert_history_filters_execution_categories(self):
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+
+        runner.alert_manager.emit_direct(Alert(
+            title="execution-timeout",
+            message="timeout",
+            severity=Severity.WARNING,
+            source="execution:test",
+            meta={"category": "execution_timeout"},
+        ))
+        runner.alert_manager.emit_direct(Alert(
+            title="operator_halt",
+            message="manual halt",
+            severity=Severity.CRITICAL,
+            source="runner:control",
+            meta={"category": "operator_control"},
+        ))
+
+        rows = runner.execution_alert_history()
+
+        assert len(rows) == 1
+        assert rows[0]["title"] == "execution-timeout"
+
+    def test_model_alert_history_filters_model_categories(self):
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+
+        runner.alert_manager.emit_direct(Alert(
+            title="model_reload_failed",
+            message="reload failed",
+            severity=Severity.ERROR,
+            source="model:test",
+            meta={"category": "model_reload", "outcome": "failed"},
+        ))
+        runner.alert_manager.emit_direct(Alert(
+            title="execution-timeout",
+            message="timeout",
+            severity=Severity.WARNING,
+            source="execution:test",
+            meta={"category": "execution_timeout"},
+        ))
+
+        rows = runner.model_alert_history()
+
+        assert len(rows) == 1
+        assert rows[0]["title"] == "model_reload_failed"
+
+    def test_operator_status_reports_degraded_stream_after_user_stream_failure(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=_RecordingAlertSink()),
+        )
+        runner._config = LiveRunnerConfig(venue="binance")
+        runner.user_stream = object()
+
+        runner._record_user_stream_failure(kind="step")
+
+        status = runner.operator_status()
+
+        assert status["stream_status"] == "degraded"
+        assert status["incident_state"] == "degraded"
+        assert status["recommended_action"] == "review"
+        assert status["last_incident_category"] == "execution_stream"
+        assert status["last_incident_ts"] is not None
+
+    def test_ops_audit_snapshot_exposes_incident_aggregate(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=_RecordingAlertSink()),
+        )
+        runner._config = LiveRunnerConfig(venue="binance")
+        runner.user_stream = object()
+
+        runner._record_user_stream_failure(kind="connect")
+        snapshot = runner.ops_audit_snapshot()
+
+        assert snapshot["stream_status"] == "degraded"
+        assert snapshot["incident_state"] == "degraded"
+        assert snapshot["recommended_action"] == "review"
+        assert snapshot["last_incident_category"] == "execution_stream"
+        assert snapshot["last_incident_ts"] is not None
+        assert snapshot["operator"]["stream_status"] == "degraded"
+
+    def test_ops_audit_snapshot_collects_all_configured_model_actions(self, tmp_path):
+        registry = ModelRegistry(tmp_path / "registry.db")
+        mv_btc = registry.register(name="alpha_btc", params={}, features=[], metrics={"sharpe": 1.0})
+        mv_eth = registry.register(name="alpha_eth", params={}, features=[], metrics={"sharpe": 1.1})
+        registry.promote(mv_btc.model_id, reason="btc_go", actor="ops")
+        registry.promote(mv_eth.model_id, reason="eth_go", actor="ops")
+
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+        runner._config = LiveRunnerConfig(
+            model_registry_db=str(tmp_path / "registry.db"),
+            model_names=("alpha_btc", "alpha_eth"),
+        )
+
+        snapshot = runner.ops_audit_snapshot()
+
+        names = {row["model"] for row in snapshot["model_actions"]}
+        assert names == {"alpha_btc", "alpha_eth"}
+
+    def test_ops_audit_snapshot_includes_model_status_from_loader(self):
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+        )
+        runner._config = LiveRunnerConfig(model_registry_db="registry.db", model_names=("alpha_btc",))
+        runner.model_loader = SimpleNamespace(
+            inspect_production_models=lambda names: [
+                {
+                    "name": "alpha_btc",
+                    "available": True,
+                    "model_id": "m-2",
+                    "version": 2,
+                    "loaded_model_id": "m-1",
+                    "autoload_pending": True,
+                }
+            ]
+        )
+
+        snapshot = runner.ops_audit_snapshot()
+
+        assert snapshot["model_status"][0]["name"] == "alpha_btc"
+        assert snapshot["model_status"][0]["autoload_pending"] is True
+        assert snapshot["model_reload"] is None
+
+    def test_ops_audit_snapshot_includes_last_model_reload_status(self):
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+        runner._record_model_reload(
+            outcome="reloaded",
+            model_names=("alpha_btc",),
+            detail={"reloaded_count": 1},
+        )
+
+        snapshot = runner.ops_audit_snapshot()
+
+        assert snapshot["model_reload"] is not None
+        assert snapshot["model_reload"]["outcome"] == "reloaded"
+        assert snapshot["model_reload"]["model_names"] == ["alpha_btc"]
+        assert snapshot["model_reload"]["detail"]["reloaded_count"] == 1
+        assert snapshot["model_alerts"][0]["title"] == "model_reload_reloaded"
+
+    def test_ops_audit_snapshot_includes_failed_model_reload_status(self):
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+        runner._record_model_reload(
+            outcome="failed",
+            model_names=("alpha_btc",),
+            detail=None,
+            error="model_hot_reload_failed",
+        )
+
+        snapshot = runner.ops_audit_snapshot()
+
+        assert snapshot["model_reload"] is not None
+        assert snapshot["model_reload"]["outcome"] == "failed"
+        assert snapshot["model_reload"]["model_names"] == ["alpha_btc"]
+        assert snapshot["model_reload"]["detail"] is None
+        assert snapshot["model_reload"]["error"] == "model_hot_reload_failed"
+        assert snapshot["model_alerts"][0]["title"] == "model_reload_failed"
+
+    def test_ops_timeline_merges_control_execution_and_model_rows(self, tmp_path):
+        registry = ModelRegistry(tmp_path / "registry.db")
+        mv = registry.register(name="alpha_btc", params={}, features=[], metrics={"sharpe": 1.0})
+        registry.promote(mv.model_id, reason="shadow_win", actor="ops")
+
+        sink = _RecordingAlertSink()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            alert_manager=AlertManager(sink=sink),
+        )
+        runner._config = LiveRunnerConfig(
+            model_registry_db=str(tmp_path / "registry.db"),
+            model_names=("alpha_btc",),
+        )
+
+        runner.halt(reason="manual_halt", source="ops")
+        runner.alert_manager.emit_direct(Alert(
+            title="execution-timeout",
+            message="timeout",
+            severity=Severity.WARNING,
+            source="execution:test",
+            meta={"category": "execution_timeout"},
+        ))
+        runner._record_model_reload(
+            outcome="failed",
+            model_names=("alpha_btc",),
+            detail=None,
+            error="model_hot_reload_failed",
+        )
+
+        timeline = runner.ops_timeline()
+
+        kinds = {row["kind"] for row in timeline}
+        assert "control" in kinds
+        assert "execution_alert" in kinds
+        assert "model_alert" in kinds
+        assert "model_action" in kinds
+        assert timeline == sorted(timeline, key=lambda row: row["ts"], reverse=True)
+
+    def test_ops_timeline_uses_event_log_for_persistent_control_and_model_reload(self, tmp_path):
+        registry = ModelRegistry(tmp_path / "registry.db")
+        mv = registry.register(name="alpha_btc", params={}, features=[], metrics={"sharpe": 1.0})
+        registry.promote(mv.model_id, reason="shadow_win", actor="ops")
+
+        event_log = InMemoryEventLog()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            event_log=event_log,
+        )
+        runner._config = LiveRunnerConfig(
+            model_registry_db=str(tmp_path / "registry.db"),
+            model_names=("alpha_btc",),
+        )
+
+        runner.halt(reason="manual_halt", source="ops")
+        runner._emit_execution_incident(
+            Alert(
+                title="execution-timeout",
+                message="timeout",
+                severity=Severity.WARNING,
+                source="execution:test",
+                meta={"category": "execution_timeout", "routing_key": "binance:BTCUSDT:timeout"},
+            )
+        )
+        runner._record_model_reload(
+            outcome="failed",
+            model_names=("alpha_btc",),
+            detail=None,
+            error="model_hot_reload_failed",
+        )
+
+        timeline = runner.ops_timeline()
+
+        kinds = {row["kind"] for row in timeline}
+        assert "control" in kinds
+        assert "execution_incident" in kinds
+        assert "model_reload" in kinds
+        assert "model_action" in kinds
+        assert any(row["title"] == "operator_halt" for row in timeline)
+        assert any(row["title"] == "model_reload_failed" for row in timeline)
+
+    def test_emit_execution_incident_persists_fill_and_rejection_categories(self):
+        event_log = InMemoryEventLog()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            event_log=event_log,
+        )
+
+        runner._emit_execution_incident(
+            Alert(
+                title="execution-synthetic-fill",
+                message="synthetic fill",
+                severity=Severity.INFO,
+                source="execution:bridge",
+                meta={"category": "execution_fill", "routing_key": "binance:BTCUSDT:fill"},
+            )
+        )
+        runner._emit_execution_incident(
+            Alert(
+                title="execution-rejected",
+                message="rejected",
+                severity=Severity.ERROR,
+                source="execution:bridge",
+                meta={"category": "execution_rejection", "routing_key": "binance:BTCUSDT:reject"},
+            )
+        )
+
+        rows = event_log.list_recent(event_type="execution_incident", limit=10)
+
+        categories = {row["payload"]["category"] for row in rows}
+        assert "execution_fill" in categories
+        assert "execution_rejection" in categories
+        assert any(row["payload"]["title"] == "execution-synthetic-fill" for row in rows)
+        assert any(row["payload"]["title"] == "execution-rejected" for row in rows)
+
+    def test_ops_timeline_limit_is_sorted_and_trimmed(self, tmp_path):
+        registry = ModelRegistry(tmp_path / "registry.db")
+        mv = registry.register(name="alpha_btc", params={}, features=[], metrics={"sharpe": 1.0})
+        registry.promote(mv.model_id, reason="shadow_win", actor="ops")
+
+        event_log = InMemoryEventLog()
+        runner = LiveRunner(
+            loop=MagicMock(),
+            coordinator=MagicMock(),
+            runtime=MagicMock(),
+            kill_switch=KillSwitch(),
+            event_log=event_log,
+        )
+        runner._config = LiveRunnerConfig(
+            model_registry_db=str(tmp_path / "registry.db"),
+            model_names=("alpha_btc",),
+        )
+
+        event_log.append(
+            event_type="operator_control",
+            correlation_id="halt",
+            payload={
+                "command": "halt",
+                "reason": "manual_halt",
+                "source": "ops",
+                "result": "hard_kill",
+                "ts": "2099-03-13T00:00:01+00:00",
+            },
+        )
+        event_log.append(
+            event_type="execution_incident",
+            correlation_id="binance:BTCUSDT:timeout",
+            payload={
+                "title": "execution-timeout",
+                "category": "execution_timeout",
+                "source": "execution:test",
+                "ts": "2099-03-13T00:00:02+00:00",
+            },
+        )
+        event_log.append(
+            event_type="model_reload",
+            correlation_id="failed",
+            payload={
+                "outcome": "failed",
+                "model_names": ["alpha_btc"],
+                "error": "model_hot_reload_failed",
+                "ts": "2099-03-13T00:00:03+00:00",
+            },
+        )
+
+        timeline = runner.ops_timeline(limit=2)
+
+        assert len(timeline) == 2
+        assert timeline == sorted(timeline, key=lambda row: row["ts"], reverse=True)
+        assert timeline[0]["kind"] == "model_reload"
+        assert timeline[1]["kind"] == "execution_incident"
 
 
 class TestPerfTuning:

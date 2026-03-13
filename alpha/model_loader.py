@@ -50,6 +50,29 @@ class ProductionModelLoader:
         logger.info("Production model change detected, reloading")
         return self.load_production_models(model_names)
 
+    def inspect_production_model(self, name: str) -> Dict[str, Any]:
+        version = self._registry.get_production(name)
+        if version is None:
+            return {"name": name, "available": False, "reason": "no_production_model"}
+
+        has_weights = self._store.load(version.model_id, "weights") is not None
+        has_signature = self._store.load(version.model_id, "weights.sig") is not None
+        loaded_model_id = self._loaded_ids.get(name)
+        return {
+            "name": name,
+            "available": True,
+            "model_id": version.model_id,
+            "version": version.version,
+            "tags": tuple(getattr(version, "tags", ()) or ()),
+            "has_weights": has_weights,
+            "has_signature": has_signature,
+            "loaded_model_id": loaded_model_id,
+            "autoload_pending": loaded_model_id not in (None, version.model_id),
+        }
+
+    def inspect_production_models(self, model_names: Sequence[str]) -> List[Dict[str, Any]]:
+        return [self.inspect_production_model(name) for name in model_names]
+
     def _load_one(self, name: str) -> Optional[Any]:
         version = self._registry.get_production(name)
         if version is None:

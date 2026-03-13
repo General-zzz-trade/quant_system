@@ -64,7 +64,9 @@ class ReconcileHealer:
             and d.drift.severity != DriftSeverity.NONE
         ]
 
-        for drift in accept_drifts[:self.max_auto_heal_per_cycle]:
+        for drift in accept_drifts:
+            if len(actions) >= self.max_auto_heal_per_cycle:
+                break
             action = self._heal_drift(drift, report.venue)
             if action is not None:
                 actions.append(action)

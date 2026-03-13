@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from _quant_hotpath import RustSequenceBuffer as _RustSequenceBuffer
 
@@ -29,6 +29,12 @@ class SequenceBuffer:
 
     def buffered_count(self, key: str) -> int:
         return self._inner.buffered_count(key)
+
+    def flush(self, key: str) -> Sequence[Any]:
+        return self._inner.flush(key)
+
+    def pending_count(self, key: Optional[str] = None) -> int:
+        return self._inner.pending_count(key)
 
     def reset(self, key: str) -> None:
         self._inner.reset_key(key)

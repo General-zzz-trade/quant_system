@@ -12,6 +12,7 @@ from _quant_hotpath import (
     rust_payload_digest,
     rust_stable_hash,
     RustFillDedupGuard,
+    RustPayloadDedupGuard,
     RustSequenceBuffer,
     rust_event_id,
     rust_now_ns,
@@ -70,6 +71,27 @@ class TestRustStableHash:
         h8 = rust_stable_hash(text, 8)
         h16 = rust_stable_hash(text, 16)
         assert h16.startswith(h8)
+
+
+# ============================================================
+# PayloadDedupGuard
+# ============================================================
+
+class TestRustPayloadDedupGuard:
+    def test_new_returns_true(self):
+        g = RustPayloadDedupGuard()
+        assert g.check_and_insert("binance\x1fBTCUSDT\x1ffill-1", "digest-1") is True
+
+    def test_duplicate_returns_false(self):
+        g = RustPayloadDedupGuard()
+        g.check_and_insert("binance\x1fBTCUSDT\x1ffill-1", "digest-1")
+        assert g.check_and_insert("binance\x1fBTCUSDT\x1ffill-1", "digest-1") is False
+
+    def test_payload_mismatch_raises_value_error(self):
+        g = RustPayloadDedupGuard()
+        g.check_and_insert("binance\x1fBTCUSDT\x1ffill-1", "digest-1")
+        with pytest.raises(ValueError, match="payload mismatch"):
+            g.check_and_insert("binance\x1fBTCUSDT\x1ffill-1", "digest-2")
 
 
 # ============================================================

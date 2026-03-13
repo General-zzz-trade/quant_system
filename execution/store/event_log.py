@@ -34,6 +34,12 @@ class InMemoryEventLog(EventLog):
             if int(r["id"]) > int(after_id):
                 yield dict(r)
 
+    def list_recent(self, *, event_type: str | None = None, limit: int = 20) -> list[Dict[str, Any]]:
+        rows = list(self._rows)
+        if event_type is not None:
+            rows = [r for r in rows if str(r["event_type"]) == str(event_type)]
+        return [dict(r) for r in rows[-int(limit):]][::-1]
+
 
 @dataclass(slots=True)
 class SQLiteEventLog(EventLog):
@@ -92,3 +98,26 @@ class SQLiteEventLog(EventLog):
                 "correlation_id": correlation_id,
                 "payload": json.loads(payload_json),
             }
+
+    def list_recent(self, *, event_type: str | None = None, limit: int = 20) -> list[Dict[str, Any]]:
+        if event_type is None:
+            rows = self._conn.execute(
+                "SELECT id, ts, event_type, correlation_id, payload FROM event_log ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT id, ts, event_type, correlation_id, payload
+                   FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT ?""",
+                (str(event_type), int(limit)),
+            ).fetchall()
+        return [
+            {
+                "id": int(rid),
+                "ts": float(ts),
+                "event_type": str(kind),
+                "correlation_id": correlation_id,
+                "payload": json.loads(payload_json),
+            }
+            for rid, ts, kind, correlation_id, payload_json in rows
+        ]

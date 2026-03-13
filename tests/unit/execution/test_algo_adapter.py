@@ -45,6 +45,11 @@ class _FakeSubmitFn:
         return self.fill_price
 
 
+class _RaisingIncidentLogger:
+    def __call__(self, _alert: Any) -> None:
+        raise RuntimeError("boom")
+
+
 # ── Tests: Routing ───────────────────────────────────────────
 
 class TestOrderRouting:
@@ -62,9 +67,10 @@ class TestOrderRouting:
         results = list(adapter.send_order(order))
 
         assert len(results) == 1
-        assert results[0].event_type == "fill"
-        assert results[0].qty == Decimal("1.0")
-        assert results[0].price == Decimal("40000")
+        assert results[0].event_type == "FILL"
+        assert results[0].qty == 1.0
+        assert results[0].quantity == 1.0
+        assert results[0].price == 40000.0
         assert len(submit.calls) == 1
 
     def test_large_order_routed_to_algo(self):
@@ -111,6 +117,36 @@ class TestOrderRouting:
         results = list(adapter.send_order(_order_event()))
         assert len(results) == 0
 
+    def test_small_order_emits_synthetic_fill_to_incident_logger(self):
+        submit = _FakeSubmitFn(Decimal("40000"))
+        incidents: List[Any] = []
+        adapter = AlgoExecutionAdapter(
+            submit_fn=submit,
+            dispatcher_emit=lambda e: None,
+            incident_logger=incidents.append,
+            cfg=AlgoConfig(large_order_notional=Decimal("50000")),
+        )
+
+        results = list(adapter.send_order(_order_event(qty="1.0", price="40000")))
+
+        assert len(results) == 1
+        assert len(incidents) == 1
+        assert incidents[0].title == "execution-synthetic-fill"
+        assert incidents[0].meta["category"] == "execution_fill"
+
+    def test_incident_logger_failure_does_not_break_direct_fill(self):
+        submit = _FakeSubmitFn(Decimal("40000"))
+        adapter = AlgoExecutionAdapter(
+            submit_fn=submit,
+            dispatcher_emit=lambda e: None,
+            incident_logger=_RaisingIncidentLogger(),
+            cfg=AlgoConfig(large_order_notional=Decimal("50000")),
+        )
+
+        results = list(adapter.send_order(_order_event(qty="1.0", price="40000")))
+
+        assert len(results) == 1
+
 
 # ── Tests: Fill event structure ──────────────────────────────
 
@@ -119,14 +155,30 @@ class TestFillEventStructure:
         order = _order_event(symbol="ETHUSDT", side="sell", order_id="o-123")
         fill = _make_fill_event(order, Decimal("3000"), Decimal("5.0"))
 
-        assert fill.event_type == "fill"
+        assert fill.event_type == "FILL"
         assert fill.symbol == "ETHUSDT"
         assert fill.side == "sell"
-        assert fill.qty == Decimal("5.0")
-        assert fill.price == Decimal("3000")
+        assert fill.qty == 5.0
+        assert fill.quantity == 5.0
+        assert fill.price == 3000.0
         assert fill.order_id == "o-123"
-        assert fill.fill_id.startswith("algofill-")
-        assert fill.fee == Decimal("0")
+        assert fill.fill_id.startswith("algo-fill-")
+        assert fill.payload_digest
+        assert len(fill.payload_digest) == 16
+        assert fill.fee == 0.0
+        assert fill.header.event_type == "FILL"
+        assert fill.header.event_id is None
+
+    def test_fill_event_identity_uses_fill_sequence(self):
+        order = _order_event(symbol="ETHUSDT", side="sell", order_id="o-123")
+
+        fill1 = _make_fill_event(order, Decimal("3000"), Decimal("5.0"), fill_seq=1)
+        fill2 = _make_fill_event(order, Decimal("3000"), Decimal("5.0"), fill_seq=1)
+        fill3 = _make_fill_event(order, Decimal("3000"), Decimal("5.0"), fill_seq=2)
+
+        assert fill1.fill_id == fill2.fill_id
+        assert fill1.payload_digest == fill2.payload_digest
+        assert fill3.fill_id != fill1.fill_id
 
 
 # ── Tests: Algo creation ────────────────────────────────────
@@ -222,8 +274,8 @@ class TestTickLoop:
 
         assert len(emitted) == 3
         for fill in emitted:
-            assert fill.event_type == "fill"
-            assert fill.price == Decimal("40000")
+            assert fill.event_type == "FILL"
+            assert fill.price == 40000.0
 
     def test_completed_orders_cleaned_up(self):
         submit = _FakeSubmitFn(Decimal("100"))
@@ -248,6 +300,36 @@ class TestTickLoop:
 
         adapter.stop()
         assert len(adapter._active_orders) == 0
+
+    def test_async_algo_fill_emits_incident_logger(self):
+        submit = _FakeSubmitFn(Decimal("40000"))
+        emitted: List[Any] = []
+        incidents: List[Any] = []
+        cfg = AlgoConfig(
+            large_order_notional=Decimal("100"),
+            default_algo="twap",
+            twap_slices=2,
+            twap_duration_sec=0.01,
+            tick_interval_sec=0.05,
+        )
+
+        adapter = AlgoExecutionAdapter(
+            submit_fn=submit,
+            dispatcher_emit=emitted.append,
+            incident_logger=incidents.append,
+            cfg=cfg,
+        )
+
+        adapter.send_order(_order_event(qty="2.0", price="1000"))
+
+        deadline = time.monotonic() + 3.0
+        while len(incidents) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        adapter.stop()
+
+        assert len(incidents) == 2
+        assert all(alert.title == "execution-synthetic-fill" for alert in incidents)
 
 
 class TestStopLifecycle:

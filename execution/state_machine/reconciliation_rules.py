@@ -4,17 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
-from typing import Optional
 
+from execution.reconcile.drift import DriftSeverity
 from execution.state_machine.transitions import OrderStatus
-
-
-class DriftSeverity(str, Enum):
-    NONE = "none"
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
 
 
 @dataclass(frozen=True, slots=True)

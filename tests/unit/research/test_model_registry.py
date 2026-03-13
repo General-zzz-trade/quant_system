@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from research.model_registry.artifact import ArtifactMeta, ArtifactStore
-from research.model_registry.registry import ModelRegistry, ModelVersion
+from research.model_registry.registry import ModelAction, ModelRegistry, ModelVersion
 
 
 class TestModelRegistry:
@@ -69,6 +69,12 @@ class TestModelRegistry:
         assert prod.model_id == mv1.model_id
         assert prod.is_production
 
+        actions = registry.list_actions("prod_model")
+        assert len(actions) == 1
+        assert isinstance(actions[0], ModelAction)
+        assert actions[0].action == "promote"
+        assert actions[0].to_model_id == mv1.model_id
+
     def test_promote_demotes_previous(self, registry):
         mv1 = registry.register(name="model_c", params={}, features=[], metrics={"sharpe": 1.0})
         mv2 = registry.register(name="model_c", params={}, features=[], metrics={"sharpe": 1.5})
@@ -98,6 +104,90 @@ class TestModelRegistry:
         assert prod.model_id == mv1.model_id
         assert prod.version == 1
         assert not registry.get(mv2.model_id).is_production
+
+    def test_rollback_to_previous_promotes_previous_version(self, registry):
+        mv1 = registry.register(name="model_rb", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        mv2 = registry.register(name="model_rb", params={"v": 2}, features=[], metrics={"sharpe": 1.2})
+        registry.promote(mv2.model_id)
+
+        restored = registry.rollback_to_previous("model_rb")
+
+        assert restored.model_id == mv1.model_id
+        assert registry.get_production("model_rb").model_id == mv1.model_id
+
+    def test_rollback_to_specific_version(self, registry):
+        mv1 = registry.register(name="model_rb_v", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        registry.register(name="model_rb_v", params={"v": 2}, features=[], metrics={"sharpe": 1.1})
+        mv3 = registry.register(name="model_rb_v", params={"v": 3}, features=[], metrics={"sharpe": 1.2})
+        registry.promote(mv3.model_id)
+
+        restored = registry.rollback_to_previous("model_rb_v", to_version=1)
+
+        assert restored.model_id == mv1.model_id
+        assert registry.get_production("model_rb_v").model_id == mv1.model_id
+
+    def test_rollback_to_specific_model_id(self, registry):
+        mv1 = registry.register(name="model_rb_id", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        registry.register(name="model_rb_id", params={"v": 2}, features=[], metrics={"sharpe": 1.1})
+        mv3 = registry.register(name="model_rb_id", params={"v": 3}, features=[], metrics={"sharpe": 1.2})
+        registry.promote(mv3.model_id)
+
+        restored = registry.rollback_to_previous("model_rb_id", to_model_id=mv1.model_id)
+
+        assert restored.model_id == mv1.model_id
+        assert registry.get_production("model_rb_id").model_id == mv1.model_id
+
+    def test_promote_records_reason_actor_and_metadata(self, registry):
+        mv1 = registry.register(name="model_audit", params={}, features=[], metrics={"sharpe": 1.0})
+
+        registry.promote(
+            mv1.model_id,
+            reason="manual_promotion",
+            actor="ops",
+            metadata={"ticket": "chg-1"},
+        )
+
+        action = registry.list_actions("model_audit")[0]
+        assert action.reason == "manual_promotion"
+        assert action.actor == "ops"
+        assert action.metadata == {"ticket": "chg-1"}
+
+    def test_rollback_records_reason_and_source_versions(self, registry):
+        mv1 = registry.register(name="model_rb_audit", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        mv2 = registry.register(name="model_rb_audit", params={"v": 2}, features=[], metrics={"sharpe": 1.2})
+        registry.promote(mv2.model_id)
+
+        restored = registry.rollback_to_previous("model_rb_audit", reason="incident_rollback", actor="ops")
+
+        assert restored.model_id == mv1.model_id
+        action = registry.list_actions("model_rb_audit")[0]
+        assert action.reason == "incident_rollback"
+        assert action.actor == "ops"
+        assert action.from_model_id == mv2.model_id
+        assert action.to_model_id == mv1.model_id
+        assert action.metadata["rollback_from_model_id"] == mv2.model_id
+        assert action.metadata["rollback_to_version"] == mv1.version
+
+    def test_rollback_to_previous_requires_current_production(self, registry):
+        registry.register(name="model_rb_none", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+
+        with pytest.raises(ValueError, match="No production model"):
+            registry.rollback_to_previous("model_rb_none")
+
+    def test_rollback_to_previous_rejects_ambiguous_target(self, registry):
+        mv1 = registry.register(name="model_rb_target", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        mv2 = registry.register(name="model_rb_target", params={"v": 2}, features=[], metrics={"sharpe": 1.1})
+        registry.promote(mv2.model_id)
+
+        with pytest.raises(ValueError, match="at most one rollback target"):
+            registry.rollback_to_previous("model_rb_target", to_model_id=mv1.model_id, to_version=1)
+
+    def test_rollback_to_previous_rejects_current_production_target(self, registry):
+        mv1 = registry.register(name="model_rb_current", params={"v": 1}, features=[], metrics={"sharpe": 1.0})
+        registry.promote(mv1.model_id)
+
+        with pytest.raises(ValueError, match="already production"):
+            registry.rollback_to_previous("model_rb_current", to_model_id=mv1.model_id)
 
     def test_promote_nonexistent_raises(self, registry):
         with pytest.raises(ValueError, match="not found"):

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 
 from engine.coordinator import EngineCoordinator, CoordinatorConfig
 from execution.ingress.router import FillIngressRouter
+from execution.models.fills import CanonicalFill
 
 
 def _mk_fill(
@@ -22,22 +22,19 @@ def _mk_fill(
     order_id: str = "o-1",
     fill_id: str = "f-1",
     trade_id: str = "t-1",
-) -> SimpleNamespace:
-    return SimpleNamespace(
+) -> CanonicalFill:
+    return CanonicalFill(
         venue=venue,
         symbol=symbol,
         side=side,
-        qty=qty,
-        price=price,
-        fee=fee,
-        realized_pnl=0.0,
-        margin_change=0.0,
-        cash_delta=0.0,
+        qty=Decimal(str(qty)),
+        price=Decimal(str(price)),
+        fee=Decimal(str(fee)),
         order_id=order_id,
-        fill_id=fill_id,           # 幂等 key
+        fill_id=fill_id,
         trade_id=trade_id,
-        payload_digest=digest,      # mismatch 检测
-        ts=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        payload_digest=digest,
+        ts_ms=int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000),
     )
 
 

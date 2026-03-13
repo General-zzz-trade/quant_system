@@ -188,7 +188,7 @@ def bootstrap_event_layer(store: "EventStore | None" = None) -> Tuple[EventRunti
             version=ControlEvent.VERSION,
             allow_extra_fields=False,
             fields=(
-                FieldSpec("command", types=(str,), enum=("halt", "resume", "flush", "shutdown")),
+                FieldSpec("command", types=(str,), enum=("halt", "reduce_only", "resume", "flush", "shutdown")),
                 FieldSpec("reason", types=(str,), min_len=1, max_len=1024),
             ),
         )

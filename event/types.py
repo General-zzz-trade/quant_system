@@ -319,7 +319,7 @@ class RiskEvent(BaseEvent):
 class ControlEvent(BaseEvent):
     event_type: ClassVar[EventType] = EventType.CONTROL
 
-    command: str    # halt / resume / flush / shutdown
+    command: str    # halt / reduce_only / resume / flush / shutdown
     reason: str
 
     def to_dict(self) -> Dict[str, Any]:

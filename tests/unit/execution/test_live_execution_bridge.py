@@ -9,6 +9,7 @@ from typing import Any, List
 import pytest
 
 from execution.bridge.live_execution_bridge import LiveExecutionBridge, LiveExecutionConfig
+from monitoring.alerts.manager import AlertManager
 
 
 # ── Stubs ────────────────────────────────────────────────────
@@ -66,6 +67,14 @@ class _FakeAlgoAdapter:
         return self.fills
 
 
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.alerts: List[Any] = []
+
+    def emit(self, alert: Any) -> None:
+        self.alerts.append(alert)
+
+
 # ── Tests: Routing ───────────────────────────────────────────
 
 
@@ -81,7 +90,7 @@ class TestOrderRouting:
         results = list(live.send_order(order))
 
         assert len(results) == 1
-        assert results[0].event_type == "fill"
+        assert results[0].event_type == "FILL"
         assert len(bridge.submitted) == 1
 
     def test_large_order_routes_to_algo_adapter(self):
@@ -138,14 +147,20 @@ class TestAckToFill:
 
         fill = LiveExecutionBridge._ack_to_fill(order, ack)
 
-        assert fill.event_type == "fill"
+        assert fill.event_type == "FILL"
         assert fill.symbol == "ETHUSDT"
         assert fill.side == "sell"
         assert fill.order_id == "o-99"
-        assert fill.price == Decimal("41000")
-        assert fill.qty == Decimal("0.5")
-        assert fill.fee == Decimal("1.23")
+        assert fill.price == 41000.0
+        assert fill.qty == 0.5
+        assert fill.quantity == 0.5
+        assert fill.fee == 1.23
         assert fill.fill_id.startswith("bridge-fill-")
+        assert fill.payload_digest
+        assert len(fill.payload_digest) == 16
+        assert fill.venue == "binance"
+        assert fill.header.event_type == "FILL"
+        assert fill.header.event_id is None
 
     def test_fill_falls_back_to_order_event_fields(self):
         ack = _FakeAck(ok=True, result={})
@@ -153,9 +168,20 @@ class TestAckToFill:
 
         fill = LiveExecutionBridge._ack_to_fill(order, ack)
 
-        assert fill.price == Decimal("3000")
-        assert fill.qty == Decimal("2.0")
-        assert fill.fee == Decimal("0")
+        assert fill.price == 3000.0
+        assert fill.qty == 2.0
+        assert fill.quantity == 2.0
+        assert fill.fee == 0.0
+
+    def test_fill_identity_is_stable_for_same_ack_and_order(self):
+        ack = _FakeAck(ok=True, result={"price": "41000", "qty": "0.5", "fee": "1.23"})
+        order = _order_event(symbol="ETHUSDT", side="sell", order_id="o-99")
+
+        fill1 = LiveExecutionBridge._ack_to_fill(order, ack)
+        fill2 = LiveExecutionBridge._ack_to_fill(order, ack)
+
+        assert fill1.fill_id == fill2.fill_id
+        assert fill1.payload_digest == fill2.payload_digest
 
 
 # ── Tests: Rejected orders ───────────────────────────────────
@@ -170,6 +196,104 @@ class TestRejected:
 
         assert len(results) == 0
 
+    def test_on_reject_receives_canonical_rejection(self):
+        rejected: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=False, status="REJECTED", error="insufficient_balance"))
+        live = LiveExecutionBridge(execution_bridge=bridge, on_reject=rejected.append)
+
+        results = list(live.send_order(_order_event(symbol="ETHUSDT")))
+
+        assert len(results) == 0
+        assert len(rejected) == 1
+        rej = rejected[0]
+        assert rej.status == "REJECTED"
+        assert rej.venue == "binance"
+        assert rej.symbol == "ETHUSDT"
+        assert rej.reason == "insufficient_balance"
+        assert rej.retryable is False
+
+    def test_on_reject_event_receives_event_like_rejection(self):
+        rejected_events: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=False, status="FAILED", error="retryable:TimeoutError:timeout"))
+        live = LiveExecutionBridge(execution_bridge=bridge, on_reject_event=rejected_events.append)
+
+        results = list(live.send_order(_order_event(symbol="BTCUSDT")))
+
+        assert len(results) == 0
+        assert len(rejected_events) == 1
+        rej = rejected_events[0]
+        assert rej.event_type == "EXECUTION_REJECT"
+        assert rej.header.event_type == "EXECUTION_REJECT"
+        assert rej.status == "FAILED"
+        assert rej.venue == "binance"
+        assert rej.symbol == "BTCUSDT"
+        assert rej.retryable is True
+
+    def test_rejected_ack_emits_structured_alert(self):
+        sink = _RecordingSink()
+        bridge = _FakeBridge(_FakeAck(ok=False, status="REJECTED", error="insufficient_balance"))
+        live = LiveExecutionBridge(
+            execution_bridge=bridge,
+            alert_manager=AlertManager(sink=sink),
+        )
+
+        results = list(live.send_order(_order_event(symbol="ETHUSDT")))
+
+        assert len(results) == 0
+        assert len(sink.alerts) == 1
+        alert = sink.alerts[0]
+        assert alert.title == "execution-rejected"
+        assert alert.meta["symbol"] == "ETHUSDT"
+        assert alert.meta["status"] == "REJECTED"
+        assert alert.meta["retryable"] is False
+
+    def test_rejected_ack_emits_to_incident_logger(self):
+        incidents: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=False, status="REJECTED", error="insufficient_balance"))
+        live = LiveExecutionBridge(
+            execution_bridge=bridge,
+            incident_logger=incidents.append,
+        )
+
+        results = list(live.send_order(_order_event(symbol="ETHUSDT")))
+
+        assert len(results) == 0
+        assert len(incidents) == 1
+        assert incidents[0].title == "execution-rejected"
+        assert incidents[0].meta["category"] == "execution_rejection"
+
+    def test_success_ack_emits_synthetic_fill_alert(self):
+        sink = _RecordingSink()
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        live = LiveExecutionBridge(
+            execution_bridge=bridge,
+            alert_manager=AlertManager(sink=sink),
+        )
+
+        results = list(live.send_order(_order_event(symbol="ETHUSDT")))
+
+        assert len(results) == 1
+        assert len(sink.alerts) == 1
+        alert = sink.alerts[0]
+        assert alert.title == "execution-synthetic-fill"
+        assert alert.meta["category"] == "execution_fill"
+        assert alert.meta["synthetic"] is True
+
+    def test_success_ack_emits_synthetic_fill_to_incident_logger(self):
+        incidents: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        live = LiveExecutionBridge(
+            execution_bridge=bridge,
+            incident_logger=incidents.append,
+        )
+
+        results = list(live.send_order(_order_event(symbol="ETHUSDT")))
+
+        assert len(results) == 1
+        assert len(incidents) == 1
+        assert incidents[0].title == "execution-synthetic-fill"
+        assert incidents[0].meta["category"] == "execution_fill"
+
     def test_dispatcher_emit_called_on_fill(self):
         emitted: List[Any] = []
         bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
@@ -181,7 +305,7 @@ class TestRejected:
         list(live.send_order(_order_event()))
 
         assert len(emitted) == 1
-        assert emitted[0].event_type == "fill"
+        assert emitted[0].event_type == "FILL"
 
     def test_order_count_increments(self):
         bridge = _FakeBridge(_FakeAck(ok=True, result={}))

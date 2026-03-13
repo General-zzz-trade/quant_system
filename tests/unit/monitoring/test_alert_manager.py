@@ -141,6 +141,46 @@ class TestAlertManagerErrorHandling:
         fired = mgr.check_all()
         assert len(fired) == 1
 
+    def test_emit_direct_forwards_to_sink(self):
+        sink = _RecordingSink()
+        mgr = AlertManager(sink=sink)
+        alert = Alert(title="manual-halt", message="operator halted trading", severity=Severity.CRITICAL)
+
+        returned = mgr.emit_direct(alert)
+
+        assert returned is alert
+        assert sink.alerts == [alert]
+
+    def test_history_tracks_direct_and_rule_alerts(self):
+        sink = _RecordingSink()
+        mgr = AlertManager(sink=sink, rules=[_make_rule("rule-alert")], max_history=4)
+
+        mgr.check_all()
+        mgr.emit_direct(
+            Alert(
+                title="exec-timeout",
+                message="timeout",
+                severity=Severity.WARNING,
+                source="execution:test",
+                meta={"category": "execution_timeout"},
+            )
+        )
+
+        history = mgr.history(limit=10)
+        assert len(history) == 2
+        assert history[0].title == "exec-timeout"
+        assert history[1].title == "rule-alert"
+
+    def test_history_can_filter_by_category(self):
+        mgr = AlertManager(max_history=4)
+        mgr.emit_direct(Alert(title="a", message="x", meta={"category": "execution_timeout"}))
+        mgr.emit_direct(Alert(title="b", message="y", meta={"category": "execution_reconcile"}))
+
+        history = mgr.history(limit=10, category="execution_timeout")
+
+        assert len(history) == 1
+        assert history[0].title == "a"
+
 
 class TestAlertManagerPeriodic:
     def test_start_stop(self):

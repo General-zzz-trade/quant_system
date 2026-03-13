@@ -50,10 +50,13 @@ class AlertManager:
         *,
         sink: Optional[AlertSink] = None,
         rules: Sequence[AlertRule] = (),
+        max_history: int = 256,
     ) -> None:
         self._sink = sink
         self._rules: list[AlertRule] = list(rules)
         self._last_fired: dict[str, float] = {}
+        self._history: list[Alert] = []
+        self._max_history = max(1, int(max_history))
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -98,12 +101,38 @@ class AlertManager:
                             self._sink.emit(alert)
                         except Exception:
                             logger.exception("Sink emit failed for rule %s", rule.name)
+                    self._record(alert)
                     fired.append(alert)
                     self._last_fired[rule.name] = now
             except Exception:
                 logger.exception("Rule condition check failed: %s", rule.name)
 
         return fired
+
+    def emit_direct(self, alert: Alert) -> Alert:
+        """Emit a structured alert immediately, bypassing rule evaluation."""
+        if self._sink is not None:
+            try:
+                self._sink.emit(alert)
+            except Exception:
+                logger.exception("Direct sink emit failed for alert %s", alert.title)
+        self._record(alert)
+        return alert
+
+    def history(
+        self,
+        *,
+        limit: int = 50,
+        category: str | None = None,
+        source_prefix: str | None = None,
+    ) -> list[Alert]:
+        with self._lock:
+            rows = list(self._history)
+        if category is not None:
+            rows = [a for a in rows if str((a.meta or {}).get("category", "")) == category]
+        if source_prefix is not None:
+            rows = [a for a in rows if str(a.source).startswith(source_prefix)]
+        return rows[-int(limit):][::-1]
 
     def start_periodic(self, interval_sec: float = 10.0) -> None:
         """Start periodic rule checking in background thread."""
@@ -137,3 +166,9 @@ class AlertManager:
                     self.check_all()
                 except Exception:
                     logger.exception("Periodic check_all failed")
+
+    def _record(self, alert: Alert) -> None:
+        with self._lock:
+            self._history.append(alert)
+            if len(self._history) > self._max_history:
+                self._history = self._history[-self._max_history:]

@@ -3,6 +3,7 @@
 > 状态: 当前这轮代码库收口工作的主计划，核心 checklist 已完成
 > 更新时间: 2026-03-12
 > 当前系统现状请配合 [`research.md`](/quant_system/research.md) 一起阅读
+> 下一阶段执行主线请参考: [`next_phase_plan.md`](/quant_system/tasks/next_phase_plan.md)
 
 > 更新时间: 2026-03-12
 > 基准: 当前源码、`docs/runtime_truth.md`、`docs/runtime_contracts.md`、`docs/production_runbook.md`

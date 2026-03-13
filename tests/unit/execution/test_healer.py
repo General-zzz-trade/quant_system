@@ -216,3 +216,32 @@ class TestReconcileHealer:
         assert len(actions) == 2
         assert len(pos_adjs) == 1
         assert len(bal_adjs) == 1
+
+    def test_unhealable_accepted_drifts_do_not_consume_cycle_budget(self):
+        pos_adjs: List[tuple] = []
+
+        healer = ReconcileHealer(
+            emit_position_adjust=lambda s, q: pos_adjs.append((s, q)),
+            max_auto_heal_per_cycle=1,
+        )
+
+        order_drift = Drift(
+            drift_type=DriftType.ORDER_STATUS,
+            severity=DriftSeverity.INFO,
+            venue="binance",
+            symbol="",
+            expected="new",
+            actual="filled",
+            detail="status mismatch",
+        )
+        pos_drift = _pos_drift("BTCUSDT", "1.0", "1.2")
+
+        report = _make_report([
+            PolicyDecision(action=ReconcileAction.ACCEPT, reason="auto", drift=order_drift),
+            PolicyDecision(action=ReconcileAction.ACCEPT, reason="auto", drift=pos_drift),
+        ])
+
+        actions = healer.heal(report)
+        assert len(actions) == 1
+        assert actions[0].correction_type == "position_adjust"
+        assert pos_adjs == [("BTCUSDT", Decimal("0.2"))]

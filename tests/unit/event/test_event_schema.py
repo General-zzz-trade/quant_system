@@ -207,6 +207,13 @@ class TestRiskControlEvent:
         d = evt.to_dict()
         assert d["reason"] == "manual stop"
 
+    def test_control_reduce_only_round_trip(self) -> None:
+        body = {"command": "reduce_only", "reason": "manual reduce only"}
+        evt = ControlEvent.from_dict(header=_Header(event_type="control"), body=body)
+        assert evt.command == "reduce_only"
+        d = evt.to_dict()
+        assert d["reason"] == "manual reduce only"
+
 
 # ---------------------------------------------------------------------------
 # Tests: EventBus subscribe / publish

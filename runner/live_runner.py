@@ -23,8 +23,10 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
@@ -32,14 +34,16 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.loop import EngineLoop, LoopConfig
 from engine.guards import build_basic_guard, GuardConfig
+from event.types import ControlEvent
 
 from decision.regime_bridge import RegimeAwareDecisionModule
 from decision.regime_policy import RegimePolicy
 
 from engine.feature_hook import FeatureComputeHook
 from execution.latency.tracker import LatencyTracker
+from execution.observability.incidents import reconcile_report_to_alert, timeout_to_alert
 
-from monitoring.alerts.base import Severity
+from monitoring.alerts.base import Alert, Severity
 from monitoring.alerts.manager import AlertManager, AlertRule
 from monitoring.engine_hook import EngineMonitoringHook
 from monitoring.health import SystemHealthMonitor, HealthConfig
@@ -127,6 +131,45 @@ class LiveRunnerConfig:
     ensemble_weights: Optional[List[float]] = None
 
 
+@dataclass(frozen=True, slots=True)
+class OperatorControlRecord:
+    command: str
+    reason: str
+    source: str
+    ts: datetime
+    result: str
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorKillSwitchStatus:
+    scope: str
+    key: str
+    mode: str
+    reason: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorReconcileStatus:
+    ok: bool
+    should_halt: bool
+    drift_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorStatusSnapshot:
+    running: bool
+    stopped: bool
+    stream_status: str
+    incident_state: str
+    last_incident_category: Optional[str]
+    last_incident_ts: Optional[datetime]
+    recommended_action: str
+    kill_switch: Optional[OperatorKillSwitchStatus]
+    last_reconcile: Optional[OperatorReconcileStatus]
+    last_control: Optional[OperatorControlRecord]
+
+
 @dataclass
 class LiveRunner:
     """Full live trading runner with reconciliation, kill switch, and margin monitoring.
@@ -147,6 +190,7 @@ class LiveRunner:
     alert_manager: Optional[AlertManager] = None
     health_server: Optional[Any] = None
     state_store: Optional[Any] = None
+    event_log: Optional[Any] = None
     correlation_computer: Optional[Any] = None
     attribution_tracker: Optional[Any] = None
     correlation_gate: Optional[Any] = None
@@ -162,10 +206,15 @@ class LiveRunner:
     data_scheduler: Optional[Any] = None
     freshness_monitor: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
+    _control_history: List[OperatorControlRecord] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
     _stopped: bool = field(default=False, init=False)
     _reload_models_pending: bool = field(default=False, init=False)
     _user_stream_thread: Optional[Any] = field(default=None, init=False)
+    _user_stream_failure_count: int = field(default=0, init=False)
+    _last_user_stream_failure_at: Optional[datetime] = field(default=None, init=False)
+    _last_user_stream_failure_kind: Optional[str] = field(default=None, init=False)
+    _last_model_reload_status: Optional[Dict[str, Any]] = field(default=None, init=False)
 
     @classmethod
     def build(
@@ -819,6 +868,7 @@ class LiveRunner:
 
         # ── 11) Persistent stores (conditional) ─────────────
         state_store = None
+        event_log = None
         if config.enable_persistent_stores:
             from execution.store.ack_store import SQLiteAckStore
             from execution.store.event_log import SQLiteEventLog
@@ -826,7 +876,7 @@ class LiveRunner:
 
             data_dir = config.data_dir
             SQLiteAckStore(path=os.path.join(data_dir, "ack_store.db"))
-            SQLiteEventLog(path=os.path.join(data_dir, "event_log.db"))
+            event_log = SQLiteEventLog(path=os.path.join(data_dir, "event_log.db"))
             state_store = SqliteStateStore(
                 path=os.path.join(data_dir, "state.db"),
             )
@@ -943,6 +993,7 @@ class LiveRunner:
         if config.health_port is not None and health is not None:
             from monitoring.health_server import HealthServer
             from dataclasses import asdict
+            from runner.control_plane import OperatorControlPlane
 
             _stale_thresh = config.health_stale_data_sec
             health_token = None
@@ -962,12 +1013,49 @@ class LiveRunner:
                     d["status"] = "critical"
                 return d
 
+            control_plane = OperatorControlPlane(SimpleNamespace())
+            control_plane.runner = None
+
             health_server = HealthServer(
                 port=config.health_port,
                 status_fn=_health_status_fn,
+                operator_fn=lambda: control_plane.runner.operator_status() if control_plane.runner is not None else {"error": "runner unavailable"},
+                control_history_fn=lambda: [
+                    {
+                        "command": rec.command,
+                        "reason": rec.reason,
+                        "source": rec.source,
+                        "result": rec.result,
+                        "ts": rec.ts.isoformat(),
+                    }
+                    for rec in (control_plane.runner.control_history if control_plane.runner is not None else [])
+                ],
+                control_fn=lambda body: control_plane.execute(body).to_dict() if control_plane.runner is not None else {
+                    "accepted": False,
+                    "command": str(body.get("command", "")),
+                    "outcome": "rejected",
+                    "reason": str(body.get("reason", "")),
+                    "source": str(body.get("source", "operator")),
+                    "status": None,
+                    "detail": None,
+                    "error": "runner unavailable",
+                    "error_code": "runner_unavailable",
+                },
+                alerts_fn=lambda: control_plane.runner.execution_alert_history() if control_plane.runner is not None else [],
+                ops_audit_fn=lambda: control_plane.runner.ops_audit_snapshot() if control_plane.runner is not None else {
+                    "operator": {"error": "runner unavailable"},
+                    "control_history": [],
+                    "execution_alerts": [],
+                    "model_alerts": [],
+                    "model_actions": [],
+                    "model_status": [],
+                    "timeline": [],
+                },
                 host=config.health_host,
                 auth_token=health_token,
             )
+        else:
+            control_plane = None
 
         runner = cls(
             loop=loop,
@@ -982,6 +1070,7 @@ class LiveRunner:
             alert_manager=alert_manager,
             health_server=health_server,
             state_store=state_store,
+            event_log=event_log,
             correlation_computer=correlation_computer,
             attribution_tracker=attribution_tracker,
             correlation_gate=correlation_gate,
@@ -998,6 +1087,8 @@ class LiveRunner:
             freshness_monitor=freshness_monitor,
             _fills=fills,
         )
+        if control_plane is not None:
+            control_plane.runner = runner
         # Patch late-binding reference so cleanup callback can stop the runner
         _runner_ref.append(runner)
         runner._config = config
@@ -1171,18 +1262,23 @@ class LiveRunner:
             def _user_stream_loop() -> None:
                 try:
                     self.user_stream.connect()
+                    self._record_user_stream_connect()
                 except Exception:
+                    self._record_user_stream_failure(kind="connect")
                     logger.warning("User stream initial connect failed", exc_info=True)
                     return
                 while self._running:
                     try:
                         self.user_stream.step()
                     except Exception:
+                        self._record_user_stream_failure(kind="step")
                         logger.warning("User stream step error, reconnecting in 1s", exc_info=True)
                         time.sleep(1.0)
                         try:
                             self.user_stream.connect()
+                            self._record_user_stream_connect()
                         except Exception:
+                            self._record_user_stream_failure(kind="reconnect")
                             logger.warning("User stream reconnect failed", exc_info=True)
 
             t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
@@ -1201,6 +1297,20 @@ class LiveRunner:
                     timed_out = self.timeout_tracker.check_timeouts()
                     if timed_out:
                         logger.warning("Timed out orders: %s", timed_out)
+                        venue = str(getattr(getattr(self, "_config", None), "venue", ""))
+                        timeout_sec = float(getattr(self.timeout_tracker, "timeout_sec", 0.0))
+                        for order_id in timed_out:
+                            try:
+                                self._emit_execution_incident(
+                                    timeout_to_alert(
+                                        venue=venue,
+                                        symbol="*",
+                                        order_id=str(order_id),
+                                        timeout_sec=timeout_sec,
+                                    )
+                                )
+                            except Exception:
+                                logger.exception("timeout alert emit failed for order=%s", order_id)
                 if self._reload_models_pending:
                     self._reload_models_pending = False
                     if self.model_loader is not None:
@@ -1210,7 +1320,26 @@ class LiveRunner:
                             new_models = self.model_loader.reload_if_changed(names)
                             if new_models is not None and self.inference_bridge is not None:
                                 self.inference_bridge.update_models(new_models)
+                                self._record_model_reload(
+                                    outcome="reloaded",
+                                    model_names=names,
+                                    detail={"reloaded_count": len(new_models)},
+                                )
+                            elif new_models is None:
+                                self._record_model_reload(
+                                    outcome="noop",
+                                    model_names=names,
+                                    detail={"reloaded_count": 0},
+                                )
                         except Exception:
+                            cfg = getattr(self, '_config', None)
+                            names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
+                            self._record_model_reload(
+                                outcome="failed",
+                                model_names=names,
+                                detail=None,
+                                error="model_hot_reload_failed",
+                            )
                             logger.exception("Model hot-reload failed")
         except KeyboardInterrupt:
             pass
@@ -1256,6 +1385,572 @@ class LiveRunner:
             self.health.stop()
 
         logger.info("LiveRunner stopped. Total fills: %d", len(self._fills))
+
+    def halt(self, *, reason: str = "operator_halt", source: str = "operator") -> Any:
+        """Trigger a global HARD_KILL without stopping the process."""
+        rec = self.kill_switch.trigger(
+            scope=KillScope.GLOBAL,
+            key="*",
+            mode=KillMode.HARD_KILL,
+            reason=reason,
+            source=source,
+        )
+        self._record_control(command="halt", reason=reason, source=source, result=rec.mode.value)
+        self._emit_control_alert(command="halt", reason=reason, source=source, result=rec.mode.value, severity=Severity.CRITICAL)
+        logger.warning("LiveRunner halted: reason=%s source=%s", reason, source)
+        return rec
+
+    def reduce_only(self, *, reason: str = "operator_reduce_only", source: str = "operator") -> Any:
+        """Trigger a global REDUCE_ONLY gate without stopping the process."""
+        rec = self.kill_switch.trigger(
+            scope=KillScope.GLOBAL,
+            key="*",
+            mode=KillMode.REDUCE_ONLY,
+            reason=reason,
+            source=source,
+        )
+        self._record_control(command="reduce_only", reason=reason, source=source, result=rec.mode.value)
+        self._emit_control_alert(command="reduce_only", reason=reason, source=source, result=rec.mode.value, severity=Severity.WARNING)
+        logger.warning("LiveRunner reduce-only enabled: reason=%s source=%s", reason, source)
+        return rec
+
+    def resume(self, *, reason: str = "operator_resume") -> bool:
+        """Clear the global kill-switch scope and resume order flow."""
+        cleared = self.kill_switch.clear(scope=KillScope.GLOBAL, key="*")
+        self._record_control(command="resume", reason=reason, source="operator", result="cleared" if cleared else "noop")
+        self._emit_control_alert(
+            command="resume",
+            reason=reason,
+            source="operator",
+            result="cleared" if cleared else "noop",
+            severity=Severity.INFO if cleared else Severity.WARNING,
+        )
+        logger.info("LiveRunner resume requested: cleared=%s reason=%s", cleared, reason)
+        return cleared
+
+    def flush(self, *, reason: str = "operator_flush") -> Optional[Any]:
+        """Run one immediate reconcile pass when available."""
+        logger.info("LiveRunner flush requested: reason=%s", reason)
+        if self.reconcile_scheduler is None:
+            self._record_control(command="flush", reason=reason, source="operator", result="unavailable")
+            self._emit_control_alert(command="flush", reason=reason, source="operator", result="unavailable", severity=Severity.WARNING)
+            return None
+        report = self.reconcile_scheduler.run_once()
+        result = "ok"
+        severity = Severity.INFO
+        if report is None:
+            result = "failed"
+            severity = Severity.ERROR
+        elif hasattr(report, "ok") and not bool(getattr(report, "ok")):
+            result = "drift"
+            severity = Severity.WARNING
+        self._record_control(command="flush", reason=reason, source="operator", result=result)
+        self._emit_control_alert(command="flush", reason=reason, source="operator", result=result, severity=severity)
+        if report is not None and self.alert_manager is not None and hasattr(report, "ok") and not bool(getattr(report, "ok")):
+            try:
+                self._emit_execution_incident(reconcile_report_to_alert(report))
+            except Exception:
+                logger.exception("reconcile alert emit failed during flush")
+        return report
+
+    def shutdown(self, *, reason: str = "operator_shutdown", source: str = "operator") -> None:
+        """Halt order flow and stop the runner."""
+        self.halt(reason=reason, source=source)
+        self._record_control(command="shutdown", reason=reason, source=source, result="stopping")
+        self._emit_control_alert(command="shutdown", reason=reason, source=source, result="stopping", severity=Severity.CRITICAL)
+        self.stop()
+
+    def apply_control(self, control: ControlEvent | Any) -> Any:
+        """Apply a ControlEvent-like command to the live runner."""
+        if isinstance(control, dict):
+            command = str(control.get("command", "")).lower().strip()
+            reason = str(control.get("reason", "")).strip() or "control_event"
+            source = str(control.get("source", "")).strip() or "operator"
+        else:
+            command = str(getattr(control, "command", "")).lower().strip()
+            reason = str(getattr(control, "reason", "")).strip() or "control_event"
+            source = str(getattr(control, "source", "")).strip() or "operator"
+
+        if command == "halt":
+            return self.halt(reason=reason, source=source)
+        if command == "reduce_only":
+            return self.reduce_only(reason=reason, source=source)
+        if command == "resume":
+            return self.resume(reason=reason)
+        if command == "flush":
+            return self.flush(reason=reason)
+        if command == "shutdown":
+            self.shutdown(reason=reason, source=source)
+            return None
+
+        raise ValueError(f"Unsupported control command: {command}")
+
+    def operator_status_snapshot(self) -> OperatorStatusSnapshot:
+        """Return the current operator-facing control state snapshot."""
+        kill = self.kill_switch.is_killed()
+        last_reconcile = getattr(self.reconcile_scheduler, "last_report", None)
+        last_control = self._control_history[-1] if self._control_history else None
+        stream_status = self._stream_status()
+        incident_state = self._incident_state(kill=kill, last_reconcile=last_reconcile, stream_status=stream_status)
+        last_incident_category, last_incident_ts = self._last_incident()
+        return OperatorStatusSnapshot(
+            running=self._running,
+            stopped=self._stopped,
+            stream_status=stream_status,
+            incident_state=incident_state,
+            last_incident_category=last_incident_category,
+            last_incident_ts=last_incident_ts,
+            recommended_action=self._recommended_action(
+                kill=kill,
+                last_reconcile=last_reconcile,
+                stream_status=stream_status,
+            ),
+            kill_switch=None if kill is None else OperatorKillSwitchStatus(
+                scope=kill.scope.value,
+                key=kill.key,
+                mode=kill.mode.value,
+                reason=kill.reason,
+                source=kill.source,
+            ),
+            last_reconcile=None if last_reconcile is None else OperatorReconcileStatus(
+                ok=bool(last_reconcile.ok),
+                should_halt=bool(last_reconcile.should_halt),
+                drift_count=len(last_reconcile.all_drifts),
+            ),
+            last_control=last_control,
+        )
+
+    def operator_status(self) -> Dict[str, Any]:
+        """Return a dict-compatible operator status view for APIs and tooling."""
+        snap = self.operator_status_snapshot()
+        return {
+            "running": snap.running,
+            "stopped": snap.stopped,
+            "stream_status": snap.stream_status,
+            "incident_state": snap.incident_state,
+            "last_incident_category": snap.last_incident_category,
+            "last_incident_ts": None if snap.last_incident_ts is None else snap.last_incident_ts.isoformat(),
+            "recommended_action": snap.recommended_action,
+            "kill_switch": None if snap.kill_switch is None else asdict(snap.kill_switch),
+            "last_reconcile": None if snap.last_reconcile is None else asdict(snap.last_reconcile),
+            "last_control": None if snap.last_control is None else {
+                "command": snap.last_control.command,
+                "reason": snap.last_control.reason,
+                "source": snap.last_control.source,
+                "result": snap.last_control.result,
+                "ts": snap.last_control.ts.isoformat(),
+            },
+        }
+
+    def execution_alert_history(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return recent execution-scoped alerts in API-friendly dict form."""
+        if self.alert_manager is None:
+            return []
+        return [
+            alert.to_dict()
+            for alert in self.alert_manager.history(limit=limit)
+            if str((alert.meta or {}).get("category", "")).startswith("execution_")
+        ]
+
+    def model_alert_history(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return recent model-ops alerts in API-friendly dict form."""
+        if self.alert_manager is None:
+            return []
+        return [
+            alert.to_dict()
+            for alert in self.alert_manager.history(limit=limit)
+            if str((alert.meta or {}).get("category", "")).startswith("model_")
+        ]
+
+    def ops_timeline(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return a recent merged operator / execution / model timeline."""
+        rows: List[Dict[str, Any]] = []
+
+        if self.event_log is not None and hasattr(self.event_log, "list_recent"):
+            for row in self.event_log.list_recent(event_type="operator_control", limit=limit):
+                payload = dict(row.get("payload") or {})
+                rows.append(
+                    {
+                        "kind": "control",
+                        "ts": payload.get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                        "title": f"operator_{payload.get('command', row.get('correlation_id', 'control'))}",
+                        "category": "operator_control",
+                        "source": payload.get("source", ""),
+                        "detail": payload,
+                    }
+                )
+            for row in self.event_log.list_recent(event_type="model_reload", limit=limit):
+                payload = dict(row.get("payload") or {})
+                rows.append(
+                    {
+                        "kind": "model_reload",
+                        "ts": payload.get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                        "title": f"model_reload_{payload.get('outcome', 'unknown')}",
+                        "category": "model_reload",
+                        "source": "model:reload",
+                        "detail": payload,
+                    }
+                )
+            for row in self.event_log.list_recent(event_type="execution_incident", limit=limit):
+                payload = dict(row.get("payload") or {})
+                rows.append(
+                    {
+                        "kind": "execution_incident",
+                        "ts": payload.get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                        "title": str(payload.get("title", "execution_incident")),
+                        "category": str(payload.get("category", "execution_incident")),
+                        "source": str(payload.get("source", "")),
+                        "detail": payload,
+                    }
+                )
+        else:
+            for rec in self.control_history[-limit:]:
+                rows.append(
+                    {
+                        "kind": "control",
+                        "ts": rec.ts.isoformat(),
+                        "title": f"operator_{rec.command}",
+                        "category": "operator_control",
+                        "source": rec.source,
+                        "detail": {
+                            "command": rec.command,
+                            "reason": rec.reason,
+                            "result": rec.result,
+                        },
+                    }
+                )
+
+        for row in self.execution_alert_history(limit=limit):
+            rows.append(
+                {
+                    "kind": "execution_alert",
+                    "ts": row["ts"],
+                    "title": row["title"],
+                    "category": str((row.get("meta") or {}).get("category", "")),
+                    "source": row.get("source", ""),
+                    "detail": dict(row.get("meta") or {}),
+                }
+            )
+
+        for row in self.model_alert_history(limit=limit):
+            rows.append(
+                {
+                    "kind": "model_alert",
+                    "ts": row["ts"],
+                    "title": row["title"],
+                    "category": str((row.get("meta") or {}).get("category", "")),
+                    "source": row.get("source", ""),
+                    "detail": dict(row.get("meta") or {}),
+                }
+            )
+
+        cfg = getattr(self, "_config", None)
+        if cfg is not None and getattr(cfg, "model_registry_db", None) and getattr(cfg, "model_names", None):
+            from research.model_registry.registry import ModelRegistry
+
+            registry = ModelRegistry(cfg.model_registry_db)
+            seen_action_ids: set[int] = set()
+            for model_name in tuple(cfg.model_names):
+                for action in registry.list_actions(model_name, limit=limit):
+                    if action.action_id in seen_action_ids:
+                        continue
+                    seen_action_ids.add(action.action_id)
+                    rows.append(
+                        {
+                            "kind": "model_action",
+                            "ts": action.created_at.isoformat(),
+                            "title": f"model_{action.action}",
+                            "category": "model_action",
+                            "source": action.actor or "model_registry",
+                            "detail": {
+                                "model": action.name,
+                                "action_id": action.action_id,
+                                "action": action.action,
+                                "from_model_id": action.from_model_id,
+                                "to_model_id": action.to_model_id,
+                                "reason": action.reason,
+                                "metadata": action.metadata,
+                            },
+                        }
+                    )
+
+        rows.sort(key=lambda row: row["ts"], reverse=True)
+        return rows[:limit]
+
+    def ops_audit_snapshot(self, *, limit: int = 50) -> Dict[str, Any]:
+        """Return a unified operator / execution / model-ops audit snapshot."""
+        operator = self.operator_status()
+        model_actions: List[Dict[str, Any]] = []
+        model_status: List[Dict[str, Any]] = []
+        cfg = getattr(self, "_config", None)
+        if cfg is not None and getattr(cfg, "model_registry_db", None) and getattr(cfg, "model_names", None):
+            from research.model_registry.registry import ModelRegistry
+
+            registry = ModelRegistry(cfg.model_registry_db)
+            seen_action_ids: set[int] = set()
+            for model_name in tuple(cfg.model_names):
+                for row in registry.list_actions(model_name, limit=limit):
+                    if row.action_id in seen_action_ids:
+                        continue
+                    seen_action_ids.add(row.action_id)
+                    model_actions.append(
+                        {
+                            "action_id": row.action_id,
+                            "model": row.name,
+                            "action": row.action,
+                            "from_model_id": row.from_model_id,
+                            "to_model_id": row.to_model_id,
+                            "reason": row.reason,
+                            "actor": row.actor,
+                            "created_at": row.created_at.isoformat(),
+                            "metadata": row.metadata,
+                        }
+                    )
+            model_actions.sort(key=lambda row: row["action_id"], reverse=True)
+            model_actions = model_actions[:limit]
+            if self.model_loader is not None and hasattr(self.model_loader, "inspect_production_models"):
+                try:
+                    model_status = list(self.model_loader.inspect_production_models(tuple(cfg.model_names)))
+                except Exception:
+                    logger.exception("model status inspection failed during ops audit snapshot")
+
+        return {
+            "stream_status": operator["stream_status"],
+            "incident_state": operator["incident_state"],
+            "last_incident_category": operator["last_incident_category"],
+            "last_incident_ts": operator["last_incident_ts"],
+            "recommended_action": operator["recommended_action"],
+            "operator": self.operator_status(),
+            "control_history": [
+                {
+                    "command": rec.command,
+                    "reason": rec.reason,
+                    "source": rec.source,
+                    "result": rec.result,
+                    "ts": rec.ts.isoformat(),
+                }
+                for rec in self.control_history[-limit:][::-1]
+            ],
+            "execution_alerts": self.execution_alert_history(limit=limit),
+            "model_alerts": self.model_alert_history(limit=limit),
+            "model_actions": model_actions,
+            "model_status": model_status,
+            "model_reload": None if self._last_model_reload_status is None else dict(self._last_model_reload_status),
+            "timeline": self.ops_timeline(limit=limit),
+        }
+
+    @property
+    def control_history(self) -> List[OperatorControlRecord]:
+        return list(self._control_history)
+
+    def _record_control(self, *, command: str, reason: str, source: str, result: str) -> None:
+        record = OperatorControlRecord(
+            command=command,
+            reason=reason,
+            source=source,
+            ts=datetime.now(timezone.utc),
+            result=result,
+        )
+        self._control_history.append(record)
+        if self.event_log is not None:
+            self.event_log.append(
+                event_type="operator_control",
+                correlation_id=command,
+                payload={
+                    "command": record.command,
+                    "reason": record.reason,
+                    "source": record.source,
+                    "result": record.result,
+                    "ts": record.ts.isoformat(),
+                },
+            )
+
+    def _record_user_stream_connect(self) -> None:
+        # A successful connect is intentionally not treated as incident clear.
+        # Incident state remains derived from the accumulated failure history
+        # until the process is restarted or manually reviewed.
+        return None
+
+    def _record_user_stream_failure(self, *, kind: str) -> None:
+        self._user_stream_failure_count += 1
+        self._last_user_stream_failure_at = datetime.now(timezone.utc)
+        self._last_user_stream_failure_kind = kind
+        if self.alert_manager is not None:
+            try:
+                from execution.observability.alerts import build_execution_alert
+
+                venue = str(getattr(getattr(self, "_config", None), "venue", ""))
+                severity = Severity.ERROR if self._user_stream_failure_count >= 2 else Severity.WARNING
+                self.alert_manager.emit_direct(
+                    build_execution_alert(
+                        title="execution-user-stream",
+                        message=f"user stream {kind} failure count={self._user_stream_failure_count}",
+                        severity=severity,
+                        category="execution_stream",
+                        routing_key=f"{venue}:*:user_stream",
+                        source="execution:user_stream",
+                        meta={
+                            "venue": venue,
+                            "failure_kind": kind,
+                            "failure_count": self._user_stream_failure_count,
+                            "stream_status": self._stream_status(),
+                        },
+                    )
+                )
+            except Exception:
+                logger.exception("user stream alert emit failed")
+
+    def _stream_status(self) -> str:
+        if self.user_stream is None:
+            return "ok"
+        if self._user_stream_failure_count <= 0:
+            return "ok"
+        if self._user_stream_failure_count == 1:
+            return "degraded"
+        return "down"
+
+    def _incident_state(self, *, kill: Any, last_reconcile: Any, stream_status: str) -> str:
+        if kill is not None and getattr(kill, "mode", None) == KillMode.HARD_KILL:
+            return "critical"
+        if last_reconcile is not None and bool(getattr(last_reconcile, "should_halt", False)):
+            return "critical"
+        if kill is not None and getattr(kill, "mode", None) == KillMode.REDUCE_ONLY:
+            return "degraded"
+        if stream_status in {"degraded", "down"}:
+            return "degraded"
+        if last_reconcile is not None and not bool(getattr(last_reconcile, "ok", True)):
+            return "degraded"
+        return "normal"
+
+    def _recommended_action(self, *, kill: Any, last_reconcile: Any, stream_status: str) -> str:
+        if kill is not None and getattr(kill, "mode", None) == KillMode.HARD_KILL:
+            return "halt"
+        if last_reconcile is not None and bool(getattr(last_reconcile, "should_halt", False)):
+            return "halt"
+        if kill is not None and getattr(kill, "mode", None) == KillMode.REDUCE_ONLY:
+            return "reduce_only"
+        if stream_status == "down":
+            return "reduce_only"
+        if stream_status == "degraded":
+            return "review"
+        if last_reconcile is not None and not bool(getattr(last_reconcile, "ok", True)):
+            return "review"
+        return "none"
+
+    def _last_incident(self) -> tuple[Optional[str], Optional[datetime]]:
+        latest_category: Optional[str] = None
+        latest_ts: Optional[datetime] = None
+
+        if self._last_user_stream_failure_at is not None:
+            latest_category = "execution_stream"
+            latest_ts = self._last_user_stream_failure_at
+
+        if self._control_history:
+            control = self._control_history[-1]
+            if latest_ts is None or control.ts >= latest_ts:
+                latest_category = "operator_control"
+                latest_ts = control.ts
+
+        if self.alert_manager is not None:
+            alerts = self.alert_manager.history(limit=1)
+            if alerts:
+                alert = alerts[0]
+                alert_ts = alert.ts or datetime.now(timezone.utc)
+                category = str((alert.meta or {}).get("category", "")) or alert.title
+                if latest_ts is None or alert_ts >= latest_ts:
+                    latest_category = category
+                    latest_ts = alert_ts
+
+        return latest_category, latest_ts
+
+    def _record_model_reload(
+        self,
+        *,
+        outcome: str,
+        model_names: Sequence[str],
+        detail: Optional[Dict[str, Any]],
+        error: Optional[str] = None,
+    ) -> None:
+        self._last_model_reload_status = {
+            "outcome": outcome,
+            "model_names": list(model_names),
+            "detail": None if detail is None else dict(detail),
+            "error": error,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        if self.event_log is not None:
+            self.event_log.append(
+                event_type="model_reload",
+                correlation_id=outcome,
+                payload=dict(self._last_model_reload_status),
+            )
+        if self.alert_manager is not None:
+            severity = Severity.INFO
+            if outcome == "failed":
+                severity = Severity.ERROR
+            elif outcome == "noop":
+                severity = Severity.WARNING
+            self.alert_manager.emit_direct(
+                Alert(
+                    title=f"model_reload_{outcome}",
+                    message=f"model reload outcome={outcome} models={','.join(model_names)}",
+                    severity=severity,
+                    source="model:reload",
+                    ts=datetime.now(timezone.utc),
+                    meta={
+                        "category": "model_reload",
+                        "routing_key": f"model:{outcome}",
+                        "outcome": outcome,
+                        "model_names": list(model_names),
+                        "detail": None if detail is None else dict(detail),
+                        "error": error,
+                    },
+                )
+            )
+
+    def _emit_execution_incident(self, alert: Alert) -> None:
+        if self.event_log is not None:
+            payload = {
+                "title": alert.title,
+                "category": str((alert.meta or {}).get("category", "")),
+                "source": alert.source,
+                "ts": (alert.ts or datetime.now(timezone.utc)).isoformat(),
+                "meta": dict(alert.meta or {}),
+            }
+            self.event_log.append(
+                event_type="execution_incident",
+                correlation_id=str((alert.meta or {}).get("routing_key", alert.title)),
+                payload=payload,
+            )
+        if self.alert_manager is not None:
+            self.alert_manager.emit_direct(alert)
+
+    def _emit_control_alert(
+        self,
+        *,
+        command: str,
+        reason: str,
+        source: str,
+        result: str,
+        severity: Severity,
+    ) -> None:
+        if self.alert_manager is None:
+            return
+        self.alert_manager.emit_direct(
+            Alert(
+                title=f"operator_{command}",
+                message=f"operator control command={command} result={result} reason={reason}",
+                severity=severity,
+                source=source,
+                ts=datetime.now(timezone.utc),
+                meta={
+                    "category": "operator_control",
+                    "command": command,
+                    "reason": reason,
+                    "result": result,
+                },
+            )
+        )
 
     @property
     def fills(self) -> List[Dict[str, Any]]:

@@ -8,12 +8,13 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from execution.algos.twap import TWAPAlgo
 from execution.algos.vwap import VWAPAlgo
 from execution.algos.iceberg import IcebergAlgo
+from execution.models.fill_events import build_synthetic_ingress_fill_event
+from execution.observability.incidents import synthetic_fill_to_alert
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +36,21 @@ def _make_fill_event(
     order_event: Any,
     fill_price: Decimal,
     fill_qty: Decimal,
-) -> SimpleNamespace:
-    """Construct a FillEvent-like object from an algo fill."""
-    return SimpleNamespace(
-        event_type="fill",
-        EVENT_TYPE="fill",
-        header=SimpleNamespace(
-            event_type="fill",
-            ts=None,
-            event_id=f"algofill-{uuid.uuid4().hex[:12]}",
-        ),
-        fill_id=f"algofill-{uuid.uuid4().hex[:12]}",
-        order_id=getattr(order_event, "order_id", ""),
+    *,
+    fill_seq: int = 1,
+) -> Any:
+    """Construct the standardized ingress fill event from an algo fill."""
+    return build_synthetic_ingress_fill_event(
+        source="algo",
         symbol=getattr(order_event, "symbol", ""),
-        side=getattr(order_event, "side", ""),
         qty=fill_qty,
-        quantity=fill_qty,
+        side=getattr(order_event, "side", ""),
         price=fill_price,
         fee=Decimal("0"),
-        realized_pnl=Decimal("0"),
+        venue=getattr(order_event, "venue", None),
+        order_id=getattr(order_event, "order_id", ""),
+        identity_seed=getattr(order_event, "intent_id", None) or getattr(order_event, "order_id", ""),
+        fill_seq=fill_seq,
     )
 
 
@@ -70,9 +67,11 @@ class AlgoExecutionAdapter:
     submit_fn: Callable[[str, str, Decimal], Optional[Decimal]]
     dispatcher_emit: Callable[[Any], None]
     cfg: AlgoConfig = field(default_factory=AlgoConfig)
+    incident_logger: Optional[Callable[[Any], None]] = None
 
     _active_orders: Dict[str, tuple] = field(default_factory=dict, init=False)
     _active_events: Dict[str, Any] = field(default_factory=dict, init=False)
+    _fill_seq_by_order: Dict[str, int] = field(default_factory=dict, init=False)
     _algos: Dict[str, Any] = field(default_factory=dict, init=False)
     _running: bool = field(default=False, init=False)
     _thread: Optional[threading.Thread] = field(default=None, init=False)
@@ -99,7 +98,9 @@ class AlgoExecutionAdapter:
             # Direct execution
             fill_price = self.submit_fn(symbol, side, qty)
             if fill_price is not None:
-                return [_make_fill_event(order_event, fill_price, qty)]
+                fill = _make_fill_event(order_event, fill_price, qty)
+                self._emit_incident(fill)
+                return [fill]
             return []
 
         # Large order -> algo
@@ -109,7 +110,9 @@ class AlgoExecutionAdapter:
             logger.warning("Unknown algo %s, falling back to direct", algo_name)
             fill_price = self.submit_fn(symbol, side, qty)
             if fill_price is not None:
-                return [_make_fill_event(order_event, fill_price, qty)]
+                fill = _make_fill_event(order_event, fill_price, qty)
+                self._emit_incident(fill)
+                return [fill]
             return []
 
         order_id = getattr(order_event, "order_id", uuid.uuid4().hex[:12])
@@ -172,8 +175,11 @@ class AlgoExecutionAdapter:
                 if fill_price is not None and fill_qty is not None:
                     with self._lock:
                         original = self._active_events.get(order_id)
+                        next_fill_seq = self._fill_seq_by_order.get(order_id, 0) + 1
+                        self._fill_seq_by_order[order_id] = next_fill_seq
                     if original is not None:
-                        fill_ev = _make_fill_event(original, fill_price, fill_qty)
+                        fill_ev = _make_fill_event(original, fill_price, fill_qty, fill_seq=next_fill_seq)
+                        self._emit_incident(fill_ev)
                         try:
                             self.dispatcher_emit(fill_ev)
                         except Exception:
@@ -188,6 +194,7 @@ class AlgoExecutionAdapter:
                 for oid in completed:
                     self._active_orders.pop(oid, None)
                     self._active_events.pop(oid, None)
+                    self._fill_seq_by_order.pop(oid, None)
                 if not self._active_orders:
                     self._running = False
 
@@ -198,3 +205,11 @@ class AlgoExecutionAdapter:
 
             safe_join_thread(self._thread, timeout=5.0)
             self._thread = None
+
+    def _emit_incident(self, fill_event: Any) -> None:
+        if self.incident_logger is None:
+            return
+        try:
+            self.incident_logger(synthetic_fill_to_alert(fill_event))
+        except Exception:
+            logger.exception("Failed to emit algo synthetic fill incident")

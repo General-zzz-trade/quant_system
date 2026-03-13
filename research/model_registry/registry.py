@@ -27,6 +27,20 @@ class ModelVersion:
     tags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class ModelAction:
+    """Immutable audit record for production model operations."""
+    action_id: int
+    name: str
+    action: str
+    from_model_id: str | None
+    to_model_id: str
+    reason: str | None
+    actor: str | None
+    created_at: datetime
+    metadata: dict[str, Any]
+
+
 class ModelRegistry:
     """SQLite-backed model metadata registry.
 
@@ -64,6 +78,23 @@ class ModelRegistry:
             """)
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_models_production ON models(name, is_production)
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_actions (
+                    action_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    from_model_id TEXT,
+                    to_model_id TEXT NOT NULL,
+                    reason TEXT,
+                    actor TEXT,
+                    created_at TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}'
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_model_actions_name_created
+                ON model_actions(name, created_at DESC, action_id DESC)
             """)
 
     def _connect(self) -> sqlite3.Connection:
@@ -138,7 +169,14 @@ class ModelRegistry:
             ).fetchall()
         return [self._row_to_model(r) for r in rows]
 
-    def promote(self, model_id: str) -> None:
+    def promote(
+        self,
+        model_id: str,
+        *,
+        reason: str | None = None,
+        actor: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Mark model as production. Demotes current production model for that name."""
         with self._connect() as conn:
             row = conn.execute(
@@ -147,6 +185,11 @@ class ModelRegistry:
             if row is None:
                 raise ValueError(f"Model {model_id} not found")
             name = row[0]
+            current_row = conn.execute(
+                "SELECT model_id FROM models WHERE name = ? AND is_production = 1",
+                (name,),
+            ).fetchone()
+            previous_model_id = None if current_row is None else current_row[0]
 
             conn.execute(
                 "UPDATE models SET is_production = 0 WHERE name = ? AND is_production = 1",
@@ -155,6 +198,21 @@ class ModelRegistry:
             conn.execute(
                 "UPDATE models SET is_production = 1 WHERE model_id = ?",
                 (model_id,),
+            )
+            conn.execute(
+                """INSERT INTO model_actions
+                   (name, action, from_model_id, to_model_id, reason, actor, created_at, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    name,
+                    "promote",
+                    previous_model_id,
+                    model_id,
+                    reason,
+                    actor,
+                    datetime.now(timezone.utc).isoformat(),
+                    json.dumps(metadata or {}),
+                ),
             )
         logger.info("Promoted model %s to production (name=%s)", model_id, name)
 
@@ -168,6 +226,66 @@ class ModelRegistry:
         if row is None:
             return None
         return self._row_to_model(row)
+
+    def rollback_to_previous(
+        self,
+        name: str,
+        *,
+        to_model_id: str | None = None,
+        to_version: int | None = None,
+        reason: str | None = None,
+        actor: str | None = None,
+    ) -> ModelVersion:
+        """Rollback production to a previous or explicitly selected version."""
+        current = self.get_production(name)
+        if current is None:
+            raise ValueError(f"No production model for {name}")
+
+        if to_model_id is not None and to_version is not None:
+            raise ValueError("Specify at most one rollback target: to_model_id or to_version")
+
+        versions = self.list_versions(name)
+        if to_model_id is not None:
+            target = next((v for v in versions if v.model_id == to_model_id), None)
+            if target is None:
+                raise ValueError(f"Rollback target model_id not found for {name}: {to_model_id}")
+        elif to_version is not None:
+            target = next((v for v in versions if v.version == to_version), None)
+            if target is None:
+                raise ValueError(f"Rollback target version not found for {name}: v{to_version}")
+        else:
+            candidates = [v for v in versions if v.version < current.version]
+            if not candidates:
+                raise ValueError(f"No previous version available for {name}")
+            target = candidates[-1]
+
+        if target.model_id == current.model_id:
+            raise ValueError(f"Rollback target is already production for {name}")
+
+        rollback_reason = reason or f"rollback:{current.model_id}->{target.model_id}"
+        self.promote(
+            target.model_id,
+            reason=rollback_reason,
+            actor=actor,
+            metadata={
+                "rollback_from_model_id": current.model_id,
+                "rollback_from_version": current.version,
+                "rollback_to_version": target.version,
+            },
+        )
+        return self.get(target.model_id)  # type: ignore[return-value]
+
+    def list_actions(self, name: str, *, limit: int = 20) -> list[ModelAction]:
+        """List recent promotion / rollback audit records for a model name."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT action_id, name, action, from_model_id, to_model_id, reason, actor, created_at, metadata
+                   FROM model_actions WHERE name = ?
+                   ORDER BY created_at DESC, action_id DESC
+                   LIMIT ?""",
+                (name, limit),
+            ).fetchall()
+        return [self._row_to_action(r) for r in rows]
 
     def compare(self, id_a: str, id_b: str) -> dict[str, Any]:
         """Compare two model versions side by side."""
@@ -216,4 +334,18 @@ class ModelRegistry:
             created_at=datetime.fromisoformat(row[6]),
             is_production=bool(row[7]),
             tags=tuple(json.loads(row[8])),
+        )
+
+    @staticmethod
+    def _row_to_action(row: tuple) -> ModelAction:
+        return ModelAction(
+            action_id=row[0],
+            name=row[1],
+            action=row[2],
+            from_model_id=row[3],
+            to_model_id=row[4],
+            reason=row[5],
+            actor=row[6],
+            created_at=datetime.fromisoformat(row[7]),
+            metadata=json.loads(row[8]),
         )

@@ -52,6 +52,14 @@ def reconcile_orders(
             ))
         elif venue_status is None and local_status:
             missing_venue += 1
+            active = local_status not in ("filled", "canceled", "rejected", "expired")
+            drifts.append(Drift(
+                drift_type=DriftType.ORDER_STATUS,
+                severity=DriftSeverity.CRITICAL if active else DriftSeverity.WARNING,
+                venue=venue, symbol="",
+                expected=local_status, actual="not found",
+                detail=f"order {oid} tracked locally but missing on venue",
+            ))
         elif local_status != venue_status:
             status_mismatch += 1
             terminal = venue_status in ("filled", "canceled", "rejected", "expired")

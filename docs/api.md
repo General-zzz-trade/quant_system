@@ -9,6 +9,24 @@ Scope note:
 - For execution semantics, see [`execution_contracts.md`](/quant_system/docs/execution_contracts.md).
 - For model loading and promotion semantics, see [`model_governance.md`](/quant_system/docs/model_governance.md).
 
+Model ops note:
+
+- 当前最小模型运营入口在 [`scripts/cli.py`](/quant_system/scripts/cli.py)：
+  - `quant model-inspect --model ...`
+  - `quant model-promote --model-id ... [--reason ...] [--actor ...]`
+  - `quant model-rollback --model ... [--to-model-id ... | --to-version ...] [--reason ...] [--actor ...]`
+  - `quant model-history --model ... [--limit ...]`
+  - `quant ops-audit --event-log ... --registry-db ... [--model ...] [--limit ...]`
+
+Health / ops note:
+
+- `GET /operator`: 返回 `runner.operator_status()`
+- `GET /operator` 当前稳定 incident 字段：`stream_status`、`incident_state`、`last_incident_category`、`last_incident_ts`、`recommended_action`
+- `POST /control`: 执行 control request
+- `GET /control-history`: 返回最近 control actions 审计历史
+- `GET /execution-alerts`: 返回最近 execution alert 观察记录
+- `GET /ops-audit`: 返回统一 ops 视图，汇总 operator、control history、execution alerts、model alerts、model actions、model status、model reload、timeline，以及同名 incident 聚合字段
+
 ## Core Protocols
 
 ### AlphaModel
@@ -267,7 +285,70 @@ record = kill_switch.is_killed(        # Check specific scope
 )
 
 # Reset
-kill_switch.reset(scope=KillScope.GLOBAL, key="*")
+kill_switch.clear(scope=KillScope.GLOBAL, key="*")
+```
+
+### LiveRunner Operator Controls
+
+`LiveRunner` 当前提供最小运行时控制接口：
+
+```python
+runner.halt(reason="manual_halt")          # GLOBAL HARD_KILL
+runner.reduce_only(reason="manual_ro")     # GLOBAL REDUCE_ONLY
+runner.resume(reason="manual_resume")      # clear GLOBAL kill
+runner.flush(reason="manual_flush")        # run one reconcile pass
+runner.shutdown(reason="manual_shutdown")  # halt + stop runner
+
+runner.apply_control(ControlEvent(...))    # dispatch halt/reduce_only/resume/flush/shutdown
+runner.operator_status()                   # operator-facing status snapshot
+runner.control_history                     # audit log of control actions
+runner.execution_alert_history(limit=50)   # recent execution alerts
+runner.ops_audit_snapshot(limit=50)        # operator + execution + model ops view
+# control actions also emit structured alerts via AlertManager when configured
+```
+
+当前 incident 聚合规则：
+
+- `stream_status`: `ok | degraded | down`
+- `incident_state`: `normal | degraded | critical`
+- `recommended_action`: `none | review | reduce_only | halt`
+- `last_incident_category`: 取最近的 execution incident / operator control / user stream degradation
+- `model_status`: 当前 production model 的 `model_id / loaded_model_id / autoload_pending` 快照，用于观察模型变更是否尚未进入 runtime
+- `model_alerts`: 最近的模型运营 alert 历史，目前覆盖 hot-reload `reloaded / noop / failed`
+- `model_reload`: 最近一次 hot-reload 的 `outcome / model_names / detail / error / ts` 快照，用于观察 pending 是否已经收敛成 `reloaded / noop / failed`，以及失败后是否仍需人工保持 `reduce_only`
+- `timeline`: 按时间倒序聚合的统一 ops 时间线，当前覆盖 `control / execution_alert / execution_incident / model_alert / model_action / model_reload`
+  - runtime 内优先复用持久化 `event_log` 的 `operator_control / execution_incident / model_reload` 记录，与 registry `model_action` 共同重建近期时间线
+  - `timeline` 的稳定语义是“先聚合，再按 `ts` 倒序排序，最后按 `limit` 裁剪”
+  - `GET /ops-audit` 与 `quant ops-audit` 当前都遵守同一时间线排序/裁剪约束
+
+统一外部入口：
+
+```python
+from runner.control_plane import OperatorControlPlane
+
+plane = OperatorControlPlane(runner)
+
+result = plane.execute({
+    "command": "flush",
+    "reason": "manual_review",
+    "source": "api",
+})
+
+assert result.accepted is True
+assert result.outcome in {"ok", "drift", "unavailable"}
+assert result.status is not None
+```
+
+如果启用了 `health_port`，当前 health server 也暴露最小外部控制入口：
+
+- `GET /operator`: 返回 `runner.operator_status()`
+- `POST /control`: 执行 control request，body 例如 `{"command":"halt","reason":"manual_halt","source":"ops"}`
+- `GET /control-history`: 返回最近 control actions 的审计历史
+
+模型运营的最小外部检查入口：
+
+```bash
+python -m scripts.cli model-inspect --model alpha_btc --registry-db model_registry.db --artifact-root artifacts
 ```
 
 ## Event Types
@@ -336,7 +417,7 @@ FillEvent(
 |------|------------|---------|
 | `SignalEvent` | `signal_id`, `symbol`, `side`, `strength` | Strategy signal output |
 | `RiskEvent` | `rule_id`, `level` (info/warn/block), `message` | Risk system ruling |
-| `ControlEvent` | `command` (halt/resume/flush/shutdown), `reason` | System control |
+| `ControlEvent` | `command` (halt/reduce_only/resume/flush/shutdown), `reason` | System control |
 | `FundingEvent` | `ts`, `symbol`, `funding_rate`, `mark_price` | Perpetual funding settlement |
 
 ### EventType Enum

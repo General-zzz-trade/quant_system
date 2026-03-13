@@ -265,3 +265,29 @@ class TestProductionModelLoader:
             models = loader.load_production_models(["alpha"])
 
         assert models == []
+
+    def test_inspect_production_model_reports_artifact_and_autoload_state(self):
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
+        registry = FakeRegistry({"alpha": version})
+        store = FakeArtifactStore({
+            ("m1", "weights"): b"weights",
+            ("m1", "weights.sig"): b"sig",
+        })
+        loader = ProductionModelLoader(registry, store)
+        loader._loaded_ids["alpha"] = "m0"
+
+        report = loader.inspect_production_model("alpha")
+
+        assert report["available"] is True
+        assert report["model_id"] == "m1"
+        assert report["has_weights"] is True
+        assert report["has_signature"] is True
+        assert report["autoload_pending"] is True
+
+    def test_inspect_production_model_handles_missing_model(self):
+        loader = ProductionModelLoader(FakeRegistry(), FakeArtifactStore())
+
+        report = loader.inspect_production_model("missing")
+
+        assert report["available"] is False
+        assert report["reason"] == "no_production_model"

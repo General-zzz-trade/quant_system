@@ -51,6 +51,7 @@ class TestProductionWiring:
             transport=_FakeTransport(),
         )
         assert runner.state_store is not None
+        assert runner.event_log is not None
         # Verify SQLite files were created
         assert os.path.exists(str(tmp_path / "live_data" / "state.db"))
         assert os.path.exists(str(tmp_path / "live_data" / "ack_store.db"))
@@ -132,6 +133,20 @@ class TestProductionWiring:
                 venue_clients={"binance": _FakeVenueClient()},
                 transport=_FakeTransport(),
             )
+
+    def test_health_server_exposes_operator_and_control_endpoints(self):
+        config = LiveRunnerConfig(health_port=18081)
+        runner = LiveRunner.build(
+            config,
+            venue_clients={"binance": _FakeVenueClient()},
+            transport=_FakeTransport(),
+        )
+        assert runner.health_server is not None
+        assert getattr(runner.health_server, "_operator_fn", None) is not None
+        assert getattr(runner.health_server, "_control_history_fn", None) is not None
+        assert getattr(runner.health_server, "_control_fn", None) is not None
+        assert getattr(runner.health_server, "_alerts_fn", None) is not None
+        assert getattr(runner.health_server, "_ops_audit_fn", None) is not None
 
 
 def _make_binance_rest_client():

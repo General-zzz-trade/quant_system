@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 from typing import Any, Mapping, Optional, Dict
 
-from execution.models.orders import CanonicalOrder
-from execution.adapters.binance.dedup_order_keys import make_order_key, payload_digest_for_order
+from execution.models.orders import CanonicalOrder, ingress_order_dedup_identity
 
 
 def _dec(x: Any, field: str) -> Decimal:
@@ -209,20 +209,22 @@ class BinanceOrderMapper:
 
         ts_ms = _int_ms(extracted.get("ts_ms"), "ts_ms")
 
-        order_key = make_order_key(venue=self.venue, symbol=symbol, order_id=order_id_s)
-        digest = payload_digest_for_order(
-            symbol=symbol,
-            order_id=order_id_s,
-            client_order_id=coi,
-            status=status,
-            side=side,
-            order_type=order_type,
-            tif=tif,
-            qty=qty,
-            price=price,
-            filled_qty=filled_qty,
-            avg_price=avg_price,
-            ts_ms=ts_ms,
+        order_key, digest = ingress_order_dedup_identity(
+            SimpleNamespace(
+                venue=self.venue,
+                symbol=symbol,
+                order_id=order_id_s,
+                client_order_id=coi,
+                status=status,
+                side=side,
+                order_type=order_type,
+                tif=tif,
+                qty=qty,
+                price=price,
+                filled_qty=filled_qty,
+                avg_price=avg_price,
+                ts_ms=ts_ms,
+            )
         )
 
         return CanonicalOrder(

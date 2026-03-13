@@ -12,6 +12,12 @@
 - 默认生产入口: `runner/live_runner.py`
 - 当前运行时形态: Python 编排 + Rust 热路径内核
 - 当文档与其他说明冲突时，以 `docs/runtime_truth.md` 为准
+- 当前最小 operator controls 已通过 `LiveRunner.halt()/reduce_only()/resume()/flush()/shutdown()/apply_control()` 暴露
+- 当前外部 tooling / API 建议通过 [`runner/control_plane.py`](/quant_system/runner/control_plane.py) 的 `OperatorControlPlane` 统一进入 runtime
+- 如启用 `health_port`，当前 health server 也暴露 `GET /operator`、`GET /control-history`、`GET /execution-alerts`、`GET /ops-audit` 与 `POST /control`
+- 当前 `LiveRunner.operator_status()` / `LiveRunner.control_history` 可用于查看最后一次控制动作与最近 reconcile / kill-switch 状态
+- 当前 operator / ops 视图已补稳定 incident 字段：`stream_status`、`incident_state`、`last_incident_category`、`last_incident_ts`、`recommended_action`
+- 当前 operator control 动作也会进入统一 alert 链路，作为结构化 ops alert 发出
 
 ---
 
@@ -139,6 +145,28 @@ cancel-replace 注意事项：
   - user stream step 异常后重连
   - main loop timeout 检查
   - startup reconcile 的 position / balance mismatch
+- `tests/integration/test_operator_control_execution_flow.py`
+  - `halt -> resume -> success fill -> reconcile`
+  - `reduce_only -> blocked opening order / allowed flagged order`
+- `tests/integration/test_operator_control_recovery_flow.py`
+  - `flush -> drift -> manual halt`
+  - `startup mismatch -> reduce_only -> flush -> ops audit`
+  - `health /ops-audit` 可同时暴露 operator/control/execution/model ops 视图
+  - `restart + reconnect + late fill + reconcile + ops audit`
+  - `user stream` 持续失效时，可通过 `reduce_only -> flush -> manual halt` 进入人工降级链，且 `ops audit` 可见
+  - `checkpoint restore -> reduce_only -> reconcile overlap` 时，incident 仍保持一致，late fill 收敛后维持 `reduce_only` 运行态
+  - `model promote -> autoload pending + reduce_only` 时，`ops audit` 可同时暴露 runtime 降级态和模型未 reload 状态
+  - `model reload -> reloaded` 后，`ops audit` 会把 `autoload_pending` 收回，并留下最近一次 hot-reload 结果
+  - `model reload -> failed` 时，`autoload_pending` 保持为真，`model_reload=failed` 与当前 `reduce_only` 降级态可同时观察
+  - 上述模型 reload 场景也会进入 `model_alerts`，用于和 execution incidents 分开观察
+  - `ops audit.timeline` 会把 control、execution、model 三类记录按时间统一串起来，便于复盘单次 incident
+  - 当前 `ops audit.timeline` 已优先使用持久化 `event_log` 的 `operator_control / execution_incident / model_reload` 记录，并与 registry `model_action` 合并
+  - runtime 重启后，`ops audit.timeline` 仍应能够从同一 `event_log + registry` 重建近期 control / execution incident / model reload / model action 复盘链
+  - timeline 的默认语义是“先聚合，再按时间倒序排序，最后按查询 `limit` 裁剪”
+  - incident 聚合字段会在上述场景中稳定反映 `degraded/critical` 与建议动作
+- `tests/integration/test_execution_rejection_contract.py`
+  - retryable rejection 后的成功重试仍会进入 synthetic fill / ingress
+  - 该链路当前也会进入统一 execution alert / ops audit 观察面
 - `tests/execution_safety/test_duplicate_events.py`
 - `tests/execution_safety/test_out_of_order_fills.py`
 
@@ -149,7 +177,7 @@ cancel-replace 注意事项：
 - startup reconcile 目前只报告 mismatch，不自动修复
 - user stream 断连后的恢复仍主要依赖 reconnect + reconcile，而非更强的 healer 流程
 - timeout、late fill、reconcile 之间还缺少更强的端到端集成测试
-- live runtime 的恢复动作语义还没有统一成单一 canonical incident policy
+- live runtime 的恢复动作语义已开始统一到 operator / ops incident 视图，但还未完全覆盖所有 recovery 子系统
 
 ---
 
@@ -171,3 +199,4 @@ cancel-replace 注意事项：
 - venue fill / venue state 高于 timeout、cancel intent、checkpoint
 - `pending_cancel` 仍是中间态
 - `canceled` / `filled` / `rejected` / `expired` 是终态
+- `reduce_only` 是人工降级运行态，应在 operator / ops 视图中表现为 `incident_state=degraded`
