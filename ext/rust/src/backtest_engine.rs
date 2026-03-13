@@ -101,6 +101,7 @@ fn pred_to_signal_impl(
     min_hold: i32,
     zscore_window: i32,
     zscore_warmup: i32,
+    long_only: bool,
 ) -> Vec<f64> {
     let n = y_pred.len();
     if n == 0 {
@@ -144,7 +145,9 @@ fn pred_to_signal_impl(
             continue;
         }
 
+        // Long-only clip BEFORE discretization (matches live inference_bridge.rs)
         let z = (y_pred[i] - mu) / std_val;
+        let z = if long_only { z.max(0.0) } else { z };
         if z > deadzone {
             raw[i] = 1.0;
         } else if z < -deadzone {
@@ -277,14 +280,9 @@ fn apply_regime_switch(
         }
     }
 
-    // Long only: clip negative signals
-    if cfg.long_only {
-        for i in 0..n {
-            if signal[i] < 0.0 {
-                signal[i] = 0.0;
-            }
-        }
-    }
+    // NOTE: long_only clip is now applied inside pred_to_signal_impl (before
+    // discretization), matching live inference_bridge.rs behavior. No post-hoc
+    // clip needed here.
 
     // Vol-adaptive sizing
     if cfg.vol_adaptive {
@@ -760,13 +758,14 @@ fn run_backtest_impl(
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, BacktestMetrics) {
     let n = y_pred.len();
 
-    // Step 1: pred_to_signal
+    // Step 1: pred_to_signal (long_only clip applied inside, before discretization)
     let mut signal = pred_to_signal_impl(
         y_pred, cfg.deadzone, cfg.min_hold, cfg.zscore_window, cfg.zscore_warmup,
+        cfg.long_only,
     );
 
     // Step 2: Regime switch / monthly gate / vol-adaptive / DD breaker
-    if cfg.use_regime_switch || cfg.monthly_gate || cfg.vol_adaptive || cfg.dd_breaker || cfg.long_only {
+    if cfg.use_regime_switch || cfg.monthly_gate || cfg.vol_adaptive || cfg.dd_breaker {
         apply_regime_switch(&mut signal, closes, bear_probs, vol_values, cfg);
     }
 
@@ -870,13 +869,14 @@ pub fn cpp_run_backtest(
 }
 
 #[pyfunction]
-#[pyo3(signature = (y_pred, deadzone, min_hold, zscore_window, zscore_warmup))]
+#[pyo3(signature = (y_pred, deadzone, min_hold, zscore_window, zscore_warmup, long_only=false))]
 pub fn cpp_pred_to_signal(
     y_pred: Vec<f64>,
     deadzone: f64,
     min_hold: i32,
     zscore_window: i32,
     zscore_warmup: i32,
+    long_only: bool,
 ) -> Vec<f64> {
-    pred_to_signal_impl(&y_pred, deadzone, min_hold, zscore_window, zscore_warmup)
+    pred_to_signal_impl(&y_pred, deadzone, min_hold, zscore_window, zscore_warmup, long_only)
 }
