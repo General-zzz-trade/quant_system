@@ -43,33 +43,33 @@ class TestPredToSignal:
         rng = np.random.RandomState(123)
         y_pred = rng.normal(0, 0.01, 3000)
         py_sig = _pred_to_signal(y_pred, deadzone=0.5, min_hold=24, zscore_window=720)
-        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 168))
+        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 180))
         np.testing.assert_allclose(cpp_sig, py_sig, atol=1e-10)
 
     def test_parity_small_window(self):
         rng = np.random.RandomState(456)
         y_pred = rng.normal(0, 0.02, 1000)
         py_sig = _pred_to_signal(y_pred, deadzone=0.3, min_hold=12, zscore_window=200)
-        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.3, 12, 200, 168))
+        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.3, 12, 200, 180))
         np.testing.assert_allclose(cpp_sig, py_sig, atol=1e-10)
 
     def test_parity_large(self):
         rng = np.random.RandomState(789)
         y_pred = rng.normal(0, 0.015, 13000)
         py_sig = _pred_to_signal(y_pred, deadzone=0.5, min_hold=24, zscore_window=720)
-        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 168))
+        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 180))
         np.testing.assert_allclose(cpp_sig, py_sig, atol=1e-10)
 
     def test_all_zeros(self):
         y_pred = np.zeros(500)
         py_sig = _pred_to_signal(y_pred)
-        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 168))
+        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 180))
         np.testing.assert_allclose(cpp_sig, py_sig, atol=1e-10)
 
     def test_constant_pred(self):
         y_pred = np.full(1000, 0.05)
         py_sig = _pred_to_signal(y_pred)
-        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 168))
+        cpp_sig = np.asarray(cpp_pred_to_signal(y_pred, 0.5, 24, 720, 180))
         np.testing.assert_allclose(cpp_sig, py_sig, atol=1e-10)
 
 

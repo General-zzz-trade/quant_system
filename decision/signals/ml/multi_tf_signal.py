@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class _ZScoreBuffer:
     """Rolling z-score normalization for raw predictions."""
     window: int = 720
-    warmup: int = 168
+    warmup: int = 180
     _buf: Deque[float] = field(default_factory=deque)
 
     def __post_init__(self):

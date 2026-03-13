@@ -87,7 +87,7 @@ def load_bars(csv_path: str, limit: int = 500):
     return bars
 
 
-def create_processor(symbol, model_dir, zscore_window=720, zscore_warmup=168):
+def create_processor(symbol, model_dir, zscore_window=720, zscore_warmup=180):
     json_paths, weights, bear_json, short_json = discover_models(symbol, model_dir)
     tp = RustTickProcessor.create(
         symbols=[symbol],

@@ -229,7 +229,7 @@ impl RustUnifiedPredictor {
         bear_model_path=None,
         short_model_path=None,
         zscore_window=720,
-        zscore_warmup=168,
+        zscore_warmup=180,
     ))]
     fn create(
         model_paths: Vec<String>,

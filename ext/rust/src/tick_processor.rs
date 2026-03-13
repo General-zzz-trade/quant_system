@@ -123,7 +123,7 @@ impl RustTickProcessor {
         bear_model_path=None,
         short_model_path=None,
         zscore_window=720,
-        zscore_warmup=168,
+        zscore_warmup=180,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn create(

@@ -18,11 +18,12 @@ def pred_to_signal_fast(
     deadzone: float = 0.5,
     min_hold: int = 24,
     zscore_window: int = 720,
-    zscore_warmup: int = 168,
+    zscore_warmup: int = 180,
+    long_only: bool = False,
 ) -> np.ndarray:
     return np.asarray(cpp_pred_to_signal(
         y_pred.astype(np.float64, copy=False),
-        deadzone, min_hold, zscore_window, zscore_warmup))
+        deadzone, min_hold, zscore_window, zscore_warmup, long_only))
 
 
 def run_backtest_fast(

@@ -118,7 +118,7 @@ def _run_live_pipeline(symbol: str, df: "pd.DataFrame", models, model_cfg: dict)
         max_hold=model_cfg.get("max_hold", 120),
         long_only_symbols={symbol} if model_cfg.get("long_only") else set(),
         zscore_window=model_cfg.get("zscore_window", 720),
-        zscore_warmup=model_cfg.get("zscore_warmup", 168),
+        zscore_warmup=model_cfg.get("zscore_warmup", 180),
     )
 
     computer = EnrichedFeatureComputer()

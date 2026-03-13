@@ -45,7 +45,7 @@ class TestRustTickProcessorCreate:
     def test_create_with_config(self, btc_model_paths):
         tp = RustTickProcessor.create(
             ["BTCUSDT"], "USDT", 10000.0, btc_model_paths,
-            zscore_window=720, zscore_warmup=168,
+            zscore_window=720, zscore_warmup=180,
         )
         tp.configure_symbol("BTCUSDT", min_hold=48, deadzone=1.0)
         assert tp is not None
