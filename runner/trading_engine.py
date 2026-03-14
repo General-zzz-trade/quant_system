@@ -40,36 +40,75 @@ class TradingEngine:
             return None
         return prediction
 
-    def reload_models(self) -> dict[str, str]:
+    def reload_models(self, model_loader: Any = None) -> dict[str, str]:
         """Hot-reload models from model_dir. Called on SIGHUP.
 
-        Scans model_dir for per-symbol model directories, loads .pkl files,
-        and updates the inference bridge.
+        Two paths (mirrors LiveRunner._handle_model_reload):
+        1. ModelRegistry-based: model_loader.reload_if_changed() → bridge.update_models()
+        2. Direct file reload: scan model_dir/{sym}_gate_v2/*.pkl → load → push
 
         Returns {symbol: status} for each attempted reload.
         """
+        # Path 1: ModelRegistry-based reload
+        if model_loader is not None:
+            try:
+                new_models = model_loader.reload_if_changed()
+                if new_models is not None:
+                    self.inference_bridge.update_models(new_models)
+                    return {s: "registry_reloaded" for s in self.symbols}
+                return {s: "registry_noop" for s in self.symbols}
+            except Exception as e:
+                logger.exception("ModelRegistry reload failed")
+                return {s: f"registry_error: {e}" for s in self.symbols}
+
+        # Path 2: Direct file reload
         results: dict[str, str] = {}
         model_path = Path(self.model_dir)
         if not model_path.exists():
             logger.warning("Model dir %s does not exist", self.model_dir)
             return {s: "no_model_dir" for s in self.symbols}
 
+        all_models = []
         for symbol in self.symbols:
             try:
-                # Look for {symbol}_gate_v2/ directory pattern
-                candidates = list(model_path.glob(f"{symbol}_gate_v2/lgbm_v8.pkl"))
-                if not candidates:
+                sym_dir = model_path / f"{symbol}_gate_v2"
+                if not sym_dir.exists():
+                    # Try broader match
                     candidates = list(model_path.glob(f"{symbol}*/lgbm*.pkl"))
+                else:
+                    candidates = list(sym_dir.glob("*.pkl"))
+
                 if candidates:
-                    pkl_path = candidates[0]
-                    self.inference_bridge.reload_model(symbol, str(pkl_path))
-                    results[symbol] = "reloaded"
-                    logger.info("Reloaded model for %s from %s", symbol, pkl_path)
+                    try:
+                        from alpha.models.lgbm_alpha import LGBMAlphaModel
+                        for pkl in candidates:
+                            m = LGBMAlphaModel(name=f"{symbol}_{pkl.stem}")
+                            m.load(pkl)
+                            all_models.append(m)
+                        results[symbol] = f"reloaded:{len(candidates)}"
+                    except ImportError:
+                        # Fallback: single model reload via bridge
+                        self.inference_bridge.reload_model(symbol, str(candidates[0]))
+                        results[symbol] = "reloaded"
                 else:
                     results[symbol] = "no_model_found"
             except Exception as e:
                 results[symbol] = f"error: {e}"
                 logger.error("Failed to reload model for %s: %s", symbol, e)
+
+        # Push all loaded models to bridge
+        if all_models and hasattr(self.inference_bridge, "update_models"):
+            bridge = self.inference_bridge
+            if isinstance(bridge, dict):
+                for sym in self.symbols:
+                    b = bridge.get(sym)
+                    if b is not None:
+                        sym_models = [m for m in all_models if sym in m.name]
+                        if sym_models:
+                            b.update_models(sym_models)
+            else:
+                bridge.update_models(all_models)
+            logger.info("Direct model reload: %d model(s) from disk", len(all_models))
 
         return results
 

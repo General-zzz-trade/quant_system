@@ -47,6 +47,29 @@ class TestTradingEngineReload:
                                symbols=["BTCUSDT"], model_dir="/tmp/nonexistent_model_dir")
         result = engine.reload_models()
         assert isinstance(result, dict)
+        assert "BTCUSDT" in result
+
+    def test_reload_via_model_registry(self):
+        hook = MagicMock()
+        bridge = MagicMock()
+        engine = TradingEngine(feature_hook=hook, inference_bridge=bridge,
+                               symbols=["BTCUSDT"], model_dir="models_v8")
+        loader = MagicMock()
+        loader.reload_if_changed.return_value = [MagicMock()]
+        result = engine.reload_models(model_loader=loader)
+        assert result["BTCUSDT"] == "registry_reloaded"
+        bridge.update_models.assert_called_once()
+
+    def test_reload_registry_noop(self):
+        hook = MagicMock()
+        bridge = MagicMock()
+        engine = TradingEngine(feature_hook=hook, inference_bridge=bridge,
+                               symbols=["BTCUSDT"], model_dir="models_v8")
+        loader = MagicMock()
+        loader.reload_if_changed.return_value = None
+        result = engine.reload_models(model_loader=loader)
+        assert result["BTCUSDT"] == "registry_noop"
+        bridge.update_models.assert_not_called()
 
 
 class TestTradingEngineCheckpoint:
