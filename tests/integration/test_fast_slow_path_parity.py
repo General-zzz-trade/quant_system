@@ -110,6 +110,44 @@ class TestFeatureEngineDeterminism:
         counts = [len(f) for f in feats[80:]]
         assert len(set(counts)) == 1, f"Feature count should stabilize, got {set(counts)}"
 
+    def test_checkpoint_restore_consistency(self):
+        """Engine restored from checkpoint produces same features as original.
+
+        Uses near-equality (1e-12 rel tolerance) because checkpoint
+        serialisation may introduce minor floating-point rounding.
+        """
+        bars = _make_bars(n=150)
+        split = 80
+
+        # Feed first 80 bars, checkpoint, then continue
+        engine_a = RustFeatureEngine()
+        _push_bars(engine_a, bars[:split])
+        checkpoint = engine_a.checkpoint()
+
+        # Restore into fresh engine, continue from bar 80
+        engine_b = RustFeatureEngine()
+        engine_b.restore_checkpoint(checkpoint)
+
+        feats_a = _push_bars(engine_a, bars[split:])
+        feats_b = _push_bars(engine_b, bars[split:])
+
+        assert len(feats_a) == len(feats_b)
+        import math
+        for i, (fa, fb) in enumerate(zip(feats_a, feats_b)):
+            assert fa.keys() == fb.keys(), f"Key mismatch at bar {split + i}"
+            for key in fa:
+                va, vb = fa[key], fb[key]
+                if isinstance(va, float) and isinstance(vb, float):
+                    if math.isnan(va) and math.isnan(vb):
+                        continue
+                    assert math.isclose(va, vb, rel_tol=1e-9, abs_tol=1e-15), (
+                        f"Mismatch at bar {split + i}, feature {key}: {va} != {vb}"
+                    )
+                else:
+                    assert va == vb, (
+                        f"Mismatch at bar {split + i}, feature {key}: {va} != {vb}"
+                    )
+
 
 # ============================================================
 # b. Full coordinator fast/slow path parity (requires models)

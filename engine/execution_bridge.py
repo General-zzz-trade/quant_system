@@ -1,4 +1,12 @@
 # engine/execution_bridge.py
+"""ExecutionBridge -- simple adapter-to-dispatcher bridge for the engine layer.
+
+This is the production default bridge used by EngineCoordinator.  It delegates
+directly to the adapter (send_order) and re-emits results to the dispatcher.
+
+For advanced features (retry, circuit breaker, rate limiting, ack store),
+see execution/bridge/execution_bridge.py which is used by specific adapters.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

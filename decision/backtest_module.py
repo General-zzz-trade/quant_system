@@ -514,13 +514,27 @@ class MLSignalDecisionModule:
                         self.symbol, raw, hour_key,
                         self._deadzone, self._min_hold)
                 else:
-                    # NOTE: Python fallback for short signal is simplified
-                    # (deadzone only).  Production always uses the Rust path
-                    # above which includes the full constraint pipeline
-                    # (deadzone + min-hold + trend-hold).  This fallback
-                    # exists only for environments without _quant_hotpath.
+                    # Python fallback for short signal (deadzone + min-hold).
+                    # Production always uses the Rust path above which
+                    # includes the full constraint pipeline (deadzone +
+                    # min-hold + trend-hold).  This fallback exists only
+                    # for environments without _quant_hotpath.
+                    if not hasattr(self, '_short_hold_count'):
+                        self._short_hold_count = 0
+                        self._prev_short_score = 0.0
+
                     if abs(raw) > self._deadzone:
                         short_score = raw
+                        self._short_hold_count += 1
+                    elif self._prev_short_score != 0.0:
+                        if self._short_hold_count < self._min_hold:
+                            short_score = self._prev_short_score
+                            self._short_hold_count += 1
+                        else:
+                            self._short_hold_count = 0
+                    else:
+                        self._short_hold_count = 0
+                    self._prev_short_score = short_score
 
                 # Vol-adaptive sizing for short
                 if short_score != 0.0 and self._vol_target is not None:
