@@ -7,6 +7,7 @@ pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
 pytest tests/unit/ib/ -x -q   # IB adapter tests (37 tests)
+pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (42 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
@@ -108,10 +109,12 @@ Key export categories (see `lib.rs` for full list):
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/bin/main.rs` — Standalone Rust trading binary (WS + ML + orders)
 - `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
-- `runner/live_runner.py` — Production entry point (Python)
+- `runner/run_trading.py` — New decomposed entry point (~120 LOC transparent assembly)
+- `runner/trading_engine.py` — Features + inference + SIGHUP dual-path model reload
+- `runner/live_runner.py` — Legacy production entry point (DEPRECATED — use run_trading.py for new work)
 - `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle (kill_switch, inference_bridge, feature_hook, correlation, timeout, exit_manager, regime_gate, drawdown_breaker)
-- `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
+- `runner/config.py` — LiveRunnerConfig (102 fields, legacy); `runner/trading_config.py` — TradingConfig (47 fields, new)
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (122 features: 105 enriched + 17 cross-asset); `validate_model_features()` for schema checks
 - `execution/adapters/ib/adapter.py` — IB multi-asset adapter (stocks, forex, futures, options, crypto via IB Gateway)
 - `execution/adapters/ib/mapper.py` — IB Contract/Fill/Position → Canonical types; `make_contract()` builder
