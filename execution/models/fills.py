@@ -34,3 +34,46 @@ class CanonicalFill:
     payload_digest: str = ""
 
     raw: Optional[Mapping[str, Any]] = None
+
+    def to_record(self) -> dict[str, str]:
+        """Lossless string-serialized record for fill history tracking.
+
+        All fields preserved as strings. Use this instead of ad-hoc dicts.
+        """
+        return {
+            "venue": self.venue,
+            "symbol": self.symbol,
+            "order_id": self.order_id,
+            "trade_id": self.trade_id,
+            "fill_id": self.fill_id,
+            "side": self.side,
+            "qty": str(self.qty),
+            "price": str(self.price),
+            "fee": str(self.fee),
+            "fee_asset": self.fee_asset or "",
+            "liquidity": self.liquidity or "",
+            "ts_ms": str(self.ts_ms),
+            "payload_digest": self.payload_digest,
+        }
+
+
+def fill_to_record(fill: Any) -> dict[str, str]:
+    """Convert any fill-like object to a standard record dict.
+
+    Works with CanonicalFill, SimpleNamespace, or any duck-typed fill.
+    Use this to replace all ad-hoc fill dict construction.
+    """
+    if isinstance(fill, CanonicalFill):
+        return fill.to_record()
+    return {
+        "venue": str(getattr(fill, "venue", "")),
+        "symbol": str(getattr(fill, "symbol", "")),
+        "order_id": str(getattr(fill, "order_id", "")),
+        "trade_id": str(getattr(fill, "trade_id", "")),
+        "fill_id": str(getattr(fill, "fill_id", "")),
+        "side": str(getattr(fill, "side", "")),
+        "qty": str(getattr(fill, "qty", "")),
+        "price": str(getattr(fill, "price", "")),
+        "fee": str(getattr(fill, "fee", "")),
+        "ts_ms": str(getattr(fill, "ts_ms", "")),
+    }

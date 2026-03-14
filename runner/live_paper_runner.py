@@ -158,13 +158,8 @@ class LivePaperRunner:
                 logger.info("Telegram alerts auto-wired (chat_id=%s)", tg_chat)
 
         def _record_fill(fill: Any) -> None:
-            fills.append({
-                "ts": str(getattr(fill, "ts", "")),
-                "symbol": str(getattr(fill, "symbol", "")),
-                "side": str(getattr(fill, "side", "")),
-                "qty": str(getattr(fill, "qty", "")),
-                "price": str(getattr(fill, "price", "")),
-            })
+            from execution.models.fills import fill_to_record
+            fills.append(fill_to_record(fill))
             if on_fill is not None:
                 on_fill(fill)
 

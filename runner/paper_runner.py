@@ -272,15 +272,8 @@ def run_paper_live(config: PaperRunnerConfig, *, _transport: Any = None) -> None
     fills: list[Dict[str, Any]] = []
 
     def _on_fill(fill: Any) -> None:
-        fills.append({
-            "ts": str(getattr(fill, "ts", "")),
-            "symbol": str(getattr(fill, "symbol", "")),
-            "side": str(getattr(fill, "side", "")),
-            "qty": str(getattr(fill, "qty", "")),
-            "price": str(getattr(fill, "price", "")),
-            "fee": str(getattr(fill, "fee", "")),
-            "realized_pnl": str(getattr(fill, "realized_pnl", "")),
-        })
+        from execution.models.fills import fill_to_record
+        fills.append(fill_to_record(fill))
         logger.info(
             "FILL  %s %s qty=%s px=%s fee=%s rpnl=%s",
             getattr(fill, "side", ""),

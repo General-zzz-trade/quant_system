@@ -211,13 +211,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         latency_tracker = LatencyTracker()
 
         def _record_fill(fill: Any) -> None:
-            fills.append({
-                "ts": str(getattr(fill, "ts", "")),
-                "symbol": str(getattr(fill, "symbol", "")),
-                "side": str(getattr(fill, "side", "")),
-                "qty": str(getattr(fill, "qty", "")),
-                "price": str(getattr(fill, "price", "")),
-            })
+            from execution.models.fills import fill_to_record
+            fills.append(fill_to_record(fill))
             order_id = getattr(fill, "order_id", None)
             if order_id:
                 latency_tracker.record_fill(str(order_id))
