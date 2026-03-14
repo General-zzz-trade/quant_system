@@ -59,7 +59,7 @@ runner/live_runner.py
 | 推理约束状态 | Rust 主导，Python 编排 | `LiveInferenceBridge` 依赖 `RustInferenceBridge` |
 | 决策编排 | Python | `DecisionBridge`, `decision/engine.py` |
 | 风控原语 | 混合 | Rust 有 risk primitives，Python 有 aggregator/gates/live wiring |
-| 执行适配器 | Python 主导 | 交易所 IO、adapter、reconcile 主要在 Python |
+| 执行适配器 | Python 主导 | 交易所 IO、adapter (Binance/IB/Polymarket/CCXT)、reconcile 主要在 Python |
 | WS 热路径 | 混合 | Python adapter + Rust transport / parser / ws client |
 | 独立交易二进制 | Rust | `quant_trader`，但当前不是默认主路径 |
 | 研究训练 | Python | `research/`, `alpha/training/`, `scripts/` |

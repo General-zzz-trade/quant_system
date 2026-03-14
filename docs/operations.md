@@ -11,7 +11,7 @@ Status:
 
 Current runtime truth:
 
-- Default production runtime: [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
+- Default production runtime: [`runner/live_runner.py`](/quant_system/runner/live_runner.py) (legacy) or [`runner/run_trading.py`](/quant_system/runner/run_trading.py) (new decomposed entry point)
 - Rust owns hot-path state/features/primitives, but Python still owns the default production orchestration path
 - Standalone Rust trader (`ext/rust/src/bin/main.rs`) is an evolving alternative runtime, not the default production entrypoint
 
@@ -41,8 +41,8 @@ Operational notes:
 | Path | Entry Point | Purpose | Tested in CI |
 |------|------------|---------|-------------|
 | **docker-compose (default)** | `runner.testnet_validation --phase paper` | Paper/testnet trading | Yes (smoke test) |
-| **systemd (production)** | `runner.live_runner --config config/production.yaml` | Live production trading | No (manual deploy) |
-| **K8s/ArgoCD (candidate)** | `runner.live_runner` via deployment.yaml | Candidate production path | No |
+| **systemd (production)** | `runner.live_runner` or `runner.run_trading` | Live production trading | No (manual deploy) |
+| **K8s/ArgoCD (candidate)** | `runner.run_trading` via deployment.yaml | Candidate production path | No |
 | **Rust binary** | `quant_trader --config config.testnet.yaml` | Standalone Rust trader | No (unit tests only) |
 
 **Note**: docker-compose.yml and systemd service intentionally use different entry points.
@@ -238,7 +238,7 @@ venue_client.cancel_order(symbol="BTCUSDT", order_id="12345")
 ### Stale Market Data (> 60s)
 
 1. Check WebSocket connection status in logs
-2. `BinanceMarketDataRuntime` is the default Python production market-data runtime and has automatic reconnection with REST fallback
+2. Market data adapter has automatic reconnection with REST fallback
 3. Verify exchange status: `curl -s https://fapi.binance.com/fapi/v1/ping`
 4. Check NetworkPolicy if running in K8s — ensure egress to `*.binance.com:443`
 5. If persistent, restart the pod: `kubectl -n quant rollout restart deploy/quant-engine`

@@ -178,9 +178,10 @@ class CoordinatorConfig:
     emit_on_non_advanced: bool = False              # Emit on non-advancing events
 ```
 
-### LiveRunner
+### LiveRunner (legacy)
 
-Current default production entry point. Defined in [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
+Legacy production entry point. Defined in [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
+Maintained for backward compatibility — new deployments should use [`runner/run_trading.py`](/quant_system/runner/run_trading.py) with decomposed modules (TradingEngine, RiskManager, OrderManager, BinanceExecutor, RecoveryManager, LifecycleManager).
 
 ```python
 # Build from config object

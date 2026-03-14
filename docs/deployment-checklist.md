@@ -6,7 +6,7 @@
 - [ ] Run full test suite: `pytest tests/ -x -q -m ""`
 - [ ] Run Rust tests: `cd ext/rust && cargo test`
 - [ ] Build Rust crate: `make rust`
-- [ ] Copy .so: `cp /usr/local/lib/python3.12/dist-packages/_quant_hotpath/*.so /opt/quant_system/_quant_hotpath/`
+- [ ] Copy .so and verify: `cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ && python3 -c "import _quant_hotpath; print(_quant_hotpath.rust_version())"`
 - [ ] Verify config: `python3 -c "import yaml; yaml.safe_load(open('config/production.yaml'))"`
 - [ ] Create `config/production.local.yaml` with API keys and site-specific overrides
 - [ ] Verify log directory exists: `mkdir -p /quant_system/logs`
