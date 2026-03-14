@@ -902,6 +902,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             regime_sizer=regime_sizer,
             portfolio_allocator=portfolio_allocator,
             hook=hook,
+            kill_switch=kill_switch,
         )
 
         from runner.emit_handler import LiveEmitHandler

@@ -5,6 +5,11 @@ Rejects new positions when portfolio correlation concentration exceeds threshold
 NOTE: Pre-trade correlation check also exists in risk/correlation_gate.py
 (used in the order gate chain). This rule provides deeper portfolio-level
 evaluation via RiskAggregator, while CorrelationGate is a fast per-order filter.
+
+NOTE: This rule is currently INACTIVE in production. The required meta fields
+(portfolio_avg_correlation, position_correlation_to_portfolio) are not populated
+by LiveMetaBuilder. To activate, wire the corresponding data source into
+meta_builder_live.py.
 """
 from __future__ import annotations
 

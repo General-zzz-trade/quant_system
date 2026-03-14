@@ -116,3 +116,82 @@ class TestWsOrderAdapterCallbacks:
         adapter._on_error("req-456", {"error": "insufficient margin"})
         assert event.is_set()
         assert pending.error is not None
+
+
+class _FakeWsGateway:
+    """Simulates a WS gateway that can be configured to timeout or error."""
+
+    def __init__(self, *, should_timeout=False, should_error=False):
+        self.is_running = True
+        self._should_timeout = should_timeout
+        self._should_error = should_error
+        self._req_counter = 0
+        self._adapter = None  # set after adapter is created
+
+    def start(self):
+        pass
+
+    def stop(self):
+        self.is_running = False
+
+    def submit_order(self, **kwargs) -> str:
+        self._req_counter += 1
+        req_id = f"ws-req-{self._req_counter}"
+        if self._should_error and self._adapter:
+            # Schedule error callback in a separate thread
+            def _fire():
+                self._adapter._on_error(req_id, {"error": "ws_protocol_error"})
+            t = threading.Thread(target=_fire)
+            t.start()
+        # If should_timeout, we simply never respond
+        return req_id
+
+
+class TestWsTimeoutFallback:
+
+    def test_ws_timeout_falls_back_to_rest(self):
+        """When WS doesn't respond within timeout, REST adapter is used."""
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=0.05,  # 50ms timeout
+        )
+
+        # Install a fake WS gateway that never responds (simulates timeout)
+        fake_gw = _FakeWsGateway(should_timeout=True)
+        adapter._gateway = fake_gw
+        adapter._started = True
+
+        order = _FakeOrderEvent()
+        results = adapter.send_order(order)
+
+        # Verify REST fallback was called
+        assert len(rest.orders) == 1
+        assert len(results) == 1
+        assert results[0]["status"] == "filled"
+
+    def test_ws_error_falls_back_to_rest(self):
+        """When WS returns error, REST adapter is used."""
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=1.0,
+        )
+
+        # Install a fake WS gateway that fires error callback
+        fake_gw = _FakeWsGateway(should_error=True)
+        fake_gw._adapter = adapter
+        adapter._gateway = fake_gw
+        adapter._started = True
+
+        order = _FakeOrderEvent()
+        results = adapter.send_order(order)
+
+        # Verify REST fallback was called after WS error
+        assert len(rest.orders) == 1
+        assert len(results) == 1
+        assert results[0]["status"] == "filled"

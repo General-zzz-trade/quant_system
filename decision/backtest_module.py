@@ -509,7 +509,11 @@ class MLSignalDecisionModule:
                         self.symbol, raw, hour_key,
                         self._deadzone, self._min_hold)
                 else:
-                    # Simple fallback: apply deadzone
+                    # NOTE: Python fallback for short signal is simplified
+                    # (deadzone only).  Production always uses the Rust path
+                    # above which includes the full constraint pipeline
+                    # (deadzone + min-hold + trend-hold).  This fallback
+                    # exists only for environments without _quant_hotpath.
                     if abs(raw) > self._deadzone:
                         short_score = raw
 

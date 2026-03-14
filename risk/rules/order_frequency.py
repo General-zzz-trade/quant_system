@@ -1,4 +1,10 @@
 # quant_system/risk/rules/order_frequency.py
+"""Order frequency limit rule — prevents runaway order loops.
+
+NOTE: This rule is currently INACTIVE in production. The required meta fields
+(order_rate_per_min, recent_order_count) are not populated by LiveMetaBuilder.
+To activate, wire an order rate tracker into meta_builder_live.py.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

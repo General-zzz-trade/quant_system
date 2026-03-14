@@ -7,9 +7,16 @@ from __future__ import annotations
 
 from features.enriched_computer import ENRICHED_FEATURE_NAMES
 
+# Try to import cross-asset feature names
+try:
+    from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
+except ImportError:
+    CROSS_ASSET_FEATURE_NAMES = ()
 
 # Canonical set of features available in production
-PRODUCTION_FEATURES: frozenset[str] = frozenset(ENRICHED_FEATURE_NAMES)
+PRODUCTION_FEATURES: frozenset[str] = frozenset(
+    list(ENRICHED_FEATURE_NAMES) + list(CROSS_ASSET_FEATURE_NAMES)
+)
 
 
 def validate_model_features(

@@ -1,6 +1,10 @@
 """VaR limit rule — rejects orders that would push portfolio VaR beyond limit.
 
 Reads pre-computed VaR from risk meta dict.
+
+NOTE: This rule is currently INACTIVE in production. The required meta fields
+(portfolio_var_95, portfolio_var_99, post_trade_var_95) are not populated by
+LiveMetaBuilder. To activate, wire a VaR calculator into meta_builder_live.py.
 """
 from __future__ import annotations
 

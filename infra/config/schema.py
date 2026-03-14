@@ -1,7 +1,17 @@
 """Config schema definitions and validation for quant_system.
 
-Defines the expected structure of configuration files and provides
-validation against that schema.
+.. deprecated::
+    This schema covers only 23 legacy fields and is NOT synchronized with
+    the current production configuration (runner/config.py LiveRunnerConfig, 93 fields).
+
+    For production configuration:
+    - Use LiveRunnerConfig directly (runner/config.py)
+    - Use LiveRunnerConfig.lite()/.paper()/.testnet_full()/.prod() factory methods
+    - See CLAUDE.md for configuration guidance
+
+    This module is retained for backward compatibility with older YAML configs
+    that use dot-notation (e.g., "trading.symbol"). New deployments should use
+    LiveRunnerConfig directly.
 """
 from __future__ import annotations
 

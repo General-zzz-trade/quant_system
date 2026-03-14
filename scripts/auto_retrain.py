@@ -259,6 +259,26 @@ def retrain_symbol(
 
     result["success"] = True
 
+    # Register with ModelRegistry so metadata stays in sync
+    if not dry_run:
+        try:
+            from research.model_registry.registry import ModelRegistry
+
+            registry_db = Path("data") / "model_registry.db"
+            registry = ModelRegistry(registry_db)
+
+            mv = registry.register(
+                name=f"alpha_{symbol.lower()}",
+                params=new_config,
+                features=list(new_config.get("features", [])),
+                metrics={k: float(v) for k, v in new_metrics.items() if isinstance(v, (int, float))},
+                tags=["auto_retrain", "v11"],
+            )
+            registry.promote(mv.model_id, reason="auto_retrain", actor="auto_retrain")
+            logger.info("Registered and promoted model %s for %s", mv.model_id, symbol)
+        except Exception as e:
+            logger.warning("Registry integration failed (non-blocking): %s", e)
+
     if dry_run:
         logger.info(
             "DRY RUN %s: would deploy (Sharpe %.2f→%.2f, IC %.4f→%.4f)",

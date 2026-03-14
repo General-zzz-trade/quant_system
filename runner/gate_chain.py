@@ -135,13 +135,30 @@ class PortfolioRiskGate:
     """Gate 3: Portfolio-level risk check."""
     name = "PortfolioRisk"
 
-    def __init__(self, portfolio_aggregator: Any) -> None:
+    def __init__(self, portfolio_aggregator: Any, kill_switch: Any = None) -> None:
         self._agg = portfolio_aggregator
+        self._kill_switch = kill_switch
 
     def check(self, ev: Any, context: Dict[str, Any]) -> GateResult:
         try:
             decision = self._agg.evaluate_order(ev)
             if not decision.ok:
+                # If KILL action, trigger kill switch to prevent all future orders
+                if self._kill_switch is not None:
+                    from risk.decisions import RiskAction
+                    if decision.action == RiskAction.KILL:
+                        from risk.kill_switch import KillScope, KillMode
+                        self._kill_switch.trigger(
+                            scope=KillScope.GLOBAL,
+                            key="*",
+                            mode=KillMode.HARD_KILL,
+                            reason=f"RiskAggregator KILL: {'; '.join(v.message for v in decision.violations)}",
+                            source="risk_aggregator",
+                        )
+                        logger.critical(
+                            "KillSwitch triggered by RiskAggregator KILL for %s",
+                            getattr(ev, "symbol", "?"),
+                        )
                 msgs = [v.message for v in decision.violations]
                 return GateResult(allowed=False, reason="; ".join(msgs))
         except Exception:
@@ -262,6 +279,7 @@ def build_gate_chain(
     regime_sizer: Optional[Any] = None,
     portfolio_allocator: Optional[Any] = None,
     hook: Optional[Any] = None,
+    kill_switch: Optional[Any] = None,
 ) -> GateChain:
     """Build the standard gate chain with all available subsystems."""
     gates: List[Gate] = [
@@ -269,7 +287,7 @@ def build_gate_chain(
         RiskSizeGate(risk_gate),
     ]
     if portfolio_aggregator is not None:
-        gates.append(PortfolioRiskGate(portfolio_aggregator))
+        gates.append(PortfolioRiskGate(portfolio_aggregator, kill_switch=kill_switch))
     if alpha_health_monitor is not None:
         gates.append(AlphaHealthGate(alpha_health_monitor))
     if regime_sizer is not None:
