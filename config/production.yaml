@@ -97,9 +97,11 @@ dd_reduce_pct: 15.0
 dd_kill_pct: 20.0
 
 # ── Adaptive BTC config ──────────────────────────────────────
-# Enable after validation (Direction 5)
-adaptive_btc_enabled: false
-# adaptive_btc_interval_hours: 24
+# Validated: 21-fold walk-forward shows +295% vs +149% fixed (2x improvement).
+# Only applies when confidence="high" (Sharpe>2.0 + trades>=15).
+# ETH stays on fixed params (fixed +1783% > adaptive +1245%).
+adaptive_btc_enabled: true
+adaptive_btc_interval_hours: 24
 
 # ── Model registry ───────────────────────────────────────────
 # model_registry_db: data/models/registry.db
