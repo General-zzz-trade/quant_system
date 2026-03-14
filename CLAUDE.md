@@ -6,7 +6,7 @@ make test                    # ALL gates (py + exec + rust + lint, matches CI)
 pytest tests/ -x -q          # Fast tests (~27s, excludes slow+benchmark)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
-pytest execution/tests/ -x -q  # Execution subsystem tests (65 tests)
+pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
@@ -95,7 +95,7 @@ Key export categories (see `lib.rs` for full list):
 - `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle (kill_switch, inference_bridge, feature_hook, correlation, timeout, exit_manager, regime_gate, drawdown_breaker)
 - `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (105 features); `validate_model_features()` for schema checks
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (122 features: 105 enriched + 17 cross-asset); `validate_model_features()` for schema checks
 
 ## Live Integration Subsystems
 
@@ -115,7 +115,7 @@ Key export categories (see `lib.rs` for full list):
 - Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
 - `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
 - `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
-- No hot-path Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust. Research script `signal_postprocess.py` has a Python fallback with known trend_hold divergence (see below)
+- No hot-path Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
 - Binary build requires `-lpython3.12` link flag (PyO3 symbols)
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 - Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet
