@@ -27,6 +27,8 @@ if "polymarket" in sys.modules:
 import importlib
 _pm = importlib.import_module("polymarket.collector")
 PolymarketCollector = _pm.PolymarketCollector
+binary_call_fair_value = _pm.binary_call_fair_value
+VolatilityTracker = _pm.VolatilityTracker
 
 
 # ------------------------------------------------------------------
@@ -266,3 +268,151 @@ class TestCollectOneWithMockedApis:
         assert record["window_start_ts"] % 300 == 0
         assert record["binance_btc_open"] == 0.0
         assert record.get("up_price") is None
+
+
+# ------------------------------------------------------------------
+# Black-Scholes binary option fair value tests
+# ------------------------------------------------------------------
+
+class TestBinaryCallFairValue:
+    def test_binary_call_fair_value_atm(self):
+        """ATM binary call should be ~0.50"""
+        fair = binary_call_fair_value(S=70000, K=70000, T_minutes=5, sigma_annual=0.50)
+        assert 0.49 < fair < 0.51
+
+    def test_binary_call_fair_value_itm(self):
+        """Price above strike -> fair > 0.5"""
+        fair = binary_call_fair_value(S=70100, K=70000, T_minutes=3, sigma_annual=0.50)
+        assert fair > 0.6
+
+    def test_binary_call_fair_value_otm(self):
+        """Price below strike -> fair < 0.5"""
+        fair = binary_call_fair_value(S=69900, K=70000, T_minutes=3, sigma_annual=0.50)
+        assert fair < 0.4
+
+    def test_binary_call_fair_value_expired(self):
+        """At expiry: ITM=1, OTM=0"""
+        assert binary_call_fair_value(70100, 70000, 0, 0.5) == 1.0
+        assert binary_call_fair_value(69900, 70000, 0, 0.5) == 0.0
+
+    def test_binary_call_fair_value_deep_itm(self):
+        """Deep ITM should be close to 1.0"""
+        fair = binary_call_fair_value(S=71000, K=70000, T_minutes=1, sigma_annual=0.50)
+        assert fair > 0.95
+
+    def test_binary_call_fair_value_deep_otm(self):
+        """Deep OTM should be close to 0.0"""
+        fair = binary_call_fair_value(S=69000, K=70000, T_minutes=1, sigma_annual=0.50)
+        assert fair < 0.05
+
+    def test_binary_call_fair_value_edge_zero_strike(self):
+        """Zero or negative strike returns 0.5"""
+        assert binary_call_fair_value(70000, 0, 5, 0.5) == 0.5
+        assert binary_call_fair_value(0, 70000, 5, 0.5) == 0.5
+
+
+# ------------------------------------------------------------------
+# Volatility tracker tests
+# ------------------------------------------------------------------
+
+class TestVolatilityTracker:
+    def test_volatility_tracker_default(self):
+        """Vol tracker returns default 50% with few observations."""
+        vt = VolatilityTracker(window=60)
+        assert vt.sigma_annual == 0.50
+        vt.update(70000)
+        vt.update(70100)
+        # Still < 10 observations
+        assert vt.sigma_annual == 0.50
+
+    def test_volatility_tracker_computes_reasonable_vol(self):
+        """Vol tracker computes reasonable annual vol."""
+        import random
+        random.seed(42)
+        vt = VolatilityTracker(window=60)
+        price = 70000.0
+        for _ in range(100):
+            price *= (1 + random.gauss(0, 0.001))
+            vt.update(price)
+        sigma = vt.sigma_annual
+        assert 0.1 < sigma < 2.0  # reasonable range
+
+    def test_volatility_tracker_window(self):
+        """Vol tracker respects window size."""
+        vt = VolatilityTracker(window=20)
+        price = 70000.0
+        for _ in range(50):
+            price += 10
+            vt.update(price)
+        # Internal returns list should be capped at 20
+        assert len(vt._returns) == 20
+
+
+# ------------------------------------------------------------------
+# Intra-window DB schema tests
+# ------------------------------------------------------------------
+
+class TestIntraWindowSchema:
+    def test_intra_window_db_schema(self, tmp_path):
+        """Intra-window table created correctly."""
+        db = str(tmp_path / "test.db")
+        PolymarketCollector(db_path=db)
+        conn = sqlite3.connect(db)
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+        assert "intra_window_samples" in tables
+
+        # Check columns
+        cols = conn.execute("PRAGMA table_info(intra_window_samples)").fetchall()
+        col_names = {c[1] for c in cols}
+        expected = {
+            "id", "window_start_ts", "sample_time_utc", "elapsed_sec",
+            "binance_price", "strike_price", "move_bps",
+            "fair_value_up", "fair_value_down",
+            "polymarket_up_price", "polymarket_down_price",
+            "pricing_delay", "created_at",
+        }
+        assert expected.issubset(col_names)
+        conn.close()
+
+    def test_store_intra_sample(self, tmp_path):
+        """Intra-window sample is stored and retrievable."""
+        db = str(tmp_path / "test.db")
+        c = PolymarketCollector(db_path=db)
+        sample = {
+            "window_start_ts": 1773496800,
+            "sample_time_utc": "2026-03-14T12:00:30",
+            "elapsed_sec": 30,
+            "binance_price": 83050.0,
+            "strike_price": 83000.0,
+            "move_bps": 6.024,
+            "fair_value_up": 0.55,
+            "fair_value_down": 0.45,
+            "polymarket_up_price": None,
+            "polymarket_down_price": None,
+            "pricing_delay": None,
+        }
+        c._store_intra_sample(sample)
+
+        conn = sqlite3.connect(db)
+        row = conn.execute(
+            "SELECT * FROM intra_window_samples WHERE window_start_ts = ?",
+            (1773496800,),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[3] == 30  # elapsed_sec
+        assert abs(row[4] - 83050.0) < 0.1  # binance_price
+
+
+class TestGetStatsWithIntra:
+    def test_stats_include_intra_fields(self, tmp_path):
+        """Stats include intra-window sample count and vol."""
+        db = str(tmp_path / "test.db")
+        c = PolymarketCollector(db_path=db)
+        stats = c.get_stats()
+        assert "intra_window_samples" in stats
+        assert stats["intra_window_samples"] == 0
+        assert "current_sigma_annual" in stats
+        assert stats["avg_pricing_delay"] is None

@@ -6,10 +6,15 @@ Collects real market data every 5 minutes:
 - Concurrent Binance BTC/USDT price
 - Volume and liquidity
 
+Supports two modes:
+- basic: one sample per 5-minute window (original behavior)
+- intra: 30-second intra-window sampling with Black-Scholes fair values
+
 Stores data in SQLite for later analysis.
 
 Usage:
     python3 -m polymarket.collector [--db data/polymarket/collector.db] [--once]
+    python3 -m polymarket.collector --mode intra [--once]
 
 Deployment:
     sudo cp infra/systemd/polymarket-collector.service /etc/systemd/system/
@@ -19,7 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
+import statistics
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +36,61 @@ logger = logging.getLogger(__name__)
 
 _WINDOW_SEC = 300  # 5 minutes
 _SETTLE_OFFSET = 5  # seconds after boundary to let market settle
+_INTRA_INTERVAL = 30  # seconds between intra-window samples
+
+
+def binary_call_fair_value(S: float, K: float, T_minutes: float, sigma_annual: float) -> float:
+    """Fair value of a binary call option (digital call).
+
+    Uses the Black-Scholes formula to compute the risk-neutral probability
+    that the underlying finishes at or above the strike.
+
+    Args:
+        S: current price
+        K: strike (window open price)
+        T_minutes: time remaining in minutes
+        sigma_annual: annualized volatility
+
+    Returns:
+        Probability that S_T >= K (0 to 1).
+    """
+    if T_minutes <= 0:
+        return 1.0 if S >= K else 0.0
+    if K <= 0 or S <= 0:
+        return 0.5
+    T = T_minutes / (365 * 24 * 60)
+    d2 = (math.log(S / K) + (-0.5 * sigma_annual**2) * T) / (sigma_annual * math.sqrt(T))
+    # norm.cdf(x) = 0.5 * (1 + erf(x / sqrt(2)))
+    return 0.5 * (1.0 + math.erf(d2 / math.sqrt(2)))
+
+
+class VolatilityTracker:
+    """Track rolling 1-hour realized volatility from Binance 1-minute returns."""
+
+    def __init__(self, window: int = 60):
+        self._returns: list[float] = []
+        self._window = window
+        self._prev_price: float | None = None
+
+    def update(self, price: float) -> None:
+        """Update with a new price observation."""
+        if self._prev_price is not None and self._prev_price > 0:
+            ret = math.log(price / self._prev_price)
+            self._returns.append(ret)
+            if len(self._returns) > self._window:
+                self._returns.pop(0)
+        self._prev_price = price
+
+    @property
+    def sigma_annual(self) -> float:
+        """Annualized volatility estimate.
+
+        Falls back to 50% if fewer than 10 observations.
+        """
+        if len(self._returns) < 10:
+            return 0.50  # default 50% annual vol
+        std_1m = statistics.stdev(self._returns)
+        return std_1m * math.sqrt(365 * 24 * 60)
 
 
 class PolymarketCollector:
@@ -39,6 +101,7 @@ class PolymarketCollector:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
         self._running = False
+        self._vol_tracker = VolatilityTracker(window=60)
 
     # ------------------------------------------------------------------
     # Database
@@ -66,6 +129,27 @@ class PolymarketCollector:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_window_ts
             ON market_snapshots(window_start_ts)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS intra_window_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_start_ts INTEGER NOT NULL,
+                sample_time_utc TEXT NOT NULL,
+                elapsed_sec INTEGER NOT NULL,
+                binance_price REAL NOT NULL,
+                strike_price REAL,
+                move_bps REAL,
+                fair_value_up REAL,
+                fair_value_down REAL,
+                polymarket_up_price REAL,
+                polymarket_down_price REAL,
+                pricing_delay REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_intra_window_ts
+            ON intra_window_samples(window_start_ts)
         """)
         conn.commit()
         conn.close()
@@ -343,6 +427,115 @@ class PolymarketCollector:
         )
 
     # ------------------------------------------------------------------
+    # Intra-window sampling
+    # ------------------------------------------------------------------
+
+    def _store_intra_sample(self, sample: dict) -> None:
+        """Store an intra-window sample to the database."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            """
+            INSERT INTO intra_window_samples
+            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
+             strike_price, move_bps, fair_value_up, fair_value_down,
+             polymarket_up_price, polymarket_down_price, pricing_delay)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sample["window_start_ts"],
+                sample["sample_time_utc"],
+                sample["elapsed_sec"],
+                sample["binance_price"],
+                sample.get("strike_price"),
+                sample.get("move_bps"),
+                sample.get("fair_value_up"),
+                sample.get("fair_value_down"),
+                sample.get("polymarket_up_price"),
+                sample.get("polymarket_down_price"),
+                sample.get("pricing_delay"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def collect_intra_window(self) -> None:
+        """Run 30-second sampling within a single 5-minute window.
+
+        Samples Binance price every 30 seconds, computes Black-Scholes
+        binary option fair values, and stores results.  Also performs
+        the normal collect_one() backfill/settlement at window end.
+        """
+        window_ts = self._current_window_ts()
+        window_start_real = time.time()
+
+        # Get strike price (Binance spot at window open)
+        strike = self._get_binance_price()
+        if strike > 0:
+            self._vol_tracker.update(strike)
+
+        sigma = self._vol_tracker.sigma_annual
+
+        logger.info(
+            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f",
+            window_ts, strike, sigma,
+        )
+
+        # Sample every 30 seconds for the remainder of the window
+        while self._running:
+            now = time.time()
+            elapsed = int(now - window_ts)
+
+            # If we've passed the window boundary, break out
+            if elapsed >= _WINDOW_SEC:
+                break
+
+            # Get current price
+            price = self._get_binance_price()
+            if price <= 0:
+                # Wait and retry
+                time.sleep(_INTRA_INTERVAL)
+                continue
+
+            # Compute fair values
+            remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
+            move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
+            fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
+            fair_down = 1.0 - fair_up
+
+            sample = {
+                "window_start_ts": window_ts,
+                "sample_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                "elapsed_sec": elapsed,
+                "binance_price": price,
+                "strike_price": strike,
+                "move_bps": move_bps,
+                "fair_value_up": fair_up,
+                "fair_value_down": fair_down,
+                "polymarket_up_price": None,  # placeholder until API auth
+                "polymarket_down_price": None,
+                "pricing_delay": None,
+            }
+            self._store_intra_sample(sample)
+
+            logger.debug(
+                "  t+%ds: $%.0f move=%.1fbps fair_up=%.3f",
+                elapsed, price, move_bps, fair_up,
+            )
+
+            # Update vol tracker with each sample
+            self._vol_tracker.update(price)
+
+            # Sleep until next 30-second mark
+            next_sample = window_ts + ((elapsed // _INTRA_INTERVAL) + 1) * _INTRA_INTERVAL
+            sleep_sec = max(0, next_sample - time.time())
+            end_time = time.time() + sleep_sec
+            while self._running and time.time() < end_time:
+                time.sleep(min(1, max(0, end_time - time.time())))
+
+        # Window complete — run the normal collect_one for backfill/settlement
+        self.collect_one()
+
+    # ------------------------------------------------------------------
     # Stats
     # ------------------------------------------------------------------
 
@@ -356,38 +549,73 @@ class PolymarketCollector:
             "SELECT polymarket_result, COUNT(*) FROM market_snapshots "
             "WHERE polymarket_result IS NOT NULL GROUP BY polymarket_result"
         ).fetchall()
+
+        # Intra-window stats
+        intra_row = conn.execute(
+            "SELECT COUNT(*) FROM intra_window_samples"
+        ).fetchone()
+        intra_count = intra_row[0] if intra_row else 0
+
+        # Average fair value accuracy (when Polymarket data available)
+        accuracy_row = conn.execute(
+            "SELECT AVG(ABS(pricing_delay)) FROM intra_window_samples "
+            "WHERE pricing_delay IS NOT NULL"
+        ).fetchone()
+        avg_pricing_delay = accuracy_row[0] if accuracy_row and accuracy_row[0] is not None else None
+
         conn.close()
-        return {
+
+        stats = {
             "total_records": row[0],
             "first_record": row[1],
             "last_record": row[2],
             "results": {r[0]: r[1] for r in results},
+            "intra_window_samples": intra_count,
+            "avg_pricing_delay": avg_pricing_delay,
+            "current_sigma_annual": self._vol_tracker.sigma_annual,
         }
+        return stats
 
     # ------------------------------------------------------------------
     # Continuous run
     # ------------------------------------------------------------------
 
-    def start(self):
-        """Run collector continuously, aligned to 5-minute boundaries."""
+    def start(self, mode: str = "basic"):
+        """Run collector continuously, aligned to 5-minute boundaries.
+
+        Args:
+            mode: 'basic' for one sample per window (original),
+                  'intra' for 30-second intra-window sampling with fair values.
+        """
         self._running = True
-        logger.info("Polymarket collector starting (db=%s)", self._db_path)
+        logger.info("Polymarket collector starting (db=%s, mode=%s)", self._db_path, mode)
 
         while self._running:
             try:
-                self.collect_one()
+                if mode == "intra":
+                    # Wait until next window boundary, then run intra-window sampling
+                    next_boundary = self._next_window_ts()
+                    wait_sec = max(0, next_boundary - time.time() + _SETTLE_OFFSET)
+                    end_wait = time.time() + wait_sec
+                    while self._running and time.time() < end_wait:
+                        time.sleep(1)
+                    if self._running:
+                        self.collect_intra_window()
+                else:
+                    self.collect_one()
             except Exception:
                 logger.exception("Collection cycle failed")
 
-            # Sleep until next 5-minute boundary + small offset
-            next_boundary = self._next_window_ts()
-            sleep_sec = max(1, next_boundary - time.time() + _SETTLE_OFFSET)
-            logger.debug("Sleeping %.0fs until next window", sleep_sec)
+            if mode != "intra":
+                # Sleep until next 5-minute boundary + small offset
+                next_boundary = self._next_window_ts()
+                sleep_sec = max(1, next_boundary - time.time() + _SETTLE_OFFSET)
+                logger.debug("Sleeping %.0fs until next window", sleep_sec)
 
-            # Interruptible sleep (1s ticks)
-            end_time = time.time() + sleep_sec
-            while self._running and time.time() < end_time:
-                time.sleep(1)
+                # Interruptible sleep (1s ticks)
+                end_time = time.time() + sleep_sec
+                while self._running and time.time() < end_time:
+                    time.sleep(1)
 
     def stop(self):
         """Signal the collector to stop after the current cycle."""
