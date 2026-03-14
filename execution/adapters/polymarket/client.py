@@ -53,7 +53,12 @@ class PolymarketRestClient:
         offset: Optional[int] = None,
         active: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        """Fetch available markets."""
+        """Fetch available markets via Gamma API (public, no auth needed).
+
+        Gamma API (gamma-api.polymarket.com) is used for market discovery
+        because the CLOB API (clob.polymarket.com) requires authentication
+        even for market listing.
+        """
         params: Dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
@@ -61,7 +66,15 @@ class PolymarketRestClient:
             params["offset"] = offset
         if active is not None:
             params["active"] = "true" if active else "false"
-        return self._request_public(method="GET", path="/markets", params=params)
+        # Use Gamma API for public market discovery
+        gamma_url = "https://gamma-api.polymarket.com"
+        url = f"{gamma_url}/markets"
+        qs = _encode_params(params)
+        if qs:
+            url = f"{url}?{qs}"
+        return self._send(method="GET", url=url, body=None, headers={
+            "Accept": "application/json", "User-Agent": "quant-system/1.0",
+        })
 
     def get_orderbook(self, *, token_id: str) -> Dict[str, Any]:
         """Fetch orderbook for a token."""
