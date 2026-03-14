@@ -57,6 +57,13 @@ pub fn enforce_hold_step(
         }
     }
 
+    // Short trend hold: extend short when raw goes flat but trend is down
+    if trend_follow && desired == 0.0 && prev_signal < 0.0 && hold_count < max_hold {
+        if !trend_val.is_nan() && trend_val < -trend_threshold {
+            return (prev_signal, hold_count + 1);
+        }
+    }
+
     // Allow change
     if desired != prev_signal {
         (desired, 1)
@@ -385,6 +392,30 @@ mod tests {
         // Don't extend past max_hold
         let (sig, hold) = enforce_hold_step(0.0, 1.0, 120, 10, true, 0.5, 0.0, 120);
         assert_eq!(sig, 0.0); // released
+        assert_eq!(hold, 1);
+    }
+
+    #[test]
+    fn test_enforce_hold_step_trend_extend_short() {
+        // Trend hold: extend short when trend is down
+        let (sig, hold) = enforce_hold_step(0.0, -1.0, 30, 10, true, -0.5, 0.0, 120);
+        assert_eq!(sig, -1.0); // held
+        assert_eq!(hold, 31);
+    }
+
+    #[test]
+    fn test_enforce_hold_step_short_no_extend_wrong_trend() {
+        // Don't extend short when trend is up
+        let (sig, hold) = enforce_hold_step(0.0, -1.0, 30, 10, true, 0.5, 0.0, 120);
+        assert_eq!(sig, 0.0); // released
+        assert_eq!(hold, 1);
+    }
+
+    #[test]
+    fn test_enforce_hold_step_short_no_extend_at_max() {
+        // Don't extend short past max_hold
+        let (sig, hold) = enforce_hold_step(0.0, -1.0, 120, 10, true, -0.5, 0.0, 120);
+        assert_eq!(sig, 0.0); // released — max_hold reached
         assert_eq!(hold, 1);
     }
 

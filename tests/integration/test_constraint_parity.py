@@ -139,6 +139,33 @@ class TestLiveVsBatchSignalIdentity:
         np.testing.assert_array_equal(np.array(live), np.array(batch))
 
 
+    def test_trend_follow_short(self):
+        """Short trend-hold: bar-by-bar vs batch must be identical for negative signals."""
+        rng = np.random.RandomState(777)
+        # Generate predictions biased negative to produce short signals
+        preds = (rng.randn(500) - 0.5).tolist()
+        # Trend values oscillate into negative territory
+        trend_vals = (np.sin(np.linspace(0, 10, 500)) * 0.5 - 0.2).tolist()
+
+        live = _bar_by_bar_constraints(
+            preds, min_hold=12, deadzone=0.5,
+            trend_follow=True, trend_values=trend_vals, trend_threshold=0.0,
+            max_hold=60,
+        )
+        batch = _batch_constraints(
+            preds, min_hold=12, deadzone=0.5,
+            trend_follow=True, trend_values=trend_vals, trend_threshold=0.0,
+            max_hold=60,
+        )
+
+        np.testing.assert_array_equal(
+            np.array(live), np.array(batch),
+            err_msg="Short trend-hold: live vs batch diverged",
+        )
+        # Verify we actually produced some short signals
+        assert any(s < 0 for s in live), "Expected some short signals in test data"
+
+
 class TestMinHoldTiming:
     """Verify hold counter delays match across both paths."""
 

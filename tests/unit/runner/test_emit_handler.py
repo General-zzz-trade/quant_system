@@ -57,11 +57,11 @@ class TestOrderPath:
     def test_order_passes_gate_chain(self):
         handler, mocks = _make_handler()
         ev = _order_event()
-        mocks["gate_chain"].process.return_value = ev  # gate passes
+        mocks["gate_chain"].process_with_audit.return_value = (ev, [])  # gate passes
 
         handler(ev)
 
-        mocks["gate_chain"].process.assert_called_once_with(ev, {})
+        mocks["gate_chain"].process_with_audit.assert_called_once_with(ev, {})
         mocks["order_state_machine"].register.assert_called_once()
         mocks["timeout_tracker"].on_submit.assert_called_once()
         mocks["coordinator"].emit.assert_called_once()
@@ -69,11 +69,12 @@ class TestOrderPath:
     def test_order_rejected_by_gate(self):
         handler, mocks = _make_handler()
         ev = _order_event()
-        mocks["gate_chain"].process.return_value = None  # gate rejects
+        from runner.gate_chain import GateResult
+        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False, reason="blocked"))])
 
         handler(ev)
 
-        mocks["gate_chain"].process.assert_called_once()
+        mocks["gate_chain"].process_with_audit.assert_called_once()
         mocks["order_state_machine"].register.assert_not_called()
         mocks["timeout_tracker"].on_submit.assert_not_called()
         mocks["coordinator"].emit.assert_not_called()
@@ -81,7 +82,7 @@ class TestOrderPath:
     def test_order_osm_register_failure_doesnt_block(self):
         handler, mocks = _make_handler()
         ev = _order_event()
-        mocks["gate_chain"].process.return_value = ev
+        mocks["gate_chain"].process_with_audit.return_value = (ev, [])
         mocks["order_state_machine"].register.side_effect = Exception("OSM error")
 
         handler(ev)
@@ -139,7 +140,7 @@ class TestAttribution:
         handler, mocks = _make_handler()
 
         order_ev = _order_event()
-        mocks["gate_chain"].process.return_value = order_ev
+        mocks["gate_chain"].process_with_audit.return_value = (order_ev, [])
         handler(order_ev)
 
         fill_ev = _fill_event()

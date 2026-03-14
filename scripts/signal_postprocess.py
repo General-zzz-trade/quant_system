@@ -82,16 +82,25 @@ def _apply_trend_hold(
     trend_threshold: float,
     max_hold: int,
 ) -> np.ndarray:
-    """Extend long positions when trend is still favorable."""
+    """Extend long/short positions when trend is still favorable."""
     out = signal.copy()
     hold_count = 0
     for i in range(len(out)):
-        if out[i] > 0:
+        if out[i] != 0:
             hold_count += 1
         elif i > 0 and out[i - 1] > 0 and out[i] == 0:
             tv = trend_vals[i] if i < len(trend_vals) else float("nan")
             if (not np.isnan(tv)
                     and tv > trend_threshold
+                    and hold_count < max_hold):
+                out[i] = out[i - 1]
+                hold_count += 1
+            else:
+                hold_count = 0
+        elif i > 0 and out[i - 1] < 0 and out[i] == 0:
+            tv = trend_vals[i] if i < len(trend_vals) else float("nan")
+            if (not np.isnan(tv)
+                    and tv < -trend_threshold
                     and hold_count < max_hold):
                 out[i] = out[i - 1]
                 hold_count += 1

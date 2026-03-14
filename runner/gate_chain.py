@@ -54,6 +54,27 @@ class GateChain:
                 _apply_scale(ev, result.scale, gate.name)
         return ev
 
+    def process_with_audit(
+        self, ev: Any, context: Dict[str, Any]
+    ) -> tuple[Optional[Any], List[tuple[str, GateResult]]]:
+        """Run event through all gates, returning audit trail.
+
+        Returns (modified_event_or_None, list_of_(gate_name, GateResult)).
+        """
+        trail: List[tuple[str, GateResult]] = []
+        for gate in self._gates:
+            result = gate.check(ev, context)
+            trail.append((gate.name, result))
+            if not result.allowed:
+                logger.warning(
+                    "%s REJECTED order for %s: %s",
+                    gate.name, getattr(ev, "symbol", "?"), result.reason,
+                )
+                return None, trail
+            if result.scale < 1.0:
+                _apply_scale(ev, result.scale, gate.name)
+        return ev, trail
+
     @property
     def gates(self) -> List[Gate]:
         return list(self._gates)

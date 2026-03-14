@@ -387,3 +387,39 @@ def test_sub_hourly_bars_produce_distinct_hour_keys(tmp_path: Path):
 
     assert len(calls) >= 2
     assert calls[0][2] != calls[1][2], "Different hours should produce different hour_keys"
+
+
+@patch.object(MLSignalDecisionModule, "_predict", side_effect=[-1.0, -1.0, -0.1, -0.1, -0.1])
+def test_trend_hold_short_position_path_matches_live(_mock_predict, tmp_path: Path):
+    """Short trend-hold: backtest position path must match live signal path."""
+    features = [
+        {"trend": -0.5},
+        {"trend": -0.5},
+        {"trend": -0.4},
+        {"trend": -0.3},
+        {"trend": 0.1},
+    ]
+    live_scores = _run_live_scores(
+        scores=[-0.8, -0.8, -0.1, -0.1, -0.1],
+        features_per_bar=features,
+        trend_follow=True,
+        trend_indicator="trend",
+        trend_threshold=0.0,
+        max_hold=120,
+    )
+
+    mod = _build_module(
+        tmp_path,
+        trend_follow=True,
+        trend_indicator="trend",
+        trend_threshold=0.0,
+        min_hold=1,
+    )
+    positions = _run_backtest_position_signs(
+        mod,
+        closes=[100, 99, 98, 97, 96],
+        features_per_bar=features,
+        zscores=[-1.0, -1.0, -0.1, -0.1, -0.1],
+    )
+
+    assert [1 if s > 0 else (-1 if s < 0 else 0) for s in live_scores] == positions

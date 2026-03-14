@@ -71,24 +71,30 @@ class LiveEmitHandler:
     def _handle_order(self, ev: Any) -> None:
         original_qty = getattr(ev, "qty", getattr(ev, "quantity", None))
         sym = getattr(ev, "symbol", "")
+        order_id = getattr(ev, "order_id", "?")
 
-        # Run all gates; returns None if any gate rejects
-        result = self._gate_chain.process(ev, {})
+        # Run all gates with audit trail
+        result, audit_trail = self._gate_chain.process_with_audit(ev, {})
         if result is None:
             logger.info(
                 "ORDER_REJECTED symbol=%s order_id=%s original_qty=%s",
-                sym, getattr(ev, "order_id", "?"), original_qty,
+                sym, order_id, original_qty,
+            )
+            logger.info(
+                "ORDER_AUDIT symbol=%s order_id=%s result=rejected gates=%s",
+                sym, order_id,
+                [{g: {"allowed": r.allowed, "scale": r.scale, "reason": r.reason}} for g, r in audit_trail],
             )
             return
         ev = result
 
-        # Structured audit: log qty transformation through gate chain
+        # Structured audit: log full gate chain transformation
         final_qty = getattr(ev, "qty", getattr(ev, "quantity", None))
-        if original_qty is not None and final_qty is not None and str(original_qty) != str(final_qty):
-            logger.info(
-                "ORDER_QTY_SCALED symbol=%s original_qty=%s final_qty=%s",
-                sym, original_qty, final_qty,
-            )
+        logger.info(
+            "ORDER_AUDIT symbol=%s order_id=%s original_qty=%s final_qty=%s gates=%s",
+            sym, order_id, original_qty, final_qty,
+            [{g: {"allowed": r.allowed, "scale": r.scale, "reason": r.reason}} for g, r in audit_trail],
+        )
 
         order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
         if order_id:
