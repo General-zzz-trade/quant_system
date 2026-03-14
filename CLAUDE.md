@@ -123,4 +123,6 @@ Key export categories (see `lib.rs` for full list):
 - Event recorder captures risk/control events in addition to market/fill/signal/order
 - State ownership: `RustStateStore` is primary position truth (decisions read from it); `OrderStateMachine` is execution audit trail only (exception: `RiskGate.max_open_orders` reads OSM open-order count)
 - Recovery bundle now includes 8 components (drawdown_breaker HWM added); `save_all_auxiliary_state()` / `restore_all_auxiliary_state()` are the primary entry points
+- `GateChain._apply_scale()` preserves Decimal type (no float conversion); uses `object.__setattr__` on frozen OrderEvent (intentional, confined to gate chain)
+- `LiveEmitHandler` attribution tracks only accepted orders (rejected orders excluded from IC/Sharpe); fill supports PARTIALLY_FILLED via `ev.is_partial` or `ev.status`
 - Python fallback in `signal_postprocess.py` has known divergence from Rust for `trend_follow` mode (trend_hold max_hold semantics differ)
