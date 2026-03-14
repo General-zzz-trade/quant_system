@@ -1,5 +1,12 @@
 # decision/ml_decision.py
-"""ML-based decision module — sizes positions as % of equity based on ml_score."""
+"""ML-based decision module — sizes positions as % of equity based on ml_score.
+
+NOTE: This module (RustMLDecisionModule / make_ml_decision) is not currently used
+in the default production path. The production decision flow uses
+MLSignalDecisionModule (backtest_module.py) via LiveInferenceBridge. This wrapper
+is kept for potential future Rust-native decision integration and is exercised by
+testnet_validation.py and parity tests.
+"""
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_DOWN

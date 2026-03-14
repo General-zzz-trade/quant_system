@@ -463,9 +463,11 @@ def main():
         else:
             print(f"  {symbol}: FAILED ({result.get('error', 'unknown')})")
 
-    # ── Post-retrain parity check (Direction 15) ──
+    # CRITICAL: Parity check MUST run before SIGHUP to prevent live divergence.
+    # If parity fails, restore backup and skip hot-reload.
+    parity_ok = True
     if succeeded and not args.dry_run:
-        logger.info("Running post-retrain parity check...")
+        logger.info("Running pre-deploy parity check...")
         try:
             import subprocess
             parity_result = subprocess.run(
@@ -480,22 +482,37 @@ def main():
                 cwd="/quant_system",
             )
             if parity_result.returncode != 0:
+                parity_ok = False
                 logger.warning(
-                    "Post-retrain parity check FAILED:\n%s",
+                    "Pre-deploy parity check FAILED:\n%s",
                     parity_result.stdout + parity_result.stderr,
                 )
+                # Restore backups for all succeeded symbols
+                for sym in succeeded:
+                    r = results[sym]
+                    backup_dir = r.get("backup_dir")
+                    if backup_dir:
+                        backup_path = Path(backup_dir)
+                        model_dir = Path(MODEL_DIR_TEMPLATE.format(symbol=sym))
+                        if backup_path.exists():
+                            shutil.rmtree(model_dir)
+                            shutil.copytree(backup_path, model_dir)
+                            logger.info("Restored backup for %s (parity failed)", sym)
+                    r["success"] = False
+                    r["error"] = "parity check failed — backup restored"
                 if args.alert:
                     send_alert(
-                        f"Post-retrain parity check FAILED for {succeeded}",
+                        f"Pre-deploy parity check FAILED for {succeeded} — backups restored, SIGHUP skipped",
                         severity="warning",
                     )
+                succeeded.clear()
             else:
-                logger.info("Post-retrain parity check PASSED")
+                logger.info("Pre-deploy parity check PASSED")
         except Exception as e:
-            logger.warning("Post-retrain parity check error: %s", e)
+            logger.warning("Pre-deploy parity check error: %s", e)
 
-    # Send SIGHUP to runner after successful retrain
-    if args.notify_runner and succeeded and not args.dry_run:
+    # Send SIGHUP to runner only after parity check passes
+    if args.notify_runner and succeeded and not args.dry_run and parity_ok:
         sighup_ok = send_sighup_to_runner()
         if sighup_ok:
             print("  → SIGHUP sent to runner for model hot-reload")

@@ -1,6 +1,10 @@
 """Correlation concentration limit — prevents excessive correlated exposure.
 
 Rejects new positions when portfolio correlation concentration exceeds threshold.
+
+NOTE: Pre-trade correlation check also exists in risk/correlation_gate.py
+(used in the order gate chain). This rule provides deeper portfolio-level
+evaluation via RiskAggregator, while CorrelationGate is a fast per-order filter.
 """
 from __future__ import annotations
 

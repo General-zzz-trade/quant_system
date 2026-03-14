@@ -1,5 +1,10 @@
 # decision/regime_bridge.py
-"""RegimeAwareDecisionModule — wraps a DecisionModule with regime gating."""
+"""RegimeAwareDecisionModule — wraps a DecisionModule with regime gating.
+
+NOTE: This module IS used in the production path. LiveRunner, BacktestRunner, and
+LivePaperRunner all wrap inner decision modules with RegimeAwareDecisionModule to
+apply regime-based gating before order generation.
+"""
 from __future__ import annotations
 
 import logging

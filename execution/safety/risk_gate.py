@@ -84,9 +84,9 @@ class RiskGate:
                     reason=f"position_notional:{new_notional:.2f}>{self.config.max_position_notional:.2f}",
                 )
 
-            # Portfolio-wide check
+            # Portfolio-wide check — use order price only for the order's symbol
             total = sum(
-                _position_notional(positions, s, price)
+                _position_notional(positions, s, price if s == symbol else 0.0)
                 for s in positions
             ) + order_notional
             if total > self.config.max_portfolio_notional:

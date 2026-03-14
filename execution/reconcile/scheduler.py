@@ -100,9 +100,9 @@ class ReconcileScheduler:
         try:
             report = self.controller.reconcile(
                 venue=self.cfg.venue,
-                local_positions=local_positions if local_positions else None,
+                local_positions=local_positions,
                 venue_positions=venue_positions if venue_positions else None,
-                local_balances=local_balances if local_balances else None,
+                local_balances=local_balances,
                 venue_balances=venue_balances if venue_balances else None,
             )
         except Exception:
@@ -115,9 +115,10 @@ class ReconcileScheduler:
 
     def _run_loop(self) -> None:
         while self._running:
+            self.run_once()
+            if not self._running:
+                break
             time.sleep(self.cfg.interval_sec)
-            if self._running:
-                self.run_once()
 
     def _extract_local_positions(
         self, state: Mapping[str, Any],

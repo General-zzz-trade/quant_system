@@ -1,6 +1,11 @@
 """Correlation gate — pre-trade check using CorrelationComputer.
 
 Blocks new positions when portfolio correlation concentration is too high.
+
+NOTE: This gate provides pre-trade correlation checking in the order gate chain.
+A similar check exists in risk/rules/correlation_limit.py for the RiskAggregator.
+Both are intentionally kept: this gate runs per-order (fast path), while
+CorrelationLimitRule runs per-intent with full portfolio evaluation.
 """
 from __future__ import annotations
 

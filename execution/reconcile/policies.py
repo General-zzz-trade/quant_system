@@ -75,16 +75,23 @@ class ReconcilePolicy:
                 drift=drift,
             )
 
-        # CRITICAL
-        if self._halt_on_critical:
+        if drift.severity == DriftSeverity.CRITICAL:
+            if self._halt_on_critical:
+                return PolicyDecision(
+                    action=ReconcileAction.HALT,
+                    reason=f"critical drift: {drift.detail}",
+                    drift=drift,
+                )
             return PolicyDecision(
-                action=ReconcileAction.HALT,
-                reason=f"critical drift: {drift.detail}",
+                action=ReconcileAction.MANUAL_REVIEW,
+                reason=f"critical drift requires manual review: {drift.detail}",
                 drift=drift,
             )
+
+        # Unknown / future severity — alert by default
         return PolicyDecision(
-            action=ReconcileAction.MANUAL_REVIEW,
-            reason=f"critical drift requires manual review: {drift.detail}",
+            action=ReconcileAction.ALERT,
+            reason=f"unknown severity '{drift.severity}': {drift.detail}",
             drift=drift,
         )
 

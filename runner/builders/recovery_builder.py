@@ -10,13 +10,7 @@ from typing import Any, Callable, Optional
 from runner.recovery import (
     EventRecorder,
     PeriodicCheckpointer,
-    restore_feature_hook_state,
-    restore_inference_bridge_state,
-    restore_kill_switch_state,
-    restore_exit_manager_state,
-    restore_regime_gate_state,
-    restore_correlation_state,
-    restore_timeout_tracker_state,
+    restore_all_auxiliary_state,
     save_all_auxiliary_state,
 )
 
@@ -68,40 +62,20 @@ def build_recovery_subsystem(
             logger.info("Restored state for %s from bar_index=%d", sym, checkpoint.bar_index)
             break
 
-    # Restore kill switch
-    restored = restore_kill_switch_state(kill_switch, data_dir=data_dir)
-    if restored:
-        logger.warning("Restored %d kill switch record(s)", restored)
-
-    # Restore inference bridge
-    if inference_bridge is not None:
-        if restore_inference_bridge_state(inference_bridge, data_dir=data_dir):
-            logger.info("Inference bridge state restored")
-
-    # Restore feature hook
-    if feature_hook is not None:
-        if restore_feature_hook_state(feature_hook, data_dir=data_dir):
-            logger.info("Feature hook state restored")
-
-    # Restore exit manager
-    if exit_manager is not None:
-        if restore_exit_manager_state(exit_manager, data_dir=data_dir):
-            logger.info("Exit manager state restored")
-
-    # Restore regime gate
-    if regime_gate is not None:
-        if restore_regime_gate_state(regime_gate, data_dir=data_dir):
-            logger.info("Regime gate state restored")
-
-    # Restore correlation computer
-    if correlation_computer is not None:
-        if restore_correlation_state(correlation_computer, data_dir=data_dir):
-            logger.info("Correlation state restored")
-
-    # Restore timeout tracker
-    if timeout_tracker is not None:
-        if restore_timeout_tracker_state(timeout_tracker, data_dir=data_dir):
-            logger.info("Timeout tracker state restored")
+    # Restore all auxiliary state atomically (bundle-first with individual fallback)
+    restore_results = restore_all_auxiliary_state(
+        kill_switch=kill_switch,
+        inference_bridge=inference_bridge,
+        feature_hook=feature_hook,
+        exit_manager=exit_manager,
+        regime_gate=regime_gate,
+        correlation_computer=correlation_computer,
+        timeout_tracker=timeout_tracker,
+        data_dir=data_dir,
+    )
+    for component, was_restored in restore_results.items():
+        if was_restored:
+            logger.info("Restored %s state from checkpoint", component)
 
     # Periodic checkpointer
     periodic_checkpointer = None

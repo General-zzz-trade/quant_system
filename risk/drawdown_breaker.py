@@ -196,6 +196,18 @@ class DrawdownCircuitBreaker:
             except Exception:
                 logger.warning("DrawdownBreaker alert send failed", exc_info=True)
 
+    def checkpoint(self) -> dict:
+        """Return state for persistence."""
+        return {
+            "equity_hwm": self._equity_hwm,
+            "state": self._state,
+        }
+
+    def restore_checkpoint(self, data: dict) -> None:
+        """Restore state from checkpoint."""
+        if "equity_hwm" in data:
+            self._equity_hwm = float(data["equity_hwm"])
+
     def reset(self, new_hwm: float | None = None) -> None:
         """Reset the breaker state. Use after manual intervention."""
         self._state = "normal"

@@ -36,6 +36,11 @@ jobs:
 
       - name: Run Python tests
         run: |
+          # NOTE: Slow tests (@pytest.mark.slow) and benchmarks (@pytest.mark.benchmark)
+          # are excluded via pytest.ini addopts: -m "not benchmark and not slow".
+          # This keeps CI under ~30s. Slow tests (parity, NN, XGB) should be run
+          # manually or in a scheduled job: pytest tests/ -x -q -m ""
+          # The --ignore=tests/performance below excludes benchmark fixtures/data.
           docker run --rm -v "$PWD":/app -w /app quant-ci:test \
             python -m pytest tests/ -x -q --tb=short \
             --ignore=tests/performance \

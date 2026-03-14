@@ -16,6 +16,11 @@ from risk.decisions import RiskAction, RiskCode, RiskDecision, RiskScope, RiskVi
 class VaRLimitRule:
     """Limits portfolio Value-at-Risk.
 
+    NOTE: This rule requires portfolio VaR values (portfolio_var_95, portfolio_var_99)
+    to be computed and injected into the risk meta dict. Currently no upstream
+    component computes these values, so this rule is effectively inactive.
+    Enable by wiring a VaR calculator into RiskAggregator meta builder.
+
     Reads from meta:
         - portfolio_var_95: float — current 95% VaR as % of equity
         - portfolio_var_99: float — current 99% VaR as % of equity

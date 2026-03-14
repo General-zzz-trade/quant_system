@@ -733,14 +733,15 @@ def save_all_auxiliary_state(
     regime_gate: Any = None,
     correlation_computer: Any = None,
     timeout_tracker: Any = None,
+    drawdown_breaker: Any = None,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """PRIMARY ENTRY POINT: Atomically save all 7 auxiliary component states.
+    """PRIMARY ENTRY POINT: Atomically save all auxiliary component states.
 
     Saves kill_switch, inference_bridge, feature_hook, exit_manager,
-    regime_gate, correlation_computer, and timeout_tracker to a single
-    atomic JSON bundle (write-to-temp + os.replace() for POSIX atomicity).
-    Also writes individual files for backward compatibility.
+    regime_gate, correlation_computer, timeout_tracker, and drawdown_breaker
+    to a single atomic JSON bundle (write-to-temp + os.replace() for POSIX
+    atomicity). Also writes individual files for backward compatibility.
 
     This is the recommended save path — prefer this over individual
     save_*_state() functions to ensure cross-component consistency.
@@ -779,6 +780,7 @@ def save_all_auxiliary_state(
         ("regime_gate", regime_gate),
         ("correlation_computer", correlation_computer),
         ("timeout_tracker", timeout_tracker),
+        ("drawdown_breaker", drawdown_breaker),
     ]:
         if component is not None and hasattr(component, "checkpoint"):
             try:
@@ -807,14 +809,15 @@ def restore_all_auxiliary_state(
     regime_gate: Any = None,
     correlation_computer: Any = None,
     timeout_tracker: Any = None,
+    drawdown_breaker: Any = None,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> Dict[str, bool]:
-    """PRIMARY ENTRY POINT: Restore all 7 auxiliary component states.
+    """PRIMARY ENTRY POINT: Restore all auxiliary component states.
 
     Restores kill_switch, inference_bridge, feature_hook, exit_manager,
-    regime_gate, correlation_computer, and timeout_tracker. Prefers the
-    atomic bundle file when available, falling back to individual checkpoint
-    files per component for backward compatibility.
+    regime_gate, correlation_computer, timeout_tracker, and drawdown_breaker.
+    Prefers the atomic bundle file when available, falling back to individual
+    checkpoint files per component for backward compatibility.
 
     Returns dict of component_name -> restored (bool).
     """
@@ -863,6 +866,18 @@ def restore_all_auxiliary_state(
                 results["feature_hook"] = False
         else:
             results["feature_hook"] = restore_feature_hook_state(feature_hook, data_dir=data_dir)
+
+    # Drawdown breaker (bundle-only, no individual file fallback)
+    if drawdown_breaker is not None:
+        if bundle and "drawdown_breaker" in bundle and hasattr(drawdown_breaker, "restore_checkpoint"):
+            try:
+                drawdown_breaker.restore_checkpoint(bundle["drawdown_breaker"])
+                results["drawdown_breaker"] = True
+            except Exception:
+                logger.exception("Bundle restore failed for drawdown_breaker")
+                results["drawdown_breaker"] = False
+        else:
+            results["drawdown_breaker"] = False
 
     # Simple checkpoint/restore components
     for name, component, fallback_fn in [

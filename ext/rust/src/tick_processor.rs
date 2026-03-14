@@ -648,7 +648,9 @@ impl RustTickProcessor {
             .unwrap_or_default();
         self.ensure_symbol(&sym);
 
-        let position = self.positions.get(&sym).unwrap().clone();
+        let position = self.positions.get(&sym)
+            .expect("ensure_symbol must insert before get")
+            .clone();
         let p_res = self.pr.reduce_inner(py, &position, event)?;
         let a_res = self.ar.reduce_inner(py, &self.account, event)?;
 

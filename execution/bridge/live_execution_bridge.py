@@ -123,8 +123,8 @@ class LiveExecutionBridge:
             default_symbol=str(getattr(order_event, "symbol", "")),
         )
         result = normalized.result or {}
-        fill_price = result.get("price") or getattr(order_event, "price", None)
-        fill_qty = result.get("qty") or getattr(order_event, "qty", Decimal("0"))
+        fill_price = result.get("price") or getattr(order_event, "price", None) or Decimal("0")
+        fill_qty = result.get("qty") or getattr(order_event, "qty", None) or Decimal("0")
         return build_synthetic_ingress_fill_event(
             source="bridge",
             symbol=getattr(order_event, "symbol", ""),
