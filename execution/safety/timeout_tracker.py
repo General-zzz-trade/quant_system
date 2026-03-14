@@ -80,31 +80,40 @@ class OrderTimeoutTracker:
     def checkpoint(self) -> dict:
         """Serialize pending orders for persistence.
 
-        Note: Uses wall-clock time (time.time()) instead of monotonic for
-        cross-process portability. Timeout accuracy may drift slightly on restore.
+        Stores elapsed seconds since submission (monotonic-based) rather than
+        wall-clock timestamps. This avoids NTP clock skew causing incorrect
+        timeout calculations after restore.
         """
-        import time as _time
         mono_now = self.clock_fn()
-        wall_now = _time.time()
         with self._lock:
             entries = {}
             for order_id, (submit_ts, _cmd) in self._pending.items():
-                # Convert monotonic offset to wall-clock timestamp
                 elapsed = mono_now - submit_ts
-                entries[order_id] = {"wall_submit_ts": wall_now - elapsed}
+                entries[order_id] = {"elapsed_sec": elapsed}
             return {"pending": entries, "timeout_sec": self.timeout_sec}
 
     def restore(self, data: dict) -> None:
-        """Restore pending orders from checkpoint."""
+        """Restore pending orders from checkpoint.
+
+        Reconstructs monotonic submit times from stored elapsed durations.
+        Backward compatible: accepts both 'elapsed_sec' (new) and
+        'wall_submit_ts' (legacy) checkpoint formats.
+        """
         import time as _time
-        wall_now = _time.time()
         mono_now = self.clock_fn()
         with self._lock:
             self._pending.clear()
             for order_id, entry in data.get("pending", {}).items():
-                wall_submit = entry.get("wall_submit_ts", wall_now)
-                elapsed = wall_now - wall_submit
-                # Reconstruct monotonic submit time
+                if "elapsed_sec" in entry:
+                    # New format: elapsed seconds since submission
+                    elapsed = entry["elapsed_sec"]
+                else:
+                    # Legacy format: wall-clock submit timestamp
+                    wall_now = _time.time()
+                    wall_submit = entry.get("wall_submit_ts", wall_now)
+                    elapsed = wall_now - wall_submit
+                # Clamp negative elapsed (corrupted checkpoint or time travel)
+                elapsed = max(0.0, elapsed)
                 mono_submit = mono_now - elapsed
                 self._pending[order_id] = (mono_submit, None)
 
