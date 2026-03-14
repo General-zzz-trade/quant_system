@@ -1,0 +1,25 @@
+# Interactive Brokers Paper Trading Configuration
+# Usage: IBConfig.from_yaml("infra/config/examples/ib_paper.yaml")
+
+# IB Gateway connection
+host: "127.0.0.1"
+port: 4002          # 4002=paper GW, 4001=live GW, 7497=paper TWS, 7496=live TWS
+client_id: 1
+account: ""         # auto-detect
+timeout: 30
+readonly: false
+
+# Default symbols to track
+symbols:
+  - EURUSD    # Forex
+  - GBPUSD    # Forex
+  - USDJPY    # Forex
+  - XAUUSD    # Gold CFD
+  - AAPL      # Stock
+  - SPY       # ETF
+  - ES        # S&P 500 Futures
+
+# Risk limits
+max_positions: 20
+max_order_value: 50000.0    # USD per order
+max_daily_loss: 2000.0      # USD daily loss kill switch
