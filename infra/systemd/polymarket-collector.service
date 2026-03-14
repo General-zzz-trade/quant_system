@@ -1,0 +1,31 @@
+[Unit]
+Description=Polymarket 5m BTC Up/Down Data Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/quant_system
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -u -m polymarket.collector --db data/polymarket/collector.db
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=600
+StartLimitBurst=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=append:/quant_system/logs/polymarket-collector.log
+StandardError=append:/quant_system/logs/polymarket-collector.log
+
+# Security
+ProtectSystem=strict
+ReadWritePaths=/quant_system/data /quant_system/logs
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
