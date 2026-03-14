@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
-from pathlib import Path
 
 from runner.trading_config import TradingConfig
 from runner.trading_engine import TradingEngine
@@ -32,11 +30,7 @@ def build_runner(config: TradingConfig, dry_run: bool = False):
     """Assemble all modules. Returns LifecycleManager."""
 
     # 1. Feature + ML engine
-    # In production, these are RustFeatureEngine + RustInferenceBridge.
-    # Here we use duck-typed objects so the assembly is testable without Rust.
-    from engine.feature_hook import FeatureComputeHook
-
-    feature_hook = FeatureComputeHook(symbols=list(config.symbols))
+    feature_hook = _load_feature_hook(config)
     inference_bridge = _load_inference_bridge(config)
 
     engine = TradingEngine(
@@ -90,6 +84,32 @@ def build_runner(config: TradingConfig, dry_run: bool = False):
     )
 
     return lifecycle
+
+
+def _load_feature_hook(config: TradingConfig):
+    """Load feature computation hook. Falls back to stub if Rust unavailable."""
+    try:
+        from engine.feature_hook import FeatureComputeHook
+        from features.enriched_computer import EnrichedFeatureComputer
+
+        computer = EnrichedFeatureComputer()
+        hook = FeatureComputeHook(computer=computer)
+        logger.info("Feature hook loaded (Rust path)")
+        return hook
+    except Exception as e:
+        logger.warning("Could not load feature hook: %s (using stub)", e)
+
+        class _StubHook:
+            def on_bar(self, symbol, bar):
+                return None
+
+            def checkpoint(self):
+                return {}
+
+            def restore_checkpoint(self, state):
+                pass
+
+        return _StubHook()
 
 
 def _load_inference_bridge(config: TradingConfig):
