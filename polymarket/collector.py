@@ -458,15 +458,48 @@ class PolymarketCollector:
         conn.commit()
         conn.close()
 
+    def _get_polymarket_prices(self, window_ts: int) -> dict:
+        """Fetch real-time Polymarket Up/Down prices from Gamma /markets API.
+
+        Uses the /markets endpoint (not /events) which returns clobTokenIds,
+        outcomePrices, bestBid, bestAsk, and spread.
+        """
+        slug = f"btc-updown-5m-{window_ts}"
+        url = f"https://gamma-api.polymarket.com/markets?slug={slug}"
+        req = Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "quant-collector/1.0"},
+        )
+        try:
+            with urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                if not data or not isinstance(data, list):
+                    return {}
+                m = data[0]
+                prices_raw = m.get("outcomePrices", "[]")
+                prices = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+                return {
+                    "up_price": float(prices[0]) if len(prices) > 0 else None,
+                    "down_price": float(prices[1]) if len(prices) > 1 else None,
+                    "best_bid": float(m.get("bestBid", 0) or 0),
+                    "best_ask": float(m.get("bestAsk", 0) or 0),
+                    "spread": float(m.get("spread", 0) or 0),
+                    "last_trade": float(m.get("lastTradePrice", 0) or 0),
+                    "accepting": m.get("acceptingOrders", False),
+                }
+        except Exception as e:
+            logger.debug("Failed to get PM prices for %s: %s", slug, e)
+        return {}
+
     def collect_intra_window(self) -> None:
         """Run 30-second sampling within a single 5-minute window.
 
-        Samples Binance price every 30 seconds, computes Black-Scholes
-        binary option fair values, and stores results.  Also performs
-        the normal collect_one() backfill/settlement at window end.
+        Samples Binance price AND Polymarket orderbook prices every 30 seconds,
+        computes Black-Scholes binary option fair values, measures pricing delay,
+        and stores results. Also performs the normal collect_one() backfill at
+        window end.
         """
         window_ts = self._current_window_ts()
-        window_start_real = time.time()
 
         # Get strike price (Binance spot at window open)
         strike = self._get_binance_price()
@@ -489,18 +522,29 @@ class PolymarketCollector:
             if elapsed >= _WINDOW_SEC:
                 break
 
-            # Get current price
+            # Get current Binance price
             price = self._get_binance_price()
             if price <= 0:
-                # Wait and retry
                 time.sleep(_INTRA_INTERVAL)
                 continue
+
+            # Get current Polymarket prices
+            pm = self._get_polymarket_prices(window_ts)
+            pm_up = pm.get("up_price")
+            pm_down = pm.get("down_price")
+            pm_bid = pm.get("best_bid", 0)
+            pm_ask = pm.get("best_ask", 0)
 
             # Compute fair values
             remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
             move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
             fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
             fair_down = 1.0 - fair_up
+
+            # Compute pricing delay (Polymarket vs Black-Scholes)
+            pricing_delay = None
+            if pm_up is not None:
+                pricing_delay = pm_up - fair_up
 
             sample = {
                 "window_start_ts": window_ts,
@@ -511,18 +555,21 @@ class PolymarketCollector:
                 "move_bps": move_bps,
                 "fair_value_up": fair_up,
                 "fair_value_down": fair_down,
-                "polymarket_up_price": None,  # placeholder until API auth
-                "polymarket_down_price": None,
-                "pricing_delay": None,
+                "polymarket_up_price": pm_up,
+                "polymarket_down_price": pm_down,
+                "pricing_delay": pricing_delay,
             }
             self._store_intra_sample(sample)
 
-            logger.debug(
-                "  t+%ds: $%.0f move=%.1fbps fair_up=%.3f",
+            # Log with both Binance and Polymarket data
+            delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_pm"
+            logger.info(
+                "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f pm_up=%.3f bid=%.3f ask=%.3f %s",
                 elapsed, price, move_bps, fair_up,
+                pm_up or 0, pm_bid, pm_ask, delay_str,
             )
 
-            # Update vol tracker with each sample
+            # Update vol tracker
             self._vol_tracker.update(price)
 
             # Sleep until next 30-second mark
@@ -531,9 +578,6 @@ class PolymarketCollector:
             end_time = time.time() + sleep_sec
             while self._running and time.time() < end_time:
                 time.sleep(min(1, max(0, end_time - time.time())))
-
-        # Window complete — run the normal collect_one for backfill/settlement
-        self.collect_one()
 
     # ------------------------------------------------------------------
     # Stats
