@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Optional
 
 
 class DriftSeverity(str, Enum):

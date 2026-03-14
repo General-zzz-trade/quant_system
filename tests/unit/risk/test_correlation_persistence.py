@@ -1,9 +1,7 @@
 """Tests for CorrelationComputer checkpoint/restore persistence."""
 from __future__ import annotations
 
-import math
 
-import pytest
 
 from risk.correlation_computer import CorrelationComputer
 

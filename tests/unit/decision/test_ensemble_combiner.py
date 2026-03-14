@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from unittest.mock import MagicMock
 
 from decision.ensemble_combiner import EnsembleCombiner
 

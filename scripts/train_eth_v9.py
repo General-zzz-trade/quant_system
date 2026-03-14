@@ -12,7 +12,10 @@ Usage:
     python3 -m scripts.train_eth_v9
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -21,7 +24,6 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import greedy_ic_select
 from scripts.signal_postprocess import rolling_zscore, should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
@@ -237,7 +239,7 @@ def main():
     X_test_sel = X_test[:, sel_idx]
 
     # V8 vs V9 comparison
-    print(f"\nV8 vs V9 feature IC comparison (test set):")
+    print("\nV8 vs V9 feature IC comparison (test set):")
     v8_features = ["fgi_normalized", "bb_width_20", "fgi_extreme", "cvd_20",
                    "vwap_dev_20", "dow_cos", "rsi_14", "parkinson_vol",
                    "tf4h_atr_norm_14", "atr_norm_14", "tf4h_bb_pctb_20",
@@ -257,7 +259,9 @@ def main():
         print(f"  V9 {f:35s} IC={ic:+.4f} {new}")
 
     print(f"\nOptuna HPO ({HPO_TRIALS} trials)...")
-    import optuna, lightgbm as lgb, xgboost as xgb
+    import optuna
+    import lightgbm as lgb
+    import xgboost as xgb
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def objective(trial):
@@ -363,7 +367,7 @@ def main():
                         best_result = r
 
     all_results.sort(key=lambda x: x[4]["sharpe"], reverse=True)
-    print(f"\n  Top 5 configurations:")
+    print("\n  Top 5 configurations:")
     for dz, mh, maxh, lo, r in all_results[:5]:
         lo_str = "L" if lo else "L+S"
         print(f"    dz={dz:.1f} hold=[{mh},{maxh}] {lo_str:>3s}  "
@@ -476,7 +480,7 @@ def main():
 
         print(f"\n  V9 model saved to {MODEL_DIR}/")
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
 
     print(f"\n{'='*70}")
     print(f"SUMMARY: {SYMBOL} 1h V9")

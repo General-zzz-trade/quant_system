@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import time
 from decimal import Decimal
-from unittest.mock import patch
 
-import pytest
 
-from engine.tick_engine import HFTOrder
 from event.tick_types import DepthUpdateEvent, TradeTickEvent
 from execution.adapters.binance.depth_processor import (
     OrderBookLevel,

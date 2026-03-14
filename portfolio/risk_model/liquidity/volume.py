@@ -32,7 +32,7 @@ class VolumeProfile:
             )
 
         avg_vol = sum(recent) / len(recent)
-        vol_std = math.sqrt(
+        math.sqrt(
             sum((v - avg_vol) ** 2 for v in recent) / max(len(recent) - 1, 1)
         )
 

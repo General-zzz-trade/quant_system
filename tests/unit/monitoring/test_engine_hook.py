@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, call
+from typing import Any, Dict, List
 
 import pytest
 

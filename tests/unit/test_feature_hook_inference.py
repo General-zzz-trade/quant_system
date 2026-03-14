@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from alpha.base import AlphaModel, Signal
+from alpha.base import Signal
 from alpha.inference.bridge import LiveInferenceBridge
 from engine.feature_hook import FeatureComputeHook
 from features.enriched_computer import EnrichedFeatureComputer

@@ -81,7 +81,7 @@ def bootstrap_sharpe_ci(returns, n_boot=5000, ci=0.95):
 def main():
     import pandas as pd
 
-    print(f"Training SOL production models with BTC-lead features")
+    print("Training SOL production models with BTC-lead features")
     print(f"  Fixed: {len(FIXED_FEATURES)} features")
     print(f"  Candidate pool: {len(CANDIDATE_POOL)} features")
     print()
@@ -266,7 +266,7 @@ def main():
     }
     passed = all(checks.values())
 
-    print(f"\n  Checks:")
+    print("\n  Checks:")
     for name, ok in checks.items():
         print(f"    {'PASS' if ok else 'FAIL'}: {name}")
     print(f"  Overall: {'PASS' if passed else 'FAIL'}")

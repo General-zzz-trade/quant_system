@@ -8,9 +8,8 @@ Verifies:
 """
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from monitoring.alpha_health import AlphaHealthMonitor, AlphaHealthConfig
 from monitoring.engine_hook import EngineMonitoringHook

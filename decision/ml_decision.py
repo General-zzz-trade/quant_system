@@ -9,7 +9,7 @@ testnet_validation.py and parity tests.
 """
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 from typing import Any, Iterable, Optional
 
 from types import SimpleNamespace as _SimpleNamespace

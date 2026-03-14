@@ -2,8 +2,8 @@
 """Optimization diagnostics — post-optimization quality checks."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Sequence
 
 from portfolio.optimizer.base import OptimizationResult
 from portfolio.optimizer.constraints import OptConstraint

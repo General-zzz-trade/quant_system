@@ -52,7 +52,7 @@ class TestTracer:
         with tracer.start_span("parent") as parent_span:
             pass
 
-        with tracer.start_span("child", parent_id=parent_span.span_id) as child:
+        with tracer.start_span("child", parent_id=parent_span.span_id):
             pass
 
         spans = tracer.get_spans()
@@ -83,7 +83,7 @@ class TestTracer:
     def test_error_tag_on_exception(self):
         tracer = Tracer("test-service")
         with pytest.raises(ValueError):
-            with tracer.start_span("failing") as span:
+            with tracer.start_span("failing"):
                 raise ValueError("boom")
 
         spans = tracer.get_spans()

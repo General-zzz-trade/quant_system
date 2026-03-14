@@ -12,7 +12,11 @@ Usage:
     python3 -m scripts.train_multi_horizon --symbol BTCUSDT,ETHUSDT
 """
 from __future__ import annotations
-import sys, time, json, pickle, argparse
+import sys
+import time
+import json
+import pickle
+import argparse
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
@@ -333,7 +337,7 @@ def train_symbol(symbol: str) -> bool:
           f"WR={best_result.get('win_rate', 0):.0f}%, ret={best_result['return'] * 100:+.2f}%")
 
     # ── Also test per-horizon single models for comparison ──
-    print(f"\n  ── Per-Horizon Comparison ──")
+    print("\n  ── Per-Horizon Comparison ──")
     for h, pred in sorted(preds_test.items()):
         best_single = {"sharpe": -999}
         for dz in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]:
@@ -497,7 +501,7 @@ def train_symbol(symbol: str) -> bool:
         print(f"\n  Model saved to {model_dir}/ ({VERSION})")
         return True
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
         return False
 
 

@@ -24,7 +24,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -239,7 +238,7 @@ def run_ablation(symbol: str, oos_bars: int, full: bool):
         print(f"  {name:<40} {sharpe:>8.2f} {total_ret:>+9.2f}% {active_pct:>9.1f}%")
 
     # Factor attribution
-    print(f"\n  --- Factor Attribution ---")
+    print("\n  --- Factor Attribution ---")
     pnl_A = _sim_pnl(signal_A, closes, funding_rates)
     pnl_B = _sim_pnl(signal_B, closes, funding_rates)
     pnl_F = _sim_pnl(signal_F, closes, funding_rates)
@@ -254,7 +253,7 @@ def run_ablation(symbol: str, oos_bars: int, full: bool):
     print(f"  Bear model effect (A-G):          {s_A - s_G:+.2f} Sharpe")
 
     # Prediction stats
-    print(f"\n  --- Prediction Distribution ---")
+    print("\n  --- Prediction Distribution ---")
     for i, (name, pred) in enumerate(zip(cfg.get("models", []), preds)):
         print(f"  {name}: mean={np.mean(pred):.6f}, std={np.std(pred):.6f}, "
               f"|max|={np.max(np.abs(pred)):.6f}")

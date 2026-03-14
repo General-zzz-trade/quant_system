@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 import urllib.request
 import json
 from typing import Any, Optional

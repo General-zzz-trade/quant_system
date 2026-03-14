@@ -47,7 +47,7 @@ def main():
         if stats['avg_pricing_delay'] is not None:
             print(f"Avg pricing delay:    {stats['avg_pricing_delay']:.4f}")
         else:
-            print(f"Avg pricing delay:    N/A (no Polymarket data yet)")
+            print("Avg pricing delay:    N/A (no Polymarket data yet)")
         print(f"Current sigma (ann):  {stats['current_sigma_annual']:.4f}")
         return
 

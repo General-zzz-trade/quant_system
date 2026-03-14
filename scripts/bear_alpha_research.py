@@ -22,13 +22,13 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
-from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from features.dynamic_selector import _rankdata, _spearman_ic
 from alpha.signal_transform import pred_to_signal as _pred_to_signal, enforce_min_hold as _enforce_min_hold
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ def _backtest_strategy(signal: np.ndarray, closes: np.ndarray,
 
     # Bear-only metrics
     bear_mask = _compute_bear_bull_mask(closes)
-    bear_sig = sig.copy()
+    sig.copy()
     bear_ret_mask = bear_mask[:len(sig)]
     bear_active = (sig != 0) & bear_ret_mask
     n_bear_active = int(bear_active.sum())
@@ -364,7 +364,7 @@ def run_strategy_short_momentum(
 ) -> Dict[str, Any]:
     """Strategy A: LGBM regression, long+short, using bear-selected features."""
     print(f"\n{'='*70}")
-    print(f"  Strategy A: Short Momentum Model")
+    print("  Strategy A: Short Momentum Model")
     print(f"  Features: {len(bear_features)}")
     print(f"{'='*70}")
 
@@ -394,7 +394,7 @@ def run_strategy_short_momentum(
 
     folds = expanding_window_folds(len(X_clean), n_folds=n_folds)
     if not folds:
-        print(f"  ERROR: Could not create folds")
+        print("  ERROR: Could not create folds")
         return {"label": "A: Short Momentum", "sharpe": 0, "error": "no folds"}
 
     # Collect OOS predictions across all folds
@@ -462,7 +462,7 @@ def run_strategy_funding_carry(
 ) -> List[Dict[str, Any]]:
     """Strategy B: Rule-based funding carry, 3 variants."""
     print(f"\n{'='*70}")
-    print(f"  Strategy B: Funding Rate Carry (3 variants)")
+    print("  Strategy B: Funding Rate Carry (3 variants)")
     print(f"{'='*70}")
 
     closes = feat_df["close"].values.astype(np.float64)
@@ -526,7 +526,7 @@ def run_strategy_bear_detector(
 ) -> Dict[str, Any]:
     """Strategy C: Binary classifier — predict >2% drop, short-only in bear regime."""
     print(f"\n{'='*70}")
-    print(f"  Strategy C: Bear Regime Detector (binary classifier)")
+    print("  Strategy C: Bear Regime Detector (binary classifier)")
     print(f"{'='*70}")
 
     closes = feat_df["close"].values.astype(np.float64)
@@ -566,7 +566,7 @@ def run_strategy_bear_detector(
 
     folds = expanding_window_folds(len(X_clean), n_folds=n_folds, min_train=max(500, MIN_TRAIN // 4))
     if not folds:
-        print(f"  ERROR: Could not create folds")
+        print("  ERROR: Could not create folds")
         return {"label": "C: Bear Detector", "sharpe": 0, "error": "no folds"}
 
     # Collect OOS predictions
@@ -670,7 +670,7 @@ def run_strategy_ensemble_cb2(
 ) -> Dict[str, Any]:
     """Strategy D: C-priority ensemble. Use C signal when active, else fall back to B2."""
     print(f"\n{'='*70}")
-    print(f"  Strategy D: C+B2 Ensemble")
+    print("  Strategy D: C+B2 Ensemble")
     print(f"{'='*70}")
 
     n = min(len(signal_c), len(signal_b2), len(closes))
@@ -699,7 +699,7 @@ def run_strategy_vol_breakout(
 ) -> Dict[str, Any]:
     """Strategy E: Rule-based vol breakout short. Bear + ATR > rolling p80 + RSI > 30."""
     print(f"\n{'='*70}")
-    print(f"  Strategy E: Vol Breakout Short")
+    print("  Strategy E: Vol Breakout Short")
     print(f"{'='*70}")
 
     closes = feat_df["close"].values.astype(np.float64)
@@ -748,7 +748,7 @@ def run_strategy_regime_switch(
 ) -> Dict[str, Any]:
     """Strategy F: Bull=V8 gate_v2 long-only, Bear=Strategy C short."""
     print(f"\n{'='*70}")
-    print(f"  Strategy F: Regime-Switch Portfolio")
+    print("  Strategy F: Regime-Switch Portfolio")
     print(f"{'='*70}")
 
     closes = feat_df["close"].values.astype(np.float64)
@@ -839,7 +839,7 @@ def run_strategy_prob_sizing(
     Position size = -(prob - threshold) / (1 - threshold), yielding [-1, 0].
     """
     print(f"\n{'='*70}")
-    print(f"  Strategy G: Probability Sizing")
+    print("  Strategy G: Probability Sizing")
     print(f"{'='*70}")
 
     signal = np.zeros(len(closes))
@@ -891,7 +891,7 @@ def run_strategy_f_walkforward(
     import xgboost as xgb
 
     print(f"\n{'='*70}")
-    print(f"  Phase 4: Strategy F — 21-Fold Walk-Forward Validation")
+    print("  Phase 4: Strategy F — 21-Fold Walk-Forward Validation")
     print(f"{'='*70}")
 
     closes = feat_df["close"].values.astype(np.float64)
@@ -1101,7 +1101,7 @@ def _judge(result: Dict[str, Any]) -> str:
 def _print_comparison(all_results: List[Dict[str, Any]], out_dir: Path) -> None:
     """Print formatted comparison table and save report."""
     print(f"\n{'='*90}")
-    print(f"  BEAR ALPHA RESEARCH — COMPARISON REPORT")
+    print("  BEAR ALPHA RESEARCH — COMPARISON REPORT")
     print(f"{'='*90}")
 
     header = (f"  {'Strategy':<25} {'Sharpe':>7} {'Return':>8} {'MaxDD':>7} "
@@ -1123,7 +1123,7 @@ def _print_comparison(all_results: List[Dict[str, Any]], out_dir: Path) -> None:
     # Recommendation
     valid_results = [r for r in all_results if "error" not in r]
     if not valid_results:
-        print(f"\n  All strategies failed.")
+        print("\n  All strategies failed.")
         return
     best = max(valid_results, key=lambda r: r.get("bear_sharpe", -999))
     verdict = _judge(best)
@@ -1132,11 +1132,11 @@ def _print_comparison(all_results: List[Dict[str, Any]], out_dir: Path) -> None:
     print(f"  Verdict: {verdict}")
 
     if verdict == "PASS":
-        print(f"  → Upgrade to 21-fold walk-forward validation")
+        print("  → Upgrade to 21-fold walk-forward validation")
     elif verdict == "PROMISING":
-        print(f"  → Add HPO and re-test")
+        print("  → Add HPO and re-test")
     else:
-        print(f"  → Bear market alpha not viable at this time")
+        print("  → Bear market alpha not viable at this time")
 
     # Save full report (strip internal numpy arrays)
     clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in all_results]
@@ -1161,7 +1161,7 @@ def main() -> None:
     parser.add_argument("--phase", type=int, default=0, help="Run only phase N (1/2/3/4), 0=all")
     args = parser.parse_args()
 
-    out_dir = Path(f"results/bear_alpha_research")
+    out_dir = Path("results/bear_alpha_research")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
@@ -1170,7 +1170,7 @@ def main() -> None:
     print(f"{'#'*70}")
 
     # Load features
-    print(f"\n  Loading features...")
+    print("\n  Loading features...")
     feat_df = _load_features(args.symbol)
     available = _get_available_features(feat_df)
     print(f"  Available features: {len(available)}")
@@ -1178,7 +1178,7 @@ def main() -> None:
     # Phase 1
     if args.phase in (0, 1):
         print(f"\n{'#'*70}")
-        print(f"  PHASE 1: Bear IC Analysis")
+        print("  PHASE 1: Bear IC Analysis")
         print(f"{'#'*70}")
         bear_features, ic_data = run_bear_ic_analysis(feat_df, available, out_dir)
     else:
@@ -1192,7 +1192,7 @@ def main() -> None:
     all_results = []
     if args.phase in (0, 2):
         print(f"\n{'#'*70}")
-        print(f"  PHASE 2: Strategy Comparison")
+        print("  PHASE 2: Strategy Comparison")
         print(f"{'#'*70}")
 
         # Strategy A
@@ -1245,14 +1245,14 @@ def main() -> None:
     # Phase 3
     if args.phase in (0, 3):
         print(f"\n{'#'*70}")
-        print(f"  PHASE 3: Comparison Report")
+        print("  PHASE 3: Comparison Report")
         print(f"{'#'*70}")
         _print_comparison(all_results, out_dir)
 
     # Phase 4: Strategy F Walk-Forward Validation
     if args.phase in (0, 4):
         print(f"\n{'#'*70}")
-        print(f"  PHASE 4: Strategy F — 21-Fold Walk-Forward")
+        print("  PHASE 4: Strategy F — 21-Fold Walk-Forward")
         print(f"{'#'*70}")
         run_strategy_f_walkforward(feat_df, args.symbol, out_dir)
 

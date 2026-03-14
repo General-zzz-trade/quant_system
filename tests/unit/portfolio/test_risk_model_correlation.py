@@ -1,7 +1,6 @@
 """Tests for portfolio/risk_model/correlation estimators."""
 from __future__ import annotations
 
-import math
 
 from portfolio.risk_model.correlation.rolling import RollingCorrelation
 from portfolio.risk_model.correlation.regime import RegimeCorrelation

@@ -5,14 +5,13 @@ All functions follow the FeatureSeries pattern: return List[Optional[float]].
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from features.types import Bar, FeatureSeries
 
 from _quant_hotpath import (
     cpp_vwap as _cpp_vwap,
     cpp_order_flow_imbalance as _cpp_ofi,
-    cpp_rolling_volatility as _cpp_rolling_vol,
     cpp_price_impact as _cpp_price_impact,
 )
 

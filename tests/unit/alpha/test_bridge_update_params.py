@@ -6,7 +6,7 @@ import pytest
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
 
 from alpha.inference.bridge import LiveInferenceBridge
-from alpha.base import AlphaModel, Signal
+from alpha.base import Signal
 
 
 class _DummyModel:

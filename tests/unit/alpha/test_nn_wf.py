@@ -1,7 +1,6 @@
 """Tests for NN ensemble integration in walk-forward validation."""
 import numpy as np
 import pytest
-from unittest.mock import patch
 
 
 class TestComputeEnsembleWeights:

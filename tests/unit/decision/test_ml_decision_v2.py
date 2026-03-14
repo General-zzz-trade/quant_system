@@ -4,7 +4,6 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from decision.ml_decision import make_ml_decision
 
@@ -119,7 +118,7 @@ class TestTrailingStop:
         orders = list(mod.decide(_snap(50000, 1.0, atr_norm=0.02)))
         assert len(orders) == 1
         assert orders[0].reason == "open_long"
-        open_qty = float(orders[0].qty)
+        float(orders[0].qty)
 
         # Price rises to 55000 — use matching target qty to avoid rebalance
         # target = 10000*0.30*1.0/55000 = 0.054

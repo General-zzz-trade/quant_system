@@ -1,6 +1,5 @@
 """PolymarketDecisionModule -- entry/exit logic for prediction markets."""
 from __future__ import annotations
-from decimal import Decimal
 from typing import Any, Dict, List
 from polymarket.config import PolymarketConfig
 from polymarket.signals import generate_signal

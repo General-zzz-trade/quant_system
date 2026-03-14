@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict
 
 
 class ErrorCategory(str, Enum):

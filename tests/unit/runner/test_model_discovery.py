@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-import pickle
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from runner.model_discovery import (
@@ -193,7 +191,7 @@ def test_build_inference_bridge_logs_override(models_dir, caplog):
 
     with patch("alpha.inference.bridge.LiveInferenceBridge") as MockBridge:
         MockBridge.return_value = MagicMock()
-        bridge = build_inference_bridge(
+        build_inference_bridge(
             "BTCUSDT", [mock_model], config, runner_cfg,
             ensemble_weights=[1.0],
         )

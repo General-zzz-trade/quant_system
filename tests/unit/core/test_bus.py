@@ -6,7 +6,6 @@ import pytest
 from core.bus import (
     BoundedEventBus,
     BusConfig,
-    BusStats,
     OverflowPolicy,
     PublishResult,
 )

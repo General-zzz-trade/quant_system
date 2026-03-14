@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
 
 import pytest
 
@@ -185,11 +185,11 @@ class TestRegimeAwareDecisionModule:
             # Oscillating around 100 with huge amplitude → high vol, flat trend
             price = 100.0 + 50.0 * (1 if i % 2 == 0 else -1)
             snap = _snapshot(markets={"BTCUSDT": _market(price)})
-            result = list(mod.decide(snap))
+            list(mod.decide(snap))
 
         # Check that labels were generated
         labels = mod.current_labels
-        vol_labels = [l for l in labels if l.name == "volatility"]
+        [l for l in labels if l.name == "volatility"]
         # The key test: with very high oscillation, vol should be detected as high
         # and trend as flat, which should block trading
         # Note: exact blocking depends on threshold calibration
@@ -199,7 +199,7 @@ class TestRegimeAwareDecisionModule:
         inner = _MockDecisionModule()
         mod = self._build_module(inner=inner)
         snap = _snapshot(markets={})
-        intents = list(mod.decide(snap))
+        list(mod.decide(snap))
         assert inner.call_count == 1
 
     def test_insufficient_data_delegates_directly(self):
@@ -207,7 +207,7 @@ class TestRegimeAwareDecisionModule:
         inner = _MockDecisionModule()
         mod = self._build_module(inner=inner)
         snap = _snapshot(markets={"BTCUSDT": _market(100.0)})
-        intents = list(mod.decide(snap))
+        list(mod.decide(snap))
         assert inner.call_count == 1
 
     def test_current_labels_property(self):
@@ -238,6 +238,6 @@ class TestRegimeAwareDecisionModule:
         mod = self._build_module(inner=inner)
         self._feed_prices(mod, n=50, base=100.0)
         snap = SimpleNamespace(markets={"BTCUSDT": _market(100.0)}, ts=None)
-        intents = list(mod.decide(snap))
+        list(mod.decide(snap))
         # Should still delegate (no labels generated without ts)
         assert inner.call_count > 0

@@ -1,9 +1,8 @@
 """Tests for ExitManager checkpoint/restore persistence."""
 from __future__ import annotations
 
-import pytest
 
-from decision.exit_manager import ExitManager, _TrailingState
+from decision.exit_manager import ExitManager
 
 
 def _make_exit_manager(**kwargs) -> ExitManager:

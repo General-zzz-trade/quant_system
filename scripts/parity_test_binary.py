@@ -11,7 +11,6 @@ the exact same Rust code path (steps 1-6).
 """
 
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -244,7 +243,7 @@ def test_state_consistency():
         hour_key = bar["ts_ms"] // 3_600_000
         ts_str = str(bar["ts_ms"]) + "000"
 
-        r = tp.process_tick(
+        tp.process_tick(
             bar["symbol"], bar["close"], bar["volume"],
             bar["high"], bar["low"], bar["open"],
             hour_key, ts_str,
@@ -255,7 +254,7 @@ def test_state_consistency():
     positions = tp.get_positions()
     account = tp.get_account()
     portfolio = tp.get_portfolio()
-    risk = tp.get_risk()
+    tp.get_risk()
 
     print(f"  Markets: {len(markets)} symbols")
     print(f"  Positions: {len(positions)} entries")

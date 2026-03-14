@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 import pytest
-from decimal import Decimal
 
 from _quant_hotpath import (
     rust_payload_digest,
@@ -151,7 +149,7 @@ class TestRustFillDedupGuard:
 
     def test_parity_with_python(self):
         """Compare Rust guard behavior with Python DuplicateGuard."""
-        from execution.safety.duplicate_guard import DuplicateGuard, PayloadCorruptionError
+        from execution.safety.duplicate_guard import DuplicateGuard
         py_guard = DuplicateGuard(ttl_seconds=86400.0)
         rs_guard = RustFillDedupGuard(ttl_sec=86400.0)
 
@@ -305,7 +303,6 @@ class TestRustSanitize:
         assert rust_sanitize("-hello-") == "hello"
 
     def test_parity_with_python(self):
-        from execution.bridge.request_ids import _sanitize
         cases = ["hello", "a b c", "test@123", "", "---", "A_B-C"]
         for s in cases:
             # Use Python fallback for comparison
@@ -461,7 +458,6 @@ class TestRustRouteEventType:
             "MARKET_DATA", "FILL", "FUNDING", "ORDER_UPDATE", "ORDER_REPORT",
             "ORDER_STATUS", "SIGNAL", "INTENT", "RISK", "ORDER", "UNKNOWN",
         ]
-        route_map = {"pipeline": "PIPELINE", "decision": "DECISION", "execution": "EXECUTION", "drop": "DROP"}
         for et in cases:
             rs = rust_route_event_type(et)
             py = EventDispatcher._route_from_type(et).value.lower()

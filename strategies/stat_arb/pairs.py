@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 

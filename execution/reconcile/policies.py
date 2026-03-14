@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Sequence
 
 from execution.reconcile.drift import Drift, DriftSeverity
 

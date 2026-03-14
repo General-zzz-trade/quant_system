@@ -6,7 +6,7 @@ import logging
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Dict
 
 from monitoring.alerts.base import Alert
 

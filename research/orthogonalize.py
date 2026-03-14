@@ -5,8 +5,7 @@ the true marginal contribution of each factor beyond what others explain.
 """
 from __future__ import annotations
 
-import math
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Dict, List, Mapping, Optional
 
 from research.alpha_factor import _pearson_corr
 

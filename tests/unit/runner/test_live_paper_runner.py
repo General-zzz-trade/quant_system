@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
-from decimal import Decimal
-from types import SimpleNamespace
-from typing import Any, List, Optional
+from typing import List, Optional
 
-import pytest
 
 from runner.live_paper_runner import LivePaperConfig, LivePaperRunner
 

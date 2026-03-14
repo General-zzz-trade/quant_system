@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol, Sequence
 
 from portfolio.optimizer.constraints import OptConstraint
 from portfolio.optimizer.input import OptimizationInput

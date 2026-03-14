@@ -153,7 +153,7 @@ class TestShrinkageCovariance:
         sc = SampleCovariance()
         sample = sc.estimate(["A", "B"], returns)
         result = shc.estimate(["A", "B"], returns)
-        avg_var = (sample["A"]["A"] + sample["B"]["B"]) / 2
+        (sample["A"]["A"] + sample["B"]["B"]) / 2
         expected_ab = 0.5 * 0.0 + 0.5 * sample["A"]["B"]
         assert abs(result["A"]["B"] - expected_ab) < 1e-12
 

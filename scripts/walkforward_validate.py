@@ -18,10 +18,9 @@ import hashlib
 import json
 import logging
 import os
-import pickle
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,7 +32,6 @@ from scripts.train_v7_alpha import (
     V7_SEARCH_SPACE,
     _compute_target,
     _load_and_compute_features,
-    INTERACTION_FEATURES,
     BLACKLIST,
 )
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
@@ -46,9 +44,8 @@ from scripts.signal_postprocess import (
     _enforce_min_hold,
 )
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
-from alpha.models.lgbm_alpha import LGBMAlphaModel
 
-from features.batch_backtest import run_backtest_fast, pred_to_signal_fast
+from features.batch_backtest import run_backtest_fast
 
 try:
     import torch as _torch
@@ -231,7 +228,7 @@ def _apply_nn_ensemble(
     from sklearn.preprocessing import StandardScaler
 
     n_test = len(lgbm_pred)
-    n_features = X_train_sel.shape[1]
+    X_train_sel.shape[1]
 
     # StandardScaler fit on train
     scaler = StandardScaler()
@@ -1227,7 +1224,7 @@ def stitch_results(
 def print_report(fold_results: List[FoldResult], summary: Dict[str, Any]) -> None:
     """Print the walk-forward report table."""
     print(f"\n{'='*75}")
-    print(f"  WALK-FORWARD VALIDATION REPORT")
+    print("  WALK-FORWARD VALIDATION REPORT")
     print(f"{'='*75}")
     print(f"  {'Fold':<6} {'Period':<20} {'IC':>8} {'Sharpe':>8} {'Return':>8}  Features")
     print(f"  {'-'*73}")
@@ -1248,7 +1245,7 @@ def print_report(fold_results: List[FoldResult], summary: Dict[str, Any]) -> Non
     print(f"  Total return:   {summary['total_return']*100:+.2f}%")
 
     if summary["stable_features"]:
-        print(f"\n  Feature stability (>= 80% folds):")
+        print("\n  Feature stability (>= 80% folds):")
         for fname, count in summary["stable_features"].items():
             print(f"    {fname}: {count}/{summary['n_folds']}")
 
@@ -1383,9 +1380,9 @@ def main() -> None:
 
     print(f"\n  Walk-Forward Validation: {symbol}")
     if strategy_f:
-        print(f"  MODE: Strategy F (per-fold V8 + bear C regime-switch)")
+        print("  MODE: Strategy F (per-fold V8 + bear C regime-switch)")
         if short_supplement:
-            print(f"  SHORT SUPPLEMENT: ON (independent short model fills bear flat gaps)")
+            print("  SHORT SUPPLEMENT: ON (independent short model fills bear flat gaps)")
     if selector != "greedy":
         print(f"  Selector: {selector}")
     print(f"  HPO: {'ON' if use_hpo else 'OFF (default params)'}"
@@ -1393,7 +1390,7 @@ def main() -> None:
     print(f"  Signal: deadzone={deadzone}, min_hold={min_hold}"
           f"{', continuous_sizing' if continuous_sizing else ''}")
     if ensemble:
-        print(f"  Ensemble: LGBM + XGB (averaged)")
+        print("  Ensemble: LGBM + XGB (averaged)")
     if nn_ensemble:
         print(f"  NN Ensemble: LSTM + Transformer (IC-weighted, seq_len={nn_seq_len}, epochs={nn_epochs})")
     if target_mode != TARGET_MODE:
@@ -1550,7 +1547,7 @@ def main() -> None:
         mp_ctx = "fork"
         if nn_ensemble:
             mp_ctx = "spawn"
-            print(f"  WARNING: nn_ensemble uses spawn context — high memory usage")
+            print("  WARNING: nn_ensemble uses spawn context — high memory usage")
         import multiprocessing as mp
         ctx = mp.get_context(mp_ctx)
         print(f"\n  Running {len(folds)} folds with {parallel} workers "

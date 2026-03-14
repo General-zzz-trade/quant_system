@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from alpha.models.lgbm_alpha import LGBMAlphaModel
-from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
+from features.enriched_computer import ENRICHED_FEATURE_NAMES
 from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
 from features.dynamic_selector import greedy_ic_select, _rankdata
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
@@ -571,7 +571,7 @@ def _validate_oos_extended(
 
     # ── Stability score (0-100) ──
     # Penalize: IC decay, H1/H2 divergence, negative months
-    neg_months = sum(1 for m in monthly if m["ic"] < 0)
+    sum(1 for m in monthly if m["ic"] < 0)
     pos_months = sum(1 for m in monthly if m["ic"] > 0)
     month_consistency = pos_months / max(len(monthly), 1)
 
@@ -606,7 +606,6 @@ def _validate_oos_extended(
 
 def _print_extended_oos(symbol: str, ext: Dict[str, Any]) -> None:
     """Pretty-print extended OOS results."""
-    from datetime import datetime, timezone
 
     status = "PASS" if ext["passed"] else "FAIL"
     print(f"\n  {'='*60}")
@@ -644,7 +643,7 @@ def _print_extended_oos(symbol: str, ext: Dict[str, Any]) -> None:
     # Monthly table
     monthly = ext.get("monthly", [])
     if monthly:
-        print(f"\n  Monthly Breakdown:")
+        print("\n  Monthly Breakdown:")
         print(f"  {'Month':<10} {'N':>6} {'IC':>8} {'Dir%':>8} "
               f"{'Sharpe':>8} {'Active%':>8}")
         print(f"  {'-'*50}")
@@ -1081,7 +1080,7 @@ def run_one(
     cross_df = cross_features.get(symbol) if cross_features else None
     feat_df = _load_and_compute_features(symbol, df, cross_df)
     if feat_df is None:
-        print(f"  ERROR: Feature computation failed")
+        print("  ERROR: Feature computation failed")
         return None
     print(f"  Bars: {len(feat_df)}")
 
@@ -1145,7 +1144,7 @@ def main() -> None:
 
     if results:
         print(f"\n\n{'='*100}")
-        print(f"  V7 Alpha Training Summary")
+        print("  V7 Alpha Training Summary")
         print(f"{'='*100}")
         print(f"{'Symbol':<10} {'H':>3} {'Mode':<10} {'Feats':>5} "
               f"{'CV IC':>8} {'CV Dir':>8} {'CV Shrp':>8} {'OOS':>5}")

@@ -13,10 +13,12 @@ Usage:
     python3 -m scripts.backtest_p0_improvements
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 
@@ -378,7 +380,6 @@ def main():
 
     # ── Models ──
     print("\n[3] Loading models & generating predictions...")
-    import lightgbm as lgb
     import xgboost as xgb
 
     with open("models_v8/BTCUSDT_gate_v2/config.json") as f:
@@ -536,7 +537,6 @@ def main():
 
     # Check short alpha in different market regimes
     # Define bear: 30-day return < -10%
-    lookback = 720  # 30 days
     for label, lb in [("30d", 720), ("7d", 168)]:
         bear_mask = np.zeros(n_c, dtype=bool)
         for i in range(lb, n_c):
@@ -587,7 +587,7 @@ def main():
               f"{s['pos_months']:>2d}/{s['total_months']}")
 
     # Risk-adjusted
-    print(f"\n  Risk-Adjusted (Sharpe / MaxDD%):")
+    print("\n  Risk-Adjusted (Sharpe / MaxDD%):")
     for name, s in all_stats:
         if not s or s['max_dd'] == 0:
             continue

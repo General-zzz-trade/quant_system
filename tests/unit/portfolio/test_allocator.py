@@ -2,9 +2,7 @@
 """Allocator and candidate generator unit tests."""
 from __future__ import annotations
 
-import pytest
 from decimal import Decimal
-from typing import Mapping
 
 from decision.allocators.base import EqualWeightAllocator
 from decision.candidates.base import PassthroughCandidates

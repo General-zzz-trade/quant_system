@@ -3,19 +3,29 @@
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
 make test                    # ALL gates (py + exec + rust + lint, matches CI)
-pytest tests/ -x -q          # Fast tests (~27s, excludes slow+benchmark)
+pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
-pytest tests/unit/ -x -q     # Unit tests only
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
+pytest tests/unit/ib/ -x -q   # IB adapter tests (37 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
 ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
-**CRITICAL after Rust build**: copy .so to local package (shadows system install):
+**Validation & paper trading**:
+```bash
+python3 -m scripts.testnet_smoke --public-only                     # Testnet connectivity (no API key)
+python3 -m scripts.testnet_smoke                                   # Full smoke test (18 checks)
+python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo  # Walk-forward OOS (~20s)
+python3 -m scripts.walkforward_validate --symbol BTCUSDT           # Walk-forward + HPO (~30min)
+python3 -m scripts.run_paper_trading --symbols BTCUSDT --testnet   # Paper trading (shadow mode)
+```
+
+**CRITICAL after Rust build**: copy .so then verify:
 ```bash
 cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
+python3 -c "import _quant_hotpath; print(_quant_hotpath.rust_version())"  # verify import works
 ```
 
 **Binary build** (standalone Rust trader, requires Python linkage):
@@ -41,6 +51,10 @@ features/        Feature computation (EnrichedFeatureComputer, 105 features)
 decision/        Trading signals, ensemble, regime detection, rebalancing
 alpha/           ML models + inference bridge
 execution/       Order routing, state machine, dedup
+  adapters/binance/    Binance USDT-M futures (47 files, ~3.7K LOC)
+  adapters/ib/         Interactive Brokers multi-asset (stocks/forex/futures/options/crypto)
+  adapters/polymarket/ Polymarket prediction market CLOB adapter
+  adapters/generic/    CCXT-based unified 100+ exchange adapter
 state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
@@ -53,6 +67,8 @@ risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
 monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
 infra/           Logging (structured JSON), networking
+polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner
+models_v8/       Production LightGBM models (BTCUSDT_gate_v2, ETHUSDT_gate_v2, SOLUSDT)
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         Training, walk-forward validation, alpha research
 ```
@@ -96,6 +112,9 @@ Key export categories (see `lib.rs` for full list):
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle (kill_switch, inference_bridge, feature_hook, correlation, timeout, exit_manager, regime_gate, drawdown_breaker)
 - `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (122 features: 105 enriched + 17 cross-asset); `validate_model_features()` for schema checks
+- `execution/adapters/ib/adapter.py` — IB multi-asset adapter (stocks, forex, futures, options, crypto via IB Gateway)
+- `execution/adapters/ib/mapper.py` — IB Contract/Fill/Position → Canonical types; `make_contract()` builder
+- `polymarket/collector.py` — 5m BTC Up/Down real-time CLOB orderbook collector + BS fair value (V2: direct CLOB, not Gamma cache)
 
 ## Live Integration Subsystems
 
@@ -104,6 +123,34 @@ Key export categories (see `lib.rs` for full list):
 - **Adaptive BTC Config**: `AdaptiveConfigSelector.select_robust()` runs periodically (24h) for BTCUSDT only. Updates `LiveInferenceBridge.update_params()` on `confidence="high"`. Enable via `LiveRunnerConfig(adaptive_btc_enabled=True)`.
 - **Auto-Retrain**: `scripts/auto_retrain.py --notify-runner --alert` sends SIGHUP to runner + Telegram/webhook alerts. Systemd timer in `infra/systemd/auto-retrain.timer` (Sunday 2am UTC).
 - **SIGHUP Model Reload**: Works with both ModelRegistry (registry-based) and direct file reload (models_v8/*.pkl). Runner always installs SIGHUP handler.
+
+## Venue Adapters
+
+All adapters implement `VenueAdapter` protocol (`execution/adapters/base.py`); registered via `AdapterRegistry.register(venue, adapter)`.
+
+| Venue | Protocol | Notes |
+|-------|----------|-------|
+| Binance | REST + WS-API (~4ms) | Primary. USDT-M futures. 47 files, ~3.7K LOC |
+| IB | `ib_insync` → IB Gateway | Port 4002=paper, 4001=live. All asset classes via `make_contract(symbol, sec_type)` |
+| Polymarket | CLOB REST + Gamma discovery | L2 auth (HMAC-SHA256). Collector V2 uses CLOB orderbook directly, stores SQLite |
+| Generic | CCXT | 100+ exchanges, unified interface |
+
+## Environment
+
+```bash
+export BINANCE_TESTNET_API_KEY=...    # from testnet.binancefuture.com (GitHub login)
+export BINANCE_TESTNET_API_SECRET=... # required for authenticated endpoints + paper trading
+```
+
+**Quick start → paper trading**:
+1. Set env vars above
+2. `python3 -m scripts.testnet_smoke --public-only` — verify connectivity
+3. `python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo` — verify model OOS performance
+4. `python3 -m scripts.run_paper_trading --symbols BTCUSDT --testnet` — start shadow trading
+
+**Walk-forward baseline** (2025-03-15, BTCUSDT 1h, 20 folds):
+- No HPO: Sharpe 0.26, +17% total, 12/20 positive (recent 4 folds: Sharpe 0.98)
+- HPO: Sharpe 0.38, **+104% total**, 12/20 positive (recent 4 folds: **Sharpe 2.27**)
 
 ## Gotchas
 
@@ -126,3 +173,6 @@ Key export categories (see `lib.rs` for full list):
 - `GateChain._apply_scale()` preserves Decimal type (no float conversion); uses `object.__setattr__` on frozen OrderEvent (intentional, confined to gate chain)
 - `LiveEmitHandler` attribution tracks only accepted orders (rejected orders excluded from IC/Sharpe); fill supports PARTIALLY_FILLED via `ev.is_partial` or `ev.status`
 - Python fallback in `signal_postprocess.py` has known divergence from Rust for `trend_follow` mode (trend_hold max_hold semantics differ)
+- IB Gateway requires Xvfb on headless Linux (`Xvfb :99 &; export DISPLAY=:99`); login uses virtual keyboard (manual VNC login required first time, then stays running)
+- Polymarket Gamma API `outcomePrices`/`bestBid`/`bestAsk` are **cached/stale** — always use CLOB orderbook (`clob.polymarket.com/book?token_id=`) for real prices
+- IB `VenueType` enum includes FOREX, CFD, OPTIONS in addition to SPOT/FUTURES/PERPETUAL

@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 # ── C++ acceleration ─────────────────────────────────────────────
 
-from features.batch_backtest import run_backtest_fast, pred_to_signal_fast
 
 # ── Constants ────────────────────────────────────────────────────
 
@@ -556,10 +555,9 @@ def run_backtest(
 
     # Load model(s) — support model directory (ensemble) or single pkl
     from infra.model_signing import load_verified_pickle
-    ensemble_mode = False
     if model_path.is_dir():
         raw_models, weights, dir_cfg = _load_models_from_dir(model_path)
-        ensemble_mode = dir_cfg.get("ensemble", False) and len(raw_models) > 1
+        dir_cfg.get("ensemble", False) and len(raw_models) > 1
         model_label = f"{model_path} (ensemble {len(raw_models)} models)"
     else:
         model_dict = load_verified_pickle(model_path)
@@ -680,7 +678,7 @@ def run_backtest(
     signal = _pred_to_signal(y_pred, target_mode=target_mode)
     if long_only:
         signal = np.clip(signal, 0.0, None)
-        print(f"  Long-only mode: short signals clipped to 0")
+        print("  Long-only mode: short signals clipped to 0")
 
     # Load bear model if available (Strategy F regime-switch)
     bear_model_dir = bear_model_path
@@ -854,7 +852,6 @@ def run_backtest(
     n_trades = len(position_changes)
 
     # Average holding period
-    in_position = signal_for_trade != 0
     if n_trades > 0 and n_active > 0:
         avg_holding = n_active / max(n_trades, 1)
     else:
@@ -897,20 +894,20 @@ def run_backtest(
     print(f"  Bars: {n_hours:,}")
     print(f"  Initial capital: ${INITIAL_CAPITAL:,.0f}")
     print(f"  Final equity: ${equity[-1]:,.2f}")
-    print(f"\n  --- Performance ---")
+    print("\n  --- Performance ---")
     print(f"  Total return:    {total_return*100:+.2f}%")
     print(f"  Annual return:   {annual_return*100:+.2f}%")
     print(f"  Sharpe ratio:    {sharpe:.2f}")
     print(f"  Max drawdown:    {max_dd*100:.2f}%")
     print(f"  Profit factor:   {profit_factor:.2f}")
-    print(f"\n  --- Trading ---")
+    print("\n  --- Trading ---")
     print(f"  Position changes: {n_trades}")
     print(f"  Avg holding:     {avg_holding:.1f} bars ({avg_holding:.0f}h)")
     print(f"  Active:          {n_active/n_hours*100:.1f}%")
     print(f"  Win rate (bar):  {win_rate*100:.1f}%")
     print(f"  Total turnover:  {total_turnover:.1f}")
     print(f"  Total cost:      {total_cost*100:.4f}%")
-    print(f"\n  --- Monthly Breakdown ---")
+    print("\n  --- Monthly Breakdown ---")
     print(f"  {'Month':<10} {'Return':>8} {'Sharpe':>8} {'Active%':>8}")
     print(f"  {'-'*36}")
     for m in monthly:

@@ -280,7 +280,7 @@ def phase4_websocket(urls: Any) -> PhaseResult:
         phase.add("Connected", False, str(e))
         return phase
 
-    processor = KlineProcessor(only_closed=False)
+    KlineProcessor(only_closed=False)
     deadline = time.monotonic() + 30
     received = False
     detail = "timeout after 30s"
@@ -388,7 +388,7 @@ def phase6_safety_integration() -> PhaseResult:
 
     # Test RiskGate
     try:
-        from execution.safety.risk_gate import RiskGate, RiskGateConfig, RiskCheckResult
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
 
         gate = RiskGate(
             config=RiskGateConfig(

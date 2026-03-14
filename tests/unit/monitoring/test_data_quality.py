@@ -1,8 +1,6 @@
 """Tests for data quality alerting."""
 from __future__ import annotations
 
-import math
-import pytest
 from monitoring.data_quality_alerts import DataQualityConfig, DataQualityMonitor
 
 

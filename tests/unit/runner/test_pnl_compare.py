@@ -4,9 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import pytest
 
-from runner.backtest.pnl_compare import PnLPoint, compare_pnl, PnLComparisonResult
+from runner.backtest.pnl_compare import PnLPoint, compare_pnl
 
 
 def _make_points(start_eq: float, returns: list[float]) -> list[PnLPoint]:

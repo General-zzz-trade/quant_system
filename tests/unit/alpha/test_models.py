@@ -1,16 +1,13 @@
 """Tests for alpha/models — MACrossAlpha, LGBMAlphaModel, XGBAlphaModel."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
 
-from alpha.base import Signal
-from alpha.models.lgbm_alpha import LGBMAlphaModel, _Signal as LGBMSignal
-from alpha.models.xgb_alpha import XGBAlphaModel, _Signal as XGBSignal
+from alpha.models.lgbm_alpha import LGBMAlphaModel
+from alpha.models.xgb_alpha import XGBAlphaModel
 from alpha.models.ma_cross import MACrossAlpha
 
 

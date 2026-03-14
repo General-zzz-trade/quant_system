@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from execution.models.venue import VenueInfo
 

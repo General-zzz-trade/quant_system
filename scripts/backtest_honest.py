@@ -14,10 +14,11 @@ Usage:
     python3 -m scripts.backtest_honest
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import json
+import pickle
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 
@@ -263,13 +264,13 @@ def main():
     print("=" * 70)
     print("HONEST BACKTEST — All Biases Fixed")
     print("=" * 70)
-    print(f"\n  Fixes applied:")
-    print(f"    [1] OOS-only predictions (exclude training period)")
-    print(f"    [2] Next-bar execution (signal at bar i → trade at bar i+1)")
+    print("\n  Fixes applied:")
+    print("    [1] OOS-only predictions (exclude training period)")
+    print("    [2] Next-bar execution (signal at bar i → trade at bar i+1)")
     print(f"    [3] Realistic costs: {COST_BPS_RT}bp RT trading + {SLIPPAGE_BPS}bp slippage")
     print(f"    [4] Funding rate: {FUNDING_BPS_PER_8H}bp per 8h holding")
     print(f"    [5] {EMBARGO_BARS}-bar embargo after train/OOS boundary")
-    print(f"    [6] Pre-committed params from training (no OOS snooping)")
+    print("    [6] Pre-committed params from training (no OOS snooping)")
     print(f"    [7] Portfolio: ${EQUITY:,.0f} split across coins")
 
     SYMBOLS = ["BTCUSDT", "ETHUSDT"]
@@ -489,7 +490,7 @@ def main():
     print(f"\n{'='*70}")
     print("BIAS IMPACT COMPARISON")
     print("=" * 70)
-    print(f"  (Biased = old backtest, Honest = this backtest)")
+    print("  (Biased = old backtest, Honest = this backtest)")
     print(f"\n  {'Metric':<25s} {'Biased':>12s} {'Honest':>12s} {'Δ':>10s}")
     print(f"  {'─'*60}")
     # Old numbers from biased backtest (from previous run)

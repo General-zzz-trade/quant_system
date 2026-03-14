@@ -7,7 +7,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, List, Optional
 
-import pytest
 
 from execution.algo_adapter import AlgoConfig, AlgoExecutionAdapter, _make_fill_event
 

@@ -15,15 +15,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import logging
-import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -684,7 +682,7 @@ def run_kernel_backtest(
 
     # Print results
     print(f"\n{'='*70}")
-    print(f"  KERNEL BACKTEST RESULTS")
+    print("  KERNEL BACKTEST RESULTS")
     print(f"{'='*70}")
     print(f"  Period: {n_bars} bars")
     print(f"  Initial: ${INITIAL_CAPITAL:,.0f} -> Final: ${final_equity:,.2f}")
@@ -693,7 +691,7 @@ def run_kernel_backtest(
     print(f"  Sharpe: {sharpe:.2f}")
     print(f"  Max DD: {max_dd*100:.2f}%")
 
-    print(f"\n  --- Per-Symbol Attribution ---")
+    print("\n  --- Per-Symbol Attribution ---")
     print(f"  {'Symbol':<12} {'Return':>8} {'Contribution':>14}")
     print(f"  {'-'*36}")
     sym_summaries = {}
@@ -709,7 +707,7 @@ def run_kernel_backtest(
     unique_months = sorted(set(month_keys))
 
     monthly = []
-    print(f"\n  --- Monthly Breakdown ---")
+    print("\n  --- Monthly Breakdown ---")
     print(f"  {'Month':<10} {'Return':>8} {'Sharpe':>8}")
     print(f"  {'-'*28}")
     for mk in unique_months:

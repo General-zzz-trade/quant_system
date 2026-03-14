@@ -116,7 +116,7 @@ class EventDispatcher:
         for handler in self._handlers:
             try:
                 handler(event)
-            except Exception as exc:
+            except Exception:
                 # 生命周期：失败
                 self._lifecycle.mark_failed(event)
 

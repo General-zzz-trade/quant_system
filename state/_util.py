@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 def to_decimal(x: Any, *, allow_none: bool = False) -> Optional[Decimal]:
     if x is None:

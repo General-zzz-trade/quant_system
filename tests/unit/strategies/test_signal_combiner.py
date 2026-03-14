@@ -1,12 +1,10 @@
 """Tests for signal_combiner — trend score, range score, combined signal."""
 from __future__ import annotations
 
-import pytest
 
 from strategies.multi_factor.feature_computer import MultiFactorFeatures
 from strategies.multi_factor.regime import Regime
 from strategies.multi_factor.signal_combiner import (
-    CombinedSignal,
     _clamp,
     _range_score,
     _trend_score,

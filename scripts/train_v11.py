@@ -20,7 +20,7 @@ import json
 import pickle
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,21 +29,15 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import greedy_ic_select
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scripts.train_multi_horizon import (
-    fast_ic,
-    compute_target,
     rolling_zscore,
     train_single_horizon,
     WARMUP,
     COST_BPS_RT,
-    BARS_PER_DAY,
     BARS_PER_MONTH,
-    HPO_TRIALS,
-    TOP_K_FEATURES,
 )
-from alpha.v11_config import V11Config, ExitConfig, RegimeGateConfig, TimeFilterConfig
+from alpha.v11_config import V11Config, ExitConfig, RegimeGateConfig
 
 VERSION = "v11"
 
@@ -397,7 +391,7 @@ def train_symbol_v11(
         print(f"\n  Model saved to {model_dir}/ ({VERSION})")
         return True
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
         return False
 
 
@@ -421,7 +415,7 @@ def main():
     horizons = [int(h.strip()) for h in args.horizons.split(",")]
 
     print("=" * 70)
-    print(f"  V11 ALPHA TRAINING")
+    print("  V11 ALPHA TRAINING")
     print(f"  Horizons: {horizons}")
     print(f"  Symbols:  {symbols}")
     if args.trailing_stop > 0:
@@ -429,7 +423,7 @@ def main():
     if args.zscore_cap > 0:
         print(f"  Z-score cap: {args.zscore_cap}")
     if args.regime_gate:
-        print(f"  Regime gate: enabled")
+        print("  Regime gate: enabled")
     print("=" * 70)
 
     results = {}

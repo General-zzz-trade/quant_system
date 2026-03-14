@@ -15,11 +15,11 @@ from __future__ import annotations
 import heapq
 import threading
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Generic, List, Optional, Sequence, Tuple, TypeVar
+from typing import Callable, List, Optional, Tuple
 
-from core.types import Envelope, EventKind, Priority
+from core.types import Envelope, EventKind
 
 
 # ── Publish result ───────────────────────────────────────

@@ -1,15 +1,12 @@
 """Tests for MultiFactorDecisionModule — entry, exit, cooldown, position sizing."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict
 
 import pytest
 
-from state.account import AccountState
-from state.market import MarketState
 from state.position import PositionState
 from strategies.multi_factor.decision_module import (
     MultiFactorConfig,
@@ -192,14 +189,14 @@ class TestCooldown:
         _warmup_module(dm, n=80)
         # Even with strong signal, cooldown should block
         snap = _make_snapshot(close=200.0)
-        events = list(dm.decide(snap))
+        list(dm.decide(snap))
         # The cooldown decrements each bar, so after warmup it may have expired.
         # Let's test the mechanism directly:
         dm._cooldown = 3
         dm._bar_count = 100  # past warmup
         # Force regime to be valid by feeding enough data (already done in warmup)
         snap = _make_snapshot(close=200.0)
-        events = list(dm.decide(snap))
+        list(dm.decide(snap))
         # Cooldown should decrement but still block
         assert dm._cooldown == 2  # decremented from 3
 

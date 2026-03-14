@@ -2,13 +2,9 @@
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 
-import pytest
 
 from monitoring.dashboards.panels import (
-    GrafanaPanel,
     execution_latency_panel,
     pnl_panel,
     position_heatmap,

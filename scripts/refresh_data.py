@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
-import os
 import subprocess
 import sys
 import time
@@ -137,7 +135,7 @@ def _append_klines(symbol: str, interval: str, dry_run: bool) -> bool:
     if csv_path.exists():
         with open(csv_path) as f:
             reader = csv.reader(f)
-            header = next(reader)
+            next(reader)
             for row in reader:
                 existing[int(row[0])] = row
 
@@ -212,7 +210,7 @@ def _append_spot_klines(symbol: str, dry_run: bool) -> bool:
     if csv_path.exists():
         with open(csv_path) as f:
             reader = csv.reader(f)
-            header = next(reader)
+            next(reader)
             for row in reader:
                 existing[int(row[0])] = row
 
@@ -343,7 +341,7 @@ def refresh_all(symbols: List[str], skip_slow: bool, dry_run: bool) -> dict:
     print(f"  OK: {results['ok']}  FAIL: {results['fail']}  SKIP: {results['skip']}")
 
     # Show staleness summary
-    print(f"\n  Data Staleness:")
+    print("\n  Data Staleness:")
     for sym in symbols:
         csv_path = DATA_DIR / f"{sym}_1h.csv"
         last = _last_ts_ms(csv_path, "open_time")

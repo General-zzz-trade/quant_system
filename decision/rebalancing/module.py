@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional
 
 from types import SimpleNamespace
 

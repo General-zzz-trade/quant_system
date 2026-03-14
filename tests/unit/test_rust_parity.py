@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
-import pytest
 from decimal import Decimal
 
 # ── Rust imports ──
@@ -107,7 +105,7 @@ class TestRustRateLimitPolicy:
 
     def test_endpoint_weights_match_python(self):
         """Verify Rust endpoint weights match Python ENDPOINT_WEIGHTS."""
-        from execution.adapters.binance.rate_limit_policy import ENDPOINT_WEIGHTS, DEFAULT_WEIGHT
+        from execution.adapters.binance.rate_limit_policy import ENDPOINT_WEIGHTS
         pol = RustRateLimitPolicy()
         t = 0.0
         for path, py_weight in ENDPOINT_WEIGHTS.items():

@@ -1,19 +1,16 @@
 """Extended tests for portfolio optimizer: constraints, solvers, edge cases."""
 from __future__ import annotations
 
-import pytest
 
-from portfolio.optimizer.objectives import MaxSharpe, MinVariance, RiskParity
+from portfolio.optimizer.objectives import MinVariance, RiskParity
 from portfolio.optimizer.constraints import (
     LongOnlyConstraint,
     MaxWeightConstraint,
     FullInvestmentConstraint,
 )
 from portfolio.optimizer.input import OptimizationInput
-from portfolio.optimizer.base import OptimizationResult
 from portfolio.optimizer.solvers.linear import LinearSolver
 from portfolio.optimizer.solvers.heuristics import (
-    EqualWeightSolver,
     InverseVolatilitySolver,
 )
 

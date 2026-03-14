@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, Mapping, Optional, Sequence, Set
+from typing import Mapping, Optional, Sequence, Set
 
 from execution.reconcile.positions import reconcile_positions, PositionReconcileResult
 from execution.reconcile.balances import reconcile_balances, BalanceReconcileResult
 from execution.reconcile.fills import reconcile_fills, FillReconcileResult
 from execution.reconcile.orders import reconcile_orders, OrderReconcileResult
 from execution.reconcile.policies import ReconcilePolicy, PolicyDecision, ReconcileAction
-from execution.reconcile.drift import Drift, DriftSeverity
+from execution.reconcile.drift import Drift
 
 
 @dataclass(frozen=True, slots=True)

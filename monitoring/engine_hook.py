@@ -7,7 +7,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, Optional, Tuple
 
 from engine.pipeline import PipelineOutput
 from monitoring.health import SystemHealthMonitor

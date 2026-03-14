@@ -248,7 +248,6 @@ def test_poller_age_seconds():
 
 def test_market_reducer_rejects_nan():
     """RustStateStore must not produce valid prices from NaN inputs."""
-    import math
     from datetime import datetime, timezone
     from _quant_hotpath import RustStateStore
 

@@ -9,7 +9,7 @@ import json
 import csv
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,15 +23,14 @@ from event.types import EventType, MarketEvent, IntentEvent, OrderEvent
 from state.position import PositionState
 
 # Re-export from subpackage for backward compatibility
-from runner.backtest.csv_io import OhlcvBar, iter_ohlcv_csv, _parse_ts, _dec, _to_key
-from runner.backtest.adapter import BacktestExecutionAdapter, _sign, _make_id
+from runner.backtest.csv_io import iter_ohlcv_csv
+from runner.backtest.adapter import BacktestExecutionAdapter, _make_id
 from runner.backtest.metrics import (
     EquityPoint,
     _max_drawdown,
     _build_trades_from_fills,
     _build_summary,
     _json_safe,
-    _safe_dec,
 )
 
 

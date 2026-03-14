@@ -9,8 +9,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Sequence
 
 from features.store import FeatureStore
 from features.types import Bar, FeatureName, FeatureSeries

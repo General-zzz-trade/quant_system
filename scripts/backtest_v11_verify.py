@@ -19,9 +19,8 @@ import sys
 import json
 import pickle
 import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -385,7 +384,7 @@ def main():
 
         # Production checks
         print(f"\n  {'='*60}")
-        print(f"  PRODUCTION CHECKS")
+        print("  PRODUCTION CHECKS")
         print(f"  {'='*60}")
         checks = {
             "Sharpe > 1.0": best["sharpe"] > 1.0,

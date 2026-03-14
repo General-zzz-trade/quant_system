@@ -111,7 +111,7 @@ class TestLiveOrderbookFeatureAggregator:
         agg = LiveOrderbookFeatureAggregator()
         for i in range(5):
             agg.on_depth(_make_snapshot())
-        feats1 = agg.flush_bar("BTCUSDT")
+        agg.flush_bar("BTCUSDT")
         feats2 = agg.flush_bar("BTCUSDT")
         # Second flush should be empty
         for name in ORDERBOOK_FEATURE_NAMES:

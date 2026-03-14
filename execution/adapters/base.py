@@ -2,7 +2,7 @@
 """Base venue adapter protocol — all venue implementations must satisfy this."""
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Optional, Protocol, Tuple
 
 from execution.models.balances import BalanceSnapshot
 from execution.models.instruments import InstrumentInfo

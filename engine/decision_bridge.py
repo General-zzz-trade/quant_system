@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, List, Optional, Protocol
+from typing import Any, Callable, Iterable, List, Protocol
 
 # engine 侧
 from engine.pipeline import PipelineOutput
 
 # dispatcher 侧
-from engine.dispatcher import Route
 
 
 # ============================================================

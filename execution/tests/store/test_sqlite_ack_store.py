@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from execution.bridge.execution_bridge import ExecutionBridge, Ack
+from execution.bridge.execution_bridge import ExecutionBridge
 from execution.store.ack_store import SQLiteAckStore
 
 

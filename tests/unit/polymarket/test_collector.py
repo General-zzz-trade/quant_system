@@ -412,7 +412,9 @@ class TestGetStatsWithIntra:
         db = str(tmp_path / "test.db")
         c = PolymarketCollector(db_path=db)
         stats = c.get_stats()
-        assert "intra_window_samples" in stats
-        assert stats["intra_window_samples"] == 0
+        assert "intra_window_samples_v1" in stats
+        assert stats["intra_window_samples_v1"] == 0
+        assert "intra_window_samples_v2" in stats
+        assert stats["intra_window_samples_v2"] == 0
         assert "current_sigma_annual" in stats
         assert stats["avg_pricing_delay"] is None

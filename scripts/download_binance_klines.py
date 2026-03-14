@@ -11,7 +11,6 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
 from datetime import datetime, timezone
 from urllib.request import urlopen, Request

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 logger = logging.getLogger(__name__)
 

@@ -2,17 +2,12 @@
 """Async Binance REST client using aiohttp."""
 from __future__ import annotations
 
-import hmac
-import hashlib
-import time
-from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
 import aiohttp
 
 from execution.adapters.binance.rest import (
     BinanceRestConfig,
-    BinanceRestError,
     BinanceRetryableError,
     BinanceNonRetryableError,
     _encode_params,

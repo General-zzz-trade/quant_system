@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from .base import RegimeDetector, RegimeLabel
+from .base import RegimeLabel
 
 
 class TrendRegimeDetector:

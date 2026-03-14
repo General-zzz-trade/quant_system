@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Optional, Tuple, Dict
+from typing import Any, Mapping, Optional, Dict
 
 from execution.models.fills import CanonicalFill
 from execution.adapters.binance.dedup_keys import make_fill_id, payload_digest_for_fill

@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from state._util import ensure_utc, to_decimal
+from state._util import ensure_utc
 
 
 @dataclass(frozen=True, slots=True)

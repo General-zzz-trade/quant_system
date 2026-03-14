@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
-import pytest
 
 from decision.signals.ml.multi_tf_signal import (
     MultiTimeframeSignal,
@@ -91,7 +90,7 @@ class TestHoldState:
         h.update(1.0, 3.0, min_hold=2, max_hold=5)
         # Hold for enough bars to exceed max_hold
         for _ in range(10):
-            pos = h.update(1.0, 3.0, min_hold=2, max_hold=5)
+            h.update(1.0, 3.0, min_hold=2, max_hold=5)
         # After max_hold bars, position should have been cleared
         # (may re-enter if desired=1.0, but proves exit logic works)
         # Check it exits then re-enters (hold resets)

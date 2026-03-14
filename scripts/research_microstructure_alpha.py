@@ -15,7 +15,7 @@ import csv
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -182,7 +182,7 @@ def main() -> None:
     existing = [f for f in ENRICHED_FEATURE_NAMES if f not in MICRO_FEATURES]
     corr_df = correlation_analysis(feat_df, MICRO_FEATURES, existing)
 
-    print(f"\n  Top Correlated Existing Features (|r| > 0.3):")
+    print("\n  Top Correlated Existing Features (|r| > 0.3):")
     print(f"  {'-'*60}")
     for _, row in corr_df.iterrows():
         feat = row["feature"]

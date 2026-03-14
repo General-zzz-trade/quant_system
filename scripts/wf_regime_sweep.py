@@ -25,10 +25,6 @@ from scripts.walkforward_validate import (
     run_fold,
     stitch_results,
     print_report,
-    MIN_TRAIN_BARS,
-    TEST_BARS,
-    STEP_BARS,
-    WARMUP,
     BLACKLIST,
 )
 from scripts.train_v7_alpha import _load_and_compute_features
@@ -164,7 +160,7 @@ def main() -> None:
 
     # Print comparison table
     print(f"\n\n{'='*80}")
-    print(f"  COMPARISON TABLE")
+    print("  COMPARISON TABLE")
     print(f"{'='*80}")
     print(f"  {'Config':<28} {'Pass':>6} {'AvgSharpe':>10} {'Return':>10}"
           f"  {'F11-14 Ret':>10}  {'Time':>6}")

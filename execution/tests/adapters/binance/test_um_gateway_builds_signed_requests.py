@@ -4,7 +4,7 @@ from __future__ import annotations
 import types
 import pytest
 
-from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+from execution.adapters.binance.rest import BinanceRestClient
 from execution.adapters.binance.order_gateway_um import BinanceUmFuturesOrderGateway
 
 

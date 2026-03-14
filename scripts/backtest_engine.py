@@ -34,7 +34,6 @@ sys.path.insert(0, "/quant_system")
 
 from runner.backtest_runner import (
     run_backtest,
-    run_multi_backtest,
     _build_trades_from_fills,
     _max_drawdown,
     EquityPoint,
@@ -308,8 +307,8 @@ def main():
     print("=" * 70)
     print("EVENT-DRIVEN ML BACKTEST (OOS Only)")
     print("=" * 70)
-    print(f"  Engine:     EngineCoordinator + EmbargoExecutionAdapter")
-    print(f"  Decision:   MLSignalDecisionModule (LGBM+XGB ensemble)")
+    print("  Engine:     EngineCoordinator + EmbargoExecutionAdapter")
+    print("  Decision:   MLSignalDecisionModule (LGBM+XGB ensemble)")
     print(f"  Execution:  Next-bar OPEN fill (embargo_bars={EMBARGO_BARS})")
     print(f"  Costs:      {fee_bps}bp fee/side + {slippage_bps}bp slippage/side "
           f"= {(fee_bps + slippage_bps) * 2}bp RT")
@@ -354,7 +353,7 @@ def main():
         port_sharpe = np.mean([s["sharpe"] for s in all_stats.values()])
         port_mdd = max(s["max_dd"] for s in all_stats.values())
 
-        print(f"\n  [PORTFOLIO]")
+        print("\n  [PORTFOLIO]")
         print(f"  {'─' * 65}")
         print(f"  Trades: {total_trades}  Return: {port_return*100:+.2f}%  "
               f"(${total_ret_dollar:+,.0f})")

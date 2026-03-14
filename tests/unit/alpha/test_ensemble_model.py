@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-import pytest
 
 from alpha.models.ensemble import EnsembleAlphaModel
 

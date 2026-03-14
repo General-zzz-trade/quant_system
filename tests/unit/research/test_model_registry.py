@@ -1,13 +1,11 @@
 """Tests for model registry and artifact store."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 
 import pytest
 
-from research.model_registry.artifact import ArtifactMeta, ArtifactStore
-from research.model_registry.registry import ModelAction, ModelRegistry, ModelVersion
+from research.model_registry.artifact import ArtifactStore
+from research.model_registry.registry import ModelAction, ModelRegistry
 
 
 class TestModelRegistry:

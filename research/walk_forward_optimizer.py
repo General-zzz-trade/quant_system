@@ -6,8 +6,8 @@ to identify robust parameter sets.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 

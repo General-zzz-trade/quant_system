@@ -12,10 +12,11 @@ Usage:
     python3 -m scripts.backtest_multi_coin
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import json
+import pickle
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 
@@ -183,7 +184,7 @@ def analyze_coin(trades, symbol, n_bars):
     shorts = len(trades) - longs
     holds = np.array([t.hold_bars for t in trades])
     levs = np.array([t.leverage for t in trades])
-    days = n_bars / 24
+    n_bars / 24
 
     eq = EQUITY; peak = eq; max_dd = 0.0
     for t in trades:
@@ -426,7 +427,7 @@ def main():
           f"{portfolio_max_dd*100:>6.2f}%")
 
     # ── Trade overlap analysis ──
-    print(f"\n  Trade Overlap Analysis:")
+    print("\n  Trade Overlap Analysis:")
     btc_trades = all_trades.get("BTCUSDT", [])
     eth_trades = all_trades.get("ETHUSDT", [])
     if btc_trades and eth_trades:
@@ -444,7 +445,7 @@ def main():
         print(f"    Diversification: {100 - both_in_trade.sum()/max(btc_in_trade.sum()+eth_in_trade.sum()-both_in_trade.sum(),1)*100:.0f}%")
 
     # ── Monthly table ──
-    print(f"\n  Monthly Portfolio Returns:")
+    print("\n  Monthly Portfolio Returns:")
     monthly = {}
     ts_ref = all_data[SYMBOLS[0]]["timestamps"]
     for t in combined_trades:
@@ -474,7 +475,7 @@ def main():
     # ── vs BTC-only baseline ──
     btc_only = all_stats.get("BTCUSDT", {})
     if btc_only:
-        print(f"\n  Improvement vs BTC-only:")
+        print("\n  Improvement vs BTC-only:")
         print(f"    Trades:  {btc_only.get('trades', 0)} → {total_trades} "
               f"({total_trades/max(btc_only.get('trades',1),1):.1f}x)")
         print(f"    Return:  {btc_only.get('ret_pct', 0):+.2f}% → "

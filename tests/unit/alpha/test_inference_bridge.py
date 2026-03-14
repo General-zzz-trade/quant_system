@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-import pytest
 
-from alpha.base import AlphaModel, Signal
-from alpha.inference import InferenceEngine, InferenceResult
+from alpha.base import Signal
+from alpha.inference import InferenceEngine
 from alpha.inference.bridge import LiveInferenceBridge
 from alpha.registry import AlphaRegistry
 

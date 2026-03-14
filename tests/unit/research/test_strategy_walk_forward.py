@@ -2,16 +2,12 @@
 """Tests for Strategy Walk-Forward Validation."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 from typing import Any, Dict
 
 import pytest
 
 from research.strategy_walk_forward import (
-    StrategyMetrics,
     StrategyWalkForwardRunner,
-    WalkForwardReport,
     bollinger_grid,
     compute_metrics,
     ma_cross_grid,
@@ -141,7 +137,7 @@ class TestStrategyWalkForwardRunner:
             n_folds=2,
         )
         out = tmp_path / "report.json"
-        report = runner.run_and_save([{"x": 1}], out)
+        runner.run_and_save([{"x": 1}], out)
         assert out.exists()
         import json
         data = json.loads(out.read_text())

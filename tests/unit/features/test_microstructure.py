@@ -4,15 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional
 
 import pytest
 
-from features.microstructure.vpin import VPINCalculator, VPINResult
-from features.microstructure.kyle_lambda import KyleLambdaEstimator, KyleLambdaResult
+from features.microstructure.vpin import VPINCalculator
+from features.microstructure.kyle_lambda import KyleLambdaEstimator
 from features.microstructure.orderbook import (
     OrderbookFeatureExtractor,
-    OrderbookFeatures,
     OrderbookSnapshot,
 )
 

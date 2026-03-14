@@ -7,8 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
-from urllib.error import HTTPError, URLError
+from typing import Any, Dict, List
 from urllib.request import Request, urlopen
 
 from event.factory.market import MarketEventFactory

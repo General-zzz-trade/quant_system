@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
-from features.live_computer import LiveFeatureComputer, LiveFeatures
+from features.live_computer import LiveFeatureComputer
 from decision.signals.feature_signal import FeatureSignal
 
 

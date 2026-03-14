@@ -5,9 +5,9 @@ Compares quotes across multiple venues and selects the optimal execution path.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, List, Optional, Protocol, Sequence
+from typing import Dict, List, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 

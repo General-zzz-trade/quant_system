@@ -5,7 +5,6 @@ the Python iterrows() pipeline for every feature on real market data.
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 

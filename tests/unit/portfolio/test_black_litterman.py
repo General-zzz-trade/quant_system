@@ -2,15 +2,12 @@
 """Tests for Black-Litterman model."""
 from __future__ import annotations
 
-import math
-from types import SimpleNamespace
 
 import pytest
 
 from portfolio.optimizer.black_litterman import (
     BlackLittermanConfig,
     BlackLittermanModel,
-    BlackLittermanResult,
     ViewSpec,
 )
 

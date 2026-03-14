@@ -4,8 +4,6 @@ from __future__ import annotations
 import pytest
 
 from attribution.signal_attribution import (
-    SignalAttributionReport,
-    SignalPnL,
     attribute_by_signal,
 )
 from attribution.report import AttributionReport, build_report

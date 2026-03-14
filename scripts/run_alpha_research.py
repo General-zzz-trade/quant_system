@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import sys
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
@@ -315,7 +314,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # Sweep & screen mode
     if args.sweep:
-        from research.factor_factory import FactorFactory, ScreeningConfig
+        from research.factor_factory import FactorFactory
 
         _SWEEP_GRIDS = {
             "momentum": {"window": [5, 10, 20, 50, 100]},

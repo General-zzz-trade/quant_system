@@ -7,10 +7,7 @@ from __future__ import annotations
 
 import json
 import os
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
-import pytest
 
 from runner.recovery import (
     save_all_auxiliary_state,

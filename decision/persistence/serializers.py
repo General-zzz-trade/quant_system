@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping
+from typing import Any
 
 
 def dumps(obj: Any) -> str:

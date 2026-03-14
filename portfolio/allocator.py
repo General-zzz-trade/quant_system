@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, Iterable, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
 
 
 # ============================================================

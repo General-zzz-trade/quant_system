@@ -18,7 +18,11 @@ Replace 5-7 weak features with IC-validated upgrades:
   vwap_dev_20(-0.023), price_acceleration(-0.025), cvd_10(0.022)
 """
 from __future__ import annotations
-import sys, time, json, pickle, shutil
+import sys
+import time
+import json
+import pickle
+import shutil
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -187,7 +191,7 @@ def main():
     print(f"\nSplit: train={len(X_train):,} val={len(X_val):,} test={len(X_test_sel):,}")
 
     # Feature IC on training data
-    print(f"\nFeature IC (train):")
+    print("\nFeature IC (train):")
     for f in selected_features:
         fi = sel_idx[selected_features.index(f)]
         ic = fast_ic(X_train[:, fi], y_train)
@@ -197,7 +201,9 @@ def main():
 
     # HPO
     print(f"\nOptuna HPO ({HPO_TRIALS} trials)...")
-    import optuna, lightgbm as lgb, xgboost as xgb
+    import optuna
+    import lightgbm as lgb
+    import xgboost as xgb
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def objective(trial):
@@ -307,7 +313,7 @@ def main():
                         best_result = r
 
     all_results.sort(key=lambda x: x[4]["sharpe"], reverse=True)
-    print(f"\n  Top 5:")
+    print("\n  Top 5:")
     for dz, mh, maxh, lo, r in all_results[:5]:
         lo_str = "L" if lo else "L+S"
         print(f"    dz={dz:.1f} hold=[{mh},{maxh}] {lo_str:>3s}  "
@@ -435,7 +441,7 @@ def main():
 
         print(f"\n  V9b model saved to {MODEL_DIR}/")
     else:
-        print(f"\n  FAILED — model NOT saved. V8 preserved.")
+        print("\n  FAILED — model NOT saved. V8 preserved.")
 
     print(f"\n{'='*70}")
     print(f"SUMMARY: {SYMBOL} V9b")

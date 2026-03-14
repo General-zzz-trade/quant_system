@@ -2,8 +2,6 @@
 """Binance field normalization helpers."""
 from __future__ import annotations
 
-from decimal import Decimal
-from typing import Optional
 
 
 def normalize_side(side: str) -> str:

@@ -5,7 +5,7 @@ import pytest
 from types import SimpleNamespace
 
 from decision.explain import DecisionExplanation, explain_decision
-from decision.gating import FeatureFlagGate, GateResult, SymbolBlacklistGate
+from decision.gating import FeatureFlagGate, SymbolBlacklistGate
 from decision.governance.feature_flags import FeatureFlags
 
 

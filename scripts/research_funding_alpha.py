@@ -168,7 +168,7 @@ def main() -> None:
     print(f"  Total bars: {len(feat_df)}")
 
     # IC for all funding features
-    print(f"\n  IC Analysis:")
+    print("\n  IC Analysis:")
     print(f"  {'Feature':<25s}", end="")
     for h in HORIZONS:
         print(f"  IC_h{h:>2d}", end="")
@@ -191,12 +191,12 @@ def main() -> None:
         print()
 
     # Extreme funding analysis
-    print(f"\n  Extreme Funding Reversal Analysis:")
+    print("\n  Extreme Funding Reversal Analysis:")
     analyze_extremes(feat_df, HORIZONS)
 
     out_dir = Path("output/research")
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\n  Done. Results printed above.")
+    print("\n  Done. Results printed above.")
 
 
 if __name__ == "__main__":

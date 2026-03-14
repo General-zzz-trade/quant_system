@@ -14,7 +14,6 @@ Computes:
 
 import re
 import sys
-from collections import defaultdict
 
 def parse_bar_lines(filepath):
     """Parse 'bar' log lines into structured records."""
@@ -119,7 +118,7 @@ def analyze(bars):
         print(f"{name:<12} {hr*100:>9.1f}% {total:>10d} {edge*100:>+11.1f}%{marker}")
 
     # 2. Threshold sweep
-    print(f"\n--- Optimal Thresholds (best hit rate at threshold) ---")
+    print("\n--- Optimal Thresholds (best hit rate at threshold) ---")
     thresholds = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8]
     print(f"{'Signal':<12} {'Best HR':>10} {'Threshold':>10} {'N signals':>10}")
     for name, sig in signals.items():
@@ -151,7 +150,7 @@ def analyze(bars):
             micro_only.append(mi)
             micro_only_ret.append(r)
 
-    print(f"\n--- ML + Micro Confirmation Analysis ---")
+    print("\n--- ML + Micro Confirmation Analysis ---")
     scenarios = [
         ("ML+Micro agree", agree, agree_ret),
         ("ML+Micro disagree", disagree, disagree_ret),
@@ -168,7 +167,7 @@ def analyze(bars):
         print(f"{name:<22} {hr*100:>9.1f}% {total:>6d} {avg_r:>9.4f}%")
 
     # 4. Volume spike interaction
-    print(f"\n--- Volume Spike Interaction ---")
+    print("\n--- Volume Spike Interaction ---")
     vol_spikes = [bars[i]['vol_spike'] for i in range(n)]
     for vol_thresh in [1.5, 2.0, 3.0]:
         high_vol = [(signals['micro'][i], returns[i])
@@ -184,7 +183,7 @@ def analyze(bars):
                   f"  |  < {vol_thresh}: {hr_low*100:.1f}% (n={n_low})")
 
     # 5. Signal correlation with returns
-    print(f"\n--- Signal-Return Correlation ---")
+    print("\n--- Signal-Return Correlation ---")
     for name, sig in signals.items():
         active = [(s, r) for s, r in zip(sig, returns) if abs(s) > 1e-9]
         if len(active) < 10:

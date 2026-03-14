@@ -22,13 +22,9 @@ Integrates with:
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
-from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from alpha.ic_monitor import ICMonitor
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, Optional, Sequence
+from typing import Optional, Sequence
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +88,6 @@ def compute_metrics(
     peak = 1.0
     equity = 1.0
     max_dd = 0.0
-    dd_start = 0
     max_dd_duration = 0
     current_dd_start = 0
 

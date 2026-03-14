@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Dict, List, Set
+from typing import Any, List, Set
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
@@ -14,7 +14,6 @@ from engine.execution_bridge import ExecutionBridge
 from attribution.tracker import AttributionTracker
 from risk.correlation_computer import CorrelationComputer
 from risk.correlation_gate import CorrelationGate, CorrelationGateConfig
-from risk.decisions import RiskAction
 
 
 # ── Helpers ──────────────────────────────────────────────────

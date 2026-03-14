@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,6 @@ class VWAPOrder:
 
 def _default_volume_profile(n_slices: int) -> List[float]:
     """Default U-shaped volume profile (high at open/close, low mid-day)."""
-    import math
     profile = []
     for i in range(n_slices):
         x = (i / max(n_slices - 1, 1)) * 2 - 1  # -1 to 1

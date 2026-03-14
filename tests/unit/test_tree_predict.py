@@ -1,8 +1,6 @@
 """Tests for RustTreePredictor — LightGBM/XGBoost native Rust inference."""
 import json
 import math
-import tempfile
-from pathlib import Path
 
 import pytest
 

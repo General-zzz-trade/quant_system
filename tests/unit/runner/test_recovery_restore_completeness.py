@@ -12,11 +12,9 @@ Validates that the recovery chain in live_runner.py is complete:
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from runner.recovery import (
     restore_exit_manager_state,

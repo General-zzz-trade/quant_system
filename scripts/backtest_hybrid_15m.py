@@ -18,7 +18,6 @@ import json
 import pickle
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +28,7 @@ sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from scripts.signal_postprocess import rolling_zscore, should_exit_position
 from decision.hybrid_15m_executor import (
-    Hybrid15mExecutor, MicroTiming, _Bar15m, _BarAccumulator,
+    Hybrid15mExecutor, _Bar15m,
 )
 
 COST_BPS_RT = 4
@@ -115,7 +114,7 @@ def backtest_baseline_1h(
     train_end_1h, deadzone, min_hold, max_hold, long_only,
 ):
     """Baseline: 1h model on 1h bars (current system)."""
-    n_test = len(df_1h) - train_end_1h
+    len(df_1h) - train_end_1h
     closes = df_1h["close"].values[train_end_1h:]
     feature_names_all = list(feat_df_1h.columns)
 
@@ -234,7 +233,7 @@ def backtest_hybrid(
             entry_reasons[reason] = entry_reasons.get(reason, 0) + 1
 
         elif event["action"] == "exit":
-            exit_price = event["price"]
+            event["price"]
             reason = event["reason"]
             exit_reasons[reason] = exit_reasons.get(reason, 0) + 1
 
@@ -416,11 +415,11 @@ def run_comparison(symbol: str):
     # Print entry/exit reason breakdown for best hybrid
     best_hybrid = max(results_hybrid, key=lambda r: r["sharpe"])
     if best_hybrid.get("entry_reasons"):
-        print(f"\n  Best hybrid entry reasons:")
+        print("\n  Best hybrid entry reasons:")
         for reason, count in sorted(best_hybrid["entry_reasons"].items(), key=lambda x: -x[1]):
             print(f"    {reason}: {count}")
     if best_hybrid.get("exit_reasons"):
-        print(f"  Best hybrid exit reasons:")
+        print("  Best hybrid exit reasons:")
         for reason, count in sorted(best_hybrid["exit_reasons"].items(), key=lambda x: -x[1]):
             print(f"    {reason}: {count}")
 

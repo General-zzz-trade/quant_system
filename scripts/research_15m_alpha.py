@@ -16,7 +16,7 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -185,7 +185,7 @@ def research_symbol(symbol: str) -> Dict[str, Any]:
             best_horizons.append((h, mean_ic))
 
     # ── Step 3: Train LightGBM for best horizons ──
-    print(f"\n  Step 3: Training LightGBM models")
+    print("\n  Step 3: Training LightGBM models")
 
     # Split: last 6 months OOS
     bars_per_month = 96 * 30  # 96 15m bars/day × 30 days
@@ -270,7 +270,6 @@ def research_symbol(symbol: str) -> Dict[str, Any]:
 
         # Sweep deadzone
         best_sharpe = -999
-        best_dz = 0.3
         best_result = None
 
         for dz in [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0]:
@@ -283,7 +282,6 @@ def research_symbol(symbol: str) -> Dict[str, Any]:
                         )
                         if r["sharpe"] > best_sharpe and r["trades"] >= 10:
                             best_sharpe = r["sharpe"]
-                            best_dz = dz
                             best_result = r
                             best_params = {"dz": dz, "min_hold": mh, "max_hold": maxh, "long_only": lo}
 
@@ -294,7 +292,7 @@ def research_symbol(symbol: str) -> Dict[str, Any]:
                   f"WR={best_result['win_rate']}%, ret={best_result['return']:+.2f}%")
             print(f"    Avg hold: {best_result['avg_hold_hours']:.1f}h, avg net: {best_result['avg_net_bps']:.1f}bps")
         else:
-            print(f"    No viable config found")
+            print("    No viable config found")
             best_result = {"sharpe": 0, "trades": 0}
 
         results[h] = {
@@ -328,25 +326,25 @@ def research_symbol(symbol: str) -> Dict[str, Any]:
             f"{r.get('avg_hold_hours', 0):>7.1f}h"
         )
 
-    print(f"\n  Comparison with 1h baseline:")
+    print("\n  Comparison with 1h baseline:")
     print(f"  - 1h model: trained on {symbol}_1h.csv, ~{n//96:,} days of 15m ≈ {n//96//30:.0f} months")
-    print(f"  - 15m: 4x more bars, potentially 4x more trades")
-    print(f"  - Cost impact: same 4bps RT per trade")
+    print("  - 15m: 4x more bars, potentially 4x more trades")
+    print("  - Cost impact: same 4bps RT per trade")
 
     # Verdict
     viable = [h for h, info in results.items()
               if info["oos_ic"] > 0.01 and info["best_result"].get("sharpe", 0) > 1.0]
     if viable:
         print(f"\n  VERDICT: 15m alpha EXISTS for horizons {viable}")
-        print(f"  Recommended: train dedicated 15m models")
+        print("  Recommended: train dedicated 15m models")
     else:
         marginal = [h for h, info in results.items() if info["oos_ic"] > 0.005]
         if marginal:
             print(f"\n  VERDICT: Marginal 15m alpha for {marginal}")
-            print(f"  Recommended: use 1h signal with 15m execution timing")
+            print("  Recommended: use 1h signal with 15m execution timing")
         else:
-            print(f"\n  VERDICT: No significant 15m alpha found")
-            print(f"  Recommended: stay on 1h timeframe")
+            print("\n  VERDICT: No significant 15m alpha found")
+            print("  Recommended: stay on 1h timeframe")
 
     return results
 

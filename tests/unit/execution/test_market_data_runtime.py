@@ -2,13 +2,11 @@
 """Tests for BinanceMarketDataRuntime."""
 from __future__ import annotations
 
-import threading
 import time
 from types import SimpleNamespace
 from typing import Any, List, Optional
 from unittest.mock import MagicMock
 
-import pytest
 
 from execution.adapters.binance.market_data_runtime import BinanceMarketDataRuntime
 

@@ -15,7 +15,6 @@ Key parameters (from backtest optimization):
 """
 from __future__ import annotations
 
-import json
 import logging
 import pickle
 from collections import deque
@@ -23,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Deque, Dict, List, Mapping, Optional
 
 import numpy as np
 
@@ -238,7 +237,7 @@ class MultiTimeframeSignal:
         try:
             lgbm_path = model_dir / "lgbm_v8.pkl"
             xgb_path = model_dir / "xgb_v8.pkl"
-            config_path = model_dir / "config.json"
+            model_dir / "config.json"
 
             if not lgbm_path.exists():
                 logger.warning("4h model not found at %s", model_dir)

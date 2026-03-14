@@ -2,16 +2,13 @@
 """Tests for RebalanceModule — DecisionModule that rebalances towards target weights."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Mapping, Optional
 
 import pytest
 
 from decision.rebalancing.module import RebalanceModule
-from decision.rebalancing.schedule import AlwaysRebalance, TimeIntervalSchedule
 
 
 # ── Stubs ────────────────────────────────────────────────────────

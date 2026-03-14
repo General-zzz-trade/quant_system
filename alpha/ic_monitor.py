@@ -5,7 +5,6 @@ Uses EMA-based Spearman IC approximation for online computation.
 from __future__ import annotations
 
 from collections import deque
-from typing import Optional
 
 import numpy as np
 

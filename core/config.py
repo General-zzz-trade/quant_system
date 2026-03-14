@@ -12,9 +12,8 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, List, Mapping, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 
 T = TypeVar("T")
 

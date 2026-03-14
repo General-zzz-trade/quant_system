@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Sequence
 
-from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+from execution.adapters.binance.rest import BinanceRestClient
 
 
 class BinanceUmRestClient:

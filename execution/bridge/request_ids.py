@@ -7,7 +7,6 @@ from _quant_hotpath import (
     rust_sanitize as _rust_sanitize,
     rust_short_hash as _rust_short_hash,
     rust_make_idempotency_key as _rust_make_idempotency_key,
-    rust_client_order_id as _rust_client_order_id,
 )
 
 

@@ -12,7 +12,7 @@ from datetime import datetime as _datetime_type
 from engine.dispatcher import EventDispatcher, Route
 from engine.pipeline import (
     PipelineConfig, PipelineInput, PipelineOutput, StatePipeline,
-    _detect_kind, _LazyConvertMapping, _build_snapshot,
+    _detect_kind, _build_snapshot,
 )
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge

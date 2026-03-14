@@ -31,10 +31,6 @@ import pandas as pd
 
 from features.multi_resolution import (
     compute_multi_resolution_features,
-    get_all_feature_names,
-    FAST_FEATURE_NAMES,
-    SLOW_FEATURE_NAMES,
-    SLOW_4H_FEATURE_NAMES,
 )
 from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
 

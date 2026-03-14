@@ -14,7 +14,7 @@ from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from event.header import EventHeader
-from event.types import EventType, FillEvent, MarketEvent, OrderEvent
+from event.types import EventType, MarketEvent, OrderEvent
 from execution.sim.replay_adapter import ReplayExecutionAdapter
 from runner.replay_runner import run_replay_from_events
 
@@ -86,7 +86,7 @@ class ThresholdDecisionModule:
 
 def _market_events(symbol: str = "BTCUSDT") -> list[MarketEvent]:
     """Generate a price sequence that triggers buy then sell."""
-    base_ts = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+    datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
     prices = [
         # bar 0: close=100, no action (below buy threshold)
         (Decimal("100"), Decimal("100.2"), Decimal("99.8"), Decimal("100"), Decimal("10")),

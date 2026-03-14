@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from alpha.v11_config import ExitConfig, RegimeGateConfig, TimeFilterConfig, V11Config
+from alpha.v11_config import RegimeGateConfig, TimeFilterConfig, V11Config
 
 
 class TestV11ConfigDefaults:

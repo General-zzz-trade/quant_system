@@ -7,7 +7,7 @@ run within the decision engine itself.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol, Sequence, Tuple
 
 from state.snapshot import StateSnapshot

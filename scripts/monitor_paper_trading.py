@@ -171,7 +171,7 @@ def _format_report(name: str, cfg: dict, stats: dict) -> str:
 
     # Pollers
     if stats["pollers"]:
-        lines.append(f"\n  Pollers (last seen):")
+        lines.append("\n  Pollers (last seen):")
         for name_p, ts in sorted(stats["pollers"].items()):
             lines.append(f"    {name_p}: {ts}")
 

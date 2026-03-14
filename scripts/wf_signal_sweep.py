@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,7 +28,6 @@ from scripts.walkforward_validate import (
     run_fold,
     stitch_results,
     print_report,
-    DEADZONE,
     MIN_HOLD,
     HPO_TRIALS,
 )
@@ -142,7 +140,7 @@ def main() -> None:
     print(f"\n  Signal Sweep: {symbol}  ({n_bars:,} bars)")
     print(f"  HPO: {'ON' if use_hpo else 'OFF'}"
           f"{f' ({hpo_trials} trials)' if use_hpo else ''}")
-    print(f"  Mode: long-only")
+    print("  Mode: long-only")
 
     folds = generate_wf_folds(n_bars)
     if not folds:
@@ -347,7 +345,7 @@ def main() -> None:
             best_max_hold = best_4b["max_hold"]
             print(f"\n  Best max_hold: {best_max_hold}")
         else:
-            print(f"\n  No trend hold config beat baseline — trend hold disabled")
+            print("\n  No trend hold config beat baseline — trend hold disabled")
             best_trend_follow = False
 
     # ── Final summary ────────────────────────────────────────
@@ -364,18 +362,18 @@ def main() -> None:
         best = best_cs_row["summary"]
         best_fold_results = best_cs_row["fold_results"]
     print(f"\n{'='*75}")
-    print(f"  BEST CONFIG")
+    print("  BEST CONFIG")
     print(f"{'='*75}")
     print(f"  deadzone:          {best_deadzone}")
     print(f"  min_hold:          {best_min_hold}")
     print(f"  continuous_sizing: {best_continuous}")
     if best_trend_follow:
-        print(f"  trend_follow:      True")
+        print("  trend_follow:      True")
         print(f"  trend_indicator:   {best_trend_indicator}")
         print(f"  trend_threshold:   {best_trend_threshold}")
         print(f"  max_hold:          {best_max_hold}")
     else:
-        print(f"  trend_follow:      False")
+        print("  trend_follow:      False")
     print(f"  positive_sharpe:   {best['positive_sharpe']}/{best['n_folds']}")
     print(f"  avg_sharpe:        {best['avg_sharpe']:+.2f}")
     print(f"  total_return:      {best['total_return']*100:+.2f}%")

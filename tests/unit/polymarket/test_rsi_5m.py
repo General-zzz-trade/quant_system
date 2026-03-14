@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import pytest
-import numpy as np
 
 from polymarket.strategies.rsi_5m import RSI5mStrategy, RSI5mSignal
 from polymarket.strategies.runner_5m import PolymarketRSI5mRunner, Runner5mConfig

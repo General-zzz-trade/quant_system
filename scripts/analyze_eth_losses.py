@@ -7,10 +7,12 @@ holding period, volatility, win-streak overconfidence, loss clustering,
 and monthly IC decay.
 """
 from __future__ import annotations
-import sys, json, pickle, time
+import sys
+import json
+import pickle
+import time
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
@@ -392,7 +394,7 @@ def main():
               f"${s['net']:>+9.2f} ${s['gross_loss']:>+10.2f}")
 
     # Separate analysis: losers only by regime
-    print(f"\n  Losers by regime:")
+    print("\n  Losers by regime:")
     loser_regime = {}
     for t in losers:
         trend, vol_r = classify_regime(t.entry_bar)
@@ -426,7 +428,7 @@ def main():
         hour_stats[h]["net"] += t.net_pnl
         dow_stats[d]["net"] += t.net_pnl
 
-    print(f"\n  Hour-of-day (UTC):")
+    print("\n  Hour-of-day (UTC):")
     print(f"  {'Hour':>6s} {'Wins':>5s} {'Loss':>5s} {'WR%':>6s} {'Net$':>10s}")
     print(f"  {'─'*35}")
     for h in range(24):
@@ -439,7 +441,7 @@ def main():
         print(f"  {h:>6d} {s['wins']:>5d} {s['losses']:>5d} {wr:>5.1f}% ${s['net']:>+9.2f}{marker}")
 
     dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    print(f"\n  Day-of-week:")
+    print("\n  Day-of-week:")
     print(f"  {'Day':>6s} {'Wins':>5s} {'Loss':>5s} {'WR%':>6s} {'Net$':>10s}")
     print(f"  {'─'*35}")
     for d in range(7):
@@ -473,7 +475,7 @@ def main():
               f"${np.mean(net_arr):>+8.2f} ${sum(net_arr):>+9.2f} ${np.mean(gross_arr):>+9.2f}")
 
     # Specifically for losers
-    print(f"\n  Losers by z-score magnitude:")
+    print("\n  Losers by z-score magnitude:")
     for lo, hi in z_bins:
         bin_losers = [t for t in losers if lo <= abs(t.z_at_entry) < hi]
         if not bin_losers:
@@ -626,7 +628,7 @@ def main():
         print(f"\n  Worst month: {worst_month} (${worst_month_net:+.2f})")
 
     # Consecutive losing trades
-    print(f"\n  Consecutive losing streaks:")
+    print("\n  Consecutive losing streaks:")
     streak = 0
     max_streak = 0
     max_streak_loss = 0.0
@@ -652,7 +654,7 @@ def main():
 
     if streaks:
         streak_lens = [s[0] for s in streaks]
-        streak_losses = [s[1] for s in streaks]
+        [s[1] for s in streaks]
         print(f"    Total losing streaks: {len(streaks)}")
         print(f"    Max consecutive losses: {max_streak} (total ${max_streak_loss:+.2f})")
         print(f"    Avg streak length: {np.mean(streak_lens):.1f}")
@@ -731,7 +733,7 @@ def main():
         print(f" {ens_ic:>+7.4f}{marker} {n_bars_month:>6d}")
 
     # IC summary
-    print(f"\n  IC summary (* = weak IC < 0.02):")
+    print("\n  IC summary (* = weak IC < 0.02):")
     for key in horizon_labels + ["ensemble"]:
         vals = [v for v in monthly_ics[key] if not np.isnan(v)]
         if vals:
@@ -787,7 +789,7 @@ def main():
         mod_wr = sum(1 for t in moderate_z_trades if t.net_pnl > 0) / len(moderate_z_trades) * 100
         ext_avg = np.mean([t.net_pnl for t in extreme_z_trades])
         mod_avg = np.mean([t.net_pnl for t in moderate_z_trades])
-        print(f"\n  3. Z-SCORE EFFECT:")
+        print("\n  3. Z-SCORE EFFECT:")
         print(f"     Extreme (|z|>1.5): {len(extreme_z_trades)} trades, WR={ext_wr:.1f}%, avg=${ext_avg:+.2f}")
         print(f"     Moderate (0.5-1.0): {len(moderate_z_trades)} trades, WR={mod_wr:.1f}%, avg=${mod_avg:+.2f}")
 
@@ -799,7 +801,7 @@ def main():
         lh_wr = sum(1 for t in long_holds if t.net_pnl > 0) / len(long_holds) * 100
         sh_avg = np.mean([t.net_pnl for t in short_holds])
         lh_avg = np.mean([t.net_pnl for t in long_holds])
-        print(f"\n  4. HOLDING PERIOD EFFECT:")
+        print("\n  4. HOLDING PERIOD EFFECT:")
         print(f"     Short (<=24h): {len(short_holds)} trades, WR={sh_wr:.1f}%, avg=${sh_avg:+.2f}")
         print(f"     Long (>=72h): {len(long_holds)} trades, WR={lh_wr:.1f}%, avg=${lh_avg:+.2f}")
 
@@ -809,7 +811,7 @@ def main():
     if longs and shorts:
         l_wr = sum(1 for t in longs if t.net_pnl > 0) / len(longs) * 100
         s_wr = sum(1 for t in shorts if t.net_pnl > 0) / len(shorts) * 100
-        print(f"\n  5. DIRECTION BIAS:")
+        print("\n  5. DIRECTION BIAS:")
         print(f"     Longs: {len(longs)} trades, WR={l_wr:.1f}%, net=${sum(t.net_pnl for t in longs):+.2f}")
         print(f"     Shorts: {len(shorts)} trades, WR={s_wr:.1f}%, net=${sum(t.net_pnl for t in shorts):+.2f}")
 
@@ -818,7 +820,7 @@ def main():
     if len(ens_ics) >= 4:
         first_half = ens_ics[:len(ens_ics)//2]
         second_half = ens_ics[len(ens_ics)//2:]
-        print(f"\n  6. ALPHA DECAY:")
+        print("\n  6. ALPHA DECAY:")
         print(f"     First half IC: {np.mean(first_half):+.4f}")
         print(f"     Second half IC: {np.mean(second_half):+.4f}")
         decay = np.mean(second_half) - np.mean(first_half)
@@ -829,12 +831,12 @@ def main():
         streak_losers = [t for t in losers if t.prior_wins_streak >= 3]
         cold_losers = [t for t in losers if t.prior_wins_streak == 0]
         if streak_losers and cold_losers:
-            print(f"\n  7. OVERCONFIDENCE AFTER WINS:")
+            print("\n  7. OVERCONFIDENCE AFTER WINS:")
             print(f"     After 3+ wins: {len(streak_losers)} losses, avg=${np.mean([t.net_pnl for t in streak_losers]):+.2f}")
             print(f"     After 0 wins:  {len(cold_losers)} losses, avg=${np.mean([t.net_pnl for t in cold_losers]):+.2f}")
 
     # 8. Loss clustering
-    print(f"\n  8. LOSS CLUSTERING:")
+    print("\n  8. LOSS CLUSTERING:")
     print(f"     Max consecutive losses: {max_streak}")
     print(f"     Worst month: {worst_month} (${worst_month_net:+.2f})")
     neg_month_count = sum(1 for m in monthly.values() if m["net"] < 0)
@@ -843,7 +845,7 @@ def main():
     # 9. Cost impact
     total_cost = sum(t.cost_trading + t.cost_funding for t in trades)
     trades_that_would_win = [t for t in losers if t.gross_pnl > 0]
-    print(f"\n  9. COST IMPACT:")
+    print("\n  9. COST IMPACT:")
     print(f"     Total costs: ${total_cost:+.2f}")
     print(f"     Losers whose GROSS was positive (killed by costs): {len(trades_that_would_win)}")
     if trades_that_would_win:

@@ -10,7 +10,6 @@ from execution.adapters.binance.schemas import (
     POS_AMT,
     POS_ENTRY_PRICE,
     POS_LEVERAGE,
-    POS_SIDE,
     POS_SYMBOL,
     POS_UNREALIZED,
 )

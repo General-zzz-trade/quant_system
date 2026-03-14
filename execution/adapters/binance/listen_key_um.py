@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from execution.adapters.binance.rest import (
     BinanceRestClient,
-    BinanceNonRetryableError,
 )
 
 

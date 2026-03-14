@@ -20,9 +20,14 @@ Usage:
     python3 -m scripts.train_4h_production --symbol BTCUSDT --no-hpo
 """
 from __future__ import annotations
-import sys, time, json, pickle, logging, argparse
+import sys
+import time
+import json
+import pickle
+import logging
+import argparse
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -34,7 +39,7 @@ from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
 from scripts.signal_postprocess import should_exit_position
 from scripts.train_v7_alpha import (
-    V7_DEFAULT_PARAMS, V7_SEARCH_SPACE, INTERACTION_FEATURES, BLACKLIST,
+    V7_SEARCH_SPACE, INTERACTION_FEATURES, BLACKLIST,
 )
 from infra.model_signing import sign_file
 
@@ -394,7 +399,7 @@ def walk_forward(
 
         # Evaluate fold
         y_te = y_full[te_start:te_end]
-        valid_te = ~np.isnan(y_te)
+        ~np.isnan(y_te)
         ic = fast_ic(pred, y_te)
 
         c_te = closes[te_start:te_end]
@@ -453,7 +458,7 @@ def main() -> None:
     print(f"\n{'='*65}")
     print(f"  4H PRODUCTION TRAINING: {symbol}")
     print(f"{'='*65}")
-    print(f"  Pipeline: V8-level (ensemble LGBM+XGB, HPO, bootstrap)")
+    print("  Pipeline: V8-level (ensemble LGBM+XGB, HPO, bootstrap)")
     print(f"  Horizon: {HORIZON} bars = {HORIZON * 4}h")
     print(f"  Long-only: {long_only}")
     print(f"  Features: {len(FIXED_FEATURES)} fixed + {N_FLEXIBLE} flexible")
@@ -497,7 +502,7 @@ def main() -> None:
         print(f"  Loading 1m data from {data_path}...")
         df_1m = pd.read_csv(data_path)
         print(f"  Loaded {len(df_1m):,} 1m bars")
-        print(f"  Resampling to 4h...")
+        print("  Resampling to 4h...")
         df_4h = resample_1m_to_4h(df_1m)
 
     n_bars = len(df_4h)
@@ -509,7 +514,7 @@ def main() -> None:
         return
 
     # ── Compute features ──────────────────────────────────
-    print(f"  Computing features...")
+    print("  Computing features...")
     t0 = time.time()
     feat_df, feature_names = compute_4h_features(symbol, df_4h)
     closes = df_4h["close"].values.astype(np.float64)
@@ -518,7 +523,7 @@ def main() -> None:
           f" ({len(feature_names)} features, {n_bars} bars)")
 
     # ── IC scan across horizons ───────────────────────────
-    print(f"\n  IC scan (top features per horizon):")
+    print("\n  IC scan (top features per horizon):")
     for h in [3, 6, 12, 24]:
         y_h = compute_target(closes, h)
         ics = []
@@ -537,7 +542,7 @@ def main() -> None:
 
     # ── Walk-forward validation ───────────────────────────
     print(f"\n  {'='*65}")
-    print(f"  WALK-FORWARD VALIDATION")
+    print("  WALK-FORWARD VALIDATION")
     print(f"  {'='*65}")
 
     # Test multiple deadzone/param combos
@@ -596,7 +601,7 @@ def main() -> None:
                   f"trades={fd['trades']}, net={marker}{fd['net_pnl_pct']:.1f}%")
 
     # ── Feature selection on training data ────────────────
-    print(f"\n  Feature selection...")
+    print("\n  Feature selection...")
     y_train_full = compute_target(closes[:split], HORIZON)
     X_train_full = feat_df[feature_names].values[:split].astype(np.float64)
 
@@ -674,7 +679,7 @@ def main() -> None:
             print(f"  HPO failed: {e}, using walk-forward best params")
 
     # ── Train LGBM ────────────────────────────────────────
-    print(f"\n  Training LGBM...")
+    print("\n  Training LGBM...")
     import lightgbm as lgb
     lgb_params = {**params, "objective": "regression", "verbosity": -1}
     dtrain = lgb.Dataset(X_train_sel, label=y_train)
@@ -685,7 +690,7 @@ def main() -> None:
     print(f"  LGBM: {lgbm_bst.num_trees()} trees")
 
     # ── Train XGB ─────────────────────────────────────────
-    print(f"  Training XGB...")
+    print("  Training XGB...")
     import xgboost as xgb
     xgb_params = {
         "max_depth": params.get("max_depth", 5),
@@ -702,7 +707,7 @@ def main() -> None:
 
     # ── Ensemble ──────────────────────────────────────────
     y_pred = 0.5 * lgbm_pred + 0.5 * xgb_pred
-    print(f"  Ensemble: 0.5 × LGBM + 0.5 × XGB")
+    print("  Ensemble: 0.5 × LGBM + 0.5 × XGB")
 
     # ── OOS Evaluation ────────────────────────────────────
     y_oos = compute_target(oos_closes, HORIZON)
@@ -727,7 +732,7 @@ def main() -> None:
     print(f"  Active bars:         {metrics['n_active_bars']}/{metrics['n_total_bars']}")
 
     if metrics["monthly_returns"]:
-        print(f"\n  Monthly returns:")
+        print("\n  Monthly returns:")
         for i, r in enumerate(metrics["monthly_returns"]):
             marker = "+" if r > 0 else " "
             print(f"    Month {i+1:2d}: {marker}{r*100:+.2f}%")
@@ -744,7 +749,7 @@ def main() -> None:
     all_pass = all(checks.values())
 
     print(f"\n  {'='*65}")
-    print(f"  PRODUCTION READINESS")
+    print("  PRODUCTION READINESS")
     print(f"  {'='*65}")
     for desc, passed in checks.items():
         print(f"    {'PASS' if passed else 'FAIL'}: {desc}")
@@ -815,7 +820,7 @@ def main() -> None:
     with open(out_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2, default=str)
 
-    print(f"  Saved: lgbm_v8.pkl, xgb_v8.pkl, lgbm_4h.json, config.json")
+    print("  Saved: lgbm_v8.pkl, xgb_v8.pkl, lgbm_4h.json, config.json")
 
     # ── Compare with 1h V8 ────────────────────────────────
     v8_1h_path = Path(f"models_v8/{symbol}_gate_v2/config.json")
@@ -826,7 +831,7 @@ def main() -> None:
             v8_1h = json.load(f)
         v8m = v8_1h.get("metrics", {})
         print(f"\n  {'='*65}")
-        print(f"  COMPARISON: 4h vs 1h V8")
+        print("  COMPARISON: 4h vs 1h V8")
         print(f"  {'='*65}")
         print(f"  {'Metric':<25s} {'4h':>10s} {'1h':>10s}")
         print(f"  {'-'*45}")
@@ -864,9 +869,9 @@ def main() -> None:
 
     if all_pass:
         print(f"\n  Production model ready at {out_dir}/")
-        print(f"  Next: paper trading validation")
+        print("  Next: paper trading validation")
     else:
-        print(f"\n  Model did not pass all checks. Review metrics.")
+        print("\n  Model did not pass all checks. Review metrics.")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,6 @@ from scripts.backtest_alpha_v8 import (
     _apply_monthly_gate,
     _compute_bear_mask,
     _pred_to_signal,
-    _prob_to_score,
 )
 
 # ── Fixtures ──────────────────────────────────────────────────
@@ -381,7 +380,7 @@ class TestPerformance:
             sig_trade = sig[:len(ret_1bar)]
             turnover = np.abs(np.diff(sig_trade, prepend=0))
             cost = turnover * 6e-4
-            net = sig_trade * ret_1bar - cost
+            sig_trade * ret_1bar - cost
         py_ms = (time.perf_counter() - t0) / 3 * 1000
 
         speedup = py_ms / max(cpp_ms, 0.001)

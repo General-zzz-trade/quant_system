@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Iterable, List, Mapping, Optional, Sequence, Union
 
 Number = Union[int, float]
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Callable, DefaultDict, Iterable, List, Optional, Type
+from typing import Callable, DefaultDict, List, Optional, Type
 
 from event.types import BaseEvent
 

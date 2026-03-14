@@ -176,7 +176,7 @@ class TestAlphaDecayMonitor:
         # Feed mediocre returns → Sharpe drops
         for _ in range(20):
             monitor.record_return("strat", 0.001)
-        alerts = monitor.check()
+        monitor.check()
         # Exact alerts depend on computed Sharpe vs baseline
 
     def test_critical_on_severe_decay(self):
@@ -198,7 +198,7 @@ class TestAlphaDecayMonitor:
         monitor.set_baseline("strat", 3.0)
         for _ in range(20):
             monitor.record_return("strat", -0.01)
-        alerts1 = monitor.check()
+        monitor.check()
         alerts2 = monitor.check()
         # Second check should not re-emit same severity
         assert len(alerts2) == 0

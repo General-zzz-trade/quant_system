@@ -11,10 +11,13 @@ Usage:
     python3 -m scripts.backtest_multi_tf_full
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 
@@ -247,13 +250,13 @@ def run_backtest(
 def analyze(result: Dict[str, Any], timestamps: np.ndarray, label: str) -> Dict[str, Any]:
     """Print detailed analysis."""
     trades = result["trades"]
-    lev_hist = result["leverage_history"]
+    result["leverage_history"]
 
     if not trades:
         print(f"\n  [{label}] No trades.")
         return {}
 
-    gross = np.array([t.gross_pnl for t in trades])
+    np.array([t.gross_pnl for t in trades])
     net = np.array([t.net_pnl for t in trades])
     holds = np.array([t.hold_bars for t in trades])
     levs = np.array([t.leverage for t in trades])
@@ -313,7 +316,7 @@ def analyze(result: Dict[str, Any], timestamps: np.ndarray, label: str) -> Dict[
     print(f"  Final Equity: ${result['final_equity']:,.0f}")
 
     # Leverage stats
-    print(f"\n  Leverage Distribution:")
+    print("\n  Leverage Distribution:")
     print(f"    Mean: {np.mean(levs):.2f}x   Median: {np.median(levs):.2f}x   "
           f"Min: {np.min(levs):.2f}x   Max: {np.max(levs):.2f}x")
     for lo, hi in [(2.0, 2.25), (2.25, 2.5), (2.5, 2.75), (2.75, 3.01)]:
@@ -323,7 +326,7 @@ def analyze(result: Dict[str, Any], timestamps: np.ndarray, label: str) -> Dict[
         print(f"    {lo:.2f}–{hi:.2f}x: {count:>3d} ({pct:>5.1f}%) {bar}")
 
     # Leverage vs outcome
-    print(f"\n  Leverage vs Outcome:")
+    print("\n  Leverage vs Outcome:")
     lev_mid = np.median(levs)
     low_lev = [t for t in trades if t.leverage < lev_mid]
     high_lev = [t for t in trades if t.leverage >= lev_mid]
@@ -357,12 +360,12 @@ def analyze(result: Dict[str, Any], timestamps: np.ndarray, label: str) -> Dict[
 
     # Top / bottom trades
     sorted_trades = sorted(trades, key=lambda t: t.net_pnl)
-    print(f"\n  Bottom 5 trades:")
+    print("\n  Bottom 5 trades:")
     for t in sorted_trades[:5]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%Y-%m-%d %H:%M")
         print(f"    {ts}  L @ ${t.entry_price:,.0f}  hold={t.hold_bars}h  "
               f"lev={t.leverage:.2f}x  z={t.z_blend:+.2f}  net=${t.net_pnl:+.1f}")
-    print(f"  Top 5 trades:")
+    print("  Top 5 trades:")
     for t in sorted_trades[-5:]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%Y-%m-%d %H:%M")
         print(f"    {ts}  L @ ${t.entry_price:,.0f}  hold={t.hold_bars}h  "
@@ -458,7 +461,6 @@ def main():
 
     # ── Load models ──
     print("\n[3] Loading models...")
-    import lightgbm as lgb
     import xgboost as xgb
 
     # 1h model
@@ -626,7 +628,7 @@ def main():
               f"{s['pos_months']:>2d}/{s['total_months']}")
 
     # Risk-adjusted comparison
-    print(f"\n  Risk-Adjusted (Sharpe / MaxDD):")
+    print("\n  Risk-Adjusted (Sharpe / MaxDD):")
     for name, s in all_stats:
         if not s or s['max_dd'] == 0:
             continue
@@ -634,10 +636,10 @@ def main():
         bar = "█" * int(ratio * 5)
         print(f"    {name:<20s}: {ratio:.3f} {bar}")
 
-    print(f"\n  Key insight: Dynamic leverage targets higher leverage only when")
-    print(f"  signal is strong AND volatility is low — protecting capital during")
-    print(f"  turbulent markets while capturing more from high-conviction trades.")
-    print(f"\n  Done.")
+    print("\n  Key insight: Dynamic leverage targets higher leverage only when")
+    print("  signal is strong AND volatility is low — protecting capital during")
+    print("  turbulent markets while capturing more from high-conviction trades.")
+    print("\n  Done.")
 
 
 if __name__ == "__main__":

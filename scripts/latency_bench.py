@@ -19,7 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 # Pin to isolated CPU1
 try:
@@ -158,7 +158,7 @@ def run_bench(config_path: Path, num_bars: int, warmup_bars: int) -> None:
     base = 50000.0
 
     print(f"\n{'='*60}")
-    print(f"  LATENCY BENCHMARK")
+    print("  LATENCY BENCHMARK")
     print(f"{'='*60}")
     print(f"  Mode:       {mode_label}")
     print(f"  Symbols:    {', '.join(symbols)}")
@@ -169,7 +169,7 @@ def run_bench(config_path: Path, num_bars: int, warmup_bars: int) -> None:
     try:
         print(f"  Isolated:   {open('/sys/devices/system/cpu/isolated').read().strip()}")
     except FileNotFoundError:
-        print(f"  Isolated:   (not available)")
+        print("  Isolated:   (not available)")
     print(f"{'='*60}\n")
 
     gc.disable()
@@ -225,7 +225,7 @@ def run_bench(config_path: Path, num_bars: int, warmup_bars: int) -> None:
     _report("TOTAL (emit->return)", total_ns)
 
     # Histogram
-    print(f"\n  Latency distribution (us):")
+    print("\n  Latency distribution (us):")
     total_us = sorted([v / 1000.0 for v in total_ns])
     for b in [10, 25, 50, 75, 100, 150, 200, 300, 500, 1000, 2000]:
         cnt = sum(1 for v in total_us if v <= b)
@@ -235,7 +235,7 @@ def run_bench(config_path: Path, num_bars: int, warmup_bars: int) -> None:
 
     # Per-symbol
     if n_sym > 1:
-        print(f"\n  Per-symbol:")
+        print("\n  Per-symbol:")
         for si, sym in enumerate(symbols):
             st = timings[si::n_sym]
             _report(f"  {sym}", [t.t_end - t.t_start for t in st])
@@ -311,7 +311,7 @@ def run_compare(config_path: Path, num_bars: int, warmup_bars: int) -> None:
     events = _make_events(total)
 
     print(f"\n{'='*60}")
-    print(f"  LATENCY COMPARISON BENCHMARK")
+    print("  LATENCY COMPARISON BENCHMARK")
     print(f"{'='*60}")
     print(f"  Symbols:    {', '.join(symbols)}")
     print(f"  Warmup:     {warmup_bars} bars")
@@ -386,7 +386,7 @@ def run_compare(config_path: Path, num_bars: int, warmup_bars: int) -> None:
 
     # --- Report ---
     print(f"\n{'='*60}")
-    print(f"  RESULTS")
+    print("  RESULTS")
     print(f"{'='*60}\n")
     _report("Legacy (unified pred)", legacy_ns)
     _report("TickProcessor (Rust)", tp_ns)
@@ -399,7 +399,7 @@ def run_compare(config_path: Path, num_bars: int, warmup_bars: int) -> None:
         print(f"\n  Speedup: {speedup:.2f}x  (p50 savings: {savings:.0f} us)")
 
     # Histogram comparison
-    print(f"\n  Distribution comparison (us):")
+    print("\n  Distribution comparison (us):")
     print(f"    {'Bucket':>10s}  {'Legacy':>12s}  {'TickProc':>12s}")
     legacy_us = sorted([v / 1000.0 for v in legacy_ns])
     tp_us = sorted([v / 1000.0 for v in tp_ns])

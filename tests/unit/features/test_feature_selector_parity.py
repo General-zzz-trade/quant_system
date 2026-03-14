@@ -199,7 +199,7 @@ class TestEdgeCases:
         X = np.random.randn(200, 5)
         X[:, 2] = 1.0  # constant
         y = X[:, 0] * 0.5 + np.random.randn(200) * 0.3  # correlate with f0
-        names = _names(5)
+        _names(5)
 
         X_c = np.ascontiguousarray(X, dtype=np.float64)
         y_c = np.ascontiguousarray(y, dtype=np.float64)
@@ -214,7 +214,7 @@ class TestEdgeCases:
 
         X_c = np.ascontiguousarray(X, dtype=np.float64)
         y_c = np.ascontiguousarray(y, dtype=np.float64)
-        cpp_indices = cpp_spearman_ic_select(X_c, y_c, top_k=5, ic_window=200)
+        cpp_spearman_ic_select(X_c, y_c, top_k=5, ic_window=200)
         # Feature 3 should have IC=0 (not enough valid)
         # It may still appear in results with score 0
         # but should not be ranked above features with real IC

@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 

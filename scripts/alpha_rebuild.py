@@ -37,7 +37,6 @@ from alpha.models.lgbm_alpha import LGBMAlphaModel
 from alpha.models.xgb_alpha import XGBAlphaModel
 from alpha.training.regime_split import (
     apply_vol_regime,
-    compute_vol_regime,
     train_regime_models,
 )
 from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
@@ -45,21 +44,17 @@ from features.dynamic_selector import (
     greedy_ic_select,
     stable_icir_select,
     _rankdata,
-    _spearman_ic,
 )
-from features.enriched_computer import ENRICHED_FEATURE_NAMES
 from features.multi_timeframe import TF4H_FEATURE_NAMES
 from research.overfit_detection import deflated_sharpe_ratio
 
 # Reuse V7 infrastructure
 from scripts.train_v7_alpha import (
-    V7_DEFAULT_PARAMS,
     V7_SEARCH_SPACE,
     EARLY_STOPPING_ROUNDS,
     MIN_TRAIN,
     BLACKLIST,
     INTERACTION_FEATURES,
-    TARGET_MODES,
     _compute_target,
     _pred_to_signal,
     _compute_split_metrics,
@@ -431,9 +426,8 @@ def _evaluate_oos(
     ic_decay = h2["ic"] / h1["ic"] if abs(h1["ic"]) > 1e-6 else float("nan")
 
     # Monthly IC for consistency check
-    ts_col = None
     for col_name in ("open_time", "timestamp"):
-        oos_path = Path(f"data_files/{oos_feat_df.attrs.get('symbol', 'UNKNOWN')}_1h_oos.csv")
+        Path(f"data_files/{oos_feat_df.attrs.get('symbol', 'UNKNOWN')}_1h_oos.csv")
         break
     # Compute monthly breakdown from index position (720 bars ~ 1 month)
     monthly_ics = []
@@ -904,7 +898,7 @@ def step4_regime(
                 break
 
         if vol_col_idx is None:
-            print(f"    No vol_20 in features, skip regime test")
+            print("    No vol_20 in features, skip regime test")
             regime_winners[symbol] = "single"
             continue
 
@@ -1148,7 +1142,6 @@ def step6_final(
       - Bootstrap P(Sharpe > 0) > 0.75
     """
     from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
-    from research.hyperopt.search_space import SearchSpace, ParamRange
 
     print("\n" + "=" * 70)
     print("  STEP 6: Final Assembly")
@@ -1596,7 +1589,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     steps = set(args.steps)
 
-    print(f"\n  Alpha Rebuild Pipeline")
+    print("\n  Alpha Rebuild Pipeline")
     print(f"  Symbols: {symbols}")
     print(f"  Steps: {sorted(steps)}")
     print(f"  Output: {out_dir}")
@@ -1686,7 +1679,7 @@ def main() -> None:
 
     # ── Summary ──
     print(f"\n{'='*70}")
-    print(f"  Alpha Rebuild Complete")
+    print("  Alpha Rebuild Complete")
     print(f"  Total experiments: {runner.total_trials}")
     print(f"{'='*70}")
 

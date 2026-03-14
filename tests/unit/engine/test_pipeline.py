@@ -12,14 +12,12 @@ from engine.pipeline import (
     FactNormalizationError,
     PipelineConfig,
     PipelineInput,
-    PipelineOutput,
     StatePipeline,
     _detect_kind,
     normalize_to_facts,
 )
 from state.account import AccountState
 from state.market import MarketState
-from state.position import PositionState
 from _quant_hotpath import RustStateStore
 
 _SCALE = 100_000_000

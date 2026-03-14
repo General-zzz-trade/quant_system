@@ -87,7 +87,6 @@ def _run_live(events: list[MarketEvent], decision_modules=None) -> dict:
     )
 
     captured_orders = []
-    order_log = []
 
     if decision_modules is not None:
         def _price_source(sym):

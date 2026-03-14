@@ -19,7 +19,6 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +399,7 @@ def compute_cross_features_for_symbol(
 
     # ── Align BTC bars to symbol timestamps ──
     # For each symbol bar, find the BTC bar with matching timestamp
-    btc_ts_set = set(btc_timestamps.tolist())
+    set(btc_timestamps.tolist())
     btc_ts_to_idx = {int(t): i for i, t in enumerate(btc_timestamps)}
 
     btc_close_all = btc_df["close"].values.astype(np.float64)

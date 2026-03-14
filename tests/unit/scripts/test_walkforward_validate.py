@@ -3,7 +3,6 @@ from __future__ import annotations
 from unittest.mock import patch, MagicMock
 
 import numpy as np
-import pytest
 
 from scripts.walkforward_validate import (
     Fold,
@@ -16,9 +15,6 @@ from scripts.walkforward_validate import (
     _apply_trend_hold,
     _apply_vol_target,
     _enforce_min_hold,
-    WARMUP,
-    DEADZONE,
-    MIN_HOLD,
 )
 
 
@@ -264,7 +260,7 @@ class TestRunFoldFixedFeatures:
         mock_bst.predict.return_value = np.random.randn(n - 8000)
         mock_lgb_train.return_value = mock_bst
 
-        result = run_fold(fold, feat_df, closes, features, use_hpo=False)
+        run_fold(fold, feat_df, closes, features, use_hpo=False)
 
         # greedy called with all features, default TOP_K
         call_args = mock_greedy.call_args
@@ -482,12 +478,11 @@ class TestRunFoldSignalParams:
         self, mock_dataset, mock_lgb_train, mock_greedy
     ):
         """Continuous sizing values should be in [0, 1] range."""
-        from scripts.backtest_alpha_v8 import _pred_to_signal
 
         features = ["f1"]
         n = 10000
         feat_df, closes = self._make_data(n, features)
-        fold = Fold(idx=0, train_start=0, train_end=8000,
+        Fold(idx=0, train_start=0, train_end=8000,
                     test_start=8000, test_end=n)
 
         mock_greedy.return_value = ["f1"]

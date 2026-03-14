@@ -7,9 +7,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Dict, List, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class ModelTrainer:
                 y_train = y[train_start:train_end]
 
             X_val = X[val_start:val_end]
-            y_val = y[val_start:val_end]
+            y[val_start:val_end]
 
             if len(X_val) == 0:
                 break

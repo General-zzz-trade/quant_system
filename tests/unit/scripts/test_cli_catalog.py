@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from unittest.mock import patch
 
 from execution.store.event_log import SQLiteEventLog

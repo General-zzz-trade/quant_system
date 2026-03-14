@@ -2,15 +2,11 @@
 """Venue emulator — simulates venue API for integration testing."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 
-from execution.models.orders import CanonicalOrder
-from execution.models.fills import CanonicalFill
 from execution.sim.paper_broker import PaperBroker, PaperBrokerConfig
-from execution.sim.slippage import SlippageModel, NoSlippage
-from execution.sim.latency import LatencyModel, FixedLatency
+from execution.sim.slippage import SlippageModel
 
 
 class VenueEmulator:

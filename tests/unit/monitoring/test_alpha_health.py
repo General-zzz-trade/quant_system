@@ -1,9 +1,7 @@
 """Tests for AlphaHealthMonitor — IC-based alpha health tracking."""
-import pytest
 from monitoring.alpha_health import (
     AlphaHealthConfig,
     AlphaHealthMonitor,
-    AlphaHealthAlert,
 )
 
 
@@ -45,7 +43,7 @@ class TestAlphaHealthMonitor:
     def test_healthy_state(self):
         monitor = _make_monitor()
         _feed_data(monitor)
-        alerts = monitor.check("ETHUSDT")
+        monitor.check("ETHUSDT")
         # Positive IC → no alerts
         assert monitor.position_scale("ETHUSDT") == 1.0
 
@@ -128,7 +126,7 @@ class TestAlphaHealthMonitor:
         state.horizon_states[12].negative_streak_bars = 0
 
         alerts = monitor.check("ETHUSDT")
-        recovery = [a for a in alerts if a.alert_type == "ic_recovery"]
+        [a for a in alerts if a.alert_type == "ic_recovery"]
         # After check with positive IC and zero streak, should recover
         assert state.horizon_states[12].alert_level in ("ok", "warning")
 

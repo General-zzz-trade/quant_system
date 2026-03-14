@@ -6,11 +6,9 @@ import pytest
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from types import SimpleNamespace
-from typing import Any, ClassVar, Dict, List, Mapping, Optional
+from typing import Any, List, Optional
 
 from event.types import (
-    BaseEvent,
     ControlEvent,
     EventType,
     FillEvent,

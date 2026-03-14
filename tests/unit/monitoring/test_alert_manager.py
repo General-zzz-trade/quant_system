@@ -5,7 +5,6 @@ import time
 from typing import Any, List
 from unittest.mock import MagicMock
 
-import pytest
 
 from monitoring.alerts.base import Alert, Severity
 from monitoring.alerts.manager import AlertManager, AlertRule

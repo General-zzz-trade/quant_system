@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pickle
-import threading
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock

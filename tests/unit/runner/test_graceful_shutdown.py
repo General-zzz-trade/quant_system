@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import signal
-import sys
 import time
 import threading
 from unittest.mock import MagicMock, patch

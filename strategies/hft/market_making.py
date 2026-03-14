@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 

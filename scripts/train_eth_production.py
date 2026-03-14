@@ -11,9 +11,11 @@ Usage:
     python3 -m scripts.train_eth_production
 """
 from __future__ import annotations
-import sys, os, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
-from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
 
@@ -174,7 +176,9 @@ def main():
 
     # ── Optuna HPO ──
     print(f"\nOptuna HPO ({HPO_TRIALS} trials)...")
-    import optuna, lightgbm as lgb, xgboost as xgb
+    import optuna
+    import lightgbm as lgb
+    import xgboost as xgb
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def objective(trial):
@@ -363,7 +367,7 @@ def main():
 
         print(f"\n  Model saved to {MODEL_DIR}/")
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
 
     print(f"\n{'='*70}")
     print(f"SUMMARY: {SYMBOL} 1h V8")

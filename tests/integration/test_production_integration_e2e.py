@@ -177,7 +177,7 @@ class TestPortfolioRiskRejection:
         # Inject a large fake position into coordinator state
         # so gross notional already exceeds limits
         state_view = runner.coordinator.get_state_view()
-        positions = state_view.get("positions", {})
+        state_view.get("positions", {})
         # Directly set a position in the coordinator's internal state
         fake_position = SimpleNamespace(
             qty=10.0, mark_price=40000.0, entry_price=40000.0,

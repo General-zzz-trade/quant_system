@@ -11,10 +11,12 @@ Tests different parameter combinations:
   G. Kelly fraction sizing
 """
 from __future__ import annotations
-import sys, json, pickle, time
+import sys
+import json
+import pickle
+import time
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
@@ -262,7 +264,7 @@ def analyze_sim(name, trades, initial, final, equity_curve):
         sharpe = 0.0
 
     ret_pct = (final - initial) / initial * 100
-    total_months = len(trades) / max(len(trades), 1) * 18  # approx
+    len(trades) / max(len(trades), 1) * 18  # approx
 
     # Time to double
     eq = initial
@@ -299,7 +301,7 @@ def analyze_sim(name, trades, initial, final, equity_curve):
 
 def main():
     print("=" * 80)
-    print(f"  GROWTH SIMULATION: $140 → ? (ETH V10, 18-month OOS)")
+    print("  GROWTH SIMULATION: $140 → ? (ETH V10, 18-month OOS)")
     print("=" * 80)
 
     # ── Load data ──
@@ -421,13 +423,13 @@ def main():
     for sc in scenarios:
         t0 = time.time()
         trades, final_eq, eq_curve = run_sim(sc, z_oos, closes_oos)
-        elapsed = time.time() - t0
+        time.time() - t0
         stats = analyze_sim(sc.name, trades, INITIAL_EQUITY, final_eq, eq_curve)
         results.append(stats)
 
     # ── Results table ──
     print(f"\n{'='*100}")
-    print(f"  GROWTH COMPARISON: $140 初始资金 ETH 单品种 (18个月OOS, 复利)")
+    print("  GROWTH COMPARISON: $140 初始资金 ETH 单品种 (18个月OOS, 复利)")
     print(f"{'='*100}")
     print(f"\n  {'方案':<38s} {'Sharpe':>7s} {'#交易':>5s} {'WR':>5s} "
           f"{'终值$':>8s} {'回报%':>8s} {'MaxDD%':>7s} {'MaxDD$':>7s} "
@@ -446,7 +448,7 @@ def main():
 
     # ── Risk analysis ──
     print(f"\n{'='*100}")
-    print(f"  风险分析")
+    print("  风险分析")
     print(f"{'='*100}")
     print(f"\n  {'方案':<38s} {'最差单笔$':>10s} {'最差%':>7s} {'正月/负月':>10s} "
           f"{'爆仓风险':>8s}")
@@ -464,7 +466,7 @@ def main():
 
     # ── Recommendation ──
     print(f"\n{'='*100}")
-    print(f"  推荐方案")
+    print("  推荐方案")
     print(f"{'='*100}")
 
     # Find best risk-adjusted
@@ -485,7 +487,7 @@ def main():
 
     # Monthly equity path for top 3
     print(f"\n{'='*100}")
-    print(f"  月度权益曲线 (前3方案)")
+    print("  月度权益曲线 (前3方案)")
     print(f"{'='*100}")
 
     top_scenarios = [scenarios[4], scenarios[5], scenarios[6]]  # E, F, G

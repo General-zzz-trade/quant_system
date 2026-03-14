@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 import time
 from dataclasses import dataclass
@@ -258,13 +257,10 @@ def run_paper_live(config: PaperRunnerConfig, *, _transport: Any = None) -> None
     from engine.coordinator import CoordinatorConfig, EngineCoordinator
     from engine.decision_bridge import DecisionBridge
     from engine.execution_bridge import ExecutionBridge
-    from event.header import EventHeader
-    from event.types import EventType, MarketEvent
     from runner.backtest_runner import BacktestExecutionAdapter, MovingAverageCrossModule
     from execution.adapters.binance.kline_processor import KlineProcessor
     from execution.adapters.binance.ws_market_stream_um import (
         BinanceUmMarketStreamWsClient,
-        MarketStreamConfig,
     )
 
     symbol_u = config.symbol.upper()

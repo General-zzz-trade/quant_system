@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Sequence
 
 from execution.models.instruments import InstrumentInfo
 

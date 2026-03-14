@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, Optional, Protocol, Sequence, Tuple
 import time
 
-from engine.clock import Clock, ClockMode, LiveClock, ReplayClock, ClockError
+from engine.clock import Clock, ClockMode, ClockError
 
 
 # ============================================================

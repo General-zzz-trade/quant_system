@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from execution.models.orders import CanonicalOrder
 from execution.models.fills import CanonicalFill

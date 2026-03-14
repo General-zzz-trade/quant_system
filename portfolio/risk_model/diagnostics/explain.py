@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping
 
 from portfolio.risk_model.aggregation.marginal import (
-    MarginalContribution,
     compute_marginal_risk,
 )
 

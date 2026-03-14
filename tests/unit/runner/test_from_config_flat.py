@@ -1,12 +1,9 @@
 """Tests for LiveRunner.from_config() with flat YAML format."""
 from __future__ import annotations
 
-import json
-import pickle
-import tempfile
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, ANY
+from unittest.mock import patch, MagicMock
 
 from runner.live_runner import LiveRunner, LiveRunnerConfig
 

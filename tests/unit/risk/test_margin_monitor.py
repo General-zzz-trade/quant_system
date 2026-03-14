@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-import pytest
 
 from monitoring.alerts.base import Alert, Severity
-from risk.kill_switch import KillMode, KillScope, KillSwitch
+from risk.kill_switch import KillMode, KillSwitch
 from risk.margin_monitor import MarginConfig, MarginMonitor
 
 

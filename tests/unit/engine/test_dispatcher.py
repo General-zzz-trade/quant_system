@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any, List
 
 from engine.dispatcher import (
-    DispatcherError,
     DuplicateEventError,
     EventDispatcher,
     Route,

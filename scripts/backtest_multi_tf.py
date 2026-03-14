@@ -12,9 +12,12 @@ Usage:
     python3 -m scripts.backtest_multi_tf
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 import numpy as np
 import pandas as pd
 
@@ -22,7 +25,6 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import _rankdata, _spearman_ic
 from scripts.signal_postprocess import should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
@@ -253,7 +255,7 @@ def main():
     feat_names_4h = [c for c in feat_4h.columns
                      if c not in ("close", "open_time", "timestamp")
                      and c not in BLACKLIST]
-    closes_4h = df_4h["close"].values.astype(np.float64)
+    df_4h["close"].values.astype(np.float64)
     timestamps_4h = df_4h["open_time"].values.astype(np.int64)
     print(f"  4h features: {len(feat_names_4h)} in {time.time()-t0:.1f}s")
 
@@ -272,7 +274,6 @@ def main():
 
     # ── Generate predictions ──
     print("\n  Generating predictions...")
-    import lightgbm as lgb
     import xgboost as xgb
 
     # 1h predictions (OOS = last 13140 bars)
@@ -471,7 +472,7 @@ def main():
 
     # ── Signal agreement analysis ──
     print(f"\n{'='*70}")
-    print(f"  SIGNAL AGREEMENT ANALYSIS")
+    print("  SIGNAL AGREEMENT ANALYSIS")
     print(f"{'='*70}")
 
     both_long = (sig_1h > 0) & (sig_4h > 0)

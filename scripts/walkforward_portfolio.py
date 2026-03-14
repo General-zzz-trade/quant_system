@@ -17,20 +17,15 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from scripts.walkforward_validate import (
     Fold,
-    FoldResult,
     generate_wf_folds,
     run_fold_strategy_f,
-    _compute_regime_labels,
-    WARMUP,
-    HORIZON,
-    TARGET_MODE,
     DEADZONE,
     MIN_HOLD,
     MIN_TRAIN_BARS,
@@ -39,9 +34,7 @@ from scripts.walkforward_validate import (
 )
 from scripts.train_v7_alpha import (
     _load_and_compute_features,
-    BLACKLIST,
 )
-from scripts.backtest_alpha_v8 import COST_PER_TRADE
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +245,7 @@ def run_portfolio_walkforward(
 ) -> Dict[str, Any]:
     """Run portfolio walk-forward validation."""
     print(f"\n{'='*75}")
-    print(f"  PORTFOLIO WALK-FORWARD VALIDATION")
+    print("  PORTFOLIO WALK-FORWARD VALIDATION")
     print(f"  Symbols: {' + '.join(symbols)}")
     print(f"  Allocation: {alloc_method}")
     print(f"  Selector: {selector}, HPO: {use_hpo}")
@@ -334,7 +327,7 @@ def run_portfolio_walkforward(
 
     # ── Print report ──
     print(f"\n{'='*75}")
-    print(f"  PORTFOLIO WALK-FORWARD REPORT")
+    print("  PORTFOLIO WALK-FORWARD REPORT")
     print(f"{'='*75}")
     print(f"  {'Fold':>4s}  {'Period':>25s}  {'Sharpe':>7s}  {'Return':>8s}  Per-Symbol Sharpe")
     print(f"  {'-'*73}")
@@ -351,7 +344,7 @@ def run_portfolio_walkforward(
     print(f"  Portfolio avg return: {avg_return*100:+.2f}%")
     print(f"  Portfolio total return (stitched): {total_return*100:+.2f}%")
 
-    print(f"\n  --- Per-Symbol Summary ---")
+    print("\n  --- Per-Symbol Summary ---")
     print(f"  {'Symbol':<12s} {'Avg Sharpe':>10s} {'Avg Return':>10s} {'Pos Folds':>10s}")
     print(f"  {'-'*44}")
     for sym, agg in per_sym_agg.items():

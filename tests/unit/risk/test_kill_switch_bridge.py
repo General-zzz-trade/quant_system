@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
-import pytest
 
-from risk.kill_switch import KillMode, KillRecord, KillScope, KillSwitch
+from risk.kill_switch import KillMode, KillScope, KillSwitch
 from risk.kill_switch_bridge import KillSwitchBridge
 
 

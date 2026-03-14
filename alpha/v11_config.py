@@ -6,7 +6,7 @@ All modules (backtest, exit, regime, ensemble) read from this config.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass

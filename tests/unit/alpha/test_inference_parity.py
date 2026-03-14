@@ -15,7 +15,6 @@ FIXED DIVERGENCE (was present before inference_bridge.rs warmup hold fix):
 """
 from __future__ import annotations
 
-import math
 import pytest
 
 _qh = pytest.importorskip("_quant_hotpath")

@@ -1,10 +1,7 @@
 """Tests for data lineage tracking and backup management."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
 
-import pytest
 
 from data.lineage import LineageTracker
 from data.backup import BackupManager

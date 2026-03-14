@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from features.dynamic_selector import icir_select, compute_feature_icir_report
 

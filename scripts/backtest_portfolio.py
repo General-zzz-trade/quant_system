@@ -17,13 +17,12 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
-from features.enriched_computer import EnrichedFeatureComputer
 from scripts.signal_postprocess import _compute_bear_mask
 
 logger = logging.getLogger(__name__)
@@ -482,7 +481,7 @@ def run_portfolio_backtest(
 
     # Per-symbol attribution
     print(f"\n{'='*70}")
-    print(f"  PORTFOLIO RESULTS")
+    print("  PORTFOLIO RESULTS")
     print(f"{'='*70}")
     print(f"  Period: {n_bars} bars")
     print(f"  Initial: ${INITIAL_CAPITAL:,.0f} → Final: ${final_equity:,.2f}")
@@ -492,7 +491,7 @@ def run_portfolio_backtest(
     print(f"  Max DD: {max_dd*100:.2f}%")
     print(f"  DD breaker triggered: {dd_breaker_count} times")
 
-    print(f"\n  --- Per-Symbol Attribution ---")
+    print("\n  --- Per-Symbol Attribution ---")
     print(f"  {'Symbol':<12} {'Return':>8} {'Contribution':>14} {'Avg Weight':>12}")
     print(f"  {'-'*48}")
     sym_summaries = {}
@@ -514,7 +513,7 @@ def run_portfolio_backtest(
     unique_months = sorted(set(month_keys))
 
     monthly = []
-    print(f"\n  --- Monthly Breakdown ---")
+    print("\n  --- Monthly Breakdown ---")
     print(f"  {'Month':<10} {'Return':>8} {'Sharpe':>8}")
     print(f"  {'-'*28}")
     for mk in unique_months:

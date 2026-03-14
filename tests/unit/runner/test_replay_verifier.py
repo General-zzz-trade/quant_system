@@ -4,9 +4,8 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
-from runner.replay_verifier import ReplayVerifier, Violation, VerificationResult
+from runner.replay_verifier import ReplayVerifier
 from runner.replay_runner import ReplayResult
 
 

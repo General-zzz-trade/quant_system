@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
 
 from research.hyperopt.pruner import TimeSeriesPruner
 from research.hyperopt.search_space import SearchSpace

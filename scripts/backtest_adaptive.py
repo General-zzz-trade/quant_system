@@ -21,19 +21,17 @@ import json
 import pickle
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 from scripts.signal_postprocess import rolling_zscore
-from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
-from alpha.adaptive_config import AdaptiveConfigSelector, AdaptiveParams, _fast_backtest
+from scripts.train_v7_alpha import INTERACTION_FEATURES
+from alpha.adaptive_config import AdaptiveConfigSelector, _fast_backtest
 
 COST_BPS_RT = 4
 BARS_PER_DAY = 24
@@ -63,7 +61,7 @@ def load_model_and_predict(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame)
         })
 
     n = len(df)
-    fnames = list(feat_df.columns)
+    list(feat_df.columns)
 
     # Predict per horizon, z-score, average
     preds_by_h = {}
@@ -108,7 +106,7 @@ def run_adaptive_backtest(symbol: str):
     timestamps = df[ts_col].values.astype(np.int64)
 
     print(f"\n  Data: {n:,} 1h bars")
-    print(f"  Computing features...", end=" ", flush=True)
+    print("  Computing features...", end=" ", flush=True)
     t0 = time.time()
 
     _has_v11 = Path("data_files/macro_daily.csv").exists()
@@ -251,7 +249,7 @@ def run_adaptive_backtest(symbol: str):
         dzs = [h.deadzone for h in selector.history]
         mhs = [h.min_hold for h in selector.history]
         los = [h.long_only for h in selector.history]
-        print(f"\n  Adaptive config trajectory:")
+        print("\n  Adaptive config trajectory:")
         print(f"    Deadzone: {dzs}")
         print(f"    Min hold: {mhs}")
         print(f"    Long only: {[int(l) for l in los]}")

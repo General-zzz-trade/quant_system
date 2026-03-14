@@ -6,14 +6,11 @@ import pytest
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from event.types import IntentEvent, OrderEvent
-from risk.aggregator import RiskAggregator, RiskAggregatorError, RiskEvalMetaBuilder, RuleStats
+from risk.aggregator import RiskAggregator, RiskAggregatorError, RiskEvalMetaBuilder
 from risk.decisions import (
     RiskAction,
-    RiskAdjustment,
     RiskCode,
     RiskDecision,
-    RiskScope,
     RiskViolation,
 )
 
@@ -323,7 +320,7 @@ class TestConcurrentStatsConsistency:
             for f in concurrent.futures.as_completed(futures):
                 f.result()
 
-        assert violations == [], f"Stats inconsistencies detected:\n" + "\n".join(violations[:10])
+        assert violations == [], "Stats inconsistencies detected:\n" + "\n".join(violations[:10])
 
         # Final sanity: total calls should match
         snap = agg.snapshot()

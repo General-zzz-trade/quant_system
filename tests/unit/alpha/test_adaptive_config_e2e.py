@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from alpha.adaptive_config import AdaptiveConfigSelector, AdaptiveParams
-from alpha.base import AlphaModel, Signal
+from alpha.base import Signal
 from alpha.inference.bridge import LiveInferenceBridge
 
 _qh = pytest.importorskip("_quant_hotpath")

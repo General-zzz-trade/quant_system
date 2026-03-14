@@ -28,7 +28,6 @@ import numpy as np
 from event.header import EventHeader
 from event.types import EventType, IntentEvent, OrderEvent
 from runner.backtest.adapter import _make_id
-from state.position import PositionState
 
 
 @dataclass

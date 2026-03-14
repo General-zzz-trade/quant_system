@@ -7,7 +7,7 @@ from typing import Optional
 
 import pytest
 
-from execution.algos.maker_first import MakerFirstAlgo, MakerFirstConfig, MakerFirstOrder
+from execution.algos.maker_first import MakerFirstAlgo, MakerFirstConfig
 
 
 # ── Helpers ─────────────────────────────────────────────────

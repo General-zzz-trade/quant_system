@@ -25,7 +25,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -34,12 +34,10 @@ from scripts.train_v7_alpha import (
     V7_DEFAULT_PARAMS,
     _compute_target,
     _load_and_compute_features,
-    INTERACTION_FEATURES,
     BLACKLIST,
 )
 from scripts.backtest_alpha_v8 import _pred_to_signal, _apply_monthly_gate, COST_PER_TRADE
 from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
-from alpha.models.lgbm_alpha import LGBMAlphaModel
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +376,7 @@ def run_phase1_fold_ic_breakdown(
               f"{stats['all_mean_ic']:>10.4f} {stats['ic_std']:>8.4f} {stats['ic_gap']:>8.4f}")
 
     # IC instability ranking
-    print(f"\n  Top 10 most unstable features (highest IC std):")
+    print("\n  Top 10 most unstable features (highest IC std):")
     sorted_by_std = sorted(feature_stats.items(), key=lambda x: x[1]["ic_std"], reverse=True)
     for feat, stats in sorted_by_std[:10]:
         print(f"    {feat:<30} IC_std={stats['ic_std']:.4f}  mean_IC={stats['all_mean_ic']:.4f}")
@@ -460,7 +458,7 @@ def run_phase2_funding_basis_comparison(
               f"{btc_s['mean']:>10.6f} {btc_s['std']:>10.6f} {btc_s['skew']:>10.3f}")
 
     # IC comparison
-    print(f"\n  IC comparison (Spearman IC with 24h forward return):")
+    print("\n  IC comparison (Spearman IC with 24h forward return):")
     print(f"  {'Feature':<25} {'SOL IC':>10} {'SOL ICIR':>10} {'BTC IC':>10} {'BTC ICIR':>10} {'Delta':>8}")
     print("  " + "─" * 75)
 
@@ -517,7 +515,7 @@ def run_phase2_funding_basis_comparison(
         print(f"  {feat:<25} {sol_ic:>10.4f} {sol_icir:>10.3f} {btc_ic:>10.4f} {btc_icir:>10.3f} {delta:>8.4f}")
 
     # Simple funding carry strategy comparison
-    print(f"\n  Funding carry strategy (long when funding > 0, short when < 0):")
+    print("\n  Funding carry strategy (long when funding > 0, short when < 0):")
     for label, fdf in [("SOL", sol_feat_df), ("BTC", btc_feat_df)]:
         if "funding_rate" not in fdf.columns:
             continue
@@ -664,7 +662,7 @@ def run_phase3_regime_analysis(
     matrix = np.array([[fd[k] for k in keys] for fd in fold_data])
     if len(matrix) > 3:
         corr = np.corrcoef(matrix.T)
-        print(f"\n  Correlation with fold Sharpe:")
+        print("\n  Correlation with fold Sharpe:")
         sharpe_idx = 0
         for i, k in enumerate(keys):
             if i == sharpe_idx:
@@ -870,7 +868,7 @@ def run_phase4_ic_disconnect(
               f"all_IC={all_ic:>+.4f}  active_IC={active_ic:>+.4f}  entry_IC={entry_ic:>+.4f}")
 
     # Aggregate analysis
-    print(f"\n  ── 4A Summary: Signal Timing ──")
+    print("\n  ── 4A Summary: Signal Timing ──")
     all_ics = [r["all_ic"] for r in results["4a_signal_timing"]]
     active_ics = [r["active_ic"] for r in results["4a_signal_timing"]]
     entry_ics = [r["entry_ic"] for r in results["4a_signal_timing"]]
@@ -882,7 +880,7 @@ def run_phase4_ic_disconnect(
         print(f"  Active/All IC ratio: {ratio:.2f}" +
               (" → Signal filter is DESTROYING alpha" if ratio < 0.5 else " → Signal filter preserves alpha"))
 
-    print(f"\n  ── 4B Summary: Nonlinear Interactions ──")
+    print("\n  ── 4B Summary: Nonlinear Interactions ──")
     lgbm_ics = [r["lgbm_ic"] for r in results["4b_nonlinear"]]
     ols_ics = [r["ols_ic"] for r in results["4b_nonlinear"]]
     gains = [r["nonlinear_gain"] for r in results["4b_nonlinear"]]
@@ -891,7 +889,7 @@ def run_phase4_ic_disconnect(
     print(f"  Mean gain:    {np.mean(gains):>+.4f}" +
           (" → Strong nonlinear alpha" if np.mean(gains) > 0.02 else " → Limited nonlinear contribution"))
 
-    print(f"\n  ── 4C Summary: Fat Tails ──")
+    print("\n  ── 4C Summary: Fat Tails ──")
     sharpes = [r["sharpe"] for r in results["4c_fat_tails"]]
     trimmed_sharpes = [r["trimmed_sharpe"] for r in results["4c_fat_tails"]]
     skews = [r["skew"] for r in results["4c_fat_tails"]]
@@ -909,7 +907,7 @@ def run_phase4_ic_disconnect(
         print(f"\n  IC vs Sharpe correlation:         {ic_sharpe_corr:>+.3f}")
         print(f"  IC vs Trimmed Sharpe correlation:  {ic_trimmed_corr:>+.3f}")
         if ic_trimmed_corr > ic_sharpe_corr + 0.1:
-            print(f"  → Fat tails explain IC-Sharpe disconnect (trimmed corr much higher)")
+            print("  → Fat tails explain IC-Sharpe disconnect (trimmed corr much higher)")
         results["ic_sharpe_corr"] = round(ic_sharpe_corr, 3)
         results["ic_trimmed_sharpe_corr"] = round(ic_trimmed_corr, 3)
 
@@ -1000,7 +998,7 @@ def run_phase5_sol_feature_optimization(
                "5d_hyperparam_grid": []}
 
     # ── 5A: Unconstrained greedy selection ──
-    print(f"\n  5A: Unconstrained greedy feature selection")
+    print("\n  5A: Unconstrained greedy feature selection")
     result_5a = _run_config_wf(
         feat_df, closes, mini_folds, feature_names,
         fixed_features=None, candidate_pool=None, n_flexible=0,
@@ -1015,7 +1013,7 @@ def run_phase5_sol_feature_optimization(
     feat_counter = Counter()
     for fl in result_5a["features_used"]:
         feat_counter.update(fl)
-    print(f"    Most selected features (unconstrained):")
+    print("    Most selected features (unconstrained):")
     for feat, count in feat_counter.most_common(15):
         in_fixed = "FIXED" if feat in SOL_FIXED_FEATURES else ""
         in_pool = "POOL" if feat in SOL_CANDIDATE_POOL else ""
@@ -1023,7 +1021,7 @@ def run_phase5_sol_feature_optimization(
         print(f"      {feat:<30} {count}/{result_5a['n_total']} folds  [{marker}]")
 
     # ── Baseline ──
-    print(f"\n  Baseline (current SOL config):")
+    print("\n  Baseline (current SOL config):")
     baseline = _run_config_wf(
         feat_df, closes, mini_folds, feature_names,
         fixed_features=SOL_FIXED_FEATURES,
@@ -1036,7 +1034,7 @@ def run_phase5_sol_feature_optimization(
           f"Sharpe={baseline['avg_sharpe']:.2f}, Return={baseline['total_return']:+.1f}%")
 
     # ── 5B: Fixed feature replacement search ──
-    print(f"\n  5B: Fixed feature replacement search")
+    print("\n  5B: Fixed feature replacement search")
     # Find top candidates from unconstrained that aren't in current fixed set
     replacement_candidates = [f for f, _ in feat_counter.most_common(25)
                               if f not in SOL_FIXED_FEATURES and f in feature_names][:8]
@@ -1060,7 +1058,7 @@ def run_phase5_sol_feature_optimization(
                       f"Sharpe delta={delta_sharpe:>+.2f}")
 
     # ── 5C: Candidate pool expansion ──
-    print(f"\n  5C: Candidate pool expansion")
+    print("\n  5C: Candidate pool expansion")
     extra_candidates = [
         "rolling_beta_30", "relative_strength_20", "taker_imbalance",
         "trade_intensity", "aggressive_flow_zscore", "oi_acceleration",
@@ -1094,7 +1092,7 @@ def run_phase5_sol_feature_optimization(
               f"Return={result['total_return']:+.1f}%")
 
     # ── 5D: Hyperparameter sensitivity ──
-    print(f"\n  5D: Hyperparameter sensitivity grid")
+    print("\n  5D: Hyperparameter sensitivity grid")
 
     hparam_configs = [
         ("dz=0.3", 0.3, MIN_HOLD, MA_WINDOW),
@@ -1211,12 +1209,12 @@ def main() -> None:
 
     t0 = time.time()
     print(f"\n{'#'*70}")
-    print(f"  SOL Alpha Deep Research")
+    print("  SOL Alpha Deep Research")
     print(f"  Phases: {sorted(phases_to_run)}")
     print(f"{'#'*70}")
 
     # Load SOL features
-    print(f"\n  Loading SOL features...")
+    print("\n  Loading SOL features...")
     sol_feat_df = _load_features("SOLUSDT")
     sol_closes = sol_feat_df["close"].values.astype(np.float64)
     feature_names = _get_available_features(sol_feat_df)
@@ -1229,7 +1227,7 @@ def main() -> None:
     # Load BTC if needed for Phase 2 or 3
     btc_feat_df = None
     if phases_to_run & {2, 3}:
-        print(f"\n  Loading BTC features...")
+        print("\n  Loading BTC features...")
         btc_feat_df = _load_features("BTCUSDT")
 
     all_results: Dict[str, Any] = {}
@@ -1237,7 +1235,7 @@ def main() -> None:
     # Phase 1
     if 1 in phases_to_run:
         print(f"\n{'#'*70}")
-        print(f"  PHASE 1: Per-Fold Feature IC Breakdown")
+        print("  PHASE 1: Per-Fold Feature IC Breakdown")
         print(f"{'#'*70}")
         all_results["phase1"] = run_phase1_fold_ic_breakdown(
             sol_feat_df, sol_closes, folds, feature_names, out_dir)
@@ -1245,7 +1243,7 @@ def main() -> None:
     # Phase 2
     if 2 in phases_to_run:
         print(f"\n{'#'*70}")
-        print(f"  PHASE 2: SOL vs BTC Funding/Basis Comparison")
+        print("  PHASE 2: SOL vs BTC Funding/Basis Comparison")
         print(f"{'#'*70}")
         all_results["phase2"] = run_phase2_funding_basis_comparison(
             sol_feat_df, btc_feat_df, out_dir)
@@ -1253,7 +1251,7 @@ def main() -> None:
     # Phase 3
     if 3 in phases_to_run:
         print(f"\n{'#'*70}")
-        print(f"  PHASE 3: Regime Analysis")
+        print("  PHASE 3: Regime Analysis")
         print(f"{'#'*70}")
         all_results["phase3"] = run_phase3_regime_analysis(
             sol_feat_df, sol_closes, folds, feature_names, out_dir,
@@ -1262,7 +1260,7 @@ def main() -> None:
     # Phase 4
     if 4 in phases_to_run:
         print(f"\n{'#'*70}")
-        print(f"  PHASE 4: IC-Return Disconnect Investigation")
+        print("  PHASE 4: IC-Return Disconnect Investigation")
         print(f"{'#'*70}")
         all_results["phase4"] = run_phase4_ic_disconnect(
             sol_feat_df, sol_closes, folds, feature_names, out_dir)
@@ -1270,7 +1268,7 @@ def main() -> None:
     # Phase 5
     if 5 in phases_to_run:
         print(f"\n{'#'*70}")
-        print(f"  PHASE 5: SOL Feature Optimization")
+        print("  PHASE 5: SOL Feature Optimization")
         print(f"{'#'*70}")
         all_results["phase5"] = run_phase5_sol_feature_optimization(
             sol_feat_df, sol_closes, folds, feature_names, out_dir,
@@ -1278,7 +1276,7 @@ def main() -> None:
 
     # Summary
     print(f"\n{'#'*70}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"{'#'*70}")
     write_summary(all_results, out_dir)
 

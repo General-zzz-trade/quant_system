@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 
 from _quant_hotpath import cpp_simulate_paths as _cpp_simulate
 

@@ -2,8 +2,8 @@
 """Optimization input — standardized input for portfolio optimization."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional, Sequence
+from dataclasses import dataclass
+from typing import Mapping
 
 
 @dataclass(frozen=True, slots=True)

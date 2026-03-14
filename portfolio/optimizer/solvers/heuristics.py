@@ -2,7 +2,7 @@
 """Heuristic (closed-form) portfolio solvers."""
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Sequence
 import math
 
 from portfolio.optimizer.base import OptimizationResult

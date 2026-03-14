@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping, Optional, Protocol, Tuple
+from typing import Any, Iterable, Mapping, Optional, Protocol, Tuple
 
 
 class SupportsIngestFill(Protocol):

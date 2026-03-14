@@ -23,7 +23,7 @@ import pickle
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -32,12 +32,11 @@ sys.path.insert(0, "/quant_system")
 
 from features.multi_resolution import (
     compute_multi_resolution_features,
-    get_all_feature_names,
     FAST_FEATURE_NAMES,
     SLOW_FEATURE_NAMES,
     SLOW_4H_FEATURE_NAMES,
 )
-from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +378,7 @@ def main():
     # ── Save best model ──
     if best_result and best_result["net_pnl"] > 0:
         print(f"\n{'='*70}")
-        print(f"SAVING BEST MODEL")
+        print("SAVING BEST MODEL")
         print(f"{'='*70}")
         out_dir = Path(args.output_dir or f"models_v8/{args.symbol}_1m_v2")
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -396,7 +395,7 @@ def main():
         try:
             from scripts.export_model_to_json import export_lightgbm_to_json
             export_lightgbm_to_json(str(out_dir / "lgbm_1m_v2.pkl"), str(out_dir / "lgbm_1m_v2.json"))
-            print(f"  Exported to JSON for Rust binary")
+            print("  Exported to JSON for Rust binary")
         except Exception as e:
             print(f"  JSON export failed: {e}")
 

@@ -43,8 +43,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-import pandas as pd
 
 sys.path.insert(0, "/quant_system")
 

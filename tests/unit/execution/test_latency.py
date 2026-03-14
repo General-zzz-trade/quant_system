@@ -6,7 +6,7 @@ import time
 import pytest
 
 from execution.latency.tracker import LatencyRecord, LatencyTracker
-from execution.latency.report import LatencyReporter, LatencyStats
+from execution.latency.report import LatencyReporter
 
 
 # ── LatencyRecord Tests ─────────────────────────────────────

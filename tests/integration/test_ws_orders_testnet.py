@@ -15,7 +15,7 @@ import os
 import time
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -75,7 +75,7 @@ class TestWsOrderAdapterLogic:
         adapter._gateway = mock_gw
         adapter._started = True
 
-        result = adapter.send_order(StubOrderEvent())
+        adapter.send_order(StubOrderEvent())
         assert len(rest.calls) == 1, "Should fall back to REST exactly once"
 
     def test_ws_timeout_falls_back_to_rest(self):
@@ -92,7 +92,7 @@ class TestWsOrderAdapterLogic:
         adapter._gateway = mock_gw
         adapter._started = True
 
-        result = adapter.send_order(StubOrderEvent())
+        adapter.send_order(StubOrderEvent())
         # No response callback → timeout → REST fallback
         assert len(rest.calls) == 1
 
@@ -118,7 +118,7 @@ class TestWsOrderAdapterLogic:
         t = threading.Thread(target=trigger_error)
         t.start()
 
-        result = adapter.send_order(StubOrderEvent())
+        adapter.send_order(StubOrderEvent())
         t.join()
         assert len(rest.calls) == 1
 
@@ -220,7 +220,7 @@ class TestWsOrderAdapterLogic:
         adapter = WsOrderAdapter(rest_adapter=rest, api_key="k", api_secret="s")
 
         # Mock the gateway import to avoid actual connection
-        with patch("execution.adapters.binance.ws_order_adapter.WsOrderAdapter.start") as mock_start:
+        with patch("execution.adapters.binance.ws_order_adapter.WsOrderAdapter.start"):
             pass  # Just verify the flag check
 
         # Direct flag check
@@ -303,7 +303,7 @@ class TestWsOrdersTestnet:
             order_type="MARKET",
             qty="0.001",
         )
-        result = a.send_order(order)
+        a.send_order(order)
         # Should succeed via WS without REST fallback
         assert len(rest.calls) == 0, "Testnet WS order should not fall back to REST"
 
@@ -328,6 +328,5 @@ class TestWsOrdersTestnet:
             time.sleep(0.5)  # rate limit
 
         if latencies:
-            import statistics
             p99 = sorted(latencies)[int(len(latencies) * 0.99)]
             assert p99 < 10.0, f"WS p99 latency {p99:.1f}ms exceeds 10ms SLA"

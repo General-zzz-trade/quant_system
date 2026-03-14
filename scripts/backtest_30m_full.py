@@ -5,17 +5,19 @@ Trains on first 60%, validates on next 20%, tests on last 20%.
 Also runs a pure OOS rolling backtest: retrain every 3 months, test on next 3 months.
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
 from pathlib import Path
 from typing import List, Dict, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
-from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 from scipy.stats import spearmanr
 
 # ── Config ──
@@ -248,12 +250,12 @@ def analyze_trades(trades: List[Trade], timestamps: np.ndarray, n_bars: int, lab
 
     # Best/worst trades
     sorted_trades = sorted(trades, key=lambda t: t.net_pnl)
-    print(f"\n  Worst 3 trades:")
+    print("\n  Worst 3 trades:")
     for t in sorted_trades[:3]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%m-%d %H:%M")
         print(f"    {ts} {'L' if t.direction>0 else 'S'} hold={t.hold_bars} "
               f"gross=${t.gross_pnl:+.1f} net=${t.net_pnl:+.1f}")
-    print(f"  Best 3 trades:")
+    print("  Best 3 trades:")
     for t in sorted_trades[-3:]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%m-%d %H:%M")
         print(f"    {ts} {'L' if t.direction>0 else 'S'} hold={t.hold_bars} "

@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import pytest
 
 from strategies.multi_timeframe.aggregator import BarAggregator, AggregatedBar, _align_ts
 from strategies.multi_timeframe.ensemble import (
     MultiTimeframeEnsemble,
     TimeframeConfig,
     TimeframeSignal,
-    EnsembleSignal,
 )
 
 

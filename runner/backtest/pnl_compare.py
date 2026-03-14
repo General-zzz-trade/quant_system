@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import csv
-import json
 import math
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 
 
 @dataclass(frozen=True, slots=True)

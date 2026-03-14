@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
-from typing import Any, Iterable, Mapping, Optional, Sequence, Set
+from typing import Any, Iterable, Optional, Sequence, Set
 
 from event.errors import EventSecurityError
 

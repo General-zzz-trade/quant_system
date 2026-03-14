@@ -3,14 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
+from typing import Any, Dict, Optional
 
-import pytest
 
 from alpha.base import Signal
 from alpha.online.incremental import IncrementalUpdater
-from alpha.online.regime_switch import RegimeModelSwitcher, RegimeWeight
+from alpha.online.regime_switch import RegimeModelSwitcher
 
 
 # ── Helpers ─────────────────────────────────────────────────

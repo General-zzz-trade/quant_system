@@ -2,19 +2,17 @@
 """BasicGuard unit tests — error classification, threshold enforcement, counter management."""
 from __future__ import annotations
 
-import pytest
 
 from engine.errors import (
     ClassifiedError,
     EngineErrorContext,
     ErrorDomain,
-    ErrorSeverity,
     ExecutionError,
     FatalError,
     InvariantViolation,
     RetryableError,
 )
-from engine.guards import BasicGuard, GuardAction, GuardConfig, GuardDecision, build_basic_guard
+from engine.guards import BasicGuard, GuardAction, GuardConfig, build_basic_guard
 
 
 # ---------------------------------------------------------------------------

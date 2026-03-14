@@ -1,14 +1,10 @@
 """Tests for runner/recovery.py — recovery infrastructure."""
 from __future__ import annotations
 
-import json
-import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from runner.recovery import (
     EventRecorder,

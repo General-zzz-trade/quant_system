@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +145,6 @@ class AlmgrenChrissModel:
             return [total_qty / n_slices] * n_slices
 
         trajectory = []
-        remaining = total_qty
         for j in range(n_slices):
             t_j = j * tau
             t_next = (j + 1) * tau

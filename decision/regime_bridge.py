@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Sequence
 
 from _quant_hotpath import RustRegimeBuffer
 from regime.base import RegimeDetector, RegimeLabel

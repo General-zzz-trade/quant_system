@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, Mapping, Optional, Sequence
+from typing import Mapping
 
 from execution.reconcile.drift import Drift, DriftSeverity, DriftType, detect_qty_drift
 

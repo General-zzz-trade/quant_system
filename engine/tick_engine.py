@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from queue import Empty, Full, Queue
-from dataclasses import dataclass, field
-from typing import Any, List, Optional, Protocol, Union
+from dataclasses import dataclass
+from typing import Any, Optional, Protocol, Union
 
 from event.tick_types import DepthUpdateEvent, TradeTickEvent
 from features.microstructure.streaming import (

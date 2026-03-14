@@ -17,7 +17,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -385,7 +385,7 @@ def main() -> None:
         cache_key = hashlib.sha256(cache_key_raw.encode()).hexdigest()[:16]
         cache_file = cache_dir / f"{symbol}_{cache_key}.pkl"
         if cache_file.exists():
-            print(f"  Loading cached features...")
+            print("  Loading cached features...")
             t0 = time.time()
             feat_df = pd.read_pickle(cache_file)
             print(f"  Loaded in {time.time()-t0:.1f}s ({len(feat_df.columns)} columns)")
@@ -490,7 +490,7 @@ def main() -> None:
     stable = {k: v for k, v in sorted(feature_counts.items(), key=lambda x: -x[1])
               if v >= n_folds * 0.8}
     if stable:
-        print(f"\n  Feature stability (>= 80% folds):")
+        print("\n  Feature stability (>= 80% folds):")
         for fname, count in stable.items():
             print(f"    {fname}: {count}/{n_folds}")
 

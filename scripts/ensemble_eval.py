@@ -123,7 +123,7 @@ def main():
         print(f"{'':10} {'Corr':<8} {corr:>+8.4f}")
 
         # Test ensemble weights
-        print(f"\n  Weight sweep (LGB:XGB):")
+        print("\n  Weight sweep (LGB:XGB):")
         print(f"  {'Weights':<12} {'IC':>8} {'Sharpe':>8} {'Return':>10}")
         print(f"  {'-'*42}")
 

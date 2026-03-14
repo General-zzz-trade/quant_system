@@ -15,9 +15,8 @@ from __future__ import annotations
 import sys
 import json
 import pickle
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -27,7 +26,7 @@ sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
-from risk.staged_risk import StagedRiskManager, DEFAULT_STAGES
+from risk.staged_risk import StagedRiskManager
 
 COST_BPS_RT = 8
 SLIPPAGE_BPS = 2
@@ -462,10 +461,10 @@ def main():
             print(f"    最终阶段: {best_staged['final_stage']}")
 
         # Survival analysis
-        print(f"\n  存活分析:")
+        print("\n  存活分析:")
         for r in results:
             survived = r["min_equity"] >= 50  # Can't trade below ~$50
-            can_trade = r["min_equity"] >= MIN_NOTIONAL / 3  # Need ~$33 to open $100
+            r["min_equity"] >= MIN_NOTIONAL / 3  # Need ~$33 to open $100
             status = "✅ 存活" if survived else "❌ 实质爆仓"
             if survived and r["final"] > init_eq:
                 status = "✅ 盈利"

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-import math
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
 from portfolio.optimizer.base import OptimizationResult
 from portfolio.optimizer.constraints import OptConstraint
@@ -14,7 +13,6 @@ from portfolio.optimizer.objectives import (
     MinVariance,
     Objective,
     RiskParity,
-    _portfolio_variance,
 )
 
 logger = logging.getLogger(__name__)

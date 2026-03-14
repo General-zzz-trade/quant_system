@@ -4,7 +4,6 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from decision.signals.statistical.cointegration import CointegrationSignal
 from decision.signals.statistical.zscore import ZScoreSignal

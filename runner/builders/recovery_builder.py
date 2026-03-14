@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from runner.recovery import (
     EventRecorder,
     PeriodicCheckpointer,
     restore_all_auxiliary_state,
-    save_all_auxiliary_state,
 )
 
 logger = logging.getLogger(__name__)

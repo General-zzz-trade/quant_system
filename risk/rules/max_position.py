@@ -7,7 +7,6 @@ from typing import Any, Mapping, Optional, Tuple
 
 from event.types import IntentEvent, OrderEvent, Side, Venue, Symbol
 from risk.decisions import (
-    RiskAction,
     RiskAdjustment,
     RiskCode,
     RiskDecision,

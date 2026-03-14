@@ -4,9 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
-from typing import Optional
 
-from monitoring.alerts.base import Alert, AlertSink
+from monitoring.alerts.base import Alert
 
 logger = logging.getLogger(__name__)
 

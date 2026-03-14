@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from execution.bridge.execution_bridge import ExecutionBridge, VenueClient
+from execution.bridge.execution_bridge import ExecutionBridge
 
 
 class VenueRouter:

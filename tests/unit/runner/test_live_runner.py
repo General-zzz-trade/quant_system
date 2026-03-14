@@ -14,7 +14,7 @@ from research.model_registry.registry import ModelRegistry
 from monitoring.alerts.base import Alert, Severity
 from monitoring.alerts.manager import AlertManager
 from runner.live_runner import LiveRunner, LiveRunnerConfig, _reconcile_startup
-from risk.kill_switch import KillMode, KillScope, KillSwitch
+from risk.kill_switch import KillMode, KillSwitch
 from risk.margin_monitor import MarginConfig, MarginMonitor
 from execution.store.event_log import InMemoryEventLog
 

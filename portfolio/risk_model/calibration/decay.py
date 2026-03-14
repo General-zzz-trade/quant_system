@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
 
 
 class DecayType(Enum):

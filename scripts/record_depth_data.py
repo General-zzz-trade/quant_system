@@ -17,7 +17,6 @@ import signal
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from execution.adapters.binance.depth_processor import DepthProcessor
 from execution.adapters.binance.ws_depth_stream import BinanceDepthStreamClient, DepthStreamConfig
@@ -74,7 +73,7 @@ def main() -> None:
     print(f"Recording depth data for {symbol_upper}")
     print(f"  Bar interval: {args.bar_interval}s")
     print(f"  Output: {out_path}")
-    print(f"  Press Ctrl+C to stop\n")
+    print("  Press Ctrl+C to stop\n")
 
     # Write header if new file
     write_header = not out_path.exists()

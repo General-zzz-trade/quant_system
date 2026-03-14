@@ -2,18 +2,15 @@
 from __future__ import annotations
 
 import csv
-import tempfile
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
 
 import pytest
 
 from runner.backtest_runner import (
     MovingAverageCrossModule,
-    WalkForwardWindow,
     _snapshot_views,
     run_backtest,
 )
@@ -61,7 +58,7 @@ def _write_csv(tmp_path: Path, rows: list[tuple], name: str = "test.csv") -> Pat
 def _gen_bars(n: int, start_price: float = 100.0, trend: float = 0.1) -> list[tuple]:
     bars = []
     for i in range(n):
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat()
+        datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat()
         # Create a simple trending price
         price = start_price + i * trend
         bars.append((

@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from execution.algos.volume_profile import IntraDayVolumeProfile, VolumeBar
+from execution.algos.volume_profile import IntraDayVolumeProfile
 from execution.algos.adaptive_twap import (
     AdaptiveTWAPAlgo,
     AdaptiveTWAPConfig,
@@ -15,7 +15,6 @@ from execution.algos.adaptive_twap import (
 from execution.algos.impact_model import (
     AlmgrenChrissModel,
     AlmgrenChrissParams,
-    ImpactEstimate,
 )
 
 

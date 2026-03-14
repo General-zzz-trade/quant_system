@@ -179,7 +179,7 @@ def main():
         print(f"  Raw non-zero: {raw_nonzero}, Long signals: {long_signals}, Short signals: {short_signals}")
 
         if mismatches == 0:
-            print(f"  PASS — deterministic")
+            print("  PASS — deterministic")
         else:
             print(f"  FAIL — {mismatches} mismatches")
             all_pass = False

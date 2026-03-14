@@ -1,14 +1,13 @@
 """Tests for OODDetector and ConceptDriftAdapter."""
 from __future__ import annotations
 
-import math
 import random
 from pathlib import Path
 
 import pytest
 
-from alpha.monitoring.ood_detector import OODDetector, OODResult
-from alpha.monitoring.drift_adapter import ConceptDriftAdapter, DriftState
+from alpha.monitoring.ood_detector import OODDetector
+from alpha.monitoring.drift_adapter import ConceptDriftAdapter
 
 
 # ── OODDetector ───────────────────────────────────────────────

@@ -6,7 +6,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, List
 
-import pytest
 
 from execution.bridge.live_execution_bridge import LiveExecutionBridge, LiveExecutionConfig
 from monitoring.alerts.manager import AlertManager

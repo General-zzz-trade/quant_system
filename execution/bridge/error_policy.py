@@ -74,7 +74,7 @@ class ErrorPolicy:
                 )
             return PolicyDecision(
                 action=ErrorAction.REJECT,
-                reason=f"rate limited: max retries exceeded",
+                reason="rate limited: max retries exceeded",
             )
 
         if mapping.retryable and attempt <= self._max_retries:

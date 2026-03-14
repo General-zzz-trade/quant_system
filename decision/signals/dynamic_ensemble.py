@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 from math import exp
-from typing import Any, Deque, Dict, List, Sequence, Tuple
+from typing import Any, Deque, Dict, Sequence, Tuple
 
 from _quant_hotpath import rust_rolling_sharpe
 from decision.types import SignalResult

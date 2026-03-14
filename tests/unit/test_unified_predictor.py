@@ -1,5 +1,4 @@
 """Tests for RustUnifiedPredictor — zero-copy feature→predict→signal pipeline."""
-import math
 import os
 import pytest
 

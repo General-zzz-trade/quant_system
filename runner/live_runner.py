@@ -23,17 +23,16 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.loop import EngineLoop, LoopConfig
 from engine.guards import build_basic_guard, GuardConfig
-from event.types import ControlEvent
 
 from decision.regime_bridge import RegimeAwareDecisionModule
 from decision.regime_policy import RegimePolicy
@@ -53,9 +52,6 @@ from risk.margin_monitor import MarginConfig, MarginMonitor
 from runner.config import (
     LiveRunnerConfig,
     OperatorControlRecord,
-    OperatorKillSwitchStatus,
-    OperatorReconcileStatus,
-    OperatorStatusSnapshot,
 )
 from runner.observability import OperatorObservabilityMixin
 from runner.operator_control import OperatorControlMixin

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from portfolio.optimizer.input import OptimizationInput
-from portfolio.optimizer.objectives import MaxSharpe, MinVariance, RiskParity
+from portfolio.optimizer.objectives import MaxSharpe
 from portfolio.optimizer.constraints import LongOnlyConstraint, FullInvestmentConstraint
 from portfolio.optimizer.solvers.heuristics import EqualWeightSolver
 

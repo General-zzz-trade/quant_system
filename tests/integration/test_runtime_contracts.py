@@ -6,7 +6,6 @@ the documented minimum field requirements.
 from __future__ import annotations
 
 import sys
-import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -154,7 +153,6 @@ class TestFillEventMinimumFields:
 class TestReplayPathContract:
     def test_replay_preserves_event_semantics(self):
         """Replay should process events through same coordinator path as live."""
-        from engine.coordinator import CoordinatorConfig, EngineCoordinator
         from event.header import EventHeader
         from event.types import EventType, MarketEvent
         from runner.replay_runner import run_replay_from_events

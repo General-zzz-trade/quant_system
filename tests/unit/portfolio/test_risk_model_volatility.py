@@ -44,7 +44,6 @@ class TestHistoricalVolatility:
     def test_two_returns(self):
         hv = HistoricalVolatility(annualization=1.0)
         returns = [0.1, -0.1]
-        mean = 0.0
         var = (0.1 ** 2 + 0.1 ** 2) / 1  # n-1 = 1
         expected = math.sqrt(var)
         result = hv.estimate(returns)

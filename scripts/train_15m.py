@@ -320,7 +320,7 @@ def train_symbol_15m(symbol: str, horizons: List[int]) -> bool:
         t0 = time.time()
         result = train_single_horizon_15m(h, X, closes, feature_names, val_start, train_end, n)
         if result is None:
-            print(f"    FAILED")
+            print("    FAILED")
             continue
         lgbm_m, xgb_m, feats, info, pred = result
         models[h] = (lgbm_m, xgb_m, feats, info)
@@ -515,7 +515,7 @@ def train_symbol_15m(symbol: str, horizons: List[int]) -> bool:
         print(f"\n  Model saved to {model_dir}/ ({VERSION})")
         return True
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
         return False
 
 

@@ -2,9 +2,8 @@
 """Venue metadata and capability description."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence
 
 
 class VenueType(str, Enum):
@@ -12,6 +11,9 @@ class VenueType(str, Enum):
     SPOT = "spot"
     FUTURES = "futures"
     PERPETUAL = "perpetual"
+    FOREX = "forex"
+    CFD = "cfd"
+    OPTIONS = "options"
 
 
 class VenueFeature(str, Enum):

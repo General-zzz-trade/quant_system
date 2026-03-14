@@ -1,8 +1,7 @@
 # engine/config.py
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from dataclasses import dataclass
 
 from engine.clock import ClockMode
 from engine.scheduler import SchedulerConfig, TimerSpec, BarSpec

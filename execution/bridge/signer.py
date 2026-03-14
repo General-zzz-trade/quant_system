@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 from typing import Any, Dict, Protocol
 
-from _quant_hotpath import rust_hmac_sign as _rust_hmac_sign, rust_hmac_verify as _rust_hmac_verify
+from _quant_hotpath import rust_hmac_sign as _rust_hmac_sign
 
 
 class Signer(Protocol):

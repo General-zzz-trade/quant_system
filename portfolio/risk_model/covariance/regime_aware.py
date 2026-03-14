@@ -6,7 +6,6 @@ import math
 from typing import Mapping, Sequence
 
 from portfolio.risk_model.covariance.ewma import EWMACovariance
-from portfolio.risk_model.covariance.sample import SampleCovariance
 
 
 class RegimeAwareCovariance:

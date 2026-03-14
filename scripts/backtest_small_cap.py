@@ -15,9 +15,12 @@ Binance USDT-M 实盘最小开仓:
 """
 from __future__ import annotations
 
-import sys, json, pickle, time
+import sys
+import json
+import pickle
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 import numpy as np
 import pandas as pd
 
@@ -221,7 +224,6 @@ def run_staged_compounding(
                 fund_sign = 1 if pos > 0 else -1
                 cost = TOTAL_COST * notional + (FUNDING_BPS_PER_8H / 10000) * notional * n_fund * fund_sign
                 net = pnl_pct * notional - cost
-                eq_before = equity
                 equity += net
                 equity = max(equity, 1.0)
                 trades.append({
@@ -454,7 +456,7 @@ def main():
         # Show stage transitions for staged
         staged = results[-1]
         if staged.get("stage_transitions"):
-            print(f"\n  阶梯变化:")
+            print("\n  阶梯变化:")
             for bar, from_s, to_s, eq in staged["stage_transitions"]:
                 day = bar / 24
                 print(f"    Day {day:>5.0f}: {from_s:>10s} → {to_s:<10s} (equity=${eq:.0f})")
@@ -464,7 +466,7 @@ def main():
     print(f"\n{'='*110}")
     print("  关键发现")
     print(f"{'='*110}")
-    print(f"""
+    print("""
   1. $20最低限 vs $100最低限:
      - $100限制下: 5%×2x ($14 notional) 开不了仓
      - $20限制下:  5%×2x ($14→0.01ETH=$20) 可以开仓！

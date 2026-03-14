@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path as _Path
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import pandas as pd
 
 from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from features.multi_timeframe import compute_4h_features
 
 logger = logging.getLogger(__name__)
 

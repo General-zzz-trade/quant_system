@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Set
+from typing import Any, List, Set
 
 import pytest
 

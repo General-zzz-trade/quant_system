@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Mapping, Sequence
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Sequence, Set
+from typing import Dict, Optional, Set
 
 from execution.reconcile.drift import Drift, DriftSeverity, DriftType
 

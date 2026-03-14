@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 from execution.algos.twap import TWAPSlice, TWAPOrder
 from execution.algos.volume_profile import IntraDayVolumeProfile

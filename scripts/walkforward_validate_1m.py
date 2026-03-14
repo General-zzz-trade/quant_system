@@ -18,7 +18,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -44,7 +44,7 @@ from scripts.train_1m_alpha import (
 )
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
-from scripts.signal_postprocess import _apply_monthly_gate, _compute_bear_mask
+from scripts.signal_postprocess import _apply_monthly_gate
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +262,6 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    import sys
 
     # Load and compute features
     df, feat_df = load_and_compute_features(args.symbol, args.data)

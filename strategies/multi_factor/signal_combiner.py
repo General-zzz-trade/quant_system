@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import tanh
-from typing import Optional
 
 from strategies.multi_factor.feature_computer import MultiFactorFeatures
 from strategies.multi_factor.regime import Regime

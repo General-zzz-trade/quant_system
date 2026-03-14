@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional, Protocol, Sequence
+from typing import Mapping, Protocol
 
 
 class OptConstraint(Protocol):

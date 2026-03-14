@@ -5,12 +5,9 @@ in a new coordinator instance, preserving markets, positions, and bar_index.
 """
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime
-from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from state.store import SqliteStateStore

@@ -1,11 +1,8 @@
 """Tests for HFT risk checker."""
 from __future__ import annotations
 
-import time
 from decimal import Decimal
-from unittest.mock import MagicMock
 
-import pytest
 
 from engine.tick_engine import HFTOrder
 from state.shared_position import SharedPositionStore

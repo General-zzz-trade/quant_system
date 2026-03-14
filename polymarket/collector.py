@@ -147,6 +147,34 @@ class PolymarketCollector:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # V2 schema: CLOB orderbook data
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS intra_window_samples_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_start_ts INTEGER NOT NULL,
+                sample_time_utc TEXT NOT NULL,
+                elapsed_sec INTEGER NOT NULL,
+                binance_price REAL NOT NULL,
+                strike_price REAL,
+                move_bps REAL,
+                fair_value_up REAL,
+                fair_value_down REAL,
+                clob_up_best_bid REAL,
+                clob_up_best_ask REAL,
+                clob_up_spread REAL,
+                clob_up_bid_depth REAL,
+                clob_up_ask_depth REAL,
+                clob_down_best_bid REAL,
+                clob_down_best_ask REAL,
+                clob_up_mid REAL,
+                pricing_delay REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_intra_v2_window_ts
+            ON intra_window_samples_v2(window_start_ts)
+        """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_intra_window_ts
             ON intra_window_samples(window_start_ts)
@@ -359,7 +387,9 @@ class PolymarketCollector:
             # Also update the open price if we stored it without kline data
             conn = sqlite3.connect(self._db_path)
             conn.execute(
-                "UPDATE market_snapshots SET binance_btc_open = ? WHERE window_start_ts = ? AND (binance_btc_open IS NULL OR binance_btc_open = 0)",
+                "UPDATE market_snapshots SET binance_btc_open = ? "
+                "WHERE window_start_ts = ? AND "
+                "(binance_btc_open IS NULL OR binance_btc_open = 0)",
                 (kline_open, prev_ts),
             )
             conn.commit()
@@ -431,7 +461,7 @@ class PolymarketCollector:
     # ------------------------------------------------------------------
 
     def _store_intra_sample(self, sample: dict) -> None:
-        """Store an intra-window sample to the database."""
+        """Store an intra-window sample to the legacy v1 table."""
         conn = sqlite3.connect(self._db_path)
         conn.execute(
             """
@@ -458,11 +488,48 @@ class PolymarketCollector:
         conn.commit()
         conn.close()
 
-    def _get_polymarket_prices(self, window_ts: int) -> dict:
-        """Fetch real-time Polymarket Up/Down prices from Gamma /markets API.
+    def _store_intra_sample_v2(self, sample: dict) -> None:
+        """Store an intra-window sample with CLOB orderbook data."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            """
+            INSERT INTO intra_window_samples_v2
+            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
+             strike_price, move_bps, fair_value_up, fair_value_down,
+             clob_up_best_bid, clob_up_best_ask, clob_up_spread,
+             clob_up_bid_depth, clob_up_ask_depth,
+             clob_down_best_bid, clob_down_best_ask,
+             clob_up_mid, pricing_delay)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sample["window_start_ts"],
+                sample["sample_time_utc"],
+                sample["elapsed_sec"],
+                sample["binance_price"],
+                sample.get("strike_price"),
+                sample.get("move_bps"),
+                sample.get("fair_value_up"),
+                sample.get("fair_value_down"),
+                sample.get("clob_up_best_bid"),
+                sample.get("clob_up_best_ask"),
+                sample.get("clob_up_spread"),
+                sample.get("clob_up_bid_depth"),
+                sample.get("clob_up_ask_depth"),
+                sample.get("clob_down_best_bid"),
+                sample.get("clob_down_best_ask"),
+                sample.get("clob_up_mid"),
+                sample.get("pricing_delay"),
+            ),
+        )
+        conn.commit()
+        conn.close()
 
-        Uses the /markets endpoint (not /events) which returns clobTokenIds,
-        outcomePrices, bestBid, bestAsk, and spread.
+    def _resolve_token_ids(self, window_ts: int) -> dict:
+        """Resolve CLOB token IDs for a 5m window from Gamma /markets API.
+
+        Called once per window. Returns {"up_token": str, "down_token": str}
+        or empty dict on failure.
         """
         slug = f"btc-updown-5m-{window_ts}"
         url = f"https://gamma-api.polymarket.com/markets?slug={slug}"
@@ -476,28 +543,114 @@ class PolymarketCollector:
                 if not data or not isinstance(data, list):
                     return {}
                 m = data[0]
-                prices_raw = m.get("outcomePrices", "[]")
-                prices = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+                tokens_raw = m.get("clobTokenIds", "[]")
+                tokens = json.loads(tokens_raw) if isinstance(tokens_raw, str) else tokens_raw
+                outcomes_raw = m.get("outcomes", "[]")
+                outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                result = {}
+                for i, token_id in enumerate(tokens):
+                    outcome = outcomes[i] if i < len(outcomes) else ("Up" if i == 0 else "Down")
+                    if outcome == "Up":
+                        result["up_token"] = token_id
+                    elif outcome == "Down":
+                        result["down_token"] = token_id
+                return result
+        except Exception as e:
+            logger.debug("Failed to resolve tokens for %s: %s", slug, e)
+        return {}
+
+    def _get_clob_orderbook(self, token_id: str) -> dict:
+        """Fetch real orderbook from CLOB API for a single token.
+
+        Returns {"best_bid", "best_ask", "mid", "spread", "bid_depth", "ask_depth"}
+        with prices from actual live orders (not cached Gamma data).
+        """
+        url = f"https://clob.polymarket.com/book?token_id={token_id}"
+        req = Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "quant-collector/1.0"},
+        )
+        try:
+            with urlopen(req, timeout=5) as resp:
+                book = json.loads(resp.read())
+                bids = book.get("bids", [])
+                asks = book.get("asks", [])
+                # Find true best bid (highest) and best ask (lowest)
+                best_bid = max((float(b["price"]) for b in bids), default=0.0)
+                best_ask = min((float(a["price"]) for a in asks), default=1.0)
+                mid = (best_bid + best_ask) / 2 if bids and asks else None
+                spread = best_ask - best_bid if bids and asks else None
+                # Depth: total notional within 10 cents of mid
+                mid_ref = mid or 0.5
+                bid_depth = sum(
+                    float(b["size"]) * float(b["price"])
+                    for b in bids
+                    if float(b["price"]) >= mid_ref - 0.10
+                )
+                ask_depth = sum(
+                    float(a["size"]) * float(a["price"])
+                    for a in asks
+                    if float(a["price"]) <= mid_ref + 0.10
+                )
                 return {
-                    "up_price": float(prices[0]) if len(prices) > 0 else None,
-                    "down_price": float(prices[1]) if len(prices) > 1 else None,
-                    "best_bid": float(m.get("bestBid", 0) or 0),
-                    "best_ask": float(m.get("bestAsk", 0) or 0),
-                    "spread": float(m.get("spread", 0) or 0),
-                    "last_trade": float(m.get("lastTradePrice", 0) or 0),
-                    "accepting": m.get("acceptingOrders", False),
+                    "best_bid": best_bid,
+                    "best_ask": best_ask,
+                    "mid": mid,
+                    "spread": spread,
+                    "bid_depth": bid_depth,
+                    "ask_depth": ask_depth,
                 }
         except Exception as e:
-            logger.debug("Failed to get PM prices for %s: %s", slug, e)
+            logger.debug("Failed to get CLOB book for %s: %s", token_id[:16], e)
         return {}
+
+    def _get_polymarket_prices(self, window_ts: int) -> dict:
+        """Fetch real-time Polymarket prices from CLOB orderbook.
+
+        V2: Uses CLOB API directly for real orderbook data instead of
+        cached Gamma API outcomePrices. Resolves token IDs from Gamma
+        once per window, then queries CLOB for live bid/ask.
+        """
+        # Resolve token IDs (cached per window via caller)
+        if not hasattr(self, "_token_cache") or self._token_cache.get("window_ts") != window_ts:
+            tokens = self._resolve_token_ids(window_ts)
+            self._token_cache = {"window_ts": window_ts, **tokens}
+
+        up_token = self._token_cache.get("up_token")
+        down_token = self._token_cache.get("down_token")
+
+        if not up_token:
+            return {}
+
+        result: dict = {"source": "clob"}
+
+        # Fetch Up orderbook
+        up_book = self._get_clob_orderbook(up_token)
+        if up_book:
+            result["up_price"] = up_book.get("mid")
+            result["up_best_bid"] = up_book.get("best_bid", 0)
+            result["up_best_ask"] = up_book.get("best_ask", 1)
+            result["up_spread"] = up_book.get("spread")
+            result["up_bid_depth"] = up_book.get("bid_depth", 0)
+            result["up_ask_depth"] = up_book.get("ask_depth", 0)
+
+        # Fetch Down orderbook
+        if down_token:
+            down_book = self._get_clob_orderbook(down_token)
+            if down_book:
+                result["down_price"] = down_book.get("mid")
+                result["down_best_bid"] = down_book.get("best_bid", 0)
+                result["down_best_ask"] = down_book.get("best_ask", 1)
+
+        return result
 
     def collect_intra_window(self) -> None:
         """Run 30-second sampling within a single 5-minute window.
 
-        Samples Binance price AND Polymarket orderbook prices every 30 seconds,
-        computes Black-Scholes binary option fair values, measures pricing delay,
-        and stores results. Also performs the normal collect_one() backfill at
-        window end.
+        V2: Fetches real CLOB orderbook data (not cached Gamma API).
+        Samples Binance price + CLOB best bid/ask every 30 seconds,
+        computes Black-Scholes binary option fair values, measures pricing delay
+        vs CLOB mid-price, and stores results.
         """
         window_ts = self._current_window_ts()
 
@@ -508,9 +661,15 @@ class PolymarketCollector:
 
         sigma = self._vol_tracker.sigma_annual
 
+        # Resolve token IDs once per window
+        self._token_cache = {"window_ts": None}  # force refresh
+        tokens = self._resolve_token_ids(window_ts)
+        self._token_cache = {"window_ts": window_ts, **tokens}
+        has_tokens = bool(tokens.get("up_token"))
+
         logger.info(
-            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f",
-            window_ts, strike, sigma,
+            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s",
+            window_ts, strike, sigma, "yes" if has_tokens else "NO",
         )
 
         # Sample every 30 seconds for the remainder of the window
@@ -528,12 +687,16 @@ class PolymarketCollector:
                 time.sleep(_INTRA_INTERVAL)
                 continue
 
-            # Get current Polymarket prices
+            # Get CLOB orderbook data
             pm = self._get_polymarket_prices(window_ts)
-            pm_up = pm.get("up_price")
-            pm_down = pm.get("down_price")
-            pm_bid = pm.get("best_bid", 0)
-            pm_ask = pm.get("best_ask", 0)
+            up_mid = pm.get("up_price")
+            up_bid = pm.get("up_best_bid", 0)
+            up_ask = pm.get("up_best_ask", 1)
+            up_spread = pm.get("up_spread")
+            up_bid_depth = pm.get("up_bid_depth", 0)
+            up_ask_depth = pm.get("up_ask_depth", 0)
+            down_bid = pm.get("down_best_bid", 0)
+            down_ask = pm.get("down_best_ask", 1)
 
             # Compute fair values
             remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
@@ -541,10 +704,10 @@ class PolymarketCollector:
             fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
             fair_down = 1.0 - fair_up
 
-            # Compute pricing delay (Polymarket vs Black-Scholes)
+            # Pricing delay: CLOB mid vs BS fair value
             pricing_delay = None
-            if pm_up is not None:
-                pricing_delay = pm_up - fair_up
+            if up_mid is not None:
+                pricing_delay = up_mid - fair_up
 
             sample = {
                 "window_start_ts": window_ts,
@@ -555,18 +718,26 @@ class PolymarketCollector:
                 "move_bps": move_bps,
                 "fair_value_up": fair_up,
                 "fair_value_down": fair_down,
-                "polymarket_up_price": pm_up,
-                "polymarket_down_price": pm_down,
+                "clob_up_best_bid": up_bid if pm else None,
+                "clob_up_best_ask": up_ask if pm else None,
+                "clob_up_spread": up_spread,
+                "clob_up_bid_depth": up_bid_depth if pm else None,
+                "clob_up_ask_depth": up_ask_depth if pm else None,
+                "clob_down_best_bid": down_bid if pm else None,
+                "clob_down_best_ask": down_ask if pm else None,
+                "clob_up_mid": up_mid,
                 "pricing_delay": pricing_delay,
             }
-            self._store_intra_sample(sample)
+            self._store_intra_sample_v2(sample)
 
-            # Log with both Binance and Polymarket data
-            delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_pm"
+            # Log with CLOB orderbook data
+            delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
             logger.info(
-                "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f pm_up=%.3f bid=%.3f ask=%.3f %s",
+                "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
+                "clob=%.3f bid=%.2f ask=%.2f spd=%.2f d=$%.0f/$%.0f %s",
                 elapsed, price, move_bps, fair_up,
-                pm_up or 0, pm_bid, pm_ask, delay_str,
+                up_mid or 0, up_bid, up_ask, up_spread or 0,
+                up_bid_depth, up_ask_depth, delay_str,
             )
 
             # Update vol tracker
@@ -594,18 +765,25 @@ class PolymarketCollector:
             "WHERE polymarket_result IS NOT NULL GROUP BY polymarket_result"
         ).fetchall()
 
-        # Intra-window stats
+        # Intra-window stats (v1 legacy)
         intra_row = conn.execute(
             "SELECT COUNT(*) FROM intra_window_samples"
         ).fetchone()
         intra_count = intra_row[0] if intra_row else 0
 
-        # Average fair value accuracy (when Polymarket data available)
+        # V2 CLOB stats
+        intra_v2_row = conn.execute(
+            "SELECT COUNT(*) FROM intra_window_samples_v2"
+        ).fetchone()
+        intra_v2_count = intra_v2_row[0] if intra_v2_row else 0
+
+        # Average pricing delay from v2 CLOB data
         accuracy_row = conn.execute(
-            "SELECT AVG(ABS(pricing_delay)) FROM intra_window_samples "
-            "WHERE pricing_delay IS NOT NULL"
+            "SELECT AVG(ABS(pricing_delay)), AVG(clob_up_spread) "
+            "FROM intra_window_samples_v2 WHERE pricing_delay IS NOT NULL"
         ).fetchone()
         avg_pricing_delay = accuracy_row[0] if accuracy_row and accuracy_row[0] is not None else None
+        avg_clob_spread = accuracy_row[1] if accuracy_row and accuracy_row[1] is not None else None
 
         conn.close()
 
@@ -614,8 +792,10 @@ class PolymarketCollector:
             "first_record": row[1],
             "last_record": row[2],
             "results": {r[0]: r[1] for r in results},
-            "intra_window_samples": intra_count,
+            "intra_window_samples_v1": intra_count,
+            "intra_window_samples_v2": intra_v2_count,
             "avg_pricing_delay": avg_pricing_delay,
+            "avg_clob_spread": avg_clob_spread,
             "current_sigma_annual": self._vol_tracker.sigma_annual,
         }
         return stats

@@ -4,15 +4,12 @@ from __future__ import annotations
 import math
 
 from portfolio.risk_model.aggregation.portfolio_risk import (
-    PortfolioRisk,
     compute_portfolio_risk,
 )
 from portfolio.risk_model.aggregation.marginal import (
-    MarginalContribution,
     compute_marginal_risk,
 )
 from portfolio.risk_model.aggregation.decomposition import (
-    RiskDecomposition,
     decompose_risk,
 )
 from portfolio.risk_model.tail.var import (
@@ -26,7 +23,6 @@ from portfolio.risk_model.tail.es import (
     parametric_es,
 )
 from portfolio.risk_model.tail.drawdown import (
-    DrawdownStats,
     analyze_drawdowns,
     compute_drawdowns,
 )

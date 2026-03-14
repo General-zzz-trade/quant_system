@@ -4,9 +4,9 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from monitoring.alerts.base import Alert, AlertSink, Severity
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from math import erf, exp, log, pi, sqrt
-from typing import Dict, List, Optional, Sequence
+from typing import List, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ def probability_of_backtest_overfitting(
 
     # Check if IS-best also performs well OOS
     oos_best = out_of_sample_sharpes[best_is_idx]
-    oos_median = sorted(out_of_sample_sharpes)[n // 2]
+    sorted(out_of_sample_sharpes)[n // 2]
 
     # Simple PBO: what fraction of random picks would beat the IS-best OOS?
     n_better = sum(1 for s in out_of_sample_sharpes if s >= oos_best)

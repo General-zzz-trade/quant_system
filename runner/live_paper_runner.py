@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import signal
 import threading
 import time
 from dataclasses import dataclass, field
@@ -26,7 +25,6 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.loop import EngineLoop, LoopConfig
 from engine.guards import build_basic_guard, GuardConfig
-from engine.pipeline import PipelineOutput
 
 from execution.adapters.binance.kline_processor import KlineProcessor
 from execution.adapters.binance.ws_market_stream_um import (

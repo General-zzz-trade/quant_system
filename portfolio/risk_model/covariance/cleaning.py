@@ -2,7 +2,6 @@
 """Covariance matrix cleaning (eigenvalue clipping / RMT)."""
 from __future__ import annotations
 
-import math
 from typing import Mapping, Sequence
 
 from portfolio.risk_model.covariance.sample import SampleCovariance

@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, List, Dict
+from typing import Any, Mapping, Optional, List
 
-import pytest
 
 from execution.bridge.execution_bridge import (
     ExecutionBridge,
     RetryPolicy,
-    RateLimitConfig,
     CircuitBreakerConfig,
-    RetryableVenueError,
     NonRetryableVenueError,
 )
 from execution.bridge.request_ids import RequestIdFactory

@@ -4,15 +4,17 @@
 Answers: how does alpha decay as we go from 1h → 30m → 15m → 5m?
 """
 from __future__ import annotations
-import sys, time, json, pickle, logging
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 
 WARMUP = 100
 COST_MAKER_RT_BPS = 4  # maker round-trip
@@ -87,10 +89,9 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
     print(f"  {len(feature_names)} features computed in {elapsed:.1f}s")
 
     # IC analysis
-    print(f"\n  --- IC Analysis ---")
+    print("\n  --- IC Analysis ---")
     best_horizon = None
     best_ic_sum = 0
-    best_ics = {}
 
     for h_bars in horizons_bars:
         h_minutes = h_bars * tf_minutes
@@ -120,7 +121,7 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
         if ic_sum > best_ic_sum:
             best_ic_sum = ic_sum
             best_horizon = h_bars
-            best_ics = {f: ic for f, ic in ics}
+            {f: ic for f, ic in ics}
 
     if best_horizon is None:
         print("  No viable horizon found.")
@@ -130,7 +131,7 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
     print(f"\n  Best horizon: {best_horizon} bars ({h_minutes} min), total |IC|={best_ic_sum:.4f}")
 
     # Walk-forward backtest
-    print(f"\n  --- Walk-Forward Backtest ---")
+    print("\n  --- Walk-Forward Backtest ---")
     import lightgbm as lgb
 
     y = np.full(n, np.nan)
@@ -348,7 +349,7 @@ def main():
             json.dump(config, f, indent=2)
         print(f"  Saved to {out_dir}")
     else:
-        print(f"\n  No timeframe produced positive net P&L.")
+        print("\n  No timeframe produced positive net P&L.")
 
     print(f"\n{'='*70}")
     print("DONE")

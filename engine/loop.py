@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Protocol, Tuple
+from typing import Any, Callable, Optional, Protocol
 import threading
 import time
 

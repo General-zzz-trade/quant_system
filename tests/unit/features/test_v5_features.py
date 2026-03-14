@@ -1,7 +1,6 @@
 """Tests for V5 features: Order Flow, Vol Microstructure, Liquidation Proxy, Funding Carry."""
 from __future__ import annotations
 
-import math
 
 import pytest
 

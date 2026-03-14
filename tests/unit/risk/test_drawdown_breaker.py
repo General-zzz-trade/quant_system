@@ -1,9 +1,8 @@
 """Tests for DrawdownCircuitBreaker."""
 import logging
 import time
-from unittest.mock import MagicMock
 
-from risk.kill_switch import KillSwitch, KillMode, KillScope
+from risk.kill_switch import KillSwitch, KillMode
 from risk.drawdown_breaker import DrawdownCircuitBreaker, DrawdownBreakerConfig
 
 

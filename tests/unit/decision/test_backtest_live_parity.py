@@ -300,8 +300,8 @@ def test_vol_target_sizing_ratio_matches_live_scale(_mock_predict, tmp_path: Pat
     # but doesn't kill it
     low_mod = _build_module(tmp_path / "low", vol_target=0.15, vol_feature="atr_norm_14", min_hold=1)
     high_mod = _build_module(tmp_path / "high", vol_target=0.15, vol_feature="atr_norm_14", min_hold=1)
-    low_qty = _entry_qty(low_mod, close=100.0, features={"atr_norm_14": 0.05}, zscore=2.0)
-    high_qty = _entry_qty(high_mod, close=100.0, features={"atr_norm_14": 0.30}, zscore=2.0)
+    _entry_qty(low_mod, close=100.0, features={"atr_norm_14": 0.05}, zscore=2.0)
+    _entry_qty(high_mod, close=100.0, features={"atr_norm_14": 0.30}, zscore=2.0)
 
     # Both should enter (strong signal survives vol-scale)
     # Notional is now the same (vol-scale moved to signal, not sizing)

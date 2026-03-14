@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional
 
 from event.types import IntentEvent, OrderEvent, Side, Symbol, Venue
 from risk.decisions import (

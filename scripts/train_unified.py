@@ -29,8 +29,6 @@ import pandas as pd
 from alpha.models.lgbm_alpha import LGBMAlphaModel
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
 from alpha.training.regime_split import (
-    RegimeModelBundle,
-    compute_vol_regime,
     train_regime_models,
 )
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
@@ -488,7 +486,7 @@ def validate_oos_extended(
     )
 
     # Stability score
-    neg_months = sum(1 for m in monthly if m["ic"] < 0)
+    sum(1 for m in monthly if m["ic"] < 0)
     pos_months = sum(1 for m in monthly if m["ic"] > 0)
     month_consistency = pos_months / max(len(monthly), 1)
 
@@ -526,7 +524,6 @@ def validate_oos_extended(
 
 
 def _print_extended_oos(symbol: str, ext: Dict[str, Any]) -> None:
-    from datetime import datetime, timezone
 
     status = "PASS" if ext["passed"] else "FAIL"
     print(f"\n  {'='*60}")
@@ -564,7 +561,7 @@ def _print_extended_oos(symbol: str, ext: Dict[str, Any]) -> None:
 
     monthly = ext.get("monthly", [])
     if monthly:
-        print(f"\n  Monthly Breakdown:")
+        print("\n  Monthly Breakdown:")
         print(f"  {'Month':<10} {'N':>6} {'IC':>8} {'Dir%':>8} "
               f"{'Sharpe':>8} {'Active%':>8}")
         print(f"  {'-'*50}")
@@ -1062,7 +1059,7 @@ def run_walkforward(
         if stable_idx:
             icir_report = compute_feature_icir_report(
                 X_clean[:, stable_idx], y_clean, stable_names)
-            print(f"\n  ICIR report (top 10 by ICIR):")
+            print("\n  ICIR report (top 10 by ICIR):")
             sorted_icir = sorted(icir_report.items(), key=lambda x: -x[1]["icir"])[:10]
             for fname, report in sorted_icir:
                 print(f"    {fname:<30s} ICIR={report['icir']:.2f} "
@@ -1239,7 +1236,7 @@ def run_one(
     cross_df = cross_features.get(symbol) if cross_features else None
     feat_df = _load_and_compute_features(symbol, df, cross_df)
     if feat_df is None:
-        print(f"  ERROR: Feature computation failed")
+        print("  ERROR: Feature computation failed")
         return None
     print(f"  Bars: {len(feat_df)}")
 
@@ -1326,7 +1323,7 @@ def main() -> None:
 
     if results:
         print(f"\n\n{'='*100}")
-        print(f"  Unified Alpha Training Summary")
+        print("  Unified Alpha Training Summary")
         print(f"{'='*100}")
         print(f"{'Symbol':<10} {'H':>3} {'Mode':<10} {'Feats':>5} "
               f"{'CV IC':>8} {'CV Dir':>8} {'CV Shrp':>8} "

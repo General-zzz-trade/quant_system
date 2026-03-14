@@ -4,10 +4,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-import pytest
 
-from data.quality.gaps import Gap, GapDetector, GapFiller, GapReport
-from data.quality.validators import BarValidator, ValidationResult
+from data.quality.gaps import Gap, GapDetector, GapFiller
+from data.quality.validators import BarValidator
 from data.store import Bar
 
 

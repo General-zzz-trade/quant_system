@@ -1008,10 +1008,10 @@ def run_live(config_path: Path, duration: int) -> None:
     api_secret = os.environ.get(secret_env, "")
 
     if not api_key or not api_secret:
-        print(f"Missing testnet API credentials.")
-        print(f"  1. Register at https://testnet.binancefuture.com/")
-        print(f"  2. Generate API key/secret")
-        print(f"  3. Export env vars:")
+        print("Missing testnet API credentials.")
+        print("  1. Register at https://testnet.binancefuture.com/")
+        print("  2. Generate API key/secret")
+        print("  3. Export env vars:")
         print(f"     export {key_env}=<your_api_key>")
         print(f"     export {secret_env}=<your_api_secret>")
         sys.exit(1)
@@ -1150,10 +1150,10 @@ def run_longrun(config_path: Path, duration: int) -> None:
     api_secret = os.environ.get(secret_env, "")
 
     if not api_key or not api_secret:
-        print(f"Missing testnet API credentials.")
-        print(f"  1. Register at https://testnet.binancefuture.com/")
-        print(f"  2. Generate API key/secret")
-        print(f"  3. Export env vars:")
+        print("Missing testnet API credentials.")
+        print("  1. Register at https://testnet.binancefuture.com/")
+        print("  2. Generate API key/secret")
+        print("  3. Export env vars:")
         print(f"     export {key_env}=<your_api_key>")
         print(f"     export {secret_env}=<your_api_secret>")
         sys.exit(1)
@@ -1288,7 +1288,7 @@ def run_compare(config_path: Path) -> None:
     live_csv = out / "live_equity.csv"
 
     if not paper_csv.exists() or not live_csv.exists():
-        print(f"Missing files. Run paper and live phases first.")
+        print("Missing files. Run paper and live phases first.")
         print(f"  Expected: {paper_csv}")
         print(f"  Expected: {live_csv}")
         sys.exit(1)

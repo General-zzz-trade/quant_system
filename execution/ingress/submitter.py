@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from execution.bridge.execution_bridge import Ack, ExecutionBridge
-from execution.models.intents import ExecutionIntent, IntentStatus
+from execution.models.intents import ExecutionIntent
 
 
 @dataclass(frozen=True, slots=True)

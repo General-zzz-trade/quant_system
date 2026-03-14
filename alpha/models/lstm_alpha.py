@@ -226,7 +226,7 @@ class LSTMAlphaModel:
             import torch
             data = torch.load(path, weights_only=True)
             if data.get("config"):
-                cfg = data["config"]
+                data["config"]
                 n_features = len(data.get("features", self.feature_names))
                 self.build_model(n_features)
                 if data.get("model_state") and self._model:

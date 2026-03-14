@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional, Sequence
+from typing import Optional
 
-from execution.state_machine.transitions import OrderStatus, TERMINAL_STATUSES
+from execution.state_machine.transitions import OrderStatus
 
 
 class InvariantViolation(RuntimeError):

@@ -34,7 +34,7 @@ import time
 import json
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -434,7 +434,7 @@ def walk_forward_symbol(
         dzs = [r["best_cfg"].get("dz", 0) for r in all_results]
         mhs = [r["best_cfg"].get("min_hold", 0) for r in all_results]
         los = [r["best_cfg"].get("long_only", False) for r in all_results]
-        print(f"\n  Config stability:")
+        print("\n  Config stability:")
         print(f"    Deadzone range: [{min(dzs):.1f}, {max(dzs):.1f}]")
         print(f"    Min_hold range: [{min(mhs)}, {max(mhs)}]")
         print(f"    Long_only: {sum(los)}/{len(los)} folds")

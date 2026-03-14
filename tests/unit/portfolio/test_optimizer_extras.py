@@ -6,9 +6,8 @@ from decimal import Decimal
 from typing import Mapping
 
 from portfolio.optimizer.base import OptimizationResult
-from portfolio.optimizer.constraints import LongOnlyConstraint, MaxWeightConstraint
+from portfolio.optimizer.constraints import LongOnlyConstraint
 from portfolio.optimizer.diagnostics import (
-    DiagnosticReport,
     check_concentration,
     check_convergence,
     check_feasibility,

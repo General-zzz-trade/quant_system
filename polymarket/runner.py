@@ -1,7 +1,8 @@
 """PolymarketRunner -- independent runner for prediction market trading."""
 from __future__ import annotations
-import logging, time
-from typing import Any, Optional
+import logging
+import time
+from typing import Any
 from polymarket.config import PolymarketConfig
 from polymarket.decision import PolymarketDecisionModule
 

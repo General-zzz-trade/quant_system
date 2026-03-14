@@ -11,10 +11,10 @@ import math
 import os
 import tempfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional
 
 from event.header import EventHeader
 from event.types import EventType, IntentEvent, OrderEvent

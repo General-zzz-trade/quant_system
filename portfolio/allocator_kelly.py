@@ -1,8 +1,7 @@
 """Kelly Criterion allocator — optimal position sizing based on expected returns and risk."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from decimal import Decimal
+from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from portfolio.allocator import (
@@ -12,7 +11,6 @@ from portfolio.allocator import (
     PortfolioConstraints,
     PriceProvider,
     TargetWeightAllocator,
-    _abs,
     _d,
 )
 

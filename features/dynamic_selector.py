@@ -5,7 +5,7 @@ Uses OLS residualization from research.orthogonalize for marginal IC.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 
 import numpy as np
 

@@ -1,7 +1,6 @@
 """Tests for regime classification."""
 from __future__ import annotations
 
-import pytest
 
 from strategies.multi_factor.feature_computer import MultiFactorFeatures
 from strategies.multi_factor.regime import Regime, classify_regime

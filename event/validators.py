@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from event.errors import EventValidationError
 from event.header import EventHeader

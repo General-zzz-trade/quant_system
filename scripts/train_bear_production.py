@@ -26,7 +26,6 @@ from scripts.bear_alpha_research import (
     _compute_bear_bull_mask,
     _compute_bear_target,
     V7_DEFAULT_PARAMS,
-    EARLY_STOPPING_ROUNDS,
 )
 
 logger = logging.getLogger(__name__)

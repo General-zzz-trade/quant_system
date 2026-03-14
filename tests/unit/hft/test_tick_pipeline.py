@@ -5,7 +5,6 @@ import json
 import time
 import threading
 from decimal import Decimal
-from queue import Queue
 from unittest.mock import MagicMock
 
 import pytest
@@ -402,7 +401,6 @@ class TestSharedPositionStore:
 
     def test_thread_safety(self):
         store = SharedPositionStore()
-        errors: list[str] = []
 
         def writer(start_val: int):
             for i in range(100):

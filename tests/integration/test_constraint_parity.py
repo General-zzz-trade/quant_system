@@ -328,7 +328,6 @@ class TestMonthlyGateFlip:
 
     def test_monthly_gate_bridge_deterministic(self):
         """RustInferenceBridge monthly gate is deterministic across two runs."""
-        n = 600
         closes = np.concatenate([
             np.linspace(100, 120, 300),
             np.linspace(120, 90, 300),

@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Any, Deque, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Deque, Tuple
 
 from risk.kill_switch import KillMode, KillScope, KillSwitch
 

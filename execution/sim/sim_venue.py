@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Dict, Optional, Tuple
 
 from execution.adapters.base import VenueAdapter

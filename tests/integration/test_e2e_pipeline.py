@@ -17,13 +17,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, List
 
-import pytest
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
-from execution.safety.risk_gate import RiskGate, RiskGateConfig, RiskCheckResult
+from execution.safety.risk_gate import RiskGate, RiskGateConfig
 from features.live_computer import LiveFeatureComputer
 from alpha.inference.bridge import LiveInferenceBridge
 from alpha.base import Signal

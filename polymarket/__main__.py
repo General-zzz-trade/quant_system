@@ -1,6 +1,7 @@
 """Entry point: python3 -m polymarket --config config/polymarket.yaml"""
 from __future__ import annotations
-import argparse, sys
+import argparse
+import sys
 sys.path.insert(0, "/quant_system")
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from _quant_hotpath import rust_compute_feature_signal
 from decision.market_access import get_float_attr

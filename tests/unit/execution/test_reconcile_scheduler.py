@@ -5,9 +5,8 @@ from __future__ import annotations
 import time
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import pytest
 
 from execution.reconcile.controller import ReconcileController
 from execution.reconcile.scheduler import (

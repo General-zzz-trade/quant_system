@@ -9,7 +9,6 @@ from typing import Any, List, Optional
 import pytest
 
 from runner.live_runner import LiveRunner, LiveRunnerConfig
-from risk.kill_switch_bridge import KillSwitchBridge
 from risk.margin_monitor import MarginMonitor
 from execution.latency.tracker import LatencyTracker
 from monitoring.alerts.manager import AlertManager

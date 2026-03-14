@@ -5,9 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from strategies.hft.market_making import MarketMaker, Quote, QuotePair
+from strategies.hft.market_making import MarketMaker
 from strategies.hft.order_book import (
-    OrderBookSignal,
     analyze_book,
     compute_imbalance,
     compute_weighted_mid,

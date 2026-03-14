@@ -5,7 +5,7 @@ from __future__ import annotations
 from threading import RLock
 from typing import Optional, Tuple
 
-from risk.kill_switch import KillMode, KillRecord, KillScope, KillSwitch as RiskKillSwitch
+from risk.kill_switch import KillRecord, KillScope, KillSwitch as RiskKillSwitch
 
 
 class ExecutionKillSwitch:

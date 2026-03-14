@@ -4,7 +4,6 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from decision.types import Candidate
 from decision.allocators.base import EqualWeightAllocator

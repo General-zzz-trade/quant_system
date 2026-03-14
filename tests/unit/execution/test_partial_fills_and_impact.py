@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
 
 from execution.sim.slippage import (
     SqrtImpactSlippage,
-    FixedBpsSlippage,
     NoSlippage,
 )
 from execution.sim.paper_broker import PaperBroker, PaperBrokerConfig

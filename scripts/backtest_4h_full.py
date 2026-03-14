@@ -7,7 +7,10 @@ Method 2: Production model on OOS holdout (last 18 months)
 Uses ensemble LGBM+XGB, same as production training.
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -17,7 +20,7 @@ import pandas as pd
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
-from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
 
@@ -253,13 +256,13 @@ def analyze_trades(trades: List[Trade], timestamps: np.ndarray, n_bars: int, lab
 
     # Best/worst trades
     sorted_trades = sorted(trades, key=lambda t: t.net_pnl)
-    print(f"\n  Worst 3 trades:")
+    print("\n  Worst 3 trades:")
     for t in sorted_trades[:3]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%Y-%m-%d %H:%M")
         print(f"    {ts} {'L' if t.direction>0 else 'S'} @ ${t.entry_price:.0f} "
               f"hold={t.hold_bars}bars ({t.hold_bars*4}h) "
               f"gross=${t.gross_pnl:+.1f} net=${t.net_pnl:+.1f}")
-    print(f"  Best 3 trades:")
+    print("  Best 3 trades:")
     for t in sorted_trades[-3:]:
         ts = pd.Timestamp(int(timestamps[t.entry_bar]), unit="ms").strftime("%Y-%m-%d %H:%M")
         print(f"    {ts} {'L' if t.direction>0 else 'S'} @ ${t.entry_price:.0f} "
@@ -413,7 +416,7 @@ def main():
     for cost_label, cost_bps in [("Maker (4bp)", COST_MAKER_RT), ("Taker (14bp)", COST_TAKER_RT)]:
         bt = run_backtest(pred_slice, close_slice, ts_slice,
                           horizon, deadzone, cost_bps, long_only, min_hold, max_hold)
-        stats = analyze_trades(bt["trades"], ts_slice, n_test,
+        analyze_trades(bt["trades"], ts_slice, n_test,
                                f"Walk-Forward {cost_label}")
 
     # ═══════════════════════════════════════════════════════════════
@@ -465,7 +468,7 @@ def main():
     for cost_label, cost_bps in [("Maker (4bp)", COST_MAKER_RT), ("Taker (14bp)", COST_TAKER_RT)]:
         bt = run_backtest(oos_pred, oos_closes, oos_ts,
                           horizon, deadzone, cost_bps, long_only, min_hold, max_hold)
-        stats = analyze_trades(bt["trades"], oos_ts, len(oos_closes),
+        analyze_trades(bt["trades"], oos_ts, len(oos_closes),
                                f"Production Model {cost_label}")
 
     # ═══════════════════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Iterator, List, Optional, Protocol
+from typing import Any, Iterator, Optional, Protocol
 
 # engine 侧
 from engine.dispatcher import EventDispatcher, Route
@@ -144,7 +144,7 @@ class EventReplay:
             # 注入 dispatcher（与 live 完全一致）
             try:
                 self._dispatcher.dispatch(event=event, actor=self._cfg.actor)
-            except Exception as e:
+            except Exception:
                 if self._cfg.stop_on_error:
                     raise
                 # 否则：吞掉异常继续

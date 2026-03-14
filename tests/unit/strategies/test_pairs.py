@@ -1,13 +1,11 @@
 """Tests for pairs trading — OLS, correlation, half-life, pair screening, signals."""
 from __future__ import annotations
 
-import math
 
 import pytest
 
 from strategies.stat_arb.pairs import (
     PairResult,
-    PairSignal,
     PairsStrategy,
     _correlation,
     _half_life,

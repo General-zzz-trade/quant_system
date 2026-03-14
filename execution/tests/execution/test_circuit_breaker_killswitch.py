@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 from execution.safety.circuit_breaker import (
     CircuitBreaker,

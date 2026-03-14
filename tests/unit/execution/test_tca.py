@@ -7,9 +7,9 @@ from decimal import Decimal
 
 import pytest
 
-from execution.tca.benchmarks import BenchmarkCalculator, TCABenchmark
+from execution.tca.benchmarks import BenchmarkCalculator
 from execution.tca.analyzer import FillRecord, TCAAnalyzer, TCAResult
-from execution.tca.report import TCAReporter, TCAReportEntry
+from execution.tca.report import TCAReporter
 
 
 # ── Helpers ─────────────────────────────────────────────────

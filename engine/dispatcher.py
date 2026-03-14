@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import time as _time
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, List
 import threading
 
 from _quant_hotpath import DuplicateGuard as _RustDedupGuard

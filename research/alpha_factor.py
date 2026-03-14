@@ -6,8 +6,8 @@ Core module: define what a factor is, evaluate how good it is.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Sequence
 
 from runner.backtest.csv_io import OhlcvBar
 

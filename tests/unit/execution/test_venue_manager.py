@@ -8,8 +8,8 @@ from typing import Any, Dict
 
 import pytest
 
-from execution.venue_manager import VenueManager, SmartRouter, RouteDecision
-from execution.models.venue import VenueInfo, VenueType, VenueFeature
+from execution.venue_manager import VenueManager, SmartRouter
+from execution.models.venue import VenueInfo, VenueType
 
 
 class _MockGateway:

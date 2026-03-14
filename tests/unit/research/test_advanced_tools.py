@@ -2,15 +2,12 @@
 """Tests for advanced research tools: Monte Carlo, Sensitivity, Significance."""
 from __future__ import annotations
 
-import math
 
 import pytest
 
-from research.monte_carlo import MonteCarloResult, MonteCarloSimulator
-from research.sensitivity import SensitivityAnalyzer, SensitivityResult
+from research.monte_carlo import MonteCarloSimulator
+from research.sensitivity import SensitivityAnalyzer
 from research.significance import (
-    MultipleTestingResult,
-    TTestResult,
     ic_ttest,
     minimum_oos_period,
     multiple_testing_correction,

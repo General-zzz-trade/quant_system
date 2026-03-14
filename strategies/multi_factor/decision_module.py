@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -11,7 +11,7 @@ from runner.backtest.adapter import _make_id
 
 from strategies.multi_factor.feature_computer import MultiFactorFeatureComputer, MultiFactorFeatures
 from strategies.multi_factor.regime import Regime, classify_regime
-from strategies.multi_factor.signal_combiner import CombinedSignal, combine_signals
+from strategies.multi_factor.signal_combiner import combine_signals
 
 
 def _snapshot_views(snapshot: Any) -> Tuple[Any, Mapping[str, Any], Optional[str], Any]:

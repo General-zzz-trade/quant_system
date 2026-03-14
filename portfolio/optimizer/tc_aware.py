@@ -79,7 +79,7 @@ class TransactionCostAwareObjective:
                 continue
 
             # Fee component
-            fee_cost = delta * fee_frac
+            delta * fee_frac
 
             # Market impact component
             impact = self._compute_impact(delta, total_equity)

@@ -1,7 +1,6 @@
 """Tests for CrossAssetComputer."""
 from __future__ import annotations
 
-import math
 import pytest
 
 from features.cross_asset_computer import CrossAssetComputer, CROSS_ASSET_FEATURE_NAMES

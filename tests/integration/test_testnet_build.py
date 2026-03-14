@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from typing import Any, List, Optional
 
-import pytest
 
 from runner.live_runner import LiveRunner, LiveRunnerConfig
 from runner.live_paper_runner import LivePaperRunner, LivePaperConfig

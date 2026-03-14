@@ -4,7 +4,6 @@ from __future__ import annotations
 import threading
 from typing import List
 
-import pytest
 
 from infra.messaging.bus import InProcessMessageBus
 

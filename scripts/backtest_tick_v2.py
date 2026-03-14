@@ -15,8 +15,7 @@ Runs parameter sweep and compares V1 (single-window) vs V2 (multi-TF ensemble).
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import List, Optional
-import sys, os
+from typing import List
 
 DATA_PATH = "/quant_system/data_files/BTCUSDT_1m.csv"
 
@@ -35,8 +34,8 @@ def compute_signals(df: pd.DataFrame) -> pd.DataFrame:
     """Compute V2-style tick signals from 1m bars."""
     close = df["close"].values
     volume = df["volume"].values
-    high = df["high"].values
-    low = df["low"].values
+    df["high"].values
+    df["low"].values
     open_ = df["open"].values
     n = len(df)
 
@@ -286,7 +285,7 @@ def main():
     df = compute_signals(df)
 
     # Signal statistics
-    print(f"\n--- Signal Statistics ---")
+    print("\n--- Signal Statistics ---")
     print(f"  V2 tick_score: mean={df['tick_v2'].mean():.4f}, std={df['tick_v2'].std():.4f}, "
           f"|score|>0.2: {(df['tick_v2'].abs() > 0.2).sum():,} bars ({(df['tick_v2'].abs() > 0.2).mean()*100:.1f}%)")
     print(f"  V1 tick_score: mean={df['tick_v1'].mean():.4f}, std={df['tick_v1'].std():.4f}, "

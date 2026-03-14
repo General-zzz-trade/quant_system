@@ -5,8 +5,8 @@ Controls when the decision engine should produce new targets.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Protocol
+from datetime import datetime, timedelta
+from typing import Optional, Protocol
 
 from state.snapshot import StateSnapshot
 

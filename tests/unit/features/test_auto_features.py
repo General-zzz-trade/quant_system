@@ -1,12 +1,11 @@
 """Tests for auto feature generation and selection."""
 from __future__ import annotations
 
-import math
 
 import pytest
 
-from features.auto.generator import FeatureCandidate, FeatureGenerator
-from features.auto.selector import FeatureScore, FeatureSelector
+from features.auto.generator import FeatureGenerator
+from features.auto.selector import FeatureSelector
 
 
 class TestFeatureGenerator:

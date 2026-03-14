@@ -8,7 +8,7 @@ The chain short-circuits on rejection: later gates are never called.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 

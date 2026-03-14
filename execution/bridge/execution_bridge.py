@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Deque, Dict, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, Deque, Dict, Mapping, Optional, Protocol
 
 from execution.store.ack_store import InMemoryAckStore
 from execution.store.interfaces import AckStore

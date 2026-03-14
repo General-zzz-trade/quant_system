@@ -131,7 +131,7 @@ class TestFGIFeatures:
         comp = self._make_computer()
         # Push same value 24 times (simulating 24h of same FGI)
         for _ in range(24):
-            feats = comp.on_bar("BTC", close=100.0, fear_greed=50.0)
+            comp.on_bar("BTC", close=100.0, fear_greed=50.0)
 
         # Window should only have 1 entry (value didn't change)
         state = comp._states["BTC"]
@@ -208,7 +208,7 @@ class TestV7AvailableFeatures:
         assert "fgi_x_rsi14" in features
 
     def test_v7_feature_count_btc(self):
-        from scripts.train_v7_alpha import get_available_features, BLACKLIST
+        from scripts.train_v7_alpha import get_available_features
         features = get_available_features("BTCUSDT")
         # V6 enriched (65 - blacklist) + 7 V7 enriched + 10 TF4H + 9 interactions + regime_vol
         # Exact count depends on blacklist overlap — just check minimum

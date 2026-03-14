@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Optional
 from unittest.mock import MagicMock
 
-import pytest
 
 from data.ingestion.config import IngestionConfig, IngestionSymbolConfig
 from data.ingestion.orchestrator import IngestionOrchestrator

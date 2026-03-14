@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
-from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from event.header import EventHeader
 from event.types import EventType, MarketEvent, OrderEvent
 from runner.replay_runner import run_replay_from_events

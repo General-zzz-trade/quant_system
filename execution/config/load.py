@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
 from execution.config.venue_config import VenueConfig
 from execution.config.retry_config import RetryConfig
 from execution.config.reconcile_config import ReconcileConfig
-from execution.config.mapping_config import (
-    MappingConfig, FieldMapping, StatusMapping, SideMapping,
-)
 
 
 def _dec(v: Any) -> Decimal:

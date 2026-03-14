@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-import pytest
 
 from risk.meta_builder_live import build_live_meta_builder
 

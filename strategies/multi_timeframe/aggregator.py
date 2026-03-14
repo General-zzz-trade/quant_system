@@ -1,11 +1,9 @@
 """Bar aggregator — up-samples 1m bars to higher timeframes (5m, 15m, 1h, 4h)."""
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Callable, Dict, Optional, Sequence
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Sequence
 
 
 @dataclass(frozen=True, slots=True)

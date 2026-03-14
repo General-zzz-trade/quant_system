@@ -7,7 +7,6 @@ from decimal import Decimal
 from typing import Any, List, Sequence
 from unittest.mock import MagicMock
 
-import pytest
 
 from data.collectors.backfill import BackfillConfig, HistoricalBackfiller
 from data.store import Bar

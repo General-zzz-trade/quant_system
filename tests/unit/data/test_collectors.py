@@ -2,13 +2,9 @@
 from __future__ import annotations
 
 import time
-import threading
 from datetime import datetime, timezone
-from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any, Callable, Dict, List
 
-import pytest
 
 from data.backends.base import Tick
 from data.collectors.tick_collector import TickCollector

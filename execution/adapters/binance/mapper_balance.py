@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from execution.models.balances import CanonicalBalance
 from execution.adapters.binance.schemas import (
     BAL_ASSET,
     BAL_AVAILABLE,
     BAL_BALANCE,
-    BAL_CROSS_UNREALIZED,
 )
 
 

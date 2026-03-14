@@ -1,6 +1,5 @@
 """Tests for polymarket.decision — PolymarketDecisionModule."""
 from __future__ import annotations
-import pytest
 from polymarket.config import PolymarketConfig
 from polymarket.decision import PolymarketDecisionModule
 

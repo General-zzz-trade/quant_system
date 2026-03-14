@@ -8,16 +8,14 @@ Verifies that:
 from __future__ import annotations
 
 import signal
-import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any, Dict, Optional
 
 import pytest
 
 from alpha.inference.bridge import LiveInferenceBridge
-from alpha.base import AlphaModel, Signal
+from alpha.base import Signal
 
 _qh = pytest.importorskip("_quant_hotpath")
 
@@ -156,7 +154,6 @@ class TestAutoRetrainDryRun:
 
     def test_dry_run_flag_exists(self):
         """Verify auto_retrain supports --dry-run."""
-        import importlib
         import scripts.auto_retrain as retrain_mod
         # Module should be importable
         assert hasattr(retrain_mod, 'logger')

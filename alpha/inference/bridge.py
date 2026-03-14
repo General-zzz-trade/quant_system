@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional, Sequence, Set, Union
+from typing import Any, Dict, Optional, Sequence, Set, Union
 
 from _quant_hotpath import RustInferenceBridge as _RustBridge
 from alpha.base import AlphaModel

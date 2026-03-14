@@ -4,7 +4,6 @@ Verifies that RustFeatureEngine produces correct features from market event sequ
 """
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 from types import SimpleNamespace
 

@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 
-from runner.preflight import BurninGate, PreflightCheck
+from runner.preflight import BurninGate
 
 
 class TestBurninGate:

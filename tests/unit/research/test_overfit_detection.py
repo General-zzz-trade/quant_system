@@ -5,14 +5,11 @@ from __future__ import annotations
 import pytest
 
 from research.overfit_detection import (
-    DeflatedSharpeResult,
-    ParameterStabilityResult,
     deflated_sharpe_ratio,
     parameter_stability,
     probability_of_backtest_overfitting,
 )
 from research.combinatorial_cv import (
-    CombinatorialCVResult,
     combinatorial_purged_cv,
     _generate_purged_splits,
 )

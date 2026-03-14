@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from infra.config.loader import (
     SecurityError,
-    EnvSecretProvider,
     check_no_plaintext_secrets,
     load_config_secure,
     resolve_credentials,

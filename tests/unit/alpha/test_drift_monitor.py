@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-import pytest
 
-from alpha.monitoring.drift import DriftAlert, ModelDriftMonitor
+from alpha.monitoring.drift import ModelDriftMonitor
 
 
 class TestModelDriftMonitor:

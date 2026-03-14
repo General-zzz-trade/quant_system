@@ -14,7 +14,6 @@ meta_builder_live.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Mapping
 
 from event.types import IntentEvent, OrderEvent

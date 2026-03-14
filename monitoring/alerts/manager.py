@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from monitoring.alerts.base import Alert, AlertSink, Severity
 

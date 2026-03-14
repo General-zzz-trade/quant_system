@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
 import signal
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 

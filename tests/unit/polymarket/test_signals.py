@@ -1,6 +1,5 @@
 """Tests for polymarket.signals — rule-based signal generation."""
 from __future__ import annotations
-import pytest
 from polymarket.signals import generate_signal
 
 

@@ -29,12 +29,11 @@ from scripts.train_v7_alpha import (
     V7_SEARCH_SPACE,
     _compute_target,
     _load_and_compute_features,
-    INTERACTION_FEATURES,
     BLACKLIST,
 )
 from scripts.backtest_alpha_v8 import _pred_to_signal, COST_PER_TRADE
 from scripts.signal_postprocess import _compute_bear_mask as _shared_compute_bear_mask
-from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
+from features.dynamic_selector import stable_icir_select, _rankdata, _spearman_ic
 from infra.model_signing import sign_file
 
 logger = logging.getLogger(__name__)
@@ -280,7 +279,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n  Short Model Production Training: {symbol}")
-    print(f"  Config: ensemble LGBM+XGB, short-only evaluation")
+    print("  Config: ensemble LGBM+XGB, short-only evaluation")
     print(f"  Features: {len(SHORT_FIXED_FEATURES)} fixed + {N_FLEXIBLE} flexible")
     print(f"  HPO: {'ON' if use_hpo else 'OFF'}"
           f"{f' ({hpo_trials} trials)' if use_hpo else ''}")
@@ -465,7 +464,7 @@ def main() -> None:
 
     # Monthly detail
     if metrics["monthly_returns"]:
-        print(f"\n  Monthly returns:")
+        print("\n  Monthly returns:")
         for i, r in enumerate(metrics["monthly_returns"]):
             marker = "+" if r > 0 else " "
             print(f"    Month {i+1:2d}: {marker}{r*100:+.2f}%")
@@ -482,7 +481,7 @@ def main() -> None:
     all_pass = all(checks.values())
 
     print(f"\n  {'='*60}")
-    print(f"  PRODUCTION READINESS")
+    print("  PRODUCTION READINESS")
     print(f"  {'='*60}")
     for desc, passed in checks.items():
         print(f"    {'PASS' if passed else 'FAIL'}: {desc}")
@@ -531,7 +530,7 @@ def main() -> None:
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2, default=str)
 
-    print(f"  Saved: lgbm_short.pkl, xgb_short.pkl, config.json")
+    print("  Saved: lgbm_short.pkl, xgb_short.pkl, config.json")
 
     # ── Register in ModelRegistry ─────────────────────────
     try:
@@ -563,9 +562,9 @@ def main() -> None:
 
     if all_pass:
         print(f"\n  Short model ready at {out_dir}/")
-        print(f"  Next: integrate with LiveInferenceBridge (short_model param)")
+        print("  Next: integrate with LiveInferenceBridge (short_model param)")
     else:
-        print(f"\n  Model did not pass all checks. Review metrics before proceeding.")
+        print("\n  Model did not pass all checks. Review metrics before proceeding.")
 
 
 if __name__ == "__main__":

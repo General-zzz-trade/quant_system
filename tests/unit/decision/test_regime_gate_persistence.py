@@ -1,7 +1,6 @@
 """Tests for RegimeGate checkpoint/restore persistence."""
 from __future__ import annotations
 
-import pytest
 
 from decision.regime_gate import RegimeGate
 

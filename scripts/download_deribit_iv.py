@@ -13,7 +13,6 @@ import argparse
 import csv
 import json
 import logging
-import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path

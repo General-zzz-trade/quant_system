@@ -10,7 +10,7 @@ CorrelationLimitRule runs per-intent with full portfolio evaluation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Sequence
 
 from risk.correlation_computer import CorrelationComputer
 from risk.decisions import (

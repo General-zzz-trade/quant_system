@@ -6,26 +6,20 @@ consistent state.
 """
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import pytest
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from risk.kill_switch import KillMode, KillScope, KillSwitch
 from runner.recovery import (
-    save_kill_switch_state,
-    restore_kill_switch_state,
     save_inference_bridge_state,
     restore_inference_bridge_state,
-    save_feature_hook_state,
-    restore_feature_hook_state,
     save_all_auxiliary_state,
     restore_all_auxiliary_state,
-    reconcile_and_heal,
 )
 
 
@@ -365,8 +359,8 @@ class TestRecoveryE2E:
 
         view1 = stack1.coordinator.get_state_view()
         assert "BTCUSDT" in view1["markets"]
-        orig_close = view1["markets"]["BTCUSDT"].close
-        orig_event_index = view1["event_index"]
+        view1["markets"]["BTCUSDT"].close
+        view1["event_index"]
 
         # Also checkpoint inference bridge and feature hook
         stack1.inference_bridge.push_zscore("BTCUSDT", 2.0)
@@ -431,7 +425,7 @@ class TestRecoveryE2E:
         # Fresh stack
         stack2 = SimulatedLiveStack(data_dir=data_dir, symbols=symbols)
         stack2.start()
-        result = stack2.restore_all()
+        stack2.restore_all()
 
         # Verify per-symbol state
         assert stack2.feature_hook._bar_count == {"BTCUSDT": 10, "ETHUSDT": 7}

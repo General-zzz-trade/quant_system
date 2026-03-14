@@ -10,7 +10,6 @@ from runner.gate_chain import (
     ExecQualityGate,
     GateChain,
     GateResult,
-    PortfolioAllocatorGate,
     PortfolioRiskGate,
     RegimeSizerGate,
     RiskSizeGate,
@@ -220,7 +219,6 @@ class TestGateChain:
 class TestApplyScaleDecimal:
     def test_apply_scale_preserves_decimal_type(self):
         from decimal import Decimal
-        from runner.gate_chain import _apply_scale
 
         ev = SimpleNamespace(qty=Decimal("0.01"), symbol="BTCUSDT")
         _apply_scale(ev, 0.5, "TestGate")
@@ -228,7 +226,6 @@ class TestApplyScaleDecimal:
         assert ev.qty == Decimal("0.005")
 
     def test_apply_scale_float_input_stays_float(self):
-        from runner.gate_chain import _apply_scale
 
         ev = SimpleNamespace(qty=0.01, symbol="BTCUSDT")
         _apply_scale(ev, 0.5, "TestGate")

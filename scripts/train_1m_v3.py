@@ -12,12 +12,8 @@ Usage:
 """
 from __future__ import annotations
 
-import json
-import logging
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -26,9 +22,8 @@ sys.path.insert(0, "/quant_system")
 
 from features.multi_resolution import (
     compute_multi_resolution_features,
-    FAST_FEATURE_NAMES,
 )
-from features.dynamic_selector import greedy_ic_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 
 WARMUP = 300
 COST_MAKER_RT = 4  # round-trip bps (maker)
@@ -98,7 +93,7 @@ def approach_mean_reversion(feat_df, feature_names, closes, highs, lows):
     cvd = feat_df["cvd_10"].values if "cvd_10" in feat_df.columns else np.zeros(n)
 
     # Taker imbalance
-    taker_imb = feat_df["taker_imbalance"].values if "taker_imbalance" in feat_df.columns else np.zeros(n)
+    feat_df["taker_imbalance"].values if "taker_imbalance" in feat_df.columns else np.zeros(n)
 
     # Mean reversion signal: -ret_10 (fade the move)
     # Enhanced: stronger when RSI extreme + high vol + flow exhaustion
@@ -258,12 +253,12 @@ def approach_vol_breakout(feat_df, feature_names, closes, highs, lows, volumes):
         y_w = y[WARMUP:]
         c_w = closes[WARMUP:]
         vol_exp_w = vol_expanding[WARMUP:]
-        n_w = len(X)
+        len(X)
         tr_adj = tr_end - WARMUP
         val_adj = val_end - WARMUP
 
         # Train on vol-expanding bars ONLY
-        train_mask = np.arange(tr_adj)
+        np.arange(tr_adj)
         vol_train = vol_exp_w[:tr_adj]
         valid_train = ~np.isnan(y_w[:tr_adj]) & vol_train
         valid_val = ~np.isnan(y_w[tr_adj:val_adj])
@@ -385,7 +380,7 @@ def approach_classification(feat_df, feature_names, closes):
 
             # Train two models: P(up big) and P(down big)
             X = feat_df[feature_names].values[WARMUP:].astype(np.float64)
-            n_w = len(X)
+            len(X)
             tr_adj = tr_end - WARMUP
             val_adj = val_end - WARMUP
 
@@ -480,7 +475,7 @@ def approach_hybrid(feat_df, feature_names, closes, highs, lows):
     # 1h direction: slow_close_vs_ma20 + slow_rsi_14 + slow_mean_reversion_20
     slow_ma = feat_df["slow_close_vs_ma20"].values if "slow_close_vs_ma20" in feat_df.columns else np.zeros(n)
     slow_rsi = feat_df["slow_rsi_14"].values if "slow_rsi_14" in feat_df.columns else np.full(n, 50)
-    slow_mr = feat_df["slow_mean_reversion_20"].values if "slow_mean_reversion_20" in feat_df.columns else np.zeros(n)
+    feat_df["slow_mean_reversion_20"].values if "slow_mean_reversion_20" in feat_df.columns else np.zeros(n)
     tf4h_ma = feat_df["tf4h_close_vs_ma20"].values if "tf4h_close_vs_ma20" in feat_df.columns else np.zeros(n)
 
     # 1h direction bias: +1 bullish, -1 bearish, 0 neutral
@@ -501,7 +496,7 @@ def approach_hybrid(feat_df, feature_names, closes, highs, lows):
     ret_5 = np.zeros(n)
     ret_10 = np.zeros(n)
     rsi_6 = feat_df["rsi_6"].values if "rsi_6" in feat_df.columns else np.full(n, 50)
-    cvd = feat_df["cvd_10"].values if "cvd_10" in feat_df.columns else np.zeros(n)
+    feat_df["cvd_10"].values if "cvd_10" in feat_df.columns else np.zeros(n)
 
     for i in range(10, n):
         ret_5[i] = closes[i] / closes[i-5] - 1

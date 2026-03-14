@@ -19,7 +19,7 @@ import logging
 import pickle
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,6 @@ from scripts.train_v7_alpha import (
     V7_SEARCH_SPACE,
     _compute_target,
     _load_and_compute_features,
-    INTERACTION_FEATURES,
     BLACKLIST,
 )
 from scripts.backtest_alpha_v8 import _pred_to_signal, COST_PER_TRADE
@@ -195,7 +194,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n  V8 Production Training: {symbol}")
-    print(f"  Config: ensemble LGBM+XGB, long-only")
+    print("  Config: ensemble LGBM+XGB, long-only")
     print(f"  Features: {len(FIXED_FEATURES)} fixed + {N_FLEXIBLE} flexible")
     print(f"  HPO: {'ON' if use_hpo else 'OFF'}"
           f"{f' ({hpo_trials} trials)' if use_hpo else ''}")
@@ -364,7 +363,7 @@ def main() -> None:
 
     # Monthly detail
     if metrics["monthly_returns"]:
-        print(f"\n  Monthly returns:")
+        print("\n  Monthly returns:")
         for i, r in enumerate(metrics["monthly_returns"]):
             marker = "+" if r > 0 else " "
             print(f"    Month {i+1:2d}: {marker}{r*100:+.2f}%")
@@ -380,7 +379,7 @@ def main() -> None:
     all_pass = all(checks.values())
 
     print(f"\n  {'='*60}")
-    print(f"  PRODUCTION READINESS")
+    print("  PRODUCTION READINESS")
     print(f"  {'='*60}")
     for desc, passed in checks.items():
         print(f"    {'PASS' if passed else 'FAIL'}: {desc}")
@@ -428,7 +427,7 @@ def main() -> None:
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2, default=str)
 
-    print(f"  Saved: lgbm_v8.pkl, xgb_v8.pkl, config.json")
+    print("  Saved: lgbm_v8.pkl, xgb_v8.pkl, config.json")
 
     # ── Register in ModelRegistry ─────────────────────────
     try:
@@ -459,9 +458,9 @@ def main() -> None:
 
     if all_pass:
         print(f"\n  Production model ready at {out_dir}/")
-        print(f"  Next: Phase 4 paper trading")
+        print("  Next: Phase 4 paper trading")
     else:
-        print(f"\n  Model did not pass all checks. Review metrics before proceeding.")
+        print("\n  Model did not pass all checks. Review metrics before proceeding.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from decision.persistence.decision_store import DecisionStore
 from decision.types import DecisionOutput

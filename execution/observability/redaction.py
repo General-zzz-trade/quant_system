@@ -47,5 +47,5 @@ def redact_url(url: str) -> str:
     """脱敏 URL 中的 API key 参数。"""
     for key in ("apiKey", "api_key", "signature", "timestamp"):
         pattern = re.compile(f"({key}=)[^&]+")
-        url = pattern.sub(f"\\1****", url)
+        url = pattern.sub("\\1****", url)
     return url

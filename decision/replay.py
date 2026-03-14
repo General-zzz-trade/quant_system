@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterator, Optional, Sequence
+from typing import Iterator
 
 from decision.persistence.decision_store import DecisionStore
-from decision.types import DecisionOutput
 
 
 @dataclass

@@ -12,7 +12,10 @@ Usage:
     python3 -m scripts.train_btc_v9
 """
 from __future__ import annotations
-import sys, time, json, pickle
+import sys
+import time
+import json
+import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -21,7 +24,6 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from features.dynamic_selector import greedy_ic_select
 from scripts.signal_postprocess import rolling_zscore, should_exit_position
 from scripts.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from scipy.stats import spearmanr
@@ -249,7 +251,7 @@ def main():
     X_test_sel = X_test[:, sel_idx]
 
     # ── Compare V8 features IC on test set ──
-    print(f"\nV8 vs V9 feature IC comparison (on test set):")
+    print("\nV8 vs V9 feature IC comparison (on test set):")
     v8_features = ["basis", "ret_24", "fgi_normalized", "fgi_extreme", "parkinson_vol",
                    "atr_norm_14", "rsi_14", "tf4h_atr_norm_14", "basis_zscore_24",
                    "cvd_20", "funding_zscore_24", "basis_momentum",
@@ -270,7 +272,9 @@ def main():
 
     # ── Optuna HPO ──
     print(f"\nOptuna HPO ({HPO_TRIALS} trials)...")
-    import optuna, lightgbm as lgb, xgboost as xgb
+    import optuna
+    import lightgbm as lgb
+    import xgboost as xgb
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def objective(trial):
@@ -381,7 +385,7 @@ def main():
 
     # Show top 5 configs
     all_results.sort(key=lambda x: x[4]["sharpe"], reverse=True)
-    print(f"\n  Top 5 configurations:")
+    print("\n  Top 5 configurations:")
     for dz, mh, maxh, lo, r in all_results[:5]:
         lo_str = "L" if lo else "L+S"
         print(f"    dz={dz:.1f} hold=[{mh},{maxh}] {lo_str:>3s}  "
@@ -452,7 +456,7 @@ def main():
     if all_pass:
         # Backup V8 first
         import shutil
-        backup_dir = Path(f"models_v8/BTCUSDT_gate_v2_backup_v8")
+        backup_dir = Path("models_v8/BTCUSDT_gate_v2_backup_v8")
         if not backup_dir.exists():
             shutil.copytree(MODEL_DIR, backup_dir)
             print(f"\n  V8 backed up to {backup_dir}/")
@@ -508,7 +512,7 @@ def main():
 
         print(f"\n  V9 model saved to {MODEL_DIR}/")
     else:
-        print(f"\n  FAILED — model NOT saved.")
+        print("\n  FAILED — model NOT saved.")
 
     print(f"\n{'='*70}")
     print(f"SUMMARY: {SYMBOL} 1h V9")

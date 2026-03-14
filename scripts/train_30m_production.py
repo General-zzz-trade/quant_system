@@ -10,7 +10,11 @@ Key design:
   6. Export model for Rust binary
 """
 from __future__ import annotations
-import sys, time, json, pickle, logging
+import sys
+import time
+import json
+import pickle
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 import numpy as np
@@ -19,7 +23,7 @@ import pandas as pd
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
-from features.dynamic_selector import greedy_ic_select, stable_icir_select, _rankdata, _spearman_ic
+from features.dynamic_selector import greedy_ic_select
 from scripts.signal_postprocess import should_exit_position
 from scipy.stats import spearmanr
 
@@ -206,7 +210,7 @@ def walk_forward(
 
         valid_tr = ~np.isnan(y[tr_slice])
         valid_val = ~np.isnan(y[val_slice])
-        valid_test = ~np.isnan(y[test_slice])
+        ~np.isnan(y[test_slice])
 
         X_tr = X[tr_slice][valid_tr]
         y_tr = y[tr_slice][valid_tr]
@@ -425,14 +429,14 @@ def main():
     bst.save_model(str(out_dir / "lgbm_30m.txt"))
     with open(out_dir / "lgbm_30m.pkl", "wb") as f:
         pickle.dump(bst, f)
-    print(f"  Saved lgbm_30m.txt + lgbm_30m.pkl")
+    print("  Saved lgbm_30m.txt + lgbm_30m.pkl")
 
     # Export to JSON for Rust binary
     try:
         sys.path.insert(0, "/quant_system/scripts")
         from export_model_to_json import export_lightgbm_to_json
         export_lightgbm_to_json(str(out_dir / "lgbm_30m.pkl"), str(out_dir / "lgbm_30m.json"))
-        print(f"  Exported lgbm_30m.json for Rust binary")
+        print("  Exported lgbm_30m.json for Rust binary")
     except Exception as e:
         print(f"  JSON export failed: {e}")
 
