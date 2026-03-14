@@ -66,17 +66,8 @@ from runner.recovery import (
     EventRecorder,
     PeriodicCheckpointer,
     reconcile_and_heal,
-    restore_inference_bridge_state,
-    restore_kill_switch_state,
-    restore_feature_hook_state,
-    restore_exit_manager_state,
-    restore_regime_gate_state,
-    restore_correlation_state,
-    restore_timeout_tracker_state,
+    restore_all_auxiliary_state,
     save_all_auxiliary_state,
-    save_inference_bridge_state,
-    save_kill_switch_state,
-    save_feature_hook_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -510,57 +501,14 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     _last_user_stream_failure_kind: Optional[str] = field(default=None, init=False)
     _last_model_reload_status: Optional[Dict[str, Any]] = field(default=None, init=False)
 
-    @classmethod
-    def build(
-        cls,
+    @staticmethod
+    def _build_core_infra(
         config: LiveRunnerConfig,
-        *,
-        venue_clients: Dict[str, Any],
-        decision_modules: Sequence[Any] | None = None,
-        transport: Any = None,
-        metrics_exporter: Any = None,
-        fetch_venue_state: Optional[Callable[[], Dict[str, Any]]] = None,
-        fetch_margin: Optional[Callable[[], float]] = None,
-        on_fill: Optional[Callable[[Any], None]] = None,
-        alert_sink: Optional[Any] = None,
-        feature_computer: Any = None,
-        alpha_models: Sequence[Any] | None = None,
-        inference_bridges: Optional[Dict[str, Any]] = None,
-        unified_predictors: Optional[Dict[str, Any]] = None,
-        tick_processors: Optional[Dict[str, Any]] = None,
-        user_stream_transport: Any = None,
-        funding_rate_source: Any = None,
-        oi_source: Any = None,
-        ls_ratio_source: Any = None,
-        spot_close_source: Any = None,
-        fgi_source: Any = None,
-        implied_vol_source: Any = None,
-        put_call_ratio_source: Any = None,
-        onchain_source: Any = None,
-        liquidation_source: Any = None,
-        mempool_source: Any = None,
-        macro_source: Any = None,
-        sentiment_source: Any = None,
-        bear_model: Any = None,
-    ) -> "LiveRunner":
-        """Build the full production stack.
-
-        Args:
-            config: Runner configuration.
-            venue_clients: Mapping of venue name to venue client object.
-                           The client for config.venue is used as the execution adapter.
-            decision_modules: Decision modules (strategy, risk, etc.).
-            transport: WsTransport override (for testing).
-            metrics_exporter: Optional PrometheusExporter.
-            fetch_venue_state: Callable returning exchange state dict for reconciliation.
-            fetch_margin: Callable returning current margin ratio (0.0-1.0).
-            on_fill: Optional fill callback.
-            alert_sink: Optional AlertSink for health/margin alerts.
-        """
-        symbol_default = config.symbols[0]
-        fills: List[Dict[str, Any]] = []
-        report = _SubsystemReport()
-
+        on_fill: Optional[Callable[[Any], None]],
+        alert_sink: Optional[Any],
+        fills: List[Dict[str, Any]],
+    ) -> tuple:
+        """Phase 1: structured logging, latency tracker, fill recorder, kill switch, alert sink."""
         # ── Auto-wire Telegram alerts from env vars ──────────
         if alert_sink is None:
             tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -603,7 +551,15 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         # ── 2) KillSwitch ────────────────────────────────────
         kill_switch = KillSwitch()
 
-        # ── 3) Coordinator with monitoring hook ───────────────
+        return latency_tracker, _record_fill, kill_switch, alert_sink
+
+    @staticmethod
+    def _build_monitoring(
+        config: LiveRunnerConfig,
+        kill_switch: KillSwitch,
+        metrics_exporter: Any,
+    ) -> tuple:
+        """Phase 2: health monitor, monitoring hook, alpha health, regime sizer, signal tracker."""
         health: Optional[SystemHealthMonitor] = None
         hook: Optional[EngineMonitoringHook] = None
 
@@ -670,6 +626,11 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         if hook is not None:
             hook.live_signal_tracker = live_signal_tracker
 
+        return health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker
+
+    @staticmethod
+    def _build_portfolio_and_correlation(config: LiveRunnerConfig) -> tuple:
+        """Phase 3: portfolio allocator, burn-in gate, correlation, attribution."""
         # ── Portfolio Allocator (Direction 19) ──
         portfolio_allocator = None
         if config.enable_portfolio_risk:
@@ -721,22 +682,17 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             config=CorrelationGateConfig(max_avg_correlation=config.max_avg_correlation),
         )
 
-        # ── Portfolio Risk Aggregator — deferred until coordinator exists ──
-        # (built below after coordinator creation; referenced by _emit closure)
-        portfolio_aggregator = None
+        return (
+            portfolio_allocator, correlation_computer, _update_correlation,
+            attribution_tracker, correlation_gate,
+        )
 
+    @staticmethod
+    def _build_order_infra(config: LiveRunnerConfig, alpha_models: Any) -> tuple:
+        """Phase 4: order state machine, timeout tracker, model registry."""
         # ── OrderStateMachine (order lifecycle tracking) ────
         from execution.state_machine.machine import OrderStateMachine
         order_state_machine = OrderStateMachine()
-
-        # ── RiskGate (pre-execution size/notional checks) ────
-        from execution.safety.risk_gate import RiskGate, RiskGateConfig
-        risk_gate = RiskGate(
-            config=RiskGateConfig(),
-            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
-            get_open_order_count=lambda: len(order_state_machine.active_orders()),
-            is_killed=lambda: kill_switch.is_killed() is not None,
-        )
 
         # ── TimeoutTracker (stale order detection) ──────────
         from execution.safety.timeout_tracker import OrderTimeoutTracker
@@ -759,7 +715,33 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 alpha_models = list(alpha_models or []) + loaded
                 logger.info("Auto-loaded %d production model(s) from registry", len(loaded))
 
-        # ── Feature computation + ML inference hook ──────────
+        return order_state_machine, timeout_tracker, model_loader_inst, alpha_models
+
+    @staticmethod
+    def _build_features_and_inference(
+        config: LiveRunnerConfig,
+        feature_computer: Any,
+        alpha_models: Any,
+        inference_bridges: Optional[Dict[str, Any]],
+        unified_predictors: Optional[Dict[str, Any]],
+        metrics_exporter: Any,
+        hook: Optional[EngineMonitoringHook],
+        report: _SubsystemReport,
+        bear_model: Any,
+        funding_rate_source: Any,
+        oi_source: Any,
+        ls_ratio_source: Any,
+        spot_close_source: Any,
+        fgi_source: Any,
+        implied_vol_source: Any,
+        put_call_ratio_source: Any,
+        onchain_source: Any,
+        liquidation_source: Any,
+        mempool_source: Any,
+        macro_source: Any,
+        sentiment_source: Any,
+    ) -> tuple:
+        """Phase 5: feature hook, inference bridge, multi-TF ensemble, decision recording."""
         feat_hook = None
         inference_bridge = None
         if feature_computer is not None:
@@ -827,6 +809,29 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             hook.decision_store = DecisionStore(path=config.decision_recording_path)
             logger.info("Decision recording enabled: %s", config.decision_recording_path)
 
+        return feat_hook, inference_bridge
+
+    @staticmethod
+    def _build_coordinator_and_pipeline(
+        config: LiveRunnerConfig,
+        symbol_default: str,
+        hook: Optional[EngineMonitoringHook],
+        feat_hook: Any,
+        tick_processors: Optional[Dict[str, Any]],
+        _update_correlation: Callable,
+        correlation_gate: Any,
+        kill_switch: KillSwitch,
+        order_state_machine: Any,
+        timeout_tracker: Any,
+        attribution_tracker: Any,
+        live_signal_tracker: Any,
+        alpha_health_monitor: Any,
+        regime_sizer: Any,
+        portfolio_allocator: Any,
+        fetch_margin: Optional[Callable],
+        report: _SubsystemReport,
+    ) -> tuple:
+        """Phase 6: coordinator, risk gate, portfolio aggregator, gate chain, emit handler."""
         # Event recording: chain onto on_pipeline_output if event_log available
         _event_recorder_ref: List[Optional[EventRecorder]] = [None]
 
@@ -848,7 +853,17 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
         coordinator = EngineCoordinator(cfg=coord_cfg)
 
+        # ── RiskGate (pre-execution size/notional checks) ────
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
+        risk_gate = RiskGate(
+            config=RiskGateConfig(),
+            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
+            get_open_order_count=lambda: len(order_state_machine.active_orders()),
+            is_killed=lambda: kill_switch.is_killed() is not None,
+        )
+
         # ── Portfolio Risk Aggregator (Phase 2) ────────────
+        portfolio_aggregator = None
         if config.enable_portfolio_risk:
             try:
                 from risk.meta_builder_live import build_live_meta_builder
@@ -901,6 +916,23 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
         _emit = _emit_handler
 
+        return (
+            coordinator, risk_gate, portfolio_aggregator,
+            _emit_handler, _emit, _event_recorder_ref,
+        )
+
+    @staticmethod
+    def _build_execution(
+        config: LiveRunnerConfig,
+        venue_clients: Dict[str, Any],
+        coordinator: EngineCoordinator,
+        kill_switch: KillSwitch,
+        _emit: Any,
+        _record_fill: Callable,
+        risk_gate: Any,
+        report: _SubsystemReport,
+    ) -> tuple:
+        """Phase 7: venue client, preflight, WS order gateway, execution bridge."""
         # ── 4) Execution adapter: KillSwitchBridge (production) ──
         venue_client = venue_clients.get(config.venue)
         if venue_client is None:
@@ -982,6 +1014,16 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit, risk_gate=risk_gate)
         coordinator.attach_execution_bridge(exec_bridge)
 
+        return venue_client, ws_order_gateway
+
+    @staticmethod
+    def _build_decision(
+        config: LiveRunnerConfig,
+        decision_modules: Sequence[Any] | None,
+        _emit: Any,
+        coordinator: EngineCoordinator,
+    ) -> tuple:
+        """Phase 8: decision bridge with regime wrapping, module reloader, engine loop."""
         # ── 5) Decision bridge ────────────────────────────────
         modules = list(decision_modules or [])
 
@@ -1013,7 +1055,16 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         guard = build_basic_guard(GuardConfig())
         loop = EngineLoop(coordinator=coordinator, guard=guard, cfg=LoopConfig())
 
-        # ── 7) Market data runtime ───────────────────────────
+        return decision_bridge_inst, module_reloader, loop
+
+    @staticmethod
+    def _build_market_data(
+        config: LiveRunnerConfig,
+        transport: Any,
+        venue_client: Any,
+        loop: EngineLoop,
+    ) -> tuple:
+        """Phase 9: market data runtime (WS + REST fallback)."""
         from execution.adapters.binance.kline_processor import KlineProcessor
         from execution.adapters.binance.ws_market_stream_um import (
             BinanceUmMarketStreamWsClient,
@@ -1063,7 +1114,18 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
         loop.attach_runtime(runtime)
 
-        # ── 7a) User Stream (private fill/order feed) ────
+        return runtime, binance_urls
+
+    @staticmethod
+    def _build_user_stream(
+        config: LiveRunnerConfig,
+        venue_client: Any,
+        coordinator: EngineCoordinator,
+        binance_urls: Any,
+        user_stream_transport: Any,
+        report: _SubsystemReport,
+    ) -> Any:
+        """Phase 10: user stream (private fill/order feed)."""
         if not config.shadow_mode:
             from execution.adapters.binance.rest import BinanceRestClient as _BRC2
             if isinstance(venue_client, _BRC2):
@@ -1123,15 +1185,35 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     logger.info(
                         "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
                     )
+                    return user_stream_client
                 except Exception as e:
-                    user_stream_client = None
                     report.record("user_stream", False, str(e))
                     logger.warning("User stream setup failed — continuing without", exc_info=True)
+                    return None
             else:
-                user_stream_client = None
+                return None
         else:
-            user_stream_client = None
+            return None
 
+    @staticmethod
+    def _build_persistence_and_recovery(
+        config: LiveRunnerConfig,
+        coordinator: EngineCoordinator,
+        kill_switch: KillSwitch,
+        inference_bridge: Any,
+        feat_hook: Any,
+        correlation_computer: Any,
+        timeout_tracker: Any,
+        decision_bridge_inst: Any,
+        fetch_venue_state: Optional[Callable],
+        fetch_margin: Optional[Callable],
+        alert_sink: Any,
+        health: Optional[SystemHealthMonitor],
+        latency_tracker: LatencyTracker,
+        alpha_health_monitor: Any,
+        report: _SubsystemReport,
+    ) -> tuple:
+        """Phase 11: reconcile, margin, alerts, persistent stores, recovery, data scheduler."""
         # ── 8) ReconcileScheduler ────────────────────────────
         reconcile_scheduler = None
         if config.enable_reconcile and fetch_venue_state is not None:
@@ -1199,38 +1281,22 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     )
                     break  # One restore is enough (snapshot contains all symbols)
 
-            # Recovery: restore kill switch state
-            restored_kills = restore_kill_switch_state(kill_switch, data_dir=data_dir)
-            if restored_kills:
-                logger.warning("Restored %d kill switch record(s) from checkpoint", restored_kills)
-
-            # Recovery: restore inference bridge z-score state
-            if inference_bridge is not None:
-                if restore_inference_bridge_state(inference_bridge, data_dir=data_dir):
-                    logger.info("Inference bridge state restored from checkpoint")
-
-            # Recovery: restore feature hook bar counts
-            if feat_hook is not None:
-                if restore_feature_hook_state(feat_hook, data_dir=data_dir):
-                    logger.info("Feature hook warmup state restored from checkpoint")
-
-            # Recovery: restore correlation computer
-            if restore_correlation_state(correlation_computer, data_dir=data_dir):
-                logger.info("Correlation computer state restored from checkpoint")
-
-            # Recovery: restore timeout tracker
-            if restore_timeout_tracker_state(timeout_tracker, data_dir=data_dir):
-                logger.info("Timeout tracker state restored from checkpoint")
-
-            # Recovery: restore exit manager trailing stop state
+            # Recovery: restore all auxiliary state (atomic bundle with individual fallback)
             _exit_mgr = _find_module_attr(decision_bridge_inst, '_exit_mgr')
-            if _exit_mgr is not None and restore_exit_manager_state(_exit_mgr, data_dir=data_dir):
-                logger.info("Exit manager trailing stop state restored from checkpoint")
-
-            # Recovery: restore regime gate vol buffer state
             _regime_gate = _find_module_attr(decision_bridge_inst, '_regime_gate')
-            if _regime_gate is not None and restore_regime_gate_state(_regime_gate, data_dir=data_dir):
-                logger.info("Regime gate state restored from checkpoint")
+            restore_results = restore_all_auxiliary_state(
+                kill_switch=kill_switch,
+                inference_bridge=inference_bridge,
+                feature_hook=feat_hook,
+                exit_manager=_exit_mgr,
+                regime_gate=_regime_gate,
+                correlation_computer=correlation_computer,
+                timeout_tracker=timeout_tracker,
+                data_dir=data_dir,
+            )
+            for comp_name, restored in restore_results.items():
+                if restored:
+                    logger.info("Recovery: %s state restored from checkpoint", comp_name)
 
         # ── 11a) Startup reconciliation with healing ─────────
         if config.reconcile_on_startup and fetch_venue_state is not None:
@@ -1272,6 +1338,33 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 report.record("data_scheduler", False, str(e))
                 logger.warning("DataScheduler setup failed — continuing without", exc_info=True)
 
+        return (
+            reconcile_scheduler, margin_monitor, alert_manager,
+            state_store, event_log, data_scheduler, freshness_monitor,
+        )
+
+    @staticmethod
+    def _build_shutdown(
+        config: LiveRunnerConfig,
+        state_store: Any,
+        coordinator: EngineCoordinator,
+        kill_switch: KillSwitch,
+        inference_bridge: Any,
+        feat_hook: Any,
+        decision_bridge_inst: Any,
+        correlation_computer: Any,
+        timeout_tracker: Any,
+        reconcile_scheduler: Any,
+        venue_client: Any,
+        health: Optional[SystemHealthMonitor],
+        alpha_health_monitor: Any,
+        regime_sizer: Any,
+        portfolio_allocator: Any,
+        live_signal_tracker: Any,
+        event_log: Any,
+        report: _SubsystemReport,
+    ) -> tuple:
+        """Phase 12: graceful shutdown, health server, periodic checkpointer, event recorder."""
         # ── 12) GracefulShutdown ─────────────────────────────
         shutdown_cfg = ShutdownConfig(
             pending_order_timeout_sec=config.pending_order_timeout_sec,
@@ -1365,6 +1458,152 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         event_recorder = None
         if event_log is not None:
             event_recorder = EventRecorder(event_log)
+
+        return (
+            shutdown_handler, health_server, control_plane,
+            periodic_checkpointer, event_recorder, _runner_ref,
+        )
+
+    @classmethod
+    def build(
+        cls,
+        config: LiveRunnerConfig,
+        *,
+        venue_clients: Dict[str, Any],
+        decision_modules: Sequence[Any] | None = None,
+        transport: Any = None,
+        metrics_exporter: Any = None,
+        fetch_venue_state: Optional[Callable[[], Dict[str, Any]]] = None,
+        fetch_margin: Optional[Callable[[], float]] = None,
+        on_fill: Optional[Callable[[Any], None]] = None,
+        alert_sink: Optional[Any] = None,
+        feature_computer: Any = None,
+        alpha_models: Sequence[Any] | None = None,
+        inference_bridges: Optional[Dict[str, Any]] = None,
+        unified_predictors: Optional[Dict[str, Any]] = None,
+        tick_processors: Optional[Dict[str, Any]] = None,
+        user_stream_transport: Any = None,
+        funding_rate_source: Any = None,
+        oi_source: Any = None,
+        ls_ratio_source: Any = None,
+        spot_close_source: Any = None,
+        fgi_source: Any = None,
+        implied_vol_source: Any = None,
+        put_call_ratio_source: Any = None,
+        onchain_source: Any = None,
+        liquidation_source: Any = None,
+        mempool_source: Any = None,
+        macro_source: Any = None,
+        sentiment_source: Any = None,
+        bear_model: Any = None,
+    ) -> "LiveRunner":
+        """Build the full production stack.
+
+        Args:
+            config: Runner configuration.
+            venue_clients: Mapping of venue name to venue client object.
+                           The client for config.venue is used as the execution adapter.
+            decision_modules: Decision modules (strategy, risk, etc.).
+            transport: WsTransport override (for testing).
+            metrics_exporter: Optional PrometheusExporter.
+            fetch_venue_state: Callable returning exchange state dict for reconciliation.
+            fetch_margin: Callable returning current margin ratio (0.0-1.0).
+            on_fill: Optional fill callback.
+            alert_sink: Optional AlertSink for health/margin alerts.
+        """
+        symbol_default = config.symbols[0]
+        fills: List[Dict[str, Any]] = []
+        report = _SubsystemReport()
+
+        # Phase 1: core infrastructure
+        latency_tracker, _record_fill, kill_switch, alert_sink = cls._build_core_infra(
+            config, on_fill, alert_sink, fills,
+        )
+
+        # Phase 2: monitoring
+        health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker = (
+            cls._build_monitoring(config, kill_switch, metrics_exporter)
+        )
+
+        # Phase 3: portfolio and correlation
+        (
+            portfolio_allocator, correlation_computer, _update_correlation,
+            attribution_tracker, correlation_gate,
+        ) = cls._build_portfolio_and_correlation(config)
+
+        # Phase 4: order infrastructure
+        order_state_machine, timeout_tracker, model_loader_inst, alpha_models = (
+            cls._build_order_infra(config, alpha_models)
+        )
+
+        # Phase 5: features and inference
+        feat_hook, inference_bridge = cls._build_features_and_inference(
+            config, feature_computer, alpha_models, inference_bridges,
+            unified_predictors, metrics_exporter, hook, report,
+            bear_model,
+            funding_rate_source, oi_source, ls_ratio_source,
+            spot_close_source, fgi_source, implied_vol_source,
+            put_call_ratio_source, onchain_source, liquidation_source,
+            mempool_source, macro_source, sentiment_source,
+        )
+
+        # Phase 6: coordinator and pipeline
+        (
+            coordinator, risk_gate, portfolio_aggregator,
+            _emit_handler, _emit, _event_recorder_ref,
+        ) = cls._build_coordinator_and_pipeline(
+            config, symbol_default, hook, feat_hook, tick_processors,
+            _update_correlation, correlation_gate, kill_switch,
+            order_state_machine, timeout_tracker, attribution_tracker,
+            live_signal_tracker, alpha_health_monitor, regime_sizer,
+            portfolio_allocator, fetch_margin, report,
+        )
+
+        # Phase 7: execution
+        venue_client, ws_order_gateway = cls._build_execution(
+            config, venue_clients, coordinator, kill_switch,
+            _emit, _record_fill, risk_gate, report,
+        )
+
+        # Phase 8: decision bridge and engine loop
+        decision_bridge_inst, module_reloader, loop = cls._build_decision(
+            config, decision_modules, _emit, coordinator,
+        )
+
+        # Phase 9: market data runtime
+        runtime, binance_urls = cls._build_market_data(
+            config, transport, venue_client, loop,
+        )
+
+        # Phase 10: user stream
+        user_stream_client = cls._build_user_stream(
+            config, venue_client, coordinator, binance_urls,
+            user_stream_transport, report,
+        )
+
+        # Phase 11: persistence and recovery
+        (
+            reconcile_scheduler, margin_monitor, alert_manager,
+            state_store, event_log, data_scheduler, freshness_monitor,
+        ) = cls._build_persistence_and_recovery(
+            config, coordinator, kill_switch, inference_bridge,
+            feat_hook, correlation_computer, timeout_tracker,
+            decision_bridge_inst, fetch_venue_state, fetch_margin,
+            alert_sink, health, latency_tracker, alpha_health_monitor,
+            report,
+        )
+
+        # Phase 12: shutdown, health server, checkpointer
+        (
+            shutdown_handler, health_server, control_plane,
+            periodic_checkpointer, event_recorder, _runner_ref,
+        ) = cls._build_shutdown(
+            config, state_store, coordinator, kill_switch,
+            inference_bridge, feat_hook, decision_bridge_inst,
+            correlation_computer, timeout_tracker, reconcile_scheduler,
+            venue_client, health, alpha_health_monitor, regime_sizer,
+            portfolio_allocator, live_signal_tracker, event_log, report,
+        )
 
         runner = cls(
             loop=loop,

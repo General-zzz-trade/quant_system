@@ -329,7 +329,7 @@ class TestModelReload:
         v1 = registry.register(
             name="test_alpha",
             params={"n_estimators": 50},
-            features=["sma_20"],
+            features=["sma_20", "rsi_14"],
             metrics={"sharpe": 1.0},
             tags=("lgbm",),
         )

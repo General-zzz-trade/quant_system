@@ -266,6 +266,55 @@ class TestProductionModelLoader:
 
         assert models == []
 
+    def test_features_match_warns_when_one_side_empty(self, caplog):
+        """When version declares features but model has none (or vice versa), warn but allow."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        # version has features, model has none
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, features=("sma_20", "rsi_14"))
+        model = MagicMock()
+        model.feature_names = ()
+
+        result = ProductionModelLoader._features_match(version, model)
+        assert result is True
+        assert "Feature schema incomplete" in caplog.text
+        assert "expected=2 actual=0" in caplog.text
+
+        caplog.clear()
+
+        # version has no features, model has some
+        version2 = FakeModelVersion(model_id="m2", name="alpha", version=1, features=())
+        model2 = MagicMock()
+        model2.feature_names = ("sma_20",)
+
+        result2 = ProductionModelLoader._features_match(version2, model2)
+        assert result2 is True
+        assert "Feature schema incomplete" in caplog.text
+        assert "expected=0 actual=1" in caplog.text
+
+    def test_features_match_both_empty_passes_silently(self, caplog):
+        """Both sides empty (legacy model) — allow without warning."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, features=())
+        model = MagicMock()
+        model.feature_names = ()
+
+        result = ProductionModelLoader._features_match(version, model)
+        assert result is True
+        assert "Feature schema incomplete" not in caplog.text
+
+    def test_features_match_returns_false_on_mismatch(self):
+        """When both sides declare features but disagree, return False."""
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, features=("sma_20", "rsi_14"))
+        model = MagicMock()
+        model.feature_names = ("ema_50", "rsi_14")
+
+        result = ProductionModelLoader._features_match(version, model)
+        assert result is False
+
     def test_inspect_production_model_reports_artifact_and_autoload_state(self):
         version = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
         registry = FakeRegistry({"alpha": version})

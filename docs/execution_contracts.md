@@ -375,7 +375,27 @@
 
 ---
 
-## 11. 下一步
+## 11. State Ownership
+
+| State | Primary Owner | Purpose |
+|-------|--------------|---------|
+| Position qty/avg_price | RustStateStore (pipeline) | Trading decisions, P&L |
+| Order lifecycle status | OrderStateMachine | Timeout, reconcile, audit |
+| Account balance | RustStateStore (pipeline) | Risk limits, sizing |
+| Open order count | OrderStateMachine | RiskGate.max_open_orders (execution safety) |
+
+**Rule**: No trading decision path (signal generation, position sizing, alpha inference)
+should read from OrderStateMachine. OSM is write-only from the decision perspective —
+it receives events but does not inform signal generation or position sizing.
+
+**Exception**: `RiskGate` reads `active_orders()` from OSM to enforce `max_open_orders`.
+This is an execution safety gate (pre-order risk check), not a trading signal decision.
+The position truth used by RiskGate for notional limits comes from RustStateStore
+via `coordinator.get_state_view()`.
+
+---
+
+## 12. 下一步
 
 后续改造应围绕以下目标推进：
 

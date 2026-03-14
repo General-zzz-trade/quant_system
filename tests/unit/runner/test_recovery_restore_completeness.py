@@ -223,25 +223,31 @@ class TestRecoveryChainCompleteness:
     each restore function is called in the recovery sequence.
     """
 
-    def test_all_restore_functions_called_in_source(self):
+    def test_unified_restore_called_with_all_components(self):
+        """Verify live_runner.py calls restore_all_auxiliary_state with all 7 components."""
         import inspect
         import runner.live_runner as lr
         source = inspect.getsource(lr)
 
-        restore_calls = [
-            "restore_kill_switch_state",
-            "restore_inference_bridge_state",
-            "restore_feature_hook_state",
-            "restore_correlation_state",
-            "restore_timeout_tracker_state",
-            "restore_exit_manager_state",
-            "restore_regime_gate_state",
+        # Must call the unified restore function
+        assert "restore_all_auxiliary_state(" in source, (
+            "live_runner.py must call restore_all_auxiliary_state()"
+        )
+
+        # All 7 component keyword args must be passed
+        component_kwargs = [
+            "kill_switch=",
+            "inference_bridge=",
+            "feature_hook=",
+            "exit_manager=",
+            "regime_gate=",
+            "correlation_computer=",
+            "timeout_tracker=",
         ]
 
-        for fn_name in restore_calls:
-            # Must appear as a function call (not just import)
-            assert f"{fn_name}(" in source, (
-                f"{fn_name} is imported but never called in live_runner.py recovery sequence"
+        for kwarg in component_kwargs:
+            assert kwarg in source, (
+                f"restore_all_auxiliary_state call must pass {kwarg} parameter"
             )
 
     def test_save_all_passes_regime_gate_in_source(self):

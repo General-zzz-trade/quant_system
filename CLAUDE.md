@@ -5,9 +5,11 @@ make rust                    # Build Rust crate (maturin + pip install)
 pytest tests/ -x -q          # Fast tests (~27s, excludes slow+benchmark)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
+pytest execution/tests/ -x -q  # Execution subsystem tests (65 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test    # Rust unit tests (79 tests)
+cd ext/rust && cargo test    # Rust unit tests (82 tests)
+ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
 **CRITICAL after Rust build**: copy .so to local package (shadows system install):
@@ -42,7 +44,7 @@ state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
 strategies/      HFT + multi-factor strategy implementations
-ext/rust/        Unified Rust crate -> _quant_hotpath (68 .rs files, ~25K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
@@ -56,13 +58,13 @@ scripts/         Training, walk-forward validation, alpha research
 
 **Data flow (Python)**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
   (RustStateStore) -> DecisionModule -> ExecutionPolicy -> OrderRouter
-**Fast path (Python)**: Market event -> RustTickProcessor.process_tick_full() (features+predict+state+features_dict in one Rust call) -> DecisionModule
+**Fast path (Python, candidate optimization)**: Market event -> RustTickProcessor.process_tick_full() (features+predict+state+features_dict in one Rust call) -> DecisionModule
 **Binary path**: Binance WS → parse_kline/aggTrade → RustTickProcessor.process_tick_native() → risk gates → WS-API order
 **Order path**: DecisionModule -> BinanceWsOrderGateway (WS-API, ~4ms) or REST fallback (~30ms)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 68 .rs modules, ~26K LOC
+- Single crate `_quant_hotpath`, 66 .rs modules, ~24K LOC
 - Exports: 64 classes + 106 functions
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
@@ -75,7 +77,7 @@ Key export categories (see `lib.rs` for full list):
 - **Features**: `RustFeatureEngine` (105 features), `RustCrossAssetComputer`
 - **Risk**: `RustRiskEvaluator`, `RustKillSwitch`, `RustCircuitBreaker`
 - **Pipeline**: `rust_pipeline_apply`, `RustProcessResult`, `RustUnifiedPredictor`
-- **TickProcessor**: `RustTickProcessor` (full hot path: features+predict+state in single call)
+- **TickProcessor**: `RustTickProcessor` (candidate optimization: features+predict+state in single call; not default production path)
 - **Networking**: `RustWsClient`, `RustWsOrderGateway` (WS-API, ~4ms), `MicroAlpha`
 - **Inference**: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
 
@@ -110,7 +112,7 @@ Key export categories (see `lib.rs` for full list):
 - Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
 - `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
 - `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
-- No Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
+- No hot-path Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust. Research script `signal_postprocess.py` has a Python fallback with known trend_hold divergence (see below)
 - Binary build requires `-lpython3.12` link flag (PyO3 symbols)
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 - Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet

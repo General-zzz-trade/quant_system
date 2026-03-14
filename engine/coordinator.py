@@ -455,38 +455,13 @@ class EngineCoordinator:
         # Push external data (delegated to feature_hook sources via tick_processor)
         fh = self._feature_hook
         if fh is not None:
-            ext_count = fh._ext_push_count.get(symbol, 0)
-            if ext_count % 5 == 0:
-                src = fh._resolve_bar_sources(symbol, event)
-                fh._ext_cache[symbol] = src
-                tp.push_external_data(symbol, **src)
-            else:
-                cached = fh._ext_cache.get(symbol)
-                if cached is not None:
-                    trades = float(getattr(event, "trades", 0) or 0)
-                    taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
-                    quote_volume = float(getattr(event, "quote_volume", 0) or 0)
-                    taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
-                    ts_ev = ts
-                    cached["hour"] = ts_ev.hour if isinstance(ts_ev, _datetime_type) else -1
-                    cached["dow"] = ts_ev.weekday() if isinstance(ts_ev, _datetime_type) else -1
-                    cached["trades"] = trades
-                    cached["taker_buy_volume"] = taker_buy_volume
-                    cached["quote_volume"] = quote_volume
-                    cached["taker_buy_quote_volume"] = taker_buy_quote_volume
-                    tp.push_external_data(symbol, **cached)
-                else:
-                    src = fh._resolve_bar_sources(symbol, event)
-                    fh._ext_cache[symbol] = src
-                    tp.push_external_data(symbol, **src)
-            fh._ext_push_count[symbol] = ext_count + 1
+            fh.push_external_data(symbol, event, tp)
 
         # Determine warmup status
         warmup_done = True
         if fh is not None:
-            bar_count = fh._bar_count.get(symbol, 0) + 1
-            fh._bar_count[symbol] = bar_count
-            warmup_done = bar_count >= fh._warmup_bars
+            bar_count = fh.increment_bar_count(symbol)
+            warmup_done = bar_count >= fh.warmup_bars
 
         # Single Rust call: features + predict + state + pre-built features dict
         result = tp.process_tick_full(
@@ -498,11 +473,11 @@ class EngineCoordinator:
         features = result.features_dict
 
         # Cross-asset features (if enabled)
-        if fh is not None and fh._cross_asset is not None:
+        if fh is not None and fh.cross_asset is not None:
             funding_rate = features.get("funding_rate")
-            fh._cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
-                                   high=high, low=low)
-            cross_feats = fh._cross_asset.get_features(symbol)
+            fh.cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
+                                  high=high, low=low)
+            cross_feats = fh.cross_asset.get_features(symbol)
             features.update(cross_feats)
 
         # Tag features with symbol for downstream hooks (alpha health, etc.)
@@ -510,7 +485,7 @@ class EngineCoordinator:
 
         # Store last features in feature_hook for non-market event lookups
         if fh is not None:
-            fh._last_features[symbol] = features
+            fh.set_last_features(symbol, features)
 
         # Skip Decimal conversion: pass Rust objects directly to snapshot/output.
         snapshot = _build_snapshot(

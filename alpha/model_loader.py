@@ -151,6 +151,12 @@ class ProductionModelLoader:
     def _features_match(version: Any, model: Any) -> bool:
         expected = tuple(getattr(version, "features", ()) or ())
         actual = tuple(getattr(model, "feature_names", ()) or ())
+        if not expected and not actual:
+            return True  # Both empty — legacy model, allow
         if not expected or not actual:
-            return True
+            logger.warning(
+                "Feature schema incomplete: expected=%d actual=%d — allowing load but model may misbehave",
+                len(expected), len(actual),
+            )
+            return True  # One side empty — warn but allow (backward compat)
         return expected == actual

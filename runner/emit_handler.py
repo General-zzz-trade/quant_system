@@ -96,6 +96,11 @@ class LiveEmitHandler:
             [{g: {"allowed": r.allowed, "scale": r.scale, "reason": r.reason}} for g, r in audit_trail],
         )
 
+        # NOTE: OrderStateMachine is an execution AUDIT TRAIL, not a position truth source.
+        # Position truth lives in RustStateStore (updated via coordinator pipeline).
+        # OSM tracks order lifecycle for: timeout detection, reconciliation, logging,
+        # and open-order-count enforcement (RiskGate.max_open_orders).
+        # No signal generation or position sizing should read from OSM.
         order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
         if order_id:
             try:

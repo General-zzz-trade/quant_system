@@ -1,4 +1,4 @@
-.PHONY: all rust clean
+.PHONY: all rust clean test test-py test-exec test-rust lint
 
 all: rust
 
@@ -7,3 +7,19 @@ rust:
 
 clean:
 	rm -rf ext/rust/target
+
+# ── Test targets (aligned with CI: .github/workflows/ci.yml) ───────────
+
+test: test-py test-exec test-rust lint  ## Run all tests (matches CI gate)
+
+test-py:  ## Python core tests (matches CI 'Run Python tests' step)
+	python -m pytest tests/ -x -q --tb=short --ignore=tests/performance
+
+test-exec:  ## Execution subsystem tests (matches CI 'Run execution tests' step)
+	python -m pytest execution/tests/ -x -q --tb=short
+
+test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)
+	cd ext/rust && cargo test
+
+lint:  ## Lint (matches CI 'Ruff check' step)
+	ruff check --select E,W,F .

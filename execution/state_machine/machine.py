@@ -1,5 +1,13 @@
 # execution/state_machine/machine.py
-"""Order state machine backed by Rust."""
+"""Order state machine backed by Rust.
+
+Note: OrderStateMachine is an execution lifecycle tracker, NOT a position truth source.
+Position state is owned by RustStateStore in the pipeline. OSM provides order-level
+audit trail for timeout detection, reconciliation, and operational logging.
+The only decision-path read is RiskGate.get_open_order_count (execution safety),
+which checks active_orders() to enforce max_open_orders limits.
+No signal generation or position sizing should depend on OSM state.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

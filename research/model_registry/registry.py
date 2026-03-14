@@ -169,6 +169,33 @@ class ModelRegistry:
             ).fetchall()
         return [self._row_to_model(r) for r in rows]
 
+    def _check_promotion_preconditions(self, model_id: str) -> list[str]:
+        """Check preconditions before promotion. Returns list of warnings."""
+        warnings: list[str] = []
+        with self._connect() as conn:
+            # 1. Verify the model artifact exists in the registry
+            row = conn.execute(
+                "SELECT model_id, name FROM models WHERE model_id = ?", (model_id,),
+            ).fetchone()
+            if row is None:
+                warnings.append(f"Model {model_id} not found in registry")
+                return warnings  # No point checking further
+
+            name = row[1]
+
+            # 2. Check if a shadow_compare action exists for this model
+            shadow_row = conn.execute(
+                "SELECT COUNT(*) FROM model_actions WHERE to_model_id = ? AND action = 'shadow_compare'",
+                (model_id,),
+            ).fetchone()
+            if shadow_row[0] == 0:
+                warnings.append(
+                    f"No shadow_compare action found for model {model_id} (name={name}) — "
+                    "promoting without shadow comparison"
+                )
+
+        return warnings
+
     def promote(
         self,
         model_id: str,
@@ -178,6 +205,11 @@ class ModelRegistry:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Mark model as production. Demotes current production model for that name."""
+        # Check preconditions and log warnings
+        precondition_warnings = self._check_promotion_preconditions(model_id)
+        for warning in precondition_warnings:
+            logger.warning("Promotion precondition: %s", warning)
+
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT name FROM models WHERE model_id = ?", (model_id,),

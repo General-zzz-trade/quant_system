@@ -252,6 +252,65 @@ class FeatureComputeHook:
             social_volume=social_volume, sentiment_score=sentiment_score,
         )
 
+    # ── Public API for Coordinator fast path ──
+
+    def get_bar_count(self, symbol: str) -> int:
+        """Return current bar count for a symbol."""
+        return self._bar_count.get(symbol, 0)
+
+    def increment_bar_count(self, symbol: str) -> int:
+        """Increment and return the new bar count for a symbol."""
+        count = self._bar_count.get(symbol, 0) + 1
+        self._bar_count[symbol] = count
+        return count
+
+    @property
+    def warmup_bars(self) -> int:
+        """Return the warmup bar threshold."""
+        return self._warmup_bars
+
+    @property
+    def cross_asset(self) -> Any:
+        """Return the cross-asset computer (or None)."""
+        return self._cross_asset
+
+    def set_last_features(self, symbol: str, features: Dict[str, Any]) -> None:
+        """Store the latest features dict for a symbol."""
+        self._last_features[symbol] = features
+
+    def push_external_data(self, symbol: str, event: Any, target: Any) -> None:
+        """Resolve external data sources and push to target (tick processor).
+
+        Full resolution every 5 bars; only per-bar fields updated otherwise.
+        This encapsulates the _ext_cache / _ext_push_count / _resolve_bar_sources
+        interaction so callers never touch internal state directly.
+        """
+        ext_count = self._ext_push_count.get(symbol, 0)
+        if ext_count % 5 == 0:
+            src = self._resolve_bar_sources(symbol, event)
+            self._ext_cache[symbol] = src
+            target.push_external_data(symbol, **src)
+        else:
+            cached = self._ext_cache.get(symbol)
+            if cached is not None:
+                trades = float(getattr(event, "trades", 0) or 0)
+                taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
+                quote_volume = float(getattr(event, "quote_volume", 0) or 0)
+                taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
+                ts = getattr(event, "ts", None)
+                cached["hour"] = ts.hour if isinstance(ts, datetime) else -1
+                cached["dow"] = ts.weekday() if isinstance(ts, datetime) else -1
+                cached["trades"] = trades
+                cached["taker_buy_volume"] = taker_buy_volume
+                cached["quote_volume"] = quote_volume
+                cached["taker_buy_quote_volume"] = taker_buy_quote_volume
+                target.push_external_data(symbol, **cached)
+            else:
+                src = self._resolve_bar_sources(symbol, event)
+                self._ext_cache[symbol] = src
+                target.push_external_data(symbol, **src)
+        self._ext_push_count[symbol] = ext_count + 1
+
     def _rust_push(self, symbol: str, close_f: float, volume: float,
                    high: float, low: float, open_: float, event: Any) -> Dict[str, Any]:
         """Push bar to per-symbol RustFeatureEngine and return features dict."""

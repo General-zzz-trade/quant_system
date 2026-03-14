@@ -223,6 +223,44 @@ class TestModelRegistry:
         with pytest.raises(ValueError, match="not found"):
             registry.compare(mv.model_id, "nonexistent")
 
+    def test_promote_logs_missing_shadow_compare_warning(self, registry, caplog):
+        """Promotion without shadow_compare action logs a warning but succeeds."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        mv = registry.register(name="model_shadow", params={}, features=[], metrics={"sharpe": 1.0})
+        registry.promote(mv.model_id)
+
+        prod = registry.get_production("model_shadow")
+        assert prod is not None
+        assert prod.model_id == mv.model_id
+        assert "No shadow_compare action found" in caplog.text
+
+    def test_promote_preconditions_no_warning_when_shadow_exists(self, registry, caplog):
+        """When a shadow_compare action exists, no shadow warning is logged."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        mv = registry.register(name="model_shadow2", params={}, features=[], metrics={"sharpe": 1.0})
+
+        # Manually insert a shadow_compare action
+        from datetime import datetime, timezone
+        with registry._connect() as conn:
+            conn.execute(
+                """INSERT INTO model_actions
+                   (name, action, from_model_id, to_model_id, reason, actor, created_at, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("model_shadow2", "shadow_compare", None, mv.model_id, None, None,
+                 datetime.now(timezone.utc).isoformat(), "{}"),
+            )
+
+        caplog.clear()
+        registry.promote(mv.model_id)
+
+        prod = registry.get_production("model_shadow2")
+        assert prod is not None
+        assert "No shadow_compare action found" not in caplog.text
+
     def test_register_with_tags(self, registry):
         mv = registry.register(
             name="tagged",

@@ -9,6 +9,7 @@ Status:
   - `supported`: current maintained entrypoint
   - `experimental`: active but non-default path
   - `legacy`: historical comparison/reference path
+  - `archive_candidate`: appears unused or orphaned
 
 `scripts/` is the operator-facing tools layer around the core trading runtime. It is not the default production runtime entrypoint; that remains [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
 
@@ -77,6 +78,18 @@ The maintained group definitions live in [`scripts/catalog.py`](/quant_system/sc
 - `experimental / specialized`: [`scripts/backtest_hybrid_15m.py`](/quant_system/scripts/backtest_hybrid_15m.py) for hybrid 1h signal + 15m execution comparison
 - `supported / specialized`: [`scripts/train_15m.py`](/quant_system/scripts/train_15m.py) for dedicated 15m model training
 - `supported / specialized`: [`scripts/download_eth_15m.py`](/quant_system/scripts/download_eth_15m.py) for ETH 15m data download from Binance API
+
+## Catalog Summary
+
+All 99 scripts in `scripts/` are classified in `catalog.py`. Counts by status:
+
+| Status             | Count |
+|--------------------|-------|
+| `supported`        |    60 |
+| `experimental`     |    32 |
+| `legacy`           |     6 |
+| `archive_candidate`|     1 |
+| **Total**          |  **99** |
 
 ## Archive
 

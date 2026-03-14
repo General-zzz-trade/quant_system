@@ -1,6 +1,6 @@
 # Runtime Contracts
 
-> 更新时间: 2026-03-12
+> 更新时间: 2026-03-14
 > 目标: 对比 live / backtest / replay 三条路径的当前契约差异，并给出统一基线
 > 适用范围: 当前默认 Python runtime 及其验证路径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)

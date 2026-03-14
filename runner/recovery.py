@@ -89,7 +89,10 @@ def save_kill_switch_state(
     kill_switch: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist active kill switch records to JSON file."""
+    """Persist active kill switch records to JSON file.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     records = kill_switch.active_records()
     if not records:
         # Remove file if no active kills
@@ -122,7 +125,12 @@ def restore_kill_switch_state(
     kill_switch: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> int:
-    """Restore kill switch records from JSON file. Returns count restored."""
+    """Restore kill switch records from JSON file. Returns count restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     from risk.kill_switch import KillMode, KillScope
 
     path = os.path.join(data_dir, _KILL_SWITCH_FILE)
@@ -281,7 +289,10 @@ def save_inference_bridge_state(
     inference_bridge: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist inference bridge z-score/signal state."""
+    """Persist inference bridge z-score/signal state.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     if inference_bridge is None:
         return
 
@@ -313,7 +324,12 @@ def restore_inference_bridge_state(
     inference_bridge: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore inference bridge state from checkpoint. Returns True if restored."""
+    """Restore inference bridge state from checkpoint. Returns True if restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     if inference_bridge is None:
         return False
 
@@ -363,6 +379,8 @@ def save_feature_hook_state(
 
     Saves per-symbol RustFeatureEngine checkpoints (bar history) so that
     crash recovery rebuilds all rolling windows, not just bar_count.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
     """
     if feature_hook is None:
         return
@@ -403,6 +421,10 @@ def restore_feature_hook_state(
     When engine checkpoints are available, replays stored bars through
     RustFeatureEngine to rebuild all rolling windows (EMA, RSI, ATR, etc.).
     Falls back to bar_count-only restore if no engine checkpoints exist.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
     """
     if feature_hook is None:
         return False
@@ -466,7 +488,10 @@ def save_exit_manager_state(
     exit_manager: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist exit manager trailing stop state."""
+    """Persist exit manager trailing stop state.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     if exit_manager is None or not hasattr(exit_manager, "checkpoint"):
         return
     try:
@@ -487,7 +512,12 @@ def restore_exit_manager_state(
     exit_manager: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore exit manager state from checkpoint. Returns True if restored."""
+    """Restore exit manager state from checkpoint. Returns True if restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     if exit_manager is None or not hasattr(exit_manager, "restore"):
         return False
     path = os.path.join(data_dir, _EXIT_MANAGER_FILE)
@@ -519,7 +549,10 @@ def save_regime_gate_state(
     regime_gate: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist regime gate buffer state."""
+    """Persist regime gate buffer state.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     if regime_gate is None or not hasattr(regime_gate, "checkpoint"):
         return
     try:
@@ -538,7 +571,12 @@ def restore_regime_gate_state(
     regime_gate: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore regime gate state from checkpoint. Returns True if restored."""
+    """Restore regime gate state from checkpoint. Returns True if restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     if regime_gate is None or not hasattr(regime_gate, "restore"):
         return False
     path = os.path.join(data_dir, _REGIME_GATE_FILE)
@@ -570,7 +608,10 @@ def save_correlation_state(
     correlation_computer: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist correlation computer state."""
+    """Persist correlation computer state.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     if correlation_computer is None or not hasattr(correlation_computer, "checkpoint"):
         return
     try:
@@ -589,7 +630,12 @@ def restore_correlation_state(
     correlation_computer: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore correlation computer state from checkpoint. Returns True if restored."""
+    """Restore correlation computer state from checkpoint. Returns True if restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     if correlation_computer is None or not hasattr(correlation_computer, "restore"):
         return False
     path = os.path.join(data_dir, _CORRELATION_FILE)
@@ -621,7 +667,10 @@ def save_timeout_tracker_state(
     timeout_tracker: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Persist timeout tracker pending orders."""
+    """Persist timeout tracker pending orders.
+
+    .. deprecated:: Use save_all_auxiliary_state() for atomic saves.
+    """
     if timeout_tracker is None or not hasattr(timeout_tracker, "checkpoint"):
         return
     try:
@@ -642,7 +691,12 @@ def restore_timeout_tracker_state(
     timeout_tracker: Any,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> bool:
-    """Restore timeout tracker state from checkpoint. Returns True if restored."""
+    """Restore timeout tracker state from checkpoint. Returns True if restored.
+
+    .. deprecated:: Use restore_all_auxiliary_state() for atomic restores.
+        Individual restore functions are kept for backward compatibility
+        and as fallback when bundle file doesn't exist.
+    """
     if timeout_tracker is None or not hasattr(timeout_tracker, "restore"):
         return False
     path = os.path.join(data_dir, _TIMEOUT_TRACKER_FILE)
@@ -681,10 +735,15 @@ def save_all_auxiliary_state(
     timeout_tracker: Any = None,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> None:
-    """Atomically save all auxiliary component state to a single JSON file.
+    """PRIMARY ENTRY POINT: Atomically save all 7 auxiliary component states.
 
-    Uses write-to-temp + os.replace() for POSIX atomicity.
-    Also writes individual files for backwards compatibility.
+    Saves kill_switch, inference_bridge, feature_hook, exit_manager,
+    regime_gate, correlation_computer, and timeout_tracker to a single
+    atomic JSON bundle (write-to-temp + os.replace() for POSIX atomicity).
+    Also writes individual files for backward compatibility.
+
+    This is the recommended save path — prefer this over individual
+    save_*_state() functions to ensure cross-component consistency.
     """
     # Individual saves (backwards compat)
     save_kill_switch_state(kill_switch, data_dir=data_dir) if kill_switch else None
@@ -750,7 +809,12 @@ def restore_all_auxiliary_state(
     timeout_tracker: Any = None,
     data_dir: str = _CHECKPOINT_DIR_DEFAULT,
 ) -> Dict[str, bool]:
-    """Restore all auxiliary state, preferring atomic bundle over individual files.
+    """PRIMARY ENTRY POINT: Restore all 7 auxiliary component states.
+
+    Restores kill_switch, inference_bridge, feature_hook, exit_manager,
+    regime_gate, correlation_computer, and timeout_tracker. Prefers the
+    atomic bundle file when available, falling back to individual checkpoint
+    files per component for backward compatibility.
 
     Returns dict of component_name -> restored (bool).
     """
