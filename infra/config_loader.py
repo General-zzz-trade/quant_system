@@ -1,3 +1,12 @@
+"""Legacy config loader -- prefer infra.config.loader instead.
+
+DEPRECATED: This module is a standalone legacy loader. Production code uses
+infra.config.loader which provides additional features (validation, secrets
+management, secure credential resolution via environment variables).
+
+This file is kept for backward compatibility with any external scripts that
+may import from infra.config_loader directly.
+"""
 from __future__ import annotations
 
 import json
@@ -9,6 +18,9 @@ def load_config(path: str | Path) -> Dict[str, Any]:
     """Load JSON or YAML config.
 
     YAML support is optional.
+
+    .. deprecated::
+        Use ``infra.config.loader.load_config`` or ``load_config_secure`` instead.
     """
 
     p = Path(path)

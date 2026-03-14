@@ -1,4 +1,7 @@
 # execution/bridge/execution_bridge.py
+# NOTE: This is the FULL execution bridge with retry, circuit breaker, and ack store.
+# The production coordinator uses engine/execution_bridge.py (simple bridge) by default.
+# This module is used by specific adapters that need advanced execution features.
 from __future__ import annotations
 
 import logging

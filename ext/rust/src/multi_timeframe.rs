@@ -1,6 +1,10 @@
 //! Multi-timeframe features: resample 1h OHLCV to 4h, compute 10 features,
 //! map back to 1h with anti-lookahead (uses group G-1).
 //! Port of ext/rolling/multi_timeframe.hpp
+//!
+//! NOTE: 4-hour multi-timeframe features are exported via PyO3 and called from
+//! features/multi_timeframe.py. The `#[allow(dead_code)]` on Group4H silences
+//! warnings for underscore-prefixed fields kept for structural completeness.
 
 use pyo3::prelude::*;
 

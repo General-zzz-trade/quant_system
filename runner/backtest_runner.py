@@ -1,3 +1,8 @@
+"""BacktestRunner -- offline historical backtesting entry point.
+
+Uses runner/backtest/ subpackage for execution simulation, CSV I/O, and metrics.
+For production trading, see runner/live_runner.py.
+"""
 from __future__ import annotations
 
 import json

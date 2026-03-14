@@ -1,8 +1,17 @@
-# runner/builders — extracted subsystem builders for LiveRunner.build().
-#
+"""Runner builders -- alternative assembly components for non-default runners.
+
+NOTE: These builders are NOT used by the default production runner (live_runner.py).
+LiveRunner.build() uses its own _build_* static methods for assembly.
+
+These builders provide reusable components for:
+- runner/live_paper_runner.py (paper trading with full stack)
+- runner/testnet_validation.py (testnet validation workflow)
+- Custom runner implementations
+
+For production assembly, see LiveRunner._build_* methods in live_runner.py.
+"""
 # Each module exports a pure function that constructs one subsystem group
-# and returns a dataclass of assembled components.  LiveRunner.build() can
-# call these instead of inline construction to shrink the build method.
+# and returns a dataclass of assembled components.
 #
 # Usage (incremental adoption):
 #   from runner.builders import build_risk_subsystem

@@ -1,3 +1,9 @@
+"""Simple in-memory model name -> model instance registry.
+
+NOTE: This is NOT the ModelRegistry (research/model_registry/registry.py)
+which provides SQLite-backed model versioning, promotion, and rollback.
+This module provides a lightweight runtime lookup for loaded model instances.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
