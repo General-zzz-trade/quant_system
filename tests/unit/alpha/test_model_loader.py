@@ -340,3 +340,60 @@ class TestProductionModelLoader:
 
         assert report["available"] is False
         assert report["reason"] == "no_production_model"
+
+    def test_digest_mismatch_blocks_load(self):
+        """When verify_digest returns False, the model must not load."""
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
+        model_data = {"model": None, "features": (), "is_classifier": False}
+        weights = pickle.dumps(model_data)
+
+        registry = FakeRegistry({"alpha": version})
+        store = FakeArtifactStore({("m1", "weights"): weights})
+        # Add verify_digest that signals tampering
+        store.verify_digest = lambda model_id, artifact_type="weights": False
+
+        loader = ProductionModelLoader(registry, store)
+        models = loader.load_production_models(["alpha"])
+        assert models == []
+
+    def test_digest_none_allows_load(self):
+        """When verify_digest returns None (legacy), loading proceeds normally."""
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
+        model_data = {"model": None, "features": (), "is_classifier": False}
+        weights = pickle.dumps(model_data)
+
+        registry = FakeRegistry({"alpha": version})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+        })
+        # Add verify_digest that returns None (no digest stored)
+        store.verify_digest = lambda model_id, artifact_type="weights": None
+
+        loader = ProductionModelLoader(registry, store)
+
+        with patch("infra.model_signing.verify_file", return_value=None):
+            models = loader.load_production_models(["alpha"])
+
+        assert len(models) == 1
+
+    def test_digest_pass_allows_load(self):
+        """When verify_digest returns True, loading proceeds normally."""
+        version = FakeModelVersion(model_id="m1", name="alpha", version=1, tags=("lgbm",))
+        model_data = {"model": None, "features": (), "is_classifier": False}
+        weights = pickle.dumps(model_data)
+
+        registry = FakeRegistry({"alpha": version})
+        store = FakeArtifactStore({
+            ("m1", "weights"): weights,
+            ("m1", "weights.sig"): b"dummy",
+        })
+        # Add verify_digest that signals integrity OK
+        store.verify_digest = lambda model_id, artifact_type="weights": True
+
+        loader = ProductionModelLoader(registry, store)
+
+        with patch("infra.model_signing.verify_file", return_value=None):
+            models = loader.load_production_models(["alpha"])
+
+        assert len(models) == 1

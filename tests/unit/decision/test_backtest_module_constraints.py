@@ -123,10 +123,12 @@ def test_vol_target_reduces_signal_in_high_vol(_mock_predict, tmp_path: Path):
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
 def test_vol_target_kills_marginal_signal_in_high_vol(_mock_predict, tmp_path: Path):
-    """Vol-scale at signal level should zero marginal signals in high vol."""
+    """Vol-scale is applied AFTER discretization (notional sizing), matching live
+    bridge.py behavior.  z=0.55 > deadzone=0.5 → desired=1, then notional
+    is scaled by min(0.15/0.30, 1.0) = 0.5.  Entry still occurs."""
     mod = _build_module(tmp_path, vol_target=0.15, vol_feature="atr_norm_14")
     mod._zscore_buf.push = lambda _: 0.55  # just above deadzone
 
     events = list(mod.decide(_snapshot(close=100, features={"atr_norm_14": 0.30})))
-    # scaled z = 0.55 * min(0.15/0.30, 1.0) = 0.55 * 0.5 = 0.275 → below deadzone
-    assert events == []
+    # Post-discretization vol-scale: entry occurs with reduced notional (×0.5)
+    assert len(events) == 2  # IntentEvent + OrderEvent

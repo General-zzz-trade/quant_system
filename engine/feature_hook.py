@@ -94,6 +94,19 @@ class FeatureComputeHook:
                 len(required), sorted(missing),
             )
 
+        # Validate model features against the centralized production catalog
+        try:
+            from features.feature_catalog import validate_model_features
+            for model in models:
+                names = getattr(model, "feature_names", None)
+                if names:
+                    model_name = getattr(model, "name", "") or ""
+                    catalog_warnings = validate_model_features(names, model_name=model_name)
+                    for w in catalog_warnings:
+                        logger.warning(w)
+        except Exception:
+            pass  # catalog validation is advisory — never block
+
     @staticmethod
     def _resolve_source(source: Union[Callable, Dict[str, Callable], None],
                         symbol: str) -> Optional[Callable]:

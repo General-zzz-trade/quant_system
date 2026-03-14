@@ -83,6 +83,19 @@ class ProductionModelLoader:
         if weights is None:
             logger.error("No weights artifact for model %s (id=%s)", name, version.model_id)
             return None
+
+        # Verify artifact integrity (SHA-256 digest) if digest is available
+        if hasattr(self._store, 'verify_digest'):
+            integrity = self._store.verify_digest(version.model_id)
+            if integrity is False:
+                logger.error(
+                    "Artifact integrity check FAILED for %s (id=%s) — digest mismatch",
+                    name, version.model_id,
+                )
+                return None
+            elif integrity is None:
+                logger.debug("No digest stored for %s — skipping integrity check", name)
+
         weights_sig = self._store.load(version.model_id, "weights.sig")
 
         model_type = self._detect_type(version)
@@ -140,6 +153,16 @@ class ProductionModelLoader:
                     name, version.model_id,
                 )
                 return None
+            # Validate features against the centralized production catalog
+            try:
+                from features.feature_catalog import validate_model_features
+                feat_names = getattr(model, "feature_names", None)
+                if feat_names:
+                    catalog_warnings = validate_model_features(feat_names, model_name=name)
+                    for w in catalog_warnings:
+                        logger.warning(w)
+            except Exception:
+                pass  # catalog validation is advisory — never block
             return model
         except Exception:
             logger.exception("Failed to load model %s (type=%s)", name, model_type)

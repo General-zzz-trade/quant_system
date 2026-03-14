@@ -1,6 +1,7 @@
 """Artifact storage for model weights, configs, and reports."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from dataclasses import dataclass
@@ -85,6 +86,33 @@ class ArtifactStore:
                     created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
                 ))
         return results
+
+    # ------------------------------------------------------------------
+    # Digest helpers (SHA-256)
+    # ------------------------------------------------------------------
+
+    def compute_digest(self, model_id: str, artifact_type: str = "weights") -> Optional[str]:
+        """Compute SHA-256 digest of an artifact. Returns hex digest or None if not found."""
+        data = self.load(model_id, artifact_type)
+        if data is None:
+            return None
+        return hashlib.sha256(data).hexdigest()
+
+    def save_with_digest(self, model_id: str, artifact_type: str, data: bytes) -> str:
+        """Save artifact and its SHA-256 digest. Returns the digest."""
+        self.save(model_id, artifact_type, data)
+        digest = hashlib.sha256(data).hexdigest()
+        self.save(model_id, f"{artifact_type}.sha256", digest.encode())
+        return digest
+
+    def verify_digest(self, model_id: str, artifact_type: str = "weights") -> Optional[bool]:
+        """Verify artifact matches stored digest. Returns None if no digest stored."""
+        digest_data = self.load(model_id, f"{artifact_type}.sha256")
+        if digest_data is None:
+            return None  # No digest stored — legacy artifact
+        stored_digest = digest_data.decode().strip()
+        actual_digest = self.compute_digest(model_id, artifact_type)
+        return actual_digest == stored_digest
 
     def delete(self, model_id: str, artifact_type: str) -> bool:
         """Delete an artifact. Returns True if deleted, False if not found."""

@@ -320,3 +320,44 @@ class TestArtifactStore:
         assert store.delete("model-3", "weights")
         assert store.load("model-3", "weights") is None
         assert not store.delete("model-3", "weights")
+
+    # ------------------------------------------------------------------
+    # Digest (SHA-256) tests
+    # ------------------------------------------------------------------
+
+    def test_save_with_digest_creates_digest_file(self, store):
+        data = b"model weights data"
+        digest = store.save_with_digest("model-d1", "weights", data)
+        assert len(digest) == 64  # SHA-256 hex
+        assert store.verify_digest("model-d1") is True
+
+    def test_verify_digest_detects_tampering(self, store):
+        store.save_with_digest("model-d2", "weights", b"original data")
+        # Tamper with the artifact
+        store.save("model-d2", "weights", b"tampered data")
+        assert store.verify_digest("model-d2") is False
+
+    def test_verify_digest_returns_none_for_legacy(self, store):
+        store.save("model-d3", "weights", b"no digest saved")
+        assert store.verify_digest("model-d3") is None
+
+    def test_compute_digest_consistent(self, store):
+        data = b"test data"
+        store.save("model-d4", "weights", data)
+        d1 = store.compute_digest("model-d4")
+        d2 = store.compute_digest("model-d4")
+        assert d1 == d2
+        assert len(d1) == 64
+
+    def test_compute_digest_nonexistent_returns_none(self, store):
+        assert store.compute_digest("nonexistent") is None
+
+    def test_save_with_digest_stores_correct_hash(self, store):
+        import hashlib
+        data = b"known content"
+        digest = store.save_with_digest("model-d5", "weights", data)
+        expected = hashlib.sha256(data).hexdigest()
+        assert digest == expected
+        # The .sha256 sidecar contains the same digest
+        stored = store.load("model-d5", "weights.sha256")
+        assert stored.decode().strip() == expected

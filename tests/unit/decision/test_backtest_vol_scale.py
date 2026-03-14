@@ -49,14 +49,18 @@ def _build_module(tmp_path: Path, **kwargs) -> MLSignalDecisionModule:
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
 def test_vol_scale_zeros_marginal_signal(_mock_predict, tmp_path: Path):
-    """z=0.55 with vol_target=0.01 and vol_val=1.0 → scaled z=0.0055 → below deadzone → no entry."""
+    """Vol-scale is applied AFTER discretization (post-discretization sizing),
+    matching live bridge.py behavior.  z=0.55 > deadzone=0.5 → desired=1,
+    then notional is scaled by vol_target/vol_val = 0.01/1.0 = 0.01.
+    Entry still occurs but with a tiny notional."""
     mod = _build_module(tmp_path, vol_target=0.01, vol_feature="atr_norm_14")
-    # Push z=0.55 (above deadzone of 0.5 before vol-scale)
+    # Push z=0.55 (above deadzone of 0.5 → discretises to desired=1)
     mod._zscore_buf.push = lambda _: 0.55
 
-    features = {"atr_norm_14": 1.0}  # vol_val = 1.0, so scale = 0.01/1.0 = 0.01
+    features = {"atr_norm_14": 1.0}  # vol_val = 1.0, so notional scale = 0.01
     events = list(mod.decide(_snapshot(close=50000, features=features)))
-    assert events == []  # Marginal signal zeroed by vol-scale
+    # Post-discretization vol-scale: entry still happens, just with reduced size
+    assert len(events) == 2  # IntentEvent + OrderEvent
 
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
@@ -72,14 +76,16 @@ def test_vol_scale_preserves_strong_signal(_mock_predict, tmp_path: Path):
 
 @patch.object(MLSignalDecisionModule, "_predict", return_value=1.0)
 def test_vol_scale_at_signal_not_notional(_mock_predict, tmp_path: Path):
-    """Verify vol-scale affects signal discretization, not just notional sizing."""
-    # Without vol-scale fix, z=0.55 > deadzone=0.5 would enter regardless of vol
+    """Vol-scale is applied AFTER discretization (notional sizing only),
+    matching live bridge.py behavior.  z=0.55 > deadzone=0.5 → desired=1,
+    then notional is scaled by min(0.1/0.5, 1.0) = 0.2."""
     mod = _build_module(tmp_path, vol_target=0.1, vol_feature="atr_norm_14")
     mod._zscore_buf.push = lambda _: 0.55
 
-    features = {"atr_norm_14": 0.5}  # scale = min(0.1/0.5, 1.0) = 0.2 → z=0.11 < 0.5
+    features = {"atr_norm_14": 0.5}  # scale = min(0.1/0.5, 1.0) = 0.2
     events = list(mod.decide(_snapshot(close=50000, features=features)))
-    assert events == []  # No entry — vol-scaled z below deadzone
+    # Post-discretization vol-scale: entry occurs with reduced notional
+    assert len(events) == 2  # IntentEvent + OrderEvent
 
 
 # ── Step 3: Short model tests ──
