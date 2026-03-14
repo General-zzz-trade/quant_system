@@ -224,6 +224,12 @@ replay 路径当前更偏“事件再注入器”：
 - 修复 `LiveRunner._apply_perf_tuning()` 在部分机器上读取 `nohz_full=(null)` 时崩溃的问题
 - 修复 startup reconcile 本地余额读取错误，改为读取 `account.balance`
 
+第二轮加固（恢复闭环 7/7 组件）：
+
+- ExitManager 恢复调用补齐：`_find_module_attr()` 遍历 decision modules 提取 `_exit_mgr`，save + restore 均生效
+- RegimeGate 保存 + 恢复补齐：save 传入 `regime_gate=`，restore 序列增加 `restore_regime_gate_state()` 调用
+- 恢复链路 7 个组件全部覆盖：kill_switch, inference_bridge, feature_hook, correlation_computer, timeout_tracker, exit_manager, regime_gate
+
 仍未完成：
 
 - 断连、重复 fill、乱序 fill、reconcile、healer 的完整端到端联动测试

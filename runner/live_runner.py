@@ -84,6 +84,28 @@ logger = logging.getLogger(__name__)
 
 # ── Sub-builder helpers (extracted from build()) ─────────────────────────
 
+
+def _find_module_attr(decision_bridge: Any, attr: str) -> Any:
+    """Walk DecisionBridge.modules to find first module carrying `attr`.
+
+    Handles RegimeAwareDecisionModule wrapping (checks .inner too).
+    Returns None if not found or decision_bridge is None.
+    """
+    if decision_bridge is None:
+        return None
+    for mod in getattr(decision_bridge, 'modules', []):
+        val = getattr(mod, attr, None)
+        if val is not None:
+            return val
+        # Unwrap RegimeAwareDecisionModule
+        inner = getattr(mod, 'inner', None)
+        if inner is not None:
+            val = getattr(inner, attr, None)
+            if val is not None:
+                return val
+    return None
+
+
 @dataclass
 class _SubsystemReport:
     """Structured startup logging: track which subsystems succeeded/failed."""
@@ -1200,6 +1222,16 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             if restore_timeout_tracker_state(timeout_tracker, data_dir=data_dir):
                 logger.info("Timeout tracker state restored from checkpoint")
 
+            # Recovery: restore exit manager trailing stop state
+            _exit_mgr = _find_module_attr(decision_bridge_inst, '_exit_mgr')
+            if _exit_mgr is not None and restore_exit_manager_state(_exit_mgr, data_dir=data_dir):
+                logger.info("Exit manager trailing stop state restored from checkpoint")
+
+            # Recovery: restore regime gate vol buffer state
+            _regime_gate = _find_module_attr(decision_bridge_inst, '_regime_gate')
+            if _regime_gate is not None and restore_regime_gate_state(_regime_gate, data_dir=data_dir):
+                logger.info("Regime gate state restored from checkpoint")
+
         # ── 11a) Startup reconciliation with healing ─────────
         if config.reconcile_on_startup and fetch_venue_state is not None:
             try:
@@ -1257,7 +1289,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     kill_switch=kill_switch,
                     inference_bridge=inference_bridge,
                     feature_hook=feat_hook,
-                    exit_manager=getattr(decision_bridge_inst, '_exit_mgr', None) if decision_bridge_inst else None,
+                    exit_manager=_find_module_attr(decision_bridge_inst, '_exit_mgr'),
+                    regime_gate=_find_module_attr(decision_bridge_inst, '_regime_gate'),
                     correlation_computer=correlation_computer,
                     timeout_tracker=timeout_tracker,
                     data_dir=data_dir_s,
