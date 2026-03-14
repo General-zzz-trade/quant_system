@@ -52,7 +52,7 @@ class GateChain:
                 )
                 return None
             if result.scale < 1.0:
-                _apply_scale(ev, result.scale, gate.name)
+                ev = _apply_scale(ev, result.scale, gate.name)
         return ev
 
     def process_with_audit(
@@ -73,7 +73,7 @@ class GateChain:
                 )
                 return None, trail
             if result.scale < 1.0:
-                _apply_scale(ev, result.scale, gate.name)
+                ev = _apply_scale(ev, result.scale, gate.name)
         return ev, trail
 
     @property
@@ -81,24 +81,38 @@ class GateChain:
         return list(self._gates)
 
 
-def _apply_scale(ev: Any, scale: float, gate_name: str) -> None:
-    """Scale the qty field on an event."""
+def _apply_scale(ev: Any, scale: float, gate_name: str) -> Any:
+    """Scale the qty field on an event. Returns new event if frozen, else mutates.
+
+    For frozen dataclasses (OrderEvent), uses dataclasses.replace() to create
+    a new instance instead of the old object.__setattr__ hack.
+    For mutable objects, mutates in place.
+    """
     raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
-    if raw_qty is not None:
-        if isinstance(raw_qty, Decimal):
-            scaled_qty = raw_qty * Decimal(str(scale))
-        else:
-            scaled_qty = float(raw_qty) * scale
-        # NOTE: object.__setattr__ bypasses frozen=True on OrderEvent.
-        # This is intentional — creating a new event would break identity
-        # for downstream audit trail. The qty mutation is confined to the
-        # gate chain and logged in ORDER_AUDIT.
+    if raw_qty is None:
+        return ev
+    if isinstance(raw_qty, Decimal):
+        scaled_qty = raw_qty * Decimal(str(scale))
+    else:
+        scaled_qty = float(raw_qty) * scale
+
+    logger.info(
+        "%s scaled order for %s: %s → %s (scale=%.2f)",
+        gate_name, getattr(ev, "symbol", "?"),
+        raw_qty, scaled_qty, scale,
+    )
+
+    # Prefer dataclasses.replace() for frozen dataclasses (no mutation hack)
+    import dataclasses
+    if dataclasses.is_dataclass(ev) and getattr(type(ev), "__dataclass_params__", None):
+        if getattr(type(ev).__dataclass_params__, "frozen", False):
+            return dataclasses.replace(ev, qty=scaled_qty)
+    # Mutable fallback
+    try:
+        ev.qty = scaled_qty
+    except (AttributeError, TypeError):
         object.__setattr__(ev, "qty", scaled_qty)
-        logger.info(
-            "%s scaled order for %s: %s → %s (scale=%.2f)",
-            gate_name, getattr(ev, "symbol", "?"),
-            raw_qty, scaled_qty, scale,
-        )
+    return ev
 
 
 # ============================================================
