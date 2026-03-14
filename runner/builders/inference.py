@@ -4,9 +4,120 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
+
+if TYPE_CHECKING:
+    from runner.config import LiveRunnerConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _build_multi_tf_ensemble(
+    config: "LiveRunnerConfig",
+    inference_bridge: Any,
+    metrics_exporter: Any,
+    report: Any,
+) -> Any:
+    """Build multi-timeframe ensemble bridges (Direction 13).
+
+    Returns potentially modified inference_bridge (dict of per-symbol bridges).
+    """
+    try:
+        from decision.ensemble_combiner import EnsembleCombiner
+        from alpha.inference.bridge import LiveInferenceBridge as _LIB
+        import json as _json
+
+        multi_tf = config.multi_tf_models or {}
+        combiners: Dict[str, Any] = {}
+
+        for sym, tf_names in multi_tf.items():
+            bridges_for_sym = []
+            for tf_name in tf_names:
+                model_dir = Path(f"models_v8/{sym}_{tf_name}")
+                if not model_dir.exists():
+                    logger.warning("Multi-TF model dir not found: %s", model_dir)
+                    continue
+
+                cfg_path = model_dir / "config.json"
+                if not cfg_path.exists():
+                    logger.warning("Multi-TF config not found: %s", cfg_path)
+                    continue
+
+                with open(cfg_path) as f:
+                    model_cfg = _json.load(f)
+
+                from alpha.models.lgbm_alpha import LGBMAlphaModel
+                tf_models = []
+                for pkl in sorted(model_dir.glob("*.pkl")):
+                    try:
+                        m = LGBMAlphaModel(name=f"{sym}_{tf_name}_{pkl.stem}")
+                        m.load(pkl)
+                        tf_models.append(m)
+                    except Exception as e:
+                        logger.warning("Failed to load %s: %s", pkl, e)
+                if not tf_models:
+                    logger.warning("No models loaded from %s", model_dir)
+                    continue
+
+                tf_min_hold = {sym: model_cfg.get("min_hold", 12)}
+                tf_deadzone: Any = {sym: model_cfg.get("deadzone", 0.5)}
+                tf_long_only = {sym} if model_cfg.get("long_only") else set()
+                tf_bridge = _LIB(
+                    models=tf_models,
+                    metrics_exporter=metrics_exporter,
+                    min_hold_bars=tf_min_hold,
+                    deadzone=tf_deadzone,
+                    max_hold=model_cfg.get("max_hold", 120),
+                    long_only_symbols=tf_long_only,
+                    ensemble_weights=model_cfg.get("ensemble_weights"),
+                    monthly_gate=config.monthly_gate,
+                    monthly_gate_window=config.monthly_gate_window,
+                    vol_target=config.vol_target,
+                    vol_feature=config.vol_feature,
+                )
+                bridges_for_sym.append((tf_name, tf_bridge))
+                logger.info(
+                    "Multi-TF bridge: %s/%s (min_hold=%d, deadzone=%.1f, max_hold=%d)",
+                    sym, tf_name,
+                    model_cfg.get("min_hold", 12),
+                    model_cfg.get("deadzone", 0.5),
+                    model_cfg.get("max_hold", 120),
+                )
+
+            if len(bridges_for_sym) > 1:
+                combiner = EnsembleCombiner(
+                    bridges=bridges_for_sym,
+                    conflict_policy=config.ensemble_conflict_policy,
+                )
+                combiners[sym] = combiner
+                logger.info(
+                    "Ensemble combiner for %s: %d bridges (%s)",
+                    sym, len(bridges_for_sym),
+                    [n for n, _ in bridges_for_sym],
+                )
+            elif len(bridges_for_sym) == 1:
+                combiners[sym] = bridges_for_sym[0][1]
+
+        if combiners:
+            if isinstance(inference_bridge, dict):
+                inference_bridge.update(combiners)
+            else:
+                new_bridge: Dict[str, Any] = {}
+                for sym in config.symbols:
+                    if sym in combiners:
+                        new_bridge[sym] = combiners[sym]
+                    else:
+                        new_bridge[sym] = inference_bridge
+                inference_bridge = new_bridge
+            logger.info("Multi-TF ensemble enabled for %d symbols", len(combiners))
+
+        report.record("multi_tf_ensemble", True)
+    except Exception as e:
+        report.record("multi_tf_ensemble", False, str(e))
+        logger.warning("Multi-TF ensemble setup failed - using single bridge", exc_info=True)
+
+    return inference_bridge
 
 
 @dataclass
@@ -87,7 +198,6 @@ def build_inference_subsystem(
 
         # Multi-TF ensemble
         if config.enable_multi_tf_ensemble and inference_bridge is not None:
-            from runner.live_runner import _build_multi_tf_ensemble
             inference_bridge = _build_multi_tf_ensemble(
                 config, inference_bridge, metrics_exporter, report,
             )
