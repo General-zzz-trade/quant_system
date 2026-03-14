@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Start live trading — transparent assembly, every step visible.
+"""Decomposed runner — experimental assembly script for testing module wiring.
 
-Replaces the 2,017-line LiveRunner.build() with explicit module wiring.
-Each step creates one component, visible and testable.
+NOT a production entry point. Production uses runner/live_runner.py.
+This script demonstrates how the decomposed modules (TradingEngine,
+RiskManager, etc.) can be assembled. Used for dry-run validation only.
 
 Usage:
-    python3 -m runner.run_trading --config config/production.yaml
-    python3 -m runner.run_trading --symbols BTCUSDT --testnet
     python3 -m runner.run_trading --symbols BTCUSDT --testnet --dry-run
 """
 from __future__ import annotations

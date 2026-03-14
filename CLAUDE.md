@@ -21,7 +21,6 @@ python3 -m scripts.testnet_smoke                                   # Full smoke 
 python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo  # Walk-forward OOS (~20s)
 python3 -m scripts.walkforward_validate --symbol BTCUSDT           # Walk-forward + HPO (~30min)
 python3 -m scripts.run_paper_trading --symbols BTCUSDT --testnet   # Paper trading (shadow mode)
-python3 -m runner.run_trading --symbols BTCUSDT --testnet --dry-run # New decomposed runner (dry-run)
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -63,7 +62,7 @@ event/           Event types + runtime protocol
 strategies/      HFT + multi-factor strategy implementations
 ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
-runner/          Live/paper/backtest entry points (run_trading.py = new decomposed runner; live_runner.py = legacy)
+runner/          Live/paper/backtest entry points
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
@@ -109,12 +108,10 @@ Key export categories (see `lib.rs` for full list):
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/bin/main.rs` — Standalone Rust trading binary (WS + ML + orders)
 - `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
-- `runner/run_trading.py` — New decomposed entry point (~120 LOC transparent assembly)
-- `runner/trading_engine.py` — Features + inference + SIGHUP dual-path model reload
-- `runner/live_runner.py` — Legacy production entry point (DEPRECATED — use run_trading.py for new work)
+- `runner/live_runner.py` — Production entry point (Python)
 - `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle (kill_switch, inference_bridge, feature_hook, correlation, timeout, exit_manager, regime_gate, drawdown_breaker)
-- `runner/config.py` — LiveRunnerConfig (102 fields, legacy); `runner/trading_config.py` — TradingConfig (47 fields, new)
+- `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (122 features: 105 enriched + 17 cross-asset); `validate_model_features()` for schema checks
 - `execution/adapters/ib/adapter.py` — IB multi-asset adapter (stocks, forex, futures, options, crypto via IB Gateway)
 - `execution/adapters/ib/mapper.py` — IB Contract/Fill/Position → Canonical types; `make_contract()` builder

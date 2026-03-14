@@ -9,8 +9,7 @@
 
 ## 1. 当前生产入口
 
-- 默认生产入口: `runner/live_runner.py` (legacy) 或 `runner/run_trading.py` (新分解入口)
-- 新分解模块: `TradingEngine`, `RiskManager`, `OrderManager`, `BinanceExecutor`, `RecoveryManager`, `LifecycleManager`, `RunnerLoop` (各 <200 LOC, 独立可测试)
+- 默认生产入口: `runner/live_runner.py`
 - 默认发布路径: repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + `scripts/deploy.sh`
 - 默认 compose 服务名: `paper-multi`
 - `deploy/` 下其他 systemd / k8s / argocd / docker 示例工件都视为 candidate/experimental，不是当前默认发布真相源
@@ -28,7 +27,7 @@
 
 ## 2. 启动恢复顺序
 
-`LiveRunner.build()` (legacy) 或 `run_trading.build_runner()` (new) 的恢复链路是：
+`LiveRunner.build()` 当前的恢复链路是：
 
 1. 装配 coordinator / execution / risk / monitoring
 2. 如启用持久化，打开 SQLite stores

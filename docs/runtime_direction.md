@@ -9,7 +9,7 @@
 
 当前默认运行时继续固定为 Python-default 路径：
 
-- 默认编排入口: [`runner/live_runner.py`](/quant_system/runner/live_runner.py) (legacy, maintained for compatibility) 或 [`runner/run_trading.py`](/quant_system/runner/run_trading.py) (新分解入口)
+- 默认编排入口: [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
 - 默认发布路径: repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml`
 - 默认运维脚本: [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh)
 
