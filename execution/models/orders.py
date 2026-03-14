@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-import hashlib
-import json
 from typing import Any, Mapping, Optional, Tuple
 
 
@@ -71,13 +69,10 @@ def ingress_order_dedup_identity(order: Any) -> Tuple[str, str]:
 
 
 def _stable_hash(obj: Mapping[str, Any]) -> str:
-    return hashlib.sha256(_stable_json(obj).encode("utf-8")).hexdigest()
+    from execution.models.digest import stable_hash
+    return stable_hash(obj)
 
 
 def _stable_json(obj: Mapping[str, Any]) -> str:
-    def default(value: Any) -> Any:
-        if isinstance(value, Decimal):
-            return str(value)
-        return str(value)
-
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=default)
+    from execution.models.digest import _stable_json
+    return _stable_json(obj)

@@ -1,8 +1,6 @@
 """Polymarket JSON -> CanonicalFill / CanonicalOrder mapper."""
 from __future__ import annotations
 
-import hashlib
-import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
 
@@ -94,12 +92,8 @@ def _make_fill_id(venue: str, symbol: str, trade_id: str) -> str:
 
 
 def _stable_hash(obj: Mapping[str, Any]) -> str:
-    def default(value: Any) -> Any:
-        if isinstance(value, Decimal):
-            return str(value)
-        return str(value)
-    raw = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=default)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    from execution.models.digest import stable_hash
+    return stable_hash(obj)
 
 
 # ------------------------------------------------------------------ #

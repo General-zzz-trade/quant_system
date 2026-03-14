@@ -1,25 +1,16 @@
 # execution/adapters/binance/dedup_keys.py
+"""Fill dedup keys — delegates to unified digest module."""
 from __future__ import annotations
 
-import hashlib
-import json
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Optional
+
+from execution.models.digest import fill_key as _fill_key
+from execution.models.digest import fill_digest
 
 
 def make_fill_id(*, venue: str, symbol: str, trade_id: str) -> str:
-    # 交易所内 trade_id 唯一，但为多交易所/多品种隔离加入 namespace
-    return f"{venue}:{symbol}:{trade_id}"
-
-
-def _stable_json(obj: Dict[str, Any]) -> str:
-    # Decimal -> str，确保 hash 稳定
-    def default(o: Any) -> Any:
-        if isinstance(o, Decimal):
-            return str(o)
-        return str(o)
-
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=default)
+    return _fill_key(venue=venue, symbol=symbol, trade_id=trade_id)
 
 
 def payload_digest_for_fill(
@@ -34,16 +25,8 @@ def payload_digest_for_fill(
     fee_asset: Optional[str],
     ts_ms: int,
 ) -> str:
-    payload = {
-        "symbol": symbol,
-        "order_id": str(order_id),
-        "trade_id": str(trade_id),
-        "side": side,
-        "qty": qty,
-        "price": price,
-        "fee": fee,
-        "fee_asset": fee_asset or "",
-        "ts_ms": int(ts_ms),
-    }
-    s = _stable_json(payload).encode("utf-8")
-    return hashlib.sha256(s).hexdigest()
+    return fill_digest(
+        symbol=symbol, order_id=order_id, trade_id=trade_id,
+        side=side, qty=qty, price=price, fee=fee,
+        fee_asset=fee_asset, ts_ms=ts_ms,
+    )

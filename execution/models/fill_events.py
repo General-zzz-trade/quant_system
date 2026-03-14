@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-import hashlib
-import json
 from types import SimpleNamespace
 from typing import Any, Optional, Tuple
 
@@ -258,5 +256,5 @@ def _coerce_ts(ts: Any, *, ts_ms: Any = None) -> datetime:
 
 
 def _stable_hash(payload: Any) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    from execution.models.digest import stable_hash
+    return stable_hash(payload)

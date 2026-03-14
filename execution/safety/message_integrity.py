@@ -2,8 +2,6 @@
 """Payload integrity checking — detects data corruption in order/fill messages."""
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -13,8 +11,8 @@ class IntegrityError(RuntimeError):
 
 
 def compute_payload_digest(payload: Mapping[str, Any]) -> str:
-    raw = json.dumps(dict(payload), sort_keys=True, default=str, ensure_ascii=False)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    from execution.models.digest import payload_digest
+    return payload_digest(dict(payload), length=16)
 
 
 @dataclass(frozen=True, slots=True)
