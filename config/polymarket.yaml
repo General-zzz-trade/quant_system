@@ -1,0 +1,29 @@
+# Polymarket integration defaults
+polymarket:
+  api_key: ""
+  api_secret: ""
+  base_url: "https://clob.polymarket.com"
+  ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+  scan_interval_sec: 3600
+  min_liquidity_usd: 10000
+  min_hours_to_expiry: 24.0
+  crypto_keywords:
+    - BTC
+    - Bitcoin
+    - ETH
+    - Ethereum
+    - crypto
+    - Solana
+    - SOL
+  max_position_pct: 0.10
+  max_total_pct: 0.30
+  stop_loss_pct: 0.15
+  signal_threshold: 0.15
+  min_probability: 0.15
+  max_probability: 0.85
+  kelly_fraction: 0.5
+  dd_warning_pct: 10.0
+  dd_reduce_pct: 15.0
+  dd_kill_pct: 20.0
+  data_dir: "data/polymarket"
+  log_level: "INFO"
