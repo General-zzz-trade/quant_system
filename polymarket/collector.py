@@ -140,6 +140,36 @@ class PolymarketCollector:
             logger.warning("Failed to get Binance price: %s", e)
             return 0.0
 
+    def _get_binance_5m_kline(self, window_ts: int) -> dict:
+        """Get the Binance 5m kline (open, close) for a specific window.
+
+        Uses the Binance klines REST API (public, no auth) to get the exact
+        open and close prices for the 5-minute window starting at window_ts.
+        This is more accurate than spot price snapshots.
+        """
+        start_ms = window_ts * 1000
+        end_ms = (window_ts + _WINDOW_SEC) * 1000 - 1
+        url = (
+            f"https://fapi.binance.com/fapi/v1/klines"
+            f"?symbol=BTCUSDT&interval=5m&startTime={start_ms}&endTime={end_ms}&limit=1"
+        )
+        req = Request(url, headers={"Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                if data and isinstance(data, list) and len(data) > 0:
+                    k = data[0]
+                    return {
+                        "open": float(k[1]),
+                        "high": float(k[2]),
+                        "low": float(k[3]),
+                        "close": float(k[4]),
+                        "volume": float(k[5]),
+                    }
+        except Exception as e:
+            logger.warning("Failed to get Binance 5m kline for ts=%d: %s", window_ts, e)
+        return {}
+
     def _get_current_5m_market(self, window_ts: int) -> dict:
         """Fetch a 5m BTC up/down market from the Gamma API by window timestamp."""
         slug = f"btc-updown-5m-{window_ts}"
@@ -206,26 +236,53 @@ class PolymarketCollector:
     def collect_one(self) -> dict:
         """Collect one data point for the current 5m window.
 
-        Also back-fills result for the *previous* window if available.
+        Also back-fills the *previous* window with accurate Binance kline
+        open/close data and derives the Up/Down result.
         Returns the recorded data dict.
         """
         now = datetime.now(timezone.utc)
         window_ts = self._current_window_ts()
 
-        # 1. Fetch current market prices
+        # 1. Fetch current market metadata from Polymarket
         market = self._get_current_5m_market(window_ts)
 
-        # 2. Get Binance BTC price at window start
-        btc_open = self._get_binance_price()
+        # 2. Get current Binance spot price
+        btc_now = self._get_binance_price()
 
-        # 3. Back-fill previous window result
+        # 3. Back-fill PREVIOUS window with accurate Binance 5m kline
         prev_ts = window_ts - _WINDOW_SEC
+        prev_kline = self._get_binance_5m_kline(prev_ts)
         prev_market = self._get_current_5m_market(prev_ts)
-        prev_poly_result = prev_market.get("winner")
 
-        # Also derive Binance-based result from stored open vs current price
-        btc_close_prev = btc_open  # approximate (now ~ prev close)
-        self._backfill_previous(prev_ts, prev_poly_result, prev_market, btc_close_prev)
+        if prev_kline:
+            # Derive result from Binance kline open vs close
+            # This matches Polymarket's rule: "Up if close >= open"
+            kline_open = prev_kline["open"]
+            kline_close = prev_kline["close"]
+            if kline_close >= kline_open:
+                binance_result = "Up"
+            else:
+                binance_result = "Down"
+
+            self._update_result(
+                prev_ts,
+                polymarket_result=prev_market.get("winner"),
+                binance_result=binance_result,
+                btc_close=kline_close,
+                final_volume=prev_market.get("volume"),
+            )
+
+            # Also update the open price if we stored it without kline data
+            conn = sqlite3.connect(self._db_path)
+            conn.execute(
+                "UPDATE market_snapshots SET binance_btc_open = ? WHERE window_start_ts = ? AND (binance_btc_open IS NULL OR binance_btc_open = 0)",
+                (kline_open, prev_ts),
+            )
+            conn.commit()
+            conn.close()
+        else:
+            # Fallback: use spot price approximation
+            self._backfill_previous(prev_ts, prev_market.get("winner"), prev_market, btc_now)
 
         # 4. Store current window snapshot
         record = {
@@ -235,18 +292,19 @@ class PolymarketCollector:
             "up_price": market.get("up_price"),
             "down_price": market.get("down_price"),
             "volume": market.get("volume", 0),
-            "binance_btc_open": btc_open,
+            "binance_btc_open": btc_now,  # approximate; will be corrected by kline in next cycle
         }
         self._store(record)
 
+        prev_result = prev_kline and ("Up" if prev_kline["close"] >= prev_kline["open"] else "Down")
         logger.info(
-            "Collected: ts=%d up=%.3f down=%.3f btc=$%.0f vol=$%.0f prev_result=%s",
+            "Collected: ts=%d btc=$%.0f vol=$%.0f | prev: open=$%.0f close=$%.0f → %s",
             window_ts,
-            record.get("up_price") or 0,
-            record.get("down_price") or 0,
-            btc_open,
+            btc_now,
             record.get("volume") or 0,
-            prev_poly_result or "pending",
+            prev_kline.get("open", 0) if prev_kline else 0,
+            prev_kline.get("close", 0) if prev_kline else 0,
+            prev_result or "no_kline",
         )
         return record
 
