@@ -1,5 +1,12 @@
 # runner/live_runner.py
-"""LiveRunner — full production live trading runner.
+"""LiveRunner — LEGACY production live trading runner.
+
+DEPRECATED: Use runner.run_trading for new deployments.
+This file is kept for backward compatibility with existing scripts
+and tests. New development should use the decomposed modules:
+  runner.trading_engine, runner.risk_manager, runner.order_manager,
+  runner.binance_executor, runner.recovery_manager, runner.lifecycle_manager,
+  runner.runner_loop, runner.run_trading
 
 Assembles:
   - EngineCoordinator + EngineLoop

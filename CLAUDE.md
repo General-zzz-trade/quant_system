@@ -20,6 +20,7 @@ python3 -m scripts.testnet_smoke                                   # Full smoke 
 python3 -m scripts.walkforward_validate --symbol BTCUSDT --no-hpo  # Walk-forward OOS (~20s)
 python3 -m scripts.walkforward_validate --symbol BTCUSDT           # Walk-forward + HPO (~30min)
 python3 -m scripts.run_paper_trading --symbols BTCUSDT --testnet   # Paper trading (shadow mode)
+python3 -m runner.run_trading --symbols BTCUSDT --testnet --dry-run # New decomposed runner (dry-run)
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -61,7 +62,7 @@ event/           Event types + runtime protocol
 strategies/      HFT + multi-factor strategy implementations
 ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
-runner/          Live/paper/backtest entry points
+runner/          Live/paper/backtest entry points (run_trading.py = new decomposed runner; live_runner.py = legacy)
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
