@@ -15,6 +15,7 @@ from runner.gate_chain import (
     RegimeSizerGate,
     RiskSizeGate,
     WeightRecGate,
+    _apply_scale,
     build_gate_chain,
 )
 
@@ -214,6 +215,24 @@ class TestGateChain:
         assert result is not None
         # 10.0 * 0.5 = 5.0, then 5.0 * 0.8 = 4.0
         assert abs(float(result.qty) - 4.0) < 1e-9
+
+
+class TestApplyScaleDecimal:
+    def test_apply_scale_preserves_decimal_type(self):
+        from decimal import Decimal
+        from runner.gate_chain import _apply_scale
+
+        ev = SimpleNamespace(qty=Decimal("0.01"), symbol="BTCUSDT")
+        _apply_scale(ev, 0.5, "TestGate")
+        assert isinstance(ev.qty, Decimal), f"Expected Decimal, got {type(ev.qty)}"
+        assert ev.qty == Decimal("0.005")
+
+    def test_apply_scale_float_input_stays_float(self):
+        from runner.gate_chain import _apply_scale
+
+        ev = SimpleNamespace(qty=0.01, symbol="BTCUSDT")
+        _apply_scale(ev, 0.5, "TestGate")
+        assert isinstance(ev.qty, float)
 
 
 class TestBuildGateChain:

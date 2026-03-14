@@ -54,16 +54,17 @@ class LiveEmitHandler:
         self._live_signal_tracker = live_signal_tracker
 
     def __call__(self, ev: Any) -> None:
-        # Attribution: track all events
-        self._attribution_tracker.on_event(ev)
-
         et = getattr(ev, "event_type", None)
         et_str = (str(et.value) if hasattr(et, "value") else str(et)).upper() if et else ""
 
         if et_str == "ORDER":
             self._handle_order(ev)
             return
-        elif et_str == "FILL":
+
+        # Attribution: track non-ORDER events (ORDER tracked after gate chain in _handle_order)
+        self._attribution_tracker.on_event(ev)
+
+        if et_str == "FILL":
             self._handle_fill(ev)
 
         self._coordinator.emit(ev, actor="live")
@@ -87,6 +88,9 @@ class LiveEmitHandler:
             )
             return
         ev = result
+
+        # Attribution: track only accepted orders (rejected orders excluded above)
+        self._attribution_tracker.on_event(ev)
 
         # Structured audit: log full gate chain transformation
         final_qty = getattr(ev, "qty", getattr(ev, "quantity", None))
@@ -116,9 +120,9 @@ class LiveEmitHandler:
                     qty=Decimal(str(raw_qty)),
                     price=Decimal(str(raw_price)) if raw_price is not None else None,
                 )
+                self._timeout_tracker.on_submit(str(order_id), ev)
             except Exception:
                 logger.warning("OSM register failed for order %s", order_id, exc_info=True)
-            self._timeout_tracker.on_submit(str(order_id), ev)
 
         self._coordinator.emit(ev, actor="live")
 
@@ -132,9 +136,23 @@ class LiveEmitHandler:
                 from decimal import Decimal
                 fill_qty = getattr(ev, "qty", None)
                 fill_price = getattr(ev, "price", None)
+                # NOTE: Currently assumes every fill is a FULL fill (FILLED status).
+                # This is acceptable because:
+                # 1. Binance perpetual futures typically fill atomically for market orders
+                # 2. The OSM is an audit trail, not position truth (RustStateStore is primary)
+                # 3. FillEvent has no is_partial/cumulative_qty field to distinguish
+                # TODO: When fill events carry total_qty/cumulative_qty, use them to
+                # determine PARTIALLY_FILLED vs FILLED status.
+                fill_status = OrderStatus.FILLED
+                is_partial = getattr(ev, "is_partial", None)
+                event_status = getattr(ev, "status", None)
+                if is_partial is True:
+                    fill_status = OrderStatus.PARTIALLY_FILLED
+                elif isinstance(event_status, str) and "partial" in event_status.lower():
+                    fill_status = OrderStatus.PARTIALLY_FILLED
                 self._order_state_machine.transition(
                     order_id=str(order_id),
-                    new_status=OrderStatus.FILLED,
+                    new_status=fill_status,
                     filled_qty=Decimal(str(fill_qty)) if fill_qty is not None else None,
                     avg_price=Decimal(str(fill_price)) if fill_price is not None else None,
                 )

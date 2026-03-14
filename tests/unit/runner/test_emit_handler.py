@@ -90,6 +90,17 @@ class TestOrderPath:
         # Should still emit to coordinator despite OSM failure
         mocks["coordinator"].emit.assert_called_once()
 
+    def test_osm_register_failure_skips_timeout(self):
+        """If OSM register fails, timeout_tracker should NOT be called."""
+        handler, mocks = _make_handler()
+        ev = _order_event()
+        mocks["gate_chain"].process_with_audit.return_value = (ev, [])
+        mocks["order_state_machine"].register.side_effect = Exception("OSM error")
+
+        handler(ev)
+
+        mocks["timeout_tracker"].on_submit.assert_not_called()
+
 
 class TestFillPath:
     def test_fill_transitions_osm(self):
@@ -134,9 +145,45 @@ class TestFillPath:
 
         mocks["coordinator"].emit.assert_called_once()
 
+    def test_partial_fill_uses_partially_filled_status(self):
+        """Fill events with is_partial=True should transition to PARTIALLY_FILLED."""
+        handler, mocks = _make_handler()
+        ev = _fill_event()
+        ev.is_partial = True
+
+        handler(ev)
+
+        from execution.state_machine.transitions import OrderStatus
+        call_kwargs = mocks["order_state_machine"].transition.call_args
+        assert call_kwargs.kwargs["new_status"] == OrderStatus.PARTIALLY_FILLED
+
+    def test_partial_fill_via_status_field(self):
+        """Fill events with status containing 'partial' should use PARTIALLY_FILLED."""
+        handler, mocks = _make_handler()
+        ev = _fill_event()
+        ev.is_partial = None
+        ev.status = "PARTIALLY_FILLED"
+
+        handler(ev)
+
+        from execution.state_machine.transitions import OrderStatus
+        call_kwargs = mocks["order_state_machine"].transition.call_args
+        assert call_kwargs.kwargs["new_status"] == OrderStatus.PARTIALLY_FILLED
+
+    def test_full_fill_uses_filled_status(self):
+        """Fill events without partial indicators should use FILLED status."""
+        handler, mocks = _make_handler()
+        ev = _fill_event()
+
+        handler(ev)
+
+        from execution.state_machine.transitions import OrderStatus
+        call_kwargs = mocks["order_state_machine"].transition.call_args
+        assert call_kwargs.kwargs["new_status"] == OrderStatus.FILLED
+
 
 class TestAttribution:
-    def test_all_events_tracked(self):
+    def test_accepted_order_and_fill_tracked(self):
         handler, mocks = _make_handler()
 
         order_ev = _order_event()
@@ -148,6 +195,37 @@ class TestAttribution:
 
         # Both events should be tracked by attribution
         assert mocks["attribution_tracker"].on_event.call_count == 2
+
+    def test_rejected_order_not_attributed(self):
+        """Orders rejected by gate chain should NOT be tracked by attribution."""
+        handler, mocks = _make_handler()
+        ev = _order_event()
+        from runner.gate_chain import GateResult
+        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False, reason="blocked"))])
+
+        handler(ev)
+
+        # Attribution should NOT have been called for rejected order
+        mocks["attribution_tracker"].on_event.assert_not_called()
+
+    def test_accepted_order_is_attributed(self):
+        """Orders passing gate chain should be tracked by attribution."""
+        handler, mocks = _make_handler()
+        ev = _order_event()
+        mocks["gate_chain"].process_with_audit.return_value = (ev, [])
+
+        handler(ev)
+
+        mocks["attribution_tracker"].on_event.assert_called_once_with(ev)
+
+    def test_fill_event_attributed(self):
+        """Fill events should still be attributed."""
+        handler, mocks = _make_handler()
+        ev = _fill_event()
+
+        handler(ev)
+
+        mocks["attribution_tracker"].on_event.assert_called_once_with(ev)
 
     def test_unknown_event_type_still_emitted(self):
         handler, mocks = _make_handler()

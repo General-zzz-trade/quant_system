@@ -84,12 +84,21 @@ def _apply_scale(ev: Any, scale: float, gate_name: str) -> None:
     """Scale the qty field on an event."""
     raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
     if raw_qty is not None:
-        scaled_qty = float(raw_qty) * scale
+        from decimal import Decimal
+
+        if isinstance(raw_qty, Decimal):
+            scaled_qty = raw_qty * Decimal(str(scale))
+        else:
+            scaled_qty = float(raw_qty) * scale
+        # NOTE: object.__setattr__ bypasses frozen=True on OrderEvent.
+        # This is intentional — creating a new event would break identity
+        # for downstream audit trail. The qty mutation is confined to the
+        # gate chain and logged in ORDER_AUDIT.
         object.__setattr__(ev, "qty", scaled_qty)
         logger.info(
-            "%s scaled order for %s: %.4f → %.4f (scale=%.2f)",
+            "%s scaled order for %s: %s → %s (scale=%.2f)",
             gate_name, getattr(ev, "symbol", "?"),
-            float(raw_qty), scaled_qty, scale,
+            raw_qty, scaled_qty, scale,
         )
 
 

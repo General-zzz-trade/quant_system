@@ -234,3 +234,29 @@ replay 路径当前更偏“事件再注入器”：
 
 - 断连、重复 fill、乱序 fill、reconcile、healer 的完整端到端联动测试
 - restart 后 checkpoint restore 与 periodic reconcile 的更强一致性校验
+
+---
+
+### 8. Live-Only Gate Chain
+
+The production live path runs ORDER events through an 8-gate chain before
+execution. Backtest and replay paths do NOT pass through this gate chain.
+
+| Gate | Type | Live | Backtest | Purpose |
+|------|------|------|----------|---------|
+| CorrelationCheckGate | Risk | ✅ | ❌ | Reject correlated symbol entries |
+| RiskSizeGate | Risk | ✅ | ❌ | Notional/leverage limits |
+| PortfolioRiskGate | Risk | ✅ | ❌ | Portfolio-level constraints + KillSwitch trigger |
+| AlphaHealthGate | ML | ✅ | ❌ (uses RegimeGate instead) | IC-based position scaling |
+| RegimeSizerGate | Risk | ✅ | ❌ | Volatility regime scaling |
+| PortfolioAllocatorGate | Portfolio | ✅ | ❌ | Cross-asset allocation |
+| ExecQualityGate | Monitoring→Control | ✅ | ❌ | Slippage feedback sizing |
+| WeightRecGate | Monitoring→Control | ✅ | ❌ | Attribution weight feedback |
+
+**Intentional divergences:**
+- AlphaHealthGate (live, IC-based) vs RegimeGate (backtest, feature-based): both produce 0.0/0.5/1.0 scale
+- Gates 7-8 form a monitoring→control feedback loop: observability metrics (slippage, attribution) influence order sizing
+
+**Architecture note:** ExecQualityGate and WeightRecGate represent an intentional
+design where monitoring data feeds back into order control. This is a closed-loop
+system, not a pure observability layer.
