@@ -4,6 +4,10 @@ Supports three methods:
 - ic_weighted: weight by rolling IC (signal-return correlation)
 - inverse_vol: weight by inverse signal variance (stability)
 - ridge: refit stacking ensemble on recent data
+
+NOTE: This module is not currently imported by any production path.
+It may be used by research scripts or tests only. Consider archiving
+if no longer needed.
 """
 from __future__ import annotations
 

@@ -283,6 +283,11 @@ class MLSignalDecisionModule:
                 return ()
             z = self._zscore_buf.push(pred)  # always feed for ExitManager
             # Use Rust bridge for unified z-score + discretize + min-hold
+            # TIME BASIS: Backtest uses hour_key (ts-based) when delegating to Rust bridge,
+            # matching live InferenceBridge behavior. The Python fallback (_discretize_signal)
+            # uses bar-based counting, which diverges from live on sub-hourly bars.
+            # Production always uses Rust bridge, so this only affects research scripts
+            # running without _quant_hotpath.
             if self._rust_bridge is not None:
                 trend_val = float("nan")
                 if self._trend_follow:

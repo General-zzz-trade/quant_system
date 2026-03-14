@@ -46,6 +46,11 @@ jobs:
             --ignore=tests/performance \
             --cov=. --cov-report=term-missing --cov-fail-under=57
 
+      # NOTE: CI does not currently test runner.live_runner (production entry point).
+      # The smoke test validates runner.testnet_validation (paper trading path).
+      # To test live_runner locally: python3 -m pytest tests/integration/test_production_integration_e2e.py -x -q
+      # Full live_runner CI coverage requires: production config + model files + mock venue.
+
       - name: Run execution tests
         run: |
           docker run --rm -v "$PWD":/app -w /app quant-ci:test \

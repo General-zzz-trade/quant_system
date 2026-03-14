@@ -1,5 +1,10 @@
 # decision/signals/feature_signal.py
-"""FeatureSignal — consumes LiveFeatureComputer output to generate trading signals."""
+"""FeatureSignal — consumes LiveFeatureComputer output to generate trading signals.
+
+NOTE: This module is not currently imported by any production path.
+It may be used by research scripts or tests only. Consider archiving
+if no longer needed.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

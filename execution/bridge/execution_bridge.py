@@ -1,6 +1,7 @@
 # execution/bridge/execution_bridge.py
 from __future__ import annotations
 
+import logging
 import random
 import threading
 import time
@@ -10,6 +11,8 @@ from typing import Any, Callable, Deque, Dict, Mapping, Optional, Protocol, Tupl
 
 from execution.store.ack_store import InMemoryAckStore
 from execution.store.interfaces import AckStore
+
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------
@@ -81,6 +84,7 @@ class CircuitBreakerConfig:
     failure_threshold: int = 8
     window_sec: float = 10.0
     cooldown_sec: float = 5.0
+    max_consecutive_trips: int = 5  # permanent halt after N consecutive trips
 
 
 # -----------------------------
@@ -140,24 +144,43 @@ class CircuitBreaker:
     clock: Clock
     _fail_ts: list[float] = field(default_factory=list)
     _open_until: float = 0.0
+    _consecutive_trips: int = field(default=0, init=False)
+    _permanently_open: bool = field(default=False, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def is_open(self) -> bool:
         with self._lock:
+            if self._permanently_open:
+                return True
             return self.clock.now() < self._open_until
 
+    @property
+    def permanently_halted(self) -> bool:
+        with self._lock:
+            return self._permanently_open
+
     def record_success(self) -> None:
-        # 成功可清理部分失败记录（保守：只清理窗口外的）
         with self._lock:
             self._prune()
+            self._consecutive_trips = 0
 
     def record_failure(self) -> None:
         with self._lock:
+            if self._permanently_open:
+                return
             now = self.clock.now()
             self._fail_ts.append(now)
             self._prune()
             if len(self._fail_ts) >= self.cfg.failure_threshold:
-                self._open_until = now + self.cfg.cooldown_sec
+                self._consecutive_trips += 1
+                if self._consecutive_trips >= self.cfg.max_consecutive_trips:
+                    self._permanently_open = True
+                    logger.critical(
+                        "CircuitBreaker permanently halted after %d consecutive trips",
+                        self._consecutive_trips,
+                    )
+                else:
+                    self._open_until = now + self.cfg.cooldown_sec
 
     def _prune(self) -> None:
         """Must be called with self._lock held."""
@@ -165,7 +188,6 @@ class CircuitBreaker:
         w = self.cfg.window_sec
         if not self._fail_ts:
             return
-        # 保留窗口内
         self._fail_ts = [t for t in self._fail_ts if (now - t) <= w]
 
 
@@ -202,6 +224,13 @@ class ExecutionBridge:
     _buckets: Dict[str, TokenBucket] = field(default_factory=dict, init=False, repr=False)
     _breakers: Dict[str, CircuitBreaker] = field(default_factory=dict, init=False, repr=False)
     _pending: Deque[tuple] = field(default_factory=deque, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.ack_store, InMemoryAckStore):
+            logger.warning(
+                "ExecutionBridge using InMemoryAckStore — idempotency keys will be "
+                "lost on restart. Pass SQLiteAckStore for production use."
+            )
 
     @staticmethod
     def _ack_to_payload(a: Ack) -> Mapping[str, Any]:

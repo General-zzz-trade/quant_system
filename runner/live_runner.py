@@ -1265,7 +1265,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             from state.store import SqliteStateStore
 
             data_dir = config.data_dir
-            SQLiteAckStore(path=os.path.join(data_dir, "ack_store.db"))
+            ack_store = SQLiteAckStore(path=os.path.join(data_dir, "ack_store.db"))
+            logger.info("Persistent ack_store initialized at %s/ack_store.db", data_dir)
             event_log = SQLiteEventLog(path=os.path.join(data_dir, "event_log.db"))
             state_store = SqliteStateStore(
                 path=os.path.join(data_dir, "state.db"),

@@ -166,6 +166,12 @@ class TestLiveVsBatchSignalIdentity:
         assert any(s < 0 for s in live), "Expected some short signals in test data"
 
 
+# KNOWN LIMITATION: These parity tests use bar index as hour_key (i.e. hour_key=i),
+# which matches 1h-bar backtests. On sub-hourly bars in production, live uses
+# ts-based hour_key (int(ts.timestamp())//3600). The Rust bridge handles both
+# correctly; the divergence only exists in the Python fallback (_discretize_signal
+# in backtest_module.py), which is not tested here. See also: T8 bar-vs-hour docs.
+
 class TestMinHoldTiming:
     """Verify hold counter delays match across both paths."""
 

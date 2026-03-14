@@ -36,6 +36,19 @@ Operational notes:
 - `.github/workflows/ci.yml` is the default release gate.
 - `.github/workflows/deploy.yml` is the default deploy/rollback workflow.
 
+### Deployment Path Matrix
+
+| Path | Entry Point | Purpose | Tested in CI |
+|------|------------|---------|-------------|
+| **docker-compose (default)** | `runner.testnet_validation --phase paper` | Paper/testnet trading | Yes (smoke test) |
+| **systemd (production)** | `runner.live_runner --config config/production.yaml` | Live production trading | No (manual deploy) |
+| **K8s/ArgoCD (candidate)** | `runner.live_runner` via deployment.yaml | Candidate production path | No |
+| **Rust binary** | `quant_trader --config config.testnet.yaml` | Standalone Rust trader | No (unit tests only) |
+
+**Note**: docker-compose.yml and systemd service intentionally use different entry points.
+Compose runs `testnet_validation` for safe paper trading. Production systemd runs `live_runner`
+with full risk controls. This is a deliberate design choice, not a bug.
+
 ### Candidate Paths
 
 ```bash
