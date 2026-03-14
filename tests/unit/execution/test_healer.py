@@ -10,7 +10,7 @@ import pytest
 from execution.reconcile.healer import HealAction, ReconcileHealer
 from execution.reconcile.controller import ReconcileReport
 from execution.reconcile.drift import Drift, DriftType, DriftSeverity
-from execution.reconcile.policies import PolicyDecision, ReconcileAction
+from execution.reconcile.policies import PolicyDecision, ReconcileAction, ReconcilePolicy
 
 
 def _make_report(
@@ -245,3 +245,73 @@ class TestReconcileHealer:
         assert len(actions) == 1
         assert actions[0].correction_type == "position_adjust"
         assert pos_adjs == [("BTCUSDT", Decimal("0.2"))]
+
+
+# ================================================================
+# ReconcilePolicy boundary tests
+# ================================================================
+
+def _make_drift(severity: DriftSeverity, detail: str = "test") -> Drift:
+    return Drift(
+        drift_type=DriftType.POSITION_QTY,
+        severity=severity,
+        venue="binance",
+        symbol="BTCUSDT",
+        expected="1.0",
+        actual="1.1",
+        detail=detail,
+    )
+
+
+class TestReconcilePolicyBoundary:
+    def test_policy_critical_drift_halts_system(self):
+        """CRITICAL severity with halt_on_critical=True returns HALT action."""
+        policy = ReconcilePolicy(halt_on_critical=True)
+        drift = _make_drift(DriftSeverity.CRITICAL, detail="big gap")
+        decision = policy.decide(drift)
+        assert decision.action == ReconcileAction.HALT
+        assert "critical" in decision.reason.lower()
+
+    def test_policy_warning_drift_alerts(self):
+        """WARNING severity with auto_accept_warning=False returns ALERT action."""
+        policy = ReconcilePolicy(auto_accept_warning=False)
+        drift = _make_drift(DriftSeverity.WARNING, detail="minor gap")
+        decision = policy.decide(drift)
+        assert decision.action == ReconcileAction.ALERT
+        assert "warning" in decision.reason.lower() or "minor gap" in decision.reason
+
+    def test_policy_info_drift_auto_accepts(self):
+        """INFO severity with auto_accept_info=True returns ACCEPT action."""
+        policy = ReconcilePolicy(auto_accept_info=True)
+        drift = _make_drift(DriftSeverity.INFO)
+        decision = policy.decide(drift)
+        assert decision.action == ReconcileAction.ACCEPT
+        assert "auto-accepted" in decision.reason or "info" in decision.reason.lower()
+
+    def test_policy_mixed_severities_batch(self):
+        """Batch of mixed severities: each gets appropriate action."""
+        policy = ReconcilePolicy(
+            auto_accept_info=True,
+            auto_accept_warning=False,
+            halt_on_critical=True,
+        )
+        drifts = [
+            _make_drift(DriftSeverity.INFO),
+            _make_drift(DriftSeverity.WARNING),
+            _make_drift(DriftSeverity.CRITICAL),
+        ]
+        decisions = policy.decide_batch(drifts)
+        assert len(decisions) == 3
+        assert decisions[0].action == ReconcileAction.ACCEPT
+        assert decisions[1].action == ReconcileAction.ALERT
+        assert decisions[2].action == ReconcileAction.HALT
+
+    def test_policy_unknown_severity_returns_alert(self):
+        """Unknown/unexpected severity returns ALERT (safe default)."""
+        policy = ReconcilePolicy()
+        drift = _make_drift(DriftSeverity.INFO)
+        # Patch severity to an unknown value to test the fallback branch
+        object.__setattr__(drift, "severity", "UNKNOWN_LEVEL")
+        decision = policy.decide(drift)
+        assert decision.action == ReconcileAction.ALERT
+        assert "unknown" in decision.reason.lower()

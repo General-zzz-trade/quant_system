@@ -109,3 +109,40 @@ class TestReloadFlagClearedAfterHandling:
             # _handle_model_reload() would run here
 
         assert runner._reload_models_pending is False
+
+
+class TestEnsembleCombinerForwardsModelUpdate:
+    """When ensemble_combiner exists, update_models forwards to sub-bridges."""
+
+    def test_ensemble_combiner_forwards_model_update(self):
+        from decision.ensemble_combiner import EnsembleCombiner
+
+        bridge_a = MagicMock()
+        bridge_b = MagicMock()
+        combiner = EnsembleCombiner(bridges=[("a", bridge_a), ("b", bridge_b)])
+
+        new_models = [MagicMock(name="m1"), MagicMock(name="m2")]
+        combiner.update_models(new_models)
+
+        bridge_a.update_models.assert_called_once_with(new_models)
+        bridge_b.update_models.assert_called_once_with(new_models)
+
+
+class TestEnsembleCombinerHandlesBridgeWithoutUpdate:
+    """Bridges without update_models method don't crash the update chain."""
+
+    def test_ensemble_combiner_handles_bridge_without_update(self):
+        from decision.ensemble_combiner import EnsembleCombiner
+
+        # bridge_ok has update_models; bridge_no does not
+        bridge_ok = MagicMock()
+        bridge_no = SimpleNamespace(enrich=lambda *a, **k: {})  # no update_models
+
+        combiner = EnsembleCombiner(bridges=[("ok", bridge_ok), ("no", bridge_no)])
+
+        new_models = [MagicMock(name="m1")]
+        # Should not raise
+        combiner.update_models(new_models)
+
+        bridge_ok.update_models.assert_called_once_with(new_models)
+        # bridge_no was silently skipped (no crash)

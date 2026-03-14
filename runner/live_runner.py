@@ -490,6 +490,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     portfolio_allocator: Optional[Any] = None  # Direction 19: cross-asset allocator
     periodic_checkpointer: Optional[PeriodicCheckpointer] = None
     event_recorder: Optional[EventRecorder] = None
+    ack_store: Optional[Any] = None  # SQLiteAckStore when enable_persistent_stores=True
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _control_history: List[OperatorControlRecord] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
@@ -1259,6 +1260,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         # ── 11) Persistent stores (conditional) ─────────────
         state_store = None
         event_log = None
+        ack_store = None
         if config.enable_persistent_stores:
             from execution.store.ack_store import SQLiteAckStore
             from execution.store.event_log import SQLiteEventLog
@@ -1340,9 +1342,15 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 report.record("data_scheduler", False, str(e))
                 logger.warning("DataScheduler setup failed — continuing without", exc_info=True)
 
+        # ack_store may be None when enable_persistent_stores is disabled;
+        # currently used only by execution/bridge/execution_bridge.py (full bridge).
+        # The production coordinator path uses engine/execution_bridge.py (simple bridge)
+        # which delegates directly to the adapter and doesn't need ack_store.
+        # We still surface it so the runner can expose it for reconciliation / debugging.
         return (
             reconcile_scheduler, margin_monitor, alert_manager,
             state_store, event_log, data_scheduler, freshness_monitor,
+            ack_store,
         )
 
     @staticmethod
@@ -1587,6 +1595,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         (
             reconcile_scheduler, margin_monitor, alert_manager,
             state_store, event_log, data_scheduler, freshness_monitor,
+            ack_store,
         ) = cls._build_persistence_and_recovery(
             config, coordinator, kill_switch, inference_bridge,
             feat_hook, correlation_computer, timeout_tracker,
@@ -1643,6 +1652,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             portfolio_allocator=portfolio_allocator,
             periodic_checkpointer=periodic_checkpointer,
             event_recorder=event_recorder,
+            ack_store=ack_store,
             _fills=fills,
         )
         if control_plane is not None:
