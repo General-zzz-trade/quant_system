@@ -1,5 +1,27 @@
 # Scripts Module
 
+## Quick Reference
+
+| Task | Script | Status |
+|------|--------|--------|
+| Train production model | `train_v11.py` | supported |
+| Auto-retrain (cron) | `auto_retrain.py` | supported |
+| Walk-forward validation | `walkforward_validate.py` | supported |
+| Main backtest | `backtest_engine.py` | supported |
+| Backtest alpha V8 | `backtest_alpha_v8.py` | supported |
+| Shadow compare models | `shadow_compare.py` | supported |
+| Download klines | `download_binance_klines.py` | supported |
+| Refresh all data | `refresh_data.py` | supported |
+| Unified data refresh | `data_refresh.py` | supported |
+| Export model to JSON | `export_model_to_json.py` | supported |
+| Paper trading | `run_paper_trading.py` | supported |
+| Testnet smoke test | `testnet_smoke.py` | supported |
+| Latency benchmark | `latency_bench.py` | supported |
+| Monitor paper trading | `monitor_paper_trading.py` | supported |
+| Full catalog | `python3 -m scripts.catalog` | CLI |
+
+> Source of truth: [`scripts/catalog.py`](catalog.py). Run `quant catalog --scripts` for the full list.
+
 Status:
 
 - This is the current maintained guide to the flat `scripts/` workspace.

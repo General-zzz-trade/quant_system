@@ -1,17 +1,22 @@
 """Config schema definitions and validation for quant_system.
 
 .. deprecated::
+    **DEPRECATED** — do not add new fields or importers.
+
     This schema covers only 23 legacy fields and is NOT synchronized with
     the current production configuration (runner/config.py LiveRunnerConfig, 93 fields).
 
     For production configuration:
-    - Use LiveRunnerConfig directly (runner/config.py)
-    - Use LiveRunnerConfig.lite()/.paper()/.testnet_full()/.prod() factory methods
+    - Use ``LiveRunnerConfig`` directly (``runner/config.py``)
+    - Factory methods: ``.lite()``, ``.paper()``, ``.testnet_full()``, ``.prod()``
     - See CLAUDE.md for configuration guidance
 
-    This module is retained for backward compatibility with older YAML configs
-    that use dot-notation (e.g., "trading.symbol"). New deployments should use
-    LiveRunnerConfig directly.
+    This module is retained **only** for backward compatibility with older YAML
+    configs that use dot-notation (e.g., ``"trading.symbol"``).
+    ``runner/live_runner.py`` still lazy-imports ``validate_trading_config`` for
+    legacy nested configs — do not remove until that code path is migrated.
+
+    New deployments MUST use ``LiveRunnerConfig`` directly.
 """
 from __future__ import annotations
 
