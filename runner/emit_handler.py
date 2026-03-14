@@ -6,7 +6,10 @@ timeout tracking, event recording, and attribution.
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any, Optional
+
+from execution.state_machine.transitions import OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +111,6 @@ class LiveEmitHandler:
         order_id = getattr(ev, "order_id", None) or getattr(ev, "client_order_id", None)
         if order_id:
             try:
-                from decimal import Decimal
                 raw_qty = getattr(ev, "qty", getattr(ev, "quantity", 0))
                 raw_price = getattr(ev, "price", None)
                 self._order_state_machine.register(
@@ -132,8 +134,6 @@ class LiveEmitHandler:
         if order_id:
             self._timeout_tracker.on_fill(str(order_id))
             try:
-                from execution.state_machine.transitions import OrderStatus
-                from decimal import Decimal
                 fill_qty = getattr(ev, "qty", None)
                 fill_price = getattr(ev, "price", None)
                 # NOTE: Currently assumes every fill is a FULL fill (FILLED status).

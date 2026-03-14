@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 
 logger = logging.getLogger(__name__)
@@ -84,8 +85,6 @@ def _apply_scale(ev: Any, scale: float, gate_name: str) -> None:
     """Scale the qty field on an event."""
     raw_qty = getattr(ev, "qty", None) or getattr(ev, "quantity", None)
     if raw_qty is not None:
-        from decimal import Decimal
-
         if isinstance(raw_qty, Decimal):
             scaled_qty = raw_qty * Decimal(str(scale))
         else:
