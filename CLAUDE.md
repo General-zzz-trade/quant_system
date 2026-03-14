@@ -2,6 +2,7 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
+make test                    # ALL gates (py + exec + rust + lint, matches CI)
 pytest tests/ -x -q          # Fast tests (~27s, excludes slow+benchmark)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest tests/unit/ -x -q     # Unit tests only
@@ -65,7 +66,7 @@ scripts/         Training, walk-forward validation, alpha research
 ## Rust Crate (`ext/rust/`)
 
 - Single crate `_quant_hotpath`, 66 .rs modules, ~24K LOC
-- Exports: 64 classes + 106 functions
+- Exports: ~27 PyO3 classes + ~100 functions (see `lib.rs`)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
@@ -92,7 +93,9 @@ Key export categories (see `lib.rs` for full list):
 - `ext/rust/src/bin/config.rs` — Binary config (YAML + model config.json overrides)
 - `runner/live_runner.py` — Production entry point (Python)
 - `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
-- `runner/recovery.py` — Crash recovery: feature engine checkpoint, inference bridge, event log
+- `runner/recovery.py` — Crash recovery: 8-component atomic bundle (kill_switch, inference_bridge, feature_hook, correlation, timeout, exit_manager, regime_gate, drawdown_breaker)
+- `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (105 features); `validate_model_features()` for schema checks
 
 ## Live Integration Subsystems
 
@@ -118,4 +121,6 @@ Key export categories (see `lib.rs` for full list):
 - Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet
 - `RustFeatureEngine.checkpoint()` / `restore_checkpoint()` persist rolling windows as bar history JSON — crash recovery replays bars to rebuild EMA/RSI/ATR state
 - Event recorder captures risk/control events in addition to market/fill/signal/order
+- State ownership: `RustStateStore` is primary position truth (decisions read from it); `OrderStateMachine` is execution audit trail only (exception: `RiskGate.max_open_orders` reads OSM open-order count)
+- Recovery bundle now includes 8 components (drawdown_breaker HWM added); `save_all_auxiliary_state()` / `restore_all_auxiliary_state()` are the primary entry points
 - Python fallback in `signal_postprocess.py` has known divergence from Rust for `trend_follow` mode (trend_hold max_hold semantics differ)

@@ -13,10 +13,10 @@ clean:
 test: test-py test-exec test-rust lint  ## Run all tests (matches CI gate)
 
 test-py:  ## Python core tests (matches CI 'Run Python tests' step)
-	python -m pytest tests/ -x -q --tb=short --ignore=tests/performance
+	python3 -m pytest tests/ -x -q --tb=short --ignore=tests/performance
 
 test-exec:  ## Execution subsystem tests (matches CI 'Run execution tests' step)
-	python -m pytest execution/tests/ -x -q --tb=short
+	python3 -m pytest execution/tests/ -x -q --tb=short
 
 test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)
 	cd ext/rust && cargo test
