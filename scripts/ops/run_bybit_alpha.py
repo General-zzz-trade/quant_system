@@ -116,7 +116,9 @@ class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
-                 dry_run: bool = False, position_size: float = 0.001):
+                 dry_run: bool = False, position_size: float = 0.001,
+                 adaptive_sizing: bool = True, risk_per_trade: float = 0.05,
+                 min_size: float = 0.01, max_size_pct: float = 0.30):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -132,7 +134,14 @@ class AlphaRunner:
         self._zscore_window = model_info["zscore_window"]
         self._zscore_warmup = model_info["zscore_warmup"]
         self._dry_run = dry_run
+        self._base_position_size = position_size
         self._position_size = position_size
+
+        # Adaptive position sizing
+        self._adaptive_sizing = adaptive_sizing
+        self._risk_per_trade = risk_per_trade  # fraction of equity to risk per trade
+        self._min_size = min_size              # minimum position (exchange lot size)
+        self._max_size_pct = max_size_pct      # max position as % of equity
 
         self._predictions: list[float] = []
         self._current_signal = 0
@@ -225,6 +234,56 @@ class AlphaRunner:
         if weight_total <= 0:
             return None
         return weighted_sum / weight_total
+
+    def _compute_position_size(self, price: float) -> float:
+        """Compute adaptive position size based on current equity and volatility.
+
+        Formula: size = (equity * risk_pct) / (price * vol_stop)
+        - equity: current USDT balance from exchange
+        - risk_pct: fraction of equity willing to lose per trade
+        - vol_stop: estimated stop distance (2x 20-bar vol)
+        - Clamped to [min_size, equity * max_size_pct / price]
+        """
+        if not self._adaptive_sizing:
+            return self._base_position_size
+
+        try:
+            bal = self._adapter.get_balances()
+            usdt = bal.get("USDT")
+            equity = float(usdt.total) if usdt else 0
+        except Exception:
+            return self._base_position_size
+
+        if equity <= 0 or price <= 0:
+            return self._base_position_size
+
+        # Volatility-based stop: 2x recent 20-bar vol
+        if len(self._rets) >= 20:
+            vol = np.std(self._rets[-20:])
+            stop_distance = max(vol * 2, 0.005)  # at least 0.5%
+        else:
+            stop_distance = 0.02  # default 2%
+
+        # Position size = risk_amount / (price * stop_distance)
+        risk_amount = equity * self._risk_per_trade
+        size = risk_amount / (price * stop_distance)
+
+        # Clamp: min lot size and max % of equity
+        max_size = (equity * self._max_size_pct) / price
+        size = max(self._min_size, min(size, max_size))
+
+        # Round to exchange lot size (0.01 for ETH on Bybit)
+        size = round(size, 2)
+
+        if size != self._position_size:
+            logger.info(
+                "%s adaptive size: %.4f → %.4f (equity=$%.0f vol=%.4f stop=%.3f)",
+                self._symbol, self._position_size, size,
+                equity, stop_distance, stop_distance,
+            )
+
+        self._position_size = size
+        return size
 
     def _check_regime(self, close: float) -> bool:
         """Check if current market regime is favorable for trading.
@@ -375,7 +434,11 @@ class AlphaRunner:
         }
 
         if new_signal != prev_signal:
+            # Recompute position size before entering new position
+            if new_signal != 0:
+                self._compute_position_size(bar["close"])
             result["trade"] = self._execute_signal_change(prev_signal, new_signal, bar["close"])
+            result["size"] = self._position_size
 
         return result
 
@@ -481,7 +544,8 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool) -> None:
             sigs = {s: r._current_signal for s, r in runners.items()}
             pnls = {s: f"${r._total_pnl:.2f}" for s, r in runners.items()}
             trades = {s: f"{r._win_count}/{r._trade_count}" for s, r in runners.items()}
-            logger.info("WS HEARTBEAT sigs=%s pnl=%s trades=%s", sigs, pnls, trades)
+            sizes = {s: f"{r._position_size:.2f}" for s, r in runners.items()}
+            logger.info("WS HEARTBEAT sigs=%s pnl=%s trades=%s size=%s", sigs, pnls, trades, sizes)
     except KeyboardInterrupt:
         logger.info("Stopped")
         ws.stop()
@@ -603,9 +667,10 @@ def main():
                 regimes = {s: "active" if r._regime_active else "FILTERED" for s, r in runners.items()}
                 pnls = {s: f"${r._total_pnl:.2f}" for s, r in runners.items()}
                 trades = {s: f"{r._win_count}/{r._trade_count}" for s, r in runners.items()}
+                sizes = {s: f"{r._position_size:.2f}" for s, r in runners.items()}
                 logger.info(
-                    "HEARTBEAT cycle=%d sigs=%s holds=%s regimes=%s pnl=%s trades=%s",
-                    cycle_count, sigs, holds, regimes, pnls, trades,
+                    "HEARTBEAT cycle=%d sigs=%s holds=%s regimes=%s pnl=%s trades=%s size=%s",
+                    cycle_count, sigs, holds, regimes, pnls, trades, sizes,
                 )
 
             time.sleep(POLL_INTERVAL)
