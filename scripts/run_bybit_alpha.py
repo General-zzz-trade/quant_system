@@ -109,6 +109,14 @@ class AlphaRunner:
         self._hold_count = 0
         self._bars_processed = 0
 
+        # Regime filter state
+        self._closes: list[float] = []
+        self._rets: list[float] = []
+        self._regime_active = True
+        self._vol_threshold = 0.004   # 20-bar ret stdev
+        self._trend_threshold = 0.04  # |close/MA480 - 1|
+        self._ma_window = 480
+
         from _quant_hotpath import RustFeatureEngine
         self._engine = RustFeatureEngine()
 
@@ -119,6 +127,7 @@ class AlphaRunner:
         bars.reverse()  # Bybit returns newest first
 
         for bar in bars:
+            self._check_regime(bar["close"])  # build regime state
             self._engine.push_bar(
                 bar["close"], bar["volume"], bar["high"], bar["low"],
                 bar["open"], funding_rate=float("nan"),
@@ -132,12 +141,46 @@ class AlphaRunner:
                     self._predictions.append(float(pred))
 
         self._bars_processed = len(bars)
-        logger.info("Warmup: %d bars, %d predictions", len(bars), len(self._predictions))
+        regime_str = "active" if self._regime_active else "filtered"
+        logger.info("Warmup: %d bars, %d predictions, regime=%s",
+                     len(bars), len(self._predictions), regime_str)
         return len(bars)
 
+    def _check_regime(self, close: float) -> bool:
+        """Check if current market regime is favorable for trading.
+
+        Returns True if regime is active (OK to trade).
+        Filters out low-vol + weak-trend environments where the
+        alpha strategy historically loses money.
+        """
+        self._closes.append(close)
+        if len(self._closes) >= 2:
+            ret = np.log(close / self._closes[-2])
+            self._rets.append(ret)
+
+        # Need enough history
+        if len(self._rets) < 20:
+            return True
+
+        # 20-bar realized volatility
+        vol_20 = np.std(self._rets[-20:])
+
+        # Trend strength: |close / MA(480) - 1|
+        if len(self._closes) >= self._ma_window:
+            ma = np.mean(self._closes[-self._ma_window:])
+            trend = abs(close / ma - 1)
+        else:
+            trend = 0.1  # assume active during warmup
+
+        self._regime_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
+        return self._regime_active
+
     def process_bar(self, bar: dict) -> dict:
-        """Process one bar: features → predict → signal → trade."""
+        """Process one bar: regime → features → predict → signal → trade."""
         self._bars_processed += 1
+
+        # Regime filter
+        regime_ok = self._check_regime(bar["close"])
 
         self._engine.push_bar(
             bar["close"], bar["volume"], bar["high"], bar["low"],
@@ -167,11 +210,16 @@ class AlphaRunner:
         z = (pred - mean) / std if std > 1e-12 else 0.0
 
         prev_signal = self._current_signal
-        desired = 0
-        if z > self._deadzone:
+
+        # Regime filter: force flat when regime is unfavorable
+        if not regime_ok:
+            desired = 0
+        elif z > self._deadzone:
             desired = 1
         elif z < -self._deadzone:
             desired = -1
+        else:
+            desired = 0
 
         if self._hold_count < self._min_hold:
             new_signal = prev_signal
@@ -194,6 +242,7 @@ class AlphaRunner:
             "pred": round(pred, 6), "z": round(z, 4),
             "signal": new_signal, "prev_signal": prev_signal,
             "hold_count": self._hold_count, "close": bar["close"],
+            "regime": "active" if regime_ok else "filtered",
         }
 
         if new_signal != prev_signal:
@@ -302,11 +351,12 @@ def main():
                         last_bar_times[symbol] = bar_time
                         result = runner.process_bar(latest)
                         if result.get("action") == "signal":
+                            regime = result.get("regime", "?")
                             logger.info(
-                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d%s",
+                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s%s",
                                 symbol, result["bar"], result["close"],
                                 result["z"], result["signal"],
-                                result["hold_count"],
+                                result["hold_count"], regime,
                                 f" TRADE={result['trade']}" if "trade" in result else "",
                             )
                 except Exception:
@@ -318,9 +368,10 @@ def main():
                 last_heartbeat = now
                 sigs = {s: r._current_signal for s, r in runners.items()}
                 holds = {s: r._hold_count for s, r in runners.items()}
+                regimes = {s: "active" if r._regime_active else "FILTERED" for s, r in runners.items()}
                 logger.info(
-                    "HEARTBEAT cycle=%d signals=%s holds=%s",
-                    cycle_count, sigs, holds,
+                    "HEARTBEAT cycle=%d signals=%s holds=%s regimes=%s",
+                    cycle_count, sigs, holds, regimes,
                 )
 
             time.sleep(POLL_INTERVAL)
