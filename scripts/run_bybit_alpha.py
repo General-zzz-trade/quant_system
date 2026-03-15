@@ -282,8 +282,13 @@ def main():
         list(runners.keys()), POLL_INTERVAL, args.dry_run,
     )
 
+    heartbeat_interval = 300  # log heartbeat every 5 minutes
+    last_heartbeat = time.time()
+    cycle_count = 0
+
     try:
         while True:
+            cycle_count += 1
             for symbol, runner in runners.items():
                 try:
                     bars = adapter.get_klines(symbol, interval=INTERVAL, limit=2)
@@ -306,6 +311,17 @@ def main():
                             )
                 except Exception:
                     logger.exception("Error processing %s", symbol)
+
+            # Heartbeat: log status every 5 minutes
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_interval:
+                last_heartbeat = now
+                sigs = {s: r._current_signal for s, r in runners.items()}
+                holds = {s: r._hold_count for s, r in runners.items()}
+                logger.info(
+                    "HEARTBEAT cycle=%d signals=%s holds=%s",
+                    cycle_count, sigs, holds,
+                )
 
             time.sleep(POLL_INTERVAL)
 
