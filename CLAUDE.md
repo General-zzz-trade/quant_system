@@ -9,6 +9,7 @@ pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
 pytest tests/unit/ib/ -x -q   # IB adapter tests (37 tests)
 pytest tests/unit/runner/ -x -q    # Runner tests (298 tests)
 pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (42 tests)
+pytest tests/unit/bybit/ -x -q   # Bybit adapter tests (14 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
@@ -54,6 +55,7 @@ decision/        Trading signals, ensemble, regime detection, rebalancing
 alpha/           ML models + inference bridge
 execution/       Order routing, state machine, dedup
   adapters/binance/    Binance USDT-M futures (47 files, ~3.7K LOC)
+  adapters/bybit/      Bybit V5 linear perpetuals (demo/testnet/live)
   adapters/ib/         Interactive Brokers multi-asset (stocks/forex/futures/options/crypto)
   adapters/polymarket/ Polymarket prediction market CLOB adapter
   adapters/generic/    CCXT-based unified 100+ exchange adapter
@@ -72,7 +74,7 @@ infra/           Logging (structured JSON), networking
 polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner
 models_v8/       Production LightGBM models (BTCUSDT_gate_v2, ETHUSDT_gate_v2, SOLUSDT)
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
-scripts/         Training, walk-forward validation, alpha research
+scripts/         Training, walk-forward, research, data, ops (7 subdirs + symlinks for compat)
 ```
 
 **Data flow (Python)**: Market event -> FeatureComputeHook (RustFeatureEngine) -> Pipeline
@@ -135,6 +137,7 @@ All adapters implement `VenueAdapter` protocol (`execution/adapters/base.py`); r
 | Binance | REST + WS-API (~4ms) | Primary. USDT-M futures. 47 files, ~3.7K LOC |
 | IB | `ib_insync` → IB Gateway | Port 4002=paper, 4001=live. All asset classes via `make_contract(symbol, sec_type)` |
 | Polymarket | CLOB REST + Gamma discovery | L2 auth (HMAC-SHA256). Collector V2 uses CLOB orderbook directly, stores SQLite |
+| Bybit | REST V5 + WS | Demo/testnet/live. USDT perpetuals. HMAC-SHA256 auth |
 | Generic | CCXT | 100+ exchanges, unified interface |
 
 ## Environment
