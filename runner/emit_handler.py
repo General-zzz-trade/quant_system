@@ -136,13 +136,9 @@ class LiveEmitHandler:
             try:
                 fill_qty = getattr(ev, "qty", None)
                 fill_price = getattr(ev, "price", None)
-                # NOTE: Currently assumes every fill is a FULL fill (FILLED status).
-                # This is acceptable because:
-                # 1. Binance perpetual futures typically fill atomically for market orders
-                # 2. The OSM is an audit trail, not position truth (RustStateStore is primary)
-                # 3. FillEvent has no is_partial/cumulative_qty field to distinguish
-                # TODO: When fill events carry total_qty/cumulative_qty, use them to
-                # determine PARTIALLY_FILLED vs FILLED status.
+                # Default to FILLED; override to PARTIALLY_FILLED if fill
+                # carries is_partial=True or status contains "partial".
+                # OSM is audit trail only (position truth = RustStateStore).
                 fill_status = OrderStatus.FILLED
                 is_partial = getattr(ev, "is_partial", None)
                 event_status = getattr(ev, "status", None)

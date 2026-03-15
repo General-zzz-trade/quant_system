@@ -1616,19 +1616,27 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     self._record_user_stream_failure(kind="connect")
                     logger.warning("User stream initial connect failed", exc_info=True)
                     return
+                _backoff = 1.0
+                _MAX_BACKOFF = 60.0
                 while self._running:
                     try:
                         self.user_stream.step()
+                        _backoff = 1.0  # reset on success
                     except Exception:
                         self._record_user_stream_failure(kind="step")
-                        logger.warning("User stream step error, reconnecting in 1s", exc_info=True)
-                        time.sleep(1.0)
+                        logger.warning(
+                            "User stream step error, reconnecting in %.0fs",
+                            _backoff, exc_info=True,
+                        )
+                        time.sleep(_backoff)
                         try:
                             self.user_stream.connect()
                             self._record_user_stream_connect()
+                            _backoff = 1.0  # reset on successful reconnect
                         except Exception:
                             self._record_user_stream_failure(kind="reconnect")
                             logger.warning("User stream reconnect failed", exc_info=True)
+                            _backoff = min(_backoff * 2, _MAX_BACKOFF)
 
             t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
             t.start()
