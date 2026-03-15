@@ -7,6 +7,7 @@ pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
 pytest tests/unit/ib/ -x -q   # IB adapter tests (37 tests)
+pytest tests/unit/runner/ -x -q    # Runner tests (298 tests)
 pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (42 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks

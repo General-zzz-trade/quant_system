@@ -98,4 +98,5 @@ def test_control_plane_flush_returns_drift_outcome_and_status() -> None:
     assert result.outcome == "drift"
     assert result.status is not None
     assert result.status["last_reconcile"] == {"ok": False, "should_halt": True, "drift_count": 2}
-    assert sink.alerts[-1].title == "operator_flush"
+    # Flush runs reconcile, which produces a reconcile-drift alert (not operator_flush)
+    assert sink.alerts[-1].title == "execution-reconcile-drift"
