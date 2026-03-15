@@ -147,6 +147,15 @@ class AlphaRunner:
         self._trend_threshold = 0.04  # |close/MA480 - 1|
         self._ma_window = 480
 
+        # P&L tracking + drawdown circuit breaker
+        self._entry_price: float = 0.0
+        self._total_pnl: float = 0.0
+        self._peak_equity: float = 0.0
+        self._trade_count: int = 0
+        self._win_count: int = 0
+        self._max_drawdown_pct: float = 15.0  # kill at 15% drawdown
+        self._killed: bool = False
+
         from _quant_hotpath import RustFeatureEngine
         self._engine = RustFeatureEngine()
 
@@ -328,20 +337,67 @@ class AlphaRunner:
         return result
 
     def _execute_signal_change(self, prev: int, new: int, price: float) -> dict:
-        if self._dry_run:
-            return {"action": "dry_run", "from": prev, "to": new}
+        if self._killed:
+            return {"action": "killed", "reason": "drawdown_breaker"}
 
+        trade_info: dict = {}
+
+        # Close existing position → track P&L
+        if prev != 0 and self._entry_price > 0:
+            if prev == 1:  # was long
+                pnl_pct = (price - self._entry_price) / self._entry_price * 100
+            else:  # was short
+                pnl_pct = (self._entry_price - price) / self._entry_price * 100
+            pnl_usd = pnl_pct / 100 * self._entry_price * self._position_size
+            self._total_pnl += pnl_usd
+            self._trade_count += 1
+            if pnl_usd > 0:
+                self._win_count += 1
+            trade_info["closed_pnl"] = round(pnl_usd, 4)
+            trade_info["closed_pct"] = round(pnl_pct, 2)
+            logger.info(
+                "%s CLOSE %s: pnl=$%.4f (%.2f%%) total=$%.4f wins=%d/%d",
+                self._symbol, "long" if prev == 1 else "short",
+                pnl_usd, pnl_pct, self._total_pnl,
+                self._win_count, self._trade_count,
+            )
+
+        # Drawdown check
+        self._peak_equity = max(self._peak_equity, self._total_pnl)
+        if self._peak_equity > 0:
+            dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+            if dd >= self._max_drawdown_pct:
+                self._killed = True
+                logger.critical(
+                    "%s DRAWDOWN KILL: dd=%.1f%% peak=$%.2f current=$%.2f",
+                    self._symbol, dd, self._peak_equity, self._total_pnl,
+                )
+                if not self._dry_run:
+                    self._adapter.close_position(self._symbol)
+                return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
+
+        if self._dry_run:
+            trade_info["action"] = "dry_run"
+            trade_info["from"] = prev
+            trade_info["to"] = new
+            return trade_info
+
+        # Close venue position
         if prev != 0:
             self._adapter.close_position(self._symbol)
-            logger.info("Closed position")
 
+        # Open new position
         if new != 0:
             side = "buy" if new == 1 else "sell"
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
-            logger.info("Opened %s %.4f BTC @ ~$%.1f: %s", side, self._position_size, price, result)
-            return {"side": side, "qty": self._position_size, "result": result}
+            self._entry_price = price
+            logger.info("Opened %s %.4f @ ~$%.1f: %s", side, self._position_size, price, result)
+            trade_info.update({"side": side, "qty": self._position_size, "result": result})
+        else:
+            self._entry_price = 0.0
+            trade_info["action"] = "flat"
 
-        return {"action": "flat"}
+        return trade_info
 
 
 def main():
@@ -447,9 +503,11 @@ def main():
                 sigs = {s: r._current_signal for s, r in runners.items()}
                 holds = {s: r._hold_count for s, r in runners.items()}
                 regimes = {s: "active" if r._regime_active else "FILTERED" for s, r in runners.items()}
+                pnls = {s: f"${r._total_pnl:.2f}" for s, r in runners.items()}
+                trades = {s: f"{r._win_count}/{r._trade_count}" for s, r in runners.items()}
                 logger.info(
-                    "HEARTBEAT cycle=%d signals=%s holds=%s regimes=%s",
-                    cycle_count, sigs, holds, regimes,
+                    "HEARTBEAT cycle=%d sigs=%s holds=%s regimes=%s pnl=%s trades=%s",
+                    cycle_count, sigs, holds, regimes, pnls, trades,
                 )
 
             time.sleep(POLL_INTERVAL)
