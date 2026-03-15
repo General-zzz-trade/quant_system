@@ -1,9 +1,47 @@
+"""Incident taxonomy and alert factories for the execution layer.
+
+Defines the canonical incident categories, states, and recommended actions.
+All production code MUST use these constants — no ad-hoc category strings.
+"""
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from execution.observability.alerts import build_execution_alert
 from monitoring.alerts.base import Alert, Severity
+
+
+# ── Incident Taxonomy ────────────────────────────────────────────────
+# These are the ONLY valid values for incident categories, states, and
+# recommended actions in production. Adding new categories requires
+# updating this file AND docs/production_runbook.md.
+
+
+class IncidentCategory(str, Enum):
+    """Canonical incident categories used across all alert/ops paths."""
+    EXECUTION_TIMEOUT = "execution_timeout"
+    EXECUTION_RECONCILE = "execution_reconcile"
+    EXECUTION_REJECTION = "execution_rejection"
+    EXECUTION_FILL = "execution_fill"        # synthetic/late fills
+    EXECUTION_STREAM = "execution_stream"    # user stream connect/step failures
+    OPERATOR_CONTROL = "operator_control"    # halt/resume/flush/shutdown
+    MODEL_RELOAD = "model_reload"            # SIGHUP model hot-reload
+
+
+class IncidentState(str, Enum):
+    """Runtime incident state — drives operator dashboard."""
+    NORMAL = "normal"
+    DEGRADED = "degraded"     # partial functionality, needs review
+    CRITICAL = "critical"     # must halt or intervene immediately
+
+
+class RecommendedAction(str, Enum):
+    """Recommended operator action for current incident state."""
+    NONE = "none"             # all clear
+    REVIEW = "review"         # check logs, no immediate action needed
+    REDUCE_ONLY = "reduce_only"  # stop opening new positions
+    HALT = "halt"             # stop all trading immediately
 
 
 def timeout_to_alert(

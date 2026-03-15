@@ -7,6 +7,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from execution.observability.incidents import (
+    IncidentCategory,
+    IncidentState,
+    RecommendedAction,
+)
 from monitoring.alerts.base import Alert, Severity
 from risk.kill_switch import KillMode
 
@@ -372,44 +377,44 @@ class OperatorObservabilityMixin:
 
     def _incident_state(self, *, kill: Any, last_reconcile: Any, stream_status: str) -> str:
         if kill is not None and getattr(kill, "mode", None) == KillMode.HARD_KILL:
-            return "critical"
+            return IncidentState.CRITICAL
         if last_reconcile is not None and bool(getattr(last_reconcile, "should_halt", False)):
-            return "critical"
+            return IncidentState.CRITICAL
         if kill is not None and getattr(kill, "mode", None) == KillMode.REDUCE_ONLY:
-            return "degraded"
+            return IncidentState.DEGRADED
         if stream_status in {"degraded", "down"}:
-            return "degraded"
+            return IncidentState.DEGRADED
         if last_reconcile is not None and not bool(getattr(last_reconcile, "ok", True)):
-            return "degraded"
-        return "normal"
+            return IncidentState.DEGRADED
+        return IncidentState.NORMAL
 
     def _recommended_action(self, *, kill: Any, last_reconcile: Any, stream_status: str) -> str:
         if kill is not None and getattr(kill, "mode", None) == KillMode.HARD_KILL:
-            return "halt"
+            return RecommendedAction.HALT
         if last_reconcile is not None and bool(getattr(last_reconcile, "should_halt", False)):
-            return "halt"
+            return RecommendedAction.HALT
         if kill is not None and getattr(kill, "mode", None) == KillMode.REDUCE_ONLY:
-            return "reduce_only"
+            return RecommendedAction.REDUCE_ONLY
         if stream_status == "down":
-            return "reduce_only"
+            return RecommendedAction.REDUCE_ONLY
         if stream_status == "degraded":
-            return "review"
+            return RecommendedAction.REVIEW
         if last_reconcile is not None and not bool(getattr(last_reconcile, "ok", True)):
-            return "review"
-        return "none"
+            return RecommendedAction.REVIEW
+        return RecommendedAction.NONE
 
     def _last_incident(self) -> tuple[Optional[str], Optional[datetime]]:
         latest_category: Optional[str] = None
         latest_ts: Optional[datetime] = None
 
         if self._last_user_stream_failure_at is not None:
-            latest_category = "execution_stream"
+            latest_category = IncidentCategory.EXECUTION_STREAM
             latest_ts = self._last_user_stream_failure_at
 
         if self._control_history:
             control = self._control_history[-1]
             if latest_ts is None or control.ts >= latest_ts:
-                latest_category = "operator_control"
+                latest_category = IncidentCategory.OPERATOR_CONTROL
                 latest_ts = control.ts
 
         if self.alert_manager is not None:

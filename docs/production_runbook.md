@@ -25,6 +25,33 @@
 
 ---
 
+## 1.1 Incident Taxonomy
+
+Canonical definitions in `execution/observability/incidents.py`. Adding new categories requires updating both the code enum and this section.
+
+**Incident categories:**
+
+| Category | Source | Severity | Response |
+|----------|--------|----------|----------|
+| `execution_timeout` | Order pending > timeout_sec | WARNING | Review pending orders, check venue |
+| `execution_reconcile` | Position/balance drift detected | WARNING/ERROR | Check venue state, may auto-halt |
+| `execution_rejection` | Venue rejected order | WARNING | Check order params, may reduce size |
+| `execution_fill` | Synthetic/late fill received | INFO | Verify against venue records |
+| `execution_stream` | User stream connect/step failure | WARNING | Auto-reconnects; persistent = reduce_only |
+| `operator_control` | halt/resume/flush/shutdown | varies | Operator-initiated, logged |
+| `model_reload` | SIGHUP model hot-reload | INFO/ERROR | Check model files, verify inference |
+
+**Incident states:** `normal` → `degraded` → `critical`
+
+**Recommended actions:** `none` → `review` → `reduce_only` → `halt`
+
+State transitions:
+- `normal`: All systems operational
+- `degraded`: Kill switch in REDUCE_ONLY, or stream degraded, or reconcile drift — action: `review` or `reduce_only`
+- `critical`: Kill switch in HARD_KILL, or reconcile.should_halt — action: `halt`
+
+---
+
 ## 2. 启动恢复顺序
 
 `LiveRunner.build()` 当前的恢复链路是：
