@@ -25,12 +25,16 @@ logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────
 
-MODEL_DIR = Path("models_v8/BTCUSDT_gate_v2")
-SYMBOL = "BTCUSDT"
+MODEL_BASE = Path("models_v8")
 INTERVAL = "60"  # Bybit: "60" = 1h
 WARMUP_BARS = 200
-POSITION_SIZE = 0.001  # BTC per trade (demo: conservative)
 POLL_INTERVAL = 60  # seconds between checks
+
+# Default symbols + position sizes
+SYMBOL_CONFIG = {
+    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2"},
+    "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2"},
+}
 
 
 def load_model(model_dir: Path) -> dict:
@@ -85,9 +89,10 @@ def create_adapter():
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
-    def __init__(self, adapter: Any, model_info: dict,
-                 dry_run: bool = False, position_size: float = POSITION_SIZE):
+    def __init__(self, adapter: Any, model_info: dict, symbol: str,
+                 dry_run: bool = False, position_size: float = 0.001):
         self._adapter = adapter
+        self._symbol = symbol
         self._model = model_info["model"]
         self._features = model_info["features"]
         self._config = model_info["config"]
@@ -109,7 +114,7 @@ class AlphaRunner:
 
     def warmup(self) -> int:
         """Fetch historical bars and warm up feature engine."""
-        bars = self._adapter.get_klines(SYMBOL, interval=INTERVAL,
+        bars = self._adapter.get_klines(self._symbol, interval=INTERVAL,
                                         limit=WARMUP_BARS)
         bars.reverse()  # Bybit returns newest first
 
@@ -201,12 +206,12 @@ class AlphaRunner:
             return {"action": "dry_run", "from": prev, "to": new}
 
         if prev != 0:
-            self._adapter.close_position(SYMBOL)
+            self._adapter.close_position(self._symbol)
             logger.info("Closed position")
 
         if new != 0:
             side = "buy" if new == 1 else "sell"
-            result = self._adapter.send_market_order(SYMBOL, side, self._position_size)
+            result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             logger.info("Opened %s %.4f BTC @ ~$%.1f: %s", side, self._position_size, price, result)
             return {"side": side, "qty": self._position_size, "result": result}
 
@@ -215,9 +220,10 @@ class AlphaRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Bybit alpha strategy runner")
+    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"],
+                        help="Symbols to trade (default: BTCUSDT ETHUSDT)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--size", type=float, default=POSITION_SIZE)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
@@ -226,61 +232,90 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    logger.info("Loading model from %s", MODEL_DIR)
-    model_info = load_model(MODEL_DIR)
-    logger.info("Model v%s, %d features, dz=%.1f, hold=%d-%d",
-                model_info["config"]["version"], len(model_info["features"]),
-                model_info["deadzone"], model_info["min_hold"], model_info["max_hold"])
-
     adapter = create_adapter()
     bal = adapter.get_balances()
     usdt = bal.get("USDT")
     logger.info("USDT balance: %s", usdt.total if usdt else "?")
 
-    runner = AlphaRunner(adapter=adapter, model_info=model_info,
-                         dry_run=args.dry_run, position_size=args.size)
+    # Build per-symbol runners
+    runners: dict[str, AlphaRunner] = {}
+    last_bar_times: dict[str, int] = {}
 
-    logger.info("Warming up %d bars...", WARMUP_BARS)
-    runner.warmup()
+    for symbol in args.symbols:
+        sym_cfg = SYMBOL_CONFIG.get(symbol, {"size": 0.001, "model_dir": f"{symbol}_gate_v2"})
+        model_dir = MODEL_BASE / sym_cfg["model_dir"]
+        if not (model_dir / "config.json").exists():
+            logger.warning("No model for %s at %s, skipping", symbol, model_dir)
+            continue
 
-    if args.once:
-        bars = adapter.get_klines(SYMBOL, interval=INTERVAL, limit=2)
-        if bars:
-            result = runner.process_bar(bars[0])
-            logger.info("Result: %s", json.dumps(result, default=str))
+        model_info = load_model(model_dir)
+        logger.info(
+            "%s: model v%s, %d features, dz=%.1f, hold=%d-%d, size=%.4f",
+            symbol, model_info["config"]["version"],
+            len(model_info["features"]), model_info["deadzone"],
+            model_info["min_hold"], model_info["max_hold"], sym_cfg["size"],
+        )
+
+        runner = AlphaRunner(
+            adapter=adapter, model_info=model_info, symbol=symbol,
+            dry_run=args.dry_run, position_size=sym_cfg["size"],
+        )
+        logger.info("%s: warming up %d bars...", symbol, WARMUP_BARS)
+        runner.warmup()
+        runners[symbol] = runner
+        last_bar_times[symbol] = 0
+
+    if not runners:
+        logger.error("No symbols with models. Exiting.")
         return
 
-    logger.info("Starting: %s poll=%ds size=%.4f dry=%s", SYMBOL, POLL_INTERVAL, args.size, args.dry_run)
-    last_bar_time = 0
+    if args.once:
+        for symbol, runner in runners.items():
+            bars = adapter.get_klines(symbol, interval=INTERVAL, limit=2)
+            if bars:
+                result = runner.process_bar(bars[0])
+                logger.info("%s: %s", symbol, json.dumps(result, default=str))
+        return
+
+    logger.info(
+        "Starting multi-symbol alpha: %s, poll=%ds, dry=%s",
+        list(runners.keys()), POLL_INTERVAL, args.dry_run,
+    )
 
     try:
         while True:
-            bars = adapter.get_klines(SYMBOL, interval=INTERVAL, limit=2)
-            if not bars:
-                time.sleep(POLL_INTERVAL)
-                continue
+            for symbol, runner in runners.items():
+                try:
+                    bars = adapter.get_klines(symbol, interval=INTERVAL, limit=2)
+                    if not bars:
+                        continue
 
-            latest = bars[0]
-            bar_time = latest["time"]
+                    latest = bars[0]
+                    bar_time = latest["time"]
 
-            if bar_time > last_bar_time:
-                last_bar_time = bar_time
-                result = runner.process_bar(latest)
-                if result.get("action") == "signal":
-                    logger.info(
-                        "Bar %d: $%.1f z=%+.3f sig=%d hold=%d%s",
-                        result["bar"], result["close"], result["z"],
-                        result["signal"], result["hold_count"],
-                        f" TRADE={result['trade']}" if "trade" in result else "",
-                    )
+                    if bar_time > last_bar_times[symbol]:
+                        last_bar_times[symbol] = bar_time
+                        result = runner.process_bar(latest)
+                        if result.get("action") == "signal":
+                            logger.info(
+                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d%s",
+                                symbol, result["bar"], result["close"],
+                                result["z"], result["signal"],
+                                result["hold_count"],
+                                f" TRADE={result['trade']}" if "trade" in result else "",
+                            )
+                except Exception:
+                    logger.exception("Error processing %s", symbol)
 
             time.sleep(POLL_INTERVAL)
 
     except KeyboardInterrupt:
         logger.info("Stopped")
-        if not args.dry_run and runner._current_signal != 0:
-            logger.info("Closing position on exit...")
-            adapter.close_position(SYMBOL)
+        if not args.dry_run:
+            for symbol, runner in runners.items():
+                if runner._current_signal != 0:
+                    logger.info("Closing %s position on exit...", symbol)
+                    adapter.close_position(symbol)
 
 
 if __name__ == "__main__":
