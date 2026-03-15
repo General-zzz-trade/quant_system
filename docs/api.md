@@ -317,12 +317,12 @@ runner.ops_audit_snapshot(limit=50)        # operator + execution + model ops vi
 # control actions also emit structured alerts via AlertManager when configured
 ```
 
-当前 incident 聚合规则：
+当前 incident 聚合规则（canonical enums in `execution/observability/incidents.py`）：
 
 - `stream_status`: `ok | degraded | down`
-- `incident_state`: `normal | degraded | critical`
-- `recommended_action`: `none | review | reduce_only | halt`
-- `last_incident_category`: 取最近的 execution incident / operator control / user stream degradation
+- `incident_state`: `IncidentState.NORMAL | DEGRADED | CRITICAL`
+- `recommended_action`: `RecommendedAction.NONE | REVIEW | REDUCE_ONLY | HALT`
+- `last_incident_category`: `IncidentCategory` — `execution_timeout | execution_reconcile | execution_rejection | execution_fill | execution_stream | operator_control | model_reload`
 - `model_status`: 当前 production model 的 `model_id / loaded_model_id / autoload_pending` 快照，用于观察模型变更是否尚未进入 runtime
 - `model_alerts`: 最近的模型运营 alert 历史，目前覆盖 hot-reload `reloaded / noop / failed`
 - `model_reload`: 最近一次 hot-reload 的 `outcome / model_names / detail / error / ts` 快照，用于观察 pending 是否已经收敛成 `reloaded / noop / failed`，以及失败后是否仍需人工保持 `reduce_only`

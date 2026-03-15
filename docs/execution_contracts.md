@@ -266,6 +266,7 @@
 - duplicate with same digest 必须被幂等丢弃
 - duplicate with different digest 必须 fail fast，不允许静默覆盖
 - dedup key/digest 的真相源当前位于 `ingress_fill_dedup_identity()`
+- 所有 `_stable_hash` / `payload_digest` 计算统一委托给 `execution/models/digest.py`（单一真相源，7个旧实现已收口）
 
 当前护栏：
 
