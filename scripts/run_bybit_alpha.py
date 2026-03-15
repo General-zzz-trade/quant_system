@@ -268,9 +268,18 @@ class AlphaRunner:
         # Regime filter
         regime_ok = self._check_regime(bar["close"])
 
+        # Get funding rate from ticker (if available)
+        funding_rate = bar.get("funding_rate", float("nan"))
+        if np.isnan(funding_rate):
+            try:
+                tick = self._adapter.get_ticker(self._symbol)
+                funding_rate = tick.get("fundingRate", float("nan"))
+            except Exception:
+                funding_rate = float("nan")
+
         self._engine.push_bar(
             bar["close"], bar["volume"], bar["high"], bar["low"],
-            bar["open"], funding_rate=float("nan"),
+            bar["open"], funding_rate=funding_rate,
         )
 
         features = self._engine.get_features()
@@ -306,7 +315,19 @@ class AlphaRunner:
         else:
             desired = 0
 
-        if self._hold_count < self._min_hold and prev_signal != 0:
+        # Smart exit: z-score reversal after min_hold
+        z_reversal_threshold = -0.3
+        force_exit = False
+        if (prev_signal != 0 and self._hold_count >= self._min_hold):
+            if prev_signal > 0 and z < z_reversal_threshold:
+                force_exit = True  # long + z reversed negative
+            elif prev_signal < 0 and z > -z_reversal_threshold:
+                force_exit = True  # short + z reversed positive
+
+        if force_exit:
+            new_signal = 0
+            self._hold_count = 1
+        elif self._hold_count < self._min_hold and prev_signal != 0:
             # Min-hold only locks when IN a position (not when flat)
             new_signal = prev_signal
             self._hold_count += 1
