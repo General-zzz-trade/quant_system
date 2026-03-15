@@ -117,8 +117,8 @@ class AlphaRunner:
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
                  dry_run: bool = False, position_size: float = 0.001,
-                 adaptive_sizing: bool = True, risk_per_trade: float = 0.05,
-                 min_size: float = 0.01, max_size_pct: float = 0.30):
+                 adaptive_sizing: bool = True, risk_per_trade: float = 0.10,
+                 min_size: float = 0.01, max_size_pct: float = 3.00):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -395,14 +395,26 @@ class AlphaRunner:
         else:
             desired = 0
 
-        # Smart exit: z-score reversal after min_hold
-        z_reversal_threshold = -0.3
+        # Smart exits (in priority order)
         force_exit = False
-        if (prev_signal != 0 and self._hold_count >= self._min_hold):
+
+        # 1. Stop loss: hard cut at 3% to protect capital at high leverage
+        stop_loss_pct = 0.03
+        if prev_signal != 0 and self._entry_price > 0:
+            if prev_signal > 0:
+                unrealized = (bar["close"] - self._entry_price) / self._entry_price
+            else:
+                unrealized = (self._entry_price - bar["close"]) / self._entry_price
+            if unrealized < -stop_loss_pct:
+                force_exit = True
+
+        # 2. Z-score reversal after min_hold
+        z_reversal_threshold = -0.3
+        if not force_exit and (prev_signal != 0 and self._hold_count >= self._min_hold):
             if prev_signal > 0 and z < z_reversal_threshold:
-                force_exit = True  # long + z reversed negative
+                force_exit = True
             elif prev_signal < 0 and z > -z_reversal_threshold:
-                force_exit = True  # short + z reversed positive
+                force_exit = True
 
         if force_exit:
             new_signal = 0
