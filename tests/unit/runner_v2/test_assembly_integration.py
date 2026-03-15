@@ -1,6 +1,5 @@
 """Integration test: verify full assembly with mocked dependencies."""
 from unittest.mock import MagicMock
-import pytest
 
 from runner.trading_config import TradingConfig
 from runner.trading_engine import TradingEngine

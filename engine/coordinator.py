@@ -37,7 +37,8 @@ from _quant_hotpath import (
 )
 
 _SCALE = 100_000_000
-_time_mod_time = lambda: int(_time_mod.time())
+def _time_mod_time():
+    return int(_time_mod.time())
 
 
 # ============================================================

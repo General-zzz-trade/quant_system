@@ -1,7 +1,6 @@
 """Tests for RiskManager."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-import pytest
 
 from runner.risk_manager import RiskManager
 

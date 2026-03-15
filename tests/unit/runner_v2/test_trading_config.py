@@ -1,7 +1,6 @@
 """Tests for simplified TradingConfig."""
 import dataclasses
 
-import pytest
 
 from runner.trading_config import TradingConfig
 

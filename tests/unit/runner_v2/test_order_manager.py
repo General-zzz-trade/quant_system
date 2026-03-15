@@ -1,6 +1,5 @@
 """Tests for OrderManager."""
 import time
-import pytest
 
 from runner.order_manager import OrderManager
 

@@ -1,6 +1,5 @@
 """Tests for BinanceExecutor — mocked venue client."""
 from unittest.mock import MagicMock
-import pytest
 
 from runner.binance_executor import BinanceExecutor
 

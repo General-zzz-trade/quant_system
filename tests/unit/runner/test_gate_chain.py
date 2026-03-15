@@ -37,7 +37,8 @@ class TestCorrelationCheckGate:
     def test_allows_uncorrelated(self):
         gate_mock = MagicMock()
         gate_mock.should_allow.return_value = SimpleNamespace(ok=True, violations=[])
-        view_fn = lambda: {"positions": {}}
+        def view_fn():
+            return {"positions": {}}
         gate = CorrelationCheckGate(gate_mock, view_fn)
         result = gate.check(_order_ev(), {})
         assert result.allowed is True
@@ -46,7 +47,8 @@ class TestCorrelationCheckGate:
         violation = SimpleNamespace(message="too correlated")
         gate_mock = MagicMock()
         gate_mock.should_allow.return_value = SimpleNamespace(ok=False, violations=[violation])
-        view_fn = lambda: {"positions": {}}
+        def view_fn():
+            return {"positions": {}}
         gate = CorrelationCheckGate(gate_mock, view_fn)
         result = gate.check(_order_ev(), {})
         assert result.allowed is False

@@ -163,7 +163,7 @@ export BINANCE_TESTNET_API_SECRET=... # required for authenticated endpoints + p
 - Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
 - `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
 - `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
-- No hot-path Python fallbacks remain: rolling.py, multi_timeframe.py, factor signals all require Rust
+- Live hot-path has no Python fallbacks (rolling.py, multi_timeframe.py require Rust); research scripts still have Python-only paths with known divergences (see `signal_postprocess.py`)
 - Binary build requires `-lpython3.12` link flag (PyO3 symbols)
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 - Binance minimum notional: $100 per order (error -4164), fraction≥0.05 for testnet

@@ -97,8 +97,9 @@ def test_fetch_klines_default_limit():
 def test_download_all_writes_csv(tmp_path):
     from scripts.download_binance_klines import download_all
 
-    kline_row = lambda ts: [ts, "100", "105", "95", "102", "500",
-                            ts + 3600000, "51000", "100", "250", "25500", "0"]
+    def kline_row(ts):
+        return [ts, "100", "105", "95", "102", "500",
+                                ts + 3600000, "51000", "100", "250", "25500", "0"]
 
     # First batch must have exactly LIMIT rows to trigger continuation
     batch1 = [kline_row(1567900800000 + i * 3600000) for i in range(LIMIT)]
@@ -138,8 +139,9 @@ def test_download_all_writes_csv(tmp_path):
 def test_download_all_single_batch(tmp_path):
     from scripts.download_binance_klines import download_all
 
-    kline_row = lambda ts: [ts, "100", "105", "95", "102", "500",
-                            ts + 3600000, "51000", "100", "250", "25500", "0"]
+    def kline_row(ts):
+        return [ts, "100", "105", "95", "102", "500",
+                                ts + 3600000, "51000", "100", "250", "25500", "0"]
 
     # Fewer than LIMIT => single batch, loop exits
     batch = [kline_row(1567900800000 + i * 3600000) for i in range(5)]
@@ -156,8 +158,9 @@ def test_download_all_deduplicates(tmp_path):
 
     # Use timestamps relative to the hardcoded start_ms in download_all
     start_ms = 1567900800000  # same as download_all's start
-    kline_row = lambda ts: [ts, "100", "105", "95", "102", "500",
-                            ts + 3600000, "51000", "100", "250", "25500", "0"]
+    def kline_row(ts):
+        return [ts, "100", "105", "95", "102", "500",
+                                ts + 3600000, "51000", "100", "250", "25500", "0"]
 
     # Build batch1 with LIMIT rows
     batch1 = [kline_row(start_ms + i * 3600000) for i in range(LIMIT)]

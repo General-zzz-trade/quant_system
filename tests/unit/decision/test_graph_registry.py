@@ -54,7 +54,8 @@ class TestDecisionGraph:
         assert "missing" not in order
 
     def test_node_with_fn(self):
-        fn = lambda: 42
+        def fn():
+            return 42
         n = Node(name="x", fn=fn)
         assert n.fn is fn
         assert n.fn() == 42
@@ -126,7 +127,8 @@ class TestRegistry:
 
     def test_get_returns_factory(self):
         reg = Registry()
-        factory = lambda: 42
+        def factory():
+            return 42
         reg.register("x", factory)
         assert reg.get("x") is factory
 

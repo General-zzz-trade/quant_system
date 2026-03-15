@@ -77,7 +77,7 @@ def test_store_market_parity():
     r2 = py_store.process_event(py_ev, "BTCUSDT")
 
     assert r1.kind == r2.kind == "MARKET"
-    assert r1.changed == r2.changed == True
+    assert r1.changed == r2.changed is True
 
     rm = rust_store.get_market("BTCUSDT")
     pm = py_store.get_market("BTCUSDT")

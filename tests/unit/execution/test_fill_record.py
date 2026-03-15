@@ -3,7 +3,6 @@
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from execution.models.fills import CanonicalFill, fill_to_record
 

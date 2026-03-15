@@ -1,7 +1,6 @@
 # tests/unit/execution/test_digest.py
 """Tests for unified digest module — verify parity with all old implementations."""
 from decimal import Decimal
-import pytest
 
 from execution.models.digest import (
     stable_hash,

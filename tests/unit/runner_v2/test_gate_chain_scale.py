@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 
 from runner.gate_chain import _apply_scale, GateChain, GateResult
 

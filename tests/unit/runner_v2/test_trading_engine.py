@@ -1,6 +1,5 @@
 """Tests for TradingEngine — uses mocks (no Rust build required)."""
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 from runner.trading_engine import TradingEngine
 

@@ -144,7 +144,8 @@ class TestSubscription:
     def test_unsubscribe_removes_handler(self):
         bus = BoundedEventBus()
         received = []
-        handler = lambda e: received.append(1)
+        def handler(e):
+            return received.append(1)
         bus.subscribe(handler)
         bus.unsubscribe(handler)
         bus.publish(_env())

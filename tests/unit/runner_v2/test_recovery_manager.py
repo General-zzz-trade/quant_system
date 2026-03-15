@@ -1,6 +1,5 @@
 """Tests for RecoveryManager."""
 from unittest.mock import MagicMock
-import pytest
 
 from runner.recovery_manager import RecoveryManager
 
