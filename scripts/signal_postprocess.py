@@ -147,6 +147,72 @@ def _enforce_min_hold(signal: np.ndarray, min_hold: int) -> np.ndarray:
     return held
 
 
+def _enforce_hold_single_pass(
+    raw: np.ndarray,
+    min_hold: int,
+    trend_follow: bool = False,
+    trend_values: Optional[np.ndarray] = None,
+    trend_threshold: float = 0.0,
+    max_hold: int = 120,
+) -> np.ndarray:
+    """Single-pass min-hold + trend-hold — mirrors Rust enforce_hold_array exactly.
+
+    The old two-pass approach (_enforce_min_hold then _apply_trend_hold) had
+    divergent hold_count semantics: the second pass started its own counter,
+    allowing trend extension beyond what Rust permits.
+
+    This single-pass version uses the same logic as enforce_hold_step in
+    ext/rust/src/constraint_pipeline.rs.
+    """
+    n = len(raw)
+    if n == 0:
+        return raw.copy()
+
+    signal = np.zeros(n)
+    signal[0] = raw[0]
+    hold_count = 1
+
+    for i in range(1, n):
+        desired = raw[i]
+        prev = signal[i - 1]
+
+        # Min-hold lockout
+        if hold_count < min_hold:
+            signal[i] = prev
+            hold_count += 1
+            continue
+
+        # Trend hold: extend long when raw goes flat but trend is up
+        if (trend_follow and desired == 0.0 and prev > 0.0
+                and hold_count < max_hold):
+            tv = trend_values[i] if (trend_values is not None
+                                     and i < len(trend_values)) else float("nan")
+            if not np.isnan(tv) and tv > trend_threshold:
+                signal[i] = prev
+                hold_count += 1
+                continue
+
+        # Short trend hold: extend short when raw goes flat but trend is down
+        if (trend_follow and desired == 0.0 and prev < 0.0
+                and hold_count < max_hold):
+            tv = trend_values[i] if (trend_values is not None
+                                     and i < len(trend_values)) else float("nan")
+            if not np.isnan(tv) and tv < -trend_threshold:
+                signal[i] = prev
+                hold_count += 1
+                continue
+
+        # Allow change
+        if desired != prev:
+            signal[i] = desired
+            hold_count = 1
+        else:
+            signal[i] = desired
+            hold_count += 1
+
+    return signal
+
+
 def pred_to_signal(
     y_pred: np.ndarray,
     *,
@@ -173,14 +239,14 @@ def pred_to_signal(
             long_only, trend_follow, tv, trend_threshold, max_hold,
         ))
 
-    # Pure Python fallback
+    # Pure Python fallback — single-pass matching Rust enforce_hold_step semantics
     z = rolling_zscore(y_pred, window=zscore_window, warmup=zscore_warmup)
     if long_only:
         z = np.maximum(z, 0.0)
     raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
-    signal = _enforce_min_hold(raw, min_hold)
-    if trend_follow and trend_values is not None:
-        signal = _apply_trend_hold(signal, trend_values, trend_threshold, max_hold)
+    signal = _enforce_hold_single_pass(
+        raw, min_hold, trend_follow, trend_values, trend_threshold, max_hold,
+    )
     return signal
 
 
