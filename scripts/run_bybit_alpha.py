@@ -230,8 +230,13 @@ class AlphaRunner:
         """Check if current market regime is favorable for trading.
 
         Returns True if regime is active (OK to trade).
-        Filters out low-vol + weak-trend environments where the
-        alpha strategy historically loses money.
+        Three-layer filter:
+        1. Vol + trend (original): skip dead markets
+        2. Ranging detector: skip choppy range-bound markets
+        3. Dynamic deadzone: adapt to current volatility
+
+        Walk-forward analysis: RANGE/LOW-VOL folds lose money (avg -2.4 Sharpe).
+        BULL/BEAR folds make money (avg +1.7 Sharpe). This filter targets the gap.
         """
         self._closes.append(close)
         if len(self._closes) >= 2:
@@ -252,7 +257,23 @@ class AlphaRunner:
         else:
             trend = 0.1  # assume active during warmup
 
-        self._regime_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
+        # Layer 1: original vol + trend filter
+        base_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
+
+        # Layer 2: ranging detector — detect choppy, directionless markets
+        # If price has bounced back and forth without making progress over 100 bars,
+        # it's ranging. Net displacement / total path should be low.
+        is_ranging = False
+        if len(self._closes) >= 100:
+            window = self._closes[-100:]
+            net_move = abs(window[-1] - window[0])
+            total_path = sum(abs(window[j] - window[j-1]) for j in range(1, len(window)))
+            efficiency = net_move / total_path if total_path > 0 else 0
+            # Low efficiency (<0.08) = choppy range-bound
+            # High efficiency (>0.15) = trending
+            is_ranging = efficiency < 0.08 and trend < 0.04
+
+        self._regime_active = base_active and not is_ranging
 
         # Dynamic deadzone: scale with vol, clamp to [0.15, 0.6]
         if self._vol_median > 0:
