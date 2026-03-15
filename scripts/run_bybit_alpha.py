@@ -306,7 +306,8 @@ class AlphaRunner:
         else:
             desired = 0
 
-        if self._hold_count < self._min_hold:
+        if self._hold_count < self._min_hold and prev_signal != 0:
+            # Min-hold only locks when IN a position (not when flat)
             new_signal = prev_signal
             self._hold_count += 1
         elif desired != prev_signal:
