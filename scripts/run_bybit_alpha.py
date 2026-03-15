@@ -400,12 +400,62 @@ class AlphaRunner:
         return trade_info
 
 
+def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool) -> None:
+    """WebSocket-based event loop — processes bars on confirmed kline push."""
+    from execution.adapters.bybit.ws_client import BybitWsClient
+
+    symbols = list(runners.keys())
+
+    def on_ws_bar(symbol: str, bar: dict) -> None:
+        runner = runners.get(symbol)
+        if not runner:
+            return
+        result = runner.process_bar(bar)
+        if result.get("action") == "signal":
+            regime = result.get("regime", "?")
+            logger.info(
+                "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
+                symbol, result["bar"], result["close"],
+                result["z"], result["signal"],
+                result["hold_count"], regime, result.get("dz", 0),
+                f" TRADE={result['trade']}" if "trade" in result else "",
+            )
+
+    ws = BybitWsClient(
+        symbols=symbols, interval=INTERVAL,
+        on_bar=on_ws_bar, demo=True,
+    )
+
+    logger.info(
+        "Starting multi-symbol alpha (WebSocket): %s, dry=%s",
+        symbols, dry_run,
+    )
+    ws.start()
+
+    try:
+        while True:
+            time.sleep(300)
+            sigs = {s: r._current_signal for s, r in runners.items()}
+            pnls = {s: f"${r._total_pnl:.2f}" for s, r in runners.items()}
+            trades = {s: f"{r._win_count}/{r._trade_count}" for s, r in runners.items()}
+            logger.info("WS HEARTBEAT sigs=%s pnl=%s trades=%s", sigs, pnls, trades)
+    except KeyboardInterrupt:
+        logger.info("Stopped")
+        ws.stop()
+        if not dry_run:
+            for symbol, runner in runners.items():
+                if runner._current_signal != 0:
+                    logger.info("Closing %s on exit...", symbol)
+                    adapter.close_position(symbol)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bybit alpha strategy runner")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"],
                         help="Symbols to trade (default: BTCUSDT ETHUSDT)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--ws", action="store_true", help="Use WebSocket instead of REST polling")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
@@ -459,8 +509,13 @@ def main():
                 logger.info("%s: %s", symbol, json.dumps(result, default=str))
         return
 
+    # WebSocket mode: push-based, low latency
+    if args.ws:
+        _run_ws_mode(runners, adapter, args.dry_run)
+        return
+
     logger.info(
-        "Starting multi-symbol alpha: %s, poll=%ds, dry=%s",
+        "Starting multi-symbol alpha (REST poll): %s, poll=%ds, dry=%s",
         list(runners.keys()), POLL_INTERVAL, args.dry_run,
     )
 

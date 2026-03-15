@@ -8,7 +8,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/quant_system
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -m scripts.run_bybit_alpha --symbols ETHUSDT
+ExecStart=/usr/bin/python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws
 Restart=always
 RestartSec=30
 StandardOutput=append:/quant_system/logs/bybit_alpha.log
