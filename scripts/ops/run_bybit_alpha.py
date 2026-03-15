@@ -205,6 +205,46 @@ class AlphaRunner:
                      len(bars), len(self._predictions), regime_str)
         return len(bars)
 
+    def check_realtime_stoploss(self, price: float) -> bool:
+        """Check stop-loss against real-time price (called on every tick).
+
+        Returns True if position was stopped out.
+        This runs on EVERY price update (~100ms), not just bar close.
+        Critical for high leverage — prevents -11.7% gaps.
+        """
+        if self._current_signal == 0 or self._entry_price <= 0 or self._killed:
+            return False
+
+        if self._current_signal > 0:
+            unrealized = (price - self._entry_price) / self._entry_price
+        else:
+            unrealized = (self._entry_price - price) / self._entry_price
+
+        stop_loss_pct = 0.03
+        if unrealized < -stop_loss_pct:
+            logger.warning(
+                "%s REALTIME STOP: price=$%.2f entry=$%.2f unrealized=%.2f%% > -%.0f%%",
+                self._symbol, price, self._entry_price, unrealized * 100, stop_loss_pct * 100,
+            )
+            if not self._dry_run:
+                self._adapter.close_position(self._symbol)
+
+            # Track P&L
+            pnl_usd = unrealized * self._entry_price * self._position_size
+            self._total_pnl += pnl_usd
+            self._trade_count += 1
+            logger.info(
+                "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d",
+                self._symbol, pnl_usd, self._total_pnl, self._trade_count,
+            )
+
+            self._current_signal = 0
+            self._hold_count = 0
+            self._entry_price = 0.0
+            return True
+
+        return False
+
     def _ensemble_predict(self, feat_dict: dict) -> float | None:
         """IC-weighted ensemble across horizons, LightGBM + XGBoost blend."""
         if not self._horizon_models:
@@ -570,13 +610,19 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool) -> None:
                 f" TRADE={result['trade']}" if "trade" in result else "",
             )
 
+    def on_ws_tick(symbol: str, price: float) -> None:
+        """Real-time stop-loss check on every price tick (~100ms)."""
+        runner = runners.get(symbol)
+        if runner:
+            runner.check_realtime_stoploss(price)
+
     ws = BybitWsClient(
         symbols=symbols, interval=INTERVAL,
-        on_bar=on_ws_bar, demo=True,
+        on_bar=on_ws_bar, on_tick=on_ws_tick, demo=True,
     )
 
     logger.info(
-        "Starting multi-symbol alpha (WebSocket): %s, dry=%s",
+        "Starting multi-symbol alpha (WebSocket + realtime stop): %s, dry=%s",
         symbols, dry_run,
     )
     ws.start()

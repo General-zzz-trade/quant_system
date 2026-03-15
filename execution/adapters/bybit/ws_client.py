@@ -32,11 +32,14 @@ class BybitWsClient:
         symbols: list[str],
         interval: str = "60",
         on_bar: Callable[[str, dict], None] | None = None,
+        on_tick: Callable[[str, float], None] | None = None,
         demo: bool = True,
     ) -> None:
         self._symbols = symbols
         self._interval = interval
         self._on_bar = on_bar
+        self._on_tick = on_tick
+        self._last_prices: dict[str, float] = {}
         # Public market data always uses production WS (same data for demo/live)
         self._url = WS_PUBLIC
         self._ws: Any = None
@@ -90,6 +93,8 @@ class BybitWsClient:
 
     def _on_open(self, ws: Any) -> None:
         topics = [f"kline.{self._interval}.{s}" for s in self._symbols]
+        if self._on_tick:
+            topics += [f"tickers.{s}" for s in self._symbols]
         ws.send(json.dumps({"op": "subscribe", "args": topics}))
         self._backoff = 1.0  # reset on successful connect
         logger.info("Bybit WS connected, subscribed: %s", topics)
@@ -101,6 +106,22 @@ class BybitWsClient:
             return
 
         topic = data.get("topic", "")
+
+        # Handle ticker updates (real-time price for stop-loss)
+        if "tickers" in topic and "data" in data:
+            td = data["data"]
+            symbol = td.get("symbol", "")
+            last = td.get("lastPrice")
+            if last and last != "?":
+                price = float(last)
+                self._last_prices[symbol] = price
+                if self._on_tick:
+                    try:
+                        self._on_tick(symbol, price)
+                    except Exception:
+                        pass  # non-fatal
+            return
+
         if "kline" not in topic or "data" not in data:
             return
 
@@ -138,6 +159,10 @@ class BybitWsClient:
                     self._on_bar(symbol, bar)
                 except Exception:
                     logger.exception("on_bar callback error for %s", symbol)
+
+    def get_last_price(self, symbol: str) -> float:
+        """Get last known price from ticker stream (0 if not yet received)."""
+        return self._last_prices.get(symbol, 0.0)
 
     def _on_error(self, ws: Any, error: Any) -> None:
         logger.warning("Bybit WS error: %s", error)
