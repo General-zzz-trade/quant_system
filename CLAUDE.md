@@ -172,9 +172,9 @@ export BINANCE_TESTNET_API_SECRET=... # required for authenticated endpoints + p
 - Event recorder captures risk/control events in addition to market/fill/signal/order
 - State ownership: `RustStateStore` is primary position truth (decisions read from it); `OrderStateMachine` is execution audit trail only (exception: `RiskGate.max_open_orders` reads OSM open-order count)
 - Recovery bundle now includes 8 components (drawdown_breaker HWM added); `save_all_auxiliary_state()` / `restore_all_auxiliary_state()` are the primary entry points
-- `GateChain._apply_scale()` preserves Decimal type (no float conversion); uses `object.__setattr__` on frozen OrderEvent (intentional, confined to gate chain)
+- `GateChain._apply_scale()` preserves Decimal type (no float conversion); uses `dataclasses.replace()` on frozen OrderEvent to avoid mutation
 - `LiveEmitHandler` attribution tracks only accepted orders (rejected orders excluded from IC/Sharpe); fill supports PARTIALLY_FILLED via `ev.is_partial` or `ev.status`
-- Python fallback in `signal_postprocess.py` has known divergence from Rust for `trend_follow` mode (trend_hold max_hold semantics differ)
+- Python fallback in `signal_postprocess.py` now uses `_enforce_hold_single_pass()` matching Rust `enforce_hold_step` exactly (parity verified 2026-03-15)
 - IB Gateway requires Xvfb on headless Linux (`Xvfb :99 &; export DISPLAY=:99`); login uses virtual keyboard (manual VNC login required first time, then stays running)
 - Polymarket Gamma API `outcomePrices`/`bestBid`/`bestAsk` are **cached/stale** — always use CLOB orderbook (`clob.polymarket.com/book?token_id=`) for real prices
 - IB `VenueType` enum includes FOREX, CFD, OPTIONS in addition to SPOT/FUTURES/PERPETUAL
