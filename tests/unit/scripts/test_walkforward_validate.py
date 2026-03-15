@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch, MagicMock
 
 import numpy as np
+import pytest
 
 from scripts.walkforward_validate import (
     Fold,
@@ -169,6 +170,7 @@ class TestStitchResults:
         assert summary["stable_features"] == {}
 
 
+@pytest.mark.forked
 class TestRunFoldFixedFeatures:
     """Test run_fold with fixed_features mode."""
 
@@ -399,6 +401,7 @@ class TestApplySignalFilters:
         np.testing.assert_array_equal(sig, original)
 
 
+@pytest.mark.forked
 class TestRunFoldSignalParams:
     """Test run_fold with deadzone, min_hold, and continuous_sizing."""
 

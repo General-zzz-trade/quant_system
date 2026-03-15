@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import pytest
+
 from research.model_registry.registry import ModelRegistry
 from monitoring.alerts.base import Alert, Severity
 from monitoring.alerts.manager import AlertManager
@@ -320,6 +322,7 @@ class TestLifecycle:
         assert runner.timeout_tracker.calls >= 1
 
 
+@pytest.mark.forked
 class TestOperatorControl:
     def test_halt_sets_global_hard_kill(self):
         runner = LiveRunner.build(
