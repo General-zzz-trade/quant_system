@@ -38,9 +38,9 @@ SYMBOL_CONFIG = {
 
 
 def load_model(model_dir: Path) -> dict:
-    """Load model config + LightGBM model from disk.
+    """Load model config + all horizon models for IC-weighted ensemble.
 
-    Uses pickle for LightGBM model files — these are trusted local
+    Uses pickle for LightGBM/XGBoost model files — trusted local
     artifacts produced by our own training pipeline.
     """
     import pickle  # noqa: S403 — trusted local model files only
@@ -49,18 +49,44 @@ def load_model(model_dir: Path) -> dict:
     with open(config_path) as f:
         config = json.load(f)
 
-    primary = config["horizon_models"][0]
-    lgbm_path = model_dir / primary["lgbm"]
-    with open(lgbm_path, "rb") as f:
-        raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+    # Load ALL horizon models for ensemble
+    horizon_models = []
+    for hm in config.get("horizon_models", []):
+        lgbm_path = model_dir / hm["lgbm"]
+        if not lgbm_path.exists():
+            continue
+        with open(lgbm_path, "rb") as f:
+            raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+        model = raw["model"] if isinstance(raw, dict) else raw
 
-    # Model is stored as {"model": Booster, "features": [...]}
-    model = raw["model"] if isinstance(raw, dict) else raw
+        # Also load XGBoost if available
+        xgb_model = None
+        xgb_path = model_dir / hm.get("xgb", "")
+        if xgb_path.exists():
+            with open(xgb_path, "rb") as f:
+                xgb_raw = pickle.load(f)  # noqa: S301
+            xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
+
+        horizon_models.append({
+            "horizon": hm["horizon"],
+            "lgbm": model,
+            "xgb": xgb_model,
+            "features": hm["features"],
+            "ic": hm.get("ic", 0.01),
+        })
+
+    if not horizon_models:
+        raise RuntimeError(f"No models found in {model_dir}")
+
+    # Primary model = first horizon (for feature list compatibility)
+    primary = horizon_models[0]
 
     return {
         "config": config,
-        "model": model,
+        "model": primary["lgbm"],  # backward compat
         "features": primary["features"],
+        "horizon_models": horizon_models,
+        "lgbm_xgb_weight": config.get("lgbm_xgb_weight", 0.5),
         "deadzone": config.get("deadzone", 2.0),
         "min_hold": config.get("min_hold", 12),
         "max_hold": config.get("max_hold", 96),
@@ -93,8 +119,10 @@ class AlphaRunner:
                  dry_run: bool = False, position_size: float = 0.001):
         self._adapter = adapter
         self._symbol = symbol
-        self._model = model_info["model"]
+        self._model = model_info["model"]  # primary (backward compat)
         self._features = model_info["features"]
+        self._horizon_models = model_info.get("horizon_models", [])
+        self._lgbm_xgb_weight = model_info.get("lgbm_xgb_weight", 0.5)
         self._config = model_info["config"]
         self._deadzone = model_info["deadzone"]
         self._min_hold = model_info["min_hold"]
@@ -135,16 +163,57 @@ class AlphaRunner:
             features = self._engine.get_features()
             if features:
                 feat_dict = dict(features)
-                x = [feat_dict.get(f, 0.0) or 0.0 for f in self._features]
-                if not any(np.isnan(x)):
-                    pred = self._model.predict([x])[0]
-                    self._predictions.append(float(pred))
+                pred = self._ensemble_predict(feat_dict)
+                if pred is not None:
+                    self._predictions.append(pred)
 
         self._bars_processed = len(bars)
         regime_str = "active" if self._regime_active else "filtered"
         logger.info("Warmup: %d bars, %d predictions, regime=%s",
                      len(bars), len(self._predictions), regime_str)
         return len(bars)
+
+    def _ensemble_predict(self, feat_dict: dict) -> float | None:
+        """IC-weighted ensemble across horizons, LightGBM + XGBoost blend."""
+        if not self._horizon_models:
+            # Fallback: single model
+            x = [feat_dict.get(f, 0.0) or 0.0 for f in self._features]
+            if any(np.isnan(x)):
+                return None
+            return float(self._model.predict([x])[0])
+
+        weighted_sum = 0.0
+        weight_total = 0.0
+
+        for hm in self._horizon_models:
+            feats = hm["features"]
+            x = [feat_dict.get(f, 0.0) or 0.0 for f in feats]
+            if any(np.isnan(x)):
+                continue
+
+            ic = max(hm["ic"], 0.001)  # floor to avoid zero weight
+
+            # LightGBM prediction
+            lgbm_pred = float(hm["lgbm"].predict([x])[0])
+
+            # XGBoost prediction (if available)
+            if hm["xgb"] is not None:
+                import xgboost as xgb
+                dm = xgb.DMatrix(np.array([x], dtype=np.float32),
+                                 feature_names=feats)
+                xgb_pred = float(hm["xgb"].predict(dm)[0])
+                # Blend LightGBM + XGBoost
+                w = self._lgbm_xgb_weight
+                pred = lgbm_pred * w + xgb_pred * (1 - w)
+            else:
+                pred = lgbm_pred
+
+            weighted_sum += pred * ic
+            weight_total += ic
+
+        if weight_total <= 0:
+            return None
+        return weighted_sum / weight_total
 
     def _check_regime(self, close: float) -> bool:
         """Check if current market regime is favorable for trading.
@@ -192,12 +261,11 @@ class AlphaRunner:
             return {"action": "no_features", "bar": self._bars_processed}
 
         feat_dict = dict(features)
-        x = [feat_dict.get(f, 0.0) or 0.0 for f in self._features]
 
-        if any(np.isnan(x)):
+        # Multi-horizon IC-weighted ensemble prediction
+        pred = self._ensemble_predict(feat_dict)
+        if pred is None:
             return {"action": "nan_features", "bar": self._bars_processed}
-
-        pred = float(self._model.predict([x])[0])
         self._predictions.append(pred)
 
         if len(self._predictions) < self._zscore_warmup:
