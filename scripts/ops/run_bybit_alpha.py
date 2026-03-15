@@ -115,10 +115,22 @@ def create_adapter():
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
+    # Kelly-optimal leverage ladder (with safety margin for stop-loss slippage)
+    # Math optimal: 20x. Real-world safe: 5-10x.
+    # Ladder reduces leverage as equity grows (diminishing marginal utility of risk).
+    LEVERAGE_LADDER = [
+        (0,      10.0),   # $0-$500:     10x (small money, max growth)
+        (500,     7.0),   # $500-$2K:     7x (meaningful capital)
+        (2000,    5.0),   # $2K-$5K:      5x (worth protecting)
+        (5000,    3.0),   # $5K-$20K:     3x (real money)
+        (20000,   2.0),   # $20K-$50K:    2x (conservative growth)
+        (50000,   1.0),   # $50K+:        1x (pure alpha, no leverage risk)
+    ]
+
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
                  dry_run: bool = False, position_size: float = 0.001,
                  adaptive_sizing: bool = True, risk_per_trade: float = 0.10,
-                 min_size: float = 0.01, max_size_pct: float = 3.00):
+                 min_size: float = 0.01, max_size_pct: float = 10.00):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -235,14 +247,24 @@ class AlphaRunner:
             return None
         return weighted_sum / weight_total
 
-    def _compute_position_size(self, price: float) -> float:
-        """Compute adaptive position size based on current equity and volatility.
+    def _get_leverage_for_equity(self, equity: float) -> float:
+        """Look up leverage from ladder based on current equity."""
+        lev = 1.0
+        for threshold, lev_val in self.LEVERAGE_LADDER:
+            if equity >= threshold:
+                lev = lev_val
+        return lev
 
-        Formula: size = (equity * risk_pct) / (price * vol_stop)
-        - equity: current USDT balance from exchange
-        - risk_pct: fraction of equity willing to lose per trade
-        - vol_stop: estimated stop distance (2x 20-bar vol)
-        - Clamped to [min_size, equity * max_size_pct / price]
+    def _compute_position_size(self, price: float) -> float:
+        """Compute position size using Kelly-optimal leverage ladder.
+
+        1. Look up leverage from equity-based ladder
+        2. Position = equity * leverage / price
+        3. Clamp to [min_size, exchange limit]
+        4. Set exchange leverage to match
+
+        Kelly math: 20x optimal, but real-world safety margin for
+        stop-loss slippage means 5-10x at small equity.
         """
         if not self._adaptive_sizing:
             return self._base_position_size
@@ -257,30 +279,39 @@ class AlphaRunner:
         if equity <= 0 or price <= 0:
             return self._base_position_size
 
-        # Volatility-based stop: 2x recent 20-bar vol
-        if len(self._rets) >= 20:
-            vol = np.std(self._rets[-20:])
-            stop_distance = max(vol * 2, 0.005)  # at least 0.5%
-        else:
-            stop_distance = 0.02  # default 2%
+        # Get leverage from ladder
+        target_lev = self._get_leverage_for_equity(equity)
 
-        # Position size = risk_amount / (price * stop_distance)
-        risk_amount = equity * self._risk_per_trade
-        size = risk_amount / (price * stop_distance)
+        # Position = equity * leverage / price
+        size = (equity * target_lev) / price
 
-        # Clamp: min lot size and max % of equity
-        max_size = (equity * self._max_size_pct) / price
-        size = max(self._min_size, min(size, max_size))
+        # Clamp to min lot size
+        size = max(self._min_size, size)
+
+        # Round to exchange lot size (0.01 for ETH on Bybit)
+        size = round(size, 2)
 
         # Round to exchange lot size (0.01 for ETH on Bybit)
         size = round(size, 2)
 
         if size != self._position_size:
             logger.info(
-                "%s adaptive size: %.4f → %.4f (equity=$%.0f vol=%.4f stop=%.3f)",
-                self._symbol, self._position_size, size,
-                equity, stop_distance, stop_distance,
+                "%s SIZING: equity=$%.0f lev=%.0fx → %.2f ETH ($%.0f notional)",
+                self._symbol, equity, target_lev, size, size * price,
             )
+
+        # Set exchange leverage to match (only if changed)
+        if not hasattr(self, "_current_exchange_lev") or self._current_exchange_lev != int(target_lev):
+            try:
+                self._adapter._client.post("/v5/position/set-leverage", {
+                    "category": "linear", "symbol": self._symbol,
+                    "buyLeverage": str(int(target_lev)),
+                    "sellLeverage": str(int(target_lev)),
+                })
+                self._current_exchange_lev = int(target_lev)
+                logger.info("%s exchange leverage set to %dx", self._symbol, int(target_lev))
+            except Exception:
+                pass  # non-fatal
 
         self._position_size = size
         return size
