@@ -72,14 +72,19 @@ Status:
 
 ## Layout
 
-The directory is still intentionally flat for import compatibility, but it is now maintained as six logical groups:
+Files are organized into 7 subdirectories. Symlinks at the top level maintain backward compatibility (`from scripts.xxx import yyy` still works).
 
-- `train`: training, retraining, export
-- `validate`: backtests, walk-forward validation, parity checks
-- `research`: alpha studies, IC analysis, diagnostics
-- `data`: dataset download and refresh
-- `ops`: paper/testnet helpers, smoke tests, monitoring utilities
-- `shared`: reusable helpers imported by multiple scripts
+```
+scripts/
+├── training/      (20) — train_v11, train_unified, train_*_production, ...
+├── backtesting/   (17) — backtest_engine, backtest_alpha_v8, backtest_honest, ...
+├── walkforward/    (7) — walkforward_validate, wf_regime_sweep, ...
+├── data/          (17) — download_binance_klines, data_refresh, ...
+├── research/      (19) — alpha_rebuild, ic_analysis_*, feature_ic_screen, ...
+├── ops/           (13) — run_bybit_alpha, testnet_smoke, auto_retrain, ...
+├── shared/         (8) — signal_postprocess, catalog, cli, parity_test_*, ...
+└── *.py → symlinks (101) — backward compatibility
+```
 
 The maintained group definitions live in [`scripts/catalog.py`](/quant_system/scripts/catalog.py).
 
