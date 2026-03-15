@@ -124,7 +124,9 @@ class AlphaRunner:
         self._horizon_models = model_info.get("horizon_models", [])
         self._lgbm_xgb_weight = model_info.get("lgbm_xgb_weight", 0.5)
         self._config = model_info["config"]
-        self._deadzone = model_info["deadzone"]
+        self._deadzone_base = model_info["deadzone"]
+        self._deadzone = model_info["deadzone"]  # current (adapted)
+        self._vol_median = 0.0063  # ETH 1h median vol (calibrated from history)
         self._min_hold = model_info["min_hold"]
         self._max_hold = model_info["max_hold"]
         self._zscore_window = model_info["zscore_window"]
@@ -242,6 +244,12 @@ class AlphaRunner:
             trend = 0.1  # assume active during warmup
 
         self._regime_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
+
+        # Dynamic deadzone: scale with vol, clamp to [0.15, 0.6]
+        if self._vol_median > 0:
+            ratio = vol_20 / self._vol_median
+            self._deadzone = max(0.15, min(0.6, self._deadzone_base * (ratio ** 0.5)))
+
         return self._regime_active
 
     def process_bar(self, bar: dict) -> dict:
@@ -311,6 +319,7 @@ class AlphaRunner:
             "signal": new_signal, "prev_signal": prev_signal,
             "hold_count": self._hold_count, "close": bar["close"],
             "regime": "active" if regime_ok else "filtered",
+            "dz": round(self._deadzone, 3),
         }
 
         if new_signal != prev_signal:
@@ -421,10 +430,11 @@ def main():
                         if result.get("action") == "signal":
                             regime = result.get("regime", "?")
                             logger.info(
-                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s%s",
+                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
                                 symbol, result["bar"], result["close"],
                                 result["z"], result["signal"],
                                 result["hold_count"], regime,
+                                result.get("dz", 0),
                                 f" TRADE={result['trade']}" if "trade" in result else "",
                             )
                 except Exception:
