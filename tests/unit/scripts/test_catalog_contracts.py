@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.catalog import (
+    ARCHIVE_CANDIDATE,
     EXPERIMENTAL,
     LEGACY,
     PRIMARY_ENTRYPOINTS,
@@ -10,11 +11,13 @@ from scripts.catalog import (
     SUPPORTED_ENTRYPOINTS,
 )
 
+VALID_STATUSES = {SUPPORTED, EXPERIMENTAL, LEGACY, ARCHIVE_CANDIDATE}
+
 
 def test_primary_entrypoints_have_valid_status_and_unique_names() -> None:
     names = [entry.name for entry in PRIMARY_ENTRYPOINTS]
     assert len(names) == len(set(names))
-    assert {entry.status for entry in PRIMARY_ENTRYPOINTS} <= {SUPPORTED, EXPERIMENTAL, LEGACY}
+    assert {entry.status for entry in PRIMARY_ENTRYPOINTS} <= VALID_STATUSES
 
 
 def test_primary_entrypoints_exist_on_disk() -> None:
@@ -29,10 +32,14 @@ def test_supported_entrypoints_have_valid_python_syntax() -> None:
         compile(source, str(path), "exec")
 
 
-def test_scripts_readme_mentions_all_primary_entrypoints() -> None:
+def test_scripts_readme_mentions_all_supported_entrypoints() -> None:
+    """README quick reference must mention all 'supported' scripts.
+    Experimental/legacy/archive scripts may be omitted from README
+    (catalog.py is the full source of truth, not README).
+    """
     text = Path("scripts/README.md").read_text(encoding="utf-8")
-    for entry in PRIMARY_ENTRYPOINTS:
-        assert entry.name in text, entry.name
+    for entry in SUPPORTED_ENTRYPOINTS:
+        assert entry.name in text, f"supported script {entry.name} missing from README"
 
 
 def test_scripts_readme_declares_status_meanings() -> None:

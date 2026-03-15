@@ -6,6 +6,7 @@
 |------|--------|--------|
 | Train production model | `train_v11.py` | supported |
 | Auto-retrain (cron) | `auto_retrain.py` | supported |
+| Retrain daemon | `retrain_daemon.py` | supported |
 | Walk-forward validation | `walkforward_validate.py` | supported |
 | Main backtest | `backtest_engine.py` | supported |
 | Backtest alpha V8 | `backtest_alpha_v8.py` | supported |
@@ -18,6 +19,40 @@
 | Testnet smoke test | `testnet_smoke.py` | supported |
 | Latency benchmark | `latency_bench.py` | supported |
 | Monitor paper trading | `monitor_paper_trading.py` | supported |
+| Train unified | `train_unified.py` | supported |
+| Train V8 production | `train_v8_production.py` | supported |
+| Train bear production | `train_bear_production.py` | supported |
+| Train SOL production | `train_sol_production.py` | supported |
+| Backtest honest | `backtest_honest.py` | supported |
+| Backtest kernel | `backtest_kernel.py` | supported |
+| Walk-forward portfolio | `walkforward_portfolio.py` | supported |
+| Alpha rebuild | `alpha_rebuild.py` | supported |
+| Alpha research CLI | `run_alpha_research.py` | supported |
+| Feature IC screen | `feature_ic_screen.py` | supported |
+| Analyze explore log | `analyze_explore_log.py` | supported |
+| Ensemble evaluation | `ensemble_eval.py` | supported |
+| OOS evaluation | `oos_eval.py` | supported |
+| Parity test binary | `parity_test_binary.py` | supported |
+| Parity test historical | `parity_test_historical.py` | supported |
+| Download spot klines | `download_spot_klines.py` | supported |
+| Download funding rates | `download_funding_rates.py` | supported |
+| Download open interest | `download_open_interest.py` | supported |
+| Download LS ratio | `download_ls_ratio.py` | supported |
+| Download taker ratio | `download_taker_ratio.py` | supported |
+| Download fear/greed | `download_fear_greed.py` | supported |
+| Download macro data | `download_macro.py` | supported |
+| Download Deribit IV | `download_deribit_iv.py` | supported |
+| Download liquidations | `download_liquidations.py` | supported |
+| Download mempool | `download_mempool.py` | supported |
+| Download on-chain | `download_onchain_metrics.py` | supported |
+| Binance klines sync | `binance_um_klines_sync.py` | supported |
+| Record depth data | `record_depth_data.py` | supported |
+| Burn-in report | `burnin_report.py` | supported |
+| Grafana import | `grafana_import.py` | supported |
+| Rotate API keys | `rotate_api_keys.py` | supported |
+| Warm bridge checkpoint | `warm_bridge.py` | supported |
+| CLI entry point | `cli.py` | supported |
+| Signal postprocess | `signal_postprocess.py` | supported |
 | Full catalog | `python3 -m scripts.catalog` | CLI |
 
 > Source of truth: [`scripts/catalog.py`](catalog.py). Run `quant catalog --scripts` for the full list.
