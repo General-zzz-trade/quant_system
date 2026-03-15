@@ -201,8 +201,8 @@ replay 路径当前更偏“事件再注入器”：
 
 - live 有 8 层 gate chain（correlation, risk, portfolio, alpha_health, regime, allocator, exec_quality, weight_rec），backtest 无此过滤链（by design: backtest = perfect execution）
 - live 的 ExitManager 逻辑（trailing_stop, reversal_exit, deadzone_fade_exit）在 backtest 中有但在 live bridge 中无
-- trend hold / monthly gate / vol targeting 在不同研究脚本之间仍有重复实现
-- live 与部分研究脚本之间仍存在约束逻辑散落问题
+- trend hold / monthly gate / vol targeting 在不同研究脚本之间仍有重复实现（但 `signal_postprocess.py` 的 Python fallback 已修复为与 Rust `enforce_hold_step` 完全一致 — 2026-03-15 parity 验证通过）
+- live 与部分研究脚本之间约束逻辑散落问题正在收口
 
 已开始收口：
 

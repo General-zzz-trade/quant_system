@@ -30,8 +30,11 @@ class OperatorControlMixin:
             reason=reason,
             source=source,
         )
-        self._record_control(command="halt", reason=reason, source=source, result=rec.mode.value)
-        self._emit_control_alert(command="halt", reason=reason, source=source, result=rec.mode.value, severity=Severity.CRITICAL)
+        self._record_control(
+            command="halt", reason=reason, source=source, result=rec.mode.value)
+        self._emit_control_alert(
+            command="halt", reason=reason, source=source,
+            result=rec.mode.value, severity=Severity.CRITICAL)
         logger.warning("LiveRunner halted: reason=%s source=%s", reason, source)
         return rec
 
@@ -44,15 +47,20 @@ class OperatorControlMixin:
             reason=reason,
             source=source,
         )
-        self._record_control(command="reduce_only", reason=reason, source=source, result=rec.mode.value)
-        self._emit_control_alert(command="reduce_only", reason=reason, source=source, result=rec.mode.value, severity=Severity.WARNING)
+        self._record_control(
+            command="reduce_only", reason=reason, source=source, result=rec.mode.value)
+        self._emit_control_alert(
+            command="reduce_only", reason=reason, source=source,
+            result=rec.mode.value, severity=Severity.WARNING)
         logger.warning("LiveRunner reduce-only enabled: reason=%s source=%s", reason, source)
         return rec
 
     def resume(self, *, reason: str = "operator_resume") -> bool:
         """Clear the global kill-switch scope and resume order flow."""
         cleared = self.kill_switch.clear(scope=KillScope.GLOBAL, key="*")
-        self._record_control(command="resume", reason=reason, source="operator", result="cleared" if cleared else "noop")
+        self._record_control(
+            command="resume", reason=reason, source="operator",
+            result="cleared" if cleared else "noop")
         self._emit_control_alert(
             command="resume",
             reason=reason,
@@ -67,8 +75,11 @@ class OperatorControlMixin:
         """Run one immediate reconcile pass when available."""
         logger.info("LiveRunner flush requested: reason=%s", reason)
         if self.reconcile_scheduler is None:
-            self._record_control(command="flush", reason=reason, source="operator", result="unavailable")
-            self._emit_control_alert(command="flush", reason=reason, source="operator", result="unavailable", severity=Severity.WARNING)
+            self._record_control(
+                command="flush", reason=reason, source="operator", result="unavailable")
+            self._emit_control_alert(
+                command="flush", reason=reason, source="operator",
+                result="unavailable", severity=Severity.WARNING)
             return None
         report = self.reconcile_scheduler.run_once()
         result = "ok"
@@ -79,9 +90,13 @@ class OperatorControlMixin:
         elif hasattr(report, "ok") and not bool(getattr(report, "ok")):
             result = "drift"
             severity = Severity.WARNING
-        self._record_control(command="flush", reason=reason, source="operator", result=result)
-        self._emit_control_alert(command="flush", reason=reason, source="operator", result=result, severity=severity)
-        if report is not None and self.alert_manager is not None and hasattr(report, "ok") and not bool(getattr(report, "ok")):
+        self._record_control(
+            command="flush", reason=reason, source="operator", result=result)
+        self._emit_control_alert(
+            command="flush", reason=reason, source="operator",
+            result=result, severity=severity)
+        if (report is not None and self.alert_manager is not None
+                and hasattr(report, "ok") and not bool(getattr(report, "ok"))):
             try:
                 self._emit_execution_incident(reconcile_report_to_alert(report))
             except Exception:
@@ -91,8 +106,11 @@ class OperatorControlMixin:
     def shutdown(self, *, reason: str = "operator_shutdown", source: str = "operator") -> None:
         """Halt order flow and stop the runner."""
         self.halt(reason=reason, source=source)
-        self._record_control(command="shutdown", reason=reason, source=source, result="stopping")
-        self._emit_control_alert(command="shutdown", reason=reason, source=source, result="stopping", severity=Severity.CRITICAL)
+        self._record_control(
+            command="shutdown", reason=reason, source=source, result="stopping")
+        self._emit_control_alert(
+            command="shutdown", reason=reason, source=source,
+            result="stopping", severity=Severity.CRITICAL)
         self.stop()
 
     def apply_control(self, control: Any) -> Any:

@@ -20,7 +20,9 @@ class CanonicalRejection:
     deduped: bool = False
 
 
-def ack_to_rejection(ack: CanonicalAck | object, *, default_venue: str = "", default_symbol: str = "") -> Optional[CanonicalRejection]:
+def ack_to_rejection(
+    ack: CanonicalAck | object, *, default_venue: str = "", default_symbol: str = "",
+) -> Optional[CanonicalRejection]:
     """Convert non-accepted ack outcomes into a stable rejection/failure view."""
     normalized = ack if isinstance(ack, CanonicalAck) else normalize_ack(
         ack,
