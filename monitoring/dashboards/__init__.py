@@ -32,3 +32,6 @@ TRADING_DASHBOARD = DashboardConfig(
         PanelConfig("Risk", ("portfolio_var", "max_drawdown", "sharpe_ratio"), "gauge"),
     ),
 )
+
+
+__all__ = ['annotations', 'dataclass', 'Sequence']
