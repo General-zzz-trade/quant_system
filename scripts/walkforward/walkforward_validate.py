@@ -683,43 +683,59 @@ def run_fold(
             from scripts.backtest_alpha_v8 import _apply_dd_breaker
             signal = _apply_dd_breaker(signal, test_closes, dd_limit, dd_cooldown)
 
-        ret_1bar = np.diff(test_closes) / test_closes[:-1]
-        signal_for_trade = signal[:len(ret_1bar)]
-        gross_pnl = signal_for_trade * ret_1bar
-
-        if cost_model_type == "realistic" and volumes is not None:
-            from execution.sim.cost_model import RealisticCostModel
-            cm = RealisticCostModel()
-            test_vols = volumes[fold.test_start:fold.test_end][:len(signal_for_trade)]
-            vol_20 = test_df["vol_20"].values[:len(signal_for_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(signal_for_trade), np.nan)
-            breakdown = cm.compute_costs(signal_for_trade, test_closes[:len(signal_for_trade)], test_vols, vol_20)
-            cost = breakdown.total_cost
-            signal_for_trade = breakdown.clipped_signal
-            gross_pnl = signal_for_trade * ret_1bar
+        # ── PnL computation: realistic or legacy path ──
+        use_realistic = cost_model_type == "realistic_v2"
+        if use_realistic:
+            from execution.sim.realistic_backtest import BacktestConfig, run_realistic_backtest
+            # Use close ± 0.5% as high/low approximation (conservative)
+            t_highs = test_closes * 1.005
+            t_lows = test_closes * 0.995
+            t_vols = volumes[fold.test_start:fold.test_end] if volumes is not None else np.ones(len(test_closes)) * 1000
+            fr_arr = None
+            if "funding_rate" in test_df.columns:
+                fr_arr = np.nan_to_num(test_df["funding_rate"].values.astype(np.float64), 0.0)
+            bcfg = BacktestConfig(initial_equity=10000, leverage=1, stop_loss_pct=0.03, max_position_pct=0.95)
+            r = run_realistic_backtest(test_closes, t_highs, t_lows, t_vols, signal, bcfg, fr_arr)
+            sharpe = r.sharpe
+            total_return = r.total_return_pct / 100
         else:
-            turnover = np.abs(np.diff(signal_for_trade, prepend=0))
-            cost = turnover * COST_PER_TRADE
+            ret_1bar = np.diff(test_closes) / test_closes[:-1]
+            signal_for_trade = signal[:len(ret_1bar)]
+            gross_pnl = signal_for_trade * ret_1bar
 
-        # Funding cost: long pays positive funding, short receives it
-        funding_cost = np.zeros(len(signal_for_trade))
-        if "funding_rate" in test_df.columns:
-            fr = test_df["funding_rate"].values[:len(signal_for_trade)].astype(np.float64)
-            fr = np.nan_to_num(fr, 0.0)
-            funding_cost = signal_for_trade * fr / 8.0
+            if cost_model_type == "realistic" and volumes is not None:
+                from execution.sim.cost_model import RealisticCostModel
+                cm = RealisticCostModel()
+                test_vols = volumes[fold.test_start:fold.test_end][:len(signal_for_trade)]
+                vol_20 = test_df["vol_20"].values[:len(signal_for_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(signal_for_trade), np.nan)
+                breakdown = cm.compute_costs(signal_for_trade, test_closes[:len(signal_for_trade)], test_vols, vol_20)
+                cost = breakdown.total_cost
+                signal_for_trade = breakdown.clipped_signal
+                gross_pnl = signal_for_trade * ret_1bar
+            else:
+                turnover = np.abs(np.diff(signal_for_trade, prepend=0))
+                cost = turnover * COST_PER_TRADE
 
-        net_pnl = gross_pnl - cost - funding_cost
+            # Funding cost: long pays positive funding, short receives it
+            funding_cost = np.zeros(len(signal_for_trade))
+            if "funding_rate" in test_df.columns:
+                fr = test_df["funding_rate"].values[:len(signal_for_trade)].astype(np.float64)
+                fr = np.nan_to_num(fr, 0.0)
+                funding_cost = signal_for_trade * fr / 8.0
 
-        active = signal_for_trade != 0
-        n_active = int(active.sum())
+            net_pnl = gross_pnl - cost - funding_cost
 
-        sharpe = 0.0
-        if n_active > 1:
-            active_pnl = net_pnl[active]
-            std_a = float(np.std(active_pnl, ddof=1))
-            if std_a > 0:
-                sharpe = float(np.mean(active_pnl)) / std_a * np.sqrt(8760)
+            active = signal_for_trade != 0
+            n_active = int(active.sum())
 
-        total_return = float(np.sum(net_pnl))
+            sharpe = 0.0
+            if n_active > 1:
+                active_pnl = net_pnl[active]
+                std_a = float(np.std(active_pnl, ddof=1))
+                if std_a > 0:
+                    sharpe = float(np.mean(active_pnl)) / std_a * np.sqrt(8760)
+
+            total_return = float(np.sum(net_pnl))
 
     return FoldResult(
         idx=fold.idx,
@@ -1278,6 +1294,8 @@ def main() -> None:
                         help=f"Minimum bars to hold position (default: {MIN_HOLD})")
     parser.add_argument("--continuous-sizing", action="store_true",
                         help="Use z-score-based position sizing instead of binary {0,1}")
+    parser.add_argument("--realistic", action="store_true",
+                        help="Use realistic_v2 backtest engine (high/low stops, margin, dynamic slippage)")
     parser.add_argument("--hpo-trials", type=int, default=HPO_TRIALS,
                         help=f"Number of HPO trials per fold (default: {HPO_TRIALS})")
     parser.add_argument("--ensemble", action="store_true",
@@ -1364,7 +1382,7 @@ def main() -> None:
     vol_feature_name = args.vol_feature
     dd_limit = args.dd_limit
     dd_cooldown = args.dd_cooldown
-    cost_model_type = args.cost_model
+    cost_model_type = "realistic_v2" if getattr(args, "realistic", False) else args.cost_model
     zscore_window = args.zscore_window
     zscore_warmup = args.zscore_warmup
     nn_ensemble = args.nn_ensemble
