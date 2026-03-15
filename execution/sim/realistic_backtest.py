@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from execution.sim.audit_log import BacktestAuditLog
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +136,7 @@ def run_realistic_backtest(
     signal: np.ndarray,
     cfg: BacktestConfig | None = None,
     funding_rates: np.ndarray | None = None,
+    audit_log: "BacktestAuditLog | None" = None,
 ) -> BacktestResult:
     """Run bar-by-bar backtest with realistic execution simulation.
 
@@ -208,6 +212,9 @@ def run_realistic_backtest(
                     fees=fees, slippage=slip_cost, funding=fund,
                     exit_reason="stop_loss",
                 ))
+                if audit_log:
+                    audit_log.record_trade(trades[-1])
+                    audit_log.record_event(i, "stop_loss", price=exit_px, equity=equity)
                 position = 0
                 entry_price = 0
                 position_notional = 0
@@ -234,6 +241,9 @@ def run_realistic_backtest(
                     fees=fees, slippage=0, funding=cum_funding,
                     exit_reason="liquidation",
                 ))
+                if audit_log:
+                    audit_log.record_trade(trades[-1])
+                    audit_log.record_event(i, "liquidation", price=price, equity=equity)
                 position = 0
                 entry_price = 0
                 position_notional = 0
@@ -273,6 +283,8 @@ def run_realistic_backtest(
                     fees=fees, slippage=slip_cost, funding=fund,
                     exit_reason="signal",
                 ))
+                if audit_log:
+                    audit_log.record_trade(trades[-1])
                 cum_funding = 0
 
             # Open new position
@@ -305,6 +317,13 @@ def run_realistic_backtest(
                 position_notional = 0
 
         equity_curve[i] = equity
+
+        # Periodic audit snapshot
+        if audit_log and i % 100 == 0:
+            unreal = 0.0
+            if position != 0 and entry_price > 0:
+                unreal = position * (price - entry_price) / entry_price * position_notional
+            audit_log.record_equity(i, equity, position, unreal)
 
     # Close final position at last price
     if position != 0:
