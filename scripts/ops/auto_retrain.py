@@ -62,6 +62,14 @@ MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")
 
+# ── 15m Configuration ──
+SYMBOLS_15M = ["ETHUSDT", "SOLUSDT"]
+DEFAULT_HORIZONS_15M = {
+    "ETHUSDT": [4, 8],       # 1h, 2h — high frequency
+    "SOLUSDT": [4, 8, 16],   # 1h, 2h, 4h
+}
+MODEL_DIR_15M_TEMPLATE = "models_v8/{symbol}_15m"
+
 # Validation thresholds
 MIN_IC = 0.02                         # minimum IC for new model to deploy
 MIN_SHARPE = 1.0                      # minimum Sharpe for new model
@@ -402,6 +410,145 @@ def cleanup_old_backups(symbol: str, keep: int = 3) -> None:
             logger.info("Cleaned up old backup: %s", old)
 
 
+def download_15m_data(symbols: List[str]) -> Dict[str, int]:
+    """Download fresh 15m kline data before retraining.
+
+    Returns dict of symbol -> new_bars_count.
+    """
+    logger.info("Downloading 15m kline data for %s...", symbols)
+    try:
+        from scripts.data.download_15m_klines import download_symbol
+        results = {}
+        for symbol in symbols:
+            try:
+                n = download_symbol(symbol)
+                results[symbol] = n
+                logger.info("Downloaded %d new 15m bars for %s", n, symbol)
+            except Exception as e:
+                logger.warning("15m download failed for %s: %s", symbol, e)
+                results[symbol] = -1
+        return results
+    except ImportError as e:
+        logger.warning("15m download script not available: %s", e)
+        return {}
+
+
+def retrain_15m_symbols(
+    symbols: List[str],
+    dry_run: bool = False,
+    force: bool = False,
+    max_age_days: int = 90,
+) -> Dict[str, Dict[str, Any]]:
+    """Retrain 15m models for the given symbols.
+
+    Downloads fresh data, trains LightGBM + XGBoost, validates, and saves.
+    Returns dict of symbol -> result.
+    """
+    results = {}
+
+    for symbol in symbols:
+        model_dir = Path(MODEL_DIR_15M_TEMPLATE.format(symbol=symbol))
+        data_path = Path(f"data_files/{symbol}_15m.csv")
+
+        result = {
+            "symbol": symbol,
+            "timeframe": "15m",
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "dry_run": dry_run,
+        }
+
+        # Check if retrain needed (reuse logic with 15m model dir)
+        if not force:
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                train_date_str = cfg.get("train_date", "")
+                if train_date_str:
+                    try:
+                        train_date = datetime.strptime(train_date_str.split(" ")[0], "%Y-%m-%d")
+                        age_days = (datetime.now() - train_date).days
+                        if age_days <= max_age_days:
+                            avg_ic = cfg.get("metrics", {}).get("avg_ic", 0)
+                            if avg_ic >= MIN_IC:
+                                logger.info("15m %s: model healthy (age=%dd, IC=%.4f), skipping",
+                                           symbol, age_days, avg_ic)
+                                result["skipped"] = True
+                                result["reason"] = f"model healthy (age={age_days}d, IC={avg_ic:.4f})"
+                                results[symbol] = result
+                                continue
+                    except ValueError:
+                        pass
+
+        if not data_path.exists():
+            logger.warning("15m %s: no data file at %s", symbol, data_path)
+            result["error"] = f"data file not found: {data_path}"
+            results[symbol] = result
+            continue
+
+        # Backup
+        if not dry_run and model_dir.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = model_dir.parent / f"{model_dir.name}_backup_{timestamp}"
+            shutil.copytree(model_dir, backup_dir)
+            result["backup_dir"] = str(backup_dir)
+            logger.info("Backed up 15m %s → %s", model_dir, backup_dir)
+
+        # Train
+        horizons = DEFAULT_HORIZONS_15M.get(symbol, [4, 8])
+        logger.info("Training 15m %s with horizons %s...", symbol, horizons)
+        t0 = time.time()
+
+        try:
+            from scripts.training.train_15m import train_symbol_15m
+            success = train_symbol_15m(symbol, horizons)
+        except Exception as e:
+            logger.error("15m training failed for %s: %s", symbol, e)
+            result["error"] = str(e)
+            results[symbol] = result
+            log_retrain_event(result)
+            continue
+
+        train_time = time.time() - t0
+        result["train_time_sec"] = train_time
+
+        if not success:
+            logger.warning("15m training failed production checks for %s", symbol)
+            result["error"] = "failed production checks"
+
+            # Restore backup
+            if not dry_run and "backup_dir" in result:
+                backup_path = Path(result["backup_dir"])
+                if backup_path.exists() and model_dir.exists():
+                    shutil.rmtree(model_dir)
+                    shutil.copytree(backup_path, model_dir)
+                    logger.info("Restored 15m backup for %s", symbol)
+        else:
+            result["success"] = True
+            # Load new metrics
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    new_cfg = json.load(f)
+                new_metrics = new_cfg.get("metrics", {})
+                result["new_sharpe"] = new_metrics.get("sharpe", 0)
+                result["new_avg_ic"] = new_metrics.get("avg_ic", 0)
+                result["new_trades"] = new_metrics.get("trades", 0)
+
+            if dry_run:
+                logger.info("DRY RUN 15m %s: would deploy (Sharpe %.2f, IC %.4f)",
+                           symbol, result.get("new_sharpe", 0), result.get("new_avg_ic", 0))
+            else:
+                logger.info("DEPLOYED 15m %s: Sharpe %.2f, IC %.4f in %.0fs",
+                           symbol, result.get("new_sharpe", 0), result.get("new_avg_ic", 0), train_time)
+
+        results[symbol] = result
+        log_retrain_event(result)
+
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Automated Walk-Forward Retraining")
     parser.add_argument("--symbol", default=None,
@@ -418,6 +565,12 @@ def main():
                         help="Send SIGHUP to runner after successful retrain")
     parser.add_argument("--alert", action="store_true",
                         help="Send alerts on success/failure (Telegram/webhook)")
+    parser.add_argument("--include-15m", action="store_true",
+                        help="Also retrain 15m models (ETHUSDT, SOLUSDT)")
+    parser.add_argument("--only-15m", action="store_true",
+                        help="Only retrain 15m models (skip 1h)")
+    parser.add_argument("--symbols-15m", default=None,
+                        help="Comma-separated 15m symbols (default: ETHUSDT,SOLUSDT)")
     args = parser.parse_args()
 
     symbols = (
@@ -427,17 +580,46 @@ def main():
     )
     horizons = [int(h.strip()) for h in args.horizons.split(",")]
 
+    # Determine 15m symbols
+    symbols_15m = (
+        [s.strip().upper() for s in args.symbols_15m.split(",")]
+        if args.symbols_15m
+        else SYMBOLS_15M
+    )
+    run_1h = not args.only_15m
+    run_15m = args.include_15m or args.only_15m
+
     print("=" * 70)
     print("  AUTOMATED WALK-FORWARD RETRAINING")
     print(f"  Date:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  Symbols:  {symbols}")
-    print(f"  Horizons: {horizons}")
+    if run_1h:
+        print(f"  1h Symbols:  {symbols}")
+        print(f"  1h Horizons: {horizons}")
+    if run_15m:
+        print(f"  15m Symbols: {symbols_15m}")
     print(f"  Dry run:  {args.dry_run}")
     print(f"  Force:    {args.force}")
     print("=" * 70)
 
     results = {}
-    for symbol in symbols:
+
+    # ── 15m: Download fresh data first ──
+    if run_15m:
+        print(f"\n{'=' * 70}")
+        print("  15m DATA DOWNLOAD")
+        print(f"{'=' * 70}")
+        dl_results = download_15m_data(symbols_15m)
+        for sym, n in dl_results.items():
+            if n >= 0:
+                print(f"  {sym}: {n} new bars")
+            else:
+                print(f"  {sym}: download FAILED")
+
+    # ── 1h Retrain ──
+    if not run_1h:
+        print("\n  Skipping 1h retrain (--only-15m)")
+
+    for symbol in (symbols if run_1h else []):
         print(f"\n{'─' * 70}")
         print(f"  {symbol}")
         print(f"{'─' * 70}")
@@ -462,6 +644,19 @@ def main():
         if result.get("success") and not args.dry_run:
             cleanup_old_backups(symbol, keep=3)
 
+    # ── 15m Retrain ──
+    results_15m = {}
+    if run_15m:
+        print(f"\n{'=' * 70}")
+        print("  15m MODEL RETRAIN")
+        print(f"{'=' * 70}")
+        results_15m = retrain_15m_symbols(
+            symbols_15m,
+            dry_run=args.dry_run,
+            force=args.force,
+            max_age_days=args.max_age_days,
+        )
+
     # Summary
     print(f"\n{'=' * 70}")
     print("  RETRAIN SUMMARY")
@@ -480,6 +675,22 @@ def main():
             )
         else:
             print(f"  {symbol}: FAILED ({result.get('error', 'unknown')})")
+
+    # 15m summary
+    if results_15m:
+        print("\n  -- 15m Models --")
+        for symbol, result in results_15m.items():
+            if result.get("skipped"):
+                print(f"  {symbol} (15m): SKIPPED ({result.get('reason', '')})")
+            elif result.get("success"):
+                succeeded.append(f"{symbol}_15m")
+                print(
+                    f"  {symbol} (15m): SUCCESS "
+                    f"(Sharpe {result.get('new_sharpe', 0):.2f}, "
+                    f"IC {result.get('new_avg_ic', 0):.4f})"
+                )
+            else:
+                print(f"  {symbol} (15m): FAILED ({result.get('error', 'unknown')})")
 
     # CRITICAL: Parity check MUST run before SIGHUP to prevent live divergence.
     # If parity fails, restore backup and skip hot-reload.
@@ -537,17 +748,21 @@ def main():
         else:
             print("  → WARNING: SIGHUP failed — manual model reload required")
 
-    # Send alerts
-    failed = [s for s, r in results.items()
+    # Send alerts — include both 1h and 15m failures
+    all_results = dict(results)
+    for sym, r in results_15m.items():
+        all_results[f"{sym}_15m"] = r
+
+    failed = [s for s, r in all_results.items()
               if not r.get("success") and not r.get("skipped")]
 
     if args.alert:
         if succeeded:
             summary_parts = []
             for sym in succeeded:
-                r = results[sym]
+                r = all_results.get(sym, {})
                 summary_parts.append(
-                    f"{sym}: Sharpe {r.get('old_sharpe', 0):.2f}→{r.get('new_sharpe', 0):.2f}"
+                    f"{sym}: Sharpe {r.get('new_sharpe', 0):.2f}"
                 )
             send_alert(
                 f"Retrain SUCCESS: {', '.join(summary_parts)}",
@@ -556,7 +771,7 @@ def main():
         if failed:
             fail_parts = []
             for sym in failed:
-                r = results[sym]
+                r = all_results.get(sym, {})
                 fail_parts.append(f"{sym}: {r.get('error', 'unknown')}")
             send_alert(
                 f"Retrain FAILED: {', '.join(fail_parts)}",

@@ -141,6 +141,13 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "social_volume_zscore_24",        # z-score of social volume over 24 bars
     "social_sentiment_score",         # normalized sentiment score
     "social_volume_price_div",        # social volume vs price direction divergence
+    # --- V12: ALT coin cross-asset features ---
+    "btc_relative_strength_24",       # ALT ret_24 - BTC ret_24 — outperformance signal
+    "btc_relative_strength_6",        # ALT ret_6 - BTC ret_6 — short-term alpha vs BTC
+    "btc_ratio_ma20_dev",             # (ALT/BTC ratio) / MA20(ratio) - 1 — pair mean reversion
+    "btc_dom_momentum",               # BTC 24h ret - ALT 24h ret — dominance shift velocity
+    "btc_lead_ret_1",                 # BTC ret_1 (lagged signal for ALT)
+    "btc_vol_ratio",                  # ALT vol_20 / BTC vol_20 — relative volatility regime
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -383,6 +390,11 @@ class _SymbolState:
     _social_vol_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
     _last_sentiment_score: Optional[float] = None
     _last_social_volume: Optional[float] = None
+
+    # V12: ALT cross-asset (BTC reference)
+    _btc_ref_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
+    _btc_ref_vol_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=25))
+    _alt_btc_ratio_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=25))
 
     # Acceleration: track recent momentum values
     _prev_momentum: Optional[float] = None
@@ -639,7 +651,7 @@ class _SymbolState:
         # ATR
         self.atr_14.push(high, low, close)
 
-    def get_features(self) -> Dict[str, Optional[float]]:
+    def get_features(self, btc_close: float | None = None) -> Dict[str, Optional[float]]:
         """Compute all features from current state."""
         feats: Dict[str, Optional[float]] = {}
         close = self._last_close
@@ -1376,6 +1388,78 @@ class _SymbolState:
         else:
             feats["social_volume_price_div"] = None
 
+        # ── V12: ALT cross-asset features (requires btc_close parameter) ──
+        if btc_close is not None and btc_close > 0:
+            self._btc_ref_buf.append(btc_close)
+
+            # BTC ret_1 (lagged BTC return as lead signal for ALT)
+            if len(self._btc_ref_buf) >= 2:
+                feats["btc_lead_ret_1"] = self._btc_ref_buf[-1] / self._btc_ref_buf[-2] - 1
+            else:
+                feats["btc_lead_ret_1"] = None
+
+            # BTC vol_20 for relative vol
+            if len(self._btc_ref_buf) >= 3:
+                btc_rets = []
+                for j in range(1, min(21, len(self._btc_ref_buf))):
+                    btc_rets.append(self._btc_ref_buf[-j] / self._btc_ref_buf[-j - 1] - 1)
+                if len(btc_rets) >= 5:
+                    _m = sum(btc_rets) / len(btc_rets)
+                    btc_vol = sqrt(sum((r - _m) ** 2 for r in btc_rets) / len(btc_rets))
+                else:
+                    btc_vol = None
+                self._btc_ref_vol_buf.append(btc_vol if btc_vol else 0)
+            else:
+                btc_vol = None
+
+            # ALT/BTC ratio tracking
+            if close > 0:
+                ratio = close / btc_close
+                self._alt_btc_ratio_buf.append(ratio)
+
+            # btc_relative_strength_24: ALT ret_24 - BTC ret_24
+            if len(self.close_history) >= 24 and len(self._btc_ref_buf) >= 24:
+                alt_ret24 = close / self.close_history[-24] - 1
+                btc_ret24 = self._btc_ref_buf[-1] / self._btc_ref_buf[-24] - 1
+                feats["btc_relative_strength_24"] = alt_ret24 - btc_ret24
+            else:
+                feats["btc_relative_strength_24"] = None
+
+            # btc_relative_strength_6
+            if len(self.close_history) >= 6 and len(self._btc_ref_buf) >= 6:
+                alt_ret6 = close / self.close_history[-6] - 1
+                btc_ret6 = self._btc_ref_buf[-1] / self._btc_ref_buf[-6] - 1
+                feats["btc_relative_strength_6"] = alt_ret6 - btc_ret6
+            else:
+                feats["btc_relative_strength_6"] = None
+
+            # btc_ratio_ma20_dev: (ratio / MA20_ratio) - 1
+            if len(self._alt_btc_ratio_buf) >= 20:
+                ratio_ma = sum(list(self._alt_btc_ratio_buf)[-20:]) / 20
+                if ratio_ma > 0:
+                    feats["btc_ratio_ma20_dev"] = self._alt_btc_ratio_buf[-1] / ratio_ma - 1
+                else:
+                    feats["btc_ratio_ma20_dev"] = None
+            else:
+                feats["btc_ratio_ma20_dev"] = None
+
+            # btc_dom_momentum: BTC ret_24 - ALT ret_24 (opposite of relative strength)
+            feats["btc_dom_momentum"] = -feats.get("btc_relative_strength_24") if feats.get("btc_relative_strength_24") is not None else None
+
+            # btc_vol_ratio: ALT vol_20 / BTC vol_20
+            vol20 = feats.get("vol_20")
+            if vol20 is not None and btc_vol is not None and btc_vol > 1e-8:
+                feats["btc_vol_ratio"] = vol20 / btc_vol
+            else:
+                feats["btc_vol_ratio"] = None
+        else:
+            feats["btc_relative_strength_24"] = None
+            feats["btc_relative_strength_6"] = None
+            feats["btc_ratio_ma20_dev"] = None
+            feats["btc_dom_momentum"] = None
+            feats["btc_lead_ret_1"] = None
+            feats["btc_vol_ratio"] = None
+
         return feats
 
 
@@ -1416,8 +1500,12 @@ class EnrichedFeatureComputer:
         mempool_metrics: Optional[Dict[str, float]] = None,
         macro_metrics: Optional[Dict[str, float]] = None,
         sentiment_metrics: Optional[Dict[str, float]] = None,
+        btc_close: Optional[float] = None,
     ) -> Dict[str, Optional[float]]:
-        """Process a new bar and return computed features."""
+        """Process a new bar and return computed features.
+
+        btc_close: BTC price at same bar time. Required for V12 ALT cross-asset features.
+        """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
 
@@ -1443,7 +1531,7 @@ class EnrichedFeatureComputer:
                    mempool_metrics=mempool_metrics,
                    macro_metrics=macro_metrics,
                    sentiment_metrics=sentiment_metrics)
-        return state.get_features()
+        return state.get_features(btc_close=btc_close)
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:
         """Get last computed features as a flat dict (for signal models)."""

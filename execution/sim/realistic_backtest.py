@@ -34,7 +34,7 @@ class BacktestConfig:
     """Configuration for realistic backtest."""
     initial_equity: float = 100.0
     leverage: float = 3.0
-    stop_loss_pct: float = 0.03        # 3% hard stop on position
+    stop_loss_pct: float = 0.03        # 3% hard stop (used when adaptive_stop=False)
     max_position_pct: float = 0.95     # max 95% of equity in one position
     fee_bps: float = 4.0              # 4 bps maker/taker average
     base_slippage_bps: float = 1.0    # base slippage
@@ -43,6 +43,12 @@ class BacktestConfig:
     funding_rates: Optional[np.ndarray] = None  # per-bar funding rates
     maintenance_margin: float = 0.005  # 0.5% maintenance margin ratio
     min_order_notional: float = 5.0    # $5 minimum order (Bybit/Binance)
+    # Adaptive stop-loss (ATR-based trailing, matches run_bybit_alpha.py)
+    adaptive_stop: bool = False        # enable ATR-based adaptive stop
+    atr_stop_mult: float = 2.0         # initial stop = ATR × this
+    atr_trail_trigger: float = 0.8     # trailing activates after profit >= ATR × this
+    atr_trail_step: float = 0.3        # trail distance = ATR × this
+    atr_breakeven_trigger: float = 1.0 # breakeven after profit >= ATR × this
 
 
 @dataclass
@@ -98,7 +104,7 @@ def _check_intrabar_stoploss(
     side: int, entry_price: float, bar_high: float, bar_low: float,
     stop_loss_pct: float,
 ) -> tuple[bool, float]:
-    """Check if stop-loss was hit within the bar using high/low.
+    """Check if fixed stop-loss was hit within the bar using high/low.
 
     Returns (triggered, stop_price).
     For longs: stop at entry × (1 - stop_loss_pct), triggered if low <= stop
@@ -113,6 +119,65 @@ def _check_intrabar_stoploss(
         if bar_high >= stop_price:
             return True, stop_price
     return False, 0.0
+
+
+def _compute_adaptive_stop(
+    side: int, entry_price: float, peak_price: float,
+    bar_high: float, bar_low: float, atr: float,
+    cfg: BacktestConfig,
+) -> tuple[bool, float, float]:
+    """ATR-based adaptive stop with trailing — matches live runner logic.
+
+    Three phases:
+    1. Initial: entry ± ATR × atr_stop_mult (wide, let trade breathe)
+    2. Breakeven: after profit >= ATR × breakeven_trigger, stop → entry
+    3. Trailing: after profit >= ATR × trail_trigger, stop = peak - ATR × trail_step
+
+    Returns (triggered, stop_price, updated_peak_price).
+    """
+    if atr < 1e-8:
+        atr = 0.015  # fallback 1.5%
+
+    # Update peak
+    if side > 0:
+        peak_price = max(peak_price, bar_high)
+        profit_pct = (peak_price - entry_price) / entry_price
+    else:
+        peak_price = min(peak_price, bar_low)
+        profit_pct = (entry_price - peak_price) / entry_price
+
+    # Compute stop price based on phase
+    if profit_pct >= atr * cfg.atr_trail_trigger:
+        # Phase 3: trailing
+        trail_dist = atr * cfg.atr_trail_step
+        if side > 0:
+            stop_price = peak_price * (1 - trail_dist)
+        else:
+            stop_price = peak_price * (1 + trail_dist)
+    elif profit_pct >= atr * cfg.atr_breakeven_trigger:
+        # Phase 2: breakeven
+        buf = atr * 0.1
+        if side > 0:
+            stop_price = entry_price * (1 + buf)
+        else:
+            stop_price = entry_price * (1 - buf)
+    else:
+        # Phase 1: initial wide stop
+        stop_dist = min(atr * cfg.atr_stop_mult, 0.05)  # cap at 5%
+        stop_dist = max(stop_dist, 0.003)  # floor at 0.3%
+        if side > 0:
+            stop_price = entry_price * (1 - stop_dist)
+        else:
+            stop_price = entry_price * (1 + stop_dist)
+
+    # Check trigger
+    triggered = False
+    if side > 0 and bar_low <= stop_price:
+        triggered = True
+    elif side < 0 and bar_high >= stop_price:
+        triggered = True
+
+    return triggered, stop_price, peak_price
 
 
 def _check_liquidation(
@@ -160,6 +225,7 @@ def run_realistic_backtest(
     entry_bar = 0
     position_notional = 0.0
     cum_funding = 0.0
+    peak_price = 0.0    # for adaptive trailing stop
     trades: list[TradeRecord] = []
     n_liquidations = 0
     total_fees = 0.0
@@ -173,6 +239,18 @@ def run_realistic_backtest(
     for i in range(20, n):
         vol_20[i] = np.std(rets[i-20:i])
 
+    # Compute ATR(14) for adaptive stop
+    atr_14 = np.zeros(n)
+    if cfg.adaptive_stop:
+        for i in range(14, n):
+            trs = []
+            for j in range(i - 13, i + 1):
+                tr = max(highs[j] - lows[j],
+                         abs(highs[j] - closes[j - 1]),
+                         abs(lows[j] - closes[j - 1]))
+                trs.append(tr / closes[j] if closes[j] > 0 else 0)
+            atr_14[i] = np.mean(trs)
+
     for i in range(1, n):
         price = closes[i]
         high = highs[i]
@@ -182,10 +260,18 @@ def run_realistic_backtest(
 
         # ── Check existing position ──
         if position != 0:
-            # 1. Intra-bar stop-loss check (P0-1 fix)
-            stopped, stop_px = _check_intrabar_stoploss(
-                position, entry_price, high, low, cfg.stop_loss_pct,
-            )
+            # 1. Stop-loss check: adaptive (ATR trailing) or fixed
+            if cfg.adaptive_stop:
+                stopped, stop_px, peak_price = _compute_adaptive_stop(
+                    position, entry_price, peak_price, high, low,
+                    atr_14[i], cfg,
+                )
+                exit_reason_stop = "adaptive_stop"
+            else:
+                stopped, stop_px = _check_intrabar_stoploss(
+                    position, entry_price, high, low, cfg.stop_loss_pct,
+                )
+                exit_reason_stop = "stop_loss"
 
             if stopped:
                 # Exit at stop price (not close)
@@ -210,13 +296,14 @@ def run_realistic_backtest(
                     size_usd=position_notional,
                     pnl_gross=pnl_gross, pnl_net=pnl_net,
                     fees=fees, slippage=slip_cost, funding=fund,
-                    exit_reason="stop_loss",
+                    exit_reason=exit_reason_stop,
                 ))
                 if audit_log:
                     audit_log.record_trade(trades[-1])
-                    audit_log.record_event(i, "stop_loss", price=exit_px, equity=equity)
+                    audit_log.record_event(i, exit_reason_stop, price=exit_px, equity=equity)
                 position = 0
                 entry_price = 0
+                peak_price = 0
                 position_notional = 0
                 cum_funding = 0
                 equity_curve[i] = equity
@@ -311,9 +398,11 @@ def run_realistic_backtest(
                 total_slippage += entry_slip + spread_cost
                 position = sig
                 entry_bar = i
+                peak_price = entry_price  # init trailing peak
             else:
                 position = 0
                 entry_price = 0
+                peak_price = 0
                 position_notional = 0
 
         equity_curve[i] = equity

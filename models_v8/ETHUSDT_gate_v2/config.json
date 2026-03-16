@@ -27,7 +27,9 @@
         "ret_12",
         "tf4h_atr_norm_14"
       ],
-      "ic": 0.04689305627927354
+      "ic": 0.04689305627927354,
+      "ridge": "ridge_h24.pkl",
+      "ridge_ic": -0.0057856645782954335
     },
     {
       "horizon": 24,
@@ -53,14 +55,14 @@
     }
   ],
   "primary_horizon": 24,
-  "ensemble_method": "ic_weighted",
+  "ensemble_method": "ridge_primary",
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01,
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
   "deadzone": 0.3,
-  "min_hold": 12,
+  "min_hold": 18,
   "max_hold": 60,
   "long_only": false,
   "exit": {
@@ -101,5 +103,7 @@
   },
   "train_date": "2026-03-12 16:36",
   "data_range": "2020-01-01 \u2192 2026-03-12",
-  "n_bars": 54291
+  "n_bars": 54291,
+  "ridge_weight": 0.6,
+  "lgbm_weight": 0.4
 }

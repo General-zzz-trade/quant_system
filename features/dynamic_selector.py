@@ -145,6 +145,64 @@ def stable_icir_select(
     return [feature_names[i] for i in indices]
 
 
+def stability_filtered_greedy_select(
+    X: np.ndarray,
+    y: np.ndarray,
+    feature_names: Sequence[str],
+    top_k: int = 20,
+    ic_window: int = 200,
+    n_windows: int = 5,
+    min_icir: float = 0.3,
+    min_sign_consistency: float = 0.7,
+    min_pool_ratio: float = 1.5,
+) -> List[str]:
+    """Pre-filter features by stability, then greedy-select from stable pool.
+
+    Two-stage approach:
+    1. Compute ICIR report → score each feature by composite stability:
+       stability = ICIR * sign_consistency. Keep top features by score,
+       filtered by hard gates: ICIR >= min_icir AND sign >= min_sign_consistency.
+    2. Run greedy marginal-IC selection on the stable pool only.
+
+    Falls back to plain greedy if stable pool < top_k * min_pool_ratio.
+    """
+    n_samples, n_features = X.shape
+    total_needed = ic_window * n_windows
+    if n_samples < total_needed or n_samples < 50:
+        return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    # Stage 1: compute stability metrics for all features
+    report = compute_feature_icir_report(X, y, feature_names, ic_window, n_windows)
+    if not report:
+        return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    # Stage 2: score and filter features by stability
+    scored: List[tuple] = []  # (composite_score, idx, name)
+    for j, name in enumerate(feature_names):
+        if name not in report:
+            continue
+        metrics = report[name]
+        icir = metrics["icir"]
+        sign_pct = max(metrics["pct_positive"], 1.0 - metrics["pct_positive"])
+        # Hard gate: both criteria must be met
+        if icir >= min_icir and sign_pct >= min_sign_consistency:
+            composite = icir * sign_pct
+            scored.append((composite, j, name))
+
+    # Stage 3: greedy from stable pool (need enough features for meaningful selection)
+    min_pool = int(top_k * min_pool_ratio)
+    if len(scored) < min_pool:
+        return greedy_ic_select(X, y, feature_names, top_k=top_k)
+
+    # Sort by composite stability score, take best as pool for greedy
+    scored.sort(key=lambda x: -x[0])
+    stable_idx = [s[1] for s in scored]
+    stable_names = [s[2] for s in scored]
+
+    X_stable = np.ascontiguousarray(X[:, stable_idx], dtype=np.float64)
+    return greedy_ic_select(X_stable, y, stable_names, top_k=top_k)
+
+
 def _rankdata(arr: np.ndarray) -> np.ndarray:
     """Rank data (average method). Avoids scipy dependency."""
     order = np.argsort(arr)

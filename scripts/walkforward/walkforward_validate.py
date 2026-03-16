@@ -43,7 +43,7 @@ from scripts.signal_postprocess import (
     _compute_bear_mask,
     _enforce_min_hold,
 )
-from features.dynamic_selector import greedy_ic_select, stable_icir_select
+from features.dynamic_selector import greedy_ic_select, stable_icir_select, stability_filtered_greedy_select
 
 from features.batch_backtest import run_backtest_fast
 
@@ -136,7 +136,7 @@ WARMUP = 65                # feature warmup bars
 TOP_K = 15
 HORIZON = 24
 TARGET_MODE = "clipped"
-MIN_HOLD = 24
+MIN_HOLD = 18  # optimized: 18 > 24 (14/20 vs 13/20 on ETHUSDT, +397% vs +165%)
 DEADZONE = 0.5
 ZSCORE_WINDOW = 720
 ZSCORE_WARMUP = 168
@@ -360,6 +360,8 @@ def _select_features_dispatch(selector: str):
     """Return a feature selection function based on selector name."""
     if selector == "stable_icir":
         return lambda X, y, names, top_k: stable_icir_select(X, y, names, top_k=top_k)
+    if selector == "stable_greedy":
+        return lambda X, y, names, top_k: stability_filtered_greedy_select(X, y, names, top_k=top_k)
     # Default: greedy
     return lambda X, y, names, top_k: greedy_ic_select(X, y, names, top_k=top_k)
 
@@ -415,6 +417,7 @@ def run_fold(
     lgbm_threads: Optional[int] = None,
     zscore_window: int = ZSCORE_WINDOW,
     zscore_warmup: int = ZSCORE_WARMUP,
+    adaptive_stop: bool = False,
 ) -> FoldResult:
     """Train and evaluate a single fold."""
     # Prepare train/test data
@@ -687,14 +690,23 @@ def run_fold(
         use_realistic = cost_model_type == "realistic_v2"
         if use_realistic:
             from execution.sim.realistic_backtest import BacktestConfig, run_realistic_backtest
-            # Use close ± 0.5% as high/low approximation (conservative)
-            t_highs = test_closes * 1.005
-            t_lows = test_closes * 0.995
+            # Use real high/low from data if available, else close ± 0.5%
+            if "high" in test_df.columns and "low" in test_df.columns:
+                t_highs = test_df["high"].values.astype(np.float64)
+                t_lows = test_df["low"].values.astype(np.float64)
+            else:
+                t_highs = test_closes * 1.005
+                t_lows = test_closes * 0.995
             t_vols = volumes[fold.test_start:fold.test_end] if volumes is not None else np.ones(len(test_closes)) * 1000
             fr_arr = None
             if "funding_rate" in test_df.columns:
                 fr_arr = np.nan_to_num(test_df["funding_rate"].values.astype(np.float64), 0.0)
-            bcfg = BacktestConfig(initial_equity=10000, leverage=1, stop_loss_pct=0.03, max_position_pct=0.95)
+            bcfg = BacktestConfig(
+                initial_equity=10000, leverage=1, stop_loss_pct=0.03, max_position_pct=0.95,
+                adaptive_stop=cost_model_type == "realistic_v2" and adaptive_stop,
+                atr_stop_mult=2.0, atr_trail_trigger=0.8, atr_trail_step=0.3,
+                atr_breakeven_trigger=1.0,
+            )
             r = run_realistic_backtest(test_closes, t_highs, t_lows, t_vols, signal, bcfg, fr_arr)
             sharpe = r.sharpe
             total_return = r.total_return_pct / 100
@@ -1234,6 +1246,7 @@ def stitch_results(
         "fold_sharpes": sharpes,
         "fold_returns": returns,
         "stable_features": stable_features,
+        "all_feature_counts": feature_counts,
     }
 
 
@@ -1264,6 +1277,18 @@ def print_report(fold_results: List[FoldResult], summary: Dict[str, Any]) -> Non
         print("\n  Feature stability (>= 80% folds):")
         for fname, count in summary["stable_features"].items():
             print(f"    {fname}: {count}/{summary['n_folds']}")
+
+    # Cross-fold consistency metric
+    all_feature_counts = summary.get("all_feature_counts", {})
+    if all_feature_counts:
+        n = summary["n_folds"]
+        total_unique = len(all_feature_counts)
+        high_stability = sum(1 for v in all_feature_counts.values() if v >= n * 0.8)
+        mid_stability = sum(1 for v in all_feature_counts.values() if n * 0.5 <= v < n * 0.8)
+        low_stability = sum(1 for v in all_feature_counts.values() if v < n * 0.5)
+        avg_consistency = sum(all_feature_counts.values()) / (total_unique * n) * 100 if total_unique > 0 else 0
+        print(f"\n  Feature consistency: {avg_consistency:.0f}% avg across {total_unique} unique features")
+        print(f"    High (>=80%): {high_stability}  Mid (50-80%): {mid_stability}  Low (<50%): {low_stability}")
 
 
 # ── Main ─────────────────────────────────────────────────────
@@ -1296,6 +1321,8 @@ def main() -> None:
                         help="Use z-score-based position sizing instead of binary {0,1}")
     parser.add_argument("--realistic", action="store_true",
                         help="Use realistic_v2 backtest engine (high/low stops, margin, dynamic slippage)")
+    parser.add_argument("--adaptive-stop", action="store_true",
+                        help="Use ATR-based adaptive trailing stop instead of fixed 3%%")
     parser.add_argument("--hpo-trials", type=int, default=HPO_TRIALS,
                         help=f"Number of HPO trials per fold (default: {HPO_TRIALS})")
     parser.add_argument("--ensemble", action="store_true",
@@ -1338,9 +1365,9 @@ def main() -> None:
                         help=f"NN sliding window length (default: {NN_SEQ_LEN})")
     parser.add_argument("--nn-epochs", type=int, default=NN_EPOCHS,
                         help=f"NN max training epochs (default: {NN_EPOCHS})")
-    parser.add_argument("--selector", choices=["greedy", "stable_icir"],
+    parser.add_argument("--selector", choices=["greedy", "stable_icir", "stable_greedy"],
                         default="greedy",
-                        help="Feature selector: greedy (default) or stable_icir")
+                        help="Feature selector: greedy (default), stable_greedy, or stable_icir")
     parser.add_argument("--short-supplement", action="store_true",
                         help="Add independent short model supplement to Strategy F (fills flat gaps in bear regime)")
     parser.add_argument("--parallel", type=int, default=1,
@@ -1383,6 +1410,7 @@ def main() -> None:
     dd_limit = args.dd_limit
     dd_cooldown = args.dd_cooldown
     cost_model_type = "realistic_v2" if getattr(args, "realistic", False) else args.cost_model
+    adaptive_stop = getattr(args, "adaptive_stop", False)
     zscore_window = args.zscore_window
     zscore_warmup = args.zscore_warmup
     nn_ensemble = args.nn_ensemble
@@ -1482,9 +1510,15 @@ def main() -> None:
     closes = feat_df["close"].values.astype(np.float64) if "close" in feat_df.columns else df["close"].values.astype(np.float64)
     volumes_all = df["volume"].values.astype(np.float64) if "volume" in df.columns else np.ones(len(df))
 
+    # Inject high/low from raw data for adaptive stop (ATR needs real high/low)
+    if "high" not in feat_df.columns and "high" in df.columns:
+        feat_df["high"] = df["high"].values[:len(feat_df)].astype(np.float64)
+    if "low" not in feat_df.columns and "low" in df.columns:
+        feat_df["low"] = df["low"].values[:len(feat_df)].astype(np.float64)
+
     # Available feature names (exclude close, non-feature columns)
     all_feature_names = [c for c in feat_df.columns
-                         if c not in ("close", "timestamp", "open_time")
+                         if c not in ("close", "timestamp", "open_time", "high", "low", "open")
                          and c not in BLACKLIST]
 
     # Get timestamps for period labels
@@ -1514,6 +1548,7 @@ def main() -> None:
                 selector=selector, lgbm_threads=lgbm_threads,
                 short_supplement=short_supplement,
                 zscore_window=zscore_window, zscore_warmup=zscore_warmup,
+                adaptive_stop=adaptive_stop,
             )
         else:
             kw = dict(

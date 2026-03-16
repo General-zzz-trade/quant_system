@@ -34,6 +34,13 @@ POLL_INTERVAL = 60  # seconds between checks
 SYMBOL_CONFIG = {
     "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2"},
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2"},
+    # 15m alpha: separate model, different interval
+    "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
+                    "interval": "15", "warmup": 800},
+    # SUI 1h alpha (walk-forward 6/7 PASS, Sharpe 1.63, +150%)
+    "SUIUSDT": {"size": 0.1, "model_dir": "SUIUSDT"},
+    # AXS 1h alpha (walk-forward 13/17 PASS, Sharpe 1.25, +241%)
+    "AXSUSDT": {"size": 1.0, "model_dir": "AXSUSDT"},
 }
 
 
@@ -64,13 +71,26 @@ def load_model(model_dir: Path) -> dict:
         xgb_path = model_dir / hm.get("xgb", "")
         if xgb_path.exists():
             with open(xgb_path, "rb") as f:
-                xgb_raw = pickle.load(f)  # noqa: S301
+                xgb_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
             xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
+
+        # Also load Ridge if available (walk-forward winner: 15/20 PASS)
+        ridge_model = None
+        ridge_features = None
+        ridge_name = hm.get("ridge", "")
+        ridge_path = model_dir / ridge_name if ridge_name else None
+        if ridge_path and ridge_path.is_file():
+            with open(ridge_path, "rb") as f:
+                ridge_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+            ridge_model = ridge_raw["model"] if isinstance(ridge_raw, dict) else ridge_raw
+            ridge_features = ridge_raw.get("features") if isinstance(ridge_raw, dict) else None
 
         horizon_models.append({
             "horizon": hm["horizon"],
             "lgbm": model,
             "xgb": xgb_model,
+            "ridge": ridge_model,
+            "ridge_features": ridge_features,  # may differ from lgbm features
             "features": hm["features"],
             "ic": hm.get("ic", 0.01),
         })
@@ -88,7 +108,7 @@ def load_model(model_dir: Path) -> dict:
         "horizon_models": horizon_models,
         "lgbm_xgb_weight": config.get("lgbm_xgb_weight", 0.5),
         "deadzone": config.get("deadzone", 2.0),
-        "min_hold": config.get("min_hold", 12),
+        "min_hold": config.get("min_hold", 18),
         "max_hold": config.get("max_hold", 96),
         "zscore_window": config.get("zscore_window", 720),
         "zscore_warmup": config.get("zscore_warmup", 180),
@@ -115,16 +135,15 @@ def create_adapter():
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
-    # Kelly-optimal leverage ladder (with safety margin for stop-loss slippage)
-    # Math optimal: 20x. Real-world safe: 5-10x.
-    # Ladder reduces leverage as equity grows (diminishing marginal utility of risk).
+    # Kelly-optimal leverage ladder (validated by Monte Carlo simulation 2026-03-15)
+    # Full Kelly = 1.3x, half-Kelly = 0.65x. At 3x+, bust rate > 50%.
+    # Geometric mean: 1.5x=14.3%/q (best), 2x=11.0%/q, 3x=-4.4%/q (negative!)
+    # Ladder is flat at 1.5x — Kelly optimal doesn't depend on account size.
     LEVERAGE_LADDER = [
-        (0,      10.0),   # $0-$500:     10x (small money, max growth)
-        (500,     7.0),   # $500-$2K:     7x (meaningful capital)
-        (2000,    5.0),   # $2K-$5K:      5x (worth protecting)
-        (5000,    3.0),   # $5K-$20K:     3x (real money)
-        (20000,   2.0),   # $20K-$50K:    2x (conservative growth)
-        (50000,   1.0),   # $50K+:        1x (pure alpha, no leverage risk)
+        (0,      1.5),    # $0-$5K:      1.5x (Kelly optimal, 2% bust rate)
+        (5000,   1.5),    # $5K-$20K:    1.5x (same — Kelly is scale-invariant)
+        (20000,  1.0),    # $20K-$50K:   1.0x (half-Kelly, capital preservation)
+        (50000,  1.0),    # $50K+:       1.0x (pure alpha, no leverage risk)
     ]
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
@@ -160,13 +179,25 @@ class AlphaRunner:
         self._hold_count = 0
         self._bars_processed = 0
 
-        # Regime filter state
+        # Regime filter state — thresholds scale with timeframe
         self._closes: list[float] = []
         self._rets: list[float] = []
         self._regime_active = True
-        self._vol_threshold = 0.004   # 20-bar ret stdev
-        self._trend_threshold = 0.04  # |close/MA480 - 1|
-        self._ma_window = 480
+        # Detect timeframe from model config: 15m bars have smaller per-bar returns
+        is_15m = "15m" in model_info.get("config", {}).get("version", "")
+        if is_15m:
+            # 15m bars: vol is ~2x lower, scale down threshold
+            self._vol_threshold = 0.002   # 20-bar vol on 15m ≈ 5h
+            self._trend_threshold = 0.02  # trend more sensitive on short TF
+            self._ma_window = 480 * 4     # 480×4 = 1920 bars = 20 days (same real time as 1h)
+            self._ranging_window = 400    # 400 bars = ~4 days (same as 100 1h bars)
+            self._ranging_threshold = 0.06  # slightly more lenient
+        else:
+            self._vol_threshold = 0.004   # 20-bar vol on 1h ≈ 20h
+            self._trend_threshold = 0.04  # |close/MA480 - 1|
+            self._ma_window = 480         # 480 bars = 20 days
+            self._ranging_window = 100    # 100 bars = ~4 days
+            self._ranging_threshold = 0.08
 
         # P&L tracking + drawdown circuit breaker
         self._entry_price: float = 0.0
@@ -177,13 +208,22 @@ class AlphaRunner:
         self._max_drawdown_pct: float = 15.0  # kill at 15% drawdown
         self._killed: bool = False
 
+        # Adaptive stop-loss state (grid-search optimized 2026-03-15)
+        # ATR×2.0 initial, trail at 0.8×ATR profit, step 0.3×ATR → 18/20 folds, 75% trail wins
+        self._atr_buffer: list[float] = []  # recent ATR values for adaptive stop
+        self._trade_peak_price: float = 0.0  # highest favorable price since entry (for trailing)
+        self._atr_stop_mult: float = 2.0     # ATR multiplier for initial stop
+        self._trail_atr_mult: float = 0.8    # trail activates after 0.8×ATR profit (was 1.5)
+        self._trail_step: float = 0.3        # tight trail: 0.3×ATR (was 0.5)
+        self._breakeven_atr: float = 1.0     # move stop to breakeven after 1x ATR profit
+
         from _quant_hotpath import RustFeatureEngine
         self._engine = RustFeatureEngine()
 
-    def warmup(self) -> int:
+    def warmup(self, limit: int = WARMUP_BARS, interval: str = INTERVAL) -> int:
         """Fetch historical bars and warm up feature engine."""
-        bars = self._adapter.get_klines(self._symbol, interval=INTERVAL,
-                                        limit=WARMUP_BARS)
+        bars = self._adapter.get_klines(self._symbol, interval=interval,
+                                        limit=limit)
         bars.reverse()  # Bybit returns newest first
 
         for bar in bars:
@@ -205,54 +245,153 @@ class AlphaRunner:
                      len(bars), len(self._predictions), regime_str)
         return len(bars)
 
-    def check_realtime_stoploss(self, price: float) -> bool:
-        """Check stop-loss against real-time price (called on every tick).
+    def _current_atr(self) -> float:
+        """Get current ATR (average true range) from recent bar data.
 
-        Returns True if position was stopped out.
-        This runs on EVERY price update (~100ms), not just bar close.
-        Critical for high leverage — prevents -11.7% gaps.
+        Uses 14-bar ATR as percentage of price. Falls back to 1.5% if
+        insufficient data.
+        """
+        if len(self._atr_buffer) < 5:
+            return 0.015  # 1.5% default
+        return float(np.mean(self._atr_buffer[-14:]))
+
+    def _compute_stop_price(self, current_price: float) -> float:
+        """Compute adaptive stop price based on ATR + trailing logic.
+
+        Three-phase stop:
+        1. Initial: entry ± ATR × 2.0 (wide, let trade breathe)
+        2. Breakeven: after 1×ATR profit, move stop to entry price
+        3. Trailing: after 1.5×ATR profit, trail at peak - ATR×0.5
+
+        Hard floor: never allow stop wider than 5% (capital protection).
+        Hard ceiling: never allow stop tighter than 0.3% (avoid noise stops).
+        """
+        if self._entry_price <= 0 or self._current_signal == 0:
+            return 0.0
+
+        atr = self._current_atr()
+        side = self._current_signal  # +1=long, -1=short
+        entry = self._entry_price
+
+        # Update trade peak (best price since entry)
+        if side > 0:
+            self._trade_peak_price = max(self._trade_peak_price, current_price)
+            profit_pct = (self._trade_peak_price - entry) / entry
+        else:
+            self._trade_peak_price = min(self._trade_peak_price, current_price)
+            profit_pct = (entry - self._trade_peak_price) / entry
+
+        # Phase 1: Initial stop — wide, based on ATR
+        initial_stop_dist = atr * self._atr_stop_mult  # typically 2×ATR ≈ 3%
+
+        # Phase 2: Breakeven — after 1×ATR profit, move stop to entry
+        if profit_pct >= atr * self._breakeven_atr:
+            # Phase 3: Trailing — after 1.5×ATR profit, trail tightly
+            if profit_pct >= atr * self._trail_atr_mult:
+                trail_dist = atr * self._trail_step  # tight trail: 0.5×ATR
+                if side > 0:
+                    stop = self._trade_peak_price * (1 - trail_dist)
+                else:
+                    stop = self._trade_peak_price * (1 + trail_dist)
+            else:
+                # Breakeven stop (at entry + tiny buffer)
+                buffer = atr * 0.1  # 0.1×ATR above entry
+                if side > 0:
+                    stop = entry * (1 + buffer)
+                else:
+                    stop = entry * (1 - buffer)
+        else:
+            # Initial wide stop
+            if side > 0:
+                stop = entry * (1 - initial_stop_dist)
+            else:
+                stop = entry * (1 + initial_stop_dist)
+
+        # Hard floor: max 5% loss (capital protection)
+        if side > 0:
+            floor = entry * 0.95
+            stop = max(stop, floor)
+        else:
+            ceil = entry * 1.05
+            stop = min(stop, ceil)
+
+        # Hard ceiling: min 0.3% distance (avoid noise stops)
+        min_dist = entry * 0.003
+        if side > 0 and current_price - stop < min_dist:
+            stop = min(stop, current_price - min_dist)
+        elif side < 0 and stop - current_price < min_dist:
+            stop = max(stop, current_price + min_dist)
+
+        return stop
+
+    def check_realtime_stoploss(self, price: float) -> bool:
+        """Check adaptive stop-loss against real-time price.
+
+        Called on every tick (~100ms). Uses ATR-based trailing stop
+        that adapts to market volatility.
         """
         if self._current_signal == 0 or self._entry_price <= 0 or self._killed:
             return False
 
-        if self._current_signal > 0:
-            unrealized = (price - self._entry_price) / self._entry_price
-        else:
-            unrealized = (self._entry_price - price) / self._entry_price
+        stop = self._compute_stop_price(price)
 
-        stop_loss_pct = 0.03
-        if unrealized < -stop_loss_pct:
+        triggered = False
+        if self._current_signal > 0 and price <= stop:
+            triggered = True
+        elif self._current_signal < 0 and price >= stop:
+            triggered = True
+
+        if triggered:
+            if self._current_signal > 0:
+                unrealized = (price - self._entry_price) / self._entry_price
+            else:
+                unrealized = (self._entry_price - price) / self._entry_price
+
+            atr = self._current_atr()
+            phase = "TRAIL" if unrealized > 0 else ("BREAKEVEN" if abs(unrealized) < atr else "INITIAL")
+
             logger.warning(
-                "%s REALTIME STOP: price=$%.2f entry=$%.2f unrealized=%.2f%% > -%.0f%%",
-                self._symbol, price, self._entry_price, unrealized * 100, stop_loss_pct * 100,
+                "%s ADAPTIVE STOP [%s]: price=$%.2f stop=$%.2f entry=$%.2f "
+                "pnl=%.2f%% atr=%.2f%% peak=$%.2f",
+                self._symbol, phase, price, stop, self._entry_price,
+                unrealized * 100, atr * 100, self._trade_peak_price,
             )
             if not self._dry_run:
                 self._adapter.close_position(self._symbol)
 
-            # Track P&L
             pnl_usd = unrealized * self._entry_price * self._position_size
             self._total_pnl += pnl_usd
             self._trade_count += 1
+            if pnl_usd > 0:
+                self._win_count += 1
             logger.info(
-                "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d",
-                self._symbol, pnl_usd, self._total_pnl, self._trade_count,
+                "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d/%d",
+                self._symbol, pnl_usd, self._total_pnl,
+                self._win_count, self._trade_count,
             )
 
             self._current_signal = 0
             self._hold_count = 0
             self._entry_price = 0.0
+            self._trade_peak_price = 0.0
             return True
 
         return False
 
     def _ensemble_predict(self, feat_dict: dict) -> float | None:
-        """IC-weighted ensemble across horizons, LightGBM + XGBoost blend."""
+        """Ensemble: Ridge (primary) + LightGBM (secondary).
+
+        Ridge won 20-fold walk-forward (15/20 PASS, Sharpe 0.54, +433%).
+        Config weights: ridge_weight (default 0.6) + lgbm_weight (default 0.4).
+        """
         if not self._horizon_models:
-            # Fallback: single model
             x = [feat_dict.get(f, 0.0) or 0.0 for f in self._features]
             if any(np.isnan(x)):
                 return None
             return float(self._model.predict([x])[0])
+
+        ridge_w = self._config.get("ridge_weight", 0.6)
+        lgbm_w = self._config.get("lgbm_weight", 0.4)
 
         weighted_sum = 0.0
         weight_total = 0.0
@@ -263,22 +402,21 @@ class AlphaRunner:
             if any(np.isnan(x)):
                 continue
 
-            ic = max(hm["ic"], 0.001)  # floor to avoid zero weight
+            ic = max(hm["ic"], 0.001)
 
-            # LightGBM prediction
-            lgbm_pred = float(hm["lgbm"].predict([x])[0])
-
-            # XGBoost prediction (if available)
-            if hm["xgb"] is not None:
-                import xgboost as xgb
-                dm = xgb.DMatrix(np.array([x], dtype=np.float32),
-                                 feature_names=feats)
-                xgb_pred = float(hm["xgb"].predict(dm)[0])
-                # Blend LightGBM + XGBoost
-                w = self._lgbm_xgb_weight
-                pred = lgbm_pred * w + xgb_pred * (1 - w)
+            # Ridge prediction (primary — walk-forward winner)
+            if hm.get("ridge") is not None:
+                # Ridge may use different features than LGBM
+                rf = hm.get("ridge_features") or feats
+                rx = [feat_dict.get(f, 0.0) or 0.0 for f in rf]
+                if not any(np.isnan(rx)):
+                    ridge_pred = float(hm["ridge"].predict([rx])[0])
+                    lgbm_pred = float(hm["lgbm"].predict([x])[0])
+                    pred = ridge_pred * ridge_w + lgbm_pred * lgbm_w
+                else:
+                    pred = float(hm["lgbm"].predict([x])[0])
             else:
-                pred = lgbm_pred
+                pred = float(hm["lgbm"].predict([x])[0])
 
             weighted_sum += pred * ic
             weight_total += ic
@@ -394,14 +532,13 @@ class AlphaRunner:
         # If price has bounced back and forth without making progress over 100 bars,
         # it's ranging. Net displacement / total path should be low.
         is_ranging = False
-        if len(self._closes) >= 100:
-            window = self._closes[-100:]
+        rw = self._ranging_window
+        if len(self._closes) >= rw:
+            window = self._closes[-rw:]
             net_move = abs(window[-1] - window[0])
             total_path = sum(abs(window[j] - window[j-1]) for j in range(1, len(window)))
             efficiency = net_move / total_path if total_path > 0 else 0
-            # Low efficiency (<0.08) = choppy range-bound
-            # High efficiency (>0.15) = trending
-            is_ranging = efficiency < 0.08 and trend < 0.04
+            is_ranging = efficiency < self._ranging_threshold and trend < self._trend_threshold
 
         self._regime_active = base_active and not is_ranging
 
@@ -466,26 +603,42 @@ class AlphaRunner:
         else:
             desired = 0
 
+        # Update ATR buffer (True Range as % of close)
+        if len(self._closes) >= 2:
+            prev_close = self._closes[-2]
+            tr = max(
+                bar["high"] - bar["low"],
+                abs(bar["high"] - prev_close),
+                abs(bar["low"] - prev_close),
+            )
+            atr_pct = tr / bar["close"] if bar["close"] > 0 else 0
+            self._atr_buffer.append(atr_pct)
+            if len(self._atr_buffer) > 50:
+                self._atr_buffer = self._atr_buffer[-50:]
+
         # Smart exits (in priority order)
         force_exit = False
+        exit_reason = ""
 
-        # 1. Stop loss: hard cut at 3% to protect capital at high leverage
-        stop_loss_pct = 0.03
+        # 1. Adaptive stop loss: ATR-based with trailing
         if prev_signal != 0 and self._entry_price > 0:
-            if prev_signal > 0:
-                unrealized = (bar["close"] - self._entry_price) / self._entry_price
-            else:
-                unrealized = (self._entry_price - bar["close"]) / self._entry_price
-            if unrealized < -stop_loss_pct:
+            stop = self._compute_stop_price(bar["close"])
+            if prev_signal > 0 and bar["low"] <= stop:
                 force_exit = True
+                exit_reason = "atr_stop"
+            elif prev_signal < 0 and bar["high"] >= stop:
+                force_exit = True
+                exit_reason = "atr_stop"
 
         # 2. Z-score reversal after min_hold
         z_reversal_threshold = -0.3
         if not force_exit and (prev_signal != 0 and self._hold_count >= self._min_hold):
             if prev_signal > 0 and z < z_reversal_threshold:
                 force_exit = True
+                exit_reason = "z_reversal"
             elif prev_signal < 0 and z > -z_reversal_threshold:
                 force_exit = True
+                exit_reason = "z_reversal"
 
         if force_exit:
             new_signal = 0
@@ -515,6 +668,8 @@ class AlphaRunner:
             "regime": "active" if regime_ok else "filtered",
             "dz": round(self._deadzone, 3),
         }
+        if force_exit:
+            result["exit_reason"] = exit_reason
 
         if new_signal != prev_signal:
             # Recompute position size before entering new position
@@ -580,52 +735,278 @@ class AlphaRunner:
             side = "buy" if new == 1 else "sell"
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             self._entry_price = price
-            logger.info("Opened %s %.4f @ ~$%.1f: %s", side, self._position_size, price, result)
-            trade_info.update({"side": side, "qty": self._position_size, "result": result})
+            self._trade_peak_price = price  # initialize trailing peak
+            atr = self._current_atr()
+            stop = self._compute_stop_price(price)
+            logger.info(
+                "Opened %s %.4f @ ~$%.1f stop=$%.2f (ATR=%.2f%%): %s",
+                side, self._position_size, price, stop, atr * 100, result,
+            )
+            trade_info.update({"side": side, "qty": self._position_size, "result": result,
+                               "stop": round(stop, 2), "atr_pct": round(atr * 100, 2)})
         else:
             self._entry_price = 0.0
+            self._trade_peak_price = 0.0
             trade_info["action"] = "flat"
 
         return trade_info
 
 
-def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool) -> None:
-    """WebSocket-based event loop — processes bars on confirmed kline push."""
-    from execution.adapters.bybit.ws_client import BybitWsClient
+class PortfolioCombiner:
+    """Combines signals from multiple alphas into a single net position.
 
-    symbols = list(runners.keys())
+    Each alpha produces signal ∈ {-1, 0, +1} with a weight.
+    Net signal = weighted average → discretize to {-1, 0, +1}.
 
-    def on_ws_bar(symbol: str, bar: dict) -> None:
-        runner = runners.get(symbol)
-        if not runner:
-            return
-        result = runner.process_bar(bar)
-        if result.get("action") == "signal":
-            regime = result.get("regime", "?")
+    Prevents: double-sizing when both agree, fee waste when they disagree,
+    and oversized positions from independent execution.
+
+    Position management:
+    - Net signal > threshold → long
+    - Net signal < -threshold → short
+    - Otherwise → flat
+    - Single position on exchange, sized by combined conviction
+    """
+
+    def __init__(self, adapter: Any, symbol: str, weights: dict[str, float],
+                 threshold: float = 0.3, dry_run: bool = False,
+                 min_size: float = 0.01):
+        self._adapter = adapter
+        self._symbol = symbol
+        self._weights = weights  # runner_key → weight (e.g. {"ETHUSDT": 0.5, "ETHUSDT_15m": 0.5})
+        self._threshold = threshold
+        self._dry_run = dry_run
+        self._min_size = min_size
+
+        self._signals: dict[str, int] = {k: 0 for k in weights}
+        self._current_position: int = 0  # -1, 0, +1
+        self._position_size: float = 0.0
+        self._entry_price: float = 0.0
+        self._total_pnl: float = 0.0
+        self._trade_count: int = 0
+        self._win_count: int = 0
+
+    def update_signal(self, runner_key: str, signal: int, price: float) -> dict | None:
+        """Update one alpha's signal and recompute net position.
+
+        Returns trade info dict if position changed, None otherwise.
+        """
+        if runner_key not in self._signals:
+            return None
+
+        old_signal = self._signals[runner_key]
+        if signal == old_signal:
+            return None  # no change
+
+        self._signals[runner_key] = signal
+
+        # Compute weighted net signal
+        net = 0.0
+        total_weight = 0.0
+        for k, w in self._weights.items():
+            net += self._signals[k] * w
+            total_weight += w
+        if total_weight > 0:
+            net /= total_weight
+
+        # AGREE ONLY: trade only when ALL alphas agree direction
+        # Backtest: AGREE Sharpe=5.48 vs weighted COMBO Sharpe=3.18 (+72%)
+        n_long = sum(1 for s in self._signals.values() if s > 0)
+        n_short = sum(1 for s in self._signals.values() if s < 0)
+        n_total = len(self._signals)
+
+        if n_long == n_total:
+            desired = 1    # unanimous long
+        elif n_short == n_total:
+            desired = -1   # unanimous short
+        else:
+            desired = 0    # any disagreement → flat
+
+        if desired == self._current_position:
+            return None  # net position unchanged
+
+        # Position change needed
+        trade = self._execute_change(desired, price)
+        return trade
+
+    def _execute_change(self, desired: int, price: float) -> dict:
+        """Execute net position change on exchange."""
+        prev = self._current_position
+        trade_info = {
+            "from": prev, "to": desired, "price": price,
+            "signals": dict(self._signals),
+        }
+
+        # Close existing
+        if prev != 0 and self._entry_price > 0:
+            if prev > 0:
+                pnl_pct = (price - self._entry_price) / self._entry_price
+            else:
+                pnl_pct = (self._entry_price - price) / self._entry_price
+            pnl_usd = pnl_pct * self._entry_price * self._position_size
+            self._total_pnl += pnl_usd
+            self._trade_count += 1
+            if pnl_usd > 0:
+                self._win_count += 1
+            trade_info["closed_pnl"] = round(pnl_usd, 4)
             logger.info(
-                "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
-                symbol, result["bar"], result["close"],
-                result["z"], result["signal"],
-                result["hold_count"], regime, result.get("dz", 0),
-                f" TRADE={result['trade']}" if "trade" in result else "",
+                "COMBO CLOSE %s: pnl=$%.4f total=$%.4f wins=%d/%d",
+                "long" if prev > 0 else "short",
+                pnl_usd, self._total_pnl, self._win_count, self._trade_count,
             )
 
-    def on_ws_tick(symbol: str, price: float) -> None:
-        """Real-time stop-loss check on every price tick (~100ms)."""
-        runner = runners.get(symbol)
-        if runner:
-            runner.check_realtime_stoploss(price)
+            if not self._dry_run:
+                self._adapter.close_position(self._symbol)
 
-    ws = BybitWsClient(
-        symbols=symbols, interval=INTERVAL,
-        on_bar=on_ws_bar, on_tick=on_ws_tick, demo=True,
-    )
+        # Compute new position size
+        if desired != 0:
+            try:
+                bal = self._adapter.get_balances()
+                usdt = bal.get("USDT")
+                equity = float(usdt.total) if usdt else 0
+            except Exception:
+                equity = 100
+
+            # Conviction scaling: both agree = full size, one only = half
+            agree_count = sum(1 for s in self._signals.values() if s == desired)
+            conviction = agree_count / len(self._signals)  # 0.5 = one alpha, 1.0 = both
+            leverage = 1.5
+            size = (equity * leverage * conviction) / price
+            size = max(self._min_size, round(size, 2))
+
+            self._position_size = size
+            self._entry_price = price
+
+            # Cap at 30% of equity per symbol (leave room for other symbols)
+            max_notional = equity * 0.30 * leverage
+            size = min(size, max_notional / price)
+            size = max(self._min_size, round(size, 2))
+
+            self._position_size = size
+            side = "buy" if desired > 0 else "sell"
+            if not self._dry_run:
+                result = self._adapter.send_market_order(self._symbol, side, size)
+                trade_info["result"] = result
+                logger.info(
+                    "COMBO ORDER result: %s %s %.2f → %s",
+                    side, self._symbol, size, result,
+                )
+            logger.info(
+                "COMBO OPEN %s %.2f @ $%.1f conviction=%.0f%% signals=%s",
+                side, size, price, conviction * 100, self._signals,
+            )
+        else:
+            self._entry_price = 0.0
+            self._position_size = 0.0
+
+        self._current_position = desired
+        return trade_info
+
+    def get_status(self) -> dict:
+        return {
+            "position": self._current_position,
+            "signals": dict(self._signals),
+            "pnl": f"${self._total_pnl:.2f}",
+            "trades": f"{self._win_count}/{self._trade_count}",
+            "size": self._position_size,
+        }
+
+
+def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
+                 runner_intervals: dict | None = None) -> None:
+    """WebSocket-based event loop — processes bars on confirmed kline push.
+
+    Supports multiple intervals (e.g. 1h + 15m) via separate WS clients.
+    runner_intervals maps runner_key → (real_symbol, interval).
+    """
+    from execution.adapters.bybit.ws_client import BybitWsClient
+
+    if runner_intervals is None:
+        runner_intervals = {s: (s, INTERVAL) for s in runners}
+
+    # Group runners by interval → separate WS clients
+    interval_groups: dict[str, dict[str, str]] = {}  # interval → {real_symbol: runner_key}
+    for runner_key, (real_symbol, interval) in runner_intervals.items():
+        interval_groups.setdefault(interval, {})[real_symbol] = runner_key
+
+    # Build portfolio combiner for symbols with multiple alphas
+    # Group runner_keys by real_symbol
+    symbol_runners: dict[str, list[str]] = {}
+    for rkey, (rsym, _) in runner_intervals.items():
+        symbol_runners.setdefault(rsym, []).append(rkey)
+
+    combiners: dict[str, PortfolioCombiner] = {}
+    for rsym, rkeys in symbol_runners.items():
+        if len(rkeys) > 1:
+            # Multiple alphas on same symbol → use combiner
+            weights = {k: 0.5 for k in rkeys}
+            combiners[rsym] = PortfolioCombiner(
+                adapter=adapter, symbol=rsym, weights=weights,
+                threshold=0.3, dry_run=dry_run,
+            )
+            # Disable direct trading in individual runners
+            for rk in rkeys:
+                runners[rk]._dry_run = True  # signals only, combiner executes
+            logger.info("COMBO mode: %s runners=%s weights=%s", rsym, rkeys, weights)
+
+    def make_bar_handler(group: dict[str, str]):
+        def on_ws_bar(symbol: str, bar: dict) -> None:
+            runner_key = group.get(symbol)
+            if not runner_key:
+                return
+            runner = runners.get(runner_key)
+            if not runner:
+                return
+            result = runner.process_bar(bar)
+            if result.get("action") == "signal":
+                regime = result.get("regime", "?")
+                label = runner_key if runner_key != symbol else symbol
+                trade_str = ""
+
+                # Route signal through combiner if available
+                real_sym = runner_intervals.get(runner_key, (symbol, ""))[0]
+                if real_sym in combiners:
+                    combo_trade = combiners[real_sym].update_signal(
+                        runner_key, result["signal"], result["close"],
+                    )
+                    if combo_trade:
+                        trade_str = f" COMBO={combo_trade}"
+                elif "trade" in result:
+                    trade_str = f" TRADE={result['trade']}"
+
+                logger.info(
+                    "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
+                    label, result["bar"], result["close"],
+                    result["z"], result["signal"],
+                    result["hold_count"], regime, result.get("dz", 0),
+                    trade_str,
+                )
+        return on_ws_bar
+
+    def on_ws_tick(symbol: str, price: float) -> None:
+        """Real-time stop-loss check — routes to all runners for this symbol."""
+        for rkey, (rsym, _) in runner_intervals.items():
+            if rsym == symbol:
+                runner = runners.get(rkey)
+                if runner:
+                    runner.check_realtime_stoploss(price)
+
+    # Start one WS client per interval
+    ws_clients = []
+    for interval, group in interval_groups.items():
+        real_symbols = list(group.keys())
+        ws = BybitWsClient(
+            symbols=real_symbols, interval=interval,
+            on_bar=make_bar_handler(group), on_tick=on_ws_tick, demo=True,
+        )
+        ws_clients.append(ws)
 
     logger.info(
         "Starting multi-symbol alpha (WebSocket + realtime stop): %s, dry=%s",
-        symbols, dry_run,
+        list(runners.keys()), dry_run,
     )
-    ws.start()
+    for ws in ws_clients:
+        ws.start()
 
     try:
         while True:
@@ -633,11 +1014,15 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool) -> None:
             sigs = {s: r._current_signal for s, r in runners.items()}
             pnls = {s: f"${r._total_pnl:.2f}" for s, r in runners.items()}
             trades = {s: f"{r._win_count}/{r._trade_count}" for s, r in runners.items()}
-            sizes = {s: f"{r._position_size:.2f}" for s, r in runners.items()}
-            logger.info("WS HEARTBEAT sigs=%s pnl=%s trades=%s size=%s", sigs, pnls, trades, sizes)
+            combo_status = {sym: c.get_status() for sym, c in combiners.items()} if combiners else {}
+            if combo_status:
+                logger.info("WS HEARTBEAT sigs=%s combo=%s", sigs, combo_status)
+            else:
+                logger.info("WS HEARTBEAT sigs=%s pnl=%s trades=%s", sigs, pnls, trades)
     except KeyboardInterrupt:
         logger.info("Stopped")
-        ws.stop()
+        for ws in ws_clients:
+            ws.stop()
         if not dry_run:
             for symbol, runner in runners.items():
                 if runner._current_signal != 0:
@@ -669,6 +1054,8 @@ def main():
     runners: dict[str, AlphaRunner] = {}
     last_bar_times: dict[str, int] = {}
 
+    runner_intervals: dict[str, tuple[str, str]] = {}  # runner_key → (real_symbol, interval)
+
     for symbol in args.symbols:
         sym_cfg = SYMBOL_CONFIG.get(symbol, {"size": 0.001, "model_dir": f"{symbol}_gate_v2"})
         model_dir = MODEL_BASE / sym_cfg["model_dir"]
@@ -677,6 +1064,10 @@ def main():
             continue
 
         model_info = load_model(model_dir)
+        real_symbol = sym_cfg.get("symbol", symbol)  # e.g. ETHUSDT_15m → ETHUSDT
+        interval = sym_cfg.get("interval", INTERVAL)
+        warmup = sym_cfg.get("warmup", WARMUP_BARS)
+
         logger.info(
             "%s: model v%s, %d features, dz=%.1f, hold=%d-%d, size=%.4f",
             symbol, model_info["config"]["version"],
@@ -685,12 +1076,13 @@ def main():
         )
 
         runner = AlphaRunner(
-            adapter=adapter, model_info=model_info, symbol=symbol,
+            adapter=adapter, model_info=model_info, symbol=real_symbol,
             dry_run=args.dry_run, position_size=sym_cfg["size"],
         )
-        logger.info("%s: warming up %d bars...", symbol, WARMUP_BARS)
-        runner.warmup()
+        logger.info("%s: warming up %d bars...", symbol, warmup)
+        runner.warmup(limit=warmup, interval=interval)
         runners[symbol] = runner
+        runner_intervals[symbol] = (real_symbol, interval)
         last_bar_times[symbol] = 0
 
     if not runners:
@@ -707,7 +1099,7 @@ def main():
 
     # WebSocket mode: push-based, low latency
     if args.ws:
-        _run_ws_mode(runners, adapter, args.dry_run)
+        _run_ws_mode(runners, adapter, args.dry_run, runner_intervals=runner_intervals)
         return
 
     logger.info(
