@@ -148,6 +148,11 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "btc_dom_momentum",               # BTC 24h ret - ALT 24h ret — dominance shift velocity
     "btc_lead_ret_1",                 # BTC ret_1 (lagged signal for ALT)
     "btc_vol_ratio",                  # ALT vol_20 / BTC vol_20 — relative volatility regime
+    # --- V14: BTC Dominance features (BTC/ETH ratio for BTC alpha) ---
+    "btc_dom_dev_20",                 # BTC/ETH ratio deviation from MA(20) — capital flow signal
+    "btc_dom_dev_50",                 # BTC/ETH ratio deviation from MA(50) — trend signal
+    "btc_dom_ret_24",                 # BTC/ETH ratio 24-bar return — short-term dominance shift
+    "btc_dom_ret_72",                 # BTC/ETH ratio 72-bar return — medium-term dominance shift
     # --- V13: Enhanced OI/LS/Taker features (IC-validated 2026-03) ---
     "oi_pct_4h",                      # 4-bar OI change rate — short-term position buildup
     "ls_deviation",                   # ls_ratio - 1.0 — directional bias magnitude
@@ -326,6 +331,10 @@ class _SymbolState:
     ls_ratio_window_24: RollingWindow = field(default_factory=lambda: RollingWindow(24))
     _last_ls_ratio: Optional[float] = None
 
+    # V14: BTC Dominance (BTC/ETH ratio)
+    _dom_ratio_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=75))
+    _last_eth_close: Optional[float] = None
+
     # V13: Enhanced OI/LS/Taker
     _oi_buf_12: Deque[float] = field(default_factory=lambda: deque(maxlen=12))
     _last_top_trader_ls: Optional[float] = None
@@ -428,6 +437,7 @@ class _SymbolState:
              open_interest: Optional[float] = None,
              ls_ratio: Optional[float] = None,
              top_trader_ls_ratio: Optional[float] = None,
+             eth_close: Optional[float] = None,
              spot_close: Optional[float] = None,
              fear_greed: Optional[float] = None,
              implied_vol: Optional[float] = None,
@@ -477,6 +487,12 @@ class _SymbolState:
         # V13: Taker sell volume (for buy/sell ratio)
         taker_sell = volume - taker_buy_volume if volume > 0 and taker_buy_volume > 0 else 0.0
         self._last_taker_sell_volume = taker_sell
+
+        # V14: BTC Dominance (BTC/ETH ratio)
+        if eth_close is not None and eth_close > 0:
+            self._last_eth_close = eth_close
+            dom_ratio = close / eth_close
+            self._dom_ratio_buf.append(dom_ratio)
 
         # LS Ratio state
         if ls_ratio is not None:
@@ -970,6 +986,32 @@ class _SymbolState:
         else:
             feats["ls_ratio_zscore_24"] = None
             feats["ls_extreme"] = None
+
+        # --- V14: BTC Dominance features ---
+        buf = self._dom_ratio_buf
+        if len(buf) >= 21:
+            cur = buf[-1]
+            ma20 = sum(list(buf)[-20:]) / 20
+            feats["btc_dom_dev_20"] = cur / ma20 - 1 if ma20 > 0 else None
+        else:
+            feats["btc_dom_dev_20"] = None
+
+        if len(buf) >= 51:
+            cur = buf[-1]
+            ma50 = sum(list(buf)[-50:]) / 50
+            feats["btc_dom_dev_50"] = cur / ma50 - 1 if ma50 > 0 else None
+        else:
+            feats["btc_dom_dev_50"] = None
+
+        if len(buf) >= 25:
+            feats["btc_dom_ret_24"] = buf[-1] / buf[-25] - 1 if buf[-25] > 0 else None
+        else:
+            feats["btc_dom_ret_24"] = None
+
+        if len(buf) >= 73:
+            feats["btc_dom_ret_72"] = buf[-1] / buf[-73] - 1 if buf[-73] > 0 else None
+        else:
+            feats["btc_dom_ret_72"] = None
 
         # --- V13: Enhanced OI/LS/Taker features ---
         # oi_pct_4h: 4-bar OI change rate
@@ -1550,6 +1592,7 @@ class EnrichedFeatureComputer:
         open_interest: Optional[float] = None,
         ls_ratio: Optional[float] = None,
         top_trader_ls_ratio: Optional[float] = None,
+        eth_close: Optional[float] = None,
         spot_close: Optional[float] = None,
         fear_greed: Optional[float] = None,
         implied_vol: Optional[float] = None,
@@ -1565,6 +1608,7 @@ class EnrichedFeatureComputer:
 
         btc_close: BTC price at same bar time. Required for V12 ALT cross-asset features.
         top_trader_ls_ratio: Top trader position L/S ratio (V13).
+        eth_close: ETH price at same bar time. Required for V14 BTC dominance features.
         """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
@@ -1585,6 +1629,7 @@ class EnrichedFeatureComputer:
                    taker_buy_quote_volume=taker_buy_quote_volume,
                    open_interest=open_interest, ls_ratio=ls_ratio,
                    top_trader_ls_ratio=top_trader_ls_ratio,
+                   eth_close=eth_close,
                    spot_close=spot_close, fear_greed=fear_greed,
                    implied_vol=implied_vol, put_call_ratio=put_call_ratio,
                    onchain_metrics=onchain_metrics,

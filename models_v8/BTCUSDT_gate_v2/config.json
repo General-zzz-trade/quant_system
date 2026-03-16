@@ -1,81 +1,64 @@
 {
   "symbol": "BTCUSDT",
-  "version": "v11",
+  "version": "v14",
   "multi_horizon": true,
   "horizons": [
-    24
+    96
   ],
   "horizon_models": [
     {
-      "horizon": 24,
-      "lgbm": "lgbm_h24.pkl",
-      "xgb": "xgb_h24.pkl",
-      "features": [
-        "cvd_10",
-        "fgi_normalized",
-        "basis_carry_adj",
-        "vwap_dev_20",
-        "atr_norm_14",
-        "dow_cos",
-        "tf4h_atr_norm_14",
-        "parkinson_vol",
+      "horizon": 96,
+      "lgbm": "lgbm_h96.pkl",
+      "xgb": "xgb_h96.pkl",
+      "ridge": "ridge_h96.pkl",
+      "ridge_features": [
+        "btc_dom_dev_20",
+        "rsi_14",
+        "cvd_20",
+        "avg_trade_size",
+        "ma_cross_5_20",
+        "dow_sin",
+        "vol_5",
         "basis_zscore_24",
-        "fgi_extreme",
-        "rsi14_x_vol_regime",
-        "vol_ma_ratio_5_20",
-        "mean_reversion_20",
-        "ret_24"
+        "avg_trade_size_ratio",
+        "funding_sign_persist",
+        "basis",
+        "funding_vs_vol",
+        "basis_momentum",
+        "dow_cos",
+        "btc_dom_ret_72"
       ],
-      "ic": 0.03998928288204544
+      "features": [
+        "btc_dom_dev_20",
+        "rsi_14",
+        "cvd_20",
+        "avg_trade_size",
+        "ma_cross_5_20",
+        "dow_sin",
+        "vol_5",
+        "basis_zscore_24",
+        "avg_trade_size_ratio",
+        "funding_sign_persist",
+        "basis",
+        "funding_vs_vol",
+        "basis_momentum",
+        "dow_cos",
+        "btc_dom_ret_72"
+      ],
+      "ic": 0.4463118130077669,
+      "ridge_ic": 0.25973418283905475
     }
   ],
-  "primary_horizon": 24,
-  "ensemble_method": "ic_weighted",
-  "ic_ema_span": 720,
-  "ic_min_threshold": -0.01,
-  "lgbm_xgb_weight": 0.5,
+  "primary_horizon": 96,
+  "ensemble_method": "ridge_primary",
+  "ridge_weight": 0.6,
+  "lgbm_weight": 0.4,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 2.0,
-  "min_hold": 12,
-  "max_hold": 96,
-  "long_only": false,
-  "exit": {
-    "trailing_stop_pct": 0.0,
-    "zscore_cap": 0.0,
-    "reversal_threshold": -0.3,
-    "deadzone_fade": 0.2
-  },
-  "regime_gate": {
-    "enabled": false,
-    "ranging_high_vol_action": "reduce",
-    "reduce_factor": 0.3
-  },
-  "time_filter": {
-    "enabled": false,
-    "skip_hours_utc": []
-  },
-  "metrics": {
-    "sharpe": 1.6032202216204294,
-    "avg_ic": 0.020815090086786225,
-    "per_horizon_ic": {
-      "24": 0.03998928288204544
-    },
-    "total_return": 0.02095850146898397,
-    "trades": 100,
-    "win_rate": 52.0,
-    "avg_net_bps": 41.917002937967936,
-    "bootstrap_sharpe_p5": 0.37575531750511687,
-    "bootstrap_sharpe_p50": 1.4137956966368692,
-    "bootstrap_sharpe_p95": 2.4717847345045403
-  },
-  "checks": {
-    "Sharpe > 1.0": true,
-    "Avg IC > 0.02": true,
-    "Trades >= 15": true,
-    "Bootstrap p5 > 0": true
-  },
-  "train_date": "2026-03-12 16:35",
-  "data_range": "2020-01-01 \u2192 2026-03-11",
-  "n_bars": 54279
+  "deadzone": 0.3,
+  "min_hold": 48,
+  "max_hold": 288,
+  "train_date": "2026-03-16 18:46",
+  "n_bars": 54279,
+  "notes": "V14: h=96, no tf4h/fgi (live-compatible), BTC/ETH dominance features"
 }

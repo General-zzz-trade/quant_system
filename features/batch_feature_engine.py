@@ -198,7 +198,45 @@ def compute_features_batch(
         if col in tf4h.columns:
             feat_df[col] = tf4h[col].values
 
+    # V14: BTC Dominance features (BTC/ETH ratio)
+    _add_dominance_features(symbol, feat_df, closes)
+
     return feat_df
+
+
+def _add_dominance_features(symbol: str, feat_df: pd.DataFrame, closes: np.ndarray) -> None:
+    """Add BTC/ETH dominance ratio features. Works for any symbol vs ETH."""
+    import pandas as _pd
+    from pathlib import Path as _P
+
+    dom_names = ["btc_dom_dev_20", "btc_dom_dev_50", "btc_dom_ret_24", "btc_dom_ret_72"]
+
+    # Need ETH data as reference
+    eth_path = _P("data_files/ETHUSDT_1h.csv")
+    if not eth_path.exists() or symbol == "ETHUSDT":
+        for name in dom_names:
+            feat_df[name] = np.nan
+        return
+
+    eth_df = pd.read_csv(eth_path)
+    eth_closes = eth_df["close"].values.astype(np.float64)
+
+    # Align by tail (both should end at same timestamp)
+    n = len(closes)
+    n_eth = len(eth_closes)
+    min_n = min(n, n_eth)
+
+    ratio = np.full(n, np.nan)
+    ratio[-min_n:] = closes[-min_n:] / np.where(eth_closes[-min_n:] > 0, eth_closes[-min_n:], 1)
+
+    ratio_s = _pd.Series(ratio)
+    ma20 = ratio_s.rolling(20).mean().values
+    ma50 = ratio_s.rolling(50).mean().values
+
+    feat_df["btc_dom_dev_20"] = ratio / np.where(ma20 > 0, ma20, np.nan) - 1
+    feat_df["btc_dom_dev_50"] = ratio / np.where(ma50 > 0, ma50, np.nan) - 1
+    feat_df["btc_dom_ret_24"] = ratio_s.pct_change(24).values
+    feat_df["btc_dom_ret_72"] = ratio_s.pct_change(72).values
 
 
 def _load_liq_schedule(symbol: str) -> np.ndarray:

@@ -28,7 +28,7 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Alpha strategy (demo/live)**:
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Full portfolio (production)
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Full portfolio (production)
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --dry-run         # Signal only, no orders
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --once --dry-run       # Single bar then exit
 sudo systemctl restart bybit-alpha.service                                   # Restart service
@@ -87,9 +87,9 @@ curl -X POST localhost:9090/kill      # Emergency kill switch
 ```
 core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
-features/        Feature computation (EnrichedFeatureComputer, 116 features incl. V12 cross-asset + V13 OI)
+features/        Feature computation (EnrichedFeatureComputer, 120 features incl. V12 cross-asset + V13 OI + V14 dominance)
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (133 = 116 enriched + 17 cross-asset)
+  feature_catalog.py   PRODUCTION_FEATURES frozenset (137 = 120 enriched + 17 cross-asset)
 decision/        Trading signals, ensemble, regime detection, rebalancing
   backtest_module.py   MLSignalDecisionModule (z-score, min-hold, trend-hold, regime gate)
   exit_manager.py      Trailing stop, z-reversal, deadzone fade exits
@@ -125,7 +125,7 @@ models_v8/       Production models (Ridge primary 60% + LightGBM 40%)
   SUIUSDT/           1h model (v1, 15 features, 6/7 PASS Sharpe 1.63)
   SUIUSDT_15m/       15m model (v11-15m, h=32, Sharpe 2.36, PASS)
   AXSUSDT/           1h model (v1, 15 features, 13/17 PASS Sharpe 1.25)
-  BTCUSDT_gate_v2/   1h model (FAIL — not deployed)
+  BTCUSDT_gate_v2/   V14 model (h=96, 15 features, 16/20 PASS Sharpe 2.03, BTC/ETH dominance)
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         7 subdirs + symlinks for compat
   ops/               run_bybit_alpha.py, compare_live_backtest.py
@@ -178,7 +178,7 @@ Key export categories (see `lib.rs` for full list):
 - `engine/coordinator.py` — Main event loop orchestrator
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
-- `features/enriched_computer.py` — 116 enriched feature definitions (V1-V13)
+- `features/enriched_computer.py` — 120 enriched feature definitions (V1-V14)
 - `features/dynamic_selector.py` — Feature selection: greedy, stable_icir, stability_filtered_greedy
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints: z-score, discretize, min-hold, trend-hold (batch + incremental)
@@ -188,7 +188,8 @@ Key export categories (see `lib.rs` for full list):
 - `runner/gate_chain.py` — GateChain: 8 gates with `process_with_audit()` for structured ORDER_AUDIT logging
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle
 - `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (133 features); `validate_model_features()`
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (137 features); `validate_model_features()`
+- `scripts/research/altcoin_rotation.py` — Cross-sectional momentum walk-forward (FAILED)
 - `scripts/data/download_oi_data.py` — OI/LS ratio/Taker data from Binance (cron every 6h)
 - `scripts/research/polymarket_binary_alpha.py` — Polymarket ML classifier walk-forward
 - `scripts/research/walkforward_5m_alpha.py` — 5m alpha walk-forward (FAILED)
@@ -240,8 +241,8 @@ export BINANCE_TESTNET_API_SECRET=...
 **Current deployment** (systemd):
 ```bash
 # Service: bybit-alpha.service
-# Command: python3 -m scripts.run_bybit_alpha --symbols ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
-# Status: active (running), Bybit Demo, AGREE ONLY mode (ETH), independent (SUI/AXS)
+# Command: python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
+# Status: active (running), Bybit Demo, 5 symbols (BTC h=96, ETH 1h+15m AGREE, SUI/AXS independent)
 # Logs: /quant_system/logs/bybit_alpha.log
 # Deploy truth: docs/deploy_truth.md (systemd/compose/CI 一致性)
 ```
@@ -259,7 +260,8 @@ export BINANCE_TESTNET_API_SECRET=...
 - SUIUSDT 1h (7 folds): Sharpe **1.63**, **+150%**, **6/7 positive** → **PASS**
 - AXSUSDT 1h (17 folds): Sharpe **1.25**, **+241%**, **13/17 positive** → **PASS**
 - SUIUSDT 15m h=32: Sharpe **2.36**, training PASS but WF 9/23 → **FAIL** (model saved, not deployed)
-- BTCUSDT 1h: Sharpe -0.21, 10/20 → FAIL. SOLUSDT 15m: 1/4 → FAIL. (Not traded)
+- **BTCUSDT V14** (h=96, dominance): Sharpe **2.03**, **+552%**, **16/20 positive** → **PASS** (BTC/ETH ratio is #1 feature)
+- SOLUSDT 15m: 1/4 → FAIL. (Not traded)
 - AXSUSDT 15m: training Sharpe 0.39 → **FAIL** (not saved)
 - ETHUSDT 5m: avg Sharpe -4.92, 0/12 → **FAIL** (5m永续alpha不可行，IC接近零)
 - Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate, geometric mean turns negative)
@@ -327,3 +329,10 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - 5m perpetual alpha is NOT viable — IC near zero, cost dominates; only 1h and 15m (ETH only) work
 - SUI/AXS 15m alpha both FAIL walk-forward; only ETH has 15m alpha
 - Polymarket ML classifier (Logistic+LGBM) loses to simple RSI rule — RSI's selectivity is the alpha, not prediction accuracy
+- V14 BTC dominance features (4 new): `btc_dom_dev_20`, `btc_dom_dev_50`, `btc_dom_ret_24`, `btc_dom_ret_72` — BTC/ETH ratio deviation, computed in Python (not Rust)
+- `EnrichedFeatureComputer.on_bar(eth_close=...)` — V14 parameter for BTC dominance; without it, 4 `btc_dom_*` features return None
+- BTC model h=96 uses `min_hold=48` (2 days), `max_hold=288` (12 days) — much slower than ETH's h=24/min_hold=18
+- `run_bybit_alpha.py` `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
+- `run_bybit_alpha.py` BTC dominance warmup fetches ETH historical klines from Binance API
+- Altcoin cross-sectional momentum FAILS — crypto assets too correlated, costs dominate; only time-series ML alpha works
+- `batch_feature_engine.py` `_add_dominance_features()` computes BTC/ETH ratio features for training; requires ETHUSDT_1h.csv

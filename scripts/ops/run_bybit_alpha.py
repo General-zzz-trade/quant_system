@@ -288,11 +288,68 @@ class AlphaRunner:
         from _quant_hotpath import RustFeatureEngine
         self._engine = RustFeatureEngine()
 
+        # V14: BTC dominance ratio buffer (BTC/ETH)
+        self._dom_ratio_buf: list[float] = []
+
+    def _fetch_eth_price(self) -> float:
+        """Fetch current ETH price from Binance for dominance computation."""
+        try:
+            url = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=ETHUSDT"
+            with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=3) as resp:
+                return float(json.loads(resp.read()).get("price", 0))
+        except Exception:
+            return 0.0
+
+    def _compute_dominance_features(self, btc_close: float) -> dict:
+        """Compute BTC/ETH dominance features for BTC alpha."""
+        eth_price = self._fetch_eth_price()
+        feats: dict = {}
+        if eth_price <= 0:
+            for k in ("btc_dom_dev_20", "btc_dom_dev_50", "btc_dom_ret_24", "btc_dom_ret_72"):
+                feats[k] = float("nan")
+            return feats
+
+        ratio = btc_close / eth_price
+        self._dom_ratio_buf.append(ratio)
+        # Keep max 75 bars
+        if len(self._dom_ratio_buf) > 75:
+            self._dom_ratio_buf = self._dom_ratio_buf[-75:]
+
+        buf = self._dom_ratio_buf
+        if len(buf) >= 21:
+            ma20 = sum(buf[-20:]) / 20
+            feats["btc_dom_dev_20"] = ratio / ma20 - 1 if ma20 > 0 else float("nan")
+        else:
+            feats["btc_dom_dev_20"] = float("nan")
+
+        if len(buf) >= 51:
+            ma50 = sum(buf[-50:]) / 50
+            feats["btc_dom_dev_50"] = ratio / ma50 - 1 if ma50 > 0 else float("nan")
+        else:
+            feats["btc_dom_dev_50"] = float("nan")
+
+        feats["btc_dom_ret_24"] = ratio / buf[-25] - 1 if len(buf) >= 25 and buf[-25] > 0 else float("nan")
+        feats["btc_dom_ret_72"] = ratio / buf[-73] - 1 if len(buf) >= 73 and buf[-73] > 0 else float("nan")
+        return feats
+
     def warmup(self, limit: int = WARMUP_BARS, interval: str = INTERVAL) -> int:
         """Fetch historical bars and warm up feature engine."""
         bars = self._adapter.get_klines(self._symbol, interval=interval,
                                         limit=limit)
         bars.reverse()  # Bybit returns newest first
+
+        # V14: Pre-fill ETH prices for BTC dominance warmup
+        eth_warmup: dict[int, float] = {}
+        if self._symbol == "BTCUSDT":
+            try:
+                url = (f"https://fapi.binance.com/fapi/v1/klines"
+                       f"?symbol=ETHUSDT&interval={interval}m&limit={limit}")
+                with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=10) as resp:
+                    eth_klines = json.loads(resp.read())
+                for k in eth_klines:
+                    eth_warmup[int(k[0])] = float(k[4])  # open_time -> close
+            except Exception:
+                pass
 
         for bar in bars:
             self._check_regime(bar["close"])  # build regime state
@@ -304,6 +361,17 @@ class AlphaRunner:
             features = self._engine.get_features()
             if features:
                 feat_dict = dict(features)
+                # V14: Inject dominance features during warmup
+                if self._symbol == "BTCUSDT":
+                    bar_ts = bar.get("start", bar.get("open_time", 0))
+                    eth_p = eth_warmup.get(int(bar_ts), 0)
+                    if eth_p > 0:
+                        self._dom_ratio_buf.append(bar["close"] / eth_p)
+                    buf = self._dom_ratio_buf
+                    feat_dict["btc_dom_dev_20"] = (buf[-1] / (sum(buf[-20:])/20) - 1) if len(buf) >= 21 else 0.0
+                    feat_dict["btc_dom_dev_50"] = (buf[-1] / (sum(buf[-50:])/50) - 1) if len(buf) >= 51 else 0.0
+                    feat_dict["btc_dom_ret_24"] = (buf[-1] / buf[-25] - 1) if len(buf) >= 25 else 0.0
+                    feat_dict["btc_dom_ret_72"] = (buf[-1] / buf[-73] - 1) if len(buf) >= 73 else 0.0
                 pred = self._ensemble_predict(feat_dict)
                 if pred is not None:
                     self._predictions.append(pred)
@@ -453,10 +521,18 @@ class AlphaRunner:
         Ridge won 20-fold walk-forward (15/20 PASS, Sharpe 0.54, +433%).
         Config weights: ridge_weight (default 0.6) + lgbm_weight (default 0.4).
         """
+        def _safe_val(v):
+            """Convert None/NaN to 0.0 for model input."""
+            if v is None:
+                return 0.0
+            try:
+                f = float(v)
+                return 0.0 if np.isnan(f) else f
+            except (TypeError, ValueError):
+                return 0.0
+
         if not self._horizon_models:
-            x = [feat_dict.get(f, 0.0) or 0.0 for f in self._features]
-            if any(np.isnan(x)):
-                return None
+            x = [_safe_val(feat_dict.get(f)) for f in self._features]
             return float(self._model.predict([x])[0])
 
         ridge_w = self._config.get("ridge_weight", 0.6)
@@ -467,9 +543,7 @@ class AlphaRunner:
 
         for hm in self._horizon_models:
             feats = hm["features"]
-            x = [feat_dict.get(f, 0.0) or 0.0 for f in feats]
-            if any(np.isnan(x)):
-                continue
+            x = [_safe_val(feat_dict.get(f)) for f in feats]
 
             ic = max(hm["ic"], 0.001)
 
@@ -477,8 +551,8 @@ class AlphaRunner:
             if hm.get("ridge") is not None:
                 # Ridge may use different features than LGBM
                 rf = hm.get("ridge_features") or feats
-                rx = [feat_dict.get(f, 0.0) or 0.0 for f in rf]
-                if not any(np.isnan(rx)):
+                rx = [_safe_val(feat_dict.get(f)) for f in rf]
+                if True:  # NaN already handled by _safe_val
                     ridge_pred = float(hm["ridge"].predict([rx])[0])
                     lgbm_pred = float(hm["lgbm"].predict([x])[0])
                     pred = ridge_pred * ridge_w + lgbm_pred * lgbm_w
@@ -671,6 +745,11 @@ class AlphaRunner:
             return {"action": "no_features", "bar": self._bars_processed}
 
         feat_dict = dict(features)
+
+        # V14: Inject BTC dominance features (computed in Python, not Rust)
+        if self._symbol == "BTCUSDT":
+            dom_feats = self._compute_dominance_features(bar["close"])
+            feat_dict.update(dom_feats)
 
         # Primary horizon prediction (h=24, Ridge+LGBM ensemble)
         pred = self._ensemble_predict(feat_dict)
