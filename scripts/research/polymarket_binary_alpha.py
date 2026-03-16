@@ -434,7 +434,7 @@ def main():
 
     # Build features
     print("  Building features...", end=" ", flush=True)
-    feat_df = build_features(df)
+    build_features(df)
     print(f"done ({len(FEATURE_NAMES)} features)")
 
     # Walk-forward
@@ -498,7 +498,7 @@ def main():
 
     # --- ML vs RSI comparison -------------------------------------------------
     print(f"\n{'=' * 100}")
-    print(f"  ML vs RSI Per-Fold Comparison")
+    print("  ML vs RSI Per-Fold Comparison")
     print(f"{'=' * 100}")
 
     ml_wins = 0
@@ -513,7 +513,7 @@ def main():
 
     # --- Calibration ----------------------------------------------------------
     print(f"\n{'=' * 100}")
-    print(f"  Probability Calibration (Ensemble)")
+    print("  Probability Calibration (Ensemble)")
     print(f"{'=' * 100}")
 
     cal = calibration_analysis(df)
@@ -525,7 +525,7 @@ def main():
 
     # --- Feature Importance ---------------------------------------------------
     print(f"\n{'=' * 100}")
-    print(f"  Feature Importance (LightGBM top-5 frequency)")
+    print("  Feature Importance (LightGBM top-5 frequency)")
     print(f"{'=' * 100}")
 
     feat_counts: Dict[str, int] = {}
@@ -539,7 +539,7 @@ def main():
 
     # --- Compounding simulation -----------------------------------------------
     print(f"\n{'=' * 100}")
-    print(f"  $100 Compounding Simulation (Ensemble, half-Kelly)")
+    print("  $100 Compounding Simulation (Ensemble, half-Kelly)")
     print(f"{'=' * 100}")
 
     equity = 100.0

@@ -137,7 +137,8 @@ class TestMultiSymbolSnapshot:
         out = pipeline.apply(inp)
 
         assert out.snapshot is not None
-        snap_markets = out.snapshot.get("markets") if isinstance(out.snapshot, dict) else getattr(out.snapshot, "markets", None)
+        snap_markets = out.snapshot.get("markets") if isinstance(out.snapshot, dict) else getattr(out.snapshot,
+            "markets", None)
         assert snap_markets is not None
         assert "BTCUSDT" in snap_markets
         assert "ETHUSDT" in snap_markets

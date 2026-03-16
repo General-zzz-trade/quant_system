@@ -28,13 +28,15 @@ def test_ws_reconnect_duplicate_same_trade_is_idempotent() -> None:
     raw1 = {
         "e": "ORDER_TRADE_UPDATE",
         "E": 1700000000000,
-        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 99, "l": "0.1", "L": "43000", "n": "0", "N": "USDT", "T": 1700000000123, "m": False},
+        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 99, "l": "0.1", "L": "43000", "n": "0", "N": "USDT",
+            "T": 1700000000123, "m": False},
     }
     raw2 = {
         # 模拟 WS 重连后补发同一笔成交
         "e": "ORDER_TRADE_UPDATE",
         "E": 1700000000001,
-        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 99, "l": "0.1", "L": "43000", "n": "0", "N": "USDT", "T": 1700000000123, "m": False},
+        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 99, "l": "0.1", "L": "43000", "n": "0", "N": "USDT",
+            "T": 1700000000123, "m": False},
     }
 
     f1 = mapper.map_fill(raw1)
@@ -53,13 +55,15 @@ def test_ws_reconnect_duplicate_same_trade_but_payload_mismatch_must_fail_fast()
     ok = {
         "e": "ORDER_TRADE_UPDATE",
         "E": 1700000000000,
-        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 100, "l": "0.1", "L": "43000", "n": "0", "N": "USDT", "T": 1700000000123, "m": False},
+        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 100, "l": "0.1", "L": "43000", "n": "0", "N": "USDT",
+            "T": 1700000000123, "m": False},
     }
     bad = {
         # 同 trade_id / fill_id，但 qty 被篡改（或交易所bug/数据损坏）
         "e": "ORDER_TRADE_UPDATE",
         "E": 1700000000001,
-        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 100, "l": "9.9", "L": "43000", "n": "0", "N": "USDT", "T": 1700000000123, "m": False},
+        "o": {"s": "BTCUSDT", "S": "BUY", "i": 1, "t": 100, "l": "9.9", "L": "43000", "n": "0", "N": "USDT",
+            "T": 1700000000123, "m": False},
     }
 
     f1 = mapper.map_fill(ok)

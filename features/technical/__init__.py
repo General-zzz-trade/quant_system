@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from features.rolling import RollingWindow
-from features.types import Bar, Bars, FeatureSeries
+from features.rolling import RollingWindow  # noqa: F401
+from features.types import Bar, Bars, FeatureSeries  # noqa: F401
 
 from _quant_hotpath import (
     cpp_sma,
@@ -14,11 +14,11 @@ from _quant_hotpath import (
     cpp_macd,
     cpp_bollinger_bands,
     cpp_atr,
-    cpp_vwap,
-    cpp_order_flow_imbalance,
-    cpp_rolling_volatility,
-    cpp_price_impact,
-    cpp_ols,
+    cpp_vwap,  # noqa: F401
+    cpp_order_flow_imbalance,  # noqa: F401
+    cpp_rolling_volatility,  # noqa: F401
+    cpp_price_impact,  # noqa: F401
+    cpp_ols,  # noqa: F401
 )
 
 

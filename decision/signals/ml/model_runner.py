@@ -23,7 +23,8 @@ class ModelRunnerSignal:
         if self.contract is not None:
             ok, missing = self.contract.validate(feats)
             if not ok:
-                return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"), meta={"missing": missing})
+                return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"),
+                    meta={"missing": missing})
         raw = feats.get(self.score_key)
         try:
             s = Decimal(str(raw))

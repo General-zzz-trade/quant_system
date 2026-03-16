@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from execution.adapters.binance.rest import BinanceRestConfig
 
 from execution.config.venue_config import VenueConfig
 from execution.config.retry_config import RetryConfig

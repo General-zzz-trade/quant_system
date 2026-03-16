@@ -2,7 +2,7 @@
 import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
-from _quant_hotpath import RustOrderStateMachine
+from _quant_hotpath import RustOrderStateMachine  # noqa: E402
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ Extracted from LiveRunner._build_order_infra().
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

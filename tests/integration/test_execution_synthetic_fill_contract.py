@@ -72,7 +72,8 @@ def test_direct_bridge_synthetic_fill_is_idempotent_through_ingress_and_reconcil
     coord = EngineCoordinator(cfg=CoordinatorConfig(symbol_default="BTCUSDT", starting_balance=0.0))
     router = FillIngressRouter(coordinator=coord, default_actor="bridge:test")
     bridge = _Bridge(_Ack(ok=True, result={"price": "40000", "qty": "1.0", "fee": "0.1"}))
-    live = LiveExecutionBridge(execution_bridge=bridge, dispatcher_emit=lambda event: router.ingest_canonical_fill(event))
+    live = LiveExecutionBridge(execution_bridge=bridge,
+        dispatcher_emit=lambda event: router.ingest_canonical_fill(event))
 
     order = _order_event()
 

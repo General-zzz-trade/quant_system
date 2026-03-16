@@ -1143,7 +1143,7 @@ class AlphaRunner:
                 return {"action": "order_failed", "result": result}
 
             # Order succeeded — update state machine and tracking
-            order_id = result.get("orderId", open_id)
+            result.get("orderId", open_id)
             self._osm.transition(open_id, "filled", filled_qty=str(self._position_size),
                                  avg_price=str(price))
             self._circuit_breaker.record_success()

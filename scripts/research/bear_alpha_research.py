@@ -469,9 +469,11 @@ def run_strategy_funding_carry(
     n = len(closes)
 
     # Extract features
-    fz24 = feat_df["funding_zscore_24"].values.astype(np.float64) if "funding_zscore_24" in feat_df.columns else np.zeros(n)
+    fz24 = (feat_df["funding_zscore_24"].values.astype(np.float64)
+            if "funding_zscore_24" in feat_df.columns else np.zeros(n))
     basis = feat_df["basis"].values.astype(np.float64) if "basis" in feat_df.columns else np.zeros(n)
-    oi_acc = feat_df["oi_acceleration"].values.astype(np.float64) if "oi_acceleration" in feat_df.columns else np.zeros(n)
+    oi_acc = (feat_df["oi_acceleration"].values.astype(np.float64)
+              if "oi_acceleration" in feat_df.columns else np.zeros(n))
 
     # Replace NaN with 0 for rule-based
     fz24 = np.nan_to_num(fz24, 0.0)
@@ -705,7 +707,8 @@ def run_strategy_vol_breakout(
     closes = feat_df["close"].values.astype(np.float64)
     bear_mask = _compute_bear_bull_mask(closes)
 
-    atr = feat_df["atr_norm_14"].values.astype(np.float64) if "atr_norm_14" in feat_df.columns else np.zeros(len(closes))
+    atr = (feat_df["atr_norm_14"].values.astype(np.float64)
+           if "atr_norm_14" in feat_df.columns else np.zeros(len(closes)))
     rsi = feat_df["rsi_14"].values.astype(np.float64) if "rsi_14" in feat_df.columns else np.full(len(closes), 50.0)
     atr = np.nan_to_num(atr, nan=0.0)
     rsi = np.nan_to_num(rsi, nan=50.0)

@@ -1,6 +1,5 @@
 # tests/unit/execution/test_incident_taxonomy.py
 """Tests for incident taxonomy — verify enum completeness and alert factory usage."""
-import pytest
 
 from execution.observability.incidents import (
     IncidentCategory,

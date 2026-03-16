@@ -6,9 +6,12 @@ make test                    # ALL gates (py + exec + rust + lint, matches CI)
 pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
-pytest tests/unit/runner/ -x -q    # Runner tests (298 tests)
-pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (42 tests)
-pytest tests/unit/bybit/ -x -q   # Bybit adapter tests (14 tests)
+pytest tests/unit/runner/ -x -q    # Runner tests (303 tests)
+pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (47 tests)
+pytest tests/unit/bybit/ -x -q   # Bybit adapter tests (60 tests)
+pytest tests/unit/state/ -x -q   # State module tests (87 tests)
+pytest tests/unit/event/ -x -q   # Event module tests (145 tests)
+pytest tests/unit/strategies/ -x -q  # Strategy registry tests (10 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
@@ -55,6 +58,10 @@ kill $(cat data/polymarket/collector.pid)                                       
 ```bash
 python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
 python3 -m scripts.testnet_smoke --public-only                                # Exchange connectivity check
+python3 scripts/ops/security_scan.py                                          # Security audit (secrets, notional, bare-except)
+python3 -m scripts.ops.ops_dashboard                                          # Unified ops status dashboard
+python3 -m scripts.ops.pre_live_checklist                                     # Automated pre-live readiness check
+python3 -m scripts.ops.shadow_mode_check                                      # Shadow trading health report
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -74,10 +81,10 @@ cd ext/rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-l
 ```
 core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
-features/        Feature computation (EnrichedFeatureComputer, 120 features incl. V12 cross-asset + V13 OI + V14 dominance)
+features/        Feature computation (EnrichedFeatureComputer, 127 features incl. ADX + V12 cross-asset + V13 OI + V14 dominance)
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (137 = 120 enriched + 17 cross-asset)
-decision/        Trading signals, ensemble, regime detection, rebalancing
+  feature_catalog.py   PRODUCTION_FEATURES frozenset (144 = 127 enriched + 17 cross-asset)
+decision/        Trading signals, ensemble, regime detection (CompositeRegimeDetector + ParamRouter wired), rebalancing
 alpha/           ML models + inference bridge (horizon_ensemble.py, adaptive_config.py)
 execution/       Order routing, state machine, dedup
   adapters/binance/    Binance USDT-M futures (47 files, ~3.7K LOC, WS-API ~4ms)
@@ -90,18 +97,19 @@ event/           Event types + runtime protocol
 ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
-  builders/            10 builder modules (engine, execution, risk, monitoring, features, etc.)
+  builders/            10 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
   live_runner.py       1041 lines (was 1799; 10 _build_* methods extracted to builders/)
-regime/          Regime detection (volatility, trend, composite, param_router)
-risk/            Risk limits + kill switch
+regime/          Regime detection (volatility, trend, composite, param_router — all wired)
+risk/            Risk limits + kill switch + StagedRiskManager (equity-based staging)
+strategies/      Strategy registry + protocol (alpha_momentum, polymarket_rsi)
 portfolio/       Allocator, rebalance, optimizer
 monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
 infra/           Logging (structured JSON), networking, systemd units
-polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner
+polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner, maker (A-S)
 models_v8/       Production models (Ridge 60% + LightGBM 40%): ETHUSDT_gate_v2, ETHUSDT_15m, SUIUSDT, AXSUSDT, BTCUSDT_gate_v2
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         7 subdirs + symlinks for compat
-  ops/               Split into 8 modules (see below)
+  ops/               Split into 11 modules (see below)
     config.py            SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
     data_fetcher.py      Binance OI/LS/taker data fetch
     model_loader.py      load_model(), create_adapter()
@@ -111,13 +119,16 @@ scripts/         7 subdirs + symlinks for compat
     hedge_runner.py      BTC+ALT hedge
     pnl_tracker.py       Unified PnL tracking
     run_bybit_alpha.py   main() entry + WS loop
+    shadow_mode_check.py Shadow trading log analysis + health report
+    ops_dashboard.py     Unified status dashboard (service, models, signals, data)
+    pre_live_checklist.py Automated pre-live readiness checks
   data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py
   research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, polymarket_binary_alpha.py
   walkforward/       walkforward_validate.py
   training/          train_v7_alpha.py, train_15m.py
 data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv
 logs/            bybit_alpha.log, retrain_cron.log
-tests/           unit/ (runner, bybit, decision, features), integration/ (constraint parity)
+tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket), integration/
 ```
 
 **Data flow (live alpha)**:
@@ -155,13 +166,13 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `engine/coordinator.py` — Main event loop orchestrator
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
-- `features/enriched_computer.py` — 120 enriched feature definitions (V1-V14)
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (137 features); `validate_model_features()`
+- `features/enriched_computer.py` — 127 enriched feature definitions (V1-V14 + ADX)
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (144 features); `validate_model_features()`
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Production entry point (Python)
-- `runner/gate_chain.py` — GateChain: 8 gates with `process_with_audit()`
-- `runner/config.py` — LiveRunnerConfig (93 fields); factory: `.lite()`, `.paper()`, `.prod()`
+- `runner/gate_chain.py` — GateChain: 10 gates with `process_with_audit()` (incl. StagedRiskGate)
+- `runner/config.py` — LiveRunnerConfig (71 fields); factory: `.lite()`, `.paper()`, `.prod()`
 - `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
 - `scripts/ops/alpha_runner.py` — AlphaRunner: signal + trade with 12 Rust components
 - `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode)
@@ -169,6 +180,13 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `scripts/shared/signal_postprocess.py` — Signal pipeline (Rust + Python parity)
 - `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, Almgren-Chriss slippage, adaptive ATR stop
 - `polymarket/collector.py` — 5m+15m CLOB collector + BS fair value + RSI signal
+- `polymarket/strategies/maker_5m.py` — Avellaneda-Stoikov market maker for binary outcomes
+- `polymarket/strategies/inventory_manager.py` — Inventory tracking + expiry actions
+- `strategies/registry.py` — StrategyRegistry: register/discover/instantiate strategies
+- `strategies/base.py` — StrategyProtocol + Signal dataclass
+- `decision/regime_bridge.py` — RegimeAwareDecisionModule (CompositeRegimeDetector + ParamRouter)
+- `risk/staged_risk.py` — StagedRiskManager: 5-stage equity-based risk ladder
+- `docs/wiring_truth.md` — Module integration status table (what's wired, what's not)
 
 ## Live Integration Subsystems
 
@@ -262,6 +280,7 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
 
 **Features & models**:
+- ADX(14): computed incrementally in `enriched_computer.py` via `_ADXTracker`; needs 2×14=28 bars warmup; used by `TrendRegimeDetector`
 - CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar
 - `EnrichedFeatureComputer.on_bar(btc_close=...)` — V12 needs BTC price; `on_bar(eth_close=...)` — V14 needs ETH price; missing → None (safe)
 - V13 OI features (5): IC validated, 28 days data only. V14 dominance (4): `btc_dom_*`, computed in Python (not Rust)
@@ -275,9 +294,18 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
 - Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
 
+**Regime & risk wiring** (2026-03-17):
+- `RegimeAwareDecisionModule` defaults to `CompositeRegimeDetector` (was Vol+Trend separately)
+- `RegimeParamRouter` activated when `enable_regime_sizing=True` via `enable_param_routing` flag
+- `RegimePolicy` blocks composite crisis labels (any label with "crisis" in value)
+- `StagedRiskManager` wired as `StagedRiskGate` in gate_chain; equity stages: survival→growth→stable→safe→institutional
+- `initial_equity` field added to `LiveRunnerConfig` (default $500)
+
 **Infrastructure**:
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`
 - Burn-in gate: Phase A(Paper 7d) → B(Shadow 7d) → C(Testnet 3d) before live; `config/production.local.yaml`
+- Dockerfile: multi-stage (`ci`/`paper`/`live`); docker-compose.yml with paper + `--profile live` profiles
+- `scripts/ops/security_scan.py`: checks hardcoded secrets, .env gitignored, MAX_ORDER_NOTIONAL, bare-except blocks
 - `regime/param_router.py`: only BTC uses regime-adaptive params; ETH keeps fixed (fixed outperforms adaptive for ETH)
 - Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate
 - Polymarket Gamma API prices are **cached/stale** — always use CLOB orderbook for real prices

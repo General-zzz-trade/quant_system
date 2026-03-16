@@ -19,11 +19,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from event.header import EventHeader
-from event.types import EventType, IntentEvent, OrderEvent
-from research.alpha_factor import AlphaFactor
-from runner.backtest.csv_io import OhlcvBar, iter_ohlcv_csv
-from runner.backtest.metrics import _build_trades_from_fills, _build_summary
+from event.header import EventHeader  # noqa: E402
+from event.types import EventType, IntentEvent, OrderEvent  # noqa: E402
+from research.alpha_factor import AlphaFactor  # noqa: E402
+from runner.backtest.csv_io import OhlcvBar, iter_ohlcv_csv  # noqa: E402
+from runner.backtest.metrics import _build_trades_from_fills, _build_summary  # noqa: E402
 
 
 @dataclass

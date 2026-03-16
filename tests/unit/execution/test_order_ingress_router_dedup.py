@@ -63,7 +63,8 @@ def test_order_router_exposes_same_dedup_identity_as_helper() -> None:
 
 def test_order_router_deduplicates_equivalent_orders_without_precomputed_digest() -> None:
     emitted: list[object] = []
-    router = OrderIngressRouter(coordinator=SimpleNamespace(emit=lambda event, actor=None: emitted.append((event, actor))))
+    router = OrderIngressRouter(coordinator=SimpleNamespace(emit=lambda event, actor=None: emitted.append((event,
+        actor))))
 
     assert router.ingest_canonical_order(_canonical_order(), actor="venue:test") is True
     assert router.ingest_canonical_order(_canonical_order(), actor="venue:test") is False

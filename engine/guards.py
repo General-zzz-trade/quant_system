@@ -113,7 +113,8 @@ class BasicGuard:
             )
 
         # 2) execution 错误阈值更严格
-        if classified.domain == ErrorDomain.EXECUTION and self._execution_consecutive >= self._cfg.max_consecutive_execution_errors:
+        if (classified.domain == ErrorDomain.EXECUTION
+                and self._execution_consecutive >= self._cfg.max_consecutive_execution_errors):
             return GuardDecision(
                 action=GuardAction.STOP,
                 reason=f"execution errors >= {self._cfg.max_consecutive_execution_errors}",

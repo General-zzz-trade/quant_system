@@ -37,7 +37,8 @@ LAGGED_FEATURES = {
 
 def fast_ic(x, y):
     m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50: return 0.0
+    if m.sum() < 50:
+        return 0.0
     r, _ = spearmanr(x[m], y[m])
     return float(r) if not np.isnan(r) else 0.0
 
@@ -121,7 +122,10 @@ def run_backtest(
     cost_frac = cost_bps / 10000
 
     trades = []
-    pos = 0; ep = 0.0; eb = 0; score = 0.0
+    pos = 0
+    ep = 0.0
+    eb = 0
+    score = 0.0
     equity = 10000.0
     equity_curve = [equity]
     notional = 300.0  # fixed notional per trade
@@ -133,8 +137,10 @@ def run_backtest(
             if held >= max_hold:
                 should_exit = True
             elif held >= min_hold:
-                if pos * z[i] < -0.3: should_exit = True
-                elif abs(z[i]) < 0.2: should_exit = True
+                if pos * z[i] < -0.3:
+                    should_exit = True
+                elif abs(z[i]) < 0.2:
+                    should_exit = True
 
             if should_exit:
                 pnl_pct = pos * (closes[i] - ep) / ep
@@ -153,9 +159,15 @@ def run_backtest(
 
         if pos == 0:
             if z[i] > deadzone:
-                pos = 1; ep = closes[i]; eb = i; score = z[i]
+                pos = 1
+                ep = closes[i]
+                eb = i
+                score = z[i]
             elif z[i] < -deadzone:
-                pos = -1; ep = closes[i]; eb = i; score = z[i]
+                pos = -1
+                ep = closes[i]
+                eb = i
+                score = z[i]
 
         equity_curve.append(equity)
 

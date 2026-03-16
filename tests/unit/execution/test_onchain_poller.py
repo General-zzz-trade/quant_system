@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 
 logger = logging.getLogger(__name__)
 
-from execution.adapters.onchain_poller import OnchainPoller
+from execution.adapters.onchain_poller import OnchainPoller  # noqa: E402
 
 
 def test_get_current_before_fetch():

@@ -7,9 +7,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from state.snapshot import StateSnapshot
+from state.snapshot import StateSnapshot  # noqa: E402
 
-from _quant_hotpath import rust_fixed_fraction_qty as _rust_ff_qty
+from _quant_hotpath import rust_fixed_fraction_qty as _rust_ff_qty  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

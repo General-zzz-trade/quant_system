@@ -22,10 +22,9 @@ Usage:
 from __future__ import annotations
 
 import hashlib
-import math
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -478,7 +477,7 @@ def main():
 
     # --- Detailed breakdown for 10% fill rate scenario ---
     print(f"\n{'=' * 100}")
-    print(f"  Detailed Breakdown (10% fill rate)")
+    print("  Detailed Breakdown (10% fill rate)")
     print(f"{'=' * 100}")
 
     for strat_name, runner in [
@@ -499,7 +498,7 @@ def main():
 
     # --- Monthly P&L for best scenario ---
     print(f"\n{'=' * 100}")
-    print(f"  Monthly P&L (Overround, 10% fill, $100 start)")
+    print("  Monthly P&L (Overround, 10% fill, $100 start)")
     print(f"{'=' * 100}")
 
     r_best = run_overround(df, size=10, initial_equity=100,
@@ -529,7 +528,7 @@ def main():
 
     # --- RSI-MM monthly ---
     print(f"\n{'=' * 100}")
-    print(f"  Monthly P&L (RSI-MM, 10% fill, $100 start)")
+    print("  Monthly P&L (RSI-MM, 10% fill, $100 start)")
     print(f"{'=' * 100}")
 
     r_rsimm = run_rsi_mm(df, size=10, initial_equity=100,

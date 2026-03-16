@@ -21,7 +21,7 @@ def _make_event(i: int, base_price: float = 40000.0) -> SimpleNamespace:
     c = base_price + (i % 50) * 10.0 - 250.0 + (i * 7 % 13) * 5.0
     o = c - 5.0 + (i % 3) * 2.0
     h = max(o, c) + 10.0 + (i % 5) * 3.0
-    l = min(o, c) - 10.0 - (i % 4) * 2.0
+    l = min(o, c) - 10.0 - (i % 4) * 2.0  # noqa: E741
     v = 100.0 + (i % 20) * 50.0
     return SimpleNamespace(
         event_type="MARKET",

@@ -165,7 +165,8 @@ class MaxDrawdownRule:
             return Decimal("0")
         return (peak - equity) / peak
 
-    def _evaluate_drawdown(self, *, meta: Mapping[str, Any]) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
+    def _evaluate_drawdown(self, *, meta: Mapping[str, Any]) -> Tuple[Optional[Decimal], Optional[Decimal],
+        Optional[Decimal]]:
         """
         返回 (equity, peak_equity, drawdown_pct)
         drawdown_pct 优先从 meta 读取，否则用 equity/peak 计算。

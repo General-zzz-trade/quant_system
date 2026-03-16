@@ -118,7 +118,8 @@ def test_reduce_only_blocks_opening_order_but_allows_flagged_order_into_ingress(
 
     runner.apply_control(SimpleNamespace(command="reduce_only", reason="manual ro"))
 
-    blocked = list(guarded.send_order(_order_event(order_id="ord-blocked", command_id="cmd-blocked", reduce_only=False)))
+    blocked = list(guarded.send_order(_order_event(order_id="ord-blocked", command_id="cmd-blocked",
+        reduce_only=False)))
     allowed = list(guarded.send_order(_order_event(order_id="ord-allowed", command_id="cmd-allowed", reduce_only=True)))
 
     assert blocked == []

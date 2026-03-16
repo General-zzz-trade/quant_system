@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from state.snapshot import StateSnapshot
-from state._util import ensure_utc
+from state.snapshot import StateSnapshot  # noqa: E402
+from state._util import ensure_utc  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

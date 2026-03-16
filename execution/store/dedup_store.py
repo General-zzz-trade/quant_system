@@ -10,9 +10,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from execution.store.interfaces import DedupStore
+from execution.store.interfaces import DedupStore  # noqa: E402
 
-from _quant_hotpath import RustDedupStore as _RustDedupStore
+from _quant_hotpath import RustDedupStore as _RustDedupStore  # noqa: E402
 
 
 @dataclass(slots=True)

@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 logger = logging.getLogger(__name__)
 
-from _quant_hotpath import cpp_ols as _cpp_ols
+from _quant_hotpath import cpp_ols as _cpp_ols  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

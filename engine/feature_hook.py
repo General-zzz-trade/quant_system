@@ -10,8 +10,8 @@ from typing import Any, Callable, Dict, Mapping, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine
-from event.types import EventType as _EventType
+from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine  # noqa: E402
+from event.types import EventType as _EventType  # noqa: E402
 
 
 class FeatureComputeHook:

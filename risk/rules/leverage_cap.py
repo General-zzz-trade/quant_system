@@ -194,7 +194,8 @@ class LeverageCapRule:
                 scope=RiskScope.ACCOUNT,
                 symbol=sym,
                 severity="error",
-                details={"gross_notional": str(gross), "equity": str(equity), "leverage": str(cur_lev), "cap": str(cap)},
+                details={"gross_notional": str(gross), "equity": str(equity), "leverage": str(cur_lev),
+                    "cap": str(cap)},
             )
             return RiskDecision.reject((v,), scope=RiskScope.ACCOUNT, tags=(self.name,))
 

@@ -20,7 +20,7 @@ class TestMarketOrders:
 
     def test_market_sell_fills_at_open_minus_slippage(self):
         book = SimulatedOrderBook(slippage_bps=2)
-        order = book.submit_order("ETHUSDT", side=-1, qty=1.0, bar=0)
+        book.submit_order("ETHUSDT", side=-1, qty=1.0, bar=0)
         fills = book.process_bar(bar=0, open_price=2000, high=2050, low=1980, close=2020, volume=100)
         assert fills[0].fill_price == pytest.approx(2000 * 0.9998)
 
@@ -45,7 +45,7 @@ class TestLimitOrders:
 
     def test_sell_limit_fills_when_high_touches(self):
         book = SimulatedOrderBook()
-        order = book.submit_order("ETHUSDT", side=-1, qty=1.0,
+        book.submit_order("ETHUSDT", side=-1, qty=1.0,
                                   order_type=OrderType.LIMIT, price=2040, bar=0)
         fills = book.process_bar(bar=0, open_price=2000, high=2050, low=1980, close=2020, volume=100)
         assert len(fills) == 1

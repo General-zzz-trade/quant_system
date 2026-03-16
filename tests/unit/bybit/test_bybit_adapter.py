@@ -1,9 +1,8 @@
 # tests/unit/bybit/test_bybit_adapter.py
 """Unit tests for Bybit adapter — uses mocks (no API key required)."""
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from execution.adapters.bybit.config import BybitConfig
 from execution.adapters.bybit.mapper import (

@@ -96,7 +96,7 @@ class _BarAcc:
     count: int = 0
     start_ts: Optional[datetime] = None
 
-    def push(self, o: float, h: float, l: float, c: float, v: float,
+    def push(self, o: float, h: float, l: float, c: float, v: float,  # noqa: E741
              ts: Optional[datetime] = None) -> bool:
         """Push 1h bar. Returns True when 4h bar completes (every 4 bars)."""
         if self.count == 0:

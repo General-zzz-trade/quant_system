@@ -10,10 +10,15 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 sys.path.insert(0, "/quant_system")
 

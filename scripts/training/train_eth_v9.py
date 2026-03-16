@@ -87,7 +87,10 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
     n = len(pred)
     z = rolling_zscore(pred, window=zscore_window, warmup=min(180, zscore_window // 4))
     cost_frac = cost_bps / 10000
-    pos = 0.0; entry_bar = 0; equity = 10000.0; trades = []
+    pos = 0.0
+    entry_bar = 0
+    equity = 10000.0
+    trades = []
 
     for i in range(n):
         if pos != 0:
@@ -106,9 +109,11 @@ def backtest_signal(pred, closes, deadzone, min_hold, max_hold,
                 pos = 0.0
         if pos == 0:
             if z[i] > deadzone:
-                pos = 1.0; entry_bar = i
+                pos = 1.0
+                entry_bar = i
             elif not long_only and z[i] < -deadzone:
-                pos = -1.0; entry_bar = i
+                pos = -1.0
+                entry_bar = i
 
     if not trades:
         return {"sharpe": 0, "trades": 0, "return": 0}
@@ -224,8 +229,10 @@ def main():
 
     valid_tr = ~np.isnan(y_train)
     valid_val = ~np.isnan(y_val)
-    X_train = X_train[valid_tr]; y_train = y_train[valid_tr]
-    X_val = X_val[valid_val]; y_val = y_val[valid_val]
+    X_train = X_train[valid_tr]
+    y_train = y_train[valid_tr]
+    X_val = X_val[valid_val]
+    y_val = y_val[valid_val]
 
     print(f"  Train: {len(X_train):,}  Val: {len(X_val):,}  Test: {len(X_test):,}")
 
@@ -386,7 +393,8 @@ def main():
     print("\nBootstrap Sharpe...")
     z = rolling_zscore(pred_test, window=720, warmup=180)
     trade_pnls = []
-    pos = 0.0; eb = 0
+    pos = 0.0
+    eb = 0
     for i in range(len(z)):
         if pos != 0:
             held = i - eb
@@ -403,9 +411,11 @@ def main():
                 pos = 0.0
         if pos == 0:
             if z[i] > best_config["deadzone"]:
-                pos = 1.0; eb = i
+                pos = 1.0
+                eb = i
             elif not best_config["long_only"] and z[i] < -best_config["deadzone"]:
-                pos = -1.0; eb = i
+                pos = -1.0
+                eb = i
 
     trade_pnls = np.array(trade_pnls) if trade_pnls else np.array([0.0])
     bs_sharpes = []
@@ -429,7 +439,8 @@ def main():
     all_pass = True
     for check, passed in checks.items():
         status = "PASS" if passed else "FAIL"
-        if not passed: all_pass = False
+        if not passed:
+            all_pass = False
         print(f"  [{status}] {check}")
 
     if all_pass:

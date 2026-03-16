@@ -19,9 +19,9 @@ def build_monitoring(
     kill_switch: Any,
     metrics_exporter: Any,
 ) -> tuple:
-    """Phase 2: health monitor, monitoring hook, alpha health, regime sizer, signal tracker.
+    """Phase 2: health monitor, monitoring hook, alpha health, regime sizer, staged risk, signal tracker.
 
-    Returns (health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker).
+    Returns (health, hook, alpha_health_monitor, regime_sizer, staged_risk, live_signal_tracker).
     """
     health: Optional[SystemHealthMonitor] = None
     hook: Optional[EngineMonitoringHook] = None
@@ -83,10 +83,19 @@ def build_monitoring(
     if regime_sizer is not None and hook is not None:
         hook.regime_sizer = regime_sizer
 
+    # ── Staged Risk Manager ──
+    staged_risk = None
+    if config.enable_regime_sizing:
+        from risk.staged_risk import StagedRiskManager
+        initial_equity = getattr(config, "initial_equity", 500.0)
+        staged_risk = StagedRiskManager(initial_equity=initial_equity)
+        logger.info("Staged risk enabled: equity=$%.0f stage=%s",
+                     initial_equity, staged_risk.stage.label)
+
     # ── LiveSignalTracker (Direction 18: attribution feedback) ──
     from attribution.live_tracker import LiveSignalTracker
     live_signal_tracker = LiveSignalTracker(prometheus=metrics_exporter)
     if hook is not None:
         hook.live_signal_tracker = live_signal_tracker
 
-    return health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker
+    return health, hook, alpha_health_monitor, regime_sizer, staged_risk, live_signal_tracker

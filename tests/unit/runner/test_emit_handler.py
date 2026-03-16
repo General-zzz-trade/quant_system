@@ -68,7 +68,8 @@ class TestOrderPath:
         handler, mocks = _make_handler()
         ev = _order_event()
         from runner.gate_chain import GateResult
-        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False, reason="blocked"))])
+        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False,
+            reason="blocked"))])
 
         handler(ev)
 
@@ -199,7 +200,8 @@ class TestAttribution:
         handler, mocks = _make_handler()
         ev = _order_event()
         from runner.gate_chain import GateResult
-        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False, reason="blocked"))])
+        mocks["gate_chain"].process_with_audit.return_value = (None, [("TestGate", GateResult(allowed=False,
+            reason="blocked"))])
 
         handler(ev)
 

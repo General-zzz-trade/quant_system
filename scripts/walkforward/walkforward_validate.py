@@ -48,7 +48,7 @@ from features.dynamic_selector import greedy_ic_select, stable_icir_select, stab
 from features.batch_backtest import run_backtest_fast
 
 try:
-    import torch as _torch
+    import torch as _torch  # noqa: F401
     _HAS_TORCH = True
 except ImportError:
     _HAS_TORCH = False
@@ -610,7 +610,11 @@ def run_fold(
             cfg["dd_limit"] = dd_limit
             cfg["dd_cooldown"] = dd_cooldown
 
-        test_ts = test_df.index.values.astype(np.int64) if hasattr(test_df.index, 'values') else np.arange(len(test_closes), dtype=np.int64) * 3600_000
+        test_ts = (
+            test_df.index.values.astype(np.int64)
+            if hasattr(test_df.index, 'values')
+            else np.arange(len(test_closes), dtype=np.int64) * 3600_000
+        )
 
         vol_vals = (test_df[vol_feature].values.astype(np.float64)
                     if vol_target is not None and vol_feature in test_df.columns
@@ -719,7 +723,11 @@ def run_fold(
                 from execution.sim.cost_model import RealisticCostModel
                 cm = RealisticCostModel()
                 test_vols = volumes[fold.test_start:fold.test_end][:len(signal_for_trade)]
-                vol_20 = test_df["vol_20"].values[:len(signal_for_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(signal_for_trade), np.nan)
+                vol_20 = (
+                    test_df["vol_20"].values[:len(signal_for_trade)].astype(np.float64)
+                    if "vol_20" in test_df.columns
+                    else np.full(len(signal_for_trade), np.nan)
+                )
                 breakdown = cm.compute_costs(signal_for_trade, test_closes[:len(signal_for_trade)], test_vols, vol_20)
                 cost = breakdown.total_cost
                 signal_for_trade = breakdown.clipped_signal
@@ -1131,7 +1139,11 @@ def run_fold_strategy_f(
         from execution.sim.cost_model import RealisticCostModel
         cm = RealisticCostModel()
         test_vols = volumes[fold.test_start:fold.test_end][:len(sig_trade)]
-        vol_20 = test_df["vol_20"].values[:len(sig_trade)].astype(np.float64) if "vol_20" in test_df.columns else np.full(len(sig_trade), np.nan)
+        vol_20 = (
+            test_df["vol_20"].values[:len(sig_trade)].astype(np.float64)
+            if "vol_20" in test_df.columns
+            else np.full(len(sig_trade), np.nan)
+        )
         breakdown = cm.compute_costs(sig_trade, test_closes[:len(sig_trade)], test_vols, vol_20)
         cost = breakdown.total_cost
         sig_trade = breakdown.clipped_signal
@@ -1507,7 +1519,11 @@ def main() -> None:
             feat_df.to_pickle(cache_file)
             print(f"  Features cached to {cache_file}")
 
-    closes = feat_df["close"].values.astype(np.float64) if "close" in feat_df.columns else df["close"].values.astype(np.float64)
+    closes = (
+        feat_df["close"].values.astype(np.float64)
+        if "close" in feat_df.columns
+        else df["close"].values.astype(np.float64)
+    )
     volumes_all = df["volume"].values.astype(np.float64) if "volume" in df.columns else np.ones(len(df))
 
     # Inject high/low from raw data for adaptive stop (ATR needs real high/low)

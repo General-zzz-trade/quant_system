@@ -1084,7 +1084,11 @@ def run_walkforward(
 
     if regime_split:
         print("  Regime-conditional training enabled")
-        regimes = feat_df["regime_vol"].values[valid_indices] if "regime_vol" in feat_df.columns else np.ones(len(X_clean), dtype=int)
+        regimes = (
+            feat_df["regime_vol"].values[valid_indices]
+            if "regime_vol" in feat_df.columns
+            else np.ones(len(X_clean), dtype=int)
+        )
         regime_bundle = train_regime_models(
             X_clean[:, final_idx], y_clean, regimes,
             feature_names=final_features,
@@ -1169,7 +1173,11 @@ def run_walkforward(
             print(f"\n  MODEL PROMOTED to production: {reg_name} v{mv.version}")
         else:
             registry_result["promoted"] = False
-            reason = "OOS validation failed" if not (oos_extended and oos_extended["passed"]) else "Did not beat current production"
+            reason = (
+                "OOS validation failed"
+                if not (oos_extended and oos_extended["passed"])
+                else "Did not beat current production"
+            )
             print(f"\n  Model registered but NOT promoted: {reason}")
 
     # Build result dict

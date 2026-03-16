@@ -283,7 +283,7 @@ class NetExposureRule:
 
         return RiskDecision.reject(
             (RiskViolation(code=RiskCode.MAX_NET,
-                           message=f"Order would push net exposure to {projected_lev:.2f}x (limit {self.max_net_leverage}x)",
+                           message=f"Order would push net exposure to {projected_lev:.2f}x (limit {self.max_net_leverage}x)",  # noqa: E501
                            scope=RiskScope.PORTFOLIO, severity="error",
                            details={"net": str(net), "delta": str(delta), "projected_lev": str(projected_lev)}),),
             scope=RiskScope.PORTFOLIO, tags=(self.name,),

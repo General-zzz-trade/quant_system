@@ -6,7 +6,7 @@ Extracted from LiveRunner._build_decision().
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 from decision.regime_bridge import RegimeAwareDecisionModule
 from decision.regime_policy import RegimePolicy
@@ -38,6 +38,9 @@ def build_decision(
                 inner=mod,
                 policy=RegimePolicy(),
             )
+            # Enable param routing when regime sizing is active
+            if getattr(config, "enable_regime_sizing", False):
+                gated.enable_param_routing = True
             gated_modules.append(gated)
         modules = gated_modules
 

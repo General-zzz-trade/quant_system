@@ -20,8 +20,8 @@ class EventTracer(Protocol):
     def on_error(self, error: Exception, *, context: object = None) -> None: ...
     def on_reject(self, event: BaseEvent, reason: str) -> None: ...
 
-from event.metrics import EventMetrics
-from event.policy import EventPolicy
+from event.metrics import EventMetrics  # noqa: E402
+from event.policy import EventPolicy  # noqa: E402
 
 
 class EventRuntime:

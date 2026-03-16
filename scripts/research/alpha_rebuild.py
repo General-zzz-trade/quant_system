@@ -826,7 +826,10 @@ def step3_model_comparison(
                 result.h1_ic = oos_metrics["h1"]["ic"]
                 result.h2_ic = oos_metrics["h2"]["ic"]
                 result.oos_sharpe = oos_metrics["overall"]["sharpe"]
-                result.extra["ic_variance"] = float(np.var(oos_metrics["monthly_ics"])) if oos_metrics["monthly_ics"] else 0.0
+                result.extra["ic_variance"] = (
+                    float(np.var(oos_metrics["monthly_ics"]))
+                    if oos_metrics["monthly_ics"] else 0.0
+                )
 
             runner.add(result)
             model_results[model_type] = result
@@ -1511,7 +1514,7 @@ def generate_report(
             lines.append(f"- H1 IC: {oos['h1']['ic']:.4f}")
             lines.append(f"- H2 IC: {oos['h2']['ic']:.4f}")
             lines.append(f"- OOS Sharpe: {oos['overall']['sharpe']:.2f}")
-            lines.append(f"- DSR p-value: {oos['dsr_p']:.4f} (final_trials={oos.get('n_trials_final', oos['n_trials_total'])})")
+            lines.append(f"- DSR p-value: {oos['dsr_p']:.4f} (final_trials={oos.get('n_trials_final', oos['n_trials_total'])})")  # noqa: E501
             lines.append(f"- Monthly IC positive: {oos['month_pos_ratio']:.0%}")
             lines.append(f"- Bootstrap P(Sharpe>0): {oos['bootstrap_p_gt_0']:.2f}")
 

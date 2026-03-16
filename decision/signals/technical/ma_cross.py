@@ -29,7 +29,10 @@ class MACrossSignal:
         except Exception:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if f > s:
-            return SignalResult(symbol=symbol, side="buy", score=Decimal("1"), confidence=Decimal("1"), meta={"fast": str(f), "slow": str(s)})
+            return SignalResult(symbol=symbol, side="buy", score=Decimal("1"), confidence=Decimal("1"),
+                meta={"fast": str(f), "slow": str(s)})
         if f < s:
-            return SignalResult(symbol=symbol, side="sell", score=Decimal("-1"), confidence=Decimal("1"), meta={"fast": str(f), "slow": str(s)})
-        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("1"), meta={"fast": str(f), "slow": str(s)})
+            return SignalResult(symbol=symbol, side="sell", score=Decimal("-1"), confidence=Decimal("1"),
+                meta={"fast": str(f), "slow": str(s)})
+        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("1"),
+            meta={"fast": str(f), "slow": str(s)})

@@ -205,7 +205,7 @@ def print_evaluation(eval_result: Dict, label: str = "OOS") -> None:
     print(f"    MSE:               {pq['mse']:.6f}")
 
     print(f"\n  {label} Trading Performance (1-bar, fee=4bps+slip=2bps per leg):")
-    print(f"    {'Threshold':>10} {'GrossRet':>10} {'NetRet':>10} {'Costs':>10} {'Sharpe':>8} {'WinRate':>8} {'Trades':>7} {'Exposure':>8}")
+    print(f"    {'Threshold':>10} {'GrossRet':>10} {'NetRet':>10} {'Costs':>10} {'Sharpe':>8} {'WinRate':>8} {'Trades':>7} {'Exposure':>8}")  # noqa: E501
     print(f"    {'-'*71}")
     for row in eval_result["threshold_scan"]:
         print(f"    {row['threshold']:>10.4f} "

@@ -332,7 +332,7 @@ class TestComputeRegimeLabels:
         import pandas as pd
         df = pd.DataFrame({"some_other_col": [1.0, 2.0, 3.0]})
         labels = _compute_regime_labels(df)
-        assert all(l == "trending" for l in labels)
+        assert all(ll == "trending" for ll in labels)
 
     def test_mixed_regimes(self):
         """Multiple bars with different regimes."""

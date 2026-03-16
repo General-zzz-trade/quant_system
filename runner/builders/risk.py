@@ -21,6 +21,7 @@ class RiskSubsystem:
     portfolio_aggregator: Optional[Any] = None
     alpha_health_monitor: Optional[Any] = None
     regime_sizer: Optional[Any] = None
+    staged_risk: Optional[Any] = None
     portfolio_allocator: Optional[Any] = None
 
 
@@ -75,6 +76,13 @@ def build_risk_subsystem(
         ))
         if hook is not None:
             hook.regime_sizer = regime_sizer
+
+    # Staged risk manager
+    staged_risk = None
+    if config.enable_regime_sizing:
+        from risk.staged_risk import StagedRiskManager
+        initial_equity = getattr(config, "initial_equity", 500.0)
+        staged_risk = StagedRiskManager(initial_equity=initial_equity)
 
     # Portfolio allocator
     portfolio_allocator = None
@@ -142,5 +150,6 @@ def build_risk_subsystem(
         portfolio_aggregator=portfolio_aggregator,
         alpha_health_monitor=alpha_health_monitor,
         regime_sizer=regime_sizer,
+        staged_risk=staged_risk,
         portfolio_allocator=portfolio_allocator,
     )

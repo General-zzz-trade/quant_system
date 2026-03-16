@@ -14,7 +14,8 @@ def test_project_order_tracks_latest_status_and_quantities() -> None:
         [
             {"order_id": "ord-1", "status": "pending_new", "qty": "1.0", "filled_qty": "0", "ts_ms": 1000},
             {"order_id": "ord-1", "status": "new", "qty": "1.0", "filled_qty": "0", "ts_ms": 1100},
-            {"order_id": "ord-1", "status": "partially_filled", "filled_qty": "0.4", "avg_price": "42500", "ts_ms": 1200},
+            {"order_id": "ord-1", "status": "partially_filled", "filled_qty": "0.4", "avg_price": "42500",
+                "ts_ms": 1200},
             {"order_id": "ord-1", "status": "filled", "filled_qty": "1.0", "avg_price": "42600", "ts_ms": 1300},
         ]
     )
@@ -31,8 +32,10 @@ def test_project_order_tracks_latest_status_and_quantities() -> None:
 def test_project_order_ignores_invalid_partial_fields_and_keeps_last_valid_values() -> None:
     projection = project_order(
         [
-            {"order_id": "ord-1", "status": "new", "qty": "1.0", "filled_qty": "0.1", "avg_price": "42000", "ts_ms": 1000},
-            {"order_id": "ord-1", "status": "bogus", "qty": "bad", "filled_qty": "still-bad", "avg_price": "nan-ish", "ts_ms": "bad-ts"},
+            {"order_id": "ord-1", "status": "new", "qty": "1.0", "filled_qty": "0.1", "avg_price": "42000",
+                "ts_ms": 1000},
+            {"order_id": "ord-1", "status": "bogus", "qty": "bad", "filled_qty": "still-bad", "avg_price": "nan-ish",
+                "ts_ms": "bad-ts"},
         ]
     )
 

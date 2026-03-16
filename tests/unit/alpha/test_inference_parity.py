@@ -76,14 +76,14 @@ def _assert_parity(
     )
 
     mismatches = []
-    for i, (b, l) in enumerate(zip(bt, live)):
+    for i, (b, l) in enumerate(zip(bt, live)):  # noqa: E741
         if abs(b - l) > atol:
             mismatches.append((i, b, l))
 
     if mismatches:
         detail = "\n".join(
             f"  bar {i}: backtest={b:.6f}, live={l:.6f}"
-            for i, b, l in mismatches[:10]
+            for i, b, l in mismatches[:10]  # noqa: E741
         )
         total = len(mismatches)
         pytest.fail(
@@ -115,7 +115,7 @@ def _assert_parity_after_convergence(
     if mismatches:
         detail = "\n".join(
             f"  bar {i}: backtest={b:.6f}, live={l:.6f}"
-            for i, b, l in mismatches[:10]
+            for i, b, l in mismatches[:10]  # noqa: E741
         )
         pytest.fail(
             f"{len(mismatches)} post-convergence mismatches "

@@ -6,10 +6,13 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+if TYPE_CHECKING:
+    from execution.adapters.binance.rate_limit_policy import BinanceRateLimitPolicy
 
 
 class BinanceRestError(RuntimeError):

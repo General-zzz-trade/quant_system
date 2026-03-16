@@ -120,7 +120,7 @@ def run_rotation(
     """
     n_periods = len(ret_df)
     symbols = list(ret_df.columns)
-    n_syms = len(symbols)
+    len(symbols)
 
     pnls = []
     long_picks = []
@@ -291,7 +291,7 @@ def main():
     ]
 
     print(f"\n{'=' * 100}")
-    print(f"  Full-Sample Performance")
+    print("  Full-Sample Performance")
     print(f"{'=' * 100}")
     print(f"  {'Config':<20s} {'Sharpe':>8s} {'Return':>10s} {'WR':>6s} {'MaxDD':>7s} {'Periods':>8s} {'Active':>7s}")
     print(f"  {'-' * 70}")
@@ -306,7 +306,7 @@ def main():
 
     # Walk-forward for best config
     print(f"\n{'=' * 100}")
-    print(f"  Walk-Forward Validation")
+    print("  Walk-Forward Validation")
     print(f"{'=' * 100}")
 
     for name, freq, lb, nl, ns, train_p, test_p in configs:

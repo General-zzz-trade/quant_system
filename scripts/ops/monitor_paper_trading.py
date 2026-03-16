@@ -167,7 +167,7 @@ def _format_report(name: str, cfg: dict, stats: dict) -> str:
 
     last = stats.get("last_inference")
     if last:
-        lines.append(f"    Latest: side={last['side']}, str={last['strength']:.4f}, score={last['score']:.4f} @ {last['ts']}")
+        lines.append(f"    Latest: side={last['side']}, str={last['strength']:.4f}, score={last['score']:.4f} @ {last['ts']}")  # noqa: E501
 
     # Pollers
     if stats["pollers"]:

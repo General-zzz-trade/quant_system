@@ -43,7 +43,7 @@ def download_ls_ratio(symbol: str) -> List[dict]:
     all_records.extend(data)
     first_dt = datetime.fromtimestamp(data[0]["timestamp"] / 1000, tz=timezone.utc)
     last_dt = datetime.fromtimestamp(data[-1]["timestamp"] / 1000, tz=timezone.utc)
-    print(f"  {symbol}: {len(all_records)} records ({first_dt.strftime('%Y-%m-%d')} to {last_dt.strftime('%Y-%m-%d %H:%M')})")
+    print(f"  {symbol}: {len(all_records)} records ({first_dt.strftime('%Y-%m-%d')} to {last_dt.strftime('%Y-%m-%d %H:%M')})")  # noqa: E501
 
     while len(data) == LIMIT:
         cursor = data[-1]["timestamp"] + 1

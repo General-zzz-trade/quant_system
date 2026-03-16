@@ -347,7 +347,7 @@ def main():
 
     # Display results
     print(f"\n{'─'*90}")
-    print(f"{'Config':<20} {'Trades':>7} {'T/Day':>6} {'WinR':>6} {'AvgGross':>9} {'AvgNet':>9} {'Net%':>8} {'Sharpe':>7}")
+    print(f"{'Config':<20} {'Trades':>7} {'T/Day':>6} {'WinR':>6} {'AvgGross':>9} {'AvgNet':>9} {'Net%':>8} {'Sharpe':>7}")  # noqa: E501
     print(f"{'─'*90}")
 
     best_result = None

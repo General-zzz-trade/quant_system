@@ -22,7 +22,10 @@ class MeanReversionSignal:
         if o is None or c is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if c < o:
-            return SignalResult(symbol=symbol, side="buy", score=(o - c) / max(o, Decimal("1")), confidence=Decimal("0.6"), meta={"o": str(o), "c": str(c)})
+            return SignalResult(symbol=symbol, side="buy", score=(o - c) / max(o, Decimal("1")),
+                confidence=Decimal("0.6"), meta={"o": str(o), "c": str(c)})
         if c > o:
-            return SignalResult(symbol=symbol, side="sell", score=-(c - o) / max(o, Decimal("1")), confidence=Decimal("0.6"), meta={"o": str(o), "c": str(c)})
-        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"), meta={"o": str(o), "c": str(c)})
+            return SignalResult(symbol=symbol, side="sell", score=-(c - o) / max(o, Decimal("1")),
+                confidence=Decimal("0.6"), meta={"o": str(o), "c": str(c)})
+        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"),
+            meta={"o": str(o), "c": str(c)})

@@ -17,7 +17,6 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import datetime, timezone
 
 
 ALT_BASKET = [
@@ -31,7 +30,8 @@ DEFAULT_REBAL_BARS = 720  # 30 days
 DEFAULT_FUNDING_BPS = 1.0  # per 8h
 
 
-def load_prices(symbols: list[str], btc_symbol: str = "BTCUSDT") -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
+def load_prices(symbols: list[str], btc_symbol: str = "BTCUSDT") -> tuple[np.ndarray, np.ndarray, np.ndarray,
+    list[str]]:
     """Load and align prices for BTC + ALTs by timestamp."""
     data_dir = Path("data_files")
 
@@ -218,7 +218,7 @@ def main():
     print(f"  BTC bars: {len(btc_close):,}, ALTs: {len(valid_syms)}")
 
     if args.walkforward:
-        print(f"\n  Walk-forward validation:")
+        print("\n  Walk-forward validation:")
         r = walk_forward(btc_close, alt_matrix,
                          alt_weight=args.alt_weight,
                          use_ma_filter=not args.no_filter)

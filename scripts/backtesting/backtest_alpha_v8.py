@@ -7,7 +7,8 @@ realistic costs (fees + slippage + turnover penalty).
 
 Usage:
     python3 -m scripts.backtest_alpha_v8 --symbol BTCUSDT
-    python3 -m scripts.backtest_alpha_v8 --symbol BTCUSDT --model results/alpha_rebuild_v3/step6_final/BTCUSDT/v8_final.pkl
+    python3 -m scripts.backtest_alpha_v8 --symbol BTCUSDT --model
+        results/alpha_rebuild_v3/step6_final/BTCUSDT/v8_final.pkl
 """
 from __future__ import annotations
 
@@ -157,7 +158,7 @@ def _apply_dd_breaker(
     return out
 
 
-from alpha.signal_transform import pred_to_signal as _pred_to_signal  # noqa: E302
+from alpha.signal_transform import pred_to_signal as _pred_to_signal  # noqa: E302,E402
 
 
 def _apply_short_model(
@@ -650,7 +651,8 @@ def run_backtest(
     # Extract volumes for realistic cost model
     vol_col = "volume" if "volume" in oos_df.columns else None
     volumes_raw = oos_df[vol_col].values.astype(np.float64) if vol_col else np.ones(len(oos_df))
-    vol_20_raw = feat_df["vol_20"].values.astype(np.float64) if "vol_20" in feat_df.columns else np.full(len(feat_df), np.nan)
+    vol_20_raw = feat_df["vol_20"].values.astype(np.float64) if "vol_20" in feat_df.columns else np.full(len(feat_df),
+        np.nan)
 
     # Warmup: skip first 65 bars where features are not fully computed
     warmup = 65

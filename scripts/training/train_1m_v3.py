@@ -33,7 +33,8 @@ COST_TAKER_RT = 14  # round-trip bps (taker)
 def fast_ic(x, y):
     from scipy.stats import spearmanr
     m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50: return 0.0
+    if m.sum() < 50:
+        return 0.0
     r, _ = spearmanr(x[m], y[m])
     return float(r) if not np.isnan(r) else 0.0
 
@@ -103,14 +104,19 @@ def approach_mean_reversion(feat_df, feature_names, closes, highs, lows):
 
         # RSI boost: stronger signal when oversold/overbought
         rsi_boost = 1.0
-        if rsi[i] > 75: rsi_boost = 1.5  # overbought → stronger short
-        elif rsi[i] < 25: rsi_boost = 1.5  # oversold → stronger long
-        elif 40 < rsi[i] < 60: rsi_boost = 0.5  # neutral → weaker
+        if rsi[i] > 75:
+            rsi_boost = 1.5  # overbought → stronger short
+        elif rsi[i] < 25:
+            rsi_boost = 1.5  # oversold → stronger long
+        elif 40 < rsi[i] < 60:
+            rsi_boost = 0.5  # neutral → weaker
 
         # CVD exhaustion: when CVD agrees with price (not diverging), reversion is stronger
         cvd_match = 1.0
-        if cvd[i] > 0.5 and ret_10[i] > 0: cvd_match = 1.3  # buying exhaustion
-        elif cvd[i] < -0.5 and ret_10[i] < 0: cvd_match = 1.3  # selling exhaustion
+        if cvd[i] > 0.5 and ret_10[i] > 0:
+            cvd_match = 1.3  # buying exhaustion
+        elif cvd[i] < -0.5 and ret_10[i] < 0:
+            cvd_match = 1.3  # selling exhaustion
 
         mr_signal[i] = base * rsi_boost * cvd_match
 
@@ -307,7 +313,8 @@ def approach_vol_breakout(feat_df, feature_names, closes, highs, lows, volumes):
 
         # Backtest on vol-expanding bars only
         pred_std = np.nanstd(pred)
-        if pred_std < 1e-12: continue
+        if pred_std < 1e-12:
+            continue
         z_pred = pred / pred_std
 
         for dz in [1.5, 2.0, 2.5, 3.0]:
@@ -330,15 +337,20 @@ def approach_vol_breakout(feat_df, feature_names, closes, highs, lows, volumes):
 
                 if position == 0 and vol_test[i]:  # only enter during vol expansion
                     if z_pred[i] > dz:
-                        position = 1; entry_price = c_test[i]; entry_bar = i
+                        position = 1
+                        entry_price = c_test[i]
+                        entry_bar = i
                     elif z_pred[i] < -dz:
-                        position = -1; entry_price = c_test[i]; entry_bar = i
+                        position = -1
+                        entry_price = c_test[i]
+                        entry_bar = i
 
             if position != 0:
                 trades.append(position * (c_test[-1] - entry_price) / entry_price)
 
             nt = len(trades)
-            if nt == 0: continue
+            if nt == 0:
+                continue
             t = np.array(trades)
             days = len(c_test) / 1440
             net = t - COST_MAKER_RT / 10000
@@ -426,22 +438,25 @@ def approach_classification(feat_df, feature_names, closes):
                 # AUC
                 from sklearn.metrics import roc_auc_score
                 valid_test = ~np.isnan(y_test)
-                if valid_test.sum() < 100: continue
+                if valid_test.sum() < 100:
+                    continue
                 try:
                     auc = roc_auc_score(y_test[valid_test], pred[valid_test])
-                except:
+                except Exception:
                     auc = 0.5
 
                 # Trade when P > high threshold
                 for prob_thresh in [0.6, 0.7, 0.8]:
                     signals = pred > prob_thresh
                     n_signals = signals.sum()
-                    if n_signals == 0: continue
+                    if n_signals == 0:
+                        continue
 
                     # Simple evaluation: avg return when signal fires
                     fwd_w = fwd_ret[WARMUP + val_adj:]
                     valid_sig = signals & ~np.isnan(fwd_w)
-                    if valid_sig.sum() == 0: continue
+                    if valid_sig.sum() == 0:
+                        continue
 
                     if direction == "LONG":
                         avg_ret = np.mean(fwd_w[valid_sig])
@@ -482,14 +497,20 @@ def approach_hybrid(feat_df, feature_names, closes, highs, lows):
     direction_bias = np.zeros(n)
     for i in range(WARMUP, n):
         score = 0
-        if slow_ma[i] > 0.01: score += 1
-        elif slow_ma[i] < -0.01: score -= 1
+        if slow_ma[i] > 0.01:
+            score += 1
+        elif slow_ma[i] < -0.01:
+            score -= 1
         if not np.isnan(tf4h_ma[i]):
-            if tf4h_ma[i] > 0.01: score += 1
-            elif tf4h_ma[i] < -0.01: score -= 1
+            if tf4h_ma[i] > 0.01:
+                score += 1
+            elif tf4h_ma[i] < -0.01:
+                score -= 1
         if not np.isnan(slow_rsi[i]):
-            if slow_rsi[i] > 60: score += 1
-            elif slow_rsi[i] < 40: score -= 1
+            if slow_rsi[i] > 60:
+                score += 1
+            elif slow_rsi[i] < 40:
+                score -= 1
         direction_bias[i] = np.sign(score) if abs(score) >= 2 else 0  # need 2+ signals
 
     # 1m entry: mean reversion within the trend direction
@@ -528,13 +549,17 @@ def approach_hybrid(feat_df, feature_names, closes, highs, lows):
             if position != 0:
                 held = i - entry_bar
                 should_exit = False
-                if held >= max_hold: should_exit = True
+                if held >= max_hold:
+                    should_exit = True
                 elif held >= min_hold:
                     # Exit when direction bias flips or profit target
                     pnl_pct = position * (closes[i] - entry_price) / entry_price
-                    if direction_bias[i] * position < 0: should_exit = True  # bias flipped
-                    elif pnl_pct > 0.003: should_exit = True  # 30bp profit target
-                    elif pnl_pct < -0.002: should_exit = True  # 20bp stop loss
+                    if direction_bias[i] * position < 0:
+                        should_exit = True  # bias flipped
+                    elif pnl_pct > 0.003:
+                        should_exit = True  # 30bp profit target
+                    elif pnl_pct < -0.002:
+                        should_exit = True  # 20bp stop loss
                 if should_exit:
                     pnl = position * (closes[i] - entry_price) / entry_price
                     trades_gross.append(pnl)
@@ -585,7 +610,7 @@ def approach_multi_symbol():
     eth_path = Path("/quant_system/data_files/ETHUSDT_1m.csv")
     if not eth_path.exists():
         print("  ETHUSDT 1m data not found. Skipping.")
-        print("  To download: python3 scripts/download_binance_klines.py --symbols ETHUSDT --interval 1m --start 2024-01-01 --out data_files")
+        print("  To download: python3 scripts/download_binance_klines.py --symbols ETHUSDT --interval 1m --start 2024-01-01 --out data_files")  # noqa: E501
         return
 
     # Would implement cross-asset signals here

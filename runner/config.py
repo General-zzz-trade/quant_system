@@ -90,6 +90,7 @@ class LiveRunnerConfig:
     regime_low_vol_scale: float = 1.0
     regime_mid_vol_scale: float = 0.6
     regime_high_vol_scale: float = 0.25
+    initial_equity: float = 500.0
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
 

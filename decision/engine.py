@@ -200,7 +200,8 @@ class DecisionEngine:
         else:
             explain = _EMPTY_EXPLAIN
 
-        out = DecisionOutput(ts=ctx.now, strategy_id=self.cfg.strategy_id, targets=tuple(targets), orders=tuple(orders), explain=explain)
+        out = DecisionOutput(ts=ctx.now, strategy_id=self.cfg.strategy_id, targets=tuple(targets), orders=tuple(orders),
+            explain=explain)
         if self.auditor:
             self.auditor.record(out)
         return out

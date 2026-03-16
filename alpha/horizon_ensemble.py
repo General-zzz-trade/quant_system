@@ -14,7 +14,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from alpha.ic_monitor import ICMonitor
+from alpha.ic_monitor import ICMonitor  # noqa: E402
 
 
 class AdaptiveHorizonEnsemble:

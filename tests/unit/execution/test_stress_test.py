@@ -1,7 +1,6 @@
 # tests/unit/execution/test_stress_test.py
 """Tests for Monte Carlo stress testing and delay model."""
 import numpy as np
-import pytest
 
 from execution.sim.realistic_backtest import BacktestConfig
 from execution.sim.stress_test import run_stress_test

@@ -107,7 +107,8 @@ class SLOTracker:
             # Error budget: fraction of allowed downtime remaining
             allowed_downtime = (1.0 - self._cfg.availability_target) * self._cfg.window_sec
             actual_downtime = (1.0 - uptime) * self._cfg.window_sec if total_checks > 0 else 0.0
-            budget_remaining = max(0.0, (allowed_downtime - actual_downtime) / allowed_downtime * 100) if allowed_downtime > 0 else 100.0
+            budget_remaining = max(0.0,
+                (allowed_downtime - actual_downtime) / allowed_downtime * 100) if allowed_downtime > 0 else 100.0
 
             violations: list[str] = []
             if p99 > self._cfg.pipeline_latency_p99_sec * 1000:

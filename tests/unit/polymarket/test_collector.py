@@ -24,7 +24,7 @@ if "polymarket" in sys.modules:
             if k.startswith("polymarket."):
                 del sys.modules[k]
 
-import importlib
+import importlib  # noqa: E402
 _pm = importlib.import_module("polymarket.collector")
 PolymarketCollector = _pm.PolymarketCollector
 binary_call_fair_value = _pm.binary_call_fair_value

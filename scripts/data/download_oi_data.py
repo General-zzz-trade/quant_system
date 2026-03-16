@@ -13,9 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -125,7 +123,8 @@ def download_taker_ratio(symbol: str, start_ms: int, end_ms: int) -> pd.DataFram
     df["taker_ratio"] = pd.to_numeric(df["buySellRatio"])
     df["taker_buy_vol"] = pd.to_numeric(df["buyVol"])
     df["taker_sell_vol"] = pd.to_numeric(df["sellVol"])
-    return df[["timestamp", "taker_ratio", "taker_buy_vol", "taker_sell_vol"]].drop_duplicates("timestamp").sort_values("timestamp")
+    return df[["timestamp", "taker_ratio", "taker_buy_vol",
+        "taker_sell_vol"]].drop_duplicates("timestamp").sort_values("timestamp")
 
 
 def download_top_trader_ls(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame:
@@ -139,7 +138,8 @@ def download_top_trader_ls(symbol: str, start_ms: int, end_ms: int) -> pd.DataFr
     df["top_ls_ratio"] = pd.to_numeric(df["longShortRatio"])
     df["top_long_pct"] = pd.to_numeric(df["longAccount"])
     df["top_short_pct"] = pd.to_numeric(df["shortAccount"])
-    return df[["timestamp", "top_ls_ratio", "top_long_pct", "top_short_pct"]].drop_duplicates("timestamp").sort_values("timestamp")
+    return df[["timestamp", "top_ls_ratio", "top_long_pct",
+        "top_short_pct"]].drop_duplicates("timestamp").sort_values("timestamp")
 
 
 def download_all(symbol: str, days: int = 365) -> pd.DataFrame:

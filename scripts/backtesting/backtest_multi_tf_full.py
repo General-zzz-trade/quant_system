@@ -320,7 +320,7 @@ def analyze(result: Dict[str, Any], timestamps: np.ndarray, label: str) -> Dict[
     print(f"    Mean: {np.mean(levs):.2f}x   Median: {np.median(levs):.2f}x   "
           f"Min: {np.min(levs):.2f}x   Max: {np.max(levs):.2f}x")
     for lo, hi in [(2.0, 2.25), (2.25, 2.5), (2.5, 2.75), (2.75, 3.01)]:
-        count = sum(1 for l in levs if lo <= l < hi)
+        count = sum(1 for ll in levs if lo <= ll < hi)
         pct = count / len(levs) * 100
         bar = "█" * int(pct / 2)
         print(f"    {lo:.2f}–{hi:.2f}x: {count:>3d} ({pct:>5.1f}%) {bar}")

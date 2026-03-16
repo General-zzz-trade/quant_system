@@ -3,7 +3,7 @@ import json
 import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
-from _quant_hotpath import RustWsOrderGateway
+from _quant_hotpath import RustWsOrderGateway  # noqa: E402
 
 
 @pytest.fixture

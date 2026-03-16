@@ -38,8 +38,10 @@ def test_cli_model_inspect_prints_loader_report(capsys):
         def inspect_production_models(self, names):
             return [{"name": names[0], "available": True, "model_id": "m1"}]
 
-    with patch("research.model_registry.registry.ModelRegistry"), patch("research.model_registry.artifact.ArtifactStore"), patch(
-        "alpha.model_loader.ProductionModelLoader", return_value=_FakeLoader()
+    with (
+        patch("research.model_registry.registry.ModelRegistry"),
+        patch("research.model_registry.artifact.ArtifactStore"),
+        patch("alpha.model_loader.ProductionModelLoader", return_value=_FakeLoader()),
     ):
         with patch("sys.argv", ["quant", "model-inspect", "--model", "alpha_btc"]):
             main()
@@ -52,8 +54,12 @@ def test_cli_model_inspect_prints_loader_report(capsys):
 def test_cli_model_promote_calls_registry(capsys):
     with patch("research.model_registry.registry.ModelRegistry") as registry_cls:
         registry = registry_cls.return_value
-        registry.get.return_value = type("MV", (), {"name": "alpha_btc", "version": 3})()
-        with patch("sys.argv", ["quant", "model-promote", "--model-id", "m-prod", "--reason", "shadow_win", "--actor", "ops"]):
+        registry.get.return_value = type(
+            "MV", (), {"name": "alpha_btc", "version": 3})()
+        with patch("sys.argv", [
+            "quant", "model-promote", "--model-id", "m-prod",
+            "--reason", "shadow_win", "--actor", "ops",
+        ]):
             main()
 
     registry.promote.assert_called_once_with("m-prod", reason="shadow_win", actor="ops")
@@ -71,7 +77,10 @@ def test_cli_model_rollback_calls_registry_and_prints_target(capsys):
         registry = registry_cls.return_value
         registry.get_production.return_value = type("MV", (), {"model_id": "m-current", "version": 2})()
         registry.rollback_to_previous.return_value = type("MV", (), {"model_id": "m-prev", "version": 1})()
-        with patch("sys.argv", ["quant", "model-rollback", "--model", "alpha_btc", "--reason", "rollback", "--actor", "ops"]):
+        with patch("sys.argv", [
+            "quant", "model-rollback", "--model", "alpha_btc",
+            "--reason", "rollback", "--actor", "ops",
+        ]):
             main()
 
     registry.rollback_to_previous.assert_called_once_with(
@@ -146,12 +155,18 @@ def test_cli_ops_audit_prints_operator_controls_and_model_actions(tmp_path, caps
     event_log.append(
         event_type="model_reload",
         correlation_id="failed",
-        payload={"outcome": "failed", "model_names": ["alpha_btc"], "error": "model_hot_reload_failed", "ts": "2026-03-13T00:00:01+00:00"},
+        payload={
+            "outcome": "failed", "model_names": ["alpha_btc"],
+            "error": "model_hot_reload_failed", "ts": "2026-03-13T00:00:01+00:00",
+        },
     )
     event_log.append(
         event_type="execution_incident",
         correlation_id="binance:BTCUSDT:timeout",
-        payload={"title": "execution-timeout", "category": "execution_timeout", "source": "execution:timeout", "ts": "2026-03-13T00:00:02+00:00"},
+        payload={
+            "title": "execution-timeout", "category": "execution_timeout",
+            "source": "execution:timeout", "ts": "2026-03-13T00:00:02+00:00",
+        },
     )
     registry = ModelRegistry(tmp_path / "registry.db")
     mv1 = registry.register(name="alpha_btc", params={}, features=[], metrics={"sharpe": 1.0})

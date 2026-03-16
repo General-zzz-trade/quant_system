@@ -200,7 +200,7 @@ PRIMARY_ENTRYPOINTS: tuple[ScriptEntrypoint, ...] = (
         name="backtest_adaptive.py",
         status=EXPERIMENTAL,
         recommendation="specialized",
-        description="Adaptive-parameter backtest used for regime adaptation research rather than the default backtest path.",
+        description="Adaptive-parameter backtest used for regime adaptation research rather than the default backtest path.",  # noqa: E501
     ),
     ScriptEntrypoint(
         name="train_btc_v9.py",

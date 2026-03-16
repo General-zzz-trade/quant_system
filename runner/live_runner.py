@@ -152,6 +152,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     ws_order_gateway: Optional[Any] = None
     ensemble_combiner: Optional[Any] = None  # Direction 13: multi-TF ensemble
     regime_sizer: Optional[Any] = None  # Direction 17: regime-aware sizing
+    staged_risk: Optional[Any] = None  # Staged risk manager (equity-based)
     live_signal_tracker: Optional[Any] = None  # Direction 18: attribution feedback
     portfolio_allocator: Optional[Any] = None  # Direction 19: cross-asset allocator
     periodic_checkpointer: Optional[PeriodicCheckpointer] = None
@@ -225,7 +226,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
 
         # Phase 2: monitoring
-        health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker = (
+        health, hook, alpha_health_monitor, regime_sizer, staged_risk, live_signal_tracker = (
             _build_monitoring(config, kill_switch, metrics_exporter)
         )
 
@@ -260,7 +261,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             _update_correlation, correlation_gate, kill_switch,
             order_state_machine, timeout_tracker, attribution_tracker,
             live_signal_tracker, alpha_health_monitor, regime_sizer,
-            portfolio_allocator, fetch_margin, report,
+            staged_risk, portfolio_allocator, fetch_margin, report,
         )
 
         # Phase 7: execution
@@ -342,6 +343,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             alpha_health_monitor=alpha_health_monitor,
             ws_order_gateway=ws_order_gateway,
             regime_sizer=regime_sizer,
+            staged_risk=staged_risk,
             live_signal_tracker=live_signal_tracker,
             portfolio_allocator=portfolio_allocator,
             periodic_checkpointer=periodic_checkpointer,

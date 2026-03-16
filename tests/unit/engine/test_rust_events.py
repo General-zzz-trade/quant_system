@@ -40,7 +40,7 @@ def test_detect_kind_rust_funding_event():
 
 # ── State store parity: Rust events vs Python events ──
 
-def _make_py_market(sym, o, h, l, c, v, ts=None):
+def _make_py_market(sym, o, h, l, c, v, ts=None):  # noqa: E741
     return SimpleNamespace(
         event_type="market",
         header=SimpleNamespace(event_type="market", ts=ts, event_id="m-1"),

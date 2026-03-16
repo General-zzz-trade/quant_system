@@ -189,7 +189,7 @@ class TestRegimeAwareDecisionModule:
 
         # Check that labels were generated
         labels = mod.current_labels
-        [l for l in labels if l.name == "volatility"]
+        [ll for ll in labels if ll.name == "volatility"]
         # The key test: with very high oscillation, vol should be detected as high
         # and trend as flat, which should block trading
         # Note: exact blocking depends on threshold calibration

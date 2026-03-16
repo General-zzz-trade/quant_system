@@ -4,7 +4,7 @@ import math
 import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
-from _quant_hotpath import cpp_black_litterman_posterior
+from _quant_hotpath import cpp_black_litterman_posterior  # noqa: E402
 
 
 # ── Helpers ──

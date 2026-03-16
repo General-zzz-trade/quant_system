@@ -70,7 +70,8 @@ class FakeVenueClient:
         if self._cancel_always_fail is not None:
             raise self._cancel_always_fail
 
-        return {"canceled": True, "order_id": getattr(cmd, "order_id", None), "client_order_id": getattr(cmd, "client_order_id", None)}
+        return {"canceled": True, "order_id": getattr(cmd, "order_id", None), "client_order_id": getattr(cmd,
+            "client_order_id", None)}
 
 
 def _mk_submit(*, rid: RequestIdFactory, logical_id: str) -> Any:

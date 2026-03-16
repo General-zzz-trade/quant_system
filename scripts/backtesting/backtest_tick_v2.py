@@ -323,7 +323,7 @@ def main():
         results[label] = r
         win_rate = r.wins / max(r.total_trades, 1) * 100
         net_pct = r.net_pnl / 10000 * 100
-        print(f"{label:<25} {r.total_trades:>7,} {win_rate:>5.1f}% {r.gross_pnl:>+9.0f} {r.costs:>9.0f} {r.net_pnl:>+9.0f} {net_pct:>+6.1f}% {r.max_dd:>6.1f}%")
+        print(f"{label:<25} {r.total_trades:>7,} {win_rate:>5.1f}% {r.gross_pnl:>+9.0f} {r.costs:>9.0f} {r.net_pnl:>+9.0f} {net_pct:>+6.1f}% {r.max_dd:>6.1f}%")  # noqa: E501
 
     # ─── Monthly Breakdown for best V2 config ───
     print("\n" + "=" * 70)

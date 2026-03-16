@@ -291,7 +291,8 @@ def test_out_of_order_with_duplicates_still_idempotent_and_consistent() -> None:
     mixed = [
         f2,
         f1,
-        _make_fill("e100004", 3, order_id="o-888", fill_id="x2", fill_seq=2, side="buy", qty=1.0, price=201.0),  # dup identical
+        _make_fill("e100004", 3, order_id="o-888", fill_id="x2", fill_seq=2, side="buy", qty=1.0, price=201.0),
+            # dup identical
         f3,
     ]
 
@@ -304,7 +305,8 @@ def test_out_of_order_payload_mismatch_duplicate_must_fail() -> None:
     """
     f1 = _make_fill("e200001", 0, order_id="o-999", fill_id="z1", fill_seq=1, side="buy", qty=1.0, price=300.0)
     f2 = _make_fill("e200002", 1, order_id="o-999", fill_id="z2", fill_seq=2, side="buy", qty=1.0, price=301.0)
-    dup_bad = _make_fill("e200003", 2, order_id="o-999", fill_id="z2", fill_seq=2, side="buy", qty=9.0, price=301.0)  # qty mismatch
+    dup_bad = _make_fill("e200003", 2, order_id="o-999", fill_id="z2", fill_seq=2, side="buy", qty=9.0,
+        price=301.0)  # qty mismatch
 
     disp, _st = _build_dispatcher_and_state()
     r = EventReplay(

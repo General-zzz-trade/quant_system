@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import numpy as np
 
@@ -142,7 +141,7 @@ def main() -> None:
     leverages = [1, 2, 3, 5, 7, 10, 15, 20]
 
     print(f"\n  Starting capital: ${initial:.0f}")
-    print(f"  Simulation: 20 folds forward (5 years), 10K paths per leverage")
+    print("  Simulation: 20 folds forward (5 years), 10K paths per leverage")
 
     print(f"\n  {'Lev':>4} {'Median$':>10} {'P10$':>10} {'P90$':>10} "
           f"{'Bust%':>6} {'MaxDD':>6} {'Prof%':>6} "

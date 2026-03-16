@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from state.rust_adapters import _SCALE
 
 try:
-    from _quant_hotpath import RustStateStore, RustProcessResult
+    from _quant_hotpath import RustStateStore
     _HAS_STATE_STORE = True
 except ImportError:
     _HAS_STATE_STORE = False

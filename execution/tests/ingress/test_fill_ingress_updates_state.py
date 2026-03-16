@@ -67,7 +67,8 @@ def test_ingress_sell_reduces_position() -> None:
     assert router.ingest_canonical_fill(_mk_fill(fill_id="f-buy", trade_id="t-buy", digest="b1", qty=1.0)) is True
 
     # sell 0.4
-    assert router.ingest_canonical_fill(_mk_fill(fill_id="f-sell", trade_id="t-sell", digest="s1", side="sell", qty=0.4)) is True
+    assert router.ingest_canonical_fill(_mk_fill(fill_id="f-sell", trade_id="t-sell", digest="s1", side="sell",
+        qty=0.4)) is True
 
     st = coord.get_state_view()
     pos = st["positions"]["BTCUSDT"]

@@ -223,6 +223,23 @@ class RegimeSizerGate:
         return GateResult(allowed=True, scale=scale)
 
 
+class StagedRiskGate:
+    """Gate: Staged risk management — blocks when halted, scales by drawdown."""
+    name = "StagedRisk"
+
+    def __init__(self, staged_risk: Any) -> None:
+        self._staged = staged_risk
+
+    def check(self, ev: Any, context: Dict[str, Any]) -> GateResult:
+        if not self._staged.can_trade:
+            return GateResult(
+                allowed=False,
+                reason=f"staged_risk_halted: {self._staged.stage.label}",
+            )
+        scale = self._staged.position_scale()
+        return GateResult(allowed=True, scale=scale)
+
+
 class PortfolioAllocatorGate:
     """Gate 6: Portfolio allocator order scaling."""
     name = "PortfolioAllocator"
@@ -348,6 +365,7 @@ def build_gate_chain(
     portfolio_aggregator: Optional[Any] = None,
     alpha_health_monitor: Optional[Any] = None,
     regime_sizer: Optional[Any] = None,
+    staged_risk: Optional[Any] = None,
     portfolio_allocator: Optional[Any] = None,
     hook: Optional[Any] = None,
     kill_switch: Optional[Any] = None,
@@ -369,6 +387,8 @@ def build_gate_chain(
         gates.append(AlphaHealthGate(alpha_health_monitor))
     if regime_sizer is not None:
         gates.append(RegimeSizerGate(regime_sizer))
+    if staged_risk is not None:
+        gates.append(StagedRiskGate(staged_risk))
     if portfolio_allocator is not None:
         gates.append(PortfolioAllocatorGate(portfolio_allocator, get_state_view))
     if hook is not None:

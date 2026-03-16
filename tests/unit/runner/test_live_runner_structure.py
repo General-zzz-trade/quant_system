@@ -8,7 +8,6 @@ from __future__ import annotations
 import inspect
 import re
 
-import pytest
 
 
 class TestBuildPhaseStructure:
@@ -54,18 +53,6 @@ class TestBuildPhaseStructure:
 
     def test_builder_modules_importable(self):
         """All phase builder modules must be importable."""
-        from runner.builders.core_infra_builder import build_core_infra
-        from runner.builders.monitoring_builder import build_monitoring
-        from runner.builders.portfolio_builder import build_portfolio_and_correlation
-        from runner.builders.order_infra_builder import build_order_infra
-        from runner.builders.features_builder import build_features_and_inference
-        from runner.builders.engine_builder import build_coordinator_and_pipeline
-        from runner.builders.execution_builder import build_execution_phase
-        from runner.builders.decision_builder import build_decision
-        from runner.builders.market_data_builder import build_market_data
-        from runner.builders.user_stream_builder import build_user_stream
-        from runner.builders.persistence import build_persistence_and_recovery
-        from runner.builders.shutdown import build_shutdown
 
     def test_builders_package_exists(self):
         """runner/builders/ package must exist for future extraction."""

@@ -2,8 +2,10 @@
 """Request signing utilities for venue authentication."""
 from __future__ import annotations
 
+import hashlib
 import hmac
 from typing import Any, Dict, Protocol
+from urllib.parse import urlencode
 
 from _quant_hotpath import rust_hmac_sign as _rust_hmac_sign
 

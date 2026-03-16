@@ -3,7 +3,7 @@ import os
 import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
-from _quant_hotpath import RustUnifiedPredictor
+from _quant_hotpath import RustUnifiedPredictor  # noqa: E402
 
 # Skip if no model JSON available
 MODEL_PATH = "models_v8/BTCUSDT_gate_v2/lgbm_v8.json"

@@ -139,7 +139,8 @@ class HealthServer:
             {
                 "status_fn": staticmethod(self._status_fn),
                 "operator_fn": staticmethod(self._operator_fn) if self._operator_fn is not None else None,
-                "control_history_fn": staticmethod(self._control_history_fn) if self._control_history_fn is not None else None,
+                "control_history_fn": staticmethod(self._control_history_fn) if self._control_history_fn is not None
+                    else None,
                 "control_fn": staticmethod(self._control_fn) if self._control_fn is not None else None,
                 "alerts_fn": staticmethod(self._alerts_fn) if self._alerts_fn is not None else None,
                 "ops_audit_fn": staticmethod(self._ops_audit_fn) if self._ops_audit_fn is not None else None,

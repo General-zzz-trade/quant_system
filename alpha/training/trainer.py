@@ -56,7 +56,7 @@ class ModelTrainer:
             expanding: If True, training window expands. If False, fixed window.
         """
         try:
-            import numpy as np
+            import numpy as np  # noqa: F401
         except ImportError as e:
             raise RuntimeError("numpy required: pip install numpy") from e
 

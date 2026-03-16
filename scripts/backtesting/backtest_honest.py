@@ -411,7 +411,8 @@ def main():
                 m = monthly[month]
                 cum += m["net"]
                 wr = m["wins"] / m["trades"] * 100 if m["trades"] > 0 else 0
-                if m["net"] > 0: pos_months += 1
+                if m["net"] > 0:
+                    pos_months += 1
                 print(f"  {month:>8} {m['trades']:>5} {wr:>5.0f}% "
                       f"{m['net']:>+8.1f} {cum:>+9.1f}")
             print(f"  Positive months: {pos_months}/{len(monthly)}")

@@ -37,6 +37,11 @@ class RegimePolicy:
             if val is not None and val in blocked_values:
                 return False, f"regime_{name}={val}_blocked"
 
+        # Composite detector: block on crisis
+        composite_val = label_map.get("composite")
+        if composite_val is not None and "crisis" in composite_val:
+            return False, "composite_crisis_blocked"
+
         # Default combination block: high vol + flat trend
         if self.block_high_vol_flat_trend:
             vol = label_map.get("volatility")

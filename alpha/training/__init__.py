@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Sequence  # noqa: F401
 
 
 @dataclass(frozen=True)

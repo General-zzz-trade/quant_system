@@ -22,7 +22,7 @@ from features.multi_timeframe import compute_4h_features
 
 logger = logging.getLogger(__name__)
 
-from _quant_hotpath import cpp_compute_fast_1m_features, cpp_fast_1m_feature_names
+from _quant_hotpath import cpp_compute_fast_1m_features, cpp_fast_1m_feature_names  # noqa: E402
 
 # Fast features computed directly on 1m bars (short windows)
 FAST_FEATURE_NAMES = (
@@ -85,9 +85,12 @@ def resample_to_hourly(df_1m: pd.DataFrame) -> pd.DataFrame:
 def _compute_fast_features_cpp(df_1m: pd.DataFrame) -> pd.DataFrame:
     """C++ accelerated fast feature computation — single pass over all bars."""
     n = len(df_1m)
-    opens = df_1m["open"].values.astype(np.float64) if "open" in df_1m.columns else df_1m["close"].values.astype(np.float64)
-    highs = df_1m["high"].values.astype(np.float64) if "high" in df_1m.columns else df_1m["close"].values.astype(np.float64)
-    lows = df_1m["low"].values.astype(np.float64) if "low" in df_1m.columns else df_1m["close"].values.astype(np.float64)
+    opens = (df_1m["open"].values.astype(np.float64)
+             if "open" in df_1m.columns else df_1m["close"].values.astype(np.float64))
+    highs = (df_1m["high"].values.astype(np.float64)
+             if "high" in df_1m.columns else df_1m["close"].values.astype(np.float64))
+    lows = (df_1m["low"].values.astype(np.float64)
+            if "low" in df_1m.columns else df_1m["close"].values.astype(np.float64))
     closes = df_1m["close"].values.astype(np.float64)
     volumes = df_1m["volume"].values.astype(np.float64) if "volume" in df_1m.columns else np.zeros(n)
     trades_arr = df_1m["trades"].values.astype(np.float64) if "trades" in df_1m.columns else np.zeros(n)

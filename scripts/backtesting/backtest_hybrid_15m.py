@@ -22,15 +22,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-import numpy as np
-import pandas as pd
-from scipy.stats import spearmanr
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from scipy.stats import spearmanr  # noqa: E402
 
 sys.path.insert(0, "/quant_system")
 
-from features.batch_feature_engine import compute_features_batch
-from scripts.signal_postprocess import rolling_zscore, should_exit_position
-from decision.hybrid_15m_executor import (
+from features.batch_feature_engine import compute_features_batch  # noqa: E402
+from scripts.signal_postprocess import rolling_zscore, should_exit_position  # noqa: E402
+from decision.hybrid_15m_executor import (  # noqa: E402
     Hybrid15mExecutor, _Bar15m,
 )
 
@@ -341,7 +341,8 @@ def run_comparison(symbol: str):
     overlap_start = max(df_1h["open_time"].iloc[0], df_15m["open_time"].iloc[0])
     overlap_end = min(df_1h["open_time"].iloc[-1], df_15m["open_time"].iloc[-1])
     df_1h = df_1h[(df_1h["open_time"] >= overlap_start) & (df_1h["open_time"] <= overlap_end)].reset_index(drop=True)
-    df_15m = df_15m[(df_15m["open_time"] >= overlap_start) & (df_15m["open_time"] <= overlap_end)].reset_index(drop=True)
+    df_15m = df_15m[(df_15m["open_time"] >= overlap_start) & (df_15m["open_time"] <=
+        overlap_end)].reset_index(drop=True)
     print(f"  Overlap:  {len(df_1h):,} 1h bars, {len(df_15m):,} 15m bars")
 
     # Load model
@@ -396,7 +397,7 @@ def run_comparison(symbol: str):
     print(f"  COMPARISON RESULTS — {symbol}")
     print(f"  {'='*65}")
 
-    print(f"\n  {'Strategy':>25} {'Sharpe':>8} {'Trades':>8} {'WR%':>6} {'Ret%':>8} {'MaxDD%':>8} {'AvgHold':>8} {'NetBps':>8}")
+    print(f"\n  {'Strategy':>25} {'Sharpe':>8} {'Trades':>8} {'WR%':>6} {'Ret%':>8} {'MaxDD%':>8} {'AvgHold':>8} {'NetBps':>8}")  # noqa: E501
     print(f"  {'-'*25:>25} {'-'*8:>8} {'-'*8:>8} {'-'*6:>6} {'-'*8:>8} {'-'*8:>8} {'-'*8:>8} {'-'*8:>8}")
 
     all_results = [baseline] + results_hybrid

@@ -66,7 +66,8 @@ class EngineException(RuntimeError):
     code: str = "ENGINE_ERROR"
     severity: ErrorSeverity = ErrorSeverity.ERROR
 
-    def __init__(self, message: str = "", *, ctx: Optional[EngineErrorContext] = None, cause: Optional[BaseException] = None) -> None:
+    def __init__(self, message: str = "", *, ctx: Optional[EngineErrorContext] = None,
+        cause: Optional[BaseException] = None) -> None:
         super().__init__(message)
         self.ctx = ctx or EngineErrorContext()
         self.cause = cause

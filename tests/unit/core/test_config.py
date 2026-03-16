@@ -47,7 +47,7 @@ class TestFileLayer:
 
     def test_yaml_fallback(self, tmp_path):
         try:
-            import yaml
+            import yaml  # noqa: F401
         except ImportError:
             pytest.skip("pyyaml not installed")
         p = tmp_path / "config.yaml"

@@ -352,7 +352,7 @@ def walk_forward_symbol(
         result = train_fold(X, closes, feature_names, tr_s, tr_e, te_s, te_e, horizons)
 
         if isinstance(result, dict) and "error" in result:
-            print(f"  {fold_idx+1:>5} {tr_start_d+'→'+tr_end_d:>25} {te_start_d+'→'+te_end_d:>25} ERROR: {result['error']}")
+            print(f"  {fold_idx+1:>5} {tr_start_d+'→'+tr_end_d:>25} {te_start_d+'→'+te_end_d:>25} ERROR: {result['error']}")  # noqa: E501
             continue
 
         ics, preds_test = result
@@ -414,8 +414,8 @@ def walk_forward_symbol(
     print(f"  {'Min Sharpe':>25} {np.min(best_sharpes):>15.2f} {np.min(fixed_sharpes):>15.2f}")
     print(f"  {'Max Sharpe':>25} {np.max(best_sharpes):>15.2f} {np.max(fixed_sharpes):>15.2f}")
     print(f"  {'Std Sharpe':>25} {np.std(best_sharpes):>15.2f} {np.std(fixed_sharpes):>15.2f}")
-    print(f"  {'Sharpe > 0 (%)':>25} {np.mean([s > 0 for s in best_sharpes])*100:>14.0f}% {np.mean([s > 0 for s in fixed_sharpes])*100:>14.0f}%")
-    print(f"  {'Sharpe > 1.0 (%)':>25} {np.mean([s > 1 for s in best_sharpes])*100:>14.0f}% {np.mean([s > 1 for s in fixed_sharpes])*100:>14.0f}%")
+    print(f"  {'Sharpe > 0 (%)':>25} {np.mean([s > 0 for s in best_sharpes])*100:>14.0f}% {np.mean([s > 0 for s in fixed_sharpes])*100:>14.0f}%")  # noqa: E501
+    print(f"  {'Sharpe > 1.0 (%)':>25} {np.mean([s > 1 for s in best_sharpes])*100:>14.0f}% {np.mean([s > 1 for s in fixed_sharpes])*100:>14.0f}%")  # noqa: E501
 
     stability_best = np.median(best_sharpes) / max(np.std(best_sharpes), 0.01)
     stability_fixed = np.median(fixed_sharpes) / max(np.std(fixed_sharpes), 0.01)

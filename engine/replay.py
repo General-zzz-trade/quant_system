@@ -8,7 +8,7 @@ from typing import Any, Iterator, Optional, Protocol
 logger = logging.getLogger(__name__)
 
 # engine 侧
-from engine.dispatcher import EventDispatcher, Route
+from engine.dispatcher import EventDispatcher, Route  # noqa: E402
 
 # event 侧（仅作类型契约，不做实现依赖）
 class EventSource(Protocol):

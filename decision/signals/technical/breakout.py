@@ -19,11 +19,14 @@ class BreakoutSignal:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         c = get_decimal_attr(m, "close", "last_price")
         h = get_decimal_attr(m, "high")
-        l = get_decimal_attr(m, "low")
+        l = get_decimal_attr(m, "low")  # noqa: E741
         if c is None or h is None or l is None:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if h > 0 and c >= h:
-            return SignalResult(symbol=symbol, side="buy", score=Decimal("1"), confidence=Decimal("1"), meta={"c": str(c), "h": str(h)})
+            return SignalResult(symbol=symbol, side="buy", score=Decimal("1"), confidence=Decimal("1"),
+                meta={"c": str(c), "h": str(h)})
         if l > 0 and c <= l:
-            return SignalResult(symbol=symbol, side="sell", score=Decimal("-1"), confidence=Decimal("1"), meta={"c": str(c), "l": str(l)})
-        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"), meta={"c": str(c), "h": str(h), "l": str(l)})
+            return SignalResult(symbol=symbol, side="sell", score=Decimal("-1"), confidence=Decimal("1"),
+                meta={"c": str(c), "l": str(l)})
+        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"),
+            meta={"c": str(c), "h": str(h), "l": str(l)})

@@ -41,7 +41,7 @@ def _ohlc_invariants(body, _event) -> None:
     """OHLC 合法性（制度级）"""
     o = body["open"]
     h = body["high"]
-    l = body["low"]
+    l = body["low"]  # noqa: E741
     c = body["close"]
     v = body["volume"]
 

@@ -278,7 +278,7 @@ def summarize(result, timestamps, label):
     print(f"  Max Drawdown: {max_dd*100:.2f}%")
     print(f"  Sharpe: {sharpe:.2f}")
     print(f"  Avg Leverage: {np.mean(levs):.2f}x")
-    if adaptive_dz_used := (dzs < DEADZONE_BASE - 0.01).any():
+    if _adaptive_dz_used := (dzs < DEADZONE_BASE - 0.01).any():
         n_lowdz = (dzs < DEADZONE_BASE - 0.01).sum()
         print(f"  Adaptive DZ: {n_lowdz}/{len(trades)} trades at reduced dz "
               f"(avg dz={np.mean(dzs):.2f})")

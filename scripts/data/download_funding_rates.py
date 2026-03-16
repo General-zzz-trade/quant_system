@@ -49,7 +49,7 @@ def download_funding(symbol: str, start_ms: int = 1577836800000) -> List[dict]:
 
         all_records.extend(data)
         last_ts = data[-1]["fundingTime"]
-        print(f"  {symbol}: {len(all_records)} records (last: {datetime.fromtimestamp(last_ts/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')})")
+        print(f"  {symbol}: {len(all_records)} records (last: {datetime.fromtimestamp(last_ts/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')})")  # noqa: E501
 
         if len(data) < LIMIT:
             break

@@ -34,7 +34,7 @@ def _build_module(tmp_path: Path, **kwargs) -> MLSignalDecisionModule:
     model_dir = tmp_path / "model"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text(
-        '{"deadzone": 0.5, "min_hold": 1, "max_hold": 10, "long_only": false, "lgbm_xgb_weight": 0.5, "zscore_warmup": 1}'
+        '{"deadzone": 0.5, "min_hold": 1, "max_hold": 10, "long_only": false, "lgbm_xgb_weight": 0.5, "zscore_warmup": 1}'  # noqa: E501
     )
     with (model_dir / "lgbm_v8.pkl").open("wb") as f:
         pickle.dump({"model": None, "features": ["atr_norm_14", "trend"]}, f)

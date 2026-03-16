@@ -16,10 +16,14 @@ from state.snapshot import StateSnapshot
 
 def _snap(*, o: str, c: str, pos_qty: str = "0", halted: bool = False) -> StateSnapshot:
     ts = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
-    market = MarketState(symbol="BTCUSDT", last_price=Decimal(c), open=Decimal(o), high=Decimal(max(o,c)), low=Decimal(min(o,c)), close=Decimal(c), volume=None, last_ts=ts)
-    acct = AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"), margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"), fees_paid=Decimal("0"), last_ts=ts)
+    market = MarketState(symbol="BTCUSDT", last_price=Decimal(c), open=Decimal(o), high=Decimal(max(o,c)),
+        low=Decimal(min(o,c)), close=Decimal(c), volume=None, last_ts=ts)
+    acct = AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"),
+        margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
+            fees_paid=Decimal("0"), last_ts=ts)
     pos = PositionState(symbol="BTCUSDT", qty=Decimal(pos_qty), avg_price=None, last_price=Decimal(c), last_ts=ts)
-    risk = RiskState(blocked=False, halted=halted, level="OK", message=None, flags=(), equity_peak=Decimal("1000"), drawdown_pct=Decimal("0"), last_ts=ts)
+    risk = RiskState(blocked=False, halted=halted, level="OK", message=None, flags=(), equity_peak=Decimal("1000"),
+        drawdown_pct=Decimal("0"), last_ts=ts)
     return StateSnapshot(
         symbol="BTCUSDT",
         ts=ts,
@@ -77,10 +81,14 @@ def test_decision_engine_supports_rust_market_state():
                 last_ts=ts.isoformat(),
             )
         },
-        positions={"BTCUSDT": PositionState(symbol="BTCUSDT", qty=Decimal("0"), avg_price=None, last_price=Decimal("90"), last_ts=ts)},
-        account=AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"), margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"), fees_paid=Decimal("0"), last_ts=ts),
+        positions={"BTCUSDT": PositionState(symbol="BTCUSDT", qty=Decimal("0"), avg_price=None,
+            last_price=Decimal("90"), last_ts=ts)},
+        account=AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"),
+            margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
+                fees_paid=Decimal("0"), last_ts=ts),
         portfolio=None,
-        risk=RiskState(blocked=False, halted=False, level="OK", message=None, flags=(), equity_peak=Decimal("1000"), drawdown_pct=Decimal("0"), last_ts=ts),
+        risk=RiskState(blocked=False, halted=False, level="OK", message=None, flags=(), equity_peak=Decimal("1000"),
+            drawdown_pct=Decimal("0"), last_ts=ts),
     )
     cfg = DecisionConfig(symbols=["BTCUSDT"], max_positions=1, risk_fraction=Decimal("0.1"), min_notional=Decimal("5"))
     eng = DecisionEngine(cfg=cfg, signal_model=MeanReversionSignal())

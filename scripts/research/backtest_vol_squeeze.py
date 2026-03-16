@@ -68,8 +68,8 @@ def compute_features(df: pd.DataFrame, schedule: Dict[int, float],
     n = len(df)
     closes = df["close"].values.astype(float)
     volumes = df["volume"].values.astype(float)
-    highs = df["high"].values.astype(float)
-    lows = df["low"].values.astype(float)
+    df["high"].values.astype(float)
+    df["low"].values.astype(float)
     taker_buy = df["taker_buy_volume"].values.astype(float)
     ts_col = df["open_time"].values
 

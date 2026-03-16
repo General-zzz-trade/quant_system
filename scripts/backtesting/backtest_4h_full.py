@@ -125,7 +125,10 @@ def run_backtest(
     notional = 500.0  # $500 per trade (5% of $10k)
 
     trades = []
-    pos = 0; ep = 0.0; eb = 0; score = 0.0
+    pos = 0
+    ep = 0.0
+    eb = 0
+    score = 0.0
     equity = 10000.0
     equity_curve = [equity]
 
@@ -158,9 +161,15 @@ def run_backtest(
 
         if pos == 0:
             if z[i] > deadzone:
-                pos = 1; ep = closes[i]; eb = i; score = z[i]
+                pos = 1
+                ep = closes[i]
+                eb = i
+                score = z[i]
             elif not long_only and z[i] < -deadzone:
-                pos = -1; ep = closes[i]; eb = i; score = z[i]
+                pos = -1
+                ep = closes[i]
+                eb = i
+                score = z[i]
 
         equity_curve.append(equity)
 

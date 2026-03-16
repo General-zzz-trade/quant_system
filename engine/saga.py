@@ -56,8 +56,10 @@ class SagaState(Enum):
 _TRANSITIONS: Dict[SagaState, frozenset[SagaState]] = {
     SagaState.PENDING: frozenset({SagaState.SUBMITTED, SagaState.REJECTED, SagaState.CANCELLED}),
     SagaState.SUBMITTED: frozenset({SagaState.ACKED, SagaState.REJECTED, SagaState.CANCELLED, SagaState.COMPENSATING}),
-    SagaState.ACKED: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED, SagaState.COMPENSATING}),
-    SagaState.PARTIAL_FILL: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED, SagaState.COMPENSATING}),
+    SagaState.ACKED: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED,
+        SagaState.COMPENSATING}),
+    SagaState.PARTIAL_FILL: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED,
+        SagaState.COMPENSATING}),
     SagaState.FILLED: frozenset(),
     SagaState.REJECTED: frozenset({SagaState.COMPENSATING}),
     SagaState.CANCELLED: frozenset({SagaState.COMPENSATING}),

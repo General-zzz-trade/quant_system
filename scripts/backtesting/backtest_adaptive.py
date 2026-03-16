@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 sys.path.insert(0, "/quant_system")
 
-from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
-from scripts.signal_postprocess import rolling_zscore
-from scripts.train_v7_alpha import INTERACTION_FEATURES
-from alpha.adaptive_config import AdaptiveConfigSelector, _fast_backtest
+from features.batch_feature_engine import compute_features_batch  # noqa: E402
+from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES  # noqa: E402
+from scripts.signal_postprocess import rolling_zscore  # noqa: E402
+from scripts.train_v7_alpha import INTERACTION_FEATURES  # noqa: E402
+from alpha.adaptive_config import AdaptiveConfigSelector, _fast_backtest  # noqa: E402
 
 COST_BPS_RT = 4
 BARS_PER_DAY = 24
@@ -235,10 +235,10 @@ def run_adaptive_backtest(symbol: str):
 
     print(f"\n  {'':>20} {'Fixed':>10} {'Adaptive':>10} {'Robust':>10} {'Oracle':>10}")
     print(f"  {'-'*20:>20} {'-'*10:>10} {'-'*10:>10} {'-'*10:>10} {'-'*10:>10}")
-    print(f"  {'Mean Sharpe':>20} {np.mean(fixed_sharpes):>10.2f} {np.mean(adaptive_sharpes):>10.2f} {np.mean(robust_sharpes):>10.2f} {np.mean(oracle_sharpes):>10.2f}")
-    print(f"  {'Median Sharpe':>20} {np.median(fixed_sharpes):>10.2f} {np.median(adaptive_sharpes):>10.2f} {np.median(robust_sharpes):>10.2f} {np.median(oracle_sharpes):>10.2f}")
-    print(f"  {'Min Sharpe':>20} {np.min(fixed_sharpes):>10.2f} {np.min(adaptive_sharpes):>10.2f} {np.min(robust_sharpes):>10.2f} {np.min(oracle_sharpes):>10.2f}")
-    print(f"  {'Sharpe > 0 (%)':>20} {np.mean([s>0 for s in fixed_sharpes])*100:>9.0f}% {np.mean([s>0 for s in adaptive_sharpes])*100:>9.0f}% {np.mean([s>0 for s in robust_sharpes])*100:>9.0f}% {np.mean([s>0 for s in oracle_sharpes])*100:>9.0f}%")
+    print(f"  {'Mean Sharpe':>20} {np.mean(fixed_sharpes):>10.2f} {np.mean(adaptive_sharpes):>10.2f} {np.mean(robust_sharpes):>10.2f} {np.mean(oracle_sharpes):>10.2f}")  # noqa: E501
+    print(f"  {'Median Sharpe':>20} {np.median(fixed_sharpes):>10.2f} {np.median(adaptive_sharpes):>10.2f} {np.median(robust_sharpes):>10.2f} {np.median(oracle_sharpes):>10.2f}")  # noqa: E501
+    print(f"  {'Min Sharpe':>20} {np.min(fixed_sharpes):>10.2f} {np.min(adaptive_sharpes):>10.2f} {np.min(robust_sharpes):>10.2f} {np.min(oracle_sharpes):>10.2f}")  # noqa: E501
+    print(f"  {'Sharpe > 0 (%)':>20} {np.mean([s>0 for s in fixed_sharpes])*100:>9.0f}% {np.mean([s>0 for s in adaptive_sharpes])*100:>9.0f}% {np.mean([s>0 for s in robust_sharpes])*100:>9.0f}% {np.mean([s>0 for s in oracle_sharpes])*100:>9.0f}%")  # noqa: E501
     print(f"  {'Total Return':>20} {sum(fixed_rets):>+9.1f}% {sum(adaptive_rets):>+9.1f}% {sum(robust_rets):>+9.1f}%")
 
     # Win counts
@@ -255,7 +255,7 @@ def run_adaptive_backtest(symbol: str):
         print("\n  Adaptive config trajectory:")
         print(f"    Deadzone: {dzs}")
         print(f"    Min hold: {mhs}")
-        print(f"    Long only: {[int(l) for l in los]}")
+        print(f"    Long only: {[int(ll) for ll in los]}")
 
 
 def main():

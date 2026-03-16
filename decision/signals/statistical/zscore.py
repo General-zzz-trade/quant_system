@@ -23,7 +23,10 @@ class ZScoreSignal:
         except Exception:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
         if z >= self.threshold:
-            return SignalResult(symbol=symbol, side="sell", score=-(z / self.threshold), confidence=Decimal("0.8"), meta={"z": str(z)})
+            return SignalResult(symbol=symbol, side="sell", score=-(z / self.threshold), confidence=Decimal("0.8"),
+                meta={"z": str(z)})
         if z <= -self.threshold:
-            return SignalResult(symbol=symbol, side="buy", score=(-z / self.threshold), confidence=Decimal("0.8"), meta={"z": str(z)})
-        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"), meta={"z": str(z)})
+            return SignalResult(symbol=symbol, side="buy", score=(-z / self.threshold), confidence=Decimal("0.8"),
+                meta={"z": str(z)})
+        return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0.2"),
+            meta={"z": str(z)})

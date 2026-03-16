@@ -5,8 +5,8 @@ import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
 
-from alpha.inference.bridge import LiveInferenceBridge
-from alpha.base import Signal
+from alpha.inference.bridge import LiveInferenceBridge  # noqa: E402
+from alpha.base import Signal  # noqa: E402
 
 
 class _DummyModel:

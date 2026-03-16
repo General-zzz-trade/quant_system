@@ -113,7 +113,10 @@ def run_single_coin_backtest(symbol, z_signal, closes, timestamps,
     trades = []
     daily_pnl = np.zeros(n)
 
-    pos = 0.0; ep = 0.0; eb = 0; entry_lev = LEV_MIN
+    pos = 0.0
+    ep = 0.0
+    eb = 0
+    entry_lev = LEV_MIN
     equity = EQUITY
 
     for i in range(n):
@@ -155,7 +158,8 @@ def run_single_coin_backtest(symbol, z_signal, closes, timestamps,
                 desired = -1
             if desired != 0:
                 pos = float(desired)
-                ep = closes[i]; eb = i
+                ep = closes[i]
+                eb = i
                 start = max(0, i - 720)
                 entry_lev = compute_dynamic_leverage(
                     z_signal[i], closes[start:i+1], eff_dz)
@@ -186,7 +190,9 @@ def analyze_coin(trades, symbol, n_bars):
     levs = np.array([t.leverage for t in trades])
     n_bars / 24
 
-    eq = EQUITY; peak = eq; max_dd = 0.0
+    eq = EQUITY
+    peak = eq
+    max_dd = 0.0
     for t in trades:
         eq += t.net_pnl
         peak = max(peak, eq)
@@ -442,7 +448,7 @@ def main():
         print(f"    BTC in trade: {btc_in_trade.sum()} bars ({btc_in_trade.sum()/n_common*100:.1f}%)")
         print(f"    ETH in trade: {eth_in_trade.sum()} bars ({eth_in_trade.sum()/n_common*100:.1f}%)")
         print(f"    Both in trade: {both_in_trade.sum()} bars ({both_in_trade.sum()/n_common*100:.1f}%)")
-        print(f"    Diversification: {100 - both_in_trade.sum()/max(btc_in_trade.sum()+eth_in_trade.sum()-both_in_trade.sum(),1)*100:.0f}%")
+        print(f"    Diversification: {100 - both_in_trade.sum()/max(btc_in_trade.sum()+eth_in_trade.sum()-both_in_trade.sum(),1)*100:.0f}%")  # noqa: E501
 
     # ── Monthly table ──
     print("\n  Monthly Portfolio Returns:")
@@ -467,7 +473,8 @@ def main():
     for month in sorted(monthly.keys()):
         m = monthly[month]
         cum += m["net"]
-        if m["net"] > 0: pos_months += 1
+        if m["net"] > 0:
+            pos_months += 1
         print(f"  {month:>8} {m['trades']:>5} {m['btc']:>+8.1f} {m['eth']:>+8.1f} "
               f"{m['net']:>+8.1f} {cum:>+9.1f}")
     print(f"  Positive months: {pos_months}/{len(monthly)}")

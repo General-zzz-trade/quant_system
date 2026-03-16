@@ -179,7 +179,10 @@ def test_attribution_pnl_identity():
     )
     total = report.total_pnl
     diff = abs(total - (by_signal_total + report.unattributed_pnl))
-    assert diff < 1e-6, f"PnL identity violated: total={total}, by_signal={by_signal_total}, unattr={report.unattributed_pnl}"
+    assert diff < 1e-6, (
+        f"PnL identity violated: total={total}, "
+        f"by_signal={by_signal_total}, unattr={report.unattributed_pnl}"
+    )
 
 
 def test_correlation_computer_activated():

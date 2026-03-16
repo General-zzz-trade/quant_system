@@ -6,7 +6,6 @@ to the Rust enforce_hold_array for the same inputs. This catches the known
 divergence where the old two-pass approach allowed extra trend extensions.
 """
 import numpy as np
-import pytest
 
 from scripts.signal_postprocess import (
     _enforce_hold_single_pass,

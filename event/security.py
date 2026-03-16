@@ -132,7 +132,7 @@ class EventSecurity:
             if actor.mode not in r.allowed_modes:
                 raise EventSecurityError(
                     f"事件权限拒绝：mode 不允许 "
-                    f"(event_type={event_type}, actor_mode={actor.mode}, rule_modes={sorted(m.value for m in r.allowed_modes)})",
+                    f"(event_type={event_type}, actor_mode={actor.mode}, rule_modes={sorted(m.value for m in r.allowed_modes)})",  # noqa: E501
                     event_type=event_type,
                 )
 
@@ -148,7 +148,7 @@ class EventSecurity:
             if not (actor.roles & r.allowed_roles):
                 raise EventSecurityError(
                     f"事件权限拒绝：role 不匹配 "
-                    f"(event_type={event_type}, actor_roles={sorted(actor.roles)}, rule_roles={sorted(r.allowed_roles)})",
+                    f"(event_type={event_type}, actor_roles={sorted(actor.roles)}, rule_roles={sorted(r.allowed_roles)})",  # noqa: E501
                     event_type=event_type,
                 )
 

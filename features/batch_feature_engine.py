@@ -15,7 +15,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from _quant_hotpath import cpp_compute_all_features, cpp_feature_names
+from _quant_hotpath import cpp_compute_all_features, cpp_feature_names  # noqa: E402
 
 
 def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
@@ -125,9 +125,11 @@ def compute_features_batch(
     lows = df["low"].values.astype(np.float64) if "low" in df.columns else closes.copy()
     volumes = df["volume"].values.astype(np.float64) if "volume" in df.columns else np.zeros_like(closes)
     trades = df["trades"].values.astype(np.float64) if "trades" in df.columns else np.zeros_like(closes)
-    tbv = df["taker_buy_volume"].values.astype(np.float64) if "taker_buy_volume" in df.columns else np.zeros_like(closes)
+    tbv = (df["taker_buy_volume"].values.astype(np.float64)
+           if "taker_buy_volume" in df.columns else np.zeros_like(closes))
     qv = df["quote_volume"].values.astype(np.float64) if "quote_volume" in df.columns else np.zeros_like(closes)
-    tbqv = df["taker_buy_quote_volume"].values.astype(np.float64) if "taker_buy_quote_volume" in df.columns else np.zeros_like(closes)
+    tbqv = (df["taker_buy_quote_volume"].values.astype(np.float64)
+            if "taker_buy_quote_volume" in df.columns else np.zeros_like(closes))
 
     # Replace NaN with 0 for volume-like fields
     for arr in [volumes, trades, tbv, qv, tbqv]:

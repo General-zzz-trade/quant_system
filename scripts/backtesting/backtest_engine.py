@@ -35,14 +35,14 @@ logger = logging.getLogger(__name__)
 
 sys.path.insert(0, "/quant_system")
 
-from runner.backtest_runner import (
+from runner.backtest_runner import (  # noqa: E402
     run_backtest,
     _build_trades_from_fills,
     _max_drawdown,
     EquityPoint,
 )
-from decision.backtest_module import MLSignalDecisionModule
-from decision.precomputed_hook import PrecomputedFeatureHook
+from decision.backtest_module import MLSignalDecisionModule  # noqa: E402
+from decision.precomputed_hook import PrecomputedFeatureHook  # noqa: E402
 
 
 # ── Cost parameters (match production) ──

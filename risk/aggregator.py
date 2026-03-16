@@ -209,7 +209,8 @@ class RiskAggregator:
                     try:
                         self._on_error(rule.name, mode, e, meta)
                     except Exception as e2:
-                        logger.error("Risk aggregator on_error callback failed for rule '%s': %s", rule.name, e2, exc_info=True)
+                        logger.error("Risk aggregator on_error callback failed for rule '%s': %s", rule.name, e2,
+                            exc_info=True)
 
             dt_ms = (perf_counter() - t0) * 1000.0
 

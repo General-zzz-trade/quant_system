@@ -186,7 +186,8 @@ class TestFeatureHookV11:
         comp = EnrichedFeatureComputer()
         hook = FeatureComputeHook(
             comp,
-            liquidation_source=lambda: {"liq_total_volume": 100, "liq_buy_volume": 50, "liq_sell_volume": 50, "liq_count": 1},
+            liquidation_source=lambda: {"liq_total_volume": 100, "liq_buy_volume": 50, "liq_sell_volume": 50,
+                "liq_count": 1},
             mempool_source=lambda: {"fastest_fee": 50, "economy_fee": 5, "mempool_size": 40000},
             macro_source=lambda: {"date": "2024-01-01", "dxy": 100, "spx": 4500, "vix": 15},
             sentiment_source=lambda: {"social_volume": 50, "sentiment_score": 0.75},

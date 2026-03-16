@@ -60,7 +60,8 @@ def test_canonical_and_legacy_fill_share_same_dedup_identity() -> None:
 
 def test_router_deduplicates_equivalent_canonical_and_legacy_fill() -> None:
     emitted: list[object] = []
-    router = FillIngressRouter(coordinator=SimpleNamespace(emit=lambda event, actor=None: emitted.append((event, actor))))
+    router = FillIngressRouter(coordinator=SimpleNamespace(emit=lambda event, actor=None: emitted.append((event,
+        actor))))
 
     assert router.ingest_canonical_fill(_canonical_fill(), actor="venue:test") is True
     assert router.ingest_canonical_fill(_legacy_fill(), actor="venue:test") is False

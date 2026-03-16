@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import pytest
 
 from research.model_registry.registry import ModelRegistry
 from monitoring.alerts.base import Alert, Severity
@@ -512,7 +511,8 @@ class TestOperatorControl:
             runtime=MagicMock(),
             kill_switch=KillSwitch(),
             alert_manager=AlertManager(sink=sink),
-            reconcile_scheduler=SimpleNamespace(last_report=None, run_once=lambda: SimpleNamespace(ok=False, should_halt=False, all_drifts=("d1",))),
+            reconcile_scheduler=SimpleNamespace(last_report=None, run_once=lambda: SimpleNamespace(ok=False,
+                should_halt=False, all_drifts=("d1",))),
         )
 
         runner.halt(reason="manual_halt")
@@ -560,7 +560,8 @@ class TestOperatorControl:
 
     def test_flush_with_drift_emits_reconcile_alert(self):
         sink = _RecordingAlertSink()
-        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),), venue="binance")
+        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),),
+            venue="binance")
         runner = LiveRunner(
             loop=MagicMock(),
             coordinator=MagicMock(),
@@ -590,7 +591,8 @@ class TestOperatorControl:
                 )
                 return len(rows)
 
-        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),), venue="binance")
+        report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),),
+            venue="binance")
         runner = LiveRunner(
             loop=MagicMock(),
             coordinator=MagicMock(),

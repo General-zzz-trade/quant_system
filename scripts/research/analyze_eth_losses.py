@@ -461,7 +461,7 @@ def main():
     print(f"{'='*80}")
 
     z_bins = [(0.3, 0.5), (0.5, 0.8), (0.8, 1.2), (1.2, 1.5), (1.5, 2.0), (2.0, 5.0)]
-    print(f"\n  {'Z-range':>12s} {'#Tr':>5s} {'Wins':>5s} {'WR%':>6s} {'AvgNet$':>9s} {'TotalNet$':>10s} {'AvgGross$':>10s}")
+    print(f"\n  {'Z-range':>12s} {'#Tr':>5s} {'Wins':>5s} {'WR%':>6s} {'AvgNet$':>9s} {'TotalNet$':>10s} {'AvgGross$':>10s}")  # noqa: E501
     print(f"  {'─'*65}")
     for lo, hi in z_bins:
         bin_trades = [t for t in trades if lo <= abs(t.z_at_entry) < hi]
@@ -492,7 +492,7 @@ def main():
     print(f"{'='*80}")
 
     hold_bins = [(0, 12), (12, 24), (24, 48), (48, 72), (72, 96), (96, 200)]
-    print(f"\n  {'Hold(bars)':>12s} {'#Tr':>5s} {'Wins':>5s} {'WR%':>6s} {'AvgNet$':>9s} {'TotalNet$':>10s} {'AvgCost$':>9s}")
+    print(f"\n  {'Hold(bars)':>12s} {'#Tr':>5s} {'Wins':>5s} {'WR%':>6s} {'AvgNet$':>9s} {'TotalNet$':>10s} {'AvgCost$':>9s}")  # noqa: E501
     print(f"  {'─'*65}")
     for lo, hi in hold_bins:
         bin_trades = [t for t in trades if lo <= t.hold_bars < hi]
@@ -824,7 +824,7 @@ def main():
         print(f"     First half IC: {np.mean(first_half):+.4f}")
         print(f"     Second half IC: {np.mean(second_half):+.4f}")
         decay = np.mean(second_half) - np.mean(first_half)
-        print(f"     Decay: {decay:+.4f} ({'DECAYING' if decay < -0.01 else 'STABLE' if abs(decay) < 0.01 else 'IMPROVING'})")
+        print(f"     Decay: {decay:+.4f} ({'DECAYING' if decay < -0.01 else 'STABLE' if abs(decay) < 0.01 else 'IMPROVING'})")  # noqa: E501
 
     # 7. Win-streak -> loss
     if losers:
@@ -832,8 +832,8 @@ def main():
         cold_losers = [t for t in losers if t.prior_wins_streak == 0]
         if streak_losers and cold_losers:
             print("\n  7. OVERCONFIDENCE AFTER WINS:")
-            print(f"     After 3+ wins: {len(streak_losers)} losses, avg=${np.mean([t.net_pnl for t in streak_losers]):+.2f}")
-            print(f"     After 0 wins:  {len(cold_losers)} losses, avg=${np.mean([t.net_pnl for t in cold_losers]):+.2f}")
+            print(f"     After 3+ wins: {len(streak_losers)} losses, avg=${np.mean([t.net_pnl for t in streak_losers]):+.2f}")  # noqa: E501
+            print(f"     After 0 wins:  {len(cold_losers)} losses, avg=${np.mean([t.net_pnl for t in cold_losers]):+.2f}")  # noqa: E501
 
     # 8. Loss clustering
     print("\n  8. LOSS CLUSTERING:")

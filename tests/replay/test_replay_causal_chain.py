@@ -13,13 +13,13 @@ from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
-from engine.coordinator import CoordinatorConfig, EngineCoordinator
-from engine.decision_bridge import DecisionBridge
-from engine.execution_bridge import ExecutionBridge
-from event.header import EventHeader
-from event.types import EventType, MarketEvent, OrderEvent
-from execution.sim.replay_adapter import ReplayExecutionAdapter
-from runner.replay_runner import run_replay_from_events
+from engine.coordinator import CoordinatorConfig, EngineCoordinator  # noqa: E402
+from engine.decision_bridge import DecisionBridge  # noqa: E402
+from engine.execution_bridge import ExecutionBridge  # noqa: E402
+from event.header import EventHeader  # noqa: E402
+from event.types import EventType, MarketEvent, OrderEvent  # noqa: E402
+from execution.sim.replay_adapter import ReplayExecutionAdapter  # noqa: E402
+from runner.replay_runner import run_replay_from_events  # noqa: E402
 
 
 # ============================================================
@@ -104,7 +104,7 @@ def _market_events(symbol: str = "BTCUSDT") -> list[MarketEvent]:
     ]
 
     events = []
-    for i, (o, h, l, c, v) in enumerate(prices):
+    for i, (o, h, l, c, v) in enumerate(prices):  # noqa: E741
         ts = datetime(2026, 1, 1, 0, i, tzinfo=timezone.utc)
         events.append(MarketEvent(
             header=EventHeader.new_root(

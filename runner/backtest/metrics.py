@@ -363,7 +363,8 @@ def _build_summary(
     sharpe = ""
     if len(equity) >= 2:
         eq_vals = [float(p.equity) for p in equity]
-        daily_rets = [(eq_vals[i] - eq_vals[i - 1]) / eq_vals[i - 1] for i in range(1, len(eq_vals)) if eq_vals[i - 1] != 0]
+        daily_rets = [(eq_vals[i] - eq_vals[i - 1]) / eq_vals[i - 1] for i in range(1,
+            len(eq_vals)) if eq_vals[i - 1] != 0]
         if len(daily_rets) >= 2:
             try:
                 mean_r = sum(daily_rets) / len(daily_rets)

@@ -116,7 +116,8 @@ def backtest_pnl(signal: np.ndarray, closes: np.ndarray,
     tstart = 0
     for i in range(len(sig)):
         if sig[i] != 0 and not in_trade:
-            in_trade = True; tstart = i
+            in_trade = True
+            tstart = i
         elif sig[i] == 0 and in_trade:
             trade_pnls.append(float(np.sum(net[tstart:i])))
             in_trade = False

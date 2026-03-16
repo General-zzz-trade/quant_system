@@ -68,7 +68,8 @@ PARAM_GRID = [
 
 def fast_ic(x, y):
     m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50: return 0.0
+    if m.sum() < 50:
+        return 0.0
     r, _ = spearmanr(x[m], y[m])
     return float(r) if not np.isnan(r) else 0.0
 
@@ -137,8 +138,11 @@ def backtest(pred, closes, horizon, deadzone, cost_bps):
     min_hold = max(horizon // 2, 1)
     max_hold = horizon * 6
 
-    pos = 0; ep = 0; eb = 0
-    tg = []; tn = []
+    pos = 0
+    ep = 0
+    eb = 0
+    tg = []
+    tn = []
     cost_frac = cost_bps / 10000
 
     for i in range(len(closes)):
@@ -153,20 +157,30 @@ def backtest(pred, closes, horizon, deadzone, cost_bps):
             )
             if ex:
                 pnl = pos * (closes[i] - ep) / ep
-                tg.append(pnl); tn.append(pnl - cost_frac); pos = 0
+                tg.append(pnl)
+                tn.append(pnl - cost_frac)
+                pos = 0
         if pos == 0:
-            if z[i] > deadzone: pos = 1; ep = closes[i]; eb = i
-            elif z[i] < -deadzone: pos = -1; ep = closes[i]; eb = i
+            if z[i] > deadzone:
+                pos = 1
+                ep = closes[i]
+                eb = i
+            elif z[i] < -deadzone:
+                pos = -1
+                ep = closes[i]
+                eb = i
 
     if pos != 0:
         pnl = pos * (closes[-1] - ep) / ep
-        tg.append(pnl); tn.append(pnl - cost_frac)
+        tg.append(pnl)
+        tn.append(pnl - cost_frac)
 
     nt = len(tn)
     if nt == 0:
         return {"trades": 0, "net_pnl": 0, "avg_gross_bps": 0, "avg_net_bps": 0,
                 "win_rate": 0, "sharpe": 0}
-    g = np.array(tg); ne = np.array(tn)
+    g = np.array(tg)
+    ne = np.array(tn)
     days = len(closes) / 48
     sharpe = float(np.mean(ne) / max(np.std(ne), 1e-10) * np.sqrt(365))
 
@@ -343,7 +357,8 @@ def main():
         for dz in [2.0, 2.5, 3.0]:
             for pi, params in enumerate(PARAM_GRID):
                 wf = walk_forward(feat_df, feature_names, closes, horizon, params, dz)
-                if not wf["folds"]: continue
+                if not wf["folds"]:
+                    continue
                 score = wf["avg_sharpe"] + wf["avg_ic"] * 10
                 if score > best_score:
                     best_score = score

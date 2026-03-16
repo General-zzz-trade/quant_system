@@ -34,6 +34,8 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "bb_width_20", "bb_pctb_20",
     # ATR
     "atr_norm_14",
+    # ADX (trend strength)
+    "adx_14",
     # Volatility
     "vol_20", "vol_5",
     # Volume
@@ -274,6 +276,111 @@ class _ATRTracker:
 
 
 @dataclass
+class _ADXTracker:
+    """Incremental ADX(14) using Wilder's smoothing.
+
+    Requires 2*period bars of warmup before producing a value.
+    Steps:
+      1. True Range, +DM, -DM each bar
+      2. Wilder-smooth TR, +DM, -DM over `period` bars
+      3. +DI = 100 * smooth_+DM / smooth_TR, -DI analogous
+      4. DX = 100 * |+DI - -DI| / (+DI + -DI)
+      5. ADX = Wilder-smooth DX over `period` bars
+    """
+    period: int = 14
+    _n: int = 0
+    _prev_high: Optional[float] = None
+    _prev_low: Optional[float] = None
+    _prev_close: Optional[float] = None
+    # Wilder-smoothed values
+    _smooth_tr: float = 0.0
+    _smooth_plus_dm: float = 0.0
+    _smooth_minus_dm: float = 0.0
+    # ADX Wilder smoothing
+    _adx: float = 0.0
+    _dx_init_sum: float = 0.0
+    _dx_count: int = 0
+    _adx_initialized: bool = False
+
+    def push(self, high: float, low: float, close: float) -> None:
+        if self._prev_close is None:
+            self._prev_high = high
+            self._prev_low = low
+            self._prev_close = close
+            return
+
+        self._n += 1
+        prev_high = self._prev_high or high
+        prev_low = self._prev_low or low
+        prev_close = self._prev_close
+
+        # True Range
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+        # Directional Movement
+        up_move = high - prev_high
+        down_move = prev_low - low
+        plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+        self._prev_high = high
+        self._prev_low = low
+        self._prev_close = close
+
+        p = self.period
+        if self._n <= p:
+            # Accumulate initial sums
+            self._smooth_tr += tr
+            self._smooth_plus_dm += plus_dm
+            self._smooth_minus_dm += minus_dm
+            if self._n == p:
+                # First DX after p bars
+                self._compute_dx_and_accumulate()
+        else:
+            # Wilder smoothing: new = prev - prev/period + current
+            self._smooth_tr = self._smooth_tr - self._smooth_tr / p + tr
+            self._smooth_plus_dm = self._smooth_plus_dm - self._smooth_plus_dm / p + plus_dm
+            self._smooth_minus_dm = self._smooth_minus_dm - self._smooth_minus_dm / p + minus_dm
+            self._compute_dx_and_accumulate()
+
+    def _compute_dx_and_accumulate(self) -> None:
+        if self._smooth_tr == 0:
+            # No price movement → no directional movement → DX = 0
+            dx = 0.0
+            p = self.period
+            if not self._adx_initialized:
+                self._dx_init_sum += dx
+                self._dx_count += 1
+                if self._dx_count >= p:
+                    self._adx = self._dx_init_sum / p
+                    self._adx_initialized = True
+            else:
+                self._adx = (self._adx * (p - 1) + dx) / p
+            return
+        plus_di = 100.0 * self._smooth_plus_dm / self._smooth_tr
+        minus_di = 100.0 * self._smooth_minus_dm / self._smooth_tr
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            dx = 0.0
+        else:
+            dx = 100.0 * abs(plus_di - minus_di) / di_sum
+
+        p = self.period
+        if not self._adx_initialized:
+            self._dx_init_sum += dx
+            self._dx_count += 1
+            if self._dx_count >= p:
+                self._adx = self._dx_init_sum / p
+                self._adx_initialized = True
+        else:
+            self._adx = (self._adx * (p - 1) + dx) / p
+
+    @property
+    def value(self) -> Optional[float]:
+        return self._adx if self._adx_initialized else None
+
+
+@dataclass
 class _SymbolState:
     """Per-symbol state for enriched feature computation."""
 
@@ -312,6 +419,9 @@ class _SymbolState:
 
     # ATR tracker
     atr_14: _ATRTracker = field(default_factory=lambda: _ATRTracker(period=14))
+
+    # ADX tracker (trend strength, needs 2*period = 28 bars warmup)
+    adx_14: _ADXTracker = field(default_factory=lambda: _ADXTracker(period=14))
 
     # Funding rate EMA tracker (8 settlements = 64 hours)
     funding_ema: _EMA = field(default_factory=lambda: _EMA(span=8))
@@ -696,6 +806,9 @@ class _SymbolState:
         # ATR
         self.atr_14.push(high, low, close)
 
+        # ADX
+        self.adx_14.push(high, low, close)
+
     def get_features(self, btc_close: float | None = None) -> Dict[str, Optional[float]]:
         """Compute all features from current state."""
         feats: Dict[str, Optional[float]] = {}
@@ -799,6 +912,9 @@ class _SymbolState:
         else:
             feats["atr_norm_14"] = None
 
+        # --- ADX (trend strength, 0-100) ---
+        feats["adx_14"] = self.adx_14.value
+
         # --- Volatility ---
         feats["vol_20"] = self.return_window_20.std if self.return_window_20.full else None
         feats["vol_5"] = self.return_window_5.std if self.return_window_5.full else None
@@ -820,7 +936,7 @@ class _SymbolState:
         if n > 0 and len(self.open_history) > 0 and len(self.high_history) > 0 and len(self.low_history) > 0:
             o = self.open_history[-1]
             h = self.high_history[-1]
-            l = self.low_history[-1]
+            l = self.low_history[-1]  # noqa: E741
             c = hist[-1]
             hl_range = h - l
             if hl_range > 0:
@@ -1101,7 +1217,7 @@ class _SymbolState:
 
         if n > 0 and close and close != 0 and vol5_val is not None and vol5_val > 1e-12:
             h = self.high_history[-1] if len(self.high_history) > 0 else close
-            l = self.low_history[-1] if len(self.low_history) > 0 else close
+            l = self.low_history[-1] if len(self.low_history) > 0 else close  # noqa: E741
             feats["range_vs_rv"] = ((h - l) / close) / vol5_val
         else:
             feats["range_vs_rv"] = None
@@ -1427,7 +1543,10 @@ class _SymbolState:
         # --- V11: Macro features ---
         # dxy_change_5d
         if len(self._dxy_buf) >= 6:
-            feats["dxy_change_5d"] = (self._dxy_buf[-1] - self._dxy_buf[-6]) / self._dxy_buf[-6] if self._dxy_buf[-6] > 1e-8 else 0.0
+            feats["dxy_change_5d"] = (
+                (self._dxy_buf[-1] - self._dxy_buf[-6]) / self._dxy_buf[-6]
+                if self._dxy_buf[-6] > 1e-8 else 0.0
+            )
         else:
             feats["dxy_change_5d"] = None
 
@@ -1438,8 +1557,10 @@ class _SymbolState:
             btc_vals = list(self._btc_close_buf_30)[-n:]
             # Compute returns
             if n >= 2:
-                spx_rets = [(spx_vals[i] - spx_vals[i-1]) / spx_vals[i-1] if spx_vals[i-1] > 0 else 0.0 for i in range(1, n)]
-                btc_rets = [(btc_vals[i] - btc_vals[i-1]) / btc_vals[i-1] if btc_vals[i-1] > 0 else 0.0 for i in range(1, n)]
+                spx_rets = [(spx_vals[i] - spx_vals[i-1]) / spx_vals[i-1] if spx_vals[i-1] > 0 else 0.0 for i in
+                    range(1, n)]
+                btc_rets = [(btc_vals[i] - btc_vals[i-1]) / btc_vals[i-1] if btc_vals[i-1] > 0 else 0.0 for i in
+                    range(1, n)]
                 m = len(spx_rets)
                 if m >= 5:
                     mean_s = sum(spx_rets) / m
@@ -1551,7 +1672,10 @@ class _SymbolState:
                 feats["btc_ratio_ma20_dev"] = None
 
             # btc_dom_momentum: BTC ret_24 - ALT ret_24 (opposite of relative strength)
-            feats["btc_dom_momentum"] = -feats.get("btc_relative_strength_24") if feats.get("btc_relative_strength_24") is not None else None
+            feats["btc_dom_momentum"] = (
+                -feats.get("btc_relative_strength_24")
+                if feats.get("btc_relative_strength_24") is not None else None
+            )
 
             # btc_vol_ratio: ALT vol_20 / BTC vol_20
             vol20 = feats.get("vol_20")

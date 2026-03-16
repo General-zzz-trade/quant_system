@@ -426,7 +426,7 @@ def run_phase2_funding_basis_comparison(
     results = {"distribution": {}, "ic_comparison": {}, "carry_strategy": {}}
 
     # Distribution comparison
-    print(f"\n  {'Feature':<25} {'SOL mean':>10} {'SOL std':>10} {'SOL skew':>10} {'BTC mean':>10} {'BTC std':>10} {'BTC skew':>10}")
+    print(f"\n  {'Feature':<25} {'SOL mean':>10} {'SOL std':>10} {'SOL skew':>10} {'BTC mean':>10} {'BTC std':>10} {'BTC skew':>10}")  # noqa: E501
     print("  " + "─" * 85)
 
     for feat in funding_features + basis_features:
@@ -722,7 +722,8 @@ def run_phase4_ic_disconnect(
         if len(X_train) < 1000 or test_valid.sum() < 50:
             results["4a_signal_timing"].append({"fold": fold.idx, "all_ic": 0, "active_ic": 0, "entry_ic": 0})
             results["4b_nonlinear"].append({"fold": fold.idx, "lgbm_ic": 0, "ols_ic": 0})
-            results["4c_fat_tails"].append({"fold": fold.idx, "sharpe": 0, "trimmed_sharpe": 0, "skew": 0, "kurtosis": 0})
+            results["4c_fat_tails"].append({"fold": fold.idx, "sharpe": 0, "trimmed_sharpe": 0, "skew": 0,
+                "kurtosis": 0})
             continue
 
         # Feature selection (same as WF)
@@ -738,7 +739,8 @@ def run_phase4_ic_disconnect(
         if not sel_in_names:
             results["4a_signal_timing"].append({"fold": fold.idx, "all_ic": 0, "active_ic": 0, "entry_ic": 0})
             results["4b_nonlinear"].append({"fold": fold.idx, "lgbm_ic": 0, "ols_ic": 0})
-            results["4c_fat_tails"].append({"fold": fold.idx, "sharpe": 0, "trimmed_sharpe": 0, "skew": 0, "kurtosis": 0})
+            results["4c_fat_tails"].append({"fold": fold.idx, "sharpe": 0, "trimmed_sharpe": 0, "skew": 0,
+                "kurtosis": 0})
             continue
 
         sel_idx = [feature_names.index(n) for n in sel_in_names]

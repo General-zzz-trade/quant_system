@@ -451,7 +451,7 @@ def main() -> None:
     print(f"\n{'='*90}")
     print(f"  SHORT MODEL WALK-FORWARD REPORT — {symbol}")
     print(f"{'='*90}")
-    print(f"  {'Fold':<5} {'Period':<17} {'IC':>7} {'BearIC':>7} {'Sharpe':>8} {'Return':>8} {'Hit%':>6} {'Entries':>8}")
+    print(f"  {'Fold':<5} {'Period':<17} {'IC':>7} {'BearIC':>7} {'Sharpe':>8} {'Return':>8} {'Hit%':>6} {'Entries':>8}")  # noqa: E501
     print(f"  {'-'*88}")
 
     for r in results:

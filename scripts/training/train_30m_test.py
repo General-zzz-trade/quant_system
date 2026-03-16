@@ -22,7 +22,8 @@ COST_MAKER_RT_BPS = 4  # maker round-trip
 def fast_ic(x, y):
     from scipy.stats import spearmanr
     m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50: return 0.0
+    if m.sum() < 50:
+        return 0.0
     r, _ = spearmanr(x[m], y[m])
     return float(r) if not np.isnan(r) else 0.0
 
@@ -194,7 +195,7 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
         return None
     z_pred = pred / pred_std
 
-    print(f"\n  {'DZ':>4} {'Trades':>7} {'T/Day':>6} {'WinR':>6} {'AvgGross':>9} {'AvgNet':>9} {'TotalNet':>9} {'Sharpe':>7}")
+    print(f"\n  {'DZ':>4} {'Trades':>7} {'T/Day':>6} {'WinR':>6} {'AvgGross':>9} {'AvgNet':>9} {'TotalNet':>9} {'Sharpe':>7}")  # noqa: E501
     print(f"  {'-'*65}")
 
     best_result = None
@@ -213,10 +214,13 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
             if position != 0:
                 held = i - entry_bar
                 should_exit = False
-                if held >= max_hold: should_exit = True
+                if held >= max_hold:
+                    should_exit = True
                 elif held >= min_hold:
-                    if position * z_pred[i] < -0.3: should_exit = True
-                    elif abs(z_pred[i]) < 0.2: should_exit = True
+                    if position * z_pred[i] < -0.3:
+                        should_exit = True
+                    elif abs(z_pred[i]) < 0.2:
+                        should_exit = True
                 if should_exit:
                     pnl = position * (c_test[i] - entry_price) / entry_price
                     trades_g.append(pnl)
@@ -225,9 +229,13 @@ def evaluate_timeframe(df_bars, symbol, tf_label, tf_minutes, horizons_bars):
 
             if position == 0:
                 if z_pred[i] > dz:
-                    position = 1; entry_price = c_test[i]; entry_bar = i
+                    position = 1
+                    entry_price = c_test[i]
+                    entry_bar = i
                 elif z_pred[i] < -dz:
-                    position = -1; entry_price = c_test[i]; entry_bar = i
+                    position = -1
+                    entry_price = c_test[i]
+                    entry_bar = i
 
         if position != 0:
             pnl = position * (c_test[-1] - entry_price) / entry_price
@@ -283,25 +291,29 @@ def main():
     df_1h = resample_1m_to(df_1m, 60)
     r = evaluate_timeframe(df_1h, symbol, "1h", 60,
                            horizons_bars=[1, 2, 3, 6, 12, 24])
-    if r: results["1h"] = r
+    if r:
+        results["1h"] = r
 
     # 30m bars
     df_30m = resample_1m_to(df_1m, 30)
     r = evaluate_timeframe(df_30m, symbol, "30m", 30,
                            horizons_bars=[1, 2, 4, 8, 16])
-    if r: results["30m"] = r
+    if r:
+        results["30m"] = r
 
     # 15m bars
     df_15m = resample_1m_to(df_1m, 15)
     r = evaluate_timeframe(df_15m, symbol, "15m", 15,
                            horizons_bars=[1, 2, 4, 8, 16])
-    if r: results["15m"] = r
+    if r:
+        results["15m"] = r
 
     # 5m bars
     df_5m = resample_1m_to(df_1m, 5)
     r = evaluate_timeframe(df_5m, symbol, "5m", 5,
                            horizons_bars=[2, 4, 6, 12, 24])
-    if r: results["5m"] = r
+    if r:
+        results["5m"] = r
 
     # Summary comparison
     print("\n" + "=" * 70)

@@ -107,10 +107,13 @@ def test_execution_incident_payload_contracts_are_stable() -> None:
     assert set(timeout.meta) >= {"category", "routing_key", "venue", "symbol", "order_id", "timeout_sec"}
 
     assert fill.meta["category"] == "execution_fill"
-    assert set(fill.meta) >= {"category", "routing_key", "venue", "symbol", "fill_id", "order_id", "qty", "side", "synthetic"}
+    assert set(fill.meta) >= {"category", "routing_key", "venue", "symbol", "fill_id", "order_id", "qty", "side",
+        "synthetic"}
 
     assert rejection.meta["category"] == "execution_rejection"
-    assert set(rejection.meta) >= {"category", "routing_key", "event_type", "status", "symbol", "venue", "reason", "reason_family", "command_id", "retryable", "deduped"}
+    assert set(rejection.meta) >= {"category", "routing_key", "event_type", "status", "symbol", "venue", "reason",
+        "reason_family", "command_id", "retryable", "deduped"}
 
     assert reconcile.meta["category"] == "execution_reconcile"
-    assert set(reconcile.meta) >= {"category", "routing_key", "venue", "drift_count", "should_halt", "symbols", "severity_scope"}
+    assert set(reconcile.meta) >= {"category", "routing_key", "venue", "drift_count", "should_halt", "symbols",
+        "severity_scope"}

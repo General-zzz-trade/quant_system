@@ -2,9 +2,9 @@
 """Alpha model inference — running predictions in production."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: F401
 from datetime import datetime
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Optional, Sequence  # noqa: F401
 
 from alpha.base import AlphaModel, Signal
 

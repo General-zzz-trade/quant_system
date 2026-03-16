@@ -8,7 +8,10 @@ from __future__ import annotations
 import logging
 import logging.handlers
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.effects import StdLogger
 
 
 def setup_logging(

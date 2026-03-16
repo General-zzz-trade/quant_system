@@ -176,7 +176,8 @@ def main() -> None:
             timeline.extend(
                 {
                     "kind": "control",
-                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]),
+                        timezone.utc).isoformat(),
                     "title": f"operator_{row['payload'].get('command', row.get('correlation_id', 'control'))}",
                     "category": "operator_control",
                     "source": row["payload"].get("source", ""),
@@ -187,7 +188,8 @@ def main() -> None:
             timeline.extend(
                 {
                     "kind": "execution_incident",
-                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]),
+                        timezone.utc).isoformat(),
                     "title": row["payload"].get("title", "execution_incident"),
                     "category": row["payload"].get("category", "execution_incident"),
                     "source": row["payload"].get("source", ""),
@@ -198,7 +200,8 @@ def main() -> None:
             timeline.extend(
                 {
                     "kind": "model_reload",
-                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]), timezone.utc).isoformat(),
+                    "ts": row["payload"].get("ts") or datetime.fromtimestamp(float(row["ts"]),
+                        timezone.utc).isoformat(),
                     "title": f"model_reload_{row['payload'].get('outcome', 'unknown')}",
                     "category": "model_reload",
                     "source": "model:reload",

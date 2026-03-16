@@ -150,7 +150,7 @@ def compare_pnl(
     live_ret = ((live_end - live_start) / live_start * 100) if live_start > 0 else 0.0
 
     # Tracking error: std of return differences
-    ret_diffs = [b - l for b, l in zip(bt_returns, live_returns)]
+    ret_diffs = [b - ll for b, ll in zip(bt_returns, live_returns)]
     te = 0.0
     if len(ret_diffs) >= 2:
         mean_diff = sum(ret_diffs) / len(ret_diffs)

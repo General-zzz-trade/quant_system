@@ -18,17 +18,17 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-from engine.coordinator import CoordinatorConfig, EngineCoordinator
-from engine.decision_bridge import DecisionBridge
-from engine.execution_bridge import ExecutionBridge
-from event.header import EventHeader
-from event.types import EventType, MarketEvent, IntentEvent, OrderEvent
-from state.position import PositionState
+from engine.coordinator import CoordinatorConfig, EngineCoordinator  # noqa: E402
+from engine.decision_bridge import DecisionBridge  # noqa: E402
+from engine.execution_bridge import ExecutionBridge  # noqa: E402
+from event.header import EventHeader  # noqa: E402
+from event.types import EventType, MarketEvent, IntentEvent, OrderEvent  # noqa: E402
+from state.position import PositionState  # noqa: E402
 
 # Re-export from subpackage for backward compatibility
-from runner.backtest.csv_io import iter_ohlcv_csv
-from runner.backtest.adapter import BacktestExecutionAdapter, _make_id
-from runner.backtest.metrics import (
+from runner.backtest.csv_io import iter_ohlcv_csv  # noqa: E402
+from runner.backtest.adapter import BacktestExecutionAdapter, _make_id  # noqa: E402
+from runner.backtest.metrics import (  # noqa: E402
     EquityPoint,
     _max_drawdown,
     _build_trades_from_fills,
@@ -864,7 +864,8 @@ def run_multi_backtest(
             for t in trades:
                 w.writerow(t)
 
-        summary = _build_summary(equity=equity, trades=trades, csv_path=list(csv_paths.values())[0], symbol=",".join(symbols))
+        summary = _build_summary(equity=equity, trades=trades, csv_path=list(csv_paths.values())[0],
+            symbol=",".join(symbols))
         summary_path = out_dir / "summary.json"
         with summary_path.open("w", encoding="utf-8") as f:
             json.dump(_json_safe(summary), f, ensure_ascii=False, indent=2)

@@ -10,7 +10,7 @@ from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from execution.adapters.binance.ws_transport import WsTransport
+from execution.adapters.binance.ws_transport import WsTransport  # noqa: E402
 
 
 class WsConnectionState(str, Enum):

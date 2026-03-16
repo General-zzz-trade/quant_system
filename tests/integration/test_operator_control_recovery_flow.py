@@ -1105,7 +1105,8 @@ def test_persistent_user_stream_failure_requires_manual_reduce_only_then_halt(mo
             pass
 
     sink = _RecordingSink()
-    report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),), venue="binance")
+    report = SimpleNamespace(ok=False, should_halt=False, all_drifts=(SimpleNamespace(symbol="BTCUSDT"),),
+        venue="binance")
     runner = LiveRunner(
         loop=_FakeLoop(),
         coordinator=_FakeCoordinator(),

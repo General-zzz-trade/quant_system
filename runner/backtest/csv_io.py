@@ -78,13 +78,16 @@ class OhlcvBar:
     ts: datetime
     o: Decimal
     h: Decimal
-    l: Decimal
+    l: Decimal  # noqa: E741
     c: Decimal
     v: Optional[Decimal]
 
 
 def iter_ohlcv_csv(path: Path) -> Iterator[OhlcvBar]:
-    header_like = {_to_key(x) for x in _TS_COLS} | {_to_key("open_time")} | {_to_key("open time")} | {_to_key("ts")} | {_to_key("timestamp")}
+    header_like = (
+        {_to_key(x) for x in _TS_COLS} | {_to_key("open_time")}
+        | {_to_key("open time")} | {_to_key("ts")} | {_to_key("timestamp")}
+    )
 
     with path.open("r", newline="") as f:
         reader = csv.DictReader(f)
@@ -134,7 +137,7 @@ def iter_ohlcv_csv(path: Path) -> Iterator[OhlcvBar]:
 
             o = _dec(row.get(o_col))
             h = _dec(row.get(h_col))
-            l = _dec(row.get(l_col))
+            l = _dec(row.get(l_col))  # noqa: E741
             c = _dec(row.get(c_col))
             v = _dec(row.get(v_col)) if v_col and row.get(v_col) not in (None, "") else None
             yield OhlcvBar(ts=ts, o=o, h=h, l=l, c=c, v=v)

@@ -15,8 +15,8 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-from monitoring.alerts.base import Alert, AlertSink, Severity
-from monitoring.alerts.console import ConsoleAlertSink
+from monitoring.alerts.base import Alert, AlertSink, Severity  # noqa: E402
+from monitoring.alerts.console import ConsoleAlertSink  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +181,7 @@ class SystemHealthMonitor:
             if self._cfg.max_stale_exit_sec > 0 and age > self._cfg.max_stale_exit_sec:
                 self._emit(Alert(
                     title="Fatal: market data timeout",
-                    message=f"No market data for {age:.0f}s (limit: {self._cfg.max_stale_exit_sec}s). Exiting for restart.",
+                    message=f"No market data for {age:.0f}s (limit: {self._cfg.max_stale_exit_sec}s). Exiting for restart.",  # noqa: E501
                     severity=Severity.CRITICAL,
                     source="health_monitor",
                     ts=ts_now,
@@ -222,7 +222,8 @@ class SystemHealthMonitor:
                     severity=Severity.CRITICAL,
                     source="health_monitor",
                     ts=ts_now,
-                    meta={"drawdown_pct": round(dd, 2), "peak": str(status.peak_equity), "current": str(status.current_equity)},
+                    meta={"drawdown_pct": round(dd, 2), "peak": str(status.peak_equity),
+                        "current": str(status.current_equity)},
                 ))
             elif dd >= self._cfg.drawdown_warning_pct:
                 self._emit(Alert(

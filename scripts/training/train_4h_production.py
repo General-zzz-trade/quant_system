@@ -838,7 +838,7 @@ def main() -> None:
         print(f"  {'Sharpe':<25s} {metrics['sharpe']:>+10.2f} {v8m.get('sharpe', 0):>+10.2f}")
         print(f"  {'IC':<25s} {metrics['ic']:>10.4f} {v8m.get('ic', 0):>10.4f}")
         print(f"  {'H2 IC':<25s} {metrics['h2_ic']:>10.4f} {v8m.get('h2_ic', 0):>10.4f}")
-        print(f"  {'Total return':<25s} {metrics['total_return']*100:>+10.2f}% {v8m.get('total_return', 0)*100:>+10.2f}%")
+        print(f"  {'Total return':<25s} {metrics['total_return']*100:>+10.2f}% {v8m.get('total_return', 0)*100:>+10.2f}%")  # noqa: E501
         print(f"  {'Positive months':<25s} {metrics['positive_months']:>5d}/{metrics['n_months']:<4d}"
               f" {v8m.get('positive_months', 0):>5d}/{v8m.get('n_months', 0):<4d}")
 

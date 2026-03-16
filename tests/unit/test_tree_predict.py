@@ -5,7 +5,7 @@ import math
 import pytest
 
 _quant_hotpath = pytest.importorskip("_quant_hotpath")
-from _quant_hotpath import RustTreePredictor
+from _quant_hotpath import RustTreePredictor  # noqa: E402
 
 
 # ── Helpers ──
