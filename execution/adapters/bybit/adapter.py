@@ -147,13 +147,19 @@ class BybitAdapter:
         self, symbol: str, side: str, qty: float,
         *, reduce_only: bool = False,
     ) -> dict:
-        """Send a market order."""
+        """Send a market order with orderLinkId for deduplication."""
+        import time as _time
+        # Generate stable orderLinkId: prevents duplicate orders on retry/timeout
+        # Bybit rejects duplicate orderLinkId within 3 minutes
+        order_link_id = f"qs_{symbol}_{side[0]}_{int(_time.time())}"
+
         body = {
             "category": self._config.category,
             "symbol": symbol,
             "side": "Buy" if side.lower() == "buy" else "Sell",
             "orderType": "Market",
             "qty": str(qty),
+            "orderLinkId": order_link_id,
         }
         if reduce_only:
             body["reduceOnly"] = True

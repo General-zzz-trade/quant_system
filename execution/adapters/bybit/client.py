@@ -77,8 +77,10 @@ class BybitRestClient:
                 return data
         except HTTPError as e:
             body = e.read().decode(errors="ignore")
-            logger.error("Bybit HTTP %d: %s", e.code, body[:200])
-            return {"retCode": e.code, "retMsg": body[:200]}
+            retryable = e.code in (429, 500, 502, 503, 504)
+            logger.error("Bybit HTTP %d (retryable=%s): %s", e.code, retryable, body[:200])
+            return {"retCode": e.code, "retMsg": body[:200], "retryable": retryable}
         except Exception as e:
+            # Timeouts and network errors are retryable
             logger.error("Bybit request failed: %s", e)
-            return {"retCode": -1, "retMsg": str(e)}
+            return {"retCode": -1, "retMsg": str(e), "retryable": True}
