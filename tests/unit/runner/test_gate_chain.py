@@ -86,11 +86,14 @@ class TestPortfolioRiskGate:
         result = gate.check(_order_ev(), {})
         assert result.allowed is False
 
-    def test_exception_passes(self):
+    def test_exception_rejects(self):
+        """Bug #1 fix: exception in risk check must BLOCK, not pass."""
         agg = MagicMock()
         agg.evaluate_order.side_effect = RuntimeError("boom")
         gate = PortfolioRiskGate(agg)
-        assert gate.check(_order_ev(), {}).allowed is True
+        result = gate.check(_order_ev(), {})
+        assert result.allowed is False
+        assert result.reason == "risk_check_error"
 
 
 class TestAlphaHealthGate:

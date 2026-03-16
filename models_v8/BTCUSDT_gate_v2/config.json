@@ -55,7 +55,7 @@
   "lgbm_weight": 0.4,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 0.3,
+  "deadzone": 0.8,
   "min_hold": 48,
   "max_hold": 288,
   "train_date": "2026-03-16 18:46",

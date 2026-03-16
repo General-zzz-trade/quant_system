@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────
 
-FEE_BPS = 4e-4          # 4 bps per trade (maker/taker average)
-SLIPPAGE_BPS = 2e-4     # 2 bps slippage
-COST_PER_TRADE = FEE_BPS + SLIPPAGE_BPS  # 6 bps total
+FEE_BPS = 5.5e-4        # 5.5 bps per side (Bybit taker fee, Regular tier)
+SLIPPAGE_BPS = 2e-4     # 2 bps slippage + spread
+COST_PER_TRADE = FEE_BPS + SLIPPAGE_BPS  # 7.5 bps per side (15 bps roundtrip)
 INITIAL_CAPITAL = 10000.0
 
 def _prob_to_score(
