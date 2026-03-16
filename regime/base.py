@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Optional, Protocol
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RegimeLabel:
     """A discrete regime label."""
 
