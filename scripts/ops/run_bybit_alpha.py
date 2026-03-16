@@ -97,7 +97,7 @@ def _fetch_binance_oi_data(symbol: str) -> dict:
 
 MODEL_BASE = Path("models_v8")
 INTERVAL = "60"  # Bybit: "60" = 1h
-WARMUP_BARS = 200
+WARMUP_BARS = 800  # Must be > zscore_window(720) + zscore_warmup(180) for full z-score convergence
 POLL_INTERVAL = 60  # seconds between checks
 
 # Default symbols + position sizes
@@ -460,13 +460,16 @@ class AlphaRunner:
                     feat_dict["btc_dom_ret_72"] = (buf[-1] / buf[-73] - 1) if len(buf) >= 73 else 0.0
                 pred = self._ensemble_predict(feat_dict)
                 if pred is not None:
-                    # Push through bridge for z-score warmup (hour_key = bar index)
-                    self._inference.zscore_normalize(self._symbol, pred, i)
+                    # Push through bridge for z-score warmup
+                    # Use actual bar timestamp as hour_key for consistency with live
+                    bar_ts = bar.get("start", bar.get("open_time", 0))
+                    hour_key = int(bar_ts) // (3600 * 1000) if bar_ts > 1e9 else i
+                    self._inference.zscore_normalize(self._symbol, pred, hour_key)
                     # Also warm up secondary horizon
                     pred_h2 = self._secondary_horizon_predict(feat_dict)
                     if pred_h2 is not None:
                         h2_key = f"{self._symbol}_h2"
-                        self._inference.zscore_normalize(h2_key, pred_h2, i)
+                        self._inference.zscore_normalize(h2_key, pred_h2, hour_key)
 
         self._bars_processed = len(bars)
         regime_str = "active" if self._regime_active else "filtered"
