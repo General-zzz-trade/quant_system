@@ -101,13 +101,13 @@ POLL_INTERVAL = 60  # seconds between checks
 
 # Default symbols + position sizes
 SYMBOL_CONFIG = {
-    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2"},
-    "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2"},
+    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001},
+    "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
     # 15m alpha: separate model, different interval
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800},
     # SUI 1h alpha (walk-forward 6/7 PASS, Sharpe 1.63, +150%)
-    "SUIUSDT": {"size": 0.1, "model_dir": "SUIUSDT", "max_qty": 50000, "step": 0.1},
+    "SUIUSDT": {"size": 10, "model_dir": "SUIUSDT", "max_qty": 330000, "step": 10},
     # AXS 1h alpha (walk-forward 13/17 PASS, Sharpe 1.25, +241%)
     "AXSUSDT": {"size": 5.0, "model_dir": "AXSUSDT", "max_qty": 50000, "step": 0.1},  # min $5 notional → ~4 AXS
 }
@@ -706,10 +706,11 @@ class AlphaRunner:
         # Get leverage from ladder
         target_lev = self._get_leverage_for_equity(equity)
 
-        # Position = equity × 30% × leverage / price
-        # 30% cap per symbol — prevents single-symbol overexposure
-        # (same logic as PortfolioCombiner for COMBO symbols)
-        max_notional = equity * 0.30 * target_lev
+        # Position = equity × per_symbol_cap × leverage / price
+        # 4 effective symbols (ETH combo shares one): 15% each = 60% base
+        # With z_scale(1.5x) + consensus(1.3x) worst case: 60% * 1.95 = 117% < margin
+        per_sym_cap = 0.15
+        max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
         # Apply non-linear z-score scale + cross-symbol consensus scale
@@ -729,10 +730,18 @@ class AlphaRunner:
         if self._max_qty > 0:
             size = min(size, self._max_qty)
 
-        # Round to exchange step size
-        if self._step_size >= 0.1:
-            size = int(size / self._step_size) * self._step_size
-        size = round(size, 2)
+        # Round DOWN to exchange step size (floor to avoid exceeding limits)
+        if self._step_size > 0:
+            # Use round then floor to handle float precision
+            # e.g., 6950.5/0.1 = 69504.999... → round = 69505 → floor-safe
+            steps = int(round(size / self._step_size, 0))
+            size = steps * self._step_size
+            # Final precision fix
+            if self._step_size >= 1:
+                size = int(size)
+            else:
+                step_decimals = max(0, -int(np.floor(np.log10(self._step_size))))
+                size = round(size, step_decimals)
 
         if size != self._position_size:
             logger.info(
