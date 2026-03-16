@@ -653,13 +653,7 @@ PRIMARY_ENTRYPOINTS: tuple[ScriptEntrypoint, ...] = (
         recommendation="specialized",
         description="Burn-in report generator validating paper/shadow/testnet runs against exit criteria.",
     ),
-    ScriptEntrypoint(
-        name="grafana_import.py",
-        status=SUPPORTED,
-        recommendation="specialized",
-        description="Grafana dashboard auto-import from monitoring config.",
-    ),
-    ScriptEntrypoint(
+ScriptEntrypoint(
         name="rotate_api_keys.py",
         status=SUPPORTED,
         recommendation="specialized",

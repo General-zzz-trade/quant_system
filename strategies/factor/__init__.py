@@ -1,1 +1,0 @@
-"""Factor-based trading strategies."""

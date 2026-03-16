@@ -1,9 +1,0 @@
-# Status: candidate-production Kubernetes manifest.
-# This is not the current default release path.
-apiVersion: scheduling.k8s.io/v1
-kind: PriorityClass
-metadata:
-  name: high-priority
-value: 1000000
-globalDefault: false
-description: "Priority class for trading engine pods"

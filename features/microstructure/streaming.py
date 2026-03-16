@@ -13,7 +13,23 @@ from typing import Optional
 from event.tick_types import DepthUpdateEvent, TradeTickEvent
 from features.microstructure.kyle_lambda import KyleLambdaEstimator
 from _quant_hotpath import RustVPINCalculator
-from strategies.hft.order_book import analyze_book, OrderBookSignal
+# order_book module removed with strategies/hft/ cleanup
+# Stub types to keep module importable (unused in production)
+from dataclasses import dataclass as _dataclass
+
+
+@_dataclass(frozen=True, slots=True)
+class OrderBookSignal:
+    imbalance: float = 0.0
+    spread_bps: float = 0.0
+    weighted_mid: object = None
+    signal: str = "neutral"
+    depth_ratio: float = 1.0
+
+
+def analyze_book(snapshot):  # type: ignore[no-untyped-def]
+    """Stub — original lived in strategies.hft.order_book (deleted)."""
+    return OrderBookSignal()
 
 logger = logging.getLogger(__name__)
 
