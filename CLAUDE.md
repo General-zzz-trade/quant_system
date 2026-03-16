@@ -6,11 +6,9 @@ make test                    # ALL gates (py + exec + rust + lint, matches CI)
 pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
-pytest tests/unit/ib/ -x -q   # IB adapter tests (37 tests)
 pytest tests/unit/runner/ -x -q    # Runner tests (298 tests)
 pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (42 tests)
 pytest tests/unit/bybit/ -x -q   # Bybit adapter tests (14 tests)
-pytest tests/unit/bitget/ -x -q  # Bitget adapter tests (14 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
 cd ext/rust && cargo test    # Rust unit tests (82 tests)
@@ -51,15 +49,12 @@ python3 -m scripts.auto_retrain --dry-run                                    # P
 ```bash
 python3 -m polymarket.collector --mode intra --db data/polymarket/collector.db  # Start 5m+15m CLOB collector
 kill $(cat data/polymarket/collector.pid)                                       # Stop collector
-python3 -c "import sqlite3; c=sqlite3.connect('data/polymarket/collector.db'); print(c.execute('SELECT COUNT(*) FROM intra_window_samples_v2').fetchone())"  # Check sample count
 ```
 
 **Monitoring & diagnostics**:
 ```bash
 python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
 python3 -m scripts.testnet_smoke --public-only                                # Exchange connectivity check
-python3 -m scripts.research.research_funding_alpha --symbol ETHUSDT           # Funding alpha IC analysis
-python3 -m scripts.research.research_15m_alpha --symbol ETHUSDT               # 15m alpha research
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -74,14 +69,6 @@ cd ext/rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-l
 ./target/release/quant_trader --config config.testnet.yaml [--dry-run]
 ```
 
-**Docker deployment**:
-```bash
-docker compose up -d trader-rust      # Start Rust trader (testnet)
-docker compose logs -f trader-rust    # Follow logs
-curl localhost:9090/metrics           # Prometheus metrics
-curl -X POST localhost:9090/kill      # Emergency kill switch
-```
-
 ## Architecture
 
 ```
@@ -91,67 +78,59 @@ features/        Feature computation (EnrichedFeatureComputer, 120 features incl
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
   feature_catalog.py   PRODUCTION_FEATURES frozenset (137 = 120 enriched + 17 cross-asset)
 decision/        Trading signals, ensemble, regime detection, rebalancing
-  backtest_module.py   MLSignalDecisionModule (z-score, min-hold, trend-hold, regime gate)
-  exit_manager.py      Trailing stop, z-reversal, deadzone fade exits
-alpha/           ML models + inference bridge
-  horizon_ensemble.py  Multi-horizon IC-weighted ensemble (12h + 24h)
-  adaptive_config.py   Dynamic deadzone/min_hold selection (24h sweep)
+alpha/           ML models + inference bridge (horizon_ensemble.py, adaptive_config.py)
 execution/       Order routing, state machine, dedup
   adapters/binance/    Binance USDT-M futures (47 files, ~3.7K LOC, WS-API ~4ms)
   adapters/bybit/      Bybit V5 linear perpetuals (demo/testnet/live, 6 files)
-  adapters/bitget/     Bitget V2 USDT-M futures (HMAC-SHA256+base64, passphrase, 6 files)
-  adapters/ib/         Interactive Brokers multi-asset (stocks/forex/futures/options/crypto)
   adapters/polymarket/ Polymarket prediction market CLOB adapter
-  adapters/generic/    CCXT-based unified 100+ exchange adapter
   sim/                 Backtest engines (realistic_backtest.py, limit_order_book.py, cost_constants.py)
 state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
-strategies/      HFT + multi-factor strategy implementations
 ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
-runner/          Live/paper/backtest entry points
-  gate_chain.py        GateChain: 8-gate order pipeline (correlation → risk → portfolio → alpha health)
-  emit_handler.py      LiveEmitHandler: ORDER/FILL routing with audit trail
+runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
 regime/          Regime detection (volatility, trend)
 risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
 monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
 infra/           Logging (structured JSON), networking, systemd units
 polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner
-models_v8/       Production models (Ridge primary 60% + LightGBM 40%)
-  ETHUSDT_gate_v2/   1h model (v11, IC 0.075, 14 features, min_hold=18)
-  ETHUSDT_15m/       15m model (v1, IC 0.075, 14 features, h=32 horizon)
-  SUIUSDT/           1h model (v1, 15 features, 6/7 PASS Sharpe 1.63)
-  SUIUSDT_15m/       15m model (v11-15m, h=32, Sharpe 2.36, PASS)
-  AXSUSDT/           1h model (v1, 15 features, 13/17 PASS Sharpe 1.25)
-  BTCUSDT_gate_v2/   V14 model (h=96, 15 features, 16/20 PASS Sharpe 2.03, BTC/ETH dominance)
+models_v8/       Production models (Ridge 60% + LightGBM 40%): ETHUSDT_gate_v2, ETHUSDT_15m, SUIUSDT, AXSUSDT, BTCUSDT_gate_v2
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         7 subdirs + symlinks for compat
-  ops/               run_bybit_alpha.py, compare_live_backtest.py
+  ops/               Split into 8 modules (see below)
+    config.py            SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
+    data_fetcher.py      Binance OI/LS/taker data fetch
+    model_loader.py      load_model(), create_adapter()
+    alpha_runner.py      AlphaRunner class (signal + trade, 12 Rust components)
+    portfolio_manager.py PortfolioManager class
+    portfolio_combiner.py PortfolioCombiner (AGREE ONLY)
+    hedge_runner.py      BTC+ALT hedge
+    pnl_tracker.py       Unified PnL tracking
+    run_bybit_alpha.py   main() entry + WS loop
   data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py
-  research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, leverage_survival_sim.py, polymarket_binary_alpha.py, polymarket_mm_backtest.py
+  research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, polymarket_binary_alpha.py
   walkforward/       walkforward_validate.py
   training/          train_v7_alpha.py, train_15m.py
-data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv, fear_greed_index.csv
-logs/            bybit_alpha.log, polymarket-collector.log, retrain_cron.log
-tests/           unit/ (runner, bybit, bitget, decision, features), integration/ (constraint parity)
+data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv
+logs/            bybit_alpha.log, retrain_cron.log
+tests/           unit/ (runner, bybit, decision, features), integration/ (constraint parity)
 ```
 
 **Data flow (live alpha)**:
 ```
-Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API) → Ridge(60%)+LightGBM(40%) ensemble predict
-  → z-score normalize → deadzone discretize → min-hold enforce
-  → PortfolioCombiner (AGREE ONLY: both 1h+15m agree → trade)
-  → ATR adaptive stop (initial → breakeven → trailing)
-  → Bybit REST market order
+Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
+  → Ridge(60%)+LightGBM(40%) ensemble predict
+  → RustInferenceBridge.apply_constraints (z-score + deadzone + min-hold)
+  → RustRiskEvaluator.check_drawdown + RustKillSwitch
+  → RustOrderStateMachine.register + RustCircuitBreaker.allow_request
+  → Bybit REST market order (with orderLinkId dedup)
+  → RustStateStore.process_event (position truth)
 ```
 
-**Data flow (Python engine)**: Market event → FeatureComputeHook (RustFeatureEngine) → Pipeline
-  (RustStateStore) → DecisionModule → ExecutionPolicy → OrderRouter
-**Fast path**: Market event → RustTickProcessor.process_tick_full() → DecisionModule
-**Binary path**: Binance WS → RustTickProcessor.process_tick_native() → risk gates → WS-API order
-**Order path**: DecisionModule → BinanceWsOrderGateway (WS-API, ~4ms) or REST fallback (~30ms)
+**Python engine path**: Market event → FeatureComputeHook → Pipeline (RustStateStore) → DecisionModule → OrderRouter
+**Binary path**: Binance WS → RustTickProcessor.process_tick_native() → risk gates → WS-API order (~4ms)
 
 ## Rust Crate (`ext/rust/`)
 
@@ -163,15 +142,11 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API) → Ridge
 - feature_hook.py always uses Rust (no Python fallback)
 - `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
 
-Key export categories (see `lib.rs` for full list):
-- **State**: `RustStateStore`, `RustMarketState`, `RustPositionState`, `RustAccountState`
-- **Features**: `RustFeatureEngine` (105 features), `RustCrossAssetComputer`
-- **Risk**: `RustRiskEvaluator`, `RustKillSwitch`, `RustCircuitBreaker`
-- **Pipeline**: `rust_pipeline_apply`, `RustProcessResult`, `RustUnifiedPredictor`
-- **TickProcessor**: `RustTickProcessor` (candidate optimization: features+predict+state in single call; not default production path)
-- **Networking**: `RustWsClient`, `RustWsOrderGateway` (WS-API, ~4ms), `MicroAlpha`
-- **Inference**: `RustInferenceBridge` (z-score, min-hold, monthly gate, short signal)
-- **Selection**: `cpp_greedy_ic_select_np`, `cpp_stable_icir_select`, `cpp_feature_icir_report`
+Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select).
+
+## Rust Pipeline (12/12 components in production)
+
+AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustInferenceBridge (z-score+deadzone+min-hold+max-hold), RustRiskEvaluator (drawdown+leverage), RustKillSwitch (global emergency stop), RustOrderStateMachine (order lifecycle), RustCircuitBreaker (3-failure/120s backoff), RustStateStore (position truth), RustFillEvent+RustMarketEvent (zero-copy), rust_pipeline_apply (atomic reducer). RustUnifiedPredictor, RustTickProcessor, RustWsClient imported but not active (see alpha_runner.py).
 
 ## Key Files
 
@@ -179,63 +154,45 @@ Key export categories (see `lib.rs` for full list):
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
 - `features/enriched_computer.py` — 120 enriched feature definitions (V1-V14)
-- `features/dynamic_selector.py` — Feature selection: greedy, stable_icir, stability_filtered_greedy
-- `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
-- `ext/rust/src/constraint_pipeline.rs` — Signal constraints: z-score, discretize, min-hold, trend-hold (batch + incremental)
-- `ext/rust/src/bin/main.rs` — Standalone Rust trading binary (WS + ML + orders)
-- `runner/live_runner.py` — Production entry point (Python)
-- `runner/emit_handler.py` — LiveEmitHandler (ORDER gate chain + FILL tracking)
-- `runner/gate_chain.py` — GateChain: 8 gates with `process_with_audit()` for structured ORDER_AUDIT logging
-- `runner/recovery.py` — Crash recovery: 8-component atomic bundle
-- `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (137 features); `validate_model_features()`
-- `scripts/research/altcoin_rotation.py` — Cross-sectional momentum walk-forward (FAILED)
-- `scripts/data/download_oi_data.py` — OI/LS ratio/Taker data from Binance (cron every 6h)
-- `scripts/research/polymarket_binary_alpha.py` — Polymarket ML classifier walk-forward
-- `scripts/research/walkforward_5m_alpha.py` — 5m alpha walk-forward (FAILED)
-- `scripts/ops/run_bybit_alpha.py` — **Primary alpha runner**: dual 1h+15m AGREE ONLY combo, ATR adaptive stop, Kelly 1.4x leverage, PortfolioCombiner, WS + realtime stop
-- `scripts/ops/compare_live_backtest.py` — Live vs backtest signal/PnL comparison tool
-- `scripts/data/download_15m_klines.py` — Incremental 15m kline data download from Binance
-- `scripts/shared/signal_postprocess.py` — Signal pipeline: z-score → discretize → min-hold → trend-hold (Rust + Python parity)
-- `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, margin model, Almgren-Chriss slippage, adaptive ATR stop
-- `execution/sim/limit_order_book.py` — Simulated LOB: FIFO queue, partial fills, stop orders, TTL expiry
-- `execution/adapters/ib/adapter.py` — IB multi-asset adapter via IB Gateway
-- `polymarket/collector.py` — 5m+15m BTC Up/Down real-time CLOB collector + BS fair value + RSI signal tracking
+- `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
+- `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
+- `runner/live_runner.py` — Production entry point (Python)
+- `runner/gate_chain.py` — GateChain: 8 gates with `process_with_audit()`
+- `runner/config.py` — LiveRunnerConfig (93 fields); factory: `.lite()`, `.paper()`, `.prod()`
+- `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
+- `scripts/ops/alpha_runner.py` — AlphaRunner: signal + trade with 12 Rust components
+- `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode)
+- `scripts/ops/run_bybit_alpha.py` — **Primary alpha runner**: main() entry + WS loop
+- `scripts/shared/signal_postprocess.py` — Signal pipeline (Rust + Python parity)
+- `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, Almgren-Chriss slippage, adaptive ATR stop
+- `polymarket/collector.py` — 5m+15m CLOB collector + BS fair value + RSI signal
 
 ## Live Integration Subsystems
 
-- **Dual Alpha COMBO**: `run_bybit_alpha.py` runs 1h+15m alphas simultaneously via separate WS clients (kline.60 + kline.15). `PortfolioCombiner` AGREE ONLY mode: trades only when both alphas agree direction (Sharpe 5.48 vs weighted 3.18). Individual runners set to `dry_run=True`; combiner manages single exchange position. Per-symbol position cap: 30% of equity × leverage. Conviction scaling: both agree=100%, one only=50%.
-- **Adaptive Stop-Loss**: ATR-based 3-phase stop in both `run_bybit_alpha.py` (realtime tick-level) and `realistic_backtest.py` (`--adaptive-stop`). Phase 1: initial ATR×2.0. Phase 2: breakeven after 1×ATR profit. Phase 3: trailing at peak - ATR×0.3 after 0.8×ATR profit. Hard limits: 0.3%-5%. Grid-search optimized: 18/20 folds, 75% trailing stop wins.
-- **Alpha Health Monitor**: `AlphaHealthMonitor` in `monitoring/alpha_health.py` — tracks per-symbol IC, gates orders via `position_scale()` (0.0/0.5/1.0).
-- **WS-API Orders**: `WsOrderAdapter` in `execution/adapters/binance/ws_order_adapter.py` — ~4ms WS-API with REST fallback.
-- **Auto-Retrain**: `scripts/auto_retrain.py` — supports `--include-15m`, `--only-15m` for 15m models. Downloads fresh data → trains LightGBM+XGBoost → validates → saves if passes. Systemd timer: Sunday 2am UTC. SIGHUP to runner for hot reload.
-- **Live Comparison**: `scripts/ops/compare_live_backtest.py` — parses live log, replays z-scores through signal logic, reports agreement rate + PnL divergence.
+- **Dual Alpha COMBO**: 1h+15m alphas via separate WS (kline.60 + kline.15). `PortfolioCombiner` AGREE ONLY: both must agree direction (Sharpe 5.48). Per-symbol cap: 30% equity x leverage. Conviction: both=100%, one=50%.
+- **Adaptive Stop-Loss**: ATR 3-phase: initial ATRx2.0 → breakeven after 1xATR profit → trailing at peak-ATRx0.3. Hard limits: 0.3%-5%.
+- **Alpha Health Monitor**: `monitoring/alpha_health.py` — per-symbol IC tracking, gates via `position_scale()` (0.0/0.5/1.0).
+- **Auto-Retrain**: `scripts/auto_retrain.py` — `--include-15m`, `--only-15m`. Systemd timer: Sunday 2am UTC. SIGHUP for hot reload.
 
 ## Venue Adapters
 
 All adapters implement `VenueAdapter` protocol (`execution/adapters/base.py`); registered via `AdapterRegistry.register(venue, adapter)`.
 
-| Venue | Protocol | Min Order (ETH) | Notes |
-|-------|----------|-----------------|-------|
-| Binance | REST + WS-API (~4ms) | $20 | Primary. USDT-M futures. 47 files, ~3.7K LOC. Live API connected. |
+| Venue | Protocol | Min Order | Notes |
+|-------|----------|-----------|-------|
+| Binance | REST + WS-API (~4ms) | $20 (ETH) | Primary. USDT-M futures. 47 files, ~3.7K LOC. Live API connected. |
 | Bybit | REST V5 + WS | $5 | Demo trading active. HMAC-SHA256. Systemd service running. |
-| Bitget | REST V2 + WS | $5 | USDT-M + stock tokens. HMAC-SHA256+base64, passphrase header. |
-| IB | `ib_insync` → IB Gateway | N/A | Port 4002=paper, 4001=live. All asset classes. Requires Xvfb. |
 | Polymarket | CLOB REST | N/A | L2 auth. Collector V2: direct CLOB orderbook, SQLite storage. |
-| Generic | CCXT | varies | 100+ exchanges, unified interface. |
 
 ## Environment
 
 ```bash
-# Bybit Demo (currently active)
-# Keys hardcoded in scripts/ops/run_bybit_alpha.py create_adapter()
-
-# Binance Live (API connected, account empty — needs USDT deposit)
-# API key stored, connection verified 2026-03-15
-
-# Binance Testnet (for paper trading)
-export BINANCE_TESTNET_API_KEY=...    # from testnet.binancefuture.com
-export BINANCE_TESTNET_API_SECRET=...
+# Required (set in .env or export):
+export BYBIT_API_KEY=...
+export BYBIT_API_SECRET=...
+export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for live
+# See .env.example for all optional vars (Binance, Polymarket)
 ```
 
 **Current deployment** (systemd):
@@ -244,7 +201,7 @@ export BINANCE_TESTNET_API_SECRET=...
 # Command: python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
 # Status: active (running), Bybit Demo, 5 symbols (BTC h=96, ETH 1h+15m AGREE, SUI/AXS independent)
 # Logs: /quant_system/logs/bybit_alpha.log
-# Deploy truth: docs/deploy_truth.md (systemd/compose/CI 一致性)
+# Deploy truth: docs/deploy_truth.md (systemd/compose/CI consistency)
 ```
 
 **Quick start → demo trading**:
@@ -254,19 +211,16 @@ export BINANCE_TESTNET_API_SECRET=...
 4. Compare live/backtest: `python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log`
 
 **Walk-forward baselines** (2026-03-15):
-- ETHUSDT 1h (min_hold=18, 20 folds): Sharpe **1.52**, **+397%**, **14/20 positive** → **PASS**
+- ETHUSDT 1h (min_hold=18, 20 folds): Sharpe **1.52**, **+389%**, **14/20 positive** → **PASS**
 - ETHUSDT 15m h=32 (4 folds): Sharpe **1.04**, **+121%**, **3/4 positive** → **PASS**
 - ETHUSDT adaptive stop (15/20): Sharpe **1.35**, **+286%** → **PASS**
 - SUIUSDT 1h (7 folds): Sharpe **1.63**, **+150%**, **6/7 positive** → **PASS**
 - AXSUSDT 1h (17 folds): Sharpe **1.25**, **+241%**, **13/17 positive** → **PASS**
-- SUIUSDT 15m h=32: Sharpe **2.36**, training PASS but WF 9/23 → **FAIL** (model saved, not deployed)
 - **BTCUSDT V14** (h=96, dominance): Sharpe **2.03**, **+552%**, **16/20 positive** → **PASS** (BTC/ETH ratio is #1 feature)
-- SOLUSDT 15m: 1/4 → FAIL. (Not traded)
-- AXSUSDT 15m: training Sharpe 0.39 → **FAIL** (not saved)
-- ETHUSDT 5m: avg Sharpe -4.92, 0/12 → **FAIL** (5m永续alpha不可行，IC接近零)
-- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate, geometric mean turns negative)
+- FAIL: SUIUSDT 15m (9/23), SOLUSDT 15m (1/4), AXSUSDT 15m (Sharpe 0.39), ETHUSDT 5m (IC near zero)
+- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate)
 - Dual alpha AGREE backtest: Sharpe **5.48**, +1,141%, 56% WR, signal correlation 0.077
-- Polymarket RSI(5) 5m: accuracy **55.0%**, **23/23 folds PASS**, $25/day@$10/bet (pending CLOB price verification)
+- Polymarket RSI(5) 5m: accuracy **55.0%**, **23/23 folds PASS**, $25/day@$10/bet
 
 ## Signal Pipeline
 
@@ -278,61 +232,49 @@ Raw prediction (Ridge 60% + LightGBM 40% ensemble, walk-forward validated)
   → Min-hold enforce (18 bars for 1h, 16 for 15m)
   → Trend-hold extend (optional: extend when trend intact, symmetric long/short)
   → Monthly gate (optional: close <= SMA → flat)
-  → Vol-adaptive scaling (optional: signal × target_vol/realized_vol)
+  → Vol-adaptive scaling (optional: signal x target_vol/realized_vol)
 ```
 Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) and Python (`signal_postprocess.py`). Parity verified via `tests/integration/test_constraint_parity.py`.
 
 ## Gotchas
 
+**Build & environment**:
 - `_quant_hotpath/` at project root shadows pip-installed package — always copy .so after build
-- `RustFeatureEngine` uses its own window sizes (not LiveFeatureComputer params)
-- Tests require `_quant_hotpath` built; `pytest.importorskip("_quant_hotpath")` guards Rust tests
-- Production models in `models_v8/` (LightGBM + XGBoost pkl files)
-- CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar
-- Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
-- `features/dynamic_selector.py` keeps `_rankdata`/`_spearman_ic` for scripts (not fallback)
-- `pip install` requires `--break-system-packages` flag (no venv, system Python 3.12)
-- Live hot-path has no Python fallbacks (rolling.py, multi_timeframe.py require Rust)
+- `pip install` requires `--break-system-packages` (no venv, system Python 3.12)
 - Binary build requires `-lpython3.12` link flag (PyO3 symbols)
-- Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
-- Binance min notional: ETHUSDT $20, BTCUSDT $100; Bybit/Bitget all $5
-- `RustFeatureEngine.checkpoint()` / `restore_checkpoint()` persist rolling windows as bar history JSON
+- Live hot-path has no Python fallbacks (rolling.py, multi_timeframe.py require Rust)
+
+**Rust/Python interface**:
+- Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
+- `RustFeatureEngine` uses its own window sizes; `checkpoint()`/`restore_checkpoint()` persist as bar history JSON
 - State ownership: `RustStateStore` = position truth; `OrderStateMachine` = execution audit trail only
-- Recovery bundle: 8 components; `save_all_auxiliary_state()` / `restore_all_auxiliary_state()`
-- `GateChain._apply_scale()` preserves Decimal type; uses `dataclasses.replace()` on frozen OrderEvent
-- `LiveEmitHandler` attribution tracks only accepted orders; fill supports PARTIALLY_FILLED
-- Python fallback in `signal_postprocess.py` uses `_enforce_hold_single_pass()` matching Rust exactly (parity verified)
-- IB Gateway requires Xvfb on headless Linux (`Xvfb :99 &; export DISPLAY=:99`)
-- Polymarket Gamma API prices are **cached/stale** — always use CLOB orderbook for real prices
-- Walk-forward `--realistic` uses `close ± 0.5%` as high/low unless real CSV data available; `--adaptive-stop` auto-injects real high/low
-- Adaptive stop ATR params: `mult=2.0, trail_trigger=0.8, trail_step=0.3, breakeven=1.0` (grid-search optimized)
-- `PortfolioCombiner` sets individual runners to `dry_run=True` — combiner manages single exchange position
-- Bitget API: success code `"00000"` (string); signing = base64(HMAC-SHA256) + ACCESS-PASSPHRASE header
-- Feature selection: greedy IC is optimal (stability-filtered and fixed-feature approaches both hurt performance)
-- Funding/vol-squeeze/OI-divergence as standalone alphas all FAIL after costs — alpha is in ML multi-factor combination only
-- `ETHUSDT_15m` in SYMBOL_CONFIG uses `"symbol": "ETHUSDT"` (real exchange symbol) + `"interval": "15"` (separate WS)
-- `EnrichedFeatureComputer.on_bar(btc_close=...)` — V12 cross-asset features need BTC price; without it, 6 `btc_*` features return None (safe degradation)
-- SYMBOL_CONFIG: `SUIUSDT` size=0.1, `AXSUSDT` size=1.0 (lot sizes match Bybit minimums)
-- Ridge model uses its own feature list (`ridge_features` in horizon_models) which may differ from LGBM features
-- `PortfolioCombiner` caps each symbol at 30% of equity × leverage to prevent single-symbol overexposure
-- Ridge won 20-fold walk-forward (15/20 PASS, Sharpe 0.54) vs LGBM+XGB ensemble (11/20 FAIL)
-- `FillEvent.side` is Optional[str] (added for Tier 3 parity); existing code without `side` still works
-- `fill_to_record()` now produces 13 fields (aligned with `CanonicalFill.to_record()`); locked by `test_fill_roundtrip.py`
-- `LiveRunner._build_persistence_and_recovery` + `_build_shutdown` extracted to `runner/builders/` (1,799 lines, was 2,020)
-- `docs/deploy_truth.md` is the deployment truth source; `infra/systemd/` must sync with `/etc/systemd/system/`
-- V13 OI features (5 new): `oi_pct_4h`, `ls_deviation`, `taker_buy_sell_ratio`, `top_retail_divergence`, `oi_price_divergence_12` — IC validated but only 28 days data; models not yet retrained with V13
-- `run_bybit_alpha.py` fetches OI/LS/taker from Binance API each bar (70ms, non-blocking, NaN fallback)
-- Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate
-- `EnrichedFeatureComputer.on_bar(top_trader_ls_ratio=...)` — new V13 parameter for smart/dumb money divergence
-- Polymarket collector runs as background process (not systemd); PID in `data/polymarket/collector.pid`
-- Polymarket collector tracks both 5m and 15m markets simultaneously; RSI(5) signal annotated per window
-- 5m perpetual alpha is NOT viable — IC near zero, cost dominates; only 1h and 15m (ETH only) work
-- SUI/AXS 15m alpha both FAIL walk-forward; only ETH has 15m alpha
-- Polymarket ML classifier (Logistic+LGBM) loses to simple RSI rule — RSI's selectivity is the alpha, not prediction accuracy
-- V14 BTC dominance features (4 new): `btc_dom_dev_20`, `btc_dom_dev_50`, `btc_dom_ret_24`, `btc_dom_ret_72` — BTC/ETH ratio deviation, computed in Python (not Rust)
-- `EnrichedFeatureComputer.on_bar(eth_close=...)` — V14 parameter for BTC dominance; without it, 4 `btc_dom_*` features return None
+- Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
+
+**Trading & safety**:
+- `MAX_ORDER_NOTIONAL = $500` hard limit in config.py — blocks any single order exceeding this notional
+- Binance min notional: ETHUSDT $20, BTCUSDT $100; Bybit all $5
+- `PortfolioCombiner` sets individual runners to `dry_run=True`; caps each symbol at 30% of equity x leverage
+- SYMBOL_CONFIG: `SUIUSDT` size=10, step=10 (Bybit qtyStep=10); `AXSUSDT` size=5.0, step=0.1
+- `ETHUSDT_15m` in SYMBOL_CONFIG uses `"symbol": "ETHUSDT"` + `"interval": "15"` (separate WS)
+- `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
+
+**Features & models**:
+- CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar
+- `EnrichedFeatureComputer.on_bar(btc_close=...)` — V12 needs BTC price; `on_bar(eth_close=...)` — V14 needs ETH price; missing → None (safe)
+- V13 OI features (5): IC validated, 28 days data only. V14 dominance (4): `btc_dom_*`, computed in Python (not Rust)
+- Ridge model uses its own feature list (`ridge_features`) which may differ from LGBM features
+- Feature selection: greedy IC is optimal (stability-filtered and fixed-feature approaches both hurt)
 - BTC model h=96 uses `min_hold=48` (2 days), `max_hold=288` (12 days) — much slower than ETH's h=24/min_hold=18
-- `run_bybit_alpha.py` `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
-- `run_bybit_alpha.py` BTC dominance warmup fetches ETH historical klines from Binance API
-- Altcoin cross-sectional momentum FAILS — crypto assets too correlated, costs dominate; only time-series ML alpha works
-- `batch_feature_engine.py` `_add_dominance_features()` computes BTC/ETH ratio features for training; requires ETHUSDT_1h.csv
+- `batch_feature_engine.py` `_add_dominance_features()` requires ETHUSDT_1h.csv
+
+**Alpha research conclusions**:
+- Only 1h (all symbols) and 15m (ETH only) work; 5m/SUI-15m/AXS-15m/SOL-15m all FAIL
+- Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
+- Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
+
+**Infrastructure**:
+- `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`
+- Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate
+- Polymarket Gamma API prices are **cached/stale** — always use CLOB orderbook for real prices
+- Polymarket collector: background process (not systemd); PID in `data/polymarket/collector.pid`
+- Walk-forward `--realistic` uses `close +/- 0.5%` as high/low unless real CSV; `--adaptive-stop` auto-injects real high/low
