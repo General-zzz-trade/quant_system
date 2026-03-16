@@ -186,6 +186,7 @@ class PortfolioRiskGate:
         except Exception:
             sym = getattr(ev, "symbol", "?")
             logger.warning("PortfolioRisk check failed for %s", sym, exc_info=True)
+            return GateResult(allowed=False, reason="risk_check_error")
         return GateResult(allowed=True)
 
 

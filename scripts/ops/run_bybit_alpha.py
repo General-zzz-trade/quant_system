@@ -15,6 +15,7 @@ import argparse
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -272,8 +273,12 @@ class AlphaRunner:
             self._ranging_window = 100    # 100 bars = ~4 days
             self._ranging_threshold = 0.08
 
+        # Threading lock for shared state (_current_signal, _entry_price, orders)
+        self._trade_lock = threading.Lock()
+
         # P&L tracking + drawdown circuit breaker
         self._entry_price: float = 0.0
+        self._entry_size: float = 0.0   # position size at entry time (for PnL calc)
         self._total_pnl: float = 0.0
         self._peak_equity: float = 0.0
         self._trade_count: int = 0
@@ -389,7 +394,53 @@ class AlphaRunner:
         regime_str = "active" if self._regime_active else "filtered"
         logger.info("Warmup: %d bars, %d predictions, regime=%s",
                      len(bars), len(self._predictions), regime_str)
+
+        # Reconcile with exchange after warmup
+        self._reconcile_position()
+
         return len(bars)
+
+    def _reconcile_position(self) -> None:
+        """Reconcile runner state with actual exchange position.
+
+        Queries the exchange for the real position and syncs _current_signal
+        and _entry_price if they diverge from exchange truth. Called after
+        warmup and periodically (every RECONCILE_INTERVAL bars).
+        """
+        try:
+            positions = self._adapter.get_positions(symbol=self._symbol)
+        except Exception:
+            logger.debug("%s reconcile: failed to fetch positions", self._symbol, exc_info=True)
+            return
+
+        # Determine actual exchange side
+        exchange_side = 0
+        exchange_qty = 0.0
+        for pos in positions:
+            if pos.symbol == self._symbol and not pos.is_flat:
+                exchange_side = 1 if pos.is_long else -1
+                exchange_qty = float(pos.abs_qty)
+                break
+
+        if exchange_side != self._current_signal:
+            logger.warning(
+                "%s RECONCILE DIVERGENCE: runner_signal=%d exchange_side=%d exchange_qty=%.4f "
+                "— syncing to exchange truth",
+                self._symbol, self._current_signal, exchange_side, exchange_qty,
+            )
+            self._current_signal = exchange_side
+            if exchange_side == 0:
+                self._entry_price = 0.0
+                self._entry_size = 0.0
+                self._trade_peak_price = 0.0
+                self._hold_count = 0
+            if self._runner_key:
+                _consensus_signals[self._runner_key] = exchange_side
+        else:
+            logger.debug("%s reconcile OK: signal=%d", self._symbol, self._current_signal)
+
+    # Reconcile every N bars (avoid hammering the API every bar)
+    RECONCILE_INTERVAL = 10
 
     def _current_atr(self) -> float:
         """Get current ATR (average true range) from recent bar data.
@@ -474,55 +525,71 @@ class AlphaRunner:
         """Check adaptive stop-loss against real-time price.
 
         Called on every tick (~100ms). Uses ATR-based trailing stop
-        that adapts to market volatility.
+        that adapts to market volatility. Acquires _trade_lock to
+        prevent race with process_bar.
         """
         if self._current_signal == 0 or self._entry_price <= 0 or self._killed:
             return False
 
-        stop = self._compute_stop_price(price)
+        with self._trade_lock:
+            # Re-check under lock (state may have changed)
+            if self._current_signal == 0 or self._entry_price <= 0:
+                return False
 
-        triggered = False
-        if self._current_signal > 0 and price <= stop:
-            triggered = True
-        elif self._current_signal < 0 and price >= stop:
-            triggered = True
+            stop = self._compute_stop_price(price)
 
-        if triggered:
-            if self._current_signal > 0:
-                unrealized = (price - self._entry_price) / self._entry_price
-            else:
-                unrealized = (self._entry_price - price) / self._entry_price
+            triggered = False
+            if self._current_signal > 0 and price <= stop:
+                triggered = True
+            elif self._current_signal < 0 and price >= stop:
+                triggered = True
 
-            atr = self._current_atr()
-            phase = "TRAIL" if unrealized > 0 else ("BREAKEVEN" if abs(unrealized) < atr else "INITIAL")
+            if triggered:
+                if self._current_signal > 0:
+                    unrealized = (price - self._entry_price) / self._entry_price
+                else:
+                    unrealized = (self._entry_price - price) / self._entry_price
 
-            logger.warning(
-                "%s ADAPTIVE STOP [%s]: price=$%.2f stop=$%.2f entry=$%.2f "
-                "pnl=%.2f%% atr=%.2f%% peak=$%.2f",
-                self._symbol, phase, price, stop, self._entry_price,
-                unrealized * 100, atr * 100, self._trade_peak_price,
-            )
-            if not self._dry_run:
-                self._adapter.close_position(self._symbol)
+                atr = self._current_atr()
+                phase = "TRAIL" if unrealized > 0 else ("BREAKEVEN" if abs(unrealized) < atr else "INITIAL")
 
-            pnl_usd = unrealized * self._entry_price * self._position_size
-            self._total_pnl += pnl_usd
-            self._trade_count += 1
-            if pnl_usd > 0:
-                self._win_count += 1
-            logger.info(
-                "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d/%d",
-                self._symbol, pnl_usd, self._total_pnl,
-                self._win_count, self._trade_count,
-            )
+                logger.warning(
+                    "%s ADAPTIVE STOP [%s]: price=$%.2f stop=$%.2f entry=$%.2f "
+                    "pnl=%.2f%% atr=%.2f%% peak=$%.2f",
+                    self._symbol, phase, price, stop, self._entry_price,
+                    unrealized * 100, atr * 100, self._trade_peak_price,
+                )
+                if not self._dry_run:
+                    close_result = self._adapter.close_position(self._symbol)
+                    if close_result.get("status") == "error":
+                        logger.error("%s STOP CLOSE FAILED: %s", self._symbol, close_result)
+                        # Retry once
+                        close_result = self._adapter.close_position(self._symbol)
+                        if close_result.get("status") == "error":
+                            logger.error("%s STOP CLOSE RETRY FAILED: %s — keeping position state",
+                                         self._symbol, close_result)
+                            return False
 
-            self._current_signal = 0
-            self._hold_count = 0
-            self._entry_price = 0.0
-            self._trade_peak_price = 0.0
-            return True
+                entry_size = self._entry_size if self._entry_size > 0 else self._position_size
+                pnl_usd = unrealized * self._entry_price * entry_size
+                self._total_pnl += pnl_usd
+                self._trade_count += 1
+                if pnl_usd > 0:
+                    self._win_count += 1
+                logger.info(
+                    "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d/%d",
+                    self._symbol, pnl_usd, self._total_pnl,
+                    self._win_count, self._trade_count,
+                )
 
-        return False
+                self._current_signal = 0
+                self._hold_count = 0
+                self._entry_price = 0.0
+                self._entry_size = 0.0
+                self._trade_peak_price = 0.0
+                return True
+
+            return False
 
     def _ensemble_predict(self, feat_dict: dict) -> float | None:
         """Ensemble: Ridge (primary) + LightGBM (secondary).
@@ -824,6 +891,10 @@ class AlphaRunner:
         """Process one bar: regime → features → predict → signal → trade."""
         self._bars_processed += 1
 
+        # Periodic reconciliation with exchange
+        if self._bars_processed % self.RECONCILE_INTERVAL == 0:
+            self._reconcile_position()
+
         # Regime filter
         regime_ok = self._check_regime(bar["close"])
 
@@ -958,36 +1029,59 @@ class AlphaRunner:
             new_signal = 0
             self._hold_count = 1
 
-        self._current_signal = new_signal
+        # Acquire trade lock to guard shared state mutation and order execution
+        # (prevents race with check_realtime_stoploss on WS tick thread)
+        with self._trade_lock:
+            # Re-read prev_signal under lock in case stop-loss fired between
+            # signal computation and here
+            actual_prev = self._current_signal
+            if actual_prev != prev_signal:
+                # Stop-loss already changed state — abort this signal change
+                logger.info("%s signal change aborted: stop-loss fired (prev=%d→%d)",
+                            self._symbol, prev_signal, actual_prev)
+                new_signal = actual_prev
 
-        # Update shared consensus state for cross-symbol scaling
-        if self._runner_key:
-            _consensus_signals[self._runner_key] = new_signal
+            self._current_signal = new_signal
 
-        # OI data summary for logging
-        oi_str = ""
-        if not np.isnan(oi_data.get("ls_ratio", float("nan"))):
-            oi_str = f" OI={oi_data['open_interest']:.0f} LS={oi_data['ls_ratio']:.2f} TopLS={oi_data['top_trader_ls_ratio']:.2f}"
+            # Update shared consensus state for cross-symbol scaling
+            if self._runner_key:
+                _consensus_signals[self._runner_key] = new_signal
 
-        result = {
-            "action": "signal", "bar": self._bars_processed,
-            "pred": round(pred, 6), "z": round(z, 4),
-            "z_scale": self._z_scale,
-            "signal": new_signal, "prev_signal": prev_signal,
-            "hold_count": self._hold_count, "close": bar["close"],
-            "regime": "active" if regime_ok else "filtered",
-            "dz": round(self._deadzone, 3),
-            "oi_data": oi_str,
-        }
-        if force_exit:
-            result["exit_reason"] = exit_reason
+            # OI data summary for logging
+            oi_str = ""
+            if not np.isnan(oi_data.get("ls_ratio", float("nan"))):
+                oi_str = (f" OI={oi_data['open_interest']:.0f}"
+                         f" LS={oi_data['ls_ratio']:.2f}"
+                         f" TopLS={oi_data['top_trader_ls_ratio']:.2f}")
 
-        if new_signal != prev_signal:
-            # Recompute position size before entering new position
-            if new_signal != 0:
-                self._compute_position_size(bar["close"])
-            result["trade"] = self._execute_signal_change(prev_signal, new_signal, bar["close"])
-            result["size"] = self._position_size
+            result = {
+                "action": "signal", "bar": self._bars_processed,
+                "pred": round(pred, 6), "z": round(z, 4),
+                "z_scale": self._z_scale,
+                "signal": new_signal, "prev_signal": prev_signal,
+                "hold_count": self._hold_count, "close": bar["close"],
+                "regime": "active" if regime_ok else "filtered",
+                "dz": round(self._deadzone, 3),
+                "oi_data": oi_str,
+            }
+            if force_exit:
+                result["exit_reason"] = exit_reason
+
+            if new_signal != prev_signal and actual_prev == prev_signal:
+                # Recompute position size before entering new position
+                if new_signal != 0:
+                    self._compute_position_size(bar["close"])
+                trade_result = self._execute_signal_change(prev_signal, new_signal, bar["close"])
+                result["trade"] = trade_result
+                result["size"] = self._position_size
+                # If order failed, revert _current_signal to previous state
+                if trade_result.get("action") in ("order_failed", "close_failed"):
+                    self._current_signal = prev_signal
+                    self._hold_count = max(self._hold_count - 1, 1)
+                    if self._runner_key:
+                        _consensus_signals[self._runner_key] = prev_signal
+                    logger.warning("%s reverting signal to %d after order failure",
+                                   self._symbol, prev_signal)
 
         return result
 
@@ -1003,7 +1097,8 @@ class AlphaRunner:
                 pnl_pct = (price - self._entry_price) / self._entry_price * 100
             else:  # was short
                 pnl_pct = (self._entry_price - price) / self._entry_price * 100
-            pnl_usd = pnl_pct / 100 * self._entry_price * self._position_size
+            entry_size = self._entry_size if self._entry_size > 0 else self._position_size
+            pnl_usd = pnl_pct / 100 * self._entry_price * entry_size
             self._total_pnl += pnl_usd
             self._trade_count += 1
             if pnl_usd > 0:
@@ -1039,13 +1134,26 @@ class AlphaRunner:
 
         # Close venue position
         if prev != 0:
-            self._adapter.close_position(self._symbol)
+            close_result = self._adapter.close_position(self._symbol)
+            if close_result.get("status") == "error":
+                logger.error("%s CLOSE FAILED: %s", self._symbol, close_result)
+                # Retry once
+                close_result = self._adapter.close_position(self._symbol)
+                if close_result.get("status") == "error":
+                    logger.error("%s CLOSE RETRY FAILED: %s — keeping state", self._symbol, close_result)
+                    return {"action": "close_failed", "result": close_result}
 
         # Open new position
         if new != 0:
             side = "buy" if new == 1 else "sell"
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
+            # Check if order actually succeeded
+            if result.get("status") == "error" or result.get("retCode", 0) != 0:
+                logger.error("%s ORDER FAILED: %s", self._symbol, result)
+                return {"action": "order_failed", "result": result}
+            # Only set entry_price if order succeeded
             self._entry_price = price
+            self._entry_size = self._position_size  # snapshot entry-time size
             self._trade_peak_price = price  # initialize trailing peak
             atr = self._current_atr()
             stop = self._compute_stop_price(price)
@@ -1057,6 +1165,7 @@ class AlphaRunner:
                                "stop": round(stop, 2), "atr_pct": round(atr * 100, 2)})
         else:
             self._entry_price = 0.0
+            self._entry_size = 0.0
             self._trade_peak_price = 0.0
             trade_info["action"] = "flat"
 
@@ -1743,7 +1852,7 @@ class HedgeRunner:
                 if qty * price < 5:  # min notional $5
                     continue
                 result = self._adapter.send_market_order(sym, "sell", qty)
-                if result.get("status") == "ok" or result.get("retCode") == 0:
+                if result.get("status") == "submitted" or result.get("retCode") == 0:
                     self._current_shorts[sym] = qty
                     self._trade_count += 1
                     logger.info("HEDGE SHORT %s qty=%.1f @ $%.2f", sym, qty, price)
