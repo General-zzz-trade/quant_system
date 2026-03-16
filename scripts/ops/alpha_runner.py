@@ -15,6 +15,7 @@ from scripts.ops.config import (
     _consensus_signals,
 )
 from scripts.ops.data_fetcher import _fetch_binance_oi_data
+from scripts.ops.pnl_tracker import PnLTracker
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class AlphaRunner:
                  min_size: float = 0.01, max_size_pct: float = 10.00,
                  max_qty: float = 0, step_size: float = 0.01,
                  risk_evaluator: Any = None, kill_switch: Any = None,
-                 state_store: Any = None):
+                 state_store: Any = None, pnl_tracker: PnLTracker | None = None):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -92,13 +93,10 @@ class AlphaRunner:
         # Threading lock for shared state (_current_signal, _entry_price, orders)
         self._trade_lock = threading.Lock()
 
-        # P&L tracking
+        # P&L tracking (unified via PnLTracker)
         self._entry_price: float = 0.0
         self._entry_size: float = 0.0   # position size at entry time (for PnL calc)
-        self._total_pnl: float = 0.0
-        self._peak_equity: float = 0.0
-        self._trade_count: int = 0
-        self._win_count: int = 0
+        self._pnl = pnl_tracker if pnl_tracker is not None else PnLTracker()
 
         # Rust risk evaluator + kill switch (shared across all runners)
         self._risk_eval = risk_evaluator
@@ -140,6 +138,23 @@ class AlphaRunner:
         # Cross-symbol consensus + z-scale state
         self._runner_key: str = ""  # set by main() after construction
         self._z_scale: float = 1.0  # non-linear z-score position scale
+
+    # Backward-compat properties: delegate to PnLTracker
+    @property
+    def _total_pnl(self) -> float:
+        return self._pnl.total_pnl
+
+    @property
+    def _peak_equity(self) -> float:
+        return self._pnl.peak_equity
+
+    @property
+    def _trade_count(self) -> int:
+        return self._pnl.trade_count
+
+    @property
+    def _win_count(self) -> int:
+        return self._pnl.win_count
 
     @property
     def _killed(self) -> bool:
@@ -494,21 +509,21 @@ class AlphaRunner:
                     self._circuit_breaker.record_success()
 
                 entry_size = self._entry_size if self._entry_size > 0 else self._position_size
-                pnl_usd = unrealized * self._entry_price * entry_size
-                self._total_pnl += pnl_usd
-                self._trade_count += 1
-                if pnl_usd > 0:
-                    self._win_count += 1
+                trade = self._pnl.record_close(
+                    symbol=self._symbol, side=self._current_signal,
+                    entry_price=self._entry_price, exit_price=price,
+                    size=entry_size, reason="stop_loss",
+                )
                 logger.info(
                     "%s STOP CLOSED: pnl=$%.4f total=$%.4f trades=%d/%d",
-                    self._symbol, pnl_usd, self._total_pnl,
-                    self._win_count, self._trade_count,
+                    self._symbol, trade["pnl_usd"], self._pnl.total_pnl,
+                    self._pnl.win_count, self._pnl.trade_count,
                 )
 
                 # Record stop-loss close in RustStateStore
                 close_side = "sell" if self._current_signal > 0 else "buy"
                 self._record_fill(close_side, entry_size, price,
-                                  realized_pnl=pnl_usd)
+                                  realized_pnl=trade["pnl_usd"])
 
                 self._current_signal = 0
                 self._inference.set_position(self._symbol, 0, 1)  # reset to flat
@@ -1010,50 +1025,46 @@ class AlphaRunner:
 
         # Close existing position → track P&L
         if prev != 0 and self._entry_price > 0:
-            if prev == 1:  # was long
-                pnl_pct = (price - self._entry_price) / self._entry_price * 100
-            else:  # was short
-                pnl_pct = (self._entry_price - price) / self._entry_price * 100
             entry_size = self._entry_size if self._entry_size > 0 else self._position_size
-            pnl_usd = pnl_pct / 100 * self._entry_price * entry_size
-            self._total_pnl += pnl_usd
-            self._trade_count += 1
-            if pnl_usd > 0:
-                self._win_count += 1
-            trade_info["closed_pnl"] = round(pnl_usd, 4)
-            trade_info["closed_pct"] = round(pnl_pct, 2)
+            trade = self._pnl.record_close(
+                symbol=self._symbol, side=prev,
+                entry_price=self._entry_price, exit_price=price,
+                size=entry_size, reason="signal_change",
+            )
+            trade_info["closed_pnl"] = round(trade["pnl_usd"], 4)
+            trade_info["closed_pct"] = round(trade["pnl_pct"], 2)
             logger.info(
                 "%s CLOSE %s: pnl=$%.4f (%.2f%%) total=$%.4f wins=%d/%d",
                 self._symbol, "long" if prev == 1 else "short",
-                pnl_usd, pnl_pct, self._total_pnl,
-                self._win_count, self._trade_count,
+                trade["pnl_usd"], trade["pnl_pct"], self._pnl.total_pnl,
+                self._pnl.win_count, self._pnl.trade_count,
             )
             # Record close fill in RustStateStore
             close_side = "sell" if prev == 1 else "buy"
             self._record_fill(close_side, entry_size, price,
-                              realized_pnl=pnl_usd)
+                              realized_pnl=trade["pnl_usd"])
 
         # Drawdown check via RustRiskEvaluator + RustKillSwitch
-        self._peak_equity = max(self._peak_equity, self._total_pnl)
-        if self._risk_eval is not None and self._kill_switch is not None and self._peak_equity > 0:
+        # peak_equity already updated by record_close above
+        if self._risk_eval is not None and self._kill_switch is not None and self._pnl.peak_equity > 0:
             breached = self._risk_eval.check_drawdown(
-                equity=self._total_pnl, peak_equity=self._peak_equity,
+                equity=self._pnl.total_pnl, peak_equity=self._pnl.peak_equity,
             )
             if breached:
-                dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+                dd = self._pnl.drawdown_pct
                 reason = f"{self._symbol} drawdown {dd:.1f}%"
                 self._kill_switch.arm("global", "*", "halt", reason,
                                       source="AlphaRunner")
                 logger.critical(
                     "%s DRAWDOWN KILL (Rust): dd=%.1f%% peak=$%.2f current=$%.2f",
-                    self._symbol, dd, self._peak_equity, self._total_pnl,
+                    self._symbol, dd, self._pnl.peak_equity, self._pnl.total_pnl,
                 )
                 if not self._dry_run:
                     self._adapter.close_position(self._symbol)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
-        elif self._risk_eval is None and self._peak_equity > 0:
+        elif self._risk_eval is None and self._pnl.peak_equity > 0:
             # Fallback: manual drawdown check (backward compat if no Rust evaluator)
-            dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+            dd = self._pnl.drawdown_pct
             if dd >= 15.0:
                 if self._kill_switch is not None:
                     self._kill_switch.arm("global", "*", "halt",
@@ -1061,7 +1072,7 @@ class AlphaRunner:
                                           source="AlphaRunner_fallback")
                 logger.critical(
                     "%s DRAWDOWN KILL (fallback): dd=%.1f%% peak=$%.2f current=$%.2f",
-                    self._symbol, dd, self._peak_equity, self._total_pnl,
+                    self._symbol, dd, self._pnl.peak_equity, self._pnl.total_pnl,
                 )
                 if not self._dry_run:
                     self._adapter.close_position(self._symbol)

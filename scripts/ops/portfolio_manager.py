@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from scripts.ops.pnl_tracker import PnLTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +28,8 @@ class PortfolioManager:
                  max_per_symbol: float = 0.30,       # 30% per symbol
                  max_drawdown_pct: float = 15.0,     # kill at 15% DD
                  min_order_notional: float = 5.0,
-                 risk_evaluator: Any = None, kill_switch: Any = None):
+                 risk_evaluator: Any = None, kill_switch: Any = None,
+                 pnl_tracker: PnLTracker | None = None):
         self._adapter = adapter
         self._dry_run = dry_run
         self._max_total = max_total_exposure
@@ -40,11 +43,8 @@ class PortfolioManager:
         self._positions: dict[str, dict] = {}
         # Intent registry: source → symbol → signal
         self._intents: dict[str, dict[str, int]] = {}
-        # P&L tracking
-        self._total_pnl: float = 0.0
-        self._peak_pnl: float = 0.0
-        self._trade_count: int = 0
-        self._win_count: int = 0
+        # P&L tracking (unified via PnLTracker)
+        self._pnl = pnl_tracker if pnl_tracker is not None else PnLTracker()
 
     @property
     def _killed(self) -> bool:
@@ -166,15 +166,12 @@ class PortfolioManager:
 
             # Track PnL
             entry = current.get("entry", price)
-            if current_side > 0:
-                pnl = (price - entry) / entry * close_qty * entry
-            else:
-                pnl = (entry - price) / entry * close_qty * entry
-            self._total_pnl += pnl
-            self._trade_count += 1
-            if pnl > 0:
-                self._win_count += 1
-            trade_info["closed_pnl"] = round(pnl, 2)
+            trade = self._pnl.record_close(
+                symbol=symbol, side=current_side,
+                entry_price=entry, exit_price=price,
+                size=close_qty, reason=f"rebalance_{source}",
+            )
+            trade_info["closed_pnl"] = round(trade["pnl_usd"], 2)
 
             if not self._dry_run:
                 result = self._adapter.send_market_order(symbol, close_side, round(close_qty, 2),
@@ -184,29 +181,29 @@ class PortfolioManager:
             del self._positions[symbol]
 
         # Check drawdown via RustRiskEvaluator + RustKillSwitch
-        self._peak_pnl = max(self._peak_pnl, self._total_pnl)
-        if self._risk_eval is not None and self._kill_switch is not None and self._peak_pnl > 0:
+        # peak_equity already updated by record_close above
+        if self._risk_eval is not None and self._kill_switch is not None and self._pnl.peak_equity > 0:
             breached = self._risk_eval.check_drawdown(
-                equity=self._total_pnl, peak_equity=self._peak_pnl,
+                equity=self._pnl.total_pnl, peak_equity=self._pnl.peak_equity,
             )
             if breached:
-                dd = (self._peak_pnl - self._total_pnl) / self._peak_pnl * 100
+                dd = self._pnl.drawdown_pct
                 self._kill_switch.arm("global", "*", "halt",
                                       f"PM drawdown {dd:.1f}%",
                                       source="PortfolioManager")
                 logger.critical("PM DRAWDOWN KILL (Rust): dd=%.1f%% peak=$%.2f current=$%.2f",
-                                dd, self._peak_pnl, self._total_pnl)
+                                dd, self._pnl.peak_equity, self._pnl.total_pnl)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
-        elif self._risk_eval is None and self._peak_pnl > 0:
+        elif self._risk_eval is None and self._pnl.peak_equity > 0:
             # Fallback: manual drawdown check
-            dd = (self._peak_pnl - self._total_pnl) / self._peak_pnl * 100
+            dd = self._pnl.drawdown_pct
             if dd >= self._max_dd:
                 if self._kill_switch is not None:
                     self._kill_switch.arm("global", "*", "halt",
                                           f"PM drawdown {dd:.1f}%",
                                           source="PortfolioManager_fallback")
                 logger.critical("PM DRAWDOWN KILL (fallback): dd=%.1f%% peak=$%.2f current=$%.2f",
-                                dd, self._peak_pnl, self._total_pnl)
+                                dd, self._pnl.peak_equity, self._pnl.total_pnl)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
 
         # Open new
@@ -229,8 +226,8 @@ class PortfolioManager:
         return {
             "positions": {s: {"qty": p["qty"], "source": p["source"]}
                           for s, p in self._positions.items()},
-            "total_pnl": round(self._total_pnl, 2),
-            "trades": f"{self._win_count}/{self._trade_count}",
+            "total_pnl": round(self._pnl.total_pnl, 2),
+            "trades": f"{self._pnl.win_count}/{self._pnl.trade_count}",
             "killed": self._killed,
             "exposure": round(self._total_exposure(self.get_equity()) * 100, 1),
         }
