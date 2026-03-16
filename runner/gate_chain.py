@@ -258,6 +258,54 @@ class PortfolioAllocatorGate:
         return GateResult(allowed=True)
 
 
+class RustDrawdownGate:
+    """Gate 7b: Rust-accelerated drawdown + kill-switch check.
+
+    Uses RustRiskEvaluator.check_drawdown() for O(1) drawdown evaluation
+    and RustKillSwitch.allow_order() for kill-switch enforcement.
+    Arms the kill switch on drawdown breach to halt all future orders.
+    """
+    name = "RustDrawdown"
+
+    def __init__(self, risk_evaluator: Any, kill_switch: Any,
+                 get_equity: Any = None) -> None:
+        self._eval = risk_evaluator
+        self._ks = kill_switch
+        self._get_equity = get_equity  # callable returning (equity, peak_equity)
+
+    def check(self, ev: Any, context: Dict[str, Any]) -> GateResult:
+        sym = getattr(ev, "symbol", "?")
+
+        # 1. Kill switch check first (fast path — already killed?)
+        allowed, reason = self._ks.allow_order(symbol=sym)
+        if not allowed:
+            return GateResult(allowed=False, reason=f"kill_switch: {reason}")
+
+        # 2. Drawdown check via Rust evaluator
+        equity = context.get("equity", 0.0)
+        peak_equity = context.get("peak_equity", 0.0)
+        if self._get_equity is not None:
+            try:
+                equity, peak_equity = self._get_equity()
+            except Exception:
+                pass
+
+        if peak_equity > 0 and equity > 0:
+            breached = self._eval.check_drawdown(equity=equity, peak_equity=peak_equity)
+            if breached:
+                dd_pct = (peak_equity - equity) / peak_equity * 100
+                reason_str = f"drawdown {dd_pct:.1f}% breached"
+                self._ks.arm("global", "*", "halt", reason_str,
+                             source="RustDrawdownGate")
+                logger.critical(
+                    "RustDrawdownGate KILL: %s (equity=%.2f peak=%.2f)",
+                    reason_str, equity, peak_equity,
+                )
+                return GateResult(allowed=False, reason=reason_str)
+
+        return GateResult(allowed=True)
+
+
 class ExecQualityGate:
     """Gate 7: Execution quality feedback (slippage-based sizing)."""
     name = "ExecQuality"
@@ -303,6 +351,9 @@ def build_gate_chain(
     portfolio_allocator: Optional[Any] = None,
     hook: Optional[Any] = None,
     kill_switch: Optional[Any] = None,
+    rust_risk_evaluator: Optional[Any] = None,
+    rust_kill_switch: Optional[Any] = None,
+    get_equity: Optional[Callable] = None,
 ) -> GateChain:
     """Build the standard gate chain with all available subsystems."""
     gates: List[Gate] = [
@@ -311,6 +362,9 @@ def build_gate_chain(
     ]
     if portfolio_aggregator is not None:
         gates.append(PortfolioRiskGate(portfolio_aggregator, kill_switch=kill_switch))
+    if rust_risk_evaluator is not None and rust_kill_switch is not None:
+        gates.append(RustDrawdownGate(rust_risk_evaluator, rust_kill_switch,
+                                      get_equity=get_equity))
     if alpha_health_monitor is not None:
         gates.append(AlphaHealthGate(alpha_health_monitor))
     if regime_sizer is not None:

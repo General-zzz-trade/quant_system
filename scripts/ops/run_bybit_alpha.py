@@ -220,7 +220,8 @@ class AlphaRunner:
                  dry_run: bool = False, position_size: float = 0.001,
                  adaptive_sizing: bool = True, risk_per_trade: float = 0.10,
                  min_size: float = 0.01, max_size_pct: float = 10.00,
-                 max_qty: float = 0, step_size: float = 0.01):
+                 max_qty: float = 0, step_size: float = 0.01,
+                 risk_evaluator: Any = None, kill_switch: Any = None):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -247,10 +248,7 @@ class AlphaRunner:
         self._max_qty = max_qty                # exchange max order qty (0 = no limit)
         self._step_size = step_size            # qty rounding step
 
-        self._predictions: list[float] = []       # primary horizon predictions
-        self._predictions_h2: list[float] = []     # secondary horizon predictions (gap-filler)
         self._current_signal = 0
-        self._hold_count = 0
         self._bars_processed = 0
 
         # Regime filter state — thresholds scale with timeframe
@@ -276,15 +274,17 @@ class AlphaRunner:
         # Threading lock for shared state (_current_signal, _entry_price, orders)
         self._trade_lock = threading.Lock()
 
-        # P&L tracking + drawdown circuit breaker
+        # P&L tracking
         self._entry_price: float = 0.0
         self._entry_size: float = 0.0   # position size at entry time (for PnL calc)
         self._total_pnl: float = 0.0
         self._peak_equity: float = 0.0
         self._trade_count: int = 0
         self._win_count: int = 0
-        self._max_drawdown_pct: float = 15.0  # kill at 15% drawdown
-        self._killed: bool = False
+
+        # Rust risk evaluator + kill switch (shared across all runners)
+        self._risk_eval = risk_evaluator
+        self._kill_switch = kill_switch
 
         # Adaptive stop-loss state (grid-search optimized 2026-03-15)
         # ATR×2.0 initial, trail at 0.8×ATR profit, step 0.3×ATR → 18/20 folds, 75% trail wins
@@ -295,8 +295,12 @@ class AlphaRunner:
         self._trail_step: float = 0.3        # tight trail: 0.3×ATR (was 0.5)
         self._breakeven_atr: float = 1.0     # move stop to breakeven after 1x ATR profit
 
-        from _quant_hotpath import RustFeatureEngine
+        from _quant_hotpath import RustFeatureEngine, RustInferenceBridge
         self._engine = RustFeatureEngine()
+        self._inference = RustInferenceBridge(
+            zscore_window=self._zscore_window,
+            zscore_warmup=self._zscore_warmup,
+        )
 
         # V14: BTC dominance ratio buffer (BTC/ETH)
         self._dom_ratio_buf: list[float] = []
@@ -304,6 +308,13 @@ class AlphaRunner:
         # Cross-symbol consensus + z-scale state
         self._runner_key: str = ""  # set by main() after construction
         self._z_scale: float = 1.0  # non-linear z-score position scale
+
+    @property
+    def _killed(self) -> bool:
+        """Check kill switch (Rust) instead of local boolean."""
+        if self._kill_switch is not None:
+            return self._kill_switch.is_armed()
+        return False
 
     def _fetch_eth_price(self) -> float:
         """Fetch current ETH price from Binance for dominance computation."""
@@ -365,7 +376,7 @@ class AlphaRunner:
             except Exception:
                 pass
 
-        for bar in bars:
+        for i, bar in enumerate(bars):
             self._check_regime(bar["close"])  # build regime state
             self._engine.push_bar(
                 bar["close"], bar["volume"], bar["high"], bar["low"],
@@ -388,12 +399,18 @@ class AlphaRunner:
                     feat_dict["btc_dom_ret_72"] = (buf[-1] / buf[-73] - 1) if len(buf) >= 73 else 0.0
                 pred = self._ensemble_predict(feat_dict)
                 if pred is not None:
-                    self._predictions.append(pred)
+                    # Push through bridge for z-score warmup (hour_key = bar index)
+                    self._inference.zscore_normalize(self._symbol, pred, i)
+                    # Also warm up secondary horizon
+                    pred_h2 = self._secondary_horizon_predict(feat_dict)
+                    if pred_h2 is not None:
+                        h2_key = f"{self._symbol}_h2"
+                        self._inference.zscore_normalize(h2_key, pred_h2, i)
 
         self._bars_processed = len(bars)
         regime_str = "active" if self._regime_active else "filtered"
-        logger.info("Warmup: %d bars, %d predictions, regime=%s",
-                     len(bars), len(self._predictions), regime_str)
+        logger.info("Warmup: %d bars, regime=%s",
+                     len(bars), regime_str)
 
         # Reconcile with exchange after warmup
         self._reconcile_position()
@@ -433,7 +450,7 @@ class AlphaRunner:
                 self._entry_price = 0.0
                 self._entry_size = 0.0
                 self._trade_peak_price = 0.0
-                self._hold_count = 0
+                self._inference.set_position(self._symbol, 0, 1)  # reset bridge to flat
             if self._runner_key:
                 _consensus_signals[self._runner_key] = exchange_side
         else:
@@ -583,7 +600,7 @@ class AlphaRunner:
                 )
 
                 self._current_signal = 0
-                self._hold_count = 0
+                self._inference.set_position(self._symbol, 0, 1)  # reset to flat
                 self._entry_price = 0.0
                 self._entry_size = 0.0
                 self._trade_peak_price = 0.0
@@ -933,46 +950,45 @@ class AlphaRunner:
         pred = self._ensemble_predict(feat_dict)
         if pred is None:
             return {"action": "nan_features", "bar": self._bars_processed}
-        self._predictions.append(pred)
 
-        # Secondary horizon prediction (h=12, gap-filler)
-        pred_h2 = self._secondary_horizon_predict(feat_dict)
-        if pred_h2 is not None:
-            self._predictions_h2.append(pred_h2)
-
-        if len(self._predictions) < self._zscore_warmup:
+        # Z-score via RustInferenceBridge (returns None during warmup)
+        hour_key = self._bars_processed
+        z_val = self._inference.zscore_normalize(self._symbol, pred, hour_key)
+        if z_val is None:
             return {"action": "warmup", "bar": self._bars_processed,
-                    "pred": pred, "buffer": len(self._predictions)}
-
-        window = self._predictions[-self._zscore_window:]
-        mean = np.mean(window)
-        std = np.std(window)
-        z = (pred - mean) / std if std > 1e-12 else 0.0
+                    "pred": pred}
+        z = z_val
 
         # Non-linear z-score position sizing
         self._z_scale = self.compute_z_scale(z)
 
         prev_signal = self._current_signal
 
-        # Regime filter: force flat when regime is unfavorable
-        if not regime_ok:
-            desired = 0
-        elif z > self._deadzone:
-            desired = 1
-        elif z < -self._deadzone:
-            desired = -1
-        else:
-            # Primary is flat → check secondary horizon for gap-fill
-            desired = 0
-            if len(self._predictions_h2) >= self._zscore_warmup and pred_h2 is not None:
-                w2 = self._predictions_h2[-self._zscore_window:]
-                mu2 = np.mean(w2)
-                std2 = np.std(w2)
-                z2 = (pred_h2 - mu2) / std2 if std2 > 1e-12 else 0.0
-                if z2 > self._deadzone:
-                    desired = 1
-                elif z2 < -self._deadzone:
-                    desired = -1
+        # Primary signal via RustInferenceBridge: z-score → deadzone → min-hold → max-hold
+        # Regime filter: pass deadzone=999 to force flat when regime is unfavorable
+        effective_dz = 999.0 if not regime_ok else self._deadzone
+        new_signal = int(self._inference.apply_constraints(
+            self._symbol, pred, hour_key,
+            deadzone=effective_dz,
+            min_hold=self._min_hold,
+            max_hold=self._max_hold,
+        ))
+
+        # Secondary horizon gap-fill: when primary is flat, check h2
+        if new_signal == 0 and regime_ok:
+            pred_h2 = self._secondary_horizon_predict(feat_dict)
+            if pred_h2 is not None:
+                h2_key = f"{self._symbol}_h2"
+                h2_signal = int(self._inference.apply_constraints(
+                    h2_key, pred_h2, hour_key,
+                    deadzone=self._deadzone,
+                    min_hold=self._min_hold,
+                    max_hold=self._max_hold,
+                ))
+                if h2_signal != 0:
+                    new_signal = h2_signal
+                    # Sync primary bridge position to match h2 override
+                    self._inference.set_position(self._symbol, new_signal, 1)
 
         # Update ATR buffer (True Range as % of close)
         if len(self._closes) >= 2:
@@ -987,7 +1003,7 @@ class AlphaRunner:
             if len(self._atr_buffer) > 50:
                 self._atr_buffer = self._atr_buffer[-50:]
 
-        # Smart exits (in priority order)
+        # Smart exits (in priority order) — override bridge signal
         force_exit = False
         exit_reason = ""
 
@@ -1001,9 +1017,9 @@ class AlphaRunner:
                 force_exit = True
                 exit_reason = "atr_stop"
 
-        # 2. Z-score reversal after min_hold
+        # 2. Z-score reversal exit (bridge enforces min_hold internally)
         z_reversal_threshold = -0.3
-        if not force_exit and (prev_signal != 0 and self._hold_count >= self._min_hold):
+        if not force_exit and prev_signal != 0:
             if prev_signal > 0 and z < z_reversal_threshold:
                 force_exit = True
                 exit_reason = "z_reversal"
@@ -1013,21 +1029,8 @@ class AlphaRunner:
 
         if force_exit:
             new_signal = 0
-            self._hold_count = 1
-        elif self._hold_count < self._min_hold and prev_signal != 0:
-            # Min-hold only locks when IN a position (not when flat)
-            new_signal = prev_signal
-            self._hold_count += 1
-        elif desired != prev_signal:
-            new_signal = desired
-            self._hold_count = 1
-        else:
-            new_signal = desired
-            self._hold_count += 1
-
-        if self._hold_count >= self._max_hold and new_signal != 0:
-            new_signal = 0
-            self._hold_count = 1
+            # Sync bridge state to flat after forced exit
+            self._inference.set_position(self._symbol, 0, 1)
 
         # Acquire trade lock to guard shared state mutation and order execution
         # (prevents race with check_realtime_stoploss on WS tick thread)
@@ -1059,7 +1062,7 @@ class AlphaRunner:
                 "pred": round(pred, 6), "z": round(z, 4),
                 "z_scale": self._z_scale,
                 "signal": new_signal, "prev_signal": prev_signal,
-                "hold_count": self._hold_count, "close": bar["close"],
+                "hold_count": int(self._inference.get_position(self._symbol)), "close": bar["close"],
                 "regime": "active" if regime_ok else "filtered",
                 "dz": round(self._deadzone, 3),
                 "oi_data": oi_str,
@@ -1077,7 +1080,7 @@ class AlphaRunner:
                 # If order failed, revert _current_signal to previous state
                 if trade_result.get("action") in ("order_failed", "close_failed"):
                     self._current_signal = prev_signal
-                    self._hold_count = max(self._hold_count - 1, 1)
+                    self._inference.set_position(self._symbol, prev_signal, 1)  # revert bridge
                     if self._runner_key:
                         _consensus_signals[self._runner_key] = prev_signal
                     logger.warning("%s reverting signal to %d after order failure",
@@ -1112,14 +1115,34 @@ class AlphaRunner:
                 self._win_count, self._trade_count,
             )
 
-        # Drawdown check
+        # Drawdown check via RustRiskEvaluator + RustKillSwitch
         self._peak_equity = max(self._peak_equity, self._total_pnl)
-        if self._peak_equity > 0:
-            dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
-            if dd >= self._max_drawdown_pct:
-                self._killed = True
+        if self._risk_eval is not None and self._kill_switch is not None and self._peak_equity > 0:
+            breached = self._risk_eval.check_drawdown(
+                equity=self._total_pnl, peak_equity=self._peak_equity,
+            )
+            if breached:
+                dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+                reason = f"{self._symbol} drawdown {dd:.1f}%"
+                self._kill_switch.arm("global", "*", "halt", reason,
+                                      source="AlphaRunner")
                 logger.critical(
-                    "%s DRAWDOWN KILL: dd=%.1f%% peak=$%.2f current=$%.2f",
+                    "%s DRAWDOWN KILL (Rust): dd=%.1f%% peak=$%.2f current=$%.2f",
+                    self._symbol, dd, self._peak_equity, self._total_pnl,
+                )
+                if not self._dry_run:
+                    self._adapter.close_position(self._symbol)
+                return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
+        elif self._risk_eval is None and self._peak_equity > 0:
+            # Fallback: manual drawdown check (backward compat if no Rust evaluator)
+            dd = (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+            if dd >= 15.0:
+                if self._kill_switch is not None:
+                    self._kill_switch.arm("global", "*", "halt",
+                                          f"{self._symbol} drawdown {dd:.1f}%",
+                                          source="AlphaRunner_fallback")
+                logger.critical(
+                    "%s DRAWDOWN KILL (fallback): dd=%.1f%% peak=$%.2f current=$%.2f",
                     self._symbol, dd, self._peak_equity, self._total_pnl,
                 )
                 if not self._dry_run:
@@ -1190,12 +1213,15 @@ class PortfolioManager:
                  max_total_exposure: float = 1.4,   # Kelly optimal
                  max_per_symbol: float = 0.30,       # 30% per symbol
                  max_drawdown_pct: float = 15.0,     # kill at 15% DD
-                 min_order_notional: float = 5.0):
+                 min_order_notional: float = 5.0,
+                 risk_evaluator: Any = None, kill_switch: Any = None):
         self._adapter = adapter
         self._dry_run = dry_run
         self._max_total = max_total_exposure
         self._max_per_sym = max_per_symbol
         self._max_dd = max_drawdown_pct
+        self._risk_eval = risk_evaluator
+        self._kill_switch = kill_switch
         self._min_notional = min_order_notional
 
         # Position state: symbol → {"qty": float, "side": str, "entry": float, "source": str}
@@ -1207,7 +1233,13 @@ class PortfolioManager:
         self._peak_pnl: float = 0.0
         self._trade_count: int = 0
         self._win_count: int = 0
-        self._killed: bool = False
+
+    @property
+    def _killed(self) -> bool:
+        """Check kill switch (Rust) instead of local boolean."""
+        if self._kill_switch is not None:
+            return self._kill_switch.is_armed()
+        return False
 
     def get_equity(self) -> float:
         try:
@@ -1339,13 +1371,29 @@ class PortfolioManager:
 
             del self._positions[symbol]
 
-        # Check drawdown
+        # Check drawdown via RustRiskEvaluator + RustKillSwitch
         self._peak_pnl = max(self._peak_pnl, self._total_pnl)
-        if self._peak_pnl > 0:
+        if self._risk_eval is not None and self._kill_switch is not None and self._peak_pnl > 0:
+            breached = self._risk_eval.check_drawdown(
+                equity=self._total_pnl, peak_equity=self._peak_pnl,
+            )
+            if breached:
+                dd = (self._peak_pnl - self._total_pnl) / self._peak_pnl * 100
+                self._kill_switch.arm("global", "*", "halt",
+                                      f"PM drawdown {dd:.1f}%",
+                                      source="PortfolioManager")
+                logger.critical("PM DRAWDOWN KILL (Rust): dd=%.1f%% peak=$%.2f current=$%.2f",
+                                dd, self._peak_pnl, self._total_pnl)
+                return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
+        elif self._risk_eval is None and self._peak_pnl > 0:
+            # Fallback: manual drawdown check
             dd = (self._peak_pnl - self._total_pnl) / self._peak_pnl * 100
             if dd >= self._max_dd:
-                self._killed = True
-                logger.critical("PM DRAWDOWN KILL: dd=%.1f%% peak=$%.2f current=$%.2f",
+                if self._kill_switch is not None:
+                    self._kill_switch.arm("global", "*", "halt",
+                                          f"PM drawdown {dd:.1f}%",
+                                          source="PortfolioManager_fallback")
+                logger.critical("PM DRAWDOWN KILL (fallback): dd=%.1f%% peak=$%.2f current=$%.2f",
                                 dd, self._peak_pnl, self._total_pnl)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
 
@@ -1898,6 +1946,12 @@ def main():
     usdt = bal.get("USDT")
     logger.info("USDT balance: %s", usdt.total if usdt else "?")
 
+    # Shared Rust risk evaluator + kill switch (Phase 2: replaces manual drawdown)
+    from _quant_hotpath import RustRiskEvaluator, RustKillSwitch
+    risk_eval = RustRiskEvaluator(max_drawdown_pct=0.15)
+    kill_switch = RustKillSwitch()
+    logger.info("Rust risk: RustRiskEvaluator(max_dd=15%%) + RustKillSwitch initialized")
+
     # Build per-symbol runners
     runners: dict[str, AlphaRunner] = {}
     last_bar_times: dict[str, int] = {}
@@ -1928,6 +1982,7 @@ def main():
             dry_run=args.dry_run, position_size=sym_cfg["size"],
             max_qty=sym_cfg.get("max_qty", 0),
             step_size=sym_cfg.get("step", 0.01),
+            risk_evaluator=risk_eval, kill_switch=kill_switch,
         )
         runner._runner_key = symbol  # for cross-symbol consensus scaling
         logger.info("%s: warming up %d bars...", symbol, warmup)
@@ -1949,8 +2004,9 @@ def main():
         return
 
     # Initialize portfolio manager (unified position + risk)
-    pm = PortfolioManager(adapter, dry_run=args.dry_run)
-    logger.info("PM: PortfolioManager enabled (max_exposure=140%%, max_per_sym=30%%, max_dd=15%%)")
+    pm = PortfolioManager(adapter, dry_run=args.dry_run,
+                          risk_evaluator=risk_eval, kill_switch=kill_switch)
+    logger.info("PM: PortfolioManager enabled (max_exposure=140%%, max_per_sym=30%%, max_dd=15%%, Rust risk)")
 
     # Initialize hedge runner (BTC+ALT structural alpha)
     hedge = HedgeRunner(adapter, dry_run=args.dry_run) if not args.dry_run else None
