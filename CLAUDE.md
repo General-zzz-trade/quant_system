@@ -90,7 +90,9 @@ event/           Event types + runtime protocol
 ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
-regime/          Regime detection (volatility, trend)
+  builders/            10 builder modules (engine, execution, risk, monitoring, features, etc.)
+  live_runner.py       1041 lines (was 1799; 10 _build_* methods extracted to builders/)
+regime/          Regime detection (volatility, trend, composite, param_router)
 risk/            Risk limits + kill switch
 portfolio/       Allocator, rebalance, optimizer
 monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
@@ -217,6 +219,7 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 - SUIUSDT 1h (7 folds): Sharpe **1.63**, **+150%**, **6/7 positive** → **PASS**
 - AXSUSDT 1h (17 folds): Sharpe **1.25**, **+241%**, **13/17 positive** → **PASS**
 - **BTCUSDT V14** (h=96, dominance): Sharpe **2.03**, **+552%**, **16/20 positive** → **PASS** (BTC/ETH ratio is #1 feature)
+- **BTCUSDT Regime-Adaptive**: Sharpe **5.52**, **20/20 positive** → **+120% over baseline** (composite regime → param routing)
 - FAIL: SUIUSDT 15m (9/23), SOLUSDT 15m (1/4), AXSUSDT 15m (Sharpe 0.39), ETHUSDT 5m (IC near zero)
 - Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate)
 - Dual alpha AGREE backtest: Sharpe **5.48**, +1,141%, 56% WR, signal correlation 0.077
@@ -274,6 +277,8 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 
 **Infrastructure**:
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`
+- Burn-in gate: Phase A(Paper 7d) → B(Shadow 7d) → C(Testnet 3d) before live; `config/production.local.yaml`
+- `regime/param_router.py`: only BTC uses regime-adaptive params; ETH keeps fixed (fixed outperforms adaptive for ETH)
 - Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate
 - Polymarket Gamma API prices are **cached/stale** — always use CLOB orderbook for real prices
 - Polymarket collector: background process (not systemd); PID in `data/polymarket/collector.pid`
