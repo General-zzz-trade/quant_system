@@ -177,6 +177,7 @@ class PolymarketCollector:
 
     def _init_db(self):
         conn = sqlite3.connect(self._db_path)
+        conn.execute("PRAGMA journal_mode=WAL")  # concurrent read/write safe
         conn.execute("""
             CREATE TABLE IF NOT EXISTS market_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
