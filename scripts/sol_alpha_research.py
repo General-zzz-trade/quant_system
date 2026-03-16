@@ -1,1 +1,0 @@
-research/sol_alpha_research.py

@@ -1,1 +1,0 @@
-research/research_ic_decay.py

@@ -1,1 +1,0 @@
-data/download_fear_greed.py

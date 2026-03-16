@@ -1,1 +1,0 @@
-data/download_funding_rates.py

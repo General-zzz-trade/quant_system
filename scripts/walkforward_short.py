@@ -1,1 +1,0 @@
-walkforward/walkforward_short.py

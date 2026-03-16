@@ -1,1 +1,0 @@
-backtesting/backtest_small_cap.py

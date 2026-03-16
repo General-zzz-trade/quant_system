@@ -1,1 +1,0 @@
-ops/run_paper_trading.py

@@ -1,1 +1,0 @@
-ops/shadow_compare.py

@@ -1,1 +1,0 @@
-shared/parity_test_binary.py

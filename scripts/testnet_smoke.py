@@ -1,1 +1,0 @@
-ops/testnet_smoke.py

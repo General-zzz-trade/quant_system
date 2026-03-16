@@ -1,1 +1,0 @@
-backtesting/backtest_4h_full.py

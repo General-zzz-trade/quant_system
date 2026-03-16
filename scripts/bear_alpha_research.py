@@ -1,1 +1,0 @@
-research/bear_alpha_research.py

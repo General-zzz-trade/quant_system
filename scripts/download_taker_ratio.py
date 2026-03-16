@@ -1,1 +1,0 @@
-data/download_taker_ratio.py

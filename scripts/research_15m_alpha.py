@@ -1,1 +1,0 @@
-research/research_15m_alpha.py
