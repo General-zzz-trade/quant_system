@@ -1,11 +1,14 @@
 """WebSocket transport with exponential backoff reconnection and state machine."""
 from __future__ import annotations
 
+import logging
 import random
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from execution.adapters.binance.ws_transport import WsTransport
 
@@ -57,8 +60,8 @@ class ReconnectingWsTransport:
         if self.on_state_change is not None:
             try:
                 self.on_state_change(old, new_state)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("WS state change callback failed (%s -> %s): %s", old, new_state, e, exc_info=True)
 
     def connect(self, url: str) -> None:
         self._url = url
@@ -108,14 +111,15 @@ class ReconnectingWsTransport:
                         send_fn = getattr(self.inner, "send", None)
                         if send_fn is not None:
                             send_fn(sub)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error("Failed to re-subscribe after WS reconnect: %s", e, exc_info=True)
 
                 if self.on_reconnect is not None:
                     self.on_reconnect()
 
                 return self.inner.recv(timeout_s=timeout_s)
-            except Exception:
+            except Exception as e:
+                logger.error("WS reconnect attempt %d failed: %s", attempt + 1, e, exc_info=True)
                 self._set_state(WsConnectionState.RECONNECTING)
                 continue
 

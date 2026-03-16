@@ -1336,13 +1336,13 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 def _sd_notify_fn(msg: str) -> None:
                     try:
                         _sd_sock.sendto(msg.encode(), _sd_addr)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error("Failed to send systemd notify '%s': %s", msg, e, exc_info=True)
 
                 _sd_notify_fn("READY=1")
                 logger.info("Systemd notify: READY=1")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to initialize systemd watchdog: %s", e, exc_info=True)
 
         if self.shutdown_handler is not None:
             self.shutdown_handler.install_handlers()
@@ -1379,8 +1379,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 _signal.signal(_signal.SIGHUP, _sighup_handler)
             else:
                 logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
-        except (OSError, AttributeError, ValueError):
-            pass
+        except (OSError, AttributeError, ValueError) as e:
+            logger.warning("Failed to install SIGHUP handler: %s", e)
 
         self.runtime.start()
 
@@ -1750,14 +1750,14 @@ if __name__ == "__main__":
     # Pin to isolated CPU1 + mlock all memory
     try:
         os.sched_setaffinity(0, {1})
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("Could not pin to CPU1: %s", e)
     try:
         import ctypes
         _libc = ctypes.CDLL("libc.so.6", use_errno=True)
         _libc.mlockall(3)  # MCL_CURRENT | MCL_FUTURE
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("Could not lock memory pages: %s", e)
 
     import argparse
     from pathlib import Path

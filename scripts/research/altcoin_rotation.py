@@ -11,12 +11,15 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 DATA_DIR = Path("data_files")
@@ -35,8 +38,8 @@ def load_universe() -> Dict[str, pd.DataFrame]:
             if len(df) < 2000:  # need at least ~3 months
                 continue
             universe[sym] = df
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load data for %s: %s", sym, e)
     return universe
 
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from state.snapshot import StateSnapshot
 
@@ -28,8 +31,8 @@ class FixedFractionSizer:
         equity = acct.balance
         try:
             equity = equity + acct.unrealized_pnl
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to add unrealized PnL to equity: %s", e)
         return equity
 
     def target_qty(self, snapshot: StateSnapshot, symbol: str, weight: Decimal) -> Decimal:

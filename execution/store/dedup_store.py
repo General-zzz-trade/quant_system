@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from execution.store.interfaces import DedupStore
 
@@ -95,5 +98,5 @@ class SQLiteDedupStore(DedupStore):
         try:
             with self._lock:
                 self._conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to close dedup store connection: %s", e, exc_info=True)

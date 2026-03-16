@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from state.snapshot import StateSnapshot
 from state._util import ensure_utc
@@ -85,8 +88,8 @@ def _dc_to_dict(obj: Any) -> Any:
             return _dc_to_dict(portfolio_from_rust(obj))
         if isinstance(obj, RustRiskState):
             return _dc_to_dict(risk_from_rust(obj))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to convert Rust state object: %s", e)
     if hasattr(obj, "__dataclass_fields__"):
         return {f: _dc_to_dict(getattr(obj, f)) for f in obj.__dataclass_fields__}
     if isinstance(obj, dict):

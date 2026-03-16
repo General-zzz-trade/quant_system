@@ -1,7 +1,10 @@
 """Tests for OnchainPoller."""
 import json
+import logging
 from io import BytesIO
 from unittest.mock import patch, MagicMock
+
+logger = logging.getLogger(__name__)
 
 from execution.adapters.onchain_poller import OnchainPoller
 
@@ -93,8 +96,8 @@ def test_fetch_error_returns_none():
                side_effect=Exception("network error")):
         try:
             poller._fetch()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Expected fetch error in test: %s", e)
 
     assert poller.get_current() is None
 

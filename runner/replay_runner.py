@@ -9,10 +9,13 @@ Supports two modes:
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
@@ -144,8 +147,8 @@ class JsonlEventSource:
                     try:
                         yield decode_event_json(line)
                         continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Codec decode failed, falling back to raw dict: %s", e)
                 # Fallback: yield raw dict
                 yield json.loads(line)
 
@@ -206,8 +209,8 @@ def run_replay(
                 mkt = markets.get(sym)
                 if mkt is not None:
                     return Decimal(str(getattr(mkt, "close", 0)))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to get replay price for %s: %s", sym, e)
             return None
 
         adapter_kwargs: Dict[str, Any] = {"price_source": _price_source}
@@ -306,8 +309,8 @@ def run_replay_from_events(
                 mkt = markets.get(sym)
                 if mkt is not None:
                     return Decimal(str(getattr(mkt, "close", 0)))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to get replay price for %s: %s", sym, e)
             return None
 
         replay_adapter = ReplayExecutionAdapter(price_source=_price_source)

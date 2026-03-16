@@ -69,8 +69,8 @@ def compute_all_features(symbol: str) -> pd.DataFrame:
                 ts_ms = int(ts_raw)
                 dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
                 hour, dow = dt.hour, dt.weekday()
-            except (ValueError, OSError):
-                pass
+            except (ValueError, OSError) as e:
+                logger.debug("Failed to parse timestamp %s: %s", ts_raw, e)
 
         funding_rate = None
         while funding_idx < len(funding_times) and funding_times[funding_idx] <= ts_ms:

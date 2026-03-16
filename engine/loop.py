@@ -221,8 +221,8 @@ class EngineLoop:
         if d.action == GuardAction.ALLOW:
             try:
                 self._coord.emit(env.event, actor=env.actor)
-            except BaseException:
-                pass
+            except BaseException as e:
+                logger.error("Failed to emit event after ALLOW guard decision: %s", e, exc_info=True)
             return
 
     def _retry_or_drop(self, env: _Envelope, d: GuardDecision) -> None:
@@ -269,16 +269,16 @@ class EngineLoop:
         try:
             os.sched_setaffinity(0, {1})
             logger.info("Engine loop pinned to CPU1 (isolated)")
-        except (OSError, AttributeError):
-            pass
+        except (OSError, AttributeError) as e:
+            logger.debug("Could not pin engine loop to CPU1: %s", e)
 
         # ── G.2: Elevate to SCHED_FIFO real-time priority ──
         try:
             param = os.sched_param(50)
             os.sched_setscheduler(0, os.SCHED_FIFO, param)
             logger.info("Engine loop set to SCHED_FIFO priority 50")
-        except (OSError, AttributeError, PermissionError):
-            pass
+        except (OSError, AttributeError, PermissionError) as e:
+            logger.debug("Could not set SCHED_FIFO: %s", e)
 
         # ── F.3: Lock memory pages — prevent swap-out ──
         try:
@@ -287,8 +287,8 @@ class EngineLoop:
             MCL_FUTURE = 2
             libc.mlockall(MCL_CURRENT | MCL_FUTURE)
             logger.info("Memory locked (mlockall)")
-        except (OSError, AttributeError):
-            pass
+        except (OSError, AttributeError) as e:
+            logger.debug("Could not lock memory pages: %s", e)
 
         while self._running and self._coord.phase.value != "stopped":
             n = self.drain(max_events=10_000)

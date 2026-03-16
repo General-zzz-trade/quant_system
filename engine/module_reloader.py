@@ -89,8 +89,8 @@ class ModuleReloader:
             if self._prev_handler is not None:
                 try:
                     signal.signal(signal.SIGHUP, self._prev_handler)
-                except (OSError, ValueError):
-                    pass
+                except (OSError, ValueError) as e:
+                    logger.warning("Failed to restore previous SIGHUP handler: %s", e)
 
         if self._thread is not None:
             from infra.threading_utils import safe_join_thread

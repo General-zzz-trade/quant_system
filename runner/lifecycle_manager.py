@@ -123,8 +123,8 @@ class LifecycleManager:
         """Optional OS-level performance tuning."""
         try:
             os.nice(-5)
-        except PermissionError:
-            pass
+        except PermissionError as e:
+            logger.warning("Failed to raise process priority: %s", e)
 
     def _sd_notify(self, msg: str) -> None:
         """Send systemd notification if watchdog enabled."""
@@ -138,5 +138,5 @@ class LifecycleManager:
                 sock.connect(addr)
                 sock.send(msg.encode())
                 sock.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to send systemd notify '%s': %s", msg, e, exc_info=True)

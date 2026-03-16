@@ -64,8 +64,8 @@ class AsyncWsTransport:
         if self._ws is not None:
             try:
                 await self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Failed to close async WS connection: %s", e, exc_info=True)
             self._ws = None
             logger.info("WS closed: %s", self._url)
 

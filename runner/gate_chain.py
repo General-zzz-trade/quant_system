@@ -242,8 +242,8 @@ class PortfolioAllocatorGate:
             acct = self._get_state_view().get("account")
             if acct is not None:
                 equity = float(getattr(acct, "balance", 0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to get account equity for portfolio gate: %s", e, exc_info=True)
 
         if equity <= 0:
             return GateResult(allowed=True)
@@ -287,8 +287,8 @@ class RustDrawdownGate:
         if self._get_equity is not None:
             try:
                 equity, peak_equity = self._get_equity()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Failed to get equity for drawdown gate: %s", e, exc_info=True)
 
         if peak_equity > 0 and equity > 0:
             breached = self._eval.check_drawdown(equity=equity, peak_equity=peak_equity)

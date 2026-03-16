@@ -16,7 +16,8 @@ EmbargoExecutionAdapter (fills at next bar's open price).
 from __future__ import annotations
 
 import json
-import pickle
+import logging
+import pickle  # noqa: S301 - used for ML model loading
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -28,6 +29,8 @@ import numpy as np
 from event.header import EventHeader
 from event.types import EventType, IntentEvent, OrderEvent
 from runner.backtest.adapter import _make_id
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -560,8 +563,8 @@ class MLSignalDecisionModule:
                 import xgboost as xgb
                 xgb_pred = float(self._xgb.predict(xgb.DMatrix(x))[0])
                 return self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("XGBoost prediction failed, using LGBM only: %s", e)
 
         return lgbm_pred
 
@@ -582,8 +585,8 @@ class MLSignalDecisionModule:
                     import xgboost as xgb
                     xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
                     pred = self._lgbm_xgb_w * pred + (1 - self._lgbm_xgb_w) * xgb_pred
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("XGBoost multi-horizon prediction failed, using LGBM only: %s", e)
 
             z = hm["zscore_buf"].push(pred)
             z_values.append(z)

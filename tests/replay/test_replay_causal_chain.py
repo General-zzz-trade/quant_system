@@ -5,10 +5,13 @@ when given identical market events and decision modules.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator
 from engine.decision_bridge import DecisionBridge
@@ -131,8 +134,8 @@ def _run_live_path(events: list[MarketEvent], symbol: str = "BTCUSDT") -> dict:
             mkt = view.get("markets", {}).get(sym)
             if mkt is not None:
                 return Decimal(str(getattr(mkt, "close", 0)))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to get replay price for %s: %s", sym, e)
         return None
 
     adapter = ReplayExecutionAdapter(price_source=_price_source)

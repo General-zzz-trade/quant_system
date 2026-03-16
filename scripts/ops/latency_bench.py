@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import logging
 import math
 import os
 import statistics
@@ -21,11 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
+logger = logging.getLogger(__name__)
+
 # Pin to isolated CPU1
 try:
     os.sched_setaffinity(0, {1})
-except OSError:
-    pass
+except OSError as e:
+    logger.debug("Could not pin to CPU1: %s", e)
 
 
 @dataclass(slots=True)

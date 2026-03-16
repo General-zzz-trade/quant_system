@@ -765,8 +765,8 @@ def save_all_auxiliary_state(
             if hasattr(bridge, "checkpoint"):
                 try:
                     bridge_data[key] = bridge.checkpoint()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("Failed to checkpoint inference bridge '%s': %s", key, e, exc_info=True)
         if bridge_data:
             bundle["inference_bridge"] = bridge_data
 

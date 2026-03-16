@@ -252,8 +252,8 @@ class LiveSignalTracker:
                     if parts:
                         sym = parts[0]
                         scale = alpha_health_monitor.position_scale(sym)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to get alpha health scale for %s: %s", origin, e)
                 if scale >= 1.0:
                     # Alpha health fine -> don't reduce (single indicator noise)
                     weight = max(weight, 0.5)

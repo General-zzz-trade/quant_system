@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import tempfile
 import time
@@ -29,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, "/quant_system")
 
@@ -211,8 +214,8 @@ def run_single_symbol(
     # Clean up temp file
     try:
         csv_path.unlink()
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("Failed to clean up temp file %s: %s", csv_path, e)
 
     trades = _build_trades_from_fills(fills)
     info["elapsed_sec"] = elapsed

@@ -57,8 +57,8 @@ def _fetch_binance_oi_data(symbol: str) -> dict:
         with urlopen(Request(url, headers=headers), timeout=timeout) as resp:
             data = json.loads(resp.read())
         result["open_interest"] = float(data.get("openInterest", 0))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch OI for %s: %s", symbol, e)
 
     # Global Long/Short ratio
     try:
@@ -67,8 +67,8 @@ def _fetch_binance_oi_data(symbol: str) -> dict:
             data = json.loads(resp.read())
         if data:
             result["ls_ratio"] = float(data[0].get("longShortRatio", 1))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch LS ratio for %s: %s", symbol, e)
 
     # Top trader position ratio
     try:
@@ -77,8 +77,8 @@ def _fetch_binance_oi_data(symbol: str) -> dict:
             data = json.loads(resp.read())
         if data:
             result["top_trader_ls_ratio"] = float(data[0].get("longShortRatio", 1))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch top trader LS ratio for %s: %s", symbol, e)
 
     # Taker buy/sell volume
     try:
@@ -88,8 +88,8 @@ def _fetch_binance_oi_data(symbol: str) -> dict:
         if data:
             result["taker_buy_vol"] = float(data[0].get("buyVol", 0))
             result["taker_sell_vol"] = float(data[0].get("sellVol", 0))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch taker volume for %s: %s", symbol, e)
 
     return result
 
@@ -438,8 +438,8 @@ class AlphaRunner:
                     eth_klines = json.loads(resp.read())
                 for k in eth_klines:
                     eth_warmup[int(k[0])] = float(k[4])  # open_time -> close
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to fetch ETH warmup klines for BTC dominance: %s", e)
 
         for i, bar in enumerate(bars):
             self._check_regime(bar["close"])  # build regime state
@@ -1855,8 +1855,8 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                         "unrealized": port.unrealized_pnl,
                         "symbols": port.symbols,
                     }
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("Failed to get WS state store portfolio: %s", e, exc_info=True)
             logger.info("WS HEARTBEAT sigs=%s pm=%s hedge=%s store=%s",
                         sigs, pm_status, hedge_status, store_status)
     except KeyboardInterrupt:
@@ -2272,8 +2272,8 @@ def main():
                         store_info = (f" store_equity={port.total_equity}"
                                       f" exposure={port.gross_exposure}"
                                       f" unrealized={port.unrealized_pnl}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error("Failed to get state store portfolio: %s", e, exc_info=True)
                 logger.info(
                     "HEARTBEAT cycle=%d sigs=%s holds=%s regimes=%s pnl=%s trades=%s size=%s%s",
                     cycle_count, sigs, holds, regimes, pnls, trades, sizes, store_info,

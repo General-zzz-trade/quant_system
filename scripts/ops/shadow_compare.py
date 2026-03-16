@@ -97,8 +97,8 @@ def compare_models(
         if horizon_tags:
             try:
                 horizon = int(horizon_tags[0].replace("horizon_", ""))
-            except ValueError:
-                pass
+            except ValueError as e:
+                logger.warning("Failed to parse horizon tag '%s': %s", horizon_tags[0], e)
     mode_tag = [t for t in prod_mv.tags if t.startswith("mode_")]
     target_mode = mode_tag[0].replace("mode_", "") if mode_tag else "clipped"
 

@@ -299,8 +299,8 @@ class MultiTimeframeSignal:
                 import xgboost as xgb
                 xgb_pred = float(self._xgb_4h.predict(xgb.DMatrix(x))[0])
                 return 0.5 * lgbm_pred + 0.5 * xgb_pred
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("XGBoost 4h prediction failed, using LGBM only: %s", e)
 
         return lgbm_pred
 

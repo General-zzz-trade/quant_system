@@ -113,8 +113,8 @@ def check_needs_retrain(
             age_days = (datetime.now() - train_date).days
             if age_days > max_age_days:
                 return True, f"model is {age_days} days old (max {max_age_days})"
-        except ValueError:
-            pass
+        except ValueError as e:
+            logger.warning("Failed to parse model train_date '%s': %s", train_date_str, e)
 
     # Check IC decay in metrics
     metrics = cfg.get("metrics", {})
@@ -478,8 +478,8 @@ def retrain_15m_symbols(
                                 result["reason"] = f"model healthy (age={age_days}d, IC={avg_ic:.4f})"
                                 results[symbol] = result
                                 continue
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        logger.warning("Failed to parse 15m model train_date for %s: %s", symbol, e)
 
         if not data_path.exists():
             logger.warning("15m %s: no data file at %s", symbol, data_path)

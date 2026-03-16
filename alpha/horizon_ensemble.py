@@ -6,10 +6,13 @@ Two modes:
 """
 from __future__ import annotations
 
+import logging
 from collections import deque
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from alpha.ic_monitor import ICMonitor
 
@@ -85,8 +88,8 @@ class AdaptiveHorizonEnsemble:
                 import xgboost as xgb
                 xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
                 return self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("XGBoost prediction failed in horizon ensemble, using LGBM only: %s", e)
 
         return lgbm_pred
 

@@ -7,11 +7,14 @@ and backtesting without needing RustFeatureEngine's live data sources.
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Dict, Mapping, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class PrecomputedFeatureHook:
@@ -47,8 +50,8 @@ class PrecomputedFeatureHook:
         try:
             from pathlib import Path
             has_macro = Path("data_files/macro_daily.csv").exists()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to check macro data file: %s", e)
 
         feat_df = compute_features_batch(symbol, df, include_v11=has_macro)
 
@@ -59,8 +62,8 @@ class PrecomputedFeatureHook:
                 for col in TF4H_FEATURE_NAMES:
                     if col in tf4h.columns:
                         feat_df[col] = tf4h[col].values
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to compute 4h features: %s", e)
 
         if include_interactions:
             try:
@@ -70,8 +73,8 @@ class PrecomputedFeatureHook:
                         feat_df[int_name] = (
                             feat_df[fa].astype(float) * feat_df[fb].astype(float)
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to compute interaction features: %s", e)
 
         # Build timestamp → features mapping
         ts_col = "open_time" if "open_time" in df.columns else "timestamp"

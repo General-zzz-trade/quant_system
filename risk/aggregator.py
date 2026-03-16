@@ -1,6 +1,7 @@
 # quant_system/risk/aggregator.py
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 import threading
 from time import perf_counter
@@ -9,6 +10,9 @@ from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, T
 
 from event.types import IntentEvent, OrderEvent
 from risk.decisions import RiskAction, RiskDecision, merge_decisions
+
+
+logger = logging.getLogger(__name__)
 
 
 class RiskAggregatorError(RuntimeError):
@@ -204,8 +208,8 @@ class RiskAggregator:
                 if self._on_error is not None:
                     try:
                         self._on_error(rule.name, mode, e, meta)
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        logger.error("Risk aggregator on_error callback failed for rule '%s': %s", rule.name, e2, exc_info=True)
 
             dt_ms = (perf_counter() - t0) * 1000.0
 

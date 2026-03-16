@@ -137,8 +137,8 @@ class BinanceLiquidationPoller:
 
         try:
             ws.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to close liquidation WS: %s", e, exc_info=True)
 
     def _poll_fallback(self) -> None:
         """Fallback: just sleep and keep running (no data, but don't crash)."""

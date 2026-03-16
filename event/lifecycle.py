@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from threading import Lock
 from typing import Any, Dict, Optional, Set
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -70,8 +73,8 @@ class EventLifecycle:
             event_id = getattr(header, "event_id", None)
             if isinstance(event_id, str) and event_id:
                 return event_id
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to extract event_id from event: %s", e)
         # 兜底：仅用于开发期/测试期，生产应确保 event_id 存在
         return str(id(event))
 

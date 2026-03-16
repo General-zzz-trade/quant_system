@@ -140,8 +140,8 @@ def _fold_period_str(feat_df: pd.DataFrame, fold: Fold) -> str:
             t0 = pd.Timestamp(ts[fold.test_start], unit="ms")
             t1 = pd.Timestamp(ts[min(fold.test_end - 1, len(ts) - 1)], unit="ms")
             return f"{t0.strftime('%Y-%m')} to {t1.strftime('%Y-%m')}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to format fold period: %s", e)
     return f"bar {fold.test_start}-{fold.test_end}"
 
 
@@ -224,8 +224,8 @@ def _run_single_fold_wf(
         dtest_xgb = xgb.DMatrix(X_test_sel)
         xgb_bst = xgb.train(xgb_params, dtrain_xgb, num_boost_round=params["n_estimators"])
         y_pred = 0.5 * y_pred + 0.5 * xgb_bst.predict(dtest_xgb)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("XGBoost prediction failed in SOL alpha research: %s", e)
 
     # IC
     ic = 0.0

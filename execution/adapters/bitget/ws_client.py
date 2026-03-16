@@ -64,8 +64,8 @@ class BitgetWsClient:
         if self._ws:
             try:
                 self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Failed to close Bitget WS connection: %s", e, exc_info=True)
 
     def _run_loop(self) -> None:
         try:

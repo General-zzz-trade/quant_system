@@ -1,8 +1,11 @@
 # engine/replay.py
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Protocol
+
+logger = logging.getLogger(__name__)
 
 # engine 侧
 from engine.dispatcher import EventDispatcher, Route
@@ -105,8 +108,8 @@ class EventReplay:
         if self._sink is not None:
             try:
                 self._sink.on_start(total)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Replay sink on_start failed: %s", e)
 
         # strict_order 的比较键必须在相邻事件上可比。
         # 规则：优先使用两边都具备的 ts，其次 event_index，最后使用枚举 idx。
@@ -158,22 +161,22 @@ class EventReplay:
                     self._sink.on_event(event, processed)
                 except ReplayInterrupted:
                     raise
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Replay sink on_event failed: %s", e)
 
             # 进度回调
             if self._cfg.progress_interval > 0 and processed % self._cfg.progress_interval == 0:
                 if self._sink is not None:
                     try:
                         self._sink.on_event(event, processed)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Replay sink progress callback failed: %s", e)
 
         if self._sink is not None:
             try:
                 self._sink.on_finish(processed)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Replay sink on_finish failed: %s", e)
 
         return processed
 

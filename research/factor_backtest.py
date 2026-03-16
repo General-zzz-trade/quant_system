@@ -7,6 +7,7 @@ functions for one-call backtesting and walk-forward validation.
 from __future__ import annotations
 
 import csv
+import logging
 import math
 import os
 import tempfile
@@ -15,6 +16,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from event.header import EventHeader
 from event.types import EventType, IntentEvent, OrderEvent
@@ -314,8 +317,8 @@ def walk_forward_factor(
         finally:
             try:
                 os.unlink(tmp_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("Failed to clean up temp file %s: %s", tmp_path, e)
 
         start += test_size
         window_idx += 1

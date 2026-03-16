@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Protocol, Tuple
+
+
+logger = logging.getLogger(__name__)
 
 
 class SupportsIngestFill(Protocol):
@@ -110,8 +114,8 @@ def _auto_pick_mapper_fn(
             # bound method 通常只剩 1 个参数（payload）
             if len(sig.parameters) != 1:
                 continue
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to inspect signature of %s: %s", name, e)
 
         score = 0
         for t in tokens:

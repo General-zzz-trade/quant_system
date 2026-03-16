@@ -1082,8 +1082,8 @@ def run_fold_strategy_f(
                 dt_xgb_ss = xgb.DMatrix(X_train_ss, label=y_train, weight=sw_short)
                 xgb_ss = xgb.train(xp_ss, dt_xgb_ss, num_boost_round=500)
                 ss_pred = 0.5 * ss_pred + 0.5 * xgb_ss.predict(xgb.DMatrix(X_test_ss))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("XGBoost short-signal prediction failed: %s", e)
 
             # Short-only signal with regime gate
             sig_short = _pred_to_signal(ss_pred, target_mode=TARGET_MODE,

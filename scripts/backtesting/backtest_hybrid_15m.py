@@ -15,9 +15,12 @@ from __future__ import annotations
 import sys
 import time
 import json
-import pickle
+import logging
+import pickle  # used for ML model loading
 import argparse
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -81,8 +84,8 @@ def predict_1h(horizon_models, features_dict, lgbm_xgb_w=0.5):
                 import xgboost as xgb
                 xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
                 pred = lgbm_xgb_w * pred + (1 - lgbm_xgb_w) * xgb_pred
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("XGBoost prediction failed in hybrid 15m backtest: %s", e)
         preds.append(pred)
     return float(np.mean(preds))
 

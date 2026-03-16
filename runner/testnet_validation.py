@@ -781,8 +781,8 @@ def _stop_pollers(*pollers: Any) -> None:
     for p in pollers:
         try:
             p.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to stop poller %s: %s", type(p).__name__, e, exc_info=True)
 
 
 def run_paper(config_path: Path, duration: int) -> None:
@@ -1319,15 +1319,15 @@ def _pin_and_lock() -> None:
     """Pin to isolated CPU1 + mlock all memory to prevent page faults."""
     try:
         os.sched_setaffinity(0, {1})
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("Could not pin to CPU1: %s", e)
     try:
         import ctypes
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         MCL_CURRENT_FUTURE = 3  # MCL_CURRENT | MCL_FUTURE
         libc.mlockall(MCL_CURRENT_FUTURE)
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("Could not lock memory pages: %s", e)
 
 
 def main() -> None:

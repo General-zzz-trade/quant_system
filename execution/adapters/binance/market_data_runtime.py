@@ -63,8 +63,8 @@ class BinanceMarketDataRuntime:
         self._running = False
         try:
             self.ws_client.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to close market data WS client: %s", e, exc_info=True)
         if self._thread is not None:
             from infra.threading_utils import safe_join_thread
 

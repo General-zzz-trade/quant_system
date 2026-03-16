@@ -63,8 +63,8 @@ class BtcKlinePoller:
                 if self._funding_source is not None:
                     try:
                         fr = self._funding_source()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error("Failed to fetch funding rate for %s: %s", self._symbol, e, exc_info=True)
                 self._cross.on_bar(
                     self._symbol,
                     close=kline["close"],

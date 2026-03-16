@@ -18,12 +18,15 @@ from __future__ import annotations
 import sys
 import time
 import json
-import pickle
+import logging
+import pickle  # ML model serialization
 import argparse
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, "/quant_system")
 
@@ -78,8 +81,8 @@ def load_model_and_predict(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame)
                     import xgboost as xgb
                     xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
                     pred = 0.5 * pred + 0.5 * xgb_pred
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("XGBoost prediction failed in adaptive backtest: %s", e)
             preds[i] = pred
         preds_by_h[hm["horizon"]] = preds
 

@@ -121,8 +121,8 @@ def main() -> None:
         csv_file.close()
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to close depth data client: %s", e)
 
     print(f"\nDone. Data saved to {out_path}")
 
