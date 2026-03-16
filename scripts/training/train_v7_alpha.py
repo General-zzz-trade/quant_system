@@ -722,7 +722,101 @@ def _load_and_compute_features(
     for col in TF4H_FEATURE_NAMES:
         feat_df[col] = tf4h[col].values
 
+    # V13: Merge OI-derived features from downloaded data
+    _merge_v13_oi_features(symbol, df, feat_df)
+
     return feat_df
+
+
+def _merge_v13_oi_features(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame) -> None:
+    """Add V13 OI/LS/Taker features by merging downloaded OI data.
+
+    Features: oi_pct_4h, ls_deviation, taker_buy_sell_ratio,
+    top_retail_divergence, oi_price_divergence_12.
+    Safe: fills NaN if OI data not available.
+    """
+    from pathlib import Path as _P
+
+    oi_path = _P(f"data_files/{symbol}_oi_1h.csv")
+    v13_names = ["oi_pct_4h", "ls_deviation", "taker_buy_sell_ratio",
+                 "top_retail_divergence", "oi_price_divergence_12"]
+
+    if not oi_path.exists():
+        for name in v13_names:
+            feat_df[name] = np.nan
+        return
+
+    oi_df = pd.read_csv(oi_path)
+    oi_df["timestamp"] = pd.to_numeric(oi_df["timestamp"])
+
+    # Align OI data to price bars by timestamp
+    ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
+    bar_ts = df[ts_col].values.astype(np.int64)
+
+    # Build OI lookup (timestamp -> row)
+    oi_lookup = dict(zip(oi_df["timestamp"].values, range(len(oi_df))))
+
+    oi_vals = oi_df["oi"].values if "oi" in oi_df.columns else np.full(len(oi_df), np.nan)
+    ls_vals = oi_df["ls_ratio"].values if "ls_ratio" in oi_df.columns else np.full(len(oi_df), np.nan)
+    taker_buy = oi_df["taker_buy_vol"].values if "taker_buy_vol" in oi_df.columns else np.zeros(len(oi_df))
+    taker_sell = oi_df["taker_sell_vol"].values if "taker_sell_vol" in oi_df.columns else np.zeros(len(oi_df))
+    top_ls = oi_df["top_ls_ratio"].values if "top_ls_ratio" in oi_df.columns else np.full(len(oi_df), np.nan)
+
+    n = len(bar_ts)
+    closes = df["close"].values.astype(np.float64)
+
+    # Pre-allocate
+    f_oi_pct_4h = np.full(n, np.nan)
+    f_ls_dev = np.full(n, np.nan)
+    f_taker_ratio = np.full(n, np.nan)
+    f_top_retail = np.full(n, np.nan)
+    f_oi_price_div = np.full(n, np.nan)
+
+    # Map bar timestamps to OI indices
+    oi_idx = np.array([oi_lookup.get(ts, -1) for ts in bar_ts])
+
+    for i in range(n):
+        idx = oi_idx[i]
+        if idx < 0:
+            continue
+
+        # ls_deviation
+        ls = ls_vals[idx]
+        if not np.isnan(ls):
+            f_ls_dev[i] = ls - 1.0
+
+        # taker_buy_sell_ratio
+        tb = taker_buy[idx]
+        ts_val = taker_sell[idx]
+        if tb > 0 and ts_val > 0:
+            f_taker_ratio[i] = tb / ts_val
+
+        # top_retail_divergence
+        tls = top_ls[idx]
+        if not np.isnan(tls) and not np.isnan(ls):
+            f_top_retail[i] = tls - ls
+
+        # oi_pct_4h (need idx-4)
+        if idx >= 4:
+            oi_cur = oi_vals[idx]
+            oi_prev = oi_vals[idx - 4]
+            if not np.isnan(oi_cur) and not np.isnan(oi_prev) and oi_prev > 0:
+                f_oi_pct_4h[i] = (oi_cur - oi_prev) / oi_prev
+
+        # oi_price_divergence_12 (need idx-12 and i-12)
+        if idx >= 12 and i >= 12:
+            oi_cur = oi_vals[idx]
+            oi_old = oi_vals[idx - 12]
+            if not np.isnan(oi_cur) and not np.isnan(oi_old) and oi_old > 0 and closes[i - 12] > 0:
+                oi_chg = (oi_cur - oi_old) / oi_old
+                price_chg = (closes[i] - closes[i - 12]) / closes[i - 12]
+                f_oi_price_div[i] = oi_chg - price_chg
+
+    feat_df["oi_pct_4h"] = f_oi_pct_4h
+    feat_df["ls_deviation"] = f_ls_dev
+    feat_df["taker_buy_sell_ratio"] = f_taker_ratio
+    feat_df["top_retail_divergence"] = f_top_retail
+    feat_df["oi_price_divergence_12"] = f_oi_price_div
 
 
 # ── Cross-asset feature building ─────────────────────────────

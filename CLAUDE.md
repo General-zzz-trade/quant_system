@@ -39,10 +39,19 @@ tail -f /quant_system/logs/bybit_alpha.log                                   # F
 **Data & model management**:
 ```bash
 python3 -m scripts.data.download_15m_klines                                  # Update 15m kline data (incremental)
+python3 -m scripts.data.download_5m_klines --symbols ETHUSDT                 # Download 5m kline data
 python3 -m scripts.data.download_funding_rates --symbols ETHUSDT SOLUSDT     # Update funding rate history
+python3 -m scripts.data.download_oi_data --symbols ETHUSDT BTCUSDT           # Download OI/LS/Taker data (Binance, ~28d max)
 python3 -m scripts.auto_retrain --include-15m --force                        # Retrain 1h + 15m models
 python3 -m scripts.auto_retrain --only-15m --force                           # Retrain 15m models only
 python3 -m scripts.auto_retrain --dry-run                                    # Preview retrain without saving
+```
+
+**Polymarket collector**:
+```bash
+python3 -m polymarket.collector --mode intra --db data/polymarket/collector.db  # Start 5m+15m CLOB collector
+kill $(cat data/polymarket/collector.pid)                                       # Stop collector
+python3 -c "import sqlite3; c=sqlite3.connect('data/polymarket/collector.db'); print(c.execute('SELECT COUNT(*) FROM intra_window_samples_v2').fetchone())"  # Check sample count
 ```
 
 **Monitoring & diagnostics**:
@@ -78,9 +87,9 @@ curl -X POST localhost:9090/kill      # Emergency kill switch
 ```
 core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
-features/        Feature computation (EnrichedFeatureComputer, 111 features incl. V12 cross-asset)
+features/        Feature computation (EnrichedFeatureComputer, 116 features incl. V12 cross-asset + V13 OI)
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (122 = 105 enriched + 17 cross-asset)
+  feature_catalog.py   PRODUCTION_FEATURES frozenset (133 = 116 enriched + 17 cross-asset)
 decision/        Trading signals, ensemble, regime detection, rebalancing
   backtest_module.py   MLSignalDecisionModule (z-score, min-hold, trend-hold, regime gate)
   exit_manager.py      Trailing stop, z-reversal, deadzone fade exits
@@ -114,23 +123,24 @@ models_v8/       Production models (Ridge primary 60% + LightGBM 40%)
   ETHUSDT_gate_v2/   1h model (v11, IC 0.075, 14 features, min_hold=18)
   ETHUSDT_15m/       15m model (v1, IC 0.075, 14 features, h=32 horizon)
   SUIUSDT/           1h model (v1, 15 features, 6/7 PASS Sharpe 1.63)
+  SUIUSDT_15m/       15m model (v11-15m, h=32, Sharpe 2.36, PASS)
   AXSUSDT/           1h model (v1, 15 features, 13/17 PASS Sharpe 1.25)
   BTCUSDT_gate_v2/   1h model (FAIL — not deployed)
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         7 subdirs + symlinks for compat
   ops/               run_bybit_alpha.py, compare_live_backtest.py
-  data/              download_15m_klines.py, download_funding_rates.py
-  research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, leverage_survival_sim.py
+  data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py
+  research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, leverage_survival_sim.py, polymarket_binary_alpha.py, polymarket_mm_backtest.py
   walkforward/       walkforward_validate.py
   training/          train_v7_alpha.py, train_15m.py
-data_files/      CSV data: {SYMBOL}_{1h,15m,1m}.csv, {SYMBOL}_funding.csv, fear_greed_index.csv
+data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv, fear_greed_index.csv
 logs/            bybit_alpha.log, polymarket-collector.log, retrain_cron.log
 tests/           unit/ (runner, bybit, bitget, decision, features), integration/ (constraint parity)
 ```
 
 **Data flow (live alpha)**:
 ```
-Bybit WS kline → EnrichedFeatureComputer.on_bar() → Ridge(60%)+LightGBM(40%) ensemble predict
+Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API) → Ridge(60%)+LightGBM(40%) ensemble predict
   → z-score normalize → deadzone discretize → min-hold enforce
   → PortfolioCombiner (AGREE ONLY: both 1h+15m agree → trade)
   → ATR adaptive stop (initial → breakeven → trailing)
@@ -168,7 +178,7 @@ Key export categories (see `lib.rs` for full list):
 - `engine/coordinator.py` — Main event loop orchestrator
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
-- `features/enriched_computer.py` — 105 enriched feature definitions
+- `features/enriched_computer.py` — 116 enriched feature definitions (V1-V13)
 - `features/dynamic_selector.py` — Feature selection: greedy, stable_icir, stability_filtered_greedy
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints: z-score, discretize, min-hold, trend-hold (batch + incremental)
@@ -178,7 +188,10 @@ Key export categories (see `lib.rs` for full list):
 - `runner/gate_chain.py` — GateChain: 8 gates with `process_with_audit()` for structured ORDER_AUDIT logging
 - `runner/recovery.py` — Crash recovery: 8-component atomic bundle
 - `runner/config.py` — LiveRunnerConfig (93 fields); factory methods: `.lite()`, `.paper()`, `.testnet_full()`, `.prod()`
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (122 features); `validate_model_features()`
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (133 features); `validate_model_features()`
+- `scripts/data/download_oi_data.py` — OI/LS ratio/Taker data from Binance (cron every 6h)
+- `scripts/research/polymarket_binary_alpha.py` — Polymarket ML classifier walk-forward
+- `scripts/research/walkforward_5m_alpha.py` — 5m alpha walk-forward (FAILED)
 - `scripts/ops/run_bybit_alpha.py` — **Primary alpha runner**: dual 1h+15m AGREE ONLY combo, ATR adaptive stop, Kelly 1.4x leverage, PortfolioCombiner, WS + realtime stop
 - `scripts/ops/compare_live_backtest.py` — Live vs backtest signal/PnL comparison tool
 - `scripts/data/download_15m_klines.py` — Incremental 15m kline data download from Binance
@@ -186,7 +199,7 @@ Key export categories (see `lib.rs` for full list):
 - `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, margin model, Almgren-Chriss slippage, adaptive ATR stop
 - `execution/sim/limit_order_book.py` — Simulated LOB: FIFO queue, partial fills, stop orders, TTL expiry
 - `execution/adapters/ib/adapter.py` — IB multi-asset adapter via IB Gateway
-- `polymarket/collector.py` — 5m BTC Up/Down real-time CLOB orderbook collector + BS fair value
+- `polymarket/collector.py` — 5m+15m BTC Up/Down real-time CLOB collector + BS fair value + RSI signal tracking
 
 ## Live Integration Subsystems
 
@@ -245,9 +258,13 @@ export BINANCE_TESTNET_API_SECRET=...
 - ETHUSDT adaptive stop (15/20): Sharpe **1.35**, **+286%** → **PASS**
 - SUIUSDT 1h (7 folds): Sharpe **1.63**, **+150%**, **6/7 positive** → **PASS**
 - AXSUSDT 1h (17 folds): Sharpe **1.25**, **+241%**, **13/17 positive** → **PASS**
+- SUIUSDT 15m h=32: Sharpe **2.36**, training PASS but WF 9/23 → **FAIL** (model saved, not deployed)
 - BTCUSDT 1h: Sharpe -0.21, 10/20 → FAIL. SOLUSDT 15m: 1/4 → FAIL. (Not traded)
+- AXSUSDT 15m: training Sharpe 0.39 → **FAIL** (not saved)
+- ETHUSDT 5m: avg Sharpe -4.92, 0/12 → **FAIL** (5m永续alpha不可行，IC接近零)
 - Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate, geometric mean turns negative)
 - Dual alpha AGREE backtest: Sharpe **5.48**, +1,141%, 56% WR, signal correlation 0.077
+- Polymarket RSI(5) 5m: accuracy **55.0%**, **23/23 folds PASS**, $25/day@$10/bet (pending CLOB price verification)
 
 ## Signal Pipeline
 
@@ -301,3 +318,12 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `fill_to_record()` now produces 13 fields (aligned with `CanonicalFill.to_record()`); locked by `test_fill_roundtrip.py`
 - `LiveRunner._build_persistence_and_recovery` + `_build_shutdown` extracted to `runner/builders/` (1,799 lines, was 2,020)
 - `docs/deploy_truth.md` is the deployment truth source; `infra/systemd/` must sync with `/etc/systemd/system/`
+- V13 OI features (5 new): `oi_pct_4h`, `ls_deviation`, `taker_buy_sell_ratio`, `top_retail_divergence`, `oi_price_divergence_12` — IC validated but only 28 days data; models not yet retrained with V13
+- `run_bybit_alpha.py` fetches OI/LS/taker from Binance API each bar (70ms, non-blocking, NaN fallback)
+- Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate
+- `EnrichedFeatureComputer.on_bar(top_trader_ls_ratio=...)` — new V13 parameter for smart/dumb money divergence
+- Polymarket collector runs as background process (not systemd); PID in `data/polymarket/collector.pid`
+- Polymarket collector tracks both 5m and 15m markets simultaneously; RSI(5) signal annotated per window
+- 5m perpetual alpha is NOT viable — IC near zero, cost dominates; only 1h and 15m (ETH only) work
+- SUI/AXS 15m alpha both FAIL walk-forward; only ETH has 15m alpha
+- Polymarket ML classifier (Logistic+LGBM) loses to simple RSI rule — RSI's selectivity is the alpha, not prediction accuracy

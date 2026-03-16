@@ -34,9 +34,13 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-_WINDOW_SEC = 300  # 5 minutes
+_WINDOW_5M = 300   # 5 minutes
+_WINDOW_15M = 900  # 15 minutes
 _SETTLE_OFFSET = 5  # seconds after boundary to let market settle
 _INTRA_INTERVAL = 30  # seconds between intra-window samples
+
+# Keep backward compat alias
+_WINDOW_SEC = _WINDOW_5M
 
 
 def binary_call_fair_value(S: float, K: float, T_minutes: float, sigma_annual: float) -> float:
@@ -93,6 +97,67 @@ class VolatilityTracker:
         return std_1m * math.sqrt(365 * 24 * 60)
 
 
+class RSITracker:
+    """Track rolling RSI(5) on 5-minute BTC closes for signal annotation."""
+
+    def __init__(self, period: int = 5):
+        self._period = period
+        self._closes: list[float] = []
+        self._avg_gain: float = 0.0
+        self._avg_loss: float = 0.0
+        self._rsi: float = 50.0
+
+    def update(self, close: float) -> float:
+        """Feed a 5-minute close price. Returns current RSI."""
+        self._closes.append(close)
+        n = len(self._closes)
+        if n < 2:
+            return 50.0
+
+        change = self._closes[-1] - self._closes[-2]
+        gain = max(change, 0.0)
+        loss = max(-change, 0.0)
+
+        if n <= self._period + 1:
+            # Initial SMA phase
+            if n == self._period + 1:
+                gains = [max(self._closes[i] - self._closes[i - 1], 0)
+                         for i in range(1, n)]
+                losses = [max(self._closes[i - 1] - self._closes[i], 0)
+                          for i in range(1, n)]
+                self._avg_gain = sum(gains[:self._period]) / self._period
+                self._avg_loss = sum(losses[:self._period]) / self._period
+            else:
+                return 50.0
+        else:
+            self._avg_gain = (self._avg_gain * (self._period - 1) + gain) / self._period
+            self._avg_loss = (self._avg_loss * (self._period - 1) + loss) / self._period
+
+        if self._avg_loss < 1e-10:
+            self._rsi = 100.0
+        else:
+            rs = self._avg_gain / self._avg_loss
+            self._rsi = 100.0 - 100.0 / (1.0 + rs)
+        return self._rsi
+
+    @property
+    def value(self) -> float:
+        return self._rsi
+
+    @property
+    def signal(self) -> str:
+        """Return 'up', 'down', or 'neutral' based on RSI thresholds."""
+        if self._rsi < 25:
+            return "up"
+        elif self._rsi > 75:
+            return "down"
+        return "neutral"
+
+    @property
+    def bar_count(self) -> int:
+        return len(self._closes)
+
+
 class PolymarketCollector:
     """Collects Polymarket 5m BTC Up/Down market data into SQLite."""
 
@@ -102,6 +167,9 @@ class PolymarketCollector:
         self._init_db()
         self._running = False
         self._vol_tracker = VolatilityTracker(window=60)
+        self._rsi_tracker = RSITracker(period=5)       # RSI on 5m closes
+        self._rsi_tracker_15m = RSITracker(period=5)    # RSI on 15m closes
+        self._token_cache_15m: dict = {"window_ts": None}
 
     # ------------------------------------------------------------------
     # Database
@@ -147,7 +215,7 @@ class PolymarketCollector:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # V2 schema: CLOB orderbook data
+        # V2 schema: CLOB orderbook data + RSI signal
         conn.execute("""
             CREATE TABLE IF NOT EXISTS intra_window_samples_v2 (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,6 +238,51 @@ class PolymarketCollector:
                 pricing_delay REAL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+        # Add RSI columns if not yet present (safe migration)
+        try:
+            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN rsi_5 REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN rsi_signal TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN btc_ret_3bar REAL")
+        except sqlite3.OperationalError:
+            pass
+
+        # 15m market samples table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS samples_15m (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_start_ts INTEGER NOT NULL,
+                sample_time_utc TEXT NOT NULL,
+                elapsed_sec INTEGER NOT NULL,
+                binance_price REAL NOT NULL,
+                strike_price REAL,
+                move_bps REAL,
+                fair_value_up REAL,
+                fair_value_down REAL,
+                clob_up_best_bid REAL,
+                clob_up_best_ask REAL,
+                clob_up_spread REAL,
+                clob_up_bid_depth REAL,
+                clob_up_ask_depth REAL,
+                clob_down_best_bid REAL,
+                clob_down_best_ask REAL,
+                clob_up_mid REAL,
+                pricing_delay REAL,
+                rsi_5 REAL,
+                rsi_signal TEXT,
+                btc_ret_3bar REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_samples_15m_window_ts
+            ON samples_15m(window_start_ts)
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_intra_v2_window_ts
@@ -489,7 +602,7 @@ class PolymarketCollector:
         conn.close()
 
     def _store_intra_sample_v2(self, sample: dict) -> None:
-        """Store an intra-window sample with CLOB orderbook data."""
+        """Store an intra-window sample with CLOB orderbook data + RSI."""
         conn = sqlite3.connect(self._db_path)
         conn.execute(
             """
@@ -499,8 +612,9 @@ class PolymarketCollector:
              clob_up_best_bid, clob_up_best_ask, clob_up_spread,
              clob_up_bid_depth, clob_up_ask_depth,
              clob_down_best_bid, clob_down_best_ask,
-             clob_up_mid, pricing_delay)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             clob_up_mid, pricing_delay,
+             rsi_5, rsi_signal, btc_ret_3bar)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 sample["window_start_ts"],
@@ -520,6 +634,9 @@ class PolymarketCollector:
                 sample.get("clob_down_best_ask"),
                 sample.get("clob_up_mid"),
                 sample.get("pricing_delay"),
+                sample.get("rsi_5"),
+                sample.get("rsi_signal"),
+                sample.get("btc_ret_3bar"),
             ),
         )
         conn.commit()
@@ -651,6 +768,8 @@ class PolymarketCollector:
         Samples Binance price + CLOB best bid/ask every 30 seconds,
         computes Black-Scholes binary option fair values, measures pricing delay
         vs CLOB mid-price, and stores results.
+
+        V3 addition: Records RSI(5) signal at window open for alpha validation.
         """
         window_ts = self._current_window_ts()
 
@@ -658,8 +777,20 @@ class PolymarketCollector:
         strike = self._get_binance_price()
         if strike > 0:
             self._vol_tracker.update(strike)
+            # Update RSI with this window's opening price (= prev window close)
+            self._rsi_tracker.update(strike)
 
         sigma = self._vol_tracker.sigma_annual
+
+        # Capture RSI state at window open (before any intra-window movement)
+        rsi_at_open = self._rsi_tracker.value
+        rsi_signal = self._rsi_tracker.signal
+
+        # 3-bar return for momentum context
+        closes = self._rsi_tracker._closes
+        btc_ret_3bar = None
+        if len(closes) >= 4:
+            btc_ret_3bar = (closes[-1] - closes[-4]) / closes[-4]
 
         # Resolve token IDs once per window
         self._token_cache = {"window_ts": None}  # force refresh
@@ -668,8 +799,10 @@ class PolymarketCollector:
         has_tokens = bool(tokens.get("up_token"))
 
         logger.info(
-            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s",
+            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s RSI=%.0f(%s) ret3=%s",
             window_ts, strike, sigma, "yes" if has_tokens else "NO",
+            rsi_at_open, rsi_signal,
+            f"{btc_ret_3bar*100:+.2f}%" if btc_ret_3bar is not None else "N/A",
         )
 
         # Sample every 30 seconds for the remainder of the window
@@ -727,17 +860,21 @@ class PolymarketCollector:
                 "clob_down_best_ask": down_ask if pm else None,
                 "clob_up_mid": up_mid,
                 "pricing_delay": pricing_delay,
+                "rsi_5": rsi_at_open,
+                "rsi_signal": rsi_signal,
+                "btc_ret_3bar": btc_ret_3bar,
             }
             self._store_intra_sample_v2(sample)
 
-            # Log with CLOB orderbook data
+            # Log with CLOB orderbook data + RSI
             delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
+            rsi_str = f"RSI={rsi_at_open:.0f}({rsi_signal})"
             logger.info(
                 "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
-                "clob=%.3f bid=%.2f ask=%.2f spd=%.2f d=$%.0f/$%.0f %s",
+                "clob=%.3f bid=%.2f ask=%.2f spd=%.2f %s %s",
                 elapsed, price, move_bps, fair_up,
                 up_mid or 0, up_bid, up_ask, up_spread or 0,
-                up_bid_depth, up_ask_depth, delay_str,
+                delay_str, rsi_str,
             )
 
             # Update vol tracker
@@ -749,6 +886,178 @@ class PolymarketCollector:
             end_time = time.time() + sleep_sec
             while self._running and time.time() < end_time:
                 time.sleep(min(1, max(0, end_time - time.time())))
+
+    # ------------------------------------------------------------------
+    # 15-minute window collection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _current_window_ts_15m() -> int:
+        now = int(time.time())
+        return (now // _WINDOW_15M) * _WINDOW_15M
+
+    @staticmethod
+    def _next_window_ts_15m() -> int:
+        now = int(time.time())
+        return ((now // _WINDOW_15M) + 1) * _WINDOW_15M
+
+    def _resolve_token_ids_15m(self, window_ts: int) -> dict:
+        """Resolve CLOB token IDs for a 15m window."""
+        slug = f"btc-updown-15m-{window_ts}"
+        url = f"https://gamma-api.polymarket.com/markets?slug={slug}"
+        req = Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "quant-collector/1.0"},
+        )
+        try:
+            with urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                if not data or not isinstance(data, list):
+                    return {}
+                m = data[0]
+                tokens_raw = m.get("clobTokenIds", "[]")
+                tokens = json.loads(tokens_raw) if isinstance(tokens_raw, str) else tokens_raw
+                outcomes_raw = m.get("outcomes", "[]")
+                outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                result = {}
+                for i, token_id in enumerate(tokens):
+                    outcome = outcomes[i] if i < len(outcomes) else ("Up" if i == 0 else "Down")
+                    if outcome == "Up":
+                        result["up_token"] = token_id
+                    elif outcome == "Down":
+                        result["down_token"] = token_id
+                return result
+        except Exception as e:
+            logger.debug("Failed to resolve 15m tokens for ts=%d: %s", window_ts, e)
+        return {}
+
+    def _get_polymarket_prices_15m(self, window_ts: int) -> dict:
+        """Fetch CLOB orderbook for a 15m window."""
+        if self._token_cache_15m.get("window_ts") != window_ts:
+            tokens = self._resolve_token_ids_15m(window_ts)
+            self._token_cache_15m = {"window_ts": window_ts, **tokens}
+
+        up_token = self._token_cache_15m.get("up_token")
+        down_token = self._token_cache_15m.get("down_token")
+        if not up_token:
+            return {}
+
+        result: dict = {"source": "clob"}
+        up_book = self._get_clob_orderbook(up_token)
+        if up_book:
+            result["up_price"] = up_book.get("mid")
+            result["up_best_bid"] = up_book.get("best_bid", 0)
+            result["up_best_ask"] = up_book.get("best_ask", 1)
+            result["up_spread"] = up_book.get("spread")
+            result["up_bid_depth"] = up_book.get("bid_depth", 0)
+            result["up_ask_depth"] = up_book.get("ask_depth", 0)
+        if down_token:
+            down_book = self._get_clob_orderbook(down_token)
+            if down_book:
+                result["down_best_bid"] = down_book.get("best_bid", 0)
+                result["down_best_ask"] = down_book.get("best_ask", 1)
+        return result
+
+    def _store_sample_15m(self, sample: dict) -> None:
+        """Store a 15m window sample."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            """
+            INSERT INTO samples_15m
+            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
+             strike_price, move_bps, fair_value_up, fair_value_down,
+             clob_up_best_bid, clob_up_best_ask, clob_up_spread,
+             clob_up_bid_depth, clob_up_ask_depth,
+             clob_down_best_bid, clob_down_best_ask,
+             clob_up_mid, pricing_delay,
+             rsi_5, rsi_signal, btc_ret_3bar)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sample["window_start_ts"],
+                sample["sample_time_utc"],
+                sample["elapsed_sec"],
+                sample["binance_price"],
+                sample.get("strike_price"),
+                sample.get("move_bps"),
+                sample.get("fair_value_up"),
+                sample.get("fair_value_down"),
+                sample.get("clob_up_best_bid"),
+                sample.get("clob_up_best_ask"),
+                sample.get("clob_up_spread"),
+                sample.get("clob_up_bid_depth"),
+                sample.get("clob_up_ask_depth"),
+                sample.get("clob_down_best_bid"),
+                sample.get("clob_down_best_ask"),
+                sample.get("clob_up_mid"),
+                sample.get("pricing_delay"),
+                sample.get("rsi_5"),
+                sample.get("rsi_signal"),
+                sample.get("btc_ret_3bar"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def _sample_15m_once(self, window_ts: int, strike: float, sigma: float,
+                         rsi_val: float, rsi_sig: str, ret_3bar: float | None) -> None:
+        """Take one 15m CLOB sample and store it."""
+        now = time.time()
+        elapsed = int(now - window_ts)
+        if elapsed >= _WINDOW_15M:
+            return
+
+        price = self._get_binance_price()
+        if price <= 0:
+            return
+
+        pm = self._get_polymarket_prices_15m(window_ts)
+        up_mid = pm.get("up_price")
+        up_bid = pm.get("up_best_bid", 0)
+        up_ask = pm.get("up_best_ask", 1)
+        up_spread = pm.get("up_spread")
+        up_bid_depth = pm.get("up_bid_depth", 0)
+        up_ask_depth = pm.get("up_ask_depth", 0)
+        down_bid = pm.get("down_best_bid", 0)
+        down_ask = pm.get("down_best_ask", 1)
+
+        remaining_min = max(0, (_WINDOW_15M - elapsed)) / 60.0
+        move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
+        fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
+        pricing_delay = (up_mid - fair_up) if up_mid is not None else None
+
+        sample = {
+            "window_start_ts": window_ts,
+            "sample_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+            "elapsed_sec": elapsed,
+            "binance_price": price,
+            "strike_price": strike,
+            "move_bps": move_bps,
+            "fair_value_up": fair_up,
+            "fair_value_down": 1.0 - fair_up,
+            "clob_up_best_bid": up_bid if pm else None,
+            "clob_up_best_ask": up_ask if pm else None,
+            "clob_up_spread": up_spread,
+            "clob_up_bid_depth": up_bid_depth if pm else None,
+            "clob_up_ask_depth": up_ask_depth if pm else None,
+            "clob_down_best_bid": down_bid if pm else None,
+            "clob_down_best_ask": down_ask if pm else None,
+            "clob_up_mid": up_mid,
+            "pricing_delay": pricing_delay,
+            "rsi_5": rsi_val,
+            "rsi_signal": rsi_sig,
+            "btc_ret_3bar": ret_3bar,
+        }
+        self._store_sample_15m(sample)
+
+        delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
+        logger.info(
+            "  15m t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
+            "clob=%.3f bid=%.2f ask=%.2f %s RSI=%.0f(%s)",
+            elapsed, price, move_bps, fair_up,
+            up_mid or 0, up_bid, up_ask, delay_str,
+            rsi_val, rsi_sig,
+        )
 
     # ------------------------------------------------------------------
     # Stats
@@ -810,36 +1119,183 @@ class PolymarketCollector:
         Args:
             mode: 'basic' for one sample per window (original),
                   'intra' for 30-second intra-window sampling with fair values.
+                  In intra mode, also samples 15m windows at each 30s tick.
         """
         self._running = True
         logger.info("Polymarket collector starting (db=%s, mode=%s)", self._db_path, mode)
 
+        # 15m window state (persists across 5m cycles)
+        cur_15m_ts: int = 0
+        strike_15m: float = 0.0
+        rsi_15m_val: float = 50.0
+        rsi_15m_sig: str = "neutral"
+        ret_3bar_15m: float | None = None
+
         while self._running:
             try:
                 if mode == "intra":
-                    # Wait until next window boundary, then run intra-window sampling
+                    # Wait until next 5m window boundary
                     next_boundary = self._next_window_ts()
                     wait_sec = max(0, next_boundary - time.time() + _SETTLE_OFFSET)
                     end_wait = time.time() + wait_sec
                     while self._running and time.time() < end_wait:
                         time.sleep(1)
-                    if self._running:
-                        self.collect_intra_window()
+                    if not self._running:
+                        break
+
+                    # Check if a new 15m window just started
+                    new_15m_ts = self._current_window_ts_15m()
+                    if new_15m_ts != cur_15m_ts:
+                        cur_15m_ts = new_15m_ts
+                        # Get 15m strike and update 15m RSI
+                        strike_15m = self._get_binance_price()
+                        if strike_15m > 0:
+                            self._rsi_tracker_15m.update(strike_15m)
+                        rsi_15m_val = self._rsi_tracker_15m.value
+                        rsi_15m_sig = self._rsi_tracker_15m.signal
+                        closes_15m = self._rsi_tracker_15m._closes
+                        ret_3bar_15m = None
+                        if len(closes_15m) >= 4:
+                            ret_3bar_15m = (closes_15m[-1] - closes_15m[-4]) / closes_15m[-4]
+                        # Reset 15m token cache
+                        self._token_cache_15m = {"window_ts": None}
+                        logger.info(
+                            "15m window start: ts=%d strike=$%.0f RSI=%.0f(%s) ret3=%s",
+                            cur_15m_ts, strike_15m, rsi_15m_val, rsi_15m_sig,
+                            f"{ret_3bar_15m*100:+.2f}%" if ret_3bar_15m is not None else "N/A",
+                        )
+
+                    # Run 5m intra-window sampling (this blocks for ~5 min)
+                    # During each 30s tick, also sample 15m market
+                    self._collect_intra_with_15m(
+                        cur_15m_ts, strike_15m, rsi_15m_val, rsi_15m_sig, ret_3bar_15m,
+                    )
                 else:
                     self.collect_one()
             except Exception:
                 logger.exception("Collection cycle failed")
 
             if mode != "intra":
-                # Sleep until next 5-minute boundary + small offset
                 next_boundary = self._next_window_ts()
                 sleep_sec = max(1, next_boundary - time.time() + _SETTLE_OFFSET)
                 logger.debug("Sleeping %.0fs until next window", sleep_sec)
-
-                # Interruptible sleep (1s ticks)
                 end_time = time.time() + sleep_sec
                 while self._running and time.time() < end_time:
                     time.sleep(1)
+
+    def _collect_intra_with_15m(
+        self,
+        ts_15m: int, strike_15m: float,
+        rsi_15m: float, rsi_sig_15m: str, ret3_15m: float | None,
+    ) -> None:
+        """Run 5m intra-window sampling, also sampling 15m market at each tick."""
+        # Standard 5m collection (sets up strike, RSI, etc.)
+        window_ts = self._current_window_ts()
+        strike = self._get_binance_price()
+        if strike > 0:
+            self._vol_tracker.update(strike)
+            self._rsi_tracker.update(strike)
+
+        sigma = self._vol_tracker.sigma_annual
+        rsi_at_open = self._rsi_tracker.value
+        rsi_signal = self._rsi_tracker.signal
+        closes_5m = self._rsi_tracker._closes
+        btc_ret_3bar = None
+        if len(closes_5m) >= 4:
+            btc_ret_3bar = (closes_5m[-1] - closes_5m[-4]) / closes_5m[-4]
+
+        # Resolve 5m tokens
+        self._token_cache = {"window_ts": None}
+        tokens = self._resolve_token_ids(window_ts)
+        self._token_cache = {"window_ts": window_ts, **tokens}
+        has_tokens = bool(tokens.get("up_token"))
+
+        logger.info(
+            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s RSI=%.0f(%s) ret3=%s",
+            window_ts, strike, sigma, "yes" if has_tokens else "NO",
+            rsi_at_open, rsi_signal,
+            f"{btc_ret_3bar*100:+.2f}%" if btc_ret_3bar is not None else "N/A",
+        )
+
+        while self._running:
+            now = time.time()
+            elapsed = int(now - window_ts)
+            if elapsed >= _WINDOW_SEC:
+                break
+
+            price = self._get_binance_price()
+            if price <= 0:
+                time.sleep(_INTRA_INTERVAL)
+                continue
+
+            # --- 5m sample ---
+            pm = self._get_polymarket_prices(window_ts)
+            up_mid = pm.get("up_price")
+            up_bid = pm.get("up_best_bid", 0)
+            up_ask = pm.get("up_best_ask", 1)
+            up_spread = pm.get("up_spread")
+            up_bid_depth = pm.get("up_bid_depth", 0)
+            up_ask_depth = pm.get("up_ask_depth", 0)
+            down_bid = pm.get("down_best_bid", 0)
+            down_ask = pm.get("down_best_ask", 1)
+
+            remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
+            move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
+            fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
+            fair_down = 1.0 - fair_up
+            pricing_delay = (up_mid - fair_up) if up_mid is not None else None
+
+            sample = {
+                "window_start_ts": window_ts,
+                "sample_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                "elapsed_sec": elapsed,
+                "binance_price": price,
+                "strike_price": strike,
+                "move_bps": move_bps,
+                "fair_value_up": fair_up,
+                "fair_value_down": fair_down,
+                "clob_up_best_bid": up_bid if pm else None,
+                "clob_up_best_ask": up_ask if pm else None,
+                "clob_up_spread": up_spread,
+                "clob_up_bid_depth": up_bid_depth if pm else None,
+                "clob_up_ask_depth": up_ask_depth if pm else None,
+                "clob_down_best_bid": down_bid if pm else None,
+                "clob_down_best_ask": down_ask if pm else None,
+                "clob_up_mid": up_mid,
+                "pricing_delay": pricing_delay,
+                "rsi_5": rsi_at_open,
+                "rsi_signal": rsi_signal,
+                "btc_ret_3bar": btc_ret_3bar,
+            }
+            self._store_intra_sample_v2(sample)
+
+            delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
+            rsi_str = f"RSI={rsi_at_open:.0f}({rsi_signal})"
+            logger.info(
+                "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
+                "clob=%.3f bid=%.2f ask=%.2f spd=%.2f %s %s",
+                elapsed, price, move_bps, fair_up,
+                up_mid or 0, up_bid, up_ask, up_spread or 0,
+                delay_str, rsi_str,
+            )
+
+            # --- 15m sample (piggyback on same tick) ---
+            try:
+                self._sample_15m_once(
+                    ts_15m, strike_15m, sigma,
+                    rsi_15m, rsi_sig_15m, ret3_15m,
+                )
+            except Exception:
+                logger.debug("15m sample failed", exc_info=True)
+
+            self._vol_tracker.update(price)
+
+            # Sleep until next 30-second mark
+            next_sample = window_ts + ((elapsed // _INTRA_INTERVAL) + 1) * _INTRA_INTERVAL
+            sleep_sec = max(0, next_sample - time.time())
+            end_time = time.time() + sleep_sec
+            while self._running and time.time() < end_time:
+                time.sleep(min(1, max(0, end_time - time.time())))
 
     def stop(self):
         """Signal the collector to stop after the current cycle."""

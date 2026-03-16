@@ -220,7 +220,7 @@ class TestFundingCarryFeatures(_Base):
 class TestV5FeatureCount(_Base):
 
     def test_enriched_feature_names_count(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 105, f"Expected 105, got {len(ENRICHED_FEATURE_NAMES)}"
+        assert len(ENRICHED_FEATURE_NAMES) == 116, f"Expected 116, got {len(ENRICHED_FEATURE_NAMES)}"
 
     def test_all_v5_features_present_after_warmup(self):
         comp = EnrichedFeatureComputer()

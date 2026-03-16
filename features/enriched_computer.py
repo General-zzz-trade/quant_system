@@ -148,6 +148,12 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "btc_dom_momentum",               # BTC 24h ret - ALT 24h ret — dominance shift velocity
     "btc_lead_ret_1",                 # BTC ret_1 (lagged signal for ALT)
     "btc_vol_ratio",                  # ALT vol_20 / BTC vol_20 — relative volatility regime
+    # --- V13: Enhanced OI/LS/Taker features (IC-validated 2026-03) ---
+    "oi_pct_4h",                      # 4-bar OI change rate — short-term position buildup
+    "ls_deviation",                   # ls_ratio - 1.0 — directional bias magnitude
+    "taker_buy_sell_ratio",           # taker_buy_vol / taker_sell_vol — raw buy/sell pressure
+    "top_retail_divergence",          # top_trader_ls - global_ls — smart vs dumb money divergence
+    "oi_price_divergence_12",         # 12-bar OI change - 12-bar price change — position/price mismatch
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -320,6 +326,11 @@ class _SymbolState:
     ls_ratio_window_24: RollingWindow = field(default_factory=lambda: RollingWindow(24))
     _last_ls_ratio: Optional[float] = None
 
+    # V13: Enhanced OI/LS/Taker
+    _oi_buf_12: Deque[float] = field(default_factory=lambda: deque(maxlen=12))
+    _last_top_trader_ls: Optional[float] = None
+    _last_taker_sell_volume: float = 0.0
+
     # V5: Order flow windows
     cvd_window_10: RollingWindow = field(default_factory=lambda: RollingWindow(10))
     cvd_window_20: RollingWindow = field(default_factory=lambda: RollingWindow(20))
@@ -416,6 +427,7 @@ class _SymbolState:
              taker_buy_quote_volume: float = 0.0,
              open_interest: Optional[float] = None,
              ls_ratio: Optional[float] = None,
+             top_trader_ls_ratio: Optional[float] = None,
              spot_close: Optional[float] = None,
              fear_greed: Optional[float] = None,
              implied_vol: Optional[float] = None,
@@ -450,11 +462,21 @@ class _SymbolState:
                 self._last_oi_change_pct = change
                 self.oi_change_ema_8.push(change)
             self._last_oi = open_interest
+            # V13: OI history buffer for multi-bar change
+            self._oi_buf_12.append(open_interest)
 
             # V5: leverage proxy = OI / (close * volume), normalized by EMA
             if close > 0 and volume > 0:
                 raw_lev = open_interest / (close * volume)
                 self.leverage_proxy_ema.push(raw_lev)
+
+        # V13: Top trader LS ratio
+        if top_trader_ls_ratio is not None:
+            self._last_top_trader_ls = top_trader_ls_ratio
+
+        # V13: Taker sell volume (for buy/sell ratio)
+        taker_sell = volume - taker_buy_volume if volume > 0 and taker_buy_volume > 0 else 0.0
+        self._last_taker_sell_volume = taker_sell
 
         # LS Ratio state
         if ls_ratio is not None:
@@ -948,6 +970,42 @@ class _SymbolState:
         else:
             feats["ls_ratio_zscore_24"] = None
             feats["ls_extreme"] = None
+
+        # --- V13: Enhanced OI/LS/Taker features ---
+        # oi_pct_4h: 4-bar OI change rate
+        if len(self._oi_buf_12) >= 5 and self._oi_buf_12[-5] > 0:
+            feats["oi_pct_4h"] = (self._oi_buf_12[-1] - self._oi_buf_12[-5]) / self._oi_buf_12[-5]
+        else:
+            feats["oi_pct_4h"] = None
+
+        # ls_deviation: ls_ratio - 1.0
+        if self._last_ls_ratio is not None:
+            feats["ls_deviation"] = self._last_ls_ratio - 1.0
+        else:
+            feats["ls_deviation"] = None
+
+        # taker_buy_sell_ratio: buy_vol / sell_vol
+        if self._last_taker_buy_volume > 0 and self._last_taker_sell_volume > 0:
+            feats["taker_buy_sell_ratio"] = self._last_taker_buy_volume / self._last_taker_sell_volume
+        else:
+            feats["taker_buy_sell_ratio"] = None
+
+        # top_retail_divergence: top_trader_ls - global_ls
+        if self._last_top_trader_ls is not None and self._last_ls_ratio is not None:
+            feats["top_retail_divergence"] = self._last_top_trader_ls - self._last_ls_ratio
+        else:
+            feats["top_retail_divergence"] = None
+
+        # oi_price_divergence_12: 12-bar OI change - 12-bar price change
+        if len(self._oi_buf_12) >= 12 and self._oi_buf_12[0] > 0:
+            oi_change_12 = (self._oi_buf_12[-1] - self._oi_buf_12[0]) / self._oi_buf_12[0]
+            ret_12 = feats.get("ret_12")
+            if ret_12 is not None:
+                feats["oi_price_divergence_12"] = oi_change_12 - ret_12
+            else:
+                feats["oi_price_divergence_12"] = None
+        else:
+            feats["oi_price_divergence_12"] = None
 
         # --- V5: Order Flow features ---
         if self.cvd_window_10.full:
@@ -1491,6 +1549,7 @@ class EnrichedFeatureComputer:
         taker_buy_quote_volume: float = 0.0,
         open_interest: Optional[float] = None,
         ls_ratio: Optional[float] = None,
+        top_trader_ls_ratio: Optional[float] = None,
         spot_close: Optional[float] = None,
         fear_greed: Optional[float] = None,
         implied_vol: Optional[float] = None,
@@ -1505,6 +1564,7 @@ class EnrichedFeatureComputer:
         """Process a new bar and return computed features.
 
         btc_close: BTC price at same bar time. Required for V12 ALT cross-asset features.
+        top_trader_ls_ratio: Top trader position L/S ratio (V13).
         """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
@@ -1524,6 +1584,7 @@ class EnrichedFeatureComputer:
                    quote_volume=quote_volume,
                    taker_buy_quote_volume=taker_buy_quote_volume,
                    open_interest=open_interest, ls_ratio=ls_ratio,
+                   top_trader_ls_ratio=top_trader_ls_ratio,
                    spot_close=spot_close, fear_greed=fear_greed,
                    implied_vol=implied_vol, put_call_ratio=put_call_ratio,
                    onchain_metrics=onchain_metrics,
