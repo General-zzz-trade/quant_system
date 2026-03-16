@@ -24,6 +24,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Shared cross-symbol signal state for consensus scaling.
+# Maps runner_key → current signal (+1, -1, 0). Updated by each AlphaRunner
+# after process_bar(). Read by _get_consensus_scale() to adjust sizing.
+_consensus_signals: dict[str, int] = {}
+
 
 # ── Binance OI/LS/Taker data fetcher ─────────────────────────────────
 
@@ -290,6 +295,10 @@ class AlphaRunner:
 
         # V14: BTC dominance ratio buffer (BTC/ETH)
         self._dom_ratio_buf: list[float] = []
+
+        # Cross-symbol consensus + z-scale state
+        self._runner_key: str = ""  # set by main() after construction
+        self._z_scale: float = 1.0  # non-linear z-score position scale
 
     def _fetch_eth_price(self) -> float:
         """Fetch current ETH price from Binance for dominance computation."""
@@ -593,13 +602,90 @@ class AlphaRunner:
                 lev = lev_val
         return lev
 
+    def _get_consensus_scale(self) -> float:
+        """Compute position scale based on cross-symbol signal consensus.
+
+        IMPORTANT: Research showed consensus is CONTRARIAN — when all 4
+        symbols agree bearish, market actually goes UP (+28bp). So:
+        - All agree same direction: scale=1.0 (don't increase)
+        - 3/4 agree: scale=1.0
+        - 1-2 agree with this symbol: scale=0.7 (lower conviction)
+        - Going AGAINST consensus (contrarian): +30% boost
+
+        Returns scale factor in [0.5, 1.3].
+        """
+        if not _consensus_signals or not self._runner_key:
+            return 1.0
+
+        my_signal = self._current_signal
+        if my_signal == 0:
+            return 1.0  # flat, no scaling needed
+
+        # Count signals in each direction (exclude self)
+        n_bull = 0
+        n_bear = 0
+        n_total = 0
+        for rkey, sig in _consensus_signals.items():
+            if rkey == self._runner_key:
+                continue
+            if sig > 0:
+                n_bull += 1
+            elif sig < 0:
+                n_bear += 1
+            n_total += 1
+
+        if n_total == 0:
+            return 1.0
+
+        # How many others agree with my direction?
+        same_dir = n_bull if my_signal > 0 else n_bear
+        opposite_dir = n_bear if my_signal > 0 else n_bull
+
+        # Contrarian boost: if ALL others disagree (consensus opposite),
+        # this symbol is going against the crowd — historically profitable
+        if opposite_dir == n_total and n_total >= 2:
+            return 1.3  # +30% contrarian boost
+
+        # Fraction of others that agree with me
+        agree_frac = same_dir / n_total if n_total > 0 else 0
+
+        if agree_frac >= 0.75:  # 3/4+ agree (including unanimous)
+            return 1.0
+        elif agree_frac >= 0.25:  # 1-2 out of 3-4 agree
+            return 0.7
+        else:  # nobody agrees
+            return 0.5
+
+    @staticmethod
+    def compute_z_scale(z: float) -> float:
+        """Non-linear position sizing based on z-score magnitude.
+
+        Stronger signals get larger positions, weak signals get smaller:
+        - |z| > 2.0: scale=1.5 (extreme conviction)
+        - |z| > 1.0: scale=1.0 (normal)
+        - |z| > 0.5: scale=0.7 (weak signal)
+        - else:       scale=0.5 (barely above deadzone)
+
+        Returns scale factor in [0.5, 1.5].
+        """
+        abs_z = abs(z)
+        if abs_z > 2.0:
+            return 1.5
+        elif abs_z > 1.0:
+            return 1.0
+        elif abs_z > 0.5:
+            return 0.7
+        else:
+            return 0.5
+
     def _compute_position_size(self, price: float) -> float:
         """Compute position size using Kelly-optimal leverage ladder.
 
         1. Look up leverage from equity-based ladder
         2. Position = equity * leverage / price
-        3. Clamp to [min_size, exchange limit]
-        4. Set exchange leverage to match
+        3. Apply z-scale (non-linear z-score sizing) and consensus scale
+        4. Clamp to [min_size, exchange limit]
+        5. Set exchange leverage to match
 
         Kelly math: 20x optimal, but real-world safety margin for
         stop-loss slippage means 5-10x at small equity.
@@ -625,6 +711,18 @@ class AlphaRunner:
         # (same logic as PortfolioCombiner for COMBO symbols)
         max_notional = equity * 0.30 * target_lev
         size = max_notional / price
+
+        # Apply non-linear z-score scale + cross-symbol consensus scale
+        z_scale = self._z_scale  # set in process_bar()
+        consensus_scale = self._get_consensus_scale()
+        combined_scale = z_scale * consensus_scale
+        size *= combined_scale
+
+        if combined_scale != 1.0:
+            logger.info(
+                "%s SCALE: z_scale=%.2f consensus=%.2f combined=%.2f",
+                self._symbol, z_scale, consensus_scale, combined_scale,
+            )
 
         # Clamp to exchange limits
         size = max(self._min_size, size)
@@ -771,6 +869,9 @@ class AlphaRunner:
         std = np.std(window)
         z = (pred - mean) / std if std > 1e-12 else 0.0
 
+        # Non-linear z-score position sizing
+        self._z_scale = self.compute_z_scale(z)
+
         prev_signal = self._current_signal
 
         # Regime filter: force flat when regime is unfavorable
@@ -850,6 +951,10 @@ class AlphaRunner:
 
         self._current_signal = new_signal
 
+        # Update shared consensus state for cross-symbol scaling
+        if self._runner_key:
+            _consensus_signals[self._runner_key] = new_signal
+
         # OI data summary for logging
         oi_str = ""
         if not np.isnan(oi_data.get("ls_ratio", float("nan"))):
@@ -858,6 +963,7 @@ class AlphaRunner:
         result = {
             "action": "signal", "bar": self._bars_processed,
             "pred": round(pred, 6), "z": round(z, 4),
+            "z_scale": self._z_scale,
             "signal": new_signal, "prev_signal": prev_signal,
             "hold_count": self._hold_count, "close": bar["close"],
             "regime": "active" if regime_ok else "filtered",
@@ -1383,12 +1489,14 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                 elif "trade" in result:
                     trade_str = f" TRADE={result['trade']}"
 
+                z_sc = result.get("z_scale", 1.0)
+                z_sc_str = f" zs={z_sc:.1f}" if z_sc != 1.0 else ""
                 logger.info(
-                    "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
+                    "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s%s",
                     label, result["bar"], result["close"],
                     result["z"], result["signal"],
                     result["hold_count"], regime, result.get("dz", 0),
-                    trade_str,
+                    z_sc_str, trade_str,
                 )
         return on_ws_bar
 
@@ -1703,6 +1811,7 @@ def main():
             max_qty=sym_cfg.get("max_qty", 0),
             step_size=sym_cfg.get("step", 0.01),
         )
+        runner._runner_key = symbol  # for cross-symbol consensus scaling
         logger.info("%s: warming up %d bars...", symbol, warmup)
         runner.warmup(limit=warmup, interval=interval)
         runners[symbol] = runner

@@ -204,39 +204,105 @@ def compute_features_batch(
     return feat_df
 
 
+def _compute_ratio_features(
+    closes: np.ndarray, ref_closes: np.ndarray, prefix: str,
+    feat_df: pd.DataFrame,
+) -> None:
+    """Compute dev_20 and ret_24 ratio features for closes vs ref_closes.
+
+    Writes '{prefix}_dev_20' and '{prefix}_ret_24' into feat_df.
+    """
+    import pandas as _pd
+
+    n = len(closes)
+    n_ref = len(ref_closes)
+    min_n = min(n, n_ref)
+
+    ratio = np.full(n, np.nan)
+    ratio[-min_n:] = closes[-min_n:] / np.where(ref_closes[-min_n:] > 0, ref_closes[-min_n:], 1)
+
+    ratio_s = _pd.Series(ratio)
+    ma20 = ratio_s.rolling(20).mean().values
+
+    feat_df[f"{prefix}_dev_20"] = ratio / np.where(ma20 > 0, ma20, np.nan) - 1
+    feat_df[f"{prefix}_ret_24"] = ratio_s.pct_change(24).values
+
+
+def _load_ref_closes(symbol: str) -> np.ndarray | None:
+    """Load 1h closes for a reference symbol. Returns None if file missing."""
+    path = Path(f"data_files/{symbol}_1h.csv")
+    if not path.exists():
+        return None
+    df = pd.read_csv(path)
+    return df["close"].values.astype(np.float64)
+
+
+# Multi-ratio dominance config: symbol -> list of (ref_symbol, feature_prefix)
+_DOMINANCE_PAIRS: dict[str, list[tuple[str, str]]] = {
+    "BTCUSDT": [("SUIUSDT", "dom_vs_sui")],
+    "ETHUSDT": [("SUIUSDT", "dom_vs_sui"), ("AXSUSDT", "dom_vs_axs")],
+    "SUIUSDT": [("AXSUSDT", "dom_vs_axs")],
+    "AXSUSDT": [("ETHUSDT", "dom_vs_eth")],
+}
+
+# All possible multi-ratio feature names (for NaN fill when pair not applicable)
+_ALL_MULTI_RATIO_NAMES = [
+    "dom_vs_sui_dev_20", "dom_vs_sui_ret_24",
+    "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
+    "dom_vs_eth_dev_20", "dom_vs_eth_ret_24",
+]
+
+
 def _add_dominance_features(symbol: str, feat_df: pd.DataFrame, closes: np.ndarray) -> None:
-    """Add BTC/ETH dominance ratio features. Works for any symbol vs ETH."""
+    """Add dominance ratio features: original BTC/ETH + multi-ratio pairs."""
     import pandas as _pd
     from pathlib import Path as _P
 
+    # --- Original V14: BTC/ETH ratio (4 features, kept for backward compat) ---
     dom_names = ["btc_dom_dev_20", "btc_dom_dev_50", "btc_dom_ret_24", "btc_dom_ret_72"]
 
-    # Need ETH data as reference
     eth_path = _P("data_files/ETHUSDT_1h.csv")
     if not eth_path.exists() or symbol == "ETHUSDT":
         for name in dom_names:
             feat_df[name] = np.nan
-        return
+    else:
+        eth_df = pd.read_csv(eth_path)
+        eth_closes = eth_df["close"].values.astype(np.float64)
 
-    eth_df = pd.read_csv(eth_path)
-    eth_closes = eth_df["close"].values.astype(np.float64)
+        n = len(closes)
+        n_eth = len(eth_closes)
+        min_n = min(n, n_eth)
 
-    # Align by tail (both should end at same timestamp)
-    n = len(closes)
-    n_eth = len(eth_closes)
-    min_n = min(n, n_eth)
+        ratio = np.full(n, np.nan)
+        ratio[-min_n:] = closes[-min_n:] / np.where(eth_closes[-min_n:] > 0, eth_closes[-min_n:], 1)
 
-    ratio = np.full(n, np.nan)
-    ratio[-min_n:] = closes[-min_n:] / np.where(eth_closes[-min_n:] > 0, eth_closes[-min_n:], 1)
+        ratio_s = _pd.Series(ratio)
+        ma20 = ratio_s.rolling(20).mean().values
+        ma50 = ratio_s.rolling(50).mean().values
 
-    ratio_s = _pd.Series(ratio)
-    ma20 = ratio_s.rolling(20).mean().values
-    ma50 = ratio_s.rolling(50).mean().values
+        feat_df["btc_dom_dev_20"] = ratio / np.where(ma20 > 0, ma20, np.nan) - 1
+        feat_df["btc_dom_dev_50"] = ratio / np.where(ma50 > 0, ma50, np.nan) - 1
+        feat_df["btc_dom_ret_24"] = ratio_s.pct_change(24).values
+        feat_df["btc_dom_ret_72"] = ratio_s.pct_change(72).values
 
-    feat_df["btc_dom_dev_20"] = ratio / np.where(ma20 > 0, ma20, np.nan) - 1
-    feat_df["btc_dom_dev_50"] = ratio / np.where(ma50 > 0, ma50, np.nan) - 1
-    feat_df["btc_dom_ret_24"] = ratio_s.pct_change(24).values
-    feat_df["btc_dom_ret_72"] = ratio_s.pct_change(72).values
+    # --- V14b: Multi-ratio dominance features ---
+    # Initialize all multi-ratio columns to NaN
+    for name in _ALL_MULTI_RATIO_NAMES:
+        feat_df[name] = np.nan
+
+    # Compute pairs applicable to this symbol
+    pairs = _DOMINANCE_PAIRS.get(symbol, [])
+    # Cache loaded reference data to avoid re-reading
+    _ref_cache: dict[str, np.ndarray | None] = {}
+    for ref_sym, prefix in pairs:
+        if ref_sym == symbol:
+            continue
+        if ref_sym not in _ref_cache:
+            _ref_cache[ref_sym] = _load_ref_closes(ref_sym)
+        ref_closes = _ref_cache[ref_sym]
+        if ref_closes is None:
+            continue
+        _compute_ratio_features(closes, ref_closes, prefix, feat_df)
 
 
 def _load_liq_schedule(symbol: str) -> np.ndarray:

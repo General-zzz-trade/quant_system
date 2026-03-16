@@ -153,6 +153,13 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "btc_dom_dev_50",                 # BTC/ETH ratio deviation from MA(50) — trend signal
     "btc_dom_ret_24",                 # BTC/ETH ratio 24-bar return — short-term dominance shift
     "btc_dom_ret_72",                 # BTC/ETH ratio 72-bar return — medium-term dominance shift
+    # --- V14b: Multi-ratio dominance features (symbol vs reference pairs) ---
+    "dom_vs_sui_dev_20",              # ratio vs SUI deviation from MA(20)
+    "dom_vs_sui_ret_24",             # ratio vs SUI 24-bar return
+    "dom_vs_axs_dev_20",             # ratio vs AXS deviation from MA(20)
+    "dom_vs_axs_ret_24",             # ratio vs AXS 24-bar return
+    "dom_vs_eth_dev_20",             # ratio vs ETH deviation from MA(20)
+    "dom_vs_eth_ret_24",             # ratio vs ETH 24-bar return
     # --- V13: Enhanced OI/LS/Taker features (IC-validated 2026-03) ---
     "oi_pct_4h",                      # 4-bar OI change rate — short-term position buildup
     "ls_deviation",                   # ls_ratio - 1.0 — directional bias magnitude
