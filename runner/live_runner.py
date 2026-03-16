@@ -28,26 +28,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from engine.coordinator import CoordinatorConfig, EngineCoordinator
-from engine.decision_bridge import DecisionBridge
-from engine.execution_bridge import ExecutionBridge
-from engine.loop import EngineLoop, LoopConfig
-from engine.guards import build_basic_guard, GuardConfig
-
-from decision.regime_bridge import RegimeAwareDecisionModule
-from decision.regime_policy import RegimePolicy
-
-from engine.feature_hook import FeatureComputeHook
 from execution.latency.tracker import LatencyTracker
 from execution.observability.incidents import timeout_to_alert
-
 from monitoring.alerts.manager import AlertManager
-from monitoring.engine_hook import EngineMonitoringHook
-from monitoring.health import SystemHealthMonitor, HealthConfig
-
-from risk.kill_switch import KillMode, KillScope, KillSwitch
-from risk.kill_switch_bridge import KillSwitchBridge
-from risk.margin_monitor import MarginConfig, MarginMonitor
+from monitoring.health import SystemHealthMonitor
+from risk.kill_switch import KillSwitch
+from risk.margin_monitor import MarginMonitor
 
 from runner.config import (
     LiveRunnerConfig,
@@ -55,19 +41,30 @@ from runner.config import (
 )
 from runner.observability import OperatorObservabilityMixin
 from runner.operator_control import OperatorControlMixin
-from runner.graceful_shutdown import GracefulShutdown, ShutdownConfig
+from runner.graceful_shutdown import GracefulShutdown
 from runner.recovery import (
     EventRecorder,
     PeriodicCheckpointer,
-    reconcile_and_heal,
-    restore_all_auxiliary_state,
-    save_all_auxiliary_state,
 )
+
+# Phase builders (extracted to runner/builders/)
+from runner.builders.core_infra_builder import build_core_infra as _build_core_infra
+from runner.builders.monitoring_builder import build_monitoring as _build_monitoring
+from runner.builders.portfolio_builder import build_portfolio_and_correlation as _build_portfolio_and_correlation
+from runner.builders.order_infra_builder import build_order_infra as _build_order_infra
+from runner.builders.features_builder import build_features_and_inference as _build_features_and_inference
+from runner.builders.engine_builder import build_coordinator_and_pipeline as _build_coordinator_and_pipeline
+from runner.builders.execution_builder import build_execution_phase as _build_execution
+from runner.builders.decision_builder import build_decision as _build_decision
+from runner.builders.market_data_builder import build_market_data as _build_market_data
+from runner.builders.user_stream_builder import build_user_stream as _build_user_stream
+from runner.builders.persistence import build_persistence_and_recovery as _persistence_builder
+from runner.builders.shutdown import build_shutdown as _shutdown_builder
 
 logger = logging.getLogger(__name__)
 
 
-# ── Sub-builder helpers (extracted from build()) ─────────────────────────
+# ── Sub-builder helpers (used by builders) ─────────────────────────
 
 
 def _find_module_attr(decision_bridge: Any, attr: str) -> Any:
@@ -116,14 +113,6 @@ class _SubsystemReport:
             )
 
 
-# _build_multi_tf_ensemble, _build_alert_rules, _build_health_server
-# extracted to runner/builders/ for organization.
-from runner.builders.inference import _build_multi_tf_ensemble  # noqa: E402
-from runner.builders.monitoring import _build_alert_rules, _build_health_server  # noqa: E402
-from runner.builders.persistence import build_persistence_and_recovery as _persistence_builder  # noqa: E402
-from runner.builders.shutdown import build_shutdown as _shutdown_builder  # noqa: E402
-
-
 @dataclass
 class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     """Full live trading runner with reconciliation, kill switch, and margin monitoring.
@@ -132,8 +121,8 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     Call start() to begin trading (blocks until stop() or signal).
     """
 
-    loop: EngineLoop
-    coordinator: EngineCoordinator
+    loop: Any  # EngineLoop
+    coordinator: Any  # EngineCoordinator
     runtime: Any
     kill_switch: KillSwitch
     health: Optional[SystemHealthMonitor] = None
@@ -179,750 +168,6 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     _last_user_stream_failure_kind: Optional[str] = field(default=None, init=False)
     _last_model_reload_status: Optional[Dict[str, Any]] = field(default=None, init=False)
 
-    @staticmethod
-    def _build_core_infra(
-        config: LiveRunnerConfig,
-        on_fill: Optional[Callable[[Any], None]],
-        alert_sink: Optional[Any],
-        fills: List[Dict[str, Any]],
-    ) -> tuple:
-        """Phase 1: structured logging, latency tracker, fill recorder, kill switch, alert sink."""
-        # ── Auto-wire Telegram alerts from env vars ──────────
-        if alert_sink is None:
-            tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-            tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
-            if tg_token and tg_chat:
-                from monitoring.alerts.telegram import TelegramAlertSink
-                from monitoring.alerts.base import CompositeAlertSink
-                from monitoring.alerts.console import ConsoleAlertSink
-                alert_sink = CompositeAlertSink(sinks=[
-                    ConsoleAlertSink(),
-                    TelegramAlertSink(tg_token, tg_chat),
-                ])
-                logger.info("Telegram alerts auto-wired (chat_id=%s)", tg_chat)
-
-        # ── 0) Structured logging ─────────────────────────────
-        if config.enable_structured_logging:
-            from infra.logging.structured import setup_structured_logging
-            setup_structured_logging(
-                level=config.log_level,
-                log_file=config.log_file,
-            )
-
-        # ── 1) LatencyTracker ─────────────────────────────────
-        latency_tracker = LatencyTracker()
-
-        def _record_fill(fill: Any) -> None:
-            from execution.models.fills import fill_to_record
-            fills.append(fill_to_record(fill))
-            order_id = getattr(fill, "order_id", None)
-            if order_id:
-                latency_tracker.record_fill(str(order_id))
-            if on_fill is not None:
-                on_fill(fill)
-
-        # ── 2) KillSwitch ────────────────────────────────────
-        kill_switch = KillSwitch()
-
-        return latency_tracker, _record_fill, kill_switch, alert_sink
-
-    @staticmethod
-    def _build_monitoring(
-        config: LiveRunnerConfig,
-        kill_switch: KillSwitch,
-        metrics_exporter: Any,
-    ) -> tuple:
-        """Phase 2: health monitor, monitoring hook, alpha health, regime sizer, signal tracker."""
-        health: Optional[SystemHealthMonitor] = None
-        hook: Optional[EngineMonitoringHook] = None
-
-        if config.enable_monitoring:
-            health = SystemHealthMonitor(
-                config=HealthConfig(stale_data_sec=config.health_stale_data_sec),
-            )
-            hook = EngineMonitoringHook(health=health, metrics=metrics_exporter)
-
-            # ── Drawdown circuit breaker ──
-            from risk.drawdown_breaker import DrawdownCircuitBreaker, DrawdownBreakerConfig
-            dd_breaker = DrawdownCircuitBreaker(
-                kill_switch=kill_switch,
-                config=DrawdownBreakerConfig(
-                    warning_pct=config.dd_warning_pct,
-                    reduce_pct=config.dd_reduce_pct,
-                    kill_pct=config.dd_kill_pct,
-                ),
-            )
-            hook.drawdown_breaker = dd_breaker
-
-        # ── Alpha Health Monitor (IC tracking + position scaling) ──
-        alpha_health_monitor = None
-        if config.enable_alpha_health:
-            from monitoring.alpha_health import AlphaHealthMonitor, AlphaHealthConfig
-
-            alpha_health_monitor = AlphaHealthMonitor(
-                config=AlphaHealthConfig(),
-                prometheus=metrics_exporter,
-            )
-            for sym in config.symbols:
-                alpha_health_monitor.register(sym, horizons=list(config.alpha_health_horizons))
-            if hook is not None:
-                hook.alpha_health_monitor = alpha_health_monitor
-            logger.info(
-                "Alpha health monitor enabled: symbols=%s horizons=%s",
-                config.symbols, config.alpha_health_horizons,
-            )
-
-        # ── Regime Position Sizer (Direction 17) ──
-        regime_sizer = None
-        if config.enable_regime_sizing:
-            from portfolio.regime_sizer import RegimePositionSizer, RegimeSizerConfig
-            regime_sizer = RegimePositionSizer(
-                config=RegimeSizerConfig(
-                    low_vol_scale=config.regime_low_vol_scale,
-                    mid_vol_scale=config.regime_mid_vol_scale,
-                    high_vol_scale=config.regime_high_vol_scale,
-                ),
-            )
-            logger.info(
-                "Regime position sizer enabled: low=%.1f mid=%.1f high=%.1f",
-                config.regime_low_vol_scale, config.regime_mid_vol_scale,
-                config.regime_high_vol_scale,
-            )
-
-        # Wire regime sizer to monitoring hook
-        if regime_sizer is not None and hook is not None:
-            hook.regime_sizer = regime_sizer
-
-        # ── LiveSignalTracker (Direction 18: attribution feedback) ──
-        from attribution.live_tracker import LiveSignalTracker
-        live_signal_tracker = LiveSignalTracker(prometheus=metrics_exporter)
-        if hook is not None:
-            hook.live_signal_tracker = live_signal_tracker
-
-        return health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker
-
-    @staticmethod
-    def _build_portfolio_and_correlation(config: LiveRunnerConfig) -> tuple:
-        """Phase 3: portfolio allocator, burn-in gate, correlation, attribution."""
-        # ── Portfolio Allocator (Direction 19) ──
-        portfolio_allocator = None
-        if config.enable_portfolio_risk:
-            from portfolio.live_allocator import LivePortfolioAllocator, LiveAllocatorConfig
-            portfolio_allocator = LivePortfolioAllocator(
-                config=LiveAllocatorConfig(
-                    max_gross_leverage=config.max_gross_leverage,
-                    max_net_leverage=config.max_net_leverage,
-                    max_concentration=config.max_concentration,
-                ),
-            )
-            logger.info(
-                "Portfolio allocator enabled: gross=%.1f net=%.1f concentration=%.1f",
-                config.max_gross_leverage, config.max_net_leverage,
-                config.max_concentration,
-            )
-
-        # ── Burn-in Gate (Direction 14) ──
-        if config.enable_burnin_gate and not config.testnet:
-            from runner.preflight import BurninGate
-            burnin_gate = BurninGate(report_path=config.burnin_report_path)
-            burnin_check = burnin_gate.check(testnet=config.testnet)
-            if not burnin_check.passed:
-                raise RuntimeError(
-                    f"Burn-in gate FAILED: {burnin_check.message}\n"
-                    "Complete paper→shadow→testnet phases before production."
-                )
-            logger.info("Burn-in gate passed: %s", burnin_check.message)
-
-        # ── CorrelationComputer (created early for on_snapshot) ──
-        from risk.correlation_computer import CorrelationComputer
-        correlation_computer = CorrelationComputer(window=60)
-
-        def _update_correlation(snapshot: Any) -> None:
-            markets = getattr(snapshot, "markets", {})
-            for sym, mkt in markets.items():
-                close = getattr(mkt, "close", None)
-                if close is not None:
-                    correlation_computer.update(sym, float(close))
-
-        # ── AttributionTracker ───────────────────────────────
-        from attribution.tracker import AttributionTracker
-        attribution_tracker = AttributionTracker()
-
-        # ── CorrelationGate ──────────────────────────────────
-        from risk.correlation_gate import CorrelationGate, CorrelationGateConfig
-        correlation_gate = CorrelationGate(
-            computer=correlation_computer,
-            config=CorrelationGateConfig(max_avg_correlation=config.max_avg_correlation),
-        )
-
-        return (
-            portfolio_allocator, correlation_computer, _update_correlation,
-            attribution_tracker, correlation_gate,
-        )
-
-    @staticmethod
-    def _build_order_infra(config: LiveRunnerConfig, alpha_models: Any) -> tuple:
-        """Phase 4: order state machine, timeout tracker, model registry."""
-        # ── OrderStateMachine (order lifecycle tracking) ────
-        from execution.state_machine.machine import OrderStateMachine
-        order_state_machine = OrderStateMachine()
-
-        # ── TimeoutTracker (stale order detection) ──────────
-        from execution.safety.timeout_tracker import OrderTimeoutTracker
-        timeout_tracker = OrderTimeoutTracker(
-            timeout_sec=config.pending_order_timeout_sec,
-        )
-
-        # ── ModelRegistry auto-loading (Phase 1) ──────────
-        model_loader_inst = None
-        if config.model_registry_db and config.model_names:
-            from research.model_registry.registry import ModelRegistry
-            from research.model_registry.artifact import ArtifactStore
-            from alpha.model_loader import ProductionModelLoader
-
-            registry = ModelRegistry(config.model_registry_db)
-            artifact_store = ArtifactStore(config.artifact_store_root or "artifacts")
-            model_loader_inst = ProductionModelLoader(registry, artifact_store)
-            loaded = model_loader_inst.load_production_models(config.model_names)
-            if loaded:
-                alpha_models = list(alpha_models or []) + loaded
-                logger.info("Auto-loaded %d production model(s) from registry", len(loaded))
-
-        return order_state_machine, timeout_tracker, model_loader_inst, alpha_models
-
-    @staticmethod
-    def _build_features_and_inference(
-        config: LiveRunnerConfig,
-        feature_computer: Any,
-        alpha_models: Any,
-        inference_bridges: Optional[Dict[str, Any]],
-        unified_predictors: Optional[Dict[str, Any]],
-        metrics_exporter: Any,
-        hook: Optional[EngineMonitoringHook],
-        report: _SubsystemReport,
-        bear_model: Any,
-        funding_rate_source: Any,
-        oi_source: Any,
-        ls_ratio_source: Any,
-        spot_close_source: Any,
-        fgi_source: Any,
-        implied_vol_source: Any,
-        put_call_ratio_source: Any,
-        onchain_source: Any,
-        liquidation_source: Any,
-        mempool_source: Any,
-        macro_source: Any,
-        sentiment_source: Any,
-    ) -> tuple:
-        """Phase 5: feature hook, inference bridge, multi-TF ensemble, decision recording."""
-        feat_hook = None
-        inference_bridge = None
-        if feature_computer is not None:
-            if inference_bridges is not None:
-                # Multi-symbol: per-symbol bridges already constructed
-                inference_bridge = inference_bridges
-            elif alpha_models:
-                from alpha.inference.bridge import LiveInferenceBridge
-                inference_bridge = LiveInferenceBridge(
-                    models=list(alpha_models),
-                    metrics_exporter=metrics_exporter,
-                    min_hold_bars=config.min_hold_bars,
-                    long_only_symbols=config.long_only_symbols,
-                    deadzone=config.deadzone,
-                    trend_follow=config.trend_follow,
-                    trend_indicator=config.trend_indicator,
-                    trend_threshold=config.trend_threshold,
-                    max_hold=config.max_hold,
-                    monthly_gate=config.monthly_gate,
-                    monthly_gate_window=config.monthly_gate_window,
-                    bear_model=bear_model,
-                    bear_thresholds=config.bear_thresholds,
-                    vol_target=config.vol_target,
-                    vol_feature=config.vol_feature,
-                    ensemble_weights=config.ensemble_weights,
-                )
-
-            # ── Multi-timeframe Ensemble (Direction 13) ──────────────
-            if config.enable_multi_tf_ensemble and inference_bridge is not None:
-                inference_bridge = _build_multi_tf_ensemble(
-                    config, inference_bridge, metrics_exporter, report,
-                )
-
-            feat_hook = FeatureComputeHook(
-                computer=feature_computer,
-                inference_bridge=inference_bridge if unified_predictors is None else None,
-                unified_predictor=unified_predictors,
-                funding_rate_source=funding_rate_source,
-                oi_source=oi_source,
-                ls_ratio_source=ls_ratio_source,
-                spot_close_source=spot_close_source,
-                fgi_source=fgi_source,
-                implied_vol_source=implied_vol_source,
-                put_call_ratio_source=put_call_ratio_source,
-                onchain_source=onchain_source,
-                liquidation_source=liquidation_source,
-                mempool_source=mempool_source,
-                macro_source=macro_source,
-                sentiment_source=sentiment_source,
-            )
-
-        # Wire inference_bridge to monitoring hook
-        _first_bridge = None
-        if inference_bridge is not None:
-            if isinstance(inference_bridge, dict):
-                _first_bridge = next(iter(inference_bridge.values()), None)
-            else:
-                _first_bridge = inference_bridge
-        if hook is not None and _first_bridge is not None:
-            hook.inference_bridge = _first_bridge
-
-        # Decision recording (replay support)
-        if config.enable_decision_recording and hook is not None:
-            from decision.persistence.decision_store import DecisionStore
-            hook.decision_store = DecisionStore(path=config.decision_recording_path)
-            logger.info("Decision recording enabled: %s", config.decision_recording_path)
-
-        return feat_hook, inference_bridge
-
-    @staticmethod
-    def _build_coordinator_and_pipeline(
-        config: LiveRunnerConfig,
-        symbol_default: str,
-        hook: Optional[EngineMonitoringHook],
-        feat_hook: Any,
-        tick_processors: Optional[Dict[str, Any]],
-        _update_correlation: Callable,
-        correlation_gate: Any,
-        kill_switch: KillSwitch,
-        order_state_machine: Any,
-        timeout_tracker: Any,
-        attribution_tracker: Any,
-        live_signal_tracker: Any,
-        alpha_health_monitor: Any,
-        regime_sizer: Any,
-        portfolio_allocator: Any,
-        fetch_margin: Optional[Callable],
-        report: _SubsystemReport,
-    ) -> tuple:
-        """Phase 6: coordinator, risk gate, portfolio aggregator, gate chain, emit handler."""
-        # Event recording: chain onto on_pipeline_output if event_log available
-        _event_recorder_ref: List[Optional[EventRecorder]] = [None]
-
-        def _on_pipeline_output_with_recording(out: Any) -> None:
-            if hook is not None:
-                hook(out)
-            rec = _event_recorder_ref[0]
-            if rec is not None:
-                rec.on_pipeline_output(out)
-
-        coord_cfg = CoordinatorConfig(
-            symbol_default=symbol_default,
-            symbols=config.symbols,
-            currency=config.currency,
-            on_pipeline_output=_on_pipeline_output_with_recording,
-            on_snapshot=_update_correlation,
-            feature_hook=feat_hook,
-            tick_processor=tick_processors,
-        )
-        coordinator = EngineCoordinator(cfg=coord_cfg)
-
-        # ── RiskGate (pre-execution size/notional checks) ────
-        from execution.safety.risk_gate import RiskGate, RiskGateConfig
-        risk_gate = RiskGate(
-            config=RiskGateConfig(),
-            get_positions=lambda: coordinator.get_state_view().get("positions", {}),
-            get_open_order_count=lambda: len(order_state_machine.active_orders()),
-            is_killed=lambda: kill_switch.is_killed() is not None,
-        )
-
-        # ── Portfolio Risk Aggregator (Phase 2) ────────────
-        portfolio_aggregator = None
-        if config.enable_portfolio_risk:
-            try:
-                from risk.meta_builder_live import build_live_meta_builder
-                from risk.aggregator import RiskAggregator
-                from risk.rules.portfolio_limits import (
-                    GrossExposureRule, NetExposureRule, ConcentrationRule,
-                )
-                from decimal import Decimal
-
-                _equity_source = fetch_margin if fetch_margin is not None else lambda: 10000.0
-                meta_builder = build_live_meta_builder(coordinator, equity_source=_equity_source)
-                portfolio_aggregator = RiskAggregator(
-                    rules=[
-                        GrossExposureRule(max_gross_leverage=Decimal(str(config.max_gross_leverage))),
-                        NetExposureRule(max_net_leverage=Decimal(str(config.max_net_leverage))),
-                        ConcentrationRule(max_weight=Decimal(str(config.max_concentration))),
-                    ],
-                    meta_builder=meta_builder,
-                )
-                logger.info(
-                    "Portfolio risk enabled: gross<=%.1f, net<=%.1f, concentration<=%.1f",
-                    config.max_gross_leverage, config.max_net_leverage, config.max_concentration,
-                )
-            except Exception as e:
-                report.record("portfolio_risk", False, str(e))
-                logger.warning("Portfolio risk setup failed — continuing without", exc_info=True)
-
-        # Build gate chain for ORDER event processing
-        from runner.gate_chain import build_gate_chain
-        gate_chain = build_gate_chain(
-            correlation_gate=correlation_gate,
-            risk_gate=risk_gate,
-            get_state_view=coordinator.get_state_view,
-            portfolio_aggregator=portfolio_aggregator,
-            alpha_health_monitor=alpha_health_monitor,
-            regime_sizer=regime_sizer,
-            portfolio_allocator=portfolio_allocator,
-            hook=hook,
-            kill_switch=kill_switch,
-        )
-
-        from runner.emit_handler import LiveEmitHandler
-        _emit_handler = LiveEmitHandler(
-            coordinator=coordinator,
-            attribution_tracker=attribution_tracker,
-            gate_chain=gate_chain,
-            order_state_machine=order_state_machine,
-            timeout_tracker=timeout_tracker,
-            event_recorder=None,  # patched after event_recorder is created
-            live_signal_tracker=live_signal_tracker,
-        )
-        _emit = _emit_handler
-
-        return (
-            coordinator, risk_gate, portfolio_aggregator,
-            _emit_handler, _emit, _event_recorder_ref,
-        )
-
-    @staticmethod
-    def _build_execution(
-        config: LiveRunnerConfig,
-        venue_clients: Dict[str, Any],
-        coordinator: EngineCoordinator,
-        kill_switch: KillSwitch,
-        _emit: Any,
-        _record_fill: Callable,
-        risk_gate: Any,
-        report: _SubsystemReport,
-    ) -> tuple:
-        """Phase 7: venue client, preflight, WS order gateway, execution bridge."""
-        # ── 4) Execution adapter: KillSwitchBridge (production) ──
-        venue_client = venue_clients.get(config.venue)
-        if venue_client is None:
-            raise ValueError(
-                f"No venue client for '{config.venue}'. "
-                f"Available: {list(venue_clients.keys())}"
-            )
-
-        # ── 4a) Pre-flight checks ────────────────────────────
-        if config.enable_preflight:
-            from execution.adapters.binance.rest import BinanceRestClient as _BRC
-            if isinstance(venue_client, _BRC):
-                from runner.preflight import PreflightChecker, PreflightError
-                checker = PreflightChecker(venue_client)
-                result = checker.run_all(
-                    symbols=config.symbols,
-                    min_balance=config.preflight_min_balance,
-                )
-                for check in result.checks:
-                    logger.info(
-                        "Preflight %s: %s — %s",
-                        "PASS" if check.passed else "FAIL",
-                        check.name, check.message,
-                    )
-                if not result.passed:
-                    raise PreflightError(result)
-
-        # ── 4b) WS-API order gateway (optional fast path) ──────
-        ws_order_gateway = None
-        if config.use_ws_orders and not config.shadow_mode:
-            try:
-                from execution.adapters.binance.ws_order_adapter import WsOrderAdapter
-                from execution.adapters.binance.rest import BinanceRestClient as _BRCWS
-
-                if isinstance(venue_client, _BRCWS):
-                    ws_adapter = WsOrderAdapter(
-                        rest_adapter=venue_client,
-                        api_key=venue_client._cfg.api_key,
-                        api_secret=venue_client._cfg.api_secret,
-                        testnet=config.testnet,
-                    )
-                    ws_adapter.start()
-                    ws_order_gateway = ws_adapter
-                    venue_client = ws_adapter  # Replace venue_client with WS-first adapter
-                    logger.info("WS-API order gateway enabled (testnet=%s)", config.testnet)
-                else:
-                    logger.warning("WS orders require BinanceRestClient — skipping")
-            except Exception as e:
-                report.record("ws_order_gateway", False, str(e))
-                logger.warning("WS order gateway setup failed — using REST", exc_info=True)
-
-        kill_bridge = KillSwitchBridge(
-            inner=venue_client,
-            kill_switch=kill_switch,
-            cancel_fn=getattr(venue_client, "cancel_all_orders", None),
-        )
-
-        # Wrap with fill recording: intercept results from send_order
-        if config.shadow_mode:
-            from execution.sim.shadow_adapter import ShadowExecutionAdapter
-
-            def _shadow_price(sym: str):
-                from decimal import Decimal as _Dec
-                view = coordinator.get_state_view()
-                markets = view.get("markets", {})
-                m = markets.get(sym)
-                if m is None:
-                    return None
-                cf = getattr(m, "close_f", None)
-                if cf is not None:
-                    return _Dec(str(cf))
-                close = getattr(m, "close", None)
-                return _Dec(str(close)) if close is not None else None
-
-            exec_adapter = ShadowExecutionAdapter(price_source=_shadow_price)
-            logger.warning("SHADOW MODE — orders will be simulated, not executed")
-        else:
-            exec_adapter = _FillRecordingAdapter(inner=kill_bridge, on_fill=_record_fill)
-        exec_bridge = ExecutionBridge(adapter=exec_adapter, dispatcher_emit=_emit, risk_gate=risk_gate)
-        coordinator.attach_execution_bridge(exec_bridge)
-
-        return venue_client, ws_order_gateway
-
-    @staticmethod
-    def _build_decision(
-        config: LiveRunnerConfig,
-        decision_modules: Sequence[Any] | None,
-        _emit: Any,
-        coordinator: EngineCoordinator,
-    ) -> tuple:
-        """Phase 8: decision bridge with regime wrapping, module reloader, engine loop."""
-        # ── 5) Decision bridge ────────────────────────────────
-        modules = list(decision_modules or [])
-
-        if config.enable_regime_gate and modules:
-            gated_modules = []
-            for mod in modules:
-                gated = RegimeAwareDecisionModule(
-                    inner=mod,
-                    policy=RegimePolicy(),
-                )
-                gated_modules.append(gated)
-            modules = gated_modules
-
-        decision_bridge_inst = None
-        if modules:
-            decision_bridge_inst = DecisionBridge(
-                dispatcher_emit=_emit, modules=modules,
-            )
-            coordinator.attach_decision_bridge(decision_bridge_inst)
-
-        # ── 5a) ModuleReloader ───────────────────────────────
-        from engine.module_reloader import ModuleReloader, ReloaderConfig
-        module_reloader = ModuleReloader(
-            config=ReloaderConfig(),
-            on_reload=lambda trigger: logger.info("Module reload triggered: %s", trigger),
-        )
-
-        # ── 6) EngineLoop with guard ─────────────────────────
-        guard = build_basic_guard(GuardConfig())
-        loop = EngineLoop(coordinator=coordinator, guard=guard, cfg=LoopConfig())
-
-        return decision_bridge_inst, module_reloader, loop
-
-    @staticmethod
-    def _build_market_data(
-        config: LiveRunnerConfig,
-        transport: Any,
-        venue_client: Any,
-        loop: EngineLoop,
-    ) -> tuple:
-        """Phase 9: market data runtime (WS + REST fallback)."""
-        from execution.adapters.binance.kline_processor import KlineProcessor
-        from execution.adapters.binance.ws_market_stream_um import (
-            BinanceUmMarketStreamWsClient,
-            MarketStreamConfig,
-        )
-        from execution.adapters.binance.market_data_runtime import BinanceMarketDataRuntime
-        from execution.adapters.binance.urls import resolve_binance_urls
-
-        if config.testnet:
-            logger.warning("*** TESTNET MODE — NOT PRODUCTION ***")
-
-        binance_urls = resolve_binance_urls(config.testnet)
-
-        if transport is None:
-            from execution.adapters.binance.transport_factory import create_ws_transport
-            transport = create_ws_transport()
-
-        ws_url = config.ws_base_url
-        if config.testnet:
-            ws_url = binance_urls.ws_market_stream
-
-        streams = tuple(
-            f"{sym.lower()}@kline_{config.kline_interval}"
-            for sym in config.symbols
-        )
-        processor = KlineProcessor(source="binance.ws.kline")
-        ws_client = BinanceUmMarketStreamWsClient(
-            transport=transport,
-            processor=processor,
-            streams=streams,
-            cfg=MarketStreamConfig(ws_base_url=ws_url),
-        )
-        from execution.adapters.binance.rest_kline_source import RestKlineSource
-        rest_base = (
-            getattr(venue_client, '_cfg', None) and venue_client._cfg.base_url
-            or binance_urls.rest_base
-        )
-        rest_fallback = RestKlineSource(
-            base_url=rest_base,
-            source="binance.rest.kline",
-        )
-        runtime = BinanceMarketDataRuntime(
-            ws_client=ws_client,
-            rest_fallback=rest_fallback,
-            symbols=config.symbols,
-            kline_interval=config.kline_interval,
-        )
-        loop.attach_runtime(runtime)
-
-        return runtime, binance_urls
-
-    @staticmethod
-    def _build_user_stream(
-        config: LiveRunnerConfig,
-        venue_client: Any,
-        coordinator: EngineCoordinator,
-        binance_urls: Any,
-        user_stream_transport: Any,
-        report: _SubsystemReport,
-    ) -> Any:
-        """Phase 10: user stream (private fill/order feed)."""
-        if not config.shadow_mode:
-            from execution.adapters.binance.rest import BinanceRestClient as _BRC2
-            if isinstance(venue_client, _BRC2):
-                try:
-                    from execution.adapters.binance.listen_key_um import BinanceUmListenKeyClient
-                    from execution.adapters.binance.listen_key_manager import (
-                        BinanceUmListenKeyManager, ListenKeyManagerConfig,
-                    )
-                    from execution.adapters.binance.ws_user_stream_um import (
-                        BinanceUmUserStreamWsClient, UserStreamWsConfig,
-                    )
-                    from execution.adapters.binance.user_stream_processor_um import (
-                        BinanceUmUserStreamProcessor,
-                    )
-                    from execution.adapters.binance.mapper_fill import BinanceFillMapper
-                    from execution.adapters.binance.mapper_order import BinanceOrderMapper
-                    from execution.ingress.router import FillIngressRouter
-                    from execution.ingress.order_router import OrderIngressRouter
-
-                    class _TimeClock:
-                        def now(self) -> float:
-                            return time.time()
-
-                    fill_router = FillIngressRouter(
-                        coordinator=coordinator, default_actor="venue:binance",
-                    )
-                    order_router = OrderIngressRouter(
-                        coordinator=coordinator, default_actor="venue:binance",
-                    )
-                    us_processor = BinanceUmUserStreamProcessor(
-                        order_router=order_router,
-                        fill_router=fill_router,
-                        order_mapper=BinanceOrderMapper(),
-                        fill_mapper=BinanceFillMapper(),
-                        default_actor="venue:binance",
-                    )
-                    lk_client = BinanceUmListenKeyClient(rest=venue_client)
-                    lk_mgr = BinanceUmListenKeyManager(
-                        client=lk_client,
-                        clock=_TimeClock(),
-                        cfg=ListenKeyManagerConfig(validity_sec=3600, renew_margin_sec=300),
-                    )
-
-                    us_transport = user_stream_transport
-                    if us_transport is None:
-                        from execution.adapters.binance.transport_factory import create_ws_transport as _cwt
-                        us_transport = _cwt()
-
-                    user_stream_client = BinanceUmUserStreamWsClient(
-                        transport=us_transport,
-                        listen_key_mgr=lk_mgr,
-                        processor=us_processor,
-                        cfg=UserStreamWsConfig(
-                            ws_base_url=binance_urls.ws_user_stream,
-                        ),
-                    )
-                    logger.info(
-                        "User stream wired (url_base=%s)", binance_urls.ws_user_stream,
-                    )
-                    return user_stream_client
-                except Exception as e:
-                    report.record("user_stream", False, str(e))
-                    logger.warning("User stream setup failed — continuing without", exc_info=True)
-                    return None
-            else:
-                return None
-        else:
-            return None
-
-    @staticmethod
-    def _build_persistence_and_recovery(
-        config: LiveRunnerConfig,
-        coordinator: EngineCoordinator,
-        kill_switch: KillSwitch,
-        inference_bridge: Any,
-        feat_hook: Any,
-        correlation_computer: Any,
-        timeout_tracker: Any,
-        decision_bridge_inst: Any,
-        fetch_venue_state: Optional[Callable],
-        fetch_margin: Optional[Callable],
-        alert_sink: Any,
-        health: Optional[SystemHealthMonitor],
-        latency_tracker: LatencyTracker,
-        alpha_health_monitor: Any,
-        report: _SubsystemReport,
-    ) -> tuple:
-        """Phase 11: delegated to runner/builders/persistence.py."""
-        return _persistence_builder(
-            config, coordinator, kill_switch, inference_bridge,
-            feat_hook, correlation_computer, timeout_tracker,
-            decision_bridge_inst, fetch_venue_state, fetch_margin,
-            alert_sink, health, latency_tracker, alpha_health_monitor, report,
-        )
-    @staticmethod
-    def _build_shutdown(
-        config: LiveRunnerConfig,
-        state_store: Any,
-        coordinator: EngineCoordinator,
-        kill_switch: KillSwitch,
-        inference_bridge: Any,
-        feat_hook: Any,
-        decision_bridge_inst: Any,
-        correlation_computer: Any,
-        timeout_tracker: Any,
-        reconcile_scheduler: Any,
-        venue_client: Any,
-        health: Optional[SystemHealthMonitor],
-        alpha_health_monitor: Any,
-        regime_sizer: Any,
-        portfolio_allocator: Any,
-        live_signal_tracker: Any,
-        event_log: Any,
-        report: _SubsystemReport,
-    ) -> tuple:
-        """Phase 12: delegated to runner/builders/shutdown.py."""
-        return _shutdown_builder(
-            config, state_store, coordinator, kill_switch,
-            inference_bridge, feat_hook, decision_bridge_inst,
-            correlation_computer, timeout_tracker, reconcile_scheduler,
-            venue_client, health, alpha_health_monitor, regime_sizer,
-            portfolio_allocator, live_signal_tracker, event_log, report,
-        )
     @classmethod
     def build(
         cls,
@@ -975,28 +220,28 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         report = _SubsystemReport()
 
         # Phase 1: core infrastructure
-        latency_tracker, _record_fill, kill_switch, alert_sink = cls._build_core_infra(
+        latency_tracker, _record_fill, kill_switch, alert_sink = _build_core_infra(
             config, on_fill, alert_sink, fills,
         )
 
         # Phase 2: monitoring
         health, hook, alpha_health_monitor, regime_sizer, live_signal_tracker = (
-            cls._build_monitoring(config, kill_switch, metrics_exporter)
+            _build_monitoring(config, kill_switch, metrics_exporter)
         )
 
         # Phase 3: portfolio and correlation
         (
             portfolio_allocator, correlation_computer, _update_correlation,
             attribution_tracker, correlation_gate,
-        ) = cls._build_portfolio_and_correlation(config)
+        ) = _build_portfolio_and_correlation(config)
 
         # Phase 4: order infrastructure
         order_state_machine, timeout_tracker, model_loader_inst, alpha_models = (
-            cls._build_order_infra(config, alpha_models)
+            _build_order_infra(config, alpha_models)
         )
 
         # Phase 5: features and inference
-        feat_hook, inference_bridge = cls._build_features_and_inference(
+        feat_hook, inference_bridge = _build_features_and_inference(
             config, feature_computer, alpha_models, inference_bridges,
             unified_predictors, metrics_exporter, hook, report,
             bear_model,
@@ -1010,7 +255,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         (
             coordinator, risk_gate, portfolio_aggregator,
             _emit_handler, _emit, _event_recorder_ref,
-        ) = cls._build_coordinator_and_pipeline(
+        ) = _build_coordinator_and_pipeline(
             config, symbol_default, hook, feat_hook, tick_processors,
             _update_correlation, correlation_gate, kill_switch,
             order_state_machine, timeout_tracker, attribution_tracker,
@@ -1019,23 +264,23 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
 
         # Phase 7: execution
-        venue_client, ws_order_gateway = cls._build_execution(
+        venue_client, ws_order_gateway = _build_execution(
             config, venue_clients, coordinator, kill_switch,
-            _emit, _record_fill, risk_gate, report,
+            _emit, _record_fill, risk_gate, report, _FillRecordingAdapter,
         )
 
         # Phase 8: decision bridge and engine loop
-        decision_bridge_inst, module_reloader, loop = cls._build_decision(
+        decision_bridge_inst, module_reloader, loop = _build_decision(
             config, decision_modules, _emit, coordinator,
         )
 
         # Phase 9: market data runtime
-        runtime, binance_urls = cls._build_market_data(
+        runtime, binance_urls = _build_market_data(
             config, transport, venue_client, loop,
         )
 
         # Phase 10: user stream
-        user_stream_client = cls._build_user_stream(
+        user_stream_client = _build_user_stream(
             config, venue_client, coordinator, binance_urls,
             user_stream_transport, report,
         )
@@ -1045,7 +290,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             reconcile_scheduler, margin_monitor, alert_manager,
             state_store, event_log, data_scheduler, freshness_monitor,
             ack_store,
-        ) = cls._build_persistence_and_recovery(
+        ) = _persistence_builder(
             config, coordinator, kill_switch, inference_bridge,
             feat_hook, correlation_computer, timeout_tracker,
             decision_bridge_inst, fetch_venue_state, fetch_margin,
@@ -1057,7 +302,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         (
             shutdown_handler, health_server, control_plane,
             periodic_checkpointer, event_recorder, _runner_ref,
-        ) = cls._build_shutdown(
+        ) = _shutdown_builder(
             config, state_store, coordinator, kill_switch,
             inference_bridge, feat_hook, decision_bridge_inst,
             correlation_computer, timeout_tracker, reconcile_scheduler,
@@ -1688,9 +933,6 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     # _recommended_action, _last_incident, _record_model_reload,
     # _emit_execution_incident, _emit_control_alert
     # → OperatorObservabilityMixin (runner/observability.py)
-
-
-
 
 
 def _reconcile_startup(

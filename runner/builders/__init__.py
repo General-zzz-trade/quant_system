@@ -20,6 +20,18 @@ These builders provide reusable components for:
 #   - risk.py       → build_risk_subsystem
 #   - market_data.py → build_market_data_subsystem
 #   - recovery_builder.py → build_recovery_subsystem
+#
+# Phase builders (used by LiveRunner.build()):
+#   - core_infra_builder.py → build_core_infra
+#   - monitoring_builder.py → build_monitoring
+#   - portfolio_builder.py → build_portfolio_and_correlation
+#   - order_infra_builder.py → build_order_infra
+#   - features_builder.py → build_features_and_inference
+#   - engine_builder.py → build_coordinator_and_pipeline
+#   - execution_builder.py → build_execution_phase
+#   - decision_builder.py → build_decision
+#   - market_data_builder.py → build_market_data
+#   - user_stream_builder.py → build_user_stream
 
 from runner.builders.inference import build_inference_subsystem, _build_multi_tf_ensemble
 from runner.builders.execution import build_execution_subsystem
