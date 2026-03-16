@@ -23,9 +23,17 @@ runner/live_runner.py
 
 结论：
 
-- `runner/live_runner.py` 是当前 Python 运行时真相源
+- `runner/live_runner.py` 是当前 Python 运行时真相源（engine 层默认入口）
+- `scripts/ops/run_bybit_alpha.py` 是当前实际生产 alpha 入口（轻量 runner，直接调 Bybit/Binance API，不经过完整 engine 层）
 - `runner/backtest_runner.py`、`runner/replay_runner.py` 是共享事件语义的验证路径
 - `ext/rust/src/bin/main.rs` 是重要的 standalone Rust trader 演进路径，但不是当前默认生产入口
+
+当前实际部署两套入口并存：
+
+| 入口 | 用途 | 部署方式 | 状态 |
+|------|------|---------|------|
+| `scripts/ops/run_bybit_alpha.py` | 多品种 alpha 交易 (ETH 1h+15m, SUI, AXS) | systemd `bybit-alpha.service` | **活跃运行** |
+| `runner/live_runner.py` | 完整 engine 层入口 | docker `paper-multi` | 停用 |
 
 ---
 

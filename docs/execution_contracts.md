@@ -221,9 +221,25 @@
 
 这意味着：
 
-- `FillEvent` 是公共最小事实模型
-- `CanonicalFill` 是 execution 内部 richer fact model
-- 两者目前是“有统一映射边界”，但还不是“完全合并为单一类型”
+- `FillEvent` 是公共最小事实模型（6字段: fill_id, order_id, symbol, qty, price, side[optional]）
+- `CanonicalFillIngressEvent` 是 pipeline 输入的富化事实（含 side, fee, venue, pnl）
+- `CanonicalFill` 是 execution 内部 richer fact model（Decimal 精度, raw 保留）
+- 三者通过 `fill_events.py` 中的映射函数连接，round-trip 一致性由 `tests/unit/execution/test_fill_roundtrip.py` 锁定
+- `side` 现在在三层中一致流转（FillEvent.side 为 Optional，向后兼容）
+- `fill_to_record()` 与 `CanonicalFill.to_record()` 产出完全一致的 13 字段 dict
+- digest 计算统一由 `execution/models/digest.py` 的 `stable_hash()` 驱动，`fill_events.py._stable_hash()` 和 `message_integrity.compute_payload_digest()` 均委托到同一实现
+
+标准 fill 流转路径（唯一正确路径）：
+
+```
+VenueAdapter.mapper → CanonicalFill (Decimal, 全字段)
+  → FillDeduplicator.accept_or_raise() (幂等去重)
+  → canonical_fill_to_ingress_event() → CanonicalFillIngressEvent (float, pipeline用)
+  → coordinator.emit(ingress_event) → StatePipeline → RustStateStore
+  同时:
+  → canonical_fill_to_public_event() → FillEvent (最小公共契约)
+  → emit_handler._handle_fill() → OSM transition + event_recorder
+```
 
 当前 synthetic fill 边界：
 

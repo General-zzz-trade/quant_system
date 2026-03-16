@@ -120,6 +120,8 @@ class _SubsystemReport:
 # extracted to runner/builders/ for organization.
 from runner.builders.inference import _build_multi_tf_ensemble  # noqa: E402
 from runner.builders.monitoring import _build_alert_rules, _build_health_server  # noqa: E402
+from runner.builders.persistence import build_persistence_and_recovery as _persistence_builder  # noqa: E402
+from runner.builders.shutdown import build_shutdown as _shutdown_builder  # noqa: E402
 
 
 @dataclass
@@ -885,144 +887,13 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         alpha_health_monitor: Any,
         report: _SubsystemReport,
     ) -> tuple:
-        """Phase 11: reconcile, margin, alerts, persistent stores, recovery, data scheduler."""
-        # ── 8) ReconcileScheduler ────────────────────────────
-        reconcile_scheduler = None
-        if config.enable_reconcile and fetch_venue_state is not None:
-            from execution.reconcile.controller import ReconcileController
-            from execution.reconcile.scheduler import (
-                ReconcileScheduler,
-                ReconcileSchedulerConfig,
-            )
-
-            reconcile_scheduler = ReconcileScheduler(
-                controller=ReconcileController(),
-                get_local_state=lambda: coordinator.get_state_view(),
-                fetch_venue_state=fetch_venue_state,
-                cfg=ReconcileSchedulerConfig(
-                    interval_sec=config.reconcile_interval_sec,
-                    venue=config.venue,
-                ),
-                on_halt=lambda report: coordinator.stop(),
-            )
-
-        # ── 9) MarginMonitor (production) ────────────────────
-        margin_monitor = None
-        if fetch_margin is not None:
-            margin_monitor = MarginMonitor(
-                config=MarginConfig(
-                    check_interval_sec=config.margin_check_interval_sec,
-                    warning_margin_ratio=config.margin_warning_ratio,
-                    critical_margin_ratio=config.margin_critical_ratio,
-                ),
-                fetch_margin=fetch_margin,
-                kill_switch=kill_switch,
-                alert_sink=alert_sink,
-            )
-
-        # ── 10) AlertManager + default rules ────────────────
-        alert_manager = AlertManager(sink=alert_sink)
-        _build_alert_rules(
-            alert_manager, health, kill_switch, latency_tracker,
-            alpha_health_monitor, correlation_computer, config, report,
+        """Phase 11: delegated to runner/builders/persistence.py."""
+        return _persistence_builder(
+            config, coordinator, kill_switch, inference_bridge,
+            feat_hook, correlation_computer, timeout_tracker,
+            decision_bridge_inst, fetch_venue_state, fetch_margin,
+            alert_sink, health, latency_tracker, alpha_health_monitor, report,
         )
-
-        # ── 11) Persistent stores (conditional) ─────────────
-        state_store = None
-        event_log = None
-        ack_store = None
-        if config.enable_persistent_stores:
-            from execution.store.ack_store import SQLiteAckStore
-            from execution.store.event_log import SQLiteEventLog
-            from state.store import SqliteStateStore
-
-            data_dir = config.data_dir
-            ack_store = SQLiteAckStore(path=os.path.join(data_dir, "ack_store.db"))
-            logger.info("Persistent ack_store initialized at %s/ack_store.db", data_dir)
-            event_log = SQLiteEventLog(path=os.path.join(data_dir, "event_log.db"))
-            state_store = SqliteStateStore(
-                path=os.path.join(data_dir, "state.db"),
-            )
-
-            # State restoration: restore from latest checkpoint
-            for sym in config.symbols:
-                checkpoint = state_store.latest(sym)
-                if checkpoint is not None:
-                    coordinator.restore_from_snapshot(checkpoint.snapshot)
-                    logger.info(
-                        "Restored state for %s from bar_index=%d",
-                        sym, checkpoint.bar_index,
-                    )
-                    break  # One restore is enough (snapshot contains all symbols)
-
-            # Recovery: restore all auxiliary state (atomic bundle with individual fallback)
-            _exit_mgr = _find_module_attr(decision_bridge_inst, '_exit_mgr')
-            _regime_gate = _find_module_attr(decision_bridge_inst, '_regime_gate')
-            restore_results = restore_all_auxiliary_state(
-                kill_switch=kill_switch,
-                inference_bridge=inference_bridge,
-                feature_hook=feat_hook,
-                exit_manager=_exit_mgr,
-                regime_gate=_regime_gate,
-                correlation_computer=correlation_computer,
-                timeout_tracker=timeout_tracker,
-                data_dir=data_dir,
-            )
-            for comp_name, restored in restore_results.items():
-                if restored:
-                    logger.info("Recovery: %s state restored from checkpoint", comp_name)
-
-        # ── 11a) Startup reconciliation with healing ─────────
-        if config.reconcile_on_startup and fetch_venue_state is not None:
-            try:
-                venue_state = fetch_venue_state()
-                # First: detect-only pass for logging
-                local_view = coordinator.get_state_view()
-                mismatches = _reconcile_startup(local_view, venue_state, config.symbols)
-                for m in mismatches:
-                    logger.warning("Startup reconciliation mismatch: %s", m)
-                # Second: heal mismatches by updating local state
-                if mismatches:
-                    actions = reconcile_and_heal(coordinator, venue_state, config.symbols)
-                    for a in actions:
-                        logger.warning("Reconciliation action: %s", a)
-            except Exception:
-                logger.exception(
-                    "Startup reconciliation failed — proceeding with local state"
-                )
-
-        # ── 11b) DataScheduler + FreshnessMonitor (Phase 3) ─
-        data_scheduler = None
-        freshness_monitor = None
-        if config.enable_data_scheduler:
-            try:
-                from data.scheduler.data_scheduler import DataScheduler, DataSchedulerConfig
-                from data.scheduler.freshness_monitor import FreshnessMonitor, FreshnessConfig
-
-                data_scheduler = DataScheduler(DataSchedulerConfig(symbols=config.symbols))
-                freshness_monitor = FreshnessMonitor(FreshnessConfig(
-                    data_dir=config.data_files_dir,
-                    symbols=config.symbols,
-                    on_alert=lambda a: logger.warning(
-                        "Data stale: %s age=%.1fh", a.source, a.age_hours,
-                    ),
-                ))
-                logger.info("DataScheduler + FreshnessMonitor configured")
-            except Exception as e:
-                report.record("data_scheduler", False, str(e))
-                logger.warning("DataScheduler setup failed — continuing without", exc_info=True)
-
-        # ack_store may be None when enable_persistent_stores is disabled;
-        # currently used only by execution/bridge/execution_bridge.py (full bridge).
-        # The production coordinator path uses engine/execution_bridge.py (simple bridge)
-        # which delegates directly to the adapter and doesn't need ack_store.
-        # We still surface it so the runner can expose it for reconciliation / debugging.
-        return (
-            reconcile_scheduler, margin_monitor, alert_manager,
-            state_store, event_log, data_scheduler, freshness_monitor,
-            ack_store,
-        )
-
     @staticmethod
     def _build_shutdown(
         config: LiveRunnerConfig,
@@ -1044,106 +915,14 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         event_log: Any,
         report: _SubsystemReport,
     ) -> tuple:
-        """Phase 12: graceful shutdown, health server, periodic checkpointer, event recorder."""
-        # ── 12) GracefulShutdown ─────────────────────────────
-        shutdown_cfg = ShutdownConfig(
-            pending_order_timeout_sec=config.pending_order_timeout_sec,
+        """Phase 12: delegated to runner/builders/shutdown.py."""
+        return _shutdown_builder(
+            config, state_store, coordinator, kill_switch,
+            inference_bridge, feat_hook, decision_bridge_inst,
+            correlation_computer, timeout_tracker, reconcile_scheduler,
+            venue_client, health, alpha_health_monitor, regime_sizer,
+            portfolio_allocator, live_signal_tracker, event_log, report,
         )
-        save_snapshot_fn = None
-        if state_store is not None:
-            def save_snapshot_fn(_path: str) -> None:
-                data_dir_s = config.data_dir
-                snapshot = coordinator.get_state_view().get("last_snapshot")
-                if snapshot is not None:
-                    state_store.save(snapshot)
-                    logger.info("State snapshot saved on shutdown")
-                # Persist all auxiliary state atomically
-                save_all_auxiliary_state(
-                    kill_switch=kill_switch,
-                    inference_bridge=inference_bridge,
-                    feature_hook=feat_hook,
-                    exit_manager=_find_module_attr(decision_bridge_inst, '_exit_mgr'),
-                    regime_gate=_find_module_attr(decision_bridge_inst, '_regime_gate'),
-                    correlation_computer=correlation_computer,
-                    timeout_tracker=timeout_tracker,
-                    data_dir=data_dir_s,
-                )
-
-        # wait_pending: returns True when no active orders remain
-        def _wait_pending() -> bool:
-            return timeout_tracker.pending_count == 0
-
-        # cancel_all: cancel all open orders on the venue
-        def _cancel_all() -> None:
-            if hasattr(venue_client, "cancel_all_orders"):
-                for sym in config.symbols:
-                    try:
-                        venue_client.cancel_all_orders(sym)
-                    except Exception:
-                        logger.warning("cancel_all_orders failed for %s", sym, exc_info=True)
-
-        # reconcile: run one reconciliation pass
-        def _reconcile_once() -> None:
-            if reconcile_scheduler is not None:
-                try:
-                    reconcile_scheduler.run_once()
-                except Exception:
-                    logger.warning("Shutdown reconciliation failed", exc_info=True)
-
-        # Use a mutable container for late-binding cleanup: the runner
-        # instance doesn't exist yet, so we capture a list and patch it
-        # after construction (see below).
-        _runner_ref: List[Any] = []
-
-        def _cleanup() -> None:
-            if _runner_ref:
-                _runner_ref[0]._running = False
-
-        shutdown_handler = GracefulShutdown(
-            config=shutdown_cfg,
-            stop_new_orders=lambda: kill_switch.trigger(
-                scope=KillScope.GLOBAL,
-                key="*",
-                mode=KillMode.HARD_KILL,
-                reason="graceful_shutdown",
-                source="shutdown",
-            ),
-            wait_pending=_wait_pending,
-            cancel_all=_cancel_all,
-            reconcile=_reconcile_once,
-            save_snapshot=save_snapshot_fn,
-            cleanup=_cleanup,
-        )
-
-        # ── 13) Health HTTP endpoint (optional) ────────────────
-        health_server, control_plane = _build_health_server(
-            config, health, alpha_health_monitor, regime_sizer,
-            portfolio_allocator, live_signal_tracker, report,
-        )
-
-        # ── 14) Recovery infrastructure ────────────────────────
-        # Periodic checkpointer: saves state every 60s (not just on shutdown)
-        periodic_checkpointer = None
-        if state_store is not None:
-            def _get_snapshot() -> Any:
-                return coordinator.get_state_view().get("last_snapshot")
-
-            periodic_checkpointer = PeriodicCheckpointer(
-                state_store=state_store,
-                get_snapshot=_get_snapshot,
-                interval_sec=config.reconcile_interval_sec,  # reuse reconcile interval
-            )
-
-        # Event recorder: captures market/fill events to event_log
-        event_recorder = None
-        if event_log is not None:
-            event_recorder = EventRecorder(event_log)
-
-        return (
-            shutdown_handler, health_server, control_plane,
-            periodic_checkpointer, event_recorder, _runner_ref,
-        )
-
     @classmethod
     def build(
         cls,

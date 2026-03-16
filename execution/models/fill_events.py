@@ -46,6 +46,7 @@ def canonical_fill_to_public_event(fill: Any, *, source: str = "execution") -> F
         version=FillEvent.VERSION,
         source=source,
     )
+    side = getattr(fill, "side", None)
     return FillEvent(
         header=header,
         fill_id=str(getattr(fill, "fill_id")),
@@ -53,6 +54,7 @@ def canonical_fill_to_public_event(fill: Any, *, source: str = "execution") -> F
         symbol=str(getattr(fill, "symbol")),
         qty=Decimal(str(getattr(fill, "qty"))),
         price=Decimal(str(getattr(fill, "price"))),
+        side=str(side) if side else None,
     )
 
 

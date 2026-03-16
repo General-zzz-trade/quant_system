@@ -43,7 +43,12 @@ x-paper-base: &paper-base
     start_period: 60s
 
 services:
-  # ── Rust Trader (TestNet) — standalone Rust binary ─────────
+  # ══════════════════════════════════════════════════════════
+  # DEFAULT PRODUCTION: alpha-runner (see docs/deploy_truth.md)
+  # CANDIDATE: trader-rust, paper-multi (not auto-deployed)
+  # ══════════════════════════════════════════════════════════
+
+  # ── Rust Trader (TestNet) — CANDIDATE, standalone Rust binary ─
   trader-rust:
     build:
       context: .
@@ -75,7 +80,7 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # ── Paper Trading (TestNet) — single process, all symbols ─
+  # ── Paper Trading (TestNet) — STOPPED, single process, all symbols ─
   paper-multi:
     <<: *paper-base
     command: >
@@ -90,6 +95,24 @@ services:
           memory: 1024M
         reservations:
           memory: 384M
+
+  # ── Alpha Runner — DEFAULT PRODUCTION SERVICE ────────────────
+  alpha-runner:
+    <<: *paper-base
+    command: >
+      python3 -m scripts.run_bybit_alpha
+      --symbols ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ── Monitoring ───────────────────────────────────────────
   prometheus:

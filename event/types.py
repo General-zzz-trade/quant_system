@@ -260,15 +260,19 @@ class FillEvent(BaseEvent):
     symbol: str
     qty: Decimal
     price: Decimal
+    side: Optional[str] = None  # "buy"/"sell" — optional for backward compat
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "fill_id": self.fill_id,
             "order_id": self.order_id,
             "symbol": self.symbol,
             "qty": self.qty,
             "price": self.price,
         }
+        if self.side is not None:
+            d["side"] = self.side
+        return d
 
     @classmethod
     def from_dict(cls, *, header: Any, body: Mapping[str, Any]) -> FillEvent:
@@ -279,6 +283,7 @@ class FillEvent(BaseEvent):
             symbol=str(body["symbol"]),
             qty=Decimal(body["qty"]),
             price=Decimal(body["price"]),
+            side=body.get("side"),
         )
 
 

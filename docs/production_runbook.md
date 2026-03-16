@@ -9,11 +9,14 @@
 
 ## 1. 当前生产入口
 
-- 默认生产入口: `runner/live_runner.py`
-- 默认发布路径: repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + `scripts/deploy.sh`
-- 默认 compose 服务名: `paper-multi`
-- `deploy/` 下其他 systemd / k8s / argocd / docker 示例工件都视为 candidate/experimental，不是当前默认发布真相源
-- 当前运行时形态: Python 编排 + Rust 热路径内核
+- 默认生产入口（engine 层）: `runner/live_runner.py`
+- 当前活跃生产入口（alpha 交易）: `scripts/ops/run_bybit_alpha.py`
+- 默认发布路径: repo-root `docker-compose.yml` + `scripts/deploy.sh`
+- compose 服务名: `alpha-runner`（活跃）, `paper-multi`（停用）
+- systemd 服务: `bybit-alpha.service`（当前活跃，Bybit Demo）
+- 当前运行时形态: 轻量 alpha runner (Ridge+LGBM, AGREE ONLY combo, ATR adaptive stop)
+- 交易品种: ETHUSDT (1h+15m AGREE), SUIUSDT (1h), AXSUSDT (1h)
+- 杠杆: 1.5x (Kelly optimal 1.4x), 单品种上限 30% equity
 - 当文档与其他说明冲突时，以 `docs/runtime_truth.md` 为准
 - 当前最小 operator controls 已通过 `LiveRunner.halt()/reduce_only()/resume()/flush()/shutdown()/apply_control()` 暴露
 - 当前外部 tooling / API 建议通过 [`runner/control_plane.py`](/quant_system/runner/control_plane.py) 的 `OperatorControlPlane` 统一进入 runtime
@@ -258,12 +261,15 @@ cat logs/retrain_history.jsonl | python3 -m json.tool
 - `ic_ema_span: 720` (30 天滚动)
 - 若所有 horizon IC 均为负，有效信号为 flat
 
-### 模型性能基线
+### 模型性能基线 (2026-03-16)
 
-| 品种 | Sharpe | IC | Walk-Forward | 说明 |
-|---|---|---|---|---|
-| ETHUSDT | 2.32 | 0.061 | STRONG (100%) | 最稳定，固定配置最优 |
-| BTCUSDT | 1.60 | 0.021 | GOOD (95%) | 参数敏感，可考虑自适应 |
+| 品种 | 框架 | 模型 | Sharpe | IC | Walk-Forward | 状态 |
+|---|---|---|---|---|---|---|
+| ETHUSDT | 1h | Ridge 60% + LGBM 40% | 1.52 | 0.013 | 14/20 PASS | 活跃 |
+| ETHUSDT | 15m | Ridge 60% + LGBM 40% | 1.04 | 0.019 | 3/4 PASS | 活跃 |
+| SUIUSDT | 1h | Ridge 60% + LGBM 40% | 1.63 | 0.079 | 6/7 PASS | 活跃 |
+| AXSUSDT | 1h | Ridge 60% + LGBM 40% | 1.25 | 0.024 | 13/17 PASS | 活跃 |
+| BTCUSDT | 1h | LGBM | -0.21 | 0.020 | 10/20 FAIL | 不交易 |
 
 ---
 

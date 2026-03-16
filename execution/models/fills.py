@@ -8,12 +8,20 @@ from typing import Any, Mapping, Optional
 
 @dataclass(frozen=True, slots=True)
 class CanonicalFill:
-    """
-    CanonicalFill：系统内唯一标准的成交事实
+    """CanonicalFill — execution layer's canonical fill fact (Tier 1).
 
-    关键制度：
-    - fill_id 必须稳定（同一真实成交重复到达，fill_id 必须相同）
-    - payload_digest 用于检测 “同 fill_id 不同 payload” 的数据损坏
+    Three-tier fill hierarchy:
+    - Tier 1: CanonicalFill (this) — Decimal precision, 12 fields, internal truth
+    - Tier 2: CanonicalFillIngressEvent (fill_events.py) — float, pipeline input
+    - Tier 3: FillEvent (event/types.py) — Decimal, 5 fields, public event bus
+
+    Mapping: CanonicalFill → Tier 2 via canonical_fill_to_ingress_event()
+             CanonicalFill → Tier 3 via canonical_fill_to_public_event()
+    Round-trip parity locked by tests/unit/execution/test_fill_roundtrip.py.
+
+    Key invariants:
+    - fill_id MUST be stable (same real fill → same fill_id across duplicates)
+    - payload_digest detects "same fill_id, different payload" (data corruption)
     """
     venue: str
     symbol: str
@@ -61,6 +69,7 @@ def fill_to_record(fill: Any) -> dict[str, str]:
     """Convert any fill-like object to a standard record dict.
 
     Works with CanonicalFill, SimpleNamespace, or any duck-typed fill.
+    Fields aligned with CanonicalFill.to_record() — same 12 fields.
     Use this to replace all ad-hoc fill dict construction.
     """
     if isinstance(fill, CanonicalFill):
@@ -75,5 +84,8 @@ def fill_to_record(fill: Any) -> dict[str, str]:
         "qty": str(getattr(fill, "qty", "")),
         "price": str(getattr(fill, "price", "")),
         "fee": str(getattr(fill, "fee", "")),
+        "fee_asset": str(getattr(fill, "fee_asset", "") or ""),
+        "liquidity": str(getattr(fill, "liquidity", "") or ""),
         "ts_ms": str(getattr(fill, "ts_ms", "")),
+        "payload_digest": str(getattr(fill, "payload_digest", "")),
     }

@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Rolling deploy for paper trading services.
+# Rolling deploy for production alpha trading services.
+#
+# Default: deploys alpha-runner only (current production service).
+# Pass service names as args to override: ./deploy.sh paper-multi trader-rust
+#
 # Recreates each service one-by-one so updated images/config are applied.
 # Exits non-zero (triggering rollback in CI) if any service fails.
 
 set -euo pipefail
 
-SERVICES=(paper-multi)
+if [ $# -gt 0 ]; then
+    SERVICES=("$@")
+else
+    SERVICES=(alpha-runner)  # Default: only active production service
+fi
 TIMEOUT=120  # seconds per service
 
 notify() {

@@ -222,17 +222,18 @@ class TestRecoveryChainCompleteness:
     """
 
     def test_unified_restore_called_with_all_components(self):
-        """Verify live_runner.py calls restore_all_auxiliary_state with all 7 components."""
-        import inspect
-        import runner.live_runner as lr
-        source = inspect.getsource(lr)
+        """Verify build chain calls restore_all_auxiliary_state with all 7 components.
 
-        # Must call the unified restore function
+        The logic lives in runner/builders/persistence.py (extracted from live_runner.py).
+        """
+        import inspect
+        import runner.builders.persistence as pb
+        source = inspect.getsource(pb)
+
         assert "restore_all_auxiliary_state(" in source, (
-            "live_runner.py must call restore_all_auxiliary_state()"
+            "persistence builder must call restore_all_auxiliary_state()"
         )
 
-        # All 7 component keyword args must be passed
         component_kwargs = [
             "kill_switch=",
             "inference_bridge=",
@@ -249,9 +250,10 @@ class TestRecoveryChainCompleteness:
             )
 
     def test_save_all_passes_regime_gate_in_source(self):
+        """Verify shutdown builder calls save_all_auxiliary_state with regime_gate."""
         import inspect
-        import runner.live_runner as lr
-        source = inspect.getsource(lr)
+        import runner.builders.shutdown as sb
+        source = inspect.getsource(sb)
 
         assert "regime_gate=" in source, (
             "save_all_auxiliary_state call must pass regime_gate= parameter"

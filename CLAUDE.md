@@ -230,6 +230,7 @@ export BINANCE_TESTNET_API_SECRET=...
 # Command: python3 -m scripts.run_bybit_alpha --symbols ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
 # Status: active (running), Bybit Demo, AGREE ONLY mode (ETH), independent (SUI/AXS)
 # Logs: /quant_system/logs/bybit_alpha.log
+# Deploy truth: docs/deploy_truth.md (systemd/compose/CI 一致性)
 ```
 
 **Quick start → demo trading**:
@@ -296,3 +297,7 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Ridge model uses its own feature list (`ridge_features` in horizon_models) which may differ from LGBM features
 - `PortfolioCombiner` caps each symbol at 30% of equity × leverage to prevent single-symbol overexposure
 - Ridge won 20-fold walk-forward (15/20 PASS, Sharpe 0.54) vs LGBM+XGB ensemble (11/20 FAIL)
+- `FillEvent.side` is Optional[str] (added for Tier 3 parity); existing code without `side` still works
+- `fill_to_record()` now produces 13 fields (aligned with `CanonicalFill.to_record()`); locked by `test_fill_roundtrip.py`
+- `LiveRunner._build_persistence_and_recovery` + `_build_shutdown` extracted to `runner/builders/` (1,799 lines, was 2,020)
+- `docs/deploy_truth.md` is the deployment truth source; `infra/systemd/` must sync with `/etc/systemd/system/`
