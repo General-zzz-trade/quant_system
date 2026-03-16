@@ -186,12 +186,16 @@ def load_model(model_dir: Path) -> dict:
 
 
 def create_adapter():
-    """Create Bybit demo adapter from env vars or defaults."""
+    """Create Bybit adapter from environment variables."""
     from execution.adapters.bybit import BybitAdapter, BybitConfig
 
-    api_key = os.environ.get("BYBIT_API_KEY", "ODwzdOy3bgfi6Hjqp9")
-    api_secret = os.environ.get("BYBIT_API_SECRET",
-                                "SYNHdt42n7jcOzT3vFnTPlgGokvRdajs9pAU")
+    api_key = os.environ.get("BYBIT_API_KEY")
+    api_secret = os.environ.get("BYBIT_API_SECRET")
+    if not api_key or not api_secret:
+        raise RuntimeError(
+            "BYBIT_API_KEY and BYBIT_API_SECRET environment variables are required. "
+            "Set them in .env or export them. See .env.example for all required vars."
+        )
     base_url = os.environ.get("BYBIT_BASE_URL", "https://api-demo.bybit.com")
 
     config = BybitConfig(api_key=api_key, api_secret=api_secret,
