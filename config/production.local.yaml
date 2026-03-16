@@ -1,0 +1,38 @@
+# Local production override — DO NOT COMMIT
+# This file customizes production.yaml for our specific deployment.
+
+# ── Venue: Bybit Demo → Live ──
+venue: bybit
+testnet: false
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SUIUSDT
+  - AXSUSDT
+
+# ── Signal constraints (walk-forward validated 2026-03-16) ──
+min_hold_bars:
+  BTCUSDT: 48   # h=96, min_hold=48 (2 days)
+  ETHUSDT: 18   # h=24, min_hold=18
+  SUIUSDT: 18   # h=24, min_hold=18
+  AXSUSDT: 18   # h=24, min_hold=18
+deadzone:
+  BTCUSDT: 0.8  # optimized via parameter sweep
+  ETHUSDT: 0.3  # walk-forward validated
+  SUIUSDT: 0.4  # optimized
+  AXSUSDT: 0.25 # optimized
+
+# ── Risk: More conservative for live ──
+dd_warning_pct: 8.0   # warn at 8% drawdown (vs default 10%)
+dd_reduce_pct: 12.0   # reduce_only at 12% (vs default 15%)
+dd_kill_pct: 15.0      # kill at 15% (vs default 20%)
+max_gross_leverage: 1.4  # Half-Kelly optimal
+
+# ── Burn-in gate (Phase A: shadow 7 days) ──
+enable_burnin_gate: true
+burnin_report_path: data/live/burnin_report.json
+shadow_mode: true   # Phase A: shadow first, then live
+
+# ── Alpha runner settings ──
+# Matches scripts/ops/config.py
+max_order_notional: 500.0  # Hard safety limit
