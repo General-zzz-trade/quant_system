@@ -249,7 +249,6 @@ class TestPythonFallbackVsRustParity:
 
         np.testing.assert_allclose(rust_result, py_result, atol=1e-10)
 
-    @pytest.mark.xfail(reason="Known divergence: Rust trend_hold uses max_hold as absolute cap, Python uses relative hold count")
     def test_trend_follow_parity(self):
         rng = np.random.RandomState(99)
         preds = rng.randn(500)
