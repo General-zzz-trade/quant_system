@@ -295,11 +295,16 @@ class AlphaRunner:
         self._trail_step: float = 0.3        # tight trail: 0.3×ATR (was 0.5)
         self._breakeven_atr: float = 1.0     # move stop to breakeven after 1x ATR profit
 
-        from _quant_hotpath import RustFeatureEngine, RustInferenceBridge
+        from _quant_hotpath import (RustFeatureEngine, RustInferenceBridge,
+                                    RustOrderStateMachine, RustCircuitBreaker)
         self._engine = RustFeatureEngine()
         self._inference = RustInferenceBridge(
             zscore_window=self._zscore_window,
             zscore_warmup=self._zscore_warmup,
+        )
+        self._osm = RustOrderStateMachine()
+        self._circuit_breaker = RustCircuitBreaker(
+            failure_threshold=3, window_s=120.0, recovery_timeout_s=60.0,
         )
 
         # V14: BTC dominance ratio buffer (BTC/ETH)
@@ -577,15 +582,27 @@ class AlphaRunner:
                     unrealized * 100, atr * 100, self._trade_peak_price,
                 )
                 if not self._dry_run:
+                    if not self._circuit_breaker.allow_request():
+                        logger.warning("%s STOP CLOSE blocked by circuit breaker", self._symbol)
+                        return False
+                    stop_id = f"stop_{self._symbol}_{int(time.time())}"
+                    self._osm.register(stop_id, self._symbol,
+                                       "sell" if self._current_signal > 0 else "buy",
+                                       "market", str(self._position_size))
                     close_result = self._adapter.close_position(self._symbol)
                     if close_result.get("status") == "error":
                         logger.error("%s STOP CLOSE FAILED: %s", self._symbol, close_result)
-                        # Retry once
-                        close_result = self._adapter.close_position(self._symbol)
+                        self._osm.transition(stop_id, "rejected", reason=str(close_result.get("retMsg", "")))
+                        self._circuit_breaker.record_failure()
+                        if close_result.get("retryable", False):
+                            close_result = self._adapter.close_position(self._symbol)
                         if close_result.get("status") == "error":
-                            logger.error("%s STOP CLOSE RETRY FAILED: %s — keeping position state",
+                            logger.error("%s STOP CLOSE RETRY FAILED: %s — keeping state",
                                          self._symbol, close_result)
                             return False
+                    self._osm.transition(stop_id, "filled", filled_qty=str(self._position_size),
+                                         avg_price=str(price))
+                    self._circuit_breaker.record_success()
 
                 entry_size = self._entry_size if self._entry_size > 0 else self._position_size
                 pnl_usd = unrealized * self._entry_price * entry_size
@@ -1155,26 +1172,59 @@ class AlphaRunner:
             trade_info["to"] = new
             return trade_info
 
+        # Circuit breaker: block orders if too many recent failures
+        if not self._circuit_breaker.allow_request():
+            cb_state = self._circuit_breaker.snapshot()
+            logger.warning("%s CIRCUIT BREAKER OPEN: %s", self._symbol, cb_state)
+            return {"action": "circuit_open", "state": str(cb_state)}
+
         # Close venue position
         if prev != 0:
+            close_id = f"close_{self._symbol}_{int(time.time())}"
+            self._osm.register(close_id, self._symbol, "sell" if prev == 1 else "buy",
+                               "market", str(self._position_size))
             close_result = self._adapter.close_position(self._symbol)
             if close_result.get("status") == "error":
                 logger.error("%s CLOSE FAILED: %s", self._symbol, close_result)
-                # Retry once
-                close_result = self._adapter.close_position(self._symbol)
+                self._osm.transition(close_id, "rejected", reason=str(close_result.get("retMsg", "")))
+                self._circuit_breaker.record_failure()
+                # Retry once if retryable
+                if close_result.get("retryable", False):
+                    close_result = self._adapter.close_position(self._symbol)
                 if close_result.get("status") == "error":
                     logger.error("%s CLOSE RETRY FAILED: %s — keeping state", self._symbol, close_result)
                     return {"action": "close_failed", "result": close_result}
+            self._osm.transition(close_id, "filled", filled_qty=str(self._position_size),
+                                 avg_price=str(price))
+            self._circuit_breaker.record_success()
 
         # Open new position
         if new != 0:
             side = "buy" if new == 1 else "sell"
+            open_id = f"open_{self._symbol}_{int(time.time())}"
+            self._osm.register(open_id, self._symbol, side, "market",
+                               str(self._position_size))
+
+            # Dedup: check no other pending order for this symbol
+            active = self._osm.active_count()
+            if active > 2:  # close + open = 2 expected
+                logger.warning("%s DEDUP: %d active orders, skipping", self._symbol, active)
+                self._osm.transition(open_id, "rejected", reason="dedup_active_orders")
+                return {"action": "dedup_blocked", "active": active}
+
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded
             if result.get("status") == "error" or result.get("retCode", 0) != 0:
                 logger.error("%s ORDER FAILED: %s", self._symbol, result)
+                self._osm.transition(open_id, "rejected", reason=str(result.get("retMsg", "")))
+                self._circuit_breaker.record_failure()
                 return {"action": "order_failed", "result": result}
-            # Only set entry_price if order succeeded
+
+            # Order succeeded — update state machine and tracking
+            order_id = result.get("orderId", open_id)
+            self._osm.transition(open_id, "filled", filled_qty=str(self._position_size),
+                                 avg_price=str(price))
+            self._circuit_breaker.record_success()
             self._entry_price = price
             self._entry_size = self._position_size  # snapshot entry-time size
             self._trade_peak_price = price  # initialize trailing peak
