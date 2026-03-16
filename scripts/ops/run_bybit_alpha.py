@@ -100,6 +100,10 @@ INTERVAL = "60"  # Bybit: "60" = 1h
 WARMUP_BARS = 800  # Must be > zscore_window(720) + zscore_warmup(180) for full z-score convergence
 POLL_INTERVAL = 60  # seconds between checks
 
+# Hard safety limit — no single order can exceed this notional (USD)
+# Increase manually as your account grows. Never let code auto-adjust this.
+MAX_ORDER_NOTIONAL = 500.0
+
 # Default symbols + position sizes
 SYMBOL_CONFIG = {
     "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001},
@@ -1299,6 +1303,16 @@ class AlphaRunner:
                 logger.warning("%s DEDUP: %d active orders, skipping", self._symbol, active)
                 self._osm.transition(open_id, "rejected", reason="dedup_active_orders")
                 return {"action": "dedup_blocked", "active": active}
+
+            # Hard safety limit: block orders exceeding MAX_ORDER_NOTIONAL
+            notional = self._position_size * price
+            if notional > MAX_ORDER_NOTIONAL:
+                logger.critical(
+                    "%s ORDER BLOCKED: notional=$%.2f exceeds hard limit $%.2f. size=%.4f price=%.2f",
+                    self._symbol, notional, MAX_ORDER_NOTIONAL, self._position_size, price,
+                )
+                self._osm.transition(open_id, "rejected", reason=f"notional ${notional:.0f} > limit")
+                return {"action": "blocked", "reason": f"notional ${notional:.0f} > ${MAX_ORDER_NOTIONAL:.0f}"}
 
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded
