@@ -201,7 +201,7 @@ All adapters implement `VenueAdapter` protocol (`execution/adapters/base.py`); r
 
 | Venue | Protocol | Min Order | Notes |
 |-------|----------|-----------|-------|
-| Binance | REST + WS-API (~4ms) | $20 (ETH) | Primary. USDT-M futures. 47 files, ~3.7K LOC. Live API connected. |
+| Binance | REST + WS-API (~4ms) | $20 (ETH) | Primary. USDT-M futures. 43 files, ~3.7K LOC. Live API connected. |
 | Bybit | REST V5 + WS | $5 | Demo trading active. HMAC-SHA256. Systemd service running. |
 | Polymarket | CLOB REST | N/A | L2 auth. Collector V2: direct CLOB orderbook, SQLite storage. |
 
