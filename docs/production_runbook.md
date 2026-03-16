@@ -12,10 +12,10 @@
 - 默认生产入口（engine 层）: `runner/live_runner.py`
 - 当前活跃生产入口（alpha 交易）: `scripts/ops/run_bybit_alpha.py`
 - 默认发布路径: repo-root `docker-compose.yml` + `scripts/deploy.sh`
-- compose 服务名: `alpha-runner`（活跃）, `paper-multi`（停用）
+- compose 服务名: `quant-paper`（paper）, `quant-live`（live, 需 `--profile live`）
 - systemd 服务: `bybit-alpha.service`（当前活跃，Bybit Demo）
 - 当前运行时形态: 轻量 alpha runner (Ridge+LGBM, AGREE ONLY combo, ATR adaptive stop)
-- 交易品种: ETHUSDT (1h+15m AGREE), SUIUSDT (1h), AXSUSDT (1h)
+- 交易品种: BTCUSDT (h=96), ETHUSDT (1h+15m AGREE), SUIUSDT (1h), AXSUSDT (1h)
 - 杠杆: 1.5x (Kelly optimal 1.4x), 单品种上限 30% equity
 - 当文档与其他说明冲突时，以 `docs/runtime_truth.md` 为准
 - 当前最小 operator controls 已通过 `LiveRunner.halt()/reduce_only()/resume()/flush()/shutdown()/apply_control()` 暴露
@@ -269,7 +269,7 @@ cat logs/retrain_history.jsonl | python3 -m json.tool
 | ETHUSDT | 15m | Ridge 60% + LGBM 40% | 1.04 | 0.019 | 3/4 PASS | 活跃 |
 | SUIUSDT | 1h | Ridge 60% + LGBM 40% | 1.63 | 0.079 | 6/7 PASS | 活跃 |
 | AXSUSDT | 1h | Ridge 60% + LGBM 40% | 1.25 | 0.024 | 13/17 PASS | 活跃 |
-| BTCUSDT | 1h | LGBM | -0.21 | 0.020 | 10/20 FAIL | 不交易 |
+| BTCUSDT V14 | 1h | Ridge 60% + LGBM 40% | 2.03 | 0.020 | 16/20 PASS | 活跃 (h=96, dominance) |
 
 ---
 

@@ -32,7 +32,7 @@ bash scripts/deploy.sh
 
 Operational notes:
 
-- The default compose service is `paper-multi`.
+- The default compose services are `quant-paper` (paper) and `quant-live` (live, requires `--profile live`).
 - `.github/workflows/ci.yml` is the default release gate.
 - `.github/workflows/deploy.yml` is the default deploy/rollback workflow.
 
@@ -65,8 +65,8 @@ These are not the current default release path; see [`deploy/README.md`](/quant_
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `BINANCE_API_KEY` | Exchange API key | Yes (live) |
-| `BINANCE_API_SECRET` | Exchange API secret | Yes (live) |
+| `BYBIT_API_KEY` | Bybit API key | Yes (live) |
+| `BYBIT_API_SECRET` | Bybit API secret | Yes (live) |
 | `QUANT_ENV` | Environment: `production`, `staging`, `dev` | No (default: `production`) |
 | `PYTHONUNBUFFERED` | Disable output buffering | No (set in Dockerfile) |
 | `SECRET_CREATED_AT` | ISO timestamp for secret age tracking | No |
@@ -386,16 +386,14 @@ Current production models use `ensemble_method: “ic_weighted”` instead of `m
 
 ### Current Model Versions
 
-| Model | Version | Horizons | Sharpe | Avg IC | Deadzone |
-|-------|---------|----------|--------|--------|----------|
-| BTCUSDT_gate_v2 | v11 | [12, 24] | 1.60 | 0.021 | 2.0 |
-| ETHUSDT_gate_v2 | v11 | [12, 24] | 2.32 | 0.061 | 0.3 |
-| BTCUSDT_15m | v11-15m | [64] | 2.76 | 0.053 | — |
+| Model | Venue | Sharpe | Walk-Forward | Status |
+|-------|-------|--------|--------------|--------|
+| BTCUSDT_gate_v2 (V14) | Bybit | 2.03 | 16/20 PASS | Active (h=96, dominance) |
+| ETHUSDT_gate_v2 | Bybit | 1.52 | 14/20 PASS | Active (1h) |
+| ETHUSDT_15m | Bybit | 1.04 | 3/4 PASS | Active (15m, AGREE with 1h) |
+| SUIUSDT | Bybit | 1.63 | 6/7 PASS | Active (1h) |
+| AXSUSDT | Bybit | 1.25 | 13/17 PASS | Active (1h) |
 
 ### Walk-Forward Validation
 
-Models validated across 21 rolling 3-month folds (2020-01 to 2026-03):
-- ETHUSDT: STRONG — 100% folds positive Sharpe, mean 3.66
-- BTCUSDT: GOOD — 95% folds positive Sharpe, mean 3.42
-
-Run validation: `python3 -m scripts.walk_forward --symbol ETHUSDT`
+Run validation: `python3 -m scripts.walkforward_validate --symbol ETHUSDT --no-hpo --realistic`

@@ -1,6 +1,6 @@
 # Runtime Truth
 
-> 更新时间: 2026-03-12
+> 更新时间: 2026-03-17
 > 目标: 作为当前运行时真相源，回答“现在系统到底怎么跑、谁拥有什么、哪些是现状、哪些是演进方向”
 > 角色: 当前代码库关于 runtime 路径和 ownership 的最高优先级文档
 
@@ -32,8 +32,8 @@ runner/live_runner.py
 
 | 入口 | 用途 | 部署方式 | 状态 |
 |------|------|---------|------|
-| `scripts/ops/run_bybit_alpha.py` | 多品种 alpha 交易 (ETH 1h+15m, SUI, AXS) | systemd `bybit-alpha.service` | **活跃运行** |
-| `runner/live_runner.py` | 完整 engine 层入口 | docker `paper-multi` | 停用 |
+| `scripts/ops/run_bybit_alpha.py` | 多品种 alpha 交易 (BTC, ETH 1h+15m, SUI, AXS) | systemd `bybit-alpha.service` | **活跃运行** |
+| `runner/live_runner.py` | 完整 engine 层入口 | docker `quant-paper` | 可用（非默认） |
 
 ---
 

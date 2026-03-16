@@ -1,6 +1,8 @@
 # Wiring Truth — Module Integration Status
 
-Last updated: 2026-03-17
+> 更新时间: 2026-03-17
+> 目标: 记录每个功能模块是否已接入生产路径
+> 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
 ## Production-Wired Modules
 

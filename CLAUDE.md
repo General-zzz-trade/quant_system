@@ -87,18 +87,18 @@ features/        Feature computation (EnrichedFeatureComputer, 127 features incl
 decision/        Trading signals, ensemble, regime detection (CompositeRegimeDetector + ParamRouter wired), rebalancing
 alpha/           ML models + inference bridge (horizon_ensemble.py, adaptive_config.py)
 execution/       Order routing, state machine, dedup
-  adapters/binance/    Binance USDT-M futures (47 files, ~3.7K LOC, WS-API ~4ms)
+  adapters/binance/    Binance USDT-M futures (43 files, ~3.7K LOC, WS-API ~4ms)
   adapters/bybit/      Bybit V5 linear perpetuals (demo/testnet/live, 6 files)
   adapters/polymarket/ Polymarket prediction market CLOB adapter
   sim/                 Backtest engines (realistic_backtest.py, limit_order_book.py, cost_constants.py)
 state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
-ext/rust/        Unified Rust crate -> _quant_hotpath (66 .rs files, ~24K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (68 .rs files, ~26K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
   builders/            10 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
-  live_runner.py       1041 lines (was 1799; 10 _build_* methods extracted to builders/)
+  live_runner.py       1043 lines (was 1799; 10 _build_* methods extracted to builders/)
 regime/          Regime detection (volatility, trend, composite, param_router — all wired)
 risk/            Risk limits + kill switch + StagedRiskManager (equity-based staging)
 strategies/      Strategy registry + protocol (alpha_momentum, polymarket_rsi)
@@ -147,7 +147,7 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 66 .rs modules, ~24K LOC
+- Single crate `_quant_hotpath`, 68 .rs modules, ~26K LOC
 - Exports: ~27 PyO3 classes + ~100 functions (see `lib.rs`)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
@@ -171,7 +171,7 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Production entry point (Python)
-- `runner/gate_chain.py` — GateChain: 10 gates with `process_with_audit()` (incl. StagedRiskGate)
+- `runner/gate_chain.py` — GateChain: 13 gates with `process_with_audit()` (incl. StagedRiskGate)
 - `runner/config.py` — LiveRunnerConfig (71 fields); factory: `.lite()`, `.paper()`, `.prod()`
 - `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
 - `scripts/ops/alpha_runner.py` — AlphaRunner: signal + trade with 12 Rust components
