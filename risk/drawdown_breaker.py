@@ -19,6 +19,12 @@ from risk.kill_switch import KillMode, KillScope, KillSwitch
 
 logger = logging.getLogger(__name__)
 
+try:
+    from _quant_hotpath import RustDrawdownBreaker as _RustDrawdownBreaker
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 
 @dataclass
 class DrawdownBreakerConfig:
@@ -47,23 +53,42 @@ class DrawdownCircuitBreaker:
         self._kill_switch = kill_switch
         self._config = config or DrawdownBreakerConfig()
         self._alert_manager = alert_manager
-        self._equity_hwm: float = 0.0
-        self._current_dd_pct: float = 0.0
-        self._state: str = "normal"  # normal | warning | reduce_only | killed
-        # Velocity tracking: (timestamp, equity) pairs
-        self._equity_history: Deque[Tuple[float, float]] = deque(maxlen=1000)
         self._last_warning_ts: float = 0.0
+
+        if _HAS_RUST:
+            self._inner = _RustDrawdownBreaker(
+                warning_pct=self._config.warning_pct,
+                reduce_pct=self._config.reduce_pct,
+                kill_pct=self._config.kill_pct,
+                velocity_pct=self._config.velocity_pct,
+                velocity_window_sec=self._config.velocity_window_sec,
+                reduce_ttl_sec=self._config.reduce_ttl_sec,
+            )
+            self._use_rust = True
+        else:
+            self._use_rust = False
+            self._equity_hwm: float = 0.0
+            self._current_dd_pct: float = 0.0
+            self._state: str = "normal"  # normal | warning | reduce_only | killed
+            # Velocity tracking: (timestamp, equity) pairs
+            self._equity_history: Deque[Tuple[float, float]] = deque(maxlen=1000)
 
     @property
     def state(self) -> str:
+        if self._use_rust:
+            return self._inner.state
         return self._state
 
     @property
     def current_drawdown_pct(self) -> float:
+        if self._use_rust:
+            return self._inner.current_drawdown_pct
         return self._current_dd_pct
 
     @property
     def equity_hwm(self) -> float:
+        if self._use_rust:
+            return self._inner.equity_hwm
         return self._equity_hwm
 
     def on_equity_update(self, equity: float, now_ts: float | None = None) -> str:
@@ -71,6 +96,12 @@ class DrawdownCircuitBreaker:
 
         States: "normal", "warning", "reduce_only", "killed"
         """
+        if self._use_rust:
+            now = now_ts if now_ts is not None else time.time()
+            new_state, action = self._inner.on_equity_update(equity, now)
+            self._handle_action(new_state, action, equity, now)
+            return new_state
+        # ── Python fallback path ──
         if equity <= 0:
             return self._state
 
@@ -131,8 +162,56 @@ class DrawdownCircuitBreaker:
 
         return self._state
 
+    def _handle_action(self, new_state: str, action: Any, equity: float, now: float) -> None:
+        """Bridge Rust action tuples to KillSwitch calls."""
+        if action is None:
+            if new_state == "warning":
+                # Rust tracks last_warning_ts (300s cooldown) internally
+                logger.warning(
+                    "DrawdownBreaker WARNING: dd=%.1f%% (hwm=%.2f, current=%.2f)",
+                    self._inner.current_drawdown_pct, self._inner.equity_hwm, equity,
+                )
+            elif new_state == "normal" and hasattr(self, "_prev_state") and self._prev_state == "warning":
+                logger.info(
+                    "DrawdownBreaker: drawdown recovered to %.1f%%, state → normal",
+                    self._inner.current_drawdown_pct,
+                )
+            return
+        mode, reason = action
+        if mode == "reduce_only":
+            self._kill_switch.trigger(
+                scope=KillScope.GLOBAL,
+                key="*",
+                mode=KillMode.REDUCE_ONLY,
+                reason=f"drawdown_breaker: {reason}",
+                source="drawdown_breaker",
+                ttl_seconds=self._config.reduce_ttl_sec,
+                now_ts=now,
+            )
+            logger.error(
+                "DrawdownBreaker REDUCE_ONLY: %s (hwm=%.2f, dd=%.1f%%)",
+                reason, self._inner.equity_hwm, self._inner.current_drawdown_pct,
+            )
+            self._send_alert(f"REDUCE_ONLY: {reason}", severity="error")
+        elif mode == "hard_kill":
+            self._kill_switch.trigger(
+                scope=KillScope.GLOBAL,
+                key="*",
+                mode=KillMode.HARD_KILL,
+                reason=f"drawdown_breaker: {reason}",
+                source="drawdown_breaker",
+                now_ts=now,
+            )
+            logger.critical(
+                "DrawdownBreaker HARD_KILL: %s (hwm=%.2f, dd=%.1f%%)",
+                reason, self._inner.equity_hwm, self._inner.current_drawdown_pct,
+            )
+            self._send_alert(f"HARD_KILL: {reason}", severity="critical")
+        elif mode == "clear":
+            self._kill_switch.clear(scope=KillScope.GLOBAL, key="*")
+
     def _check_velocity(self, current_equity: float, now: float) -> bool:
-        """Check if equity dropped too fast (velocity breach)."""
+        """Check if equity dropped too fast (velocity breach). Python path only."""
         cfg = self._config
         cutoff = now - cfg.velocity_window_sec
 
@@ -148,7 +227,7 @@ class DrawdownCircuitBreaker:
         return False
 
     def _trigger_reduce_only(self, reason: str, now_ts: float) -> None:
-        """Enter reduce-only mode via KillSwitch."""
+        """Enter reduce-only mode via KillSwitch. Python path only."""
         self._state = "reduce_only"
         self._kill_switch.trigger(
             scope=KillScope.GLOBAL,
@@ -166,7 +245,7 @@ class DrawdownCircuitBreaker:
         self._send_alert(f"REDUCE_ONLY: {reason}", severity="error")
 
     def _trigger_kill(self, reason: str, now_ts: float) -> None:
-        """Enter hard-kill mode via KillSwitch."""
+        """Enter hard-kill mode via KillSwitch. Python path only."""
         self._state = "killed"
         self._kill_switch.trigger(
             scope=KillScope.GLOBAL,
@@ -198,6 +277,8 @@ class DrawdownCircuitBreaker:
 
     def checkpoint(self) -> dict:
         """Return state for persistence."""
+        if self._use_rust:
+            return self._inner.checkpoint()
         return {
             "equity_hwm": self._equity_hwm,
             "state": self._state,
@@ -205,11 +286,23 @@ class DrawdownCircuitBreaker:
 
     def restore_checkpoint(self, data: dict) -> None:
         """Restore state from checkpoint."""
+        if self._use_rust:
+            self._inner.restore_checkpoint(data)
+            return
         if "equity_hwm" in data:
             self._equity_hwm = float(data["equity_hwm"])
 
     def reset(self, new_hwm: float | None = None) -> None:
         """Reset the breaker state. Use after manual intervention."""
+        if self._use_rust:
+            _, action = self._inner.reset(new_hwm)
+            if action:
+                mode, _ = action
+                if mode == "clear":
+                    self._kill_switch.clear(scope=KillScope.GLOBAL, key="*")
+            logger.info("DrawdownBreaker reset (hwm=%.2f)", self._inner.equity_hwm)
+            return
+        # Python path
         self._state = "normal"
         self._current_dd_pct = 0.0
         if new_hwm is not None:
@@ -221,6 +314,8 @@ class DrawdownCircuitBreaker:
 
     def get_status(self) -> dict:
         """Return current status for health endpoint."""
+        if self._use_rust:
+            return self._inner.get_status()
         return {
             "state": self._state,
             "drawdown_pct": round(self._current_dd_pct, 2),

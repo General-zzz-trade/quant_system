@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 
 mod backtest_engine;
 mod pnl_tracker;
+mod drawdown_breaker;
 mod bootstrap;
 mod checkpoint_store;
 mod cross_sectional;
@@ -305,6 +306,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // PnL tracker
     m.add_class::<pnl_tracker::RustPnLTracker>()?;
+
+    // Drawdown breaker
+    m.add_class::<drawdown_breaker::RustDrawdownBreaker>()?;
 
     Ok(())
 }
