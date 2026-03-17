@@ -29,9 +29,10 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Alpha strategy (demo/live)**:
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Full portfolio (production)
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Full portfolio (LiveRunner, default)
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --dry-run         # Signal only, no orders
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --once --dry-run       # Single bar then exit
+python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --legacy          # Use AlphaRunner (deprecated fallback)
 sudo systemctl restart bybit-alpha.service                                   # Restart service
 sudo systemctl status bybit-alpha.service                                    # Check service
 tail -f /quant_system/logs/bybit_alpha.log                                   # Follow live logs
@@ -43,6 +44,7 @@ python3 -m scripts.data.download_15m_klines                                  # U
 python3 -m scripts.data.download_5m_klines --symbols ETHUSDT                 # Download 5m kline data
 python3 -m scripts.data.download_funding_rates --symbols ETHUSDT SOLUSDT     # Update funding rate history
 python3 -m scripts.data.download_oi_data --symbols ETHUSDT BTCUSDT           # Download OI/LS/Taker data (Binance, ~28d max)
+python3 -m scripts.data.download_multi_exchange_funding --symbols ETHUSDT    # Multi-exchange funding rates (Binance+Bybit)
 python3 -m scripts.auto_retrain --include-15m --force                        # Retrain 1h + 15m models
 python3 -m scripts.auto_retrain --only-15m --force                           # Retrain 15m models only
 python3 -m scripts.auto_retrain --dry-run                                    # Preview retrain without saving
@@ -67,7 +69,7 @@ python3 -m scripts.ops.shadow_mode_check                                      # 
 **CRITICAL after Rust build**: copy .so then verify:
 ```bash
 cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
-python3 -c "import _quant_hotpath; print(_quant_hotpath.rust_version())"  # verify import works
+python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"  # verify import works
 ```
 
 **Binary build** (standalone Rust trader, requires Python linkage):
@@ -83,7 +85,10 @@ core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
 features/        Feature computation (EnrichedFeatureComputer, 127 features incl. ADX + V12 cross-asset + V13 OI + V14 dominance)
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (144 = 127 enriched + 17 cross-asset)
+  feature_catalog.py   PRODUCTION_FEATURES frozenset (153+ = 127 enriched + 17 cross-asset + 4 dominance + 3 funding spread + 2 onchain)
+  dominance_computer.py  V14 BTC/ETH ratio features (Python + Rust dual path)
+  funding_spread.py    Multi-exchange funding rate spread (3 features)
+  onchain_flow.py      Exchange inflow z-score + MA ratio (2 features)
 decision/        Trading signals, ensemble, regime detection (CompositeRegimeDetector + ParamRouter wired), rebalancing
 alpha/           ML models + inference bridge (horizon_ensemble.py, adaptive_config.py)
 execution/       Order routing, state machine, dedup
@@ -97,8 +102,14 @@ event/           Event types + runtime protocol
 ext/rust/        Unified Rust crate -> _quant_hotpath (68 .rs files, ~26K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
-  builders/            10 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
-  live_runner.py       1043 lines (was 1799; 10 _build_* methods extracted to builders/)
+  builders/            13 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
+    rust_components_builder.py  Phase 1.5: 9 Rust component initialization
+    combo_builder.py            Dual-alpha AGREE mode (combine_signals)
+  gates/               Custom order gates (Phase 2 convergence)
+    adaptive_stop_gate.py       ATR 3-phase stop-loss gate
+    equity_leverage_gate.py     Kelly-bracket leverage + z-score scaling
+    consensus_scaling_gate.py   Cross-symbol consensus sizing
+  live_runner.py       Primary production entry point (Python, converged from AlphaRunner)
 regime/          Regime detection (volatility, trend, composite, param_router — all wired)
 risk/            Risk limits + kill switch + StagedRiskManager (equity-based staging)
 strategies/      Strategy registry + protocol (alpha_momentum, polymarket_rsi)
@@ -169,16 +180,16 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
 - `features/enriched_computer.py` — 127 enriched feature definitions (V1-V14 + ADX)
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (144 features); `validate_model_features()`
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (153+ features); `validate_model_features()`
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Production entry point (Python)
-- `runner/gate_chain.py` — GateChain: 13 gates with `process_with_audit()` (incl. StagedRiskGate)
-- `runner/config.py` — LiveRunnerConfig (71 fields); factory: `.lite()`, `.paper()`, `.prod()`
+- `runner/gate_chain.py` — GateChain: 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, EquityLeverageGate, ConsensusScalingGate)
+- `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
 - `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
-- `scripts/ops/alpha_runner.py` — AlphaRunner: signal + trade with 12 Rust components
-- `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode)
-- `scripts/ops/run_bybit_alpha.py` — **Primary alpha runner**: main() entry + WS loop
+- `scripts/ops/alpha_runner.py` — AlphaRunner: legacy signal + trade (deprecated, use `--legacy`)
+- `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode, enforces MAX_ORDER_NOTIONAL)
+- `scripts/ops/run_bybit_alpha.py` — **Primary entry point**: defaults to LiveRunner, `--legacy` for AlphaRunner
 - `scripts/shared/signal_postprocess.py` — Signal pipeline (Rust + Python parity)
 - `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, Almgren-Chriss slippage, adaptive ATR stop
 - `polymarket/collector.py` — 5m+15m CLOB collector + BS fair value + RSI signal
@@ -271,10 +282,14 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Fd8 conversion: Python `float * _SCALE` → Rust i64, Rust i64 → Python `/ _SCALE`
 - `RustFeatureEngine` uses its own window sizes; `checkpoint()`/`restore_checkpoint()` persist as bar history JSON
 - State ownership: `RustStateStore` = position truth; `OrderStateMachine` = execution audit trail only
+- On restart, `_reconcile_position()` syncs StateStore with exchange positions via `_record_fill()`
+- Feature hook source exceptions isolated via `_safe_call_source()` — NaN on failure, bar continues
+- `SagaManager` uses `RLock` (reentrant) + TTL auto-cancel for stuck SUBMITTED orders
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 
 **Trading & safety**:
-- `MAX_ORDER_NOTIONAL = $500` hard limit in config.py — blocks any single order exceeding this notional
+- `MAX_ORDER_NOTIONAL = $500` hard limit in config.py — enforced in both AlphaRunner and PortfolioCombiner
+- `_round_to_step()` applied in ALL code paths (adaptive sizing, base size, exception fallback) — prevents Bybit `Qty invalid` rejections
 - Binance min notional: ETHUSDT $20, BTCUSDT $100; Bybit all $5
 - `PortfolioCombiner` sets individual runners to `dry_run=True`; caps each symbol at 30% of equity x leverage
 - SYMBOL_CONFIG: `SUIUSDT` size=10, step=10 (Bybit qtyStep=10); `AXSUSDT` size=5.0, step=0.1
@@ -283,9 +298,9 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 
 **Features & models**:
 - ADX(14): computed incrementally in `enriched_computer.py` via `_ADXTracker`; needs 2×14=28 bars warmup; used by `TrendRegimeDetector`
-- CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar
+- CrossAssetComputer: must push benchmark (BTCUSDT) **before** altcoins each bar; call `begin_bar()` to reset per-bar tracking; warns if order violated
 - `EnrichedFeatureComputer.on_bar(btc_close=...)` — V12 needs BTC price; `on_bar(eth_close=...)` — V14 needs ETH price; missing → None (safe)
-- V13 OI features (5): IC validated, 28 days data only. V14 dominance (4): `btc_dom_*`, computed in Python (not Rust)
+- V13 OI features (5): IC validated, 28 days data only. V14 dominance (4): `btc_dom_*`, dual path (Python `dominance_computer.py` + Rust `push_dominance()`)
 - Ridge model uses its own feature list (`ridge_features`) which may differ from LGBM features
 - Feature selection: greedy IC is optimal (stability-filtered and fixed-feature approaches both hurt)
 - BTC model h=96 uses `min_hold=48` (2 days), `max_hold=288` (12 days) — much slower than ETH's h=24/min_hold=18
@@ -296,12 +311,12 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
 - Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
 
-**Two production paths** (important!):
-- `AlphaRunner` (`scripts/ops/alpha_runner.py`) is the **current production path** — compact, single-file, 12 Rust components
-- `LiveRunner` (`runner/live_runner.py`) is the **framework path** — full engine layer, gate chain, builders; intended future convergence target
-- They share Rust components but have **independent** regime/risk wiring; changes to one don't automatically propagate to the other
-- `AlphaRunner.use_composite_regime` only enabled for BTC (via `SYMBOL_CONFIG`); ETH/SUI/AXS use fixed params
-- Polymarket `AvellanedaStoikovMaker` is standalone; needs manual startup, not wired to either runner
+**Production path (converged)**:
+- `LiveRunner` (`runner/live_runner.py`) is the **primary production path** — `run_bybit_alpha.py` defaults to it
+- `AlphaRunner` (`scripts/ops/alpha_runner.py`) is **deprecated** — use `--legacy` flag to fall back; retained 3 months
+- LiveRunner has all AlphaRunner capabilities: 12 Rust components, regime detection, adaptive stop, consensus scaling, combo AGREE mode
+- `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only by default); ETH/SUI/AXS use fixed params
+- Polymarket `AvellanedaStoikovMaker` is standalone; needs manual startup, not wired to runner
 
 **Regime & risk wiring** (2026-03-17):
 - `RegimeAwareDecisionModule` defaults to `CompositeRegimeDetector` (was Vol+Trend separately)
@@ -312,7 +327,9 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 
 **Infrastructure**:
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`
-- Burn-in gate: Phase A(Paper 7d) → B(Shadow 7d) → C(Testnet 3d) before live; `config/production.local.yaml`
+- Burn-in gate: Phase A(Paper 3d) → B(Shadow 3d) → C(Testnet 3d) = 9 days before live; configs in `config/burnin.{paper,shadow,testnet}.yaml`
+- Live config: `config/production.live.yaml` ($500 ETHUSDT, half-Kelly 0.7x, $100 order cap)
+- Alert rules: `config/alerts.live.yaml` (balance $400 kill, $50 single-loss warn, 2h stale, IC decay)
 - Dockerfile: multi-stage (`ci`/`paper`/`live`); docker-compose.yml with paper + `--profile live` profiles
 - `scripts/ops/security_scan.py`: checks hardcoded secrets, .env gitignored, MAX_ORDER_NOTIONAL, bare-except blocks
 - `regime/param_router.py`: only BTC uses regime-adaptive params; ETH keeps fixed (fixed outperforms adaptive for ETH)
