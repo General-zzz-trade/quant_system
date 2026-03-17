@@ -83,3 +83,30 @@ def test_order_notional_exceeded():
     result = gate.check(_Cmd(qty=1.0, price=50000.0))
     assert not result.allowed
     assert "order_notional" in result.reason
+
+
+class TestRiskGateMarketOrderPrice:
+    def test_market_order_with_mark_price_accepted(self):
+        """Mark price should be preferred for notional calculation."""
+        from types import SimpleNamespace
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
+        gate = RiskGate(RiskGateConfig(max_order_notional=10000))
+        cmd = SimpleNamespace(qty=1.0, mark_price=3000.0)
+        result = gate.check(cmd)
+        assert result.allowed is True
+
+    def test_market_order_without_any_price_rejected(self):
+        """Market orders with no price field must be rejected."""
+        from types import SimpleNamespace
+        from execution.safety.risk_gate import RiskGate, RiskGateConfig
+        gate = RiskGate(RiskGateConfig())
+        cmd = SimpleNamespace(qty=1.0)
+        result = gate.check(cmd)
+        assert result.allowed is False
+
+    def test_mark_price_preferred_over_order_price(self):
+        """mark_price takes precedence over price."""
+        from types import SimpleNamespace
+        from execution.safety.risk_gate import _get_price
+        cmd = SimpleNamespace(mark_price=3100.0, price=3000.0)
+        assert _get_price(cmd) == 3100.0
