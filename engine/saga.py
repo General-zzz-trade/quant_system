@@ -417,3 +417,11 @@ class SagaManager:
         while len(self._completed) > self._max_completed:
             oldest_key = next(iter(self._completed))
             del self._completed[oldest_key]
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustSagaManager as _RustSagaManager  # noqa: F401
+    _RUST_SAGA_AVAILABLE = True
+except ImportError:
+    _RUST_SAGA_AVAILABLE = False

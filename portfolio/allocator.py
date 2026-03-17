@@ -630,3 +630,11 @@ def plan_to_target_weight(plan: AllocationPlan) -> Dict[str, Decimal]:
 
 def plan_to_target_notional(plan: AllocationPlan) -> Dict[str, Decimal]:
     return {t.symbol: t.target_notional for t in plan.targets}
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustPortfolioAllocator  # noqa: F401
+    _RUST_ALLOCATOR_AVAILABLE = True
+except ImportError:
+    _RUST_ALLOCATOR_AVAILABLE = False

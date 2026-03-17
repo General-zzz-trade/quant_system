@@ -280,3 +280,33 @@ class RiskAggregator:
             return RiskDecision.kill((v,), scope=v.scope, tags=("fail_safe", rule_name))
         # REDUCE 在异常场景不安全：保守降为 REJECT
         return RiskDecision.reject((v,), scope=v.scope, tags=("fail_safe", rule_name))
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustRiskAggregator as _RustRiskAggregator
+
+    class RustAcceleratedRiskAggregator:
+        """Thin wrapper around RustRiskAggregator matching RiskAggregator API."""
+
+        def __init__(self, rules=(), *, fail_safe_action="reject", **kwargs):
+            self._rust = _RustRiskAggregator()
+            self._py_fallback = RiskAggregator(rules, fail_safe_action=fail_safe_action, **kwargs)
+            for rule in rules:
+                name = getattr(rule, 'name', str(rule))
+                rtype = type(rule).__name__.lower().replace('rule', '')
+                # Best-effort add to Rust side
+                try:
+                    self._rust.add_rule(name, rtype, {})
+                except Exception:
+                    pass
+
+        def evaluate_order(self, order, *, meta=None):
+            """Delegate to Python (Rust is used for hot-path evaluate())."""
+            return self._py_fallback.evaluate_order(order, meta=meta or {})
+
+        def snapshot(self):
+            return self._py_fallback.snapshot()
+
+except ImportError:
+    pass

@@ -14,7 +14,7 @@ pytest tests/unit/event/ -x -q   # Event module tests (145 tests)
 pytest tests/unit/strategies/ -x -q  # Strategy registry tests (10 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test    # Rust unit tests (82 tests)
+cd ext/rust && cargo test --no-default-features  # Rust unit tests (198 tests)
 ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
@@ -103,7 +103,7 @@ execution/       Order routing, state machine, dedup
 state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
-ext/rust/        Unified Rust crate -> _quant_hotpath (72 .rs files, ~26K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (77 .rs files, ~30K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
   builders/            13 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
@@ -164,8 +164,8 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 72 .rs modules, ~26K LOC
-- Exports: ~31 PyO3 classes + ~100 functions (188 total, see `lib.rs`)
+- Single crate `_quant_hotpath`, 77 .rs modules, ~30K LOC
+- Exports: ~38 PyO3 classes + ~100 functions (195 total, see `lib.rs`)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
@@ -175,8 +175,14 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
 - `drawdown_breaker.rs` — RustDrawdownBreaker (4-state machine, velocity detection; return-action pattern, Python bridges to KillSwitch)
 - `regime_detector.rs` — RustCompositeRegimeDetector + RustRegimeParamRouter (vol percentile + ADX trend + param routing; Python fallback in regime/composite.py + param_router.py)
 - `adaptive_stop.rs` — RustAdaptiveStopGate (3-phase ATR stop, per-symbol state; Python fallback in runner/gates/adaptive_stop_gate.py)
+- `risk_rules.rs` + `risk_aggregator.rs` — RustRiskAggregator (7 rules: MaxPosition, LeverageCap, MaxDrawdown, PortfolioLimits, OrderFrequency, CorrelationLimit, VaR; Mutex-protected stats; NaN→reject)
+- `saga_manager.rs` — RustSagaManager (order lifecycle state machine, match-exhaustive transitions, TTL auto-expire)
+- `event_validation.rs` — RustEventValidator (bounded LRU dedup, monotonic time, type-specific validation)
+- `correlation.rs` — RustCorrelationComputer (rolling Pearson pairwise correlation, log return tracking)
+- `gate_chain.rs` — RustGateChain (9 gate types in single FFI call: equity_leverage, consensus, drawdown, correlation, alpha_health, regime, staged_risk, notional, min_qty)
+- `incremental_trackers.rs` — Standalone EMA/RSI/ATR/ADX trackers (reusable outside feature engine)
 
-Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker, RustDrawdownBreaker), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select), Analytics (RustPnLTracker), Regime (RustCompositeRegimeDetector, RustRegimeParamRouter, RustRegimeResult, RustRegimeParams), Gates (RustAdaptiveStopGate).
+Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker, RustDrawdownBreaker, RustRiskAggregator), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select), Analytics (RustPnLTracker), Regime (RustCompositeRegimeDetector, RustRegimeParamRouter, RustRegimeResult, RustRegimeParams), Gates (RustAdaptiveStopGate, RustGateChain), Saga (RustSagaManager), Validation (RustEventValidator), Correlation (RustCorrelationComputer), Allocation (RustPortfolioAllocator).
 
 ## Rust Pipeline (12/12 components in production)
 
@@ -292,7 +298,10 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - State ownership: `RustStateStore` = position truth; `OrderStateMachine` = execution audit trail only
 - On restart, `_reconcile_position()` syncs StateStore with exchange positions via `_record_fill()`
 - Feature hook source exceptions isolated via `_safe_call_source()` — NaN on failure, bar continues
-- `SagaManager` uses `RLock` (reentrant) + TTL auto-cancel for stuck SUBMITTED orders
+- `SagaManager`: Python uses `RLock`, Rust (`RustSagaManager`) uses match-exhaustive state machine with mandatory TTL
+- `RustRiskAggregator` replaces Python aggregator's Lock with Rust Mutex — stats never lost under concurrency
+- `RustEventValidator` uses bounded LRU (default 100K) instead of unbounded HashSet — prevents dedup memory leak
+- `RustGateChain` processes all gates in single FFI call — no per-gate Python↔Rust switching
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 
 **Trading & safety**:

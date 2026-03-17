@@ -291,3 +291,11 @@ class EventValidators:
 
     def validate(self, event: Any) -> None:
         self.validator.validate(event)
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustEventValidator  # noqa: F401
+    _RUST_EVENT_VALIDATOR_AVAILABLE = True
+except ImportError:
+    _RUST_EVENT_VALIDATOR_AVAILABLE = False

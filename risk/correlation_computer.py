@@ -113,3 +113,11 @@ def _pearson_corr(x: List[float], y: List[float]) -> Optional[float]:
     if denom < 1e-15:
         return None
     return cov / denom
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustCorrelationComputer  # noqa: F401
+    _RUST_CORRELATION_AVAILABLE = True
+except ImportError:
+    _RUST_CORRELATION_AVAILABLE = False

@@ -2,6 +2,7 @@
 use pyo3::prelude::*;
 
 mod backtest_engine;
+pub mod incremental_trackers;
 mod pnl_tracker;
 mod drawdown_breaker;
 mod bootstrap;
@@ -44,6 +45,7 @@ mod engine_guards;
 pub mod risk_engine;
 mod core_types;
 mod event_types;
+mod event_validation;
 mod event_validators;
 mod kernel_boundary;
 pub mod decision_math;
@@ -70,6 +72,11 @@ mod ensemble_calibrate;
 pub mod rust_events;
 mod regime_detector;
 mod adaptive_stop;
+mod saga_manager;
+pub mod risk_rules;
+pub mod risk_aggregator;
+mod correlation;
+mod gate_chain;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -214,6 +221,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<event_types::RustDecisionOutput>()?;
     m.add_class::<event_types::RustTargetPosition>()?;
     m.add_class::<event_types::RustOrderSpec>()?;
+    m.add_class::<event_validation::RustEventValidator>()?;
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_monotonic_time, m)?)?;
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_required_fields, m)?)?;
     m.add_function(wrap_pyfunction!(event_validators::rust_validate_numeric_range, m)?)?;
@@ -266,6 +274,7 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Portfolio allocator
     m.add_function(wrap_pyfunction!(portfolio_allocator::rust_allocate_portfolio, m)?)?;
+    m.add_class::<portfolio_allocator::RustPortfolioAllocator>()?;
 
     // Inference bridge
     m.add_class::<inference_bridge::RustInferenceBridge>()?;
@@ -320,6 +329,19 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Adaptive stop gate (ATR 3-phase stop-loss)
     m.add_class::<adaptive_stop::RustAdaptiveStopGate>()?;
+
+    // Saga manager (order lifecycle state machine)
+    m.add_class::<saga_manager::RustSagaManager>()?;
+
+    // Risk aggregator (7 risk rules)
+    m.add_class::<risk_aggregator::RustRiskAggregator>()?;
+
+    // Correlation computer (portfolio correlation tracking)
+    m.add_class::<correlation::RustCorrelationComputer>()?;
+
+    // Gate chain orchestrator (configurable pure-Rust gate pipeline)
+    m.add_class::<gate_chain::RustGateChain>()?;
+    m.add_class::<gate_chain::RustGateResult>()?;
 
     Ok(())
 }

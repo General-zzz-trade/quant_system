@@ -406,3 +406,11 @@ def build_gate_chain(
         gates.append(ExecQualityGate(hook))
         gates.append(WeightRecGate(hook))
     return GateChain(gates)
+
+
+# --- Rust acceleration ---
+try:
+    from _quant_hotpath import RustGateChain, RustGateResult  # noqa: F401
+    _RUST_GATE_CHAIN_AVAILABLE = True
+except ImportError:
+    _RUST_GATE_CHAIN_AVAILABLE = False
