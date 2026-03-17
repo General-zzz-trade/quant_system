@@ -122,7 +122,7 @@ def check_rust_crate() -> Tuple[bool, Any]:
     """Verify Rust crate is importable."""
     try:
         import _quant_hotpath  # type: ignore[import]
-        return True, _quant_hotpath.rust_version()
+        return True, f"ok ({len(dir(_quant_hotpath))} exports)"
     except ImportError as exc:
         return False, str(exc)
 
@@ -170,7 +170,7 @@ def check_liverunner_readiness() -> List[Tuple[str, bool, str]]:
     # 2. Rust components available
     try:
         import _quant_hotpath  # type: ignore[import]
-        checks.append(("Rust crate importable", True, _quant_hotpath.rust_version()))
+        checks.append(("Rust crate importable", True, f"ok ({len(dir(_quant_hotpath))} exports)"))
     except ImportError as exc:
         checks.append(("Rust crate importable", False, str(exc)))
 
