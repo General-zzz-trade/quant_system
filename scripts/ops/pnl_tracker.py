@@ -70,10 +70,6 @@ class PnLTracker:
         """Recent trade log (last 100). Always returns a Python list."""
         return self._trades
 
-    @trades.setter
-    def trades(self, value: list[dict]) -> None:
-        self._trades = value
-
     # ------------------------------------------------------------------
     # Core methods
     # ------------------------------------------------------------------

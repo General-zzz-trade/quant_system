@@ -115,9 +115,9 @@ impl RustPnLTracker {
                 "exit_price must be finite, got {exit_price}"
             )));
         }
-        if size <= 0.0 {
+        if !size.is_finite() || size <= 0.0 {
             return Err(PyValueError::new_err(format!(
-                "size must be > 0, got {size}"
+                "size must be finite and > 0, got {size}"
             )));
         }
 

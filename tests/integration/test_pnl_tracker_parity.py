@@ -111,6 +111,11 @@ class TestRustPnLTrackerBasic:
         with pytest.raises(Exception):
             rust.record_close("ETH", 1, 100.0, 110.0, -1.0, "test")
 
+    def test_nan_size_rejected(self):
+        rust = RustPnLTracker()
+        with pytest.raises(Exception):
+            rust.record_close("ETH", 1, 100.0, 110.0, float("nan"), "test")
+
     def test_return_dict_keys(self):
         rust = RustPnLTracker()
         r = rust.record_close("ETHUSDT", 1, 100.0, 110.0, 2.0, "test")
