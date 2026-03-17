@@ -44,6 +44,7 @@ class RegimeAwareDecisionModule:
     policy: RegimePolicy = field(default_factory=RegimePolicy)
     param_router: RegimeParamRouter = field(default_factory=RegimeParamRouter)
     enable_param_routing: bool = False
+    composite_regime_symbols: tuple = field(default_factory=tuple)
 
     ma_fast_window: int = 10
     ma_slow_window: int = 30
@@ -53,6 +54,25 @@ class RegimeAwareDecisionModule:
     _buffers: Dict[str, RustRegimeBuffer] = field(default_factory=dict, init=False)
     _last_labels: List[RegimeLabel] = field(default_factory=list, init=False)
     _current_params: Optional[RegimeParams] = field(default=None, init=False)
+    _composite_symbols: set = field(default_factory=set, init=False)
+
+    def __post_init__(self) -> None:
+        self._composite_symbols = set(self.composite_regime_symbols)
+
+    def _is_composite_symbol(self, symbol: str) -> bool:
+        """Return True if this symbol is designated to use CompositeRegime+ParamRouter."""
+        return symbol in self._composite_symbols
+
+    def _should_route_params(self, symbol: str) -> bool:
+        """Return True if param routing should apply for this symbol.
+
+        Param routing is active only when:
+        - enable_param_routing is True globally, OR
+        - the symbol is explicitly in composite_regime_symbols.
+        """
+        if self.enable_param_routing:
+            return True
+        return symbol in self._composite_symbols
 
     def _extract_features_from_snapshot(self, snapshot: Any, sym: str) -> Optional[Dict[str, Any]]:
         """Try to extract features from snapshot for the given symbol.
@@ -116,8 +136,11 @@ class RegimeAwareDecisionModule:
 
         self._last_labels = all_labels
 
-        # Param routing (when enabled)
-        if self.enable_param_routing and all_labels:
+        # Param routing — enabled globally OR for any composite symbol in this snapshot
+        _any_composite_sym = bool(self._composite_symbols) and any(
+            sym in self._composite_symbols for sym in markets
+        )
+        if (self.enable_param_routing or _any_composite_sym) and all_labels:
             self._route_params(all_labels)
 
         # Policy gate
