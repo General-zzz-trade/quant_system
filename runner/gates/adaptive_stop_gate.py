@@ -15,6 +15,7 @@ State is maintained per symbol so multiple symbols can share one gate instance.
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -63,7 +64,7 @@ class _SymbolState:
 
     def push_true_range(self, high: float, low: float, prev_close: float) -> None:
         """Compute and buffer true range as fraction of close."""
-        if prev_close <= 0:
+        if prev_close <= 0 or not math.isfinite(high) or not math.isfinite(low):
             return
         tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
         atr_pct = tr / prev_close
@@ -238,8 +239,8 @@ class AdaptiveStopGate:
         if high is not None and low is not None and prev_close is not None:
             try:
                 self._rust.push_true_range(sym, float(high), float(low), float(prev_close))
-            except Exception:
-                pass
+            except (ValueError, Exception) as e:
+                logger.debug("AdaptiveStop: push_true_range rejected: %s", e)
             # Also update Python state so state inspection via _get_state() reflects ATR
             py_state = self._states.get(sym)
             if py_state is None:
@@ -297,6 +298,8 @@ class AdaptiveStopGate:
 
     def check_stop(self, symbol: str, price: float) -> bool:
         """Real-time tick check.  Returns True (and resets state) if stopped out."""
+        if not math.isfinite(price) or price <= 0:
+            return False
         if self._use_rust:
             breached = self._rust.check_stop(symbol, price)
             if breached:

@@ -140,10 +140,10 @@ impl RustAdaptiveStopGate {
         low: f64,
         prev_close: f64,
     ) -> PyResult<()> {
-        if prev_close <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "prev_close must be positive",
-            ));
+        if !high.is_finite() || !low.is_finite() || !prev_close.is_finite() || prev_close <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "push_true_range: invalid inputs high={} low={} prev_close={}", high, low, prev_close
+            )));
         }
         let state = self.states.entry(symbol).or_insert_with(SymbolStopState::new);
         state.push_true_range(high, low, prev_close);
@@ -159,6 +159,10 @@ impl RustAdaptiveStopGate {
         };
 
         if state.side == 0 || state.entry_price <= 0.0 {
+            return false;
+        }
+
+        if !price.is_finite() || price <= 0.0 {
             return false;
         }
 
