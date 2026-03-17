@@ -93,6 +93,7 @@ class TestAccountStateWithUpdate:
         assert acc.balance == Decimal("-100")
 
     def test_with_update_naive_ts_converted_to_utc(self):
+
         acc = AccountState.initial(currency="USDT", balance=Decimal("1000"))
         naive_ts = datetime(2024, 6, 15, 12, 0, 0)
         updated = acc.with_update(
@@ -105,3 +106,23 @@ class TestAccountStateWithUpdate:
         )
         assert updated.last_ts is not None
         assert updated.last_ts.tzinfo is not None
+
+
+class TestAccountStateValidation:
+    def test_margin_exceeding_balance_raises(self):
+        acct = AccountState.initial(currency="USDT", balance=Decimal("1000"))
+        with pytest.raises(ValueError, match="margin"):
+            acct.with_update(
+                balance=Decimal("1000"), margin_used=Decimal("1500"),
+                realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
+                fees_paid=Decimal("0"), ts=None,
+            )
+
+    def test_valid_margin_passes(self):
+        acct = AccountState.initial(currency="USDT", balance=Decimal("1000"))
+        updated = acct.with_update(
+            balance=Decimal("1000"), margin_used=Decimal("500"),
+            realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
+            fees_paid=Decimal("0"), ts=None,
+        )
+        assert updated.margin_available == Decimal("500")
