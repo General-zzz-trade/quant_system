@@ -9,8 +9,12 @@ see execution/bridge/execution_bridge.py which is used by specific adapters.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+import time
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional, Protocol
+
+_log = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -22,7 +26,7 @@ class ExecutionAdapter(Protocol):
     ExecutionAdapter：交易所 / Broker 适配器契约
 
     设计铁律：
-    - 只接收“订单类事件”
+    - 只接收"订单类事件"
     - 不修改 state
     - 不产生 snapshot
     - 成交结果必须以 Event 形式返回（FillEvent）
@@ -51,7 +55,7 @@ class ExecutionBridgeError(RuntimeError):
 @dataclass(slots=True)
 class ExecutionBridge:
     """
-    ExecutionBridge —— “意见 → 现实”的唯一合法出口（冻结版 v1.0）
+    ExecutionBridge —— "意见 → 现实"的唯一合法出口（冻结版 v1.0）
 
     职责：
     - 接收 dispatcher 路由来的 EXECUTION 事件（通常是 OrderEvent）
@@ -62,11 +66,39 @@ class ExecutionBridge:
     1) ExecutionBridge 永远不修改 state
     2) ExecutionBridge 永远不生成 snapshot
     3) ExecutionBridge 永远不绕过 dispatcher
+
+    Retry + circuit breaker：
+    - max_retries: 单次 handle_event 最多重试次数（默认 2）
+    - retry_base_delay: 指数退避基础延迟，单位秒（默认 0.5s）
+    - cb_failure_threshold: 累计失败次数触发熔断（默认 5）
+    - cb_cooldown_seconds: 熔断冷却时间，超时后自动半开（默认 30s）
     """
 
     adapter: ExecutionAdapter
     dispatcher_emit: Callable[[Any], None]
     risk_gate: Optional[Any] = None
+    # Retry parameters
+    max_retries: int = 2
+    retry_base_delay: float = 0.5
+    # Circuit breaker parameters
+    cb_failure_threshold: int = 5
+    cb_cooldown_seconds: float = 30.0
+    # Mutable state — not part of __init__ signature
+    _failure_count: int = field(default=0, init=False, repr=False)
+    _circuit_opened_at: Optional[float] = field(default=None, init=False, repr=False)
+
+    # --------------------------------------------------------
+    # Circuit breaker property
+    # --------------------------------------------------------
+
+    @property
+    def circuit_open(self) -> bool:
+        if self._circuit_opened_at is None:
+            return False
+        if time.monotonic() - self._circuit_opened_at > self.cb_cooldown_seconds:
+            # Cooldown elapsed — half-open: allow next attempt
+            return False
+        return True
 
     # --------------------------------------------------------
     # Entry
@@ -80,15 +112,44 @@ class ExecutionBridge:
         if self.risk_gate is not None:
             check = self.risk_gate.check(event)
             if not check.allowed:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "RiskGate (execution bridge) REJECTED: %s", check.reason)
+                _log.warning("RiskGate (execution bridge) REJECTED: %s", check.reason)
                 return
 
-        try:
-            results = self.adapter.send_order(event)
-        except Exception as e:
-            raise ExecutionBridgeError("Execution adapter failed") from e
+        # Circuit breaker: fast-fail when open
+        if self.circuit_open:
+            raise ExecutionBridgeError(
+                "Circuit breaker open — execution adapter requests are suspended"
+            )
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                results = self.adapter.send_order(event)
+                # Success — reset failure counter (half-open recovery)
+                self._failure_count = 0
+                self._circuit_opened_at = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                self._failure_count += 1
+                _log.warning(
+                    "ExecutionBridge adapter error (attempt %d/%d): %s",
+                    attempt + 1,
+                    self.max_retries + 1,
+                    exc,
+                )
+                if self._failure_count >= self.cb_failure_threshold:
+                    self._circuit_opened_at = time.monotonic()
+                    _log.error(
+                        "ExecutionBridge circuit breaker OPENED after %d failures",
+                        self._failure_count,
+                    )
+                if attempt < self.max_retries:
+                    delay = self.retry_base_delay * (2 ** attempt)
+                    time.sleep(delay)
+        else:
+            # All attempts exhausted
+            raise ExecutionBridgeError("Execution adapter failed") from last_exc
 
         if not results:
             return

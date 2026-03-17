@@ -318,3 +318,51 @@ class TestRejected:
         assert live.order_count == 1
         list(live.send_order(_order_event()))
         assert live.order_count == 2
+
+
+# ── Tests: ExecutionBridge retry + circuit breaker ───────────
+
+
+class TestExecutionBridgeRetry:
+    def test_transient_failure_retried(self):
+        from engine.execution_bridge import ExecutionBridge
+        call_count = 0
+
+        class FlakeyAdapter:
+            def send_order(self, event):
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise ConnectionError("transient")
+                return []
+
+        bridge = ExecutionBridge(
+            adapter=FlakeyAdapter(),
+            dispatcher_emit=lambda e: None,
+            max_retries=3,
+            retry_base_delay=0.01,
+        )
+        bridge.handle_event("fake_order")
+        assert call_count == 3
+
+    def test_permanent_failure_opens_circuit(self):
+        from engine.execution_bridge import ExecutionBridge
+
+        class AlwaysFailAdapter:
+            def send_order(self, event):
+                raise ConnectionError("down")
+
+        bridge = ExecutionBridge(
+            adapter=AlwaysFailAdapter(),
+            dispatcher_emit=lambda e: None,
+            max_retries=2,
+            retry_base_delay=0.01,
+            cb_failure_threshold=3,
+            cb_cooldown_seconds=10.0,
+        )
+        for _ in range(3):
+            try:
+                bridge.handle_event("order")
+            except Exception:
+                pass
+        assert bridge.circuit_open
