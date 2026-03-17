@@ -14,10 +14,23 @@ from scripts.ops.config import (
     INTERVAL, MAX_ORDER_NOTIONAL, WARMUP_BARS,
     _consensus_signals,
 )
-from scripts.ops.data_fetcher import _fetch_binance_oi_data
+from scripts.ops.data_fetcher import BinanceOICache
+from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
 
 logger = logging.getLogger(__name__)
+
+# Neutral fallback values for NaN features — 0.0 would be a directional signal
+# for ratio/RSI features where the neutral value is not zero.
+_NEUTRAL_DEFAULTS: dict[str, float] = {
+    "ls_ratio": 1.0,
+    "top_trader_ls_ratio": 1.0,
+    "taker_buy_ratio": 0.5,
+    "vol_regime": 1.0,
+    "bb_pctb_20": 0.5,
+    "rsi_14": 50.0,
+    "rsi_6": 50.0,
+}
 
 
 class AlphaRunner:
@@ -151,6 +164,11 @@ class AlphaRunner:
         self._runner_key: str = ""  # set by main() after construction
         self._z_scale: float = 1.0  # non-linear z-score position scale
         self._last_bar_time: float = 0.0  # time.time() of last process_bar call
+
+        # Background OI cache: fetches Binance OI/LS/Taker every 55s in daemon thread.
+        # Avoids blocking bar-processing thread with 4 sequential REST calls (~12s worst case).
+        self._oi_cache = BinanceOICache(self._symbol)
+        self._oi_cache.start()
 
     # Backward-compat properties: delegate to PnLTracker
     @property
@@ -522,17 +540,16 @@ class AlphaRunner:
                     self._osm.register(stop_id, self._symbol,
                                        "sell" if self._current_signal > 0 else "buy",
                                        "market", str(self._position_size))
-                    close_result = self._adapter.close_position(self._symbol)
-                    if close_result.get("status") == "error":
-                        logger.error("%s STOP CLOSE FAILED: %s", self._symbol, close_result)
-                        self._osm.transition(stop_id, "rejected", reason=str(close_result.get("retMsg", "")))
+                    close_result = reliable_close_position(self._adapter, self._symbol)
+                    if close_result["status"] == "failed":
+                        logger.error("%s STOP CLOSE FAILED after retries — keeping state",
+                                     self._symbol)
+                        self._osm.transition(stop_id, "rejected", reason="reliable_close_failed")
                         self._circuit_breaker.record_failure()
-                        if close_result.get("retryable", False):
-                            close_result = self._adapter.close_position(self._symbol)
-                        if close_result.get("status") == "error":
-                            logger.error("%s STOP CLOSE RETRY FAILED: %s — keeping state",
-                                         self._symbol, close_result)
-                            return False
+                        return False
+                    if not close_result.get("verified", True):
+                        logger.warning("%s STOP CLOSE: position verification failed, proceeding",
+                                       self._symbol)
                     self._osm.transition(stop_id, "filled", filled_qty=str(self._position_size),
                                          avg_price=str(price))
                     self._circuit_breaker.record_success()
@@ -569,18 +586,23 @@ class AlphaRunner:
         Ridge won 20-fold walk-forward (15/20 PASS, Sharpe 0.54, +433%).
         Config weights: ridge_weight (default 0.6) + lgbm_weight (default 0.4).
         """
-        def _safe_val(v):
-            """Convert None/NaN to 0.0 for model input."""
+        def _safe_val(v, feat_name: str = "") -> float:
+            """Convert None/NaN to neutral value for model input.
+
+            Uses _NEUTRAL_DEFAULTS for features where 0.0 is a directional
+            signal (e.g. ls_ratio neutral=1.0, rsi_14 neutral=50.0).
+            """
+            neutral = _NEUTRAL_DEFAULTS.get(feat_name, 0.0)
             if v is None:
-                return 0.0
+                return neutral
             try:
                 f = float(v)
-                return 0.0 if np.isnan(f) else f
+                return neutral if np.isnan(f) else f
             except (TypeError, ValueError):
-                return 0.0
+                return neutral
 
         if not self._horizon_models:
-            x = [_safe_val(feat_dict.get(f)) for f in self._features]
+            x = [_safe_val(feat_dict.get(f), f) for f in self._features]
             return float(self._model.predict([x])[0])
 
         ridge_w = self._config.get("ridge_weight", 0.6)
@@ -591,7 +613,7 @@ class AlphaRunner:
 
         for hm in self._horizon_models:
             feats = hm["features"]
-            x = [_safe_val(feat_dict.get(f)) for f in feats]
+            x = [_safe_val(feat_dict.get(f), f) for f in feats]
 
             ic = max(hm["ic"], 0.001)
 
@@ -599,7 +621,7 @@ class AlphaRunner:
             if hm.get("ridge") is not None:
                 # Ridge may use different features than LGBM
                 rf = hm.get("ridge_features") or feats
-                rx = [_safe_val(feat_dict.get(f)) for f in rf]
+                rx = [_safe_val(feat_dict.get(f), f) for f in rf]
                 if True:  # NaN already handled by _safe_val
                     ridge_pred = float(hm["ridge"].predict([rx])[0])
                     lgbm_pred = float(hm["lgbm"].predict([x])[0])
@@ -807,8 +829,8 @@ class AlphaRunner:
                 })
                 self._current_exchange_lev = int(target_lev)
                 logger.info("%s exchange leverage set to %dx", self._symbol, int(target_lev))
-            except Exception:
-                pass  # non-fatal
+            except Exception as e:
+                logger.debug("%s set_leverage failed (non-fatal): %s", self._symbol, e)
 
         self._position_size = size
         return size
@@ -835,6 +857,13 @@ class AlphaRunner:
         if len(self._closes) >= 2:
             ret = np.log(close / self._closes[-2])
             self._rets.append(ret)
+
+        # Truncate to bounded window to prevent unbounded memory growth
+        _max_history = self._ma_window + 100
+        if len(self._closes) > _max_history:
+            self._closes = self._closes[-_max_history:]
+        if len(self._rets) > _max_history:
+            self._rets = self._rets[-_max_history:]
 
         # Need enough history
         if len(self._rets) < 20:
@@ -944,8 +973,8 @@ class AlphaRunner:
             except Exception:
                 funding_rate = float("nan")
 
-        # V13: Fetch OI/LS/Taker data from Binance (non-blocking, NaN fallback)
-        oi_data = _fetch_binance_oi_data(self._symbol)
+        # V13: OI/LS/Taker data from background cache (refreshed every 55s, never blocks)
+        oi_data = self._oi_cache.get()
 
         self._engine.push_bar(
             bar["close"], bar["volume"], bar["high"], bar["low"],
@@ -1158,7 +1187,7 @@ class AlphaRunner:
                     self._symbol, dd, self._pnl.peak_equity, self._pnl.total_pnl,
                 )
                 if not self._dry_run:
-                    self._adapter.close_position(self._symbol)
+                    reliable_close_position(self._adapter, self._symbol)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
         elif self._risk_eval is None and self._pnl.peak_equity > 0:
             # Fallback: manual drawdown check (backward compat if no Rust evaluator)
@@ -1173,7 +1202,7 @@ class AlphaRunner:
                     self._symbol, dd, self._pnl.peak_equity, self._pnl.total_pnl,
                 )
                 if not self._dry_run:
-                    self._adapter.close_position(self._symbol)
+                    reliable_close_position(self._adapter, self._symbol)
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
 
         if self._dry_run:
@@ -1193,17 +1222,14 @@ class AlphaRunner:
             close_id = f"close_{self._symbol}_{int(time.time())}"
             self._osm.register(close_id, self._symbol, "sell" if prev == 1 else "buy",
                                "market", str(self._position_size))
-            close_result = self._adapter.close_position(self._symbol)
-            if close_result.get("status") == "error":
-                logger.error("%s CLOSE FAILED: %s", self._symbol, close_result)
-                self._osm.transition(close_id, "rejected", reason=str(close_result.get("retMsg", "")))
+            close_result = reliable_close_position(self._adapter, self._symbol)
+            if close_result["status"] == "failed":
+                logger.error("%s CLOSE FAILED after retries — keeping state", self._symbol)
+                self._osm.transition(close_id, "rejected", reason="reliable_close_failed")
                 self._circuit_breaker.record_failure()
-                # Retry once if retryable
-                if close_result.get("retryable", False):
-                    close_result = self._adapter.close_position(self._symbol)
-                if close_result.get("status") == "error":
-                    logger.error("%s CLOSE RETRY FAILED: %s — keeping state", self._symbol, close_result)
-                    return {"action": "close_failed", "result": close_result}
+                return {"action": "close_failed", "result": close_result}
+            if not close_result.get("verified", True):
+                logger.warning("%s CLOSE: position verification failed, proceeding", self._symbol)
             self._osm.transition(close_id, "filled", filled_qty=str(self._position_size),
                                  avg_price=str(price))
             self._circuit_breaker.record_success()
@@ -1250,11 +1276,30 @@ class AlphaRunner:
             self._osm.transition(open_id, "filled", filled_qty=str(self._position_size),
                                  avg_price=str(price))
             self._circuit_breaker.record_success()
-            self._entry_price = price
+
+            # Use actual fill price (not bar close) to correctly track PnL + stops
+            actual_price = price  # fallback to bar close
+            if result.get("orderId"):
+                try:
+                    time.sleep(0.3)  # brief wait for fill to propagate
+                    fills = self._adapter.get_recent_fills(symbol=self._symbol)
+                    if fills:
+                        actual_price = float(fills[0].price)
+                        if abs(actual_price - price) / price > 0.001:
+                            logger.info(
+                                "%s SLIPPAGE: bar=$%.2f fill=$%.2f (%.3f%%)",
+                                self._symbol, price, actual_price,
+                                (actual_price - price) / price * 100,
+                            )
+                except Exception as e:
+                    logger.warning("%s failed to get fill price, using bar close: %s",
+                                   self._symbol, e)
+
+            self._entry_price = actual_price
             self._entry_size = self._position_size  # snapshot entry-time size
-            self._trade_peak_price = price  # initialize trailing peak
+            self._trade_peak_price = actual_price  # initialize trailing peak
             # Record open fill in RustStateStore
-            self._record_fill(side, self._position_size, price)
+            self._record_fill(side, self._position_size, actual_price)
             atr = self._current_atr()
             stop = self._compute_stop_price(price)
             logger.info(

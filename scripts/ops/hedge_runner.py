@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import numpy as np
 
+from scripts.ops.order_utils import clamp_notional
+
 logger = logging.getLogger(__name__)
+
+_MAX_HISTORY = 1000  # max bars to keep in price lists to prevent unbounded growth
 
 
 class HedgeRunner:
@@ -37,6 +42,7 @@ class HedgeRunner:
         self._total_pnl: float = 0.0
         self._trade_count: int = 0
         self._bars_processed: int = 0
+        self._last_basket_fetch_hour: int = -1  # rate-limit basket fetches to 1x/hour
 
     def warmup_from_csv(self, n_bars: int = 600) -> int:
         """Pre-load historical prices from CSV for immediate signal generation.
@@ -77,17 +83,26 @@ class HedgeRunner:
 
         On each 1h bar, also fetches current prices for all ALT basket
         symbols via REST ticker (since they're not on the WS subscription).
+        Rate-limited to 1 fetch per hour to prevent BTC price list bloat.
         """
         # Track prices for symbols we receive via WS
         if symbol == "BTCUSDT":
             self._btc_prices.append(price)
+            if len(self._btc_prices) > _MAX_HISTORY:
+                self._btc_prices = self._btc_prices[-_MAX_HISTORY:]
         elif symbol in self._alt_prices:
             self._alt_prices[symbol].append(price)
+            if len(self._alt_prices[symbol]) > _MAX_HISTORY:
+                self._alt_prices[symbol] = self._alt_prices[symbol][-_MAX_HISTORY:]
 
-        # On any 1h bar from a tracked symbol, fetch BTC + ALT basket prices
-        # (since hedge basket symbols aren't on WS)
+        # On any 1h bar from a tracked symbol, fetch BTC + ALT basket prices.
+        # Rate-limited to once per hour to avoid duplicate BTC price appends
+        # (3 symbols × multiple bars → ratio MA window effectively shorter).
         if symbol in ("ETHUSDT", "SUIUSDT", "AXSUSDT"):
-            self._fetch_basket_prices()
+            current_hour = int(time.time()) // 3600
+            if current_hour != self._last_basket_fetch_hour:
+                self._last_basket_fetch_hour = current_hour
+                self._fetch_basket_prices()
 
         # Only act once per 1h cadence (triggered by first 1h bar)
         if symbol != "ETHUSDT":
@@ -165,6 +180,8 @@ class HedgeRunner:
             btc_price = ticker.get("lastPrice", 0)
             if btc_price > 0:
                 self._btc_prices.append(btc_price)
+                if len(self._btc_prices) > _MAX_HISTORY:
+                    self._btc_prices = self._btc_prices[-_MAX_HISTORY:]
 
             # ALT basket prices
             for sym in self.ALT_BASKET:
@@ -173,8 +190,10 @@ class HedgeRunner:
                     p = ticker.get("lastPrice", 0)
                     if p > 0:
                         self._alt_prices[sym].append(p)
+                        if len(self._alt_prices[sym]) > _MAX_HISTORY:
+                            self._alt_prices[sym] = self._alt_prices[sym][-_MAX_HISTORY:]
                 except Exception:
-                    pass  # Skip unavailable symbols
+                    logger.debug("HEDGE: ticker %s unavailable", sym)
         except Exception:
             logger.debug("HEDGE: failed to fetch basket prices", exc_info=True)
 
@@ -184,8 +203,13 @@ class HedgeRunner:
             bal = self._adapter.get_balances()
             usdt = bal.get("USDT")
             equity = float(usdt.total) if usdt else 0
-        except Exception:
-            equity = 100
+        except Exception as e:
+            logger.error("HEDGE: equity fetch failed: %s", e)
+            return  # skip hedge open with wrong sizing
+
+        if equity <= 0:
+            logger.error("HEDGE: equity=0, skipping hedge open")
+            return
 
         per_alt = equity * self._max_pct / max(len(self.ALT_BASKET), 1)
 
@@ -196,7 +220,7 @@ class HedgeRunner:
                 if price <= 0:
                     continue
                 qty = per_alt / price
-                qty = round(qty, 1)  # ALTs typically step=0.1
+                qty = clamp_notional(round(qty, 1), price, sym)
                 if qty * price < 5:  # min notional $5
                     continue
                 result = self._adapter.send_market_order(sym, "sell", qty)

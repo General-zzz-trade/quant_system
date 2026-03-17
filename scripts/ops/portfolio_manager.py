@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from scripts.ops.order_utils import clamp_notional
 from scripts.ops.pnl_tracker import PnLTracker
 
 logger = logging.getLogger(__name__)
@@ -174,7 +175,8 @@ class PortfolioManager:
             trade_info["closed_pnl"] = round(trade["pnl_usd"], 2)
 
             if not self._dry_run:
-                result = self._adapter.send_market_order(symbol, close_side, round(close_qty, 2),
+                close_qty = clamp_notional(round(close_qty, 2), current.get("entry", 1.0), symbol)
+                result = self._adapter.send_market_order(symbol, close_side, close_qty,
                                                         reduce_only=True)
                 logger.info("PM CLOSE %s %s %.2f: %s", symbol, close_side, close_qty, result)
 
@@ -209,7 +211,7 @@ class PortfolioManager:
         # Open new
         if desired != 0:
             side = "buy" if desired > 0 else "sell"
-            qty = round(qty, 2)
+            qty = clamp_notional(round(qty, 2), price, symbol)
 
             if not self._dry_run:
                 result = self._adapter.send_market_order(symbol, side, qty)

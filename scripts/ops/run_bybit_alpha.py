@@ -22,6 +22,7 @@ from scripts.ops.config import (
 )
 from scripts.ops.model_loader import create_adapter, load_model
 from scripts.ops.alpha_runner import AlphaRunner
+from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.portfolio_manager import PortfolioManager
 from scripts.ops.portfolio_combiner import PortfolioCombiner
 from scripts.ops.hedge_runner import HedgeRunner
@@ -251,7 +252,7 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
             for symbol, runner in runners.items():
                 if runner._current_signal != 0:
                     logger.info("Closing %s on exit...", symbol)
-                    adapter.close_position(symbol)
+                    reliable_close_position(adapter, symbol, verify=False)
 
 
 def main():
@@ -461,7 +462,7 @@ def main():
             for symbol, runner in runners.items():
                 if runner._current_signal != 0:
                     logger.info("Closing %s position on exit...", symbol)
-                    adapter.close_position(symbol)
+                    reliable_close_position(adapter, symbol, verify=False)
 
 
 if __name__ == "__main__":

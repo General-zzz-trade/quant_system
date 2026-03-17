@@ -128,7 +128,7 @@ class TestAlphaRunnerDataStale:
     def test_seconds_since_last_bar_after_process(self):
         """After process_bar, should return small value."""
         import sys
-        from unittest.mock import MagicMock as MM, patch
+        from unittest.mock import MagicMock as MM
         if "_quant_hotpath" not in sys.modules:
             sys.modules["_quant_hotpath"] = MM()
         from scripts.ops.alpha_runner import AlphaRunner
@@ -149,10 +149,13 @@ class TestAlphaRunnerDataStale:
         # Mock engine to return empty features (no_features action)
         runner._engine = MM()
         runner._engine.get_features.return_value = []
-        with patch("scripts.ops.alpha_runner._fetch_binance_oi_data",
-                    return_value={"open_interest": 0, "ls_ratio": float("nan"),
-                                  "top_trader_ls_ratio": float("nan"),
-                                  "taker_buy_vol": float("nan")}):
-            runner.process_bar({"open": 100, "high": 101, "low": 99,
-                                "close": 100, "volume": 1000})
+        # Patch the OI cache (replaces former _fetch_binance_oi_data inline call)
+        runner._oi_cache = MM()
+        runner._oi_cache.get.return_value = {
+            "open_interest": 0, "ls_ratio": float("nan"),
+            "top_trader_ls_ratio": float("nan"),
+            "taker_buy_vol": float("nan"), "taker_sell_vol": float("nan"),
+        }
+        runner.process_bar({"open": 100, "high": 101, "low": 99,
+                            "close": 100, "volume": 1000})
         assert runner.seconds_since_last_bar < 1.0
