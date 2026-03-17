@@ -94,6 +94,33 @@ class LiveRunnerConfig:
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
 
+    # -- Validation ------------------------------------------------------------
+
+    def __post_init__(self) -> None:
+        if self.max_gross_leverage <= 0:
+            raise ValueError(
+                f"max_gross_leverage must be positive, got {self.max_gross_leverage}"
+            )
+        if self.max_net_leverage <= 0:
+            raise ValueError(
+                f"max_net_leverage must be positive, got {self.max_net_leverage}"
+            )
+        if isinstance(self.deadzone, (int, float)) and self.deadzone < 0:
+            raise ValueError(f"deadzone must be non-negative, got {self.deadzone}")
+        if not (self.dd_warning_pct < self.dd_reduce_pct < self.dd_kill_pct):
+            raise ValueError(
+                f"drawdown thresholds must be ordered: warning({self.dd_warning_pct}) "
+                f"< reduce({self.dd_reduce_pct}) < kill({self.dd_kill_pct})"
+            )
+        if self.initial_equity <= 0:
+            raise ValueError(
+                f"initial_equity must be positive, got {self.initial_equity}"
+            )
+        if self.max_concentration <= 0 or self.max_concentration > 1:
+            raise ValueError(
+                f"max_concentration must be in (0, 1], got {self.max_concentration}"
+            )
+
     # -- Factory classmethods --------------------------------------------------
 
     @classmethod

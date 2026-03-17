@@ -89,3 +89,24 @@ class TestDefaultConstructorUnchanged:
         assert cfg.enable_monitoring is True
         assert cfg.enable_persistent_stores is True
         assert cfg.venue == "binance"
+
+
+class TestLiveRunnerConfigValidation:
+    def test_negative_leverage_rejected(self):
+        import pytest
+        with pytest.raises(ValueError, match="max_gross_leverage"):
+            LiveRunnerConfig(max_gross_leverage=-1.0)
+
+    def test_deadzone_must_be_non_negative(self):
+        import pytest
+        with pytest.raises(ValueError, match="deadzone"):
+            LiveRunnerConfig(deadzone=-0.5)
+
+    def test_dd_thresholds_ordered(self):
+        import pytest
+        with pytest.raises(ValueError, match="drawdown"):
+            LiveRunnerConfig(dd_warning_pct=20.0, dd_reduce_pct=15.0, dd_kill_pct=10.0)
+
+    def test_valid_config_passes(self):
+        cfg = LiveRunnerConfig()
+        assert cfg.max_gross_leverage == 3.0
