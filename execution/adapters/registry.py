@@ -2,6 +2,7 @@
 """Venue adapter registry — central lookup for all registered venue adapters."""
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
 from execution.adapters.base import VenueAdapter
@@ -24,35 +25,42 @@ class AdapterRegistry:
     def __init__(self, plugin_registry: Optional["PluginRegistry"] = None) -> None:
         self._adapters: Dict[str, VenueAdapter] = {}
         self._plugin_registry = plugin_registry
+        self._lock = threading.RLock()
 
     def register(self, venue: str, adapter: VenueAdapter) -> None:
         """注册一个交易所适配器。"""
-        self._adapters[venue.lower()] = adapter
-        if self._plugin_registry is not None:
-            self._plugin_registry.register_instance(adapter, name=venue.lower())
+        with self._lock:
+            self._adapters[venue.lower()] = adapter
+            if self._plugin_registry is not None:
+                self._plugin_registry.register_instance(adapter, name=venue.lower())
 
     def get(self, venue: str) -> VenueAdapter:
         """获取指定交易所的适配器，不存在则抛异常。"""
-        v = venue.lower()
-        adapter = self._adapters.get(v)
-        if adapter is None:
-            raise AdapterNotFoundError(
-                f"no adapter registered for venue {venue!r}, "
-                f"available: {list(self._adapters.keys())}"
-            )
-        return adapter
+        with self._lock:
+            v = venue.lower()
+            adapter = self._adapters.get(v)
+            if adapter is None:
+                raise AdapterNotFoundError(
+                    f"no adapter registered for venue {venue!r}, "
+                    f"available: {list(self._adapters.keys())}"
+                )
+            return adapter
 
     def get_optional(self, venue: str) -> Optional[VenueAdapter]:
         """获取指定交易所的适配器，不存在返回 None。"""
-        return self._adapters.get(venue.lower())
+        with self._lock:
+            return self._adapters.get(venue.lower())
 
     @property
     def venues(self) -> Sequence[str]:
         """所有已注册的交易所名称。"""
-        return list(self._adapters.keys())
+        with self._lock:
+            return list(self._adapters.keys())
 
     def __contains__(self, venue: str) -> bool:
-        return venue.lower() in self._adapters
+        with self._lock:
+            return venue.lower() in self._adapters
 
     def __len__(self) -> int:
-        return len(self._adapters)
+        with self._lock:
+            return len(self._adapters)
