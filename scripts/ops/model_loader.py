@@ -17,7 +17,18 @@ def load_model(model_dir: Path) -> dict:
     """
     import pickle  # noqa: S403 — trusted local model files only
 
-    config_path = model_dir / "config.json"
+    # Handle case where model_dir is a directory vs file path
+    if model_dir.is_dir():
+        config_path = model_dir / "config.json"
+    elif model_dir.is_file():
+        config_path = model_dir if model_dir.name == "config.json" else model_dir
+        model_dir = model_dir.parent
+    else:
+        raise FileNotFoundError(f"Model path does not exist: {model_dir}")
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"No config.json in model directory: {model_dir}")
+
     with open(config_path) as f:
         config = json.load(f)
 
@@ -49,6 +60,18 @@ def load_model(model_dir: Path) -> dict:
                 ridge_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
             ridge_model = ridge_raw["model"] if isinstance(ridge_raw, dict) else ridge_raw
             ridge_features = ridge_raw.get("features") if isinstance(ridge_raw, dict) else None
+
+        # Validate Ridge feature count matches model expectation
+        if ridge_model is not None:
+            expected = getattr(ridge_model, 'n_features_in_', None)
+            effective_ridge_features = ridge_features or hm["features"]
+            if expected and len(effective_ridge_features) != expected:
+                logger.warning(
+                    "Ridge expects %d features but config has %d — disabling Ridge for horizon %s",
+                    expected, len(effective_ridge_features), hm["horizon"],
+                )
+                ridge_model = None
+                ridge_features = None
 
         horizon_models.append({
             "horizon": hm["horizon"],

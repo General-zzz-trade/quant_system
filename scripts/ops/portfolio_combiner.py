@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from scripts.ops.config import MAX_ORDER_NOTIONAL
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,6 +137,16 @@ class PortfolioCombiner:
             # Cap at 30% of equity per symbol (leave room for other symbols)
             max_notional = equity * 0.30 * leverage
             size = min(size, max_notional / price)
+
+            # Enforce hard safety limit
+            notional = size * price
+            if notional > MAX_ORDER_NOTIONAL:
+                logger.warning(
+                    "COMBO %s notional $%.2f exceeds limit $%.2f — clamping",
+                    self._symbol, notional, MAX_ORDER_NOTIONAL,
+                )
+                size = MAX_ORDER_NOTIONAL / price
+
             size = max(self._min_size, round(size, 2))
 
             self._position_size = size

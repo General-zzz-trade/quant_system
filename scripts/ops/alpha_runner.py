@@ -373,6 +373,22 @@ class AlphaRunner:
                 self._entry_size = 0.0
                 self._trade_peak_price = 0.0
                 self._inference.set_position(self._symbol, 0, 1)  # reset bridge to flat
+            else:
+                # Sync RustStateStore with exchange position on restart
+                exchange_price = 0.0
+                for pos in positions:
+                    if pos.symbol == self._symbol and not pos.is_flat:
+                        exchange_price = float(pos.entry_price) if pos.entry_price else 0.0
+                        break
+                if exchange_qty > 0 and exchange_price > 0:
+                    self._record_fill(
+                        "buy" if exchange_side == 1 else "sell",
+                        exchange_qty, exchange_price,
+                    )
+                    logger.info(
+                        "%s RECONCILE: synced StateStore with exchange position side=%d qty=%.4f price=%.2f",
+                        self._symbol, exchange_side, exchange_qty, exchange_price,
+                    )
             if self._runner_key:
                 _consensus_signals[self._runner_key] = exchange_side
         else:
@@ -701,6 +717,19 @@ class AlphaRunner:
         else:
             return 0.5
 
+    def _round_to_step(self, size: float) -> float:
+        """Round qty to exchange step size (floor to never exceed)."""
+        if self._step_size <= 0:
+            return size
+        steps = int(size / self._step_size)  # floor, not round — never exceed
+        size = steps * self._step_size
+        if self._step_size >= 1:
+            size = int(size)
+        else:
+            step_decimals = max(0, -int(np.floor(np.log10(self._step_size))))
+            size = round(size, step_decimals)
+        return size
+
     def _compute_position_size(self, price: float) -> float:
         """Compute position size using Kelly-optimal leverage ladder.
 
@@ -714,17 +743,23 @@ class AlphaRunner:
         stop-loss slippage means 5-10x at small equity.
         """
         if not self._adaptive_sizing:
-            return self._base_position_size
+            size = self._round_to_step(self._base_position_size)
+            self._position_size = size
+            return size
 
         try:
             bal = self._adapter.get_balances()
             usdt = bal.get("USDT")
             equity = float(usdt.total) if usdt else 0
         except Exception:
-            return self._base_position_size
+            size = self._round_to_step(self._base_position_size)
+            self._position_size = size
+            return size
 
         if equity <= 0 or price <= 0:
-            return self._base_position_size
+            size = self._round_to_step(self._base_position_size)
+            self._position_size = size
+            return size
 
         # Get leverage from ladder
         target_lev = self._get_leverage_for_equity(equity)
@@ -754,22 +789,12 @@ class AlphaRunner:
             size = min(size, self._max_qty)
 
         # Round DOWN to exchange step size (floor to avoid exceeding limits)
-        if self._step_size > 0:
-            # Use round then floor to handle float precision
-            # e.g., 6950.5/0.1 = 69504.999... → round = 69505 → floor-safe
-            steps = int(round(size / self._step_size, 0))
-            size = steps * self._step_size
-            # Final precision fix
-            if self._step_size >= 1:
-                size = int(size)
-            else:
-                step_decimals = max(0, -int(np.floor(np.log10(self._step_size))))
-                size = round(size, step_decimals)
+        size = self._round_to_step(size)
 
         if size != self._position_size:
             logger.info(
-                "%s SIZING: equity=$%.0f lev=%.0fx → %.2f ETH ($%.0f notional)",
-                self._symbol, equity, target_lev, size, size * price,
+                "%s SIZING: equity=$%.0f lev=%.0fx → %.2f %s ($%.0f notional)",
+                self._symbol, equity, target_lev, size, self._symbol.replace("USDT", ""), size * price,
             )
 
         # Set exchange leverage to match (only if changed)
@@ -1197,8 +1222,13 @@ class AlphaRunner:
                 self._osm.transition(open_id, "rejected", reason="dedup_active_orders")
                 return {"action": "dedup_blocked", "active": active}
 
+            # Ensure step rounding is applied (safety net for all code paths)
+            self._position_size = self._round_to_step(self._position_size)
+
             # Hard safety limit: block orders exceeding MAX_ORDER_NOTIONAL
             notional = self._position_size * price
+            logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f",
+                         self._symbol, self._position_size, price, notional, MAX_ORDER_NOTIONAL)
             if notional > MAX_ORDER_NOTIONAL:
                 logger.critical(
                     "%s ORDER BLOCKED: notional=$%.2f exceeds hard limit $%.2f. size=%.4f price=%.2f",
