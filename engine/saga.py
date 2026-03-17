@@ -29,6 +29,7 @@ Usage::
 """
 from __future__ import annotations
 
+import time
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -55,7 +56,10 @@ class SagaState(Enum):
 # Valid state transitions
 _TRANSITIONS: Dict[SagaState, frozenset[SagaState]] = {
     SagaState.PENDING: frozenset({SagaState.SUBMITTED, SagaState.REJECTED, SagaState.CANCELLED}),
-    SagaState.SUBMITTED: frozenset({SagaState.ACKED, SagaState.REJECTED, SagaState.CANCELLED, SagaState.COMPENSATING}),
+    SagaState.SUBMITTED: frozenset({
+        SagaState.ACKED, SagaState.FILLED, SagaState.REJECTED,
+        SagaState.CANCELLED, SagaState.COMPENSATING,
+    }),
     SagaState.ACKED: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED,
         SagaState.COMPENSATING}),
     SagaState.PARTIAL_FILL: frozenset({SagaState.PARTIAL_FILL, SagaState.FILLED, SagaState.CANCELLED, SagaState.EXPIRED,
@@ -114,6 +118,9 @@ class OrderSaga:
 
     # Arbitrary metadata
     meta: Dict[str, Any] = field(default_factory=dict)
+
+    # TTL tracking
+    submitted_at: Optional[float] = None
 
     @property
     def is_terminal(self) -> bool:
@@ -189,13 +196,15 @@ class SagaManager:
         on_terminal: Optional[Callable[[OrderSaga], None]] = None,
         default_compensating_action: Optional[CompensatingAction] = None,
         max_completed: int = 10000,
+        saga_ttl_seconds: Optional[float] = None,
     ) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._sagas: Dict[str, OrderSaga] = {}
         self._completed: Dict[str, OrderSaga] = {}
         self._on_terminal = on_terminal
         self._default_compensating = default_compensating_action
         self._max_completed = max_completed
+        self._saga_ttl = saga_ttl_seconds
 
     # ── Creation ─────────────────────────────────────────
 
@@ -258,6 +267,9 @@ class SagaManager:
                 timestamp_mono=timestamp_mono,
             ))
             saga.state = to_state
+
+            if to_state == SagaState.SUBMITTED:
+                saga.submitted_at = time.monotonic()
 
             # Move to completed if terminal
             if saga.is_terminal:
@@ -327,7 +339,17 @@ class SagaManager:
     # ── Queries ──────────────────────────────────────────
 
     def get(self, order_id: str) -> Optional[OrderSaga]:
-        """Get saga by order ID (active or completed)."""
+        """Get active (non-terminal) saga by order ID.
+
+        Returns None if the saga does not exist or has reached a terminal
+        state (FILLED, COMPENSATED, FAILED) or has been cancelled/expired.
+        Use ``get_any()`` to also retrieve completed sagas from the audit log.
+        """
+        with self._lock:
+            return self._sagas.get(order_id)
+
+    def get_any(self, order_id: str) -> Optional[OrderSaga]:
+        """Get saga by order ID from active or completed (audit) store."""
         with self._lock:
             saga = self._sagas.get(order_id)
             if saga is not None:
@@ -359,6 +381,34 @@ class SagaManager:
         """Active sagas for a given symbol."""
         with self._lock:
             return tuple(s for s in self._sagas.values() if s.symbol == symbol)
+
+    def tick(self) -> list[str]:
+        """Expire SUBMITTED sagas that have exceeded the TTL.
+
+        Returns list of order IDs that were expired and cancelled.
+        Call periodically (e.g., every few seconds) from a heartbeat loop.
+
+        Expired sagas are transitioned to CANCELLED and moved to the
+        completed audit log; ``get()`` will return None for them afterward.
+        """
+        if self._saga_ttl is None:
+            return []
+        now = time.monotonic()
+        expired = []
+        with self._lock:
+            for oid, saga in list(self._sagas.items()):
+                if (saga.submitted_at is not None
+                        and saga.state == SagaState.SUBMITTED
+                        and now - saga.submitted_at > self._saga_ttl):
+                    expired.append(oid)
+            for oid in expired:
+                self.transition(oid, SagaState.CANCELLED, reason="ttl_expired")
+                # Move TTL-cancelled sagas to completed so get() returns None
+                saga = self._sagas.pop(oid, None)
+                if saga is not None:
+                    self._completed[oid] = saga
+                    self._evict_completed()
+        return expired
 
     # ── Internal ─────────────────────────────────────────
 
