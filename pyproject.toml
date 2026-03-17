@@ -110,7 +110,12 @@ warn_unused_configs = true
 disallow_untyped_defs = false  # gradual adoption — new code must have full annotations
 
 [[tool.mypy.overrides]]
-module = ["core.*", "regime.*", "state.*"]
+module = ["core.*", "regime.*", "state.*", "decision.*", "engine.*", "event.*", "features.*", "execution.*", "alpha.*", "attribution.*"]
+disallow_untyped_defs = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = ["runner.backtest.*"]
 disallow_untyped_defs = true
 warn_return_any = true
 

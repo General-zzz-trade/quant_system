@@ -48,6 +48,8 @@ python3 -m scripts.data.download_multi_exchange_funding --symbols ETHUSDT    # M
 python3 -m scripts.auto_retrain --include-15m --force                        # Retrain 1h + 15m models
 python3 -m scripts.auto_retrain --only-15m --force                           # Retrain 15m models only
 python3 -m scripts.auto_retrain --dry-run                                    # Preview retrain without saving
+python3 -m scripts.training.train_all_production --dry-run                   # Validate all production models
+python3 -m scripts.training.train_all_production --force                     # Force retrain all production models
 ```
 
 **Polymarket collector**:
@@ -64,6 +66,8 @@ python3 scripts/ops/security_scan.py                                          # 
 python3 -m scripts.ops.ops_dashboard                                          # Unified ops status dashboard
 python3 -m scripts.ops.pre_live_checklist                                     # Automated pre-live readiness check
 python3 -m scripts.ops.shadow_mode_check                                      # Shadow trading health report
+python3 -m scripts.ops.demo_tracker                                           # Update track record from logs
+python3 -m scripts.ops.weekly_report                                          # Generate weekly performance report
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -85,7 +89,7 @@ core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
 features/        Feature computation (EnrichedFeatureComputer, 127 features incl. ADX + V12 cross-asset + V13 OI + V14 dominance)
   dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (153+ = 127 enriched + 17 cross-asset + 4 dominance + 3 funding spread + 2 onchain)
+  feature_catalog.py   PRODUCTION_FEATURES frozenset (153 = 127 enriched + 17 cross-asset + 4 dominance + 3 funding spread + 2 onchain)
   dominance_computer.py  V14 BTC/ETH ratio features (Python + Rust dual path)
   funding_spread.py    Multi-exchange funding rate spread (3 features)
   onchain_flow.py      Exchange inflow z-score + MA ratio (2 features)
@@ -180,11 +184,11 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
 - `features/enriched_computer.py` — 127 enriched feature definitions (V1-V14 + ADX)
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (153+ features); `validate_model_features()`
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (153 features); `validate_model_features()`
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Production entry point (Python)
-- `runner/gate_chain.py` — GateChain: 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, EquityLeverageGate, ConsensusScalingGate)
+- `runner/gate_chain.py` — GateChain: up to 13 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, EquityLeverageGate, ConsensusScalingGate)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
 - `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
 - `scripts/ops/alpha_runner.py` — AlphaRunner: legacy signal + trade (deprecated, use `--legacy`)
@@ -295,6 +299,10 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - SYMBOL_CONFIG: `SUIUSDT` size=10, step=10 (Bybit qtyStep=10); `AXSUSDT` size=5.0, step=0.1
 - `ETHUSDT_15m` in SYMBOL_CONFIG uses `"symbol": "ETHUSDT"` + `"interval": "15"` (separate WS)
 - `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
+- `BinanceOICache`: OI data fetched in background thread (55s refresh), no longer blocks stop-loss
+- `_NEUTRAL_DEFAULTS`: NaN features use neutral values (ls_ratio→1.0, rsi_14→50.0), not 0.0
+- `order_utils.py`: `reliable_close_position()` replaces bare `close_position()` calls; `clamp_notional()` enforces $500 limit at all order sites
+- `PortfolioCombiner` uses `PnLTracker` (no duplicate PnL tracking)
 
 **Features & models**:
 - ADX(14): computed incrementally in `enriched_computer.py` via `_ADXTracker`; needs 2×14=28 bars warmup; used by `TrendRegimeDetector`

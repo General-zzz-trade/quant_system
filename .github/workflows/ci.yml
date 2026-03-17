@@ -75,7 +75,48 @@ jobs:
           docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
             ruff check --select E,W,F .
 
-      - name: Type check (strict core modules)
+      - name: Type check (strict modules)
         run: |
           docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
-            mypy core/ regime/ state/ --strict
+            mypy core/ regime/ state/ decision/ engine/ event/ features/ execution/ alpha/ attribution/ runner/backtest/ --strict
+
+  security:
+    runs-on: [self-hosted, quant-server]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CI image
+        run: docker build --target ci -t quant-ci:security .
+      - name: Security scan
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:security \
+            python3 -m scripts.ops.security_scan
+
+  model-check:
+    runs-on: [self-hosted, quant-server]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CI image
+        run: docker build --target ci -t quant-ci:model .
+      - name: Validate model configs
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:model \
+            python3 -c "
+          import json, sys
+          from pathlib import Path
+          from scripts.ops.config import SYMBOL_CONFIG, MODEL_BASE
+          errors = []
+          for key, cfg in SYMBOL_CONFIG.items():
+              p = MODEL_BASE / cfg['model_dir'] / 'config.json'
+              if not p.exists():
+                  errors.append(f'MISSING: {p}')
+                  continue
+              d = json.loads(p.read_text())
+              if 'features' not in d and 'horizon_models' not in d:
+                  errors.append(f'INVALID: {p}')
+          if errors:
+              for e in errors: print(f'FAIL: {e}')
+              sys.exit(1)
+          print(f'PASS: All {len(SYMBOL_CONFIG)} model configs validated')
+          "
