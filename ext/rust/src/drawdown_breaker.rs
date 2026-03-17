@@ -66,7 +66,6 @@ pub struct RustDrawdownBreaker {
     current_dd_pct: f64,
     state: String,
     equity_history: VecDeque<(f64, f64)>, // (ts, equity), maxlen 1000
-    last_warning_ts: f64,
 }
 
 #[pymethods]
@@ -92,7 +91,6 @@ impl RustDrawdownBreaker {
             current_dd_pct: 0.0,
             state: "normal".to_string(),
             equity_history: VecDeque::with_capacity(1000),
-            last_warning_ts: 0.0,
         }
     }
 
@@ -108,7 +106,7 @@ impl RustDrawdownBreaker {
         equity: f64,
         now_ts: Option<f64>,
     ) -> (String, Option<(String, String)>) {
-        if equity <= 0.0 {
+        if !equity.is_finite() || equity <= 0.0 {
             return (self.state.clone(), None);
         }
 
@@ -181,11 +179,7 @@ impl RustDrawdownBreaker {
         } else if self.current_dd_pct >= self.warning_pct {
             if self.state == "normal" {
                 self.state = "warning".to_string();
-                // Track last_warning_ts to avoid spam (300s cooldown)
-                // Action is None — Python handles logging
-                if now - self.last_warning_ts > 300.0 {
-                    self.last_warning_ts = now;
-                }
+                // Action is None — Python wrapper handles warning cooldown and logging
             }
         } else {
             // Drawdown recovered below warning threshold
@@ -207,7 +201,6 @@ impl RustDrawdownBreaker {
             self.equity_hwm = hwm;
         }
         self.equity_history.clear();
-        self.last_warning_ts = 0.0;
         ("normal".to_string(), Some(("clear".to_string(), "".to_string())))
     }
 
@@ -289,7 +282,6 @@ mod tests {
             current_dd_pct: 0.0,
             state: "normal".to_string(),
             equity_history: VecDeque::with_capacity(1000),
-            last_warning_ts: 0.0,
         }
     }
 
@@ -306,7 +298,6 @@ mod tests {
             current_dd_pct: 0.0,
             state: "normal".to_string(),
             equity_history: VecDeque::with_capacity(1000),
-            last_warning_ts: 0.0,
         }
     }
 

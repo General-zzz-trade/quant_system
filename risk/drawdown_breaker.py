@@ -10,6 +10,7 @@ to protect against flash crashes or fat-finger errors.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -103,7 +104,7 @@ class DrawdownCircuitBreaker:
             self._handle_action(new_state, action, equity, now, prev_state)
             return new_state
         # ── Python fallback path ──
-        if equity <= 0:
+        if equity <= 0 or not math.isfinite(equity):
             return self._state
 
         now = now_ts if now_ts is not None else time.time()
