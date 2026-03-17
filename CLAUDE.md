@@ -131,10 +131,12 @@ logs/            bybit_alpha.log, retrain_cron.log
 tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket), integration/
 ```
 
-**Data flow (live alpha)**:
+**Data flow (live alpha via AlphaRunner)**:
 ```
 Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
+  → _check_regime(close) — vol/trend/ranging filter + dynamic deadzone
   → Ridge(60%)+LightGBM(40%) ensemble predict
+  → _check_regime(close, feat_dict) — CompositeRegime updates deadzone/min_hold (BTC only)
   → RustInferenceBridge.apply_constraints (z-score + deadzone + min-hold)
   → RustRiskEvaluator.check_drawdown + RustKillSwitch
   → RustOrderStateMachine.register + RustCircuitBreaker.allow_request
@@ -293,6 +295,13 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Only 1h (all symbols) and 15m (ETH only) work; 5m/SUI-15m/AXS-15m/SOL-15m all FAIL
 - Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
 - Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
+
+**Two production paths** (important!):
+- `AlphaRunner` (`scripts/ops/alpha_runner.py`) is the **current production path** — compact, single-file, 12 Rust components
+- `LiveRunner` (`runner/live_runner.py`) is the **framework path** — full engine layer, gate chain, builders; intended future convergence target
+- They share Rust components but have **independent** regime/risk wiring; changes to one don't automatically propagate to the other
+- `AlphaRunner.use_composite_regime` only enabled for BTC (via `SYMBOL_CONFIG`); ETH/SUI/AXS use fixed params
+- Polymarket `AvellanedaStoikovMaker` is standalone; needs manual startup, not wired to either runner
 
 **Regime & risk wiring** (2026-03-17):
 - `RegimeAwareDecisionModule` defaults to `CompositeRegimeDetector` (was Vol+Trend separately)

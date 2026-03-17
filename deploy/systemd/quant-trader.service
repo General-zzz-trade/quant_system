@@ -1,5 +1,7 @@
-# Status: candidate-production systemd unit.
-# Default release truth lives at repo-root docker-compose.yml + GitHub Actions.
+# NOTE: This service uses runner.live_runner (framework path).
+# Current production uses bybit-alpha.service (AlphaRunner path).
+# See docs/runtime_truth.md for the difference.
+# Status: candidate — not the active production unit.
 [Unit]
 Description=Quant Trading System
 After=network-online.target

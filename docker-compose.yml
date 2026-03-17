@@ -5,6 +5,7 @@ services:
     build:
       context: .
       target: paper
+    command: ["python3", "-m", "scripts.run_bybit_alpha", "--symbols", "BTCUSDT", "ETHUSDT", "ETHUSDT_15m", "SUIUSDT", "AXSUSDT", "--ws", "--dry-run"]
     env_file: .env
     environment:
       - BYBIT_BASE_URL=https://api-demo.bybit.com
@@ -18,6 +19,7 @@ services:
     build:
       context: .
       target: live
+    command: ["python3", "-m", "scripts.run_bybit_alpha", "--symbols", "BTCUSDT", "ETHUSDT", "ETHUSDT_15m", "SUIUSDT", "AXSUSDT", "--ws"]
     env_file: .env
     environment:
       - BYBIT_BASE_URL=https://api.bybit.com
@@ -28,3 +30,20 @@ services:
     restart: unless-stopped
     profiles:
       - live  # Only starts with: docker compose --profile live up
+
+  # Experimental: LiveRunner framework path (not current production)
+  quant-framework:
+    build:
+      context: .
+      target: paper
+    command: ["python3", "-m", "runner.live_runner", "--config", "/app/infra/config/examples/live.yaml"]
+    env_file: .env
+    environment:
+      - BYBIT_BASE_URL=https://api-demo.bybit.com
+    volumes:
+      - ./data_files:/app/data_files:ro
+      - ./models_v8:/app/models_v8:ro
+      - ./logs:/app/logs
+    restart: unless-stopped
+    profiles:
+      - framework  # Only starts with: docker compose --profile framework up

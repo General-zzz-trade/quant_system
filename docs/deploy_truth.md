@@ -48,11 +48,12 @@
 
 | 工件 | 位置 | 说明 |
 |------|------|------|
+| LiveRunner 框架 systemd | `deploy/systemd/quant-trader.service` | 使用 `runner.live_runner`，非活跃生产 |
+| LiveRunner 框架 compose | `docker-compose.yml` → `quant-framework` | 需 `--profile framework` |
 | Rust standalone | 候选，无 compose 配置 | 演进方向，非当前默认 |
 | Kubernetes | `deploy/k8s/` | 未使用 |
 | ArgoCD | `deploy/argocd/` | 占位，未配置 |
 | 替代 Docker | `deploy/docker/` | 未使用 |
-| systemd 模板 | `deploy/systemd/` | 候选模板 |
 
 ---
 

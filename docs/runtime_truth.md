@@ -35,13 +35,21 @@ runner/live_runner.py
 | `scripts/ops/run_bybit_alpha.py` | 多品种 alpha 交易 (BTC, ETH 1h+15m, SUI, AXS) | systemd `bybit-alpha.service` | **活跃运行** |
 | `runner/live_runner.py` | 完整 engine 层入口 | docker `quant-paper` | 可用（非默认） |
 
+两条路径的关系：
+
+- **AlphaRunner**：当前生产主路径。紧凑单体，`AlphaRunner` 类直接管理 12 个 Rust 组件 + 自己的 regime 逻辑 + 自适应 sizing + ATR trailing stop。优势是简单、可控、低延迟。
+- **LiveRunner**：框架层，未来收敛目标。完整的 event → pipeline → decision → execution 闭环，gate chain (13 gates)，builder 模式，完整监控。
+- **接线独立**：两条路径共享 Rust 组件（RustFeatureEngine, RustInferenceBridge 等），但 regime/risk 接线独立。AlphaRunner 有自己的 `_check_regime()` + optional `CompositeRegimeDetector`（仅 BTC）；LiveRunner 通过 `RegimeAwareDecisionModule` + `RegimePolicy` 接线。改一条路径不自动影响另一条。
+- **收敛方向**：长期目标是将 AlphaRunner 的策略逻辑迁入 LiveRunner 框架（作为 DecisionModule），但当前 AlphaRunner 更成熟、更经实战验证。
+
 ---
 
 ## 2. 运行路径定位
 
 | 路径 | 当前定位 | 真相源级别 |
 |---|---|---|
-| `runner/live_runner.py` | 当前默认生产入口 | 高 |
+| `scripts/ops/run_bybit_alpha.py` | **当前活跃生产入口** (AlphaRunner) | 最高 |
+| `runner/live_runner.py` | 框架层入口（未来收敛目标） | 高 |
 | `runner/backtest_runner.py` | 历史回测入口 | 高 |
 | `runner/replay_runner.py` | 回放与一致性验证 | 高 |
 | `runner/paper_runner.py` | 简化模拟/演示路径 | 中 |
@@ -49,9 +57,10 @@ runner/live_runner.py
 
 说明：
 
-- 当前“生产运行规则”应优先以 `live_runner` 为准
+- 当前”生产运行规则”应优先以 `run_bybit_alpha.py` (AlphaRunner) 为准 — 这是实际部署运行的服务
+- `live_runner.py` 是框架层入口，功能完整但未用于实际交易部署
 - Rust binary 能力很强，但尚未替代 Python 主装配路径
-- 文档中若出现“系统现在完全由 Rust runtime 驱动”的说法，应视为演进目标而非当前事实
+- 文档中若出现”系统现在完全由 Rust runtime 驱动”的说法，应视为演进目标而非当前事实
 
 ---
 

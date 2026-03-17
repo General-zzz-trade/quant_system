@@ -48,6 +48,8 @@ class BybitWsClient:
         self._backoff = 1.0
         self._max_backoff = 60.0
         self._last_bar_ts: dict[str, int] = {}
+        self._last_message_time: float = 0.0
+        self._reconnect_count: int = 0
 
     def start(self) -> None:
         """Start WebSocket connection in background thread."""
@@ -99,7 +101,20 @@ class BybitWsClient:
         self._backoff = 1.0  # reset on successful connect
         logger.info("Bybit WS connected, subscribed: %s", topics)
 
+    @property
+    def last_message_time(self) -> float:
+        """Timestamp of last received WS message (time.time() epoch)."""
+        return self._last_message_time
+
+    @property
+    def seconds_since_last_message(self) -> float:
+        """Seconds elapsed since last WS message. Returns inf if never received."""
+        if self._last_message_time == 0.0:
+            return float("inf")
+        return time.time() - self._last_message_time
+
     def _on_message(self, ws: Any, msg: str) -> None:
+        self._last_message_time = time.time()
         try:
             data = json.loads(msg)
         except json.JSONDecodeError:

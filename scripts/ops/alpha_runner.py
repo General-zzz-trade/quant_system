@@ -135,9 +135,22 @@ class AlphaRunner:
         # V14: BTC dominance ratio buffer (BTC/ETH)
         self._dom_ratio_buf: list[float] = []
 
+        # Composite regime detection (opt-in, default off)
+        self._use_composite_regime = model_info.get("use_composite_regime", False)
+        self._regime_params: Any = None  # Optional[RegimeParams]
+        if self._use_composite_regime:
+            from regime.composite import CompositeRegimeDetector
+            from regime.param_router import RegimeParamRouter
+            self._composite_detector = CompositeRegimeDetector()
+            self._param_router = RegimeParamRouter()
+        else:
+            self._composite_detector = None
+            self._param_router = None
+
         # Cross-symbol consensus + z-scale state
         self._runner_key: str = ""  # set by main() after construction
         self._z_scale: float = 1.0  # non-linear z-score position scale
+        self._last_bar_time: float = 0.0  # time.time() of last process_bar call
 
     # Backward-compat properties: delegate to PnLTracker
     @property
@@ -775,7 +788,7 @@ class AlphaRunner:
         self._position_size = size
         return size
 
-    def _check_regime(self, close: float) -> bool:
+    def _check_regime(self, close: float, feat_dict: dict | None = None) -> bool:
         """Check if current market regime is favorable for trading.
 
         Returns True if regime is active (OK to trade).
@@ -783,9 +796,15 @@ class AlphaRunner:
         1. Vol + trend (original): skip dead markets
         2. Ranging detector: skip choppy range-bound markets
         3. Dynamic deadzone: adapt to current volatility
+        4. (Optional) Composite regime: CompositeRegimeDetector + ParamRouter
 
         Walk-forward analysis: RANGE/LOW-VOL folds lose money (avg -2.4 Sharpe).
         BULL/BEAR folds make money (avg +1.7 Sharpe). This filter targets the gap.
+
+        Args:
+            close: Current bar close price.
+            feat_dict: Feature dict from RustFeatureEngine (optional, for composite).
+                       Pass None on the first call (before features are computed).
         """
         self._closes.append(close)
         if len(self._closes) >= 2:
@@ -810,28 +829,78 @@ class AlphaRunner:
         base_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
 
         # Layer 2: ranging detector — detect choppy, directionless markets
-        # If price has bounced back and forth without making progress over 100 bars,
-        # it's ranging. Net displacement / total path should be low.
         is_ranging = False
         rw = self._ranging_window
         if len(self._closes) >= rw:
             window = self._closes[-rw:]
             net_move = abs(window[-1] - window[0])
-            total_path = sum(abs(window[j] - window[j-1]) for j in range(1, len(window)))
+            total_path = sum(
+                abs(window[j] - window[j - 1]) for j in range(1, len(window))
+            )
             efficiency = net_move / total_path if total_path > 0 else 0
-            is_ranging = efficiency < self._ranging_threshold and trend < self._trend_threshold
+            is_ranging = (
+                efficiency < self._ranging_threshold
+                and trend < self._trend_threshold
+            )
 
         self._regime_active = base_active and not is_ranging
 
         # Dynamic deadzone: scale with vol, clamp to [0.15, 0.6]
         if self._vol_median > 0:
             ratio = vol_20 / self._vol_median
-            self._deadzone = max(0.15, min(0.6, self._deadzone_base * (ratio ** 0.5)))
+            self._deadzone = max(
+                0.15, min(0.6, self._deadzone_base * (ratio ** 0.5))
+            )
+
+        # Layer 4: Composite regime (opt-in, overrides deadzone/min_hold)
+        if (
+            self._use_composite_regime
+            and self._composite_detector is not None
+            and feat_dict is not None
+        ):
+            self._apply_composite_regime(feat_dict)
 
         return self._regime_active
 
+    def _apply_composite_regime(self, feat_dict: dict) -> None:
+        """Run CompositeRegimeDetector and update params via ParamRouter."""
+        from datetime import datetime, timezone
+
+        label = self._composite_detector.detect(
+            symbol=self._symbol,
+            ts=datetime.now(timezone.utc),
+            features=feat_dict,
+        )
+        if label is None or label.meta is None:
+            return
+        composite = label.meta.get("composite")
+        if composite is None:
+            return
+
+        params = self._param_router.route(composite)
+        self._regime_params = params
+        # Feed back regime params to trading parameters
+        self._deadzone = params.deadzone
+        self._min_hold = params.min_hold
+        # Crisis → block trading
+        if composite.is_crisis:
+            self._regime_active = False
+        logger.info(
+            "%s CompositeRegime: %s|%s → dz=%.2f mh=%d scale=%.2f",
+            self._symbol, composite.trend, composite.vol,
+            params.deadzone, params.min_hold, params.position_scale,
+        )
+
+    @property
+    def seconds_since_last_bar(self) -> float:
+        """Seconds since last process_bar call. Returns inf if never called."""
+        if self._last_bar_time == 0.0:
+            return float("inf")
+        return time.time() - self._last_bar_time
+
     def process_bar(self, bar: dict) -> dict:
         """Process one bar: regime → features → predict → signal → trade."""
+        self._last_bar_time = time.time()
         self._bars_processed += 1
 
         # Periodic reconciliation with exchange
@@ -874,6 +943,10 @@ class AlphaRunner:
         if self._symbol == "BTCUSDT":
             dom_feats = self._compute_dominance_features(bar["close"])
             feat_dict.update(dom_feats)
+
+        # Composite regime update (2nd pass with features)
+        if self._use_composite_regime:
+            regime_ok = self._check_regime(bar["close"], feat_dict=feat_dict)
 
         # Primary horizon prediction (h=24, Ridge+LGBM ensemble)
         pred = self._ensemble_predict(feat_dict)

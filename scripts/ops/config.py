@@ -14,7 +14,8 @@ MAX_ORDER_NOTIONAL = 500.0
 
 # Default symbols + position sizes
 SYMBOL_CONFIG = {
-    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001},
+    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001,
+                 "use_composite_regime": True},
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
     # 15m alpha: separate model, different interval
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",

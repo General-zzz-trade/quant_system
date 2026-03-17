@@ -143,9 +143,44 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
             _ws_state_store = r._state_store
             break
 
+    # WS stale detection: if no message for WS_STALE_THRESHOLD_S, attempt reconnect.
+    # After WS_MAX_RECONNECT_ATTEMPTS consecutive failures, arm kill switch.
+    WS_STALE_THRESHOLD_S = 120  # 2 minutes
+    WS_MAX_RECONNECT_ATTEMPTS = 3
+
     try:
         while True:
             time.sleep(300)
+
+            # ── WS health check: detect silent disconnects ──
+            for ws in ws_clients:
+                stale_s = ws.seconds_since_last_message
+                if stale_s > WS_STALE_THRESHOLD_S:
+                    logger.critical(
+                        "WS STALE: no data for %.0fs (threshold=%ds), attempting reconnect",
+                        stale_s, WS_STALE_THRESHOLD_S,
+                    )
+                    ws.stop()
+                    time.sleep(2)
+                    ws.start()
+                    ws._reconnect_count += 1
+                    if ws._reconnect_count >= WS_MAX_RECONNECT_ATTEMPTS:
+                        logger.critical(
+                            "WS STALE: %d consecutive reconnect failures, arming kill switch",
+                            ws._reconnect_count,
+                        )
+                        # Find kill_switch from any runner
+                        for r in runners.values():
+                            if r._kill_switch is not None:
+                                r._kill_switch.arm(
+                                    "global", "*", "halt",
+                                    f"WS stale {stale_s:.0f}s, {ws._reconnect_count} reconnects failed",
+                                    source="ws_health_check",
+                                )
+                                break
+                else:
+                    ws._reconnect_count = 0  # reset on healthy check
+
             sigs = {s: r._current_signal for s, r in runners.items()}
             pm_status = portfolio_manager.get_status() if portfolio_manager else None
             hedge_status = hedge_runner.get_status() if hedge_runner else None
@@ -249,6 +284,9 @@ def main():
             continue
 
         model_info = load_model(model_dir)
+        # Pass composite regime flag from SYMBOL_CONFIG to model_info
+        if sym_cfg.get("use_composite_regime"):
+            model_info["use_composite_regime"] = True
         real_symbol = sym_cfg.get("symbol", symbol)  # e.g. ETHUSDT_15m -> ETHUSDT
         interval = sym_cfg.get("interval", INTERVAL)
         warmup = sym_cfg.get("warmup", WARMUP_BARS)
