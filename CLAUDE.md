@@ -103,7 +103,7 @@ execution/       Order routing, state machine, dedup
 state/           State types + Rust adapters
 attribution/     P&L + cost + signal attribution (thin Rust wrappers)
 event/           Event types + runtime protocol
-ext/rust/        Unified Rust crate -> _quant_hotpath (68 .rs files, ~26K LOC)
+ext/rust/        Unified Rust crate -> _quant_hotpath (72 .rs files, ~26K LOC)
 ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
 runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
   builders/            13 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
@@ -260,7 +260,7 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 - **BTCUSDT V14** (h=96, dominance): Sharpe **2.03**, **+552%**, **16/20 positive** → **PASS** (BTC/ETH ratio is #1 feature)
 - **BTCUSDT Regime-Adaptive**: Sharpe **5.52**, **20/20 positive** → **+120% over baseline** (composite regime → param routing)
 - FAIL: SUIUSDT 15m (9/23), SOLUSDT 15m (1/4), AXSUSDT 15m (Sharpe 0.39), ETHUSDT 5m (IC near zero)
-- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate)
+- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate). Demo uses **10x** (all tiers)
 - Dual alpha AGREE backtest: Sharpe **5.48**, +1,141%, 56% WR, signal correlation 0.077
 - Polymarket RSI(5) 5m: accuracy **55.0%**, **23/23 folds PASS**, $25/day@$10/bet
 
@@ -296,8 +296,9 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Binary config priority: model `config.json` > YAML `per_symbol` > YAML `strategy` defaults
 
 **Trading & safety**:
-- `MAX_ORDER_NOTIONAL = $500` hard limit in config.py — enforced in both AlphaRunner and PortfolioCombiner
+- `MAX_ORDER_NOTIONAL = $5,000` hard limit in config.py — enforced in both AlphaRunner (clamp, not block) and PortfolioCombiner
 - `_round_to_step()` applied in ALL code paths (adaptive sizing, base size, exception fallback) — prevents Bybit `Qty invalid` rejections
+- Margin pre-flight check: AlphaRunner and PortfolioCombiner check `available` balance before sending orders to avoid `ab not enough` errors
 - Binance min notional: ETHUSDT $20, BTCUSDT $100; Bybit all $5
 - `PortfolioCombiner` sets individual runners to `dry_run=True`; caps each symbol at 30% of equity x leverage
 - SYMBOL_CONFIG: `SUIUSDT` size=10, step=10 (Bybit qtyStep=10); `AXSUSDT` size=5.0, step=0.1
@@ -305,8 +306,11 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
 - `BinanceOICache`: OI data fetched in background thread (55s refresh), no longer blocks stop-loss
 - `_NEUTRAL_DEFAULTS`: NaN features use neutral values (ls_ratio→1.0, rsi_14→50.0), not 0.0
-- `order_utils.py`: `reliable_close_position()` replaces bare `close_position()` calls; `clamp_notional()` enforces $500 limit at all order sites
-- `PortfolioCombiner` uses `PnLTracker` (no duplicate PnL tracking)
+- `order_utils.py`: `reliable_close_position()` replaces bare `close_position()` calls; `clamp_notional()` enforces $5,000 limit at all order sites
+- `PortfolioCombiner` uses `PnLTracker` (no duplicate PnL tracking); records fills to `RustStateStore` on both open and close
+- `PortfolioManager.record_position()` syncs COMBO fill positions without re-executing orders
+- `RustStateStore` initialized with real exchange balance (Fd8); equity=0 bug fixed
+- `HedgeRunner` uses 2% hysteresis band (ratio < MA×0.98 open, > MA×1.02 close) to prevent noise trading
 
 **Features & models**:
 - ADX(14): computed incrementally in `enriched_computer.py` via `_ADXTracker`; needs 2×14=28 bars warmup; used by `TrendRegimeDetector`
@@ -335,12 +339,12 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `RegimeParamRouter` activated when `enable_regime_sizing=True` via `enable_param_routing` flag
 - `RegimePolicy` blocks composite crisis labels (any label with "crisis" in value)
 - `StagedRiskManager` wired as `StagedRiskGate` in gate_chain; equity stages: survival→growth→stable→safe→institutional
-- `initial_equity` field added to `LiveRunnerConfig` (default $500)
+- `initial_equity` field added to `LiveRunnerConfig` (default $500); `RustStateStore` uses real exchange balance via Fd8 at startup
 
 **Infrastructure**:
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`
 - Burn-in gate: Phase A(Paper 3d) → B(Shadow 3d) → C(Testnet 3d) = 9 days before live; configs in `config/burnin.{paper,shadow,testnet}.yaml`
-- Live config: `config/production.live.yaml` ($500 ETHUSDT, half-Kelly 0.7x, $100 order cap)
+- Live config: `config/production.live.yaml` (ETHUSDT, Kelly 0.7x real / 10x demo, $5K order cap)
 - Alert rules: `config/alerts.live.yaml` (balance $400 kill, $50 single-loss warn, 2h stale, IC decay)
 - Dockerfile: multi-stage (`ci`/`paper`/`live`); docker-compose.yml with paper + `--profile live` profiles
 - `scripts/ops/security_scan.py`: checks hardcoded secrets, .env gitignored, MAX_ORDER_NOTIONAL, bare-except blocks
