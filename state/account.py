@@ -54,6 +54,8 @@ class AccountState:
         fees_paid: Decimal,
         ts: Optional[datetime],
     ) -> "AccountState":
+        if margin_used > balance:
+            raise ValueError(f"margin_used ({margin_used}) exceeds balance ({balance})")
         margin_available = balance - margin_used
         return AccountState(
             currency=self.currency,
