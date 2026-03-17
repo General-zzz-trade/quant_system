@@ -150,3 +150,29 @@ class TestCrossAssetComputer:
         assert feats["btc_ret_24"] is None
         assert feats["btc_rsi_14"] is None  # need >= 15 bars
         assert feats["btc_mean_reversion_20"] is None  # need >= 20 bars
+
+
+class TestCrossAssetBenchmarkGuard:
+    def test_altcoin_before_benchmark_returns_warning(self, caplog):
+        """Pushing altcoin before benchmark should warn."""
+        import logging
+        from features.cross_asset_computer import CrossAssetComputer
+
+        comp = CrossAssetComputer()
+        comp.begin_bar()  # reset per-bar tracking
+        comp.on_bar("ETHUSDT", close=3000.0)
+        assert any("benchmark" in r.message.lower() for r in caplog.records
+                    if r.levelno >= logging.WARNING)
+
+    def test_benchmark_then_altcoin_no_warning(self, caplog):
+        """Pushing benchmark first then altcoin should not warn."""
+        import logging
+        from features.cross_asset_computer import CrossAssetComputer
+
+        comp = CrossAssetComputer()
+        comp.begin_bar()
+        comp.on_bar("BTCUSDT", close=60000.0)
+        comp.on_bar("ETHUSDT", close=3000.0)
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING
+                    and "benchmark" in r.message.lower()]
+        assert len(warnings) == 0
