@@ -98,8 +98,9 @@ class DrawdownCircuitBreaker:
         """
         if self._use_rust:
             now = now_ts if now_ts is not None else time.time()
+            prev_state = self._inner.state  # capture before update
             new_state, action = self._inner.on_equity_update(equity, now)
-            self._handle_action(new_state, action, equity, now)
+            self._handle_action(new_state, action, equity, now, prev_state)
             return new_state
         # ── Python fallback path ──
         if equity <= 0:
@@ -162,16 +163,21 @@ class DrawdownCircuitBreaker:
 
         return self._state
 
-    def _handle_action(self, new_state: str, action: Any, equity: float, now: float) -> None:
+    def _handle_action(
+        self, new_state: str, action: Any, equity: float, now: float, prev_state: str = "normal"
+    ) -> None:
         """Bridge Rust action tuples to KillSwitch calls."""
         if action is None:
             if new_state == "warning":
-                # Rust tracks last_warning_ts (300s cooldown) internally
-                logger.warning(
-                    "DrawdownBreaker WARNING: dd=%.1f%% (hwm=%.2f, current=%.2f)",
-                    self._inner.current_drawdown_pct, self._inner.equity_hwm, equity,
-                )
-            elif new_state == "normal" and hasattr(self, "_prev_state") and self._prev_state == "warning":
+                # Respect 300s cooldown same as Python path
+                if now - self._last_warning_ts > 300:
+                    self._last_warning_ts = now
+                    cfg = self._config
+                    logger.warning(
+                        "DrawdownBreaker WARNING: dd=%.1f%% >= %.1f%% (hwm=%.2f, current=%.2f)",
+                        self._inner.current_drawdown_pct, cfg.warning_pct, self._inner.equity_hwm, equity,
+                    )
+            elif new_state == "normal" and prev_state == "warning":
                 logger.info(
                     "DrawdownBreaker: drawdown recovered to %.1f%%, state → normal",
                     self._inner.current_drawdown_pct,
@@ -326,5 +332,6 @@ class DrawdownCircuitBreaker:
                 "kill_pct": self._config.kill_pct,
                 "velocity_pct": self._config.velocity_pct,
                 "velocity_window_sec": self._config.velocity_window_sec,
+                "reduce_ttl_sec": self._config.reduce_ttl_sec,
             },
         }
