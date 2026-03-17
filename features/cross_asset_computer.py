@@ -4,9 +4,12 @@ Delegates all computation to RustCrossAssetComputer.
 """
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional
 
 from _quant_hotpath import RustCrossAssetComputer
+
+_log = logging.getLogger(__name__)
 
 CROSS_ASSET_FEATURE_NAMES: tuple[str, ...] = (
     "btc_ret_1", "btc_ret_3", "btc_ret_6",
@@ -31,11 +34,24 @@ class CrossAssetComputer:
 
     def __init__(self) -> None:
         self._inner = RustCrossAssetComputer(_BENCHMARK)
+        self._benchmark_fed_this_bar = False
+
+    def begin_bar(self) -> None:
+        """Reset per-bar benchmark tracking. Call once at the start of each bar."""
+        self._benchmark_fed_this_bar = False
 
     def on_bar(self, symbol: str, *, close: float,
                funding_rate: Optional[float] = None,
                high: Optional[float] = None,
                low: Optional[float] = None) -> None:
+        if symbol == _BENCHMARK:
+            self._benchmark_fed_this_bar = True
+        elif not self._benchmark_fed_this_bar:
+            _log.warning(
+                "CrossAssetComputer: altcoin %s pushed before benchmark %s "
+                "— cross-asset features may be stale/NaN for this bar",
+                symbol, _BENCHMARK,
+            )
         self._inner.on_bar(symbol, close, funding_rate=funding_rate,
                            high=high, low=low)
 
