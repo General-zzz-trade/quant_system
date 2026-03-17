@@ -83,6 +83,8 @@ class CompositeRegimeDetector:
                 "composite": composite,
                 "is_favorable": result.is_favorable,
                 "is_crisis": result.is_crisis,
+                "vol_label": result.vol_label,    # plain string (not RegimeLabel) for forward compat
+                "trend_label": result.trend_label, # plain string (not RegimeLabel) for forward compat
             }
             return RegimeLabel(
                 name=self.name,

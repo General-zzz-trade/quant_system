@@ -46,14 +46,15 @@ class TestVolLabelParity:
         symbol = "ETHUSDT"
 
         features = make_base_features()
-        result_rust = None
+        rust_result = py_result = None
 
         for i in range(35):
-            result_rust = rust.detect(dict(features))
-            py_vol.detect(symbol=symbol, ts=ts, features=features)
+            rust_result = rust.detect(dict(features))
+            py_result = py_vol.detect(symbol=symbol, ts=ts, features=features)
 
-        assert result_rust is not None
-        assert result_rust.vol_label in ("low_vol", "normal_vol", "high_vol", "crisis")
+        assert rust_result is not None
+        assert py_result is not None
+        assert rust_result.vol_label == py_result.value  # parity assertion added
 
     def test_low_vol_label_parity(self):
         """Fill with very low parkinson_vol → both classify as low_vol."""
@@ -358,3 +359,6 @@ class TestCompositeDetectorParity:
         assert composite_rust.vol == composite_py.vol
         assert composite_rust.trend == composite_py.trend
         assert result_rust.value == result_py.value
+
+        # Score parity: Rust and Python composite scores must agree
+        assert result_rust.score == pytest.approx(result_py.score, rel=1e-6)
