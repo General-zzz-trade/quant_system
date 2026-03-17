@@ -1,0 +1,13 @@
+# Burn-in Phase B: Shadow trading (demo API orders)
+symbols:
+  - ETHUSDT
+venue: bybit
+testnet: false   # demo URL set in .env (BYBIT_BASE_URL=https://api-demo.bybit.com)
+shadow_mode: false
+initial_equity: 500
+max_order_notional: 100
+enable_rust_components: true
+enable_adaptive_stop: true
+enable_monitoring: true
+enable_structured_logging: true
+log_level: INFO

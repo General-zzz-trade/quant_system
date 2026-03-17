@@ -1,0 +1,14 @@
+# Burn-in Phase C: Testnet real orders
+symbols:
+  - ETHUSDT
+venue: bybit
+testnet: true  # uses testnet API
+shadow_mode: false
+initial_equity: 500
+max_order_notional: 100
+enable_rust_components: true
+enable_adaptive_stop: true
+enable_equity_leverage: true
+enable_monitoring: true
+enable_structured_logging: true
+log_level: INFO

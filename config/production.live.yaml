@@ -1,0 +1,65 @@
+# Production Live Configuration — $500 ETHUSDT Validation
+# CAUTION: This config connects to REAL Bybit API with REAL money.
+# Use --dry-run for signal-only mode without orders.
+
+# ── Core ─────────────────────────────────────────────────────────
+symbols:
+  - ETHUSDT
+venue: bybit
+testnet: false
+shadow_mode: false
+
+# ── Risk — Conservative validation mode ──────────────────────────
+initial_equity: 500
+max_gross_leverage: 0.7          # half-Kelly
+max_net_leverage: 0.7
+max_concentration: 1.0           # single symbol = 100%
+
+# ── Order limits ─────────────────────────────────────────────────
+max_order_notional: 100          # $100 single order cap (well below $500 global)
+
+# ── Drawdown thresholds ───────────────────────────────────────────
+dd_warning_pct: 10.0             # warn at 10%
+dd_reduce_pct: 15.0              # reduce position at 15%
+dd_kill_pct: 20.0                # kill switch at 20% ($400 balance)
+
+# ── Signal constraints ────────────────────────────────────────────
+deadzone: 0.5
+min_hold_bars:
+  ETHUSDT: 18
+max_hold: 120
+trend_follow: false
+monthly_gate: false
+
+# ── Features — enable new Phase 3 features ───────────────────────
+enable_dominance_features: false  # ETH doesn't use dominance (BTC only)
+enable_rust_components: true
+
+# ── Regime — ETH uses fixed params (not composite) ───────────────
+enable_regime_gate: true
+enable_regime_sizing: false
+composite_regime_symbols: []      # empty = no composite regime
+
+# ── Gates ────────────────────────────────────────────────────────
+enable_adaptive_stop: true
+atr_initial_mult: 2.0
+atr_breakeven_trigger: 1.0
+atr_trailing_mult: 0.3
+enable_equity_leverage: true
+enable_consensus_scaling: false   # single symbol, no consensus needed
+enable_combo: false               # single timeframe, no combo needed
+
+# ── Monitoring ───────────────────────────────────────────────────
+enable_monitoring: true
+health_port: 8080
+enable_alpha_health: true
+health_stale_data_sec: 120.0
+ws_stale_threshold_sec: 120.0
+
+# ── Data & Storage ────────────────────────────────────────────────
+enable_persistent_stores: true
+enable_structured_logging: true
+log_level: INFO
+
+# ── Execution ────────────────────────────────────────────────────
+use_ws_orders: false              # REST orders (safer for validation)
