@@ -404,8 +404,8 @@ class SagaManager:
             for oid in expired:
                 self.transition(oid, SagaState.CANCELLED, reason="ttl_expired")
                 # Move TTL-cancelled sagas to completed so get() returns None
-                saga = self._sagas.pop(oid, None)
-                if saga is not None:
+                if oid in self._sagas:
+                    saga = self._sagas.pop(oid)
                     self._completed[oid] = saga
                     self._evict_completed()
         return expired

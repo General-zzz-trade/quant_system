@@ -63,7 +63,7 @@ def _dc_to_dict(obj: Any) -> Any:
     if isinstance(obj, datetime):
         return {"__datetime__": obj.isoformat()}
     try:
-        from _quant_hotpath import (
+        from _quant_hotpath import (  # type: ignore[import-untyped]
             RustAccountState,
             RustMarketState,
             RustPortfolioState,
@@ -115,7 +115,7 @@ class _StateEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def _state_decoder_hook(d: dict) -> Any:
+def _state_decoder_hook(d: dict[str, Any]) -> Any:
     if "__decimal__" in d:
         return Decimal(d["__decimal__"])
     if "__datetime__" in d:
@@ -135,7 +135,7 @@ def _deserialize_snapshot(blob: str) -> StateSnapshot:
     return _reconstruct_snapshot(raw)
 
 
-def _reconstruct_snapshot(d: dict) -> StateSnapshot:
+def _reconstruct_snapshot(d: dict[str, Any]) -> StateSnapshot:
     from state.market import MarketState
     from state.account import AccountState
     from state.position import PositionState

@@ -25,7 +25,7 @@ def load_config(path: str | Path) -> Dict[str, Any]:
     text = p.read_text(encoding="utf-8")
 
     if suffix in {".json"}:
-        return json.loads(text)
+        return dict(json.loads(text))
 
     if suffix in {".yml", ".yaml"}:
         try:

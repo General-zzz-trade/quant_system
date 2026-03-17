@@ -29,7 +29,7 @@ from state.rust_adapters import (
     risk_to_rust,
 )
 
-from _quant_hotpath import (
+from _quant_hotpath import (  # type: ignore[import-untyped]
     RustAccountState,
     RustMarketState,
     RustPositionState,
@@ -37,7 +37,7 @@ from _quant_hotpath import (
 )
 
 _SCALE = 100_000_000
-def _time_mod_time():
+def _time_mod_time() -> int:
     return int(_time_mod.time())
 
 
@@ -135,7 +135,7 @@ class EngineCoordinator:
         # Tick processor fast path (replaces feature_hook + pipeline for MARKET events)
         # Can be a single RustTickProcessor or a dict of {symbol: RustTickProcessor}
         self._tick_processor_raw = cfg.tick_processor
-        self._tick_processors: Optional[dict] = None
+        self._tick_processors: Optional[dict[str, Any]] = None
         if isinstance(cfg.tick_processor, dict):
             self._tick_processors = cfg.tick_processor
         elif cfg.tick_processor is not None:
@@ -202,6 +202,7 @@ class EngineCoordinator:
 
     @property
     def pipeline(self) -> StatePipeline:
+        assert self._pipeline is not None, "pipeline not initialized"
         return self._pipeline
 
     def get_state_view(self) -> Mapping[str, Any]:
@@ -414,6 +415,7 @@ class EngineCoordinator:
             features=features,
         )
 
+        assert self._pipeline is not None
         out = self._pipeline.apply(inp)
 
         with self._lock:

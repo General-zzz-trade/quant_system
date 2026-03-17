@@ -7,9 +7,11 @@ import time as _time
 from typing import Any, Callable, Dict, List
 import threading
 
-from _quant_hotpath import DuplicateGuard as _RustDedupGuard
-from _quant_hotpath import rust_route_event_type as _rust_route_event_type
-from _quant_hotpath import rust_route_event as _rust_route_event
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    DuplicateGuard as _RustDedupGuard,
+    rust_route_event_type as _rust_route_event_type,
+    rust_route_event as _rust_route_event,
+)
 
 
 # ============================================================

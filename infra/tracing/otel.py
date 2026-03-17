@@ -83,7 +83,7 @@ class Tracer:
     def _try_init_otel(self) -> Any:
         """Try to init OpenTelemetry, return None if not available."""
         try:
-            from opentelemetry import trace  # type: ignore[import-untyped]
+            from opentelemetry import trace  # type: ignore[import-not-found]
             return trace.get_tracer(self._service)
         except ImportError:
             logger.debug("OpenTelemetry not available, using in-process tracer")

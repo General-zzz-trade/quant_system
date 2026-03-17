@@ -73,7 +73,7 @@ class TracingInterceptor:
             del self._active[eid]
         return len(stale)
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         event_id = envelope.event_id
         # Auto-evict stale entries to prevent unbounded growth when
         # after_reduce is never called (e.g. dropped / short-circuited events).
@@ -84,7 +84,7 @@ class TracingInterceptor:
 
     def after_reduce(
         self,
-        envelope: Envelope,
+        envelope: Envelope[Any],
         old_state: Any,
         new_state: Any,
     ) -> InterceptResult:
@@ -112,6 +112,8 @@ class TracingInterceptor:
         return InterceptResult.ok(self.name)
 
     def _export_to_tracer(self, span: SpanRecord) -> None:
+        if self._tracer is None:
+            return
         try:
             with self._tracer.start_span(
                 f"pipeline.{span.event_kind}",
@@ -175,19 +177,19 @@ class LoggingInterceptor:
     def entries(self) -> List[Dict[str, Any]]:
         return list(self._entries)
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         # Logging interceptor never blocks — it's observability-only
         return InterceptResult.ok(self.name)
 
     def after_reduce(
         self,
-        envelope: Envelope,
+        envelope: Envelope[Any],
         old_state: Any,
         new_state: Any,
     ) -> InterceptResult:
         return InterceptResult.ok(self.name)
 
-    def record(self, phase: str, envelope: Envelope, result: InterceptResult) -> None:
+    def record(self, phase: str, envelope: Envelope[Any], result: InterceptResult) -> None:
         """Record an intercept decision from the chain.
 
         This is meant to be called by the pipeline runner after the
@@ -238,14 +240,14 @@ class MetricsInterceptor:
     def name(self) -> str:
         return "metrics"
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         self._active[envelope.event_id] = time.monotonic()
         self._metrics.counter("pipeline.events_in", 1, kind=envelope.kind.name)
         return InterceptResult.ok(self.name)
 
     def after_reduce(
         self,
-        envelope: Envelope,
+        envelope: Envelope[Any],
         old_state: Any,
         new_state: Any,
     ) -> InterceptResult:

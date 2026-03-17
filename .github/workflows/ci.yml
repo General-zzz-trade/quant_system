@@ -74,3 +74,8 @@ jobs:
           docker build --target ci -t quant-ci:lint .
           docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
             ruff check --select E,W,F .
+
+      - name: Type check (strict core modules)
+        run: |
+          docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
+            mypy core/ regime/ state/ --strict

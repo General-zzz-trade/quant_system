@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Optional, Protocol, Sequence, Tuple
+from typing import Any, FrozenSet, Optional, Protocol, Sequence, Tuple
 
 from core.types import Envelope
 
@@ -58,13 +58,13 @@ class PipelineInterceptor(Protocol):
         """Unique name for logging and diagnostics."""
         ...
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         """Called *before* reducers run.  Return REJECT to skip reduction."""
         ...
 
     def after_reduce(
         self,
-        envelope: Envelope,
+        envelope: Envelope[Any],
         old_state: Any,
         new_state: Any,
     ) -> InterceptResult:
@@ -87,7 +87,7 @@ class InterceptorChain:
     def interceptors(self) -> Tuple[PipelineInterceptor, ...]:
         return self._interceptors
 
-    def run_before(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def run_before(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         """Run all interceptors' ``before_reduce``.  Fail-fast on non-CONTINUE."""
         for ic in self._interceptors:
             result = ic.before_reduce(envelope, state)
@@ -97,7 +97,7 @@ class InterceptorChain:
 
     def run_after(
         self,
-        envelope: Envelope,
+        envelope: Envelope[Any],
         old_state: Any,
         new_state: Any,
     ) -> InterceptResult:
@@ -118,17 +118,17 @@ class PassthroughInterceptor:
     def name(self) -> str:
         return "passthrough"
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         return InterceptResult.ok(self.name)
 
-    def after_reduce(self, envelope: Envelope, old_state: Any, new_state: Any) -> InterceptResult:
+    def after_reduce(self, envelope: Envelope[Any], old_state: Any, new_state: Any) -> InterceptResult:
         return InterceptResult.ok(self.name)
 
 
 class EventKindGate:
     """Rejects events of disallowed kinds — e.g., block ORDER when kill-switch active."""
 
-    def __init__(self, *, blocked_kinds: frozenset, reason: str = "blocked by gate") -> None:
+    def __init__(self, *, blocked_kinds: FrozenSet[Any], reason: str = "blocked by gate") -> None:
         self._blocked = blocked_kinds
         self._reason = reason
 
@@ -136,10 +136,10 @@ class EventKindGate:
     def name(self) -> str:
         return "event_kind_gate"
 
-    def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
+    def before_reduce(self, envelope: Envelope[Any], state: Any) -> InterceptResult:
         if envelope.kind in self._blocked:
             return InterceptResult.reject(self.name, self._reason)
         return InterceptResult.ok(self.name)
 
-    def after_reduce(self, envelope: Envelope, old_state: Any, new_state: Any) -> InterceptResult:
+    def after_reduce(self, envelope: Envelope[Any], old_state: Any, new_state: Any) -> InterceptResult:
         return InterceptResult.ok(self.name)

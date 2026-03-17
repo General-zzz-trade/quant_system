@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional, Tuple
+from typing import Any, Iterator, List, Mapping, Optional, Tuple
 
 try:
     from state.snapshot import StateSnapshot
@@ -11,8 +11,13 @@ except Exception:  # pragma: no cover
     StateSnapshot = Any  # type: ignore
     _HAS_STRICT_SNAPSHOT = False
 
-from _quant_hotpath import rust_detect_event_kind as _rust_detect_kind
-from _quant_hotpath import rust_normalize_to_facts as _rust_normalize
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    rust_detect_event_kind as _rust_detect_kind,
+    rust_normalize_to_facts as _rust_normalize,
+    RustMarketState as _RustMarketState,
+    RustPositionState as _RustPositionState,
+    RustAccountState as _RustAccountState,
+)
 
 from state.rust_adapters import (
     account_from_rust,
@@ -20,12 +25,6 @@ from state.rust_adapters import (
     portfolio_from_rust,
     position_from_rust,
     risk_from_rust,
-)
-
-from _quant_hotpath import (
-    RustMarketState as _RustMarketState,
-    RustPositionState as _RustPositionState,
-    RustAccountState as _RustAccountState,
 )
 
 
@@ -95,24 +94,24 @@ class PipelineOutput:
 # ============================================================
 
 def _detect_kind(event: Any) -> str:
-    return _rust_detect_kind(event)
+    return str(_rust_detect_kind(event))
 
 
 def normalize_to_facts(event: Any) -> List[Any]:
     try:
-        return _rust_normalize(event)
+        return list(_rust_normalize(event))
     except RuntimeError as e:
         raise FactNormalizationError(str(e)) from e
 
 
-class _LazyConvertMapping(Mapping):
+class _LazyConvertMapping(Mapping[str, Any]):
     """Lazily converts Rust state types to Python on first access per key."""
 
     __slots__ = ("_raw", "_converted", "_converter", "_check_type")
 
-    def __init__(self, raw: Mapping[str, Any], converter, check_type) -> None:
+    def __init__(self, raw: Mapping[str, Any], converter: Any, check_type: Any) -> None:
         self._raw = raw
-        self._converted: dict = {}
+        self._converted: dict[str, Any] = {}
         self._converter = converter
         self._check_type = check_type
 
@@ -125,10 +124,10 @@ class _LazyConvertMapping(Mapping):
         self._converted[key] = val
         return val
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._raw)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._raw)
 
 

@@ -17,7 +17,7 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from core.types import Envelope, EventKind
 
@@ -67,7 +67,7 @@ class BusStats:
 # ── Bounded Event Bus ────────────────────────────────────
 
 # Priority queue entry: (priority_value, sequence, envelope)
-_QueueEntry = Tuple[int, int, Envelope]
+_QueueEntry = Tuple[int, int, Envelope[Any]]
 
 
 class BoundedEventBus:
@@ -89,13 +89,13 @@ class BoundedEventBus:
         self._stats = BusStats()
 
         # Subscriptions: kind → [handler]  (None key = subscribe-all)
-        self._handlers_by_kind: dict[Optional[EventKind], List[Callable[[Envelope], None]]] = defaultdict(list)
+        self._handlers_by_kind: dict[Optional[EventKind], List[Callable[[Envelope[Any]], None]]] = defaultdict(list)
 
     # ── Subscribe ────────────────────────────────────────
 
     def subscribe(
         self,
-        handler: Callable[[Envelope], None],
+        handler: Callable[[Envelope[Any]], None],
         *,
         kind: Optional[EventKind] = None,
     ) -> None:
@@ -105,7 +105,7 @@ class BoundedEventBus:
 
     def unsubscribe(
         self,
-        handler: Callable[[Envelope], None],
+        handler: Callable[[Envelope[Any]], None],
         *,
         kind: Optional[EventKind] = None,
     ) -> None:
@@ -119,7 +119,7 @@ class BoundedEventBus:
 
     # ── Publish ──────────────────────────────────────────
 
-    def publish(self, envelope: Envelope) -> PublishResult:
+    def publish(self, envelope: Envelope[Any]) -> PublishResult:
         """Enqueue an event.  Returns the outcome."""
         with self._lock:
             size = len(self._heap)
@@ -140,7 +140,7 @@ class BoundedEventBus:
 
             return PublishResult.ACCEPTED
 
-    def _handle_overflow(self, envelope: Envelope) -> PublishResult:
+    def _handle_overflow(self, envelope: Envelope[Any]) -> PublishResult:
         """Called under lock when at capacity."""
         if self._cfg.overflow_policy == OverflowPolicy.REJECT:
             self._stats.dropped += 1
@@ -176,7 +176,7 @@ class BoundedEventBus:
         """
         # Pop events under lock
         with self._lock:
-            batch: list[Envelope] = []
+            batch: list[Envelope[Any]] = []
             for _ in range(min(batch_size, len(self._heap))):
                 _, _, env = heapq.heappop(self._heap)
                 batch.append(env)

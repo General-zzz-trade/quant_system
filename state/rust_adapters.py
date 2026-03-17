@@ -12,7 +12,7 @@ from state.portfolio import PortfolioState
 from state.position import PositionState
 from state.risk import RiskLimits, RiskState
 
-from _quant_hotpath import (
+from _quant_hotpath import (  # type: ignore[import-untyped]
     RustAccountState,
     RustMarketState,
     RustPortfolioState,
@@ -47,7 +47,10 @@ def _i64_to_decimal(value: Optional[int], *, allow_none: bool = False) -> Option
 def _ts_to_rust(ts: Optional[datetime]) -> Optional[str]:
     if ts is None:
         return None
-    return ensure_utc(ts).isoformat()
+    utc_ts = ensure_utc(ts)
+    if utc_ts is None:
+        return None
+    return utc_ts.isoformat()
 
 
 def _ts_from_rust(ts: Optional[str]) -> Optional[datetime]:
@@ -173,16 +176,16 @@ def portfolio_to_rust(state: PortfolioState) -> Any:
 
 def portfolio_from_rust(state: Any) -> PortfolioState:
     return PortfolioState(
-        total_equity=to_decimal(state.total_equity),
-        cash_balance=to_decimal(state.cash_balance),
-        realized_pnl=to_decimal(state.realized_pnl),
-        unrealized_pnl=to_decimal(state.unrealized_pnl),
-        fees_paid=to_decimal(state.fees_paid),
-        gross_exposure=to_decimal(state.gross_exposure),
-        net_exposure=to_decimal(state.net_exposure),
+        total_equity=to_decimal(state.total_equity) or Decimal("0"),
+        cash_balance=to_decimal(state.cash_balance) or Decimal("0"),
+        realized_pnl=to_decimal(state.realized_pnl) or Decimal("0"),
+        unrealized_pnl=to_decimal(state.unrealized_pnl) or Decimal("0"),
+        fees_paid=to_decimal(state.fees_paid) or Decimal("0"),
+        gross_exposure=to_decimal(state.gross_exposure) or Decimal("0"),
+        net_exposure=to_decimal(state.net_exposure) or Decimal("0"),
         leverage=to_decimal(state.leverage) if getattr(state, "leverage", None) is not None else None,
-        margin_used=to_decimal(state.margin_used),
-        margin_available=to_decimal(state.margin_available),
+        margin_used=to_decimal(state.margin_used) or Decimal("0"),
+        margin_available=to_decimal(state.margin_available) or Decimal("0"),
         margin_ratio=to_decimal(state.margin_ratio) if getattr(state, "margin_ratio", None) is not None else None,
         symbols=tuple(getattr(state, "symbols", ()) or ()),
         last_ts=_ts_from_rust(getattr(state, "last_ts", None)),
@@ -222,8 +225,8 @@ def risk_from_rust(state: Any) -> RiskState:
         level=getattr(state, "level", None),
         message=getattr(state, "message", None),
         flags=tuple(getattr(state, "flags", ()) or ()),
-        equity_peak=to_decimal(state.equity_peak),
-        drawdown_pct=to_decimal(state.drawdown_pct),
+        equity_peak=to_decimal(state.equity_peak) or Decimal("0"),
+        drawdown_pct=to_decimal(state.drawdown_pct) or Decimal("0"),
         last_ts=_ts_from_rust(getattr(state, "last_ts", None)),
     )
 

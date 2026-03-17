@@ -25,7 +25,8 @@ def ensure_utc(ts: Any) -> Optional[datetime]:
     if ts.tzinfo is None:
         # treat as UTC to avoid crashing legacy code paths, but prefer tz-aware in production
         ts = ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc)
+    result: datetime = ts.astimezone(timezone.utc)
+    return result
 
 def norm_event_type(raw: Any) -> str:
     if raw is None:
@@ -71,7 +72,7 @@ def get_symbol(event: Any, default: str = "") -> str:
     return str(sym) if sym is not None else default
 
 def signed_qty(qty: Any, side: Any) -> Decimal:
-    q = to_decimal(qty)
+    q = to_decimal(qty) or Decimal("0")
     s = str(side).strip().lower() if side is not None else ""
     # if qty already signed and side missing, keep as is
     if s in ("buy", "long"):

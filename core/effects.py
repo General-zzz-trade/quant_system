@@ -46,7 +46,7 @@ class PersistEffect(Protocol):
 class RandomEffect(Protocol):
     """Controllable randomness."""
     def uniform(self, lo: float, hi: float) -> float: ...
-    def choice(self, seq: list) -> Any: ...
+    def choice(self, seq: list[Any]) -> Any: ...
 
 
 # ── Composite effects container ──────────────────────────
@@ -145,7 +145,7 @@ class StdRandom:
     def uniform(self, lo: float, hi: float) -> float:
         return self._rng.uniform(lo, hi)
 
-    def choice(self, seq: list) -> Any:
+    def choice(self, seq: list[Any]) -> Any:
         return self._rng.choice(seq)
 
 
@@ -160,7 +160,7 @@ class DeterministicRandom:
     def uniform(self, lo: float, hi: float) -> float:
         return self._rng.uniform(lo, hi)
 
-    def choice(self, seq: list) -> Any:
+    def choice(self, seq: list[Any]) -> Any:
         return self._rng.choice(seq)
 
 

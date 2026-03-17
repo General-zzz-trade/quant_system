@@ -56,7 +56,7 @@ class PluginEntry:
     """A registered plugin with its metadata."""
     meta: PluginMeta
     plugin: Any
-    plugin_class: Type
+    plugin_class: Type[Any]
 
 
 # ── Errors ───────────────────────────────────────────────
@@ -94,9 +94,9 @@ class PluginRegistry:
         description: str = "",
         params_schema: Optional[Mapping[str, Any]] = None,
         tags: Tuple[str, ...] = (),
-    ) -> Callable[[Type], Type]:
+    ) -> Callable[[Type[Any]], Type[Any]]:
         """Decorator to register a plugin class."""
-        def decorator(cls: Type) -> Type:
+        def decorator(cls: Type[Any]) -> Type[Any]:
             plugin_name = name or getattr(cls, "name", None) or cls.__name__
             meta = PluginMeta(
                 name=plugin_name,
@@ -109,7 +109,7 @@ class PluginRegistry:
             self._plugins[plugin_name] = PluginEntry(
                 meta=meta, plugin=cls, plugin_class=cls,
             )
-            cls._plugin_meta = meta  # type: ignore[attr-defined]
+            cls._plugin_meta = meta
             return cls
         return decorator
 
@@ -233,23 +233,23 @@ def reset_global_registries() -> None:
 
 def strategy_plugin(
     *, name: Optional[str] = None, version: str = "0.0.0", **kwargs: Any,
-) -> Callable[[Type], Type]:
+) -> Callable[[Type[Any]], Type[Any]]:
     return get_registry("strategy").register(name=name, version=version, **kwargs)
 
 
 def venue_plugin(
     *, name: Optional[str] = None, version: str = "0.0.0", **kwargs: Any,
-) -> Callable[[Type], Type]:
+) -> Callable[[Type[Any]], Type[Any]]:
     return get_registry("venue").register(name=name, version=version, **kwargs)
 
 
 def alpha_plugin(
     *, name: Optional[str] = None, version: str = "0.0.0", **kwargs: Any,
-) -> Callable[[Type], Type]:
+) -> Callable[[Type[Any]], Type[Any]]:
     return get_registry("alpha").register(name=name, version=version, **kwargs)
 
 
 def indicator_plugin(
     *, name: Optional[str] = None, version: str = "0.0.0", **kwargs: Any,
-) -> Callable[[Type], Type]:
+) -> Callable[[Type[Any]], Type[Any]]:
     return get_registry("indicator").register(name=name, version=version, **kwargs)
