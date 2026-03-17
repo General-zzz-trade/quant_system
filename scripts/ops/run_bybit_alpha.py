@@ -29,6 +29,50 @@ from scripts.ops.hedge_runner import HedgeRunner
 logger = logging.getLogger(__name__)
 
 
+def _select_runner_class(legacy: bool = False):
+    """Return AlphaRunner (legacy) or LiveRunner (default) class."""
+    if legacy:
+        from scripts.ops.alpha_runner import AlphaRunner  # noqa: F811
+        return AlphaRunner
+    from runner.live_runner import LiveRunner
+    return LiveRunner
+
+
+def _build_live_config(symbols, ws=False, dry_run=False):
+    """Map SYMBOL_CONFIG entries to a LiveRunnerConfig instance."""
+    from runner.config import LiveRunnerConfig
+
+    composite_symbols = tuple(
+        s for s in symbols
+        if SYMBOL_CONFIG.get(s, {}).get("use_composite_regime", False)
+    )
+
+    multi_interval: dict = {}
+    for s in symbols:
+        sc = SYMBOL_CONFIG.get(s, {})
+        if sc.get("interval") == "15":
+            base = sc.get("symbol", s)
+            if base not in multi_interval:
+                multi_interval[base] = ["60"]
+            multi_interval[base].append("15")
+
+    # Map multi-interval symbols to LiveRunnerConfig's multi_tf_models format
+    multi_tf_models = None
+    if multi_interval:
+        multi_tf_models = {sym: intervals for sym, intervals in multi_interval.items()}
+
+    # Enable regime sizing for symbols that use composite regime (e.g. BTC)
+    enable_regime_sizing = len(composite_symbols) > 0
+
+    return LiveRunnerConfig(
+        symbols=tuple(symbols),
+        shadow_mode=dry_run,
+        enable_regime_sizing=enable_regime_sizing,
+        enable_multi_tf_ensemble=bool(multi_tf_models),
+        multi_tf_models=multi_tf_models,
+    )
+
+
 def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                  runner_intervals: dict | None = None,
                  hedge_runner: HedgeRunner | None = None,
@@ -218,6 +262,10 @@ def main():
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--ws", action="store_true", help="Use WebSocket instead of REST polling")
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--legacy", action="store_true",
+        help="Use legacy AlphaRunner instead of LiveRunner (deprecated path)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
