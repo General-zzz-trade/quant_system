@@ -99,6 +99,13 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
     for rkey, (rsym, _) in runner_intervals.items():
         symbol_runners.setdefault(rsym, []).append(rkey)
 
+    # Get state_store from any runner (all share the same instance)
+    _combo_state_store = None
+    for r in runners.values():
+        if r._state_store is not None:
+            _combo_state_store = r._state_store
+            break
+
     combiners: dict[str, PortfolioCombiner] = {}
     for rsym, rkeys in symbol_runners.items():
         if len(rkeys) > 1:
@@ -107,6 +114,7 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
             combiners[rsym] = PortfolioCombiner(
                 adapter=adapter, symbol=rsym, weights=weights,
                 threshold=0.3, dry_run=dry_run,
+                state_store=_combo_state_store,
             )
             # Disable direct trading in individual runners
             for rk in rkeys:
@@ -142,6 +150,18 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                     )
                     if combo_trade:
                         trade_str = f" COMBO={combo_trade}"
+                        # Sync PM position tracking after COMBO fill
+                        if portfolio_manager is not None:
+                            desired = combo_trade.get("to", 0)
+                            if desired != 0:
+                                portfolio_manager.record_position(
+                                    real_sym,
+                                    combiners[real_sym]._position_size * desired,
+                                    result["close"],
+                                    "COMBO",
+                                )
+                            else:
+                                portfolio_manager.record_position(real_sym, 0, 0, "COMBO")
                 elif "trade" in result:
                     trade_str = f" TRADE={result['trade']}"
 
@@ -306,7 +326,9 @@ def main():
         real_sym = SYMBOL_CONFIG.get(s, {}).get("symbol", s)
         if real_sym not in all_symbols:
             all_symbols.append(real_sym)
-    state_store = RustStateStore(all_symbols, "USDT", 0)
+    # Bug fix: pass real balance so total_equity = balance + unrealized_pnl is non-zero
+    initial_balance_fd8 = int(float(usdt.total) * 100_000_000) if usdt else 0
+    state_store = RustStateStore(all_symbols, "USDT", initial_balance_fd8)
     logger.info(
         "Rust 12/12: StateStore(symbols=%s) + RiskEvaluator(max_dd=15%%) + KillSwitch "
         "| Available but unused: RustUnifiedPredictor (requires JSON models, our models "

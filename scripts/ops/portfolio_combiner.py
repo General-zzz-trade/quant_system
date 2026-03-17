@@ -9,6 +9,12 @@ from scripts.ops.config import MAX_ORDER_NOTIONAL
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
 
+try:
+    from _quant_hotpath import RustFillEvent as _RustFillEvent
+    _HAS_RUST_FILL = True
+except ImportError:
+    _HAS_RUST_FILL = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +37,8 @@ class PortfolioCombiner:
     def __init__(self, adapter: Any, symbol: str, weights: dict[str, float],
                  threshold: float = 0.3, dry_run: bool = False,
                  min_size: float = 0.01,
-                 pnl_tracker: PnLTracker | None = None):
+                 pnl_tracker: PnLTracker | None = None,
+                 state_store: Any = None):
         self._adapter = adapter
         self._symbol = symbol
         self._weights = weights  # runner_key -> weight (e.g. {"ETHUSDT": 0.5, "ETHUSDT_15m": 0.5})
@@ -39,11 +46,24 @@ class PortfolioCombiner:
         self._dry_run = dry_run
         self._min_size = min_size
         self._pnl = pnl_tracker if pnl_tracker is not None else PnLTracker()
+        self._state_store = state_store  # RustStateStore shared with all runners
 
         self._signals: dict[str, int] = {k: 0 for k in weights}
         self._current_position: int = 0  # -1, 0, +1
         self._position_size: float = 0.0
         self._entry_price: float = 0.0
+
+    @property
+    def _trade_count(self) -> int:
+        return self._pnl.trade_count
+
+    @property
+    def _win_count(self) -> int:
+        return self._pnl.win_count
+
+    @property
+    def _total_pnl(self) -> float:
+        return self._pnl.total_pnl
 
     def update_signal(self, runner_key: str, signal: int, price: float) -> dict | None:
         """Update one alpha's signal and recompute net position.
@@ -121,6 +141,9 @@ class PortfolioCombiner:
                     logger.error("COMBO %s CLOSE FAILED after retries", self._symbol)
                 elif not close_result.get("verified", True):
                     logger.warning("COMBO %s CLOSE: position verification failed", self._symbol)
+                # Record close fill in StateStore (side is opposite of position)
+                close_side = "sell" if prev > 0 else "buy"
+                self._record_state_store_fill(close_side, self._position_size, price)
 
         # Compute new position size
         if desired != 0:
@@ -191,6 +214,8 @@ class PortfolioCombiner:
                         logger.warning("COMBO %s failed to get fill price: %s",
                                        self._symbol, e)
                 self._entry_price = actual_price
+                # Record open fill in StateStore
+                self._record_state_store_fill(side, size, actual_price)
             else:
                 self._entry_price = price
 
@@ -204,6 +229,23 @@ class PortfolioCombiner:
 
         self._current_position = desired
         return trade_info
+
+    def _record_state_store_fill(self, side: str, qty: float, price: float) -> None:
+        """Record a fill in the shared RustStateStore for position truth tracking."""
+        if self._state_store is None or not _HAS_RUST_FILL:
+            return
+        try:
+            fill = _RustFillEvent(
+                symbol=self._symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                realized_pnl=0.0,
+                ts=str(int(time.time() * 1000)),
+            )
+            self._state_store.process_event(fill, self._symbol)
+        except Exception as e:
+            logger.debug("COMBO StateStore fill recording failed: %s", e)
 
     def get_status(self) -> dict:
         return {

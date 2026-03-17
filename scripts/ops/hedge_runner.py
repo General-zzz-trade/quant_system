@@ -38,6 +38,7 @@ class HedgeRunner:
         self._alt_prices: dict[str, list[float]] = {s: [] for s in self.ALT_BASKET}
         self._is_short_active = False
         self._current_shorts: dict[str, float] = {}  # symbol -> qty
+        self._entry_prices: dict[str, float] = {}    # symbol -> entry price for PnL
         self._btc_long_qty: float = 0.0
         self._total_pnl: float = 0.0
         self._trade_count: int = 0
@@ -226,6 +227,7 @@ class HedgeRunner:
                 result = self._adapter.send_market_order(sym, "sell", qty)
                 if result.get("status") == "submitted" or result.get("retCode") == 0:
                     self._current_shorts[sym] = qty
+                    self._entry_prices[sym] = price
                     self._trade_count += 1
                     logger.info("HEDGE SHORT %s qty=%.1f @ $%.2f", sym, qty, price)
             except Exception:
@@ -235,16 +237,35 @@ class HedgeRunner:
         """Close all ALT short positions."""
         for sym, qty in list(self._current_shorts.items()):
             try:
+                # Get exit price before closing to compute PnL
+                exit_price = 0.0
+                try:
+                    ticker = self._adapter.get_ticker(sym)
+                    exit_price = float(ticker.get("lastPrice", 0))
+                except Exception:
+                    pass
+
                 self._adapter.send_market_order(sym, "buy", qty, reduce_only=True)
-                logger.info("HEDGE CLOSE %s qty=%.1f", sym, qty)
+
+                # Compute PnL: short profit = (entry - exit) * qty
+                entry = self._entry_prices.get(sym, 0)
+                if entry > 0 and exit_price > 0:
+                    pnl = (entry - exit_price) * qty
+                    self._total_pnl += pnl
+                    logger.info("HEDGE CLOSE %s qty=%.1f entry=$%.4f exit=$%.4f pnl=$%.2f",
+                                sym, qty, entry, exit_price, pnl)
+                else:
+                    logger.info("HEDGE CLOSE %s qty=%.1f", sym, qty)
             except Exception:
                 logger.warning("HEDGE: failed to close %s", sym, exc_info=True)
         self._current_shorts.clear()
+        self._entry_prices.clear()
 
     def get_status(self) -> dict:
         return {
             "active": self._is_short_active,
             "shorts": dict(self._current_shorts),
             "trades": self._trade_count,
+            "total_pnl": round(self._total_pnl, 2),
             "bars": self._bars_processed,
         }

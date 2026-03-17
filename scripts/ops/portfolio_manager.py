@@ -224,6 +224,20 @@ class PortfolioManager:
         trade_info["action"] = "executed"
         return trade_info
 
+    def record_position(self, symbol: str, qty_signed: float, entry_price: float,
+                        source: str = "external") -> None:
+        """Record an externally-executed position without sending orders.
+
+        Called by PortfolioCombiner after COMBO fills so PM.positions stays accurate.
+        """
+        if qty_signed == 0:
+            self._positions.pop(symbol, None)
+        else:
+            side = "buy" if qty_signed > 0 else "sell"
+            self._positions[symbol] = {
+                "qty": qty_signed, "side": side, "entry": entry_price, "source": source,
+            }
+
     def get_status(self) -> dict:
         return {
             "positions": {s: {"qty": p["qty"], "source": p["source"]}
