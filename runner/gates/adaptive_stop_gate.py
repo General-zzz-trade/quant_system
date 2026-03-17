@@ -22,6 +22,12 @@ from typing import Any, Deque, Dict, Optional
 
 from runner.gate_chain import GateResult
 
+try:
+    from _quant_hotpath import RustAdaptiveStopGate as _RustAdaptiveStopGate
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 logger = logging.getLogger(__name__)
 
 # ── Phase enum ──────────────────────────────────────────────────────────────
@@ -62,6 +68,52 @@ class _SymbolState:
         tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
         atr_pct = tr / prev_close
         self.atr_buffer.append(atr_pct)
+
+
+# ── Rust forwarding proxy ───────────────────────────────────────────────────
+
+class _RustForwardingState(_SymbolState):
+    """Thin proxy that forwards state mutations to Rust when Rust is active.
+
+    Used only for the _get_state() path so that tests seeding ATR and
+    manipulating state via gate._get_state(sym).x = ... also update Rust.
+    """
+
+    def __init__(self, delegate: _SymbolState, rust_gate: Any, symbol: str) -> None:
+        object.__setattr__(self, "_delegate", delegate)
+        object.__setattr__(self, "_rust_gate", rust_gate)
+        object.__setattr__(self, "_symbol", symbol)
+
+    def __getattr__(self, name: str) -> Any:  # type: ignore[override]
+        return getattr(object.__getattribute__(self, "_delegate"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        delegate = object.__getattribute__(self, "_delegate")
+        setattr(delegate, name, value)
+        # Sync specific fields to Rust
+        rust_gate = object.__getattribute__(self, "_rust_gate")
+        symbol = object.__getattribute__(self, "_symbol")
+        try:
+            if name == "stop_phase":
+                if hasattr(value, "value"):
+                    rust_gate.set_phase(symbol, value.value)
+                else:
+                    rust_gate.set_phase(symbol, str(value))
+            elif name == "peak_price":
+                rust_gate.set_peak(symbol, float(value))
+        except Exception:
+            pass
+
+    def push_true_range(self, high: float, low: float, prev_close: float) -> None:
+        """Forward to both Python state and Rust buffer."""
+        delegate = object.__getattribute__(self, "_delegate")
+        delegate.push_true_range(high, low, prev_close)
+        rust_gate = object.__getattribute__(self, "_rust_gate")
+        symbol = object.__getattribute__(self, "_symbol")
+        try:
+            rust_gate.push_true_range(symbol, high, low, prev_close)
+        except Exception:
+            pass
 
 
 # ── Gate ────────────────────────────────────────────────────────────────────
@@ -114,7 +166,19 @@ class AdaptiveStopGate:
         self._breakeven_trigger = atr_breakeven_trigger
         self._trailing_mult = atr_trailing_mult
         self._atr_fallback = atr_fallback
-        self._states: Dict[str, _SymbolState] = {}
+        self._states: Dict[str, _SymbolState] = {}  # kept for Python fallback
+
+        if _HAS_RUST:
+            self._rust = _RustAdaptiveStopGate(
+                atr_initial_mult=atr_initial_mult,
+                atr_breakeven_trigger=atr_breakeven_trigger,
+                atr_trailing_mult=atr_trailing_mult,
+                atr_fallback=atr_fallback,
+            )
+            self._use_rust = True
+        else:
+            self._rust = None
+            self._use_rust = False
 
     # ── Gate Protocol ───────────────────────────────────────────────────────
 
@@ -124,6 +188,10 @@ class AdaptiveStopGate:
         if not sym:
             return GateResult(allowed=True)
 
+        if self._use_rust:
+            return self._check_rust(ev, sym, context)
+
+        # ── Python fallback path ──────────────────────────────────────────
         state = self._get_state(sym)
 
         # ── Update ATR buffer from bar data ──────────────────────────────
@@ -161,6 +229,44 @@ class AdaptiveStopGate:
 
         return GateResult(allowed=True)
 
+    def _check_rust(self, ev: Any, sym: str, context: Dict[str, Any]) -> GateResult:
+        """Rust-accelerated check path."""
+        # Update ATR buffer from bar data (both Rust and Python for state inspection)
+        high = context.get("bar_high")
+        low = context.get("bar_low")
+        prev_close = context.get("prev_close")
+        if high is not None and low is not None and prev_close is not None:
+            try:
+                self._rust.push_true_range(sym, float(high), float(low), float(prev_close))
+            except Exception:
+                pass
+            # Also update Python state so state inspection via _get_state() reflects ATR
+            py_state = self._states.get(sym)
+            if py_state is None:
+                self._states[sym] = _SymbolState()
+                py_state = self._states[sym]
+            py_state.push_true_range(float(high), float(low), float(prev_close))
+
+        # Current price
+        price: float = float(context.get("price") or 0.0)
+        if price <= 0:
+            price = float(getattr(ev, "price", 0.0) or 0.0)
+
+        # If no price, allow
+        if price <= 0:
+            return GateResult(allowed=True)
+
+        # Rust check_stop returns False when side==0 (no active position)
+        phase = self._rust.get_phase(sym)
+        if self._rust.check_stop(sym, price):
+            logger.warning(
+                "AdaptiveStop TRIGGERED for %s: price=%.4f phase=%s",
+                sym, price, phase,
+            )
+            return GateResult(allowed=False, reason="stop_triggered")
+
+        return GateResult(allowed=True)
+
     # ── Public helpers ───────────────────────────────────────────────────────
 
     def on_new_position(
@@ -176,11 +282,14 @@ class AdaptiveStopGate:
             side:   +1 for long, -1 for short
             entry_price: fill price
         """
-        state = self._get_state(symbol)
-        state.entry_price = entry_price
-        state.side = side
-        state.peak_price = entry_price
-        state.stop_phase = StopPhase.INITIAL
+        if self._use_rust:
+            self._rust.on_new_position(symbol, side, entry_price)
+        else:
+            state = self._get_state(symbol)
+            state.entry_price = entry_price
+            state.side = side
+            state.peak_price = entry_price
+            state.stop_phase = StopPhase.INITIAL
         logger.debug(
             "AdaptiveStop NEW POSITION %s side=%d entry=%.4f",
             symbol, side, entry_price,
@@ -188,6 +297,15 @@ class AdaptiveStopGate:
 
     def check_stop(self, symbol: str, price: float) -> bool:
         """Real-time tick check.  Returns True (and resets state) if stopped out."""
+        if self._use_rust:
+            breached = self._rust.check_stop(symbol, price)
+            if breached:
+                logger.warning(
+                    "AdaptiveStop TICK STOP %s: price=%.4f",
+                    symbol, price,
+                )
+            return breached
+
         state = self._get_state(symbol)
         if state.side == 0 or state.entry_price <= 0:
             return False
@@ -208,6 +326,9 @@ class AdaptiveStopGate:
 
         Safe to call repeatedly; does NOT update peak or phase.
         """
+        if self._use_rust:
+            return self._rust.compute_stop_price(symbol, current_price)
+
         state = self._get_state(symbol)
         if state.side == 0 or state.entry_price <= 0:
             return 0.0
@@ -215,11 +336,16 @@ class AdaptiveStopGate:
 
     def reset_symbol(self, symbol: str) -> None:
         """Explicitly clear stop state for *symbol* (e.g. after position closed)."""
-        if symbol in self._states:
+        if self._use_rust:
+            self._rust.reset_symbol(symbol)
+        elif symbol in self._states:
             self._states[symbol].reset()
 
     def get_phase(self, symbol: str) -> StopPhase:
         """Return the current stop phase for *symbol*."""
+        if self._use_rust:
+            phase_str = self._rust.get_phase(symbol)
+            return StopPhase(phase_str)
         return self._get_state(symbol).stop_phase
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -227,6 +353,9 @@ class AdaptiveStopGate:
     def _get_state(self, symbol: str) -> _SymbolState:
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
+        if self._use_rust:
+            # Return a proxy that forwards push_true_range to Rust as well
+            return _RustForwardingState(self._states[symbol], self._rust, symbol)
         return self._states[symbol]
 
     def _update_peak(self, state: _SymbolState, price: float) -> None:

@@ -69,6 +69,7 @@ mod attribution;
 mod ensemble_calibrate;
 pub mod rust_events;
 mod regime_detector;
+mod adaptive_stop;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -316,6 +317,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<regime_detector::RustRegimeResult>()?;
     m.add_class::<regime_detector::RustRegimeParams>()?;
     m.add_class::<regime_detector::RustRegimeParamRouter>()?;
+
+    // Adaptive stop gate (ATR 3-phase stop-loss)
+    m.add_class::<adaptive_stop::RustAdaptiveStopGate>()?;
 
     Ok(())
 }
