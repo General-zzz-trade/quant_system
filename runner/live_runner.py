@@ -60,6 +60,7 @@ from runner.builders.market_data_builder import build_market_data as _build_mark
 from runner.builders.user_stream_builder import build_user_stream as _build_user_stream
 from runner.builders.persistence import build_persistence_and_recovery as _persistence_builder
 from runner.builders.shutdown import build_shutdown as _shutdown_builder
+from runner.builders.rust_components_builder import build_rust_components as _build_rust_components
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,9 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             config, on_fill, alert_sink, fills,
         )
 
+        # Phase 1.5: Rust hot-path components (optional)
+        rust = _build_rust_components(config, config.symbols)
+
         # Phase 2: monitoring
         health, hook, alpha_health_monitor, regime_sizer, staged_risk, live_signal_tracker = (
             _build_monitoring(config, kill_switch, metrics_exporter)
@@ -356,6 +360,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         # Patch late-binding reference so cleanup callback can stop the runner
         _runner_ref.append(runner)
         runner._config = config
+        runner._rust_components = rust
         # Patch event recorder into pipeline output hook and emit handler
         if event_recorder is not None:
             _event_recorder_ref[0] = event_recorder

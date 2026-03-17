@@ -2,6 +2,7 @@
 
 Phase builders (used by LiveRunner.build() — the production path):
   - core_infra_builder.py → build_core_infra
+  - rust_components_builder.py → build_rust_components (Phase 1.5)
   - monitoring_builder.py → build_monitoring
   - portfolio_builder.py → build_portfolio_and_correlation
   - order_infra_builder.py → build_order_infra
@@ -28,7 +29,12 @@ from runner.builders.market_data import build_market_data_subsystem
 from runner.builders.recovery_builder import build_recovery_subsystem
 from runner.builders.monitoring import _build_alert_rules, _build_health_server
 
+from runner.builders.rust_components_builder import build_rust_components, RustComponents
+
 __all__ = [
+    # Phase builders
+    "build_rust_components",
+    "RustComponents",
     # Legacy
     "build_inference_subsystem",
     "build_execution_subsystem",
