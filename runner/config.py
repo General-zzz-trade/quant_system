@@ -80,6 +80,9 @@ class LiveRunnerConfig:
     # --- Execution ---
     use_ws_orders: bool = False
 
+    # --- Rust hot-path ---
+    enable_rust_components: bool = False
+
     # --- Experimental ---
     adaptive_btc_enabled: bool = False
     adaptive_btc_interval_hours: int = 24

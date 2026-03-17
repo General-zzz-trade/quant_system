@@ -18,12 +18,16 @@ class TestBuildPhaseStructure:
         return inspect.getsource(LiveRunner.build)
 
     def test_build_has_12_phases(self):
-        """build() must call exactly 12 phases (10 _build_* + 2 named builders)."""
+        """build() must call exactly 13 phases (11 _build_* + 2 named builders).
+
+        Phase 1.5 (rust_components) was added as an optional Rust hot-path init
+        phase between core_infra and monitoring, bringing the total to 13.
+        """
         src = self._get_source()
         build_phases = re.findall(r"_build_(\w+)\(", src)
         named_builders = re.findall(r"(_persistence_builder|_shutdown_builder)\(", src)
         total = len(build_phases) + len(named_builders)
-        assert total == 12, f"Expected 12 phases, got {total}: {build_phases} + {named_builders}"
+        assert total == 13, f"Expected 13 phases, got {total}: {build_phases} + {named_builders}"
 
     def test_phase_order(self):
         """Phases must execute in the documented order."""
@@ -31,6 +35,7 @@ class TestBuildPhaseStructure:
         phases = re.findall(r"_build_(\w+)\(", src)
         expected_order = [
             "core_infra",
+            "rust_components",
             "monitoring",
             "portfolio_and_correlation",
             "order_infra",
@@ -41,8 +46,8 @@ class TestBuildPhaseStructure:
             "market_data",
             "user_stream",
         ]
-        # Phases 11 and 12 use _persistence_builder and _shutdown_builder
-        # (different naming pattern), so only check the first 10 _build_* phases
+        # Phases 12 and 13 use _persistence_builder and _shutdown_builder
+        # (different naming pattern), so only check the first 11 _build_* phases
         assert phases == expected_order, f"Phase order mismatch:\n  got:      {phases}\n  expected: {expected_order}"
 
     def test_persistence_and_shutdown_phases(self):
@@ -66,6 +71,7 @@ class TestBuildPhaseExtraction:
     def test_builder_functions_have_signatures(self):
         """Each builder function should have a callable signature."""
         from runner.builders.core_infra_builder import build_core_infra
+        from runner.builders.rust_components_builder import build_rust_components
         from runner.builders.monitoring_builder import build_monitoring
         from runner.builders.portfolio_builder import build_portfolio_and_correlation
         from runner.builders.order_infra_builder import build_order_infra
@@ -77,10 +83,11 @@ class TestBuildPhaseExtraction:
         from runner.builders.user_stream_builder import build_user_stream
 
         builders = [
-            build_core_infra, build_monitoring, build_portfolio_and_correlation,
-            build_order_infra, build_features_and_inference,
-            build_coordinator_and_pipeline, build_execution_phase,
-            build_decision, build_market_data, build_user_stream,
+            build_core_infra, build_rust_components, build_monitoring,
+            build_portfolio_and_correlation, build_order_infra,
+            build_features_and_inference, build_coordinator_and_pipeline,
+            build_execution_phase, build_decision, build_market_data,
+            build_user_stream,
         ]
         for fn in builders:
             sig = inspect.signature(fn)
