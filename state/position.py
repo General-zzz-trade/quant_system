@@ -8,6 +8,12 @@ from typing import Optional
 from state._util import ensure_utc
 
 
+def _check_finite(value: Optional[Decimal], name: str) -> None:
+    """Raise ValueError if value is a Decimal NaN or Inf."""
+    if value is not None and (value != value or abs(value) == Decimal("Inf")):
+        raise ValueError(f"{name} must be finite, got {value}")
+
+
 @dataclass(frozen=True, slots=True)
 class PositionState:
     """Single-symbol position facts (SSOT). Updated only by fills."""
@@ -34,6 +40,9 @@ class PositionState:
         last_price: Optional[Decimal],
         ts: Optional[datetime],
     ) -> "PositionState":
+        _check_finite(qty, "qty")
+        _check_finite(avg_price, "avg_price")
+        _check_finite(last_price, "last_price")
         return PositionState(
             symbol=self.symbol,
             qty=qty,
