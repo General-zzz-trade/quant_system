@@ -1258,12 +1258,32 @@ class AlphaRunner:
             logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f",
                          self._symbol, self._position_size, price, notional, MAX_ORDER_NOTIONAL)
             if notional > MAX_ORDER_NOTIONAL:
-                logger.critical(
-                    "%s ORDER BLOCKED: notional=$%.2f exceeds hard limit $%.2f. size=%.4f price=%.2f",
-                    self._symbol, notional, MAX_ORDER_NOTIONAL, self._position_size, price,
+                logger.warning(
+                    "%s NOTIONAL CLAMP: $%.0f exceeds limit $%.0f — reducing size",
+                    self._symbol, notional, MAX_ORDER_NOTIONAL,
                 )
-                self._osm.transition(open_id, "rejected", reason=f"notional ${notional:.0f} > limit")
-                return {"action": "blocked", "reason": f"notional ${notional:.0f} > ${MAX_ORDER_NOTIONAL:.0f}"}
+                self._position_size = self._round_to_step(MAX_ORDER_NOTIONAL / price)
+                notional = self._position_size * price
+                if self._position_size < self._min_size:
+                    self._osm.transition(open_id, "rejected", reason="below_min_after_clamp")
+                    return {"action": "blocked", "reason": "below_min_after_clamp"}
+
+            # Pre-flight margin check: avoid "ab not enough" errors
+            try:
+                bal = self._adapter.get_balances()
+                usdt = bal.get("USDT")
+                avail = float(usdt.available) if usdt and hasattr(usdt, 'available') else 0
+                lev = getattr(self, '_current_exchange_lev', 1) or 1
+                margin_needed = notional / lev
+                if avail > 0 and margin_needed > avail * 0.95:  # 5% buffer
+                    logger.warning(
+                        "%s MARGIN SKIP: need $%.0f margin but only $%.0f available (lev=%dx)",
+                        self._symbol, margin_needed, avail, lev,
+                    )
+                    self._osm.transition(open_id, "rejected", reason="insufficient_margin")
+                    return {"action": "margin_skip", "need": margin_needed, "avail": avail}
+            except Exception:
+                pass  # proceed if balance check fails
 
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded

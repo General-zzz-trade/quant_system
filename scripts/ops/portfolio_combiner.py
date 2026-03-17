@@ -189,8 +189,27 @@ class PortfolioCombiner:
             side = "buy" if desired > 0 else "sell"
 
             if not self._dry_run:
-                # Ensure exchange leverage is set (Bybit requires integer >= 2)
+                # Pre-flight margin check: avoid "ab not enough" errors
+                notional = size * price
                 lev_int = max(2, int(round(leverage)))
+                margin_needed = notional / lev_int
+                try:
+                    bal = self._adapter.get_balances()
+                    usdt = bal.get("USDT")
+                    avail = float(usdt.available) if usdt and hasattr(usdt, 'available') else 0
+                    if avail > 0 and margin_needed > avail * 0.95:
+                        logger.warning(
+                            "COMBO %s MARGIN SKIP: need $%.0f margin but only $%.0f available",
+                            self._symbol, margin_needed, avail,
+                        )
+                        self._current_position = 0
+                        self._entry_price = 0.0
+                        self._position_size = 0.0
+                        return trade_info
+                except Exception:
+                    pass  # proceed if balance check fails
+
+                # Ensure exchange leverage is set (Bybit requires integer >= 2)
                 try:
                     self._adapter._client.post("/v5/position/set-leverage", {
                         "category": "linear", "symbol": self._symbol,

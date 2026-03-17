@@ -144,32 +144,38 @@ class HedgeRunner:
             return {"action": "no_ratio_data"}
 
         ratio_ma = np.mean(ratios)
-        should_short = current_ratio < ratio_ma  # BTC outperforming
+
+        # Hysteresis band: open at -2% below MA, close at +2% above MA.
+        # Without this, noise in the 6th decimal (0.000050 vs 0.000051) causes
+        # open/close every 15 minutes — pure fee burn.
+        hysteresis = 0.02  # 2% band
+        should_open = current_ratio < ratio_ma * (1 - hysteresis)   # BTC clearly outperforming
+        should_close = current_ratio > ratio_ma * (1 + hysteresis)  # ALTs catching up
 
         result = {
             "action": "signal", "bar": self._bars_processed,
             "ratio": round(current_ratio, 6), "ratio_ma": round(ratio_ma, 6),
-            "should_short": should_short, "was_short": self._is_short_active,
+            "should_short": should_open, "was_short": self._is_short_active,
         }
 
-        # State change
-        if should_short and not self._is_short_active:
-            # Enter: short ALTs
+        # State change with hysteresis
+        if should_open and not self._is_short_active:
+            # Enter: short ALTs (ratio clearly below MA)
             self._is_short_active = True
             if not self._dry_run:
                 self._open_hedge_positions()
             result["trade"] = "OPEN_HEDGE"
-            logger.info("HEDGE OPEN: ratio=%.6f < MA=%.6f -> shorting ALT basket",
-                        current_ratio, ratio_ma)
+            logger.info("HEDGE OPEN: ratio=%.6f < MA*0.98=%.6f -> shorting ALT basket",
+                        current_ratio, ratio_ma * (1 - hysteresis))
 
-        elif not should_short and self._is_short_active:
-            # Exit: close shorts
+        elif should_close and self._is_short_active:
+            # Exit: close shorts (ratio clearly above MA)
             self._is_short_active = False
             if not self._dry_run:
                 self._close_hedge_positions()
             result["trade"] = "CLOSE_HEDGE"
-            logger.info("HEDGE CLOSE: ratio=%.6f > MA=%.6f -> closing ALT shorts",
-                        current_ratio, ratio_ma)
+            logger.info("HEDGE CLOSE: ratio=%.6f > MA*1.02=%.6f -> closing ALT shorts",
+                        current_ratio, ratio_ma * (1 + hysteresis))
 
         return result
 
