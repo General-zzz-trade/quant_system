@@ -164,15 +164,19 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 68 .rs modules, ~26K LOC
-- Exports: ~27 PyO3 classes + ~100 functions (see `lib.rs`)
+- Single crate `_quant_hotpath`, 72 .rs modules, ~26K LOC
+- Exports: ~31 PyO3 classes + ~100 functions (188 total, see `lib.rs`)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
 - `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
+- `pnl_tracker.rs` — RustPnLTracker (record_close, win_rate, drawdown; Python fallback in scripts/ops/pnl_tracker.py)
+- `drawdown_breaker.rs` — RustDrawdownBreaker (4-state machine, velocity detection; return-action pattern, Python bridges to KillSwitch)
+- `regime_detector.rs` — RustCompositeRegimeDetector + RustRegimeParamRouter (vol percentile + ADX trend + param routing; Python fallback in regime/composite.py + param_router.py)
+- `adaptive_stop.rs` — RustAdaptiveStopGate (3-phase ATR stop, per-symbol state; Python fallback in runner/gates/adaptive_stop_gate.py)
 
-Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select).
+Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker, RustDrawdownBreaker), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select), Analytics (RustPnLTracker), Regime (RustCompositeRegimeDetector, RustRegimeParamRouter, RustRegimeResult, RustRegimeParams), Gates (RustAdaptiveStopGate).
 
 ## Rust Pipeline (12/12 components in production)
 
