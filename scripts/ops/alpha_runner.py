@@ -63,6 +63,7 @@ class AlphaRunner:
         self._config = model_info["config"]
         self._deadzone_base = model_info["deadzone"]
         self._deadzone = model_info["deadzone"]  # current (adapted)
+        self._long_only = model_info.get("long_only", False)
         self._vol_median = 0.0063  # ETH 1h median vol (calibrated from history)
         self._min_hold = model_info["min_hold"]
         self._max_hold = model_info["max_hold"]
@@ -901,11 +902,14 @@ class AlphaRunner:
 
         self._regime_active = base_active and not is_ranging
 
-        # Dynamic deadzone: scale with vol, clamp to [0.15, 0.6]
+        # Dynamic deadzone: scale with vol, clamp to [0.15, max(0.6, base)]
+        # Upper clamp must be at least the configured base so high-dz symbols
+        # (SUI 0.7, AXS 0.6) aren't silently capped down.
         if self._vol_median > 0:
             ratio = vol_20 / self._vol_median
+            dz_upper = max(0.6, self._deadzone_base)
             self._deadzone = max(
-                0.15, min(0.6, self._deadzone_base * (ratio ** 0.5))
+                0.15, min(dz_upper, self._deadzone_base * (ratio ** 0.5))
             )
 
         # Layer 4: Composite regime (opt-in, overrides deadzone/min_hold)
@@ -940,6 +944,11 @@ class AlphaRunner:
         self._min_hold = params.min_hold
         # Crisis → block trading
         if composite.is_crisis:
+            self._regime_active = False
+        # Ranging → block new entries (only allow reduce-only / flat)
+        # Live data shows BTC in ranging|normal_vol 100% of time with
+        # negative IC (-0.44 at h=6), signal direction is wrong in ranging.
+        if "ranging" in str(composite.trend).lower():
             self._regime_active = False
         logger.info(
             "%s CompositeRegime: %s|%s → dz=%.2f mh=%d scale=%.2f",
@@ -1015,7 +1024,10 @@ class AlphaRunner:
         if z_val is None:
             return {"action": "warmup", "bar": self._bars_processed,
                     "pred": pred}
-        z = z_val
+        # Clip extreme z-scores: after service restart, rolling z-score window
+        # has limited history and can produce z=13+ during large price moves.
+        # Cap at ±5.0 to prevent distorted signal/sizing behavior.
+        z = max(-5.0, min(5.0, z_val))
 
         # Non-linear z-score position sizing
         self._z_scale = self.compute_z_scale(z)
@@ -1030,6 +1042,7 @@ class AlphaRunner:
             deadzone=effective_dz,
             min_hold=self._min_hold,
             max_hold=self._max_hold,
+            long_only=self._long_only,
         ))
 
         # Secondary horizon gap-fill: when primary is flat, check h2
@@ -1253,16 +1266,19 @@ class AlphaRunner:
             # Ensure step rounding is applied (safety net for all code paths)
             self._position_size = self._round_to_step(self._position_size)
 
-            # Hard safety limit: block orders exceeding MAX_ORDER_NOTIONAL
+            # Hard safety limit: scale MAX_ORDER_NOTIONAL by z_scale so weak
+            # signals don't get the same notional as strong ones.
+            # z_scale=0.5 → effective cap $2500, z_scale=1.5 → full $5000.
+            effective_cap = MAX_ORDER_NOTIONAL * min(self._z_scale, 1.0)
             notional = self._position_size * price
-            logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f",
-                         self._symbol, self._position_size, price, notional, MAX_ORDER_NOTIONAL)
-            if notional > MAX_ORDER_NOTIONAL:
+            logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f (z_cap=$%.0f)",
+                         self._symbol, self._position_size, price, notional, MAX_ORDER_NOTIONAL, effective_cap)
+            if notional > effective_cap:
                 logger.warning(
-                    "%s NOTIONAL CLAMP: $%.0f exceeds limit $%.0f — reducing size",
-                    self._symbol, notional, MAX_ORDER_NOTIONAL,
+                    "%s NOTIONAL CLAMP: $%.0f exceeds z-scaled limit $%.0f (z_scale=%.2f) — reducing size",
+                    self._symbol, notional, effective_cap, self._z_scale,
                 )
-                self._position_size = self._round_to_step(MAX_ORDER_NOTIONAL / price)
+                self._position_size = self._round_to_step(effective_cap / price)
                 notional = self._position_size * price
                 if self._position_size < self._min_size:
                     self._osm.transition(open_id, "rejected", reason="below_min_after_clamp")

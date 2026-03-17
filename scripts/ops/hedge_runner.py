@@ -13,6 +13,25 @@ logger = logging.getLogger(__name__)
 
 _MAX_HISTORY = 1000  # max bars to keep in price lists to prevent unbounded growth
 
+# Bybit linear perpetual qty step sizes (from /v5/market/instruments-info)
+_QTY_STEPS: dict[str, float] = {
+    "ADAUSDT": 1.0,
+    "DOGEUSDT": 1.0,
+    "XRPUSDT": 0.1,
+    "LINKUSDT": 0.1,
+    "DOTUSDT": 0.1,
+    "AVAXUSDT": 0.1,
+    "NEOUSDT": 0.01,
+}
+
+
+def _round_to_step(qty: float, symbol: str) -> float:
+    """Round qty DOWN to the nearest valid step for the symbol."""
+    step = _QTY_STEPS.get(symbol, 0.1)
+    if step <= 0:
+        return qty
+    return int(qty / step) * step
+
 
 class HedgeRunner:
     """BTC Long + ALT Short hedge strategy runner.
@@ -145,10 +164,11 @@ class HedgeRunner:
 
         ratio_ma = np.mean(ratios)
 
-        # Hysteresis band: open at -2% below MA, close at +2% above MA.
-        # Without this, noise in the 6th decimal (0.000050 vs 0.000051) causes
-        # open/close every 15 minutes — pure fee burn.
-        hysteresis = 0.02  # 2% band
+        # Hysteresis band: open at -10% below MA, close at +10% above MA.
+        # 2% was too narrow (8 opens in 2 days = fee burn). 5% still too tight
+        # for BTC/ALT ratio which oscillates in the 6th decimal. 10% ensures
+        # only meaningful divergences trigger hedge positions.
+        hysteresis = 0.10  # 10% band
         should_open = current_ratio < ratio_ma * (1 - hysteresis)   # BTC clearly outperforming
         should_close = current_ratio > ratio_ma * (1 + hysteresis)  # ALTs catching up
 
@@ -210,12 +230,22 @@ class HedgeRunner:
             bal = self._adapter.get_balances()
             usdt = bal.get("USDT")
             equity = float(usdt.total) if usdt else 0
+            available = float(usdt.available) if usdt else 0
         except Exception as e:
             logger.error("HEDGE: equity fetch failed: %s", e)
             return  # skip hedge open with wrong sizing
 
         if equity <= 0:
             logger.error("HEDGE: equity=0, skipping hedge open")
+            return
+
+        # Margin pre-check: need enough available balance for new hedge orders
+        total_hedge_notional = equity * self._max_pct  # total across all ALTs
+        if available < total_hedge_notional * 0.15:  # rough margin at 10x
+            logger.warning(
+                "HEDGE: insufficient margin available=$%.0f < needed~$%.0f, skipping",
+                available, total_hedge_notional * 0.15,
+            )
             return
 
         per_alt = equity * self._max_pct / max(len(self.ALT_BASKET), 1)
@@ -227,7 +257,8 @@ class HedgeRunner:
                 if price <= 0:
                     continue
                 qty = per_alt / price
-                qty = clamp_notional(round(qty, 1), price, sym)
+                qty = clamp_notional(qty, price, sym)
+                qty = _round_to_step(qty, sym)
                 if qty * price < 5:  # min notional $5
                     continue
                 result = self._adapter.send_market_order(sym, "sell", qty)
@@ -251,6 +282,7 @@ class HedgeRunner:
                 except Exception:
                     pass
 
+                qty = _round_to_step(qty, sym)
                 self._adapter.send_market_order(sym, "buy", qty, reduce_only=True)
 
                 # Compute PnL: short profit = (entry - exit) * qty

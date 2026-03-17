@@ -100,6 +100,7 @@ def load_model(model_dir: Path) -> dict:
         "max_hold": config.get("max_hold", 96),
         "zscore_window": config.get("zscore_window", 720),
         "zscore_warmup": config.get("zscore_warmup", 180),
+        "long_only": config.get("long_only", False),
     }
 
 
