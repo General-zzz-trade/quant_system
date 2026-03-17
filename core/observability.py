@@ -39,11 +39,18 @@ class TracingInterceptor:
         Maximum retained spans (ring-buffer style).  Oldest are evicted.
     """
 
-    def __init__(self, *, max_spans: int = 10_000, tracer: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_spans: int = 10_000,
+        tracer: Optional[Any] = None,
+        active_ttl_seconds: float = 60.0,
+    ) -> None:
         self._max_spans = max_spans
         self._spans: List[SpanRecord] = []
         self._active: Dict[str, float] = {}  # event_id → start_mono
         self._tracer = tracer  # infra.tracing.otel.Tracer (optional)
+        self._active_ttl = active_ttl_seconds
 
     @property
     def name(self) -> str:
@@ -53,8 +60,25 @@ class TracingInterceptor:
     def spans(self) -> List[SpanRecord]:
         return list(self._spans)
 
+    def cleanup_stale(self) -> int:
+        """Remove _active entries older than ``active_ttl_seconds``.
+
+        Returns the number of entries removed.  Safe to call at any time;
+        intended for periodic maintenance or triggered from ``before_reduce``
+        when the dict grows large.
+        """
+        cutoff = time.monotonic() - self._active_ttl
+        stale = [eid for eid, t in self._active.items() if t < cutoff]
+        for eid in stale:
+            del self._active[eid]
+        return len(stale)
+
     def before_reduce(self, envelope: Envelope, state: Any) -> InterceptResult:
         event_id = envelope.event_id
+        # Auto-evict stale entries to prevent unbounded growth when
+        # after_reduce is never called (e.g. dropped / short-circuited events).
+        if len(self._active) > 100:
+            self.cleanup_stale()
         self._active[event_id] = time.monotonic()
         return InterceptResult.ok(self.name)
 
