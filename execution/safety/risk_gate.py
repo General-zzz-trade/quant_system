@@ -57,7 +57,10 @@ class RiskGate:
         qty = _get_qty(cmd)
         price = _get_price(cmd)
         if qty is None or price is None:
-            logger.warning("RiskGate: cannot extract qty=%s price=%s from order, rejecting", qty, price)
+            logger.warning(
+                "RiskGate: cannot extract qty=%s price=%s (checked mark_price/price/limit_price) from order, rejecting",
+                qty, price,
+            )
             return RiskCheckResult(
                 allowed=False,
                 reason=f"missing_qty_or_price:qty={qty},price={price}",
@@ -110,7 +113,8 @@ def _get_qty(cmd: Any) -> Optional[float]:
 
 
 def _get_price(cmd: Any) -> Optional[float]:
-    for attr in ("price", "limit_price"):
+    """Extract price for notional check. Prefer mark_price over order price."""
+    for attr in ("mark_price", "price", "limit_price"):
         v = getattr(cmd, attr, None)
         if v is not None:
             try:
