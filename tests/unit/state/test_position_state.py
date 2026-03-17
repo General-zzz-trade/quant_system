@@ -91,3 +91,25 @@ class TestPositionStateWithUpdate:
     def test_none_avg_price(self):
         p = PositionState(symbol="ETHUSDT", qty=Decimal("0"), avg_price=None)
         assert p.avg_price is None
+
+
+class TestPositionStateValidation:
+    def test_nan_qty_rejected(self):
+        import pytest
+        from state.position import PositionState
+        pos = PositionState.empty("ETHUSDT")
+        with pytest.raises(ValueError, match="qty"):
+            pos.with_update(qty=Decimal("NaN"), avg_price=Decimal("3000"), last_price=None, ts=None)
+
+    def test_inf_avg_price_rejected(self):
+        import pytest
+        from state.position import PositionState
+        pos = PositionState.empty("ETHUSDT")
+        with pytest.raises(ValueError, match="avg_price"):
+            pos.with_update(qty=Decimal("1"), avg_price=Decimal("Inf"), last_price=None, ts=None)
+
+    def test_valid_update_passes(self):
+        from state.position import PositionState
+        pos = PositionState.empty("ETHUSDT")
+        updated = pos.with_update(qty=Decimal("1.5"), avg_price=Decimal("3000"), last_price=Decimal("3010"), ts=None)
+        assert updated.qty == Decimal("1.5")
