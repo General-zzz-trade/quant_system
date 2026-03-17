@@ -372,6 +372,9 @@ def build_gate_chain(
     rust_risk_evaluator: Optional[Any] = None,
     rust_kill_switch: Optional[Any] = None,
     get_equity: Optional[Callable] = None,
+    # --- New sizing gates (P2-07) ---
+    equity_leverage_gate: Optional[Any] = None,
+    consensus_scaling_gate: Optional[Any] = None,
 ) -> GateChain:
     """Build the standard gate chain with all available subsystems."""
     gates: List[Gate] = [
@@ -389,6 +392,11 @@ def build_gate_chain(
         gates.append(RegimeSizerGate(regime_sizer))
     if staged_risk is not None:
         gates.append(StagedRiskGate(staged_risk))
+    # Sizing gates: after StagedRiskGate, before PortfolioAllocatorGate
+    if equity_leverage_gate is not None:
+        gates.append(equity_leverage_gate)
+    if consensus_scaling_gate is not None:
+        gates.append(consensus_scaling_gate)
     if portfolio_allocator is not None:
         gates.append(PortfolioAllocatorGate(portfolio_allocator, get_state_view))
     if hook is not None:
