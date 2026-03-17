@@ -2087,6 +2087,13 @@ pub struct RustFeatureEngine {
     pub(crate) state: BarState,
     pub(crate) cached_features: [f64; N_FEATURES],
     pub(crate) prev_momentum_val: f64,
+
+    // V14 dominance state (used by push_dominance)
+    dom_ratio_buf: Vec<f64>,
+    dom_btc_ret_buf: Vec<f64>,
+    dom_eth_ret_buf: Vec<f64>,
+    dom_last_btc: f64,
+    dom_last_eth: f64,
 }
 
 #[pymethods]
@@ -2097,6 +2104,11 @@ impl RustFeatureEngine {
             state: BarState::new(),
             cached_features: [f64::NAN; N_FEATURES],
             prev_momentum_val: f64::NAN,
+            dom_ratio_buf: Vec::with_capacity(75),
+            dom_btc_ret_buf: Vec::with_capacity(25),
+            dom_eth_ret_buf: Vec::with_capacity(25),
+            dom_last_btc: 0.0,
+            dom_last_eth: 0.0,
         }
     }
 
@@ -2355,6 +2367,105 @@ impl RustFeatureEngine {
 
     fn __repr__(&self) -> String {
         format!("RustFeatureEngine(bar_count={}, warmed_up={})", self.state.bar_count, self.state.bar_count >= 65)
+    }
+
+    /// Push BTC and ETH closes to compute V14 dominance features.
+    ///
+    /// Returns a dict with 4 keys:
+    ///   btc_dom_ratio_dev_20   — ratio deviation from 20-bar MA (None until 20 bars)
+    ///   btc_dom_ratio_mom_10   — 10-bar ratio momentum          (None until 11 bars)
+    ///   btc_dom_return_diff_6h  — BTC-ETH 6-bar return diff    (None until 6 return bars)
+    ///   btc_dom_return_diff_24h — BTC-ETH 24-bar return diff   (None until 24 return bars)
+    ///
+    /// This method maintains its own independent state from push_bar().
+    #[pyo3(signature = (btc_close, eth_close))]
+    fn push_dominance(
+        &mut self,
+        btc_close: f64,
+        eth_close: f64,
+    ) -> std::collections::HashMap<String, Option<f64>> {
+        let mut result = std::collections::HashMap::with_capacity(4);
+
+        if eth_close <= 0.0 || btc_close <= 0.0 {
+            result.insert("btc_dom_ratio_dev_20".to_string(), None);
+            result.insert("btc_dom_ratio_mom_10".to_string(), None);
+            result.insert("btc_dom_return_diff_6h".to_string(), None);
+            result.insert("btc_dom_return_diff_24h".to_string(), None);
+            return result;
+        }
+
+        let ratio = btc_close / eth_close;
+
+        // Maintain circular buffer capped at 75
+        if self.dom_ratio_buf.len() >= 75 {
+            self.dom_ratio_buf.remove(0);
+        }
+        self.dom_ratio_buf.push(ratio);
+
+        // Compute and store returns (only once we have a previous close)
+        if self.dom_last_btc > 0.0 {
+            let btc_ret = btc_close / self.dom_last_btc - 1.0;
+            if self.dom_btc_ret_buf.len() >= 25 {
+                self.dom_btc_ret_buf.remove(0);
+            }
+            self.dom_btc_ret_buf.push(btc_ret);
+        }
+        if self.dom_last_eth > 0.0 {
+            let eth_ret = eth_close / self.dom_last_eth - 1.0;
+            if self.dom_eth_ret_buf.len() >= 25 {
+                self.dom_eth_ret_buf.remove(0);
+            }
+            self.dom_eth_ret_buf.push(eth_ret);
+        }
+        self.dom_last_btc = btc_close;
+        self.dom_last_eth = eth_close;
+
+        let n_ratio = self.dom_ratio_buf.len();
+
+        // btc_dom_ratio_dev_20: ratio / MA(20) - 1
+        if n_ratio >= 20 {
+            let start = n_ratio - 20;
+            let ma20: f64 = self.dom_ratio_buf[start..].iter().sum::<f64>() / 20.0;
+            result.insert(
+                "btc_dom_ratio_dev_20".to_string(),
+                if ma20 > 0.0 { Some(ratio / ma20 - 1.0) } else { None },
+            );
+        } else {
+            result.insert("btc_dom_ratio_dev_20".to_string(), None);
+        }
+
+        // btc_dom_ratio_mom_10: ratio / ratio[10 bars ago] - 1
+        if n_ratio >= 11 {
+            let prev = self.dom_ratio_buf[n_ratio - 11];
+            result.insert(
+                "btc_dom_ratio_mom_10".to_string(),
+                if prev > 0.0 { Some(ratio / prev - 1.0) } else { None },
+            );
+        } else {
+            result.insert("btc_dom_ratio_mom_10".to_string(), None);
+        }
+
+        // btc_dom_return_diff_6h: sum(btc_ret[-6:]) - sum(eth_ret[-6:])
+        let n_btc = self.dom_btc_ret_buf.len();
+        let n_eth = self.dom_eth_ret_buf.len();
+        if n_btc >= 6 && n_eth >= 6 {
+            let btc_sum: f64 = self.dom_btc_ret_buf[n_btc - 6..].iter().sum();
+            let eth_sum: f64 = self.dom_eth_ret_buf[n_eth - 6..].iter().sum();
+            result.insert("btc_dom_return_diff_6h".to_string(), Some(btc_sum - eth_sum));
+        } else {
+            result.insert("btc_dom_return_diff_6h".to_string(), None);
+        }
+
+        // btc_dom_return_diff_24h: sum(btc_ret[-24:]) - sum(eth_ret[-24:])
+        if n_btc >= 24 && n_eth >= 24 {
+            let btc_sum: f64 = self.dom_btc_ret_buf[n_btc - 24..].iter().sum();
+            let eth_sum: f64 = self.dom_eth_ret_buf[n_eth - 24..].iter().sum();
+            result.insert("btc_dom_return_diff_24h".to_string(), Some(btc_sum - eth_sum));
+        } else {
+            result.insert("btc_dom_return_diff_24h".to_string(), None);
+        }
+
+        result
     }
 }
 
