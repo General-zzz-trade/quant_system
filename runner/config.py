@@ -94,6 +94,13 @@ class LiveRunnerConfig:
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
 
+    # --- Combo / Dual-Alpha ---
+    enable_combo: bool = False
+    combo_mode: str = "agree"  # "agree" = both must agree, "any" = either triggers
+    combo_conviction_both: float = 1.0  # conviction when both agree
+    combo_conviction_single: float = 0.5  # conviction when only one has signal
+    combo_per_symbol_cap: float = 0.3  # max 30% of equity per symbol
+
     # -- Factory classmethods --------------------------------------------------
 
     @classmethod
