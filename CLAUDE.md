@@ -62,7 +62,7 @@ kill $(cat data/polymarket/collector.pid)                                       
 ```bash
 python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
 python3 -m scripts.testnet_smoke --public-only                                # Exchange connectivity check
-python3 scripts/ops/security_scan.py                                          # Security audit (secrets, notional, bare-except)
+python3 -m scripts.ops.security_scan                                          # Security audit (secrets, notional, bare-except)
 python3 -m scripts.ops.ops_dashboard                                          # Unified ops status dashboard
 python3 -m scripts.ops.pre_live_checklist                                     # Automated pre-live readiness check
 python3 -m scripts.ops.shadow_mode_check                                      # Shadow trading health report
@@ -124,7 +124,7 @@ polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, run
 models_v8/       Production models (Ridge 60% + LightGBM 40%): ETHUSDT_gate_v2, ETHUSDT_15m, SUIUSDT, AXSUSDT, BTCUSDT_gate_v2
 research/        Alpha research, factor backtests, hyperopt, Monte Carlo
 scripts/         7 subdirs + symlinks for compat
-  ops/               Split into 11 modules (see below)
+  ops/               Split into 13 modules (see below)
     config.py            SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
     data_fetcher.py      Binance OI/LS/taker data fetch
     model_loader.py      load_model(), create_adapter()
@@ -140,10 +140,10 @@ scripts/         7 subdirs + symlinks for compat
   data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py
   research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, polymarket_binary_alpha.py
   walkforward/       walkforward_validate.py
-  training/          train_v7_alpha.py, train_15m.py
+  training/          train_v7_alpha.py, train_15m.py, train_all_production.py
 data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv
 logs/            bybit_alpha.log, retrain_cron.log
-tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket), integration/
+tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket, scripts), integration/ (crash_recovery, fault_injection, constraint_parity, ...)
 ```
 
 **Data flow (live alpha via AlphaRunner)**:
