@@ -111,6 +111,13 @@ class LiveRunnerConfig:
     enable_equity_leverage: bool = False
     enable_consensus_scaling: bool = False
 
+    # --- Combo / Dual-Alpha ---
+    enable_combo: bool = False
+    combo_mode: str = "agree"
+    combo_conviction_both: float = 1.0
+    combo_conviction_single: float = 0.5
+    combo_per_symbol_cap: float = 0.3
+
     # -- Validation ------------------------------------------------------------
 
     def __post_init__(self) -> None:

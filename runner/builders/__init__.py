@@ -30,6 +30,8 @@ from runner.builders.recovery_builder import build_recovery_subsystem
 from runner.builders.monitoring import _build_alert_rules, _build_health_server
 
 from runner.builders.rust_components_builder import build_rust_components, RustComponents
+# Combo builder — dual-alpha AGREE mode
+from runner.builders.combo_builder import build_combo, combine_signals, ComboConfig, CombinedSignal
 
 __all__ = [
     # Phase builders
@@ -45,4 +47,9 @@ __all__ = [
     "_build_multi_tf_ensemble",
     "_build_alert_rules",
     "_build_health_server",
+    # Combo builder
+    "build_combo",
+    "combine_signals",
+    "ComboConfig",
+    "CombinedSignal",
 ]
