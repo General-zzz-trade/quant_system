@@ -36,15 +36,15 @@ _NEUTRAL_DEFAULTS: dict[str, float] = {
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
-    # Kelly-optimal leverage ladder (validated by Monte Carlo simulation 2026-03-15)
-    # Full Kelly = 1.3x, half-Kelly = 0.65x. At 3x+, bust rate > 50%.
-    # Geometric mean: 1.5x=14.3%/q (best), 2x=11.0%/q, 3x=-4.4%/q (negative!)
-    # Ladder is flat at 1.5x — Kelly optimal doesn't depend on account size.
+    # Demo leverage ladder — 10x for small demo accounts, scaled down for larger capital.
+    # Note: Kelly-optimal for real money is 1.5x; 10x is intentionally aggressive for demo.
+    # Bug fix: values must be integers (Bybit API requires integer leverage, min=2).
+    # Previous bug: int(1.5)=1 silently set exchange to 1x instead of 2x.
     LEVERAGE_LADDER = [
-        (0,      1.5),    # $0-$5K:      1.5x (Kelly optimal, 2% bust rate)
-        (5000,   1.5),    # $5K-$20K:    1.5x (same — Kelly is scale-invariant)
-        (20000,  1.0),    # $20K-$50K:   1.0x (half-Kelly, capital preservation)
-        (50000,  1.0),    # $50K+:       1.0x (pure alpha, no leverage risk)
+        (0,      10),    # $0-$5K:      10x (demo account)
+        (5000,    5),    # $5K-$20K:    5x
+        (20000,   3),    # $20K-$50K:   3x
+        (50000,   2),    # $50K+:       2x (minimum allowed by Bybit)
     ]
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
@@ -820,15 +820,17 @@ class AlphaRunner:
             )
 
         # Set exchange leverage to match (only if changed)
-        if not hasattr(self, "_current_exchange_lev") or self._current_exchange_lev != int(target_lev):
+        # Bug fix: Bybit requires integer leverage >= 2. int(1.5)=1 was silently setting 1x.
+        lev_int = max(2, int(round(target_lev)))
+        if not hasattr(self, "_current_exchange_lev") or self._current_exchange_lev != lev_int:
             try:
                 self._adapter._client.post("/v5/position/set-leverage", {
                     "category": "linear", "symbol": self._symbol,
-                    "buyLeverage": str(int(target_lev)),
-                    "sellLeverage": str(int(target_lev)),
+                    "buyLeverage": str(lev_int),
+                    "sellLeverage": str(lev_int),
                 })
-                self._current_exchange_lev = int(target_lev)
-                logger.info("%s exchange leverage set to %dx", self._symbol, int(target_lev))
+                self._current_exchange_lev = lev_int
+                logger.info("%s exchange leverage set to %dx", self._symbol, lev_int)
             except Exception as e:
                 logger.debug("%s set_leverage failed (non-fatal): %s", self._symbol, e)
 

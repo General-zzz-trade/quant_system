@@ -102,13 +102,13 @@ class TestPortfolioCombinerAgreeMode:
         assert pc._win_count == 1
 
     def test_conviction_both_agree(self):
-        """When both agree, conviction = 1.0 -> full size."""
+        """When both agree, conviction = 1.0 -> full size (capped by MAX_ORDER_NOTIONAL)."""
         pc, adapter = _make_combiner(equity=1000.0)
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
-        # Full conviction: equity(1000) * leverage(1.5) * conviction(1.0) / price(100) = 15
-        # But capped at 30%: 1000 * 0.30 * 1.5 / 100 = 4.5
-        assert pc._position_size <= 4.5 + 0.01  # rounding tolerance
+        # Full conviction: equity(1000) * leverage(10) * conviction(1.0) / price(100) = 100
+        # But capped by MAX_ORDER_NOTIONAL($500) / price(100) = 5.0
+        assert pc._position_size <= 5.01  # rounding tolerance
 
     def test_dry_run_no_orders(self):
         pc, adapter = _make_combiner(dry_run=True)
@@ -120,12 +120,12 @@ class TestPortfolioCombinerAgreeMode:
         assert len(adapter.orders) == 0
 
     def test_position_size_capped(self):
-        """Size capped at 30% equity x leverage."""
+        """Size capped by MAX_ORDER_NOTIONAL ($500)."""
         pc, _ = _make_combiner(equity=10000.0)
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
-        # max_notional = 10000 * 0.30 * 1.5 = 4500 -> qty = 45
-        assert pc._position_size <= 45.01
+        # With 10x leverage: 10000 * 0.30 * 10 / 100 = 300 — but capped by MAX_ORDER_NOTIONAL($500)/price(100) = 5
+        assert pc._position_size <= 5.01
 
     def test_get_status(self):
         pc, _ = _make_combiner()

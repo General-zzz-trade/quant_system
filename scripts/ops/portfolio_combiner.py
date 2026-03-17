@@ -165,7 +165,7 @@ class PortfolioCombiner:
             # Conviction scaling: both agree = full size, one only = half
             agree_count = sum(1 for s in self._signals.values() if s == desired)
             conviction = agree_count / len(self._signals)  # 0.5 = one alpha, 1.0 = both
-            leverage = 1.5
+            leverage = 10.0
             size = (equity * leverage * conviction) / price
             size = max(self._min_size, round(size, 2))
 
@@ -189,6 +189,17 @@ class PortfolioCombiner:
             side = "buy" if desired > 0 else "sell"
 
             if not self._dry_run:
+                # Ensure exchange leverage is set (Bybit requires integer >= 2)
+                lev_int = max(2, int(round(leverage)))
+                try:
+                    self._adapter._client.post("/v5/position/set-leverage", {
+                        "category": "linear", "symbol": self._symbol,
+                        "buyLeverage": str(lev_int),
+                        "sellLeverage": str(lev_int),
+                    })
+                except Exception as e:
+                    logger.debug("COMBO %s set_leverage failed (non-fatal): %s", self._symbol, e)
+
                 result = self._adapter.send_market_order(self._symbol, side, size)
                 trade_info["result"] = result
                 logger.info(
