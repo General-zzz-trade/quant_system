@@ -93,6 +93,8 @@ class LiveRunnerConfig:
     initial_equity: float = 500.0
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
+    multi_interval_symbols: Optional[Dict[str, list]] = None  # e.g. {"ETHUSDT": ["60", "15"]}
+    ws_stale_threshold_sec: float = 120.0
 
     # -- Factory classmethods --------------------------------------------------
 
