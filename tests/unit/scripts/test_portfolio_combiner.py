@@ -107,8 +107,8 @@ class TestPortfolioCombinerAgreeMode:
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
         # Full conviction: equity(1000) * leverage(10) * conviction(1.0) / price(100) = 100
-        # But capped by MAX_ORDER_NOTIONAL($500) / price(100) = 5.0
-        assert pc._position_size <= 5.01  # rounding tolerance
+        # But capped by 30%: 1000 * 0.30 * 10 / 100 = 30
+        assert pc._position_size <= 30.01  # rounding tolerance
 
     def test_dry_run_no_orders(self):
         pc, adapter = _make_combiner(dry_run=True)
@@ -120,12 +120,13 @@ class TestPortfolioCombinerAgreeMode:
         assert len(adapter.orders) == 0
 
     def test_position_size_capped(self):
-        """Size capped by MAX_ORDER_NOTIONAL ($500)."""
+        """Size capped by MAX_ORDER_NOTIONAL ($5000)."""
         pc, _ = _make_combiner(equity=10000.0)
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
-        # With 10x leverage: 10000 * 0.30 * 10 / 100 = 300 — but capped by MAX_ORDER_NOTIONAL($500)/price(100) = 5
-        assert pc._position_size <= 5.01
+        # With 10x leverage: 10000 * 0.30 * 10 / 100 = 300
+        # MAX_ORDER_NOTIONAL($5000) / price(100) = 50 → capped at 50
+        assert pc._position_size <= 50.01
 
     def test_get_status(self):
         pc, _ = _make_combiner()

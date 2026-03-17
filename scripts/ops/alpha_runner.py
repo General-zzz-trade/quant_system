@@ -41,10 +41,10 @@ class AlphaRunner:
     # Bug fix: values must be integers (Bybit API requires integer leverage, min=2).
     # Previous bug: int(1.5)=1 silently set exchange to 1x instead of 2x.
     LEVERAGE_LADDER = [
-        (0,      10),    # $0-$5K:      10x (demo account)
-        (5000,    5),    # $5K-$20K:    5x
-        (20000,   3),    # $20K-$50K:   3x
-        (50000,   2),    # $50K+:       2x (minimum allowed by Bybit)
+        (0,      10),    # 10x across all equity levels (demo account)
+        (5000,   10),
+        (20000,  10),
+        (50000,  10),
     ]
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
@@ -789,7 +789,7 @@ class AlphaRunner:
         # Position = equity × per_symbol_cap × leverage / price
         # 4 effective symbols (ETH combo shares one): 15% each = 60% base
         # With z_scale(1.5x) + consensus(1.3x) worst case: 60% * 1.95 = 117% < margin
-        per_sym_cap = 0.15
+        per_sym_cap = 0.20
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
