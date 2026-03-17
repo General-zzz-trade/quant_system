@@ -10,11 +10,14 @@ instance via dependency injection.  This enables:
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
+
+_log = logging.getLogger(__name__)
 
 
 # ── Protocol ─────────────────────────────────────────────
@@ -128,6 +131,12 @@ class ReplayClock:
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             delta = (ts - self._current).total_seconds()
+            if delta < 0:
+                _log.warning(
+                    "ReplayClock: non-monotonic feed — ts=%s is %.1fs before current=%s, ignoring",
+                    ts.isoformat(), abs(delta), self._current.isoformat(),
+                )
+                return
             if delta > 0:
                 self._mono += delta
                 self._current = ts
