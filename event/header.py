@@ -11,7 +11,7 @@ from _quant_hotpath import rust_event_id as _rust_event_id, rust_now_ns as _rust
 
 
 def _now_ns() -> int:
-    return _rust_now_ns()
+    return int(_rust_now_ns())
 
 
 @dataclass(frozen=True)

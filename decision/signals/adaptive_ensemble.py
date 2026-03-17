@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Sequence
 
 from _quant_hotpath import rust_adaptive_ensemble_calibrate
-from decision.types import SignalResult
+from decision.types import SignalResult, SignalSide
 from decision.signals.base import SignalModel
 
 
@@ -68,7 +68,7 @@ class AdaptiveEnsembleSignal:
             weighted_score += result.score * w
             weighted_conf += result.confidence * abs(w)
 
-        side = "flat"
+        side: SignalSide = "flat"
         if weighted_score > 0:
             side = "buy"
         elif weighted_score < 0:

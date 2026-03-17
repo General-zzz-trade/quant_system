@@ -80,6 +80,7 @@ class Tracer:
             self.start_trace(name="auto")
 
         trace_id = self.current_trace_id()
+        assert trace_id is not None
         parent = self.current_span_id()
 
         span = Span(

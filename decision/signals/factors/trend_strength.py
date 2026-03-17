@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, List
 
-from decision.types import SignalResult
+from decision.types import SignalResult, SignalSide
 from features.types import Bar
 
 
@@ -46,7 +47,7 @@ class TrendStrengthSignal:
         strength = latest_adx / 100.0  # normalize to 0-1
         score = Decimal(str(round(direction * strength, 6)))
         conf = Decimal(str(round(min(strength, 1.0), 4)))
-        side = "buy" if score > 0 else ("sell" if score < 0 else "flat")
+        side: SignalSide = "buy" if score > 0 else ("sell" if score < 0 else "flat")
         return SignalResult(symbol=symbol, side=side, score=score, confidence=conf)
 
 
@@ -71,8 +72,11 @@ def _get_bars(snapshot: Any, symbol: str) -> List[Bar]:
                 volume=float(b.get("volume", 0)),
             ))
         else:
+            from datetime import datetime as _dt
+            raw_ts = getattr(b, "ts", None)
+            bar_ts: datetime = raw_ts if isinstance(raw_ts, _dt) else _dt.min
             result.append(Bar(
-                ts=getattr(b, "ts", None),
+                ts=bar_ts,
                 open=float(getattr(b, "open", 0)),
                 high=float(getattr(b, "high", 0)),
                 low=float(getattr(b, "low", 0)),

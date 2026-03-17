@@ -33,7 +33,7 @@ class FixedFractionSizer:
             equity = equity + acct.unrealized_pnl
         except Exception as e:
             logger.warning("Failed to add unrealized PnL to equity: %s", e)
-        return equity
+        return Decimal(str(equity))
 
     def target_qty(self, snapshot: StateSnapshot, symbol: str, weight: Decimal) -> Decimal:
         m = snapshot.market
@@ -47,11 +47,11 @@ class FixedFractionSizer:
             return Decimal("0")
 
         lot = float(self.lot_size) if self.lot_size else 0.0
-        qty_f = _rust_ff_qty(
+        qty_f: float = float(_rust_ff_qty(
             float(self._equity(snapshot)),
             float(price),
             float(self.fraction),
             float(weight),
             lot,
-        )
+        ))
         return Decimal(str(qty_f))

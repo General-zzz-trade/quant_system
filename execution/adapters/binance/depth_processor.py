@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from _quant_hotpath import rust_parse_depth
 
@@ -92,7 +92,7 @@ class DepthProcessor:
             last_update_id=d["last_update_id"],
         )
 
-    def process_snapshot(self, data: Dict) -> Optional[OrderBookSnapshot]:
+    def process_snapshot(self, data: Dict[str, Any]) -> Optional[OrderBookSnapshot]:
         """Process a REST API depth snapshot response."""
         bids_raw = data.get("bids", [])
         asks_raw = data.get("asks", [])

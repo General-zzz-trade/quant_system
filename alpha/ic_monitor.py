@@ -31,9 +31,9 @@ class ICMonitor:
         self._window = window
         self._decay_threshold = decay_threshold
         self._decay_lookback = decay_lookback
-        self._preds: deque = deque(maxlen=window)
-        self._actuals: deque = deque(maxlen=window)
-        self._ic_history: deque = deque(maxlen=decay_lookback)
+        self._preds: deque[float] = deque(maxlen=window)
+        self._actuals: deque[float] = deque(maxlen=window)
+        self._ic_history: deque[float] = deque(maxlen=decay_lookback)
 
     def update(self, pred: float, actual: float) -> None:
         """Add a (prediction, realized_return) pair."""
@@ -45,7 +45,7 @@ class ICMonitor:
         """Compute rolling Spearman IC over the window."""
         if len(self._preds) < 50:
             return 0.0
-        from scipy.stats import spearmanr
+        from scipy.stats import spearmanr  # type: ignore[import-untyped]
         r, _ = spearmanr(list(self._preds), list(self._actuals))
         ic = float(r) if not np.isnan(r) else 0.0
         self._ic_history.append(ic)

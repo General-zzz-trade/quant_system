@@ -38,7 +38,7 @@ class _ZScoreBuffer:
     warmup: int = 180
     _buf: Deque[float] = field(default_factory=deque)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._buf = deque(maxlen=self.window)
 
     def push(self, value: float) -> float:
@@ -115,7 +115,7 @@ class _BarAcc:
             return True
         return False
 
-    def reset(self):
+    def reset(self) -> None:
         self.open = 0.0
         self.high = -1e18
         self.low = 1e18
@@ -258,7 +258,7 @@ class MultiTimeframeSignal:
         except Exception as e:
             logger.error("Failed to load 4h model: %s", e)
 
-    def _get_state(self, symbol: str):
+    def _get_state(self, symbol: str) -> None:
         """Lazily initialize per-symbol state."""
         if symbol not in self._zscore_1h:
             self._zscore_1h[symbol] = _ZScoreBuffer(
@@ -352,7 +352,7 @@ class MultiTimeframeSignal:
         market = getattr(snapshot, "markets", {})
         mkt = market.get(symbol) if isinstance(market, Mapping) else None
         if mkt is not None:
-            close = float(getattr(mkt, "close", feats.get("close", 0)))
+            close = float(getattr(mkt, "close", None) or feats.get("close", 0) or 0)
             high = float(getattr(mkt, "high", close))
             low = float(getattr(mkt, "low", close))
             open_ = float(getattr(mkt, "open", close))
@@ -457,7 +457,7 @@ class MultiTimeframeSignal:
 
     def _pos_to_result(self, symbol: str, pos: float,
                        z_blend: float = 0.0, z_4h: float = 0.0,
-                       meta_extra: Optional[Dict] = None) -> SignalResult:
+                       meta_extra: Optional[Dict[str, Any]] = None) -> SignalResult:
         """Convert position to SignalResult with leverage scaling.
 
         Leverage is communicated to the sizer via ``confidence`` and ``meta``.
@@ -469,6 +469,8 @@ class MultiTimeframeSignal:
         weak signals near deadzone get lower confidence, strong signals get
         higher confidence.
         """
+        from decision.types import SignalSide
+        side: SignalSide
         if pos > 0:
             side = "buy"
         elif pos < 0:

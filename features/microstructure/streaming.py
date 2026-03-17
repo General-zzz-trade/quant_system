@@ -22,12 +22,12 @@ from dataclasses import dataclass as _dataclass
 class OrderBookSignal:
     imbalance: float = 0.0
     spread_bps: float = 0.0
-    weighted_mid: object = None
+    weighted_mid: Optional[Decimal] = None
     signal: str = "neutral"
     depth_ratio: float = 1.0
 
 
-def analyze_book(snapshot):  # type: ignore[no-untyped-def]
+def analyze_book(snapshot: object) -> OrderBookSignal:
     """Stub — original lived in strategies.hft.order_book (deleted)."""
     return OrderBookSignal()
 
@@ -125,9 +125,9 @@ class StreamingMicrostructureComputer:
     def _last_vpin(self) -> float:
         if not self._trades:
             return 0.0
-        return self._vpin_calc.calculate(list(self._trades)).vpin
+        return float(self._vpin_calc.calculate(list(self._trades)).vpin)
 
     def _last_kyle(self) -> float:
         if not self._trades:
             return 0.0
-        return self._kyle_est.estimate(list(self._trades)).kyle_lambda
+        return float(self._kyle_est.estimate(list(self._trades)).kyle_lambda)

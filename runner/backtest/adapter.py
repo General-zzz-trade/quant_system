@@ -89,7 +89,7 @@ class ExecutionSummary:
     liquidation_count: int = 0
     rejection_reasons: Dict[str, int] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "total_orders": self.total_orders,
             "filled_orders": self.filled_orders,

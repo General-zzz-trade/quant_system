@@ -17,7 +17,7 @@ from decision.types import (
 )
 from decision.utils import stable_hash, dec_str, canonical_meta
 from decision.selectors import UniverseSelector
-from decision.signals.base import SignalModel, NullSignal
+from decision.signals.base import NullSignal
 from decision.risk_overlay.kill_conditions import BasicKillOverlay
 from decision.composer import DefaultComposer
 from decision.audit import DecisionAuditor
@@ -50,7 +50,7 @@ class DecisionEngine:
     """
 
     cfg: DecisionConfig
-    signal_model: SignalModel = NullSignal()
+    signal_model: Any = NullSignal()
     composer: DefaultComposer = DefaultComposer()
 
     auditor: Optional[DecisionAuditor] = None
@@ -213,13 +213,26 @@ class DecisionEngine:
         - IntentEvent (audit)
         - OrderEvent (execution)
         """
-        from event.types import IntentEvent, OrderEvent  # local import
+        from event.types import IntentEvent, OrderEvent, EventType  # local import
+        from event.header import EventHeader
 
         out = self.run(snapshot)
         events: List[Any] = []
         for o in out.orders:
+            intent_h = EventHeader.new_root(
+                event_type=EventType.INTENT,
+                version=1,
+                source=self.cfg.origin,
+            )
+            order_h = EventHeader.from_parent(
+                parent=intent_h,
+                event_type=EventType.ORDER,
+                version=1,
+                source=self.cfg.origin,
+            )
             events.append(
                 IntentEvent(
+                    header=intent_h,
                     intent_id=o.intent_id,
                     symbol=o.symbol,
                     side=o.side,
@@ -230,6 +243,7 @@ class DecisionEngine:
             )
             events.append(
                 OrderEvent(
+                    header=order_h,
                     order_id=o.order_id,
                     intent_id=o.intent_id,
                     symbol=o.symbol,

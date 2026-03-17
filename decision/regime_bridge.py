@@ -44,7 +44,7 @@ class RegimeAwareDecisionModule:
     policy: RegimePolicy = field(default_factory=RegimePolicy)
     param_router: RegimeParamRouter = field(default_factory=RegimeParamRouter)
     enable_param_routing: bool = False
-    composite_regime_symbols: tuple = field(default_factory=tuple)
+    composite_regime_symbols: tuple[str, ...] = field(default_factory=tuple)
 
     ma_fast_window: int = 10
     ma_slow_window: int = 30
@@ -54,7 +54,7 @@ class RegimeAwareDecisionModule:
     _buffers: Dict[str, RustRegimeBuffer] = field(default_factory=dict, init=False)
     _last_labels: List[RegimeLabel] = field(default_factory=list, init=False)
     _current_params: Optional[RegimeParams] = field(default=None, init=False)
-    _composite_symbols: set = field(default_factory=set, init=False)
+    _composite_symbols: set[str] = field(default_factory=set, init=False)
 
     def __post_init__(self) -> None:
         self._composite_symbols = set(self.composite_regime_symbols)
@@ -153,7 +153,8 @@ class RegimeAwareDecisionModule:
             return ()
 
         # Delegate to inner module
-        return self.inner.decide(snapshot)
+        result: Iterable[Any] = self.inner.decide(snapshot)
+        return result
 
     def _route_params(self, labels: List[RegimeLabel]) -> None:
         """Extract CompositeRegimeLabel from labels and route to params."""

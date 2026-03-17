@@ -17,9 +17,9 @@ class DecisionGraph:
     nodes: Dict[str, Node]
 
     def topo(self) -> List[str]:
-        visited=set()
-        order=[]
-        def dfs(n):
+        visited: set[str] = set()
+        order: list[str] = []
+        def dfs(n: str) -> None:
             if n in visited:
                 return
             visited.add(n)

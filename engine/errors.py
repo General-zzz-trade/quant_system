@@ -37,7 +37,7 @@ class EngineErrorContext:
     event_type: Optional[str] = None
     symbol: Optional[str] = None
     stage: Optional[str] = None     # pipeline/decision/execution/...
-    details: Optional[dict] = None  # 额外结构化信息
+    details: Optional[dict[str, Any]] = None  # 额外结构化信息
 
 
 @dataclass(frozen=True, slots=True)

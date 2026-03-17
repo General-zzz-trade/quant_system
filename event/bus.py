@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Callable, DefaultDict, List, Optional, Type
+from typing import Any, Callable, DefaultDict, List, Optional, Type
 
 from event.types import BaseEvent
 
@@ -53,7 +53,7 @@ class EventBus:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._by_type: DefaultDict[str, List[EventHandler]] = defaultdict(list)
+        self._by_type: DefaultDict[Any, List[EventHandler]] = defaultdict(list)
         self._by_cls: DefaultDict[Type[BaseEvent], List[EventHandler]] = defaultdict(list)
         self._any: List[EventHandler] = []
 
@@ -65,7 +65,7 @@ class EventBus:
         self,
         *,
         handler: EventHandler,
-        event_type: Optional[str] = None,
+        event_type: Optional[Any] = None,
         event_cls: Optional[Type[BaseEvent]] = None,
     ) -> None:
         """
@@ -96,7 +96,7 @@ class EventBus:
         self,
         *,
         handler: EventHandler,
-        event_type: Optional[str] = None,
+        event_type: Optional[Any] = None,
         event_cls: Optional[Type[BaseEvent]] = None,
     ) -> None:
         """

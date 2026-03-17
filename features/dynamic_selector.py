@@ -177,7 +177,7 @@ def stability_filtered_greedy_select(
         return greedy_ic_select(X, y, feature_names, top_k=top_k)
 
     # Stage 2: score and filter features by stability
-    scored: List[tuple] = []  # (composite_score, idx, name)
+    scored: List[tuple[float, int, str]] = []  # (composite_score, idx, name)
     for j, name in enumerate(feature_names):
         if name not in report:
             continue

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Any, Iterator
 
 from decision.persistence.decision_store import DecisionStore
 
@@ -10,5 +10,5 @@ from decision.persistence.decision_store import DecisionStore
 class DecisionReplayer:
     store: DecisionStore
 
-    def iter_outputs(self) -> Iterator[dict]:
+    def iter_outputs(self) -> Iterator[dict[str, Any]]:
         return self.store.iter_records()

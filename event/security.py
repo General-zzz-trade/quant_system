@@ -196,7 +196,7 @@ class EventSecurity:
             if isinstance(ht, str) and ht:
                 return ht
 
-        return event.__class__.__name__
+        return str(event.__class__.__name__)
 
 
 # ============================================================

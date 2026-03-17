@@ -20,7 +20,7 @@ def vwap(bars: Sequence[Bar], window: int = 20) -> FeatureSeries:
     """Volume-weighted average price over a rolling window."""
     closes = [float(b.close) for b in bars]
     volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
-    return _cpp_vwap(closes, volumes, window)
+    return list(_cpp_vwap(closes, volumes, window))
 
 
 def order_flow_imbalance(bars: Sequence[Bar], window: int = 10) -> FeatureSeries:
@@ -28,7 +28,7 @@ def order_flow_imbalance(bars: Sequence[Bar], window: int = 10) -> FeatureSeries
     opens = [float(b.open) for b in bars]
     closes = [float(b.close) for b in bars]
     volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
-    return _cpp_ofi(opens, closes, volumes, window)
+    return list(_cpp_ofi(opens, closes, volumes, window))
 
 
 def volatility_cone(
@@ -53,8 +53,8 @@ def volatility_cone(
                 series.append(None)
                 continue
 
-            mean = sum(window_rets) / len(window_rets)
-            var = sum((r - mean) ** 2 for r in window_rets) / max(len(window_rets) - 1, 1)
+            mean = sum(r for r in window_rets if r is not None) / len(window_rets)
+            var = sum((r - mean) ** 2 for r in window_rets if r is not None) / max(len(window_rets) - 1, 1)
             annual_vol = math.sqrt(var * 252)
             series.append(annual_vol)
 
@@ -66,4 +66,4 @@ def price_impact(bars: Sequence[Bar], window: int = 20) -> FeatureSeries:
     """Kyle's lambda proxy — price change per unit volume."""
     closes = [float(b.close) for b in bars]
     volumes = [float(b.volume) if b.volume is not None else 0.0 for b in bars]
-    return _cpp_price_impact(closes, volumes, window)
+    return list(_cpp_price_impact(closes, volumes, window))

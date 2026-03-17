@@ -17,7 +17,7 @@ ONCHAIN_FEATURES = ("exchange_inflow_zscore", "exchange_inflow_ma_ratio")
 
 class OnchainFlowComputer:
     def __init__(self, zscore_window: int = 720) -> None:
-        self._inflows: deque = deque(maxlen=zscore_window)
+        self._inflows: deque[float] = deque(maxlen=zscore_window)
 
     def update(self, net_inflow: Optional[float]) -> Dict[str, Optional[float]]:
         if net_inflow is None or math.isnan(net_inflow):

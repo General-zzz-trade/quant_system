@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from threading import RLock
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from risk.kill_switch import KillRecord, KillScope, KillSwitch as RiskKillSwitch
 
@@ -54,7 +54,7 @@ class ExecutionKillSwitch:
         with self._lock:
             return self._manual_block
 
-    def trigger(self, *, scope: KillScope, key: str, **kwargs) -> KillRecord:
+    def trigger(self, *, scope: KillScope, key: str, **kwargs: Any) -> KillRecord:
         return self._ks.trigger(scope=scope, key=key, **kwargs)
 
     def clear(self, *, scope: KillScope, key: str) -> bool:

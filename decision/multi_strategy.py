@@ -17,7 +17,7 @@ class StrategyPerformance:
     """Tracks rolling performance for a single strategy."""
     name: str
     lookback: int = 60
-    _returns: Deque[float] = field(default=None, init=False)
+    _returns: Deque[float] = field(default_factory=deque, init=False)
     _equity: float = field(default=1.0, init=False)
 
     def __post_init__(self) -> None:
@@ -37,13 +37,14 @@ class StrategyPerformance:
 
     @property
     def rolling_sharpe(self) -> Optional[float]:
-        return rust_rolling_sharpe(list(self._returns), window=self.lookback, min_obs=10)
+        result = rust_rolling_sharpe(list(self._returns), window=self.lookback, min_obs=10)
+        return float(result) if result is not None else None
 
     @property
     def rolling_max_drawdown(self) -> float:
         if not self._returns:
             return 0.0
-        return rust_max_drawdown(list(self._returns), is_returns=True)
+        return float(rust_max_drawdown(list(self._returns), is_returns=True))
 
     def to_dict(self) -> Dict[str, Any]:
         return {

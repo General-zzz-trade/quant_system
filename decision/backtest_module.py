@@ -40,7 +40,7 @@ class _ZScoreBuf:
     warmup: int = 180
     _buf: Deque[float] = field(default_factory=deque)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._buf = deque(maxlen=self.window)
 
     def push(self, value: float) -> float:
@@ -119,13 +119,13 @@ class MLSignalDecisionModule:
         vol_target: float | None = None,
         vol_feature: str = "atr_norm_14",
         bear_model: Any | None = None,
-        bear_thresholds: Sequence[tuple] | None = None,
+        bear_thresholds: Sequence[tuple[Any, ...]] | None = None,
         short_model: Any | None = None,
         short_score_key: str = "ml_short_score",
         zscore_window: int = 720,
         leverage: float = 2.0,
-        v11_config=None,
-    ):
+        v11_config: Any = None,
+    ) -> None:
         self.symbol = symbol.upper()
         self._equity = equity
         self._risk_fraction = risk_fraction
@@ -562,7 +562,7 @@ class MLSignalDecisionModule:
             try:
                 import xgboost as xgb
                 xgb_pred = float(self._xgb.predict(xgb.DMatrix(x))[0])
-                return self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred
+                return float(self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred)
             except Exception as e:
                 logger.warning("XGBoost prediction failed, using LGBM only: %s", e)
 
@@ -643,7 +643,7 @@ class MLSignalDecisionModule:
         dt = self._get_timestamp_utc(snapshot)
         return dt.hour if dt is not None else None
 
-    def _get_timestamp_utc(self, snapshot: Any):
+    def _get_timestamp_utc(self, snapshot: Any) -> Any:
         """Extract UTC datetime from snapshot timestamp."""
         if isinstance(snapshot, dict):
             ts = snapshot.get("timestamp") or snapshot.get("open_time")
@@ -689,8 +689,8 @@ class MLSignalDecisionModule:
         if self._rust_bridge is not None:
             ts = self._get_timestamp_utc(snapshot) if snapshot is not None else None
             hour_key = int(ts.timestamp()) // 3600 if ts is not None else self._bar_count
-            return self._rust_bridge.check_monthly_gate(
-                self.symbol, close, hour_key, self._monthly_gate_window)
+            return bool(self._rust_bridge.check_monthly_gate(
+                self.symbol, close, hour_key, self._monthly_gate_window))
         # Python fallback
         if len(self._close_buf) < self._monthly_gate_window:
             return True

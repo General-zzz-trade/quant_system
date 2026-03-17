@@ -107,7 +107,8 @@ class EventMetrics:
 
     def _event_key(self, event: Any) -> str:
         try:
-            return event.header.event_id
+            key = event.header.event_id
+            return str(key)
         except Exception:
             return str(id(event))
 

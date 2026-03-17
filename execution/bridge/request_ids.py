@@ -11,18 +11,18 @@ from _quant_hotpath import (
 
 
 def _sanitize(s: str) -> str:
-    return _rust_sanitize(s or "")
+    return str(_rust_sanitize(s or ""))
 
 
 def _short_hash(text: str, n: int = 10) -> str:
-    return _rust_short_hash(text, n)
+    return str(_rust_short_hash(text, n))
 
 
 def make_idempotency_key(*, venue: str, action: str, key: str) -> str:
     """
     稳定幂等键：同输入 => 同输出（用于 retry / reconnect / replay）
     """
-    return _rust_make_idempotency_key(venue, action, key)
+    return str(_rust_make_idempotency_key(venue, action, key))
 
 
 @dataclass(slots=True)

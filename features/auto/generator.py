@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class FeatureCandidate:
         category: Origin category: ``technical``, ``rolling``, ``composite``, or ``auto``.
     """
     name: str
-    compute_fn: Callable
+    compute_fn: Callable[..., Any]
     category: str
 
 
@@ -35,8 +35,8 @@ class FeatureGenerator:
         candidates = gen.generate_candidates(windows=(5, 10, 20, 50))
     """
 
-    def __init__(self, *, operators: Optional[Sequence[Callable]] = None) -> None:
-        self._named_operators: list[tuple[str, Callable]] = [
+    def __init__(self, *, operators: Optional[Sequence[Callable[..., Any]]] = None) -> None:
+        self._named_operators: list[tuple[str, Callable[..., Any]]] = [
             (getattr(op, "__name__", "op"), op) for op in (operators or [])
         ]
         self._candidates: list[FeatureCandidate] = []
@@ -44,7 +44,7 @@ class FeatureGenerator:
     def register_operator(
         self,
         name: str,
-        fn: Callable,
+        fn: Callable[..., Any],
         category: str = "technical",
     ) -> None:
         """Register a named operator for candidate generation."""
@@ -72,7 +72,7 @@ class FeatureGenerator:
             for w in windows:
                 name = f"{op_name}_{w}"
 
-                def _make_fn(bound_op: Callable = op, bound_w: int = w) -> Callable:
+                def _make_fn(bound_op: Callable[..., Any] = op, bound_w: int = w) -> Callable[..., Any]:
                     return lambda bars: bound_op(bars, bound_w)
 
                 candidates.append(

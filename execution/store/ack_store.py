@@ -25,7 +25,8 @@ class InMemoryAckStore(AckStore):
         payload_json = self._rust.get_json(key, time.time())
         if payload_json is None:
             return None
-        return json.loads(payload_json)
+        result: Mapping[str, Any] = json.loads(payload_json)
+        return result
 
     def put(self, key: str, value: Mapping[str, Any]) -> None:
         payload_json = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
@@ -80,7 +81,8 @@ class SQLiteAckStore(AckStore):
         if self.ttl_sec is not None and (time.time() - float(ts)) > float(self.ttl_sec):
             self._conn.execute("DELETE FROM acks WHERE idem_key=?", (key,))
             return None
-        return json.loads(payload_json)
+        result: Mapping[str, Any] = json.loads(payload_json)
+        return result
 
     def put(self, key: str, value: Mapping[str, Any]) -> None:
         payload_json = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)

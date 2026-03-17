@@ -25,7 +25,7 @@ def _utc_now() -> str:
 
 def _hash_payload(payload: Mapping[str, Any]) -> str:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return _rust_stable_hash(data, 64)
+    return str(_rust_stable_hash(data, 64))
 
 
 def _is_jsonable(x: Any) -> bool:

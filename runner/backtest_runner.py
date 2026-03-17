@@ -275,6 +275,7 @@ def run_backtest(
         realized = Decimal(str(rf)) if rf is not None else getattr(a, "realized_pnl", Decimal("0"))
         eq = bal + unreal
 
+        assert isinstance(ts, datetime)
         equity.append(
             EquityPoint(
                 ts=ts,
@@ -460,13 +461,13 @@ def run_backtest(
 
         fills_path = out_dir / "fills.csv"
         with fills_path.open("w", newline="") as f:
-            w = csv.DictWriter(
+            dw = csv.DictWriter(
                 f,
                 fieldnames=["ts", "symbol", "side", "qty", "price", "fee", "realized_pnl", "event_id", "root_event_id"],
             )
-            w.writeheader()
+            dw.writeheader()
             for row in fills:
-                w.writerow(row)
+                dw.writerow(row)
 
         trades = _build_trades_from_fills(fills)
 
@@ -487,10 +488,10 @@ def run_backtest(
                 "return",
                 "duration_sec",
             ]
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
+            dw2 = csv.DictWriter(f, fieldnames=fieldnames)
+            dw2.writeheader()
             for t in trades:
-                w.writerow(t)
+                dw2.writerow(t)
 
         summary = _build_summary(equity=equity, trades=trades, csv_path=csv_path, symbol=symbol_u)
         summary_path = out_dir / "summary.json"
@@ -726,6 +727,7 @@ def run_multi_backtest(
             af = getattr(pos, "avg_price_f", None)
             avg = Decimal(str(af)) if af is not None else getattr(pos, "avg_price", None)
 
+        assert isinstance(ts, datetime)
         equity.append(
             EquityPoint(
                 ts=ts,
@@ -842,13 +844,13 @@ def run_multi_backtest(
 
         fills_path = out_dir / "fills.csv"
         with fills_path.open("w", newline="") as f:
-            w = csv.DictWriter(
+            dw = csv.DictWriter(
                 f,
                 fieldnames=["ts", "symbol", "side", "qty", "price", "fee", "realized_pnl", "event_id", "root_event_id"],
             )
-            w.writeheader()
+            dw.writeheader()
             for row in fills:
-                w.writerow(row)
+                dw.writerow(row)
 
         trades = _build_trades_from_fills(fills)
 
@@ -859,10 +861,10 @@ def run_multi_backtest(
                 "entry_price", "exit_price", "gross_pnl", "fees", "net_pnl",
                 "return", "duration_sec",
             ]
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
+            dw2 = csv.DictWriter(f, fieldnames=fieldnames)
+            dw2.writeheader()
             for t in trades:
-                w.writerow(t)
+                dw2.writerow(t)
 
         summary = _build_summary(equity=equity, trades=trades, csv_path=list(csv_paths.values())[0],
             symbol=",".join(symbols))
@@ -938,7 +940,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
-def parse_args(argv: Optional[List[str]] = None):
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     args = build_arg_parser().parse_args(argv)
     root = _project_root()
 

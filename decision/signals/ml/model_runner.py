@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
-from decision.types import SignalResult
+from decision.types import SignalResult, SignalSide
 from decision.signals.ml.features_contract import FeaturesContract
 
 
@@ -30,7 +30,7 @@ class ModelRunnerSignal:
             s = Decimal(str(raw))
         except Exception:
             return SignalResult(symbol=symbol, side="flat", score=Decimal("0"), confidence=Decimal("0"))
-        side = "flat"
+        side: SignalSide = "flat"
         if s > 0:
             side = "buy"
         elif s < 0:

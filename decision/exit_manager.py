@@ -5,7 +5,7 @@ All exit/entry gating logic in one place, parameterized by ExitConfig.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -30,9 +30,8 @@ class ExitManager:
         Maximum bars before forced exit (from V11Config.max_hold).
     """
 
-    def __init__(self, config, min_hold: int = 12, max_hold: int = 96):
-        from alpha.v11_config import ExitConfig
-        self._config: ExitConfig = config
+    def __init__(self, config: Any, min_hold: int = 12, max_hold: int = 96) -> None:
+        self._config = config
         self._min_hold = min_hold
         self._max_hold = max_hold
         self._positions: Dict[str, _TrailingState] = {}
@@ -108,7 +107,7 @@ class ExitManager:
 
         return False, ""
 
-    def checkpoint(self) -> dict:
+    def checkpoint(self) -> dict[str, Any]:
         """Serialize position tracking state for persistence."""
         return {
             sym: {
@@ -120,7 +119,7 @@ class ExitManager:
             for sym, s in self._positions.items()
         }
 
-    def restore(self, data: dict) -> None:
+    def restore(self, data: dict[str, Any]) -> None:
         """Restore position tracking state from checkpoint."""
         self._positions = {
             sym: _TrailingState(**vals) for sym, vals in data.items()

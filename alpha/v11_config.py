@@ -18,7 +18,7 @@ class ExitConfig:
     deadzone_fade: float = 0.2           # |z| < this → exit (signal too weak)
     time_filter: TimeFilterConfig = None  # type: ignore[assignment]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.time_filter is None:
             self.time_filter = TimeFilterConfig()
 
@@ -34,7 +34,7 @@ class RegimeGateConfig:
     adx_trend_threshold: float = 25.0
     adx_range_threshold: float = 20.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.ranging_high_vol_action not in ("skip", "reduce"):
             raise ValueError(
                 f"ranging_high_vol_action must be 'skip' or 'reduce', "
@@ -52,7 +52,7 @@ class TimeFilterConfig:
     enabled: bool = False
     skip_hours_utc: List[int] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for h in self.skip_hours_utc:
             if not 0 <= h <= 23:
                 raise ValueError(f"skip_hours_utc values must be 0-23, got {h}")
@@ -87,7 +87,7 @@ class V11Config:
     ic_ema_span: int = 720                  # EMA span for rolling IC
     ic_min_threshold: float = -0.01         # horizons below this get weight=0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.ensemble_method not in ("mean_zscore", "ic_weighted"):
             raise ValueError(
                 f"ensemble_method must be 'mean_zscore' or 'ic_weighted', "

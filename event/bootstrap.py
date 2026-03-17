@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Tuple
+from typing import Any, Tuple
 
 from event.codec import EventCodecRegistry
 from event.errors import EventValidationError
@@ -37,7 +37,7 @@ def _dec_gt0(v: Decimal) -> None:
         raise EventValidationError(f"decimal must be > 0, got {v}")
 
 
-def _ohlc_invariants(body, _event) -> None:
+def _ohlc_invariants(body: Any, _event: Any) -> None:
     """OHLC 合法性（制度级）"""
     o = body["open"]
     h = body["high"]
@@ -56,7 +56,7 @@ def _ohlc_invariants(body, _event) -> None:
         raise EventValidationError(f"invalid volume: {v} < 0")
 
 
-def _order_price_invariants(body, _event) -> None:
+def _order_price_invariants(body: Any, _event: Any) -> None:
     price = body.get("price")
     if price is None:
         return

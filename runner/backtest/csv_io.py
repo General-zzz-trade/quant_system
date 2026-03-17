@@ -138,6 +138,6 @@ def iter_ohlcv_csv(path: Path) -> Iterator[OhlcvBar]:
             o = _dec(row.get(o_col))
             h = _dec(row.get(h_col))
             l = _dec(row.get(l_col))  # noqa: E741
-            c = _dec(row.get(c_col))
+            c_val = _dec(row.get(c_col))
             v = _dec(row.get(v_col)) if v_col and row.get(v_col) not in (None, "") else None
-            yield OhlcvBar(ts=ts, o=o, h=h, l=l, c=c, v=v)
+            yield OhlcvBar(ts=ts, o=o, h=h, l=l, c=c_val, v=v)

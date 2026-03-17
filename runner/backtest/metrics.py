@@ -80,7 +80,7 @@ def _safe_dec(x: Any, default: str = "0") -> Decimal:
 
 
 def _build_trades_from_fills(fills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    def _key(r: Dict[str, Any]):
+    def _key(r: Dict[str, Any]) -> datetime:
         t = _parse_fill_ts(r.get("ts"))
         return t or datetime.min.replace(tzinfo=timezone.utc)
 

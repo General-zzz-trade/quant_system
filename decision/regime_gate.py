@@ -13,7 +13,7 @@ to classify regime and output a position scale factor.
 from __future__ import annotations
 
 from collections import deque
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 
 class RegimeGate:
@@ -29,25 +29,24 @@ class RegimeGate:
         Regime gate configuration from V11Config.
     """
 
-    def __init__(self, config):
-        from alpha.v11_config import RegimeGateConfig
-        self._config: RegimeGateConfig = config
+    def __init__(self, config: Any) -> None:
+        self._config = config
         # Running percentile buffers for bb_width and vol_of_vol
-        self._bb_width_buf: deque = deque(maxlen=720)
-        self._vol_of_vol_buf: deque = deque(maxlen=720)
+        self._bb_width_buf: deque[float] = deque(maxlen=720)
+        self._vol_of_vol_buf: deque[float] = deque(maxlen=720)
 
     @property
     def _lookback(self) -> int:
         return self._bb_width_buf.maxlen or 720
 
-    def checkpoint(self) -> dict:
+    def checkpoint(self) -> dict[str, Any]:
         """Serialize buffer state for persistence."""
         return {
             "bb_width_buf": list(self._bb_width_buf),
             "vol_of_vol_buf": list(self._vol_of_vol_buf),
         }
 
-    def restore(self, data: dict) -> None:
+    def restore(self, data: dict[str, Any]) -> None:
         """Restore buffer state from checkpoint."""
         maxlen = self._lookback
         self._bb_width_buf = deque(data.get("bb_width_buf", []), maxlen=maxlen)

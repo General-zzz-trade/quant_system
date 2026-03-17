@@ -181,7 +181,7 @@ class AdaptiveConfigSelector:
         prioritizing consistency over peak performance in any single window.
         """
         n = len(z_scores)
-        config_scores: Dict[tuple, List[float]] = {}
+        config_scores: Dict[tuple[float, int, int, bool], List[float]] = {}
 
         for months in [3, 6, 9]:
             bars = BARS_PER_DAY * 30 * months
@@ -219,7 +219,7 @@ class AdaptiveConfigSelector:
             # Penalize variance: prefer consistent configs
             score = mean_s - 0.5 * std_s
             if score > best_score:
-                best_score = score
+                best_score = float(score)
                 best_key = key
 
         if best_key is None:
@@ -251,7 +251,7 @@ class AdaptiveConfigSelector:
         return params
 
     def _score(
-        self, result: Dict, dz: float, mh: int, maxh: int, lo: bool,
+        self, result: Dict[str, Any], dz: float, mh: int, maxh: int, lo: bool,
     ) -> float:
         """Score a config, incorporating recency weight and stability."""
         sharpe = result["sharpe"]
@@ -274,7 +274,7 @@ class AdaptiveConfigSelector:
             dist += 0.5 if lo != self._previous.long_only else 0
             score -= self._stability_penalty * dist
 
-        return score
+        return float(score)
 
     @property
     def history(self) -> List[AdaptiveParams]:

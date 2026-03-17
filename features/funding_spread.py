@@ -28,7 +28,7 @@ class FundingSpreadComputer:
     """Compute funding rate spread features across exchanges."""
 
     def __init__(self, zscore_window: int = 720) -> None:
-        self._spread_history: deque = deque(maxlen=zscore_window)
+        self._spread_history: deque[float] = deque(maxlen=zscore_window)
 
     def update(self, rates: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
         """Push funding rates from multiple exchanges.

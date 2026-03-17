@@ -23,7 +23,7 @@ def estimate_slippage(
 ) -> float:
     """估计滑点 (bps)。"""
     r = rust_compute_cost_attribution(list(fills), dict(reference_prices))
-    return r["slippage_bps"]
+    return float(r["slippage_bps"])
 
 
 def compute_cost_attribution(

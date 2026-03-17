@@ -690,7 +690,8 @@ class _SymbolState:
 
         # V11: Macro metrics (daily — only push when date changes)
         if macro_metrics is not None:
-            date_str = macro_metrics.get("date")
+            date_str_raw = macro_metrics.get("date")
+            date_str: Optional[str] = str(date_str_raw) if date_str_raw is not None else None
             if date_str is None or date_str != self._last_macro_date:
                 self._last_macro_date = date_str
                 dxy = macro_metrics.get("dxy")
@@ -1372,14 +1373,17 @@ class _SymbolState:
         # vol_regime_adaptive: EMA(vol_regime,5) vs 30-bar median
         if self.vol_regime_ema.ready and len(self.vol_regime_history) >= 30:
             ema_val = self.vol_regime_ema.value
-            sorted_hist = sorted(self.vol_regime_history)
-            median_val = sorted_hist[len(sorted_hist) // 2]
-            if ema_val > median_val * 1.05:
-                feats["vol_regime_adaptive"] = 1.0
-            elif ema_val < median_val * 0.95:
-                feats["vol_regime_adaptive"] = -1.0
+            if ema_val is None:
+                feats["vol_regime_adaptive"] = None
             else:
-                feats["vol_regime_adaptive"] = 0.0
+                sorted_hist = sorted(self.vol_regime_history)
+                median_val = sorted_hist[len(sorted_hist) // 2]
+                if ema_val > median_val * 1.05:
+                    feats["vol_regime_adaptive"] = 1.0
+                elif ema_val < median_val * 0.95:
+                    feats["vol_regime_adaptive"] = -1.0
+                else:
+                    feats["vol_regime_adaptive"] = 0.0
         else:
             feats["vol_regime_adaptive"] = None
 
@@ -1641,12 +1645,12 @@ class _SymbolState:
                 btc_vol = None
 
             # ALT/BTC ratio tracking
-            if close > 0:
+            if close is not None and close > 0:
                 ratio = close / btc_close
                 self._alt_btc_ratio_buf.append(ratio)
 
             # btc_relative_strength_24: ALT ret_24 - BTC ret_24
-            if len(self.close_history) >= 24 and len(self._btc_ref_buf) >= 24:
+            if close is not None and len(self.close_history) >= 24 and len(self._btc_ref_buf) >= 24:
                 alt_ret24 = close / self.close_history[-24] - 1
                 btc_ret24 = self._btc_ref_buf[-1] / self._btc_ref_buf[-24] - 1
                 feats["btc_relative_strength_24"] = alt_ret24 - btc_ret24
@@ -1654,7 +1658,7 @@ class _SymbolState:
                 feats["btc_relative_strength_24"] = None
 
             # btc_relative_strength_6
-            if len(self.close_history) >= 6 and len(self._btc_ref_buf) >= 6:
+            if close is not None and len(self.close_history) >= 6 and len(self._btc_ref_buf) >= 6:
                 alt_ret6 = close / self.close_history[-6] - 1
                 btc_ret6 = self._btc_ref_buf[-1] / self._btc_ref_buf[-6] - 1
                 feats["btc_relative_strength_6"] = alt_ret6 - btc_ret6
@@ -1672,10 +1676,8 @@ class _SymbolState:
                 feats["btc_ratio_ma20_dev"] = None
 
             # btc_dom_momentum: BTC ret_24 - ALT ret_24 (opposite of relative strength)
-            feats["btc_dom_momentum"] = (
-                -feats.get("btc_relative_strength_24")
-                if feats.get("btc_relative_strength_24") is not None else None
-            )
+            _rs24 = feats.get("btc_relative_strength_24")
+            feats["btc_dom_momentum"] = -float(_rs24) if _rs24 is not None else None
 
             # btc_vol_ratio: ALT vol_20 / BTC vol_20
             vol20 = feats.get("vol_20")

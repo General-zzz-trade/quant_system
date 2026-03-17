@@ -115,6 +115,22 @@ class EventLifecycle:
             self._states[key] = new_state
             return new_state
 
+    def mark_dispatching(self, event: Any) -> None:
+        """Convenience: transition event to DISPATCH_START."""
+        self.transition(event, LifecycleState.DISPATCH_START)
+
+    def mark_dispatched(self, event: Any) -> None:
+        """Convenience: transition event to DISPATCHED."""
+        self.transition(event, LifecycleState.DISPATCHED)
+
+    def mark_failed(self, event: Any) -> None:
+        """Convenience: transition event to FAILED."""
+        self.transition(event, LifecycleState.FAILED)
+
+    def mark_dropped(self, event: Any) -> None:
+        """Convenience: transition event to DROPPED."""
+        self.transition(event, LifecycleState.DROPPED)
+
     def reset(self, event: Any) -> None:
         """
         清理该事件的生命周期（用于测试或短期内存释放）

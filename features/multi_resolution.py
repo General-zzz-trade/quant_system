@@ -15,7 +15,7 @@ from pathlib import Path as _Path
 from typing import List
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from features.batch_feature_engine import compute_features_batch
 from features.multi_timeframe import compute_4h_features

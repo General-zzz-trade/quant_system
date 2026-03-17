@@ -13,7 +13,7 @@ from math import exp
 from typing import Any, Deque, Dict, Sequence, Tuple
 
 from _quant_hotpath import rust_rolling_sharpe
-from decision.types import SignalResult
+from decision.types import SignalResult, SignalSide
 from decision.signals.base import SignalModel
 
 
@@ -49,7 +49,7 @@ class DynamicEnsembleSignal:
             score += r.score * w
             conf += r.confidence * abs(w)
 
-        side = "flat"
+        side: SignalSide = "flat"
         if score > 0:
             side = "buy"
         elif score < 0:

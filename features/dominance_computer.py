@@ -23,9 +23,9 @@ class DominanceComputer:
     """Computes BTC/ETH price ratio features incrementally."""
 
     def __init__(self, window: int = 75) -> None:
-        self._ratios: deque = deque(maxlen=window)
-        self._btc_returns: deque = deque(maxlen=25)
-        self._eth_returns: deque = deque(maxlen=25)
+        self._ratios: deque[float] = deque(maxlen=window)
+        self._btc_returns: deque[float] = deque(maxlen=25)
+        self._eth_returns: deque[float] = deque(maxlen=25)
         self._last_btc: Optional[float] = None
         self._last_eth: Optional[float] = None
 

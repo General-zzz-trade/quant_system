@@ -44,7 +44,7 @@ class LiveInferenceBridge:
         monthly_gate: bool = False,
         monthly_gate_window: Union[int, Dict[str, int]] = 480,
         bear_model: Optional[AlphaModel] = None,
-        bear_thresholds: Optional[Sequence[tuple]] = None,
+        bear_thresholds: Optional[Sequence[tuple[float, float]]] = None,
         short_model: Optional[AlphaModel] = None,
         short_score_key: str = "ml_short_score",
         vol_target: Union[None, float, Dict[str, Optional[float]]] = None,
@@ -84,11 +84,11 @@ class LiveInferenceBridge:
         # Rust kernel for per-symbol signal processing state
         self._rust = _RustBridge(zscore_window, zscore_warmup, 480)
 
-    def checkpoint(self) -> dict:
+    def checkpoint(self) -> dict[str, Any]:
         """Serialize bridge state for persistence."""
         return dict(self._rust.checkpoint())
 
-    def restore(self, data: dict) -> None:
+    def restore(self, data: dict[str, Any]) -> None:
         """Restore bridge state from checkpoint."""
         self._rust.restore(data)
         logger.info("Bridge state restored")
@@ -133,7 +133,7 @@ class LiveInferenceBridge:
         )
 
     @staticmethod
-    def _resolve(param, symbol: str, default=None):
+    def _resolve(param: Any, symbol: str, default: Any = None) -> Any:
         """Resolve a scalar-or-dict parameter to a per-symbol value."""
         if isinstance(param, dict):
             return param.get(symbol, default)
@@ -159,10 +159,10 @@ class LiveInferenceBridge:
             if tv is not None:
                 trend_val = float(tv)
 
-        return self._rust.apply_constraints(
+        return float(self._rust.apply_constraints(
             symbol, raw_score, hour_key, dz, min_hold, long_only,
             self._trend_follow, trend_val, self._trend_threshold, self._max_hold,
-        )
+        ))
 
     def _check_monthly_gate(self, symbol: str, close: float, ts: Optional[datetime] = None) -> bool:
         """Return True if signal is allowed (close > MA), False if gated."""
@@ -170,7 +170,7 @@ class LiveInferenceBridge:
             return True
         w = self._resolve(self._monthly_gate_window, symbol, 480)
         hour_key = int((ts or datetime.now(timezone.utc)).timestamp()) // 3600
-        return self._rust.check_monthly_gate(symbol, close, hour_key, w)
+        return bool(self._rust.check_monthly_gate(symbol, close, hour_key, w))
 
     def enrich(
         self,

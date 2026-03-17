@@ -125,7 +125,7 @@ class SQLiteEventStore(EventStore):
     def size(self) -> int:
         with self._lock:
             row = self._conn.execute("SELECT COUNT(*) FROM events").fetchone()
-        return row[0]
+        return int(row[0])
 
     def close(self) -> None:
         with self._lock:

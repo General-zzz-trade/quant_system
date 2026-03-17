@@ -226,7 +226,7 @@ class ExecutionBridge:
 
     _buckets: Dict[str, TokenBucket] = field(default_factory=dict, init=False, repr=False)
     _breakers: Dict[str, CircuitBreaker] = field(default_factory=dict, init=False, repr=False)
-    _pending: Deque[tuple] = field(default_factory=deque, init=False, repr=False)
+    _pending: Deque[tuple[Any, str]] = field(default_factory=deque, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if isinstance(self.ack_store, InMemoryAckStore):

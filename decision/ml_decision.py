@@ -23,7 +23,7 @@ def _get_close(market: Any) -> Optional[float]:
     """Get close price as float from Rust (close_f) or Python (close) market state."""
     cf = getattr(market, "close_f", None)
     if cf is not None:
-        return cf
+        return float(cf)
     c = getattr(market, "close", None)
     return float(c) if c is not None else None
 
@@ -32,7 +32,7 @@ def _get_balance(account: Any) -> float:
     """Get balance as float from Rust (balance_f) or Python (balance) account state."""
     bf = getattr(account, "balance_f", None)
     if bf is not None:
-        return bf
+        return float(bf)
     return float(Decimal(str(getattr(account, "balance", 0))))
 
 
@@ -40,7 +40,7 @@ def _get_qty(pos: Any) -> float:
     """Get qty as float from Rust (qty_f) or Python (qty) position state."""
     qf = getattr(pos, "qty_f", None)
     if qf is not None:
-        return qf
+        return float(qf)
     return float(Decimal(str(getattr(pos, "qty", 0))))
 
 
@@ -93,7 +93,7 @@ class RustMLDecisionModule:
         intents = self._rust.decide(close_f, ml_score, current_qty, balance, atr_norm)
         return self._wrap_intents(intents, close_f)
 
-    def _wrap_intents(self, intents: list, price: Any) -> list:
+    def _wrap_intents(self, intents: list[Any], price: Any) -> list[Any]:
         result = []
         for intent in intents:
             h = _EventHeader.new_root(event_type=_EventType.ORDER, version=1, source="ml_decision")

@@ -25,7 +25,7 @@ def pred_to_signal_fast(
     trend_threshold: float = 0.0,
     max_hold: int = 120,
 ) -> np.ndarray:
-    tv = trend_values.astype(np.float64, copy=False) if trend_values is not None else []
+    tv: np.ndarray | list[float] = trend_values.astype(np.float64, copy=False) if trend_values is not None else []
     return np.asarray(cpp_pred_to_signal(
         y_pred.astype(np.float64, copy=False),
         deadzone, min_hold, zscore_window, zscore_warmup, long_only,

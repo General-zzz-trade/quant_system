@@ -45,12 +45,12 @@ class ReplayExecutionAdapter:
     _log: List[Dict[str, Any]] = field(default_factory=list, init=False)
     _balance: float = field(default=0.0, init=False)
     _realized_pnl: float = field(default=0.0, init=False)
-    _account_snapshots: list = field(default_factory=list, init=False)
+    _account_snapshots: List[Dict[str, Any]] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         self._balance = self.starting_balance
 
-    def send_order(self, order_event: Any) -> list:
+    def send_order(self, order_event: Any) -> List[Any]:
         # Check rejection rules before processing
         if self.rejection_rules is not None:
             try:

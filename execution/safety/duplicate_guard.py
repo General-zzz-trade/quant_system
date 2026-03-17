@@ -48,7 +48,7 @@ class DuplicateGuard:
 
     def contains(self, key: str) -> bool:
         with self._lock:
-            return self._inner.contains(key)
+            return bool(self._inner.contains(key))
 
     def size(self) -> int:
         with self._lock:

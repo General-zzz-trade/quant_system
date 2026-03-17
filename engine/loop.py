@@ -61,13 +61,14 @@ def _extract_ctx(event: Any, *, actor: str, stage: str) -> EngineErrorContext:
     event_id = getattr(header, "event_id", None)
 
     # event_type / EVENT_TYPE（兼容两种风格）
+    event_type: Optional[str]
     et = getattr(event, "event_type", None)
     if et is not None and hasattr(et, "value"):
         event_type = str(getattr(et, "value"))
     else:
-        event_type = getattr(event, "EVENT_TYPE", None)
-        if event_type is not None:
-            event_type = str(event_type)
+        et2 = getattr(event, "EVENT_TYPE", None)
+        if et2 is not None:
+            event_type = str(et2)
         else:
             event_type = None
 

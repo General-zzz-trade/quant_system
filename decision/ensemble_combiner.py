@@ -66,6 +66,7 @@ class EnsembleCombiner:
             score = features.get(self.score_key, 0.0)
 
             # Get effective weight (allow runtime overrides from attribution feedback)
+            assert self.weights is not None
             w = self._weight_overrides.get(name, self.weights[i])
             scores.append((name, float(score), w))
 
@@ -131,6 +132,7 @@ class EnsembleCombiner:
         """Return current effective weights per bridge."""
         result = {}
         for i, (name, _) in enumerate(self.bridges):
+            assert self.weights is not None
             result[name] = self._weight_overrides.get(name, self.weights[i])
         return result
 

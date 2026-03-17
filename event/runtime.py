@@ -73,8 +73,7 @@ class EventRuntime:
             )
 
         # -------- 2. 策略前置检查（可选） --------
-        if self._policy is not None:
-            self._policy.before_emit(event)
+        # (EventPolicy exposes on_failure/clear; no before_emit hook)
 
         # -------- 3. 安全边界校验（可选） --------
         if self._security is not None:
@@ -105,4 +104,5 @@ class EventRuntime:
             self._tracer.on_emit(event)
 
         if self._metrics is not None:
-            self._metrics.on_emit(event)
+            from event.lifecycle import LifecycleState
+            self._metrics.on_lifecycle(event, LifecycleState.CREATED)

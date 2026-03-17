@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Sequence, Tuple
 
-from decision.types import SignalResult
+from decision.types import SignalResult, SignalSide
 from decision.signals.base import SignalModel
 
 
@@ -31,7 +31,7 @@ class WeightedEnsembleSignal:
             metas[m.name] = {"side": r.side, "score": str(r.score), "confidence": str(r.confidence)}
             score += r.score * w
             conf += r.confidence * abs(w)
-        side = "flat"
+        side: SignalSide = "flat"
         if score > 0:
             side = "buy"
         elif score < 0:

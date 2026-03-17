@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from decision.candidates.score_rank import ScoreRankCandidates
 from decision.candidates.filters import CandidateFilter
@@ -35,7 +36,7 @@ class DefaultComposer:
     def build_intent_builder(self) -> TargetPositionIntentBuilder:
         return TargetPositionIntentBuilder()
 
-    def build_execution_policy(self, name: str, slippage_bps: Decimal):
+    def build_execution_policy(self, name: str, slippage_bps: Decimal) -> Any:
         if name == "passive":
             return PassivePolicy(offset_bps=slippage_bps)
         return MarketableLimitPolicy(slippage_bps=slippage_bps)

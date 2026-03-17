@@ -12,7 +12,7 @@ import math
 from typing import Any, Dict, Mapping, Optional
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class PrecomputedFeatureHook:
 
         if include_interactions:
             try:
-                from scripts.train_v7_alpha import INTERACTION_FEATURES
+                from scripts.train_v7_alpha import INTERACTION_FEATURES  # type: ignore[import-not-found]
                 for int_name, fa, fb in INTERACTION_FEATURES:
                     if fa in feat_df.columns and fb in feat_df.columns:
                         feat_df[int_name] = (

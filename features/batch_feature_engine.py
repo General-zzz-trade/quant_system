@@ -8,10 +8,10 @@ from __future__ import annotations
 import csv
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -230,13 +230,14 @@ def _compute_ratio_features(
     feat_df[f"{prefix}_ret_24"] = ratio_s.pct_change(24).values
 
 
-def _load_ref_closes(symbol: str) -> np.ndarray | None:
+def _load_ref_closes(symbol: str) -> "np.ndarray[tuple[Any, ...], np.dtype[Any]] | None":
     """Load 1h closes for a reference symbol. Returns None if file missing."""
     path = Path(f"data_files/{symbol}_1h.csv")
     if not path.exists():
         return None
     df = pd.read_csv(path)
-    return df["close"].values.astype(np.float64)
+    result: np.ndarray[tuple[Any, ...], np.dtype[Any]] = df["close"].values.astype(np.float64)
+    return result
 
 
 # Multi-ratio dominance config: symbol -> list of (ref_symbol, feature_prefix)
@@ -359,7 +360,7 @@ def _load_macro_schedule_arr() -> np.ndarray:
     if not path.exists():
         return np.empty((0, 4), dtype=np.float64)
     # Merge all values per date
-    date_data: Dict[str, Dict] = {}
+    date_data: Dict[str, Dict[str, float]] = {}
     date_ts: Dict[str, float] = {}
     with open(path, newline="") as f:
         reader = csv.DictReader(f)

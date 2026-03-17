@@ -6,7 +6,7 @@ All features are forward-filled back to the original 1h index.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from _quant_hotpath import cpp_compute_4h_features as _cpp_4h
 

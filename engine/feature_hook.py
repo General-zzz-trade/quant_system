@@ -6,7 +6,7 @@ import logging
 import math
 import time as _time_mod
 from datetime import datetime
-from typing import Any, Callable, Dict, Mapping, Optional, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 _log = logger
@@ -32,16 +32,16 @@ class FeatureComputeHook:
     def __init__(self, computer: Any,
                  inference_bridge: Union[Any, Dict[str, Any], None] = None,
                  warmup_bars: int = 65,
-                 funding_rate_source: Union[Callable, Dict[str, Callable], None] = None,
+                 funding_rate_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
                  cross_asset_computer: Any = None,
-                 oi_source: Union[Callable, Dict[str, Callable], None] = None,
-                 ls_ratio_source: Union[Callable, Dict[str, Callable], None] = None,
-                 spot_close_source: Union[Callable, Dict[str, Callable], None] = None,
+                 oi_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 ls_ratio_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 spot_close_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
                  fgi_source: Any = None,
-                 implied_vol_source: Union[Callable, Dict[str, Callable], None] = None,
-                 put_call_ratio_source: Union[Callable, Dict[str, Callable], None] = None,
-                 onchain_source: Union[Callable, Dict[str, Callable], None] = None,
-                 liquidation_source: Union[Callable, Dict[str, Callable], None] = None,
+                 implied_vol_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 put_call_ratio_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 onchain_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 liquidation_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
                  mempool_source: Any = None,
                  macro_source: Any = None,
                  sentiment_source: Any = None,
@@ -109,8 +109,8 @@ class FeatureComputeHook:
             pass  # catalog validation is advisory — never block
 
     @staticmethod
-    def _resolve_source(source: Union[Callable, Dict[str, Callable], None],
-                        symbol: str) -> Optional[Callable]:
+    def _resolve_source(source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None],
+                        symbol: str) -> Optional[Callable[[], Any]]:
         """Resolve a data source: if dict, look up by symbol; if callable, return as-is."""
         if source is None:
             return None
@@ -118,7 +118,7 @@ class FeatureComputeHook:
             return source.get(symbol)
         return source
 
-    def _safe_call_source(self, source_fn, source_name: str, symbol: str):
+    def _safe_call_source(self, source_fn: Callable[[], Any], source_name: str, symbol: str) -> Any:
         """Call a source callable safely. Returns None on any exception."""
         try:
             return source_fn()
@@ -475,9 +475,10 @@ class FeatureComputeHook:
             hour_key = int(_time_mod.time()) // 3600
 
         # Single Rust call: push bar + predict + get features (no None values)
-        prediction, features = predictor.push_bar_predict_features(
+        result: Tuple[Any, Dict[str, Any]] = predictor.push_bar_predict_features(
             symbol, close_f, volume, high, low, open_, hour_key,
         )
+        prediction, features = result
 
         # Inject ML scores from unified prediction
         if self._bar_count.get(symbol, 0) >= self._warmup_bars:

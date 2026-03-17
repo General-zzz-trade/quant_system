@@ -213,4 +213,4 @@ class EventReplay:
         # 复用 dispatcher 的私有规则（不调用 handlers）
         # 这里直接调用受保护方法是“制度允许”的：
         # replay 属于 engine 内部设施
-        return self._dispatcher._route_for(event)  # type: ignore[attr-defined]
+        return self._dispatcher._route_for(event)

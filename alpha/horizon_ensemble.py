@@ -29,7 +29,7 @@ class AdaptiveHorizonEnsemble:
         'zscore_buf' keys (same format as MLSignalDecisionModule).
     """
 
-    def __init__(self, config, horizon_models: List[Dict[str, Any]]):
+    def __init__(self, config: Any, horizon_models: List[Dict[str, Any]]) -> None:
         from alpha.v11_config import V11Config
         self._config: V11Config = config
         self._horizon_models = horizon_models
@@ -46,7 +46,7 @@ class AdaptiveHorizonEnsemble:
                 )
 
         # For delayed IC updates: store predictions keyed by (horizon, bar)
-        self._pending_preds: Dict[int, deque] = {
+        self._pending_preds: Dict[int, deque[tuple[int, float]]] = {
             hm["horizon"]: deque(maxlen=200) for hm in horizon_models
         }
 
@@ -87,7 +87,7 @@ class AdaptiveHorizonEnsemble:
             try:
                 import xgboost as xgb
                 xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
-                return self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred
+                return float(self._lgbm_xgb_w * lgbm_pred + (1 - self._lgbm_xgb_w) * xgb_pred)
             except Exception as e:
                 logger.warning("XGBoost prediction failed in horizon ensemble, using LGBM only: %s", e)
 

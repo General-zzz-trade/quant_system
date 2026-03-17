@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Callable, Dict, Optional
 import time
 import threading
 
@@ -83,15 +83,15 @@ class MetricsRegistry:
 
 # 轻量计时器（with 用法）
 class _Timer:
-    def __init__(self, observe_fn) -> None:
+    def __init__(self, observe_fn: Callable[[float], None]) -> None:
         self._observe = observe_fn
         self._t0 = 0.0
 
-    def __enter__(self):
+    def __enter__(self) -> "_Timer":
         self._t0 = time.perf_counter()
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         dt = time.perf_counter() - self._t0
         self._observe(dt)
 

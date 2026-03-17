@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-from decision.types import Candidate, SignalResult
+from decision.types import Candidate, SignalResult, Side
 
 
 class CandidateGenerator(Protocol):
@@ -18,6 +18,6 @@ class PassthroughCandidates:
         for s in signals:
             if s.side == "flat" or s.score == 0:
                 continue
-            side = "buy" if s.score > 0 else "sell"
+            side: Side = "buy" if s.score > 0 else "sell"
             out.append(Candidate(symbol=s.symbol, score=s.score, side=side, meta=s.meta))
         return out

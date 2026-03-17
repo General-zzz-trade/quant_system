@@ -203,7 +203,7 @@ class LiveSignalTracker:
             return 0.0
 
         # Annualize (hourly -> yearly: sqrt(8760))
-        return (mean_ret / std) * (8760 ** 0.5)
+        return float((mean_ret / std) * (8760 ** 0.5))
 
     def compute_weight_recommendations(
         self,

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 
 logger = logging.getLogger(__name__)
@@ -218,8 +218,8 @@ def _rolling_cov_var(
     cum_xy = np.cumsum(x * y)
     cum_y2 = np.cumsum(y * y)
 
-    def _slice(cum, i):
-        return cum[i] - (cum[i - window] if i >= window else 0.0)
+    def _slice(cum: np.ndarray, i: int) -> float:
+        return float(cum[i] - (cum[i - window] if i >= window else 0.0))
 
     for i in range(window - 1, n):
         sx = _slice(cum_x, i)
