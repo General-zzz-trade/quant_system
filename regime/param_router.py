@@ -5,6 +5,14 @@ from typing import Dict, Tuple
 
 from .composite import CompositeRegimeLabel
 
+try:
+    from _quant_hotpath import (
+        RustRegimeParamRouter as _RustRouter,
+    )
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 
 @dataclass(frozen=True, slots=True)
 class RegimeParams:
@@ -51,6 +59,9 @@ class RegimeParamRouter:
       2. Wildcard match ("*", vol)
       3. Wildcard match (trend, "*")
       4. Fallback defaults
+
+    When no custom params/fallback are injected and Rust is available,
+    delegates to RustRegimeParamRouter for the fast path.
     """
 
     def __init__(
@@ -60,9 +71,24 @@ class RegimeParamRouter:
     ) -> None:
         self.params = dict(params) if params is not None else dict(DEFAULT_PARAMS)
         self.fallback = fallback or _FALLBACK
+        # Use Rust when no custom params injected
+        if _HAS_RUST and params is None and fallback is None:
+            self._rust_router: object | None = _RustRouter()
+        else:
+            self._rust_router = None
 
     def route(self, regime: CompositeRegimeLabel) -> RegimeParams:
         """Return trading parameters for the given regime."""
+        if self._rust_router is not None:
+            rust_p = self._rust_router.route(regime.trend, regime.vol)  # type: ignore[union-attr]
+            return RegimeParams(
+                deadzone=rust_p.deadzone,
+                min_hold=rust_p.min_hold,
+                max_hold=rust_p.max_hold,
+                position_scale=rust_p.position_scale,
+            )
+
+        # Python fallback path (used when custom params are injected)
         # 1. Exact match
         key = (regime.trend, regime.vol)
         if key in self.params:

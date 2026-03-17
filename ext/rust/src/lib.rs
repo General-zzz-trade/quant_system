@@ -68,6 +68,7 @@ pub mod micro_alpha;
 mod attribution;
 mod ensemble_calibrate;
 pub mod rust_events;
+mod regime_detector;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -309,6 +310,12 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Drawdown breaker
     m.add_class::<drawdown_breaker::RustDrawdownBreaker>()?;
+
+    // Regime detector (composite vol+trend + param router)
+    m.add_class::<regime_detector::RustCompositeRegimeDetector>()?;
+    m.add_class::<regime_detector::RustRegimeResult>()?;
+    m.add_class::<regime_detector::RustRegimeParams>()?;
+    m.add_class::<regime_detector::RustRegimeParamRouter>()?;
 
     Ok(())
 }
