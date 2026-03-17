@@ -76,13 +76,12 @@ class SQLiteDedupStore(DedupStore):
 
     def put(self, key: str, digest: str) -> None:
         now = time.time()
-        # Prefer insert; if exists, update ts but keep digest unchanged.
         with self._lock:
             self._conn.execute(
-                "INSERT OR IGNORE INTO dedup(key, digest, ts) VALUES(?,?,?)",
+                "INSERT INTO dedup(key, digest, ts) VALUES(?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET ts=excluded.ts",
                 (key, str(digest), now),
             )
-            self._conn.execute("UPDATE dedup SET ts=? WHERE key=?", (now, key))
             self._conn.commit()
 
     def prune(self) -> int:
