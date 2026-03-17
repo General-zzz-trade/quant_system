@@ -80,6 +80,12 @@ class LiveRunnerConfig:
     # --- Execution ---
     use_ws_orders: bool = False
 
+    # --- Adaptive Stop-Loss ---
+    enable_adaptive_stop: bool = False
+    atr_initial_mult: float = 2.0
+    atr_breakeven_trigger: float = 1.0
+    atr_trailing_mult: float = 0.3
+
     # --- Experimental ---
     adaptive_btc_enabled: bool = False
     adaptive_btc_interval_hours: int = 24
