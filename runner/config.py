@@ -83,6 +83,9 @@ class LiveRunnerConfig:
     # --- Rust hot-path ---
     enable_rust_components: bool = False
 
+    # --- Regime per-symbol ---
+    composite_regime_symbols: tuple[str, ...] = ()  # symbols using CompositeRegime+ParamRouter
+
     # --- Experimental ---
     adaptive_btc_enabled: bool = False
     adaptive_btc_interval_hours: int = 24

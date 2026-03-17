@@ -32,11 +32,13 @@ def build_decision(
     modules = list(decision_modules or [])
 
     if config.enable_regime_gate and modules:
+        composite_syms = getattr(config, "composite_regime_symbols", ())
         gated_modules = []
         for mod in modules:
             gated = RegimeAwareDecisionModule(
                 inner=mod,
                 policy=RegimePolicy(),
+                composite_regime_symbols=tuple(composite_syms),
             )
             # Enable param routing when regime sizing is active
             if getattr(config, "enable_regime_sizing", False):
