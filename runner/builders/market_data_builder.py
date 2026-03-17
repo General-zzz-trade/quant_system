@@ -6,9 +6,53 @@ Extracted from LiveRunner._build_market_data().
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _build_subscriptions(
+    symbols: tuple,
+    kline_interval: str,
+    multi_interval_symbols: Optional[Dict[str, List[str]]] = None,
+) -> List[Dict[str, str]]:
+    """Build a deduplicated list of WS subscription configs.
+
+    Each entry is a dict with keys:
+      - ``symbol``   — uppercase symbol string, e.g. ``"ETHUSDT"``
+      - ``interval`` — kline interval string, e.g. ``"60"`` or ``"15"``
+      - ``stream``   — Binance stream name, e.g. ``"ethusdt@kline_60"``
+
+    For symbols present in *multi_interval_symbols*, one entry is emitted per
+    requested interval.  All other symbols receive a single entry using
+    *kline_interval*.  Duplicate (symbol, interval) pairs are silently dropped
+    so callers can safely merge the default interval with the multi-interval
+    list without creating duplicates.
+    """
+    seen: set[tuple[str, str]] = set()
+    result: List[Dict[str, str]] = []
+
+    for sym in symbols:
+        intervals: List[str]
+        if multi_interval_symbols and sym in multi_interval_symbols:
+            intervals = list(multi_interval_symbols[sym])
+        else:
+            intervals = [kline_interval]
+
+        for ivl in intervals:
+            key = (sym, ivl)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(
+                {
+                    "symbol": sym,
+                    "interval": ivl,
+                    "stream": f"{sym.lower()}@kline_{ivl}",
+                }
+            )
+
+    return result
 
 
 def build_market_data(

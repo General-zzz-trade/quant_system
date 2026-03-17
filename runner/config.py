@@ -106,6 +106,8 @@ class LiveRunnerConfig:
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
     enable_dominance_features: bool = False
+    multi_interval_symbols: Optional[Dict[str, list]] = None  # e.g. {"ETHUSDT": ["60", "15"]}
+    ws_stale_threshold_sec: float = 120.0
 
     # -- Validation ------------------------------------------------------------
 
