@@ -243,6 +243,34 @@ class TestAdaptiveStopParity:
         result = gate.check(FakeEv(), {**context_with_atr, "price": 101.0})
         assert result.allowed is True
 
+    def test_reset_symbol_preserves_atr(self):
+        """reset_symbol preserves ATR history (matches Python behavior)."""
+        rust = RustAdaptiveStopGate()
+        py = make_python_gate()
+        sym = "ETHUSDT"
+
+        # Feed ATR samples
+        feed_atr(rust, sym, 20, is_rust=True)
+        feed_atr(py, sym, 20)
+
+        # Open and close a position
+        rust.on_new_position(sym, 1, 100.0)
+        py.on_new_position(sym, 1, 100.0)
+
+        rust.reset_symbol(sym)
+        py.reset_symbol(sym)
+
+        # Open new position — ATR should still be available
+        rust.on_new_position(sym, 1, 105.0)
+        py.on_new_position(sym, 1, 105.0)
+
+        # Stop price should use accumulated ATR, not fallback
+        rust_stop = rust.compute_stop_price(sym, 105.0)
+        py_stop = py.compute_stop_price(sym, 105.0)
+
+        assert rust_stop == pytest.approx(py_stop, rel=1e-9)
+        assert rust.get_phase(sym) == py.get_phase(sym).value  # both INITIAL
+
     def test_gate_result_stop_triggered(self):
         """AdaptiveStopGate.check() blocks when stop is breached."""
         gate = AdaptiveStopGate()

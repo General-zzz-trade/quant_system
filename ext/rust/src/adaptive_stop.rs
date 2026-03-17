@@ -243,9 +243,11 @@ impl RustAdaptiveStopGate {
         }
     }
 
-    /// Remove symbol state entirely.
+    /// Reset position fields for symbol, preserving ATR buffer (matches Python behavior).
     fn reset_symbol(&mut self, symbol: String) {
-        self.states.remove(&symbol);
+        if let Some(state) = self.states.get_mut(&symbol) {
+            state.reset();
+        }
     }
 
     /// Force the stop phase for a symbol (for testing/state sync).
