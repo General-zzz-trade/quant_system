@@ -18,6 +18,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os as _os
+import time as _time
 from typing import Any, Optional, Tuple
 
 from execution.adapters.bybit.client import BybitRestClient
@@ -36,6 +38,13 @@ from execution.models.orders import CanonicalOrder
 from execution.models.positions import VenuePosition
 
 logger = logging.getLogger(__name__)
+
+
+def _make_order_link_id(symbol: str, side: str) -> str:
+    """Generate unique orderLinkId for Bybit dedup (max 36 chars)."""
+    ts_ms = int(_time.time() * 1000)
+    rand = _os.urandom(2).hex()  # 4 hex chars
+    return f"qs_{symbol}_{side[0]}_{ts_ms}_{rand}"
 
 
 class BybitAdapter:
@@ -148,10 +157,9 @@ class BybitAdapter:
         *, reduce_only: bool = False,
     ) -> dict:
         """Send a market order with orderLinkId for deduplication."""
-        import time as _time
-        # Generate stable orderLinkId: prevents duplicate orders on retry/timeout
+        # Generate unique orderLinkId: prevents duplicate orders on retry/timeout
         # Bybit rejects duplicate orderLinkId within 3 minutes
-        order_link_id = f"qs_{symbol}_{side[0]}_{int(_time.time())}"
+        order_link_id = _make_order_link_id(symbol, side)
 
         body = {
             "category": self._config.category,
