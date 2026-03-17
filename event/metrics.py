@@ -135,7 +135,7 @@ class EventMetrics:
                 self._created.inc()
                 self._emit_ts[key] = now
 
-            elif state == LifecycleState.DISPATCHING:
+            elif state == LifecycleState.DISPATCH_START:
                 self._dispatching.inc()
                 self._dispatch_ts[key] = now
                 # emit -> dispatch 延迟

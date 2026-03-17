@@ -91,7 +91,7 @@ omit = ["*/tests/*", "*/archive/*", "scripts/*", "ext/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-fail_under = 57
+fail_under = 70
 exclude_lines = ["pragma: no cover", "if __name__", "raise NotImplementedError"]
 
 [tool.ruff]

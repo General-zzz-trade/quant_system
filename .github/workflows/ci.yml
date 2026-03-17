@@ -44,7 +44,7 @@ jobs:
           docker run --rm -v "$PWD":/app -w /app quant-ci:test \
             python -m pytest tests/ -x -q --tb=short \
             --ignore=tests/performance \
-            --cov=. --cov-report=term-missing --cov-fail-under=57
+            --cov=. --cov-report=term-missing --cov-fail-under=70
 
       - name: Run live_runner integration tests
         run: |
