@@ -80,3 +80,27 @@ class TestBothSourcesCombined:
         hook = FeatureComputeHook(computer=computer)
         features = hook.on_event(StubEvent())
         assert features is not None
+
+
+class TestSourceExceptionIsolation:
+    def test_safe_call_source_returns_none_on_exception(self):
+        """_safe_call_source should catch exceptions and return None."""
+        computer = EnrichedFeatureComputer()
+
+        def bad_source():
+            raise ConnectionError("API timeout")
+
+        hook = FeatureComputeHook(computer=computer)
+        result = hook._safe_call_source(bad_source, "funding_rate", "ETHUSDT")
+        assert result is None
+
+    def test_safe_call_source_returns_value_on_success(self):
+        """_safe_call_source should return the value on success."""
+        computer = EnrichedFeatureComputer()
+
+        def good_source():
+            return 0.0001
+
+        hook = FeatureComputeHook(computer=computer)
+        result = hook._safe_call_source(good_source, "funding_rate", "ETHUSDT")
+        assert result == 0.0001

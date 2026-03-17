@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Mapping, Optional, Union
 
 logger = logging.getLogger(__name__)
+_log = logger
 
 from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine  # noqa: E402
 from event.types import EventType as _EventType  # noqa: E402
@@ -117,6 +118,17 @@ class FeatureComputeHook:
             return source.get(symbol)
         return source
 
+    def _safe_call_source(self, source_fn, source_name: str, symbol: str):
+        """Call a source callable safely. Returns None on any exception."""
+        try:
+            return source_fn()
+        except Exception:
+            _log.warning(
+                "FeatureHook: %s source raised for %s, using NaN",
+                source_name, symbol, exc_info=True,
+            )
+            return None
+
     def _resolve_unified(self, symbol: str) -> Optional[Any]:
         """Resolve unified predictor: if dict, look up by symbol; if single, return as-is."""
         if self._unified is None:
@@ -144,7 +156,7 @@ class FeatureComputeHook:
         funding_rate = NaN
         _funding_src = self._resolve_source(self._funding_rate_source, symbol)
         if _funding_src is not None:
-            rate = _funding_src()
+            rate = self._safe_call_source(_funding_src, "funding_rate", symbol)
             if rate is not None:
                 funding_rate = rate
 
@@ -157,25 +169,25 @@ class FeatureComputeHook:
         ls_ratio = NaN
         _oi_src = self._resolve_source(self._oi_source, symbol)
         if _oi_src is not None:
-            oi_val = _oi_src()
+            oi_val = self._safe_call_source(_oi_src, "open_interest", symbol)
             if oi_val is not None:
                 open_interest = oi_val
         _ls_src = self._resolve_source(self._ls_ratio_source, symbol)
         if _ls_src is not None:
-            ls_val = _ls_src()
+            ls_val = self._safe_call_source(_ls_src, "ls_ratio", symbol)
             if ls_val is not None:
                 ls_ratio = ls_val
 
         spot_close = NaN
         _spot_src = self._resolve_source(self._spot_close_source, symbol)
         if _spot_src is not None:
-            spot_val = _spot_src()
+            spot_val = self._safe_call_source(_spot_src, "spot_close", symbol)
             if spot_val is not None:
                 spot_close = spot_val
 
         fear_greed = NaN
         if self._fgi_source is not None:
-            fgi_val = self._fgi_source()
+            fgi_val = self._safe_call_source(self._fgi_source, "fear_greed", symbol)
             if fgi_val is not None:
                 fear_greed = fgi_val
 
@@ -183,19 +195,19 @@ class FeatureComputeHook:
         put_call_ratio = NaN
         _iv_src = self._resolve_source(self._implied_vol_source, symbol)
         if _iv_src is not None:
-            iv_val = _iv_src()
+            iv_val = self._safe_call_source(_iv_src, "implied_vol", symbol)
             if iv_val is not None:
                 implied_vol = iv_val
         _pcr_src = self._resolve_source(self._put_call_ratio_source, symbol)
         if _pcr_src is not None:
-            pcr_val = _pcr_src()
+            pcr_val = self._safe_call_source(_pcr_src, "put_call_ratio", symbol)
             if pcr_val is not None:
                 put_call_ratio = pcr_val
 
         oc_flow_in = oc_flow_out = oc_supply = oc_addr = oc_tx = oc_hashrate = NaN
         _onchain_src = self._resolve_source(self._onchain_source, symbol)
         if _onchain_src is not None:
-            oc = _onchain_src()
+            oc = self._safe_call_source(_onchain_src, "onchain", symbol)
             if oc is not None:
                 oc_flow_in = oc.get("FlowInExUSD", NaN) or NaN
                 oc_flow_out = oc.get("FlowOutExUSD", NaN) or NaN
@@ -207,7 +219,7 @@ class FeatureComputeHook:
         liq_total_vol = liq_buy_vol = liq_sell_vol = liq_count = NaN
         _liq_src = self._resolve_source(self._liquidation_source, symbol)
         if _liq_src is not None:
-            liq = _liq_src()
+            liq = self._safe_call_source(_liq_src, "liquidation", symbol)
             if liq is not None:
                 liq_total_vol = liq.get("liq_total_volume", NaN) or NaN
                 liq_buy_vol = liq.get("liq_buy_volume", NaN) or NaN
@@ -216,7 +228,7 @@ class FeatureComputeHook:
 
         mempool_fastest = mempool_economy = mempool_size = NaN
         if self._mempool_source is not None:
-            mp = self._mempool_source()
+            mp = self._safe_call_source(self._mempool_source, "mempool", symbol)
             if mp is not None:
                 mempool_fastest = mp.get("fastest_fee", NaN) or NaN
                 mempool_economy = mp.get("economy_fee", NaN) or NaN
@@ -225,7 +237,7 @@ class FeatureComputeHook:
         macro_dxy = macro_spx = macro_vix = NaN
         macro_day = -1
         if self._macro_source is not None:
-            macro = self._macro_source()
+            macro = self._safe_call_source(self._macro_source, "macro", symbol)
             if macro is not None:
                 macro_dxy = macro.get("dxy", NaN) or NaN
                 macro_spx = macro.get("spx", NaN) or NaN
@@ -240,7 +252,7 @@ class FeatureComputeHook:
 
         social_volume = sentiment_score = NaN
         if self._sentiment_source is not None:
-            sent = self._sentiment_source()
+            sent = self._safe_call_source(self._sentiment_source, "sentiment", symbol)
             if sent is not None:
                 social_volume = sent.get("social_volume", NaN) or NaN
                 sentiment_score = sent.get("sentiment_score", NaN) or NaN
