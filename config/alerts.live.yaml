@@ -1,0 +1,39 @@
+# Live trading alert rules — $500 ETHUSDT validation
+alerts:
+  balance_critical:
+    type: balance_threshold
+    threshold: 400          # 20% DD from $500
+    action: kill_switch
+    channels: [telegram, console]
+    message: "CRITICAL: Balance below $400 (20% DD). Kill switch activated."
+
+  single_loss:
+    type: single_trade_loss
+    threshold: 50           # 10% of equity
+    action: alert
+    channels: [telegram]
+    message: "WARNING: Single trade loss > $50. Manual review required."
+
+  ws_stale:
+    type: stale_data
+    threshold_sec: 120
+    action: reconnect
+    fallback_action: kill_switch
+    channels: [console]
+    message: "WS stale > 120s. Auto-reconnecting."
+
+  no_bar:
+    type: bar_timeout
+    threshold_sec: 7200     # 2 hours (ETH 1h + margin)
+    action: alert
+    channels: [telegram]
+    message: "No bar processed in 2h. Check WS connection."
+
+  alpha_decay:
+    type: ic_threshold
+    threshold: 0.0
+    consecutive_days: 5
+    action: reduce_position
+    scale: 0.5
+    channels: [telegram]
+    message: "Alpha decay: IC < 0 for 5 consecutive days. Position scaled to 50%."
