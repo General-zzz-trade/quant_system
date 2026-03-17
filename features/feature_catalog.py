@@ -13,9 +13,22 @@ try:
 except ImportError:
     CROSS_ASSET_FEATURE_NAMES = ()
 
+# V14 dominance features (BTC/ETH ratio)
+from features.dominance_computer import _DOMINANCE_FEATURES
+
+# Multi-exchange funding spread features
+from features.funding_spread import FUNDING_SPREAD_FEATURES
+
+# On-chain flow features
+from features.onchain_flow import ONCHAIN_FEATURES
+
 # Canonical set of features available in production
 PRODUCTION_FEATURES: frozenset[str] = frozenset(
-    list(ENRICHED_FEATURE_NAMES) + list(CROSS_ASSET_FEATURE_NAMES)
+    list(ENRICHED_FEATURE_NAMES)
+    + list(CROSS_ASSET_FEATURE_NAMES)
+    + list(_DOMINANCE_FEATURES)
+    + list(FUNDING_SPREAD_FEATURES)
+    + list(ONCHAIN_FEATURES)
 )
 
 
