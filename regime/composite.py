@@ -73,28 +73,29 @@ class CompositeRegimeDetector:
                 and math.isfinite(float(v))
             }
             result = self._rust_detector.detect(feat_f64)
-            if result is None:
-                return None
-            # Map RustRegimeResult back to RegimeLabel
-            composite = CompositeRegimeLabel(
-                vol=result.vol_label, trend=result.trend_label
-            )
-            meta: Dict[str, Any] = {
-                "composite": composite,
-                "is_favorable": result.is_favorable,
-                "is_crisis": result.is_crisis,
-                "vol_label": result.vol_label,    # plain string (not RegimeLabel) for forward compat
-                "trend_label": result.trend_label, # plain string (not RegimeLabel) for forward compat
-            }
-            return RegimeLabel(
-                name=self.name,
-                ts=ts,
-                value=result.value,
-                score=result.score,
-                meta=meta,
-            )
+            if result is not None:
+                # Map RustRegimeResult back to RegimeLabel
+                composite = CompositeRegimeLabel(
+                    vol=result.vol_label, trend=result.trend_label
+                )
+                meta: Dict[str, Any] = {
+                    "composite": composite,
+                    "is_favorable": result.is_favorable,
+                    "is_crisis": result.is_crisis,
+                    "vol_label": result.vol_label,    # plain string (not RegimeLabel) for forward compat
+                    "trend_label": result.trend_label, # plain string (not RegimeLabel) for forward compat
+                }
+                return RegimeLabel(
+                    name=self.name,
+                    ts=ts,
+                    value=result.value,
+                    score=result.score,
+                    meta=meta,
+                )
+            # Rust returned None (e.g., insufficient bars or missing parkinson_vol)
+            # Fall through to Python path
 
-        # Python fallback path (used when custom detectors are injected)
+        # Python fallback path (used when custom detectors are injected or Rust returns None)
         vol_label = self.vol_detector.detect(symbol=symbol, ts=ts, features=features)
         trend_label = self.trend_detector.detect(symbol=symbol, ts=ts, features=features)
 
