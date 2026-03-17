@@ -47,19 +47,11 @@ class PnLTracker:
             return self._inner.total_pnl
         return self._total_pnl
 
-    @total_pnl.setter
-    def total_pnl(self, value: float) -> None:
-        self._total_pnl = value
-
     @property
     def peak_equity(self) -> float:
         if self._use_rust:
             return self._inner.peak_equity
         return self._peak_equity
-
-    @peak_equity.setter
-    def peak_equity(self, value: float) -> None:
-        self._peak_equity = value
 
     @property
     def trade_count(self) -> int:
@@ -67,19 +59,11 @@ class PnLTracker:
             return int(self._inner.trade_count)
         return self._trade_count
 
-    @trade_count.setter
-    def trade_count(self, value: int) -> None:
-        self._trade_count = value
-
     @property
     def win_count(self) -> int:
         if self._use_rust:
             return int(self._inner.win_count)
         return self._win_count
-
-    @win_count.setter
-    def win_count(self, value: int) -> None:
-        self._win_count = value
 
     @property
     def trades(self) -> list[dict]:

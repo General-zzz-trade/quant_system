@@ -686,9 +686,20 @@ class TestKillSwitch:
         runner._risk_eval = risk_eval
         runner._kill_switch = ks
 
-        # Set up state: have a previous winning trade so peak_equity > 0
-        runner._pnl.total_pnl = 100.0
-        runner._pnl.peak_equity = 200.0
+        # Set up state with a pure-Python PnLTracker (Rust mocked in this test file)
+        # so peak_equity is a real float, not a MagicMock
+        from scripts.ops.pnl_tracker import PnLTracker
+        real_pnl = PnLTracker()
+        # Force pure-Python mode regardless of mock hotpath
+        real_pnl._use_rust = False
+        real_pnl._total_pnl = 0.0
+        real_pnl._peak_equity = 0.0
+        real_pnl._trade_count = 0
+        real_pnl._win_count = 0
+        real_pnl._trades = []
+        runner._pnl = real_pnl
+        runner._pnl.record_close("ETHUSDT", 1, 1000.0, 1200.0, 1.0, "setup")  # +200 win → peak=200
+        runner._pnl.record_close("ETHUSDT", 1, 1200.0, 1100.0, 1.0, "setup")  # -100 loss → total≈100
         runner._entry_price = 2000.0
         runner._entry_size = 0.05
         runner._position_size = 0.05
