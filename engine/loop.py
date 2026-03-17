@@ -22,6 +22,15 @@ class RuntimeLike(Protocol):
     def unsubscribe(self, handler: Callable[[Any], None]) -> None: ...
 
 
+@dataclass
+class LoopMetrics:
+    """Observable counters for EngineLoop."""
+    drops: int = 0
+    retries: int = 0
+    errors: int = 0
+    processed: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class LoopConfig:
     """
@@ -102,6 +111,7 @@ class EngineLoop:
 
         self._ring = RustSpscRing(int(self._cfg.inbox_maxsize))
         self._running = False
+        self.metrics = LoopMetrics()
 
         # 可选：后台线程模式
         self._thread: Optional[threading.Thread] = None
@@ -138,6 +148,7 @@ class EngineLoop:
             while not self._ring.push(env):
                 time.sleep(0.0001)
             return True
+        self.metrics.drops += 1
         logger.warning(
             "EngineLoop inbox full, event dropped (total_drops=%d, actor=%s)",
             self._ring.drop_count(), actor,
@@ -190,6 +201,7 @@ class EngineLoop:
         try:
             self._coord.emit(event, actor=actor)
         except BaseException as exc:
+            self.metrics.errors += 1
             ctx_err = _extract_ctx(event, actor=actor, stage="on_error")
             d1 = self._guard.on_error(exc, actor=actor, ctx=ctx_err)
             self._apply_error_decision(env, d1)
@@ -206,6 +218,8 @@ class EngineLoop:
         if d2.action == GuardAction.RETRY:
             self._retry_or_drop(env, d2)
             return
+
+        self.metrics.processed += 1
 
     def _apply_error_decision(self, env: _Envelope, d: GuardDecision) -> None:
         if d.action == GuardAction.STOP:
@@ -227,10 +241,12 @@ class EngineLoop:
 
     def _retry_or_drop(self, env: _Envelope, d: GuardDecision) -> None:
         if env.retries >= int(self._cfg.retry_limit):
+            self.metrics.drops += 1
             return
         if d.retry_after_s is not None and d.retry_after_s > 0:
             time.sleep(float(d.retry_after_s))
         env.retries += 1
+        self.metrics.retries += 1
         env.received_at = time.time()
         self._ring.push(env)
 
