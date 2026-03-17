@@ -84,7 +84,13 @@ class LiveRunnerConfig:
     enable_rust_components: bool = False
 
     # --- Regime per-symbol ---
-    composite_regime_symbols: tuple[str, ...] = ()  # symbols using CompositeRegime+ParamRouter
+    composite_regime_symbols: tuple[str, ...] = ()
+
+    # --- Adaptive Stop-Loss ---
+    enable_adaptive_stop: bool = False
+    atr_initial_mult: float = 2.0
+    atr_breakeven_trigger: float = 1.0
+    atr_trailing_mult: float = 0.3
 
     # --- Experimental ---
     adaptive_btc_enabled: bool = False

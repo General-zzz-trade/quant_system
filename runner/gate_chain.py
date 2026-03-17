@@ -366,6 +366,7 @@ def build_gate_chain(
     alpha_health_monitor: Optional[Any] = None,
     regime_sizer: Optional[Any] = None,
     staged_risk: Optional[Any] = None,
+    adaptive_stop: Optional[Any] = None,
     portfolio_allocator: Optional[Any] = None,
     hook: Optional[Any] = None,
     kill_switch: Optional[Any] = None,
@@ -389,6 +390,8 @@ def build_gate_chain(
         gates.append(RegimeSizerGate(regime_sizer))
     if staged_risk is not None:
         gates.append(StagedRiskGate(staged_risk))
+    if adaptive_stop is not None:
+        gates.append(adaptive_stop)
     if portfolio_allocator is not None:
         gates.append(PortfolioAllocatorGate(portfolio_allocator, get_state_view))
     if hook is not None:
