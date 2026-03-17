@@ -112,6 +112,91 @@ def check_data_files() -> Tuple[bool, Any]:
     return len(missing) == 0, missing
 
 
+def check_liverunner_config() -> Tuple[bool, Any]:
+    """Verify LiveRunner production config file exists."""
+    config_path = Path("config/production.live.yaml")
+    return config_path.exists(), str(config_path)
+
+
+def check_rust_crate() -> Tuple[bool, Any]:
+    """Verify Rust crate is importable."""
+    try:
+        import _quant_hotpath  # type: ignore[import]
+        return True, _quant_hotpath.rust_version()
+    except ImportError as exc:
+        return False, str(exc)
+
+
+def check_feature_catalog() -> Tuple[bool, Any]:
+    """Verify feature catalog has expected number of features (>= 140)."""
+    try:
+        from features.feature_catalog import PRODUCTION_FEATURES  # type: ignore[import]
+        n = len(PRODUCTION_FEATURES)
+        return n >= 140, f"{n} features"
+    except ImportError as exc:
+        return False, str(exc)
+
+
+def check_model_directory() -> Tuple[bool, Any]:
+    """Verify model directory is populated."""
+    model_dir = Path("models_v8")
+    if not model_dir.is_dir():
+        return False, "models_v8/ directory missing"
+    files = list(model_dir.iterdir())
+    return len(files) > 0, f"{len(files)} entries in {model_dir}"
+
+
+def check_liverunner_import() -> Tuple[bool, Any]:
+    """Verify LiveRunner is importable."""
+    try:
+        from runner.live_runner import LiveRunner  # type: ignore[import] # noqa: F401
+        return True, ""
+    except ImportError as exc:
+        return False, str(exc)
+
+
+def check_liverunner_readiness() -> List[Tuple[str, bool, str]]:
+    """Check LiveRunner-specific readiness items.
+
+    Returns a list of (label, passed, detail) triples suitable for direct
+    display or for conversion to the standard result dict format.
+    """
+    checks: List[Tuple[str, bool, str]] = []
+
+    # 1. Config file exists
+    config_path = "config/production.live.yaml"
+    checks.append(("Live config exists", os.path.exists(config_path), config_path))
+
+    # 2. Rust components available
+    try:
+        import _quant_hotpath  # type: ignore[import]
+        checks.append(("Rust crate importable", True, _quant_hotpath.rust_version()))
+    except ImportError as exc:
+        checks.append(("Rust crate importable", False, str(exc)))
+
+    # 3. Feature catalog size
+    try:
+        from features.feature_catalog import PRODUCTION_FEATURES  # type: ignore[import]
+        n = len(PRODUCTION_FEATURES)
+        checks.append(("Feature catalog populated", n >= 140, f"{n} features"))
+    except ImportError as exc:
+        checks.append(("Feature catalog populated", False, str(exc)))
+
+    # 4. Model files exist
+    model_dir = "models_v8"
+    has_models = os.path.isdir(model_dir) and len(os.listdir(model_dir)) > 0
+    checks.append(("Model directory populated", has_models, model_dir))
+
+    # 5. LiveRunner import
+    try:
+        from runner.live_runner import LiveRunner  # type: ignore[import] # noqa: F401
+        checks.append(("LiveRunner importable", True, ""))
+    except ImportError as exc:
+        checks.append(("LiveRunner importable", False, str(exc)))
+
+    return checks
+
+
 # All checks as (name, callable) pairs
 ALL_CHECKS: List[Tuple[str, Any]] = [
     ("API keys present", check_api_keys),
@@ -121,6 +206,11 @@ ALL_CHECKS: List[Tuple[str, Any]] = [
     ("Systemd service configured", check_systemd_service),
     ("Log directory ready", check_log_directory),
     ("Data files present", check_data_files),
+    ("Live config exists", check_liverunner_config),
+    ("Rust crate importable", check_rust_crate),
+    ("Feature catalog populated", check_feature_catalog),
+    ("Model directory populated", check_model_directory),
+    ("LiveRunner importable", check_liverunner_import),
 ]
 
 
