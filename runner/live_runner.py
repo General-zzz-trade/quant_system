@@ -242,7 +242,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
 
         # Phase 5: features and inference
-        feat_hook, inference_bridge = _build_features_and_inference(
+        feat_hook, inference_bridge, _dominance_computer = _build_features_and_inference(
             config, feature_computer, alpha_models, inference_bridges,
             unified_predictors, metrics_exporter, hook, report,
             bear_model,

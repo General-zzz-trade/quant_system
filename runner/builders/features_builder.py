@@ -38,10 +38,19 @@ def build_features_and_inference(
 ) -> tuple:
     """Phase 5: feature hook, inference bridge, multi-TF ensemble, decision recording.
 
-    Returns (feat_hook, inference_bridge).
+    Returns (feat_hook, inference_bridge, dominance_computer).
+    dominance_computer is a DominanceComputer instance when config.enable_dominance_features
+    is True, otherwise None.  Phase 3 will migrate this to Rust.
     """
     from engine.feature_hook import FeatureComputeHook
     from runner.builders.inference import _build_multi_tf_ensemble
+
+    # V14 dominance computer (Python path; Phase 3 migrates to Rust)
+    dominance_computer = None
+    if getattr(config, "enable_dominance_features", False):
+        from features.dominance_computer import DominanceComputer
+        dominance_computer = DominanceComputer()
+        logger.info("V14 dominance features enabled (Python path)")
 
     feat_hook = None
     inference_bridge = None
@@ -110,4 +119,4 @@ def build_features_and_inference(
         hook.decision_store = DecisionStore(path=config.decision_recording_path)
         logger.info("Decision recording enabled: %s", config.decision_recording_path)
 
-    return feat_hook, inference_bridge
+    return feat_hook, inference_bridge, dominance_computer

@@ -93,6 +93,7 @@ class LiveRunnerConfig:
     initial_equity: float = 500.0
     enable_burnin_gate: bool = False
     burnin_report_path: str = "data/live/burnin_report.json"
+    enable_dominance_features: bool = False
 
     # -- Factory classmethods --------------------------------------------------
 
