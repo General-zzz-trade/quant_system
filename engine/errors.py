@@ -155,6 +155,22 @@ def classify_exception(
             cause=exc,
         )
 
+    # Network/IO errors (must be after TimeoutError check since TimeoutError is subclass of OSError)
+    if isinstance(exc, (ConnectionError, OSError)):
+        return ClassifiedError(
+            severity=ErrorSeverity.ERROR, domain=ErrorDomain.IO,
+            code=exc.__class__.__name__, message=str(exc) or exc.__class__.__name__,
+            ctx=c, cause=exc,
+        )
+
+    # Data lookup errors
+    if isinstance(exc, (KeyError, IndexError, AttributeError)):
+        return ClassifiedError(
+            severity=ErrorSeverity.ERROR, domain=ErrorDomain.DATA,
+            code=exc.__class__.__name__, message=str(exc) or exc.__class__.__name__,
+            ctx=c, cause=exc,
+        )
+
     # 3) 默认：ENGINE ERROR
     return ClassifiedError(
         severity=default_severity,
