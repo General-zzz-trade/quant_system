@@ -70,7 +70,7 @@ def test_reconcile_orders_reports_missing_active_local_order_as_critical_drift()
         venue_orders={},
     )
 
-    assert result.ok is True
+    assert result.ok is False
     assert result.missing_venue == 1
     assert len(result.drifts) == 1
     drift = result.drifts[0]

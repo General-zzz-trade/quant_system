@@ -158,6 +158,37 @@ class TestCheckpointRestore:
         assert "ord-1" in timed_out
         assert "ord-2" not in timed_out
 
+    def test_restore_preserves_cancel_command_identity(self):
+        clock = _FakeClock(1000.0)
+        canceled = []
+        tracker = OrderTimeoutTracker(
+            timeout_sec=30.0,
+            cancel_fn=lambda cmd: canceled.append((cmd.order_id, cmd.symbol)),
+            clock_fn=clock,
+        )
+
+        cmd = type(
+            "_CancelCmd",
+            (),
+            {"order_id": "ord-1", "symbol": "BTCUSDT", "venue": "binance"},
+        )()
+        tracker.on_submit("ord-1", cmd=cmd)
+        clock.advance(10.0)
+
+        cp = tracker.checkpoint()
+
+        clock2 = _FakeClock(2000.0)
+        tracker2 = OrderTimeoutTracker(
+            timeout_sec=30.0,
+            cancel_fn=lambda restored: canceled.append((restored.order_id, restored.symbol)),
+            clock_fn=clock2,
+        )
+        tracker2.restore(cp)
+
+        clock2.advance(21.0)
+        assert tracker2.check_timeouts() == ["ord-1"]
+        assert canceled == [("ord-1", "BTCUSDT")]
+
     def test_empty_checkpoint_restore(self):
         """Empty checkpoint restores to empty state."""
         clock = _FakeClock(1000.0)

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import execution.adapters.binance.async_ws_transport as async_ws_transport_module
 from execution.adapters.binance.async_rest import AsyncBinanceRestClient
 from execution.adapters.binance.async_ws_transport import AsyncWsTransport
 from execution.adapters.binance.async_gateway import AsyncBinanceUmFuturesOrderGateway
@@ -97,6 +98,18 @@ class TestAsyncWsTransport:
     def test_not_connected_by_default(self):
         t = AsyncWsTransport()
         assert t._ws is None
+
+    def test_connect_requires_optional_websockets_dependency(self, monkeypatch):
+        t = AsyncWsTransport()
+        monkeypatch.setattr(async_ws_transport_module, "websockets", None)
+        monkeypatch.setattr(
+            async_ws_transport_module,
+            "_WEBSOCKETS_IMPORT_ERROR",
+            ModuleNotFoundError("No module named 'websockets'"),
+        )
+
+        with pytest.raises(RuntimeError, match="quant-system\\[async\\]"):
+            _run(t.connect("wss://example.test/ws"))
 
 
 # ── AsyncBinanceUmFuturesOrderGateway tests ─────────────────

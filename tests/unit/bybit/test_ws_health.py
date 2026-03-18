@@ -122,7 +122,7 @@ class TestAlphaRunnerDataStale:
             "zscore_window": 720, "zscore_warmup": 180,
         }
         runner = AlphaRunner(adapter=adapter, model_info=model_info,
-                             symbol="ETHUSDT", dry_run=True)
+                             symbol="ETHUSDT", dry_run=True, start_oi_cache=False)
         assert runner.seconds_since_last_bar == float("inf")
 
     def test_seconds_since_last_bar_after_process(self):
@@ -145,7 +145,7 @@ class TestAlphaRunnerDataStale:
             "zscore_window": 720, "zscore_warmup": 180,
         }
         runner = AlphaRunner(adapter=adapter, model_info=model_info,
-                             symbol="ETHUSDT", dry_run=True)
+                             symbol="ETHUSDT", dry_run=True, start_oi_cache=False)
         # Mock engine to return empty features (no_features action)
         runner._engine = MM()
         runner._engine.get_features.return_value = []

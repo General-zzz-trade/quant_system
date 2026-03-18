@@ -372,6 +372,7 @@ class ExecutionBridge:
             if bucket.allow(1.0):
                 self._pending.pop()  # remove the one we just queued
             else:
+                self._pending.pop()  # queued command must not survive a FAILED ack
                 ack = Ack(
                     status="FAILED",
                     command_id=command_id,
@@ -383,6 +384,7 @@ class ExecutionBridge:
                     result=None,
                     error=f"rate_limited_queued:{venue}",
                 )
+                self.ack_store.put(idem, self._ack_to_payload(ack))
                 if self.on_ack:
                     self.on_ack(ack)
                 return ack

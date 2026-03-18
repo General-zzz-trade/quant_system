@@ -2,10 +2,11 @@
 
 
 class TestOrderLinkIdUniqueness:
-    def test_same_second_orders_produce_distinct_keys(self):
-        """Two orders created within the same second must have different orderLinkIds."""
+    def test_same_timestamp_orders_produce_distinct_keys(self, monkeypatch):
+        """Fixed timestamp should still produce unique orderLinkIds via the sequence suffix."""
         from execution.adapters.bybit.adapter import _make_order_link_id
 
+        monkeypatch.setattr("execution.adapters.bybit.adapter._time.time", lambda: 1773834992.625)
         ids = set()
         for _ in range(100):
             ids.add(_make_order_link_id("ETHUSDT", "buy"))
@@ -26,3 +27,10 @@ class TestOrderLinkIdUniqueness:
 
         oid = _make_order_link_id("ETHUSDT", "buy")
         assert len(oid) <= 36
+
+    def test_long_symbol_still_fits_bybit_limit(self):
+        from execution.adapters.bybit.adapter import _make_order_link_id
+
+        oid = _make_order_link_id("1000000MOGUSDT", "buy")
+        assert len(oid) <= 36
+        assert oid.startswith("qs_1000000MOGUSDT_b_")

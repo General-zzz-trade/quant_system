@@ -264,7 +264,11 @@ class EngineLoop:
 
     def stop_background(self) -> None:
         self._running = False
-        self._thread = None
+        if self._thread is not None:
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=5.0)
+            self._thread = None
 
     def run_forever(self) -> None:
         """
@@ -275,7 +279,6 @@ class EngineLoop:
         import os
         import ctypes
 
-        self._running = True
         idle_s = self._cfg.idle_sleep_s
 
         # ── F.1: Freeze GC — eliminate stop-the-world pauses ──

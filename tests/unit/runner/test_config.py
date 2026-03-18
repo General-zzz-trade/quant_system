@@ -110,3 +110,13 @@ class TestLiveRunnerConfigValidation:
     def test_valid_config_passes(self):
         cfg = LiveRunnerConfig()
         assert cfg.max_gross_leverage == 3.0
+
+    def test_symbols_must_not_be_empty(self):
+        import pytest
+        with pytest.raises(ValueError, match="symbols"):
+            LiveRunnerConfig(symbols=())
+
+    def test_max_order_notional_must_be_positive(self):
+        import pytest
+        with pytest.raises(ValueError, match="max_order_notional"):
+            LiveRunnerConfig(max_order_notional=0.0)

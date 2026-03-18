@@ -68,7 +68,7 @@ jobs:
             echo "Restored quant-paper:rollback -> quant-paper:latest"
           fi
           # Recreate the live service so it picks up the restored image.
-          docker compose up -d --no-deps --force-recreate paper-multi || true
+          docker compose up -d --no-deps --force-recreate quant-paper || true
           # Notify
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

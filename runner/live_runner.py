@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -169,6 +170,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     _last_user_stream_failure_at: Optional[datetime] = field(default=None, init=False)
     _last_user_stream_failure_kind: Optional[str] = field(default=None, init=False)
     _last_model_reload_status: Optional[Dict[str, Any]] = field(default=None, init=False)
+    _lifecycle_lock: Any = field(default_factory=threading.RLock, init=False, repr=False)
 
     @classmethod
     def build(
@@ -434,10 +436,21 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
 
             kwargs = {}
+            if risk.get("max_position_notional") is not None:
+                kwargs["max_position_notional"] = float(risk["max_position_notional"])
+            if risk.get("max_order_notional") is not None:
+                kwargs["max_order_notional"] = float(risk["max_order_notional"])
             if risk.get("max_leverage") is not None:
-                kwargs["margin_warning_ratio"] = float(risk["max_leverage"])
+                leverage = float(risk["max_leverage"])
+                kwargs["max_gross_leverage"] = leverage
+                kwargs["max_net_leverage"] = leverage
             if risk.get("max_drawdown_pct") is not None:
-                kwargs["margin_critical_ratio"] = float(risk["max_drawdown_pct"]) / 100.0
+                # Legacy nested configs only provided a single drawdown stop.
+                # Map it conservatively into the ordered warning/reduce/kill ladder.
+                dd_kill = float(risk["max_drawdown_pct"])
+                kwargs["dd_warning_pct"] = dd_kill * 0.5
+                kwargs["dd_reduce_pct"] = dd_kill * 0.75
+                kwargs["dd_kill_pct"] = dd_kill
             if monitoring.get("health_check_interval") is not None:
                 kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
             if monitoring.get("health_port") is not None:
@@ -570,126 +583,132 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
 
     def start(self) -> None:
         """Start the live trading system. Blocks until stop() or signal."""
-        self._stopped = False
-        self._running = True
-
-        self._apply_perf_tuning()
-
-        # ── Systemd watchdog notify (Direction 20) ──
         _sd_notify_fn = None
         try:
-            import socket
-            _sd_addr = os.environ.get("NOTIFY_SOCKET")
-            if _sd_addr:
-                _sd_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-                if _sd_addr.startswith("@"):
-                    _sd_addr = "\0" + _sd_addr[1:]
+            with self._lifecycle_lock:
+                self._stopped = False
+                self._running = True
 
-                def _sd_notify_fn(msg: str) -> None:
-                    try:
-                        _sd_sock.sendto(msg.encode(), _sd_addr)
-                    except Exception as e:
-                        logger.error("Failed to send systemd notify '%s': %s", msg, e, exc_info=True)
+                self._apply_perf_tuning()
 
-                _sd_notify_fn("READY=1")
-                logger.info("Systemd notify: READY=1")
-        except Exception as e:
-            logger.error("Failed to initialize systemd watchdog: %s", e, exc_info=True)
-
-        if self.shutdown_handler is not None:
-            self.shutdown_handler.install_handlers()
-
-        self.coordinator.start()
-        if self.health is not None:
-            self.health.start()
-        if self.reconcile_scheduler is not None:
-            self.reconcile_scheduler.start()
-        if self.margin_monitor is not None:
-            self.margin_monitor.start()
-        if self.alert_manager is not None:
-            self.alert_manager.start_periodic()
-        if self.health_server is not None:
-            self.health_server.start()
-        if self.module_reloader is not None:
-            self.module_reloader.start()
-        if self.data_scheduler is not None:
-            self.data_scheduler.start()
-        if self.freshness_monitor is not None:
-            self.freshness_monitor.start()
-        if self.periodic_checkpointer is not None:
-            self.periodic_checkpointer.start()
-
-        # SIGHUP: schedule model reload on next main loop iteration
-        # Works with both ModelRegistry and direct model file reload
-        import signal as _signal
-        import threading as _threading
-        def _sighup_handler(signum: int, frame: Any) -> None:
-            logger.info("SIGHUP received — scheduling model reload")
-            self._reload_models_pending = True
-        try:
-            if _threading.current_thread() is _threading.main_thread():
-                _signal.signal(_signal.SIGHUP, _sighup_handler)
-            else:
-                logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
-        except (OSError, AttributeError, ValueError) as e:
-            logger.warning("Failed to install SIGHUP handler: %s", e)
-
-        self.runtime.start()
-
-        if self.user_stream is not None:
-            import threading
-
-            def _user_stream_loop() -> None:
+                # ── Systemd watchdog notify (Direction 20) ──
                 try:
-                    self.user_stream.connect()
-                    self._record_user_stream_connect()
-                except Exception:
-                    self._record_user_stream_failure(kind="connect")
-                    logger.warning("User stream initial connect failed", exc_info=True)
-                    return
-                _backoff = 1.0
-                _MAX_BACKOFF = 60.0
-                while self._running:
-                    try:
-                        self.user_stream.step()
-                        _backoff = 1.0  # reset on success
-                    except Exception:
-                        self._record_user_stream_failure(kind="step")
-                        logger.warning(
-                            "User stream step error, reconnecting in %.0fs",
-                            _backoff, exc_info=True,
-                        )
-                        time.sleep(_backoff)
+                    import socket
+                    _sd_addr = os.environ.get("NOTIFY_SOCKET")
+                    if _sd_addr:
+                        _sd_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                        if _sd_addr.startswith("@"):
+                            _sd_addr = "\0" + _sd_addr[1:]
+
+                        def _sd_notify_fn(msg: str) -> None:
+                            try:
+                                _sd_sock.sendto(msg.encode(), _sd_addr)
+                            except Exception as e:
+                                logger.error(
+                                    "Failed to send systemd notify '%s': %s",
+                                    msg, e, exc_info=True,
+                                )
+
+                        _sd_notify_fn("READY=1")
+                        logger.info("Systemd notify: READY=1")
+                except Exception as e:
+                    logger.error("Failed to initialize systemd watchdog: %s", e, exc_info=True)
+
+                if self.shutdown_handler is not None:
+                    self.shutdown_handler.install_handlers()
+
+                self.coordinator.start()
+                if self.health is not None:
+                    self.health.start()
+                if self.reconcile_scheduler is not None:
+                    self.reconcile_scheduler.start()
+                if self.margin_monitor is not None:
+                    self.margin_monitor.start()
+                if self.alert_manager is not None:
+                    self.alert_manager.start_periodic()
+                if self.health_server is not None:
+                    self.health_server.start()
+                if self.module_reloader is not None:
+                    self.module_reloader.start()
+                if self.data_scheduler is not None:
+                    self.data_scheduler.start()
+                if self.freshness_monitor is not None:
+                    self.freshness_monitor.start()
+                if self.periodic_checkpointer is not None:
+                    self.periodic_checkpointer.start()
+
+                # SIGHUP: schedule model reload on next main loop iteration
+                # Works with both ModelRegistry and direct model file reload
+                import signal as _signal
+
+                def _sighup_handler(signum: int, frame: Any) -> None:
+                    logger.info("SIGHUP received — scheduling model reload")
+                    self._reload_models_pending = True
+
+                try:
+                    if threading.current_thread() is threading.main_thread():
+                        _signal.signal(_signal.SIGHUP, _sighup_handler)
+                    else:
+                        logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
+                except (OSError, AttributeError, ValueError) as e:
+                    logger.warning("Failed to install SIGHUP handler: %s", e)
+
+                self.runtime.start()
+
+                if self.user_stream is not None:
+                    def _user_stream_loop() -> None:
                         try:
                             self.user_stream.connect()
                             self._record_user_stream_connect()
-                            _backoff = 1.0  # reset on successful reconnect
                         except Exception:
-                            self._record_user_stream_failure(kind="reconnect")
-                            logger.warning("User stream reconnect failed", exc_info=True)
-                            _backoff = min(_backoff * 2, _MAX_BACKOFF)
+                            self._record_user_stream_failure(kind="connect")
+                            logger.warning("User stream initial connect failed", exc_info=True)
+                            return
+                        _backoff = 1.0
+                        _MAX_BACKOFF = 60.0
+                        while self._running:
+                            try:
+                                self.user_stream.step()
+                                _backoff = 1.0  # reset on success
+                            except Exception:
+                                self._record_user_stream_failure(kind="step")
+                                logger.warning(
+                                    "User stream step error, reconnecting in %.0fs",
+                                    _backoff, exc_info=True,
+                                )
+                                time.sleep(_backoff)
+                                try:
+                                    self.user_stream.connect()
+                                    self._record_user_stream_connect()
+                                    _backoff = 1.0  # reset on successful reconnect
+                                except Exception:
+                                    self._record_user_stream_failure(kind="reconnect")
+                                    logger.warning("User stream reconnect failed", exc_info=True)
+                                    _backoff = min(_backoff * 2, _MAX_BACKOFF)
 
-            t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
-            t.start()
-            self._user_stream_thread = t
-            logger.info("User stream thread started")
+                    t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
+                    t.start()
+                    self._user_stream_thread = t
+                    logger.info("User stream thread started")
 
-        self.loop.start_background()
+                self.loop.start_background()
 
-        # ── Adaptive BTC config selector state ──
-        _last_adaptive_check = 0.0
-        _adaptive_selector = None
-        cfg = getattr(self, "_config", None)
-        if cfg is not None and cfg.adaptive_btc_enabled and "BTCUSDT" in cfg.symbols:
-            try:
-                from alpha.adaptive_config import AdaptiveConfigSelector
-                _adaptive_selector = AdaptiveConfigSelector()
-                logger.info("Adaptive BTC config selector enabled (interval=%dh)", cfg.adaptive_btc_interval_hours)
-            except Exception:
-                logger.warning("Adaptive config selector init failed", exc_info=True)
+            # ── Adaptive BTC config selector state ──
+            _last_adaptive_check = 0.0
+            _adaptive_selector = None
+            cfg = getattr(self, "_config", None)
+            if cfg is not None and cfg.adaptive_btc_enabled and "BTCUSDT" in cfg.symbols:
+                try:
+                    from alpha.adaptive_config import AdaptiveConfigSelector
+                    _adaptive_selector = AdaptiveConfigSelector()
+                    logger.info(
+                        "Adaptive BTC config selector enabled (interval=%dh)",
+                        cfg.adaptive_btc_interval_hours,
+                    )
+                except Exception:
+                    logger.warning("Adaptive config selector init failed", exc_info=True)
 
-        logger.info("LiveRunner started. Press Ctrl+C to stop.")
-        try:
+            logger.info("LiveRunner started. Press Ctrl+C to stop.")
             while self._running:
                 time.sleep(1.0)
                 # Check for timed-out orders
@@ -743,51 +762,52 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
 
     def stop(self) -> None:
         """Stop all subsystems gracefully."""
-        if self._stopped:
-            return
-        self._stopped = True
-        self._running = False
+        with self._lifecycle_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            self._running = False
 
-        logger.info("Stopping LiveRunner...")
-        if self.user_stream is not None:
-            try:
-                self.user_stream.close()
-            except Exception:
-                logger.warning("User stream close error", exc_info=True)
-            if self._user_stream_thread is not None:
-                from infra.threading_utils import safe_join_thread
+            logger.info("Stopping LiveRunner...")
+            if self.user_stream is not None:
+                try:
+                    self.user_stream.close()
+                except Exception:
+                    logger.warning("User stream close error", exc_info=True)
+                if self._user_stream_thread is not None:
+                    from infra.threading_utils import safe_join_thread
 
-                safe_join_thread(self._user_stream_thread, timeout=5.0)
-                self._user_stream_thread = None
-        if self.periodic_checkpointer is not None:
-            self.periodic_checkpointer.stop()
-        if self.freshness_monitor is not None:
-            self.freshness_monitor.stop()
-        if self.data_scheduler is not None:
-            self.data_scheduler.stop()
-        if self.module_reloader is not None:
-            self.module_reloader.stop()
-        if self.health_server is not None:
-            self.health_server.stop()
-        if self.alert_manager is not None:
-            self.alert_manager.stop()
-        if self.margin_monitor is not None:
-            self.margin_monitor.stop()
-        if self.reconcile_scheduler is not None:
-            self.reconcile_scheduler.stop()
-        self.runtime.stop()
-        self.loop.stop_background()
-        self.coordinator.stop()
-        if self.health is not None:
-            self.health.stop()
+                    safe_join_thread(self._user_stream_thread, timeout=5.0)
+                    self._user_stream_thread = None
+            if self.periodic_checkpointer is not None:
+                self.periodic_checkpointer.stop()
+            if self.freshness_monitor is not None:
+                self.freshness_monitor.stop()
+            if self.data_scheduler is not None:
+                self.data_scheduler.stop()
+            if self.module_reloader is not None:
+                self.module_reloader.stop()
+            if self.health_server is not None:
+                self.health_server.stop()
+            if self.alert_manager is not None:
+                self.alert_manager.stop()
+            if self.margin_monitor is not None:
+                self.margin_monitor.stop()
+            if self.reconcile_scheduler is not None:
+                self.reconcile_scheduler.stop()
+            self.runtime.stop()
+            self.loop.stop_background()
+            self.coordinator.stop()
+            if self.health is not None:
+                self.health.stop()
 
-        if self.ws_order_gateway is not None:
-            try:
-                self.ws_order_gateway.stop()
-            except Exception:
-                logger.warning("WS order gateway stop error", exc_info=True)
+            if self.ws_order_gateway is not None:
+                try:
+                    self.ws_order_gateway.stop()
+                except Exception:
+                    logger.warning("WS order gateway stop error", exc_info=True)
 
-        logger.info("LiveRunner stopped. Total fills: %d", len(self._fills))
+            logger.info("LiveRunner stopped. Total fills: %d", len(self._fills))
 
     def _run_adaptive_btc_check(self, selector: Any) -> None:
         """Run adaptive config selection for BTC and update inference bridge params."""

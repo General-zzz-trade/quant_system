@@ -24,6 +24,7 @@ enable_regime_gate: true
 enable_monitoring: true
 health_port: 9090
 deadzone: 0.5
+max_order_notional: 100.0
 min_hold_bars:
   BTCUSDT: 12
   ETHUSDT: 12
@@ -84,6 +85,7 @@ def test_flat_config_parses_symbols(flat_yaml, mock_venue_clients):
         assert config.testnet is True
         assert config.health_port == 9090
         assert config.deadzone == 0.5
+        assert config.max_order_notional == 100.0
 
 
 def test_flat_config_shadow_mode_override(flat_yaml, mock_venue_clients):
@@ -192,3 +194,46 @@ def test_nested_config_still_works(nested_yaml, mock_venue_clients):
         config = mock_build.call_args[0][0]
         assert config.symbols == ("BTCUSDT",)
         assert config.venue == "binance"
+
+
+def test_nested_risk_fields_map_to_runtime_controls(tmp_path, mock_venue_clients):
+    cfg = tmp_path / "legacy_risk.yaml"
+    cfg.write_text("""\
+trading:
+  symbol: BTCUSDT
+  exchange: binance
+strategy:
+  name: gate_v2
+risk:
+  max_position_notional: 25000.0
+  max_order_notional: 500.0
+  max_leverage: 3.0
+  max_drawdown_pct: 10.0
+logging:
+  level: INFO
+  structured: true
+""")
+
+    with patch.object(LiveRunner, "build") as mock_build, \
+         patch("infra.config.loader.load_config_secure") as mock_load, \
+         patch("infra.config.loader.resolve_credentials"), \
+         patch("runner.model_discovery.discover_active_models", return_value={}), \
+         patch("runner.model_discovery.build_feature_computer", return_value=MagicMock()):
+
+        import yaml
+        mock_load.return_value = yaml.safe_load(cfg.read_text())
+        mock_build.return_value = MagicMock()
+
+        LiveRunner.from_config(
+            cfg,
+            venue_clients=mock_venue_clients,
+        )
+
+        config = mock_build.call_args[0][0]
+        assert config.max_position_notional == 25000.0
+        assert config.max_order_notional == 500.0
+        assert config.max_gross_leverage == 3.0
+        assert config.max_net_leverage == 3.0
+        assert config.dd_warning_pct == 5.0
+        assert config.dd_reduce_pct == 7.5
+        assert config.dd_kill_pct == 10.0

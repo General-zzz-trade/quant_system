@@ -16,6 +16,8 @@ from execution.models.rejections import ack_to_rejection
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_FILL_STATUSES = {"FILLED", "PARTIALLY_FILLED"}
+
 
 @dataclass(frozen=True, slots=True)
 class LiveExecutionConfig:
@@ -84,15 +86,25 @@ class LiveExecutionBridge:
         )
 
         if ack.ok:
-            fill = self._ack_to_fill(order_event, ack)
-            self._order_count += 1
-            self._emit_incident(synthetic_fill_to_alert(fill), symbol=getattr(order_event, "symbol", "?"))
-            if self.dispatcher_emit is not None:
-                try:
-                    self.dispatcher_emit(fill)
-                except Exception:
-                    logger.exception("dispatcher_emit failed for fill")
-            return [fill]
+            if self._ack_contains_fill_evidence(ack):
+                fill = self._ack_to_fill(order_event, ack)
+                self._order_count += 1
+                self._emit_incident(
+                    synthetic_fill_to_alert(fill),
+                    symbol=getattr(order_event, "symbol", "?"),
+                )
+                if self.dispatcher_emit is not None:
+                    try:
+                        self.dispatcher_emit(fill)
+                    except Exception:
+                        logger.exception("dispatcher_emit failed for fill")
+                return [fill]
+            logger.info(
+                "Order accepted without fill evidence: status=%s result_keys=%s",
+                ack.status,
+                sorted((ack.result or {}).keys()),
+            )
+            return []
 
         logger.warning(
             "Order rejected by bridge: status=%s error=%s",
@@ -123,8 +135,21 @@ class LiveExecutionBridge:
             default_symbol=str(getattr(order_event, "symbol", "")),
         )
         result = normalized.result or {}
-        fill_price = result.get("price") or getattr(order_event, "price", None) or Decimal("0")
-        fill_qty = result.get("qty") or getattr(order_event, "qty", None) or Decimal("0")
+        fill_price = (
+            result.get("avg_price")
+            or result.get("avgPrice")
+            or result.get("price")
+            or getattr(order_event, "price", None)
+            or Decimal("0")
+        )
+        fill_qty = (
+            result.get("filled_qty")
+            or result.get("executedQty")
+            or result.get("cumExecQty")
+            or result.get("qty")
+            or getattr(order_event, "qty", None)
+            or Decimal("0")
+        )
         return build_synthetic_ingress_fill_event(
             source="bridge",
             symbol=getattr(order_event, "symbol", ""),
@@ -133,9 +158,41 @@ class LiveExecutionBridge:
             price=fill_price if fill_price is not None else Decimal("0"),
             fee=result.get("fee", "0"),
             venue=normalized.venue,
-            order_id=getattr(order_event, "order_id", ""),
-            identity_seed=normalized.command_id or getattr(order_event, "command_id", ""),
+            order_id=result.get("order_id") or getattr(order_event, "order_id", ""),
+            identity_seed=(
+                result.get("trade_id")
+                or result.get("fill_id")
+                or normalized.command_id
+                or getattr(order_event, "command_id", "")
+            ),
         )
+
+    @staticmethod
+    def _ack_contains_fill_evidence(ack: Any) -> bool:
+        normalized = normalize_ack(ack)
+        result = normalized.result or {}
+        if not result:
+            return False
+
+        if result.get("fill_id") or result.get("trade_id"):
+            return True
+
+        status = str(result.get("status", normalized.status or "")).upper()
+        has_fill_qty = any(
+            result.get(key) not in (None, "", 0, 0.0, "0", "0.0")
+            for key in ("filled_qty", "executedQty", "cumExecQty", "qty")
+        )
+        has_fill_price = any(
+            result.get(key) not in (None, "", 0, 0.0, "0", "0.0")
+            for key in ("avg_price", "avgPrice", "price")
+        )
+        has_fee_field = any(key in result for key in ("fee", "commission", "fee_asset"))
+
+        if status in _TERMINAL_FILL_STATUSES and has_fill_qty:
+            return True
+        if has_fill_qty and has_fill_price and has_fee_field:
+            return True
+        return False
 
     @property
     def order_count(self) -> int:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -45,6 +46,9 @@ class TestWsOrderAdapter:
         results = adapter.send_order(order)
         assert len(results) == 1
         assert len(rest.orders) == 1
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "rest_fallback"
+        assert adapter.last_order_outcome.reason == "ws_disconnected"
 
     def test_is_ws_connected_false_initially(self):
         rest = _FakeRestAdapter()
@@ -139,6 +143,7 @@ class _FakeWsGateway:
         if self._should_error and self._adapter:
             # Schedule error callback in a separate thread
             def _fire():
+                time.sleep(0.01)
                 self._adapter._on_error(req_id, {"error": "ws_protocol_error"})
             t = threading.Thread(target=_fire)
             t.start()
@@ -170,6 +175,9 @@ class TestWsTimeoutFallback:
         assert len(rest.orders) == 1
         assert len(results) == 1
         assert results[0]["status"] == "filled"
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "rest_fallback"
+        assert adapter.last_order_outcome.reason == "ws_timeout"
 
     def test_ws_error_falls_back_to_rest(self):
         """When WS returns error, REST adapter is used."""
@@ -194,3 +202,88 @@ class TestWsTimeoutFallback:
         assert len(rest.orders) == 1
         assert len(results) == 1
         assert results[0]["status"] == "filled"
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "rest_fallback"
+        assert adapter.last_order_outcome.reason == "ws_error"
+
+    def test_auth_error_does_not_fall_back_to_rest(self):
+        """Explicit auth/permission errors must fail fast instead of sending REST duplicates."""
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=1.0,
+        )
+
+        class _AuthErrorGateway:
+            is_running = True
+
+            def __init__(self, owner: WsOrderAdapter):
+                self._owner = owner
+
+            def submit_order(self, **kwargs) -> str:
+                req_id = "ws-auth-1"
+
+                def _fire():
+                    time.sleep(0.01)
+                    self._owner._on_error(
+                        req_id,
+                        {"status": 401, "error": {"code": -2015, "msg": "invalid api key"}},
+                    )
+
+                t = threading.Thread(target=_fire)
+                t.start()
+                return req_id
+
+        adapter._gateway = _AuthErrorGateway(adapter)
+        adapter._started = True
+
+        results = adapter.send_order(_FakeOrderEvent())
+
+        assert results == []
+        assert len(rest.orders) == 0
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "ws_error_no_fallback"
+        assert adapter.last_order_outcome.reason == "ws_auth_or_permission_error"
+        assert adapter.last_order_outcome.error is not None
+
+    def test_success_records_ws_outcome_and_latency(self):
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=1.0,
+        )
+
+        class _SuccessGateway:
+            is_running = True
+
+            def __init__(self, owner: WsOrderAdapter):
+                self._owner = owner
+
+            def submit_order(self, **kwargs) -> str:
+                req_id = "ws-ok-1"
+
+                def _fire():
+                    time.sleep(0.01)
+                    self._owner._on_response(
+                        {"id": req_id, "status": 200, "_latency_ms": 4.2, "result": {"orderId": 1}}
+                    )
+
+                t = threading.Thread(target=_fire)
+                t.start()
+                return req_id
+
+        adapter._gateway = _SuccessGateway(adapter)
+        adapter._started = True
+
+        results = adapter.send_order(_FakeOrderEvent())
+
+        assert results == []
+        assert len(rest.orders) == 0
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "ws_success"
+        assert adapter.last_order_outcome.reason == "ws_response"
+        assert adapter.last_order_outcome.latency_ms == 4.2

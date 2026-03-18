@@ -132,3 +132,24 @@ def test_vol_target_kills_marginal_signal_in_high_vol(_mock_predict, tmp_path: P
     events = list(mod.decide(_snapshot(close=100, features={"atr_norm_14": 0.30})))
     # Post-discretization vol-scale: entry occurs with reduced notional (×0.5)
     assert len(events) == 2  # IntentEvent + OrderEvent
+
+
+def test_single_symbol_module_loads_config_referenced_ridge_primary_artifacts(tmp_path: Path):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text(
+        '{"multi_horizon": false, "primary_horizon": 24, "ensemble_method": "ridge_primary",'
+        ' "ridge_weight": 0.6, "lgbm_weight": 0.4,'
+        ' "horizon_models": [{"horizon": 24, "lgbm": "lgbm_h24.pkl",'
+        ' "ridge": "ridge_h24.pkl", "features": ["atr_norm_14", "trend"],'
+        ' "ridge_features": ["trend"]}]}'
+    )
+    with (model_dir / "lgbm_h24.pkl").open("wb") as f:
+        pickle.dump({"model": None, "features": ["atr_norm_14", "trend"]}, f)
+    with (model_dir / "ridge_h24.pkl").open("wb") as f:
+        pickle.dump({"model": None, "features": ["trend"]}, f)
+
+    mod = MLSignalDecisionModule(symbol="BTCUSDT", model_dir=model_dir)
+    assert mod._ensemble_method == "ridge_primary"
+    assert mod._features == ["atr_norm_14", "trend"]
+    assert mod._ridge_features == ["trend"]

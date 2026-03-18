@@ -25,6 +25,10 @@ class LiveRunnerConfig:
     max_net_leverage: float = 1.0
     max_concentration: float = 0.4
     max_avg_correlation: float = 0.7
+    max_position_notional: float = 100_000.0
+    max_order_notional: float = 50_000.0
+    max_open_orders: int = 20
+    max_portfolio_notional: float = 500_000.0
     dd_warning_pct: float = 10.0
     dd_reduce_pct: float = 15.0
     dd_kill_pct: float = 20.0
@@ -121,6 +125,8 @@ class LiveRunnerConfig:
     # -- Validation ------------------------------------------------------------
 
     def __post_init__(self) -> None:
+        if not self.symbols:
+            raise ValueError("symbols must not be empty")
         if self.max_gross_leverage <= 0:
             raise ValueError(
                 f"max_gross_leverage must be positive, got {self.max_gross_leverage}"
@@ -143,6 +149,23 @@ class LiveRunnerConfig:
         if self.max_concentration <= 0 or self.max_concentration > 1:
             raise ValueError(
                 f"max_concentration must be in (0, 1], got {self.max_concentration}"
+            )
+        if self.max_position_notional <= 0:
+            raise ValueError(
+                f"max_position_notional must be positive, got {self.max_position_notional}"
+            )
+        if self.max_order_notional <= 0:
+            raise ValueError(
+                f"max_order_notional must be positive, got {self.max_order_notional}"
+            )
+        if self.max_open_orders <= 0:
+            raise ValueError(
+                f"max_open_orders must be positive, got {self.max_open_orders}"
+            )
+        if self.max_portfolio_notional <= 0:
+            raise ValueError(
+                "max_portfolio_notional must be positive, "
+                f"got {self.max_portfolio_notional}"
             )
 
     # -- Factory classmethods --------------------------------------------------

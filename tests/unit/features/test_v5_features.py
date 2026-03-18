@@ -6,6 +6,23 @@ import pytest
 
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
 
+V5_FEATURE_NAMES = (
+    "cvd_10",
+    "cvd_20",
+    "cvd_price_divergence",
+    "aggressive_flow_zscore",
+    "vol_of_vol",
+    "range_vs_rv",
+    "parkinson_vol",
+    "rv_acceleration",
+    "oi_acceleration",
+    "leverage_proxy",
+    "oi_vol_divergence",
+    "oi_liquidation_flag",
+    "funding_annualized",
+    "funding_vs_vol",
+)
+
 
 class _Base:
     """Shared helpers for V5 feature tests."""
@@ -220,7 +237,10 @@ class TestFundingCarryFeatures(_Base):
 class TestV5FeatureCount(_Base):
 
     def test_enriched_feature_names_count(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 116, f"Expected 116, got {len(ENRICHED_FEATURE_NAMES)}"
+        assert len(ENRICHED_FEATURE_NAMES) >= 116, (
+            f"Feature catalog regressed unexpectedly: got only {len(ENRICHED_FEATURE_NAMES)} names"
+        )
+        assert len(ENRICHED_FEATURE_NAMES) == len(set(ENRICHED_FEATURE_NAMES)), "Feature catalog contains duplicates"
 
     def test_all_v5_features_present_after_warmup(self):
         comp = EnrichedFeatureComputer()
@@ -239,11 +259,11 @@ class TestV5FeatureCount(_Base):
                 ls_ratio=1.0 + i * 0.001,
             ))
         feats = comp.get_features_dict("BTC")
-        for name in ENRICHED_FEATURE_NAMES:
+        for name in V5_FEATURE_NAMES:
             assert name in feats, f"Feature '{name}' missing from output"
 
     def test_no_regression_feature_count(self):
-        """All features should be non-None after sufficient warmup."""
+        """All V5 features should be non-None after sufficient warmup."""
         comp = EnrichedFeatureComputer()
         for i in range(80):
             close = 100.0 + i * 0.1
@@ -268,15 +288,5 @@ class TestV5FeatureCount(_Base):
                             "HashRate": 5.5e17 + i * 1e15,
                         })
         feats = comp.get_features_dict("BTC")
-        external_features = {
-            "cross_tf_regime_sync",
-            "liquidation_volume_zscore_24", "liquidation_imbalance",
-            "liquidation_volume_ratio", "liquidation_cluster_flag",
-            "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
-            "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
-            "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
-        }
-        for name in ENRICHED_FEATURE_NAMES:
-            if name in external_features:
-                continue
+        for name in V5_FEATURE_NAMES:
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"

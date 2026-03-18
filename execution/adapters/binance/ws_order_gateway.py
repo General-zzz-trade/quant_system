@@ -125,6 +125,29 @@ class BinanceWsOrderGateway:
         self._ws.send(msg)
         return req_id
 
+    def modify_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        order_type: str = "LIMIT",
+        quantity: str,
+        price: str,
+        order_id: Optional[int] = None,
+        orig_client_order_id: Optional[str] = None,
+        time_in_force: Optional[str] = "GTC",
+    ) -> str:
+        """Modify (cancel-replace) order via WS-API in 1 RTT. Returns request_id."""
+        msg, req_id = self._gateway.build_modify_message(
+            symbol, side, order_type, quantity, price,
+            order_id=order_id,
+            orig_client_order_id=orig_client_order_id,
+            time_in_force=time_in_force,
+        )
+        self._pending[req_id] = time.monotonic()
+        self._ws.send(msg)
+        return req_id
+
     def query_order(
         self,
         *,

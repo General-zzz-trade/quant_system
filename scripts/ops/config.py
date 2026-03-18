@@ -10,8 +10,9 @@ POLL_INTERVAL = 60  # seconds between checks
 
 # Hard safety limit — no single order can exceed this notional (USD)
 # Increase manually as your account grows. Never let code auto-adjust this.
-# Demo account: $50K equity → $5K per order (10% of equity)
-MAX_ORDER_NOTIONAL = 5000.0
+# Production safety baseline: keep the global alpha path capped at $500/order.
+# LiveRunner may apply a lower per-session limit via config.max_order_notional.
+MAX_ORDER_NOTIONAL = 500.0
 
 # Default symbols + position sizes
 SYMBOL_CONFIG = {

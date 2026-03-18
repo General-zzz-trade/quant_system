@@ -41,7 +41,10 @@ from runner.backtest_runner import (  # noqa: E402
     _max_drawdown,
     EquityPoint,
 )
-from decision.backtest_module import MLSignalDecisionModule  # noqa: E402
+from decision.backtest_module import (  # noqa: E402
+    MLSignalDecisionModule,
+    _resolve_primary_model_artifacts,
+)
 from decision.precomputed_hook import PrecomputedFeatureHook  # noqa: E402
 
 
@@ -82,7 +85,9 @@ def prepare_oos_data(
     if not data_path.exists():
         print(f"  SKIP {symbol}: no data at {data_path}")
         return None, None, {}
-    if not (model_dir / "lgbm_v8.pkl").exists():
+    with open(model_dir / "config.json") as f:
+        model_cfg = json.load(f)
+    if _resolve_primary_model_artifacts(model_dir, model_cfg) is None:
         print(f"  SKIP {symbol}: no model at {model_dir}")
         return None, None, {}
 
@@ -133,11 +138,10 @@ def build_decision_module(
 ) -> Optional[MLSignalDecisionModule]:
     """Build MLSignalDecisionModule from model dir, using pre-committed config."""
     model_dir = MODEL_DIR / f"{symbol}_gate_v2"
-    if not (model_dir / "lgbm_v8.pkl").exists():
-        return None
-
     with open(model_dir / "config.json") as f:
         cfg = json.load(f)
+    if _resolve_primary_model_artifacts(model_dir, cfg) is None:
+        return None
 
     risk_per_coin = RISK_FRACTION / max(n_coins, 1)
 

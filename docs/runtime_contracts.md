@@ -1,6 +1,6 @@
 # Runtime Contracts
 
-> 更新时间: 2026-03-14
+> 更新时间: 2026-03-18
 > 目标: 对比 live / backtest / replay 三条路径的当前契约差异，并给出统一基线
 > 适用范围: 当前默认 Python runtime 及其验证路径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
@@ -11,7 +11,7 @@
 
 | 路径 | 入口 | 当前定位 |
 |---|---|---|
-| live | [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 默认生产路径 |
+| live | [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 框架层 live 路径（完整 engine 闭环，非当前活跃 alpha 部署） |
 | backtest | [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py) | 历史回测与结果验证 |
 | replay | [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py) | 历史事件重放与一致性验证 |
 
@@ -52,7 +52,8 @@ live 路径额外具备：
 结论：
 
 - live 是最完整的运行路径
-- 也是当前默认生产真相源
+- 是当前 framework live 真相源
+- 当前活跃 alpha 生产入口仍是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)；详见 [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
 ### 3.2 backtest
 

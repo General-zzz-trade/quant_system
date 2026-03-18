@@ -120,13 +120,13 @@ class TestPortfolioCombinerAgreeMode:
         assert len(adapter.orders) == 0
 
     def test_position_size_capped(self):
-        """Size capped by MAX_ORDER_NOTIONAL ($5000)."""
+        """Size capped by MAX_ORDER_NOTIONAL ($500)."""
         pc, _ = _make_combiner(equity=10000.0)
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
         # With 10x leverage: 10000 * 0.30 * 10 / 100 = 300
-        # MAX_ORDER_NOTIONAL($5000) / price(100) = 50 → capped at 50
-        assert pc._position_size <= 50.01
+        # MAX_ORDER_NOTIONAL($500) / price(100) = 5 → capped at 5
+        assert pc._position_size <= 5.01
 
     def test_get_status(self):
         pc, _ = _make_combiner()

@@ -9,6 +9,7 @@ _quant_hotpath is mocked since Rust may not be compiled in test environments.
 from __future__ import annotations
 
 import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,9 +17,88 @@ import pytest
 # ---------------------------------------------------------------------------
 # Mock _quant_hotpath BEFORE importing AlphaRunner (it imports at module init)
 # ---------------------------------------------------------------------------
-_mock_hotpath = MagicMock()
-if "_quant_hotpath" not in sys.modules:
-    sys.modules["_quant_hotpath"] = _mock_hotpath
+class _FakeFeatureEngine:
+    def __init__(self):
+        self.push_bar = MagicMock()
+        self.get_features = MagicMock(return_value=[])
+
+
+class _FakeInferenceBridge:
+    def __init__(self, **_kwargs):
+        self.zscore_normalize = MagicMock(return_value=None)
+        self.apply_constraints = MagicMock(return_value=0)
+        self.get_position = MagicMock(return_value=0)
+        self.set_position = MagicMock()
+
+
+class _FakeOrderStateMachine:
+    def __init__(self):
+        self.register = MagicMock()
+        self.transition = MagicMock()
+        self.active_count = MagicMock(return_value=0)
+
+
+class _FakeCircuitBreaker:
+    def __init__(self, **_kwargs):
+        self.allow_request = MagicMock(return_value=True)
+        self.snapshot = MagicMock(return_value={})
+        self.record_success = MagicMock()
+        self.record_failure = MagicMock()
+
+
+class _FakeAckStore:
+    def __init__(self, **_kwargs):
+        self._data = {}
+
+    def get_json(self, key, _now):
+        return self._data.get(key)
+
+    def put_json(self, key, payload_json, _now):
+        self._data[key] = payload_json
+
+    def prune(self, _now):
+        return 0
+
+
+class _GenericRustThing:
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+
+    def __getattr__(self, name):
+        return MagicMock()
+
+
+class _FakeHotpathModule(types.ModuleType):
+    def __getattr__(self, name):
+        if name in {
+            "RustPnLTracker",
+            "RustCompositeRegimeDetector",
+            "RustRegimeParamRouter",
+        }:
+            raise AttributeError(name)
+        if name.startswith("rust_"):
+            return lambda *args, **kwargs: args[0] if args else ""
+        if name.startswith("Rust"):
+            return _GenericRustThing
+        raise AttributeError(name)
+
+
+try:  # Prefer the real extension when available; only stub on environments without it.
+    import _quant_hotpath as _quant_hotpath  # noqa: F401
+except ImportError:
+    _fake_hotpath = _FakeHotpathModule("_quant_hotpath")
+    _fake_hotpath.RustFeatureEngine = _FakeFeatureEngine
+    _fake_hotpath.RustInferenceBridge = _FakeInferenceBridge
+    _fake_hotpath.RustOrderStateMachine = _FakeOrderStateMachine
+    _fake_hotpath.RustCircuitBreaker = _FakeCircuitBreaker
+    _fake_hotpath.RustAckStore = _FakeAckStore
+    _fake_hotpath.rust_sanitize = lambda s: "".join(ch for ch in str(s) if ch.isalnum() or ch in "-_")
+    _fake_hotpath.rust_short_hash = lambda text, n=10: str(abs(hash(text)))[:n]
+    _fake_hotpath.rust_make_idempotency_key = lambda venue, action, key: f"{venue}:{action}:{key}"
+    _fake_hotpath.RustFillEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    _fake_hotpath.RustMarketEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    sys.modules["_quant_hotpath"] = _fake_hotpath
 
 from scripts.ops.alpha_runner import AlphaRunner  # noqa: E402
 
@@ -118,8 +198,12 @@ def runner(adapter):
         dry_run=False,
         min_size=0.01,
         step_size=0.01,
+        start_oi_cache=False,
     )
-    # Configure mock return values for Rust components
+    r._oi_cache = MagicMock()
+    r._oi_cache.get.return_value = dict(_OI_STUB)
+    r._engine = MagicMock()
+    r._engine.push_bar = MagicMock()
     r._engine.get_features.return_value = [
         ("rsi_14", 50.0), ("bb_width_20", 0.02), ("close_vs_ma20", 0.01),
         ("close_vs_ma50", 0.02), ("parkinson_vol", 0.03), ("vol_of_vol", 0.01),
@@ -127,8 +211,20 @@ def runner(adapter):
         ("oi_change_pct", 0.0), ("ls_ratio", 1.0), ("taker_ratio", 0.5),
         ("bb_position", 0.5), ("atr_14", 0.015),
     ]
-    r._circuit_breaker.allow_request.return_value = True
+    r._inference = MagicMock()
+    r._inference.zscore_normalize = MagicMock(return_value=None)
+    r._inference.apply_constraints = MagicMock(return_value=0)
+    r._inference.get_position = MagicMock(return_value=0)
+    r._inference.set_position = MagicMock()
+    r._osm = MagicMock()
+    r._osm.register = MagicMock()
+    r._osm.transition = MagicMock()
     r._osm.active_count.return_value = 1
+    r._circuit_breaker = MagicMock()
+    r._circuit_breaker.allow_request.return_value = True
+    r._circuit_breaker.snapshot.return_value = {}
+    r._circuit_breaker.record_success = MagicMock()
+    r._circuit_breaker.record_failure = MagicMock()
     return r
 
 
@@ -143,11 +239,25 @@ def dry_runner(adapter):
         dry_run=True,
         min_size=0.01,
         step_size=0.01,
+        start_oi_cache=False,
     )
+    r._oi_cache = MagicMock()
+    r._oi_cache.get.return_value = dict(_OI_STUB)
+    r._engine = MagicMock()
+    r._engine.push_bar = MagicMock()
     r._engine.get_features.return_value = [
         ("rsi_14", 50.0), ("bb_width_20", 0.02),
     ]
+    r._inference = MagicMock()
+    r._inference.zscore_normalize = MagicMock(return_value=None)
+    r._inference.apply_constraints = MagicMock(return_value=0)
+    r._inference.get_position = MagicMock(return_value=0)
+    r._inference.set_position = MagicMock()
+    r._circuit_breaker = MagicMock()
     r._circuit_breaker.allow_request.return_value = True
+    r._circuit_breaker.snapshot.return_value = {}
+    r._circuit_breaker.record_success = MagicMock()
+    r._circuit_breaker.record_failure = MagicMock()
     return r
 
 
@@ -242,7 +352,7 @@ class TestProcessBarSignal:
         runner._inference.zscore_normalize.return_value = 0.2
         runner._inference.apply_constraints.return_value = 1  # bridge holds
         runner._inference.get_position.return_value = 2
-        result = runner.process_bar(_make_bar(close=99.0))
+        result = runner.process_bar(_make_bar(close=100.2, low=100.0))
         assert result["signal"] == 1
 
     @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
@@ -412,9 +522,9 @@ class TestStopLoss:
         """Initial stop should be entry × (1 - ATR × atr_stop_mult)."""
         self._setup_long(runner, entry=2000.0)
         stop = runner._compute_stop_price(2000.0)
-        # ATR = 0.015, mult = 2.0 → initial_stop_dist = 0.03
-        # stop = 2000 * (1 - 0.03) = 1940
-        assert stop == pytest.approx(1940.0, rel=0.01)
+        # ATR = 0.015, mult = 1.2 → initial_stop_dist = 0.018
+        # stop = 2000 * (1 - 0.018) = 1964
+        assert stop == pytest.approx(1964.0, rel=0.01)
 
     def test_breakeven_phase(self, runner):
         """After 1×ATR profit, stop moves near entry (breakeven)."""
@@ -504,14 +614,13 @@ class TestPositionSizing:
 
     def test_basic_sizing(self, runner, adapter):
         """Position = equity × per_sym_cap × leverage / price."""
-        # equity=1000, per_sym_cap=0.15, lev=1.5 (from ladder), price=2000
-        # notional = 1000 * 0.15 * 1.5 = 225 → size = 225/2000 = 0.1125
+        # equity=1000, per_sym_cap=0.28, lev=1.5 (from ladder), price=2000
+        # notional = 1000 * 0.28 * 1.5 = 420 → size = 420/2000 = 0.21
         # z_scale=1.0 (default), consensus=1.0 (no consensus)
-        # Round to step_size=0.01 → 0.11
+        # Round to step_size=0.01 → 0.21
         runner._z_scale = 1.0
         size = runner._compute_position_size(2000.0)
-        # 1000 * 0.15 * 1.5 / 2000 = 0.1125, rounded to 0.01 → 0.11
-        assert size == pytest.approx(0.11, abs=0.02)
+        assert size == pytest.approx(0.21, abs=0.02)
 
     def test_min_size_floor(self, runner, adapter):
         """Small equity still produces at least min_size."""
@@ -521,15 +630,15 @@ class TestPositionSizing:
         size = runner._compute_position_size(50000.0)
         assert size >= runner._min_size
 
-    def test_max_notional_blocks(self, runner, adapter):
-        """Order with notional > MAX_ORDER_NOTIONAL ($500) is blocked."""
+    def test_max_notional_clamps(self, runner, adapter):
+        """Order with notional > MAX_ORDER_NOTIONAL ($500) is clamped before send."""
         # Set up a large position size that would exceed $500
         runner._position_size = 1.0  # 1 ETH × $2000 = $2000 > $500
         runner._circuit_breaker.allow_request.return_value = True
         runner._osm.active_count.return_value = 1
         result = runner._execute_signal_change(0, 1, 2000.0)
-        assert result["action"] == "blocked"
-        assert "notional" in result["reason"]
+        assert result["qty"] == pytest.approx(0.25, abs=1e-8)
+        assert adapter.orders[0]["qty"] == pytest.approx(0.25, abs=1e-8)
 
     def test_step_size_rounding(self, runner, adapter):
         """Position size is rounded to step_size increments."""
@@ -719,7 +828,7 @@ class TestComputeZScale:
     """Tests for the static compute_z_scale method."""
 
     def test_extreme_high(self):
-        assert AlphaRunner.compute_z_scale(2.5) == 1.5
+        assert AlphaRunner.compute_z_scale(2.1) == 1.5
 
     def test_normal(self):
         assert AlphaRunner.compute_z_scale(1.2) == 1.0
@@ -732,8 +841,14 @@ class TestComputeZScale:
 
     def test_negative(self):
         """Negative z-scores use absolute value for scaling."""
-        assert AlphaRunner.compute_z_scale(-2.5) == 1.5
+        assert AlphaRunner.compute_z_scale(-2.1) == 1.5
         assert AlphaRunner.compute_z_scale(-0.7) == 0.7
+
+
+class TestLifecycle:
+    def test_stop_stops_oi_cache(self, runner):
+        runner.stop()
+        runner._oi_cache.stop.assert_called_once()
 
 
 class TestCircuitBreaker:

@@ -190,6 +190,9 @@ class TestLifecycle:
             venue_clients={"binance": _FakeVenueClient()},
             transport=_FakeTransport(),
         )
+        baseline_threads = {
+            t.ident for t in threading.enumerate() if t.ident is not None
+        }
 
         t = threading.Thread(target=runner.start, daemon=True)
         t.start()
@@ -202,6 +205,114 @@ class TestLifecycle:
         runner.stop()
         t.join(timeout=3.0)
         assert runner._running is False
+        assert not t.is_alive()
+        leaked = [
+            th.name
+            for th in threading.enumerate()
+            if th.ident is not None
+            and th.ident not in baseline_threads
+            and th is not threading.main_thread()
+        ]
+        assert leaked == []
+
+    def test_start_startup_failure_stops_already_started_subsystems(self, monkeypatch):
+        monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))
+
+        class _FakeCoordinator:
+            def __init__(self) -> None:
+                self.started = 0
+                self.stopped = 0
+
+            def start(self) -> None:
+                self.started += 1
+
+            def stop(self) -> None:
+                self.stopped += 1
+
+        class _FakeLoop:
+            def __init__(self) -> None:
+                self.started = 0
+                self.stopped = 0
+
+            def start_background(self) -> None:
+                self.started += 1
+
+            def stop_background(self) -> None:
+                self.stopped += 1
+
+        class _FakeRuntime:
+            def __init__(self) -> None:
+                self.stopped = 0
+
+            def start(self) -> None:
+                raise RuntimeError("runtime boom")
+
+            def stop(self) -> None:
+                self.stopped += 1
+
+        class _FakeMonitor:
+            def __init__(self) -> None:
+                self.started = 0
+                self.stopped = 0
+
+            def start(self) -> None:
+                self.started += 1
+
+            def stop(self) -> None:
+                self.stopped += 1
+
+        class _FakeAlertManager:
+            def __init__(self) -> None:
+                self.started = 0
+                self.stopped = 0
+
+            def start_periodic(self) -> None:
+                self.started += 1
+
+            def stop(self) -> None:
+                self.stopped += 1
+
+        class _FakeCheckpointer:
+            def __init__(self) -> None:
+                self.started = 0
+                self.stopped = 0
+
+            def start(self) -> None:
+                self.started += 1
+
+            def stop(self) -> None:
+                self.stopped += 1
+
+        coordinator = _FakeCoordinator()
+        loop = _FakeLoop()
+        runtime = _FakeRuntime()
+        health = _FakeMonitor()
+        alert_manager = _FakeAlertManager()
+        checkpointer = _FakeCheckpointer()
+        runner = LiveRunner(
+            loop=loop,
+            coordinator=coordinator,
+            runtime=runtime,
+            kill_switch=KillSwitch(),
+            health=health,
+            alert_manager=alert_manager,
+            periodic_checkpointer=checkpointer,
+        )
+
+        with pytest.raises(RuntimeError, match="runtime boom"):
+            runner.start()
+
+        assert coordinator.started == 1
+        assert coordinator.stopped == 1
+        assert health.started == 1
+        assert health.stopped == 1
+        assert alert_manager.started == 1
+        assert alert_manager.stopped == 1
+        assert checkpointer.started == 1
+        assert checkpointer.stopped == 1
+        assert runtime.stopped == 1
+        assert loop.started == 0
+        assert loop.stopped == 1
 
     def test_start_reconnects_user_stream_after_step_error(self, monkeypatch):
         monkeypatch.setattr(LiveRunner, "_apply_perf_tuning", staticmethod(lambda: None))

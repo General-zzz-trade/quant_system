@@ -1,6 +1,6 @@
 # Production Runbook
 
-> 更新时间: 2026-03-15
+> 更新时间: 2026-03-18
 > 作用: 固定当前生产路径上的恢复与排障顺序，避免 live runtime、checkpoint、user stream、reconcile 出现多套口径
 > 适用范围: 当前 Python-default 生产 runtime
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
@@ -9,14 +9,15 @@
 
 ## 1. 当前生产入口
 
-- 默认生产入口（engine 层）: `runner/live_runner.py`
+- 默认生产入口（framework live 路径）: `runner/live_runner.py`
 - 当前活跃生产入口（alpha 交易）: `scripts/ops/run_bybit_alpha.py`
 - 默认发布路径: repo-root `docker-compose.yml` + `scripts/deploy.sh`
 - compose 服务名: `quant-paper`（paper）, `quant-live`（live, 需 `--profile live`）
 - systemd 服务: `bybit-alpha.service`（当前活跃，Bybit Demo）
 - 当前运行时形态: 轻量 alpha runner (Ridge+LGBM, AGREE ONLY combo, ATR adaptive stop)
 - 交易品种: BTCUSDT (h=96), ETHUSDT (1h+15m AGREE), SUIUSDT (1h), AXSUSDT (1h)
-- 杠杆: 1.5x (Kelly optimal 1.4x), 单品种上限 30% equity
+- 模型装配: 以各模型目录 `config.json` 为准；当前活跃 alpha 路径已支持 `ridge_primary` / `ic_weighted` 等配置驱动组合
+- 杠杆: 动态 equity bracket（$0-20K 默认 1.5x，$20K+ 降到 1.0x）叠加 z-score conviction scale；单品种上限 30% equity
 - 当文档与其他说明冲突时，以 `docs/runtime_truth.md` 为准
 - 当前最小 operator controls 已通过 `LiveRunner.halt()/reduce_only()/resume()/flush()/shutdown()/apply_control()` 暴露
 - 当前外部 tooling / API 建议通过 [`runner/control_plane.py`](/quant_system/runner/control_plane.py) 的 `OperatorControlPlane` 统一进入 runtime

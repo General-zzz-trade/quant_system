@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-SERVICE="${SMOKE_SERVICE:-paper-multi}"
+SERVICE="${SMOKE_SERVICE:-quant-paper}"
 TIMEOUT="${SMOKE_TIMEOUT_SEC:-180}"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-quant-ci-smoke}"
 

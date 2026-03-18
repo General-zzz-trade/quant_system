@@ -196,3 +196,13 @@ class TestAlertManagerPeriodic:
         time.sleep(0.08)
         mgr.stop()
         assert len(sink.alerts) >= 1
+
+    def test_stop_interrupts_long_sleep(self):
+        mgr = AlertManager()
+        mgr.start_periodic(interval_sec=60.0)
+
+        started = time.monotonic()
+        mgr.stop()
+
+        assert time.monotonic() - started < 1.0
+        assert mgr._thread is None

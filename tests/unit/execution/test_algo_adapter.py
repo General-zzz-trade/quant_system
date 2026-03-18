@@ -89,6 +89,11 @@ class TestOrderRouting:
         assert len(results) == 0
         # But algo order should be active
         assert len(adapter._active_orders) == 1
+        thread = adapter._thread
+        adapter.stop()
+        assert adapter._thread is None
+        assert thread is not None
+        assert not thread.is_alive()
 
     def test_no_price_uses_qty_as_notional(self):
         submit = _FakeSubmitFn(Decimal("40000"))

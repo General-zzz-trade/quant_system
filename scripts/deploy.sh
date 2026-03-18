@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Rolling deploy for production alpha trading services.
 #
-# Default: deploys alpha-runner only (current production service).
-# Pass service names as args to override: ./deploy.sh paper-multi trader-rust
+# Default: deploys quant-paper (current default compose release path).
+# Pass service names as args to override: ./deploy.sh quant-live
 #
 # Recreates each service one-by-one so updated images/config are applied.
 # Exits non-zero (triggering rollback in CI) if any service fails.
@@ -12,7 +12,7 @@ set -euo pipefail
 if [ $# -gt 0 ]; then
     SERVICES=("$@")
 else
-    SERVICES=(alpha-runner)  # Default: only active production service
+    SERVICES=(quant-paper)
 fi
 TIMEOUT=120  # seconds per service
 
@@ -30,9 +30,15 @@ wait_healthy() {
     local svc="$1"
     local elapsed=0
     local status="missing"
+    local container_id=""
     while [ $elapsed -lt $TIMEOUT ]; do
-        status=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q "$svc" 2>/dev/null)" 2>/dev/null || echo "missing")
-        if [ "$status" = "healthy" ]; then
+        container_id="$(docker compose ps -q "$svc" 2>/dev/null || true)"
+        if [ -n "$container_id" ]; then
+            status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || echo "missing")
+        else
+            status="missing"
+        fi
+        if [ "$status" = "healthy" ] || [ "$status" = "running" ]; then
             echo "  $svc: healthy (${elapsed}s)"
             return 0
         fi

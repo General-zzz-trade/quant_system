@@ -1,6 +1,6 @@
 # Deployment Truth
 
-> 更新时间: 2026-03-17
+> 更新时间: 2026-03-18
 > 目标: 集中写清当前默认发布真相源，消除 deploy/compose/systemd/CI 之间的认知漂移
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
@@ -16,8 +16,8 @@
 | **Compose 服务名** | `quant-paper` (paper) / `quant-live` (live, 需 `--profile live`) |
 | **交易所** | Bybit Demo (api-demo.bybit.com) |
 | **品种** | BTC (h=96), ETH (1h+15m AGREE), SUI (1h), AXS (1h) |
-| **模型** | Ridge 60% + LightGBM 40% |
-| **杠杆** | 1.5x (Kelly optimal 1.4x) |
+| **模型** | 以各模型目录 `config.json` 为准；当前实盘主线支持 `ridge_primary` / `ic_weighted` 等配置驱动装配 |
+| **杠杆** | 动态：$0-20K 默认 1.5x，上 20K 后降到 1.0x；再叠加 z-score conviction scale |
 
 ---
 
@@ -62,6 +62,7 @@
 - `infra/systemd/bybit-alpha.service` 是仓库真相源
 - 修改后必须同步到 `/etc/systemd/system/`：`sudo cp infra/systemd/bybit-alpha.service /etc/systemd/system/ && sudo systemctl daemon-reload`
 - `docker-compose.yml` 的 `quant-paper`/`quant-live` 命令必须与 systemd `ExecStart` 一致
+- `docker-compose.yml` 中默认发布服务 `quant-paper` / `quant-live` / `quant-framework` 都必须带显式 `image:` 与 healthcheck
 - `CLAUDE.md` 的部署命令必须与上述一致
 
 ---

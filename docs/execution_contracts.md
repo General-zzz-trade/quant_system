@@ -1,6 +1,6 @@
 # Execution Contracts
 
-> 更新时间: 2026-03-12
+> 更新时间: 2026-03-18
 > 目标: 固定当前执行层关于 order status、late fill、timeout cancel、canonical fill 的制度边界
 > 适用范围: 当前默认 production runtime 的 execution / reconcile / recovery 语义
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
@@ -14,6 +14,10 @@
 - [`execution/state_machine/transitions.py`](/quant_system/execution/state_machine/transitions.py)
 - [`execution/state_machine/machine.py`](/quant_system/execution/state_machine/machine.py)
 - [`execution/models/fills.py`](/quant_system/execution/models/fills.py)
+- [`execution/bridge/live_execution_bridge.py`](/quant_system/execution/bridge/live_execution_bridge.py)
+- [`execution/safety/timeout_tracker.py`](/quant_system/execution/safety/timeout_tracker.py)
+- [`execution/reconcile/scheduler.py`](/quant_system/execution/reconcile/scheduler.py)
+- [`execution/reconcile/orders.py`](/quant_system/execution/reconcile/orders.py)
 - [`tests/execution_safety/test_late_execution_report.py`](/quant_system/tests/execution_safety/test_late_execution_report.py)
 - [`tests/execution_safety/test_cancel_replace_flow.py`](/quant_system/tests/execution_safety/test_cancel_replace_flow.py)
 
@@ -103,6 +107,17 @@
   - reconcile: `venue / drift_count / should_halt / symbols / severity_scope`
   - synthetic fill: `venue / symbol / fill_id / order_id / qty / side / synthetic`
   - rejection: `event_type / status / symbol / venue / reason / reason_family / command_id / retryable / deduped`
+
+### 3.1 Accepted Ack 到 Fill 的边界
+
+当前 `LiveExecutionBridge` 的制度要求：
+
+- `ACCEPTED / OK` ack 只有在携带明确 fill evidence 时，才能被物化为 synthetic fill
+- fill evidence 的最小来源包括：
+  - `result` 中的 `filled_qty / executedQty / avg_price / price / trade_id / fill_id`
+  - fee 字段存在（`fee / commission / fee_asset`），即使 fee 数值为 `0`
+- 只有“接受但无成交证据”的 ack，不得再伪造 fill 推进 ingress
+- `FAILED / REJECTED` 之后的成功重试，仍必须能重新进入 fill / ingress 链路
 
 ---
 
@@ -359,6 +374,12 @@ VenueAdapter.mapper → CanonicalFill (Decimal, 全字段)
 - `decisions` 与 `all_drifts` 一一对应，controller 不会重排 drift
 - `ok` 反映的是各子对账结果是否通过，不直接等价于 policy 是否选择 `ACCEPT`
 - `should_halt` 只反映 `decisions` 中是否存在 `HALT`
+
+当前 reconcile 进一步约束：
+
+- 交易所返回的空 orders / positions / balances 快照，在该次轮询中视为 authoritative empty snapshot，而不是 `None`
+- `OrderReconcileResult.ok` 必须同时满足 `mismatched == 0`、`missing_local == 0`、`missing_venue == 0`
+- `local 有、venue 无` 的 order/fill 不能再被当作“对账通过”
 
 ---
 

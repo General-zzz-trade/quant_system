@@ -1384,9 +1384,13 @@ class TestEngineLoop:
     def test_start_stop_background(self):
         loop = self._make_loop()
         loop.start_background()
+        thread = loop._thread
         assert loop._running is True
         loop.stop_background()
         assert loop._running is False
+        assert loop._thread is None
+        assert thread is not None
+        assert not thread.is_alive()
 
     def test_start_background_idempotent(self):
         loop = self._make_loop()

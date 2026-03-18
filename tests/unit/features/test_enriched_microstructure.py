@@ -272,6 +272,14 @@ class TestFeatureCountConsistency:
         # Features that require external data sources not provided in this test
         external_features = {
             "cross_tf_regime_sync",
+            # Cross-asset / dominance features require external reference closes not provided here.
+            "btc_relative_strength_24", "btc_relative_strength_6",
+            "btc_ratio_ma20_dev", "btc_dom_momentum", "btc_lead_ret_1", "btc_vol_ratio",
+            "btc_dom_dev_20", "btc_dom_dev_50", "btc_dom_ret_24", "btc_dom_ret_72",
+            "dom_vs_sui_dev_20", "dom_vs_sui_ret_24",
+            "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
+            "dom_vs_eth_dev_20", "dom_vs_eth_ret_24",
+            "top_retail_divergence",
             # V11: require liquidation/mempool/macro/sentiment data
             "liquidation_volume_zscore_24", "liquidation_imbalance",
             "liquidation_volume_ratio", "liquidation_cluster_flag",
@@ -283,6 +291,28 @@ class TestFeatureCountConsistency:
             if name in external_features:
                 continue
             assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
+
+
+class TestMultiRatioDominanceFeatures:
+    def test_multi_ratio_dominance_computes_with_reference_closes(self):
+        comp = EnrichedFeatureComputer()
+
+        for i in range(30):
+            comp.on_bar(
+                "ETHUSDT",
+                close=2000.0 + i * 5.0,
+                volume=10.0 + i * 0.1,
+                reference_closes={
+                    "SUIUSDT": 1.0 + i * 0.01,
+                    "AXSUSDT": 8.0 + i * 0.02,
+                },
+            )
+
+        feats = comp.get_features_dict("ETHUSDT")
+        assert feats["dom_vs_sui_dev_20"] is not None
+        assert feats["dom_vs_sui_ret_24"] is not None
+        assert feats["dom_vs_axs_dev_20"] is not None
+        assert feats["dom_vs_axs_ret_24"] is not None
 
 
 class TestV8AlphaRebuildFeatures:

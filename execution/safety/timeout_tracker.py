@@ -6,9 +6,22 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+_CANCEL_CMD_FIELDS = (
+    "venue",
+    "symbol",
+    "order_id",
+    "client_order_id",
+    "orig_client_order_id",
+    "binance_order_id",
+    "command_id",
+    "idempotency_key",
+    "request_id",
+)
 
 
 @dataclass
@@ -87,9 +100,13 @@ class OrderTimeoutTracker:
         mono_now = self.clock_fn()
         with self._lock:
             entries = {}
-            for order_id, (submit_ts, _cmd) in self._pending.items():
+            for order_id, (submit_ts, cmd) in self._pending.items():
                 elapsed = mono_now - submit_ts
-                entries[order_id] = {"elapsed_sec": elapsed}
+                entry = {"elapsed_sec": elapsed}
+                serialized_cmd = _serialize_cancel_cmd(cmd)
+                if serialized_cmd is not None:
+                    entry["cancel_cmd"] = serialized_cmd
+                entries[order_id] = entry
             return {"pending": entries, "timeout_sec": self.timeout_sec}
 
     def restore(self, data: dict) -> None:
@@ -115,7 +132,8 @@ class OrderTimeoutTracker:
                 # Clamp negative elapsed (corrupted checkpoint or time travel)
                 elapsed = max(0.0, elapsed)
                 mono_submit = mono_now - elapsed
-                self._pending[order_id] = (mono_submit, None)
+                cancel_cmd = _deserialize_cancel_cmd(entry.get("cancel_cmd"))
+                self._pending[order_id] = (mono_submit, cancel_cmd)
 
     @property
     def pending_count(self) -> int:
@@ -126,3 +144,34 @@ class OrderTimeoutTracker:
     def pending_order_ids(self) -> list[str]:
         with self._lock:
             return list(self._pending.keys())
+
+
+def _serialize_cancel_cmd(cmd: Any) -> Any:
+    if cmd is None:
+        return None
+    if isinstance(cmd, (str, int, float, bool)):
+        return {"__raw__": cmd}
+    if isinstance(cmd, dict):
+        data = {
+            key: value
+            for key, value in cmd.items()
+            if key in _CANCEL_CMD_FIELDS and value is not None
+        }
+        return data or None
+
+    data: Dict[str, Any] = {}
+    for field_name in _CANCEL_CMD_FIELDS:
+        value = getattr(cmd, field_name, None)
+        if value is not None:
+            data[field_name] = value
+    return data or None
+
+
+def _deserialize_cancel_cmd(data: Any) -> Any:
+    if not data:
+        return None
+    if isinstance(data, dict) and "__raw__" in data:
+        return data["__raw__"]
+    if isinstance(data, dict):
+        return SimpleNamespace(**data)
+    return None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import types
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -10,9 +11,88 @@ from regime.base import RegimeLabel
 from regime.composite import CompositeRegimeLabel
 
 # Mock _quant_hotpath before importing AlphaRunner (it imports at module init)
-_mock_hotpath = MagicMock()
-if "_quant_hotpath" not in sys.modules:
-    sys.modules["_quant_hotpath"] = _mock_hotpath
+class _FakeFeatureEngine:
+    def __init__(self):
+        self.push_bar = MagicMock()
+        self.get_features = MagicMock(return_value=[])
+
+
+class _FakeInferenceBridge:
+    def __init__(self, **_kwargs):
+        self.zscore_normalize = MagicMock(return_value=None)
+        self.apply_constraints = MagicMock(return_value=0)
+        self.get_position = MagicMock(return_value=0)
+        self.set_position = MagicMock()
+
+
+class _FakeOrderStateMachine:
+    def __init__(self):
+        self.register = MagicMock()
+        self.transition = MagicMock()
+        self.active_count = MagicMock(return_value=0)
+
+
+class _FakeCircuitBreaker:
+    def __init__(self, **_kwargs):
+        self.allow_request = MagicMock(return_value=True)
+        self.snapshot = MagicMock(return_value={})
+        self.record_success = MagicMock()
+        self.record_failure = MagicMock()
+
+
+class _FakeAckStore:
+    def __init__(self, **_kwargs):
+        self._data = {}
+
+    def get_json(self, key, _now):
+        return self._data.get(key)
+
+    def put_json(self, key, payload_json, _now):
+        self._data[key] = payload_json
+
+    def prune(self, _now):
+        return 0
+
+
+class _GenericRustThing:
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+
+    def __getattr__(self, name):
+        return MagicMock()
+
+
+class _FakeHotpathModule(types.ModuleType):
+    def __getattr__(self, name):
+        if name in {
+            "RustPnLTracker",
+            "RustCompositeRegimeDetector",
+            "RustRegimeParamRouter",
+        }:
+            raise AttributeError(name)
+        if name.startswith("rust_"):
+            return lambda *args, **kwargs: args[0] if args else ""
+        if name.startswith("Rust"):
+            return _GenericRustThing
+        raise AttributeError(name)
+
+
+try:  # Prefer the real extension when available; only stub on environments without it.
+    import _quant_hotpath as _quant_hotpath  # noqa: F401
+except ImportError:
+    _fake_hotpath = _FakeHotpathModule("_quant_hotpath")
+    _fake_hotpath.RustFeatureEngine = _FakeFeatureEngine
+    _fake_hotpath.RustInferenceBridge = _FakeInferenceBridge
+    _fake_hotpath.RustOrderStateMachine = _FakeOrderStateMachine
+    _fake_hotpath.RustCircuitBreaker = _FakeCircuitBreaker
+    _fake_hotpath.RustAckStore = _FakeAckStore
+    _fake_hotpath.rust_sanitize = lambda s: "".join(ch for ch in str(s) if ch.isalnum() or ch in "-_")
+    _fake_hotpath.rust_short_hash = lambda text, n=10: str(abs(hash(text)))[:n]
+    _fake_hotpath.rust_make_idempotency_key = lambda venue, action, key: f"{venue}:{action}:{key}"
+    _fake_hotpath.RustFillEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    _fake_hotpath.RustMarketEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    sys.modules["_quant_hotpath"] = _fake_hotpath
 
 from scripts.ops.alpha_runner import AlphaRunner  # noqa: E402
 
@@ -45,6 +125,7 @@ def _build_runner(use_composite=False, symbol="ETHUSDT"):
         adapter=_FakeAdapter(),
         model_info=info,
         symbol=symbol,
+        start_oi_cache=False,
     )
 
 

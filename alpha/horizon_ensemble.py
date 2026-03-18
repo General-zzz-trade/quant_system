@@ -1,8 +1,10 @@
-"""Adaptive Horizon Ensemble — IC-weighted multi-horizon prediction.
+"""Adaptive Horizon Ensemble — multi-horizon prediction.
 
 Two modes:
 - "mean_zscore" (v10 compatible): simple average of per-horizon z-scores
 - "ic_weighted" (v11): EMA-IC weighted, auto-downweight decaying horizons
+- "ridge_primary": AlphaRunner-style Ridge(primary)+LGBM ensemble, then static
+  horizon weighting via config `ic`
 """
 from __future__ import annotations
 
@@ -35,6 +37,8 @@ class AdaptiveHorizonEnsemble:
         self._horizon_models = horizon_models
         self._method = config.ensemble_method
         self._lgbm_xgb_w = config.lgbm_xgb_weight
+        self._ridge_w = getattr(config, "ridge_weight", 0.6)
+        self._lgbm_w = getattr(config, "lgbm_weight", 0.4)
 
         # IC monitors per horizon (only used in ic_weighted mode)
         self._ic_monitors: Dict[int, ICMonitor] = {}
@@ -72,6 +76,8 @@ class AdaptiveHorizonEnsemble:
 
         if self._method == "mean_zscore":
             return float(np.mean(list(z_values.values())))
+        if self._method == "ridge_primary":
+            return self._ridge_primary_predict(z_values)
         else:
             return self._ic_weighted_predict(z_values)
 
@@ -82,6 +88,14 @@ class AdaptiveHorizonEnsemble:
             x[0, j] = features.get(fname, 0.0)
 
         lgbm_pred = float(hm["lgbm"].predict(x)[0])
+
+        if self._method == "ridge_primary" and hm.get("ridge") is not None:
+            ridge_features = hm.get("ridge_features") or hm["features"]
+            rx = np.zeros((1, len(ridge_features)))
+            for j, fname in enumerate(ridge_features):
+                rx[0, j] = features.get(fname, 0.0)
+            ridge_pred = float(hm["ridge"].predict(rx)[0])
+            return float(self._ridge_w * ridge_pred + self._lgbm_w * lgbm_pred)
 
         if hm["xgb"] is not None:
             try:
@@ -107,6 +121,15 @@ class AdaptiveHorizonEnsemble:
             result += weights.get(h, 0.0) * z
         return result / total_w
 
+    def _ridge_primary_predict(self, z_values: Dict[int, float]) -> float:
+        """AlphaRunner-style static horizon weighting for ridge_primary configs."""
+        weights = self.get_weights()
+        total_w = sum(weights.values()) or 1.0
+        result = 0.0
+        for h, z in z_values.items():
+            result += weights.get(h, 0.0) * z
+        return result / total_w
+
     def update_ic(self, horizon: int, pred: float, actual_return: float) -> None:
         """Update rolling IC for one horizon after realized return is known."""
         monitor = self._ic_monitors.get(horizon)
@@ -125,6 +148,13 @@ class AdaptiveHorizonEnsemble:
         if self._method == "mean_zscore":
             w = 1.0 / len(horizons)
             return {h: w for h in horizons}
+        if self._method == "ridge_primary":
+            raw_weights = {
+                hm["horizon"]: max(float(hm.get("ic", 0.0)), 0.001)
+                for hm in self._horizon_models
+            }
+            total_w = sum(raw_weights.values()) or 1.0
+            return {h: w / total_w for h, w in raw_weights.items()}
 
         # IC-weighted
         raw_weights = {}

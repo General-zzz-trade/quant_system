@@ -9,6 +9,7 @@ from execution.bridge.execution_bridge import (
     ExecutionBridge,
     RetryPolicy,
     CircuitBreakerConfig,
+    RateLimitConfig,
     NonRetryableVenueError,
 )
 from execution.bridge.request_ids import RequestIdFactory
@@ -212,3 +213,32 @@ def test_bridge_cancel_non_retryable_rejected() -> None:
     assert ack.status == "REJECTED"
     assert client.cancel_calls == 1
     assert sleeps == []
+
+
+def test_rate_limited_queued_failure_does_not_leave_ghost_pending_order() -> None:
+    clock = FakeClock()
+    sleeps: List[float] = []
+    sleeper = FakeSleeper(clock=clock, sleeps=sleeps)
+    client = FakeVenueClient()
+
+    bridge = ExecutionBridge(
+        venue_clients={"binance": client},
+        retry_policy=RetryPolicy(max_attempts=1, base_delay_sec=0.1, max_delay_sec=1.0, jitter_sec=0.0),
+        rate_limits={"binance": RateLimitConfig(rate_per_sec=0.0, burst=0.0)},
+        breaker_cfg=CircuitBreakerConfig(failure_threshold=99, window_sec=10, cooldown_sec=5),
+        clock=clock,
+        sleeper=sleeper,
+        pending_queue_size=1,
+    )
+
+    rid = RequestIdFactory(namespace="qsys", run_id="run-001", deterministic=True)
+    cmd = _mk_submit(rid=rid, logical_id="sig-rate-limit")
+
+    ack = bridge.submit(cmd)
+
+    assert ack.ok is False
+    assert ack.status == "FAILED"
+    assert "rate_limited_queued" in (ack.error or "")
+    assert bridge.pending_count == 0
+    assert bridge.drain_pending() == []
+    assert client.submit_calls == 0

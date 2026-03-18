@@ -25,3 +25,16 @@ class TestRunnerSwitch:
         )
         assert "ETHUSDT" in cfg.symbols
         assert "BTCUSDT" in cfg.symbols
+
+    def test_runner_target_uses_real_symbol_and_interval_mapping(self):
+        from scripts.ops.run_bybit_alpha import _resolve_runner_target
+
+        assert _resolve_runner_target(
+            "ETHUSDT_15m",
+            {"ETHUSDT_15m": ("ETHUSDT", "15")},
+        ) == ("ETHUSDT", "15")
+
+    def test_runner_target_falls_back_to_runner_key_and_default_interval(self):
+        from scripts.ops.run_bybit_alpha import _resolve_runner_target, INTERVAL
+
+        assert _resolve_runner_target("BTCUSDT", None) == ("BTCUSDT", INTERVAL)

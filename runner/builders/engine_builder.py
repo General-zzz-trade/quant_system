@@ -65,7 +65,12 @@ def build_coordinator_and_pipeline(
     # ── RiskGate (pre-execution size/notional checks) ────
     from execution.safety.risk_gate import RiskGate, RiskGateConfig
     risk_gate = RiskGate(
-        config=RiskGateConfig(),
+        config=RiskGateConfig(
+            max_position_notional=float(config.max_position_notional),
+            max_order_notional=float(config.max_order_notional),
+            max_open_orders=int(config.max_open_orders),
+            max_portfolio_notional=float(config.max_portfolio_notional),
+        ),
         get_positions=lambda: coordinator.get_state_view().get("positions", {}),
         get_open_order_count=lambda: len(order_state_machine.active_orders()),
         is_killed=lambda: kill_switch.is_killed() is not None,

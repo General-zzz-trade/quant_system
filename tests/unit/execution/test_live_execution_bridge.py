@@ -79,7 +79,7 @@ class _RecordingSink:
 
 class TestOrderRouting:
     def test_small_order_goes_to_direct_execution(self):
-        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             config=LiveExecutionConfig(large_order_notional=Decimal("50000")),
@@ -109,7 +109,7 @@ class TestOrderRouting:
         assert len(bridge.submitted) == 0  # not direct
 
     def test_large_order_without_algo_falls_to_direct(self):
-        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             algo_adapter=None,  # no algo
@@ -123,7 +123,7 @@ class TestOrderRouting:
         assert len(bridge.submitted) == 1
 
     def test_no_price_uses_qty_as_notional(self):
-        bridge = _FakeBridge(_FakeAck(ok=True, result={}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "5", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             config=LiveExecutionConfig(large_order_notional=Decimal("5")),
@@ -134,6 +134,26 @@ class TestOrderRouting:
 
         assert len(results) == 1
         assert len(bridge.submitted) == 1
+
+    def test_accepted_ack_without_fill_evidence_does_not_emit_synthetic_fill(self):
+        emitted: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "ws_submitted", "request_id": "req-1"}))
+        live = LiveExecutionBridge(execution_bridge=bridge, dispatcher_emit=emitted.append)
+
+        results = list(live.send_order(_order_event()))
+
+        assert results == []
+        assert emitted == []
+
+    def test_zero_fee_fill_still_counts_as_fill_evidence(self):
+        emitted: List[Any] = []
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0", "fee": "0.0"}))
+        live = LiveExecutionBridge(execution_bridge=bridge, dispatcher_emit=emitted.append)
+
+        results = list(live.send_order(_order_event()))
+
+        assert len(results) == 1
+        assert len(emitted) == 1
 
 
 # ── Tests: Ack to fill conversion ────────────────────────────
@@ -266,7 +286,7 @@ class TestRejected:
 
     def test_success_ack_emits_synthetic_fill_alert(self):
         sink = _RecordingSink()
-        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             alert_manager=AlertManager(sink=sink),
@@ -283,7 +303,7 @@ class TestRejected:
 
     def test_success_ack_emits_synthetic_fill_to_incident_logger(self):
         incidents: List[Any] = []
-        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             incident_logger=incidents.append,
@@ -298,7 +318,7 @@ class TestRejected:
 
     def test_dispatcher_emit_called_on_fill(self):
         emitted: List[Any] = []
-        bridge = _FakeBridge(_FakeAck(ok=True, result={"price": "40000", "qty": "1.0"}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(
             execution_bridge=bridge,
             dispatcher_emit=emitted.append,
@@ -310,7 +330,7 @@ class TestRejected:
         assert emitted[0].event_type == "FILL"
 
     def test_order_count_increments(self):
-        bridge = _FakeBridge(_FakeAck(ok=True, result={}))
+        bridge = _FakeBridge(_FakeAck(ok=True, result={"status": "FILLED", "price": "40000", "qty": "1.0"}))
         live = LiveExecutionBridge(execution_bridge=bridge)
 
         assert live.order_count == 0

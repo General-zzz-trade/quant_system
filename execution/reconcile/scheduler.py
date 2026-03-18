@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Set
 
 from execution.reconcile.controller import ReconcileController, ReconcileReport
 
@@ -90,19 +90,28 @@ class ReconcileScheduler:
 
         # Extract local positions as {symbol: qty}
         local_positions = self._extract_local_positions(local)
-        venue_positions = venue.get("positions", {})
+        venue_positions = self._extract_optional_position_map(venue)
 
         # Extract local balances as {asset: amount}
         local_balances = self._extract_local_balances(local)
-        venue_balances = venue.get("balances", {})
+        venue_balances = self._extract_optional_balance_map(venue)
+        local_orders = self._extract_local_orders(local)
+        venue_orders = self._extract_venue_orders(venue)
+        local_fill_ids = self._extract_local_fill_ids(local)
+        venue_fill_ids = self._extract_venue_fill_ids(venue)
 
         try:
             report = self.controller.reconcile(
                 venue=self.cfg.venue,
                 local_positions=local_positions,
-                venue_positions=venue_positions if venue_positions else None,
+                venue_positions=venue_positions,
                 local_balances=local_balances,
-                venue_balances=venue_balances if venue_balances else None,
+                venue_balances=venue_balances,
+                local_orders=local_orders,
+                venue_orders=venue_orders,
+                local_fill_ids=local_fill_ids,
+                venue_fill_ids=venue_fill_ids,
+                fill_symbol=self._infer_fill_symbol(local_positions, venue_positions),
             )
         except Exception:
             logger.exception("Reconciliation failed")
@@ -141,6 +150,69 @@ class ReconcileScheduler:
             return {str(currency): Decimal(str(balance))}
         return {}
 
+    def _extract_optional_position_map(
+        self, venue: Mapping[str, Any],
+    ) -> Optional[Mapping[str, Decimal]]:
+        if "positions" not in venue:
+            return None
+        raw = venue.get("positions")
+        if raw is None:
+            return None
+        return {str(sym): Decimal(str(qty)) for sym, qty in dict(raw).items()}
+
+    def _extract_optional_balance_map(
+        self, venue: Mapping[str, Any],
+    ) -> Optional[Mapping[str, Decimal]]:
+        if "balances" not in venue:
+            return None
+        raw = venue.get("balances")
+        if raw is None:
+            return None
+        return {str(asset): Decimal(str(amount)) for asset, amount in dict(raw).items()}
+
+    def _extract_local_orders(
+        self, state: Mapping[str, Any],
+    ) -> Optional[Dict[str, str]]:
+        if "orders" not in state:
+            return None
+        return _normalize_orders(state.get("orders"))
+
+    def _extract_venue_orders(
+        self, venue: Mapping[str, Any],
+    ) -> Optional[Dict[str, str]]:
+        if "orders" not in venue:
+            return None
+        return _normalize_orders(venue.get("orders"))
+
+    def _extract_local_fill_ids(
+        self, state: Mapping[str, Any],
+    ) -> Optional[Set[str]]:
+        if "fill_ids" in state:
+            return {str(fill_id) for fill_id in state.get("fill_ids") or set()}
+        if "fills" not in state:
+            return None
+        return _normalize_fill_ids(state.get("fills"))
+
+    def _extract_venue_fill_ids(
+        self, venue: Mapping[str, Any],
+    ) -> Optional[Set[str]]:
+        if "fill_ids" in venue:
+            return {str(fill_id) for fill_id in venue.get("fill_ids") or set()}
+        if "fills" not in venue:
+            return None
+        return _normalize_fill_ids(venue.get("fills"))
+
+    @staticmethod
+    def _infer_fill_symbol(
+        local_positions: Mapping[str, Decimal],
+        venue_positions: Optional[Mapping[str, Decimal]],
+    ) -> str:
+        if local_positions:
+            return next(iter(local_positions))
+        if venue_positions:
+            return next(iter(venue_positions))
+        return ""
+
     def _handle_report(self, report: ReconcileReport) -> None:
         if report.ok:
             logger.debug("Reconciliation OK (venue=%s)", report.venue)
@@ -166,3 +238,47 @@ class ReconcileScheduler:
                     self.on_alert(report)
                 except Exception:
                     logger.exception("on_alert callback failed")
+
+
+def _normalize_orders(raw: Any) -> Dict[str, str]:
+    if raw is None:
+        return {}
+    if isinstance(raw, Mapping):
+        result: Dict[str, str] = {}
+        for order_id, order in raw.items():
+            if isinstance(order, Mapping):
+                status = order.get("status")
+            else:
+                status = getattr(order, "status", order)
+            if status is not None:
+                result[str(order_id)] = str(status)
+        return result
+
+    result = {}
+    for order in raw:
+        if isinstance(order, Mapping):
+            order_id = order.get("order_id") or order.get("id")
+            status = order.get("status")
+        else:
+            order_id = getattr(order, "order_id", None) or getattr(order, "id", None)
+            status = getattr(order, "status", None)
+        if order_id is not None and status is not None:
+            result[str(order_id)] = str(status)
+    return result
+
+
+def _normalize_fill_ids(raw: Any) -> Set[str]:
+    if raw is None:
+        return set()
+    if isinstance(raw, Mapping):
+        return {str(fill_id) for fill_id in raw.keys()}
+
+    result: Set[str] = set()
+    for fill in raw:
+        if isinstance(fill, Mapping):
+            fill_id = fill.get("fill_id") or fill.get("trade_id")
+        else:
+            fill_id = getattr(fill, "fill_id", None) or getattr(fill, "trade_id", None)
+        if fill_id is not None:
+            result.add(str(fill_id))
+    return result

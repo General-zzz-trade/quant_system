@@ -182,3 +182,15 @@ class TestSystemHealthMonitorChecks:
         monitor._run_checks()
         assert len(statuses) == 1
         assert statuses[0].last_check_ts is not None
+
+
+class TestSystemHealthMonitorLifecycle:
+    def test_stop_interrupts_long_sleep(self):
+        monitor = SystemHealthMonitor(config=HealthConfig(check_interval_sec=60.0))
+        monitor.start()
+
+        started = time.monotonic()
+        monitor.stop()
+
+        assert time.monotonic() - started < 1.0
+        assert monitor._thread is None

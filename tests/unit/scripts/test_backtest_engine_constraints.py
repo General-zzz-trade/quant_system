@@ -52,3 +52,36 @@ def test_build_decision_module_extracts_live_like_constraints(tmp_path: Path):
     assert module._monthly_gate_window == 120
     assert module._vol_target == 0.2
     assert module._vol_feature == "atr_norm_14"
+
+
+def test_build_decision_module_accepts_config_referenced_primary_artifact(tmp_path: Path):
+    model_dir = tmp_path / "BTCUSDT_gate_v2"
+    model_dir.mkdir(parents=True)
+
+    with (model_dir / "config.json").open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "multi_horizon": False,
+                "primary_horizon": 24,
+                "horizon_models": [
+                    {
+                        "horizon": 24,
+                        "lgbm": "lgbm_h24.pkl",
+                        "features": ["trend", "atr_norm_14"],
+                    }
+                ],
+            },
+            f,
+        )
+    with (model_dir / "lgbm_h24.pkl").open("wb") as f:
+        pickle.dump({"model": None, "features": ["trend", "atr_norm_14"]}, f)
+
+    old_model_dir = backtest_engine.MODEL_DIR
+    try:
+        backtest_engine.MODEL_DIR = tmp_path
+        module = backtest_engine.build_decision_module("BTCUSDT", equity_share=10_000.0)
+    finally:
+        backtest_engine.MODEL_DIR = old_model_dir
+
+    assert module is not None
+    assert module._features == ["trend", "atr_norm_14"]

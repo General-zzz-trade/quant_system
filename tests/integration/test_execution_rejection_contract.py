@@ -21,13 +21,14 @@ class _Ack:
         error: str,
         command_id: str = "cmd-001",
         venue: str = "binance",
+        result: dict | None = None,
     ) -> None:
         self.ok = ok
         self.status = status
         self.error = error
         self.command_id = command_id
         self.venue = venue
-        self.result = {}
+        self.result = result or {}
 
 
 class _Bridge:
@@ -148,7 +149,13 @@ def test_failed_then_successful_retry_flows_into_ingress_and_reconcile_cleanly()
     live = LiveExecutionBridge(
         execution_bridge=_SequencedBridge([
             _Ack(ok=False, status="FAILED", error="retryable:TimeoutError:timeout", command_id="cmd-retry"),
-            _Ack(ok=True, status="ACCEPTED", error="", command_id="cmd-retry"),
+            _Ack(
+                ok=True,
+                status="ACCEPTED",
+                error="",
+                command_id="cmd-retry",
+                result={"price": "40000", "qty": "1.0", "fee": "0.0"},
+            ),
         ]),
         dispatcher_emit=lambda event: (fill_events.append(event), router.ingest_canonical_fill(event)),
         on_reject_event=reject_events.append,

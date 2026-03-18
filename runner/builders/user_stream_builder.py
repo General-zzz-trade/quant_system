@@ -14,6 +14,19 @@ from engine.coordinator import EngineCoordinator
 logger = logging.getLogger(__name__)
 
 
+def _resolve_binance_rest_client(venue_client: Any) -> Any:
+    from execution.adapters.binance.rest import BinanceRestClient as _BRC
+
+    if isinstance(venue_client, _BRC):
+        return venue_client
+
+    rest_adapter = getattr(venue_client, "_rest", None)
+    if isinstance(rest_adapter, _BRC):
+        return rest_adapter
+
+    return None
+
+
 def build_user_stream(
     config: Any,
     venue_client: Any,
@@ -27,8 +40,8 @@ def build_user_stream(
     Returns user_stream_client or None.
     """
     if not config.shadow_mode:
-        from execution.adapters.binance.rest import BinanceRestClient as _BRC2
-        if isinstance(venue_client, _BRC2):
+        rest_client = _resolve_binance_rest_client(venue_client)
+        if rest_client is not None:
             try:
                 from execution.adapters.binance.listen_key_um import BinanceUmListenKeyClient
                 from execution.adapters.binance.listen_key_manager import (
@@ -62,7 +75,7 @@ def build_user_stream(
                     fill_mapper=BinanceFillMapper(),
                     default_actor="venue:binance",
                 )
-                lk_client = BinanceUmListenKeyClient(rest=venue_client)
+                lk_client = BinanceUmListenKeyClient(rest=rest_client)
                 lk_mgr = BinanceUmListenKeyManager(
                     client=lk_client,
                     clock=_TimeClock(),

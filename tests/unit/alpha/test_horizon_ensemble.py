@@ -34,6 +34,29 @@ def _make_horizon_models(horizons, n_features=3, n_preds=500):
     return models
 
 
+def _make_ridge_primary_models(horizons, n_features=3):
+    models = []
+    for idx, h in enumerate(horizons):
+        ridge_model = MagicMock()
+        ridge_model.predict = MagicMock(return_value=np.array([1.0 + idx]))
+        lgbm_model = MagicMock()
+        lgbm_model.predict = MagicMock(return_value=np.array([0.2 + idx]))
+        zbuf = MagicMock()
+        zbuf.push = MagicMock(side_effect=lambda pred: pred)
+        zbuf.ready = True
+        models.append({
+            "horizon": h,
+            "lgbm": lgbm_model,
+            "xgb": None,
+            "ridge": ridge_model,
+            "ridge_features": [f"feat_{i}" for i in range(n_features)],
+            "features": [f"feat_{i}" for i in range(n_features)],
+            "ic": 0.1 + idx,
+            "zscore_buf": zbuf,
+        })
+    return models
+
+
 class TestMeanZScoreMode:
     def test_equal_weights(self):
         cfg = V11Config(horizons=[12, 24, 48], ensemble_method="mean_zscore")
@@ -119,3 +142,25 @@ class TestLGBMXGBWeight:
         ens = AdaptiveHorizonEnsemble(cfg, models)
         # Since xgb import might fail in test, just verify construction works
         assert ens._lgbm_xgb_w == 0.7
+
+
+class TestRidgePrimaryMode:
+    def test_ridge_primary_predict_uses_ridge_blend(self):
+        cfg = V11Config(
+            horizons=[24],
+            ensemble_method="ridge_primary",
+            ridge_weight=0.6,
+            lgbm_weight=0.4,
+        )
+        models = _make_ridge_primary_models([24])
+        ens = AdaptiveHorizonEnsemble(cfg, models)
+        features = {f"feat_{i}": 0.5 for i in range(3)}
+        z = ens.predict(features)
+        assert z == pytest.approx(0.6 * 1.0 + 0.4 * 0.2)
+
+    def test_ridge_primary_weights_use_static_ic(self):
+        cfg = V11Config(horizons=[12, 24], ensemble_method="ridge_primary")
+        models = _make_ridge_primary_models([12, 24])
+        ens = AdaptiveHorizonEnsemble(cfg, models)
+        weights = ens.get_weights()
+        assert weights[24] > weights[12]

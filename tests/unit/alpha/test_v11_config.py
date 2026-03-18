@@ -125,6 +125,16 @@ class TestV11ConfigFromJson:
         cfg = V11Config.from_config_json({"lgbm_xgb_weight": 0.7})
         assert cfg.lgbm_xgb_weight == 0.7
 
+    def test_ridge_primary_config_loads(self):
+        cfg = V11Config.from_config_json({
+            "ensemble_method": "ridge_primary",
+            "ridge_weight": 0.65,
+            "lgbm_weight": 0.35,
+        })
+        assert cfg.ensemble_method == "ridge_primary"
+        assert cfg.ridge_weight == 0.65
+        assert cfg.lgbm_weight == 0.35
+
 
 class TestV11ConfigValidation:
     """Invalid values should raise."""
@@ -140,6 +150,14 @@ class TestV11ConfigValidation:
     def test_invalid_lgbm_xgb_weight_low(self):
         with pytest.raises(ValueError, match="lgbm_xgb_weight"):
             V11Config(lgbm_xgb_weight=-0.1)
+
+    def test_invalid_ridge_weight_high(self):
+        with pytest.raises(ValueError, match="ridge_weight"):
+            V11Config(ridge_weight=1.5)
+
+    def test_invalid_lgbm_weight_low(self):
+        with pytest.raises(ValueError, match="lgbm_weight"):
+            V11Config(lgbm_weight=-0.1)
 
     def test_invalid_zscore_warmup_zero(self):
         with pytest.raises(ValueError, match="zscore_warmup"):

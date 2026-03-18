@@ -20,6 +20,17 @@ from features.rolling import RollingWindow
 
 logger = logging.getLogger(__name__)
 
+_MULTI_DOMINANCE_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
+    "BTCUSDT": (("SUIUSDT", "dom_vs_sui"),),
+    "ETHUSDT": (("SUIUSDT", "dom_vs_sui"), ("AXSUSDT", "dom_vs_axs")),
+    "SUIUSDT": (("AXSUSDT", "dom_vs_axs"),),
+    "AXSUSDT": (("ETHUSDT", "dom_vs_eth"),),
+}
+_MULTI_DOMINANCE_PREFIXES: tuple[str, ...] = ("dom_vs_sui", "dom_vs_axs", "dom_vs_eth")
+_ALL_MULTI_DOMINANCE_FEATURES: tuple[str, ...] = tuple(
+    name for prefix in _MULTI_DOMINANCE_PREFIXES for name in (f"{prefix}_dev_20", f"{prefix}_ret_24")
+)
+
 # Feature names produced by this computer — used by training scripts
 ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     # Returns at multiple horizons
@@ -173,7 +184,6 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "ob_imbalance_x_vol",             # imbalance × volume_ratio — strength-weighted flow (IC 0.03-0.04, 3/4)
     "ob_imbalance_cum6",              # 6-bar cumulative imbalance — short-term order flow (IC 0.03, 3/4)
     "ob_volume_clock",                # vol_MA6/vol_MA24 - 1 — activity acceleration (IC 0.03, 3/4)
-    "iv_rv_spread",                   # implied_vol - realized_vol — vol premium/discount (IC 0.04, BTC+ETH)
     "liq_volume_zscore_24",           # z-score of liquidation proxy volume (IC -0.18, BTC only but very strong)
     # --- V17: On-chain features (Coin Metrics, IC-screened 2026-03-18) ---
     "oc_tx_zscore_7",                 # ETH TxTfrCnt 7d z-score (IC +0.137, strongest on-chain factor)
@@ -477,6 +487,7 @@ class _SymbolState:
     # V14: BTC Dominance (BTC/ETH ratio)
     _dom_ratio_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=75))
     _last_eth_close: Optional[float] = None
+    _multi_dom_ratio_bufs: Dict[str, Deque[float]] = field(default_factory=dict)
 
     # V15: Return buffer for autocorrelation and skewness (24-bar window)
     _ret_buf_24: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
@@ -529,7 +540,9 @@ class _SymbolState:
     _last_put_call_ratio: Optional[float] = None
 
     # V10: On-chain features (daily, from Coin Metrics)
-    _onchain_netflow_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=7))
+    _onchain_netflow_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
+    _onchain_flowin_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
+    _onchain_flowout_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
     _onchain_supply_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=30))
     _onchain_addr_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
     _onchain_tx_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=14))
@@ -599,7 +612,8 @@ class _SymbolState:
              liquidation_metrics: Optional[Dict[str, float]] = None,
              mempool_metrics: Optional[Dict[str, float]] = None,
              macro_metrics: Optional[Dict[str, float]] = None,
-             sentiment_metrics: Optional[Dict[str, float]] = None) -> None:
+             sentiment_metrics: Optional[Dict[str, float]] = None,
+             multi_dom_ratios: Optional[Dict[str, float]] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -646,6 +660,11 @@ class _SymbolState:
             self._last_eth_close = eth_close
             dom_ratio = close / eth_close
             self._dom_ratio_buf.append(dom_ratio)
+        if multi_dom_ratios:
+            for prefix, ratio in multi_dom_ratios.items():
+                if ratio <= 0:
+                    continue
+                self._multi_dom_ratio_bufs.setdefault(prefix, deque(maxlen=25)).append(ratio)
 
         # LS Ratio state
         if ls_ratio is not None:
@@ -676,6 +695,10 @@ class _SymbolState:
         if onchain_metrics is not None:
             flow_in = onchain_metrics.get("FlowInExUSD")
             flow_out = onchain_metrics.get("FlowOutExUSD")
+            if flow_in is not None:
+                self._onchain_flowin_buf.append(flow_in)
+            if flow_out is not None:
+                self._onchain_flowout_buf.append(flow_out)
             if flow_in is not None and flow_out is not None:
                 self._onchain_netflow_buf.append(flow_in - flow_out)
 
@@ -1194,6 +1217,21 @@ class _SymbolState:
         else:
             feats["btc_dom_ret_72"] = None
 
+        # --- V14b: Multi-ratio dominance features ---
+        for name in _ALL_MULTI_DOMINANCE_FEATURES:
+            feats[name] = None
+        for prefix in _MULTI_DOMINANCE_PREFIXES:
+            ratio_buf = self._multi_dom_ratio_bufs.get(prefix)
+            if not ratio_buf:
+                continue
+            if len(ratio_buf) >= 21:
+                cur = ratio_buf[-1]
+                ma20 = sum(list(ratio_buf)[-20:]) / 20
+                feats[f"{prefix}_dev_20"] = cur / ma20 - 1 if ma20 > 0 else None
+            if len(ratio_buf) >= 25:
+                prev = ratio_buf[-25]
+                feats[f"{prefix}_ret_24"] = ratio_buf[-1] / prev - 1 if prev > 0 else None
+
         # --- V13: Enhanced OI/LS/Taker features ---
         # oi_pct_4h: 4-bar OI change rate
         if len(self._oi_buf_12) >= 5 and self._oi_buf_12[-5] > 0:
@@ -1490,14 +1528,7 @@ class _SymbolState:
 
         # --- V10: On-chain features ---
         # exchange_netflow_zscore: zscore_7d(inflow - outflow)
-        if len(self._onchain_netflow_buf) >= 7:
-            vals = list(self._onchain_netflow_buf)
-            mean = sum(vals) / len(vals)
-            var = sum((v - mean) ** 2 for v in vals) / len(vals)
-            std = sqrt(var) if var > 0 else 0.0
-            feats["exchange_netflow_zscore"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
-        else:
-            feats["exchange_netflow_zscore"] = None
+        feats["exchange_netflow_zscore"] = _window_zscore(self._onchain_netflow_buf, 7)
 
         # exchange_supply_change: (today - yesterday) / yesterday
         if len(self._onchain_supply_buf) >= 2:
@@ -1518,24 +1549,10 @@ class _SymbolState:
             feats["exchange_supply_zscore_30"] = None
 
         # active_addr_zscore_14: zscore_14d(AdrActCnt)
-        if len(self._onchain_addr_buf) >= 14:
-            vals = list(self._onchain_addr_buf)
-            mean = sum(vals) / len(vals)
-            var = sum((v - mean) ** 2 for v in vals) / len(vals)
-            std = sqrt(var) if var > 0 else 0.0
-            feats["active_addr_zscore_14"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
-        else:
-            feats["active_addr_zscore_14"] = None
+        feats["active_addr_zscore_14"] = _window_zscore(self._onchain_addr_buf, 14)
 
         # tx_count_zscore_14: zscore_14d(TxTfrCnt)
-        if len(self._onchain_tx_buf) >= 14:
-            vals = list(self._onchain_tx_buf)
-            mean = sum(vals) / len(vals)
-            var = sum((v - mean) ** 2 for v in vals) / len(vals)
-            std = sqrt(var) if var > 0 else 0.0
-            feats["tx_count_zscore_14"] = (vals[-1] - mean) / std if std > 1e-8 else 0.0
-        else:
-            feats["tx_count_zscore_14"] = None
+        feats["tx_count_zscore_14"] = _window_zscore(self._onchain_tx_buf, 14)
 
         # hashrate_momentum: (HashRate - EMA14) / EMA14
         if self._onchain_hashrate_ema.ready and self._last_onchain_hashrate is not None:
@@ -1546,6 +1563,17 @@ class _SymbolState:
                 feats["hashrate_momentum"] = None
         else:
             feats["hashrate_momentum"] = None
+
+        # --- V17: On-chain IC-screened aliases ---
+        feats["oc_tx_zscore_7"] = _window_zscore(self._onchain_tx_buf, 7)
+        feats["oc_tx_zscore_14"] = _window_zscore(self._onchain_tx_buf, 14)
+        feats["oc_addr_zscore_7"] = _window_zscore(self._onchain_addr_buf, 7)
+        feats["oc_addr_zscore_14"] = feats["active_addr_zscore_14"]
+        feats["oc_flowin_zscore_7"] = _window_zscore(self._onchain_flowin_buf, 7)
+        feats["oc_flowin_zscore_14"] = _window_zscore(self._onchain_flowin_buf, 14)
+        feats["oc_flowout_zscore_7"] = _window_zscore(self._onchain_flowout_buf, 7)
+        feats["oc_flowout_zscore_14"] = _window_zscore(self._onchain_flowout_buf, 14)
+        feats["oc_netflow_zscore_7"] = feats["exchange_netflow_zscore"]
 
         # --- V11: Liquidation features ---
         # liquidation_volume_zscore_24
@@ -1786,14 +1814,6 @@ class _SymbolState:
         else:
             feats["ob_volume_clock"] = None
 
-        # IV-RV spread (only if IV data available via push)
-        _iv = getattr(self, '_last_implied_vol', None)
-        _rv = feats.get("vol_20")
-        if _iv is not None and _rv is not None:
-            feats["iv_rv_spread"] = _iv - _rv
-        else:
-            feats["iv_rv_spread"] = None
-
         # Liquidation volume z-score (24-bar)
         if len(self._liq_vol_buf_24) >= 12:
             liq_arr = list(self._liq_vol_buf_24)
@@ -1894,12 +1914,14 @@ class EnrichedFeatureComputer:
         macro_metrics: Optional[Dict[str, float]] = None,
         sentiment_metrics: Optional[Dict[str, float]] = None,
         btc_close: Optional[float] = None,
+        reference_closes: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features.
 
         btc_close: BTC price at same bar time. Required for V12 ALT cross-asset features.
         top_trader_ls_ratio: Top trader position L/S ratio (V13).
         eth_close: ETH price at same bar time. Required for V14 BTC dominance features.
+        reference_closes: Optional cross-asset reference close map for V14b dominance pairs.
         """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
@@ -1913,6 +1935,7 @@ class EnrichedFeatureComputer:
             low = close
 
         state = self._states[symbol]
+        multi_dom_ratios = _build_multi_dominance_ratios(symbol, close, reference_closes)
         state.push(close, volume, high, low, open_,
                    hour=hour, dow=dow, funding_rate=funding_rate,
                    trades=trades, taker_buy_volume=taker_buy_volume,
@@ -1927,7 +1950,8 @@ class EnrichedFeatureComputer:
                    liquidation_metrics=liquidation_metrics,
                    mempool_metrics=mempool_metrics,
                    macro_metrics=macro_metrics,
-                   sentiment_metrics=sentiment_metrics)
+                   sentiment_metrics=sentiment_metrics,
+                   multi_dom_ratios=multi_dom_ratios)
         return state.get_features(btc_close=btc_close)
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:
@@ -1945,3 +1969,59 @@ class EnrichedFeatureComputer:
             self._states.pop(symbol, None)
         else:
             self._states.clear()
+
+
+def _symbol_aliases(symbol: str) -> tuple[str, ...]:
+    upper = str(symbol).upper()
+    aliases = [upper]
+    if upper.endswith("USDT"):
+        aliases.append(upper[:-4])
+    else:
+        aliases.append(f"{upper}USDT")
+    return tuple(dict.fromkeys(aliases))
+
+
+def _resolve_multi_dominance_pairs(symbol: str) -> tuple[tuple[str, str], ...]:
+    for alias in _symbol_aliases(symbol):
+        pairs = _MULTI_DOMINANCE_PAIRS.get(alias)
+        if pairs:
+            return pairs
+    return ()
+
+
+def _build_multi_dominance_ratios(
+    symbol: str,
+    close: float,
+    reference_closes: Optional[Dict[str, float]],
+) -> Dict[str, float]:
+    if close <= 0 or not reference_closes:
+        return {}
+    normalized_refs = {
+        str(ref_symbol).upper(): ref_close
+        for ref_symbol, ref_close in reference_closes.items()
+        if ref_close is not None
+    }
+    ratios: Dict[str, float] = {}
+    for ref_symbol, prefix in _resolve_multi_dominance_pairs(symbol):
+        ref_close = _lookup_reference_close(normalized_refs, ref_symbol)
+        if ref_close is not None and ref_close > 0:
+            ratios[prefix] = close / ref_close
+    return ratios
+
+
+def _lookup_reference_close(reference_closes: Dict[str, float], ref_symbol: str) -> Optional[float]:
+    for alias in _symbol_aliases(ref_symbol):
+        ref_close = reference_closes.get(alias)
+        if ref_close is not None:
+            return ref_close
+    return None
+
+
+def _window_zscore(values: Deque[float], window: int) -> Optional[float]:
+    if len(values) < window:
+        return None
+    window_vals = list(values)[-window:]
+    mean = sum(window_vals) / len(window_vals)
+    var = sum((value - mean) ** 2 for value in window_vals) / len(window_vals)
+    std = sqrt(var) if var > 0 else 0.0
+    return (window_vals[-1] - mean) / std if std > 1e-8 else 0.0

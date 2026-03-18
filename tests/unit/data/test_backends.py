@@ -46,6 +46,7 @@ class TestParquetBarStore:
         assert result[-1].ts == bars[-1].ts
         assert result[0].open == Decimal("40000")
         assert result[99].close == Decimal("40099") + Decimal("5")
+        assert result[0].exchange == "binance"
 
     def test_read_with_time_filter(self, tmp_path: Path) -> None:
         store = ParquetBarStore(tmp_path / "bars")
@@ -87,6 +88,27 @@ class TestParquetBarStore:
         store = ParquetBarStore(tmp_path / "bars")
         store.write_bars("BTCUSDT", [])
         assert store.read_bars("BTCUSDT") == []
+
+    def test_write_and_read_none_volume_and_exchange(self, tmp_path: Path) -> None:
+        store = ParquetBarStore(tmp_path / "bars")
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        bar = Bar(
+            ts=ts,
+            open=Decimal("1"),
+            high=Decimal("2"),
+            low=Decimal("0.5"),
+            close=Decimal("1.5"),
+            volume=None,
+            symbol="BTCUSDT",
+            exchange="bybit",
+        )
+
+        store.write_bars("BTCUSDT", [bar])
+        result = store.read_bars("BTCUSDT")
+
+        assert len(result) == 1
+        assert result[0].volume is None
+        assert result[0].exchange == "bybit"
 
 
 class TestTick:

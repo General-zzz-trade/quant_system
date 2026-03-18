@@ -83,6 +83,23 @@ def _build_live_config(symbols, ws=False, dry_run=False):
     )
 
 
+def _resolve_runner_target(
+    runner_key: str,
+    runner_intervals: dict | None = None,
+) -> tuple[str, str]:
+    if runner_intervals is None:
+        return runner_key, INTERVAL
+    return runner_intervals.get(runner_key, (runner_key, INTERVAL))
+
+
+def _stop_runners(runners: dict[str, AlphaRunner]) -> None:
+    for runner in runners.values():
+        try:
+            runner.stop()
+        except Exception:
+            logger.exception("Failed to stop runner for %s", getattr(runner, "_symbol", "?"))
+
+
 def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                  runner_intervals: dict | None = None,
                  hedge_runner: HedgeRunner | None = None,
@@ -405,11 +422,15 @@ def main():
         return
 
     if args.once:
-        for symbol, runner in runners.items():
-            bars = adapter.get_klines(symbol, interval=INTERVAL, limit=2)
-            if bars:
-                result = runner.process_bar(bars[0])
-                logger.info("%s: %s", symbol, json.dumps(result, default=str))
+        try:
+            for symbol, runner in runners.items():
+                real_symbol, interval = _resolve_runner_target(symbol, runner_intervals)
+                bars = adapter.get_klines(real_symbol, interval=interval, limit=2)
+                if bars:
+                    result = runner.process_bar(bars[0])
+                    logger.info("%s: %s", symbol, json.dumps(result, default=str))
+        finally:
+            _stop_runners(runners)
         return
 
     # Initialize portfolio manager (unified position + risk)
@@ -424,9 +445,12 @@ def main():
 
     # WebSocket mode: push-based, low latency
     if args.ws:
-        _run_ws_mode(runners, adapter, args.dry_run,
-                     runner_intervals=runner_intervals, hedge_runner=hedge,
-                     portfolio_manager=pm)
+        try:
+            _run_ws_mode(runners, adapter, args.dry_run,
+                         runner_intervals=runner_intervals, hedge_runner=hedge,
+                         portfolio_manager=pm)
+        finally:
+            _stop_runners(runners)
         return
 
     logger.info(
@@ -443,7 +467,8 @@ def main():
             cycle_count += 1
             for symbol, runner in runners.items():
                 try:
-                    bars = adapter.get_klines(symbol, interval=INTERVAL, limit=2)
+                    real_symbol, interval = _resolve_runner_target(symbol, runner_intervals)
+                    bars = adapter.get_klines(real_symbol, interval=interval, limit=2)
                     if not bars:
                         continue
 
@@ -500,6 +525,8 @@ def main():
                 if runner._current_signal != 0:
                     logger.info("Closing %s position on exit...", symbol)
                     reliable_close_position(adapter, symbol, verify=False)
+    finally:
+        _stop_runners(runners)
 
 
 if __name__ == "__main__":

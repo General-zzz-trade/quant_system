@@ -90,6 +90,7 @@ class SystemHealthMonitor:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
 
     # ── Update methods (called from event loop) ───────────────
 
@@ -135,7 +136,10 @@ class SystemHealthMonitor:
     # ── Lifecycle ─────────────────────────────────────────────
 
     def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
             name="health-monitor",
@@ -145,21 +149,18 @@ class SystemHealthMonitor:
 
     def stop(self) -> None:
         self._running = False
+        self._stop_event.set()
         if self._thread is not None:
-            try:
-                if self._thread.is_alive():
-                    self._thread.join(timeout=self._cfg.check_interval_sec * 2)
-            except RuntimeError:
-                # Defensive against rare startup/shutdown races in tests/embedded runners.
-                pass
+            from infra.threading_utils import safe_join_thread
+
+            safe_join_thread(self._thread, timeout=self._cfg.check_interval_sec * 2)
+            self._thread = None
 
     # ── Internal check loop ───────────────────────────────────
 
     def _run_loop(self) -> None:
-        while self._running:
-            time.sleep(self._cfg.check_interval_sec)
-            if self._running:
-                self._run_checks()
+        while not self._stop_event.wait(self._cfg.check_interval_sec):
+            self._run_checks()
 
     def _run_checks(self) -> None:
         with self._lock:

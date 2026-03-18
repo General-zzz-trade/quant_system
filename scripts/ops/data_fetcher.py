@@ -34,6 +34,8 @@ class BinanceOICache:
 
     def start(self) -> None:
         """Start background refresh thread (daemon — exits with main process)."""
+        if self._thread is not None and self._thread.is_alive():
+            return
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, name=f"oi-cache-{self._symbol}", daemon=True
@@ -44,6 +46,10 @@ class BinanceOICache:
     def stop(self) -> None:
         """Signal background thread to stop."""
         self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+        self._thread = None
 
     def get(self) -> dict:
         """Return latest cached OI data (thread-safe, never blocks)."""

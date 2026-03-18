@@ -4,12 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
-import websockets
-from websockets.asyncio.client import ClientConnection
+if TYPE_CHECKING:
+    import websockets
+    from websockets.asyncio.client import ClientConnection
+else:
+    ClientConnection = Any
+    try:
+        import websockets
+    except ModuleNotFoundError as exc:
+        websockets = None
+        _WEBSOCKETS_IMPORT_ERROR = exc
+    else:
+        _WEBSOCKETS_IMPORT_ERROR = None
 
 logger = logging.getLogger(__name__)
+
+
+def _require_websockets() -> Any:
+    if websockets is None:
+        raise RuntimeError(
+            "AsyncWsTransport requires optional dependency 'websockets'; "
+            "install quant-system[async] to enable async Binance WebSocket transport",
+        ) from _WEBSOCKETS_IMPORT_ERROR
+    return websockets
 
 
 class AsyncWsTransport:
@@ -38,7 +57,8 @@ class AsyncWsTransport:
 
     async def connect(self, url: str) -> None:
         self._url = url
-        self._ws = await websockets.connect(
+        ws_lib = _require_websockets()
+        self._ws = await ws_lib.connect(
             url,
             ping_interval=self._ping_interval,
             ping_timeout=self._ping_timeout,

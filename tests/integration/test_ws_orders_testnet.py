@@ -25,6 +25,8 @@ from execution.adapters.binance.ws_order_adapter import WsOrderAdapter
 
 # ── Helpers ──────────────────────────────────────────────────
 
+_AUTH_OR_PERMISSION_REASON = "ws_auth_or_permission_error"
+
 @dataclass
 class StubOrderEvent:
     symbol: str = "BTCUSDT"
@@ -46,6 +48,12 @@ class OrderTrackingRestAdapter:
     def send_order(self, order_event: Any) -> list:
         self.calls.append(order_event)
         return [{"status": "REST_FILLED", "symbol": getattr(order_event, "symbol", "")}]
+
+
+def _skip_if_testnet_trade_auth_missing(adapter: WsOrderAdapter) -> None:
+    outcome = adapter.last_order_outcome
+    if outcome is not None and outcome.reason == _AUTH_OR_PERMISSION_REASON:
+        pytest.skip("Testnet credentials exist but do not have WS trading permission")
 
 
 # ── Unit tests (no network) ─────────────────────────────────
@@ -304,6 +312,10 @@ class TestWsOrdersTestnet:
             qty="0.001",
         )
         a.send_order(order)
+        _skip_if_testnet_trade_auth_missing(a)
+        outcome = a.last_order_outcome
+        assert outcome is not None, "WS adapter should record the latest order outcome"
+        assert outcome.route == "ws_success", f"Testnet WS order did not succeed: {outcome}"
         # Should succeed via WS without REST fallback
         assert len(rest.calls) == 0, "Testnet WS order should not fall back to REST"
 
@@ -322,9 +334,14 @@ class TestWsOrdersTestnet:
                 qty="0.001",
                 client_order_id=f"latency-test-{i}",
             )
-            t0 = time.monotonic()
             a.send_order(order)
-            latencies.append((time.monotonic() - t0) * 1000)
+            _skip_if_testnet_trade_auth_missing(a)
+            outcome = a.last_order_outcome
+            assert outcome is not None, "WS adapter should record the latest order outcome"
+            assert outcome.route == "ws_success", (
+                f"Cannot evaluate WS latency SLA because order path failed first: {outcome}"
+            )
+            latencies.append(outcome.latency_ms)
             time.sleep(0.5)  # rate limit
 
         if latencies:

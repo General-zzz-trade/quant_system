@@ -14,7 +14,7 @@ from scripts.ops.config import (
     INTERVAL, MAX_ORDER_NOTIONAL, WARMUP_BARS,
     _consensus_signals,
 )
-from scripts.ops.data_fetcher import BinanceOICache
+from scripts.ops.data_fetcher import BinanceOICache, _fetch_binance_oi_data  # noqa: F401
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
 
@@ -36,15 +36,13 @@ _NEUTRAL_DEFAULTS: dict[str, float] = {
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
-    # Demo leverage ladder — 10x for small demo accounts, scaled down for larger capital.
-    # Note: Kelly-optimal for real money is 1.5x; 10x is intentionally aggressive for demo.
-    # Bug fix: values must be integers (Bybit API requires integer leverage, min=2).
-    # Previous bug: int(1.5)=1 silently set exchange to 1x instead of 2x.
+    # Current production leverage contract: small accounts use 1.5x Kelly-optimal
+    # leverage, larger accounts step down to 1.0x for capital preservation.
     LEVERAGE_LADDER = [
-        (0,      10),    # 10x across all equity levels (demo account)
-        (5000,   10),
-        (20000,  10),
-        (50000,  10),
+        (0,      1.5),
+        (5000,   1.5),
+        (20000,  1.0),
+        (50000,  1.0),
     ]
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
@@ -53,7 +51,8 @@ class AlphaRunner:
                  min_size: float = 0.01, max_size_pct: float = 10.00,
                  max_qty: float = 0, step_size: float = 0.01,
                  risk_evaluator: Any = None, kill_switch: Any = None,
-                 state_store: Any = None, pnl_tracker: PnLTracker | None = None):
+                 state_store: Any = None, pnl_tracker: PnLTracker | None = None,
+                 oi_cache: Any = None, start_oi_cache: bool = True):
         self._adapter = adapter
         self._symbol = symbol
         self._model = model_info["model"]  # primary (backward compat)
@@ -125,15 +124,14 @@ class AlphaRunner:
         # via RustFillEvent processing on the Rust heap.
         self._state_store = state_store
 
-        # Adaptive stop-loss state (tightened for 5x leverage)
-        # At 5x, a 2% adverse move = 10% equity loss. Tighter stops are critical.
-        # ATR×1.5 initial (was 2.0), breakeven at 0.5×ATR (was 1.0), trail at 0.2×ATR (was 0.3)
+        # Adaptive stop-loss state.
+        # 1.2x initial (was 1.5), breakeven at 0.5×ATR, trail at 0.5×ATR, step 0.2×ATR
         self._atr_buffer: list[float] = []  # recent ATR values for adaptive stop
         self._trade_peak_price: float = 0.0  # highest favorable price since entry (for trailing)
-        self._atr_stop_mult: float = 1.5     # ATR multiplier for initial stop (tighter for 5x)
-        self._trail_atr_mult: float = 0.5    # trail activates after 0.5×ATR profit (faster)
-        self._trail_step: float = 0.2        # tighter trail: 0.2×ATR
-        self._breakeven_atr: float = 0.5     # breakeven at 0.5× ATR profit (faster safety net)
+        self._atr_stop_mult: float = 1.2
+        self._trail_atr_mult: float = 0.5    # trail activates after 0.5×ATR profit
+        self._trail_step: float = 0.2        # trail distance: 0.2×ATR
+        self._breakeven_atr: float = 0.5     # breakeven at 0.5×ATR profit
 
         from _quant_hotpath import (RustFeatureEngine, RustInferenceBridge,
                                     RustOrderStateMachine, RustCircuitBreaker,
@@ -171,10 +169,15 @@ class AlphaRunner:
         self._z_scale: float = 1.0  # non-linear z-score position scale
         self._last_bar_time: float = 0.0  # time.time() of last process_bar call
 
-        # Background OI cache: fetches Binance OI/LS/Taker every 55s in daemon thread.
-        # Avoids blocking bar-processing thread with 4 sequential REST calls (~12s worst case).
-        self._oi_cache = BinanceOICache(self._symbol)
-        self._oi_cache.start()
+        # Background OI cache: fetches Binance OI/LS/Taker every 55s in a daemon thread.
+        # Allow injection/disable in tests and non-networked environments.
+        self._oi_cache = oi_cache if oi_cache is not None else BinanceOICache(self._symbol)
+        if not hasattr(self._oi_cache, "get"):
+            raise TypeError("oi_cache must provide get()")
+        if start_oi_cache:
+            if not hasattr(self._oi_cache, "start"):
+                raise TypeError("oi_cache must provide start() when start_oi_cache=True")
+            self._oi_cache.start()
 
     # Backward-compat properties: delegate to PnLTracker
     @property
@@ -199,6 +202,15 @@ class AlphaRunner:
         if self._kill_switch is not None:
             return self._kill_switch.is_armed()
         return False
+
+    def stop(self) -> None:
+        """Stop background resources owned by the runner."""
+        stop = getattr(self._oi_cache, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                logger.debug("%s OI cache stop failed", self._symbol, exc_info=True)
 
     def _record_fill(self, side: str, qty: float, price: float,
                      realized_pnl: float = 0.0) -> None:
@@ -765,27 +777,21 @@ class AlphaRunner:
     def compute_z_scale(z: float) -> float:
         """Non-linear position sizing based on z-score magnitude.
 
-        At 5x leverage, weak signals are much more expensive. Aggressive
-        filtering: only full size at |z| > 2.0, minimal below 1.0.
-        - |z| > 2.5: scale=1.5 (extreme conviction → max leverage)
-        - |z| > 2.0: scale=1.2 (strong)
-        - |z| > 1.5: scale=1.0 (normal)
-        - |z| > 1.0: scale=0.5 (moderate → half size at 5x)
-        - else:       scale=0.3 (weak → 30% size, barely trade)
-
-        Returns scale factor in [0.3, 1.5].
+        Shared live/backtest contract:
+        - |z| > 2.0: scale=1.5
+        - |z| > 1.0: scale=1.0
+        - |z| > 0.5: scale=0.7
+        - else:       scale=0.5
         """
         abs_z = abs(z)
-        if abs_z > 2.5:
+        if abs_z > 2.0:
             return 1.5
-        elif abs_z > 2.0:
-            return 1.2
-        elif abs_z > 1.5:
-            return 1.0
         elif abs_z > 1.0:
-            return 0.5
+            return 1.0
+        elif abs_z > 0.5:
+            return 0.7
         else:
-            return 0.3
+            return 0.5
 
     def _round_to_step(self, size: float) -> float:
         """Round qty to exchange step size (floor to never exceed)."""
@@ -809,8 +815,7 @@ class AlphaRunner:
         4. Clamp to [min_size, exchange limit]
         5. Set exchange leverage to match
 
-        Kelly math: 20x optimal, but real-world safety margin for
-        stop-loss slippage means 5-10x at small equity.
+        Uses the same 1.5x/1.0x leverage brackets as the converged gate chain.
         """
         if not self._adaptive_sizing:
             size = self._round_to_step(self._base_position_size)
@@ -975,8 +980,7 @@ class AlphaRunner:
 
         self._regime_active = base_active and not is_ranging
 
-        # Layer 3: High-vol blocker — at 10x leverage, extreme vol is lethal.
-        # Vol > 1.5x median → block new entries (3% move = 30% equity swing).
+        # Layer 3: High-vol blocker — extreme vol disables new entries.
         if self._vol_median > 0 and vol_20 > self._vol_median * 1.5:
             self._regime_active = False
 
@@ -1370,7 +1374,7 @@ class AlphaRunner:
 
             # Hard safety limit: scale MAX_ORDER_NOTIONAL by z_scale so weak
             # signals don't get the same notional as strong ones.
-            # z_scale=0.5 → effective cap $2500, z_scale=1.5 → full $5000.
+            # z_scale=0.5 → effective cap $250, z_scale=1.5 → full $500.
             effective_cap = MAX_ORDER_NOTIONAL * min(self._z_scale, 1.0)
             notional = self._position_size * price
             logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f (z_cap=$%.0f)",

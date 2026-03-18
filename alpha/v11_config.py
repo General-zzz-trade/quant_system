@@ -67,8 +67,10 @@ class V11Config:
     """
     # Core
     horizons: List[int] = field(default_factory=lambda: [12, 24, 48])
-    ensemble_method: str = "mean_zscore"    # "mean_zscore" | "ic_weighted"
+    ensemble_method: str = "mean_zscore"    # "mean_zscore" | "ic_weighted" | "ridge_primary"
     lgbm_xgb_weight: float = 0.5           # weight for lgbm (xgb gets 1 - this)
+    ridge_weight: float = 0.6
+    lgbm_weight: float = 0.4
     zscore_window: int = 720
     zscore_warmup: int = 180                # SINGLE source of truth
 
@@ -88,15 +90,25 @@ class V11Config:
     ic_min_threshold: float = -0.01         # horizons below this get weight=0
 
     def __post_init__(self) -> None:
-        if self.ensemble_method not in ("mean_zscore", "ic_weighted"):
+        if self.ensemble_method not in ("mean_zscore", "ic_weighted", "ridge_primary"):
             raise ValueError(
-                f"ensemble_method must be 'mean_zscore' or 'ic_weighted', "
+                f"ensemble_method must be 'mean_zscore', 'ic_weighted', or 'ridge_primary', "
                 f"got '{self.ensemble_method}'"
             )
         if not 0.0 <= self.lgbm_xgb_weight <= 1.0:
             raise ValueError(
                 f"lgbm_xgb_weight must be in [0, 1], got {self.lgbm_xgb_weight}"
             )
+        if not 0.0 <= self.ridge_weight <= 1.0:
+            raise ValueError(
+                f"ridge_weight must be in [0, 1], got {self.ridge_weight}"
+            )
+        if not 0.0 <= self.lgbm_weight <= 1.0:
+            raise ValueError(
+                f"lgbm_weight must be in [0, 1], got {self.lgbm_weight}"
+            )
+        if self.ridge_weight + self.lgbm_weight <= 0.0:
+            raise ValueError("ridge_weight + lgbm_weight must be > 0")
         if self.zscore_warmup < 1:
             raise ValueError(f"zscore_warmup must be >= 1, got {self.zscore_warmup}")
         if self.zscore_window < self.zscore_warmup:
@@ -147,6 +159,8 @@ class V11Config:
             horizons=cfg.get("horizons", [12, 24, 48]),
             ensemble_method=cfg.get("ensemble_method", "mean_zscore"),
             lgbm_xgb_weight=cfg.get("lgbm_xgb_weight", 0.5),
+            ridge_weight=cfg.get("ridge_weight", 0.6),
+            lgbm_weight=cfg.get("lgbm_weight", 0.4),
             zscore_window=cfg.get("zscore_window", 720),
             zscore_warmup=cfg.get("zscore_warmup", 180),
             deadzone=cfg.get("deadzone", 0.3),

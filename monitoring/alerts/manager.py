@@ -60,6 +60,7 @@ class AlertManager:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
 
     def add_rule(self, rule: AlertRule) -> None:
         with self._lock:
@@ -139,6 +140,7 @@ class AlertManager:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
             args=(interval_sec,),
@@ -151,6 +153,7 @@ class AlertManager:
     def stop(self) -> None:
         """Stop the periodic check thread."""
         self._running = False
+        self._stop_event.set()
         if self._thread is not None:
             from infra.threading_utils import safe_join_thread
 
@@ -159,13 +162,11 @@ class AlertManager:
         logger.info("AlertManager stopped")
 
     def _run_loop(self, interval_sec: float) -> None:
-        while self._running:
-            time.sleep(interval_sec)
-            if self._running:
-                try:
-                    self.check_all()
-                except Exception:
-                    logger.exception("Periodic check_all failed")
+        while not self._stop_event.wait(interval_sec):
+            try:
+                self.check_all()
+            except Exception:
+                logger.exception("Periodic check_all failed")
 
     def _record(self, alert: Alert) -> None:
         with self._lock:

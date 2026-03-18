@@ -18,7 +18,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os as _os
+import threading as _threading
 import time as _time
 from typing import Any, Optional, Tuple
 
@@ -39,12 +39,44 @@ from execution.models.positions import VenuePosition
 
 logger = logging.getLogger(__name__)
 
+_ORDER_LINK_ID_LOCK = _threading.Lock()
+_ORDER_LINK_ID_SEQ = 0
+_ORDER_LINK_ID_SEQ_MOD = 36 ** 4
+
+
+def _to_base36(value: int) -> str:
+    if value < 0:
+        raise ValueError("base36 input must be non-negative")
+    if value == 0:
+        return "0"
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    parts = []
+    while value:
+        value, rem = divmod(value, 36)
+        parts.append(digits[rem])
+    return "".join(reversed(parts))
+
+
+def _next_order_link_suffix() -> str:
+    global _ORDER_LINK_ID_SEQ
+    with _ORDER_LINK_ID_LOCK:
+        _ORDER_LINK_ID_SEQ = (_ORDER_LINK_ID_SEQ + 1) % _ORDER_LINK_ID_SEQ_MOD
+        return _to_base36(_ORDER_LINK_ID_SEQ).rjust(4, "0")
+
 
 def _make_order_link_id(symbol: str, side: str) -> str:
     """Generate unique orderLinkId for Bybit dedup (max 36 chars)."""
-    ts_ms = int(_time.time() * 1000)
-    rand = _os.urandom(2).hex()  # 4 hex chars
-    return f"qs_{symbol}_{side[0]}_{ts_ms}_{rand}"
+    symbol_token = str(symbol).upper()
+    if not symbol_token:
+        raise ValueError("symbol is required for orderLinkId")
+    side_token = (str(side).strip().lower()[:1] or "u")
+    ts_token = _to_base36(int(_time.time() * 1000))
+    suffix = _next_order_link_suffix()
+    max_symbol_len = 36 - len(f"qs__{side_token}_{ts_token}_{suffix}")
+    if max_symbol_len <= 0:
+        raise ValueError("orderLinkId budget exhausted by timestamp/suffix layout")
+    symbol_token = symbol_token[:max_symbol_len]
+    return f"qs_{symbol_token}_{side_token}_{ts_token}_{suffix}"
 
 
 class BybitAdapter:

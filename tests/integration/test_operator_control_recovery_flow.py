@@ -51,13 +51,21 @@ class _FakeVenueClient:
 
 
 class _Ack:
-    def __init__(self, *, ok: bool, status: str, error: str = "", command_id: str = "cmd-001") -> None:
+    def __init__(
+        self,
+        *,
+        ok: bool,
+        status: str,
+        error: str = "",
+        command_id: str = "cmd-001",
+        result: dict | None = None,
+    ) -> None:
         self.ok = ok
         self.status = status
         self.error = error
         self.command_id = command_id
         self.venue = "binance"
-        self.result = {"price": "40000", "qty": "1.0", "fee": "0.1"} if ok else {}
+        self.result = result if result is not None else ({"price": "40000", "qty": "1.0", "fee": "0.1"} if ok else {})
 
 
 class _SequencedBridge:
@@ -261,7 +269,12 @@ def test_retryable_reject_then_success_fill_is_visible_in_ops_audit() -> None:
     bridge = LiveExecutionBridge(
         execution_bridge=_SequencedBridge([
             _Ack(ok=False, status="FAILED", error="retryable:TimeoutError:timeout", command_id="cmd-retry"),
-            _Ack(ok=True, status="ACCEPTED", command_id="cmd-retry"),
+            _Ack(
+                ok=True,
+                status="ACCEPTED",
+                command_id="cmd-retry",
+                result={"price": "40000", "qty": "1.0", "fee": "0.0"},
+            ),
         ]),
         dispatcher_emit=lambda event: router.ingest_canonical_fill(event),
         alert_manager=runner.alert_manager,

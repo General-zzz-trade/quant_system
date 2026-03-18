@@ -2,6 +2,7 @@ version: "3.8"
 
 services:
   quant-paper:
+    image: quant-paper:latest
     build:
       context: .
       target: paper
@@ -14,8 +15,15 @@ services:
       - ./models_v8:/app/models_v8:ro
       - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import importlib; importlib.import_module('_quant_hotpath'); importlib.import_module('scripts.run_bybit_alpha')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   quant-live:
+    image: quant-live:latest
     build:
       context: .
       target: live
@@ -28,11 +36,18 @@ services:
       - ./models_v8:/app/models_v8:ro
       - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import importlib; importlib.import_module('_quant_hotpath'); importlib.import_module('scripts.run_bybit_alpha')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     profiles:
       - live  # Only starts with: docker compose --profile live up
 
   # Experimental: LiveRunner framework path (not current production)
   quant-framework:
+    image: quant-framework:latest
     build:
       context: .
       target: paper
@@ -45,5 +60,11 @@ services:
       - ./models_v8:/app/models_v8:ro
       - ./logs:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import importlib; importlib.import_module('runner.live_runner')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     profiles:
       - framework  # Only starts with: docker compose --profile framework up

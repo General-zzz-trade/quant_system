@@ -20,7 +20,11 @@ class OrderReconcileResult:
 
     @property
     def ok(self) -> bool:
-        return self.status_mismatch == 0 and self.missing_local == 0
+        return (
+            self.status_mismatch == 0
+            and self.missing_local == 0
+            and self.missing_venue == 0
+        )
 
 
 def reconcile_orders(

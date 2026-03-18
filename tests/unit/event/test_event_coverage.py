@@ -12,6 +12,7 @@ import dataclasses
 import sys
 import threading
 import time
+import types
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -31,9 +32,19 @@ except ImportError:
     _mock_hotpath.rust_now_ns.return_value = 1_700_000_000_000_000_000
     sys.modules["_quant_hotpath"] = _mock_hotpath
 
-# Also patch the depth_processor import used by tick_types
-if "execution.adapters.binance.depth_processor" not in sys.modules:
-    _mock_dp = MagicMock()
+# Also patch the depth_processor import used by tick_types, but only if the real
+# module still cannot be imported after the _quant_hotpath shim above.
+try:
+    import execution.adapters.binance.depth_processor as _depth_processor  # noqa: F401
+    _FakeOrderBookLevel = _depth_processor.OrderBookLevel
+    _FakeOrderBookSnapshot = _depth_processor.OrderBookSnapshot
+except Exception:
+    _mock_dp = types.ModuleType("execution.adapters.binance.depth_processor")
+
+    @dataclass(frozen=True, slots=True)
+    class _FakeOrderBookLevel:
+        price: Decimal
+        qty: Decimal
 
     @dataclass(frozen=True, slots=True)
     class _FakeOrderBookSnapshot:
@@ -41,7 +52,9 @@ if "execution.adapters.binance.depth_processor" not in sys.modules:
         bids: tuple
         asks: tuple
         ts_ms: int
+        last_update_id: int = 0
 
+    _mock_dp.OrderBookLevel = _FakeOrderBookLevel
     _mock_dp.OrderBookSnapshot = _FakeOrderBookSnapshot
     sys.modules["execution.adapters.binance.depth_processor"] = _mock_dp
 
@@ -272,6 +285,7 @@ class TestTickTypes:
             bids=(),
             asks=(),
             ts_ms=1_700_000_000_000,
+            last_update_id=0,
         )
         ev = DepthUpdateEvent(snapshot=snap)
         assert ev.snapshot is snap
@@ -280,7 +294,7 @@ class TestTickTypes:
     def test_depth_update_event_is_frozen(self) -> None:
         from event.tick_types import DepthUpdateEvent
 
-        snap = _FakeOrderBookSnapshot(symbol="X", bids=(), asks=(), ts_ms=0)
+        snap = _FakeOrderBookSnapshot(symbol="X", bids=(), asks=(), ts_ms=0, last_update_id=0)
         ev = DepthUpdateEvent(snapshot=snap)
         with pytest.raises((AttributeError, TypeError)):
             ev.snapshot = snap  # type: ignore[misc]
@@ -288,7 +302,7 @@ class TestTickTypes:
     def test_depth_update_received_at_default(self) -> None:
         from event.tick_types import DepthUpdateEvent
 
-        snap = _FakeOrderBookSnapshot(symbol="X", bids=(), asks=(), ts_ms=0)
+        snap = _FakeOrderBookSnapshot(symbol="X", bids=(), asks=(), ts_ms=0, last_update_id=0)
         before = time.monotonic()
         ev = DepthUpdateEvent(snapshot=snap)
         after = time.monotonic()

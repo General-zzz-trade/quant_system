@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 
 from execution.reconcile.controller import ReconcileController
+from execution.reconcile.controller import ReconcileReport
 from execution.reconcile.scheduler import (
     ReconcileScheduler,
     ReconcileSchedulerConfig,
@@ -74,6 +75,18 @@ class TestRunOnce:
         assert report is not None
         assert not report.ok
         assert len(report.all_drifts) > 0
+
+    def test_empty_venue_positions_are_authoritative(self):
+        controller = ReconcileController()
+        scheduler = ReconcileScheduler(
+            controller=controller,
+            get_local_state=lambda: _local_state(positions={"BTCUSDT": "1.0"}),
+            fetch_venue_state=lambda: {"positions": {}},
+        )
+        report = scheduler.run_once()
+        assert report is not None
+        assert not report.ok
+        assert any("not on venue" in drift.detail for drift in report.all_drifts)
 
     def test_balance_drift_detected(self):
         controller = ReconcileController()
@@ -253,3 +266,33 @@ class TestStateExtraction:
         )
         result = scheduler._extract_local_positions({})
         assert result == {}
+
+    def test_run_once_passes_orders_and_fill_ids_when_present(self):
+        captured = {}
+
+        class _CapturingController:
+            def reconcile(self, **kwargs):
+                captured.update(kwargs)
+                return ReconcileReport(venue=kwargs["venue"])
+
+        scheduler = ReconcileScheduler(
+            controller=_CapturingController(),
+            get_local_state=lambda: {
+                **_local_state(positions={"BTCUSDT": "1.0"}),
+                "orders": {"ord-1": SimpleNamespace(status="new")},
+                "fills": [SimpleNamespace(fill_id="fill-1")],
+            },
+            fetch_venue_state=lambda: {
+                "positions": {},
+                "orders": {"ord-1": "filled"},
+                "fill_ids": {"fill-1"},
+            },
+        )
+
+        report = scheduler.run_once()
+
+        assert report is not None
+        assert captured["local_orders"] == {"ord-1": "new"}
+        assert captured["venue_orders"] == {"ord-1": "filled"}
+        assert captured["local_fill_ids"] == {"fill-1"}
+        assert captured["venue_fill_ids"] == {"fill-1"}

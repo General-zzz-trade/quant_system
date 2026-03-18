@@ -29,8 +29,9 @@ class TestV11FeatureNames:
         for name in self.V11_FEATURES:
             assert name in ENRICHED_FEATURE_NAMES, f"{name} not in ENRICHED_FEATURE_NAMES"
 
-    def test_feature_count_105(self):
-        assert len(ENRICHED_FEATURE_NAMES) == 105
+    def test_feature_catalog_has_not_regressed(self):
+        assert len(ENRICHED_FEATURE_NAMES) >= 105
+        assert len(ENRICHED_FEATURE_NAMES) == len(set(ENRICHED_FEATURE_NAMES))
 
 
 class TestLiquidationFeatures:

@@ -58,6 +58,48 @@ class _ZScoreBuf:
         return len(self._buf) >= self.warmup
 
 
+def _resolve_primary_horizon_config(config: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    horizon_models = config.get("horizon_models") or []
+    if not horizon_models:
+        return None
+    primary_horizon = config.get("primary_horizon")
+    if primary_horizon is not None:
+        for hm in horizon_models:
+            if hm.get("horizon") == primary_horizon:
+                return hm
+    return horizon_models[0]
+
+
+def _resolve_primary_model_artifacts(
+    model_dir: Path,
+    config: Mapping[str, Any],
+) -> Optional[Dict[str, Any]]:
+    primary = _resolve_primary_horizon_config(config)
+    if primary is not None:
+        lgbm_file = primary.get("lgbm")
+        if not lgbm_file:
+            return None
+        artifacts: Dict[str, Any] = {
+            "lgbm": model_dir / str(lgbm_file),
+            "xgb": model_dir / str(primary.get("xgb")) if primary.get("xgb") else None,
+            "ridge": model_dir / str(primary.get("ridge")) if primary.get("ridge") else None,
+            "features": list(primary.get("features", [])),
+            "ridge_features": primary.get("ridge_features"),
+        }
+        return artifacts if artifacts["lgbm"].exists() else None
+
+    lgbm_path = model_dir / "lgbm_v8.pkl"
+    if not lgbm_path.exists():
+        return None
+    return {
+        "lgbm": lgbm_path,
+        "xgb": model_dir / "xgb_v8.pkl" if (model_dir / "xgb_v8.pkl").exists() else None,
+        "ridge": None,
+        "features": None,
+        "ridge_features": None,
+    }
+
+
 class MLSignalDecisionModule:
     """Decision module that generates orders from ML model predictions.
 
@@ -66,7 +108,7 @@ class MLSignalDecisionModule:
     symbol : str
         Trading symbol (e.g. "BTCUSDT").
     model_dir : str or Path
-        Directory with lgbm_v8.pkl, xgb_v8.pkl, config.json.
+        Directory with config.json and its referenced model artifacts.
     equity : float
         Starting equity for position sizing.
     risk_fraction : float
@@ -144,6 +186,7 @@ class MLSignalDecisionModule:
         if self._v11 is None:
             from alpha.v11_config import V11Config
             self._v11 = V11Config.from_config_json(self._config)
+        self._ensemble_method = self._v11.ensemble_method
 
         # Multi-horizon or single model
         self._multi_horizon = self._config.get("multi_horizon", False)
@@ -153,22 +196,39 @@ class MLSignalDecisionModule:
         cfg = self._v11
         warmup = cfg.zscore_warmup
         lgbm_xgb_w = cfg.lgbm_xgb_weight
+        self._ridge_weight = cfg.ridge_weight
+        self._lgbm_weight = cfg.lgbm_weight
+        self._ridge = None
+        self._ridge_features: Optional[List[str]] = None
 
         if self._multi_horizon:
             # Load per-horizon models
             for hcfg in self._config.get("horizon_models", []):
                 lgbm_path = model_dir / hcfg["lgbm"]
-                xgb_path = model_dir / hcfg["xgb"]
                 with open(lgbm_path, "rb") as f:
                     lgbm_data = pickle.load(f)
                 xgb_model = None
-                if xgb_path.exists():
+                xgb_file = hcfg.get("xgb")
+                xgb_path = model_dir / xgb_file if xgb_file else None
+                if xgb_path is not None and xgb_path.exists():
                     with open(xgb_path, "rb") as f:
                         xgb_model = pickle.load(f)["model"]
+                ridge_model = None
+                ridge_features = hcfg.get("ridge_features")
+                ridge_file = hcfg.get("ridge")
+                ridge_path = model_dir / ridge_file if ridge_file else None
+                if ridge_path is not None and ridge_path.exists():
+                    with open(ridge_path, "rb") as f:
+                        ridge_data = pickle.load(f)
+                    ridge_model = ridge_data["model"] if isinstance(ridge_data, dict) else ridge_data
+                    if ridge_features is None and isinstance(ridge_data, dict):
+                        ridge_features = ridge_data.get("features")
                 self._horizon_models.append({
                     "horizon": hcfg["horizon"],
                     "lgbm": lgbm_data["model"],
                     "xgb": xgb_model,
+                    "ridge": ridge_model,
+                    "ridge_features": ridge_features,
                     "features": lgbm_data["features"],
                     "zscore_buf": _ZScoreBuf(window=zscore_window,
                                              warmup=warmup),
@@ -179,16 +239,28 @@ class MLSignalDecisionModule:
             self._lgbm = self._horizon_models[0]["lgbm"]
             self._xgb = self._horizon_models[0]["xgb"]
         else:
-            # Single model (backward compatible)
-            with open(model_dir / "lgbm_v8.pkl", "rb") as f:
+            # Single-model path: prefer config.json referenced artifacts, fall back to legacy v8 names.
+            primary_artifacts = _resolve_primary_model_artifacts(model_dir, self._config)
+            if primary_artifacts is None:
+                raise FileNotFoundError(f"No loadable model artifact found in {model_dir}")
+            with open(primary_artifacts["lgbm"], "rb") as f:
                 lgbm_data = pickle.load(f)
             self._lgbm = lgbm_data["model"]
-            self._features = lgbm_data["features"]
+            self._features = primary_artifacts["features"] or lgbm_data["features"]
             self._xgb = None
-            xgb_path = model_dir / "xgb_v8.pkl"
-            if xgb_path.exists():
+            xgb_path = primary_artifacts["xgb"]
+            if xgb_path is not None and xgb_path.exists():
                 with open(xgb_path, "rb") as f:
                     self._xgb = pickle.load(f)["model"]
+            ridge_path = primary_artifacts["ridge"]
+            if ridge_path is not None and ridge_path.exists():
+                with open(ridge_path, "rb") as f:
+                    ridge_data = pickle.load(f)
+                self._ridge = ridge_data["model"] if isinstance(ridge_data, dict) else ridge_data
+                self._ridge_features = (
+                    primary_artifacts["ridge_features"]
+                    or (ridge_data.get("features") if isinstance(ridge_data, dict) else None)
+                )
 
         # Use config values as defaults, allow override
         self._deadzone = deadzone if deadzone is not None else cfg.deadzone
@@ -558,6 +630,14 @@ class MLSignalDecisionModule:
 
         lgbm_pred = float(self._lgbm.predict(x)[0])
 
+        if self._ensemble_method == "ridge_primary" and self._ridge is not None:
+            ridge_features = self._ridge_features or self._features
+            rx = np.zeros((1, len(ridge_features)))
+            for j, fname in enumerate(ridge_features):
+                rx[0, j] = features.get(fname, 0.0)
+            ridge_pred = float(self._ridge.predict(rx)[0])
+            return float(self._ridge_weight * ridge_pred + self._lgbm_weight * lgbm_pred)
+
         if self._xgb is not None:
             try:
                 import xgboost as xgb
@@ -580,7 +660,14 @@ class MLSignalDecisionModule:
                 x[0, j] = features.get(fname, 0.0)
 
             pred = float(hm["lgbm"].predict(x)[0])
-            if hm["xgb"] is not None:
+            if self._ensemble_method == "ridge_primary" and hm.get("ridge") is not None:
+                ridge_features = hm.get("ridge_features") or hm["features"]
+                rx = np.zeros((1, len(ridge_features)))
+                for j, fname in enumerate(ridge_features):
+                    rx[0, j] = features.get(fname, 0.0)
+                ridge_pred = float(hm["ridge"].predict(rx)[0])
+                pred = self._ridge_weight * ridge_pred + self._lgbm_weight * pred
+            elif hm["xgb"] is not None:
                 try:
                     import xgboost as xgb
                     xgb_pred = float(hm["xgb"].predict(xgb.DMatrix(x))[0])
