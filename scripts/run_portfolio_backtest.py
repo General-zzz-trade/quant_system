@@ -326,7 +326,8 @@ def main():
         "SUIUSDT": 0.40, "ETHUSDT": 0.28, "AXSUSDT": 0.19, "BTCUSDT": 0.11,
     }
 
-    for label, weights in [("equal weight", None), ("Sharpe-weighted", _SHARPE_WEIGHTS)]:
+    for label, weights in [("Sharpe-weighted", _SHARPE_WEIGHTS),
+                           ("Sharpe-wt + DD control", _SHARPE_WEIGHTS)]:
         max_len = max(len(r["returns"]) for r in results.values() if r)
         port_rets = np.zeros(max_len)
         count = np.zeros(max_len)
@@ -345,6 +346,16 @@ def main():
         port_rets = port_rets[mask]
 
         if len(port_rets) > 0:
+            # Apply portfolio-level DD control for DD-controlled variant
+            if "DD control" in label:
+                cum_eq = np.cumprod(1 + port_rets)
+                peak = np.maximum.accumulate(cum_eq)
+                dd_pct = (peak - cum_eq) / peak
+                # DD > 15% → halve, DD > 25% → quarter
+                dd_scale = np.where(dd_pct > 0.25, 0.25,
+                           np.where(dd_pct > 0.15, 0.50, 1.0))
+                port_rets = port_rets * dd_scale
+
             cum = np.cumprod(1 + port_rets)
             port_cum = cum[-1] - 1
             port_sharpe = np.mean(port_rets) / np.std(port_rets) * np.sqrt(8760)

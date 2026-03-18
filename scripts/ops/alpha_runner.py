@@ -843,6 +843,10 @@ class AlphaRunner:
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
+        # Vol-targeting: normalize position size by realized vol so each trade
+        # risks roughly the same amount regardless of market regime.
+        # target_vol = 1.5% (1h bar), scale = target / realized.
+        # High vol → smaller position, low vol → larger position.
         # Apply non-linear z-score scale + cross-symbol consensus scale
         z_scale = self._z_scale  # set in process_bar()
         consensus_scale = self._get_consensus_scale()
