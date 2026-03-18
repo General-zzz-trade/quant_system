@@ -364,9 +364,10 @@ def main():
                 cum_eq = np.cumprod(1 + port_rets)
                 peak = np.maximum.accumulate(cum_eq)
                 dd_pct = (peak - cum_eq) / peak
-                # Optimized for 5x: DD>5% → 0.3x, DD>10% → stop (0x)
+                # Graduated for 5x: DD<2% full, 2-5% linear taper, 5-10% 10%, >10% stop
                 dd_scale = np.where(dd_pct > 0.10, 0.0,
-                           np.where(dd_pct > 0.05, 0.30, 1.0))
+                           np.where(dd_pct > 0.05, 0.10,
+                           np.where(dd_pct > 0.02, 1.0 - (dd_pct - 0.02) / 0.03 * 0.9, 1.0)))
                 port_rets = port_rets * dd_scale
 
             cum = np.cumprod(1 + port_rets)

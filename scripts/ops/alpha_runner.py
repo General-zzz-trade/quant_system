@@ -125,14 +125,15 @@ class AlphaRunner:
         # via RustFillEvent processing on the Rust heap.
         self._state_store = state_store
 
-        # Adaptive stop-loss state (grid-search optimized 2026-03-15)
-        # ATR×2.0 initial, trail at 0.8×ATR profit, step 0.3×ATR → 18/20 folds, 75% trail wins
+        # Adaptive stop-loss state (tightened for 5x leverage)
+        # At 5x, a 2% adverse move = 10% equity loss. Tighter stops are critical.
+        # ATR×1.5 initial (was 2.0), breakeven at 0.5×ATR (was 1.0), trail at 0.2×ATR (was 0.3)
         self._atr_buffer: list[float] = []  # recent ATR values for adaptive stop
         self._trade_peak_price: float = 0.0  # highest favorable price since entry (for trailing)
-        self._atr_stop_mult: float = 2.0     # ATR multiplier for initial stop
-        self._trail_atr_mult: float = 0.8    # trail activates after 0.8×ATR profit (was 1.5)
-        self._trail_step: float = 0.3        # tight trail: 0.3×ATR (was 0.5)
-        self._breakeven_atr: float = 1.0     # move stop to breakeven after 1x ATR profit
+        self._atr_stop_mult: float = 1.5     # ATR multiplier for initial stop (tighter for 5x)
+        self._trail_atr_mult: float = 0.5    # trail activates after 0.5×ATR profit (faster)
+        self._trail_step: float = 0.2        # tighter trail: 0.2×ATR
+        self._breakeven_atr: float = 0.5     # breakeven at 0.5× ATR profit (faster safety net)
 
         from _quant_hotpath import (RustFeatureEngine, RustInferenceBridge,
                                     RustOrderStateMachine, RustCircuitBreaker,
@@ -764,23 +765,27 @@ class AlphaRunner:
     def compute_z_scale(z: float) -> float:
         """Non-linear position sizing based on z-score magnitude.
 
-        Stronger signals get larger positions, weak signals get smaller:
-        - |z| > 2.0: scale=1.5 (extreme conviction)
-        - |z| > 1.0: scale=1.0 (normal)
-        - |z| > 0.5: scale=0.7 (weak signal)
-        - else:       scale=0.5 (barely above deadzone)
+        At 5x leverage, weak signals are much more expensive. Aggressive
+        filtering: only full size at |z| > 2.0, minimal below 1.0.
+        - |z| > 2.5: scale=1.5 (extreme conviction → max leverage)
+        - |z| > 2.0: scale=1.2 (strong)
+        - |z| > 1.5: scale=1.0 (normal)
+        - |z| > 1.0: scale=0.5 (moderate → half size at 5x)
+        - else:       scale=0.3 (weak → 30% size, barely trade)
 
-        Returns scale factor in [0.5, 1.5].
+        Returns scale factor in [0.3, 1.5].
         """
         abs_z = abs(z)
-        if abs_z > 2.0:
+        if abs_z > 2.5:
             return 1.5
-        elif abs_z > 1.0:
+        elif abs_z > 2.0:
+            return 1.2
+        elif abs_z > 1.5:
             return 1.0
-        elif abs_z > 0.5:
-            return 0.7
-        else:
+        elif abs_z > 1.0:
             return 0.5
+        else:
+            return 0.3
 
     def _round_to_step(self, size: float) -> float:
         """Round qty to exchange step size (floor to never exceed)."""
@@ -1163,7 +1168,18 @@ class AlphaRunner:
                 force_exit = True
                 exit_reason = "atr_stop"
 
-        # 2. Z-score reversal exit (bridge enforces min_hold internally)
+        # 2. Quick loss exit (5x leverage protection)
+        # At 5x, a -1% move = -5% equity. Cut losses fast.
+        if not force_exit and prev_signal != 0 and self._entry_price > 0:
+            if prev_signal > 0:
+                unrealized_pct = (bar["close"] - self._entry_price) / self._entry_price
+            else:
+                unrealized_pct = (self._entry_price - bar["close"]) / self._entry_price
+            if unrealized_pct < -0.01:  # -1% adverse move → exit at 5x = -5% equity
+                force_exit = True
+                exit_reason = f"quick_loss_{unrealized_pct:.2%}"
+
+        # 3. Z-score reversal exit (bridge enforces min_hold internally)
         z_reversal_threshold = -0.3
         if not force_exit and prev_signal != 0:
             if prev_signal > 0 and z < z_reversal_threshold:

@@ -97,23 +97,31 @@ class PortfolioManager:
         if equity <= 0:
             return None
 
-        # Portfolio-level drawdown control (optimized for 5x leverage)
-        # Sweep at 5x: DD>5%→0.3x, DD>10%→stop = Sharpe 4.49, MaxDD -5.8%
+        # Portfolio-level drawdown control (5x leverage optimized)
+        # Graduated scaling: DD<2% full, DD 2-5% linear taper, DD 5-10% minimal, DD>10% stop
+        # Prevents cliff-edge position changes that cause whipsaw losses.
         if equity > self._peak_equity:
             self._peak_equity = equity
         if self._peak_equity > 0:
             dd_pct = (self._peak_equity - equity) / self._peak_equity * 100
             if dd_pct > 10:
-                # Severe DD at 5x: stop all new entries
+                # Full stop: block new entries, only allow close
                 if net_signal != 0 and current_side == 0:
                     logger.warning("PM: DD=%.1f%% > 10%%, blocking all new entries", dd_pct)
                     return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_full_stop"}
                 self._dd_scale = 0.0
             elif dd_pct > 5:
-                # Moderate DD: cut to 30% size
-                self._dd_scale = 0.3
+                # Minimal: 10% size
+                self._dd_scale = 0.1
+            elif dd_pct > 2:
+                # Graduated taper: linearly from 1.0 at 2% to 0.1 at 5%
+                self._dd_scale = 1.0 - (dd_pct - 2) / 3 * 0.9  # 2%→1.0, 5%→0.1
             else:
                 self._dd_scale = 1.0
+            # Recovery: only trade SUI+ETH until DD < 2%
+            if dd_pct > 2 and symbol not in ("SUIUSDT", "ETHUSDT"):
+                if net_signal != 0 and current_side == 0:
+                    return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_recovery_high_sharpe_only"}
 
         # Check total exposure limit
         total_exposure = self._total_exposure(equity, price)
