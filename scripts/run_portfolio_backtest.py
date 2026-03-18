@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""Portfolio backtest for current alpha configuration.
+
+Runs walk-forward backtest for each symbol with live config parameters,
+then combines into portfolio-level metrics.
+
+Uses pickle for loading trusted local model files produced by our own
+training pipeline (same pattern as model_loader.py).
+"""
+from __future__ import annotations
+
+import json
+import pickle  # noqa: S403 — trusted local model files only
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+# ── Config: mirrors live SYMBOL_CONFIG + model config.json ──
+SYMBOLS = {
+    "BTCUSDT": {
+        "csv": "data_files/BTCUSDT_1h.csv",
+        "model_dir": "models_v8/BTCUSDT_gate_v2",
+        "deadzone": 0.8,
+        "min_hold": 48,
+        "max_hold": 288,
+        "long_only": False,
+        "cost_bps": 6.0,
+        "weight": 0.25,
+    },
+    "ETHUSDT": {
+        "csv": "data_files/ETHUSDT_1h.csv",
+        "model_dir": "models_v8/ETHUSDT_gate_v2",
+        "deadzone": 0.3,
+        "min_hold": 18,
+        "max_hold": 60,
+        "long_only": False,
+        "cost_bps": 6.0,
+        "weight": 0.25,
+    },
+    "SUIUSDT": {
+        "csv": "data_files/SUIUSDT_1h.csv",
+        "model_dir": "models_v8/SUIUSDT",
+        "deadzone": 0.7,
+        "min_hold": 18,
+        "max_hold": 60,
+        "long_only": True,
+        "cost_bps": 6.0,
+        "weight": 0.25,
+    },
+    "AXSUSDT": {
+        "csv": "data_files/AXSUSDT_1h.csv",
+        "model_dir": "models_v8/AXSUSDT",
+        "deadzone": 0.6,
+        "min_hold": 18,
+        "max_hold": 60,
+        "long_only": True,
+        "cost_bps": 6.0,
+        "weight": 0.25,
+    },
+}
+
+# Walk-forward parameters
+WF_TRAIN_BARS = 4320   # 6 months
+WF_TEST_BARS = 720     # 1 month
+WF_STEP_BARS = 720     # slide 1 month
+ZSCORE_WINDOW = 720
+ZSCORE_WARMUP = 180
+
+
+def load_csv(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    cols = df.columns.tolist()
+    if "open_time" in cols:
+        df = df.sort_values("open_time").reset_index(drop=True)
+    elif cols[0].isdigit() or str(df.iloc[0, 0]).replace(".", "").isdigit():
+        df.columns = ["open_time", "open", "high", "low", "close", "volume"] + cols[6:]
+        df = df.sort_values("open_time").reset_index(drop=True)
+    for c in ["close", "open", "high", "low", "volume"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
+def compute_features(df: pd.DataFrame, eth_closes: np.ndarray | None = None) -> pd.DataFrame:
+    """Compute features using RustFeatureEngine (same as live).
+
+    For BTC V14 dominance features, pass eth_closes aligned to df index.
+    """
+    from _quant_hotpath import RustFeatureEngine
+    eng = RustFeatureEngine()
+    features_list = []
+    for i, (_, row) in enumerate(df.iterrows()):
+        close = float(row["close"])
+        eng.push_bar(
+            close=close,
+            volume=float(row.get("volume", 0)),
+            high=float(row.get("high", close)),
+            low=float(row.get("low", close)),
+            open=float(row.get("open", close)),
+        )
+        feats = eng.get_features()
+        # V14: add BTC/ETH dominance features manually if ETH data available
+        if eth_closes is not None and i < len(eth_closes):
+            eth_c = eth_closes[i]
+            if close > 0 and eth_c > 0:
+                ratio = close / eth_c
+                # Rolling deviations and returns on ratio
+                if i >= 20:
+                    buf = [df["close"].iloc[j] / eth_closes[j]
+                           for j in range(max(0, i - 49), i + 1)
+                           if eth_closes[j] > 0]
+                    if len(buf) >= 20:
+                        ma20 = np.mean(buf[-20:])
+                        feats["btc_dom_dev_20"] = (ratio - ma20) / ma20 if ma20 > 0 else 0
+                    if len(buf) >= 50:
+                        ma50 = np.mean(buf[-50:])
+                        feats["btc_dom_dev_50"] = (ratio - ma50) / ma50 if ma50 > 0 else 0
+                if i >= 24:
+                    r24 = df["close"].iloc[i - 24] / eth_closes[i - 24] if eth_closes[i - 24] > 0 else ratio
+                    feats["btc_dom_ret_24"] = (ratio - r24) / r24 if r24 > 0 else 0
+                if i >= 72:
+                    r72 = df["close"].iloc[i - 72] / eth_closes[i - 72] if eth_closes[i - 72] > 0 else ratio
+                    feats["btc_dom_ret_72"] = (ratio - r72) / r72 if r72 > 0 else 0
+        features_list.append(feats)
+    return pd.DataFrame(features_list, index=df.index)
+
+
+def rolling_zscore(preds: np.ndarray, window: int = 720, warmup: int = 180) -> np.ndarray:
+    z = np.full_like(preds, np.nan)
+    for i in range(len(preds)):
+        start = max(0, i - window + 1)
+        chunk = preds[start:i + 1]
+        if len(chunk) < warmup:
+            continue
+        mu = np.mean(chunk)
+        std = np.std(chunk)
+        z[i] = (preds[i] - mu) / std if std > 1e-10 else 0.0
+    return z
+
+
+def pred_to_signal(preds: np.ndarray, deadzone: float, min_hold: int,
+                   max_hold: int, long_only: bool) -> np.ndarray:
+    """Z-score -> discretize -> min-hold -> max-hold constraint pipeline."""
+    z = rolling_zscore(preds, ZSCORE_WINDOW, ZSCORE_WARMUP)
+    z = np.clip(z, -5.0, 5.0)
+    if long_only:
+        z = np.maximum(z, 0.0)
+
+    raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
+
+    signal = np.zeros_like(raw)
+    hold_count = 0
+    current = 0.0
+    for i in range(len(raw)):
+        if np.isnan(raw[i]):
+            signal[i] = 0.0
+            continue
+        if current != 0 and hold_count < min_hold:
+            signal[i] = current
+            hold_count += 1
+        elif current != 0 and hold_count >= max_hold:
+            signal[i] = 0.0
+            current = 0.0
+            hold_count = 0
+        elif raw[i] != 0 and raw[i] != current:
+            signal[i] = raw[i]
+            current = raw[i]
+            hold_count = 1
+        elif raw[i] == current and current != 0:
+            signal[i] = current
+            hold_count += 1
+        else:
+            signal[i] = 0.0
+            current = 0.0
+            hold_count = 0
+    return signal
+
+
+def backtest_symbol(symbol: str, cfg: dict) -> dict:
+    """Walk-forward backtest for one symbol."""
+    print(f"\n{'='*70}")
+    print(f"  {symbol}: dz={cfg['deadzone']} mh={cfg['min_hold']} "
+          f"max_h={cfg['max_hold']} long_only={cfg['long_only']}")
+    print(f"{'='*70}")
+
+    df = load_csv(cfg["csv"])
+    print(f"  Data: {len(df)} bars")
+
+    model_dir = Path(cfg["model_dir"])
+    with open(model_dir / "config.json") as f:
+        model_cfg = json.load(f)
+
+    hm = model_cfg["horizon_models"][0]
+    features = hm["features"]
+    ridge_features = hm.get("ridge_features", features)
+
+    # Load models (trusted local artifacts from our training pipeline)
+    with open(model_dir / hm["lgbm"], "rb") as f:
+        raw = pickle.load(f)  # noqa: S301 — trusted local model
+    lgbm = raw["model"] if isinstance(raw, dict) else raw
+
+    ridge = None
+    ridge_name = hm.get("ridge", "")
+    if ridge_name and (model_dir / ridge_name).exists():
+        with open(model_dir / ridge_name, "rb") as f:
+            raw = pickle.load(f)  # noqa: S301 — trusted local model
+        ridge = raw["model"] if isinstance(raw, dict) else raw
+        # Ridge may have its own feature list stored in pickle
+        if isinstance(raw, dict) and "features" in raw:
+            ridge_features = raw["features"]
+
+    ridge_w = model_cfg.get("ridge_weight", 0.6)
+    lgbm_w = model_cfg.get("lgbm_weight", 0.4)
+
+    # For BTC V14: load ETH closes for dominance features
+    eth_closes = None
+    if symbol == "BTCUSDT" and Path("data_files/ETHUSDT_1h.csv").exists():
+        eth_df = load_csv("data_files/ETHUSDT_1h.csv")
+        # Align by open_time if available, else by position
+        if "open_time" in df.columns and "open_time" in eth_df.columns:
+            merged = df[["open_time"]].merge(
+                eth_df[["open_time", "close"]].rename(columns={"close": "eth_close"}),
+                on="open_time", how="left",
+            )
+            eth_closes = merged["eth_close"].ffill().values
+        else:
+            # Positional alignment (truncate to shorter)
+            min_len = min(len(df), len(eth_df))
+            eth_closes = eth_df["close"].values[-min_len:]
+            if len(df) > min_len:
+                eth_closes = np.concatenate([np.full(len(df) - min_len, np.nan), eth_closes])
+
+    print(f"  Computing features ({len(features)})...")
+    feat_df = compute_features(df, eth_closes=eth_closes)
+
+    # Walk-forward folds
+    n = len(df)
+    folds = []
+    start = 0
+    while start + WF_TRAIN_BARS + WF_TEST_BARS <= n:
+        folds.append((start, start + WF_TRAIN_BARS, start + WF_TRAIN_BARS + WF_TEST_BARS))
+        start += WF_STEP_BARS
+    if not folds:
+        split = int(n * 0.8)
+        folds = [(0, split, n)]
+
+    print(f"  Walk-forward: {len(folds)} folds")
+
+    all_test_rets = []
+    fold_results = []
+
+    for fold_i, (tr_start, tr_end, te_end) in enumerate(folds):
+        X_test = np.nan_to_num(
+            feat_df.iloc[tr_end:te_end].reindex(columns=features, fill_value=0.0).values,
+            nan=0.0,
+        )
+        closes_test = df["close"].iloc[tr_end:te_end].values
+
+        lgbm_pred = lgbm.predict(X_test)
+        if ridge is not None:
+            # Ensure all ridge features exist; fill missing/None/NaN with 0
+            rf_df = feat_df.iloc[tr_end:te_end].reindex(columns=ridge_features, fill_value=0.0)
+            X_ridge = rf_df.fillna(0.0).values.astype(np.float64)
+            pred = ridge_w * ridge.predict(X_ridge) + lgbm_w * lgbm_pred
+        else:
+            pred = lgbm_pred
+
+        signal = pred_to_signal(pred, cfg["deadzone"], cfg["min_hold"],
+                                cfg["max_hold"], cfg["long_only"])
+
+        rets = np.diff(closes_test) / closes_test[:-1]
+        sig_t = signal[:-1]
+        cost = cfg["cost_bps"] / 10000
+        strat_ret = sig_t * rets
+        changes = np.concatenate([[False], np.diff(sig_t) != 0])
+        strat_ret[changes] -= cost
+
+        cum_ret = np.prod(1 + strat_ret) - 1
+        n_trades = int(np.sum(changes))
+        sharpe = (np.mean(strat_ret) / np.std(strat_ret) * np.sqrt(8760)
+                  if np.std(strat_ret) > 0 else 0.0)
+
+        fold_results.append({
+            "fold": fold_i + 1, "return": cum_ret, "sharpe": sharpe,
+            "trades": n_trades,
+            "long_pct": np.mean(sig_t > 0) * 100,
+            "short_pct": np.mean(sig_t < 0) * 100,
+            "flat_pct": np.mean(sig_t == 0) * 100,
+        })
+        all_test_rets.extend(strat_ret.tolist())
+
+    positive = sum(1 for f in fold_results if f["return"] > 0)
+    avg_sharpe = np.mean([f["sharpe"] for f in fold_results])
+    total_ret = np.prod([1 + f["return"] for f in fold_results]) - 1
+
+    print(f"\n  {'Fold':>5} {'Return':>8} {'Sharpe':>7} {'Trades':>7} "
+          f"{'Long%':>6} {'Short%':>7} {'Flat%':>6}")
+    for f in fold_results:
+        m = "+" if f["return"] > 0 else "-"
+        print(f"  {f['fold']:>5} {f['return']:>+7.1%} {f['sharpe']:>7.2f} "
+              f"{f['trades']:>7} {f['long_pct']:>5.0f}% {f['short_pct']:>6.0f}% "
+              f"{f['flat_pct']:>5.0f}% {m}")
+
+    print(f"\n  {positive}/{len(fold_results)} positive | "
+          f"Return: {total_ret:+.1%} | Sharpe: {avg_sharpe:.2f}")
+
+    return {
+        "symbol": symbol, "folds": len(fold_results), "positive": positive,
+        "total_return": total_ret, "avg_sharpe": avg_sharpe,
+        "fold_results": fold_results, "returns": all_test_rets,
+    }
+
+
+def main():
+    print("=" * 70)
+    print("  PORTFOLIO WALK-FORWARD BACKTEST (current live config)")
+    print(f"  Symbols: {list(SYMBOLS.keys())}")
+    print("=" * 70)
+
+    results = {}
+    for symbol, cfg in SYMBOLS.items():
+        results[symbol] = backtest_symbol(symbol, cfg)
+
+    # Portfolio summary
+    print(f"\n{'='*70}")
+    print("  PORTFOLIO SUMMARY")
+    print(f"{'='*70}")
+    print(f"\n  {'Symbol':<12} {'Folds':>6} {'Pass':>7} {'Return':>9} {'Sharpe':>8}")
+    print(f"  {'-'*44}")
+    for sym, r in results.items():
+        if not r:
+            continue
+        print(f"  {sym:<12} {r['folds']:>6} {r['positive']:>3}/{r['folds']:<3} "
+              f"{r['total_return']:>+8.1%} {r['avg_sharpe']:>8.2f}")
+
+    # Combined portfolio
+    max_len = max(len(r["returns"]) for r in results.values() if r)
+    port_rets = np.zeros(max_len)
+    count = np.zeros(max_len)
+    for r in results.values():
+        if not r or not r["returns"]:
+            continue
+        rets = np.array(r["returns"])
+        n = len(rets)
+        offset = max_len - n
+        w = 0.25
+        port_rets[offset:offset + n] += rets * w
+        count[offset:offset + n] += w
+
+    mask = count > 0
+    port_rets[mask] /= count[mask]
+    port_rets = port_rets[mask]
+
+    if len(port_rets) > 0:
+        cum = np.cumprod(1 + port_rets)
+        port_cum = cum[-1] - 1
+        port_sharpe = np.mean(port_rets) / np.std(port_rets) * np.sqrt(8760)
+        port_dd = np.min(cum / np.maximum.accumulate(cum) - 1)
+        win_rate = np.mean(port_rets > 0) * 100
+
+        print("\n  PORTFOLIO (equal weight):")
+        print(f"    Total return:  {port_cum:+.1%}")
+        print(f"    Sharpe:        {port_sharpe:.2f}")
+        print(f"    Max drawdown:  {port_dd:.1%}")
+        print(f"    Win rate:      {win_rate:.1f}%")
+        print(f"    Bars:          {len(port_rets)}")
+
+
+if __name__ == "__main__":
+    main()
