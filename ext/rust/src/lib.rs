@@ -77,6 +77,7 @@ pub mod risk_rules;
 pub mod risk_aggregator;
 mod correlation;
 mod gate_chain;
+pub mod ridge_predict;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -342,6 +343,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Gate chain orchestrator (configurable pure-Rust gate pipeline)
     m.add_class::<gate_chain::RustGateChain>()?;
     m.add_class::<gate_chain::RustGateResult>()?;
+
+    // Ridge predictor (linear model for standalone binary)
+    m.add_class::<ridge_predict::RustRidgePredictor>()?;
 
     Ok(())
 }

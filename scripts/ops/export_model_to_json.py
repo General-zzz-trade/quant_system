@@ -254,7 +254,37 @@ def export_file(pkl_path: Path) -> None:
         export_lgbm(pkl_path)
         return
 
+    # Ridge / linear model export
+    if hasattr(model, "coef_") and hasattr(model, "intercept_"):
+        export_ridge(pkl_path, data)
+        return
+
     print(f"  SKIP {pkl_path.name}: unknown model type {type(model)}")
+
+
+def export_ridge(pkl_path: Path, data: dict) -> None:
+    """Export sklearn Ridge/LinearRegression to JSON for Rust native inference."""
+    model = data["model"]
+    features = list(data.get("features", []))
+    coefs = model.coef_.flatten().tolist()
+    intercept = float(model.intercept_) if hasattr(model.intercept_, "item") else float(model.intercept_)
+
+    if not features:
+        n = len(coefs)
+        features = [f"f{i}" for i in range(n)]
+
+    out = {
+        "format": "ridge",
+        "features": features,
+        "num_features": len(coefs),
+        "coefficients": coefs,
+        "intercept": intercept,
+    }
+
+    json_path = pkl_path.with_suffix(".json")
+    with open(json_path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"  {pkl_path.name} -> {json_path.name} (Ridge, {len(coefs)} features)")
 
 
 def main():

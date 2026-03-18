@@ -29,6 +29,15 @@ from scripts.ops.hedge_runner import HedgeRunner
 
 logger = logging.getLogger(__name__)
 
+# Shared correlation tracker — updated on each bar, read by AlphaRunner sizing
+_correlation_computer = None
+
+try:
+    from _quant_hotpath import RustCorrelationComputer
+    _correlation_computer = RustCorrelationComputer(window=120)  # 5-day rolling
+except ImportError:
+    pass
+
 
 def _select_runner_class(legacy: bool = False):
     """Return AlphaRunner (legacy) or LiveRunner (default) class."""
@@ -129,6 +138,13 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                 if hr and hr.get("trade"):
                     logger.info("HEDGE %s: ratio=%.6f ma=%.6f",
                                 hr["trade"], hr.get("ratio", 0), hr.get("ratio_ma", 0))
+
+            # Update correlation tracker with each bar close
+            if _correlation_computer is not None:
+                try:
+                    _correlation_computer.update(symbol, bar["close"])
+                except Exception:
+                    pass
 
             runner_key = group.get(symbol)
             if not runner_key:

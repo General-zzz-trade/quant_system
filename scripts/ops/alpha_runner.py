@@ -840,6 +840,21 @@ class AlphaRunner:
         per_sym_cap = _SHARPE_WEIGHTS.get(self._symbol, 0.20)
         # Dynamic degradation: reduce cap when rolling Sharpe is negative
         per_sym_cap *= self._dynamic_scale
+
+        # Correlation-aware sizing: reduce when highly correlated with active positions
+        try:
+            from scripts.ops.run_bybit_alpha import _correlation_computer
+            if _correlation_computer is not None:
+                active = [s for s, sig in _consensus_signals.items()
+                          if sig != 0 and s != self._symbol and s != self._runner_key]
+                if active:
+                    avg_corr = _correlation_computer.position_correlation(self._symbol, active)
+                    if avg_corr is not None and avg_corr > 0.6:
+                        corr_scale = max(0.3, 1.0 - (avg_corr - 0.6) / 0.4)
+                        per_sym_cap *= corr_scale
+        except Exception:
+            pass
+
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
