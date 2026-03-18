@@ -167,6 +167,14 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "bb_x_vol",                       # bb_pctb_20 × vol_20 — band position in volatile regime (IC 0.02-0.03)
     "ret_autocorr_24",                # 24-bar return autocorrelation — momentum persistence (IC 0.03-0.04)
     "ret_skew_24",                    # 24-bar return skewness — tail risk signal (IC 0.03-0.05 on ALTs)
+    # --- V16: Orderbook proxy + IV spread + liquidation features (IC-screened 2026-03-18) ---
+    "ob_spread_proxy",                # (high-low)/close — intrabar range as spread (IC 0.03-0.04, 4/4 symbols)
+    "ob_imbalance_proxy",             # (taker_buy - taker_sell)/total — buy/sell pressure (IC 0.03-0.04, 3/4)
+    "ob_imbalance_x_vol",             # imbalance × volume_ratio — strength-weighted flow (IC 0.03-0.04, 3/4)
+    "ob_imbalance_cum6",              # 6-bar cumulative imbalance — short-term order flow (IC 0.03, 3/4)
+    "ob_volume_clock",                # vol_MA6/vol_MA24 - 1 — activity acceleration (IC 0.03, 3/4)
+    "iv_rv_spread",                   # implied_vol - realized_vol — vol premium/discount (IC 0.04, BTC+ETH)
+    "liq_volume_zscore_24",           # z-score of liquidation proxy volume (IC -0.18, BTC only but very strong)
     "dom_vs_axs_ret_24",             # ratio vs AXS 24-bar return
     "dom_vs_eth_dev_20",             # ratio vs ETH deviation from MA(20)
     "dom_vs_eth_ret_24",             # ratio vs ETH 24-bar return
@@ -462,6 +470,13 @@ class _SymbolState:
 
     # V15: Return buffer for autocorrelation and skewness (24-bar window)
     _ret_buf_24: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+
+    # V16: Orderbook proxy state
+    _taker_imb_buf_6: Deque[float] = field(default_factory=lambda: deque(maxlen=6))
+    _vol_buf_6: Deque[float] = field(default_factory=lambda: deque(maxlen=6))
+    _vol_buf_24: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    # V16: Liquidation proxy state
+    _liq_vol_buf_24: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
 
     # V13: Enhanced OI/LS/Taker
     _oi_buf_12: Deque[float] = field(default_factory=lambda: deque(maxlen=12))
@@ -779,6 +794,26 @@ class _SymbolState:
             self.return_window_5.push(ret)
             self._ret_buf_24.append(ret)  # V15: for autocorr/skewness
         self._last_close = close
+
+        # V16: Orderbook proxy + liquidation buffers
+        self._vol_buf_6.append(volume)
+        self._vol_buf_24.append(volume)
+        if volume > 0:
+            _tbv = taker_buy_volume or 0.0
+            _tsv = volume - _tbv
+            _total = _tbv + _tsv
+            _imb = (_tbv - _tsv) / _total if _total > 0 else 0
+            self._taker_imb_buf_6.append(_imb)
+        # Liquidation proxy: |OI drop| × volume spike
+        if (open_interest is not None and self._last_oi is not None
+                and self._last_oi > 0 and volume > 0):
+            oi_change = abs(open_interest - self._last_oi) / self._last_oi
+            vol_ma = sum(self._vol_buf_24) / max(len(self._vol_buf_24), 1)
+            vol_spike = volume / vol_ma if vol_ma > 0 else 1.0
+            liq_proxy = oi_change * vol_spike * volume
+            self._liq_vol_buf_24.append(liq_proxy)
+        elif len(self._liq_vol_buf_24) > 0:
+            self._liq_vol_buf_24.append(0.0)  # no data this bar
 
         # V5: vol_5 history for vol_of_vol and rv_acceleration
         if self.return_window_5.full:
@@ -1704,6 +1739,60 @@ class _SymbolState:
             feats["btc_dom_momentum"] = None
             feats["btc_lead_ret_1"] = None
             feats["btc_vol_ratio"] = None
+
+        # ── V16: Orderbook proxy + IV spread + liquidation features ──
+        # OB spread proxy: (high - low) / close — intrabar range
+        if len(self.high_history) >= 1 and len(self.low_history) >= 1 and close and close > 0:
+            feats["ob_spread_proxy"] = (self.high_history[-1] - self.low_history[-1]) / close
+        else:
+            feats["ob_spread_proxy"] = None
+
+        # OB imbalance proxy: (taker_buy - taker_sell) / total
+        if len(self._taker_imb_buf_6) >= 1:
+            feats["ob_imbalance_proxy"] = self._taker_imb_buf_6[-1]
+        else:
+            feats["ob_imbalance_proxy"] = None
+
+        # OB imbalance × volume: strength-weighted
+        if feats["ob_imbalance_proxy"] is not None and len(self._vol_buf_24) >= 20:
+            vol_mean = sum(list(self._vol_buf_24)[-20:]) / 20
+            cur_vol = self._vol_buf_6[-1] if self._vol_buf_6 else 0
+            vol_ratio = cur_vol / vol_mean if vol_mean > 0 else 1.0
+            feats["ob_imbalance_x_vol"] = feats["ob_imbalance_proxy"] * vol_ratio
+        else:
+            feats["ob_imbalance_x_vol"] = None
+
+        # OB imbalance cumulative 6-bar
+        if len(self._taker_imb_buf_6) >= 6:
+            feats["ob_imbalance_cum6"] = sum(self._taker_imb_buf_6)
+        else:
+            feats["ob_imbalance_cum6"] = None
+
+        # OB volume clock: MA6/MA24 - 1
+        if len(self._vol_buf_6) >= 6 and len(self._vol_buf_24) >= 24:
+            ma6 = sum(self._vol_buf_6) / 6
+            ma24 = sum(self._vol_buf_24) / 24
+            feats["ob_volume_clock"] = ma6 / ma24 - 1 if ma24 > 0 else 0.0
+        else:
+            feats["ob_volume_clock"] = None
+
+        # IV-RV spread (only if IV data available via push)
+        _iv = getattr(self, '_last_implied_vol', None)
+        _rv = feats.get("vol_20")
+        if _iv is not None and _rv is not None:
+            feats["iv_rv_spread"] = _iv - _rv
+        else:
+            feats["iv_rv_spread"] = None
+
+        # Liquidation volume z-score (24-bar)
+        if len(self._liq_vol_buf_24) >= 12:
+            liq_arr = list(self._liq_vol_buf_24)
+            mu = sum(liq_arr) / len(liq_arr)
+            var = sum((x - mu) ** 2 for x in liq_arr) / len(liq_arr)
+            std = var ** 0.5
+            feats["liq_volume_zscore_24"] = (liq_arr[-1] - mu) / std if std > 1e-10 else 0.0
+        else:
+            feats["liq_volume_zscore_24"] = None
 
         # ── V15: Interaction & statistical features ──
         # IC-screened 2026-03-18: all significant (p<0.001) across 4 symbols.

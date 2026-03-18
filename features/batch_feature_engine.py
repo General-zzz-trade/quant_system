@@ -206,6 +206,9 @@ def compute_features_batch(
     # V15: Interaction & statistical features (IC-screened 2026-03-18)
     _add_v15_features(feat_df)
 
+    # V16: Orderbook proxy + IV spread + liquidation features
+    _add_v16_features(symbol, feat_df, closes, highs, lows, volumes, tbv)
+
     return feat_df
 
 
@@ -255,6 +258,76 @@ def _add_v15_features(feat_df: pd.DataFrame) -> None:
             if std > 1e-10:
                 skew[i] = np.mean(((chunk - mu) / std) ** 3)
         feat_df["ret_skew_24"] = skew
+
+
+def _add_v16_features(
+    symbol: str, feat_df: pd.DataFrame,
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
+    volumes: np.ndarray, taker_buy_vol: np.ndarray,
+) -> None:
+    """Add V16 orderbook proxy, IV spread, and liquidation features."""
+    # OB spread proxy: (high - low) / close
+    feat_df["ob_spread_proxy"] = (highs - lows) / np.maximum(closes, 1e-10)
+
+    # OB imbalance proxy: (taker_buy - taker_sell) / total
+    tsv = volumes - taker_buy_vol
+    total = taker_buy_vol + tsv
+    feat_df["ob_imbalance_proxy"] = np.where(total > 0, (taker_buy_vol - tsv) / total, 0.0)
+
+    # OB imbalance × volume ratio
+    vol_ma20 = pd.Series(volumes).rolling(20).mean().values
+    vol_ratio = np.where(vol_ma20 > 0, volumes / vol_ma20, 1.0)
+    feat_df["ob_imbalance_x_vol"] = feat_df["ob_imbalance_proxy"].values * vol_ratio
+
+    # OB imbalance cumulative 6-bar
+    feat_df["ob_imbalance_cum6"] = pd.Series(feat_df["ob_imbalance_proxy"]).rolling(6).sum().values
+
+    # OB volume clock: MA6/MA24 - 1
+    vol_ma6 = pd.Series(volumes).rolling(6).mean().values
+    vol_ma24 = pd.Series(volumes).rolling(24).mean().values
+    feat_df["ob_volume_clock"] = np.where(vol_ma24 > 0, vol_ma6 / vol_ma24 - 1, 0.0)
+
+    # IV-RV spread (load from Deribit IV file if available)
+    from pathlib import Path
+    iv_path = Path(f"data_files/{symbol}_deribit_iv.csv")
+    if iv_path.exists():
+        try:
+            iv_df = pd.read_csv(iv_path)
+            iv_df["ts_ms"] = pd.to_datetime(iv_df["timestamp"]).astype(np.int64) // 10**6
+            iv_s = iv_df.sort_values("ts_ms")
+            # TODO: interpolate IV onto kline timestamps for iv_rv_spread
+            _ = iv_s  # placeholder for future IV interpolation
+        except Exception:
+            pass
+    # If IV not available from file, try from existing features
+    if "iv_rv_spread" not in feat_df.columns:
+        if "implied_vol_zscore_24" in feat_df.columns and "vol_20" in feat_df.columns:
+            # Can't compute IV-RV without raw IV, leave as NaN
+            feat_df["iv_rv_spread"] = np.nan
+        else:
+            feat_df["iv_rv_spread"] = np.nan
+
+    # Liquidation volume z-score (from proxy file)
+    liq_path = Path(f"data_files/{symbol}_liquidation_proxy.csv")
+    if liq_path.exists():
+        try:
+            liq_df = pd.read_csv(liq_path)
+            if "liq_proxy_volume" in liq_df.columns:
+                liq_vol = liq_df["liq_proxy_volume"].values
+                n = min(len(liq_vol), len(feat_df))
+                padded = np.concatenate([np.full(len(feat_df) - n, np.nan), liq_vol[-n:]])
+                feat_df["liq_volume_zscore_24"] = _rolling_zscore_arr(padded, 24)
+        except Exception:
+            feat_df["liq_volume_zscore_24"] = np.nan
+    else:
+        feat_df["liq_volume_zscore_24"] = np.nan
+
+
+def _rolling_zscore_arr(arr: np.ndarray, window: int) -> np.ndarray:
+    s = pd.Series(arr)
+    mu = s.rolling(window).mean()
+    std = s.rolling(window).std()
+    return ((s - mu) / std.replace(0, np.nan)).values
 
 
 def _compute_ratio_features(
