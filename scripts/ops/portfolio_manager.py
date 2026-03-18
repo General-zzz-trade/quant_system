@@ -47,6 +47,10 @@ class PortfolioManager:
         # P&L tracking (unified via PnLTracker)
         self._pnl = pnl_tracker if pnl_tracker is not None else PnLTracker()
 
+        # Portfolio-level drawdown control
+        self._peak_equity: float = 0.0
+        self._dd_scale: float = 1.0  # position scale based on portfolio DD
+
     @property
     def _killed(self) -> bool:
         """Check kill switch (Rust) instead of local boolean."""
@@ -93,6 +97,23 @@ class PortfolioManager:
         if equity <= 0:
             return None
 
+        # Portfolio-level drawdown control
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+        if self._peak_equity > 0:
+            dd_pct = (self._peak_equity - equity) / self._peak_equity * 100
+            if dd_pct > 25:
+                # Severe DD: only allow SUI + ETH (highest Sharpe)
+                if symbol not in ("SUIUSDT", "ETHUSDT") and net_signal != 0 and current_side == 0:
+                    logger.warning("PM: DD=%.1f%% > 25%%, blocking new %s (low-Sharpe)", dd_pct, symbol)
+                    return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_low_sharpe_block"}
+                self._dd_scale = 0.25
+            elif dd_pct > 15:
+                # Moderate DD: halve all positions
+                self._dd_scale = 0.5
+            else:
+                self._dd_scale = 1.0
+
         # Check total exposure limit
         total_exposure = self._total_exposure(equity, price)
         if net_signal != 0 and total_exposure >= self._max_total:
@@ -105,8 +126,8 @@ class PortfolioManager:
                                "long" if net_signal > 0 else "short")
                 return {"action": "rejected", "reason": "total_exposure_limit"}
 
-        # Compute position size
-        max_notional = equity * self._max_per_sym
+        # Compute position size (scaled by portfolio DD)
+        max_notional = equity * self._max_per_sym * self._dd_scale
         qty = max_notional / price if price > 0 else 0
         if qty * price < self._min_notional:
             return {"action": "rejected", "reason": "below_min_notional"}

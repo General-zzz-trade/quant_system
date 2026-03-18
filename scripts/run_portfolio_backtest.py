@@ -321,37 +321,42 @@ def main():
         print(f"  {sym:<12} {r['folds']:>6} {r['positive']:>3}/{r['folds']:<3} "
               f"{r['total_return']:>+8.1%} {r['avg_sharpe']:>8.2f}")
 
-    # Combined portfolio
-    max_len = max(len(r["returns"]) for r in results.values() if r)
-    port_rets = np.zeros(max_len)
-    count = np.zeros(max_len)
-    for r in results.values():
-        if not r or not r["returns"]:
-            continue
-        rets = np.array(r["returns"])
-        n = len(rets)
-        offset = max_len - n
-        w = 0.25
-        port_rets[offset:offset + n] += rets * w
-        count[offset:offset + n] += w
+    # Combined portfolio — Sharpe-weighted allocation
+    _SHARPE_WEIGHTS = {
+        "SUIUSDT": 0.40, "ETHUSDT": 0.28, "AXSUSDT": 0.19, "BTCUSDT": 0.11,
+    }
 
-    mask = count > 0
-    port_rets[mask] /= count[mask]
-    port_rets = port_rets[mask]
+    for label, weights in [("equal weight", None), ("Sharpe-weighted", _SHARPE_WEIGHTS)]:
+        max_len = max(len(r["returns"]) for r in results.values() if r)
+        port_rets = np.zeros(max_len)
+        count = np.zeros(max_len)
+        for sym, r in results.items():
+            if not r or not r["returns"]:
+                continue
+            rets = np.array(r["returns"])
+            n = len(rets)
+            offset = max_len - n
+            w = weights.get(sym, 0.25) if weights else 0.25
+            port_rets[offset:offset + n] += rets * w
+            count[offset:offset + n] += w
 
-    if len(port_rets) > 0:
-        cum = np.cumprod(1 + port_rets)
-        port_cum = cum[-1] - 1
-        port_sharpe = np.mean(port_rets) / np.std(port_rets) * np.sqrt(8760)
-        port_dd = np.min(cum / np.maximum.accumulate(cum) - 1)
-        win_rate = np.mean(port_rets > 0) * 100
+        mask = count > 0
+        port_rets[mask] /= count[mask]
+        port_rets = port_rets[mask]
 
-        print("\n  PORTFOLIO (equal weight):")
-        print(f"    Total return:  {port_cum:+.1%}")
-        print(f"    Sharpe:        {port_sharpe:.2f}")
-        print(f"    Max drawdown:  {port_dd:.1%}")
-        print(f"    Win rate:      {win_rate:.1f}%")
-        print(f"    Bars:          {len(port_rets)}")
+        if len(port_rets) > 0:
+            cum = np.cumprod(1 + port_rets)
+            port_cum = cum[-1] - 1
+            port_sharpe = np.mean(port_rets) / np.std(port_rets) * np.sqrt(8760)
+            port_dd = np.min(cum / np.maximum.accumulate(cum) - 1)
+            win_rate = np.mean(port_rets > 0) * 100
+
+            print(f"\n  PORTFOLIO ({label}):")
+            print(f"    Total return:  {port_cum:+.1%}")
+            print(f"    Sharpe:        {port_sharpe:.2f}")
+            print(f"    Max drawdown:  {port_dd:.1%}")
+            print(f"    Win rate:      {win_rate:.1f}%")
+            print(f"    Bars:          {len(port_rets)}")
 
 
 if __name__ == "__main__":

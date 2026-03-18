@@ -112,6 +112,10 @@ class AlphaRunner:
         self._entry_size: float = 0.0   # position size at entry time (for PnL calc)
         self._pnl = pnl_tracker if pnl_tracker is not None else PnLTracker()
 
+        # Dynamic weight: rolling trade PnL for Sharpe-based degradation
+        self._recent_trade_pnls: list[float] = []  # last 30 trade PnLs
+        self._dynamic_scale: float = 1.0  # multiplied into per_sym_cap
+
         # Rust risk evaluator + kill switch (shared across all runners)
         self._risk_eval = risk_evaluator
         self._kill_switch = kill_switch
@@ -727,6 +731,35 @@ class AlphaRunner:
         else:  # nobody agrees
             return 0.5
 
+    def _update_dynamic_scale(self) -> None:
+        """Update dynamic position scale based on rolling trade Sharpe.
+
+        If recent trades have negative Sharpe → reduce position size.
+        This prevents a losing streak from compounding losses.
+        - Rolling Sharpe > 0: scale = 1.0 (full size)
+        - Rolling Sharpe in [-0.5, 0]: scale = 0.5 (half size)
+        - Rolling Sharpe < -0.5: scale = 0.0 (stop trading this symbol)
+        """
+        pnls = self._recent_trade_pnls
+        if len(pnls) < 5:
+            self._dynamic_scale = 1.0
+            return
+        import numpy as _np
+        arr = _np.array(pnls)
+        mu = _np.mean(arr)
+        std = _np.std(arr)
+        sharpe = mu / std if std > 1e-8 else 0.0
+        if sharpe > 0:
+            self._dynamic_scale = 1.0
+        elif sharpe > -0.5:
+            self._dynamic_scale = 0.5
+        else:
+            self._dynamic_scale = 0.0
+            logger.warning(
+                "%s DYNAMIC SCALE → 0: rolling Sharpe=%.2f (%d trades), pausing",
+                self._symbol, sharpe, len(pnls),
+            )
+
     @staticmethod
     def compute_z_scale(z: float) -> float:
         """Non-linear position sizing based on z-score magnitude.
@@ -797,9 +830,16 @@ class AlphaRunner:
         target_lev = self._get_leverage_for_equity(equity)
 
         # Position = equity × per_symbol_cap × leverage / price
-        # 4 effective symbols (ETH combo shares one): 15% each = 60% base
-        # With z_scale(1.5x) + consensus(1.3x) worst case: 60% * 1.95 = 117% < margin
-        per_sym_cap = 0.20
+        # Sharpe-weighted allocation: higher Sharpe symbols get larger positions.
+        # Walk-forward Sharpe: SUI 1.78, ETH 1.18, AXS 0.78, BTC 0.46
+        # Total Sharpe = 4.20, weights: SUI 42%, ETH 28%, AXS 19%, BTC 11%
+        # Capped at [0.08, 0.40] to prevent over-concentration.
+        _SHARPE_WEIGHTS = {
+            "SUIUSDT": 0.40, "ETHUSDT": 0.28, "AXSUSDT": 0.19, "BTCUSDT": 0.11,
+        }
+        per_sym_cap = _SHARPE_WEIGHTS.get(self._symbol, 0.20)
+        # Dynamic degradation: reduce cap when rolling Sharpe is negative
+        per_sym_cap *= self._dynamic_scale
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
@@ -910,6 +950,13 @@ class AlphaRunner:
             )
 
         self._regime_active = base_active and not is_ranging
+
+        # Layer 3: ADX trend filter for BTC — block when trend is weak
+        # BTC walk-forward shows 49% positive folds; ADX < 20 = no trend = noise.
+        if self._use_composite_regime and feat_dict is not None:
+            adx = feat_dict.get("adx_14")
+            if adx is not None and adx < 20:
+                self._regime_active = False
 
         # Dynamic deadzone: scale with vol, clamp to [0.15, max(0.6, base)]
         # Upper clamp must be at least the configured base so high-dz symbols
@@ -1194,6 +1241,12 @@ class AlphaRunner:
             close_side = "sell" if prev == 1 else "buy"
             self._record_fill(close_side, entry_size, price,
                               realized_pnl=trade["pnl_usd"])
+
+            # Dynamic weight: update rolling Sharpe-based position scaling
+            self._recent_trade_pnls.append(trade["pnl_pct"])
+            if len(self._recent_trade_pnls) > 30:
+                self._recent_trade_pnls = self._recent_trade_pnls[-30:]
+            self._update_dynamic_scale()
 
         # Drawdown check via RustRiskEvaluator + RustKillSwitch
         # peak_equity already updated by record_close above
