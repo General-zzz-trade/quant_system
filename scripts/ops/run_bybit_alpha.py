@@ -401,11 +401,10 @@ def main():
                           risk_evaluator=risk_eval, kill_switch=kill_switch)
     logger.info("PM: PortfolioManager enabled (max_exposure=140%%, max_per_sym=30%%, max_dd=15%%, Rust risk)")
 
-    # Initialize hedge runner (BTC+ALT structural alpha)
-    hedge = HedgeRunner(adapter, dry_run=args.dry_run) if not args.dry_run else None
-    if hedge:
-        hedge.warmup_from_csv(n_bars=600)  # Pre-load 25 days of history -> immediate signals
-        logger.info("HEDGE: BTC+ALT hedge enabled, ALT basket=%s", hedge.ALT_BASKET)
+    # Hedge disabled: 8 cycles over 3 days, 0 wins, -$45 in fees, ratio
+    # oscillates in 6th decimal (0.000048-0.000051) = pure noise trading.
+    # Keeping code for future re-evaluation with longer MA or different basket.
+    hedge = None
 
     # WebSocket mode: push-based, low latency
     if args.ws:
