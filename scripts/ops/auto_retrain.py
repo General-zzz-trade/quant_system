@@ -56,14 +56,19 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SUIUSDT", "AXSUSDT"]
 DEFAULT_HORIZONS = [12, 24]          # h48 dropped by default (negative IC)
 MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
+# SUI/AXS don't use _gate_v2 suffix
+MODEL_DIR_OVERRIDES = {
+    "SUIUSDT": "models_v8/SUIUSDT",
+    "AXSUSDT": "models_v8/AXSUSDT",
+}
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")
 
 # ── 15m Configuration ──
-SYMBOLS_15M = ["ETHUSDT", "SOLUSDT"]
+SYMBOLS_15M = ["ETHUSDT"]  # SOLUSDT 15m FAIL (1/4 PASS), removed
 DEFAULT_HORIZONS_15M = {
     "ETHUSDT": [4, 8],       # 1h, 2h — high frequency
     "SOLUSDT": [4, 8, 16],   # 1h, 2h, 4h
@@ -82,11 +87,38 @@ MIN_FINAL_AVG_NET_BPS = 2.0          # final fold avg net bps must be > this
 
 def load_current_config(symbol: str) -> Optional[Dict[str, Any]]:
     """Load the current model's config.json."""
-    config_path = Path(MODEL_DIR_TEMPLATE.format(symbol=symbol)) / "config.json"
+    config_path = _model_dir_for(symbol) / "config.json"
+    if not config_path.exists():
+        # Fallback to default template path
+        config_path = Path(MODEL_DIR_TEMPLATE.format(symbol=symbol)) / "config.json"
     if not config_path.exists():
         return None
     with open(config_path) as f:
         return json.load(f)
+
+
+def _model_dir_for(symbol: str) -> Path:
+    """Get model directory for a symbol, handling overrides."""
+    if symbol in MODEL_DIR_OVERRIDES:
+        return Path(MODEL_DIR_OVERRIDES[symbol])
+    return Path(MODEL_DIR_TEMPLATE.format(symbol=symbol))
+
+
+def check_data_freshness(symbol: str, max_stale_hours: int = 26) -> Tuple[bool, str]:
+    """Check if data file is fresh enough for retraining.
+
+    Returns (is_fresh, message).
+    """
+    data_path = Path(DATA_DIR_TEMPLATE.format(symbol=symbol))
+    if not data_path.exists():
+        return False, f"data file not found: {data_path}"
+
+    import os
+    mtime = os.path.getmtime(data_path)
+    age_hours = (time.time() - mtime) / 3600
+    if age_hours > max_stale_hours:
+        return False, f"data is {age_hours:.0f}h old (max {max_stale_hours}h)"
+    return True, f"data is {age_hours:.1f}h old"
 
 
 def check_needs_retrain(
@@ -140,7 +172,7 @@ def retrain_symbol(
 
     Returns a result dict with success status and metrics.
     """
-    from scripts.train_v11 import train_symbol_v11
+    from scripts.training.train_v11 import train_symbol_v11
 
     result = {
         "symbol": symbol,
@@ -150,7 +182,15 @@ def retrain_symbol(
         "dry_run": dry_run,
     }
 
-    model_dir = Path(MODEL_DIR_TEMPLATE.format(symbol=symbol))
+    # Data freshness gate: don't retrain on stale data
+    fresh, fresh_msg = check_data_freshness(symbol)
+    if not fresh:
+        logger.warning("SKIP %s: %s", symbol, fresh_msg)
+        result["error"] = f"stale data: {fresh_msg}"
+        return result
+    logger.info("%s data freshness: %s", symbol, fresh_msg)
+
+    model_dir = _model_dir_for(symbol)
     old_config = load_current_config(symbol)
 
     # Record old metrics for comparison
@@ -182,7 +222,7 @@ def retrain_symbol(
             regime_gate_enabled=False,
             lgbm_xgb_weight=0.5,
         )
-        # Restore ic_weighted ensemble (train_v11 defaults to mean_zscore)
+        # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:
             cfg_path = model_dir / "config.json"
             if cfg_path.exists():
@@ -191,6 +231,16 @@ def retrain_symbol(
                 cfg["ensemble_method"] = "ic_weighted"
                 cfg["ic_ema_span"] = 720
                 cfg["ic_min_threshold"] = -0.01
+
+                # Preserve manual overrides from old config (long_only, ridge_weight, etc.)
+                # These were optimized via config sweep and should survive retraining.
+                _PRESERVE_KEYS = ["long_only", "ridge_weight", "lgbm_weight"]
+                if old_config:
+                    for key in _PRESERVE_KEYS:
+                        if key in old_config and key not in cfg:
+                            cfg[key] = old_config[key]
+                            logger.info("%s: preserved %s=%s from old config", symbol, key, old_config[key])
+
                 with open(cfg_path, "w") as f:
                     json.dump(cfg, f, indent=2)
     except Exception as e:
@@ -399,7 +449,7 @@ def send_alert(message: str, *, severity: str = "info") -> None:
 
 def cleanup_old_backups(symbol: str, keep: int = 3) -> None:
     """Keep only the N most recent backups for a symbol."""
-    model_dir = Path(MODEL_DIR_TEMPLATE.format(symbol=symbol))
+    model_dir = _model_dir_for(symbol)
     parent = model_dir.parent
     pattern = f"{model_dir.name}_backup_*"
 
@@ -631,6 +681,13 @@ def main():
         if not needs:
             print(f"  SKIP: {reason}")
             results[symbol] = {"symbol": symbol, "skipped": True, "reason": reason}
+            continue
+
+        # Data freshness pre-check (avoids training on stale data)
+        fresh, fresh_msg = check_data_freshness(symbol)
+        if not fresh:
+            print(f"  SKIP: stale data — {fresh_msg}")
+            results[symbol] = {"symbol": symbol, "skipped": True, "reason": f"stale data: {fresh_msg}"}
             continue
 
         print(f"  Retrain needed: {reason}")
