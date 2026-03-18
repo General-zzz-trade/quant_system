@@ -159,6 +159,14 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "dom_vs_sui_dev_20",              # ratio vs SUI deviation from MA(20)
     "dom_vs_sui_ret_24",             # ratio vs SUI 24-bar return
     "dom_vs_axs_dev_20",             # ratio vs AXS deviation from MA(20)
+    # --- V15: Interaction & statistical features (IC-screened 2026-03-18) ---
+    "ret1_x_vol",                     # ret_1 × vol_20 — momentum in volatile regime (IC 0.04-0.06)
+    "rsi_x_atr",                      # rsi_14 × atr_norm_14 — overbought + wide range (IC 0.04-0.05)
+    "rsi_x_vol",                      # rsi_14 × vol_20 — RSI strength in volatility (IC 0.04-0.05)
+    "trend_x_vol",                    # close_vs_ma50 × vol_20 — trend conviction (IC 0.03-0.05)
+    "bb_x_vol",                       # bb_pctb_20 × vol_20 — band position in volatile regime (IC 0.02-0.03)
+    "ret_autocorr_24",                # 24-bar return autocorrelation — momentum persistence (IC 0.03-0.04)
+    "ret_skew_24",                    # 24-bar return skewness — tail risk signal (IC 0.03-0.05 on ALTs)
     "dom_vs_axs_ret_24",             # ratio vs AXS 24-bar return
     "dom_vs_eth_dev_20",             # ratio vs ETH deviation from MA(20)
     "dom_vs_eth_ret_24",             # ratio vs ETH 24-bar return
@@ -451,6 +459,9 @@ class _SymbolState:
     # V14: BTC Dominance (BTC/ETH ratio)
     _dom_ratio_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=75))
     _last_eth_close: Optional[float] = None
+
+    # V15: Return buffer for autocorrelation and skewness (24-bar window)
+    _ret_buf_24: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
 
     # V13: Enhanced OI/LS/Taker
     _oi_buf_12: Deque[float] = field(default_factory=lambda: deque(maxlen=12))
@@ -766,6 +777,7 @@ class _SymbolState:
             ret = (close - self._last_close) / self._last_close
             self.return_window_20.push(ret)
             self.return_window_5.push(ret)
+            self._ret_buf_24.append(ret)  # V15: for autocorr/skewness
         self._last_close = close
 
         # V5: vol_5 history for vol_of_vol and rv_acceleration
@@ -1692,6 +1704,53 @@ class _SymbolState:
             feats["btc_dom_momentum"] = None
             feats["btc_lead_ret_1"] = None
             feats["btc_vol_ratio"] = None
+
+        # ── V15: Interaction & statistical features ──
+        # IC-screened 2026-03-18: all significant (p<0.001) across 4 symbols.
+        _ret1 = feats.get("ret_1")
+        _vol20 = feats.get("vol_20")
+        _rsi14 = feats.get("rsi_14")
+        _atr14 = feats.get("atr_norm_14")
+        _bbpctb = feats.get("bb_pctb_20")
+        _trend50 = feats.get("close_vs_ma50")
+
+        # Interaction: ret_1 × vol_20
+        feats["ret1_x_vol"] = _ret1 * _vol20 if _ret1 is not None and _vol20 is not None else None
+        # Interaction: rsi_14 × atr_norm_14
+        feats["rsi_x_atr"] = _rsi14 * _atr14 if _rsi14 is not None and _atr14 is not None else None
+        # Interaction: rsi_14 × vol_20
+        feats["rsi_x_vol"] = _rsi14 * _vol20 if _rsi14 is not None and _vol20 is not None else None
+        # Interaction: close_vs_ma50 × vol_20
+        feats["trend_x_vol"] = _trend50 * _vol20 if _trend50 is not None and _vol20 is not None else None
+        # Interaction: bb_pctb_20 × vol_20
+        feats["bb_x_vol"] = _bbpctb * _vol20 if _bbpctb is not None and _vol20 is not None else None
+
+        # Return autocorrelation (24-bar)
+        rbuf = self._ret_buf_24
+        if len(rbuf) >= 24:
+            r = list(rbuf)
+            r1, r2 = r[:-1], r[1:]
+            mr1 = sum(r1) / len(r1)
+            mr2 = sum(r2) / len(r2)
+            cov = sum((a - mr1) * (b - mr2) for a, b in zip(r1, r2)) / len(r1)
+            v1 = sum((a - mr1) ** 2 for a in r1) / len(r1)
+            v2 = sum((b - mr2) ** 2 for b in r2) / len(r2)
+            denom = (v1 * v2) ** 0.5
+            feats["ret_autocorr_24"] = cov / denom if denom > 1e-12 else 0.0
+        else:
+            feats["ret_autocorr_24"] = None
+
+        # Return skewness (24-bar)
+        if len(rbuf) >= 24:
+            r = list(rbuf)
+            mu = sum(r) / len(r)
+            std = (sum((x - mu) ** 2 for x in r) / len(r)) ** 0.5
+            if std > 1e-12:
+                feats["ret_skew_24"] = sum(((x - mu) / std) ** 3 for x in r) / len(r)
+            else:
+                feats["ret_skew_24"] = 0.0
+        else:
+            feats["ret_skew_24"] = None
 
         return feats
 

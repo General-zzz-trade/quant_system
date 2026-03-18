@@ -203,7 +203,58 @@ def compute_features_batch(
     # V14: BTC Dominance features (BTC/ETH ratio)
     _add_dominance_features(symbol, feat_df, closes)
 
+    # V15: Interaction & statistical features (IC-screened 2026-03-18)
+    _add_v15_features(feat_df)
+
     return feat_df
+
+
+def _add_v15_features(feat_df: pd.DataFrame) -> None:
+    """Add V15 interaction and statistical features to batch DataFrame.
+
+    These are derived from existing features — no new data sources needed.
+    IC-screened 2026-03-18: all significant (p<0.001) across BTC/ETH/SUI/AXS.
+    """
+    # Interaction terms: multiply existing features for regime-conditional alpha
+    # NaN propagates naturally through multiplication
+    if "ret_1" in feat_df.columns and "vol_20" in feat_df.columns:
+        feat_df["ret1_x_vol"] = feat_df["ret_1"] * feat_df["vol_20"]
+    if "rsi_14" in feat_df.columns and "atr_norm_14" in feat_df.columns:
+        feat_df["rsi_x_atr"] = feat_df["rsi_14"] * feat_df["atr_norm_14"]
+    if "rsi_14" in feat_df.columns and "vol_20" in feat_df.columns:
+        feat_df["rsi_x_vol"] = feat_df["rsi_14"] * feat_df["vol_20"]
+    if "close_vs_ma50" in feat_df.columns and "vol_20" in feat_df.columns:
+        feat_df["trend_x_vol"] = feat_df["close_vs_ma50"] * feat_df["vol_20"]
+    if "bb_pctb_20" in feat_df.columns and "vol_20" in feat_df.columns:
+        feat_df["bb_x_vol"] = feat_df["bb_pctb_20"] * feat_df["vol_20"]
+
+    # Return autocorrelation (24-bar rolling)
+    if "ret_1" in feat_df.columns:
+        ret = feat_df["ret_1"].values
+        ac = np.full(len(ret), np.nan)
+        for i in range(24, len(ret)):
+            chunk = ret[i - 24:i]
+            if np.any(np.isnan(chunk)):
+                continue
+            r1, r2 = chunk[:-1], chunk[1:]
+            std1, std2 = np.std(r1), np.std(r2)
+            if std1 > 1e-10 and std2 > 1e-10:
+                ac[i] = np.corrcoef(r1, r2)[0, 1]
+        feat_df["ret_autocorr_24"] = ac
+
+    # Return skewness (24-bar rolling)
+    if "ret_1" in feat_df.columns:
+        ret = feat_df["ret_1"].values
+        skew = np.full(len(ret), np.nan)
+        for i in range(24, len(ret)):
+            chunk = ret[i - 24:i]
+            if np.any(np.isnan(chunk)):
+                continue
+            mu = np.mean(chunk)
+            std = np.std(chunk)
+            if std > 1e-10:
+                skew[i] = np.mean(((chunk - mu) / std) ** 3)
+        feat_df["ret_skew_24"] = skew
 
 
 def _compute_ratio_features(
