@@ -318,8 +318,9 @@ impl RustPortfolioAllocator {
         let cq = parse_dict(current_qty)?;
         let px = parse_dict(prices)?;
 
-        // Collect symbols from target_weights (deterministic order via Vec)
-        let symbols: Vec<String> = tw.keys().cloned().collect();
+        // Collect symbols from target_weights in sorted order for deterministic allocation
+        let mut symbols: Vec<String> = tw.keys().cloned().collect();
+        symbols.sort();
 
         // Compute gross leverage BEFORE for diagnostics
         let gross_before: f64 = symbols

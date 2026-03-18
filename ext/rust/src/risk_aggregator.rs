@@ -171,7 +171,7 @@ impl RustRiskAggregator {
         self.enabled.push(true);
 
         // Initialize stats
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.entry(name.to_string()).or_default();
 
         Ok(())
@@ -243,7 +243,7 @@ impl RustRiskAggregator {
 
             // Update stats
             {
-                let mut stats = self.stats.lock().unwrap();
+                let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
                 let entry = stats.entry(rule_name.clone()).or_default();
                 entry.calls += 1;
 
@@ -315,7 +315,7 @@ impl RustRiskAggregator {
     /// Return stats snapshot as dict: {rule_name: {"calls": int, "allows": int, ...}}
     fn snapshot(&self, py: Python<'_>) -> PyResult<PyObject> {
         let outer = PyDict::new(py);
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         for (name, s) in stats.iter() {
             let inner = PyDict::new(py);
             inner.set_item("calls", s.calls)?;
@@ -329,7 +329,7 @@ impl RustRiskAggregator {
 
     /// Reset all stats counters
     fn reset_stats(&self) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         for s in stats.values_mut() {
             *s = RuleStats::default();
         }

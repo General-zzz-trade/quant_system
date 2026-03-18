@@ -138,8 +138,9 @@ class PortfolioCombiner:
             if not self._dry_run:
                 close_result = reliable_close_position(self._adapter, self._symbol)
                 if close_result["status"] == "failed":
-                    logger.error("COMBO %s CLOSE FAILED after retries", self._symbol)
-                elif not close_result.get("verified", True):
+                    logger.error("COMBO %s CLOSE FAILED after retries — keeping state", self._symbol)
+                    return trade_info  # abort, don't desync StateStore
+                if not close_result.get("verified", True):
                     logger.warning("COMBO %s CLOSE: position verification failed", self._symbol)
                 # Record close fill in StateStore (side is opposite of position)
                 close_side = "sell" if prev > 0 else "buy"

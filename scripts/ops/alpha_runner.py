@@ -404,6 +404,11 @@ class AlphaRunner:
                         "buy" if exchange_side == 1 else "sell",
                         exchange_qty, exchange_price,
                     )
+                    # Sync entry state for stop-loss and PnL tracking
+                    self._entry_price = exchange_price
+                    self._entry_size = exchange_qty
+                    self._trade_peak_price = exchange_price
+                    self._position_size = exchange_qty
                     logger.info(
                         "%s RECONCILE: synced StateStore with exchange position side=%d qty=%.4f price=%.2f",
                         self._symbol, exchange_side, exchange_qty, exchange_price,
@@ -445,6 +450,10 @@ class AlphaRunner:
         entry = self._entry_price
 
         # Update trade peak (best price since entry)
+        # Safety: if peak was never initialized (e.g., after reconcile restart),
+        # set it to entry price to avoid min(0, price)=0 for shorts.
+        if self._trade_peak_price <= 0.0:
+            self._trade_peak_price = entry
         if side > 0:
             self._trade_peak_price = max(self._trade_peak_price, current_price)
             profit_pct = (self._trade_peak_price - entry) / entry

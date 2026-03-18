@@ -83,6 +83,8 @@ def clamp_notional(
     max_notional: float = MAX_ORDER_NOTIONAL,
 ) -> float:
     """Clamp quantity so notional (qty * price) does not exceed max_notional."""
+    if price <= 0 or qty <= 0:
+        return qty  # invalid input, return unchanged to avoid ZeroDivisionError
     notional = qty * price
     if notional > max_notional:
         logger.warning(

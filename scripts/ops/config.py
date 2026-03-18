@@ -20,7 +20,7 @@ SYMBOL_CONFIG = {
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
     # 15m alpha: separate model, different interval
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
-                    "interval": "15", "warmup": 800},
+                    "interval": "15", "warmup": 800, "step": 0.01},
     # SUI 1h alpha (walk-forward 6/7 PASS, Sharpe 1.63, +150%)
     "SUIUSDT": {"size": 10, "model_dir": "SUIUSDT", "max_qty": 330000, "step": 10},
     # AXS 1h alpha (walk-forward 13/17 PASS, Sharpe 1.25, +241%)
