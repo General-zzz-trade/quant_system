@@ -31,20 +31,27 @@ _RE_BAR = re.compile(
 )
 
 # ETHUSDT CLOSE LONG: pnl=$12.50 (0.25%) total=$150.00 wins=3/5
+# AXSUSDT CLOSE short: pnl=$-105.0948 (-3.00%) total=$-105.0948 wins=0/1
+# COMBO CLOSE long: pnl=$135.8730 total=$86.4714 wins=1/2
 _RE_CLOSE = re.compile(
     r"(?P<symbol>\S+)\s+CLOSE\s+(?P<side>LONG|SHORT):\s+"
     r"pnl=\$(?P<pnl>[+-]?[\d.]+)\s+"
-    r"\((?P<pct>[+-]?[\d.]+)%\)\s+"
+    r"(?:\((?P<pct>[+-]?[\d.]+)%\)\s+)?"
     r"total=\$(?P<total>[+-]?[\d.]+)\s+"
-    r"wins=(?P<wins>\d+)/(?P<total_trades>\d+)"
+    r"wins=(?P<wins>\d+)/(?P<total_trades>\d+)",
+    re.IGNORECASE,
 )
 
 # Opened LONG 0.01 @ ~$3500.00 stop=$3430.00
+# Opened sell 1187.9000 @ ~$1.3 stop=$1.30 (ATR=1.50%): {...}
 _RE_OPEN = re.compile(
-    r"Opened\s+(?P<side>LONG|SHORT)\s+(?P<qty>[\d.]+)\s+"
+    r"Opened\s+(?P<side>LONG|SHORT|BUY|SELL)\s+(?P<qty>[\d.]+)\s+"
     r"@\s+~\$(?P<price>[\d.]+)"
-    r"(?:\s+stop=\$(?P<stop>[\d.]+))?"
+    r"(?:\s+stop=\$(?P<stop>[\d.]+))?",
+    re.IGNORECASE,
 )
+
+_RE_LOG_DATE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2},\d{3}")
 
 # ---------------------------------------------------------------------------
 # Track record template
@@ -132,9 +139,9 @@ def parse_close_line(line: str) -> dict[str, Any] | None:
     try:
         return {
             "symbol": m.group("symbol"),
-            "side": m.group("side"),
+            "side": m.group("side").upper(),
             "pnl_usd": float(m.group("pnl")),
-            "pct": float(m.group("pct")),
+            "pct": float(m.group("pct")) if m.group("pct") is not None else None,
             "total_usd": float(m.group("total")),
             "wins": int(m.group("wins")),
             "total_trades": int(m.group("total_trades")),
@@ -155,7 +162,7 @@ def parse_open_line(line: str) -> dict[str, Any] | None:
     try:
         stop_str = m.group("stop")
         return {
-            "side": m.group("side"),
+            "side": m.group("side").upper(),
             "qty": float(m.group("qty")),
             "price": float(m.group("price")),
             "stop": float(stop_str) if stop_str else None,
@@ -243,6 +250,14 @@ def _today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _line_date_str(line: str) -> str:
+    """Use the logged date when available; fall back to current UTC date."""
+    m = _RE_LOG_DATE.match(line)
+    if m is not None:
+        return m.group("date")
+    return _today_str()
+
+
 def _ensure_day(record: dict[str, Any], date_str: str) -> dict[str, Any]:
     daily: dict[str, Any] = record.setdefault("daily", {})
     if date_str not in daily:
@@ -262,7 +277,7 @@ def _process_line(line: str, record: dict[str, Any]) -> None:
     # Bar line
     bar = parse_bar_line(line)
     if bar is not None:
-        date_str = _today_str()
+        date_str = _line_date_str(line)
         day = _ensure_day(record, date_str)
         sym = _ensure_sym_day(day, bar["symbol"])
         sym["bars"] += 1
@@ -278,7 +293,7 @@ def _process_line(line: str, record: dict[str, Any]) -> None:
     # Close line
     close = parse_close_line(line)
     if close is not None:
-        date_str = _today_str()
+        date_str = _line_date_str(line)
         day = _ensure_day(record, date_str)
         sym = _ensure_sym_day(day, close["symbol"])
         sym["trades"] += 1

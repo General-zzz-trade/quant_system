@@ -87,6 +87,33 @@ class TestParseCloseLine:
         assert result["side"] == "SHORT"
         assert result["pnl_usd"] == pytest.approx(-8.00)
 
+    def test_parse_close_line_prefixed_lowercase_without_pct(self) -> None:
+        line = (
+            "2026-03-18 02:00:01,116 INFO scripts.ops.portfolio_combiner: "
+            "COMBO CLOSE long: pnl=$-35.8776 total=$-35.8776 wins=0/1"
+        )
+        result = parse_close_line(line)
+        assert result is not None
+        assert result["symbol"] == "COMBO"
+        assert result["side"] == "LONG"
+        assert result["pnl_usd"] == pytest.approx(-35.8776)
+        assert result["pct"] is None
+        assert result["total_usd"] == pytest.approx(-35.8776)
+        assert result["wins"] == 0
+        assert result["total_trades"] == 1
+
+    def test_parse_close_line_prefixed_lowercase_with_pct(self) -> None:
+        line = (
+            "2026-03-18 14:00:01,991 INFO scripts.ops.alpha_runner: "
+            "AXSUSDT CLOSE short: pnl=$-105.0948 (-3.00%) total=$-105.0948 wins=0/1"
+        )
+        result = parse_close_line(line)
+        assert result is not None
+        assert result["symbol"] == "AXSUSDT"
+        assert result["side"] == "SHORT"
+        assert result["pnl_usd"] == pytest.approx(-105.0948)
+        assert result["pct"] == pytest.approx(-3.00)
+
     def test_parse_close_line_invalid(self) -> None:
         assert parse_close_line("garbage") is None
         assert parse_close_line("") is None
@@ -116,6 +143,42 @@ class TestParseOpenLine:
         assert result["qty"] == pytest.approx(5.0)
         assert result["price"] == pytest.approx(0.45)
         assert result["stop"] is None
+
+    @pytest.mark.parametrize(
+        ("line", "expected_side", "expected_qty", "expected_price", "expected_stop"),
+        [
+            (
+                "2026-03-18 05:00:03,853 INFO scripts.ops.alpha_runner: "
+                "Opened sell 4045.3000 @ ~$1.2 stop=$1.24 (ATR=0.86%): {'status': 'submitted'}",
+                "SELL",
+                4045.3,
+                1.2,
+                1.24,
+            ),
+            (
+                "2026-03-18 06:00:01,105 INFO scripts.ops.alpha_runner: "
+                "Opened buy 0.0670 @ ~$74475.7 stop=$72754.61 (ATR=0.78%): {'status': 'submitted'}",
+                "BUY",
+                0.067,
+                74475.7,
+                72754.61,
+            ),
+        ],
+    )
+    def test_parse_open_line_prefixed_buy_sell(
+        self,
+        line: str,
+        expected_side: str,
+        expected_qty: float,
+        expected_price: float,
+        expected_stop: float,
+    ) -> None:
+        result = parse_open_line(line)
+        assert result is not None
+        assert result["side"] == expected_side
+        assert result["qty"] == pytest.approx(expected_qty)
+        assert result["price"] == pytest.approx(expected_price)
+        assert result["stop"] == pytest.approx(expected_stop)
 
     def test_parse_open_line_invalid(self) -> None:
         assert parse_open_line("garbage") is None
@@ -242,6 +305,33 @@ class TestParseIncremental:
         daily = record["daily"]
         date_key = list(daily.keys())[0]
         assert daily[date_key]["symbols"]["ETHUSDT"]["bars"] == 1
+
+    def test_parse_incremental_uses_logged_dates_and_real_close_formats(self, tmp_path: Path) -> None:
+        log = tmp_path / "alpha.log"
+        log.write_text(
+            "2026-03-17 23:59:59,999 INFO scripts.ops.alpha_runner: "
+            "WS ETHUSDT bar 1: $3500.00 z=1.50 sig=1 hold=0 regime=trending dz=0.5\n"
+            "2026-03-18 00:00:02,263 INFO scripts.ops.portfolio_combiner: "
+            "COMBO CLOSE short: pnl=$-3.0576 total=$-3.0576 wins=0/1\n"
+            "2026-03-18 14:00:01,991 INFO scripts.ops.alpha_runner: "
+            "AXSUSDT CLOSE short: pnl=$-105.0948 (-3.00%) total=$-105.0948 wins=0/1\n",
+            encoding="utf-8",
+        )
+        record = _empty_record()
+
+        lines = parse_incremental(log, record)
+
+        assert lines == 3
+        assert set(record["daily"]) == {"2026-03-17", "2026-03-18"}
+        assert record["daily"]["2026-03-17"]["symbols"]["ETHUSDT"]["bars"] == 1
+
+        day_2026_03_18 = record["daily"]["2026-03-18"]
+        assert day_2026_03_18["total_trades"] == 2
+        assert day_2026_03_18["total_pnl_usd"] == pytest.approx(-108.1524)
+        assert day_2026_03_18["symbols"]["COMBO"]["trades"] == 1
+        assert day_2026_03_18["symbols"]["AXSUSDT"]["losses"] == 1
+        assert record["summary"]["total_trades"] == 2
+        assert record["summary"]["total_pnl_usd"] == pytest.approx(-108.1524)
 
 
 # ---------------------------------------------------------------------------
