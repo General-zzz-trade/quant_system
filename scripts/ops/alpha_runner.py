@@ -975,7 +975,12 @@ class AlphaRunner:
 
         self._regime_active = base_active and not is_ranging
 
-        # Layer 3: ADX trend filter for BTC — block when trend is weak
+        # Layer 3: High-vol blocker — at 10x leverage, extreme vol is lethal.
+        # Vol > 1.5x median → block new entries (3% move = 30% equity swing).
+        if self._vol_median > 0 and vol_20 > self._vol_median * 1.5:
+            self._regime_active = False
+
+        # Layer 4: ADX trend filter for BTC — block when trend is weak
         # BTC walk-forward shows 49% positive folds; ADX < 20 = no trend = noise.
         if self._use_composite_regime and feat_dict is not None:
             adx = feat_dict.get("adx_14")
