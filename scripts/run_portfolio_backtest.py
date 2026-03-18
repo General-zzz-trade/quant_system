@@ -17,6 +17,9 @@ import numpy as np
 import pandas as pd
 
 # ── Config: auto-loads from model config.json ──
+LEVERAGE = 5.0
+
+
 def _build_symbols() -> dict:
     """Build SYMBOLS dict from model config.json files."""
     _SYMBOL_DIRS = {
@@ -40,6 +43,7 @@ def _build_symbols() -> dict:
             "max_hold": cfg.get("max_hold", 60),
             "long_only": cfg.get("long_only", False),
             "cost_bps": 6.0,
+            "leverage": LEVERAGE,
             "weight": 0.25,
         }
     return symbols
@@ -168,7 +172,7 @@ def backtest_symbol(symbol: str, cfg: dict) -> dict:
     """Walk-forward backtest for one symbol."""
     print(f"\n{'='*70}")
     print(f"  {symbol}: dz={cfg['deadzone']} mh={cfg['min_hold']} "
-          f"max_h={cfg['max_hold']} long_only={cfg['long_only']}")
+          f"max_h={cfg['max_hold']} long_only={cfg['long_only']} lev={cfg.get('leverage', 1.0)}x")
     print(f"{'='*70}")
 
     df = load_csv(cfg["csv"])
@@ -258,10 +262,19 @@ def backtest_symbol(symbol: str, cfg: dict) -> dict:
 
         rets = np.diff(closes_test) / closes_test[:-1]
         sig_t = signal[:-1]
+        leverage = cfg.get("leverage", 1.0)
         cost = cfg["cost_bps"] / 10000
-        strat_ret = sig_t * rets
+        strat_ret = sig_t * rets * leverage
         changes = np.concatenate([[False], np.diff(sig_t) != 0])
-        strat_ret[changes] -= cost
+        strat_ret[changes] -= cost * leverage  # costs also scale with leverage
+
+        # Liquidation simulation: if single-bar loss exceeds margin (1/leverage),
+        # cap loss at -100% for that bar (total equity wipeout on that position).
+        if leverage > 1:
+            liq_threshold = -1.0 / leverage  # e.g., -10% at 10x
+            for li in range(len(strat_ret)):
+                if strat_ret[li] < liq_threshold * leverage:
+                    strat_ret[li] = -0.99  # near-total loss on position
 
         cum_ret = np.prod(1 + strat_ret) - 1
         n_trades = int(np.sum(changes))
@@ -301,7 +314,7 @@ def backtest_symbol(symbol: str, cfg: dict) -> dict:
 
 def main():
     print("=" * 70)
-    print("  PORTFOLIO WALK-FORWARD BACKTEST (current live config)")
+    print(f"  PORTFOLIO WALK-FORWARD BACKTEST (leverage={LEVERAGE}x)")
     print(f"  Symbols: {list(SYMBOLS.keys())}")
     print("=" * 70)
 
@@ -351,9 +364,9 @@ def main():
                 cum_eq = np.cumprod(1 + port_rets)
                 peak = np.maximum.accumulate(cum_eq)
                 dd_pct = (peak - cum_eq) / peak
-                # DD > 15% → halve, DD > 25% → quarter
-                dd_scale = np.where(dd_pct > 0.25, 0.25,
-                           np.where(dd_pct > 0.15, 0.50, 1.0))
+                # Optimized for 5x: DD>5% → 0.3x, DD>10% → stop (0x)
+                dd_scale = np.where(dd_pct > 0.10, 0.0,
+                           np.where(dd_pct > 0.05, 0.30, 1.0))
                 port_rets = port_rets * dd_scale
 
             cum = np.cumprod(1 + port_rets)

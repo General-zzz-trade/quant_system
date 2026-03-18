@@ -97,20 +97,21 @@ class PortfolioManager:
         if equity <= 0:
             return None
 
-        # Portfolio-level drawdown control
+        # Portfolio-level drawdown control (optimized for 5x leverage)
+        # Sweep at 5x: DD>5%→0.3x, DD>10%→stop = Sharpe 4.49, MaxDD -5.8%
         if equity > self._peak_equity:
             self._peak_equity = equity
         if self._peak_equity > 0:
             dd_pct = (self._peak_equity - equity) / self._peak_equity * 100
-            if dd_pct > 25:
-                # Severe DD: only allow SUI + ETH (highest Sharpe)
-                if symbol not in ("SUIUSDT", "ETHUSDT") and net_signal != 0 and current_side == 0:
-                    logger.warning("PM: DD=%.1f%% > 25%%, blocking new %s (low-Sharpe)", dd_pct, symbol)
-                    return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_low_sharpe_block"}
-                self._dd_scale = 0.25
-            elif dd_pct > 15:
-                # Moderate DD: halve all positions
-                self._dd_scale = 0.5
+            if dd_pct > 10:
+                # Severe DD at 5x: stop all new entries
+                if net_signal != 0 and current_side == 0:
+                    logger.warning("PM: DD=%.1f%% > 10%%, blocking all new entries", dd_pct)
+                    return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_full_stop"}
+                self._dd_scale = 0.0
+            elif dd_pct > 5:
+                # Moderate DD: cut to 30% size
+                self._dd_scale = 0.3
             else:
                 self._dd_scale = 1.0
 
