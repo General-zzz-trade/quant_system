@@ -175,6 +175,16 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "ob_volume_clock",                # vol_MA6/vol_MA24 - 1 — activity acceleration (IC 0.03, 3/4)
     "iv_rv_spread",                   # implied_vol - realized_vol — vol premium/discount (IC 0.04, BTC+ETH)
     "liq_volume_zscore_24",           # z-score of liquidation proxy volume (IC -0.18, BTC only but very strong)
+    # --- V17: On-chain features (Coin Metrics, IC-screened 2026-03-18) ---
+    "oc_tx_zscore_7",                 # ETH TxTfrCnt 7d z-score (IC +0.137, strongest on-chain factor)
+    "oc_tx_zscore_14",                # ETH TxTfrCnt 14d z-score (IC +0.134)
+    "oc_addr_zscore_7",               # Active addresses 7d z-score (IC +0.082)
+    "oc_addr_zscore_14",              # Active addresses 14d z-score (IC +0.085)
+    "oc_flowin_zscore_7",             # Exchange inflow 7d z-score
+    "oc_flowin_zscore_14",            # Exchange inflow 14d z-score
+    "oc_flowout_zscore_7",            # Exchange outflow 7d z-score
+    "oc_flowout_zscore_14",           # Exchange outflow 14d z-score
+    "oc_netflow_zscore_7",            # Net exchange flow 7d z-score (IC -0.074 BTC)
     "dom_vs_axs_ret_24",             # ratio vs AXS 24-bar return
     "dom_vs_eth_dev_20",             # ratio vs ETH deviation from MA(20)
     "dom_vs_eth_ret_24",             # ratio vs ETH 24-bar return

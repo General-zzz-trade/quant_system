@@ -209,6 +209,9 @@ def compute_features_batch(
     # V16: Orderbook proxy + IV spread + liquidation features
     _add_v16_features(symbol, feat_df, closes, highs, lows, volumes, tbv)
 
+    # V17: On-chain features (TxTfrCnt, AdrActCnt, exchange flow)
+    _add_v17_onchain_features(symbol, feat_df, timestamps)
+
     return feat_df
 
 
@@ -321,6 +324,58 @@ def _add_v16_features(
             feat_df["liq_volume_zscore_24"] = np.nan
     else:
         feat_df["liq_volume_zscore_24"] = np.nan
+
+
+def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np.ndarray) -> None:
+    """Add V17 on-chain features from Coin Metrics data.
+
+    IC-screened 2026-03-18:
+    - ETH TxTfrCnt_zscore_7: IC=+0.137 (strongest single on-chain factor)
+    - ETH AdrActCnt_zscore_14: IC=+0.085
+    - BTC oc_netflow: IC=-0.074
+    """
+    # Map symbol to asset
+    asset_map = {"BTCUSDT": "BTC", "ETHUSDT": "ETH"}
+    asset = asset_map.get(symbol)
+    if not asset:
+        return
+
+    oc_path = Path(f"data/onchain/{asset}_onchain_combined.csv")
+    if not oc_path.exists():
+        return
+
+    try:
+        oc = pd.read_csv(oc_path)
+        oc_ts = pd.to_numeric(oc["timestamp"], errors="coerce").values
+        oc = oc.sort_values("timestamp")
+
+        # Interpolate daily on-chain → hourly kline
+        for col, prefix in [
+            ("TxTfrCnt", "oc_tx"),
+            ("AdrActCnt", "oc_addr"),
+            ("FlowInExUSD", "oc_flowin"),
+            ("FlowOutExUSD", "oc_flowout"),
+        ]:
+            if col not in oc.columns:
+                continue
+            vals = np.interp(timestamps, oc_ts,
+                            pd.to_numeric(oc[col], errors="coerce").fillna(0).values)
+            # Z-scores at 7d and 14d
+            for win_days, win_label in [(7, "7"), (14, "14")]:
+                win = win_days * 24
+                feat_df[f"{prefix}_zscore_{win_label}"] = _rolling_zscore_arr(vals, win)
+
+        # Net flow = inflow - outflow
+        if "FlowInExUSD" in oc.columns and "FlowOutExUSD" in oc.columns:
+            flow_in = np.interp(timestamps, oc_ts,
+                               pd.to_numeric(oc["FlowInExUSD"], errors="coerce").fillna(0).values)
+            flow_out = np.interp(timestamps, oc_ts,
+                                pd.to_numeric(oc["FlowOutExUSD"], errors="coerce").fillna(0).values)
+            net = flow_in - flow_out
+            feat_df["oc_netflow_zscore_7"] = _rolling_zscore_arr(net, 7 * 24)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("V17 on-chain features failed for %s: %s", symbol, e)
 
 
 def _rolling_zscore_arr(arr: np.ndarray, window: int) -> np.ndarray:
