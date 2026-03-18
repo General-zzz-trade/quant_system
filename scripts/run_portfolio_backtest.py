@@ -16,49 +16,36 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ── Config: mirrors live SYMBOL_CONFIG + model config.json ──
-SYMBOLS = {
-    "BTCUSDT": {
-        "csv": "data_files/BTCUSDT_1h.csv",
-        "model_dir": "models_v8/BTCUSDT_gate_v2",
-        "deadzone": 0.8,
-        "min_hold": 48,
-        "max_hold": 288,
-        "long_only": False,
-        "cost_bps": 6.0,
-        "weight": 0.25,
-    },
-    "ETHUSDT": {
-        "csv": "data_files/ETHUSDT_1h.csv",
-        "model_dir": "models_v8/ETHUSDT_gate_v2",
-        "deadzone": 0.3,
-        "min_hold": 18,
-        "max_hold": 60,
-        "long_only": False,
-        "cost_bps": 6.0,
-        "weight": 0.25,
-    },
-    "SUIUSDT": {
-        "csv": "data_files/SUIUSDT_1h.csv",
-        "model_dir": "models_v8/SUIUSDT",
-        "deadzone": 0.7,
-        "min_hold": 18,
-        "max_hold": 60,
-        "long_only": True,
-        "cost_bps": 6.0,
-        "weight": 0.25,
-    },
-    "AXSUSDT": {
-        "csv": "data_files/AXSUSDT_1h.csv",
-        "model_dir": "models_v8/AXSUSDT",
-        "deadzone": 0.6,
-        "min_hold": 18,
-        "max_hold": 60,
-        "long_only": True,
-        "cost_bps": 6.0,
-        "weight": 0.25,
-    },
-}
+# ── Config: auto-loads from model config.json ──
+def _build_symbols() -> dict:
+    """Build SYMBOLS dict from model config.json files."""
+    _SYMBOL_DIRS = {
+        "BTCUSDT": "models_v8/BTCUSDT_gate_v2",
+        "ETHUSDT": "models_v8/ETHUSDT_gate_v2",
+        "SUIUSDT": "models_v8/SUIUSDT",
+        "AXSUSDT": "models_v8/AXSUSDT",
+    }
+    symbols = {}
+    for sym, model_dir in _SYMBOL_DIRS.items():
+        cfg_path = Path(model_dir) / "config.json"
+        if not cfg_path.exists():
+            continue
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        symbols[sym] = {
+            "csv": f"data_files/{sym}_1h.csv",
+            "model_dir": model_dir,
+            "deadzone": cfg.get("deadzone", 0.5),
+            "min_hold": cfg.get("min_hold", 18),
+            "max_hold": cfg.get("max_hold", 60),
+            "long_only": cfg.get("long_only", False),
+            "cost_bps": 6.0,
+            "weight": 0.25,
+        }
+    return symbols
+
+
+SYMBOLS = _build_symbols()
 
 # Walk-forward parameters
 WF_TRAIN_BARS = 4320   # 6 months

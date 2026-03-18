@@ -256,6 +256,16 @@ def retrain_symbol(
         result["error"] = "failed production checks"
         return result
 
+    # train_v11 always saves to {symbol}_gate_v2/, but some symbols use
+    # a different model_dir (e.g., SUI → models_v8/SUIUSDT). Sync if needed.
+    train_output_dir = Path(f"models_v8/{symbol}_gate_v2")
+    if model_dir != train_output_dir and train_output_dir.exists():
+        # Copy trained model to the correct model_dir
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
+        shutil.copytree(train_output_dir, model_dir)
+        logger.info("Synced train output %s → %s", train_output_dir, model_dir)
+
     # Load new config and validate
     new_config = load_current_config(symbol)
     if new_config is None:
