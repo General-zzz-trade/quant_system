@@ -3,14 +3,14 @@
 all: rust
 
 rust:
-	cd ext/rust && RUSTFLAGS="-C target-cpu=skylake-avx512" PATH="$(HOME)/.cargo/bin:$(PATH)" maturin build --release && pip install --break-system-packages --force-reinstall target/wheels/*.whl
+	cd ext/rust && RUSTFLAGS="-C target-cpu=skylake-avx512" PATH="$(HOME)/.cargo/bin:$(PATH)" maturin build --release --features python && pip install --break-system-packages --force-reinstall target/wheels/*.whl
 
 clean:
 	rm -rf ext/rust/target
 
 # ── Test targets (aligned with CI: .github/workflows/ci.yml) ───────────
 
-test: test-py test-exec test-rust lint  ## Run all tests (matches CI gate)
+test: test-py test-exec test-rust lint  ## Core local test gate; CI also runs security, model-check, compose smoke, and a dedicated framework integration step
 
 test-py:  ## Python core tests (matches CI 'Run Python tests' step)
 	python3 -m pytest tests/ -x -q --tb=short --ignore=tests/performance

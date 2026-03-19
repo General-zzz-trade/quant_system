@@ -1,399 +1,191 @@
 # Operations Manual
 
-Production deployment, monitoring, and incident response for the quant trading system.
+Current operator guide for the repository as it exists today.
 
-Status:
+当本文和下列文档冲突时，优先级如下：
 
-- This is a current operations guide for the Python-default production runtime.
-- When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), [`production_runbook.md`](/quant_system/docs/production_runbook.md), or [`execution_contracts.md`](/quant_system/docs/execution_contracts.md), those more specialized documents win.
-- The only default release path is repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh).
-- Candidate deploy manifests under [`deploy/README.md`](/quant_system/deploy/README.md) remain non-default unless explicitly promoted.
+1. [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+2. [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md)
+3. [`docs/production_runbook.md`](/quant_system/docs/production_runbook.md)
+4. [`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md)
 
-Current runtime truth:
+---
 
-- Default production runtime: [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
-- Rust owns hot-path state/features/primitives, but Python still owns the default production orchestration path
-- Standalone Rust trader (`ext/rust/src/bin/main.rs`) is an evolving alternative runtime, not the default production entrypoint
+## 1. Current Service Matrix
 
-When this document conflicts with [`runtime_truth.md`](/quant_system/docs/runtime_truth.md), treat [`runtime_truth.md`](/quant_system/docs/runtime_truth.md) as authoritative.
+| 服务 | 入口 | 当前定位 | 默认观察面 |
+|---|---|---|---|
+| `bybit-alpha.service` | `python3 -m scripts.run_bybit_alpha --symbols ... --ws` | 当前活跃的方向性 alpha host service | `systemctl` + `logs/bybit_alpha.log` + Bybit 账户状态 |
+| `bybit-mm.service` | `python3 -m scripts.run_bybit_mm --symbol ETHUSDT ...` | 当前活跃的做市 host service | `systemctl` + `logs/bybit_mm.log` + Bybit 账户状态 |
+| `quant-framework` / `quant-runner.service` | `runner.live_runner` | framework candidate path | health server + reconcile + checkpoint + operator APIs（仅此路径具备） |
 
-## Deployment
+重要边界：
 
-### Default Release Path
+- `bybit-alpha.service` 当前不暴露 framework `/control` / `/ops-audit`
+- `bybit-mm.service` 当前也不暴露 framework control plane
+- `POST /control`、`GET /operator`、`GET /ops-audit` 只对 `LiveRunner` path 成立
 
-Use the repo-root compose/workflow path first:
+---
+
+## 2. Deployment And Release
+
+当前存在两条发布面：
+
+- host 上真实交易服务：systemd
+- CI / GitHub Actions：compose
+
+具体真相：
+
+- 当前 host 上活跃的是 `bybit-alpha.service` 和 `bybit-mm.service`
+- [`.github/workflows/deploy.yml`](/quant_system/.github/workflows/deploy.yml) 默认只会跑 [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh)
+- [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh) 默认只部署 `quant-paper`
+- 如果提交改到了 host-managed trading artifacts，deploy workflow 会直接失败并要求人工同步 systemd 路径
+
+所以：
+
+- CI/CD 不是当前 host trading service 的统一控制面
+- compose deploy 成功，不等于 systemd 交易服务已经更新
+
+---
+
+## 3. Monitoring Truth
+
+### 3.1 Active host services
+
+当前最可靠的健康信号是：
+
+- `systemctl status`
+- `journalctl`
+- 业务日志时间戳是否继续前进
+- 交易所账户真实余额 / 持仓 / 挂单 / 成交
+
+当前仓库已经把这套判定固化到 [`scripts/ops/runtime_health_check.py`](/quant_system/scripts/ops/runtime_health_check.py)：
 
 ```bash
-cp .env.example .env
-docker build --target paper -t quant-paper:latest .
-docker compose config >/dev/null
-bash scripts/deploy.sh
+python3 -m scripts.ops.runtime_health_check
+python3 -m scripts.ops.runtime_health_check --service alpha
+python3 -m scripts.ops.runtime_health_check --service mm --require-account
 ```
 
-Operational notes:
-
-- The default compose services are `quant-paper` (paper) and `quant-live` (live, requires `--profile live`).
-- `.github/workflows/ci.yml` is the default release gate.
-- `.github/workflows/deploy.yml` is the default deploy/rollback workflow.
-
-### Deployment Path Matrix
+这条命令会同时检查：
 
-| Path | Entry Point | Purpose | Tested in CI |
-|------|------------|---------|-------------|
-| **docker-compose (default)** | `runner.testnet_validation --phase paper` | Paper/testnet trading | Yes (smoke test) |
-| **systemd (production)** | `runner.live_runner --config config/production.yaml` | Live production trading | No (manual deploy) |
-| **K8s/ArgoCD (candidate)** | `runner.live_runner` via deployment.yaml | Candidate production path | No |
-| **Rust binary** | `quant_trader --config config.testnet.yaml` | Standalone Rust trader | No (unit tests only) |
-
-**Note**: docker-compose.yml and systemd service intentionally use different entry points.
-Compose runs `testnet_validation` for safe paper trading. Production systemd runs `live_runner`
-with full risk controls. This is a deliberate design choice, not a bug.
-
-### Candidate Paths
-
-```bash
-# Candidate-production Kubernetes path
-kubectl apply -f deploy/k8s/
-
-# Experimental/candidate GitOps path
-kubectl apply -f deploy/argocd/
-```
-
-These are not the current default release path; see [`deploy/README.md`](/quant_system/deploy/README.md) before using them.
-
-### Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `BYBIT_API_KEY` | Bybit API key | Yes (live) |
-| `BYBIT_API_SECRET` | Bybit API secret | Yes (live) |
-| `QUANT_ENV` | Environment: `production`, `staging`, `dev` | No (default: `production`) |
-| `PYTHONUNBUFFERED` | Disable output buffering | No (set in Dockerfile) |
-| `SECRET_CREATED_AT` | ISO timestamp for secret age tracking | No |
-
-## Configuration
-
-Primary config for the default production runtime is loaded through [`infra/config/loader.py`](/quant_system/infra/config/loader.py), with examples under [`infra/config/examples/`](/quant_system/infra/config/examples/).
-
-### Key Parameters
-
-```yaml
-trading:
-  symbol: BTCUSDT              # Primary trading pair
-  symbols: [BTCUSDT, ETHUSDT]  # Multi-symbol mode
-  exchange: binance             # Venue: binance
+- `systemd` 状态
+- 日志是否新鲜
+- 最近是否有 heartbeat / fill / metrics 等运行证据
+- 如果能拿到 Bybit 凭据，再补查账户侧持仓 / 挂单 / 最近成交
 
-risk:
-  max_position_notional: 25000  # Max USD notional per symbol
-  max_leverage: 5.0             # Max leverage multiplier
-  max_drawdown_pct: 10.0        # Kill switch trigger (%)
-  max_orders_per_minute: 20     # Rate limit
+对 `bybit-mm.service`，当前 [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) 还增加了 market-data stale fail-fast：
 
-execution:
-  fee_bps: 2.0                 # Maker/taker fee in basis points
-  slippage_bps: 1.5            # Expected slippage
-
-monitoring:
-  health_check_interval: 10.0  # Stale data detection (seconds)
-  health_port: 9090            # Health/control API port
-  health_host: 127.0.0.1       # Bind host for health/control API
-  health_auth_token_env: HEALTH_API_TOKEN  # Optional bearer token env var
-```
-
-### Risk Gate Defaults (RiskGateConfig)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_position_notional` | 100,000 | Max notional per symbol (USD) |
-| `max_order_notional` | 50,000 | Max single order notional (USD) |
-| `max_open_orders` | 20 | Max concurrent open orders |
-| `max_portfolio_notional` | 500,000 | Max total portfolio notional (USD) |
-
-### Correlation Gate Defaults (CorrelationGateConfig)
+- 超过 `market_data_stale_s` 没有新的 WS 消息或 orderbook depth，会直接报错退出
+- 依赖 `infra/systemd/bybit-mm.service` 的 `Restart=on-failure` 自动拉起
+- 运维上不应再接受“行情停了但进程还活着”的假活状态
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_avg_correlation` | 0.70 | Max avg pairwise correlation |
-| `max_position_correlation` | 0.85 | Max correlation for new position |
-| `min_data_points` | 20 | Min observations before gate activates |
-
-### LiveRunner Config
+### 3.2 Framework path only
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `reconcile_interval_sec` | 60 | Position reconciliation interval |
-| `margin_warning_ratio` | 0.15 | Margin warning threshold |
-| `margin_critical_ratio` | 0.08 | Margin critical / kill switch trigger |
-| `pending_order_timeout_sec` | 30 | Timeout for unfilled orders on shutdown |
-| `latency_p99_threshold_ms` | 5000 | SLA breach threshold for signal-to-fill |
-| `shadow_mode` | false | Simulate orders without executing |
-| `health_port` | null | HTTP health endpoint port |
-| `health_host` | `127.0.0.1` | HTTP health endpoint bind host |
-| `health_auth_token_env` | null | Bearer-token env var for health/control API |
+如果运行的是 `LiveRunner`，才有以下能力：
 
-## Monitoring
+- `GET /health`
+- `GET /status`
+- `GET /operator`
+- `GET /control-history`
+- `GET /execution-alerts`
+- `GET /ops-audit`
+- `POST /control`
 
-### Prometheus Metrics
+当前 HTTP health server 不提供：
 
-The `PrometheusExporter` exposes metrics on port 9090 at `/metrics`:
+- `/metrics`
+- `/kill`
 
-```
-quant_equity_usd           # Current equity (gauge)
-quant_fills_total          # Total fills (counter)
-quant_position_{symbol}    # Position size per symbol (gauge)
-quant_pipeline_latency_ms  # Pipeline processing latency (histogram)
-quant_drawdown_pct         # Current drawdown percentage (gauge)
-```
+### 3.3 Prometheus
 
-### Grafana Dashboards
+`/metrics` 来自 [`monitoring/metrics/prometheus.py`](/quant_system/monitoring/metrics/prometheus.py) 的 `PrometheusExporter.start()`，不是 stdlib health server 自带能力。
 
-Pre-configured dashboard panels in `monitoring/dashboards/panels.py`:
-- Equity curve and drawdown
-- Position sizes by symbol
-- Pipeline latency (P50, P95, P99)
-- Fill rate and order flow
-- Data freshness and error budget
+如果没有显式启动 `PrometheusExporter`，就不应假设有 `/metrics`。
 
-### SLO Definitions (SLOConfig)
+---
 
-| SLO | Target | Metric |
-|-----|--------|--------|
-| Pipeline latency | P99 < 5s | `pipeline_latency_p99_ms` |
-| System availability | 99.9% | `uptime_fraction` |
-| Data freshness | < 30s | `data_freshness_sec` |
-| Order fill rate | > 95% | `fill_rate` |
-| Error budget window | 1 hour | Rolling window |
+## 4. Configuration Truth
 
-### Built-in Alert Rules
+当前示例配置主要服务于 framework path：
 
-`LiveRunner` registers these alerts automatically:
+- [`infra/config/examples/live.yaml`](/quant_system/infra/config/examples/live.yaml)
+- [`infra/config/examples/paper_trading.yaml`](/quant_system/infra/config/examples/paper_trading.yaml)
+- [`infra/config/examples/testnet_v8_gate_v2.yaml`](/quant_system/infra/config/examples/testnet_v8_gate_v2.yaml)
 
-| Alert | Severity | Condition | Cooldown |
-|-------|----------|-----------|----------|
-| `stale_data` | WARNING | Data age > `health_stale_data_sec` | 120s |
-| `high_drawdown` | ERROR | Drawdown > 15% | 300s |
-| `kill_switch_triggered` | CRITICAL | Kill switch active | 60s |
-| `latency_sla_breach` | WARNING | Signal-to-fill P99 > threshold | 300s |
-| `high_correlation` | WARNING | Avg portfolio correlation > threshold | 300s |
+这些 YAML 的真实定位是：
 
-## Incident Response
+- 面向 `LiveRunner.from_config()`
+- 支持 flat 和 nested 两种 schema
+- 当前多为 Binance / testnet / framework 示例
+- 不等于 `bybit-alpha.service` 当前的 systemd 运行配置
 
-### Kill Switch Activation
+示例配置说明见 [`infra/config/examples/README.md`](/quant_system/infra/config/examples/README.md)。
 
-The KillSwitch supports scoped circuit breaking:
+---
 
-```python
-from risk.kill_switch import KillSwitch, KillMode, KillScope
+## 5. CI Truth
 
-kill_switch = KillSwitch()
+当前 CI 真实执行内容见 [`.github/workflows/ci.yml`](/quant_system/.github/workflows/ci.yml)：
 
-# Hard kill: block all new orders globally
-kill_switch.trigger(
-    scope=KillScope.GLOBAL, key="*",
-    mode=KillMode.HARD_KILL,
-    reason="manual_intervention", source="operator",
-)
+### `test`
 
-# Reduce-only: allow position closing only
-kill_switch.trigger(
-    scope=KillScope.SYMBOL, key="ETHUSDT",
-    mode=KillMode.REDUCE_ONLY,
-    reason="high_volatility", source="risk_monitor",
-)
+- 构建 `ci` 镜像
+- 构建 `paper` 镜像
+- `docker compose config`
+- 默认 compose smoke test
+- `tests/`（排除 `tests/performance`）
+- 单独的 `tests/integration/test_production_integration_e2e.py`
+- `execution/tests/`
+- Rust tests: `cargo test --manifest-path ext/rust/Cargo.toml --locked`
 
-# Check status
-record = kill_switch.is_killed()  # Returns KillRecord or None
+### `lint`
 
-# Reset
-kill_switch.reset(scope=KillScope.GLOBAL, key="*")
-```
+- `ruff check --select E,W,F .`
+- strict `mypy`
 
-### Position Unwinding
+### `security`
 
-Graceful shutdown sequence (handled by `GracefulShutdown`):
-1. Kill switch triggered (blocks new orders)
-2. Wait for pending orders to fill or timeout (default 30s)
-3. Save state snapshot to SQLite (if persistent stores enabled)
-4. Stop all subsystems (margin monitor, reconciler, health, runtime)
+- `python3 -m scripts.ops.security_scan`
 
-### Manual Order Cancellation
+### `model-check`
 
-```python
-# Via venue client
-venue_client.cancel_all_orders()  # Cancel all open orders
-venue_client.cancel_order(symbol="BTCUSDT", order_id="12345")
-```
+- 校验 `scripts.ops.config.SYMBOL_CONFIG` 对应的 `models_v8/*/config.json`
 
-## Runbooks
+补充说明：
 
-### High Latency (P99 > 1s)
+- `pytest.ini` 默认排除了 `benchmark` 和 `slow`
+- 默认 CI 不会自动跑 `tests/performance`
+- 默认 CI 不会跑所有 slow tests
+- Rust crate 默认 test feature 现在不再强绑 `pyo3/extension-module`
+- 需要构建 Python 扩展时，显式使用 `maturin build --release --features python`
 
-1. Check `quant_pipeline_latency_ms` histogram in Grafana
-2. Identify which pipeline stage is slow (feature compute, decision, execution)
-3. Check Rust extension status: `python -c "from _quant_hotpath import RustFeatureEngine; print('OK')"`
-4. If Rust not loaded, rebuild: `make rust`
-5. Check exchange API latency (network, rate limiting)
-6. Review open order count — reduce if > 15 concurrent orders
+---
 
-### Stale Market Data (> 60s)
+## 6. Incident Response
 
-1. Check WebSocket connection status in logs
-2. Market data adapter has automatic reconnection with REST fallback
-3. Verify exchange status: `curl -s https://fapi.binance.com/fapi/v1/ping`
-4. Check NetworkPolicy if running in K8s — ensure egress to `*.binance.com:443`
-5. If persistent, restart the pod: `kubectl -n quant rollout restart deploy/quant-engine`
+### 6.1 Directional alpha / market maker
 
-### Model Drift Detected
+排障顺序：
 
-1. Check drift monitoring logs: `grep "drift" logs/live_trading.log`
-2. Review alpha model performance: `python -m tools.alpha_diagnostics --model lgbm_v1`
-3. If concept drift confirmed:
-   - Switch to shadow mode: add `--shadow` flag
-   - Retrain: `python -m alpha.training.train_lgbm --config infra/config/training.yaml`
-   - Validate on holdout before redeploying
-4. Experimental models (LSTM/Transformer) have automatic OOD detection — check `ood_score` metric
+1. 看 systemd
+2. 看日志是否继续推进
+3. 看交易所账户真相
 
-### Margin Utilization High (> 80%)
+### 6.2 Framework path
 
-1. MarginMonitor triggers automatically at `warning_margin_ratio` (15% free margin)
-2. At `critical_margin_ratio` (8% free margin), kill switch activates
-3. Manual response:
-   - Review positions: largest notional exposures
-   - Reduce position sizes or close unprofitable trades
-   - Check funding rate impact (perpetual contracts settle 3x daily)
+排障顺序：
 
-### Exchange Connection Lost
+1. 看 `health` / `status`
+2. 看 `operator` / `execution-alerts` / `ops-audit`
+3. 看 startup reconcile / periodic reconcile
+4. 看 checkpoint / restart 恢复链路
 
-1. WebSocket client implements automatic reconnect with exponential backoff
-2. REST fallback fetches latest kline data during WS outage
-3. If both fail:
-   - Check API key validity and IP whitelist
-   - Verify exchange maintenance schedule
-   - Kill switch activates on stale data if configured
-4. After reconnection, startup reconciliation compares local vs exchange state
+---
 
-## Backup & Recovery
+## 7. Current Limits
 
-### State Persistence
-
-When `enable_persistent_stores: true`:
-- `data/live/state.db` — Engine state snapshots (SQLite)
-- `data/live/ack_store.db` — Order acknowledgment tracking
-- `data/live/event_log.db` — Full event audit log
-
-### Snapshot Restore
-
-On startup, LiveRunner automatically:
-1. Loads latest state checkpoint from SQLite
-2. Restores `EngineCoordinator` state (positions, account, event index)
-3. Runs startup reconciliation against exchange state
-4. Logs any mismatches (local vs exchange position/balance)
-
-### Candidate K8s Persistent Volume
-
-The candidate-production K8s deployment mounts a PVC at `/app/data/live` for state persistence:
-
-```yaml
-volumes:
-  - name: data
-    persistentVolumeClaim:
-      claimName: quant-engine-data
-```
-
-## Secret Management
-
-### Candidate External Secrets Operator
-
-Exchange credentials are managed via External Secrets (`deploy/k8s/external-secret.yaml`):
-
-```
-SecretStore (quant-secret-store)
-  -> ExternalSecret (quant-engine-secrets)
-    -> K8s Secret (auto-created)
-      -> Pod envFrom
-```
-
-Supports AWS Secrets Manager (production) or K8s native secrets (dev/staging).
-Refresh interval: 1 hour.
-
-### Candidate Secret Rotation
-
-Weekly CronJob (`deploy/k8s/secret-rotation-cronjob.yaml`) checks API key age:
-- Schedule: Monday 06:00 UTC
-- Max age: 90 days
-- Exits with error if key is expired (triggers alert)
-
-### Config Security
-
-`infra/config/loader.py` enforces:
-- Credentials resolved from environment variables (`api_key_env`, `api_secret_env`)
-- Plaintext secrets in config files are rejected
-- Schema validation before runner construction
-
-## CI/CD Pipeline
-
-GitHub Actions workflow (`.github/workflows/ci.yml`):
-
-| Job | Trigger | Description |
-|-----|---------|-------------|
-| `test` | push/PR | Default release gate: CI image build, default runtime image build, compose validation, deploy smoke, Python tests, `execution/tests/`, Rust tests |
-| `lint` | push/PR | Ruff checks inside the CI container |
-
-The default gate now validates the single release path rather than maintaining a separate “docs only” CI story.
-
-## Model Retraining
-
-### Automatic Retraining
-
-Automated walk-forward retraining runs via cron:
-
-```
-0 2 * * 0  /usr/bin/python3 -m scripts.auto_retrain --horizons 12,24 >> /quant_system/logs/retrain_cron.log 2>&1
-```
-
-The `auto_retrain.py` pipeline:
-1. Checks if retrain is needed (model age, IC decay, avg IC threshold)
-2. Trains via `train_v11.py` with walk-forward validation
-3. Validates with gates: IC > 0.02, Sharpe > 1.0, comparison > 70% vs old model
-4. Auto-backup old model before replacement
-5. Restores `ic_weighted` ensemble method post-train (train_v11 defaults to mean_zscore)
-6. Logs to `logs/retrain_history.jsonl`
-
-Manual retrain:
-```bash
-python3 -m scripts.auto_retrain --symbol ETHUSDT --horizons 12,24
-python3 -m scripts.auto_retrain --symbol BTCUSDT --horizons 12,24
-```
-
-### Alpha Health Monitoring
-
-`monitoring/alpha_health.py` provides real-time IC monitoring with three response levels:
-
-| Level | Condition | Effect |
-|-------|-----------|--------|
-| Warning | IC negative for 7 days | Log warning, continue trading |
-| Reduce | IC negative for 14 days | Scale position to 50% |
-| Halt | IC < -0.02 for 14 days | Stop trading, trigger retrain |
-
-Prometheus gauge `alpha_ic_{horizon}` is exported for each horizon.
-
-### IC-Weighted Ensemble
-
-Current production models use `ensemble_method: “ic_weighted”` instead of `mean_zscore`:
-- `ic_ema_span: 720` (30-day EMA rolling IC)
-- `ic_min_threshold: -0.01` (horizons below this get zero weight)
-- Automatically downweights poorly-performing horizons
-
-### Current Model Versions
-
-| Model | Venue | Sharpe | Walk-Forward | Status |
-|-------|-------|--------|--------------|--------|
-| BTCUSDT_gate_v2 (V14) | Bybit | 2.03 | 16/20 PASS | Active (h=96, dominance) |
-| ETHUSDT_gate_v2 | Bybit | 1.52 | 14/20 PASS | Active (1h) |
-| ETHUSDT_15m | Bybit | 1.04 | 3/4 PASS | Active (15m, AGREE with 1h) |
-| SUIUSDT | Bybit | 1.63 | 6/7 PASS | Active (1h) |
-| AXSUSDT | Bybit | 1.25 | 13/17 PASS | Active (1h) |
-
-### Walk-Forward Validation
-
-Run validation: `python3 -m scripts.walkforward_validate --symbol ETHUSDT --no-hpo --realistic`
+- 当前 active systemd services 还没有统一进 framework control plane
+- deploy workflow 还不能代表 host trading service 已更新
+- deploy workflow 失败于 scope guard 时，不会再错误触发 compose rollback/recreate
+- 示例配置与当前活跃 Bybit directional alpha service 仍是两套装配面

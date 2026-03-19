@@ -1,0 +1,18 @@
+[Unit]
+Description=Bybit Market Maker (ETHUSDT 20x)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --order-size 1.0 --max-inventory 10000 --loss-limit 500 --gamma 0.3 --min-spread 0.5 --max-spread 15.0 --mode adaptive
+Restart=on-failure
+RestartSec=10
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

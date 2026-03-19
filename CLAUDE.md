@@ -2,7 +2,7 @@
 
 ```bash
 make rust                    # Build Rust crate (maturin + pip install)
-make test                    # ALL gates (py + exec + rust + lint, matches CI)
+make test                    # Core local gate; CI still adds security/model-check/compose smoke/framework integration
 pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
 pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
@@ -14,7 +14,7 @@ pytest tests/unit/event/ -x -q   # Event module tests (145 tests)
 pytest tests/unit/strategies/ -x -q  # Strategy registry tests (10 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd ext/rust && cargo test --no-default-features  # Rust unit tests (198 tests)
+cd ext/rust && cargo test  # Rust unit tests (default feature set for tests)
 ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
@@ -27,14 +27,15 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT                        
 python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greedy           # Stability-filtered features
 ```
 
-**Alpha strategy (demo/live)**:
+**Active trading services**:
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Full portfolio (LiveRunner, default)
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Active directional alpha service
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --dry-run         # Signal only, no orders
 python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --once --dry-run       # Single bar then exit
-python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --legacy          # Use AlphaRunner (deprecated fallback)
+python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run    # Active market-maker path
 sudo systemctl restart bybit-alpha.service                                   # Restart service
 sudo systemctl status bybit-alpha.service                                    # Check service
+sudo systemctl restart bybit-mm.service                                      # Restart market maker
 tail -f /quant_system/logs/bybit_alpha.log                                   # Follow live logs
 ```
 
@@ -76,6 +77,12 @@ cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath
 python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"  # verify import works
 ```
 
+Rust Python extension builds must explicitly enable `python`, for example:
+
+```bash
+cd ext/rust && maturin build --release --features python
+```
+
 **Binary build** (standalone Rust trader, requires Python linkage):
 ```bash
 cd ext/rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-lpython3.12" cargo build --release --bin quant_trader
@@ -87,47 +94,19 @@ cd ext/rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-l
 ```
 core/            Bootstrap, config, bus, clock, effects, observability
 engine/          Pipeline + coordinator (event -> state transitions)
-features/        Feature computation (EnrichedFeatureComputer, 127 features incl. ADX + V12 cross-asset + V13 OI + V14 dominance)
-  dynamic_selector.py  Feature selection: greedy_ic, stable_icir, stability_filtered_greedy
-  feature_catalog.py   PRODUCTION_FEATURES frozenset (153 = 127 enriched + 17 cross-asset + 4 dominance + 3 funding spread + 2 onchain)
-  dominance_computer.py  V14 BTC/ETH ratio features (Python + Rust dual path)
-  funding_spread.py    Multi-exchange funding rate spread (3 features)
-  onchain_flow.py      Exchange inflow z-score + MA ratio (2 features)
-decision/        Trading signals, ensemble, regime detection (CompositeRegimeDetector + ParamRouter wired), rebalancing
-alpha/           ML models + inference bridge (horizon_ensemble.py, adaptive_config.py)
-execution/       Order routing, state machine, dedup
-  adapters/binance/    Binance USDT-M futures (43 files, ~3.7K LOC, WS-API ~4ms)
-  adapters/bybit/      Bybit V5 linear perpetuals (demo/testnet/live, 6 files)
-  adapters/polymarket/ Polymarket prediction market CLOB adapter
-  sim/                 Backtest engines (realistic_backtest.py, limit_order_book.py, cost_constants.py)
+features/        Feature computation, catalog, dominance / funding / onchain helpers
+decision/        Trading signals, ensemble, regime detection, rebalancing
+alpha/           ML models + inference bridge + model loader
+execution/       Adapters, state machine, dedup, reconcile, ingress, observability
 state/           State types + Rust adapters
-attribution/     P&L + cost + signal attribution (thin Rust wrappers)
+attribution/     P&L + cost + signal attribution
 event/           Event types + runtime protocol
-ext/rust/        Unified Rust crate -> _quant_hotpath (77 .rs files, ~30K LOC)
-ext/rust/src/bin/ Standalone trading binary (main.rs + config.rs, ~2.6K LOC)
-runner/          Live/paper/backtest (gate_chain.py, emit_handler.py, recovery.py, config.py)
-  builders/            13 phase builders (live) + 5 legacy builders (backcompat); see __init__.py
-    rust_components_builder.py  Phase 1.5: 9 Rust component initialization
-    combo_builder.py            Dual-alpha AGREE mode (combine_signals)
-  gates/               Custom order gates (Phase 2 convergence)
-    adaptive_stop_gate.py       ATR 3-phase stop-loss gate
-    equity_leverage_gate.py     Kelly-bracket leverage + z-score scaling
-    consensus_scaling_gate.py   Cross-symbol consensus sizing
-  live_runner.py       Primary production entry point (Python, converged from AlphaRunner)
-regime/          Regime detection (volatility, trend, composite, param_router — all wired)
-risk/            Risk limits + kill switch + StagedRiskManager (equity-based staging)
-strategies/      Strategy registry + protocol (alpha_momentum, polymarket_rsi)
-portfolio/       Allocator, rebalance, optimizer
-monitoring/      Alerts, health checks, metrics, Prometheus, Grafana
-infra/           Logging (structured JSON), networking, systemd units
-polymarket/      Polymarket 5m BTC Up/Down — collector, features, signals, runner, maker (A-S)
-models_v8/       Production models (Ridge 60% + LightGBM 40%): ETHUSDT_gate_v2, ETHUSDT_15m, SUIUSDT, AXSUSDT, BTCUSDT_gate_v2
-research/        Alpha research, factor backtests, hyperopt, Monte Carlo
-scripts/         7 subdirs + symlinks for compat
-  ops/               Split into 13 modules (see below)
-    config.py            SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
-    data_fetcher.py      Binance OI/LS/taker data fetch
-    model_loader.py      load_model(), create_adapter()
+ext/rust/        Unified Rust crate -> _quant_hotpath + standalone candidate binary
+runner/          Framework runtime (LiveRunner), builders, recovery, control plane
+monitoring/      Alerts, health checks, metrics, ops views
+infra/           Logging, config, systemd units
+research/        Registry, artifacts, experiment helpers
+scripts/         Active alpha / MM entrypoints, ops tooling, research/data wrappers
     alpha_runner.py      AlphaRunner class (signal + trade, 12 Rust components)
     portfolio_manager.py PortfolioManager class
     portfolio_combiner.py PortfolioCombiner (AGREE ONLY)
@@ -197,13 +176,13 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (153 features); `validate_model_features()`
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
-- `runner/live_runner.py` — Production entry point (Python)
+- `runner/live_runner.py` — Framework live runtime entry point
 - `runner/gate_chain.py` — GateChain: up to 13 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, EquityLeverageGate, ConsensusScalingGate)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
 - `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
-- `scripts/ops/alpha_runner.py` — AlphaRunner: legacy signal + trade (deprecated, use `--legacy`)
+- `scripts/ops/alpha_runner.py` — AlphaRunner: current directional alpha runtime implementation
 - `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode, enforces MAX_ORDER_NOTIONAL)
-- `scripts/ops/run_bybit_alpha.py` — **Primary entry point**: defaults to LiveRunner, `--legacy` for AlphaRunner
+- `scripts/ops/run_bybit_alpha.py` — 当前活跃 directional alpha service 入口
 - `scripts/shared/signal_postprocess.py` — Signal pipeline (Rust + Python parity)
 - `execution/sim/realistic_backtest.py` — Realistic backtest: intra-bar stop, Almgren-Chriss slippage, adaptive ATR stop
 - `polymarket/collector.py` — 5m+15m CLOB collector + BS fair value + RSI signal
@@ -242,20 +221,23 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 # See .env.example for all optional vars (Binance, Polymarket)
 ```
 
-**Current deployment** (systemd):
+**Current deployment**:
 ```bash
-# Service: bybit-alpha.service
-# Command: python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
-# Status: active (running), Bybit Demo, 5 symbols (BTC h=96, ETH 1h+15m AGREE, SUI/AXS independent)
-# Logs: /quant_system/logs/bybit_alpha.log
-# Deploy truth: docs/deploy_truth.md (systemd/compose/CI consistency)
+# Active directional alpha host service:
+#   bybit-alpha.service -> python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
+# Active market-maker host service:
+#   bybit-mm.service -> python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 ...
+# Framework candidate path:
+#   quant-framework / infra/systemd/quant-runner.service -> runner.live_runner
+# Deploy truth: docs/deploy_truth.md
 ```
 
-**Quick start → demo trading**:
-1. Service auto-starts: `sudo systemctl status bybit-alpha.service`
-2. Check signals: `tail -f logs/bybit_alpha.log`
-3. Verify model: `python3 -m scripts.walkforward_validate --symbol ETHUSDT --no-hpo --realistic`
-4. Compare live/backtest: `python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log`
+**Quick start → host services**:
+1. Directional alpha: `sudo systemctl status bybit-alpha.service`
+2. Market maker: `sudo systemctl status bybit-mm.service`
+3. Directional alpha logs: `tail -f logs/bybit_alpha.log`
+4. MM logs: `tail -f logs/bybit_mm.log`
+5. Framework path is separate: `python3 -m runner.live_runner --config infra/config/examples/live.yaml --shadow`
 
 **Walk-forward baselines** (2026-03-15):
 - ETHUSDT 1h (min_hold=18, 20 folds): Sharpe **1.52**, **+389%**, **14/20 positive** → **PASS**
@@ -336,10 +318,10 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
 - Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
 
-**Production path (converged)**:
-- `LiveRunner` (`runner/live_runner.py`) is the **primary production path** — `run_bybit_alpha.py` defaults to it
-- `AlphaRunner` (`scripts/ops/alpha_runner.py`) is **deprecated** — use `--legacy` flag to fall back; retained 3 months
-- LiveRunner has all AlphaRunner capabilities: 12 Rust components, regime detection, adaptive stop, consensus scaling, combo AGREE mode
+**Current path split**:
+- `scripts/ops/run_bybit_alpha.py` is the active directional alpha path on host
+- `scripts/run_bybit_mm.py` is the active market-maker path on host
+- `runner/live_runner.py` is the framework live runtime / convergence target
 - `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only by default); ETH/SUI/AXS use fixed params
 - Polymarket `AvellanedaStoikovMaker` is standalone; needs manual startup, not wired to runner
 
@@ -355,7 +337,7 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - Burn-in gate: Phase A(Paper 3d) → B(Shadow 3d) → C(Testnet 3d) = 9 days before live; configs in `config/burnin.{paper,shadow,testnet}.yaml`
 - Live config: `config/production.live.yaml` (ETHUSDT, Kelly 0.7x real / 10x demo, $5K order cap)
 - Alert rules: `config/alerts.live.yaml` (balance $400 kill, $50 single-loss warn, 2h stale, IC decay)
-- Dockerfile: multi-stage (`ci`/`paper`/`live`); docker-compose.yml with paper + `--profile live` profiles
+- Dockerfile: multi-stage (`ci`/`paper`/`live`); `docker-compose.yml` manages `quant-paper` / `quant-live` / `quant-framework`
 - `scripts/ops/security_scan.py`: checks hardcoded secrets, .env gitignored, MAX_ORDER_NOTIONAL, bare-except blocks
 - `regime/param_router.py`: only BTC uses regime-adaptive params; ETH keeps fixed (fixed outperforms adaptive for ETH)
 - Binance OI history API only retains ~28 days; `download_oi_data.py` cron every 6h to accumulate

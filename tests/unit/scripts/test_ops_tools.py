@@ -146,6 +146,22 @@ class TestShadowModeCheck:
 # ── ops_dashboard ──────────────────────────────────────────
 
 class TestOpsDashboard:
+    def test_check_active_host_services(self, monkeypatch):
+        from scripts.ops.ops_dashboard import check_active_host_services
+
+        states = {
+            "bybit-alpha.service": "active",
+            "bybit-mm.service": "inactive",
+        }
+        monkeypatch.setattr(
+            "scripts.ops.ops_dashboard.check_service_health",
+            lambda service_name: states[service_name],
+        )
+
+        result = check_active_host_services()
+
+        assert result == states
+
     def test_check_burnin_status_no_file(self, monkeypatch):
         from scripts.ops.ops_dashboard import check_burnin_status
         monkeypatch.setattr(Path, "exists", lambda self: False)
@@ -217,6 +233,10 @@ class TestOpsDashboard:
         from scripts.ops.ops_dashboard import format_dashboard
         data = {
             "service_status": "active",
+            "service_statuses": {
+                "bybit-alpha.service": "active",
+                "bybit-mm.service": "inactive",
+            },
             "burnin": {"status": "not_started", "phases": {}},
             "models": [],
             "signals": {
@@ -229,11 +249,16 @@ class TestOpsDashboard:
         text = format_dashboard(data)
         assert "OPS DASHBOARD" in text
         assert "active" in text
+        assert "bybit-mm.service" in text
 
     def test_format_dashboard_with_data(self):
         from scripts.ops.ops_dashboard import format_dashboard
         data = {
             "service_status": "active",
+            "service_statuses": {
+                "bybit-alpha.service": "active",
+                "bybit-mm.service": "active",
+            },
             "burnin": {
                 "status": "passed",
                 "phases": {

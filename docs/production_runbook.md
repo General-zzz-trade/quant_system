@@ -1,64 +1,158 @@
 # Production Runbook
 
-> 更新时间: 2026-03-18
-> 作用: 固定当前生产路径上的恢复与排障顺序，避免 live runtime、checkpoint、user stream、reconcile 出现多套口径
-> 适用范围: 当前 Python-default 生产 runtime
+> 更新时间: 2026-03-19
+> 作用: 固定当前主机上活跃交易服务与 framework recovery 路径的排障顺序，避免把不同运行时混成同一套口径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
 ---
 
-## 1. 当前生产入口
+## 1. 适用范围
 
-- 默认生产入口（framework live 路径）: `runner/live_runner.py`
-- 当前活跃生产入口（alpha 交易）: `scripts/ops/run_bybit_alpha.py`
-- 默认发布路径: repo-root `docker-compose.yml` + `scripts/deploy.sh`
-- compose 服务名: `quant-paper`（paper）, `quant-live`（live, 需 `--profile live`）
-- systemd 服务: `bybit-alpha.service`（当前活跃，Bybit Demo）
-- 当前运行时形态: 轻量 alpha runner (Ridge+LGBM, AGREE ONLY combo, ATR adaptive stop)
-- 交易品种: BTCUSDT (h=96), ETHUSDT (1h+15m AGREE), SUIUSDT (1h), AXSUSDT (1h)
-- 模型装配: 以各模型目录 `config.json` 为准；当前活跃 alpha 路径已支持 `ridge_primary` / `ic_weighted` 等配置驱动组合
-- 杠杆: 动态 equity bracket（$0-20K 默认 1.5x，$20K+ 降到 1.0x）叠加 z-score conviction scale；单品种上限 30% equity
-- 当文档与其他说明冲突时，以 `docs/runtime_truth.md` 为准
-- 当前最小 operator controls 已通过 `LiveRunner.halt()/reduce_only()/resume()/flush()/shutdown()/apply_control()` 暴露
-- 当前外部 tooling / API 建议通过 [`runner/control_plane.py`](/quant_system/runner/control_plane.py) 的 `OperatorControlPlane` 统一进入 runtime
-- 如启用 `health_port`，当前 health server 也暴露 `GET /operator`、`GET /control-history`、`GET /execution-alerts`、`GET /ops-audit` 与 `POST /control`
-- 如配置 `health_auth_token_env`，上述 health/control 端点统一要求 `Authorization: Bearer <token>`
-- 当前 `LiveRunner.operator_status()` / `LiveRunner.control_history` 可用于查看最后一次控制动作与最近 reconcile / kill-switch 状态
-- 当前 operator / ops 视图已补稳定 incident 字段：`stream_status`、`incident_state`、`last_incident_category`、`last_incident_ts`、`recommended_action`
-- 当前 operator control 动作也会进入统一 alert 链路，作为结构化 ops alert 发出
+当前仓库有三类运行时，排障口径不同：
+
+| 路径 | 入口 | 当前状态 | 本文适用内容 |
+|---|---|---|---|
+| 方向性 alpha | [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py) | 当前活跃 host service | 适用第 2-4 节 |
+| 高频做市 | [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) | 当前活跃 host service | 适用第 2 节、第 5 节 |
+| Framework runtime | [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 候选 / 收敛路径 | 适用第 6-10 节 |
+
+最重要的边界：
+
+- `bybit-alpha.service` 当前不是 `LiveRunner`
+- `bybit-mm.service` 当前不是 `LiveRunner`
+- `checkpoint / startup reconcile / user stream reconnect / ops-audit / POST /control` 这类语义只对 framework path 成立
 
 ---
 
-## 1.1 Incident Taxonomy
+## 2. 当前活跃 host services
 
-Canonical definitions in `execution/observability/incidents.py`. Adding new categories requires updating both the code enum and this section.
+### 2.1 方向性 alpha
 
-**Incident categories:**
+- 服务名: `bybit-alpha.service`
+- 入口命令: `python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws`
+- 日志: [`logs/bybit_alpha.log`](/quant_system/logs/bybit_alpha.log)
+- 事实来源:
+  - `systemctl status bybit-alpha.service`
+  - `journalctl -u bybit-alpha.service`
+  - `tail -f /quant_system/logs/bybit_alpha.log`
+  - Bybit demo 账户真实余额 / 持仓 / 挂单 / 成交
 
-| Category | Source | Severity | Response |
-|----------|--------|----------|----------|
-| `execution_timeout` | Order pending > timeout_sec | WARNING | Review pending orders, check venue |
-| `execution_reconcile` | Position/balance drift detected | WARNING/ERROR | Check venue state, may auto-halt |
-| `execution_rejection` | Venue rejected order | WARNING | Check order params, may reduce size |
-| `execution_fill` | Synthetic/late fill received | INFO | Verify against venue records |
-| `execution_stream` | User stream connect/step failure | WARNING | Auto-reconnects; persistent = reduce_only |
-| `operator_control` | halt/resume/flush/shutdown | varies | Operator-initiated, logged |
-| `model_reload` | SIGHUP model hot-reload | INFO/ERROR | Check model files, verify inference |
+### 2.2 高频做市
 
-**Incident states:** `normal` → `degraded` → `critical`
-
-**Recommended actions:** `none` → `review` → `reduce_only` → `halt`
-
-State transitions:
-- `normal`: All systems operational
-- `degraded`: Kill switch in REDUCE_ONLY, or stream degraded, or reconcile drift — action: `review` or `reduce_only`
-- `critical`: Kill switch in HARD_KILL, or reconcile.should_halt — action: `halt`
+- 服务名: `bybit-mm.service`
+- 入口命令: `python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 ...`
+- 日志: [`logs/bybit_mm.log`](/quant_system/logs/bybit_mm.log)
+- 事实来源:
+  - `systemctl status bybit-mm.service`
+  - `journalctl -u bybit-mm.service`
+  - `tail -f /quant_system/logs/bybit_mm.log`
+  - Bybit demo 账户真实余额 / 持仓 / 挂单 / 成交
 
 ---
 
-## 2. 启动恢复顺序
+## 3. 方向性 alpha 排障顺序
 
-`LiveRunner.build()` 当前的恢复链路是：
+`bybit-alpha.service` 当前没有 `LiveRunner` 的 health / control / checkpoint 恢复面，因此排障必须按下面顺序：
+
+1. 先看服务是否真的在跑
+   - `sudo systemctl status bybit-alpha.service`
+2. 再看业务日志是否继续前进
+   - `tail -f /quant_system/logs/bybit_alpha.log`
+   - 心跳日志关键字：`WS HEARTBEAT`
+3. 再看交易所端真实状态
+   - 余额
+   - 当前持仓
+   - 当前挂单
+   - 最近成交
+4. 只有进程活着还不算“交易活着”
+   - 如果日志时间戳不再前进，或账户长期 `0 持仓 / 0 挂单 / 0 新成交`，不能仅凭 systemd `active` 判断服务健康
+
+常用命令：
+
+```bash
+sudo systemctl restart bybit-alpha.service
+sudo systemctl status bybit-alpha.service --no-pager -l
+journalctl -u bybit-alpha.service -n 100 --no-pager
+tail -f /quant_system/logs/bybit_alpha.log
+python3 -m scripts.ops.runtime_health_check --service alpha
+```
+
+当前限制：
+
+- 没有 framework health server
+- 没有 framework `/control` / `/ops-audit`
+- 没有 `LiveRunner` checkpoint / startup reconcile 恢复链
+
+---
+
+## 4. 方向性 alpha 的“成功启动”标准
+
+对 `bybit-alpha.service`，只有以下条件同时满足，才算成功启动：
+
+1. `systemd` 显示 `active (running)`
+2. 日志出现新的当前时间戳，而不是停在旧时间
+3. WebSocket 已连接
+4. 至少满足以下之一：
+   - 出现新的 heartbeat
+   - 出现新的挂单
+   - 出现新的持仓
+   - 出现新的成交
+
+不允许把下面情况误判为成功：
+
+- 只有 PID 存在
+- 只有 `systemd active`
+- 只有程序启动 banner，但账户真相没有任何变化
+
+---
+
+## 5. 高频做市排障顺序
+
+`bybit-mm.service` 的健康判断标准比方向性 alpha 更严格：
+
+1. `systemd` 状态
+2. `logs/bybit_mm.log` 是否持续有最新时间戳
+3. 是否出现新的 quote / fill / metrics 日志
+4. 账户侧是否存在挂单、仓位或新成交
+
+典型假活场景：
+
+- `systemd active`
+- 进程仍在
+- 但 `logs/bybit_mm.log` 停在旧时间
+- 账户侧 `0 持仓 / 0 挂单`
+
+这种情况必须按“交易没有真的在跑”处理，而不是按“服务正常”处理。
+
+当前 [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) 已增加 market-data stale fail-fast：
+
+- 若长时间没有新的 WS 消息或 orderbook depth，进程会显式报错退出
+- `bybit-mm.service` 依赖 `Restart=on-failure` 重新拉起
+- 这比“进程继续存活但失去行情驱动”更安全
+
+常用命令：
+
+```bash
+sudo systemctl restart bybit-mm.service
+sudo systemctl status bybit-mm.service --no-pager -l
+journalctl -u bybit-mm.service -n 100 --no-pager
+tail -f /quant_system/logs/bybit_mm.log
+python3 -m scripts.ops.runtime_health_check --service mm
+```
+
+如果要一次检查两个当前活跃 host services：
+
+```bash
+python3 -m scripts.ops.runtime_health_check
+```
+
+---
+
+## 6. Framework 路径的恢复链路
+
+以下内容只对 `runner/live_runner.py` / `quant-framework` / `quant-runner.service` 成立。
+
+`LiveRunner.build()` 的当前恢复链路是：
 
 1. 装配 coordinator / execution / risk / monitoring
 2. 如启用持久化，打开 SQLite stores
@@ -75,52 +169,26 @@ State transitions:
 
 ---
 
-## 3. User Stream 断连
+## 7. Framework 路径的 user stream / timeout / reconcile 语义
 
-当前 `LiveRunner.start()` 的用户流策略：
+### 7.1 User stream
 
-1. 启动时先执行一次 `user_stream.connect()`
+当前 `LiveRunner.start()` 的 user stream 策略：
+
+1. 启动时执行 `user_stream.connect()`
 2. 后台线程循环调用 `user_stream.step()`
-3. 若 `step()` 抛异常，记录告警
-4. 等待 1 秒后再次执行 `connect()`
-5. 主进程停止时调用 `user_stream.close()` 并等待线程退出
+3. `step()` 抛异常时记录告警并重连
+4. 停机时调用 `user_stream.close()` 并等待线程退出
 
-运维判断：
+### 7.2 Timeout
 
-- 若日志持续出现 `User stream reconnect failed`，说明私有流不可恢复
-- 此时不应仅依赖本地订单状态，应立刻查看 reconcile 报告与 venue 真实订单
-- 若 user stream 长时间不可用，应考虑人工降级到 reduce-only 或停机
+- `timeout_tracker.check_timeouts()` 在主循环中持续运行
+- timeout 表示本地在阈值内未观察到终态
+- timeout 不等于 venue 必定未成交
+- timeout 后若触发 cancel，状态机会进入 `pending_cancel`
+- 之后若收到晚到 fill，应收敛到 `filled`
 
----
-
-## 4. Timeout / Pending Order
-
-当前主循环每轮都会执行：
-
-- `timeout_tracker.check_timeouts()`
-
-行为：
-
-- 超过 `pending_order_timeout_sec` 的订单会被标记为 timed out
-- 若配置了 cancel 回调，会触发取消
-- timed out 只说明本地未观察到终态，不代表 venue 一定未成交
-
-处理顺序：
-
-1. 先看 timeout 日志中的 order id
-2. 再查 venue 真实订单状态
-3. 再看下一轮 reconcile 是否出现 drift
-4. 若出现 fills/orders mismatch，以 venue 事实为准做人工判断
-
-特殊情况：
-
-- timeout 后如果先进入 `pending_cancel`，随后又收到晚到 fill，不应简单视为异常脏数据
-- 当前订单状态机允许 `pending_cancel -> filled`
-- 运维上应把这类事件视为“撤单请求到达过晚，订单已成交”
-
----
-
-## 5. Reconcile Drift
+### 7.3 Reconcile
 
 当前 reconcile 覆盖：
 
@@ -131,34 +199,22 @@ State transitions:
 
 处理原则：
 
-- `warning` drift: 告警但继续运行
-- `critical` drift: 可触发 halt callback
-- startup reconcile 与 periodic reconcile 目前都以“先发现、再人工决策”为主
-
-建议排障顺序：
-
-1. 确认 drift 类型: position / balance / fill / order
-2. 对比本地 snapshot 与 venue state
-3. 检查是否由 user stream 断连、重复 fill、乱序 fill、timeout 引起
-4. 若 drift 已不可解释，触发 kill / 停机，避免继续放大风险
-
-cancel-replace 注意事项：
-
-- 原单进入 `canceled` 终态后，后续若又收到该原单的 fill，应视为状态冲突并优先人工核查
-- 替换单与原单必须被视为两笔独立订单，不能把原单的晚到回报错误归到替换单上
+- `warning` drift：告警但继续运行
+- `critical` drift：可触发 halt callback
+- 当前仍以“先发现、再人工决策”为主
 
 ---
 
-## 6. Checkpoint / Restart
+## 8. Framework 路径的 checkpoint / restart 真相
 
-当前已验证的恢复能力：
+当前已锁住的恢复能力：
 
 - coordinator snapshot 可保存并恢复
 - inference bridge / tick processor 支持 checkpoint / restore
-- checkpoint/restart 一致性已有测试覆盖
-- timeout cancel -> checkpoint/restart -> late fill 的组合恢复已有测试覆盖
+- timeout cancel -> checkpoint / restart -> late fill 组合恢复已有测试覆盖
+- restart 后 venue 缺失 late fill 时，可通过 reconcile 明确报 drift
 
-恢复原则：
+关键原则：
 
 - restart 后先恢复本地状态，再做 startup reconcile
 - 不应跳过 reconcile 直接信任旧 checkpoint
@@ -166,130 +222,24 @@ cancel-replace 注意事项：
 
 ---
 
-## 7. 当前已锁住的恢复测试
+## 9. Framework 路径的验证测试
 
-- `tests/integration/test_crash_recovery.py`
-- `tests/integration/test_execution_recovery_e2e.py`
-  - 乱序 + 重复 fill + checkpoint/restart 后最终状态与 one-shot 一致
-  - restart 后若 venue 缺失晚到 fill，可通过 reconcile 明确报 drift
-- `tests/integration/test_execution_timeout_restart_recovery.py`
-  - timeout 触发 `pending_cancel` 后，checkpoint/restart 仍能正确接住晚到 fill
-- `tests/persistence/test_checkpoint_restore.py`
-- `tests/unit/execution/test_reconcile_scheduler.py`
-- `tests/unit/runner/test_live_runner.py`
-  - user stream step 异常后重连
-  - main loop timeout 检查
-  - startup reconcile 的 position / balance mismatch
-- `tests/integration/test_operator_control_execution_flow.py`
-  - `halt -> resume -> success fill -> reconcile`
-  - `reduce_only -> blocked opening order / allowed flagged order`
-- `tests/integration/test_operator_control_recovery_flow.py`
-  - `flush -> drift -> manual halt`
-  - `startup mismatch -> reduce_only -> flush -> ops audit`
-  - `health /ops-audit` 可同时暴露 operator/control/execution/model ops 视图
-  - `restart + reconnect + late fill + reconcile + ops audit`
-  - `user stream` 持续失效时，可通过 `reduce_only -> flush -> manual halt` 进入人工降级链，且 `ops audit` 可见
-  - `checkpoint restore -> reduce_only -> reconcile overlap` 时，incident 仍保持一致，late fill 收敛后维持 `reduce_only` 运行态
-  - `model promote -> autoload pending + reduce_only` 时，`ops audit` 可同时暴露 runtime 降级态和模型未 reload 状态
-  - `model reload -> reloaded` 后，`ops audit` 会把 `autoload_pending` 收回，并留下最近一次 hot-reload 结果
-  - `model reload -> failed` 时，`autoload_pending` 保持为真，`model_reload=failed` 与当前 `reduce_only` 降级态可同时观察
-  - 上述模型 reload 场景也会进入 `model_alerts`，用于和 execution incidents 分开观察
-  - `ops audit.timeline` 会把 control、execution、model 三类记录按时间统一串起来，便于复盘单次 incident
-  - 当前 `ops audit.timeline` 已优先使用持久化 `event_log` 的 `operator_control / execution_incident / model_reload` 记录，并与 registry `model_action` 合并
-  - runtime 重启后，`ops audit.timeline` 仍应能够从同一 `event_log + registry` 重建近期 control / execution incident / model reload / model action 复盘链
-  - timeline 的默认语义是“先聚合，再按时间倒序排序，最后按查询 `limit` 裁剪”
-  - `LiveRunner.build()` 通过 state checkpoint 恢复后，外部 `health /ops-audit` 观察口也应继续给出同一条持久化复盘链
-  - incident 聚合字段会在上述场景中稳定反映 `degraded/critical` 与建议动作
-- `tests/integration/test_execution_rejection_contract.py`
-  - retryable rejection 后的成功重试仍会进入 synthetic fill / ingress
-  - 该链路当前也会进入统一 execution alert / ops audit 观察面
-- `tests/execution_safety/test_duplicate_events.py`
-- `tests/execution_safety/test_out_of_order_fills.py`
+关键测试入口：
+
+- [`tests/integration/test_crash_recovery.py`](/quant_system/tests/integration/test_crash_recovery.py)
+- [`tests/integration/test_execution_recovery_e2e.py`](/quant_system/tests/integration/test_execution_recovery_e2e.py)
+- [`tests/integration/test_execution_timeout_restart_recovery.py`](/quant_system/tests/integration/test_execution_timeout_restart_recovery.py)
+- [`tests/integration/test_operator_control_recovery_flow.py`](/quant_system/tests/integration/test_operator_control_recovery_flow.py)
+- [`tests/persistence/test_checkpoint_restore.py`](/quant_system/tests/persistence/test_checkpoint_restore.py)
+- [`tests/unit/runner/test_live_runner.py`](/quant_system/tests/unit/runner/test_live_runner.py)
+- [`tests/unit/monitoring/test_alert_manager.py`](/quant_system/tests/unit/monitoring/test_alert_manager.py)
+- [`tests/unit/monitoring/test_health_monitor_extended.py`](/quant_system/tests/unit/monitoring/test_health_monitor_extended.py)
 
 ---
 
-## 8. 仍未完全收口
+## 10. 当前仍未完全收口
 
+- `bybit-alpha.service` 与 `bybit-mm.service` 目前没有统一纳入 framework recovery / control plane
 - startup reconcile 目前只报告 mismatch，不自动修复
-- user stream 断连后的恢复仍主要依赖 reconnect + reconcile，而非更强的 healer 流程
-- timeout、late fill、reconcile 之间还缺少更强的端到端集成测试
-- live runtime 的恢复动作语义已开始统一到 operator / ops incident 视图，但还未完全覆盖所有 recovery 子系统
-- replay 当前只承担“事实序列一致性”和“incident category 映射一致性”验证，不承担新的告警运行时职责
-
-## 8.5 模型重训练与 Alpha 监控
-
-### 自动重训练
-
-当前 cron 配置 `0 2 * * 0` (每周日 2am UTC) 自动检查并重训练:
-
-```bash
-# 手动触发
-python3 -m scripts.auto_retrain --symbol ETHUSDT --horizons 12,24
-
-# 查看历史
-cat logs/retrain_history.jsonl | python3 -m json.tool
-```
-
-重训练门控:
-- IC gate: 新模型 avg IC > 0.02
-- Sharpe gate: 新模型 Sharpe > 1.0
-- Comparison gate: 新模型在 >70% 的 OOS 指标上优于旧模型
-- Bootstrap gate: bootstrap p5 > 0
-
-失败时自动恢复旧模型，不影响生产。
-
-### Alpha 健康监控
-
-`monitoring/alpha_health.py` 提供实时 IC 追踪:
-
-| 状态 | 触发条件 | 仓位缩放 | 运维动作 |
-|---|---|---|---|
-| normal | IC 正常 | 1.0 | 无 |
-| warning | IC 负值持续 7 天 | 1.0 | 关注日志 |
-| reduce | IC 负值持续 14 天 | 0.5 | 减仓运行 |
-| halt | IC < -0.02 持续 14 天 | 0.0 | 停止交易，触发重训练 |
-
-排障顺序:
-1. 检查 `alpha_ic_{horizon}` Prometheus 指标
-2. 查看 `alpha_health.status()` 各 horizon 状态
-3. 若进入 reduce/halt，检查 `logs/retrain_history.jsonl` 是否已触发重训练
-4. 若重训练失败，手动检查数据质量和特征工程
-
-### IC 加权集成
-
-当前生产模型使用 `ic_weighted` 集成:
-- 自动降权 IC 差的 horizon，无需手动调整
-- `ic_ema_span: 720` (30 天滚动)
-- 若所有 horizon IC 均为负，有效信号为 flat
-
-### 模型性能基线 (2026-03-16)
-
-| 品种 | 框架 | 模型 | Sharpe | IC | Walk-Forward | 状态 |
-|---|---|---|---|---|---|---|
-| ETHUSDT | 1h | Ridge 60% + LGBM 40% | 1.52 | 0.013 | 14/20 PASS | 活跃 |
-| ETHUSDT | 15m | Ridge 60% + LGBM 40% | 1.04 | 0.019 | 3/4 PASS | 活跃 |
-| SUIUSDT | 1h | Ridge 60% + LGBM 40% | 1.63 | 0.079 | 6/7 PASS | 活跃 |
-| AXSUSDT | 1h | Ridge 60% + LGBM 40% | 1.25 | 0.024 | 13/17 PASS | 活跃 |
-| BTCUSDT V14 | 1h | Ridge 60% + LGBM 40% | 2.03 | 0.020 | 16/20 PASS | 活跃 (h=96, dominance) |
-
----
-
-## 9. Incident Matrix
-
-| 场景 | 现场判断 | 默认动作 | 何时升级 |
-|---|---|---|---|
-| user stream reconnect 失败 | 私有流失效，本地订单状态可能落后 | 立即查看 venue 与 reconcile 报告 | 持续失败或 drift 增大时降级/停机 |
-| timeout，无后续回报 | 本地未见终态，不代表未成交 | 发起 cancel，等待 reconcile | 下一轮 reconcile 出现 order/fill drift |
-| `pending_cancel -> filled` | 撤单请求发出太晚 | 视为正常晚到成交，按 `filled` 处理 | 成交数量/价格与本地预期严重不符 |
-| 原单 `canceled` 后又收到 fill | 终态后冲突回报 | 不自动恢复原单，人工核查 | 立即告警，必要时 halt |
-| duplicate fill，同 payload | 幂等重复 | 忽略 | 无 |
-| duplicate fill，不同 payload | 数据损坏或映射错误 | fail fast / 人工核查 | 立即告警 |
-| restart 后 reconcile 报缺失 late fill | checkpoint 落后于 venue | 以 venue 事实为准，人工确认 | position/balance/fill drift 为 critical |
-| startup reconcile mismatch | 本地恢复态不可信 | 告警，先人工决策 | mismatch 不可解释或持续扩大 |
-
-当前制度：
-
-- venue fill / venue state 高于 timeout、cancel intent、checkpoint
-- `pending_cancel` 仍是中间态
-- `canceled` / `filled` / `rejected` / `expired` 是终态
-- `reduce_only` 是人工降级运行态，应在 operator / ops 视图中表现为 `incident_state=degraded`
+- user stream 断连后的恢复仍主要依赖 reconnect + reconcile
+- active host services 与 compose / CI deploy 路径仍然分叉

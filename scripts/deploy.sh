@@ -3,6 +3,7 @@
 #
 # Default: deploys quant-paper (current default compose release path).
 # Pass service names as args to override: ./deploy.sh quant-live
+# Scope: compose services only. Host systemd services are intentionally out of scope.
 #
 # Recreates each service one-by-one so updated images/config are applied.
 # Exits non-zero (triggering rollback in CI) if any service fails.
@@ -15,6 +16,11 @@ else
     SERVICES=(quant-paper)
 fi
 TIMEOUT=120  # seconds per service
+
+python3 -m scripts.check_deploy_scope --validate-services "${SERVICES[@]}"
+docker compose config >/dev/null
+
+echo "Deploy scope: compose services only; host systemd services are not managed by this script."
 
 notify() {
     local msg="$1"

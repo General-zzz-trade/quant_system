@@ -18,11 +18,17 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-def check_system_health() -> str:
-    """Check if bybit-alpha service is running."""
+ACTIVE_HOST_SERVICES: tuple[str, ...] = (
+    "bybit-alpha.service",
+    "bybit-mm.service",
+)
+
+
+def check_service_health(service_name: str) -> str:
+    """Check if a specific systemd service is running."""
     try:
         result = subprocess.run(
-            ["systemctl", "is-active", "bybit-alpha.service"],
+            ["systemctl", "is-active", service_name],
             capture_output=True,
             text=True,
             timeout=5,
@@ -32,6 +38,19 @@ def check_system_health() -> str:
         return "systemctl_not_found"
     except Exception:
         return "unknown"
+
+
+def check_active_host_services() -> Dict[str, str]:
+    """Check current systemd state for both active host trading services."""
+    return {
+        service_name: check_service_health(service_name)
+        for service_name in ACTIVE_HOST_SERVICES
+    }
+
+
+def check_system_health() -> str:
+    """Backward-compatible alpha-only service health alias."""
+    return check_service_health("bybit-alpha.service")
 
 
 def check_burnin_status() -> Dict[str, Any]:
@@ -173,8 +192,14 @@ def format_dashboard(data: Dict[str, Any]) -> str:
     ]
 
     # Service status
-    svc = data.get("service_status", "unknown")
-    lines.append(f"  Service: bybit-alpha.service = {svc}")
+    service_statuses = data.get("service_statuses")
+    if service_statuses:
+        lines.append("  Active host services:")
+        for service_name, state in service_statuses.items():
+            lines.append(f"    {service_name:<20} {state}")
+    else:
+        svc = data.get("service_status", "unknown")
+        lines.append(f"  Service: bybit-alpha.service = {svc}")
     lines.append("")
 
     # Burn-in
@@ -237,6 +262,7 @@ def collect_all(log_path: str = "logs/bybit_alpha.log") -> Dict[str, Any]:
     return {
         "timestamp": datetime.now().isoformat(),
         "service_status": check_system_health(),
+        "service_statuses": check_active_host_services(),
         "burnin": check_burnin_status(),
         "models": check_model_versions(),
         "signals": check_recent_signals(log_path),
