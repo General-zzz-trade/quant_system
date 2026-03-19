@@ -69,6 +69,7 @@
 5. 如果触发 drawdown kill，必须把它当成“禁止新开仓且应尽快收平”的状态
    - 当前 `bybit-alpha` 会压平 runner 本地信号，避免 heartbeat 长期显示假 `sig=1`
    - 对 COMBO symbol，会在后续 bar 拿到该 symbol 最新价后强制平掉组合仓位，并同步 `PortfolioManager`
+   - `python3 -m scripts.ops.runtime_health_check --service alpha` 现在会把 `pm.killed=True` 直接判为失败，不再把这种状态误报成健康
 
 常用命令：
 

@@ -84,6 +84,70 @@ def test_evaluate_alpha_health_passes_on_fresh_heartbeat(monkeypatch, tmp_path):
     assert result["problems"] == []
 
 
+def test_evaluate_alpha_health_fails_when_portfolio_is_killed(monkeypatch, tmp_path):
+    from scripts.ops import runtime_health_check as rhc
+
+    now = datetime(2026, 3, 19, 20, 0, 0)
+    log = tmp_path / "alpha.log"
+    log.write_text(
+        "2026-03-19 19:59:00,000 INFO scripts.ops.run_bybit_alpha: "
+        "WS HEARTBEAT sigs={'ETHUSDT': 0} pm={'positions': {}, 'killed': True}\n"
+    )
+    monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
+    monkeypatch.setattr(
+        rhc,
+        "summarize_account_truth",
+        lambda **_kw: {
+            "status": "ok",
+            "reason": "",
+            "positions": 1,
+            "open_orders": 2,
+            "recent_fills": 5,
+            "usdt_total": "49531.77",
+        },
+    )
+
+    result = rhc.evaluate_service_health(
+        spec=rhc.ALPHA_SPEC,
+        log_path=str(log),
+        now=now,
+    )
+
+    assert result["ok"] is False
+    assert "portfolio_killed" in result["problems"]
+    assert result["log"]["kill_active"] is True
+
+
+def test_evaluate_alpha_health_does_not_trust_account_only_activity(monkeypatch, tmp_path):
+    from scripts.ops import runtime_health_check as rhc
+
+    now = datetime(2026, 3, 19, 20, 0, 0)
+    log = tmp_path / "alpha.log"
+    log.write_text("2026-03-19 19:59:00,000 INFO scripts.ops.run_bybit_alpha: Boot complete\n")
+    monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
+    monkeypatch.setattr(
+        rhc,
+        "summarize_account_truth",
+        lambda **_kw: {
+            "status": "ok",
+            "reason": "",
+            "positions": 1,
+            "open_orders": 2,
+            "recent_fills": 5,
+            "usdt_total": "49531.77",
+        },
+    )
+
+    result = rhc.evaluate_service_health(
+        spec=rhc.ALPHA_SPEC,
+        log_path=str(log),
+        now=now,
+    )
+
+    assert result["ok"] is False
+    assert "no_recent_runtime_evidence" in result["problems"]
+
+
 def test_evaluate_alpha_health_fails_when_log_is_stale(monkeypatch, tmp_path):
     from scripts.ops import runtime_health_check as rhc
 

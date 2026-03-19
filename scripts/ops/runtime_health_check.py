@@ -38,6 +38,11 @@ DEFAULT_ALPHA_SYMBOLS = (
 DEFAULT_MM_SYMBOL = "ETHUSDT"
 DEFAULT_ENV_FILE = ".env"
 MAX_LOG_LINES = 4000
+ALPHA_KILL_PATTERNS = (
+    "'killed': True",
+    '"killed": true',
+    "DRAWDOWN KILL",
+)
 
 _TIMESTAMP_RE = re.compile(
     r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,\d{3})?"
@@ -181,6 +186,8 @@ def summarize_log_health(
         "last_ts": None,
         "last_age_s": None,
         "marker_counts": {marker: 0 for marker in spec.activity_markers},
+        "kill_active": False,
+        "kill_detail": None,
     }
     if not path.exists():
         return result
@@ -199,6 +206,9 @@ def summarize_log_health(
             last_ts = ts
         if ts is None or ts < cutoff:
             continue
+        if spec.key == ALPHA_SPEC.key and any(pattern in line for pattern in ALPHA_KILL_PATTERNS):
+            result["kill_active"] = True
+            result["kill_detail"] = line.strip()
         for marker in spec.activity_markers:
             if marker in line:
                 marker_counts[marker] += 1
@@ -271,10 +281,18 @@ def summarize_account_truth(
         return {"status": "error", "reason": str(exc)}
 
 
-def runtime_evidence_present(log_health: dict[str, Any], account_truth: dict[str, Any]) -> bool:
+def runtime_evidence_present(
+    spec: ServiceSpec,
+    log_health: dict[str, Any],
+    account_truth: dict[str, Any],
+) -> bool:
     marker_counts = log_health.get("marker_counts", {})
     if any(int(count) > 0 for count in marker_counts.values()):
         return True
+    if spec.key == ALPHA_SPEC.key:
+        # Active alpha shares an account with other strategies, so account-side
+        # activity is not trustworthy as sole liveness evidence.
+        return False
     if account_truth.get("status") != "ok":
         return False
     return any(
@@ -328,8 +346,10 @@ def evaluate_service_health(
         problems.append("log_missing")
     elif not log_health.get("fresh"):
         problems.append("log_stale")
-    if not runtime_evidence_present(log_health, account_truth):
+    if not runtime_evidence_present(spec, log_health, account_truth):
         problems.append("no_recent_runtime_evidence")
+    if log_health.get("kill_active"):
+        problems.append("portfolio_killed")
     if require_account and account_truth.get("status") != "ok":
         problems.append(f"account_{account_truth.get('status', 'unknown')}")
 
@@ -363,6 +383,8 @@ def format_service_health(result: dict[str, Any]) -> str:
             f"usdt_total={account.get('usdt_total')}"
         ),
     ]
+    if log_health.get("kill_active"):
+        lines.append(f"  alpha_kill_active=True detail={log_health.get('kill_detail')}")
     if result.get("problems"):
         lines.append(f"  problems={', '.join(result['problems'])}")
     return "\n".join(lines)
