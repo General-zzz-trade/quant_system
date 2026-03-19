@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from scripts.ops.balance_utils import get_total_and_free_balance
 from scripts.ops.order_utils import clamp_notional
 
 logger = logging.getLogger(__name__)
@@ -227,16 +228,16 @@ class HedgeRunner:
     def _open_hedge_positions(self) -> None:
         """Open short positions on ALT basket."""
         try:
-            bal = self._adapter.get_balances()
-            usdt = bal.get("USDT")
-            equity = float(usdt.total) if usdt else 0
-            available = float(usdt.available) if usdt else 0
+            equity, available = get_total_and_free_balance(self._adapter.get_balances())
         except Exception as e:
             logger.error("HEDGE: equity fetch failed: %s", e)
             return  # skip hedge open with wrong sizing
 
-        if equity <= 0:
+        if equity is None or equity <= 0:
             logger.error("HEDGE: equity=0, skipping hedge open")
+            return
+        if available is None:
+            logger.error("HEDGE: USDT free balance unavailable, skipping hedge open")
             return
 
         # Margin pre-check: need enough available balance for new hedge orders

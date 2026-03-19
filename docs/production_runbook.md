@@ -66,6 +66,9 @@
    - 最近成交
 4. 只有进程活着还不算“交易活着”
    - 如果日志时间戳不再前进，或账户长期 `0 持仓 / 0 挂单 / 0 新成交`，不能仅凭 systemd `active` 判断服务健康
+5. 如果触发 drawdown kill，必须把它当成“禁止新开仓且应尽快收平”的状态
+   - 当前 `bybit-alpha` 会压平 runner 本地信号，避免 heartbeat 长期显示假 `sig=1`
+   - 对 COMBO symbol，会在后续 bar 拿到该 symbol 最新价后强制平掉组合仓位，并同步 `PortfolioManager`
 
 常用命令：
 

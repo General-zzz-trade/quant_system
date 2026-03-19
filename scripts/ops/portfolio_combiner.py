@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any
 
+from scripts.ops.balance_utils import get_total_and_free_balance
 from scripts.ops.config import MAX_ORDER_NOTIONAL
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
@@ -108,6 +109,23 @@ class PortfolioCombiner:
         trade = self._execute_change(desired, price)
         return trade
 
+    def force_flat(self, price: float, reason: str = "external") -> dict | None:
+        """Force the combiner flat and clear any stale runner signals."""
+        had_signals = any(self._signals.values())
+        had_position = self._current_position != 0
+        if not had_signals and not had_position:
+            return None
+
+        self._signals = {k: 0 for k in self._signals}
+        if had_position:
+            trade = self._execute_change(0, price)
+        else:
+            trade = {"from": 0, "to": 0, "price": price, "signals": dict(self._signals)}
+
+        trade["action"] = "forced_flat" if self._current_position == 0 else "forced_flat_failed"
+        trade["reason"] = reason
+        return trade
+
     def _execute_change(self, desired: int, price: float) -> dict:
         """Execute net position change on exchange."""
         prev = self._current_position
@@ -149,9 +167,10 @@ class PortfolioCombiner:
         # Compute new position size
         if desired != 0:
             try:
-                bal = self._adapter.get_balances()
-                usdt = bal.get("USDT")
-                equity = float(usdt.total) if usdt else 0
+                equity, _free = get_total_and_free_balance(self._adapter.get_balances())
+                if equity is None:
+                    logger.error("COMBO %s: USDT total unavailable", self._symbol)
+                    equity = 0.0
             except Exception as e:
                 logger.error("COMBO: equity fetch failed: %s", e)
                 equity = 0
@@ -195,10 +214,13 @@ class PortfolioCombiner:
                 lev_int = max(2, int(round(leverage)))
                 margin_needed = notional / lev_int
                 try:
-                    bal = self._adapter.get_balances()
-                    usdt = bal.get("USDT")
-                    avail = float(usdt.available) if usdt and hasattr(usdt, 'available') else 0
-                    if avail > 0 and margin_needed > avail * 0.95:
+                    _equity, avail = get_total_and_free_balance(self._adapter.get_balances())
+                    if avail is None:
+                        logger.warning(
+                            "COMBO %s MARGIN PRECHECK skipped: USDT free balance unavailable",
+                            self._symbol,
+                        )
+                    elif margin_needed > avail * 0.95:
                         logger.warning(
                             "COMBO %s MARGIN SKIP: need $%.0f margin but only $%.0f available",
                             self._symbol, margin_needed, avail,
@@ -207,8 +229,8 @@ class PortfolioCombiner:
                         self._entry_price = 0.0
                         self._position_size = 0.0
                         return trade_info
-                except Exception:
-                    pass  # proceed if balance check fails
+                except Exception as exc:
+                    logger.warning("COMBO %s MARGIN PRECHECK failed: %s", self._symbol, exc)
 
                 # Ensure exchange leverage is set (Bybit requires integer >= 2)
                 try:
@@ -245,10 +267,12 @@ class PortfolioCombiner:
                         logger.warning("COMBO %s failed to get fill price: %s",
                                        self._symbol, e)
                 self._entry_price = actual_price
+                trade_info["fill_price"] = actual_price
                 # Record open fill in StateStore
                 self._record_state_store_fill(side, size, actual_price)
             else:
                 self._entry_price = price
+                trade_info["fill_price"] = price
 
             logger.info(
                 "COMBO OPEN %s %.2f @ $%.1f conviction=%.0f%% signals=%s",

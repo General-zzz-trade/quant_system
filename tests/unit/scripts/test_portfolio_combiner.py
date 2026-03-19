@@ -1,6 +1,10 @@
 """Tests for PortfolioCombiner — AGREE ONLY mode signal combining."""
 from __future__ import annotations
 
+from decimal import Decimal
+from unittest.mock import patch
+
+from execution.models.balances import BalanceSnapshot, CanonicalBalance
 
 
 class MockAdapter:
@@ -24,6 +28,25 @@ class MockAdapter:
 
     def get_positions(self, symbol=None):
         return []
+
+
+def _canonical_usdt_snapshot(*, total: str, free: str) -> BalanceSnapshot:
+    total_dec = Decimal(total)
+    free_dec = Decimal(free)
+    locked_dec = total_dec - free_dec
+    return BalanceSnapshot(
+        venue="bybit",
+        ts_ms=0,
+        balances=(
+            CanonicalBalance.from_free_locked(
+                venue="bybit",
+                asset="USDT",
+                free=free_dec,
+                locked=locked_dec,
+                ts_ms=0,
+            ),
+        ),
+    )
 
 
 def _make_combiner(adapter=None, equity=1000.0, dry_run=False, min_size=0.01):
@@ -203,3 +226,69 @@ class TestPortfolioCombinerAgreeMode:
         pc.update_signal("15m", 1, 2200.0)
         assert pc._current_position == 1
         assert pc._entry_price == 2200.0
+
+    def test_margin_skip_uses_canonical_free_balance(self):
+        adapter = MockAdapter(equity=1000.0)
+        adapter.get_balances = lambda: _canonical_usdt_snapshot(total="1000", free="0")
+        pc, _adapter = _make_combiner(adapter=adapter)
+
+        pc.update_signal("1h", 1, 2000.0)
+        result = pc.update_signal("15m", 1, 2000.0)
+
+        assert result is not None
+        assert pc._current_position == 0
+        assert pc._position_size == 0.0
+        assert adapter.orders == []
+
+    def test_trade_info_uses_actual_fill_price(self):
+        adapter = MockAdapter(equity=1000.0)
+        adapter.get_recent_fills = lambda symbol=None: [type("F", (), {"price": 1995.5})()]
+        pc, _adapter = _make_combiner(adapter=adapter)
+
+        with patch("scripts.ops.portfolio_combiner.time.sleep", return_value=None):
+            pc.update_signal("1h", 1, 2000.0)
+            result = pc.update_signal("15m", 1, 2000.0)
+
+        assert result is not None
+        assert result["fill_price"] == 1995.5
+        assert pc._entry_price == 1995.5
+
+    def test_force_flat_closes_position_and_clears_signals(self):
+        pc, adapter = _make_combiner()
+
+        pc.update_signal("1h", 1, 2000.0)
+        pc.update_signal("15m", 1, 2000.0)
+        forced = pc.force_flat(1990.0, reason="portfolio_killed")
+
+        assert forced is not None
+        assert forced["action"] == "forced_flat"
+        assert forced["reason"] == "portfolio_killed"
+        assert pc._current_position == 0
+        assert pc._position_size == 0.0
+        assert pc._signals == {"1h": 0, "15m": 0}
+        close_orders = [o for o in adapter.orders if o.get("action") == "close"]
+        assert len(close_orders) == 1
+
+    def test_force_flat_clears_stale_signals_without_position(self):
+        pc, _adapter = _make_combiner(dry_run=True)
+        pc._signals["1h"] = 1
+
+        forced = pc.force_flat(2000.0, reason="portfolio_killed")
+
+        assert forced is not None
+        assert forced["action"] == "forced_flat"
+        assert pc._current_position == 0
+        assert pc._signals == {"1h": 0, "15m": 0}
+
+    def test_force_flat_reports_failure_when_close_fails(self):
+        adapter = MockAdapter(equity=1000.0)
+        adapter.close_position = lambda symbol: {"status": "error", "retCode": 10001}
+        pc, _adapter = _make_combiner(adapter=adapter)
+
+        pc.update_signal("1h", 1, 2000.0)
+        pc.update_signal("15m", 1, 2000.0)
+        forced = pc.force_flat(1990.0, reason="portfolio_killed")
+
+        assert forced is not None
+        assert forced["action"] == "forced_flat_failed"
+        assert pc._current_position == 1

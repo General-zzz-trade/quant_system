@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Run alpha strategy on Bybit demo trading.
+"""Run the current directional alpha strategy on Bybit.
 
-Connects to Bybit demo API, fetches 1h klines, computes features via
-RustFeatureEngine, runs LightGBM inference, and trades BTCUSDT perpetual.
+This is the active multi-symbol alpha service used by ``bybit-alpha.service``.
+The file still contains some framework-facing helper stubs, but the current
+runtime path is AlphaRunner/PortfolioManager/PortfolioCombiner rather than
+LiveRunner.
 
 Usage:
     python3 -m scripts.run_bybit_alpha                    # live demo trading
@@ -40,7 +42,10 @@ except ImportError:
 
 
 def _select_runner_class(legacy: bool = False):
-    """Return AlphaRunner (legacy) or LiveRunner (default) class."""
+    """Legacy helper from an unfinished convergence branch.
+
+    The current implementation does not switch to LiveRunner through this file.
+    """
     if legacy:
         from scripts.ops.alpha_runner import AlphaRunner  # noqa: F811
         return AlphaRunner
@@ -49,7 +54,10 @@ def _select_runner_class(legacy: bool = False):
 
 
 def _build_live_config(symbols, ws=False, dry_run=False):
-    """Map SYMBOL_CONFIG entries to a LiveRunnerConfig instance."""
+    """Build a candidate LiveRunnerConfig from SYMBOL_CONFIG.
+
+    This helper is not currently wired into the active bybit-alpha service path.
+    """
     from runner.config import LiveRunnerConfig
 
     composite_symbols = tuple(
@@ -90,6 +98,54 @@ def _resolve_runner_target(
     if runner_intervals is None:
         return runner_key, INTERVAL
     return runner_intervals.get(runner_key, (runner_key, INTERVAL))
+
+
+def _combo_entry_price(combo_trade: dict | None, fallback_price: float) -> float:
+    """Prefer combiner-reported fill price when syncing PM entry truth."""
+    if not combo_trade:
+        return fallback_price
+    fill_price = combo_trade.get("fill_price")
+    try:
+        return float(fill_price) if fill_price is not None else fallback_price
+    except (TypeError, ValueError):
+        return fallback_price
+
+
+def _enforce_portfolio_kill(
+    runners: dict[str, AlphaRunner],
+    combiners: dict[str, PortfolioCombiner],
+    portfolio_manager: PortfolioManager | None,
+    last_prices: dict[str, float],
+) -> dict[str, dict]:
+    """Flatten active alpha runtime state once the shared kill switch is armed."""
+    if portfolio_manager is None or not portfolio_manager.is_killed:
+        return {}
+
+    for runner in runners.values():
+        runner.force_flat_local_state()
+
+    forced: dict[str, dict] = {}
+    for symbol, combiner in combiners.items():
+        price = last_prices.get(symbol)
+        if price is None:
+            continue
+        trade = combiner.force_flat(price, reason="portfolio_killed")
+        if trade is None:
+            continue
+        forced[symbol] = trade
+        if combiner._current_position == 0:
+            portfolio_manager.record_position(symbol, 0, 0, "COMBO_KILLED")
+            logger.warning(
+                "PM kill enforced for %s: forced combo flat at $%.2f -> %s",
+                symbol, price, trade,
+            )
+        else:
+            logger.error(
+                "PM kill failed to flatten %s at $%.2f; combiner still has position=%s trade=%s",
+                symbol, price, combiner._current_position, trade,
+            )
+
+    return forced
 
 
 def _stop_runners(runners: dict[str, AlphaRunner]) -> None:
@@ -133,6 +189,7 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
             break
 
     combiners: dict[str, PortfolioCombiner] = {}
+    last_prices: dict[str, float] = {}
     for rsym, rkeys in symbol_runners.items():
         if len(rkeys) > 1:
             # Multiple alphas on same symbol -> use combiner
@@ -149,6 +206,8 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
 
     def make_bar_handler(group: dict[str, str]):
         def on_ws_bar(symbol: str, bar: dict) -> None:
+            last_prices[symbol] = bar["close"]
+
             # Feed hedge runner (all 1h symbols)
             if hedge_runner is not None:
                 hr = hedge_runner.on_bar(symbol, bar["close"])
@@ -161,7 +220,7 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                 try:
                     _correlation_computer.update(symbol, bar["close"])
                 except Exception:
-                    pass
+                    logger.debug("correlation tracker update failed for %s", symbol, exc_info=True)
 
             runner_key = group.get(symbol)
             if not runner_key:
@@ -170,6 +229,9 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
             if not runner:
                 return
             result = runner.process_bar(bar)
+            forced_combo_trades = _enforce_portfolio_kill(
+                runners, combiners, portfolio_manager, last_prices,
+            )
             if result.get("action") == "signal":
                 regime = result.get("regime", "?")
                 label = runner_key if runner_key != symbol else symbol
@@ -177,7 +239,13 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
 
                 # Route signal through combiner if available
                 real_sym = runner_intervals.get(runner_key, (symbol, ""))[0]
-                if real_sym in combiners:
+                if portfolio_manager is not None and portfolio_manager.is_killed:
+                    result["signal"] = 0
+                    result["hold_count"] = 0
+                    killed_trade = forced_combo_trades.get(real_sym)
+                    if killed_trade is not None:
+                        trade_str = f" KILL={killed_trade}"
+                elif real_sym in combiners:
                     combo_trade = combiners[real_sym].update_signal(
                         runner_key, result["signal"], result["close"],
                     )
@@ -187,10 +255,11 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                         if portfolio_manager is not None:
                             desired = combo_trade.get("to", 0)
                             if desired != 0:
+                                entry_price = _combo_entry_price(combo_trade, result["close"])
                                 portfolio_manager.record_position(
                                     real_sym,
                                     combiners[real_sym]._position_size * desired,
-                                    result["close"],
+                                    entry_price,
                                     "COMBO",
                                 )
                             else:
@@ -318,7 +387,7 @@ def main():
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument(
         "--legacy", action="store_true",
-        help="Use legacy AlphaRunner instead of LiveRunner (deprecated path)",
+        help="Compatibility flag from an unfinished LiveRunner migration; current path already uses AlphaRunner",
     )
     args = parser.parse_args()
 

@@ -1,6 +1,9 @@
 """Tests for HedgeRunner — BTC Long + ALT Short hedge strategy."""
 from __future__ import annotations
 
+from decimal import Decimal
+
+from execution.models.balances import BalanceSnapshot, CanonicalBalance
 
 
 class MockAdapter:
@@ -25,6 +28,25 @@ class MockAdapter:
 
     def get_positions(self, symbol=None):
         return []
+
+
+def _canonical_usdt_snapshot(*, total: str, free: str) -> BalanceSnapshot:
+    total_dec = Decimal(total)
+    free_dec = Decimal(free)
+    locked_dec = total_dec - free_dec
+    return BalanceSnapshot(
+        venue="bybit",
+        ts_ms=0,
+        balances=(
+            CanonicalBalance.from_free_locked(
+                venue="bybit",
+                asset="USDT",
+                free=free_dec,
+                locked=locked_dec,
+                ts_ms=0,
+            ),
+        ),
+    )
 
 
 def _make_hedge(adapter=None, dry_run=False, ma_window=5):
@@ -176,3 +198,14 @@ class TestHedgeRunner:
         hr.on_bar("ETHUSDT", 2000.0)
         # Should have fetched BTC + all ALT basket tickers
         assert "BTCUSDT" in ticker_calls
+
+    def test_canonical_balance_allows_open_when_free_margin_sufficient(self):
+        adapter = MockAdapter(equity=1000.0)
+        adapter.get_balances = lambda: _canonical_usdt_snapshot(total="1000", free="1000")
+        adapter.get_ticker = lambda symbol: {"fundingRate": "0.0001", "lastPrice": 10.0}
+        hr, _ = _make_hedge(adapter=adapter)
+
+        hr._open_hedge_positions()
+
+        assert len(adapter.orders) > 0
+        assert all(order["side"] == "sell" for order in adapter.orders)

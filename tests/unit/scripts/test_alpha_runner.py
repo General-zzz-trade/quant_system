@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import sys
 import types
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from execution.models.balances import BalanceSnapshot, CanonicalBalance
 
 # ---------------------------------------------------------------------------
 # Mock _quant_hotpath BEFORE importing AlphaRunner (it imports at module init)
@@ -182,6 +185,25 @@ def _make_bar(close=100.0, high=None, low=None, open_=None, volume=1000):
     return {"open": open_, "high": high, "low": low, "close": close, "volume": volume}
 
 
+def _canonical_usdt_snapshot(*, total: str, free: str) -> BalanceSnapshot:
+    total_dec = Decimal(total)
+    free_dec = Decimal(free)
+    locked_dec = total_dec - free_dec
+    return BalanceSnapshot(
+        venue="bybit",
+        ts_ms=0,
+        balances=(
+            CanonicalBalance.from_free_locked(
+                venue="bybit",
+                asset="USDT",
+                free=free_dec,
+                locked=locked_dec,
+                ts_ms=0,
+            ),
+        ),
+    )
+
+
 @pytest.fixture
 def adapter():
     return MockAdapter()
@@ -338,6 +360,24 @@ class TestProcessBarSignal:
         assert result["signal"] == 0
 
     @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    def test_killed_process_bar_forces_flat_state(self, mock_oi, runner):
+        """Kill state must not leave a stale non-zero local signal behind."""
+        kill_switch = MagicMock()
+        kill_switch.is_armed.return_value = True
+        runner._kill_switch = kill_switch
+        runner._inference.zscore_normalize.return_value = 1.5
+        runner._inference.apply_constraints.return_value = 1
+        runner._inference.get_position.return_value = 1
+
+        result = runner.process_bar(_make_bar(close=100.0))
+
+        assert result["signal"] == 0
+        assert result["trade"]["action"] == "killed"
+        assert runner._current_signal == 0
+        assert runner._entry_price == 0.0
+        runner._inference.set_position.assert_any_call("ETHUSDT", 0, 1)
+
+    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_min_hold_respected(self, mock_oi, runner):
         """After signal change, subsequent bars within min_hold keep same signal via bridge."""
         # Bar 1: signal goes to +1
@@ -434,6 +474,25 @@ class TestExecuteSignalChange:
         assert result["action"] == "killed"
         assert adapter.orders == []
 
+    def test_killed_allows_close_but_blocks_reopen(self, runner, adapter):
+        """Kill state must still flatten existing exposure instead of leaving it stranded."""
+        kill_switch = MagicMock()
+        kill_switch.is_armed.return_value = True
+        runner._kill_switch = kill_switch
+        runner._current_signal = 1
+        runner._entry_price = 2000.0
+        runner._entry_size = 0.05
+        runner._position_size = 0.05
+        runner._circuit_breaker.allow_request.return_value = True
+
+        result = runner._execute_signal_change(1, -1, 2100.0)
+
+        assert result["action"] == "killed"
+        close_orders = [o for o in adapter.orders if o.get("action") == "close"]
+        assert len(close_orders) == 1
+        buy_orders = [o for o in adapter.orders if o.get("side") == "buy"]
+        assert len(buy_orders) == 0
+
     def test_dry_run_no_orders(self, dry_runner, adapter):
         """dry_run=True returns dry_run action without sending orders."""
         dry_runner._position_size = 0.05
@@ -443,6 +502,25 @@ class TestExecuteSignalChange:
         assert result["to"] == 1
         # No real orders sent
         assert adapter.orders == []
+
+    def test_margin_skip_uses_canonical_free_balance(self, runner, adapter):
+        """Canonical free balance must block opens when margin is unavailable."""
+        adapter.get_balances = MagicMock(
+            return_value=_canonical_usdt_snapshot(total="1000", free="0"),
+        )
+        runner._position_size = 0.10
+        runner._circuit_breaker.allow_request.return_value = True
+        runner._osm.active_count.return_value = 1
+
+        result = runner._execute_signal_change(0, 1, 2000.0)
+
+        assert result["action"] == "margin_skip"
+        assert result["avail"] == 0.0
+        assert adapter.orders == []
+        assert any(
+            call.args[1] == "rejected" and call.kwargs.get("reason") == "insufficient_margin"
+            for call in runner._osm.transition.call_args_list
+        )
 
 
 # ===========================================================================

@@ -14,6 +14,7 @@ from scripts.ops.config import (
     INTERVAL, MAX_ORDER_NOTIONAL, WARMUP_BARS,
     _consensus_signals,
 )
+from scripts.ops.balance_utils import get_total_and_free_balance
 from scripts.ops.data_fetcher import BinanceOICache, _fetch_binance_oi_data  # noqa: F401
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
@@ -202,6 +203,20 @@ class AlphaRunner:
         if self._kill_switch is not None:
             return self._kill_switch.is_armed()
         return False
+
+    def _force_flat_local_state_locked(self) -> None:
+        self._current_signal = 0
+        self._entry_price = 0.0
+        self._entry_size = 0.0
+        self._trade_peak_price = 0.0
+        self._inference.set_position(self._symbol, 0, 1)
+        if self._runner_key:
+            _consensus_signals[self._runner_key] = 0
+
+    def force_flat_local_state(self) -> None:
+        """Reset local runner state after a global kill or forced unwind."""
+        with self._trade_lock:
+            self._force_flat_local_state_locked()
 
     def stop(self) -> None:
         """Stop background resources owned by the runner."""
@@ -823,10 +838,12 @@ class AlphaRunner:
             return size
 
         try:
-            bal = self._adapter.get_balances()
-            usdt = bal.get("USDT")
-            equity = float(usdt.total) if usdt else 0
-        except Exception:
+            equity, _free = get_total_and_free_balance(self._adapter.get_balances())
+            if equity is None:
+                logger.warning("%s sizing fallback: USDT total unavailable", self._symbol)
+                equity = 0.0
+        except Exception as exc:
+            logger.warning("%s sizing fallback: failed to fetch balances: %s", self._symbol, exc)
             size = self._round_to_step(self._base_position_size)
             self._position_size = size
             return size
@@ -863,7 +880,7 @@ class AlphaRunner:
                         corr_scale = max(0.3, 1.0 - (avg_corr - 0.6) / 0.4)
                         per_sym_cap *= corr_scale
         except Exception:
-            pass
+            logger.debug("%s correlation sizing unavailable", self._symbol, exc_info=True)
 
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
@@ -1256,11 +1273,18 @@ class AlphaRunner:
                         _consensus_signals[self._runner_key] = prev_signal
                     logger.warning("%s reverting signal to %d after order failure",
                                    self._symbol, prev_signal)
+                elif trade_result.get("action") == "killed":
+                    self._force_flat_local_state_locked()
+                    result["signal"] = 0
+                    result["hold_count"] = 0
+                    logger.warning("%s kill switch armed — flattening local strategy state",
+                                   self._symbol)
 
         return result
 
     def _execute_signal_change(self, prev: int, new: int, price: float) -> dict:
-        if self._killed:
+        kill_armed = self._killed
+        if kill_armed and prev == 0 and new != 0:
             return {"action": "killed", "reason": "drawdown_breaker"}
 
         trade_info: dict = {}
@@ -1355,6 +1379,14 @@ class AlphaRunner:
                                  avg_price=str(price))
             self._circuit_breaker.record_success()
 
+        if kill_armed:
+            return {
+                "action": "killed",
+                "reason": "drawdown_breaker",
+                "from": prev,
+                "to": 0,
+            }
+
         # Open new position
         if new != 0:
             side = "buy" if new == 1 else "sell"
@@ -1392,20 +1424,20 @@ class AlphaRunner:
 
             # Pre-flight margin check: avoid "ab not enough" errors
             try:
-                bal = self._adapter.get_balances()
-                usdt = bal.get("USDT")
-                avail = float(usdt.available) if usdt and hasattr(usdt, 'available') else 0
+                _equity, avail = get_total_and_free_balance(self._adapter.get_balances())
                 lev = getattr(self, '_current_exchange_lev', 1) or 1
                 margin_needed = notional / lev
-                if avail > 0 and margin_needed > avail * 0.95:  # 5% buffer
+                if avail is None:
+                    logger.warning("%s MARGIN PRECHECK skipped: USDT free balance unavailable", self._symbol)
+                elif margin_needed > avail * 0.95:  # 5% buffer
                     logger.warning(
                         "%s MARGIN SKIP: need $%.0f margin but only $%.0f available (lev=%dx)",
                         self._symbol, margin_needed, avail, lev,
                     )
                     self._osm.transition(open_id, "rejected", reason="insufficient_margin")
                     return {"action": "margin_skip", "need": margin_needed, "avail": avail}
-            except Exception:
-                pass  # proceed if balance check fails
+            except Exception as exc:
+                logger.warning("%s MARGIN PRECHECK failed: %s", self._symbol, exc)
 
             result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded

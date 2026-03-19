@@ -58,6 +58,11 @@ class PortfolioManager:
             return self._kill_switch.is_armed()
         return False
 
+    @property
+    def is_killed(self) -> bool:
+        """Public kill-state view for runtime wiring."""
+        return self._killed
+
     def get_equity(self) -> float:
         try:
             bal = self._adapter.get_balances()
