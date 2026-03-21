@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -342,8 +343,63 @@ class AlphaRunner:
         feats["btc_dom_ret_72"] = ratio / buf[-73] - 1 if len(buf) >= 73 and buf[-73] > 0 else float("nan")
         return feats
 
+    _CHECKPOINT_DIR = Path("data/runtime/checkpoints")
+
+    def _save_checkpoint(self) -> None:
+        """Save engine + inference state to disk for fast restart."""
+        self._CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        ckpt = {
+            "engine": self._engine.checkpoint(),
+            "inference": self._inference.checkpoint(),
+            "bars_processed": self._bars_processed,
+            "regime_active": self._regime_active,
+            "deadzone": self._deadzone,
+            "atr_buffer": self._atr_buffer[-50:],
+            "dom_ratio_buf": self._dom_ratio_buf[-75:],
+            "closes": self._closes[-500:],
+            "rets": self._rets[-500:],
+        }
+        path = self._CHECKPOINT_DIR / f"{self._symbol}.json"
+        path.write_text(json.dumps(ckpt))
+        logger.debug("%s checkpoint saved (%d bytes)", self._symbol, len(json.dumps(ckpt)))
+
+    def _restore_checkpoint(self) -> bool:
+        """Restore engine + inference state from disk. Returns True if restored."""
+        path = self._CHECKPOINT_DIR / f"{self._symbol}.json"
+        if not path.exists():
+            return False
+        try:
+            ckpt = json.loads(path.read_text())
+            self._engine.restore_checkpoint(ckpt["engine"])
+            self._inference.restore(ckpt["inference"])
+            self._bars_processed = ckpt.get("bars_processed", 0)
+            self._regime_active = ckpt.get("regime_active", True)
+            self._deadzone = ckpt.get("deadzone", self._deadzone)
+            self._atr_buffer = ckpt.get("atr_buffer", [])
+            self._dom_ratio_buf = ckpt.get("dom_ratio_buf", [])
+            self._closes = ckpt.get("closes", [])
+            self._rets = ckpt.get("rets", [])
+            logger.info("%s checkpoint restored (bars=%d, regime=%s)",
+                        self._symbol, self._bars_processed,
+                        "active" if self._regime_active else "filtered")
+            return True
+        except Exception as e:
+            logger.warning("%s checkpoint restore failed: %s — full warmup", self._symbol, e)
+            return False
+
     def warmup(self, limit: int = WARMUP_BARS, interval: str = INTERVAL) -> int:
-        """Fetch historical bars and warm up feature engine."""
+        """Fetch historical bars and warm up feature engine.
+
+        Tries to restore from checkpoint first (instant). Falls back to
+        full warmup from historical klines if no checkpoint exists.
+        """
+        # Try fast restore from checkpoint
+        if self._restore_checkpoint():
+            # Still reconcile with exchange
+            if not self._dry_run:
+                self._reconcile_position()
+            return self._bars_processed
+
         bars = self._adapter.get_klines(self._symbol, interval=interval,
                                         limit=limit)
         bars.reverse()  # Bybit returns newest first
@@ -402,8 +458,12 @@ class AlphaRunner:
         logger.info("Warmup: %d bars, regime=%s",
                      len(bars), regime_str)
 
+        # Save checkpoint after successful warmup
+        self._save_checkpoint()
+
         # Reconcile with exchange after warmup
-        self._reconcile_position()
+        if not self._dry_run:
+            self._reconcile_position()
 
         return len(bars)
 
@@ -1275,6 +1335,13 @@ class AlphaRunner:
         """Process one bar: regime → features → predict → signal → trade."""
         self._last_bar_time = time.time()
         self._bars_processed += 1
+
+        # Periodic checkpoint save (every 10 bars) for fast restart
+        if self._bars_processed % 10 == 0:
+            try:
+                self._save_checkpoint()
+            except Exception:
+                logger.debug("%s checkpoint save failed", self._symbol, exc_info=True)
 
         # Periodic reconciliation with exchange
         if not self._dry_run and self._bars_processed % self.RECONCILE_INTERVAL == 0:
