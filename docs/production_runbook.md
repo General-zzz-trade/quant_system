@@ -29,7 +29,7 @@
 ### 2.1 方向性 alpha
 
 - 服务名: `bybit-alpha.service`
-- 入口命令: `python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws`
+- 入口命令: `python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws`
 - 日志: [`logs/bybit_alpha.log`](/quant_system/logs/bybit_alpha.log)
 - 事实来源:
   - `systemctl status bybit-alpha.service`

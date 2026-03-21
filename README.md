@@ -62,7 +62,7 @@ cp .env.example .env
 ### Run The Active Directional Alpha Path
 
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws --dry-run
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws --dry-run
 ```
 
 当前这个入口是 AlphaRunner 路径，不是 `LiveRunner`。

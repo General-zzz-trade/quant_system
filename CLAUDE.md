@@ -5,8 +5,8 @@ make rust                    # Build Rust crate (maturin + pip install)
 make test                    # Core local gate; CI still adds security/model-check/compose smoke/framework integration
 pytest tests/unit/ -x -q     # Unit tests only (~18s)
 pytest tests/ -x -q -m ""   # ALL tests including slow (~35s)
-pytest execution/tests/ -x -q  # Execution subsystem tests (67 tests)
-pytest tests/unit/runner/ -x -q    # Runner tests (303 tests)
+pytest execution/tests/ -x -q  # Execution subsystem tests (71 tests)
+pytest tests/unit/runner/ -x -q    # Runner tests (543 tests)
 pytest tests/unit/runner_v2/ -x -q  # Decomposed runner tests (47 tests)
 pytest tests/unit/bybit/ -x -q   # Bybit adapter tests (60 tests)
 pytest tests/unit/state/ -x -q   # State module tests (87 tests)
@@ -32,8 +32,8 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 # Polymarket dry-run (currently active):
 python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70
 
-# Directional alpha (inactive, available — validated Sharpe 1.5-2.0):
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
+# Directional alpha (BTC+ETH only — validated BTC Sharpe 4.37, ETH 4.67):
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws
 sudo systemctl restart bybit-alpha.service
 
 # HFT Signal (inactive — proven unprofitable, Sharpe -5):
@@ -193,10 +193,16 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Framework live runtime entry point
-- `runner/gate_chain.py` — GateChain: up to 13 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, EquityLeverageGate, ConsensusScalingGate)
+- `runner/gate_chain.py` — GateChain: up to 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, MultiTFConfluence, LiquidationCascade, CarryCost)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
-- `scripts/ops/config.py` — SYMBOL_CONFIG, constants, MAX_ORDER_NOTIONAL
-- `scripts/ops/alpha_runner.py` — AlphaRunner: current directional alpha runtime implementation
+- `scripts/ops/config.py` — SYMBOL_CONFIG (BTC+ETH only), constants, MAX_ORDER_NOTIONAL
+- `scripts/ops/alpha_runner.py` — AlphaRunner: current directional alpha runtime (with gate chain + online ridge)
+- `scripts/ops/daily_reconciliation.py` — Live vs backtest signal reconciliation + slippage analysis
+- `alpha/online_ridge.py` — Online Ridge with RLS incremental weight updates
+- `features/options_flow.py` — Options flow features from Deribit (gamma, max pain, vega, PCR)
+- `regime/eth_regime_proxy.py` — ETH parameter routing using BTC regime labels
+- `core/validation.py` — NaN/Inf input validation for prices, quantities, signals
+- `monitoring/pipeline_metrics.py` — Thread-safe pipeline counters (bars/signals/orders/errors)
 - `scripts/ops/portfolio_combiner.py` — PortfolioCombiner (AGREE ONLY mode, enforces MAX_ORDER_NOTIONAL)
 - `scripts/ops/run_bybit_alpha.py` — 当前活跃 directional alpha service 入口
 - `scripts/shared/signal_postprocess.py` — Signal pipeline (Rust + Python parity)
@@ -219,10 +225,14 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 
 ## Live Integration Subsystems
 
-- **Dual Alpha COMBO**: 1h+15m alphas via separate WS (kline.60 + kline.15). `PortfolioCombiner` AGREE ONLY: both must agree direction (Sharpe 5.48). Per-symbol cap: 30% equity x leverage. Conviction: both=100%, one=50%.
-- **Adaptive Stop-Loss**: ATR 3-phase: initial ATRx2.0 → breakeven after 1xATR profit → trailing at peak-ATRx0.3. Hard limits: 0.3%-5%.
+- **Dual Alpha COMBO**: 1h+15m alphas via separate WS (kline.60 + kline.15). `PortfolioCombiner` AGREE ONLY: both must agree direction (Sharpe 5.48). Per-symbol cap: 45% equity x leverage (BTC+ETH only). Conviction: both=100%, one=50%.
+- **Alpha Expansion Gates**: 3 new gates in production — MultiTFConfluence (1h/4h alignment), LiquidationCascade (cascade protection), CarryCost (funding/basis adjustment). Wired in `alpha_runner.py._evaluate_gates()`.
+- **Online Ridge**: `alpha/online_ridge.py` — RLS incremental weight updates (λ=0.997). Activated via `runner.enable_online_ridge()`. Weight drift monitoring with Telegram alerts.
+- **Adaptive Stop-Loss**: ATR 3-phase: initial ATRx1.2 → breakeven after 0.5×ATR profit → trailing at 0.2×ATR step. Hard limits: 0.3%-5%.
 - **Alpha Health Monitor**: `monitoring/alpha_health.py` — per-symbol IC tracking, gates via `position_scale()` (0.0/0.5/1.0).
-- **Auto-Retrain**: `scripts/auto_retrain.py` — `--include-15m`, `--only-15m`. Systemd timer: Sunday 2am UTC. SIGHUP for hot reload.
+- **Auto-Retrain**: `scripts/auto_retrain.py` — BTC+ETH only. Systemd timer: Sunday 2am UTC. SIGHUP for hot reload.
+- **Daily Reconciliation**: `scripts/ops/daily_reconciliation.py` — live vs backtest signal comparison, slippage analysis, PnL gap tracking.
+- **Per-Symbol PnL Attribution**: `PnLTracker.pnl_by_symbol`, `per_symbol_sharpe()` — identifies best/worst performers.
 
 ## Venue Adapters
 
@@ -253,7 +263,7 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 # ACTIVE timers:
 #   health-watchdog.timer (5min), data-refresh.timer (6h), auto-retrain.timer (Sun 2am)
 # INACTIVE (available, validated):
-#   bybit-alpha.service -> 1h Alpha (Sharpe 1.5-2.0, RECOMMENDED for real trading)
+#   bybit-alpha.service -> BTC+ETH Alpha (BTC Sharpe 4.37, ETH 4.67, RECOMMENDED)
 #   hft-signal.service -> HFT 8-layer signal (Sharpe -5, NOT recommended)
 #   bybit-mm.service -> market maker (BTC spread < fee, NOT viable)
 # Deploy truth: docs/deploy_truth.md
@@ -266,24 +276,33 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 4. Timers: `sudo systemctl list-timers --all | grep -E "health|retrain|refresh"`
 5. Account: `set -a && source .env && python3 -c "..."` (see scripts/ops/runtime_health_check.py)
 
-**Walk-forward baselines** (2026-03-15): see `results/walkforward/` for full data.
-- PASS: ETHUSDT 1h (Sharpe 1.52), BTCUSDT V14 (Sharpe 2.03), SUIUSDT 1h (1.63), AXSUSDT 1h (1.25)
-- FAIL: all 15m except ETH, all 5m
+**Walk-forward baselines** (2026-03-21): see `results/walkforward/` for full data.
+- PASS: ETHUSDT 1h (Sharpe 4.67, 17/21 folds), BTCUSDT (Sharpe 4.37, 20/22 folds, +monthly-gate), SUIUSDT 1h (1.14, 5/7)
+- WEAK: SOLUSDT (IC 0.247 but Sharpe 0.94)
+- FAIL: AXSUSDT (regime shift, removed from production), all 15m except ETH, all 5m
+- Production focus: **BTC + ETH only** (altcoins removed due to poor liquidity 2026-03-21)
 - Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate). Demo uses **10x** (all tiers)
 
 ## Signal Pipeline
 
 ```
 Raw prediction (Ridge 60% + LightGBM 40% ensemble, walk-forward validated)
+  → Online Ridge update (optional: RLS incremental weight adaptation between retrains)
   → Rolling z-score (window=720, warmup=180)
   → Long-only clip (optional)
   → Discretize: z > deadzone → +1, z < -deadzone → -1, else 0
-  → Min-hold enforce (18 bars for 1h, 16 for 15m)
+  → Min-hold enforce (BTC: 24 bars, ETH: 18 bars, 15m: 16 bars)
   → Trend-hold extend (optional: extend when trend intact, symmetric long/short)
-  → Monthly gate (optional: close <= SMA → flat)
+  → Monthly gate (BTC: close <= SMA(480) → flat; critical for downtrend protection)
   → Vol-adaptive scaling (optional: signal x target_vol/realized_vol)
+  → Gate chain: LiquidationCascade → MultiTFConfluence → CarryCost → position scaling
 ```
 Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) and Python (`signal_postprocess.py`). Parity verified via `tests/integration/test_constraint_parity.py`.
+
+**Gate chain (alpha expansion)**:
+- `MultiTFConfluenceGate`: 1h vs 4h trend alignment → aligned 1.2x, opposed 0.5x (MaxDD -20-25%)
+- `LiquidationCascadeGate`: zscore>3 block, >2 scale 0.3x, OI unwind 0.5x
+- `CarryCostGate`: funding+basis carry >30%/yr → 0.4x, >10% → 0.7x, favorable >5% → 1.15x
 
 ## Gotchas
 
@@ -310,8 +329,8 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `_round_to_step()` applied in ALL code paths (adaptive sizing, base size, exception fallback) — prevents Bybit `Qty invalid` rejections
 - Margin pre-flight check: AlphaRunner and PortfolioCombiner check `available` balance before sending orders to avoid `ab not enough` errors
 - Binance min notional: ETHUSDT $20, BTCUSDT $100; Bybit all $5
-- `PortfolioCombiner` sets individual runners to `dry_run=True`; caps each symbol at 30% of equity x leverage
-- SYMBOL_CONFIG: `SUIUSDT` size=10, step=10 (Bybit qtyStep=10); `AXSUSDT` size=5.0, step=0.1
+- `PortfolioCombiner` sets individual runners to `dry_run=True`; caps each symbol at 45% of equity x leverage (BTC+ETH only)
+- SYMBOL_CONFIG: BTC+ETH only (SUI/AXS removed 2026-03-21 due to poor liquidity)
 - `ETHUSDT_15m` in SYMBOL_CONFIG uses `"symbol": "ETHUSDT"` + `"interval": "15"` (separate WS)
 - `_safe_val()` handles NaN/None→0.0 for model input; Rust engine returns NaN for unfed features
 - `BinanceOICache`: OI data fetched in background thread (55s refresh), no longer blocks stop-loss
@@ -329,28 +348,33 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - V13 OI features (5): IC validated, 28 days data only. V14 dominance (4): `btc_dom_*`, dual path (Python `dominance_computer.py` + Rust `push_dominance()`)
 - Ridge model uses its own feature list (`ridge_features`) which may differ from LGBM features
 - Feature selection: greedy IC is optimal (stability-filtered and fixed-feature approaches both hurt)
-- BTC model h=96 uses `min_hold=48` (2 days), `max_hold=288` (12 days) — much slower than ETH's h=24/min_hold=18
+- BTC model h=96 uses `deadzone=1.0`, `min_hold=24` (1 day), `max_hold=144` (6 days), `monthly_gate=SMA(480)` — optimized 2026-03-21 (was dz=0.8/mh=48/maxh=288)
+- ETH model uses `deadzone=0.4`, `min_hold=18`, `max_hold=60` — fixed params (regime-adaptive hurts ETH)
 - `batch_feature_engine.py` `_add_dominance_features()` requires ETHUSDT_1h.csv
+- `OnlineRidge` (alpha/online_ridge.py): RLS incremental weight updates, forgetting_factor=0.997, drift>0.5 triggers warning
+- `OptionsFlowComputer` (features/options_flow.py): 7 features from Deribit options DB (gamma, max_pain, vega, PCR, IV term slope)
 
 **Alpha research conclusions** (2026-03-21):
-- 1h Alpha: BTC Sharpe 2.03, ETH 1.52, SUI 1.63, AXS 1.25 — all PASS
-- BTC Regime-Adaptive: Sharpe 5.52, 20/20 folds — PASS (+172% over baseline)
+- 1h Alpha (optimized): BTC Sharpe 4.37 (+monthly-gate), ETH 4.67 (IC-weighted ensemble) — PASS
+- BTC monthly-gate: close < SMA(480) → skip longs; avoids downtrend losses (Sharpe 1.76→4.37)
 - Dual COMBO (1h+15m AGREE): Sharpe 5.48 — PASS
 - 15m: only ETH PASS (Sharpe 1.04); BTC 15m Sharpe 0.91 FAIL
+- Altcoins removed: SUI (Sharpe 1.14 PASS but poor liquidity), AXS (FAIL, regime shift), SOL (IC 0.247 but Sharpe 0.94)
 - 5m/1m HFT signals: Sharpe -5 to -25 — ALL FAIL (40万bar验证)
-- Tick MR/BTC-lead on 1m bars: ALL FAIL (no edge after costs)
 - BTC做市: spread 0.014bps < fee 2bps → mathematically impossible (all exchanges)
-- OI features: IC=-0.291 but only 1% data coverage (sparse); DVOL features overfit OOS
+- On-chain IC: `exchange_supply_zscore_30` IC=-0.020 PASS; other 5 features < 0.02 threshold
+- Gate impact (8-symbol backtest): MultiTF Confluence MaxDD -20-25%, Carry Cost effective on BTC/ETH
 - Polymarket RSI(30/70) taker: 52.9% WR, $32/day@$10, 26/27 months positive — PASS
 - Polymarket maker: FAIL on real CLOB replay (排队+逆向选择)
 
 **Current path split**:
 - `scripts/run_polymarket_dryrun.py` — **currently active** dry-run validation
-- `scripts/ops/run_bybit_alpha.py` — 1h Alpha (RECOMMENDED for real trading, Sharpe 1.5-2.0)
+- `scripts/ops/run_bybit_alpha.py` — BTC+ETH Alpha (RECOMMENDED, BTC 4.37 ETH 4.67)
 - `scripts/run_hft_signal.py` — HFT 8-layer signal (stopped, Sharpe -5)
 - `scripts/run_bybit_mm.py` — market maker (stopped, not viable)
 - `runner/live_runner.py` — framework convergence target
-- `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only); ETH/SUI/AXS fixed params
+- `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only); ETH fixed params
+- `ETHRegimeProxy` (regime/eth_regime_proxy.py): uses BTC regime labels for ETH parameter routing (ETH-specific param table)
 
 **Regime & risk wiring** (2026-03-17):
 - `RegimeAwareDecisionModule` defaults to `CompositeRegimeDetector` (was Vol+Trend separately)

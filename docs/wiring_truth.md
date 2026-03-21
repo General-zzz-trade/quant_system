@@ -1,6 +1,6 @@
 # Wiring Truth — Module Integration Status
 
-> 更新时间: 2026-03-17
+> 更新时间: 2026-03-21
 > 目标: 记录每个功能模块是否已接入生产路径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
@@ -30,6 +30,15 @@
 | RegimeParamRouter | regime/param_router.py | alpha_runner.py `_apply_composite_regime` | **仅 BTC**: params → deadzone/min_hold 闭环 |
 | ADX(14) | features/enriched_computer.py | RustFeatureEngine feeds feat_dict | 28-bar warmup; feeds TrendRegimeDetector via feat_dict |
 | PortfolioCombiner | scripts/ops/portfolio_combiner.py | run_bybit_alpha.py | AGREE ONLY for ETH 1h+15m |
+| MultiTFConfluenceGate | runner/gates/multi_tf_confluence_gate.py | alpha_runner.py `_evaluate_gates` | 1h vs 4h alignment scaling (MaxDD -20-25%) |
+| LiquidationCascadeGate | runner/gates/liquidation_cascade_gate.py | alpha_runner.py `_evaluate_gates` | Cascade protection (zscore>3 block) |
+| CarryCostGate | runner/gates/carry_cost_gate.py | alpha_runner.py `_evaluate_gates` | Funding+basis carry cost adjustment |
+| OnlineRidge | alpha/online_ridge.py | alpha_runner.py `_ensemble_predict` | RLS incremental weight updates (λ=0.997) |
+| OptionsFlowComputer | features/options_flow.py | enriched_computer.py `on_bar` | 7 Deribit options features |
+| ETHRegimeProxy | regime/eth_regime_proxy.py | Available, not yet wired | BTC regime → ETH param routing |
+| PipelineMetrics | monitoring/pipeline_metrics.py | Available, not yet wired | Thread-safe pipeline counters |
+| InputValidation | core/validation.py | Available, not yet wired | NaN/Inf price/qty validation |
+| DailyReconciliation | scripts/ops/daily_reconciliation.py | Manual / cron | Live vs backtest signal comparison |
 
 ### LiveRunner 路径（框架层）
 
