@@ -1,0 +1,12 @@
+[Unit]
+Description=Trading health watchdog check
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+ExecStart=/usr/bin/python3 -m scripts.ops.health_watchdog --restart
+StandardOutput=append:/quant_system/logs/health_watchdog.log
+StandardError=append:/quant_system/logs/health_watchdog.log

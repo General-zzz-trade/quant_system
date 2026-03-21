@@ -1,0 +1,18 @@
+[Unit]
+Description=Signal-driven HFT (BTC+ETH+SOL)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m scripts.run_hft_signal --symbols BTCUSDT ETHUSDT SOLUSDT --leverage 20 --position-size 50000 --loss-limit 5000
+Restart=on-failure
+RestartSec=10
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
