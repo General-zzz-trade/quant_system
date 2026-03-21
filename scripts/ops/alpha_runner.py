@@ -1357,8 +1357,10 @@ class AlphaRunner:
         self._last_bar_time = time.time()
         self._bars_processed += 1
 
-        # Periodic checkpoint save (every 10 bars) for fast restart
-        if self._bars_processed % 10 == 0:
+        # Periodic checkpoint save (every 10 bars) — but only if we have
+        # enough history. Prevents overwriting a 800-bar checkpoint with a
+        # 10-bar one after restore + a few new bars.
+        if self._bars_processed % 10 == 0 and self._bars_processed >= WARMUP_BARS:
             try:
                 self._save_checkpoint()
             except Exception:
