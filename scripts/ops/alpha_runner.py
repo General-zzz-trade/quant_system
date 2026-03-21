@@ -190,6 +190,11 @@ class AlphaRunner:
         self._last_close: float = 0.0  # for computing realized returns
         self._prev_feat_dict: dict | None = None  # store previous bar features to avoid look-ahead
 
+        # Limit order entry: try maker (0 bps) before taker (4 bps) for new positions
+        self._use_limit_entry: bool = True
+        self._limit_entry_timeout: float = 30.0  # seconds to wait for limit fill
+        self._limit_entry_poll_interval: float = 2.0  # poll interval in seconds
+
         # Background OI cache: fetches Binance OI/LS/Taker every 55s in a daemon thread.
         # Allow injection/disable in tests and non-networked environments.
         self._oi_cache = oi_cache if oi_cache is not None else BinanceOICache(self._symbol)
@@ -1517,6 +1522,124 @@ class AlphaRunner:
 
         return result
 
+    def _execute_limit_entry(self, symbol: str, side: str, qty: float,
+                              price: float) -> dict:
+        """Try to open a position via limit order for maker fee (0 bps).
+
+        Places a PostOnly limit order at best bid (buy) or best ask (sell).
+        Polls for fill up to ``_limit_entry_timeout`` seconds.  If not filled,
+        cancels the limit order and falls back to a market order.
+
+        Returns the same dict shape as ``send_market_order`` with an extra
+        ``entry_method`` key ("limit" or "market_fallback").
+        """
+        # 1. Fetch current best bid/ask
+        ticker = self._adapter.get_ticker(symbol)
+        if not ticker or not ticker.get("bid1Price") or not ticker.get("ask1Price"):
+            logger.warning("%s LIMIT ENTRY: ticker unavailable, falling back to market",
+                           symbol)
+            result = self._adapter.send_market_order(symbol, side, qty)
+            result["entry_method"] = "market_fallback"
+            return result
+
+        bid = ticker["bid1Price"]
+        ask = ticker["ask1Price"]
+
+        # Place at best bid for buys, best ask for sells (passive, queue at top)
+        limit_price = bid if side.lower() == "buy" else ask
+        logger.info(
+            "%s LIMIT ENTRY: %s %.4f @ $%.2f (bid=$%.2f ask=$%.2f spread=%.4f%%)",
+            symbol, side, qty, limit_price, bid, ask,
+            (ask - bid) / bid * 100 if bid > 0 else 0,
+        )
+
+        # 2. Submit PostOnly limit order (rejected if would cross = guaranteed maker)
+        limit_result = self._adapter.send_limit_order(
+            symbol, side, qty, limit_price, tif="PostOnly",
+        )
+        if limit_result.get("status") == "error":
+            logger.warning(
+                "%s LIMIT ENTRY: PostOnly rejected (%s), falling back to market",
+                symbol, limit_result.get("retMsg", ""),
+            )
+            result = self._adapter.send_market_order(symbol, side, qty)
+            result["entry_method"] = "market_fallback"
+            return result
+
+        order_id = limit_result.get("orderId", "")
+        logger.info("%s LIMIT ENTRY: order submitted orderId=%s", symbol, order_id)
+
+        # 3. Poll for fill
+        deadline = time.time() + self._limit_entry_timeout
+        filled = False
+        while time.time() < deadline:
+            time.sleep(self._limit_entry_poll_interval)
+            try:
+                open_orders = self._adapter.get_open_orders(symbol=symbol)
+                # Check if our order is still in the open orders list
+                still_open = any(
+                    o.order_id == order_id for o in open_orders
+                )
+                if not still_open:
+                    # Order no longer open — check fills to confirm it was filled
+                    fills = self._adapter.get_recent_fills(symbol=symbol)
+                    for f in fills:
+                        if getattr(f, "order_id", "") == order_id:
+                            filled = True
+                            break
+                    if not filled:
+                        # Order disappeared but no fill found — likely self-cancelled
+                        # or exchange rejected. Still check position as safety net.
+                        positions = self._adapter.get_positions(symbol=symbol)
+                        if any(not p.is_flat for p in positions):
+                            filled = True
+                    break
+            except Exception as exc:
+                logger.warning("%s LIMIT ENTRY: poll error: %s", symbol, exc)
+
+        if filled:
+            logger.info("%s LIMIT ENTRY: FILLED as maker (0 bps) orderId=%s",
+                        symbol, order_id)
+            return {
+                "orderId": order_id,
+                "status": "submitted",
+                "entry_method": "limit",
+            }
+
+        # 4. Not filled within timeout — cancel and fall back to market
+        logger.info(
+            "%s LIMIT ENTRY: not filled after %.0fs, cancelling and using market order",
+            symbol, self._limit_entry_timeout,
+        )
+        try:
+            cancel_result = self._adapter.cancel_order(symbol, order_id)
+            if cancel_result.get("status") == "canceled":
+                logger.info("%s LIMIT ENTRY: cancelled orderId=%s", symbol, order_id)
+            else:
+                # Cancel failed — order may have filled in the meantime
+                logger.warning(
+                    "%s LIMIT ENTRY: cancel failed (%s) — checking if filled",
+                    symbol, cancel_result.get("retMsg", ""),
+                )
+                fills = self._adapter.get_recent_fills(symbol=symbol)
+                for f in fills:
+                    if getattr(f, "order_id", "") == order_id:
+                        logger.info("%s LIMIT ENTRY: filled during cancel, using as maker",
+                                    symbol)
+                        return {
+                            "orderId": order_id,
+                            "status": "submitted",
+                            "entry_method": "limit",
+                        }
+        except Exception as exc:
+            logger.warning("%s LIMIT ENTRY: cancel error: %s", symbol, exc)
+
+        # Fall back to market order
+        result = self._adapter.send_market_order(symbol, side, qty)
+        result["entry_method"] = "market_fallback"
+        logger.info("%s LIMIT ENTRY: market fallback result=%s", symbol, result)
+        return result
+
     def _execute_signal_change(self, prev: int, new: int, price: float) -> dict:
         kill_armed = self._killed
         if kill_armed and prev == 0 and new != 0:
@@ -1641,7 +1764,8 @@ class AlphaRunner:
         if new != 0:
             side = "buy" if new == 1 else "sell"
             open_id = f"open_{self._symbol}_{int(time.time())}"
-            self._osm.register(open_id, self._symbol, side, "market",
+            order_type = "limit" if self._use_limit_entry else "market"
+            self._osm.register(open_id, self._symbol, side, order_type,
                                str(self._position_size))
 
             # Dedup: check no other pending order for this symbol
@@ -1689,7 +1813,17 @@ class AlphaRunner:
             except Exception as exc:
                 logger.warning("%s MARGIN PRECHECK failed: %s", self._symbol, exc)
 
-            result = self._adapter.send_market_order(self._symbol, side, self._position_size)
+            # Try limit entry for maker fee (0 bps) on new positions;
+            # fall back to market order if limit not filled within timeout.
+            if self._use_limit_entry:
+                result = self._execute_limit_entry(self._symbol, side, self._position_size, price)
+                entry_method = result.get("entry_method", "limit")
+                if entry_method != "limit":
+                    logger.info("%s ENTRY: used market fallback (4 bps taker)", self._symbol)
+                else:
+                    logger.info("%s ENTRY: filled as maker (0 bps)", self._symbol)
+            else:
+                result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded
             if result.get("status") == "error" or result.get("retCode", 0) != 0:
                 logger.error("%s ORDER FAILED: %s", self._symbol, result)
