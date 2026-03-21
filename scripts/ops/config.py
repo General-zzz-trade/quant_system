@@ -10,9 +10,9 @@ POLL_INTERVAL = 60  # seconds between checks
 
 # Hard safety limit — no single order can exceed this notional (USD)
 # Increase manually as your account grows. Never let code auto-adjust this.
-# Production safety baseline: keep the global alpha path capped at $500/order.
-# LiveRunner may apply a lower per-session limit via config.max_order_notional.
-MAX_ORDER_NOTIONAL = 500.0
+# Demo: $5,000 (enough for 10x on $35K account with 45% per-symbol cap)
+# Real money: start at $500, raise gradually as you gain confidence.
+MAX_ORDER_NOTIONAL = 5_000.0
 
 # Default symbols + position sizes
 # 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)
