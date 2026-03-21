@@ -135,7 +135,9 @@ def add_interaction_features(feat_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_ic_table(feat_df: pd.DataFrame, closes: np.ndarray,
-                     horizons: list[int] = [1, 3, 6, 12, 24]) -> pd.DataFrame:
+                     horizons: list[int] | None = None) -> pd.DataFrame:
+    if horizons is None:
+        horizons = [1, 3, 6, 12, 24]
     """Compute rank IC for each feature at each horizon."""
     results = []
     n = len(closes)
