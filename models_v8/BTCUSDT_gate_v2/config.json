@@ -13,9 +13,6 @@
       "ridge": "ridge_h96.pkl",
       "ridge_features": [
         "btc_dom_dev_20",
-        "btc_dom_dev_50",
-        "btc_dom_ret_24",
-        "btc_dom_ret_72",
         "rsi_14",
         "cvd_20",
         "avg_trade_size",
@@ -29,15 +26,10 @@
         "funding_vs_vol",
         "basis_momentum",
         "dow_cos",
-        "oi_change_24",
-        "oi_change_96",
-        "funding_cum_3"
+        "btc_dom_ret_72"
       ],
       "features": [
         "btc_dom_dev_20",
-        "btc_dom_dev_50",
-        "btc_dom_ret_24",
-        "btc_dom_ret_72",
         "rsi_14",
         "cvd_20",
         "avg_trade_size",
@@ -51,9 +43,7 @@
         "funding_vs_vol",
         "basis_momentum",
         "dow_cos",
-        "oi_change_24",
-        "oi_change_96",
-        "funding_cum_3"
+        "btc_dom_ret_72"
       ],
       "ic": 0.4463,
       "ridge_ic": 0.2597
