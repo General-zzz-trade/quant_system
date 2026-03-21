@@ -352,8 +352,10 @@ class AlphaRunner:
         eth_warmup: dict[int, float] = {}
         if self._symbol == "BTCUSDT":
             try:
+                # Convert Bybit interval to Binance format: "60" → "1h", "15" → "15m"
+                binance_interval = "1h" if interval in ("60", "D") else f"{interval}m"
                 url = (f"https://fapi.binance.com/fapi/v1/klines"
-                       f"?symbol=ETHUSDT&interval={interval}m&limit={limit}")
+                       f"?symbol=ETHUSDT&interval={binance_interval}&limit={limit}")
                 with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=10) as resp:
                     eth_klines = json.loads(resp.read())
                 for k in eth_klines:
