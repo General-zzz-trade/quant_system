@@ -1498,32 +1498,11 @@ class AlphaRunner:
 
         trade_info: dict = {}
 
-        # Close existing position → track P&L
+        # Prepare close PnL data (but defer recording until venue confirms)
+        _pending_close_trade: dict | None = None
+        _pending_close_size: float = 0.0
         if prev != 0 and self._entry_price > 0:
-            entry_size = self._entry_size if self._entry_size > 0 else self._position_size
-            trade = self._pnl.record_close(
-                symbol=self._symbol, side=prev,
-                entry_price=self._entry_price, exit_price=price,
-                size=entry_size, reason="signal_change",
-            )
-            trade_info["closed_pnl"] = round(trade["pnl_usd"], 4)
-            trade_info["closed_pct"] = round(trade["pnl_pct"], 2)
-            logger.info(
-                "%s CLOSE %s: pnl=$%.4f (%.2f%%) total=$%.4f wins=%d/%d",
-                self._symbol, "long" if prev == 1 else "short",
-                trade["pnl_usd"], trade["pnl_pct"], self._pnl.total_pnl,
-                self._pnl.win_count, self._pnl.trade_count,
-            )
-            # Record close fill in RustStateStore
-            close_side = "sell" if prev == 1 else "buy"
-            self._record_fill(close_side, entry_size, price,
-                              realized_pnl=trade["pnl_usd"])
-
-            # Dynamic weight: update rolling Sharpe-based position scaling
-            self._recent_trade_pnls.append(trade["pnl_pct"])
-            if len(self._recent_trade_pnls) > 30:
-                self._recent_trade_pnls = self._recent_trade_pnls[-30:]
-            self._update_dynamic_scale()
+            _pending_close_size = self._entry_size if self._entry_size > 0 else self._position_size
 
         # Drawdown check via RustRiskEvaluator + RustKillSwitch
         # peak_equity already updated by record_close above
@@ -1560,6 +1539,19 @@ class AlphaRunner:
                 return {"action": "killed", "reason": f"drawdown_{dd:.0f}%"}
 
         if self._dry_run:
+            # In dry_run, record PnL immediately (no venue to confirm)
+            if prev != 0 and self._entry_price > 0:
+                trade = self._pnl.record_close(
+                    symbol=self._symbol, side=prev,
+                    entry_price=self._entry_price, exit_price=price,
+                    size=_pending_close_size, reason="signal_change",
+                )
+                trade_info["closed_pnl"] = round(trade["pnl_usd"], 4)
+                trade_info["closed_pct"] = round(trade["pnl_pct"], 2)
+                self._recent_trade_pnls.append(trade["pnl_pct"])
+                if len(self._recent_trade_pnls) > 30:
+                    self._recent_trade_pnls = self._recent_trade_pnls[-30:]
+                self._update_dynamic_scale()
             trade_info["action"] = "dry_run"
             trade_info["from"] = prev
             trade_info["to"] = new
@@ -1587,6 +1579,29 @@ class AlphaRunner:
             self._osm.transition(close_id, "filled", filled_qty=str(self._position_size),
                                  avg_price=str(price))
             self._circuit_breaker.record_success()
+
+            # Record PnL AFTER venue close confirmed (prevents phantom PnL on close failure)
+            if self._entry_price > 0:
+                trade = self._pnl.record_close(
+                    symbol=self._symbol, side=prev,
+                    entry_price=self._entry_price, exit_price=price,
+                    size=_pending_close_size, reason="signal_change",
+                )
+                trade_info["closed_pnl"] = round(trade["pnl_usd"], 4)
+                trade_info["closed_pct"] = round(trade["pnl_pct"], 2)
+                logger.info(
+                    "%s CLOSE %s: pnl=$%.4f (%.2f%%) total=$%.4f wins=%d/%d",
+                    self._symbol, "long" if prev == 1 else "short",
+                    trade["pnl_usd"], trade["pnl_pct"], self._pnl.total_pnl,
+                    self._pnl.win_count, self._pnl.trade_count,
+                )
+                close_side = "sell" if prev == 1 else "buy"
+                self._record_fill(close_side, _pending_close_size, price,
+                                  realized_pnl=trade["pnl_usd"])
+                self._recent_trade_pnls.append(trade["pnl_pct"])
+                if len(self._recent_trade_pnls) > 30:
+                    self._recent_trade_pnls = self._recent_trade_pnls[-30:]
+                self._update_dynamic_scale()
 
         if kill_armed:
             return {
