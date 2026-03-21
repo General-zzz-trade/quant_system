@@ -376,6 +376,10 @@ def build_gate_chain(
     # --- New sizing gates (P2-07) ---
     equity_leverage_gate: Optional[Any] = None,
     consensus_scaling_gate: Optional[Any] = None,
+    # --- Alpha expansion gates ---
+    multi_tf_confluence_gate: Optional[Any] = None,
+    liquidation_cascade_gate: Optional[Any] = None,
+    carry_cost_gate: Optional[Any] = None,
 ) -> GateChain:
     """Build the standard gate chain with all available subsystems."""
     gates: List[Gate] = [
@@ -395,6 +399,15 @@ def build_gate_chain(
         gates.append(StagedRiskGate(staged_risk))
     if adaptive_stop is not None:
         gates.append(adaptive_stop)
+    # Liquidation cascade gate: early in chain (block before sizing)
+    if liquidation_cascade_gate is not None:
+        gates.append(liquidation_cascade_gate)
+    # Multi-TF confluence gate: after risk, before sizing
+    if multi_tf_confluence_gate is not None:
+        gates.append(multi_tf_confluence_gate)
+    # Carry cost gate: adjust sizing by funding/basis carry
+    if carry_cost_gate is not None:
+        gates.append(carry_cost_gate)
     # Sizing gates: after StagedRiskGate, before PortfolioAllocatorGate
     if equity_leverage_gate is not None:
         gates.append(equity_leverage_gate)

@@ -21,12 +21,10 @@ from features.rolling import RollingWindow
 logger = logging.getLogger(__name__)
 
 _MULTI_DOMINANCE_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
-    "BTCUSDT": (("SUIUSDT", "dom_vs_sui"),),
-    "ETHUSDT": (("SUIUSDT", "dom_vs_sui"), ("AXSUSDT", "dom_vs_axs")),
-    "SUIUSDT": (("AXSUSDT", "dom_vs_axs"),),
-    "AXSUSDT": (("ETHUSDT", "dom_vs_eth"),),
+    "BTCUSDT": (),
+    "ETHUSDT": (),
 }
-_MULTI_DOMINANCE_PREFIXES: tuple[str, ...] = ("dom_vs_sui", "dom_vs_axs", "dom_vs_eth")
+_MULTI_DOMINANCE_PREFIXES: tuple[str, ...] = ()
 _ALL_MULTI_DOMINANCE_FEATURES: tuple[str, ...] = tuple(
     name for prefix in _MULTI_DOMINANCE_PREFIXES for name in (f"{prefix}_dev_20", f"{prefix}_ret_24")
 )
@@ -204,6 +202,16 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "taker_buy_sell_ratio",           # taker_buy_vol / taker_sell_vol — raw buy/sell pressure
     "top_retail_divergence",          # top_trader_ls - global_ls — smart vs dumb money divergence
     "oi_price_divergence_12",         # 12-bar OI change - 12-bar price change — position/price mismatch
+    # --- V18: OI change rate + funding cumulative (IC-screened 2026-03-21) ---
+    "oi_change_24",                   # 24-bar OI change rate — medium-term position buildup (IC -0.291 at h96)
+    "oi_change_96",                   # 96-bar OI change rate — long-term OI shift (strongest unused feature)
+    "funding_cum_3",                  # 3-period cumulative funding rate — short-term carry cost (IC +0.041)
+    # --- V19: Implied Volatility features (DVOL from Deribit) ---
+    "dvol_chg_72",                    # 72-bar DVOL change rate (IC +0.132, strongest IV feature)
+    "iv_term_struct",                 # short/long IV ratio: MA(24)/MA(168) - 1 (IC +0.104)
+    "dvol_z",                         # DVOL z-score over 168 bars (IC +0.101)
+    "dvol_chg_24",                    # 24-bar DVOL change rate (IC +0.107)
+    "dvol_mean_rev",                  # DVOL / MA(720) - 1 — mean reversion signal (IC +0.094)
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
@@ -504,6 +512,12 @@ class _SymbolState:
     _last_top_trader_ls: Optional[float] = None
     _last_taker_sell_volume: float = 0.0
 
+    # V18: Long-window OI buffer for oi_change_24 and oi_change_96
+    _oi_buf_97: Deque[float] = field(default_factory=lambda: deque(maxlen=97))
+
+    # V19: DVOL (Deribit implied volatility) buffer — needs 721 for 720-bar mean
+    _dvol_buf: Deque[float] = field(default_factory=lambda: deque(maxlen=721))
+
     # V5: Order flow windows
     cvd_window_10: RollingWindow = field(default_factory=lambda: RollingWindow(10))
     cvd_window_20: RollingWindow = field(default_factory=lambda: RollingWindow(20))
@@ -613,7 +627,8 @@ class _SymbolState:
              mempool_metrics: Optional[Dict[str, float]] = None,
              macro_metrics: Optional[Dict[str, float]] = None,
              sentiment_metrics: Optional[Dict[str, float]] = None,
-             multi_dom_ratios: Optional[Dict[str, float]] = None) -> None:
+             multi_dom_ratios: Optional[Dict[str, float]] = None,
+             dvol: Optional[float] = None) -> None:
         self._last_hour = hour
         self._last_dow = dow
         if funding_rate is not None:
@@ -641,6 +656,8 @@ class _SymbolState:
             self._last_oi = open_interest
             # V13: OI history buffer for multi-bar change
             self._oi_buf_12.append(open_interest)
+            # V18: Long-window OI buffer for oi_change_24 and oi_change_96
+            self._oi_buf_97.append(open_interest)
 
             # V5: leverage proxy = OI / (close * volume), normalized by EMA
             if close > 0 and volume > 0:
@@ -665,6 +682,10 @@ class _SymbolState:
                 if ratio <= 0:
                     continue
                 self._multi_dom_ratio_bufs.setdefault(prefix, deque(maxlen=25)).append(ratio)
+
+        # V19: DVOL buffer
+        if dvol is not None and not math.isnan(dvol):
+            self._dvol_buf.append(dvol)
 
         # LS Ratio state
         if ls_ratio is not None:
@@ -1267,6 +1288,24 @@ class _SymbolState:
                 feats["oi_price_divergence_12"] = None
         else:
             feats["oi_price_divergence_12"] = None
+
+        # --- V18: OI change rate (24-bar and 96-bar) ---
+        buf97 = self._oi_buf_97
+        if len(buf97) >= 25 and buf97[-25] > 0:
+            feats["oi_change_24"] = (buf97[-1] - buf97[-25]) / buf97[-25]
+        else:
+            feats["oi_change_24"] = None
+
+        if len(buf97) >= 97 and buf97[0] > 0:
+            feats["oi_change_96"] = (buf97[-1] - buf97[0]) / buf97[0]
+        else:
+            feats["oi_change_96"] = None
+
+        # --- V18: 3-period cumulative funding ---
+        if len(self.funding_history_8) >= 3:
+            feats["funding_cum_3"] = sum(list(self.funding_history_8)[-3:])
+        else:
+            feats["funding_cum_3"] = None
 
         # --- V5: Order Flow features ---
         if self.cvd_window_10.full:
@@ -1871,6 +1910,47 @@ class _SymbolState:
         else:
             feats["ret_skew_24"] = None
 
+        # ── V19: Implied Volatility features (DVOL from Deribit) ──
+        dvol_buf = self._dvol_buf
+        dvol_n = len(dvol_buf)
+
+        # dvol_chg_72: 72-bar DVOL change rate
+        if dvol_n >= 73 and dvol_buf[-73] > 0:
+            feats["dvol_chg_72"] = (dvol_buf[-1] - dvol_buf[-73]) / dvol_buf[-73]
+        else:
+            feats["dvol_chg_72"] = None
+
+        # iv_term_struct: MA(24) / MA(168) - 1
+        if dvol_n >= 168:
+            short_ma = sum(list(dvol_buf)[-24:]) / 24
+            long_ma = sum(list(dvol_buf)[-168:]) / 168
+            feats["iv_term_struct"] = short_ma / long_ma - 1 if long_ma > 0 else 0.0
+        else:
+            feats["iv_term_struct"] = None
+
+        # dvol_z: z-score over 168 bars
+        if dvol_n >= 168:
+            window = list(dvol_buf)[-168:]
+            mu_dv = sum(window) / 168
+            var_dv = sum((x - mu_dv) ** 2 for x in window) / 168
+            std_dv = var_dv ** 0.5
+            feats["dvol_z"] = (dvol_buf[-1] - mu_dv) / max(std_dv, 0.1)
+        else:
+            feats["dvol_z"] = None
+
+        # dvol_chg_24: 24-bar DVOL change rate
+        if dvol_n >= 25 and dvol_buf[-25] > 0:
+            feats["dvol_chg_24"] = (dvol_buf[-1] - dvol_buf[-25]) / dvol_buf[-25]
+        else:
+            feats["dvol_chg_24"] = None
+
+        # dvol_mean_rev: DVOL / MA(720) - 1
+        if dvol_n >= 720:
+            ma720 = sum(list(dvol_buf)[-720:]) / 720
+            feats["dvol_mean_rev"] = dvol_buf[-1] / ma720 - 1 if ma720 > 0 else 0.0
+        else:
+            feats["dvol_mean_rev"] = None
+
         return feats
 
 
@@ -1915,6 +1995,8 @@ class EnrichedFeatureComputer:
         sentiment_metrics: Optional[Dict[str, float]] = None,
         btc_close: Optional[float] = None,
         reference_closes: Optional[Dict[str, float]] = None,
+        dvol: Optional[float] = None,
+        options_metrics: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features.
 
@@ -1922,6 +2004,8 @@ class EnrichedFeatureComputer:
         top_trader_ls_ratio: Top trader position L/S ratio (V13).
         eth_close: ETH price at same bar time. Required for V14 BTC dominance features.
         reference_closes: Optional cross-asset reference close map for V14b dominance pairs.
+        dvol: Deribit DVOL index value at same bar time. Required for V19 IV features.
+        options_metrics: Dict from OptionsFlowComputer (gamma_imbalance_zscore, max_pain_distance, etc).
         """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
@@ -1951,8 +2035,18 @@ class EnrichedFeatureComputer:
                    mempool_metrics=mempool_metrics,
                    macro_metrics=macro_metrics,
                    sentiment_metrics=sentiment_metrics,
-                   multi_dom_ratios=multi_dom_ratios)
-        return state.get_features(btc_close=btc_close)
+                   multi_dom_ratios=multi_dom_ratios,
+                   dvol=dvol)
+        feats = state.get_features(btc_close=btc_close)
+
+        # --- V20: Options flow features (from OptionsFlowComputer) ---
+        if options_metrics:
+            for key in ("gamma_imbalance_zscore", "max_pain_distance",
+                        "vega_net_zscore", "iv_term_slope", "pcr_zscore",
+                        "iv_rv_premium", "dvol_zscore"):
+                feats[key] = options_metrics.get(key)
+
+        return feats
 
     def get_features_dict(self, symbol: str) -> Dict[str, Optional[float]]:
         """Get last computed features as a flat dict (for signal models)."""
