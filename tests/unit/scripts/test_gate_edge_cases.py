@@ -151,6 +151,27 @@ class TestCarryCostEdgeCases:
         assert r.allowed
 
 
+class TestNonNumericSignal:
+    """Gates should handle non-numeric signal values gracefully."""
+
+    def test_string_signal_in_metadata(self):
+        for GateClass in [MultiTFConfluenceGate, LiquidationCascadeGate, CarryCostGate]:
+            gate = GateClass()
+            ev = MagicMock()
+            ev.metadata = {"signal": "buy"}  # non-numeric
+            r = gate.check(ev, {"tf4h_rsi_14": 70.0})
+            assert r.allowed
+            assert r.scale == 1.0  # treated as signal=0
+
+    def test_none_signal_in_context(self):
+        for GateClass in [MultiTFConfluenceGate, LiquidationCascadeGate, CarryCostGate]:
+            gate = GateClass()
+            ev = MagicMock()
+            ev.metadata = {}
+            r = gate.check(ev, {"signal": None})
+            assert r.allowed
+
+
 class TestGateChainCumulative:
     """Test gates applied in sequence don't produce invalid scales."""
 

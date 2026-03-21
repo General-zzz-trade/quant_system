@@ -30,4 +30,6 @@ SYMBOL_CONFIG = {
 # Shared cross-symbol signal state for consensus scaling.
 # Maps runner_key → current signal (+1, -1, 0). Updated by each AlphaRunner
 # after process_bar(). Read by _get_consensus_scale() to adjust sizing.
+# Thread safety: CPython GIL guarantees dict[key]=val is atomic. No lock needed
+# for simple read/write. If switching to free-threaded Python, add a Lock.
 _consensus_signals: dict[str, int] = {}

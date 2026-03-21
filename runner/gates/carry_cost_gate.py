@@ -74,9 +74,15 @@ class CarryCostGate:
         signal = 0
         meta = getattr(ev, "metadata", None) or {}
         if isinstance(meta, dict):
-            signal = int(meta.get("signal", 0))
+            try:
+                signal = int(meta.get("signal", 0))
+            except (ValueError, TypeError):
+                signal = 0
         if signal == 0:
-            signal = int(context.get("signal", 0))
+            try:
+                signal = int(context.get("signal", 0))
+            except (ValueError, TypeError):
+                signal = 0
 
         if signal == 0:
             return GateResult(allowed=True, scale=1.0)
