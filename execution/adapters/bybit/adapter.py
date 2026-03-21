@@ -79,6 +79,9 @@ def _make_order_link_id(symbol: str, side: str) -> str:
     return f"qs_{symbol_token}_{side_token}_{ts_token}_{suffix}"
 
 
+_ORDER_TTL_SECONDS = 30
+
+
 class BybitAdapter:
     """Bybit venue adapter implementing VenueAdapter protocol."""
 
@@ -88,6 +91,8 @@ class BybitAdapter:
         self._config = config
         self._client = BybitRestClient(config)
         self._connected = False
+        self._pending_orders: dict[str, float] = {}  # orderLinkId -> submit_time
+        self._pending_lock = _threading.Lock()
 
     # ------------------------------------------------------------------
     # Connection
@@ -184,11 +189,48 @@ class BybitAdapter:
     # Order submission
     # ------------------------------------------------------------------
 
+    def _check_order_ttls(self) -> list[str]:
+        """Cancel orders that have been in SUBMITTED state longer than TTL.
+
+        Returns list of cancelled orderLinkIds.
+        """
+        now = _time.time()
+        cancelled: list[str] = []
+        with self._pending_lock:
+            stale = [
+                oid for oid, ts in self._pending_orders.items()
+                if now - ts > _ORDER_TTL_SECONDS
+            ]
+        for oid in stale:
+            logger.warning(
+                "Order TTL expired (>%ds): orderLinkId=%s — cancelling",
+                _ORDER_TTL_SECONDS, oid,
+            )
+            body = {
+                "category": self._config.category,
+                "orderLinkId": oid,
+            }
+            data = self._client.post("/v5/order/cancel", body)
+            if data.get("retCode") == 0:
+                logger.info("Stale order cancelled: %s", oid)
+            else:
+                logger.error(
+                    "Failed to cancel stale order %s: %s",
+                    oid, data.get("retMsg"),
+                )
+            with self._pending_lock:
+                self._pending_orders.pop(oid, None)
+            cancelled.append(oid)
+        return cancelled
+
     def send_market_order(
         self, symbol: str, side: str, qty: float,
         *, reduce_only: bool = False,
     ) -> dict:
         """Send a market order with orderLinkId for deduplication."""
+        # Check for stale pending orders before submitting new ones
+        self._check_order_ttls()
+
         # Generate unique orderLinkId: prevents duplicate orders on retry/timeout
         # Bybit rejects duplicate orderLinkId within 3 minutes
         order_link_id = _make_order_link_id(symbol, side)
@@ -206,13 +248,16 @@ class BybitAdapter:
         data = self._client.post("/v5/order/create", body)
         if data.get("retCode") == 0:
             result = data.get("result", {})
+            returned_link_id = result.get("orderLinkId", order_link_id)
+            with self._pending_lock:
+                self._pending_orders[returned_link_id] = _time.time()
             logger.info(
                 "Bybit %s %s %.4f orderId=%s",
                 side, symbol, qty, result.get("orderId"),
             )
             return {
                 "orderId": result.get("orderId"),
-                "orderLinkId": result.get("orderLinkId"),
+                "orderLinkId": returned_link_id,
                 "status": "submitted",
             }
         return {"status": "error", "retCode": data.get("retCode"),

@@ -170,6 +170,20 @@ class AlphaRunner:
         self._z_scale: float = 1.0  # non-linear z-score position scale
         self._last_bar_time: float = 0.0  # time.time() of last process_bar call
 
+        # Alpha expansion gates (scale position based on context features)
+        from runner.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
+        from runner.gates.liquidation_cascade_gate import LiquidationCascadeGate
+        from runner.gates.carry_cost_gate import CarryCostGate
+        self._mtf_gate = MultiTFConfluenceGate()
+        self._liq_gate = LiquidationCascadeGate()
+        self._carry_gate = CarryCostGate()
+        self._gate_scale: float = 1.0  # cumulative gate scale for logging
+
+        # Online Ridge: incremental weight updates between weekly retrains
+        self._online_ridge: Any = None
+        self._online_ridge_features: list[str] = []
+        self._last_close: float = 0.0  # for computing realized returns
+
         # Background OI cache: fetches Binance OI/LS/Taker every 55s in a daemon thread.
         # Allow injection/disable in tests and non-networked environments.
         self._oi_cache = oi_cache if oi_cache is not None else BinanceOICache(self._symbol)
@@ -279,7 +293,8 @@ class AlphaRunner:
             url = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=ETHUSDT"
             with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=3) as resp:
                 return float(json.loads(resp.read()).get("price", 0))
-        except Exception:
+        except Exception as e:
+            logger.warning("%s _fetch_eth_price failed: %s", self._symbol, e)
             return 0.0
 
     def _compute_dominance_features(self, btc_close: float) -> dict:
@@ -431,6 +446,19 @@ class AlphaRunner:
                     if pos.symbol == self._symbol and not pos.is_flat:
                         exchange_price = float(pos.entry_price) if pos.entry_price else 0.0
                         break
+
+                # Fallback: if exchange doesn't return entry_price, use current
+                # market price. This prevents entry_price=0 which would cause
+                # trailing stop to immediately trigger (peak_price=0 bug).
+                if exchange_price <= 0:
+                    try:
+                        tick = self._adapter.get_ticker(self._symbol)
+                        exchange_price = float(tick.get("lastPrice", 0))
+                    except Exception as e:
+                        logger.warning("%s reconcile: failed to fetch ticker price: %s", self._symbol, e)
+                if exchange_price <= 0 and self._closes:
+                    exchange_price = self._closes[-1]
+
                 if exchange_qty > 0 and exchange_price > 0:
                     self._record_fill(
                         "buy" if exchange_side == 1 else "sell",
@@ -445,6 +473,19 @@ class AlphaRunner:
                         "%s RECONCILE: synced StateStore with exchange position side=%d qty=%.4f price=%.2f",
                         self._symbol, exchange_side, exchange_qty, exchange_price,
                     )
+                elif exchange_qty > 0 and exchange_price <= 0:
+                    # Critical: exchange has position but we cannot determine price.
+                    # Set entry_price to a safe value to prevent stop-loss chaos.
+                    logger.error(
+                        "%s RECONCILE INVARIANT: exchange has qty=%.4f but no price available. "
+                        "Setting signal to flat to avoid undefined stop-loss behavior.",
+                        self._symbol, exchange_qty,
+                    )
+                    self._current_signal = 0
+                    self._entry_price = 0.0
+                    self._entry_size = 0.0
+                    self._trade_peak_price = 0.0
+                    self._inference.set_position(self._symbol, 0, 1)
             if self._runner_key:
                 _consensus_signals[self._runner_key] = exchange_side
         else:
@@ -622,6 +663,59 @@ class AlphaRunner:
 
             return False
 
+    def enable_online_ridge(self, horizon_idx: int = 0) -> None:
+        """Enable Online Ridge for incremental weight updates.
+
+        Call after construction to activate. Loads static Ridge weights
+        and begins RLS updates as new bars arrive.
+        """
+        from alpha.online_ridge import OnlineRidge
+        if not self._horizon_models:
+            logger.warning("%s no horizon models — cannot enable online ridge", self._symbol)
+            return
+        hm = self._horizon_models[horizon_idx]
+        ridge_model = hm.get("ridge")
+        if ridge_model is None:
+            logger.warning("%s no ridge model in horizon %d", self._symbol, horizon_idx)
+            return
+        rf = hm.get("ridge_features") or hm["features"]
+        n_feat = len(rf)
+        self._online_ridge = OnlineRidge(
+            n_features=n_feat,
+            forgetting_factor=0.997,
+            min_samples_for_update=50,
+            max_update_magnitude=0.05,
+        )
+        coef = np.asarray(ridge_model.coef_, dtype=np.float64).ravel()
+        intercept = float(ridge_model.intercept_)
+        self._online_ridge.load_from_weights(coef, intercept)
+        self._online_ridge_features = list(rf)
+        logger.info("%s Online Ridge enabled: %d features, drift monitoring active",
+                     self._symbol, n_feat)
+
+    def _update_online_ridge(self, feat_dict: dict, close: float) -> None:
+        """Feed realized return to Online Ridge for incremental update."""
+        if self._online_ridge is None or self._last_close <= 0:
+            self._last_close = close
+            return
+        # Realized return (1-bar forward return of previous bar)
+        realized_ret = (close - self._last_close) / self._last_close
+        self._last_close = close
+        # Build feature vector from previous bar (lagged by 1)
+        x = np.array([
+            float(feat_dict.get(f, _NEUTRAL_DEFAULTS.get(f, 0.0)) or 0.0)
+            for f in self._online_ridge_features
+        ])
+        self._online_ridge.update(x, realized_ret)
+        # Log drift periodically
+        if self._online_ridge.n_updates % 100 == 0 and self._online_ridge.n_updates > 0:
+            drift = self._online_ridge.weight_drift
+            logger.info("%s OnlineRidge: %d updates, drift=%.4f",
+                         self._symbol, self._online_ridge.n_updates, drift)
+            if drift > 0.5:
+                logger.warning("%s OnlineRidge drift=%.4f exceeds threshold!",
+                               self._symbol, drift)
+
     def _ensemble_predict(self, feat_dict: dict) -> float | None:
         """Ensemble: Ridge (primary) + LightGBM (secondary).
 
@@ -665,7 +759,11 @@ class AlphaRunner:
                 rf = hm.get("ridge_features") or feats
                 rx = [_safe_val(feat_dict.get(f), f) for f in rf]
                 if True:  # NaN already handled by _safe_val
-                    ridge_pred = float(hm["ridge"].predict([rx])[0])
+                    # Use Online Ridge if available, else static Ridge
+                    if self._online_ridge is not None and self._online_ridge.n_updates >= 50:
+                        ridge_pred = self._online_ridge.predict(np.array(rx))
+                    else:
+                        ridge_pred = float(hm["ridge"].predict([rx])[0])
                     lgbm_pred = float(hm["lgbm"].predict([x])[0])
                     pred = ridge_pred * ridge_w + lgbm_pred * lgbm_w
                 else:
@@ -692,7 +790,7 @@ class AlphaRunner:
         # Secondary = first horizon model (h=12, shorter)
         hm = self._horizon_models[0]
         feats = hm["features"]
-        x = [feat_dict.get(f, 0.0) or 0.0 for f in feats]
+        x = [feat_dict.get(f, _NEUTRAL_DEFAULTS.get(f, 0.0)) or _NEUTRAL_DEFAULTS.get(f, 0.0) for f in feats]
         if any(np.isnan(x)):
             return None
         return float(hm["lgbm"].predict([x])[0])
@@ -857,12 +955,11 @@ class AlphaRunner:
         target_lev = self._get_leverage_for_equity(equity)
 
         # Position = equity × per_symbol_cap × leverage / price
-        # Sharpe-weighted allocation: higher Sharpe symbols get larger positions.
-        # Walk-forward Sharpe: SUI 1.78, ETH 1.18, AXS 0.78, BTC 0.46
-        # Total Sharpe = 4.20, weights: SUI 42%, ETH 28%, AXS 19%, BTC 11%
-        # Capped at [0.08, 0.40] to prevent over-concentration.
+        # Sharpe-weighted allocation: BTC+ETH only (altcoins removed 2026-03-21)
+        # Walk-forward Sharpe: ETH 4.67, BTC 4.37 (monthly-gate optimized)
+        # Equal weight since both are strong; cap at 0.45 each
         _SHARPE_WEIGHTS = {
-            "SUIUSDT": 0.40, "ETHUSDT": 0.28, "AXSUSDT": 0.19, "BTCUSDT": 0.11,
+            "ETHUSDT": 0.45, "BTCUSDT": 0.45, "ETHUSDT_15m": 0.10,
         }
         per_sym_cap = _SHARPE_WEIGHTS.get(self._symbol, 0.20)
         # Dynamic degradation: reduce cap when rolling Sharpe is negative
@@ -928,10 +1025,61 @@ class AlphaRunner:
                 self._current_exchange_lev = lev_int
                 logger.info("%s exchange leverage set to %dx", self._symbol, lev_int)
             except Exception as e:
-                logger.debug("%s set_leverage failed (non-fatal): %s", self._symbol, e)
+                logger.warning("%s set_leverage failed (non-fatal): %s", self._symbol, e)
 
         self._position_size = size
         return size
+
+    def _evaluate_gates(self, signal: int, feat_dict: dict) -> float:
+        """Evaluate alpha expansion gates — returns cumulative scale factor.
+
+        Gates:
+          1. LiquidationCascade: block/scale during liquidation events
+          2. MultiTFConfluence: scale by 1h vs 4h alignment
+          3. CarryCost: adjust by funding+basis carry cost
+
+        Returns scale ∈ [0.0, ~1.5]. Scale is applied to position_size,
+        not to the signal itself (signal stays discrete ±1/0).
+        """
+        if signal == 0:
+            return 1.0
+
+        ev = type("_GateEv", (), {"metadata": {"signal": signal}})()
+        ctx = {"signal": signal}
+
+        # Populate context from features
+        gate_features = [
+            "liquidation_volume_zscore_24", "oi_acceleration",
+            "liquidation_cascade_score", "liquidation_imbalance",
+            "tf4h_close_vs_ma20", "tf4h_rsi_14", "tf4h_macd_hist",
+            "funding_rate", "basis",
+        ]
+        for key in gate_features:
+            val = feat_dict.get(key)
+            if val is not None:
+                fval = float(val)
+                if fval == fval:  # NaN check
+                    ctx[key] = fval
+
+        scale = 1.0
+
+        # Gate 1: Liquidation cascade
+        r = self._liq_gate.check(ev, ctx)
+        if not r.allowed:
+            logger.info("%s LiquidationCascade BLOCKED: %s", self._symbol, r.reason)
+            return 0.0
+        scale *= r.scale
+
+        # Gate 2: Multi-timeframe confluence
+        r = self._mtf_gate.check(ev, ctx)
+        scale *= r.scale
+
+        # Gate 3: Carry cost
+        r = self._carry_gate.check(ev, ctx)
+        scale *= r.scale
+
+        self._gate_scale = scale
+        return scale
 
     def _check_regime(self, close: float, feat_dict: dict | None = None) -> bool:
         """Check if current market regime is favorable for trading.
@@ -1078,6 +1226,25 @@ class AlphaRunner:
         if self._bars_processed % self.RECONCILE_INTERVAL == 0:
             self._reconcile_position()
 
+        # Post-reconcile invariant check: if in position, entry fields must be set.
+        # This catches the historical bug where reconcile set _current_signal!=0
+        # but left _entry_price=0 and _trade_peak_price=0.
+        if self._current_signal != 0 and self._entry_price <= 0:
+            logger.warning(
+                "%s INVARIANT VIOLATION: signal=%d but entry_price=%.4f — "
+                "using current close as fallback",
+                self._symbol, self._current_signal, self._entry_price,
+            )
+            self._entry_price = bar["close"]
+            self._entry_size = self._position_size
+        if self._current_signal != 0 and self._trade_peak_price <= 0:
+            logger.warning(
+                "%s INVARIANT VIOLATION: signal=%d but trade_peak_price=%.4f — "
+                "using entry_price as fallback",
+                self._symbol, self._current_signal, self._trade_peak_price,
+            )
+            self._trade_peak_price = self._entry_price
+
         # Regime filter
         regime_ok = self._check_regime(bar["close"])
 
@@ -1109,6 +1276,9 @@ class AlphaRunner:
             return {"action": "no_features", "bar": self._bars_processed}
 
         feat_dict = dict(features)
+
+        # Online Ridge: feed realized return for incremental weight update
+        self._update_online_ridge(feat_dict, bar["close"])
 
         # V14: Inject BTC dominance features (computed in Python, not Rust)
         if self._symbol == "BTCUSDT":
@@ -1249,6 +1419,7 @@ class AlphaRunner:
                 "action": "signal", "bar": self._bars_processed,
                 "pred": round(pred, 6), "z": round(z, 4),
                 "z_scale": self._z_scale,
+                "gate_scale": round(self._gate_scale, 3),
                 "signal": new_signal, "prev_signal": prev_signal,
                 "hold_count": int(self._inference.get_position(self._symbol)), "close": bar["close"],
                 "regime": "active" if regime_ok else "filtered",
@@ -1259,9 +1430,28 @@ class AlphaRunner:
                 result["exit_reason"] = exit_reason
 
             if new_signal != prev_signal and actual_prev == prev_signal:
+                # Evaluate alpha expansion gates for position scaling
+                gate_scale = self._evaluate_gates(new_signal, feat_dict)
+                if gate_scale <= 0.0 and new_signal != 0 and prev_signal == 0:
+                    # Gate blocked entry — stay flat
+                    new_signal = 0
+                    self._current_signal = 0
+                    self._inference.set_position(self._symbol, 0, 1)
+                    result["gate_blocked"] = True
+                    result["signal"] = 0
+                else:
+                    result["gate_scale"] = round(gate_scale, 3)
+
                 # Recompute position size before entering new position
                 if new_signal != 0:
                     self._compute_position_size(bar["close"])
+                    # Apply gate scaling to position size
+                    if gate_scale < 1.0:
+                        self._position_size = max(
+                            self._min_size,
+                            self._position_size * gate_scale,
+                        )
+                        self._position_size = self._round_to_step(self._position_size)
                 trade_result = self._execute_signal_change(prev_signal, new_signal, bar["close"])
                 result["trade"] = trade_result
                 result["size"] = self._position_size
@@ -1477,10 +1667,10 @@ class AlphaRunner:
             # Record open fill in RustStateStore
             self._record_fill(side, self._position_size, actual_price)
             atr = self._current_atr()
-            stop = self._compute_stop_price(price)
+            stop = self._compute_stop_price(actual_price)
             logger.info(
                 "Opened %s %.4f @ ~$%.1f stop=$%.2f (ATR=%.2f%%): %s",
-                side, self._position_size, price, stop, atr * 100, result,
+                side, self._position_size, actual_price, stop, atr * 100, result,
             )
             trade_info.update({"side": side, "qty": self._position_size, "result": result,
                                "stop": round(stop, 2), "atr_pct": round(atr * 100, 2)})
