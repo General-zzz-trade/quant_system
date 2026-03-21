@@ -366,7 +366,18 @@ class AlphaRunner:
             "rets": [float(x) for x in self._rets[-500:]],
         }
         path = self._CHECKPOINT_DIR / f"{self._symbol}.json"
-        path.write_text(json.dumps(ckpt))
+        # Replace NaN/Inf with null for JSON compatibility
+        def _sanitize(obj: object) -> object:
+            if isinstance(obj, float):
+                if obj != obj or obj == float("inf") or obj == float("-inf"):
+                    return None
+                return obj
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            return obj
+        path.write_text(json.dumps(_sanitize(ckpt)))
         logger.debug("%s checkpoint saved", self._symbol)
 
     def _restore_checkpoint(self) -> bool:
