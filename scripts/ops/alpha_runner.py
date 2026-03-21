@@ -125,14 +125,17 @@ class AlphaRunner:
         # via RustFillEvent processing on the Rust heap.
         self._state_store = state_store
 
-        # Adaptive stop-loss state.
-        # 1.2x initial (was 1.5), breakeven at 0.5×ATR, trail at 0.5×ATR, step 0.2×ATR
+        # Adaptive stop-loss state (regime-aware).
+        # Base: 1.2x ATR initial, breakeven at 0.5×ATR, trail step 0.2×ATR
+        # Regime scaling: high vol → wider stops, low vol → tighter stops
         self._atr_buffer: list[float] = []  # recent ATR values for adaptive stop
         self._trade_peak_price: float = 0.0  # highest favorable price since entry (for trailing)
+        self._atr_stop_mult_base: float = 1.2
         self._atr_stop_mult: float = 1.2
         self._trail_atr_mult: float = 0.5    # trail activates after 0.5×ATR profit
         self._trail_step: float = 0.2        # trail distance: 0.2×ATR
         self._breakeven_atr: float = 0.5     # breakeven at 0.5×ATR profit
+        self._vol_regime_history: list[float] = []
 
         from _quant_hotpath import (RustFeatureEngine, RustInferenceBridge,
                                     RustOrderStateMachine, RustCircuitBreaker,
@@ -174,9 +177,11 @@ class AlphaRunner:
         from runner.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
         from runner.gates.liquidation_cascade_gate import LiquidationCascadeGate
         from runner.gates.carry_cost_gate import CarryCostGate
+        from runner.gates.vpin_entry_gate import VPINEntryGate
         self._mtf_gate = MultiTFConfluenceGate()
         self._liq_gate = LiquidationCascadeGate()
         self._carry_gate = CarryCostGate()
+        self._vpin_gate = VPINEntryGate()
         self._gate_scale: float = 1.0  # cumulative gate scale for logging
 
         # Online Ridge: incremental weight updates between weekly retrains
@@ -522,6 +527,18 @@ class AlphaRunner:
         atr = self._current_atr()
         side = self._current_signal  # +1=long, -1=short
         entry = self._entry_price
+
+        # Regime-aware stop scaling:
+        # High vol → wider multiplier (let trade breathe in volatile market)
+        # Low vol → tighter multiplier (capture small moves precisely)
+        if len(self._atr_buffer) >= 20:
+            recent_vol = np.mean(self._atr_buffer[-5:])
+            median_vol = np.median(self._atr_buffer[-20:])
+            if median_vol > 0:
+                vol_ratio = recent_vol / median_vol
+                # Scale ATR multiplier: ratio>1.5 → widen 30%, ratio<0.7 → tighten 20%
+                regime_scale = np.clip(0.7 + 0.3 * vol_ratio, 0.8, 1.3)
+                self._atr_stop_mult = self._atr_stop_mult_base * regime_scale
 
         # Update trade peak (best price since entry)
         # Safety: if peak was never initialized (e.g., after reconcile restart),
@@ -1072,6 +1089,7 @@ class AlphaRunner:
             "liquidation_cascade_score", "liquidation_imbalance",
             "tf4h_close_vs_ma20", "tf4h_rsi_14", "tf4h_macd_hist",
             "funding_rate", "basis",
+            "vpin", "ob_imbalance", "spread_bps",  # for VPIN gate
         ]
         for key in gate_features:
             val = feat_dict.get(key)
@@ -1095,6 +1113,14 @@ class AlphaRunner:
 
         # Gate 3: Carry cost
         r = self._carry_gate.check(ev, ctx)
+        scale *= r.scale
+
+        # Gate 4: VPIN entry timing (delays entry when microstructure unfavorable)
+        ctx["symbol"] = self._symbol
+        r = self._vpin_gate.check(ev, ctx)
+        if not r.allowed:
+            logger.info("%s VPIN BLOCKED: %s", self._symbol, r.reason)
+            return 0.0
         scale *= r.scale
 
         self._gate_scale = scale
