@@ -443,10 +443,11 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
         for ws in ws_clients:
             ws.stop()
         if not dry_run:
-            for symbol, runner in runners.items():
+            for key, runner in runners.items():
                 if runner._current_signal != 0:
-                    logger.info("Closing %s on exit...", symbol)
-                    reliable_close_position(adapter, symbol, verify=False)
+                    real_symbol = runner._symbol  # use real exchange symbol, not dict key
+                    logger.info("Closing %s (key=%s) on exit...", real_symbol, key)
+                    reliable_close_position(adapter, real_symbol, verify=False)
 
 def main(argv: list[str] | None = None):
     args = _parse_args(argv)

@@ -1275,7 +1275,7 @@ class AlphaRunner:
         self._bars_processed += 1
 
         # Periodic reconciliation with exchange
-        if self._bars_processed % self.RECONCILE_INTERVAL == 0:
+        if not self._dry_run and self._bars_processed % self.RECONCILE_INTERVAL == 0:
             self._reconcile_position()
 
         # Post-reconcile invariant check: if in position, entry fields must be set.
@@ -1302,11 +1302,16 @@ class AlphaRunner:
 
         # Get funding rate from ticker (if available)
         funding_rate = bar.get("funding_rate", float("nan"))
+        try:
+            funding_rate = float(funding_rate)
+        except (ValueError, TypeError):
+            funding_rate = float("nan")
         if np.isnan(funding_rate):
             try:
                 tick = self._adapter.get_ticker(self._symbol)
-                funding_rate = tick.get("fundingRate", float("nan"))
-            except Exception:
+                raw = tick.get("fundingRate", float("nan"))
+                funding_rate = float(raw) if raw is not None else float("nan")
+            except (ValueError, TypeError, Exception):
                 funding_rate = float("nan")
 
         # V13: OI/LS/Taker data from background cache (refreshed every 55s, never blocks)
@@ -1544,8 +1549,8 @@ class AlphaRunner:
             result["entry_method"] = "market_fallback"
             return result
 
-        bid = ticker["bid1Price"]
-        ask = ticker["ask1Price"]
+        bid = float(ticker["bid1Price"])
+        ask = float(ticker["ask1Price"])
 
         # Place at best bid for buys, best ask for sells (passive, queue at top)
         limit_price = bid if side.lower() == "buy" else ask
@@ -1656,10 +1661,16 @@ class AlphaRunner:
             _pending_close_size = self._entry_size if self._entry_size > 0 else self._position_size
 
         # Drawdown check via RustRiskEvaluator + RustKillSwitch
-        # peak_equity already updated by record_close above
-        if self._risk_eval is not None and self._kill_switch is not None and self._pnl.peak_equity > 0:
+        # Use actual account equity (not cumulative PnL) for drawdown calculation
+        try:
+            _dd_equity, _ = get_total_and_free_balance(self._adapter.get_balances())
+            _dd_equity = _dd_equity or 0.0
+        except Exception:
+            _dd_equity = 0.0
+        _dd_peak = max(self._pnl.peak_equity, _dd_equity) if self._pnl.peak_equity > 0 else _dd_equity
+        if self._risk_eval is not None and self._kill_switch is not None and _dd_peak > 0:
             breached = self._risk_eval.check_drawdown(
-                equity=self._pnl.total_pnl, peak_equity=self._pnl.peak_equity,
+                equity=_dd_equity, peak_equity=_dd_peak,
             )
             if breached:
                 dd = self._pnl.drawdown_pct
@@ -1703,6 +1714,15 @@ class AlphaRunner:
                 if len(self._recent_trade_pnls) > 30:
                     self._recent_trade_pnls = self._recent_trade_pnls[-30:]
                 self._update_dynamic_scale()
+            # Set entry state for dry_run new positions
+            if new != 0:
+                self._entry_price = price
+                self._entry_size = self._position_size
+                self._trade_peak_price = price
+            elif prev != 0:
+                self._entry_price = 0.0
+                self._entry_size = 0.0
+                self._trade_peak_price = 0.0
             trade_info["action"] = "dry_run"
             trade_info["from"] = prev
             trade_info["to"] = new

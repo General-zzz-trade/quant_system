@@ -267,7 +267,8 @@ class BybitAdapter:
         self, symbol: str, side: str, qty: float, price: float,
         *, tif: str = "GTC", reduce_only: bool = False,
     ) -> dict:
-        """Send a limit order."""
+        """Send a limit order with orderLinkId for deduplication."""
+        order_link_id = _make_order_link_id(symbol, side)
         body = {
             "category": self._config.category,
             "symbol": symbol,
@@ -276,6 +277,7 @@ class BybitAdapter:
             "qty": str(qty),
             "price": str(price),
             "timeInForce": tif.upper(),
+            "orderLinkId": order_link_id,
         }
         if reduce_only:
             body["reduceOnly"] = True

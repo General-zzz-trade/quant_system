@@ -239,7 +239,12 @@ class PortfolioCombiner:
             # Conviction scaling: both agree = full size, one only = half
             agree_count = sum(1 for s in self._signals.values() if s == desired)
             conviction = agree_count / len(self._signals)  # 0.5 = one alpha, 1.0 = both
-            leverage = 10.0
+            # Use equity-based leverage ladder (same as AlphaRunner)
+            from scripts.ops.alpha_runner import AlphaRunner
+            leverage = 2.0  # default
+            for threshold, lev_val in AlphaRunner.LEVERAGE_LADDER:
+                if equity >= threshold:
+                    leverage = lev_val
             size = (equity * leverage * conviction) / price
             size = max(self._min_size, round(size, 2))
 
