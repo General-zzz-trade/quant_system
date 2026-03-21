@@ -54,6 +54,7 @@ class SQLiteAckStore(AckStore):
     timeout_s: float = 10.0
 
     _conn: sqlite3.Connection = field(init=False, repr=False)
+    _closed: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
@@ -72,6 +73,26 @@ class SQLiteAckStore(AckStore):
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_acks_ts ON acks(ts);")
         # Prune eagerly on startup if ttl set
         self.prune()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._conn.close()
+        finally:
+            self._closed = True
+
+    def __enter__(self) -> "SQLiteAckStore":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def get(self, key: str) -> Optional[Mapping[str, Any]]:
         row = self._conn.execute("SELECT payload, ts FROM acks WHERE idem_key=?", (key,)).fetchone()

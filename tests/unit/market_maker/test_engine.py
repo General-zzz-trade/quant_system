@@ -119,3 +119,38 @@ class TestMarketMakerEngine:
         snap = _make_snapshot()
         engine.on_depth(snap)
         assert engine._vpin == 0.6
+
+    def test_microstructure_trade_failure_logs_and_preserves_previous_vpin(self, caplog, monkeypatch):
+        import execution.market_maker.engine as engine_mod
+
+        cfg = MarketMakerConfig(dry_run=True, quote_update_interval_s=0.0)
+        micro = MagicMock()
+        micro.on_trade.side_effect = RuntimeError("trade micro failed")
+        engine = MarketMakerEngine(cfg=cfg, microstructure=micro)
+        engine._vpin = 0.42
+
+        monkeypatch.setattr(engine_mod.time, "monotonic", lambda: 100.0)
+        with caplog.at_level("WARNING", logger=engine_mod.log.name):
+            engine.on_trade(2000.0, 0.01, "buy")
+            engine.on_trade(2000.0, 0.01, "buy")
+
+        assert engine._vpin == 0.42
+        assert caplog.text.count("Microstructure trade update failed; keeping previous state") == 1
+
+    def test_microstructure_depth_failure_logs_and_preserves_previous_vpin(self, caplog, monkeypatch):
+        import execution.market_maker.engine as engine_mod
+
+        cfg = MarketMakerConfig(dry_run=True, quote_update_interval_s=999.0)
+        micro = MagicMock()
+        micro.on_depth.side_effect = RuntimeError("depth micro failed")
+        engine = MarketMakerEngine(cfg=cfg, microstructure=micro)
+        engine._vpin = 0.77
+        engine.start()
+
+        monkeypatch.setattr(engine_mod.time, "monotonic", lambda: 100.0)
+        with caplog.at_level("WARNING", logger=engine_mod.log.name):
+            engine.on_depth(_make_snapshot())
+            engine.on_depth(_make_snapshot())
+
+        assert engine._vpin == 0.77
+        assert caplog.text.count("Microstructure depth update failed; keeping previous state") == 1

@@ -63,6 +63,7 @@ class MarketMakerEngine:
         self._mid: float = 0.0
         self._vpin: float = 0.0
         self._tick_count: int = 0
+        self._last_micro_error_log: dict[str, float] = {"depth": 0.0, "trade": 0.0}
 
     @property
     def inventory(self) -> InventoryTracker:
@@ -98,7 +99,7 @@ class MarketMakerEngine:
                 result = self._micro.on_depth(bids, asks)
                 self._vpin = result.get("vpin", 0.0)
             except Exception:
-                pass
+                self._log_microstructure_error("depth")
 
         self._maybe_update_quotes()
 
@@ -110,7 +111,7 @@ class MarketMakerEngine:
                 result = self._micro.on_trade(price, qty, side)
                 self._vpin = result.get("vpin", 0.0)
             except Exception:
-                pass
+                self._log_microstructure_error("trade")
 
     def on_user_event(self, event: dict) -> None:
         """Handle user data stream events (fills, order updates)."""
@@ -246,6 +247,18 @@ class MarketMakerEngine:
                 log.info("DRY flatten: %s %.4f", side, qty)
 
         self._running = False
+
+    def _log_microstructure_error(self, stream: str, *, throttle_s: float = 60.0) -> None:
+        now = time.monotonic()
+        last = self._last_micro_error_log.get(stream, 0.0)
+        if now - last < throttle_s:
+            return
+        self._last_micro_error_log[stream] = now
+        log.warning(
+            "Microstructure %s update failed; keeping previous state",
+            stream,
+            exc_info=True,
+        )
 
     # ── Lifecycle ───────────────────────────────────────────
 

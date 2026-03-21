@@ -66,6 +66,57 @@ class PortfolioCombiner:
     def _total_pnl(self) -> float:
         return self._pnl.total_pnl
 
+    def reconcile_position(self) -> None:
+        """Reconcile combiner state with actual exchange position.
+
+        Called on startup to sync _current_position with exchange truth.
+        Prevents the bug where combiner restarts with _current_position=0
+        but exchange still has an open position.
+        """
+        try:
+            positions = self._adapter.get_positions(symbol=self._symbol)
+        except Exception:
+            logger.debug("COMBO %s reconcile: failed to fetch positions",
+                         self._symbol, exc_info=True)
+            return
+
+        exchange_side = 0
+        exchange_qty = 0.0
+        exchange_price = 0.0
+        for pos in positions:
+            if pos.symbol == self._symbol and not pos.is_flat:
+                exchange_side = 1 if pos.is_long else -1
+                exchange_qty = float(pos.abs_qty)
+                exchange_price = float(pos.entry_price) if pos.entry_price else 0.0
+                break
+
+        if exchange_side != self._current_position:
+            logger.warning(
+                "COMBO %s RECONCILE: combiner_pos=%d exchange_side=%d qty=%.4f",
+                self._symbol, self._current_position, exchange_side, exchange_qty,
+            )
+            self._current_position = exchange_side
+            if exchange_side == 0:
+                self._entry_price = 0.0
+                self._position_size = 0.0
+            else:
+                # Use exchange entry_price, fall back to ticker if unavailable
+                if exchange_price <= 0:
+                    try:
+                        tick = self._adapter.get_ticker(self._symbol)
+                        exchange_price = float(tick.get("lastPrice", 0))
+                    except Exception as e:
+                        logger.warning("COMBO %s: ticker fetch for reconcile failed: %s", self._symbol, e)
+                self._entry_price = exchange_price if exchange_price > 0 else 0.0
+                self._position_size = exchange_qty
+                if exchange_price > 0:
+                    self._record_state_store_fill(
+                        "buy" if exchange_side == 1 else "sell",
+                        exchange_qty, exchange_price,
+                    )
+        else:
+            logger.debug("COMBO %s reconcile OK: pos=%d", self._symbol, self._current_position)
+
     def update_signal(self, runner_key: str, signal: int, price: float) -> dict | None:
         """Update one alpha's signal and recompute net position.
 
@@ -137,6 +188,19 @@ class PortfolioCombiner:
         # Close existing
         if prev != 0 and self._entry_price > 0:
             entry_size = self._position_size
+
+            if not self._dry_run:
+                close_result = reliable_close_position(self._adapter, self._symbol)
+                if close_result["status"] == "failed":
+                    logger.error("COMBO %s CLOSE FAILED after retries — keeping state", self._symbol)
+                    return trade_info  # abort, don't record PnL or desync StateStore
+                if not close_result.get("verified", True):
+                    logger.warning("COMBO %s CLOSE: position verification failed", self._symbol)
+                # Record close fill in StateStore (side is opposite of position)
+                close_side = "sell" if prev > 0 else "buy"
+                self._record_state_store_fill(close_side, self._position_size, price)
+
+            # Record PnL only AFTER successful close (or in dry_run mode)
             trade = self._pnl.record_close(
                 symbol=self._symbol,
                 side=prev,
@@ -152,17 +216,6 @@ class PortfolioCombiner:
                 trade["pnl_usd"], self._pnl.total_pnl,
                 self._pnl.win_count, self._pnl.trade_count,
             )
-
-            if not self._dry_run:
-                close_result = reliable_close_position(self._adapter, self._symbol)
-                if close_result["status"] == "failed":
-                    logger.error("COMBO %s CLOSE FAILED after retries — keeping state", self._symbol)
-                    return trade_info  # abort, don't desync StateStore
-                if not close_result.get("verified", True):
-                    logger.warning("COMBO %s CLOSE: position verification failed", self._symbol)
-                # Record close fill in StateStore (side is opposite of position)
-                close_side = "sell" if prev > 0 else "buy"
-                self._record_state_store_fill(close_side, self._position_size, price)
 
         # Compute new position size
         if desired != 0:
@@ -188,8 +241,6 @@ class PortfolioCombiner:
             leverage = 10.0
             size = (equity * leverage * conviction) / price
             size = max(self._min_size, round(size, 2))
-
-            self._position_size = size
 
             # Cap at 30% of equity per symbol (leave room for other symbols)
             max_notional = equity * 0.30 * leverage
@@ -240,7 +291,7 @@ class PortfolioCombiner:
                         "sellLeverage": str(lev_int),
                     })
                 except Exception as e:
-                    logger.debug("COMBO %s set_leverage failed (non-fatal): %s", self._symbol, e)
+                    logger.warning("COMBO %s set_leverage failed (non-fatal): %s", self._symbol, e)
 
                 result = self._adapter.send_market_order(self._symbol, side, size)
                 trade_info["result"] = result

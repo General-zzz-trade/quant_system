@@ -4,7 +4,7 @@ Key interfaces, protocols, and event types for the quant trading system.
 
 Scope note:
 
-- This document describes the current Python-default production runtime unless stated otherwise.
+- This document mainly describes framework runtime APIs (`runner/live_runner.py`, coordinator, execution, health/control surface) unless stated otherwise.
 - For runtime ownership and path selection, see [`runtime_truth.md`](/quant_system/docs/runtime_truth.md).
 - For the current runtime direction freeze, see [`runtime_direction.md`](/quant_system/docs/runtime_direction.md).
 - For execution semantics, see [`execution_contracts.md`](/quant_system/docs/execution_contracts.md).
@@ -12,8 +12,9 @@ Scope note:
 
 Release path note:
 
-- The only default release path is repo-root `docker-compose.yml` + `.github/workflows/ci.yml` + `.github/workflows/deploy.yml` + [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh).
-- Candidate deploy manifests under [`deploy/`](/quant_system/deploy) are non-default unless explicitly promoted.
+- 当前活跃 host trading services 是 `bybit-alpha.service` 和 `bybit-mm.service`。
+- repo-root compose + GitHub Actions 是并存的容器发布路径，不等于当前 host systemd 服务真相。
+- 详细部署边界见 [`deploy_truth.md`](/quant_system/docs/deploy_truth.md)。
 
 Model ops note:
 
@@ -103,7 +104,7 @@ class VenueAdapter(Protocol):
     def get_recent_fills(self, *, symbol: Optional[str] = None, since_ms: int = 0) -> Tuple[CanonicalFill, ...]: ...
 ```
 
-Implementations: `BinanceRestClient`.
+Implementations include `BinanceRestClient` and `BybitAdapter`.
 
 ### ExecutionAdapter
 
@@ -180,7 +181,7 @@ class CoordinatorConfig:
 
 ### LiveRunner
 
-Production entry point. Defined in [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
+Framework live runtime entry point. Defined in [`runner/live_runner.py`](/quant_system/runner/live_runner.py).
 
 ```python
 # Build from config object
@@ -215,7 +216,7 @@ runner.kill_switch    # Direct kill switch access
 runner.coordinator    # Engine coordinator access
 ```
 
-`LiveRunner.build()` assembles the current default production stack:
+`LiveRunner.build()` assembles the current framework live stack:
 - EngineCoordinator + EngineLoop
 - KillSwitchBridge (wraps venue client)
 - CorrelationComputer + CorrelationGate
@@ -230,6 +231,7 @@ runner.coordinator    # Engine coordinator access
 
 Note:
 
+- 当前活跃的 directional alpha service 不是这个入口；它是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)
 - The repository also contains a standalone Rust trader under [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs).
 - That binary is an important runtime path, but it is not the default production truth source today.
 

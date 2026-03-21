@@ -215,6 +215,7 @@ class SQLiteCheckpointStore(CheckpointStore):
     def __init__(self, path: str) -> None:
         self._path = path
         self._lock = threading.Lock()
+        self._closed = False
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL;")
@@ -295,5 +296,20 @@ class SQLiteCheckpointStore(CheckpointStore):
         return Checkpoint.from_dict(json.loads(row[0]))
 
     def close(self) -> None:
+        if self._closed:
+            return
         with self._lock:
             self._conn.close()
+            self._closed = True
+
+    def __enter__(self) -> "SQLiteCheckpointStore":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

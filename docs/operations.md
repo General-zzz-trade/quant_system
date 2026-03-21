@@ -65,6 +65,8 @@ Current operator guide for the repository as it exists today.
 python3 -m scripts.ops.runtime_health_check
 python3 -m scripts.ops.runtime_health_check --service alpha
 python3 -m scripts.ops.runtime_health_check --service mm --require-account
+python3 -m scripts.ops.runtime_kill_latch --service alpha --json
+python3 -m scripts.ops.runtime_kill_latch --service mm --symbol ETHUSDT --json
 ```
 
 这条命令会同时检查：
@@ -73,6 +75,7 @@ python3 -m scripts.ops.runtime_health_check --service mm --require-account
 - 日志是否新鲜
 - 最近是否有 heartbeat / fill / metrics 等运行证据
 - 如果能拿到 Bybit 凭据，再补查账户侧持仓 / 挂单 / 最近成交
+- 对 active host services，还会显式暴露持久 kill latch 是否已锁住启动
 
 对 `bybit-mm.service`，当前 [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) 还增加了 market-data stale fail-fast：
 

@@ -1,7 +1,7 @@
 """Tests for model registry and artifact store."""
 from __future__ import annotations
 
-
+import sqlite3
 import pytest
 
 from research.model_registry.artifact import ArtifactStore
@@ -220,6 +220,35 @@ class TestModelRegistry:
         mv = registry.register(name="x", params={}, features=[], metrics={"sharpe": 1.0})
         with pytest.raises(ValueError, match="not found"):
             registry.compare(mv.model_id, "nonexistent")
+
+    def test_registry_closes_sqlite_connections(self, tmp_path, monkeypatch):
+        import research.model_registry.registry as registry_mod
+
+        real_connect = sqlite3.connect
+        close_calls: list[str] = []
+
+        class _ConnProxy:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def close(self):
+                close_calls.append("close")
+                return self._conn.close()
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        monkeypatch.setattr(
+            registry_mod.sqlite3,
+            "connect",
+            lambda *args, **kwargs: _ConnProxy(real_connect(*args, **kwargs)),
+        )
+
+        registry = ModelRegistry(db_path=tmp_path / "registry.db")
+        registry.register(name="alpha_v1", params={}, features=[], metrics={"sharpe": 1.0})
+        registry.get_production("alpha_v1")
+
+        assert len(close_calls) >= 3
 
     def test_promote_logs_missing_shadow_compare_warning(self, registry, caplog):
         """Promotion without shadow_compare action logs a warning but succeeds."""

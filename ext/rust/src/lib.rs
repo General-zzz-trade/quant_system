@@ -78,6 +78,7 @@ pub mod risk_aggregator;
 mod correlation;
 mod gate_chain;
 pub mod ridge_predict;
+pub mod market_maker;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -259,6 +260,11 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<microstructure::RustVPINCalculator>()?;
     m.add_class::<microstructure::RustVPINResult>()?;
     m.add_class::<microstructure::RustStreamingMicrostructure>()?;
+
+    // Market maker engine
+    m.add_class::<market_maker::RustMarketMaker>()?;
+    m.add_class::<market_maker::RustMMConfig>()?;
+    m.add_class::<market_maker::RustMMQuote>()?;
 
     // Regime buffer
     m.add_class::<regime_buffer::RustRegimeBuffer>()?;

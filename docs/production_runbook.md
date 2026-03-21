@@ -1,6 +1,6 @@
 # Production Runbook
 
-> 更新时间: 2026-03-19
+> 更新时间: 2026-03-20
 > 作用: 固定当前主机上活跃交易服务与 framework recovery 路径的排障顺序，避免把不同运行时混成同一套口径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
@@ -48,6 +48,24 @@
   - `tail -f /quant_system/logs/bybit_mm.log`
   - Bybit demo 账户真实余额 / 持仓 / 挂单 / 成交
 
+当前 host 互斥规则：
+
+- `bybit-alpha.service` 与 `bybit-mm.service` 不能在同一 Bybit 账户 / 同一 symbol 上同时启动
+- 启动时会按 `base_url + account_type + category + api_key` 归一到账户作用域，再对 symbol 加主机级文件锁
+- 冲突时进程应非零退出，而不是带着脏共享账户状态继续运行
+- 启动 guard 当前统一使用退出码 `73`，并由 systemd unit 的 `RestartPreventExitStatus=73` 阻止无限重启风暴
+
+当前持久 kill 规则：
+
+- `bybit-alpha.service` 的 drawdown / WS stale kill 会写入 `data/runtime/kills/`
+- `bybit-mm.service` 的 daily-loss hard kill 会写入 `data/runtime/kills/`
+- 只要对应 kill latch 还在，服务下次启动就必须失败，不允许用重启绕过风控
+- 人工复核后才允许 clear：
+  - `python3 -m scripts.ops.runtime_kill_latch --service alpha --json`
+  - `python3 -m scripts.ops.runtime_kill_latch --service alpha --clear --json`
+  - `python3 -m scripts.ops.runtime_kill_latch --service mm --symbol ETHUSDT --json`
+  - `python3 -m scripts.ops.runtime_kill_latch --service mm --symbol ETHUSDT --clear --json`
+
 ---
 
 ## 3. 方向性 alpha 排障顺序
@@ -69,7 +87,9 @@
 5. 如果触发 drawdown kill，必须把它当成“禁止新开仓且应尽快收平”的状态
    - 当前 `bybit-alpha` 会压平 runner 本地信号，避免 heartbeat 长期显示假 `sig=1`
    - 对 COMBO symbol，会在后续 bar 拿到该 symbol 最新价后强制平掉组合仓位，并同步 `PortfolioManager`
+   - 同样的 `PortfolioManager / PortfolioCombiner / kill enforcement` 语义现在也适用于 `--once` 和 REST poll fallback，不再只有 `--ws` 路径是完整行为
    - `python3 -m scripts.ops.runtime_health_check --service alpha` 现在会把 `pm.killed=True` 直接判为失败，不再把这种状态误报成健康
+   - 如果 kill 已经持久化到 `data/runtime/kills/`，直接 `systemctl restart` 不会恢复交易；必须先查明原因，再手工 clear
 
 常用命令：
 
@@ -79,6 +99,7 @@ sudo systemctl status bybit-alpha.service --no-pager -l
 journalctl -u bybit-alpha.service -n 100 --no-pager
 tail -f /quant_system/logs/bybit_alpha.log
 python3 -m scripts.ops.runtime_health_check --service alpha
+python3 -m scripts.ops.runtime_kill_latch --service alpha --json
 ```
 
 当前限制：
@@ -133,6 +154,7 @@ python3 -m scripts.ops.runtime_health_check --service alpha
 - 若长时间没有新的 WS 消息或 orderbook depth，进程会显式报错退出
 - `bybit-mm.service` 依赖 `Restart=on-failure` 重新拉起
 - 这比“进程继续存活但失去行情驱动”更安全
+- 若触发 daily-loss hard kill，会落盘为持久 kill latch；后续启动会直接被拒绝，直到人工 clear
 
 常用命令：
 
@@ -142,6 +164,7 @@ sudo systemctl status bybit-mm.service --no-pager -l
 journalctl -u bybit-mm.service -n 100 --no-pager
 tail -f /quant_system/logs/bybit_mm.log
 python3 -m scripts.ops.runtime_health_check --service mm
+python3 -m scripts.ops.runtime_kill_latch --service mm --symbol ETHUSDT --json
 ```
 
 如果要一次检查两个当前活跃 host services：

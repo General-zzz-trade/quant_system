@@ -79,9 +79,10 @@ python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run
 python3 -m scripts.ops.runtime_health_check
 python3 -m scripts.ops.runtime_health_check --service alpha
 python3 -m scripts.ops.runtime_health_check --service mm
+python3 -m scripts.ops.runtime_kill_latch --service alpha --json
 ```
 
-这条检查不会把“只有 `systemd active`”误判成“交易已经活着”。
+这条检查不会把“只有 `systemd active`”误判成“交易已经活着”；如果 active host service 被持久 kill latch 锁住，也会直接显示出来。
 
 ### Run The Framework Runtime
 

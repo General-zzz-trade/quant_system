@@ -1,5 +1,5 @@
 # runner/live_runner.py
-"""LiveRunner — production live trading runner (唯一生产入口).
+"""LiveRunner — framework live trading runner.
 
 Assembles:
   - EngineCoordinator + EngineLoop
@@ -17,6 +17,10 @@ Assembles:
 Usage:
     runner = LiveRunner.build(config, venue_clients={"binance": client}, ...)
     runner.start()  # blocks until stop() or signal
+
+This module is the framework live runtime truth source.
+It is not the current default host trading service for Bybit directional alpha
+or Bybit market making; see docs/runtime_truth.md.
 """
 from __future__ import annotations
 
@@ -119,7 +123,7 @@ class _SubsystemReport:
 class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     """Full live trading runner with reconciliation, kill switch, and margin monitoring.
 
-    Use LiveRunner.build() to assemble the complete production stack.
+    Use LiveRunner.build() to assemble the complete framework live stack.
     Call start() to begin trading (blocks until stop() or signal).
     """
 
@@ -205,7 +209,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         sentiment_source: Any = None,
         bear_model: Any = None,
     ) -> "LiveRunner":
-        """Build the full production stack.
+        """Build the full framework live stack.
 
         Args:
             config: Runner configuration.

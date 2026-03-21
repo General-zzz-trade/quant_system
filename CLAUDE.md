@@ -29,14 +29,21 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Active trading services**:
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws  # Active directional alpha service
-python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --ws --dry-run         # Signal only, no orders
-python3 -m scripts.run_bybit_alpha --symbols ETHUSDT --once --dry-run       # Single bar then exit
-python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run    # Active market-maker path
-sudo systemctl restart bybit-alpha.service                                   # Restart service
-sudo systemctl status bybit-alpha.service                                    # Check service
-sudo systemctl restart bybit-mm.service                                      # Restart market maker
-tail -f /quant_system/logs/bybit_alpha.log                                   # Follow live logs
+# Polymarket dry-run (currently active):
+python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70
+
+# Directional alpha (inactive, available — validated Sharpe 1.5-2.0):
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
+sudo systemctl restart bybit-alpha.service
+
+# HFT Signal (inactive — proven unprofitable, Sharpe -5):
+python3 -m scripts.run_hft_signal --symbols BTCUSDT ETHUSDT SOLUSDT --leverage 20 --position-size 50000 --loss-limit 5000
+
+# Binary signal (inactive — wrong payoff structure for Bybit):
+python3 -m scripts.run_binary_signal --symbol BTCUSDT --leverage 20 --bet-size 5000
+
+# Market maker (inactive — BTC spread < fee, mathematically unprofitable):
+python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run
 ```
 
 **Data & model management**:
@@ -61,14 +68,25 @@ kill $(cat data/polymarket/collector.pid)                                       
 
 **Monitoring & diagnostics**:
 ```bash
-python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
-python3 -m scripts.testnet_smoke --public-only                                # Exchange connectivity check
-python3 -m scripts.ops.security_scan                                          # Security audit (secrets, notional, bare-except)
+python3 -m scripts.ops.health_watchdog                                        # Health check (services+data+account), auto-restarts stale
+python3 -m scripts.ops.health_watchdog --json                                 # JSON output for automation
+python3 -m scripts.ops.auto_bug_scan --severity warning                       # Static bug scan (30 patterns)
 python3 -m scripts.ops.ops_dashboard                                          # Unified ops status dashboard
-python3 -m scripts.ops.pre_live_checklist                                     # Automated pre-live readiness check
-python3 -m scripts.ops.shadow_mode_check                                      # Shadow trading health report
 python3 -m scripts.ops.demo_tracker                                           # Update track record from logs
 python3 -m scripts.ops.weekly_report                                          # Generate weekly performance report
+python3 -m scripts.ops.security_scan                                          # Security audit (secrets, notional, bare-except)
+python3 -m scripts.ops.pre_live_checklist                                     # Pre-live readiness check
+python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
+python3 -m monitoring.notify                                                  # Test Telegram notification
+```
+
+**Automated operations** (systemd timers + cron):
+```bash
+sudo systemctl list-timers --all | grep -E "health|retrain|refresh"           # Check all timers
+# health-watchdog.timer  — every 5 min (service health + data freshness + Telegram alerts)
+# data-refresh.timer     — every 6 hours (kline + funding + OI sync)
+# auto-retrain.timer     — Sunday 2am UTC (walk-forward retrain)
+# cron: demo_tracker (hourly), weekly_report (Sun 3am), bug_scan (Sun 1am), OI download (6h)
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -125,7 +143,16 @@ logs/            bybit_alpha.log, retrain_cron.log
 tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket, scripts), integration/ (crash_recovery, fault_injection, constraint_parity, ...)
 ```
 
-**Data flow (live alpha via AlphaRunner)**:
+**Data flow (HFT Signal — inactive, Sharpe -5)**:
+```
+Bybit WS (depth+trade per symbol) → SymbolEngine.on_depth/on_trade (thread-locked)
+  → 5min bar aggregation → 8-layer vote:
+    funding(0.5x) + momentum + liquidation + OB imbalance + on-chain + MR(1.5x) + BTC-lead(2.0x) + DVOL(block)
+  → Trend filter (MA50 blocks counter-trend) → Correlation guard (max 1 position)
+  → Kelly sizing → Limit order → TP/SL/Timeout exit (MR: 0.15%/0.1%/60s, BL: 0.1%/0.08%/30s, normal: 0.3%/0.5%/301s)
+```
+
+**Data flow (AlphaRunner — directional alpha path)**:
 ```
 Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
   → _check_regime(close) — vol/trend/ranging filter + dynamic deadzone
@@ -143,25 +170,14 @@ Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
 
 ## Rust Crate (`ext/rust/`)
 
-- Single crate `_quant_hotpath`, 77 .rs modules, ~30K LOC
-- Exports: ~38 PyO3 classes + ~100 functions (195 total, see `lib.rs`)
+- Single crate `_quant_hotpath`, 77 .rs modules, ~30K LOC; see `lib.rs` for full export list
+- Exports: ~38 PyO3 classes + ~100 functions (195 total)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
 - State types use i64 fixed-point (Fd8, x10^8); `_SCALE = 100_000_000`
 - feature_hook.py always uses Rust (no Python fallback)
 - `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
-- `pnl_tracker.rs` — RustPnLTracker (record_close, win_rate, drawdown; Python fallback in scripts/ops/pnl_tracker.py)
-- `drawdown_breaker.rs` — RustDrawdownBreaker (4-state machine, velocity detection; return-action pattern, Python bridges to KillSwitch)
-- `regime_detector.rs` — RustCompositeRegimeDetector + RustRegimeParamRouter (vol percentile + ADX trend + param routing; Python fallback in regime/composite.py + param_router.py)
-- `adaptive_stop.rs` — RustAdaptiveStopGate (3-phase ATR stop, per-symbol state; Python fallback in runner/gates/adaptive_stop_gate.py)
-- `risk_rules.rs` + `risk_aggregator.rs` — RustRiskAggregator (7 rules: MaxPosition, LeverageCap, MaxDrawdown, PortfolioLimits, OrderFrequency, CorrelationLimit, VaR; Mutex-protected stats; NaN→reject)
-- `saga_manager.rs` — RustSagaManager (order lifecycle state machine, match-exhaustive transitions, TTL auto-expire)
-- `event_validation.rs` — RustEventValidator (bounded LRU dedup, monotonic time, type-specific validation)
-- `correlation.rs` — RustCorrelationComputer (rolling Pearson pairwise correlation, log return tracking)
-- `gate_chain.rs` — RustGateChain (9 gate types in single FFI call: equity_leverage, consensus, drawdown, correlation, alpha_health, regime, staged_risk, notional, min_qty)
-- `incremental_trackers.rs` — Standalone EMA/RSI/ATR/ADX trackers (reusable outside feature engine)
-
-Key exports (see `lib.rs`): State (RustStateStore, RustMarketState, RustPositionState, RustAccountState), Features (RustFeatureEngine, RustCrossAssetComputer), Risk (RustRiskEvaluator, RustKillSwitch, RustCircuitBreaker, RustDrawdownBreaker, RustRiskAggregator), Pipeline (rust_pipeline_apply, RustUnifiedPredictor), Networking (RustWsClient, RustWsOrderGateway), Inference (RustInferenceBridge), Selection (cpp_greedy_ic_select_np, cpp_stable_icir_select), Analytics (RustPnLTracker), Regime (RustCompositeRegimeDetector, RustRegimeParamRouter, RustRegimeResult, RustRegimeParams), Gates (RustAdaptiveStopGate, RustGateChain), Saga (RustSagaManager), Validation (RustEventValidator), Correlation (RustCorrelationComputer), Allocation (RustPortfolioAllocator).
+- `RustGateChain` processes 9 gate types in single FFI call (no per-gate Python↔Rust switching)
 
 ## Rust Pipeline (12/12 components in production)
 
@@ -172,8 +188,8 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `engine/coordinator.py` — Main event loop orchestrator
 - `engine/pipeline.py` — State transition pipeline (Rust fast path)
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
-- `features/enriched_computer.py` — 127 enriched feature definitions (V1-V14 + ADX)
-- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (153 features); `validate_model_features()`
+- `features/enriched_computer.py` — 157 enriched feature definitions (V1-V19: ADX, OI, dominance, DVOL)
+- `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (183 features); `validate_model_features()`
 - `ext/rust/src/lib.rs` — Rust module registry + PyO3 exports
 - `ext/rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Framework live runtime entry point
@@ -190,6 +206,13 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `polymarket/strategies/inventory_manager.py` — Inventory tracking + expiry actions
 - `strategies/registry.py` — StrategyRegistry: register/discover/instantiate strategies
 - `strategies/base.py` — StrategyProtocol + Signal dataclass
+- `scripts/run_hft_signal.py` — HFT Signal engine: 8-layer voting (funding, momentum, liq, OB, on-chain, MR, BTC-lead, DVOL)
+- `scripts/run_polymarket_dryrun.py` — Polymarket RSI(30/70) taker dry-run validation
+- `scripts/run_binary_signal.py` — Binary 5m signal trader (Bybit)
+- `scripts/ops/health_watchdog.py` — Auto health check + Telegram alerts + service restart
+- `scripts/ops/auto_bug_scan.py` — Static bug scanner (30 patterns: bare-except, unchecked-api, etc.)
+- `monitoring/notify.py` — Unified Telegram + console notification dispatcher
+- `execution/adapters/hyperliquid/` — Hyperliquid DEX adapter (229 perps, 0.035% taker)
 - `decision/regime_bridge.py` — RegimeAwareDecisionModule (CompositeRegimeDetector + ParamRouter)
 - `risk/staged_risk.py` — StagedRiskManager: 5-stage equity-based risk ladder
 - `docs/wiring_truth.md` — Module integration status table (what's wired, what's not)
@@ -208,8 +231,9 @@ All adapters implement `VenueAdapter` protocol (`execution/adapters/base.py`); r
 | Venue | Protocol | Min Order | Notes |
 |-------|----------|-----------|-------|
 | Binance | REST + WS-API (~4ms) | $20 (ETH) | Primary. USDT-M futures. 43 files, ~3.7K LOC. Live API connected. |
-| Bybit | REST V5 + WS | $5 | Demo trading active. HMAC-SHA256. Systemd service running. |
-| Polymarket | CLOB REST | N/A | L2 auth. Collector V2: direct CLOB orderbook, SQLite storage. |
+| Bybit | REST V5 + WS | $5 | Demo trading active. HMAC-SHA256. |
+| Hyperliquid | REST (info/exchange) | varies | 229 perps. 0% maker taker 0.035%. EIP-712 signing. No KYC. 39ms latency. |
+| Polymarket | CLOB REST | N/A | 0% fee. Collector V2: direct CLOB orderbook, SQLite. RSI dry-run active. |
 
 ## Environment
 
@@ -221,36 +245,31 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 # See .env.example for all optional vars (Binance, Polymarket)
 ```
 
-**Current deployment**:
+**Current deployment** (2026-03-21):
 ```bash
-# Active directional alpha host service:
-#   bybit-alpha.service -> python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m SUIUSDT AXSUSDT --ws
-# Active market-maker host service:
-#   bybit-mm.service -> python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 ...
-# Framework candidate path:
-#   quant-framework / infra/systemd/quant-runner.service -> runner.live_runner
+# ACTIVE processes:
+#   polymarket collector (PID in data/polymarket/collector.pid) — CLOB data collection
+#   polymarket dryrun — RSI(30/70) taker strategy validation
+# ACTIVE timers:
+#   health-watchdog.timer (5min), data-refresh.timer (6h), auto-retrain.timer (Sun 2am)
+# INACTIVE (available, validated):
+#   bybit-alpha.service -> 1h Alpha (Sharpe 1.5-2.0, RECOMMENDED for real trading)
+#   hft-signal.service -> HFT 8-layer signal (Sharpe -5, NOT recommended)
+#   bybit-mm.service -> market maker (BTC spread < fee, NOT viable)
 # Deploy truth: docs/deploy_truth.md
 ```
 
-**Quick start → host services**:
-1. Directional alpha: `sudo systemctl status bybit-alpha.service`
-2. Market maker: `sudo systemctl status bybit-mm.service`
-3. Directional alpha logs: `tail -f logs/bybit_alpha.log`
-4. MM logs: `tail -f logs/bybit_mm.log`
-5. Framework path is separate: `python3 -m runner.live_runner --config infra/config/examples/live.yaml --shadow`
+**Quick start**:
+1. Health check: `python3 -m scripts.ops.health_watchdog`
+2. Polymarket dry-run logs: `tail -f /tmp/polymarket_dryrun_v2.log`
+3. Start 1h Alpha: `sudo systemctl start bybit-alpha.service`
+4. Timers: `sudo systemctl list-timers --all | grep -E "health|retrain|refresh"`
+5. Account: `set -a && source .env && python3 -c "..."` (see scripts/ops/runtime_health_check.py)
 
-**Walk-forward baselines** (2026-03-15):
-- ETHUSDT 1h (min_hold=18, 20 folds): Sharpe **1.52**, **+389%**, **14/20 positive** → **PASS**
-- ETHUSDT 15m h=32 (4 folds): Sharpe **1.04**, **+121%**, **3/4 positive** → **PASS**
-- ETHUSDT adaptive stop (15/20): Sharpe **1.35**, **+286%** → **PASS**
-- SUIUSDT 1h (7 folds): Sharpe **1.63**, **+150%**, **6/7 positive** → **PASS**
-- AXSUSDT 1h (17 folds): Sharpe **1.25**, **+241%**, **13/17 positive** → **PASS**
-- **BTCUSDT V14** (h=96, dominance): Sharpe **2.03**, **+552%**, **16/20 positive** → **PASS** (BTC/ETH ratio is #1 feature)
-- **BTCUSDT Regime-Adaptive**: Sharpe **5.52**, **20/20 positive** → **+120% over baseline** (composite regime → param routing)
-- FAIL: SUIUSDT 15m (9/23), SOLUSDT 15m (1/4), AXSUSDT 15m (Sharpe 0.39), ETHUSDT 5m (IC near zero)
+**Walk-forward baselines** (2026-03-15): see `results/walkforward/` for full data.
+- PASS: ETHUSDT 1h (Sharpe 1.52), BTCUSDT V14 (Sharpe 2.03), SUIUSDT 1h (1.63), AXSUSDT 1h (1.25)
+- FAIL: all 15m except ETH, all 5m
 - Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate). Demo uses **10x** (all tiers)
-- Dual alpha AGREE backtest: Sharpe **5.48**, +1,141%, 56% WR, signal correlation 0.077
-- Polymarket RSI(5) 5m: accuracy **55.0%**, **23/23 folds PASS**, $25/day@$10/bet
 
 ## Signal Pipeline
 
@@ -313,17 +332,25 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - BTC model h=96 uses `min_hold=48` (2 days), `max_hold=288` (12 days) — much slower than ETH's h=24/min_hold=18
 - `batch_feature_engine.py` `_add_dominance_features()` requires ETHUSDT_1h.csv
 
-**Alpha research conclusions**:
-- Only 1h (all symbols) and 15m (ETH only) work; 5m/SUI-15m/AXS-15m/SOL-15m all FAIL
-- Funding/vol-squeeze/OI-divergence/altcoin-rotation as standalone alphas all FAIL after costs
-- Polymarket ML classifier loses to simple RSI rule — RSI's selectivity is the alpha
+**Alpha research conclusions** (2026-03-21):
+- 1h Alpha: BTC Sharpe 2.03, ETH 1.52, SUI 1.63, AXS 1.25 — all PASS
+- BTC Regime-Adaptive: Sharpe 5.52, 20/20 folds — PASS (+172% over baseline)
+- Dual COMBO (1h+15m AGREE): Sharpe 5.48 — PASS
+- 15m: only ETH PASS (Sharpe 1.04); BTC 15m Sharpe 0.91 FAIL
+- 5m/1m HFT signals: Sharpe -5 to -25 — ALL FAIL (40万bar验证)
+- Tick MR/BTC-lead on 1m bars: ALL FAIL (no edge after costs)
+- BTC做市: spread 0.014bps < fee 2bps → mathematically impossible (all exchanges)
+- OI features: IC=-0.291 but only 1% data coverage (sparse); DVOL features overfit OOS
+- Polymarket RSI(30/70) taker: 52.9% WR, $32/day@$10, 26/27 months positive — PASS
+- Polymarket maker: FAIL on real CLOB replay (排队+逆向选择)
 
 **Current path split**:
-- `scripts/ops/run_bybit_alpha.py` is the active directional alpha path on host
-- `scripts/run_bybit_mm.py` is the active market-maker path on host
-- `runner/live_runner.py` is the framework live runtime / convergence target
-- `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only by default); ETH/SUI/AXS use fixed params
-- Polymarket `AvellanedaStoikovMaker` is standalone; needs manual startup, not wired to runner
+- `scripts/run_polymarket_dryrun.py` — **currently active** dry-run validation
+- `scripts/ops/run_bybit_alpha.py` — 1h Alpha (RECOMMENDED for real trading, Sharpe 1.5-2.0)
+- `scripts/run_hft_signal.py` — HFT 8-layer signal (stopped, Sharpe -5)
+- `scripts/run_bybit_mm.py` — market maker (stopped, not viable)
+- `runner/live_runner.py` — framework convergence target
+- `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only); ETH/SUI/AXS fixed params
 
 **Regime & risk wiring** (2026-03-17):
 - `RegimeAwareDecisionModule` defaults to `CompositeRegimeDetector` (was Vol+Trend separately)
@@ -331,6 +358,16 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `RegimePolicy` blocks composite crisis labels (any label with "crisis" in value)
 - `StagedRiskManager` wired as `StagedRiskGate` in gate_chain; equity stages: survival→growth→stable→safe→institutional
 - `initial_equity` field added to `LiveRunnerConfig` (default $500); `RustStateStore` uses real exchange balance via Fd8 at startup
+
+**Automated operations** (2026-03-21):
+- `health-watchdog.timer`: every 5min — checks services, data freshness, account equity; auto-restarts stale; Telegram alerts on status change
+- `data-refresh.timer`: every 6h — syncs klines, funding, OI from Binance
+- `auto-retrain.timer`: Sunday 2am UTC — walk-forward retrain with IC/Sharpe gates
+- Cron: `demo_tracker` (hourly), `weekly_report` (Sun 3am), `auto_bug_scan` (Sun 1am), `OI download` (6h)
+- `monitoring/notify.py`: unified Telegram dispatch; needs `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in .env
+- `scripts/ops/auto_bug_scan.py`: 30 static patterns (bare-except, unchecked-api, mutable-default, float-equality)
+- Pre-commit hook: ruff lint + API key check + critical bug scan + core tests (~5s)
+- Health status: `data/runtime/health_status.json`; alert history: `data/runtime/alert_history.jsonl`
 
 **Infrastructure**:
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync with `/etc/systemd/system/`

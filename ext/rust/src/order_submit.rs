@@ -231,6 +231,83 @@ impl RustWsOrderGateway {
         Ok(self.build_listen_key_ping_native(listen_key))
     }
 
+    /// Build a cancel-replace (modify) order message.
+    ///
+    /// Binance order.modify: atomically cancel + replace in one RTT.
+    /// Only price and quantity can be changed.
+    #[pyo3(signature = (
+        symbol, side, order_type, quantity, price,
+        order_id=None, orig_client_order_id=None,
+        time_in_force=None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn build_modify_message(
+        &self,
+        symbol: &str,
+        side: &str,
+        order_type: &str,
+        quantity: &str,
+        price: &str,
+        order_id: Option<i64>,
+        orig_client_order_id: Option<&str>,
+        time_in_force: Option<&str>,
+    ) -> PyResult<(String, String)> {
+        let req_id = format!("mod_{}", REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let ts = now_ms();
+
+        let mut params: Vec<(&str, String)> = Vec::with_capacity(12);
+        params.push(("apiKey", self.api_key.clone()));
+        if let Some(oid) = order_id {
+            params.push(("orderId", oid.to_string()));
+        }
+        if let Some(cid) = orig_client_order_id {
+            params.push(("origClientOrderId", cid.to_string()));
+        }
+        params.push(("price", price.to_string()));
+        params.push(("quantity", quantity.to_string()));
+        params.push(("recvWindow", self.recv_window.to_string()));
+        params.push(("side", side.to_uppercase()));
+        params.push(("symbol", symbol.to_string()));
+        if let Some(tif) = time_in_force {
+            params.push(("timeInForce", tif.to_uppercase()));
+        }
+        params.push(("timestamp", ts.to_string()));
+        params.push(("type", order_type.to_uppercase()));
+
+        params.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, url_encode_val(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+
+        let signature = hmac_sha256_hex(&self.api_secret, &query);
+
+        let mut json = String::with_capacity(512);
+        json.push_str("{\"id\":\"");
+        json.push_str(&req_id);
+        json.push_str("\",\"method\":\"order.modify\",\"params\":{");
+
+        let mut first = true;
+        for (k, v) in &params {
+            if !first {
+                json.push(',');
+            }
+            first = false;
+            json.push('"');
+            json.push_str(k);
+            json.push_str("\":\"");
+            json.push_str(v);
+            json.push('"');
+        }
+        json.push_str(",\"signature\":\"");
+        json.push_str(&signature);
+        json.push_str("\"}}");
+
+        Ok((json, req_id))
+    }
+
     /// Build a query order status message.
     #[pyo3(signature = (symbol, order_id=None, orig_client_order_id=None))]
     fn build_query_message(
@@ -384,6 +461,25 @@ impl RustWsOrderGateway {
     /// Build account.status query message (get balance + positions).
     pub fn build_account_status_native(&self) -> (String, String) {
         self.build_signed_request("v2/account.status", &[])
+    }
+
+    /// Build modify message without PyResult wrapper.
+    pub fn build_modify_message_native(
+        &self,
+        symbol: &str,
+        side: &str,
+        order_type: &str,
+        quantity: &str,
+        price: &str,
+        order_id: Option<i64>,
+        orig_client_order_id: Option<&str>,
+        time_in_force: Option<&str>,
+    ) -> (String, String) {
+        self.build_modify_message(
+            symbol, side, order_type, quantity, price,
+            order_id, orig_client_order_id, time_in_force,
+        )
+        .expect("build_modify_message infallible")
     }
 
     /// Build cancel message without PyResult wrapper.

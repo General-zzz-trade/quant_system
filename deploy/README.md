@@ -1,45 +1,42 @@
 # Deploy Status
 
-This directory contains deployment-related artifacts, but not every path here is
-the current default release path.
+这个目录只保存候选或辅助部署工件，不是当前仓库的默认部署真相源。
 
-## Default Truth Source
+## 1. 当前默认真相源
 
-Use these paths first:
+优先以这些文件为准：
 
-- repo-root `docker-compose.yml`
-- `.github/workflows/ci.yml`
-- `.github/workflows/deploy.yml`
-- `scripts/deploy.sh`
-- `runner/live_runner.py` for the default live runtime
+- [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md)
+- [`docker-compose.yml`](/quant_system/docker-compose.yml)
+- [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh)
+- [`infra/systemd/bybit-alpha.service`](/quant_system/infra/systemd/bybit-alpha.service)
+- [`infra/systemd/bybit-mm.service`](/quant_system/infra/systemd/bybit-mm.service)
 
-This is the only default release path that should be assumed current.
+## 2. 本目录当前存在什么
 
-## Candidate / Non-default Paths
+| 工件 | 当前定位 |
+|---|---|
+| [`deploy/systemd/quant-trader.service`](/quant_system/deploy/systemd/quant-trader.service) | framework / candidate systemd 示例，不是当前活跃 host service |
+| [`deploy/systemd/logrotate-quant.conf`](/quant_system/deploy/systemd/logrotate-quant.conf) | 候选辅助文件 |
+| [`deploy/trading-tune.service`](/quant_system/deploy/trading-tune.service) | host tuning 辅助文件 |
+| [`deploy/tune-os.sh`](/quant_system/deploy/tune-os.sh) | host tuning 辅助脚本 |
+
+## 3. 当前不存在的东西
+
+本目录当前没有以下已成型默认工件：
 
 - `deploy/docker/docker-compose.yml`
-  Uses the repo-root `Dockerfile` and is kept as a non-default deployment example.
-- `deploy/systemd/quant-trader.service`
-  Candidate-production systemd unit for environments that do not use the default compose/GitHub Actions path.
-- `deploy/systemd/logrotate-quant.conf`
-  Candidate-production support file for the systemd path; not part of the default release path.
 - `deploy/k8s/`
-  Candidate-production Kubernetes manifests. These are not the current default release path.
 - `deploy/argocd/`
-  Experimental/candidate GitOps manifests. Some values remain placeholders and must not be treated as current production truth.
 
-## Host Ops Support
+如果其他文档还把这些路径写成“当前候选清单”，那是旧说法。
 
-- `deploy/grub-trading.cfg`
-- `deploy/install-lowlatency.sh`
-- `deploy/sysctl-trading.conf`
-- `deploy/trading-tune.service`
-- `deploy/tune-os.sh`
+## 4. 规则
 
-These are optional host-tuning helpers. They are not the default release path
-and should not be interpreted as deploy truth.
+如果本目录里的工件与：
 
-## Rule
+- host 上实际 systemd 服务
+- repo-root compose
+- GitHub Actions workflow
 
-If a deploy artifact disagrees with the repo-root compose/workflow/runtime path, the
-repo-root path wins unless another document explicitly promotes that artifact.
+发生冲突，以 [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md) 为准。

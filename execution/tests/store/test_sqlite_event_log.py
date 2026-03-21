@@ -18,3 +18,13 @@ def test_sqlite_event_log_append_and_iter(tmp_path) -> None:
     rows2 = list(log.iter(after_id=id1))
     assert len(rows2) == 1
     assert rows2[0]["id"] == id2
+
+
+def test_sqlite_event_log_context_manager_closes_connection(tmp_path) -> None:
+    db = tmp_path / "ev.sqlite"
+
+    with SQLiteEventLog(path=str(db)) as log:
+        log.append(event_type="A", payload={"x": 1})
+        assert log._closed is False
+
+    assert log._closed is True

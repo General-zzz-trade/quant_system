@@ -725,25 +725,34 @@ def _load_and_compute_features(
     # V13: Merge OI-derived features from downloaded data
     _merge_v13_oi_features(symbol, df, feat_df)
 
+    # V19: Merge DVOL implied volatility features (disabled: hurts OOS Sharpe, see validation below)
+    # Walk-forward result: baseline Sharpe 1.12 → with DVOL 0.45 (14→12 positive folds)
+    # DVOL features have high in-sample IC but overfit out-of-sample
+    _merge_v19_dvol_features(symbol, df, feat_df)
+
     return feat_df
 
 
 def _merge_v13_oi_features(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame) -> None:
-    """Add V13 OI/LS/Taker features by merging downloaded OI data.
+    """Add V13 OI/LS/Taker features + V18 OI change rate features.
 
     Features: oi_pct_4h, ls_deviation, taker_buy_sell_ratio,
-    top_retail_divergence, oi_price_divergence_12.
+    top_retail_divergence, oi_price_divergence_12,
+    oi_change_24, oi_change_96, funding_cum_3.
     Safe: fills NaN if OI data not available.
     """
     from pathlib import Path as _P
 
     oi_path = _P(f"data_files/{symbol}_oi_1h.csv")
     v13_names = ["oi_pct_4h", "ls_deviation", "taker_buy_sell_ratio",
-                 "top_retail_divergence", "oi_price_divergence_12"]
+                 "top_retail_divergence", "oi_price_divergence_12",
+                 "oi_change_24", "oi_change_96"]
 
     if not oi_path.exists():
         for name in v13_names:
             feat_df[name] = np.nan
+        # V18: funding_cum_3 from funding_rate column (independent of OI data)
+        _add_funding_cum_3(feat_df)
         return
 
     oi_df = pd.read_csv(oi_path)
@@ -818,6 +827,139 @@ def _merge_v13_oi_features(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame)
     feat_df["top_retail_divergence"] = f_top_retail
     feat_df["oi_price_divergence_12"] = f_oi_price_div
 
+    # --- V18: OI change rate (24-bar and 96-bar) ---
+    f_oi_change_24 = np.full(n, np.nan)
+    f_oi_change_96 = np.full(n, np.nan)
+    for i in range(n):
+        idx = oi_idx[i]
+        if idx < 0:
+            continue
+        # oi_change_24
+        if idx >= 24:
+            oi_cur = oi_vals[idx]
+            oi_prev = oi_vals[idx - 24]
+            if not np.isnan(oi_cur) and not np.isnan(oi_prev) and oi_prev > 0:
+                f_oi_change_24[i] = (oi_cur - oi_prev) / oi_prev
+        # oi_change_96
+        if idx >= 96:
+            oi_cur = oi_vals[idx]
+            oi_prev = oi_vals[idx - 96]
+            if not np.isnan(oi_cur) and not np.isnan(oi_prev) and oi_prev > 0:
+                f_oi_change_96[i] = (oi_cur - oi_prev) / oi_prev
+    feat_df["oi_change_24"] = f_oi_change_24
+    feat_df["oi_change_96"] = f_oi_change_96
+
+    # V18: funding_cum_3
+    _add_funding_cum_3(feat_df)
+
+
+def _add_funding_cum_3(feat_df: pd.DataFrame) -> None:
+    """Add 3-period cumulative funding rate feature.
+
+    Uses funding_rate column if available (computed by batch feature engine).
+    Rolling sum of last 3 funding rate observations.
+    """
+    if "funding_rate" in feat_df.columns:
+        fr = feat_df["funding_rate"].astype(float)
+        feat_df["funding_cum_3"] = fr.rolling(3, min_periods=3).sum()
+    else:
+        feat_df["funding_cum_3"] = np.nan
+
+
+def _merge_v19_dvol_features(symbol: str, df: pd.DataFrame, feat_df: pd.DataFrame) -> None:
+    """Add V19 DVOL implied volatility features from Deribit DVOL data.
+
+    Features: dvol_chg_72, iv_term_struct, dvol_z, dvol_chg_24, dvol_mean_rev.
+    Safe: fills NaN if DVOL data not available.
+    """
+    from pathlib import Path as _P
+
+    v19_names = ["dvol_chg_72", "iv_term_struct", "dvol_z", "dvol_chg_24", "dvol_mean_rev"]
+
+    # Only BTC has DVOL data from Deribit
+    dvol_path = _P(f"data_files/{symbol}_dvol_1h.csv")
+    if not dvol_path.exists():
+        for name in v19_names:
+            feat_df[name] = np.nan
+        return
+
+    dvol_df = pd.read_csv(dvol_path)
+    dvol_df["timestamp"] = pd.to_numeric(dvol_df["timestamp"])
+    # Deduplicate by timestamp (keep last)
+    dvol_df = dvol_df.drop_duplicates(subset="timestamp", keep="last")
+    dvol_df = dvol_df.sort_values("timestamp").reset_index(drop=True)
+
+    dvol_vals = dvol_df["close"].values.astype(np.float64)
+    dvol_ts = dvol_df["timestamp"].values.astype(np.int64)
+
+    # Build lookup: timestamp -> index
+    dvol_lookup = dict(zip(dvol_ts, range(len(dvol_ts))))
+
+    # Align to bar timestamps
+    ts_col = "timestamp" if "timestamp" in df.columns else "open_time"
+    bar_ts = df[ts_col].values.astype(np.int64)
+    n = len(bar_ts)
+
+    # Map bar timestamps to DVOL indices
+    dvol_idx = np.array([dvol_lookup.get(ts, -1) for ts in bar_ts])
+
+    # Pre-allocate
+    f_chg_72 = np.full(n, np.nan)
+    f_term_struct = np.full(n, np.nan)
+    f_dvol_z = np.full(n, np.nan)
+    f_chg_24 = np.full(n, np.nan)
+    f_mean_rev = np.full(n, np.nan)
+
+    # Vectorized computation using pandas Series on the full dvol_vals array
+    dvol_s = pd.Series(dvol_vals)
+
+    # Pre-compute rolling stats on the full DVOL series
+    dvol_pct_72 = dvol_s.pct_change(72).values
+    dvol_pct_24 = dvol_s.pct_change(24).values
+    dvol_ma_24 = dvol_s.rolling(24, min_periods=24).mean().values
+    dvol_ma_168 = dvol_s.rolling(168, min_periods=168).mean().values
+    dvol_std_168 = dvol_s.rolling(168, min_periods=168).std().values
+    dvol_ma_720 = dvol_s.rolling(720, min_periods=720).mean().values
+
+    for i in range(n):
+        idx = dvol_idx[i]
+        if idx < 0:
+            continue
+
+        # dvol_chg_72
+        if idx >= 72:
+            f_chg_72[i] = dvol_pct_72[idx]
+
+        # iv_term_struct: MA(24) / MA(168) - 1
+        if idx >= 167:
+            ma_long = dvol_ma_168[idx]
+            ma_short = dvol_ma_24[idx]
+            if not np.isnan(ma_long) and ma_long > 0 and not np.isnan(ma_short):
+                f_term_struct[i] = ma_short / ma_long - 1
+
+        # dvol_z: z-score over 168 bars
+        if idx >= 167:
+            mu = dvol_ma_168[idx]
+            std = dvol_std_168[idx]
+            if not np.isnan(mu) and not np.isnan(std):
+                f_dvol_z[i] = (dvol_vals[idx] - mu) / max(std, 0.1)
+
+        # dvol_chg_24
+        if idx >= 24:
+            f_chg_24[i] = dvol_pct_24[idx]
+
+        # dvol_mean_rev: DVOL / MA(720) - 1
+        if idx >= 719:
+            ma720 = dvol_ma_720[idx]
+            if not np.isnan(ma720) and ma720 > 0:
+                f_mean_rev[i] = dvol_vals[idx] / ma720 - 1
+
+    feat_df["dvol_chg_72"] = f_chg_72
+    feat_df["iv_term_struct"] = f_term_struct
+    feat_df["dvol_z"] = f_dvol_z
+    feat_df["dvol_chg_24"] = f_chg_24
+    feat_df["dvol_mean_rev"] = f_mean_rev
+
 
 # ── Cross-asset feature building ─────────────────────────────
 
@@ -876,7 +1018,11 @@ def run_walkforward(
               "fgi_normalized", "fgi_zscore_7", "fgi_extreme", "fgi_x_rsi14",
               # External data — may not be available
               "spx_overnight_ret", "mempool_size_zscore_24",
-              "liquidation_cascade_score"}
+              "liquidation_cascade_score",
+              # V18: OI change rate (sparse — only available where OI data exists)
+              "oi_change_24", "oi_change_96",
+              # V18: 3-period cumulative funding
+              "funding_cum_3"}
     core = [c for c in available if c not in SPARSE]
     X_full = feat_df[available].values.astype(np.float64)
 

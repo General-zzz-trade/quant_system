@@ -55,6 +55,7 @@ class SQLiteEventLog(EventLog):
     timeout_s: float = 10.0
 
     _conn: sqlite3.Connection = field(init=False, repr=False)
+    _closed: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
@@ -75,6 +76,26 @@ class SQLiteEventLog(EventLog):
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_event_log_ts ON event_log(ts);")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_event_log_corr ON event_log(correlation_id);")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);")
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._conn.close()
+        finally:
+            self._closed = True
+
+    def __enter__(self) -> "SQLiteEventLog":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def append(self, *, event_type: str, payload: Mapping[str, Any], correlation_id: Optional[str] = None) -> int:
         now = time.time()

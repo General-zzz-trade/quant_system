@@ -5,11 +5,11 @@ After=network.target data-refresh.service
 [Service]
 Type=oneshot
 WorkingDirectory=/quant_system
-ExecStart=/usr/bin/python3 -m scripts.auto_retrain --notify-runner --alert
+ExecStart=/usr/bin/python3 -m scripts.auto_retrain --horizons 12,24
 User=ubuntu
 Environment=PYTHONPATH=/quant_system
-StandardOutput=append:/quant_system/logs/retrain.log
-StandardError=append:/quant_system/logs/retrain.log
+StandardOutput=append:/quant_system/logs/retrain_cron.log
+StandardError=append:/quant_system/logs/retrain_cron.log
 TimeoutStartSec=3600
 
 [Install]

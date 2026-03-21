@@ -1,13 +1,33 @@
 # Runtime Contracts
 
-> 更新时间: 2026-03-18
-> 目标: 对比 live / backtest / replay 三条路径的当前契约差异，并给出统一基线
-> 适用范围: 当前默认 Python runtime 及其验证路径
+> 更新时间: 2026-03-19
+> 目标: 对比 framework live / backtest / replay 三条路径的当前契约差异，并给出统一基线
+> 适用范围: `runner/live_runner.py`、`runner/backtest_runner.py`、`runner/replay_runner.py` 及其验证路径
 > 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 
 ---
 
-## 1. 三条路径当前定位
+## 1. 适用边界
+
+本文档只约束 framework 路径：
+
+- live: [`runner/live_runner.py`](/quant_system/runner/live_runner.py)
+- backtest: [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py)
+- replay: [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py)
+
+它不直接描述以下活跃服务：
+
+- [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)
+- [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py)
+
+原因：
+
+- `run_bybit_alpha.py` 当前不是完整 `LiveRunner` 装配面
+- `run_bybit_mm.py` 是专用做市运行时，不走 framework contract matrix
+
+---
+
+## 2. 三条路径当前定位
 
 | 路径 | 入口 | 当前定位 |
 |---|---|---|
@@ -17,7 +37,7 @@
 
 ---
 
-## 2. 当前共同点
+## 3. 当前共同点
 
 三条路径都围绕同一组核心概念运转：
 
@@ -36,7 +56,7 @@
 
 ---
 
-## 3. 当前差异
+## 4. 当前差异
 
 ### 3.1 live
 
@@ -53,7 +73,8 @@ live 路径额外具备：
 
 - live 是最完整的运行路径
 - 是当前 framework live 真相源
-- 当前活跃 alpha 生产入口仍是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)；详见 [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+- 当前活跃 alpha 生产入口仍是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)
+- 该活跃 alpha 服务不自动继承本节所述的 health server、checkpoint、reconcile、operator control 语义
 
 ### 3.2 backtest
 
@@ -87,7 +108,7 @@ replay 路径当前更偏“事件再注入器”：
 
 ---
 
-## 4. 统一字段基线
+## 5. 统一字段基线
 
 ### 4.1 Header
 
@@ -152,7 +173,7 @@ replay 路径当前更偏“事件再注入器”：
 
 ---
 
-## 5. 下一步收口要求
+## 6. 下一步收口要求
 
 为了让三条路径更一致，后续开发应满足：
 
@@ -163,7 +184,7 @@ replay 路径当前更偏“事件再注入器”：
 
 ---
 
-## 6. 本轮已完成的约束对齐
+## 7. 本轮已完成的约束对齐
 
 已完成：
 

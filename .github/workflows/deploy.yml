@@ -18,6 +18,7 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEPLOY_SERVICES: quant-paper
 
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +39,13 @@ jobs:
           echo "Changes since $PREV:"
           echo "$CHANGED"
 
+      - name: Guard deploy scope
+        id: scope_guard
+        run: |
+          PREV="${{ steps.changes.outputs.prev_commit }}"
+          CHANGED="$(git diff --name-only "$PREV" HEAD || true)"
+          printf '%s\n' "$CHANGED" | python3 -m scripts.check_deploy_scope --guard-changed-files-stdin
+
       - name: Backup image (if rebuilding)
         if: steps.changes.outputs.needs_rebuild == 'true'
         run: |
@@ -47,28 +55,33 @@ jobs:
           fi
 
       - name: Docker build
+        id: docker_build
         if: steps.changes.outputs.needs_rebuild == 'true'
         run: docker compose build --no-cache
 
       - name: Rolling deploy
-        run: bash scripts/deploy.sh
+        id: rolling_deploy
+        run: bash scripts/deploy.sh $DEPLOY_SERVICES
 
       - name: Record successful deploy
         if: success()
         run: git rev-parse HEAD > .last_good_deploy
 
       - name: Rollback on failure
-        if: failure()
+        if: ${{ failure() && steps.rolling_deploy.conclusion == 'failure' }}
         run: |
           echo "Deploy failed; rolling back"
           PREV="${{ steps.changes.outputs.prev_commit }}"
+          read -r -a SERVICES <<< "${DEPLOY_SERVICES:-quant-paper}"
           # Restore rollback image if we rebuilt
           if docker image inspect quant-paper:rollback >/dev/null 2>&1; then
             docker tag quant-paper:rollback quant-paper:latest
             echo "Restored quant-paper:rollback -> quant-paper:latest"
           fi
-          # Recreate the live service so it picks up the restored image.
-          docker compose up -d --no-deps --force-recreate quant-paper || true
+          # Recreate the deployed compose services so they pick up the restored image.
+          for svc in "${SERVICES[@]}"; do
+            docker compose up -d --no-deps --force-recreate "$svc" || true
+          done
           # Notify
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

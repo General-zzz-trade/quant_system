@@ -103,7 +103,10 @@ class PerpQuoter:
                 else:
                     bid = min(best_ask - tick, bid + tick)
 
-            if bid <= 0 or ask <= bid:
+            # H15 fix: clamp instead of returning None when crossed
+            if ask <= bid:
+                ask = bid + tick
+            if bid <= 0:
                 return None
 
             return Quote(

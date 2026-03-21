@@ -77,6 +77,7 @@ class SQLiteEventStore(EventStore):
         import sqlite3
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._lock = threading.Lock()
+        self._closed = False
         self._conn = sqlite3.connect(path, check_same_thread=False)
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -128,14 +129,23 @@ class SQLiteEventStore(EventStore):
         return int(row[0])
 
     def close(self) -> None:
+        if self._closed:
+            return
         with self._lock:
             self._conn.close()
+            self._closed = True
 
     def __enter__(self) -> "SQLiteEventStore":
         return self
 
     def __exit__(self, *args: object) -> None:
         self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 # ============================================================

@@ -57,3 +57,15 @@ def test_host_managed_runtime_changes_are_blocked():
         "scripts/run_bybit_mm.py",
         "execution/market_maker/engine.py",
     ]
+
+
+def test_active_host_units_load_env_and_honor_startup_guard():
+    alpha_unit = (_ROOT / "infra/systemd/bybit-alpha.service").read_text(encoding="utf-8")
+    mm_unit = (_ROOT / "infra/systemd/bybit-mm.service").read_text(encoding="utf-8")
+
+    for unit_text in (alpha_unit, mm_unit):
+        assert "EnvironmentFile=/quant_system/.env" in unit_text
+        assert "RestartPreventExitStatus=73" in unit_text
+
+    assert "python3 -m scripts.run_bybit_alpha" in alpha_unit
+    assert "python3 -m scripts.run_bybit_mm" in mm_unit

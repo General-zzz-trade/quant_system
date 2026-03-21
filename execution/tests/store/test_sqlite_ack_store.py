@@ -46,3 +46,13 @@ def test_sqlite_ack_store_persists_dedup_across_restart(tmp_path) -> None:
     a2 = br2.submit(cmd)
     assert a2.deduped is True
     assert venue2.n == 0  # no resubmit
+
+
+def test_sqlite_ack_store_context_manager_closes_connection(tmp_path) -> None:
+    db = tmp_path / "acks.sqlite"
+
+    with SQLiteAckStore(path=str(db)) as store:
+        store.put("idem-1", {"ok": True})
+        assert store._closed is False
+
+    assert store._closed is True

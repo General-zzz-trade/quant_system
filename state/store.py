@@ -252,6 +252,7 @@ class SqliteStateStore:
         self._keep_history = keep_history
         self._history_limit = history_limit
         self._lock = threading.Lock()
+        self._closed = False
 
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
         with self._lock:
@@ -310,11 +311,20 @@ class SqliteStateStore:
         return [r[0] for r in rows]
 
     def close(self) -> None:
+        if self._closed:
+            return
         with self._lock:
             self._conn.close()
+            self._closed = True
 
     def __enter__(self) -> "SqliteStateStore":
         return self
 
     def __exit__(self, *args: Any) -> None:
         self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

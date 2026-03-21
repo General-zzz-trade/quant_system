@@ -1,8 +1,9 @@
 # Quant System 代码库研究报告
 
-> 更新时间: 2026-03-14
+> 更新时间: 2026-03-19
 > 研究方式: 基于当前源码、真相源文档、测试结构、CI 与部署工件逐层核对
 > 判断原则: 以当前代码和已落地契约为准，不以历史 README 口径、旧脚本名或未接线清单为准
+> 说明: 本文是架构研究报告，不是运行时真相源；当前活跃交易服务以 [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md) 为准
 
 ---
 
@@ -22,7 +23,7 @@
 
 本轮核对后，最关键的 8 条结论如下：
 
-1. 当前唯一默认生产主路径仍然是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)，不是 Rust standalone binary。
+1. 当前 framework live 真相源仍然是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)，但当前活跃 host 交易服务是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py) 与 [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py)，不是 Rust standalone binary。
 2. Rust 已经深度接管状态推进、路由、特征、约束状态机、去重和部分执行原语，但 Python 仍拥有 runtime 装配、交易所 IO、研究训练和 ops glue。
 3. [`decision/engine.py`](/quant_system/decision/engine.py) 和 [`engine/decision_bridge.py`](/quant_system/engine/decision_bridge.py) 已形成比较清晰的“只读快照 -> 意见事件”制度中心。
 4. [`execution/`](/quant_system/execution) 已经不是 adapter 集合，而是包含 canonical model、ingress、state machine、reconcile、safety、observability、store、sim 的完整执行子平台。
@@ -117,7 +118,9 @@
 
 | 路径 | 当前定位 |
 |---|---|
-| [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 默认生产主路径 |
+| [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py) | 当前活跃方向性 host trading 路径 |
+| [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) | 当前活跃做市 host trading 路径 |
+| [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | framework live 真相源 / 收敛路径 |
 | [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py) | 历史回测与验证入口 |
 | [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py) | 事件重放与一致性验证 |
 | [`runner/live_paper_runner.py`](/quant_system/runner/live_paper_runner.py) | 更接近 live 语义的 paper 路径 |
@@ -493,16 +496,16 @@ Market / Replay / Backtest input
 
 ### 9.3 部署现状
 
-仓库当前并存至少 4 套部署叙事：
+仓库当前确认存在 3 套部署叙事：
 
 1. 根目录 [`docker-compose.yml`](/quant_system/docker-compose.yml)
-   - 当前更像 paper/testnet/runtime 组合
-2. 根目录 [`Dockerfile`](/quant_system/Dockerfile) 与 [`Dockerfile.trader`](/quant_system/Dockerfile.trader)
-   - 分别对应 Python+Rust paper 运行时与 Rust trader
-3. [`deploy/docker/docker-compose.yml`](/quant_system/deploy/docker/docker-compose.yml)
-   - 另一套 engine + timescaledb + prometheus + grafana 栈
-4. [`deploy/k8s/deployment.yaml`](/quant_system/deploy/k8s/deployment.yaml) 与 [`deploy/argocd/rollout.yaml`](/quant_system/deploy/argocd/rollout.yaml)
-   - 候选生产 / GitOps / canary 形态
+   - 当前 container path，服务名是 `quant-paper` / `quant-live` / `quant-framework`
+2. 根目录 [`Dockerfile`](/quant_system/Dockerfile)
+   - 当前唯一已存在的 Docker build 工件
+3. [`infra/systemd/`](/quant_system/infra/systemd)
+   - 当前 host 上真实在用的 systemd 模板
+
+旧文档里提到的 `Dockerfile.trader`、`deploy/docker/`、`deploy/k8s/`、`deploy/argocd/` 当前都不在仓库里。
 
 结论不是“支持很多部署方式”，而是：
 
@@ -592,7 +595,7 @@ Market / Replay / Backtest input
 已经能直接确认两个具体问题：
 
 1. 根 [`Dockerfile`](/quant_system/Dockerfile) 中有 `COPY _quant_hotpath/ /app/_quant_hotpath/`，但当前仓库根目录并不存在 `_quant_hotpath/` 路径。
-2. [`deploy/docker/Dockerfile`](/quant_system/deploy/docker/Dockerfile) 依赖 `requirements.txt`，但当前仓库并没有对应 `requirements*.txt` 文件。
+2. 旧研究里提到的 `deploy/docker/Dockerfile` 当前已不存在，这本身就是部署文档曾经漂移过的证据。
 
 这说明：
 
@@ -624,13 +627,11 @@ Market / Replay / Backtest input
 
 - `pytest tests/ execution/tests/`
 
-所以像 [`execution/tests/e2e/test_um_user_stream_trade_updates_state.py`](/quant_system/execution/tests/e2e/test_um_user_stream_trade_updates_state.py) 这类 execution 子树测试，默认并不在当前主测试门中。
+当前 CI 已把 `execution/tests/` 作为单独步骤纳入默认门，但它仍然不是 `pytest tests/` 这条命令本身会自动覆盖到的路径。
 
 ### 11.6 K8s / Argo 工件更像候选生产形态
 
-[`deploy/argocd/application.yaml`](/quant_system/deploy/argocd/application.yaml) 仍包含 `repoURL` placeholder，[`deploy/argocd/rollback-config.yaml`](/quant_system/deploy/argocd/rollback-config.yaml) 仍包含 Slack webhook placeholder。
-
-这说明 K8s/GitOps 清单的成熟度不低，但当前更像候选生产形态，而不是唯一已落地真相源。
+旧文档曾把 `deploy/argocd/` 写成候选生产形态，但当前这些工件已经不在仓库内；当前真正存在的候选部署工件只剩 [`deploy/systemd/`](/quant_system/deploy/systemd) 与 root compose / workflow 路径。
 
 ---
 
@@ -641,7 +642,7 @@ Market / Replay / Backtest input
 当前已经明确形成的能力包括：
 
 - 完整事件闭环
-- 默认生产主路径
+- 活跃 host trading 路径与 framework 路径的明确分层
 - Python + Rust 混合运行时
 - 决策、风险、执行、恢复、监控、operator control 的制度边界
 - model registry / loader / promote / rollback / audit
@@ -671,7 +672,7 @@ Market / Replay / Backtest input
 从代码现状看，下一阶段最值得优先处理的不是再加功能，而是继续做 5 件收口工作：
 
 1. 把部署真相源统一下来，修复 compose / deploy script / Dockerfile / K8s 清单之间的漂移。
-2. 把 `execution/tests/` 和 Rust tests 纳入默认 CI 门，提升真实发布可信度。
+2. 继续保持 `execution/tests/`、Rust tests、security、model-check 与 compose smoke 在默认 CI 门中，避免文档再次落后于 workflow。
 3. 继续收敛 live/backtest/research 共享约束状态机，减少重复实现。
 4. 继续统一 `CanonicalFill`、公共事件层和 ingress 事实模型。
 5. 明确长期 runtime 方向: Python 主装配长期保留，还是逐步让 Rust binary 成为默认入口。
@@ -683,7 +684,7 @@ Market / Replay / Backtest input
 当前对整个项目最准确、也最不失真的总结如下：
 
 - 这是一个已经具备完整交易平台横截面的代码库，而不是策略脚本集合。
-- 当前默认生产路径仍是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py) 主导的 Python runtime。
+- 当前 framework runtime 真相源仍是 [`runner/live_runner.py`](/quant_system/runner/live_runner.py)，但当前活跃 host trading services 是 `bybit-alpha.service` 与 `bybit-mm.service`。
 - Rust 已经深度进入 state / route / feature / constraint / execution 原语，但尚未完成对 Python runtime 的总替换。
 - `decision`、`risk`、`execution`、`monitoring` 这几层已经具有明显的制度化和生产候选气质。
 - `research`、`scripts`、`deploy` 则体现出典型的“功能很强，但仍在治理收口中”的特征。

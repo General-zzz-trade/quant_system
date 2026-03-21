@@ -1,8 +1,8 @@
 [Unit]
-Description=Daily data refresh timer (1am UTC, before retrain at 2am)
+Description=Data refresh every 6 hours
 
 [Timer]
-OnCalendar=*-*-* 01:00:00 UTC
+OnCalendar=*-*-* 01,07,13,19:00:00 UTC
 Persistent=true
 RandomizedDelaySec=120
 

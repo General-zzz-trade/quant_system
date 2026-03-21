@@ -11,7 +11,7 @@
 | 路径 | 入口 | 部署 | 状态 |
 |------|------|------|------|
 | **AlphaRunner** | `scripts/ops/run_bybit_alpha.py` | systemd `bybit-alpha.service` | **当前活跃** |
-| **LiveRunner** | `runner/live_runner.py` | docker `quant-paper` | 可用（非默认） |
+| **LiveRunner** | `runner/live_runner.py` | docker `quant-framework` / `quant-runner.service` | 可用（非默认） |
 
 ## Production-Wired Modules
 

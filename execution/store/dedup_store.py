@@ -50,6 +50,7 @@ class SQLiteDedupStore(DedupStore):
     ttl_sec: Optional[float] = None
     _conn: sqlite3.Connection = field(init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _closed: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
@@ -94,8 +95,23 @@ class SQLiteDedupStore(DedupStore):
         return int(cur.rowcount)
 
     def close(self) -> None:
+        if self._closed:
+            return
         try:
             with self._lock:
                 self._conn.close()
+                self._closed = True
         except Exception as e:
             logger.error("Failed to close dedup store connection: %s", e, exc_info=True)
+
+    def __enter__(self) -> "SQLiteDedupStore":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

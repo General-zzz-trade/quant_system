@@ -1,236 +1,209 @@
 # Model Governance
 
-> 更新时间: 2026-03-12
-> 目标: 固定 registry / loader / shadow compare / promotion / rollback 的职责边界，减少模型上线流程的隐式约定
-> 适用范围: 当前 registry / loader / scripts shadow compare 的生产治理流程
+> 更新时间: 2026-03-19
+> 目标: 固定 registry / loader / shadow compare / promotion / rollback 的职责边界，并明确哪些能力已经接到运行时、哪些还只是候选路径
+> 适用范围: 当前 registry / loader / scripts shadow compare / CLI 的真实治理流程
 
 ---
 
 ## 1. 当前真相源
 
-当前模型治理相关的源码入口：
+当前模型治理相关源码入口：
 
 - [`research/model_registry/registry.py`](/quant_system/research/model_registry/registry.py)
+- [`research/model_registry/artifact.py`](/quant_system/research/model_registry/artifact.py)
 - [`alpha/model_loader.py`](/quant_system/alpha/model_loader.py)
-- [`scripts/shadow_compare.py`](/quant_system/scripts/shadow_compare.py)
+- [`scripts/ops/model_loader.py`](/quant_system/scripts/ops/model_loader.py)
+- [`scripts/ops/shadow_compare.py`](/quant_system/scripts/ops/shadow_compare.py)
+- [`scripts/shared/cli.py`](/quant_system/scripts/shared/cli.py)（由 [`scripts/cli.py`](/quant_system/scripts/cli.py) 转发）
 
 ---
 
-## 2. 职责边界
+## 2. 当前实际存在两条模型装配路径
 
-### 2.1 ModelRegistry
+### 2.1 活跃 directional alpha 服务路径
+
+当前 `bybit-alpha.service` 使用的是文件系统模型装配：
+
+- 入口: [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)
+- 模型加载: [`scripts/ops/model_loader.py`](/quant_system/scripts/ops/model_loader.py)
+- artifact 来源: `models_v8/*/config.json` + 同目录下的 `.pkl`
+
+这条路径当前的特点：
+
+- 不依赖 `ModelRegistry`
+- 不依赖 `ArtifactStore`
+- 不支持 registry-based promotion / rollback / autoload
+- 以各模型目录内的 `config.json` 为当前事实
+
+### 2.2 Framework / LiveRunner 路径
+
+`runner/live_runner.py` 只有在同时提供：
+
+- `LiveRunnerConfig.model_registry_db`
+- `LiveRunnerConfig.model_names`
+
+时，才会启用 registry-based loader：
+
+- registry: `ModelRegistry`
+- artifact store: `ArtifactStore`
+- loader: `ProductionModelLoader`
+
+这条路径当前支持：
+
+- load production models
+- `reload_if_changed()`
+- `inspect_production_model(s)`
+- ops audit / model status 观察
+
+结论：
+
+- registry / promote / rollback / autoload 的正式 contract 当前只对 framework path 成立
+- 当前活跃的 `bybit-alpha.service` 并没有接上这条治理链
+
+---
+
+## 3. 职责边界
+
+### 3.1 ModelRegistry
 
 [`ModelRegistry`](/quant_system/research/model_registry/registry.py) 当前负责：
 
 - 注册模型版本
 - 维护 `name -> version -> model_id`
-- 记录 params / features / metrics / tags
+- 记录 `params / features / metrics / tags`
 - 标记 production 版本
-- 比较两个版本的 metadata / metrics / features
+- 记录 promotion / rollback 审计动作
+- 查询版本与审计历史
 
 它当前不负责：
 
-- 加载模型权重到运行时
-- 验证 artifact 是否完整
-- 直接驱动 live runtime 热更新
+- 直接加载权重进 runtime
+- 验证 artifact 内容是否可反序列化
+- 自动决定候选模型是否应 promotion
 
-### 2.2 ProductionModelLoader
+### 3.2 ProductionModelLoader
 
 [`ProductionModelLoader`](/quant_system/alpha/model_loader.py) 当前负责：
 
-- 按模型名查询当前 production version
-- 从 artifact store 读取 weights / signature
+- 查询 registry 中的当前 production version
+- 从 artifact store 读取 `weights` / `weights.sig`
 - 推断模型类型并实例化
-- 校验 registry feature schema 与权重中声明的 feature schema 是否一致
-- 记录已加载的 `name -> model_id`
-- 在 production model_id 变化时触发 reload
-- 输出 production artifact / autoload 状态检查回执
+- 在 production `model_id` 变化时触发 reload
+- 输出 `available / has_weights / has_signature / loaded_model_id / autoload_pending`
+
+它当前的真实校验边界：
+
+- 若 `ArtifactStore.verify_digest()` 存在，则执行 digest 校验；失败时拒绝加载
+- 若 registry feature schema 与模型 feature schema 都存在且不相等，则拒绝加载
+- 若只有一侧缺失 feature schema，则只告警，不阻塞加载
+- `features.feature_catalog.validate_model_features()` 当前是 advisory warning，不阻塞加载
 
 它当前不负责：
 
-- 决定哪个版本应该 promotion
-- 写入 registry 元数据
-- 决定 shadow compare 的胜负逻辑
+- promotion 决策
+- shadow compare 胜负裁定
+- 事务化保证 registry metadata 与 artifact 一致提交
 
-### 2.3 Shadow Compare
+### 3.3 `scripts/ops/model_loader.py`
 
-[`scripts/shadow_compare.py`](/quant_system/scripts/shadow_compare.py) 当前负责：
+这个 loader 只服务于当前活跃 directional alpha 服务：
 
-- 对 production model 和 candidate model 做同一 OOS 数据下的对比
-- 计算 IC / Sharpe / stability 等比较指标
-- 给出 `should_promote` 判断
-- 可选地执行 `auto_promote`
+- 读取 `models_v8/*/config.json`
+- 加载 horizon ensemble 的 LGBM / XGB / Ridge `.pkl`
+- 解析 `deadzone / min_hold / max_hold / long_only / ic_weighted`
+- 直接构造 AlphaRunner 所需的 `model_info`
 
-它当前不负责：
+它不是 registry loader，也不应在文档中被误写成 production governance contract 的一部分。
 
-- 作为 live runtime 的默认热更新机制
-- 替代 registry 的元数据记录
+### 3.4 Shadow Compare
+
+[`scripts/ops/shadow_compare.py`](/quant_system/scripts/ops/shadow_compare.py) 当前负责：
+
+- 在同一 OOS 数据上对比 production model 与 candidate model
+- 计算 IC / Sharpe / stability
+- 给出 `should_promote`
+- 可选 `auto_promote`
+
+当前 promotion 判据确实存在于脚本中，而不是统一 policy schema 中。
+
+因此：
+
+- 它是当前默认比较工具
+- 但还不是 repo 级强制治理引擎
 
 ---
 
-## 3. 当前 Promotion 流程
+## 4. 当前 promotion / rollback 真相
 
-当前实际流程可总结为：
+### 4.1 Promotion
 
-1. 训练脚本产出 candidate model 和 metrics
+当前真实流程：
+
+1. 训练脚本产出 candidate artifact 与 metrics
 2. `ModelRegistry.register()` 记录 metadata
-3. `shadow_compare.py` 对比 candidate 与 current production
-4. 满足条件时调用 `registry.promote(model_id)`
-5. `ProductionModelLoader.reload_if_changed()` 在 model_id 变化时重新加载
-
-当前 promotion 判据主要出现在 [`scripts/shadow_compare.py`](/quant_system/scripts/shadow_compare.py)：
-
-- candidate `passed`
-- candidate `overall.ic > production overall.ic`
-- candidate `h2.ic > 0`
-- candidate `deflated_sharpe > 0`
+3. `scripts/ops/shadow_compare.py` 对比 candidate 与 production
+4. 满足条件后调用 `registry.promote(model_id, ...)`
+5. 若 framework runtime 已启用 registry loader，则 `reload_if_changed()` 检测到 `model_id` 变化并重载
 
 说明：
 
-- 这是一套存在于脚本中的当前默认制度
-- 还不是全仓统一 schema / policy 层面的正式 contract
+- `promote()` 会记录 `reason / actor / metadata`
+- promotion precondition 目前只做 warning，不是强制审批流
+
+### 4.2 Rollback
+
+当前 rollback 已具备正式 API：
+
+- `ModelRegistry.rollback_to_previous(name)`
+- `ModelRegistry.rollback_to_previous(name, to_model_id=...)`
+- `ModelRegistry.rollback_to_previous(name, to_version=...)`
+
+当前 CLI 入口：
+
+- `quant model-promote --model-id ...`
+- `quant model-rollback --model ...`
+- `quant model-rollback --model ... --to-version ...`
+- `quant model-rollback --model ... --to-model-id ...`
+- `quant model-history --model ...`
+- `quant model-inspect --model ...`
+
+当前也已具备相应单测与集成验证；“rollback 缺少 API / 测试”已不是当前事实。
 
 ---
 
-## 4. 当前 Rollback 流程
+## 5. Live Autoload Boundary
 
-当前 rollback 已有 registry 级 API 和最小 CLI 入口，并开始带审计字段：
-
-1. 查询 `registry.list_versions(name)`
-2. 选择旧版本 `model_id` 或目标 `version`
-3. 调用 `registry.rollback_to_previous(name, ...)`
-4. 由 `ProductionModelLoader.reload_if_changed()` 检测并重载
-
-当前能力：
-
-- `ModelRegistry.rollback_to_previous(name)` 支持回滚到上一个稳定版本
-- `ModelRegistry.rollback_to_previous(name, to_model_id=...)` 支持定向回滚到指定 `model_id`
-- `ModelRegistry.rollback_to_previous(name, to_version=...)` 支持定向回滚到指定版本
-- `ModelRegistry.promote(..., reason=..., actor=..., metadata=...)` 会记录 production 切换审计事件
-- `ModelRegistry.list_actions(name)` 可查询最近 promotion / rollback 审计历史
-- [`scripts/cli.py`](/quant_system/scripts/cli.py) 当前已暴露：
-  - `quant model-promote --model-id ...`
-  - `quant model-rollback --model ... [--to-model-id ... | --to-version ...]`
-  - `quant model-history --model ...`
-
-当前缺口：
-
-- 还没有单独的 live runtime 模型切换审批层
-- 审计历史当前仍是 registry 侧元数据，不是独立 control-plane 事件流
-
----
-
-## 5. Shadow Compare 的制度位置
-
-当前建议把 shadow compare 视为：
-
-- promotion 前的比较门槛
-- 生产切换前的准入工具
-
-不建议把它视为：
-
-- live runtime 内部的自动模型选择器
-- registry 的替代品
-
----
-
-## 6. 现阶段建议制度
-
-建议把模型治理固定成以下流程：
-
-1. `register`
-   - 记录 params / features / metrics / tags
-2. `shadow compare`
-   - candidate vs production on a fixed OOS slice
-3. `promote`
-   - 仅在比较结果和准入门槛通过后执行
-4. `reload`
-   - loader 检测 `model_id` 变化后重载
-5. `rollback`
-   - promotion 到上一个稳定版本
-
----
-
-## 7. 当前仍未完全收口
-
-- model artifact 完整性和 registry metadata 还没有统一事务化保证
-- schema mismatch / feature mismatch 已开始形成 loader 级硬约束，但还未扩展到完整 artifact / config / runtime schema
-- rollback 缺少一等公民 API 和测试
-- live autoload 的行为边界还没有正式 runbook
-
----
-
-## 8. 下一步
-
-后续应优先补：
-
-1. registry promote / rollback tests
-2. schema mismatch / feature mismatch tests
-3. model lifecycle runbook
-
----
-
-## 9. Promotion Checklist
-
-在当前制度下，production promotion 前建议至少检查：
-
-1. candidate 已通过固定 OOS slice 的 shadow compare
-2. registry metadata 已完整写入：`params / features / metrics / tags`
-3. artifact store 中至少存在可加载的 `weights`
-4. loader 侧 feature schema 与权重声明的 `feature_names` 一致
-5. 计划中的 promotion reason 已记录到变更说明
-
-如果其中任一项不满足，不应直接 promotion。
-
-## 10. Rollback Runbook
-
-当前 rollback 推荐操作顺序：
-
-1. `registry.list_versions(name)` 找到目标 `model_id` 或 `version`
-2. 调用 `registry.rollback_to_previous(name, ...)`
-3. 触发或等待 [`alpha/model_loader.py`](/quant_system/alpha/model_loader.py) 的 `reload_if_changed()`
-4. 校验 `loaded_model_ids` 已切回旧版本
-5. 记录 rollback reason 和触发时间
-
-当前也建议同步记录：
-
-- `reason`
-- `actor`
-- 变更单或 incident id（可放在 `metadata`）
-
-当前不建议：
-
-- 绕过 registry 直接改 live runtime 内部模型对象
-- 在未确认 artifact/schema 完整性的情况下强行 reload
-
-## 11. Live Autoload Boundary
-
-当前 live autoload 的边界应固定为：
+当前 live autoload 只对 framework path 成立，边界如下：
 
 - 只响应 registry 中 production `model_id` 的变化
 - 不负责决定是否 promotion
 - 不负责自动比较 candidate 与 production
-- schema mismatch / feature mismatch 时必须拒绝加载，而不是降级到模糊兼容
+- digest 校验失败时拒绝加载
+- 双边 feature schema 明确不一致时拒绝加载
+- 单边 schema 缺失时只告警，不会自动 fail fast
 
-当前建议同时使用 [`ProductionModelLoader.inspect_production_model()`](/quant_system/alpha/model_loader.py) 做上线前检查，至少确认：
+当前最小观察面：
 
-- production `model_id` 是否存在
-- `weights` / `weights.sig` 是否齐全
-- 当前 runtime 是否存在 `autoload_pending`
+- `inspect_production_model()`
+- `inspect_production_models()`
+- `ops-audit` 中的 `model_status / model_reload / timeline`
 
-当前也可以通过 [`scripts/cli.py`](/quant_system/scripts/cli.py) 的 `model-inspect` 子命令做最小外部检查。
-当前最小外部操作链也包括：
+---
 
-- `quant model-promote --model-id <id>`
-- `quant model-rollback --model <name>`
-- `quant model-rollback --model <name> --to-version <version>`
-- `quant model-rollback --model <name> --to-model-id <model_id>`
-- `quant model-history --model <name>`
-- `quant ops-audit --event-log <path> --registry-db <path> --model <name>`
+## 6. 当前仍未完全收口
 
-其中 `ops-audit` 当前会把：
+- 当前活跃 `bybit-alpha.service` 仍未接上 registry / artifact / autoload 治理链
+- registry metadata 与 artifact 完整性还没有统一事务化保证
+- shadow compare 的 promotion policy 仍然散落在脚本，而不是单一 schema
+- 单边 feature schema 缺失时当前仍允许加载，属于兼容优先而非严格治理
 
-- runtime `event_log` 中的 `operator_control` 审计记录
-- registry 中的 model promotion / rollback 审计记录
+---
 
-汇总成一个最小统一外部查询视图。
+## 7. 当前建议
+
+当前最安全的口径是：
+
+- 如果讨论 host 上正在交易的 directional alpha，模型事实以 `models_v8/*/config.json` 为准
+- 如果讨论 framework runtime 的 model lifecycle，治理事实以 `ModelRegistry + ArtifactStore + ProductionModelLoader + scripts/shared/cli.py` 为准
+- 不要把这两套路径写成已经统一

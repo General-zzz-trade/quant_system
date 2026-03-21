@@ -287,3 +287,70 @@ class TestWsTimeoutFallback:
         assert adapter.last_order_outcome.route == "ws_success"
         assert adapter.last_order_outcome.reason == "ws_response"
         assert adapter.last_order_outcome.latency_ms == 4.2
+
+    def test_early_ws_success_is_buffered_until_pending_registration(self):
+        """A response arriving before adapter-side pending registration must not trigger REST fallback."""
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=0.2,
+        )
+
+        class _EarlySuccessGateway:
+            is_running = True
+
+            def __init__(self, owner: WsOrderAdapter):
+                self._owner = owner
+
+            def submit_order(self, **kwargs) -> str:
+                req_id = "ws-early-ok-1"
+                self._owner._on_response(
+                    {"id": req_id, "status": 200, "_latency_ms": 1.5, "result": {"orderId": 7}}
+                )
+                return req_id
+
+        adapter._gateway = _EarlySuccessGateway(adapter)
+        adapter._started = True
+
+        results = adapter.send_order(_FakeOrderEvent())
+
+        assert results == []
+        assert len(rest.orders) == 0
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "ws_success"
+        assert adapter.last_order_outcome.reason == "ws_response"
+        assert adapter.last_order_outcome.latency_ms == 1.5
+
+    def test_early_ws_error_is_buffered_until_pending_registration(self):
+        """An error arriving before pending registration must not race into a duplicate REST order."""
+        rest = _FakeRestAdapter()
+        adapter = WsOrderAdapter(
+            rest_adapter=rest,
+            api_key="test",
+            api_secret="test",
+            response_timeout_sec=0.2,
+        )
+
+        class _EarlyErrorGateway:
+            is_running = True
+
+            def __init__(self, owner: WsOrderAdapter):
+                self._owner = owner
+
+            def submit_order(self, **kwargs) -> str:
+                req_id = "ws-early-err-1"
+                self._owner._on_error(req_id, {"error": {"code": -1000, "msg": "rejected"}})
+                return req_id
+
+        adapter._gateway = _EarlyErrorGateway(adapter)
+        adapter._started = True
+
+        results = adapter.send_order(_FakeOrderEvent())
+
+        assert len(rest.orders) == 1
+        assert len(results) == 1
+        assert adapter.last_order_outcome is not None
+        assert adapter.last_order_outcome.route == "rest_fallback"
+        assert adapter.last_order_outcome.reason == "ws_error"

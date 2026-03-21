@@ -25,6 +25,7 @@ class TestRiskMonitor:
         state = risk.check(daily_pnl=-11.0, consecutive_losses=0)
         assert state == "killed"
         assert risk.is_killed
+        assert risk.kill_reason == "daily_loss=-11.00"
         assert not risk.can_quote
 
     def test_circuit_breaker_pauses(self, risk):
@@ -38,6 +39,23 @@ class TestRiskMonitor:
         # Wait for cooldown (1 second in test config)
         time.sleep(1.1)
         assert risk.state == "running"
+
+    def test_check_resumes_after_cooldown_even_if_loss_streak_unchanged(self, risk):
+        risk.check(daily_pnl=-5.0, consecutive_losses=3)
+        assert risk.state == "paused"
+
+        time.sleep(1.1)
+
+        state = risk.check(daily_pnl=-5.0, consecutive_losses=3)
+        assert state == "running"
+        assert risk.can_quote
+
+    def test_new_loss_after_resume_repauses_breaker(self, risk):
+        risk.check(daily_pnl=-5.0, consecutive_losses=3)
+        time.sleep(1.1)
+
+        assert risk.check(daily_pnl=-5.0, consecutive_losses=3) == "running"
+        assert risk.check(daily_pnl=-5.0, consecutive_losses=4) == "paused"
 
     def test_consecutive_losses_below_threshold(self, risk):
         state = risk.check(daily_pnl=-5.0, consecutive_losses=2)

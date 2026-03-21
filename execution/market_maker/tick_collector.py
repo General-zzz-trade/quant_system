@@ -78,6 +78,7 @@ class TickCollector:
         self._micro = None
         self._last_vpin = 0.0
         self._last_imbalance = 0.0
+        self._last_micro_error_log: dict[str, float] = {"trade": 0.0, "depth": 0.0}
 
     def _init_db(self) -> None:
         """Create database and tables."""
@@ -187,7 +188,7 @@ class TickCollector:
                 self._last_vpin = vpin
                 self._last_imbalance = imbalance
             except Exception:
-                pass
+                self._log_microstructure_error("trade")
 
         # Latency: exchange ts vs receive time (approximate)
         recv_lat_us = int((recv_time - self._start_time) * 1e6) if self._start_time else 0
@@ -251,7 +252,7 @@ class TickCollector:
                 self._last_vpin = vpin
                 self._last_imbalance = imbalance
             except Exception:
-                pass
+                self._log_microstructure_error("depth")
 
         # Compact JSON for top 5 levels only (saves space)
         bids_json = json.dumps([[b[0], b[1]] for b in bids[:5]])
@@ -326,6 +327,18 @@ class TickCollector:
             self._last_vpin, self._last_imbalance, db_size_mb,
         )
         self._last_stats = now
+
+    def _log_microstructure_error(self, stream: str, *, throttle_s: float = 60.0) -> None:
+        now = time.monotonic()
+        last = self._last_micro_error_log.get(stream, 0.0)
+        if now - last < throttle_s:
+            return
+        self._last_micro_error_log[stream] = now
+        log.warning(
+            "Tick collector microstructure %s update failed; keeping previous state",
+            stream,
+            exc_info=True,
+        )
 
     def start(self) -> None:
         """Start collector (blocking). Ctrl-C to stop."""

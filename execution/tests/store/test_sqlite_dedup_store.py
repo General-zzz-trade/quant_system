@@ -22,3 +22,13 @@ def test_sqlite_dedup_store_does_not_overwrite_digest(tmp_path):
     s.put("k1", "d2")  # should not overwrite the original digest
     assert s.get("k1") == "d1"
     s.close()
+
+
+def test_sqlite_dedup_store_context_manager_closes_connection(tmp_path):
+    p = tmp_path / "dedup.db"
+
+    with SQLiteDedupStore(path=str(p)) as store:
+        store.put("k1", "d1")
+        assert store._closed is False
+
+    assert store._closed is True

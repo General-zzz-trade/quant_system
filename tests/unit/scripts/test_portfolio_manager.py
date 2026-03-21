@@ -156,3 +156,17 @@ class TestPortfolioManager:
         # The drawdown check happens after close; depends on pnl math
         # At minimum, verify the structure is correct
         assert result is not None
+
+    def test_submit_intent_rejects_when_equity_fetch_fails(self, caplog):
+        from scripts.ops.portfolio_manager import logger
+
+        adapter = MockAdapter(equity=1000.0)
+        adapter.get_balances = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+        pm, _ = _make_pm(adapter=adapter)
+
+        with caplog.at_level("ERROR", logger=logger.name):
+            result = pm.submit_intent("SRC1", "ETHUSDT", 1, 2000.0)
+
+        assert result == {"action": "rejected", "reason": "equity_unavailable"}
+        assert "failed to fetch balances for equity" in caplog.text
+        assert "non-positive equity" in caplog.text

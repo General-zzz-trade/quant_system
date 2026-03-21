@@ -2,9 +2,8 @@
 """Run the current directional alpha strategy on Bybit.
 
 This is the active multi-symbol alpha service used by ``bybit-alpha.service``.
-The file still contains some framework-facing helper stubs, but the current
-runtime path is AlphaRunner/PortfolioManager/PortfolioCombiner rather than
-LiveRunner.
+The current runtime path is AlphaRunner/PortfolioManager/PortfolioCombiner.
+This CLI does not switch to ``LiveRunner``.
 
 Usage:
     python3 -m scripts.run_bybit_alpha                    # live demo trading
@@ -28,6 +27,13 @@ from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.portfolio_manager import PortfolioManager
 from scripts.ops.portfolio_combiner import PortfolioCombiner
 from scripts.ops.hedge_runner import HedgeRunner
+from scripts.ops.runtime_ownership import claim_bybit_symbol_lease
+from scripts.ops.runtime_kill_latch import (
+    PersistentKillSwitch,
+    STARTUP_GUARD_EXIT_CODE,
+    build_bybit_kill_latch,
+    require_kill_latch_clear,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,57 +45,6 @@ try:
     _correlation_computer = RustCorrelationComputer(window=120)  # 5-day rolling
 except ImportError:
     pass
-
-
-def _select_runner_class(legacy: bool = False):
-    """Legacy helper from an unfinished convergence branch.
-
-    The current implementation does not switch to LiveRunner through this file.
-    """
-    if legacy:
-        from scripts.ops.alpha_runner import AlphaRunner  # noqa: F811
-        return AlphaRunner
-    from runner.live_runner import LiveRunner
-    return LiveRunner
-
-
-def _build_live_config(symbols, ws=False, dry_run=False):
-    """Build a candidate LiveRunnerConfig from SYMBOL_CONFIG.
-
-    This helper is not currently wired into the active bybit-alpha service path.
-    """
-    from runner.config import LiveRunnerConfig
-
-    composite_symbols = tuple(
-        s for s in symbols
-        if SYMBOL_CONFIG.get(s, {}).get("use_composite_regime", False)
-    )
-
-    multi_interval: dict = {}
-    for s in symbols:
-        sc = SYMBOL_CONFIG.get(s, {})
-        if sc.get("interval") == "15":
-            base = sc.get("symbol", s)
-            if base not in multi_interval:
-                multi_interval[base] = ["60"]
-            multi_interval[base].append("15")
-
-    # Map multi-interval symbols to LiveRunnerConfig's multi_tf_models format
-    multi_tf_models = None
-    if multi_interval:
-        multi_tf_models = {sym: intervals for sym, intervals in multi_interval.items()}
-
-    # Enable regime sizing for symbols that use composite regime (e.g. BTC)
-    enable_regime_sizing = len(composite_symbols) > 0
-
-    return LiveRunnerConfig(
-        symbols=tuple(symbols),
-        shadow_mode=dry_run,
-        enable_regime_sizing=enable_regime_sizing,
-        enable_multi_tf_ensemble=bool(multi_tf_models),
-        multi_tf_models=multi_tf_models,
-    )
-
 
 def _resolve_runner_target(
     runner_key: str,
@@ -109,6 +64,82 @@ def _combo_entry_price(combo_trade: dict | None, fallback_price: float) -> float
         return float(fill_price) if fill_price is not None else fallback_price
     except (TypeError, ValueError):
         return fallback_price
+
+
+def _runtime_symbols(symbols: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    claimed: list[str] = []
+    seen: set[str] = set()
+    for symbol in symbols:
+        real_symbol = str(SYMBOL_CONFIG.get(symbol, {}).get("symbol", symbol)).upper()
+        if real_symbol and real_symbol not in seen:
+            seen.add(real_symbol)
+            claimed.append(real_symbol)
+    return tuple(claimed)
+
+
+def _claim_runtime_symbols(
+    adapter: Any,
+    symbols: list[str] | tuple[str, ...],
+    *,
+    dry_run: bool,
+):
+    if dry_run:
+        return None
+    return claim_bybit_symbol_lease(
+        adapter=adapter,
+        service_name="bybit-alpha.service",
+        symbols=_runtime_symbols(symbols),
+    )
+
+
+def _build_runtime_kill_latch(adapter: Any, *, dry_run: bool):
+    if dry_run:
+        return None
+    return build_bybit_kill_latch(
+        adapter=adapter,
+        service_name="bybit-alpha.service",
+        scope_name="portfolio",
+    )
+
+
+def _build_portfolio_combiners(
+    runners: dict[str, AlphaRunner],
+    adapter: Any,
+    *,
+    dry_run: bool,
+    runner_intervals: dict[str, tuple[str, str]] | None = None,
+) -> dict[str, PortfolioCombiner]:
+    if runner_intervals is None:
+        runner_intervals = {s: (s, INTERVAL) for s in runners}
+
+    symbol_runners: dict[str, list[str]] = {}
+    for runner_key, (real_symbol, _) in runner_intervals.items():
+        symbol_runners.setdefault(real_symbol, []).append(runner_key)
+
+    combo_state_store = None
+    for runner in runners.values():
+        if runner._state_store is not None:
+            combo_state_store = runner._state_store
+            break
+
+    combiners: dict[str, PortfolioCombiner] = {}
+    for real_symbol, runner_keys in symbol_runners.items():
+        if len(runner_keys) <= 1:
+            continue
+        weights = {runner_key: 0.5 for runner_key in runner_keys}
+        combiners[real_symbol] = PortfolioCombiner(
+            adapter=adapter,
+            symbol=real_symbol,
+            weights=weights,
+            threshold=0.3,
+            dry_run=dry_run,
+            state_store=combo_state_store,
+        )
+        for runner_key in runner_keys:
+            runners[runner_key]._dry_run = True
+        logger.info("COMBO mode: %s runners=%s weights=%s", real_symbol, runner_keys, weights)
+
+    return combiners
 
 
 def _enforce_portfolio_kill(
@@ -148,6 +179,96 @@ def _enforce_portfolio_kill(
     return forced
 
 
+def _process_alpha_bar(
+    runner_key: str,
+    bar: dict,
+    *,
+    runners: dict[str, AlphaRunner],
+    runner_intervals: dict[str, tuple[str, str]] | None,
+    combiners: dict[str, PortfolioCombiner],
+    last_prices: dict[str, float],
+    portfolio_manager: PortfolioManager | None,
+    hedge_runner: HedgeRunner | None = None,
+    mode_label: str,
+) -> dict:
+    real_symbol, _interval = _resolve_runner_target(runner_key, runner_intervals)
+    last_prices[real_symbol] = bar["close"]
+
+    if hedge_runner is not None:
+        hedge_result = hedge_runner.on_bar(real_symbol, bar["close"])
+        if hedge_result and hedge_result.get("trade"):
+            logger.info(
+                "HEDGE %s: ratio=%.6f ma=%.6f",
+                hedge_result["trade"],
+                hedge_result.get("ratio", 0),
+                hedge_result.get("ratio_ma", 0),
+            )
+
+    if _correlation_computer is not None:
+        try:
+            _correlation_computer.update(real_symbol, bar["close"])
+        except Exception:
+            logger.debug("correlation tracker update failed for %s", real_symbol, exc_info=True)
+
+    runner = runners[runner_key]
+    result = runner.process_bar(bar)
+    forced_combo_trades = _enforce_portfolio_kill(
+        runners, combiners, portfolio_manager, last_prices,
+    )
+
+    if result.get("action") != "signal":
+        return result
+
+    regime = result.get("regime", "?")
+    label = runner_key if runner_key != real_symbol else real_symbol
+    trade_str = ""
+
+    if portfolio_manager is not None and portfolio_manager.is_killed:
+        result["signal"] = 0
+        result["hold_count"] = 0
+        killed_trade = forced_combo_trades.get(real_symbol)
+        if killed_trade is not None:
+            trade_str = f" KILL={killed_trade}"
+    elif real_symbol in combiners:
+        combo_trade = combiners[real_symbol].update_signal(
+            runner_key, result["signal"], result["close"],
+        )
+        if combo_trade:
+            trade_str = f" COMBO={combo_trade}"
+            if portfolio_manager is not None:
+                desired = combo_trade.get("to", 0)
+                if desired != 0:
+                    entry_price = _combo_entry_price(combo_trade, result["close"])
+                    portfolio_manager.record_position(
+                        real_symbol,
+                        combiners[real_symbol]._position_size * desired,
+                        entry_price,
+                        "COMBO",
+                    )
+                else:
+                    portfolio_manager.record_position(real_symbol, 0, 0, "COMBO")
+    elif "trade" in result:
+        trade_str = f" TRADE={result['trade']}"
+
+    z_scale = result.get("z_scale", 1.0)
+    z_scale_str = f" zs={z_scale:.1f}" if z_scale != 1.0 else ""
+    logger.info(
+        "%s %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s%s",
+        mode_label,
+        label,
+        result["bar"],
+        result["close"],
+        result["z"],
+        result["signal"],
+        result["hold_count"],
+        regime,
+        result.get("dz", 0),
+        z_scale_str,
+        trade_str,
+    )
+    return result
+
+
 def _stop_runners(runners: dict[str, AlphaRunner]) -> None:
     for runner in runners.values():
         try:
@@ -156,10 +277,39 @@ def _stop_runners(runners: dict[str, AlphaRunner]) -> None:
             logger.exception("Failed to stop runner for %s", getattr(runner, "_symbol", "?"))
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Bybit alpha strategy runner")
+    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"],
+                        help="Symbols to trade (default: BTCUSDT ETHUSDT)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--ws", action="store_true", help="Use WebSocket instead of REST polling")
+    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    return parser
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+    if args.legacy:
+        parser.error(
+            "--legacy was removed; scripts.run_bybit_alpha always uses AlphaRunner. "
+            "Use runner.live_runner directly for framework runtime experiments."
+        )
+    return args
+
+
 def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                  runner_intervals: dict | None = None,
                  hedge_runner: HedgeRunner | None = None,
-                 portfolio_manager: PortfolioManager | None = None) -> None:
+                 portfolio_manager: PortfolioManager | None = None,
+                 combiners: dict[str, PortfolioCombiner] | None = None,
+                 last_prices: dict[str, float] | None = None) -> None:
     """WebSocket-based event loop — processes bars on confirmed kline push.
 
     Supports multiple intervals (e.g. 1h + 15m) via separate WS clients.
@@ -175,107 +325,29 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
     for runner_key, (real_symbol, interval) in runner_intervals.items():
         interval_groups.setdefault(interval, {})[real_symbol] = runner_key
 
-    # Build portfolio combiner for symbols with multiple alphas
-    # Group runner_keys by real_symbol
-    symbol_runners: dict[str, list[str]] = {}
-    for rkey, (rsym, _) in runner_intervals.items():
-        symbol_runners.setdefault(rsym, []).append(rkey)
-
-    # Get state_store from any runner (all share the same instance)
-    _combo_state_store = None
-    for r in runners.values():
-        if r._state_store is not None:
-            _combo_state_store = r._state_store
-            break
-
-    combiners: dict[str, PortfolioCombiner] = {}
-    last_prices: dict[str, float] = {}
-    for rsym, rkeys in symbol_runners.items():
-        if len(rkeys) > 1:
-            # Multiple alphas on same symbol -> use combiner
-            weights = {k: 0.5 for k in rkeys}
-            combiners[rsym] = PortfolioCombiner(
-                adapter=adapter, symbol=rsym, weights=weights,
-                threshold=0.3, dry_run=dry_run,
-                state_store=_combo_state_store,
-            )
-            # Disable direct trading in individual runners
-            for rk in rkeys:
-                runners[rk]._dry_run = True  # signals only, combiner executes
-            logger.info("COMBO mode: %s runners=%s weights=%s", rsym, rkeys, weights)
+    if combiners is None:
+        combiners = _build_portfolio_combiners(
+            runners, adapter, dry_run=dry_run, runner_intervals=runner_intervals,
+        )
+    if last_prices is None:
+        last_prices = {}
 
     def make_bar_handler(group: dict[str, str]):
         def on_ws_bar(symbol: str, bar: dict) -> None:
-            last_prices[symbol] = bar["close"]
-
-            # Feed hedge runner (all 1h symbols)
-            if hedge_runner is not None:
-                hr = hedge_runner.on_bar(symbol, bar["close"])
-                if hr and hr.get("trade"):
-                    logger.info("HEDGE %s: ratio=%.6f ma=%.6f",
-                                hr["trade"], hr.get("ratio", 0), hr.get("ratio_ma", 0))
-
-            # Update correlation tracker with each bar close
-            if _correlation_computer is not None:
-                try:
-                    _correlation_computer.update(symbol, bar["close"])
-                except Exception:
-                    logger.debug("correlation tracker update failed for %s", symbol, exc_info=True)
-
             runner_key = group.get(symbol)
             if not runner_key:
                 return
-            runner = runners.get(runner_key)
-            if not runner:
-                return
-            result = runner.process_bar(bar)
-            forced_combo_trades = _enforce_portfolio_kill(
-                runners, combiners, portfolio_manager, last_prices,
+            _process_alpha_bar(
+                runner_key,
+                bar,
+                runners=runners,
+                runner_intervals=runner_intervals,
+                combiners=combiners,
+                last_prices=last_prices,
+                portfolio_manager=portfolio_manager,
+                hedge_runner=hedge_runner,
+                mode_label="WS",
             )
-            if result.get("action") == "signal":
-                regime = result.get("regime", "?")
-                label = runner_key if runner_key != symbol else symbol
-                trade_str = ""
-
-                # Route signal through combiner if available
-                real_sym = runner_intervals.get(runner_key, (symbol, ""))[0]
-                if portfolio_manager is not None and portfolio_manager.is_killed:
-                    result["signal"] = 0
-                    result["hold_count"] = 0
-                    killed_trade = forced_combo_trades.get(real_sym)
-                    if killed_trade is not None:
-                        trade_str = f" KILL={killed_trade}"
-                elif real_sym in combiners:
-                    combo_trade = combiners[real_sym].update_signal(
-                        runner_key, result["signal"], result["close"],
-                    )
-                    if combo_trade:
-                        trade_str = f" COMBO={combo_trade}"
-                        # Sync PM position tracking after COMBO fill
-                        if portfolio_manager is not None:
-                            desired = combo_trade.get("to", 0)
-                            if desired != 0:
-                                entry_price = _combo_entry_price(combo_trade, result["close"])
-                                portfolio_manager.record_position(
-                                    real_sym,
-                                    combiners[real_sym]._position_size * desired,
-                                    entry_price,
-                                    "COMBO",
-                                )
-                            else:
-                                portfolio_manager.record_position(real_sym, 0, 0, "COMBO")
-                elif "trade" in result:
-                    trade_str = f" TRADE={result['trade']}"
-
-                z_sc = result.get("z_scale", 1.0)
-                z_sc_str = f" zs={z_sc:.1f}" if z_sc != 1.0 else ""
-                logger.info(
-                    "WS %s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s%s",
-                    label, result["bar"], result["close"],
-                    result["z"], result["signal"],
-                    result["hold_count"], regime, result.get("dz", 0),
-                    z_sc_str, trade_str,
-                )
         return on_ws_bar
 
     def on_ws_tick(symbol: str, price: float) -> None:
@@ -376,20 +448,8 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                     logger.info("Closing %s on exit...", symbol)
                     reliable_close_position(adapter, symbol, verify=False)
 
-
-def main():
-    parser = argparse.ArgumentParser(description="Bybit alpha strategy runner")
-    parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"],
-                        help="Symbols to trade (default: BTCUSDT ETHUSDT)")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--once", action="store_true")
-    parser.add_argument("--ws", action="store_true", help="Use WebSocket instead of REST polling")
-    parser.add_argument("--log-level", default="INFO")
-    parser.add_argument(
-        "--legacy", action="store_true",
-        help="Compatibility flag from an unfinished LiveRunner migration; current path already uses AlphaRunner",
-    )
-    args = parser.parse_args()
+def main(argv: list[str] | None = None):
+    args = _parse_args(argv)
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
@@ -397,6 +457,18 @@ def main():
     )
 
     adapter = create_adapter()
+    try:
+        kill_latch = _build_runtime_kill_latch(adapter, dry_run=args.dry_run)
+        if kill_latch is not None:
+            require_kill_latch_clear(kill_latch, runtime_name="bybit-alpha.service")
+    except RuntimeError as exc:
+        logger.critical("Persistent runtime kill latch armed: %s", exc)
+        raise SystemExit(STARTUP_GUARD_EXIT_CODE) from exc
+    try:
+        lease = _claim_runtime_symbols(adapter, args.symbols, dry_run=args.dry_run)
+    except RuntimeError as exc:
+        logger.critical("Runtime symbol ownership conflict: %s", exc)
+        raise SystemExit(STARTUP_GUARD_EXIT_CODE) from exc
     bal = adapter.get_balances()
     usdt = bal.get("USDT")
     logger.info("USDT balance: %s", usdt.total if usdt else "?")
@@ -417,7 +489,12 @@ def main():
     )
 
     risk_eval = RustRiskEvaluator(max_drawdown_pct=0.15)
-    kill_switch = RustKillSwitch()
+    kill_switch = PersistentKillSwitch(
+        RustKillSwitch(),
+        latch=kill_latch,
+        service_name="bybit-alpha.service",
+        scope_name="portfolio",
+    )
 
     # RustStateStore: authoritative position truth across all symbols.
     # Keeps market, position, account, portfolio, and risk state on the Rust
@@ -488,19 +565,14 @@ def main():
 
     if not runners:
         logger.error("No symbols with models. Exiting.")
+        if lease is not None:
+            lease.release()
         return
 
-    if args.once:
-        try:
-            for symbol, runner in runners.items():
-                real_symbol, interval = _resolve_runner_target(symbol, runner_intervals)
-                bars = adapter.get_klines(real_symbol, interval=interval, limit=2)
-                if bars:
-                    result = runner.process_bar(bars[0])
-                    logger.info("%s: %s", symbol, json.dumps(result, default=str))
-        finally:
-            _stop_runners(runners)
-        return
+    combiners = _build_portfolio_combiners(
+        runners, adapter, dry_run=args.dry_run, runner_intervals=runner_intervals,
+    )
+    last_prices: dict[str, float] = {}
 
     # Initialize portfolio manager (unified position + risk)
     pm = PortfolioManager(adapter, dry_run=args.dry_run,
@@ -512,14 +584,41 @@ def main():
     # Keeping code for future re-evaluation with longer MA or different basket.
     hedge = None
 
+    if args.once:
+        try:
+            for symbol, runner in runners.items():
+                real_symbol, interval = _resolve_runner_target(symbol, runner_intervals)
+                bars = adapter.get_klines(real_symbol, interval=interval, limit=2)
+                if bars:
+                    result = _process_alpha_bar(
+                        symbol,
+                        bars[0],
+                        runners=runners,
+                        runner_intervals=runner_intervals,
+                        combiners=combiners,
+                        last_prices=last_prices,
+                        portfolio_manager=pm,
+                        hedge_runner=hedge,
+                        mode_label="ONCE",
+                    )
+                    logger.info("%s: %s", symbol, json.dumps(result, default=str))
+        finally:
+            _stop_runners(runners)
+            if lease is not None:
+                lease.release()
+        return
+
     # WebSocket mode: push-based, low latency
     if args.ws:
         try:
             _run_ws_mode(runners, adapter, args.dry_run,
                          runner_intervals=runner_intervals, hedge_runner=hedge,
-                         portfolio_manager=pm)
+                         portfolio_manager=pm, combiners=combiners,
+                         last_prices=last_prices)
         finally:
             _stop_runners(runners)
+            if lease is not None:
+                lease.release()
         return
 
     logger.info(
@@ -546,17 +645,17 @@ def main():
 
                     if bar_time > last_bar_times[symbol]:
                         last_bar_times[symbol] = bar_time
-                        result = runner.process_bar(latest)
-                        if result.get("action") == "signal":
-                            regime = result.get("regime", "?")
-                            logger.info(
-                                "%s bar %d: $%.1f z=%+.3f sig=%d hold=%d regime=%s dz=%.3f%s",
-                                symbol, result["bar"], result["close"],
-                                result["z"], result["signal"],
-                                result["hold_count"], regime,
-                                result.get("dz", 0),
-                                f" TRADE={result['trade']}" if "trade" in result else "",
-                            )
+                        _process_alpha_bar(
+                            symbol,
+                            latest,
+                            runners=runners,
+                            runner_intervals=runner_intervals,
+                            combiners=combiners,
+                            last_prices=last_prices,
+                            portfolio_manager=pm,
+                            hedge_runner=hedge,
+                            mode_label="REST",
+                        )
                 except Exception:
                     logger.exception("Error processing %s", symbol)
 
@@ -596,6 +695,8 @@ def main():
                     reliable_close_position(adapter, symbol, verify=False)
     finally:
         _stop_runners(runners)
+        if lease is not None:
+            lease.release()
 
 
 if __name__ == "__main__":

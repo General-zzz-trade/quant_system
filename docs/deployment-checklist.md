@@ -23,7 +23,7 @@
 ### 2.1 启动前确认
 
 - [ ] 已同步 [`infra/systemd/bybit-alpha.service`](/quant_system/infra/systemd/bybit-alpha.service) 到 `/etc/systemd/system/`
-- [ ] `BYBIT_API_KEY` / `BYBIT_API_SECRET` / `BYBIT_BASE_URL` 已通过 host 环境或 systemd drop-in 提供
+- [ ] `/quant_system/.env` 已存在，且包含 `BYBIT_API_KEY` / `BYBIT_API_SECRET` / `BYBIT_BASE_URL`
 - [ ] 目标账户是 Bybit `demo` 还是 `live` 已确认
 - [ ] 模型目录 `models_v8/*/config.json` 存在且可读取
 

@@ -96,6 +96,11 @@ def test_evaluate_alpha_health_fails_when_portfolio_is_killed(monkeypatch, tmp_p
     monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
     monkeypatch.setattr(
         rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {"status": "ok", "reason": "", "armed": False, "path": None, "record": None},
+    )
+    monkeypatch.setattr(
+        rhc,
         "summarize_account_truth",
         lambda **_kw: {
             "status": "ok",
@@ -125,6 +130,11 @@ def test_evaluate_alpha_health_does_not_trust_account_only_activity(monkeypatch,
     log = tmp_path / "alpha.log"
     log.write_text("2026-03-19 19:59:00,000 INFO scripts.ops.run_bybit_alpha: Boot complete\n")
     monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
+    monkeypatch.setattr(
+        rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {"status": "ok", "reason": "", "armed": False, "path": None, "record": None},
+    )
     monkeypatch.setattr(
         rhc,
         "summarize_account_truth",
@@ -159,6 +169,11 @@ def test_evaluate_alpha_health_fails_when_log_is_stale(monkeypatch, tmp_path):
     monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
     monkeypatch.setattr(
         rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {"status": "ok", "reason": "", "armed": False, "path": None, "record": None},
+    )
+    monkeypatch.setattr(
+        rhc,
         "summarize_account_truth",
         lambda **_kw: {"status": "skipped", "reason": "missing_credentials"},
     )
@@ -183,6 +198,11 @@ def test_evaluate_mm_health_allows_account_truth_to_prove_activity(monkeypatch, 
         "2026-03-19 19:59:20,000 INFO bybit_mm Boot complete\n"
     )
     monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
+    monkeypatch.setattr(
+        rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {"status": "ok", "reason": "", "armed": False, "path": None, "record": None},
+    )
     monkeypatch.setattr(
         rhc,
         "summarize_account_truth",
@@ -218,6 +238,11 @@ def test_require_account_turns_skip_into_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(rhc, "service_state", lambda _service: "active")
     monkeypatch.setattr(
         rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {"status": "ok", "reason": "", "armed": False, "path": None, "record": None},
+    )
+    monkeypatch.setattr(
+        rhc,
         "summarize_account_truth",
         lambda **_kw: {"status": "skipped", "reason": "missing_credentials"},
     )
@@ -232,6 +257,42 @@ def test_require_account_turns_skip_into_failure(monkeypatch, tmp_path):
 
     assert result["ok"] is False
     assert "account_skipped" in result["problems"]
+
+
+def test_evaluate_alpha_health_fails_when_persistent_kill_latch_is_armed(monkeypatch, tmp_path):
+    from scripts.ops import runtime_health_check as rhc
+
+    now = datetime(2026, 3, 19, 20, 0, 0)
+    log = tmp_path / "alpha.log"
+    log.write_text(
+        "2026-03-19 19:59:00,000 INFO scripts.ops.run_bybit_alpha: WS HEARTBEAT sigs={'ETHUSDT': 0}\n"
+    )
+    monkeypatch.setattr(rhc, "service_state", lambda _service: "inactive")
+    monkeypatch.setattr(
+        rhc,
+        "summarize_account_truth",
+        lambda **_kw: {"status": "skipped", "reason": "missing_credentials"},
+    )
+    monkeypatch.setattr(
+        rhc,
+        "summarize_kill_latch",
+        lambda **_kw: {
+            "status": "ok",
+            "reason": "",
+            "armed": True,
+            "path": "data/runtime/kills/bybit-alpha.service_demo_portfolio.json",
+            "record": {"reason": "PM drawdown 24.4%"},
+        },
+    )
+
+    result = rhc.evaluate_service_health(
+        spec=rhc.ALPHA_SPEC,
+        log_path=str(log),
+        now=now,
+    )
+
+    assert result["ok"] is False
+    assert "persistent_kill_latched" in result["problems"]
 
 
 def test_account_truth_filters_old_fills():

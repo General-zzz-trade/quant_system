@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _NON_FALLBACK_WS_ERROR_CODES = {-2015, -2014, -1002}
 _NON_FALLBACK_HTTP_STATUSES = {401, 403}
+_MAX_BUFFERED_RESULTS = 256
 
 
 class WsOrderAdapter:
@@ -49,6 +50,7 @@ class WsOrderAdapter:
         self._timeout = response_timeout_sec
         self._gateway: Optional[Any] = None
         self._pending: Dict[str, _PendingOrder] = {}
+        self._buffered: Dict[str, _BufferedGatewayResult] = {}
         self._lock = threading.Lock()
         self._started = False
         self._last_outcome: Optional[WsOrderOutcome] = None
@@ -134,6 +136,15 @@ class WsOrderAdapter:
 
         with self._lock:
             self._pending[req_id] = pending
+            buffered = self._buffered.pop(req_id, None)
+
+        if buffered is not None:
+            pending.latency_ms = buffered.latency_ms
+            if buffered.response is not None:
+                pending.response = buffered.response
+            if buffered.error is not None:
+                pending.error = buffered.error
+            pending.event.set()
 
         # Wait for response
         if not event.wait(timeout=self._timeout):
@@ -258,18 +269,31 @@ class WsOrderAdapter:
         req_id = str(req_id)
         with self._lock:
             pending = self._pending.get(req_id)
-        if pending is not None:
-            pending.response = resp
-            pending.latency_ms = resp.get("_latency_ms", 0.0)
-            pending.event.set()
+            if pending is None:
+                self._buffered[req_id] = _BufferedGatewayResult(
+                    response=resp,
+                    latency_ms=float(resp.get("_latency_ms", 0.0) or 0.0),
+                )
+                self._prune_buffered_locked()
+                return
+        pending.response = resp
+        pending.latency_ms = resp.get("_latency_ms", 0.0)
+        pending.event.set()
 
     def _on_error(self, req_id: str, resp: Dict[str, Any]) -> None:
         """WS error callback (called from gateway recv thread)."""
         with self._lock:
             pending = self._pending.get(str(req_id))
-        if pending is not None:
-            pending.error = resp
-            pending.event.set()
+            if pending is None:
+                self._buffered[str(req_id)] = _BufferedGatewayResult(error=resp)
+                self._prune_buffered_locked()
+                return
+        pending.error = resp
+        pending.event.set()
+
+    def _prune_buffered_locked(self) -> None:
+        while len(self._buffered) > _MAX_BUFFERED_RESULTS:
+            self._buffered.pop(next(iter(self._buffered)))
 
 
 class _PendingOrder:
@@ -281,6 +305,23 @@ class _PendingOrder:
         self.response: Optional[Dict[str, Any]] = None
         self.error: Optional[Dict[str, Any]] = None
         self.latency_ms: float = 0.0
+
+
+class _BufferedGatewayResult:
+    """Stores a response/error that arrived before adapter-side pending registration."""
+
+    __slots__ = ("response", "error", "latency_ms")
+
+    def __init__(
+        self,
+        *,
+        response: Optional[Dict[str, Any]] = None,
+        error: Optional[Dict[str, Any]] = None,
+        latency_ms: float = 0.0,
+    ) -> None:
+        self.response = response
+        self.error = error
+        self.latency_ms = latency_ms
 
 
 @dataclass(frozen=True)

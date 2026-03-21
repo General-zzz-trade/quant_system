@@ -108,7 +108,8 @@ class InventoryTracker:
         old_qty = self.net_qty
         new_qty = old_qty + signed_qty
 
-        if new_qty == 0:
+        if abs(new_qty) < 1e-10:  # M10 fix: use threshold instead of exact 0
+            new_qty = 0.0
             self.avg_entry = 0.0
         elif (old_qty >= 0 and new_qty > 0 and signed_qty > 0):
             # Adding to long
@@ -140,6 +141,11 @@ class InventoryTracker:
     @property
     def total_pnl(self) -> float:
         return self.realised_pnl + self.unrealised_pnl
+
+    def add_rebate(self, amount: float) -> None:
+        """Add maker rebate to PnL tracking (E1 fix)."""
+        self.realised_pnl += amount
+        self.daily_pnl += amount
 
     @property
     def hit_daily_limit(self) -> bool:

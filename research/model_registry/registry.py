@@ -1,6 +1,7 @@
 """SQLite-backed model metadata registry."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import logging
 import sqlite3
@@ -8,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +98,17 @@ class ModelRegistry:
                 ON model_actions(name, created_at DESC, action_id DESC)
             """)
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self._db_path))
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def register(
         self,

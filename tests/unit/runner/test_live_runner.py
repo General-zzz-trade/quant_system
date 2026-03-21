@@ -184,7 +184,7 @@ class TestLifecycle:
         runner.stop()
 
     def test_start_stop_in_background(self):
-        config = LiveRunnerConfig()
+        config = LiveRunnerConfig(enable_monitoring=False, enable_reconcile=False)
         runner = LiveRunner.build(
             config,
             venue_clients={"binance": _FakeVenueClient()},

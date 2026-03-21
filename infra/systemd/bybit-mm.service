@@ -1,5 +1,5 @@
 [Unit]
-Description=Bybit Market Maker (ETHUSDT 20x)
+Description=Bybit Market Maker (ORDIUSDT 50x)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,9 +9,10 @@ User=ubuntu
 WorkingDirectory=/quant_system
 EnvironmentFile=/quant_system/.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --order-size 1.0 --max-inventory 10000 --loss-limit 500 --gamma 0.3 --min-spread 0.5 --max-spread 15.0 --mode adaptive
+ExecStart=/usr/bin/python3 -m scripts.run_bybit_mm --symbol ORDIUSDT --leverage 50 --order-size 100.0 --max-inventory 5000 --loss-limit 500 --gamma 0.3 --min-spread 2.0 --max-spread 20.0 --mode adaptive
 Restart=on-failure
 RestartSec=10
+RestartPreventExitStatus=73
 MemoryMax=256M
 
 [Install]
