@@ -139,6 +139,10 @@ def _build_portfolio_combiners(
             runners[runner_key]._dry_run = True
         logger.info("COMBO mode: %s runners=%s weights=%s", real_symbol, runner_keys, weights)
 
+    # Reconcile combiner state with exchange on startup
+    for sym, combiner in combiners.items():
+        combiner.reconcile_position()
+
     return combiners
 
 
