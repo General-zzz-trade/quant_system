@@ -34,8 +34,10 @@ class CorrelationLimitRule:
     max_position_correlation: float = 0.85
 
     def evaluate_intent(
-        self, intent: IntentEvent, *, meta: Mapping[str, Any] = {},
+        self, intent: IntentEvent, *, meta: Mapping[str, Any] | None = None,
     ) -> RiskDecision:
+        if meta is None:
+            meta = {}
         avg_corr = meta.get("portfolio_avg_correlation")
         if avg_corr is not None and avg_corr > self.max_avg_correlation:
             return RiskDecision(
@@ -67,6 +69,8 @@ class CorrelationLimitRule:
         return RiskDecision(action=RiskAction.ALLOW)
 
     def evaluate_order(
-        self, order: OrderEvent, *, meta: Mapping[str, Any] = {},
+        self, order: OrderEvent, *, meta: Mapping[str, Any] | None = None,
     ) -> RiskDecision:
+        if meta is None:
+            meta = {}
         return self.evaluate_intent(order, meta=meta)

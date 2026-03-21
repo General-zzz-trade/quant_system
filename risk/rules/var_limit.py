@@ -35,8 +35,10 @@ class VaRLimitRule:
     max_var_99_pct: float = 10.0   # Max 10% daily VaR at 99%
 
     def evaluate_intent(
-        self, intent: IntentEvent, *, meta: Mapping[str, Any] = {},
+        self, intent: IntentEvent, *, meta: Mapping[str, Any] | None = None,
     ) -> RiskDecision:
+        if meta is None:
+            meta = {}
         # Check current VaR
         var_95 = meta.get("portfolio_var_95")
         if var_95 is not None and var_95 > self.max_var_95_pct:
@@ -84,6 +86,8 @@ class VaRLimitRule:
         return RiskDecision(action=RiskAction.ALLOW)
 
     def evaluate_order(
-        self, order: OrderEvent, *, meta: Mapping[str, Any] = {},
+        self, order: OrderEvent, *, meta: Mapping[str, Any] | None = None,
     ) -> RiskDecision:
+        if meta is None:
+            meta = {}
         return self.evaluate_intent(order, meta=meta)

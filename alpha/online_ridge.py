@@ -157,8 +157,8 @@ class OnlineRidge:
         x = np.asarray(x, dtype=np.float64).ravel()
         y = float(y)
 
-        # Skip if NaN
-        if np.any(np.isnan(x)) or np.isnan(y):
+        # Skip if NaN or Inf
+        if not np.all(np.isfinite(x)) or not np.isfinite(y):
             return 0.0
 
         self._n_updates += 1
@@ -189,8 +189,17 @@ class OnlineRidge:
         # w = w + K·error
         self._w += delta_w
 
-        # P = (1/λ)(P - K·xᵀ·P)
+        # P = (1/λ)(P - K·xᵀ·P)  — Joseph form for numerical stability
         self._P = (self._P - np.outer(K, x @ self._P)) / lam
+
+        # Enforce symmetry (accumulates floating-point asymmetry over many updates)
+        self._P = (self._P + self._P.T) / 2
+
+        # Eigenvalue floor: prevent P from losing positive-definiteness
+        if self._n_updates % 200 == 0:
+            eigvals = np.linalg.eigvalsh(self._P)
+            if eigvals.min() < 1e-10:
+                self._P += np.eye(self._n) * (1e-8 - eigvals.min())
 
         # Intercept update (simple EMA)
         self._intercept += 0.001 * error

@@ -183,6 +183,7 @@ class AlphaRunner:
         self._online_ridge: Any = None
         self._online_ridge_features: list[str] = []
         self._last_close: float = 0.0  # for computing realized returns
+        self._prev_feat_dict: dict | None = None  # store previous bar features to avoid look-ahead
 
         # Background OI cache: fetches Binance OI/LS/Taker every 55s in a daemon thread.
         # Allow injection/disable in tests and non-networked environments.
@@ -694,19 +695,30 @@ class AlphaRunner:
                      self._symbol, n_feat)
 
     def _update_online_ridge(self, feat_dict: dict, close: float) -> None:
-        """Feed realized return to Online Ridge for incremental update."""
-        if self._online_ridge is None or self._last_close <= 0:
+        """Feed realized return to Online Ridge for incremental update.
+
+        Uses PREVIOUS bar's features paired with the return that was realized
+        AFTER those features were observed (avoids look-ahead bias).
+        """
+        if self._online_ridge is None:
+            self._prev_feat_dict = dict(feat_dict)
+            self._last_close = close
+            return
+        if self._last_close <= 0 or self._prev_feat_dict is None:
+            self._prev_feat_dict = dict(feat_dict)
             self._last_close = close
             return
         # Realized return (1-bar forward return of previous bar)
         realized_ret = (close - self._last_close) / self._last_close
-        self._last_close = close
-        # Build feature vector from previous bar (lagged by 1)
+        # Use PREVIOUS bar's features (not current bar's)
         x = np.array([
-            float(feat_dict.get(f, _NEUTRAL_DEFAULTS.get(f, 0.0)) or 0.0)
+            float(self._prev_feat_dict.get(f, _NEUTRAL_DEFAULTS.get(f, 0.0)) or 0.0)
             for f in self._online_ridge_features
         ])
         self._online_ridge.update(x, realized_ret)
+        # Store current for next iteration
+        self._prev_feat_dict = dict(feat_dict)
+        self._last_close = close
         # Log drift periodically
         if self._online_ridge.n_updates % 100 == 0 and self._online_ridge.n_updates > 0:
             drift = self._online_ridge.weight_drift
@@ -1017,11 +1029,18 @@ class AlphaRunner:
         lev_int = max(2, int(round(target_lev)))
         if not hasattr(self, "_current_exchange_lev") or self._current_exchange_lev != lev_int:
             try:
-                self._adapter._client.post("/v5/position/set-leverage", {
+                result = self._adapter._client.post("/v5/position/set-leverage", {
                     "category": "linear", "symbol": self._symbol,
                     "buyLeverage": str(lev_int),
                     "sellLeverage": str(lev_int),
                 })
+                if isinstance(result, dict):
+                    ret_code = result.get("retCode", -1)
+                    if ret_code != 0:
+                        logger.warning(
+                            "%s set_leverage API failed: retCode=%s retMsg=%s",
+                            self._symbol, ret_code, result.get("retMsg"),
+                        )
                 self._current_exchange_lev = lev_int
                 logger.info("%s exchange leverage set to %dx", self._symbol, lev_int)
             except Exception as e:

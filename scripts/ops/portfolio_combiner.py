@@ -228,8 +228,9 @@ class PortfolioCombiner:
                 logger.error("COMBO: equity fetch failed: %s", e)
                 equity = 0
 
-            if equity <= 0:
-                logger.error("COMBO %s: equity=0, skipping open", self._symbol)
+            if equity <= 0 or price <= 0:
+                logger.error("COMBO %s: equity=%.2f price=%.2f invalid, skipping open",
+                             self._symbol, equity, price)
                 self._current_position = 0
                 self._entry_price = 0.0
                 self._position_size = 0.0
@@ -285,11 +286,18 @@ class PortfolioCombiner:
 
                 # Ensure exchange leverage is set (Bybit requires integer >= 2)
                 try:
-                    self._adapter._client.post("/v5/position/set-leverage", {
+                    result = self._adapter._client.post("/v5/position/set-leverage", {
                         "category": "linear", "symbol": self._symbol,
                         "buyLeverage": str(lev_int),
                         "sellLeverage": str(lev_int),
                     })
+                    if isinstance(result, dict):
+                        ret_code = result.get("retCode", -1)
+                        if ret_code != 0:
+                            logger.warning(
+                                "COMBO %s set_leverage failed: retCode=%s retMsg=%s",
+                                self._symbol, ret_code, result.get("retMsg"),
+                            )
                 except Exception as e:
                     logger.warning("COMBO %s set_leverage failed (non-fatal): %s", self._symbol, e)
 

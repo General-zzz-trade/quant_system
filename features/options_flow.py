@@ -60,13 +60,22 @@ class OptionsFlowComputer:
 
     def __init__(self, cfg: OptionsFlowConfig | None = None) -> None:
         self._cfg = cfg or OptionsFlowConfig()
-        # Rolling windows for z-score computation
-        self._pcr_history: Deque[float] = deque(maxlen=self._cfg.zscore_window)
-        self._dvol_history: Deque[float] = deque(maxlen=self._cfg.zscore_window)
-        self._gamma_history: Deque[float] = deque(maxlen=self._cfg.zscore_window)
-        self._vega_history: Deque[float] = deque(maxlen=self._cfg.zscore_window)
+        # Per-currency rolling windows to avoid mixing BTC/ETH z-scores
+        self._windows: Dict[str, Dict[str, Deque[float]]] = {}
         self._last_features: Dict[str, float] = {}
         self._last_refresh_ts: float = 0.0
+
+    def _get_windows(self, currency: str) -> Dict[str, Deque[float]]:
+        """Get or create per-currency rolling windows."""
+        if currency not in self._windows:
+            w = self._cfg.zscore_window
+            self._windows[currency] = {
+                "pcr": deque(maxlen=w),
+                "dvol": deque(maxlen=w),
+                "gamma": deque(maxlen=w),
+                "vega": deque(maxlen=w),
+            }
+        return self._windows[currency]
 
     def compute(
         self,
@@ -102,16 +111,17 @@ class OptionsFlowComputer:
             return {name: float("nan") for name in self.FEATURE_NAMES}
 
         features: Dict[str, float] = {}
+        win = self._get_windows(currency)
 
         # 1. PCR z-score
         pcr = snap.get("pcr", 0.0) or 0.0
-        self._pcr_history.append(pcr)
-        features["pcr_zscore"] = _rolling_zscore(self._pcr_history, pcr)
+        win["pcr"].append(pcr)
+        features["pcr_zscore"] = _rolling_zscore(win["pcr"], pcr)
 
         # 2. DVOL z-score
         dvol = snap.get("dvol", 0.0) or 0.0
-        self._dvol_history.append(dvol)
-        features["dvol_zscore"] = _rolling_zscore(self._dvol_history, dvol)
+        win["dvol"].append(dvol)
+        features["dvol_zscore"] = _rolling_zscore(win["dvol"], dvol)
 
         # 3. IV term slope (near - far: positive = inverted term structure = fear)
         atm_near = snap.get("atm_iv_near")
@@ -135,8 +145,8 @@ class OptionsFlowComputer:
             # Gamma imbalance: (call_oi - put_oi) / total_oi
             # Positive = dealer short gamma on calls = upside hedging pressure
             gamma_raw = (call_oi - put_oi) / total_oi
-            self._gamma_history.append(gamma_raw)
-            features["gamma_imbalance_zscore"] = _rolling_zscore(self._gamma_history, gamma_raw)
+            win["gamma"].append(gamma_raw)
+            features["gamma_imbalance_zscore"] = _rolling_zscore(win["gamma"], gamma_raw)
         else:
             features["gamma_imbalance_zscore"] = float("nan")
 
@@ -146,8 +156,8 @@ class OptionsFlowComputer:
         total_vol = call_vol + put_vol
         if total_vol > 0:
             vega_raw = (put_vol - call_vol) / total_vol  # positive = put buying
-            self._vega_history.append(vega_raw)
-            features["vega_net_zscore"] = _rolling_zscore(self._vega_history, vega_raw)
+            win["vega"].append(vega_raw)
+            features["vega_net_zscore"] = _rolling_zscore(win["vega"], vega_raw)
         else:
             features["vega_net_zscore"] = float("nan")
 
