@@ -152,13 +152,16 @@ class BybitMMRunner:
 
         # Set leverage on exchange
         try:
-            self._adapter._client.post('/v5/position/set-leverage', body={
+            result = self._adapter._client.post('/v5/position/set-leverage', body={
                 'category': 'linear',
                 'symbol': self._symbol,
                 'buyLeverage': str(self._leverage),
                 'sellLeverage': str(self._leverage),
             })
-            log.info("Set leverage to %dx for %s", self._leverage, self._symbol)
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("set_leverage API failed: %s", result.get("retMsg", "unknown"))
+            else:
+                log.info("Set leverage to %dx for %s", self._leverage, self._symbol)
         except Exception as e:
             log.warning("Leverage set: %s", e)
 
@@ -372,6 +375,9 @@ class BybitMMRunner:
                     'qty': str(qty),
                     'price': str(price),
                 })
+                if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                    log.warning("MM amend API failed: retCode=%s retMsg=%s",
+                                   result.get("retCode"), result.get("retMsg"))
                 ret_code = result.get('retCode', -1)
                 if ret_code == 0:
                     log.debug("AMEND %s %.4f @ %.2f oid=%s", side, qty, price, existing_oid)
@@ -391,6 +397,9 @@ class BybitMMRunner:
                 'price': str(price),
                 'timeInForce': 'PostOnly',
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("MM create API failed: retCode=%s retMsg=%s",
+                               result.get("retCode"), result.get("retMsg"))
             ret_code = result.get('retCode', -1)
             if ret_code == 0:
                 oid = result.get('result', {}).get('orderId', '')
@@ -440,6 +449,9 @@ class BybitMMRunner:
                 'price': str(price),
                 'timeInForce': 'GTC',
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("MM create API failed: retCode=%s retMsg=%s",
+                               result.get("retCode"), result.get("retMsg"))
             ret_code = result.get('retCode', -1)
             if ret_code == 0:
                 oid = result.get('result', {}).get('orderId', '')
@@ -454,9 +466,11 @@ class BybitMMRunner:
     def _cancel_order_by_id(self, oid: str) -> None:
         """Cancel a specific order by ID."""
         try:
-            self._adapter._client.post('/v5/order/cancel', body={
+            result = self._adapter._client.post('/v5/order/cancel', body={
                 'category': 'linear', 'symbol': self._symbol, 'orderId': oid,
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("Cancel order %s API failed: %s", oid, result.get("retMsg", "unknown"))
         except Exception as e:
             log.warning("Cancel order %s failed: %s", oid, e)
 
@@ -466,11 +480,13 @@ class BybitMMRunner:
         if not oid:
             return
         try:
-            self._adapter._client.post('/v5/order/cancel', body={
+            result = self._adapter._client.post('/v5/order/cancel', body={
                 'category': 'linear',
                 'symbol': self._symbol,
                 'orderId': oid,
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("Cancel %s order %s API failed: %s", side, oid, result.get("retMsg", "unknown"))
         except Exception as e:
             log.warning("Cancel %s order %s failed: %s", side, oid, e)
         if side == "Buy":
@@ -490,6 +506,9 @@ class BybitMMRunner:
                 'category': 'linear',
                 'symbol': self._symbol,
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("MM cancel-all API failed: retCode=%s retMsg=%s",
+                               result.get("retCode"), result.get("retMsg"))
         except Exception:
             log.exception("Cancel-all failed")
             return False
@@ -529,6 +548,9 @@ class BybitMMRunner:
                 'orderType': 'Market',
                 'qty': str(hedge_qty),
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("MM create API failed: retCode=%s retMsg=%s",
+                               result.get("retCode"), result.get("retMsg"))
             ret_code = result.get('retCode', -1)
             if ret_code == 0:
                 self._last_taker_hedge_time = now
@@ -588,6 +610,9 @@ class BybitMMRunner:
                 'qty': str(qty),
                 'reduceOnly': True,
             })
+            if isinstance(result, dict) and result.get("retCode", 0) != 0:
+                log.warning("MM create API failed: retCode=%s retMsg=%s",
+                               result.get("retCode"), result.get("retMsg"))
             ret_code = result.get('retCode', -1)
             if ret_code != 0:
                 log.error("Flatten rejected: code=%s msg=%s", ret_code, result.get('retMsg', '?'))
