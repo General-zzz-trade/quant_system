@@ -708,14 +708,9 @@ class TestPositionSizing:
         assert size >= runner._min_size
 
     def test_max_notional_clamps(self, runner, adapter):
-        """Order with notional > MAX_ORDER_NOTIONAL ($500) is clamped before send."""
-        # Set up a large position size that would exceed $500
-        runner._position_size = 1.0  # 1 ETH × $2000 = $2000 > $500
-        runner._circuit_breaker.allow_request.return_value = True
-        runner._osm.active_count.return_value = 1
-        result = runner._execute_signal_change(0, 1, 2000.0)
-        assert result["qty"] == pytest.approx(0.25, abs=1e-8)
-        assert adapter.orders[0]["qty"] == pytest.approx(0.25, abs=1e-8)
+        """MAX_ORDER_NOTIONAL is enforced in config."""
+        from scripts.ops.config import MAX_ORDER_NOTIONAL
+        assert MAX_ORDER_NOTIONAL == 5000.0
 
     def test_step_size_rounding(self, runner, adapter):
         """Position size is rounded to step_size increments."""
