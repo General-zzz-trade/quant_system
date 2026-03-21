@@ -348,20 +348,26 @@ class AlphaRunner:
     def _save_checkpoint(self) -> None:
         """Save engine + inference state to disk for fast restart."""
         self._CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        # Engine checkpoint is already a JSON string from Rust
+        engine_ckpt = self._engine.checkpoint()
+        # Inference checkpoint may be a dict — convert to JSON-safe
+        inference_ckpt = self._inference.checkpoint()
+        if isinstance(inference_ckpt, dict):
+            inference_ckpt = json.dumps(inference_ckpt)
         ckpt = {
-            "engine": self._engine.checkpoint(),
-            "inference": self._inference.checkpoint(),
+            "engine": engine_ckpt,
+            "inference": inference_ckpt,
             "bars_processed": self._bars_processed,
             "regime_active": self._regime_active,
-            "deadzone": self._deadzone,
-            "atr_buffer": self._atr_buffer[-50:],
-            "dom_ratio_buf": self._dom_ratio_buf[-75:],
-            "closes": self._closes[-500:],
-            "rets": self._rets[-500:],
+            "deadzone": float(self._deadzone),
+            "atr_buffer": [float(x) for x in self._atr_buffer[-50:]],
+            "dom_ratio_buf": [float(x) for x in self._dom_ratio_buf[-75:]],
+            "closes": [float(x) for x in self._closes[-500:]],
+            "rets": [float(x) for x in self._rets[-500:]],
         }
         path = self._CHECKPOINT_DIR / f"{self._symbol}.json"
         path.write_text(json.dumps(ckpt))
-        logger.debug("%s checkpoint saved (%d bytes)", self._symbol, len(json.dumps(ckpt)))
+        logger.debug("%s checkpoint saved", self._symbol)
 
     def _restore_checkpoint(self) -> bool:
         """Restore engine + inference state from disk. Returns True if restored."""
@@ -370,8 +376,14 @@ class AlphaRunner:
             return False
         try:
             ckpt = json.loads(path.read_text())
-            self._engine.restore_checkpoint(ckpt["engine"])
-            self._inference.restore(ckpt["inference"])
+            # Engine checkpoint is a JSON string
+            engine_data = ckpt["engine"]
+            self._engine.restore_checkpoint(engine_data)
+            # Inference checkpoint may be a JSON string or dict
+            inference_data = ckpt["inference"]
+            if isinstance(inference_data, str):
+                inference_data = json.loads(inference_data)
+            self._inference.restore(inference_data)
             self._bars_processed = ckpt.get("bars_processed", 0)
             self._regime_active = ckpt.get("regime_active", True)
             self._deadzone = ckpt.get("deadzone", self._deadzone)
