@@ -6,7 +6,6 @@ import time
 from typing import Any
 
 from scripts.ops.balance_utils import get_total_and_free_balance
-from scripts.ops.config import MAX_ORDER_NOTIONAL
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
 
@@ -252,14 +251,16 @@ class PortfolioCombiner:
             max_notional = equity * 0.30 * leverage
             size = min(size, max_notional / price)
 
-            # Enforce hard safety limit
+            # Enforce dynamic safety limit (scales with equity)
+            from scripts.ops.config import get_max_order_notional
+            dynamic_cap = get_max_order_notional(equity)
             notional = size * price
-            if notional > MAX_ORDER_NOTIONAL:
+            if notional > dynamic_cap:
                 logger.warning(
                     "COMBO %s notional $%.2f exceeds limit $%.2f — clamping",
-                    self._symbol, notional, MAX_ORDER_NOTIONAL,
+                    self._symbol, notional, dynamic_cap,
                 )
-                size = MAX_ORDER_NOTIONAL / price
+                size = dynamic_cap / price
 
             size = max(self._min_size, round(size, 2))
             self._position_size = size

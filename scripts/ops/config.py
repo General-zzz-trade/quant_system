@@ -8,11 +8,24 @@ INTERVAL = "60"  # Bybit: "60" = 1h
 WARMUP_BARS = 800  # Must be > zscore_window(720) + zscore_warmup(180) for full z-score convergence
 POLL_INTERVAL = 60  # seconds between checks
 
-# Hard safety limit — no single order can exceed this notional (USD)
-# Increase manually as your account grows. Never let code auto-adjust this.
-# Demo: $5,000 (enough for 10x on $35K account with 45% per-symbol cap)
-# Real money: start at $500, raise gradually as you gain confidence.
-MAX_ORDER_NOTIONAL = 5_000.0
+# Max order notional as fraction of equity (dynamic).
+# Actual limit = equity × MAX_ORDER_NOTIONAL_PCT
+# At $35K equity: 0.20 × $35K = $7K per order (matches cap=0.15 × lev=10 ≈ $5.3K for BTC)
+# Hard floor: $100 (never go below this even if equity is tiny)
+# Hard ceiling: $100K (absolute max regardless of equity)
+MAX_ORDER_NOTIONAL_PCT = 0.20  # 20% of equity per order
+MAX_ORDER_NOTIONAL_FLOOR = 100.0
+MAX_ORDER_NOTIONAL_CEILING = 100_000.0
+
+
+def get_max_order_notional(equity: float) -> float:
+    """Dynamic max order notional based on current equity."""
+    notional = equity * MAX_ORDER_NOTIONAL_PCT
+    return max(MAX_ORDER_NOTIONAL_FLOOR, min(notional, MAX_ORDER_NOTIONAL_CEILING))
+
+
+# Backward compat: static value used by code that imports MAX_ORDER_NOTIONAL directly
+MAX_ORDER_NOTIONAL = 5_000.0  # fallback if equity unknown
 
 # Default symbols + position sizes
 # 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)

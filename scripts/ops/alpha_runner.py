@@ -13,7 +13,7 @@ import numpy as np
 
 from scripts.ops.config import (
     INTERVAL, MAX_ORDER_NOTIONAL, WARMUP_BARS,
-    _consensus_signals,
+    _consensus_signals, get_max_order_notional,
 )
 from scripts.ops.balance_utils import get_total_and_free_balance
 from scripts.ops.data_fetcher import BinanceOICache, _fetch_binance_oi_data  # noqa: F401
@@ -1890,13 +1890,18 @@ class AlphaRunner:
             # Ensure step rounding is applied (safety net for all code paths)
             self._position_size = self._round_to_step(self._position_size)
 
-            # Hard safety limit: scale MAX_ORDER_NOTIONAL by z_scale so weak
-            # signals don't get the same notional as strong ones.
-            # z_scale=0.5 → effective cap $250, z_scale=1.5 → full $500.
-            effective_cap = MAX_ORDER_NOTIONAL * min(self._z_scale, 1.0)
+            # Dynamic notional cap: scales with equity so position sizes
+            # stay proportional as account grows/shrinks.
+            try:
+                _eq_for_cap, _ = get_total_and_free_balance(self._adapter.get_balances())
+                _eq_for_cap = _eq_for_cap or 0.0
+            except Exception:
+                _eq_for_cap = 0.0
+            dynamic_cap = get_max_order_notional(_eq_for_cap) if _eq_for_cap > 0 else MAX_ORDER_NOTIONAL
+            effective_cap = dynamic_cap * min(self._z_scale, 1.0)
             notional = self._position_size * price
             logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f (z_cap=$%.0f)",
-                         self._symbol, self._position_size, price, notional, MAX_ORDER_NOTIONAL, effective_cap)
+                         self._symbol, self._position_size, price, notional, dynamic_cap, effective_cap)
             if notional > effective_cap:
                 logger.warning(
                     "%s NOTIONAL CLAMP: $%.0f exceeds z-scaled limit $%.0f (z_scale=%.2f) — reducing size",
