@@ -171,17 +171,17 @@ class TestLeverageLadder:
     def test_medium_account(self):
         runner, _ = _make_runner(equity=2000)
         lev = runner._get_leverage_for_equity(2000)
-        assert lev == 5.0
+        assert lev == 10.0
 
     def test_large_account(self):
         runner, _ = _make_runner(equity=35000)
         lev = runner._get_leverage_for_equity(35000)
-        assert lev == 2.0
+        assert lev == 10.0
 
     def test_very_large_account(self):
         runner, _ = _make_runner(equity=100000)
         lev = runner._get_leverage_for_equity(100000)
-        assert lev == 1.5
+        assert lev == 10.0
 
 
 class TestLimitEntryStringConversion:

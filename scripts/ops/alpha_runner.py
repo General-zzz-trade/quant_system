@@ -38,15 +38,10 @@ _NEUTRAL_DEFAULTS: dict[str, float] = {
 class AlphaRunner:
     """Runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
 
-    # Leverage ladder: aggressive for small accounts, conservative for large.
-    # Demo account ($35K) should use meaningful leverage for signal validation.
-    # Real accounts should scale down as equity grows.
+    # Leverage ladder: 10x across all tiers for demo signal validation.
+    # For real money, scale down (edit this ladder).
     LEVERAGE_LADDER = [
-        (0,      10.0),   # <$500: aggressive (validate signals)
-        (500,    5.0),    # $500-$5K: moderate
-        (5000,   3.0),    # $5K-$20K: conservative
-        (20000,  2.0),    # $20K+: capital preservation
-        (50000,  1.5),    # $50K+: institutional
+        (0,      10.0),   # all tiers: 10x
     ]
 
     def __init__(self, adapter: Any, model_info: dict, symbol: str,
