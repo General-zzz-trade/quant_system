@@ -366,18 +366,16 @@ class AlphaRunner:
             "rets": [float(x) for x in self._rets[-500:]],
         }
         path = self._CHECKPOINT_DIR / f"{self._symbol}.json"
-        # Replace NaN/Inf with null for JSON compatibility
-        def _sanitize(obj: object) -> object:
-            if isinstance(obj, float):
-                if obj != obj or obj == float("inf") or obj == float("-inf"):
-                    return None
-                return obj
-            if isinstance(obj, dict):
-                return {k: _sanitize(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_sanitize(v) for v in obj]
-            return obj
-        path.write_text(json.dumps(_sanitize(ckpt)))
+        try:
+            path.write_text(json.dumps(ckpt, default=str, allow_nan=False))
+        except ValueError:
+            # If allow_nan=False raises, fall back with NaN converted to null
+            import re
+            raw = json.dumps(ckpt, default=str)
+            raw = re.sub(r'\bNaN\b', 'null', raw)
+            raw = re.sub(r'\bInfinity\b', 'null', raw)
+            raw = re.sub(r'\b-Infinity\b', 'null', raw)
+            path.write_text(raw)
         logger.debug("%s checkpoint saved", self._symbol)
 
     def _restore_checkpoint(self) -> bool:
