@@ -56,14 +56,10 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SUIUSDT", "AXSUSDT"]
+SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 DEFAULT_HORIZONS = [12, 24]          # h48 dropped by default (negative IC)
 MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
-# SUI/AXS don't use _gate_v2 suffix
-MODEL_DIR_OVERRIDES = {
-    "SUIUSDT": "models_v8/SUIUSDT",
-    "AXSUSDT": "models_v8/AXSUSDT",
-}
+MODEL_DIR_OVERRIDES: dict[str, str] = {}
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")
 
@@ -413,48 +409,14 @@ def send_sighup_to_runner() -> bool:
 
 
 def send_alert(message: str, *, severity: str = "info") -> None:
-    """Send alert via configured channels (Telegram, webhook, or log-only).
-
-    Reads TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from env vars.
-    Falls back to structured logging if no alert sink configured.
-    """
-    import os
-
-    logger.info("ALERT [%s]: %s", severity, message)
-
-    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if tg_token and tg_chat:
-        try:
-            import urllib.request
-            import urllib.parse
-            url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
-            data = urllib.parse.urlencode({
-                "chat_id": tg_chat,
-                "text": f"[auto_retrain] [{severity.upper()}] {message}",
-                "parse_mode": "HTML",
-            }).encode()
-            req = urllib.request.Request(url, data=data, method="POST")
-            urllib.request.urlopen(req, timeout=10)
-            logger.info("Telegram alert sent")
-        except Exception as e:
-            logger.warning("Telegram alert failed: %s", e)
-
-    webhook_url = os.environ.get("RETRAIN_WEBHOOK_URL", "")
-    if webhook_url:
-        try:
-            import urllib.request
-            data = json.dumps({
-                "text": f"[auto_retrain] [{severity}] {message}",
-                "severity": severity,
-            }).encode()
-            req = urllib.request.Request(
-                webhook_url, data=data, method="POST",
-                headers={"Content-Type": "application/json"},
-            )
-            urllib.request.urlopen(req, timeout=10)
-        except Exception as e:
-            logger.warning("Webhook alert failed: %s", e)
+    """Send alert via unified notification system (Telegram + console)."""
+    try:
+        from monitoring.notify import send_alert as _send, AlertLevel
+        level_map = {"info": AlertLevel.INFO, "warning": AlertLevel.WARNING,
+                     "error": AlertLevel.CRITICAL, "critical": AlertLevel.CRITICAL}
+        _send(level_map.get(severity, AlertLevel.INFO), message, source="auto_retrain")
+    except ImportError:
+        logger.info("ALERT [%s]: %s", severity, message)
 
 
 def cleanup_old_backups(symbol: str, keep: int = 3) -> None:

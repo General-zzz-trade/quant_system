@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import List, Optional
 
 DATA_DIR = Path("data_files")
-DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 PYTHON = sys.executable
 
 

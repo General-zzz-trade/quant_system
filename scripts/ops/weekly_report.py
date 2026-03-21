@@ -18,11 +18,9 @@ from scripts.ops.demo_tracker import TRACK_RECORD_PATH, load_track_record, compu
 # ---------------------------------------------------------------------------
 
 WF_BASELINES: dict[str, dict[str, float]] = {
-    "ETHUSDT": {"sharpe": 1.52, "returns_pct": 389},
+    "BTCUSDT": {"sharpe": 4.37, "returns_pct": 142},
+    "ETHUSDT": {"sharpe": 4.67, "returns_pct": 705},
     "ETHUSDT_15m": {"sharpe": 1.04, "returns_pct": 121},
-    "SUIUSDT": {"sharpe": 1.63, "returns_pct": 150},
-    "AXSUSDT": {"sharpe": 1.25, "returns_pct": 241},
-    "BTCUSDT": {"sharpe": 2.03, "returns_pct": 552},
 }
 
 DEFAULT_OUT_DIR = Path("reports/weekly")

@@ -31,7 +31,13 @@ def _round_to_step(qty: float, symbol: str) -> float:
     step = _QTY_STEPS.get(symbol, 0.1)
     if step <= 0:
         return qty
-    return int(qty / step) * step
+    steps = int(qty / step)
+    result = steps * step
+    # Clean up floating point noise (e.g., 10.000000000000002 -> 10.0)
+    if step >= 1:
+        return float(int(result))
+    decimals = max(0, -int(__import__('math').floor(__import__('math').log10(step))))
+    return round(result, decimals)
 
 
 class HedgeRunner:
@@ -119,7 +125,7 @@ class HedgeRunner:
         # On any 1h bar from a tracked symbol, fetch BTC + ALT basket prices.
         # Rate-limited to once per hour to avoid duplicate BTC price appends
         # (3 symbols × multiple bars → ratio MA window effectively shorter).
-        if symbol in ("ETHUSDT", "SUIUSDT", "AXSUSDT"):
+        if symbol in ("ETHUSDT",):
             current_hour = int(time.time()) // 3600
             if current_hour != self._last_basket_fetch_hour:
                 self._last_basket_fetch_hour = current_hour
@@ -265,9 +271,19 @@ class HedgeRunner:
                 result = self._adapter.send_market_order(sym, "sell", qty)
                 if result.get("status") == "submitted" or result.get("retCode") == 0:
                     self._current_shorts[sym] = qty
-                    self._entry_prices[sym] = price
+                    # Use actual fill price (not lastPrice) for correct PnL tracking
+                    fill_price = price  # fallback to lastPrice
+                    if result.get("orderId"):
+                        try:
+                            time.sleep(0.3)
+                            fills = self._adapter.get_recent_fills(symbol=sym)
+                            if fills:
+                                fill_price = float(fills[0].price)
+                        except Exception:
+                            logger.debug("HEDGE %s: fill price unavailable, using lastPrice", sym)
+                    self._entry_prices[sym] = fill_price
                     self._trade_count += 1
-                    logger.info("HEDGE SHORT %s qty=%.1f @ $%.2f", sym, qty, price)
+                    logger.info("HEDGE SHORT %s qty=%.1f @ $%.2f", sym, qty, fill_price)
             except Exception:
                 logger.warning("HEDGE: failed to short %s", sym, exc_info=True)
 
@@ -280,8 +296,8 @@ class HedgeRunner:
                 try:
                     ticker = self._adapter.get_ticker(sym)
                     exit_price = float(ticker.get("lastPrice", 0))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Hedge %s: ticker fetch for exit price failed: %s", sym, e)
 
                 qty = _round_to_step(qty, sym)
                 self._adapter.send_market_order(sym, "buy", qty, reduce_only=True)

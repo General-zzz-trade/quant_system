@@ -69,6 +69,7 @@ class PortfolioManager:
             usdt = bal.get("USDT")
             return float(usdt.total) if usdt else 0
         except Exception:
+            logger.error("PM: failed to fetch balances for equity", exc_info=True)
             return 0
 
     def submit_intent(self, source: str, symbol: str, signal: int,
@@ -100,7 +101,11 @@ class PortfolioManager:
 
         equity = self.get_equity()
         if equity <= 0:
-            return None
+            logger.error(
+                "PM: non-positive equity %.4f while handling %s %s; rejecting intent",
+                equity, source, symbol,
+            )
+            return {"action": "rejected", "reason": "equity_unavailable"}
 
         # Portfolio-level drawdown control (5x leverage optimized)
         # Graduated scaling: DD<2% full, DD 2-5% linear taper, DD 5-10% minimal, DD>10% stop
@@ -123,8 +128,8 @@ class PortfolioManager:
                 self._dd_scale = 1.0 - (dd_pct - 2) / 3 * 0.9  # 2%→1.0, 5%→0.1
             else:
                 self._dd_scale = 1.0
-            # Recovery: only trade SUI+ETH until DD < 2%
-            if dd_pct > 2 and symbol not in ("SUIUSDT", "ETHUSDT"):
+            # Recovery: only trade BTC+ETH until DD < 2%
+            if dd_pct > 2 and symbol not in ("BTCUSDT", "ETHUSDT"):
                 if net_signal != 0 and current_side == 0:
                     return {"action": "rejected", "reason": f"dd_{dd_pct:.0f}pct_recovery_high_sharpe_only"}
 

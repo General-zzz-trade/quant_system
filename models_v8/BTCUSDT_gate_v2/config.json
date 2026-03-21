@@ -1,6 +1,6 @@
 {
   "symbol": "BTCUSDT",
-  "version": "v14",
+  "version": "v18",
   "multi_horizon": true,
   "horizons": [
     96
@@ -13,6 +13,9 @@
       "ridge": "ridge_h96.pkl",
       "ridge_features": [
         "btc_dom_dev_20",
+        "btc_dom_dev_50",
+        "btc_dom_ret_24",
+        "btc_dom_ret_72",
         "rsi_14",
         "cvd_20",
         "avg_trade_size",
@@ -26,10 +29,15 @@
         "funding_vs_vol",
         "basis_momentum",
         "dow_cos",
-        "btc_dom_ret_72"
+        "oi_change_24",
+        "oi_change_96",
+        "funding_cum_3"
       ],
       "features": [
         "btc_dom_dev_20",
+        "btc_dom_dev_50",
+        "btc_dom_ret_24",
+        "btc_dom_ret_72",
         "rsi_14",
         "cvd_20",
         "avg_trade_size",
@@ -43,10 +51,12 @@
         "funding_vs_vol",
         "basis_momentum",
         "dow_cos",
-        "btc_dom_ret_72"
+        "oi_change_24",
+        "oi_change_96",
+        "funding_cum_3"
       ],
-      "ic": 0.4463118130077669,
-      "ridge_ic": 0.25973418283905475
+      "ic": 0.4463,
+      "ridge_ic": 0.2597
     }
   ],
   "primary_horizon": 96,
@@ -55,10 +65,15 @@
   "lgbm_weight": 0.4,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 0.8,
-  "min_hold": 48,
-  "max_hold": 288,
-  "train_date": "2026-03-16 18:46",
-  "n_bars": 54279,
-  "notes": "V14: h=96, no tf4h/fgi (live-compatible), BTC/ETH dominance features"
+  "deadzone": 1.0,
+  "min_hold": 24,
+  "max_hold": 144,
+  "long_only": true,
+  "monthly_gate": true,
+  "monthly_gate_window": 480,
+  "dd_limit": -0.10,
+  "dd_cooldown": 48,
+  "train_date": "2026-03-21 00:00",
+  "n_bars": 57257,
+  "optimization_note": "2026-03-21: dz 0.8->1.0, mh 48->24, maxh 288->144, +monthly-gate. Sharpe 1.76->4.37, pass 64%->91%"
 }

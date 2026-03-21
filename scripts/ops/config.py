@@ -15,17 +15,16 @@ POLL_INTERVAL = 60  # seconds between checks
 MAX_ORDER_NOTIONAL = 500.0
 
 # Default symbols + position sizes
+# 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)
 SYMBOL_CONFIG = {
+    # BTC: optimized dz=1.0, mh=24, maxh=144, monthly-gate (Sharpe 4.37, 20/22 PASS)
     "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001,
                  "use_composite_regime": True},
+    # ETH: production dz=0.4, mh=18 (Sharpe 4.67, 17/21 PASS)
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
     # 15m alpha: separate model, different interval
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
-    # SUI 1h alpha (walk-forward 6/7 PASS, Sharpe 1.63, +150%)
-    "SUIUSDT": {"size": 10, "model_dir": "SUIUSDT", "max_qty": 330000, "step": 10},
-    # AXS 1h alpha (walk-forward 13/17 PASS, Sharpe 1.25, +241%)
-    "AXSUSDT": {"size": 5.0, "model_dir": "AXSUSDT", "max_qty": 50000, "step": 0.1},  # min $5 notional → ~4 AXS
 }
 
 # Shared cross-symbol signal state for consensus scaling.

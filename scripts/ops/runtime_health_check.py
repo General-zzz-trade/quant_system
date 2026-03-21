@@ -26,14 +26,13 @@ from typing import Any, Iterable, Optional
 
 from execution.adapters.bybit.adapter import BybitAdapter
 from execution.adapters.bybit.config import BybitConfig
+from scripts.ops.runtime_kill_latch import build_bybit_kill_latch
 
 
 DEFAULT_ALPHA_SYMBOLS = (
     "BTCUSDT",
     "ETHUSDT",
     "ETHUSDT_15m",
-    "SUIUSDT",
-    "AXSUSDT",
 )
 DEFAULT_MM_SYMBOL = "ETHUSDT"
 DEFAULT_ENV_FILE = ".env"
@@ -301,6 +300,36 @@ def runtime_evidence_present(
     )
 
 
+def summarize_kill_latch(
+    *,
+    spec: ServiceSpec,
+    symbols: Iterable[str],
+    env_file: str = DEFAULT_ENV_FILE,
+    adapter: Optional[BybitAdapter] = None,
+) -> dict[str, Any]:
+    if adapter is None:
+        adapter, status = build_bybit_adapter(env_file)
+        if adapter is None:
+            return {"status": "skipped", "reason": status, "armed": False, "path": None, "record": None}
+    scope_name = "portfolio" if spec.key == ALPHA_SPEC.key else venue_symbols(symbols)[0]
+    try:
+        latch = build_bybit_kill_latch(
+            adapter=adapter,
+            service_name=spec.service_name,
+            scope_name=scope_name,
+        )
+    except Exception as exc:
+        return {"status": "error", "reason": str(exc), "armed": False, "path": None, "record": None}
+    record = latch.read()
+    return {
+        "status": "ok",
+        "reason": "",
+        "armed": latch.is_armed(),
+        "path": str(latch.path),
+        "record": record,
+    }
+
+
 def evaluate_service_health(
     *,
     spec: ServiceSpec,
@@ -330,6 +359,13 @@ def evaluate_service_health(
         activity_window_s=activity_window,
     )
     result["log"] = log_health
+    kill_latch = summarize_kill_latch(
+        spec=spec,
+        symbols=selected_symbols,
+        env_file=env_file,
+        adapter=adapter,
+    )
+    result["kill_latch"] = kill_latch
     account_truth = summarize_account_truth(
         symbols=selected_symbols,
         activity_window_s=activity_window,
@@ -350,6 +386,8 @@ def evaluate_service_health(
         problems.append("no_recent_runtime_evidence")
     if log_health.get("kill_active"):
         problems.append("portfolio_killed")
+    if kill_latch.get("armed"):
+        problems.append("persistent_kill_latched")
     if require_account and account_truth.get("status") != "ok":
         problems.append(f"account_{account_truth.get('status', 'unknown')}")
 
@@ -362,6 +400,7 @@ def format_service_health(result: dict[str, Any]) -> str:
     status = "PASS" if result.get("ok") else "FAIL"
     log_health = result.get("log", {})
     account = result.get("account", {})
+    kill_latch = result.get("kill_latch", {})
     marker_counts = log_health.get("marker_counts", {})
     marker_summary = ", ".join(
         f"{marker}={count}" for marker, count in marker_counts.items()
@@ -382,9 +421,16 @@ def format_service_health(result: dict[str, Any]) -> str:
             f"recent_fills={account.get('recent_fills', 0)} "
             f"usdt_total={account.get('usdt_total')}"
         ),
+        (
+            "  kill_latch="
+            f"{kill_latch.get('status')} armed={kill_latch.get('armed')} "
+            f"path={kill_latch.get('path')}"
+        ),
     ]
     if log_health.get("kill_active"):
         lines.append(f"  alpha_kill_active=True detail={log_health.get('kill_detail')}")
+    if kill_latch.get("armed"):
+        lines.append(f"  persistent_kill_detail={kill_latch.get('record')}")
     if result.get("problems"):
         lines.append(f"  problems={', '.join(result['problems'])}")
     return "\n".join(lines)
