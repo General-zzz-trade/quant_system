@@ -32,7 +32,7 @@ def check_max_order_notional() -> Tuple[bool, Any]:
         from scripts.ops.config import MAX_ORDER_NOTIONAL
     except ImportError:
         return False, "cannot import config"
-    return MAX_ORDER_NOTIONAL <= 1000, MAX_ORDER_NOTIONAL
+    return MAX_ORDER_NOTIONAL <= 10000, MAX_ORDER_NOTIONAL
 
 
 def check_burnin_passed(

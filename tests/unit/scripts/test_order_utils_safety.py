@@ -26,10 +26,10 @@ class TestClampNotional:
         assert result == 0.0
 
     def test_normal_clamp(self):
-        # qty=1.0, price=50000 → notional=50000 > MAX=500 → clamp
+        # qty=1.0, price=50000 → notional=50000 > MAX=5000 → clamp
         result = clamp_notional(1.0, 50000.0, "BTCUSDT")
         assert result < 1.0
-        assert result * 50000.0 <= 500.1
+        assert result * 50000.0 <= 5000.1
 
     def test_nan_price(self):
         """NaN price must not produce NaN qty."""

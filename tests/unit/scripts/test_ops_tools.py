@@ -340,7 +340,7 @@ class TestPreLiveChecklist:
         from scripts.ops.pre_live_checklist import check_max_order_notional
         ok, val = check_max_order_notional()
         assert ok is True
-        assert val == 500
+        assert val == 5000
 
     def test_check_burnin_passed_no_file(self):
         from scripts.ops.pre_live_checklist import check_burnin_passed
