@@ -692,13 +692,12 @@ class TestPositionSizing:
 
     def test_basic_sizing(self, runner, adapter):
         """Position = equity × per_sym_cap × leverage / price."""
-        # equity=1000, per_sym_cap=0.45 (BTC+ETH focused), lev=1.5, price=2000
-        # notional = 1000 * 0.45 * 1.5 = 675 → size = 675/2000 = 0.3375
+        # equity=1000, per_sym_cap=0.45, lev=5.0 (from ladder: $500-$5K), price=2000
+        # notional = 1000 * 0.45 * 5.0 = 2250 → size = 2250/2000 = 1.125
         # z_scale=1.0 (default), consensus=1.0 (no consensus)
-        # Round to step_size=0.01 → 0.33 or 0.34
         runner._z_scale = 1.0
         size = runner._compute_position_size(2000.0)
-        assert size == pytest.approx(0.34, abs=0.02)
+        assert size == pytest.approx(1.12, abs=0.05)
 
     def test_min_size_floor(self, runner, adapter):
         """Small equity still produces at least min_size."""
