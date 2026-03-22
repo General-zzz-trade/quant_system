@@ -12,44 +12,44 @@
       "lgbm": "lgbm_h12.pkl",
       "xgb": "xgb_h12.pkl",
       "features": [
-        "oc_addr_zscore_14",
-        "rsi_x_vol",
-        "oc_tx_zscore_7",
-        "rsi_x_atr",
-        "oc_flowin_zscore_14",
         "coin_ret_1d",
-        "fgi_normalized",
-        "ret_autocorr_24",
-        "qqq_ret_1d",
+        "spy_ret_1d",
         "vix_level",
-        "dow_sin",
-        "vol_20",
-        "taker_buy_ratio_ma10",
-        "fgi_extreme"
+        "qqq_ret_1d",
+        "oc_tx_zscore_7",
+        "ret_24",
+        "ret_12",
+        "oc_addr_zscore_14",
+        "oc_flowin_zscore_14",
+        "dom_vs_sui_ret_24",
+        "fgi_normalized",
+        "fgi_extreme",
+        "vwap_dev_20",
+        "rsi_x_vol"
       ],
-      "ic": 0.15116551660963162
+      "ic": 0.298409127271771
     },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
       "xgb": "xgb_h24.pkl",
       "features": [
+        "coin_ret_1d",
+        "spy_ret_1d",
+        "vix_level",
+        "qqq_ret_1d",
+        "oc_tx_zscore_7",
+        "oc_flowin_zscore_14",
+        "rsi_x_atr",
         "oc_addr_zscore_14",
         "rsi_x_vol",
-        "oc_tx_zscore_7",
-        "rsi_x_atr",
-        "oc_flowin_zscore_14",
-        "coin_ret_1d",
         "fgi_normalized",
-        "ret_autocorr_24",
-        "qqq_ret_1d",
-        "vix_level",
-        "dow_sin",
-        "vol_20",
-        "vol_of_vol",
-        "tf4h_atr_norm_14"
+        "fgi_extreme",
+        "dom_vs_sui_dev_20",
+        "tlt_ret_5d",
+        "ret_autocorr_24"
       ],
-      "ic": 0.19855889740274102
+      "ic": 0.25656777186406476
     }
   ],
   "primary_horizon": 24,
@@ -61,7 +61,6 @@
   "min_hold": 18,
   "max_hold": 60,
   "long_only": true,
-  "optimization_note": "2026-03-21: dz 0.4->0.9. Sharpe 4.67->5.70, less noise trades",
   "exit": {
     "trailing_stop_pct": 0.0,
     "zscore_cap": 0.0,
@@ -78,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 4.021395857714098,
-    "avg_ic": 0.17486220700618632,
+    "sharpe": 7.974186975847539,
+    "avg_ic": 0.27748844956791785,
     "per_horizon_ic": {
-      "12": 0.15116551660963162,
-      "24": 0.19855889740274102
+      "12": 0.298409127271771,
+      "24": 0.25656777186406476
     },
-    "total_return": 0.16050795328049947,
-    "trades": 259,
-    "win_rate": 62.54826254826254,
-    "avg_net_bps": 123.94436546756715,
-    "bootstrap_sharpe_p5": 1.5244156354381346,
-    "bootstrap_sharpe_p50": 2.2172456538264624,
-    "bootstrap_sharpe_p95": 2.9179279599788175
+    "total_return": 0.33826777518389733,
+    "trades": 283,
+    "win_rate": 73.14487632508833,
+    "avg_net_bps": 239.05849836317833,
+    "bootstrap_sharpe_p5": 3.5081344727171464,
+    "bootstrap_sharpe_p50": 4.160695616297366,
+    "bootstrap_sharpe_p95": 4.889291438583459
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -98,11 +97,11 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-18 16:10",
-  "data_range": "2019-11-27 \u2192 2026-03-18",
-  "n_bars": 55268,
-  "ic_ema_span": 720,
-  "ic_min_threshold": -0.01,
+  "train_date": "2026-03-22 12:05",
+  "data_range": "2019-11-27 \u2192 2026-03-22",
+  "n_bars": 55363,
   "ridge_weight": 0.6,
-  "lgbm_weight": 0.4
+  "lgbm_weight": 0.4,
+  "ic_ema_span": 720,
+  "ic_min_threshold": -0.01
 }

@@ -1,69 +1,107 @@
 {
   "symbol": "BTCUSDT",
-  "version": "v18",
+  "version": "v11",
   "multi_horizon": true,
   "horizons": [
-    96
+    12,
+    24
   ],
   "horizon_models": [
     {
-      "horizon": 96,
-      "lgbm": "lgbm_h96.pkl",
-      "xgb": "xgb_h96.pkl",
-      "ridge": "ridge_h96.pkl",
-      "ridge_features": [
-        "basis",
-        "ret_autocorr_24",
-        "ret_24",
-        "fgi_normalized",
-        "btc_dom_dev_20",
-        "coin_ret_1d",
-        "fgi_extreme",
-        "atr_norm_14",
-        "cvd_20",
-        "vix_level",
-        "spy_ret_1d",
-        "tlt_ret_5d",
-        "rsi_14",
-        "ma_cross_5_20",
-        "vol_5"
-      ],
+      "horizon": 12,
+      "lgbm": "lgbm_h12.pkl",
+      "xgb": "xgb_h12.pkl",
       "features": [
-        "basis",
-        "ret_autocorr_24",
-        "ret_24",
-        "fgi_normalized",
-        "btc_dom_dev_20",
         "coin_ret_1d",
-        "fgi_extreme",
-        "atr_norm_14",
-        "cvd_20",
-        "vix_level",
         "spy_ret_1d",
-        "tlt_ret_5d",
-        "rsi_14",
-        "ma_cross_5_20",
-        "vol_5"
+        "vix_level",
+        "qqq_ret_1d",
+        "btc_dom_ret_24",
+        "oc_addr_zscore_14",
+        "ret_24",
+        "ret_12",
+        "tf4h_bb_pctb_20",
+        "basis_zscore_24",
+        "dom_vs_sui_ret_24",
+        "funding_vs_vol",
+        "fgi_normalized",
+        "fgi_extreme"
       ],
-      "ic": 0.4463,
-      "ridge_ic": 0.2597
+      "ic": 0.2530313354116601
+    },
+    {
+      "horizon": 24,
+      "lgbm": "lgbm_h24.pkl",
+      "xgb": "xgb_h24.pkl",
+      "features": [
+        "coin_ret_1d",
+        "spy_ret_1d",
+        "vix_level",
+        "qqq_ret_1d",
+        "btc_dom_dev_20",
+        "tlt_ret_5d",
+        "ret_24",
+        "oc_addr_zscore_14",
+        "cvd_20",
+        "fgi_normalized",
+        "basis",
+        "fgi_extreme",
+        "ret_autocorr_24",
+        "dow_cos"
+      ],
+      "ic": 0.2178614765622916
     }
   ],
-  "primary_horizon": 96,
-  "ensemble_method": "ridge_primary",
-  "ridge_weight": 0.6,
-  "lgbm_weight": 0.4,
+  "primary_horizon": 24,
+  "ensemble_method": "ic_weighted",
+  "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
   "deadzone": 1.0,
   "min_hold": 24,
   "max_hold": 144,
   "long_only": true,
+  "exit": {
+    "trailing_stop_pct": 0.0,
+    "zscore_cap": 0.0,
+    "reversal_threshold": -0.3,
+    "deadzone_fade": 0.2
+  },
+  "regime_gate": {
+    "enabled": false,
+    "ranging_high_vol_action": "reduce",
+    "reduce_factor": 0.3
+  },
+  "time_filter": {
+    "enabled": false,
+    "skip_hours_utc": []
+  },
+  "metrics": {
+    "sharpe": 7.252105162473321,
+    "avg_ic": 0.23544640598697586,
+    "per_horizon_ic": {
+      "12": 0.2530313354116601,
+      "24": 0.2178614765622916
+    },
+    "total_return": 0.18272499580753182,
+    "trades": 242,
+    "win_rate": 70.24793388429752,
+    "avg_net_bps": 151.01239322936516,
+    "bootstrap_sharpe_p5": 3.440382530743735,
+    "bootstrap_sharpe_p50": 4.0985862896274305,
+    "bootstrap_sharpe_p95": 4.780459259292352
+  },
+  "checks": {
+    "Sharpe > 1.0": true,
+    "Avg IC > 0.02": true,
+    "Trades >= 15": true,
+    "Bootstrap p5 > 0": true
+  },
+  "train_date": "2026-03-22 12:02",
+  "data_range": "2019-09-08 \u2192 2026-03-22",
+  "n_bars": 57273,
   "monthly_gate": true,
   "monthly_gate_window": 480,
-  "dd_limit": -0.10,
-  "dd_cooldown": 48,
-  "train_date": "2026-03-21 00:00",
-  "n_bars": 57257,
-  "optimization_note": "2026-03-21: dz 0.8->1.0, mh 48->24, maxh 288->144, +monthly-gate. Sharpe 1.76->4.37, pass 64%->91%"
+  "ridge_weight": 0.6,
+  "lgbm_weight": 0.4
 }

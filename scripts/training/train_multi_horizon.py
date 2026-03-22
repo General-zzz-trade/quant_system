@@ -42,6 +42,15 @@ TOP_K_FEATURES = 14
 VERSION = "v10"
 LGBM_XGB_WEIGHT = 0.5  # weight for lgbm; xgb gets (1 - this)
 
+# Cross-market features to ALWAYS include in training (WF-validated IC > 0.05).
+# Greedy IC may miss these because they're daily (forward-filled to 1h)
+# and IC varies across train windows. But WF shows 77-81% fold stability.
+LOCKED_FEATURES = [
+    "coin_ret_1d",   # IC=-0.062, 77-81% fold stability
+    "spy_ret_1d",    # IC=-0.094, 64% stability
+    "vix_level",     # IC=+0.080, 52-68% stability
+]
+
 
 def fast_ic(x, y):
     m = ~(np.isnan(x) | np.isnan(y))
@@ -154,10 +163,18 @@ def train_single_horizon(
     X_val = X_val[valid_val]
     y_val = y_val[valid_val]
 
-    # Feature selection
-    selected = greedy_ic_select(X_train, y_train, feature_names, top_k=TOP_K_FEATURES)
+    # Feature selection: greedy IC + locked cross-market features
+    # Locked features are always included; greedy fills remaining slots
+    locked_present = [f for f in LOCKED_FEATURES if f in feature_names]
+    remaining_k = max(TOP_K_FEATURES - len(locked_present), 5)
+    greedy_pool = [f for f in feature_names if f not in locked_present]
+    greedy_idx = [feature_names.index(f) for f in greedy_pool]
+    X_train_pool = X_train[:, greedy_idx]
+    greedy_selected = greedy_ic_select(X_train_pool, y_train, greedy_pool, top_k=remaining_k)
+    selected = locked_present + [f for f in greedy_selected if f not in locked_present]
     sel_idx = [feature_names.index(f) for f in selected]
-    print(f"    Features: {selected}")
+    cm_in = [f for f in selected if f in LOCKED_FEATURES]
+    print(f"    Features ({len(selected)}): {selected[:5]}... cross-market: {cm_in}")
 
     X_tr_sel = X_train[:, sel_idx]
     X_val_sel = X_val[:, sel_idx]
