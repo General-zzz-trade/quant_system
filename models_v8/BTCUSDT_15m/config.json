@@ -1,0 +1,105 @@
+{
+  "symbol": "BTCUSDT",
+  "version": "v11-15m",
+  "timeframe": "15m",
+  "multi_horizon": true,
+  "horizons": [
+    16,
+    64
+  ],
+  "horizon_models": [
+    {
+      "horizon": 16,
+      "lgbm": "lgbm_h16.pkl",
+      "xgb": "xgb_h16.pkl",
+      "features": [
+        "gbtc_ret_1d",
+        "tf4h_ret_6",
+        "vwap_dev_20",
+        "atr_norm_14",
+        "tf4h_close_vs_ma20",
+        "spy_ret_5d",
+        "bito_ret_1d",
+        "bb_width_20",
+        "ret_skew_24",
+        "tf4h_macd_hist",
+        "tf4h_vol_20",
+        "gld_ret_5d",
+        "qqq_ret_1d",
+        "cvd_20"
+      ],
+      "ic": 0.23344168381048364
+    },
+    {
+      "horizon": 64,
+      "lgbm": "lgbm_h64.pkl",
+      "xgb": "xgb_h64.pkl",
+      "features": [
+        "gbtc_ret_1d",
+        "tf4h_ret_6",
+        "close_vs_ma50",
+        "atr_norm_14",
+        "spy_ret_1d",
+        "bito_ret_1d",
+        "spy_extreme",
+        "ret_skew_24",
+        "ethe_ret_1d",
+        "gld_ret_5d",
+        "coin_ret_1d",
+        "tf4h_close_vs_ma20",
+        "tf4h_rsi_14",
+        "tf4h_macd_hist"
+      ],
+      "ic": 0.37163376928075254
+    }
+  ],
+  "primary_horizon": 64,
+  "ensemble_method": "ic_weighted",
+  "ic_ema_span": 720,
+  "ic_min_threshold": -0.01,
+  "lgbm_xgb_weight": 0.5,
+  "zscore_window": 720,
+  "zscore_warmup": 180,
+  "deadzone": 0.8,
+  "min_hold": 16,
+  "max_hold": 128,
+  "long_only": false,
+  "exit": {
+    "trailing_stop_pct": 0.0,
+    "zscore_cap": 0.0,
+    "reversal_threshold": -0.3,
+    "deadzone_fade": 0.2
+  },
+  "regime_gate": {
+    "enabled": false
+  },
+  "time_filter": {
+    "enabled": false,
+    "skip_hours_utc": []
+  },
+  "metrics": {
+    "sharpe": 11.42161902095499,
+    "avg_ic": 0.30253772654561806,
+    "per_horizon_ic": {
+      "16": 0.23344168381048364,
+      "64": 0.37163376928075254
+    },
+    "total_return": 0.1026426955690979,
+    "trades": 129,
+    "win_rate": 80.62015503875969,
+    "avg_net_bps": 159.1359621226324,
+    "avg_hold_hours": 33.48837209302326,
+    "bootstrap_sharpe_p5": 4.008766987708031,
+    "bootstrap_sharpe_p50": 5.120748374310384,
+    "bootstrap_sharpe_p95": 6.314690015927302
+  },
+  "checks": {
+    "Sharpe > 1.0": true,
+    "Avg IC > 0.01": true,
+    "Trades >= 10": true,
+    "Bootstrap p5 > 0": true
+  },
+  "train_date": "2026-03-22 13:12",
+  "data_range": "2024-01-01 \u2192 2026-03-11",
+  "n_bars": 76861
+}

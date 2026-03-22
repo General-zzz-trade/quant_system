@@ -38,6 +38,9 @@ SYMBOL_CONFIG = {
     # 15m alpha: separate model, different interval
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
+    # BTC 15m alpha: cross-market features unlock (Sharpe 17.59 WF validated)
+    "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
+                    "interval": "15", "warmup": 800, "step": 0.001},
 }
 
 # Shared cross-symbol signal state for consensus scaling.
