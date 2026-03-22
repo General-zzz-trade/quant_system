@@ -26,18 +26,24 @@ import pandas as pd
 log = logging.getLogger("cross_market")
 
 TICKERS = {
+    # Macro (V1)
     "SPY": "S&P 500",
     "QQQ": "Nasdaq 100",
     "^VIX": "VIX",
     "TLT": "US Treasury 20Y",
     "USO": "Oil ETF",
     "COIN": "Coinbase",
-    # V2: Additional macro proxies (replaces FRED)
+    # Macro V2
     "IEF": "US Treasury 7-10Y",
     "XLF": "Financial Sector",
     "EEM": "Emerging Markets",
     "GLD": "Gold",
     "^TNX": "10Y Treasury Yield",
+    # Crypto ETFs V3 (IC -0.08 to -0.10)
+    "IBIT": "iShares Bitcoin ETF",
+    "GBTC": "Grayscale Bitcoin Trust",
+    "ETHE": "Grayscale Ethereum Trust",
+    "BITO": "ProShares Bitcoin Futures",
 }
 
 OUTPUT_PATH = Path("data_files/cross_market_daily.csv")
@@ -123,6 +129,22 @@ def build_cross_market_features() -> pd.DataFrame:
         out["spy_extreme"] = 0.0
         out.loc[out["spy_ret_1d"] > 0.02, "spy_extreme"] = 1.0
         out.loc[out["spy_ret_1d"] < -0.02, "spy_extreme"] = -1.0
+
+    # V3: Crypto ETF features (strongest signals: IC -0.08 to -0.10)
+    if "ETHE" in combined:
+        out["ethe_ret_1d"] = combined["ETHE"].pct_change()
+    if "GBTC" in combined:
+        out["gbtc_ret_1d"] = combined["GBTC"].pct_change()
+    if "IBIT" in combined:
+        out["ibit_ret_1d"] = combined["IBIT"].pct_change()
+    if "BITO" in combined:
+        out["bito_ret_1d"] = combined["BITO"].pct_change()
+
+    # GBTC premium/discount (GBTC price vs BTC spot proxy via IBIT)
+    if "GBTC" in combined and "IBIT" in combined:
+        ratio = combined["GBTC"] / combined["IBIT"]
+        ratio_ma = ratio.rolling(20).mean()
+        out["gbtc_premium_dev"] = (ratio / ratio_ma - 1) if ratio_ma is not None else None
 
     return out.dropna(subset=["spy_ret_1d"])
 
