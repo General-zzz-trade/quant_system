@@ -188,6 +188,11 @@ class AlphaRunner:
         self._last_close: float = 0.0  # for computing realized returns
         self._prev_feat_dict: dict | None = None  # store previous bar features to avoid look-ahead
 
+        # Cross-market data cache (SPY/QQQ/VIX/TLT from Yahoo Finance daily)
+        self._cross_market: dict[str, float] = {}
+        self._cross_market_last_update: float = 0.0
+        self._load_cross_market()
+
         # Limit order entry: try maker (0 bps) before taker (4 bps) for new positions
         self._use_limit_entry: bool = True
         self._limit_entry_timeout: float = 30.0  # seconds to wait for limit fill
@@ -295,6 +300,35 @@ class AlphaRunner:
         except Exception:
             logger.debug("%s StateStore market update failed", self._symbol,
                          exc_info=True)
+
+    def _load_cross_market(self) -> None:
+        """Load latest cross-market features from daily CSV.
+
+        Called on init and refreshed every 6h. Reads the most recent row
+        from data_files/cross_market_daily.csv (updated by cron at 22:00 UTC).
+        """
+        cm_path = Path("data_files/cross_market_daily.csv")
+        if not cm_path.exists():
+            return
+        try:
+            import pandas as pd
+            df = pd.read_csv(cm_path, index_col="date", parse_dates=True)
+            if df.empty:
+                return
+            latest = df.iloc[-1]
+            self._cross_market = {}
+            for col in ["spy_ret_1d", "qqq_ret_1d", "spy_ret_5d", "vix_level",
+                         "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme",
+                         "treasury_10y_chg_5d", "eem_ret_5d", "gld_ret_5d"]:
+                val = latest.get(col)
+                if val is not None and val == val:  # not NaN
+                    self._cross_market[col] = float(val)
+            self._cross_market_last_update = time.time()
+            logger.info("%s cross-market loaded: %d features, date=%s",
+                        self._symbol, len(self._cross_market),
+                        df.index[-1].strftime("%Y-%m-%d"))
+        except Exception as e:
+            logger.debug("%s cross-market load failed: %s", self._symbol, e)
 
     def _fetch_eth_price(self) -> float:
         """Fetch current ETH price from Binance for dominance computation."""
@@ -1425,6 +1459,12 @@ class AlphaRunner:
             return {"action": "no_features", "bar": self._bars_processed}
 
         feat_dict = dict(features)
+
+        # V21: Inject cross-market features (SPY/QQQ/VIX/TLT/GLD from Yahoo daily)
+        # Refresh cache every 6h (data updates daily at 22:00 UTC)
+        if time.time() - self._cross_market_last_update > 21600:  # 6h
+            self._load_cross_market()
+        feat_dict.update(self._cross_market)
 
         # Online Ridge: feed realized return for incremental weight update
         self._update_online_ridge(feat_dict, bar["close"])
