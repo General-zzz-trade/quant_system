@@ -321,7 +321,9 @@ class AlphaRunner:
                          "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme",
                          "treasury_10y_chg_5d", "eem_ret_5d", "gld_ret_5d",
                          "ethe_ret_1d", "gbtc_ret_1d", "ibit_ret_1d",
-                         "bito_ret_1d", "gbtc_premium_dev"]:
+                         "bito_ret_1d", "gbtc_premium_dev",
+                         "etha_ret_1d", "bitx_ret_1d", "biti_ret_1d",
+                         "mara_ret_1d", "riot_ret_1d"]:
                 val = latest.get(col)
                 if val is not None and val == val:  # not NaN
                     self._cross_market[col] = float(val)

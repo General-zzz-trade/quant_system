@@ -44,6 +44,12 @@ TICKERS = {
     "GBTC": "Grayscale Bitcoin Trust",
     "ETHE": "Grayscale Ethereum Trust",
     "BITO": "ProShares Bitcoin Futures",
+    # V4: Additional crypto ETFs + miners
+    "ETHA": "iShares Ethereum ETF",
+    "BITX": "2x Bitcoin ETF",
+    "BITI": "Short Bitcoin ETF",
+    "MARA": "Marathon Digital",
+    "RIOT": "Riot Platforms",
 }
 
 OUTPUT_PATH = Path("data_files/cross_market_daily.csv")
@@ -145,6 +151,18 @@ def build_cross_market_features() -> pd.DataFrame:
         ratio = combined["GBTC"] / combined["IBIT"]
         ratio_ma = ratio.rolling(20).mean()
         out["gbtc_premium_dev"] = (ratio / ratio_ma - 1) if ratio_ma is not None else None
+
+    # V4: Additional crypto ETFs + miners
+    if "ETHA" in combined:
+        out["etha_ret_1d"] = combined["ETHA"].pct_change()
+    if "BITX" in combined:
+        out["bitx_ret_1d"] = combined["BITX"].pct_change()  # 2x leverage amplifies sentiment
+    if "BITI" in combined:
+        out["biti_ret_1d"] = combined["BITI"].pct_change()   # inverse = short sentiment
+    if "MARA" in combined:
+        out["mara_ret_1d"] = combined["MARA"].pct_change()   # miner behavior
+    if "RIOT" in combined:
+        out["riot_ret_1d"] = combined["RIOT"].pct_change()
 
     return out.dropna(subset=["spy_ret_1d"])
 
