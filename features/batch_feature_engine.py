@@ -463,7 +463,8 @@ def _add_cross_market_features(feat_df: pd.DataFrame, timestamps: np.ndarray) ->
 
     # For each cross-market column, forward-fill daily value to each bar
     for col in ["spy_ret_1d", "qqq_ret_1d", "spy_ret_5d", "vix_level",
-                "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme"]:
+                "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme",
+                "treasury_10y_chg_5d", "eem_ret_5d", "gld_ret_5d"]:
         if col not in cm.columns:
             continue
 

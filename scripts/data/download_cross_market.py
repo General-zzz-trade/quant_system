@@ -32,6 +32,12 @@ TICKERS = {
     "TLT": "US Treasury 20Y",
     "USO": "Oil ETF",
     "COIN": "Coinbase",
+    # V2: Additional macro proxies (replaces FRED)
+    "IEF": "US Treasury 7-10Y",
+    "XLF": "Financial Sector",
+    "EEM": "Emerging Markets",
+    "GLD": "Gold",
+    "^TNX": "10Y Treasury Yield",
 }
 
 OUTPUT_PATH = Path("data_files/cross_market_daily.csv")
@@ -89,6 +95,28 @@ def build_cross_market_features() -> pd.DataFrame:
 
     # VIX level (not return — absolute level matters)
     out["vix_level"] = combined["^VIX"] if "^VIX" in combined else None
+
+    # V2: Macro proxy features (from Yahoo ETFs, replacing FRED)
+    # 10Y Treasury yield level
+    if "^TNX" in combined:
+        out["treasury_10y"] = combined["^TNX"]
+        out["treasury_10y_chg_5d"] = combined["^TNX"].diff(5)
+
+    # Yield curve proxy: TLT (long bonds) vs IEF (medium bonds)
+    if "TLT" in combined and "IEF" in combined:
+        out["yield_curve_proxy"] = combined["TLT"].pct_change(20) - combined["IEF"].pct_change(20)
+
+    # Financial sector (rate sensitivity)
+    if "XLF" in combined:
+        out["xlf_ret_5d"] = combined["XLF"].pct_change(5)
+
+    # Emerging markets (risk appetite)
+    if "EEM" in combined:
+        out["eem_ret_5d"] = combined["EEM"].pct_change(5)
+
+    # Gold (safe haven)
+    if "GLD" in combined:
+        out["gld_ret_5d"] = combined["GLD"].pct_change(5)
 
     # SPY extreme flag: |ret| > 2%
     if "spy_ret_1d" in out:
