@@ -86,47 +86,51 @@ class MultiTFConfluenceGate:
         if signal == 0:
             return GateResult(allowed=True, scale=1.0)
 
-        # Get 4h indicators from context
-        ma_dev = _safe_float(context.get("tf4h_close_vs_ma20"))
-        rsi = _safe_float(context.get("tf4h_rsi_14"))
-        macd = _safe_float(context.get("tf4h_macd_hist"))
+        # Prefer 4h MODEL signal (from 4h AlphaRunner via consensus state)
+        # over indicator-based voting when available. Model IC=0.29-0.42 vs
+        # indicator voting IC~0.05. Falls back to indicator voting if no model.
+        trend_4h = 0
+        model_4h = _safe_float(context.get("tf4h_model_signal"))
+        if model_4h is not None and model_4h != 0:
+            trend_4h = 1 if model_4h > 0 else -1
+        else:
+            # Get 4h indicators from context (fallback)
+            ma_dev = _safe_float(context.get("tf4h_close_vs_ma20"))
+            rsi = _safe_float(context.get("tf4h_rsi_14"))
+            macd = _safe_float(context.get("tf4h_macd_hist"))
 
-        # If no 4h data available, pass through
-        if ma_dev is None and rsi is None and macd is None:
-            return GateResult(allowed=True, scale=1.0)
+            # If no 4h data available, pass through
+            if ma_dev is None and rsi is None and macd is None:
+                return GateResult(allowed=True, scale=1.0)
 
-        # Classify 4h trend direction via voting
-        bullish_votes = 0
-        bearish_votes = 0
-        total_votes = 0
+            # Classify 4h trend direction via voting
+            bullish_votes = 0
+            bearish_votes = 0
 
-        if ma_dev is not None:
-            total_votes += 1
-            if ma_dev > cfg.ma_dev_threshold:
-                bullish_votes += 1
-            elif ma_dev < -cfg.ma_dev_threshold:
-                bearish_votes += 1
+            if ma_dev is not None:
+                if ma_dev > cfg.ma_dev_threshold:
+                    bullish_votes += 1
+                elif ma_dev < -cfg.ma_dev_threshold:
+                    bearish_votes += 1
 
-        if rsi is not None:
-            total_votes += 1
-            if rsi > cfg.rsi_overbought:
-                bullish_votes += 1
-            elif rsi < cfg.rsi_oversold:
-                bearish_votes += 1
+            if rsi is not None:
+                if rsi > cfg.rsi_overbought:
+                    bullish_votes += 1
+                elif rsi < cfg.rsi_oversold:
+                    bearish_votes += 1
 
-        if macd is not None:
-            total_votes += 1
-            if macd > cfg.macd_threshold:
-                bullish_votes += 1
-            elif macd < -cfg.macd_threshold:
-                bearish_votes += 1
+            if macd is not None:
+                if macd > cfg.macd_threshold:
+                    bullish_votes += 1
+                elif macd < -cfg.macd_threshold:
+                    bearish_votes += 1
 
-        # Determine 4h trend
-        trend_4h = 0  # 0 = neutral
-        if bullish_votes >= cfg.min_confirming:
-            trend_4h = 1
-        elif bearish_votes >= cfg.min_confirming:
-            trend_4h = -1
+            # Determine 4h trend
+            trend_4h = 0  # 0 = neutral
+            if bullish_votes >= cfg.min_confirming:
+                trend_4h = 1
+            elif bearish_votes >= cfg.min_confirming:
+                trend_4h = -1
 
         # If 4h is neutral, no adjustment
         if trend_4h == 0:
@@ -145,8 +149,8 @@ class MultiTFConfluenceGate:
             reason = f"tf_opposed signal={signal} trend_4h={trend_4h} scale={scale}"
 
         _log.debug(
-            "MultiTFConfluence: signal=%d trend_4h=%d bull=%d bear=%d → scale=%.2f",
-            signal, trend_4h, bullish_votes, bearish_votes, scale,
+            "MultiTFConfluence: signal=%d trend_4h=%d scale=%.2f",
+            signal, trend_4h, scale,
         )
         return GateResult(allowed=True, scale=scale, reason=reason)
 

@@ -12,44 +12,44 @@
       "lgbm": "lgbm_h12.pkl",
       "xgb": "xgb_h12.pkl",
       "features": [
-        "coin_ret_1d",
         "spy_ret_1d",
-        "vix_level",
-        "qqq_ret_1d",
-        "btc_dom_ret_24",
+        "iv_level",
+        "funding_zscore_24",
+        "treasury_10y_chg_5d",
+        "price_acceleration",
         "oc_addr_zscore_14",
+        "btc_dom_ret_24",
+        "trend_x_vol",
+        "basis_zscore_24",
+        "tf4h_bb_pctb_20",
         "ret_24",
         "ret_12",
-        "tf4h_bb_pctb_20",
-        "basis_zscore_24",
-        "dom_vs_sui_ret_24",
-        "funding_vs_vol",
-        "fgi_normalized",
-        "fgi_extreme"
+        "cvd_20",
+        "fgi_normalized"
       ],
-      "ic": 0.2530313354116601
+      "ic": 0.045324890086391276
     },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
       "xgb": "xgb_h24.pkl",
       "features": [
-        "coin_ret_1d",
         "spy_ret_1d",
-        "vix_level",
-        "qqq_ret_1d",
-        "btc_dom_dev_20",
-        "tlt_ret_5d",
-        "ret_24",
-        "oc_addr_zscore_14",
-        "cvd_20",
-        "fgi_normalized",
+        "iv_level",
+        "funding_zscore_24",
+        "treasury_10y_chg_5d",
+        "oc_flowin_zscore_7",
         "basis",
+        "fgi_normalized",
+        "iv_rank_30d",
         "fgi_extreme",
         "ret_autocorr_24",
-        "dow_cos"
+        "btc_dom_dev_20",
+        "basis_momentum",
+        "ret_24",
+        "rsi_14"
       ],
-      "ic": 0.2178614765622916
+      "ic": 0.08078368394335653
     }
   ],
   "primary_horizon": 24,
@@ -77,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 7.252105162473321,
-    "avg_ic": 0.23544640598697586,
+    "sharpe": 2.425903371694384,
+    "avg_ic": 0.0630542870148739,
     "per_horizon_ic": {
-      "12": 0.2530313354116601,
-      "24": 0.2178614765622916
+      "12": 0.045324890086391276,
+      "24": 0.08078368394335653
     },
-    "total_return": 0.18272499580753182,
-    "trades": 242,
-    "win_rate": 70.24793388429752,
-    "avg_net_bps": 151.01239322936516,
-    "bootstrap_sharpe_p5": 3.440382530743735,
-    "bootstrap_sharpe_p50": 4.0985862896274305,
-    "bootstrap_sharpe_p95": 4.780459259292352
+    "total_return": 0.07315462204126993,
+    "trades": 458,
+    "win_rate": 56.98689956331878,
+    "avg_net_bps": 31.945249799681196,
+    "bootstrap_sharpe_p5": 0.4583033541590593,
+    "bootstrap_sharpe_p50": 0.9807166487904309,
+    "bootstrap_sharpe_p95": 1.5627491346252167
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -97,11 +97,12 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-22 12:02",
+  "train_date": "2026-03-22 16:57",
   "data_range": "2019-09-08 \u2192 2026-03-22",
-  "n_bars": 57273,
-  "monthly_gate": true,
-  "monthly_gate_window": 480,
+  "n_bars": 57279,
+  "ic_ema_span": 720,
+  "ic_min_threshold": -0.01,
   "ridge_weight": 0.6,
-  "lgbm_weight": 0.4
+  "lgbm_weight": 0.4,
+  "monthly_gate": true
 }

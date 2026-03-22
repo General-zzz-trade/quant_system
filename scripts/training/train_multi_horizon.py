@@ -42,13 +42,15 @@ TOP_K_FEATURES = 14
 VERSION = "v10"
 LGBM_XGB_WEIGHT = 0.5  # weight for lgbm; xgb gets (1 - this)
 
-# Cross-market features to ALWAYS include in training (WF-validated IC > 0.05).
-# Greedy IC may miss these because they're daily (forward-filled to 1h)
-# and IC varies across train windows. But WF shows 77-81% fold stability.
+# Cross-market features to ALWAYS include in training.
+# T-1 corrected IC (2026-03-22): coin_ret_1d IC=0.01, vix_level IC=0.00 (removed).
+# spy_ret_1d retains real IC=-0.023 after T-1 correction.
+# iv_level (DVOL/100): IC=+0.074, strongest no-bias feature.
+# funding_zscore_24: IC=-0.052, 85% stability.
 LOCKED_FEATURES = [
-    "coin_ret_1d",   # IC=-0.062, 77-81% fold stability
-    "spy_ret_1d",    # IC=-0.094, 64% stability
-    "vix_level",     # IC=+0.080, 52-68% stability
+    "spy_ret_1d",          # IC=-0.023 (T-1 corrected), 64% stability
+    "iv_level",            # IC=+0.074 (DVOL/100, strongest no-bias), from options_flow
+    "funding_zscore_24",   # IC=-0.052, 85% stability, from enriched_computer
 ]
 
 

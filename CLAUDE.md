@@ -29,21 +29,15 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Active trading services**:
 ```bash
-# Polymarket dry-run (currently active):
-python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70
-
-# Directional alpha (BTC+ETH only — validated BTC Sharpe 4.37, ETH 4.67):
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws
+# Strategy H: 4h primary + 1h scaler + 15m COMBO (6 runners, 3 WS):
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m BTCUSDT_4h ETHUSDT ETHUSDT_15m ETHUSDT_4h --ws
 sudo systemctl restart bybit-alpha.service
 
-# HFT Signal (inactive — proven unprofitable, Sharpe -5):
-python3 -m scripts.run_hft_signal --symbols BTCUSDT ETHUSDT SOLUSDT --leverage 20 --position-size 50000 --loss-limit 5000
+# Model hot-reload (no restart, <200ms):
+sudo kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)
 
-# Binary signal (inactive — wrong payoff structure for Bybit):
-python3 -m scripts.run_binary_signal --symbol BTCUSDT --leverage 20 --bet-size 5000
-
-# Market maker (inactive — BTC spread < fee, mathematically unprofitable):
-python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run
+# Polymarket dry-run (currently active):
+python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70
 ```
 
 **Data & model management**:
@@ -54,9 +48,11 @@ python3 -m scripts.data.download_funding_rates --symbols ETHUSDT SOLUSDT     # U
 python3 -m scripts.data.download_oi_data --symbols ETHUSDT BTCUSDT           # Download OI/LS/Taker data (Binance, ~28d max)
 python3 -m scripts.data.download_multi_exchange_funding --symbols ETHUSDT    # Multi-exchange funding rates (Binance+Bybit)
 python3 -m scripts.auto_retrain --include-15m --force                        # Retrain 1h + 15m models
-python3 -m scripts.auto_retrain --only-15m --force                           # Retrain 15m models only
+python3 -m scripts.auto_retrain --include-4h --force                         # Retrain 1h + 4h models
+python3 -m scripts.auto_retrain --only-4h --force                            # Retrain 4h models only
+python3 -m scripts.auto_retrain --daily --include-4h --sighup                # Daily lightweight retrain + hot-reload
 python3 -m scripts.auto_retrain --dry-run                                    # Preview retrain without saving
-python3 -m scripts.training.train_all_production --dry-run                   # Validate all production models
+python3 -m scripts.training.train_4h_daily --all                             # Train all 4h + daily models
 python3 -m scripts.training.train_all_production --force                     # Force retrain all production models
 ```
 
@@ -77,16 +73,24 @@ python3 -m scripts.ops.weekly_report                                          # 
 python3 -m scripts.ops.security_scan                                          # Security audit (secrets, notional, bare-except)
 python3 -m scripts.ops.pre_live_checklist                                     # Pre-live readiness check
 python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log  # Live vs backtest comparison
+python3 -m scripts.ops.signal_reconcile --hours 24                            # Live vs backtest signal consistency
+python3 -m scripts.ops.signal_reconcile --hours 168 --alert                   # Weekly signal check + Telegram
+python3 -m monitoring.ic_decay_monitor                                        # IC decay check (GREEN/YELLOW/RED)
+python3 -m monitoring.ic_decay_monitor --alert                                # IC decay + Telegram alert
+python3 -m scripts.ops.shadow_compare --model-a models_v8/BTCUSDT_gate_v2 --model-b models_v8/BTCUSDT_4h --symbol BTCUSDT --days 90  # A/B model comparison
+python3 -m scripts.research.monte_carlo_risk                                  # Monte Carlo risk simulation (10K runs)
 python3 -m monitoring.notify                                                  # Test Telegram notification
 ```
 
 **Automated operations** (systemd timers + cron):
 ```bash
-sudo systemctl list-timers --all | grep -E "health|retrain|refresh"           # Check all timers
-# health-watchdog.timer  — every 5 min (service health + data freshness + Telegram alerts)
+sudo systemctl list-timers --all | grep -E "health|retrain|refresh|ic-decay"  # Check all timers
+# health-watchdog.timer  — every 5 min (service health + data freshness + Telegram alerts, 5h tolerance for 4h bars)
 # data-refresh.timer     — every 6 hours (kline + funding + OI sync)
-# auto-retrain.timer     — Sunday 2am UTC (walk-forward retrain)
-# cron: demo_tracker (hourly), weekly_report (Sun 3am), bug_scan (Sun 1am), OI download (6h)
+# auto-retrain.timer     — Sunday 2am UTC (walk-forward retrain 1h models)
+# daily-retrain.timer    — daily 2am UTC (lightweight 4h retrain + SIGHUP hot-reload)
+# ic-decay-monitor.timer — daily 3am UTC (IC decay detection + Telegram alerts)
+# cron: demo_tracker (hourly), weekly_report (Sun 3am), bug_scan (Sun 1am), OI download (6h), Deribit options (30min)
 ```
 
 **CRITICAL after Rust build**: copy .so then verify:
@@ -134,11 +138,12 @@ scripts/         Active alpha / MM entrypoints, ops tooling, research/data wrapp
     shadow_mode_check.py Shadow trading log analysis + health report
     ops_dashboard.py     Unified status dashboard (service, models, signals, data)
     pre_live_checklist.py Automated pre-live readiness checks
-  data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py
-  research/          backtest_funding_alpha.py, backtest_vol_squeeze.py, polymarket_binary_alpha.py
+  data/              download_15m_klines.py, download_5m_klines.py, download_funding_rates.py, download_oi_data.py, download_cross_market.py, download_stablecoin_supply.py, download_deribit_pcr.py, download_onchain.py
+  research/          backtest_small_capital.py, backtest_strategy_h.py, optimize_tf_integration.py, monte_carlo_risk.py
   walkforward/       walkforward_validate.py
-  training/          train_v7_alpha.py, train_15m.py, train_all_production.py
-data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv
+  training/          train_v7_alpha.py, train_15m.py, train_4h_daily.py, train_all_production.py
+data_files/      CSV data: {SYMBOL}_{1h,15m,5m}.csv, {SYMBOL}_funding.csv, {SYMBOL}_oi_1h.csv, cross_market_daily.csv, etf_volume_daily.csv, stablecoin_daily.csv, fear_greed_index.csv, {SYMBOL}_dvol_1h.csv
+models_v8/       Model dirs: {SYMBOL}_gate_v2 (1h), {SYMBOL}_15m, {SYMBOL}_4h
 logs/            bybit_alpha.log, retrain_cron.log
 tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket, scripts), integration/ (crash_recovery, fault_injection, constraint_parity, ...)
 ```
@@ -152,17 +157,30 @@ Bybit WS (depth+trade per symbol) → SymbolEngine.on_depth/on_trade (thread-loc
   → Kelly sizing → Limit order → TP/SL/Timeout exit (MR: 0.15%/0.1%/60s, BL: 0.1%/0.08%/30s, normal: 0.3%/0.5%/301s)
 ```
 
-**Data flow (AlphaRunner — directional alpha path)**:
+**Data flow (Strategy H — 4h primary + 1h scaler, T-1 corrected)**:
 ```
-Bybit WS kline → RustFeatureEngine.push_bar(+OI/LS from Binance API)
-  → _check_regime(close) — vol/trend/ranging filter + dynamic deadzone
-  → Ridge(60%)+LightGBM(40%) ensemble predict
-  → _check_regime(close, feat_dict) — CompositeRegime updates deadzone/min_hold (BTC only)
-  → RustInferenceBridge.apply_constraints (z-score + deadzone + min-hold)
-  → RustRiskEvaluator.check_drawdown + RustKillSwitch
-  → RustOrderStateMachine.register + RustCircuitBreaker.allow_request
-  → Bybit REST market order (with orderLinkId dedup)
-  → RustStateStore.process_event (position truth)
+┌─ 4h Runners (PRIMARY, cap BTC 15% / ETH 10%) ──────────────┐
+│ Bybit WS kline.240 → push_bar → vol-adaptive deadzone       │
+│ → Ridge(60%)+LGBM(40%) ensemble → z-score → discretize     │
+│ → 4h独立下单 (不受COMBO限制)                                  │
+│ → signal → _consensus_signals["BTCUSDT_4h"]                 │
+└──────────────────────────────────────────────────────────────┘
+        │ 4h signal (gate input)
+        ▼
+┌─ 1h Runners (SCALER, cap BTC 8% / ETH 6%) ─────────────────┐
+│ Bybit WS kline.60 → push_bar → regime filter                │
+│ → ensemble predict → z-score → MultiTFConfluenceGate        │
+│   (reads 4h signal: agree→1.3x, oppose→0.3x, neutral→0.7x) │
+│ → BB Entry Scaler → dynamic leverage (DD-based)             │
+│ → Maker limit order (PostOnly, 45s timeout) → Bybit REST    │
+└──────────┬───────────────────────────────────────────────────┘
+           │ 1h+15m COMBO (AGREE ONLY, secondary)
+           ▼
+┌─ 15m Runners (COMBO, cap 5%) ───────────────────────────────┐
+│ Bybit WS kline.15 → same pipeline → PortfolioCombiner      │
+└─────────────────────────────────────────────────────────────┘
+
+Cross-market features (T-1 shift): SPY/treasury/ETF_volume/DVOL/FGI/stablecoin/on-chain
 ```
 
 **Python engine path**: Market event → FeatureComputeHook → Pipeline (RustStateStore) → DecisionModule → OrderRouter
@@ -195,11 +213,18 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `runner/live_runner.py` — Framework live runtime entry point
 - `runner/gate_chain.py` — GateChain: up to 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, MultiTFConfluence, LiquidationCascade, CarryCost)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
-- `scripts/ops/config.py` — SYMBOL_CONFIG (BTC+ETH only), constants, MAX_ORDER_NOTIONAL
-- `scripts/ops/alpha_runner.py` — AlphaRunner: current directional alpha runtime (with gate chain + online ridge)
+- `scripts/ops/config.py` — SYMBOL_CONFIG (BTC+ETH × 1h/15m/4h = 6 runners), constants, MAX_ORDER_NOTIONAL
+- `scripts/ops/alpha_runner.py` — AlphaRunner: Strategy H runtime (4h primary + 1h scaler + gate chain + SIGHUP hot-reload + checkpoint per-runner)
+- `scripts/ops/signal_reconcile.py` — Live vs backtest signal consistency validation
 - `scripts/ops/daily_reconciliation.py` — Live vs backtest signal reconciliation + slippage analysis
-- `alpha/online_ridge.py` — Online Ridge with RLS incremental weight updates
-- `features/options_flow.py` — Options flow features from Deribit (gamma, max pain, vega, PCR)
+- `scripts/ops/shadow_compare.py` — A/B model comparison (shadow testing without execution)
+- `scripts/training/train_4h_daily.py` — 4h/daily model trainer (LGBM + T-1 cross-market)
+- `alpha/online_ridge.py` — Online Ridge with RLS incremental weight updates (enabled for 4h runners)
+- `features/options_flow.py` — Options flow features from Deribit (gamma, max pain, vega, PCR, IV features)
+- `features/batch_feature_engine.py` — 185+ features (V1-V24: including IV, stablecoin, ETF volume)
+- `monitoring/ic_decay_monitor.py` — IC decay detection (GREEN/YELLOW/RED + Telegram alert)
+- `execution/adapters/venue_router.py` — Multi-venue routing (Bybit + Hyperliquid, fee-optimal)
+- `execution/adapters/hyperliquid/` — Hyperliquid DEX adapter (0% maker, EIP-712 signing)
 - `regime/eth_regime_proxy.py` — ETH parameter routing using BTC regime labels
 - `core/validation.py` — NaN/Inf input validation for prices, quantities, signals
 - `monitoring/pipeline_metrics.py` — Thread-safe pipeline counters (bars/signals/orders/errors)
@@ -227,12 +252,19 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 
 - **Dual Alpha COMBO**: 1h+15m alphas via separate WS (kline.60 + kline.15). `PortfolioCombiner` AGREE ONLY: both must agree direction (Sharpe 5.48). Per-symbol cap: 45% equity x leverage (BTC+ETH only). Conviction: both=100%, one=50%.
 - **Alpha Expansion Gates**: 3 new gates in production — MultiTFConfluence (1h/4h alignment), LiquidationCascade (cascade protection), CarryCost (funding/basis adjustment). Wired in `alpha_runner.py._evaluate_gates()`.
-- **Online Ridge**: `alpha/online_ridge.py` — RLS incremental weight updates (λ=0.997). Activated via `runner.enable_online_ridge()`. Weight drift monitoring with Telegram alerts.
+- **Online Ridge**: `alpha/online_ridge.py` — RLS incremental weight updates (λ=0.997). Enabled for 4h runners via `enable_online_ridge()`. Weight drift monitoring with Telegram alerts.
 - **Adaptive Stop-Loss**: ATR 3-phase: initial ATRx1.2 → breakeven after 0.5×ATR profit → trailing at 0.2×ATR step. Hard limits: 0.3%-5%.
+- **4h Z-Score Stop**: 1h/15m runners exit immediately when 4h model signal flips against position (IC 0.29-0.43 reversal signal).
+- **Dynamic Leverage**: DD≥10%→0.75x, DD≥20%→0.5x, DD≥35%→0.25x leverage reduction.
+- **Entry Scaler (BB)**: BB position → scale entry size (oversold=1.2x, overbought=0.3x). MaxDD reduced ~50%.
+- **Vol-Adaptive Deadzone**: deadzone × (realized_vol / vol_median), clamped [0.5x, 2.0x]. Low vol→lower dz.
+- **SIGHUP Hot-Reload**: `kill -HUP` reloads all 6 models in <200ms without restart. Triggered by auto_retrain.
+- **Per-Runner Checkpoint**: Each runner saves/restores independently (`BTCUSDT_4h.json` etc). Instant recovery on restart.
 - **Alpha Health Monitor**: `monitoring/alpha_health.py` — per-symbol IC tracking, gates via `position_scale()` (0.0/0.5/1.0).
-- **Auto-Retrain**: `scripts/auto_retrain.py` — BTC+ETH only. Systemd timer: Sunday 2am UTC. SIGHUP for hot reload.
-- **Daily Reconciliation**: `scripts/ops/daily_reconciliation.py` — live vs backtest signal comparison, slippage analysis, PnL gap tracking.
-- **Per-Symbol PnL Attribution**: `PnLTracker.pnl_by_symbol`, `per_symbol_sharpe()` — identifies best/worst performers.
+- **IC Decay Monitor**: `monitoring/ic_decay_monitor.py` — daily 03:00 UTC, GREEN/YELLOW/RED levels, Telegram alerts.
+- **Auto-Retrain**: Weekly (Sunday 2am, 1h models) + Daily (2am, 4h models with --sighup). IC tolerance gate.
+- **Signal Reconciliation**: `scripts/ops/signal_reconcile.py` — live vs backtest signal match rate (target >90%).
+- **VenueRouter**: Dual-venue support (Bybit + Hyperliquid). Fee-optimal routing with automatic fallback.
 
 ## Venue Adapters
 
@@ -255,47 +287,51 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 # See .env.example for all optional vars (Binance, Polymarket)
 ```
 
-**Current deployment** (2026-03-21):
+**Current deployment** (2026-03-22):
 ```bash
-# ACTIVE processes:
-#   polymarket collector (PID in data/polymarket/collector.pid) — CLOB data collection
-#   polymarket dryrun — RSI(30/70) taker strategy validation
+# ACTIVE:
+#   bybit-alpha.service → Strategy H: 6 runners (BTC+ETH × 1h/15m/4h), 3 WS (kline.60/15/240)
+#     Sharpe 2.25 (T-1 corrected), $500→$2.15M backtest, demo $35K equity
+#   polymarket collector + dryrun
 # ACTIVE timers:
-#   health-watchdog.timer (5min), data-refresh.timer (6h), auto-retrain.timer (Sun 2am)
-# INACTIVE (available, validated):
-#   bybit-alpha.service -> BTC+ETH Alpha (BTC Sharpe 4.37, ETH 4.67, RECOMMENDED)
-#   hft-signal.service -> HFT 8-layer signal (Sharpe -5, NOT recommended)
-#   bybit-mm.service -> market maker (BTC spread < fee, NOT viable)
-# Deploy truth: docs/deploy_truth.md
+#   health-watchdog.timer (5min, 5h tolerance for 4h), data-refresh.timer (6h),
+#   auto-retrain.timer (Sun 2am), daily-retrain.timer (daily 2am + SIGHUP),
+#   ic-decay-monitor.timer (daily 3am)
+# INACTIVE (validated but not recommended):
+#   hft-signal.service (Sharpe -5), bybit-mm.service (spread < fee)
 ```
 
 **Quick start**:
 1. Health check: `python3 -m scripts.ops.health_watchdog`
-2. Polymarket dry-run logs: `tail -f /tmp/polymarket_dryrun_v2.log`
-3. Start 1h Alpha: `sudo systemctl start bybit-alpha.service`
-4. Timers: `sudo systemctl list-timers --all | grep -E "health|retrain|refresh"`
-5. Account: `set -a && source .env && python3 -c "..."` (see scripts/ops/runtime_health_check.py)
+2. Strategy H status: `tail -f logs/bybit_alpha.log | grep HEARTBEAT`
+3. Start/restart: `sudo systemctl restart bybit-alpha.service`
+4. Hot-reload models: `sudo kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)`
+5. Signal check: `python3 -m scripts.ops.signal_reconcile --hours 24`
+6. IC health: `python3 -m monitoring.ic_decay_monitor`
+7. Timers: `sudo systemctl list-timers --all | grep -E "health|retrain|refresh|ic-decay"`
 
-**Walk-forward baselines** (2026-03-21): see `results/walkforward/` for full data.
-- PASS: ETHUSDT 1h (Sharpe 4.67, 17/21 folds), BTCUSDT (Sharpe 4.37, 20/22 folds, +monthly-gate), SUIUSDT 1h (1.14, 5/7)
-- WEAK: SOLUSDT (IC 0.247 but Sharpe 0.94)
-- FAIL: AXSUSDT (regime shift, removed from production), all 15m except ETH, all 5m
-- Production focus: **BTC + ETH only** (altcoins removed due to poor liquidity 2026-03-21)
-- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; 3x+ → >50% bust rate). Demo uses **10x** (all tiers)
+**Walk-forward baselines** (2026-03-22, T-1 corrected): see `results/walkforward/` for full data.
+- **4h PASS**: BTCUSDT (WF Sharpe 3.62, 20/22), ETHUSDT (WF Sharpe 4.57, 21/21)
+- **1h PASS**: ETHUSDT (Sharpe 3.92, 18/21), BTCUSDT (Sharpe 2.43, 15/22)
+- WEAK: all 15m except ETH marginal
+- FAIL: all 5m/1m, all altcoins
+- Production focus: **BTC + ETH only, 4h primary** (Strategy H)
+- Kelly optimal leverage: **14x full Kelly, 7x half-Kelly** (Monte Carlo 10K runs). Demo uses **10x**. Production recommended **3x** (MaxDD ~18%)
 
 ## Signal Pipeline
 
 ```
-Raw prediction (Ridge 60% + LightGBM 40% ensemble, walk-forward validated)
-  → Online Ridge update (optional: RLS incremental weight adaptation between retrains)
-  → Rolling z-score (window=720, warmup=180)
-  → Long-only clip (optional)
+Raw prediction (Ridge 60% + LightGBM 40% ensemble, T-1 cross-market features)
+  → Online Ridge update (4h runners: RLS incremental weight adaptation)
+  → Rolling z-score (4h: window=180/warmup=45, 1h: 720/180)
+  → Vol-adaptive deadzone: dz × (realized_vol / vol_median), clamped [0.5x, 2.0x]
   → Discretize: z > deadzone → +1, z < -deadzone → -1, else 0
-  → Min-hold enforce (BTC: 24 bars, ETH: 18 bars, 15m: 16 bars)
-  → Trend-hold extend (optional: extend when trend intact, symmetric long/short)
-  → Monthly gate (BTC: close <= SMA(480) → flat; critical for downtrend protection)
-  → Vol-adaptive scaling (optional: signal x target_vol/realized_vol)
-  → Gate chain: LiquidationCascade → MultiTFConfluence → CarryCost → position scaling
+  → Min-hold enforce (BTC 4h: 6 bars=24h, ETH 4h: 18 bars=72h, BTC 1h: 24, ETH 1h: 18)
+  → Monthly gate (BTC only: close <= SMA(120@4h/480@1h) → skip longs)
+  → Gate chain: LiquidationCascade → MultiTFConfluence(4h model signal) → CarryCost
+  → BB Entry Scaler (oversold→1.2x, overbought→0.3x)
+  → Dynamic leverage (DD≥10%→0.75x, ≥20%→0.5x, ≥35%→0.25x)
+  → Maker limit order (PostOnly, 45s timeout, 1-tick spread→bid/ask)
 ```
 Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) and Python (`signal_postprocess.py`). Parity verified via `tests/integration/test_constraint_parity.py`.
 
@@ -354,18 +390,19 @@ Constraint pipeline implemented identically in Rust (`constraint_pipeline.rs`) a
 - `OnlineRidge` (alpha/online_ridge.py): RLS incremental weight updates, forgetting_factor=0.997, drift>0.5 triggers warning
 - `OptionsFlowComputer` (features/options_flow.py): 7 features from Deribit options DB (gamma, max_pain, vega, PCR, IV term slope)
 
-**Alpha research conclusions** (2026-03-21):
-- 1h Alpha (optimized): BTC Sharpe 4.37 (+monthly-gate), ETH 4.67 (IC-weighted ensemble) — PASS
-- BTC monthly-gate: close < SMA(480) → skip longs; avoids downtrend losses (Sharpe 1.76→4.37)
-- Dual COMBO (1h+15m AGREE): Sharpe 5.48 — PASS
-- 15m: only ETH PASS (Sharpe 1.04); BTC 15m Sharpe 0.91 FAIL
-- Altcoins removed: SUI (Sharpe 1.14 PASS but poor liquidity), AXS (FAIL, regime shift), SOL (IC 0.247 but Sharpe 0.94)
-- 5m/1m HFT signals: Sharpe -5 to -25 — ALL FAIL (40万bar验证)
-- BTC做市: spread 0.014bps < fee 2bps → mathematically impossible (all exchanges)
-- On-chain IC: `exchange_supply_zscore_30` IC=-0.020 PASS; other 5 features < 0.02 threshold
-- Gate impact (8-symbol backtest): MultiTF Confluence MaxDD -20-25%, Carry Cost effective on BTC/ETH
-- Polymarket RSI(30/70) taker: 52.9% WR, $32/day@$10, 26/27 months positive — PASS
-- Polymarket maker: FAIL on real CLOB replay (排队+逆向选择)
+**Alpha research conclusions** (2026-03-22, T-1 corrected — no look-ahead bias):
+- **Strategy H (production)**: 4h primary + 1h scaler, Sharpe 2.25, $500→$2.15M/6.5yr @10x — PASS
+- **CRITICAL**: Cross-market features IC dropped 90% after T-1 correction (GBTC IC 0.27→0.03). Old Sharpe 4.37 was inflated.
+- 4h Alpha: BTC WF Sharpe 3.62 (20/22), ETH 4.57 (21/21) — strongest timeframe
+- 1h Alpha (T-1): BTC Sharpe 2.43 (15/22), ETH 3.92 (18/21)
+- 15m: only ETH marginal (Sharpe 1.04); BTC 15m Sharpe 0.91 FAIL
+- 5m/1m HFT: Sharpe -5 to -25 — ALL FAIL
+- Market making: NOT viable (Bybit spread<fee, Hyperliquid adverse selection>spread)
+- Neural networks: Ridge > MLP > LGBM on 4h OOS (LGBM overfits low-frequency data)
+- Strongest features (T-1, no bias): DVOL zscore IC=0.074, ETF volume IC=0.11, funding zscore IC=0.052
+- Cross-exchange arb: NOT viable (spread 2-5bps < fees 9.5bps)
+- TWAP: NOT needed ($5K orders = 0.015% of bar volume)
+- FOMC day: IC=0.061 (p=0.003) but decaying and only 8/year
 
 **Current path split**:
 - `scripts/run_polymarket_dryrun.py` — **currently active** dry-run validation

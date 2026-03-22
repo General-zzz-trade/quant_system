@@ -215,6 +215,15 @@ def compute_features_batch(
     # V21: Cross-market features (SPY/QQQ/VIX/TLT/USO/COIN from Yahoo Finance)
     _add_cross_market_features(feat_df, timestamps)
 
+    # V22: Deribit IV features (DVOL-based: iv_level, iv_rank_30d, iv_change_1d, etc.)
+    _add_iv_features(feat_df, symbol, timestamps)
+
+    # V23: Stablecoin supply features (DeFiLlama: total supply change, z-score, dominance)
+    _add_stablecoin_features(feat_df, timestamps)
+
+    # V24: ETF volume/flow features (Yahoo Finance: IBIT/GBTC/ETHA dollar volume)
+    _add_etf_volume_features(feat_df, timestamps)
+
     return feat_df
 
 
@@ -477,13 +486,15 @@ def _add_cross_market_features(feat_df: pd.DataFrame, timestamps: np.ndarray) ->
         cm_dates = cm_vals.index.date
         cm_dict: dict[object, float] = dict(zip(cm_dates, cm_vals.values))
 
-        # Forward-fill: for each bar, use the most recent daily value
+        # Forward-fill with T-1 shift: for a bar on date D, use the most
+        # recent cross-market value from date < D (strictly before) to avoid
+        # look-ahead bias (US markets close ~21:00 UTC).
         result = np.full(len(timestamps), np.nan, dtype=np.float64)
         sorted_cm_dates = sorted(cm_dict.keys())
         idx = 0
         last_val = np.nan
         for i, bd in enumerate(bar_dates):
-            while idx < len(sorted_cm_dates) and sorted_cm_dates[idx] <= bd:
+            while idx < len(sorted_cm_dates) and sorted_cm_dates[idx] < bd:
                 last_val = cm_dict[sorted_cm_dates[idx]]
                 idx += 1
             result[i] = last_val
@@ -659,3 +670,283 @@ def _load_onchain_schedule(symbol: str) -> np.ndarray:
     # Sort by timestamp
     arr = arr[arr[:, 0].argsort()]
     return arr
+
+
+def _add_iv_features(
+    feat_df: pd.DataFrame, symbol: str, timestamps: np.ndarray
+) -> None:
+    """Add V22 Deribit IV features from daily DVOL data.
+
+    Loads {currency}_iv_daily.csv (or falls back to {SYMBOL}_dvol_1h.csv),
+    computes 5 IV features, and merges into feat_df with T-1 date shift
+    to prevent look-ahead bias (daily DVOL close is end-of-day).
+
+    Features added:
+      - iv_level: DVOL / 100 (normalized)
+      - iv_rank_30d: percentile rank of IV over 30 days
+      - iv_change_1d: 1-day change in DVOL (percentage points)
+      - iv_term_slope_daily: intraday DVOL range / level
+      - rv_iv_spread: realized vol - implied vol (annualized %)
+    """
+    from features.options_flow import (
+        load_dvol_daily,
+        compute_iv_features_from_dvol,
+        IV_FEATURE_NAMES,
+    )
+
+    # Determine currency from symbol
+    currency = "BTC" if "BTC" in symbol.upper() else "ETH"
+
+    try:
+        dvol_df = load_dvol_daily(currency)
+    except Exception as e:
+        logger.debug("IV data unavailable for %s: %s", currency, e)
+        for name in IV_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    if dvol_df.empty:
+        for name in IV_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    # Compute realized vol from bar closes for rv_iv_spread
+    # Use 20-day annualized vol (sqrt(365) * std of daily log returns)
+    rv_series = None
+    if "vol_20" in feat_df.columns:
+        # vol_20 is already computed in C++ engine (20-bar rolling std of returns)
+        # Convert hourly bars to daily by taking last bar per date
+        bar_dates = pd.to_datetime(timestamps, unit="ms", utc=True).date
+        bar_date_series = pd.Series(bar_dates, index=feat_df.index)
+        vol20 = feat_df["vol_20"].copy()
+        # Annualize: vol_20 is hourly std * sqrt(20); we need annualized
+        # Approximate: daily vol ~ hourly vol * sqrt(24), annualized ~ daily * sqrt(365)
+        vol20_ann = vol20 * np.sqrt(24 * 365) * 100  # to percentage to match DVOL units
+
+        # Group by date, take last value
+        daily_rv = pd.DataFrame({"date": bar_date_series, "rv": vol20_ann})
+        daily_rv_last = daily_rv.groupby("date")["rv"].last()
+
+        # Align to dvol_df dates
+        dvol_dates = dvol_df["date"].dt.date
+        rv_aligned = dvol_dates.map(daily_rv_last).values
+        rv_series = pd.Series(rv_aligned, index=dvol_df.index)
+
+    # Compute IV features on daily DVOL data
+    iv_feats = compute_iv_features_from_dvol(dvol_df, rv_series)
+
+    # Build date -> feature value lookup (using T-1 shift for look-ahead prevention)
+    # For a bar on date D, use IV features from date D-1
+    dvol_dates_sorted = dvol_df["date"].dt.date.values
+    iv_values: Dict[str, np.ndarray] = {}
+    for col in IV_FEATURE_NAMES:
+        iv_values[col] = iv_feats[col].values if col in iv_feats.columns else np.full(len(dvol_df), np.nan)
+
+    # Map bar timestamps to dates
+    bar_dates = pd.to_datetime(timestamps, unit="ms", utc=True).date
+
+    # Forward-fill with T-1 shift: for bar on date D, find most recent DVOL from date < D
+    for col in IV_FEATURE_NAMES:
+        result = np.full(len(timestamps), np.nan, dtype=np.float64)
+        col_vals = iv_values[col]
+        idx = 0
+        last_val = np.nan
+        for i, bd in enumerate(bar_dates):
+            while idx < len(dvol_dates_sorted) and dvol_dates_sorted[idx] < bd:
+                last_val = col_vals[idx]
+                idx += 1
+            result[i] = last_val
+        feat_df[col] = result
+
+    n_valid = sum(1 for col in IV_FEATURE_NAMES if not np.all(np.isnan(feat_df[col].values)))
+    logger.debug("V22 IV features: %d/%d populated for %s", n_valid, len(IV_FEATURE_NAMES), symbol)
+
+
+STABLECOIN_FEATURE_NAMES = [
+    "total_supply_change_1d",
+    "total_supply_change_7d",
+    "total_zscore_14",
+    "total_zscore_30",
+    "usdt_dominance",
+    "supply_acceleration",
+]
+
+
+def _add_stablecoin_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> None:
+    """Add V23 stablecoin supply features from DeFiLlama daily data.
+
+    Loads data_files/stablecoin_daily.csv and forward-fills daily values
+    to hourly bars with T-1 shift (bar on date D uses data from D-1).
+
+    Features:
+      - total_supply_change_1d: 1-day % change in total stablecoin supply
+      - total_supply_change_7d: 7-day % change
+      - total_zscore_14: z-score of total supply over 14-day window
+      - total_zscore_30: z-score over 30-day window
+      - usdt_dominance: USDT share of total supply
+      - supply_acceleration: change_1d - change_1d.shift(7) (inflow momentum)
+    """
+    sc_path = Path("data_files/stablecoin_daily.csv")
+    if not sc_path.exists():
+        logger.debug("No stablecoin_daily.csv — skipping V23 features")
+        for name in STABLECOIN_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    try:
+        sc = pd.read_csv(sc_path)
+    except Exception:
+        logger.debug("Failed to load stablecoin_daily.csv", exc_info=True)
+        for name in STABLECOIN_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    # Parse and sort
+    sc["date_parsed"] = pd.to_datetime(sc["date"])
+    sc = sc.sort_values("date_parsed").reset_index(drop=True)
+
+    # Compute daily features on the daily data
+    total = pd.to_numeric(sc["total_supply"], errors="coerce")
+    usdt = pd.to_numeric(sc["usdt_supply"], errors="coerce")
+
+    change_1d = total.pct_change(1)
+    change_7d = total.pct_change(7)
+
+    mu_14 = total.rolling(14).mean()
+    std_14 = total.rolling(14).std()
+    zscore_14 = (total - mu_14) / std_14.replace(0, np.nan)
+
+    mu_30 = total.rolling(30).mean()
+    std_30 = total.rolling(30).std()
+    zscore_30 = (total - mu_30) / std_30.replace(0, np.nan)
+
+    dominance = usdt / total.replace(0, np.nan)
+
+    acceleration = change_1d - change_1d.shift(7)
+
+    # Pack into dict for T-1 forward-fill
+    sc_dates = sc["date_parsed"].dt.date.values
+    daily_features = {
+        "total_supply_change_1d": change_1d.values,
+        "total_supply_change_7d": change_7d.values,
+        "total_zscore_14": zscore_14.values,
+        "total_zscore_30": zscore_30.values,
+        "usdt_dominance": dominance.values,
+        "supply_acceleration": acceleration.values,
+    }
+
+    # Convert bar timestamps to dates for alignment
+    bar_dates = pd.to_datetime(timestamps, unit="ms", utc=True).date
+
+    # Forward-fill with T-1 shift: for bar on date D, use most recent value from date < D
+    for col_name, col_vals in daily_features.items():
+        result = np.full(len(timestamps), np.nan, dtype=np.float64)
+        idx = 0
+        last_val = np.nan
+        for i, bd in enumerate(bar_dates):
+            while idx < len(sc_dates) and sc_dates[idx] < bd:
+                v = col_vals[idx]
+                if not np.isnan(v):
+                    last_val = v
+                idx += 1
+            result[i] = last_val
+        feat_df[col_name] = result
+
+    n_filled = sum(1 for name in STABLECOIN_FEATURE_NAMES
+                   if not np.all(np.isnan(feat_df[name].values)))
+    logger.debug("V23 stablecoin: %d/%d features populated", n_filled, len(STABLECOIN_FEATURE_NAMES))
+
+
+# ── V24: ETF Volume/Flow Features ──────────────────────────────────────
+
+ETF_VOLUME_FEATURE_NAMES = (
+    "etf_vol_change_5d",      # 5-day change in aggregate BTC ETF dollar volume
+    "etf_vol_zscore_7",       # 7-day z-score of aggregate ETF volume
+    "etf_vol_zscore_14",      # 14-day z-score
+    "gbtc_vol_zscore_14",     # GBTC-specific volume z-score (outflow proxy)
+    "etha_vol_zscore_14",     # ETHA volume z-score
+)
+
+
+def _add_etf_volume_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> None:
+    """Add V24 ETF volume features from etf_volume_daily.csv.
+
+    ETF dollar volume is a contrarian signal: volume spikes predict negative
+    next-day returns (IC=-0.09 to -0.11, T-1 shifted). This captures
+    retail inflow at tops and GBTC redemption pressure.
+
+    Data source: Yahoo Finance via scripts/data/download_cross_market.py.
+    """
+    etf_path = Path("data_files/etf_volume_daily.csv")
+    if not etf_path.exists():
+        for name in ETF_VOLUME_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    try:
+        etf_df = pd.read_csv(etf_path, parse_dates=["date"])
+    except Exception:
+        for name in ETF_VOLUME_FEATURE_NAMES:
+            feat_df[name] = np.nan
+        return
+
+    etf_df["date"] = etf_df["date"].dt.date
+    etf_df = etf_df.sort_values("date").reset_index(drop=True)
+
+    # Compute daily features
+    agg_vol = etf_df["btc_etf_dollar_vol"]
+
+    daily_feats = pd.DataFrame(index=etf_df.index)
+    daily_feats["date"] = etf_df["date"]
+    daily_feats["etf_vol_change_5d"] = agg_vol.pct_change(5)
+    daily_feats["etf_vol_zscore_7"] = (
+        (agg_vol - agg_vol.rolling(7).mean()) / agg_vol.rolling(7).std()
+    )
+    daily_feats["etf_vol_zscore_14"] = (
+        (agg_vol - agg_vol.rolling(14).mean()) / agg_vol.rolling(14).std()
+    )
+
+    # Per-ETF features
+    if "gbtc_dollar_vol" in etf_df.columns:
+        gbtc = etf_df["gbtc_dollar_vol"]
+        daily_feats["gbtc_vol_zscore_14"] = (
+            (gbtc - gbtc.rolling(14).mean()) / gbtc.rolling(14).std()
+        )
+    else:
+        daily_feats["gbtc_vol_zscore_14"] = np.nan
+
+    if "etha_dollar_vol" in etf_df.columns:
+        etha = etf_df["etha_dollar_vol"]
+        daily_feats["etha_vol_zscore_14"] = (
+            (etha - etha.rolling(14).mean()) / etha.rolling(14).std()
+        )
+    else:
+        daily_feats["etha_vol_zscore_14"] = np.nan
+
+    # Build date → feature lookup with T-1 shift
+    bar_dates = pd.to_datetime(timestamps, unit="ms").date
+    sorted_dates = sorted(daily_feats["date"].dropna().unique())
+
+    for col_name in ETF_VOLUME_FEATURE_NAMES:
+        if col_name not in daily_feats.columns:
+            feat_df[col_name] = np.nan
+            continue
+
+        col_vals = daily_feats.set_index("date")[col_name]
+        result = np.full(len(feat_df), np.nan)
+        last_val = np.nan
+
+        for i, bd in enumerate(bar_dates):
+            # T-1 shift: find most recent date strictly before bar date
+            idx = np.searchsorted(sorted_dates, bd, side="left") - 1
+            if idx >= 0:
+                lookup_date = sorted_dates[idx]
+                v = col_vals.get(lookup_date, np.nan)
+                if not (isinstance(v, float) and np.isnan(v)):
+                    last_val = float(v)
+            result[i] = last_val
+        feat_df[col_name] = result
+
+    n_filled = sum(1 for name in ETF_VOLUME_FEATURE_NAMES
+                   if not np.all(np.isnan(feat_df[name].values)))
+    logger.debug("V24 ETF volume: %d/%d features populated", n_filled, len(ETF_VOLUME_FEATURE_NAMES))

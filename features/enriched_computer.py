@@ -111,7 +111,9 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     # --- V7: Fear & Greed Index ---
     "fgi_normalized",         # FGI / 100 - 0.5 (range [-0.5, 0.5])
     "fgi_zscore_7",           # (FGI - mean_7d) / std_7d
+    "fgi_zscore_14",          # (FGI - mean_14d) / std_14d
     "fgi_extreme",            # FGI < 25 → -1, FGI > 75 → 1, else 0
+    "fgi_change_7d",          # 7-day change in FGI value
     # --- V8: Alpha Rebuild V3 features ---
     "taker_bq_ratio",         # taker_buy_quote_volume / quote_volume — USD-weighted buy pressure
     "vwap_dev_20",            # (close - VWAP_20) / close — VWAP deviation (mean reversion)
@@ -547,6 +549,8 @@ class _SymbolState:
 
     # V7: Fear & Greed Index
     fgi_window_7: RollingWindow = field(default_factory=lambda: RollingWindow(7))
+    fgi_window_14: RollingWindow = field(default_factory=lambda: RollingWindow(14))
+    fgi_history_7d: Deque[float] = field(default_factory=lambda: deque(maxlen=8))
     _last_fgi: Optional[float] = None
 
     # V8: VWAP deviation windows
@@ -712,6 +716,8 @@ class _SymbolState:
         if fear_greed is not None:
             if self._last_fgi is None or abs(fear_greed - self._last_fgi) > 0.01:
                 self.fgi_window_7.push(fear_greed)
+                self.fgi_window_14.push(fear_greed)
+                self.fgi_history_7d.append(fear_greed)
             self._last_fgi = fear_greed
 
         # V9: Deribit IV
@@ -1462,6 +1468,21 @@ class _SymbolState:
                 feats["fgi_zscore_7"] = None
         else:
             feats["fgi_zscore_7"] = None
+
+        if self.fgi_window_14.full and self._last_fgi is not None:
+            fgi_mean_14 = self.fgi_window_14.mean
+            fgi_std_14 = self.fgi_window_14.std
+            if fgi_std_14 is not None and fgi_std_14 > 1e-12:
+                feats["fgi_zscore_14"] = (self._last_fgi - fgi_mean_14) / fgi_std_14
+            else:
+                feats["fgi_zscore_14"] = None
+        else:
+            feats["fgi_zscore_14"] = None
+
+        if len(self.fgi_history_7d) >= 8 and self._last_fgi is not None:
+            feats["fgi_change_7d"] = self._last_fgi - self.fgi_history_7d[0]
+        else:
+            feats["fgi_change_7d"] = None
 
         # --- V8: Alpha Rebuild V3 features ---
 

@@ -114,6 +114,10 @@ def _build_portfolio_combiners(
 
     symbol_runners: dict[str, list[str]] = {}
     for runner_key, (real_symbol, _) in runner_intervals.items():
+        # Exclude 4h runners from COMBO: they act as gate signals, not AGREE members.
+        # Including them in 3-way AGREE would drastically reduce trade frequency.
+        if runner_key.endswith("_4h"):
+            continue
         symbol_runners.setdefault(real_symbol, []).append(runner_key)
 
     combo_state_store = None
@@ -462,6 +466,22 @@ def main(argv: list[str] | None = None):
     )
 
     adapter = create_adapter()
+
+    # Optional: dual-venue routing (Bybit + Hyperliquid)
+    import os
+    hl_key = os.environ.get("HYPERLIQUID_PRIVATE_KEY")
+    if hl_key:
+        try:
+            from execution.adapters.hyperliquid import HyperliquidAdapter, HyperliquidConfig
+            from execution.adapters.venue_router import VenueRouter
+            hl_cfg = HyperliquidConfig.mainnet(private_key=hl_key)
+            hl_adapter = HyperliquidAdapter(hl_cfg)
+            hl_adapter.connect()
+            adapter = VenueRouter([adapter, hl_adapter])
+            logger.info("Dual-venue enabled: Bybit + Hyperliquid (0%% maker)")
+        except Exception as e:
+            logger.warning("Hyperliquid init failed, using Bybit only: %s", e)
+
     try:
         kill_latch = _build_runtime_kill_latch(adapter, dry_run=args.dry_run)
         if kill_latch is not None:
@@ -564,6 +584,30 @@ def main(argv: list[str] | None = None):
         runner._runner_key = symbol  # for cross-symbol consensus scaling
         logger.info("%s: warming up %d bars...", symbol, warmup)
         runner.warmup(limit=warmup, interval=interval)
+        # Enable Online Ridge for 4h runners (Ridge-only, continuous learning)
+        if symbol.endswith("_4h"):
+            runner.enable_online_ridge()
+
+        # Emit initial signal immediately after warmup by processing the
+        # latest bar.  Without this, 4h runners must wait up to 4 hours
+        # for the next WS kline.240 close before producing any signal.
+        # Disable limit entry for initial signal (warmup bar price may be stale).
+        try:
+            latest = adapter.get_klines(real_symbol, interval=interval, limit=1)
+            if latest:
+                bar = latest[0]
+                old_limit = runner._use_limit_entry
+                runner._use_limit_entry = False  # force market order for stale bar
+                result = runner.process_bar(bar)
+                runner._use_limit_entry = old_limit  # restore for live bars
+                sig = result.get("signal", 0)
+                logger.info(
+                    "%s INITIAL SIGNAL: sig=%s z=%s regime=%s (immediate after warmup)",
+                    symbol, sig, result.get("z", "?"), result.get("regime", "?"),
+                )
+        except Exception as exc:
+            logger.warning("%s initial signal failed (non-fatal): %s", symbol, exc)
+
         runners[symbol] = runner
         runner_intervals[symbol] = (real_symbol, interval)
         last_bar_times[symbol] = 0
@@ -573,6 +617,36 @@ def main(argv: list[str] | None = None):
         if lease is not None:
             lease.release()
         return
+
+    # ── SIGHUP hot-reload handler ──
+    # On SIGHUP: re-load model weights from disk for all runners.
+    # Preserves feature engine state, checkpoint, positions — only swaps models.
+    # auto_retrain sends SIGHUP after deploying new models.
+    import signal as _signal
+
+    def _on_sighup(signum, frame):
+        logger.info("SIGHUP received — hot-reloading all models")
+        for rkey, runner in runners.items():
+            sym_cfg = SYMBOL_CONFIG.get(rkey, {})
+            mdir = MODEL_BASE / sym_cfg.get("model_dir", f"{rkey}_gate_v2")
+            if not (mdir / "config.json").exists():
+                logger.warning("SIGHUP: no model for %s, skipping", rkey)
+                continue
+            try:
+                new_model_info = load_model(mdir)
+                if sym_cfg.get("use_composite_regime"):
+                    new_model_info["use_composite_regime"] = True
+                ok = runner.hot_reload_model(new_model_info)
+                if ok:
+                    logger.info("SIGHUP: %s reloaded successfully", rkey)
+                else:
+                    logger.error("SIGHUP: %s reload returned False", rkey)
+            except Exception as exc:
+                logger.error("SIGHUP: %s reload failed: %s", rkey, exc)
+        logger.info("SIGHUP hot-reload complete")
+
+    _signal.signal(_signal.SIGHUP, _on_sighup)
+    logger.info("SIGHUP handler registered for model hot-reload")
 
     combiners = _build_portfolio_combiners(
         runners, adapter, dry_run=args.dry_run, runner_intervals=runner_intervals,

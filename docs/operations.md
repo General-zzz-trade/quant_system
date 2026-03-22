@@ -1,8 +1,6 @@
-# Operations Manual
+# Operations Manual (2026-03-22)
 
-Current operator guide for the repository as it exists today.
-
-当本文和下列文档冲突时，优先级如下：
+Current operator guide. When this conflicts with other docs, priority:
 
 1. [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
 2. [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md)
@@ -11,184 +9,222 @@ Current operator guide for the repository as it exists today.
 
 ---
 
-## 1. Current Service Matrix
+## 1. Daily Operations
 
-| 服务 | 入口 | 当前定位 | 默认观察面 |
-|---|---|---|---|
-| `bybit-alpha.service` | `python3 -m scripts.run_bybit_alpha --symbols ... --ws` | 当前活跃的方向性 alpha host service | `systemctl` + `logs/bybit_alpha.log` + Bybit 账户状态 |
-| `bybit-mm.service` | `python3 -m scripts.run_bybit_mm --symbol ETHUSDT ...` | 当前活跃的做市 host service | `systemctl` + `logs/bybit_mm.log` + Bybit 账户状态 |
-| `quant-framework` / `quant-runner.service` | `runner.live_runner` | framework candidate path | health server + reconcile + checkpoint + operator APIs（仅此路径具备） |
+### Automated (no action needed)
 
-重要边界：
+| Timer/Cron | Schedule | What |
+|---|---|---|
+| `health-watchdog.timer` | every 5 min | Service health + data freshness + Telegram alerts + auto-restart stale |
+| `ic-decay-monitor.timer` | daily 3am UTC | IC decay check per symbol; RED = retrain needed |
+| `data-refresh.timer` | every 6h | Kline + funding + OI sync from Binance |
+| `daily-retrain.timer` | daily 2am UTC | 4h models retrain + SIGHUP hot-reload |
+| `auto-retrain.timer` | Sunday 2am UTC | 1h walk-forward retrain with IC/Sharpe gates |
+| cron: `demo_tracker` | hourly | Track record update from logs |
+| cron: `weekly_report` | Sunday 3am | Weekly performance report |
+| cron: `auto_bug_scan` | Sunday 1am | Static bug scan (30 patterns) |
+| cron: OI download | every 6h | Binance OI history (28d retention, must accumulate) |
 
-- `bybit-alpha.service` 当前不暴露 framework `/control` / `/ops-audit`
-- `bybit-mm.service` 当前也不暴露 framework control plane
-- `POST /control`、`GET /operator`、`GET /ops-audit` 只对 `LiveRunner` path 成立
-
----
-
-## 2. Deployment And Release
-
-当前存在两条发布面：
-
-- host 上真实交易服务：systemd
-- CI / GitHub Actions：compose
-
-具体真相：
-
-- 当前 host 上活跃的是 `bybit-alpha.service` 和 `bybit-mm.service`
-- [`.github/workflows/deploy.yml`](/quant_system/.github/workflows/deploy.yml) 默认只会跑 [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh)
-- [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh) 默认只部署 `quant-paper`
-- 如果提交改到了 host-managed trading artifacts，deploy workflow 会直接失败并要求人工同步 systemd 路径
-
-所以：
-
-- CI/CD 不是当前 host trading service 的统一控制面
-- compose deploy 成功，不等于 systemd 交易服务已经更新
-
----
-
-## 3. Monitoring Truth
-
-### 3.1 Active host services
-
-当前最可靠的健康信号是：
-
-- `systemctl status`
-- `journalctl`
-- 业务日志时间戳是否继续前进
-- 交易所账户真实余额 / 持仓 / 挂单 / 成交
-
-当前仓库已经把这套判定固化到 [`scripts/ops/runtime_health_check.py`](/quant_system/scripts/ops/runtime_health_check.py)：
+### Manual checks
 
 ```bash
-python3 -m scripts.ops.runtime_health_check
-python3 -m scripts.ops.runtime_health_check --service alpha
-python3 -m scripts.ops.runtime_health_check --service mm --require-account
-python3 -m scripts.ops.runtime_kill_latch --service alpha --json
-python3 -m scripts.ops.runtime_kill_latch --service mm --symbol ETHUSDT --json
+# Signal reconciliation (live vs backtest)
+python3 -m scripts.ops.signal_reconcile --hours 24
+
+# Heartbeat check
+tail -f logs/bybit_alpha.log | grep HEARTBEAT
+
+# Timer status
+sudo systemctl list-timers --all | grep -E "health|retrain|refresh|decay"
+
+# Health watchdog (manual trigger)
+python3 -m scripts.ops.health_watchdog
+python3 -m scripts.ops.health_watchdog --json
 ```
 
-这条命令会同时检查：
+---
 
-- `systemd` 状态
-- 日志是否新鲜
-- 最近是否有 heartbeat / fill / metrics 等运行证据
-- 如果能拿到 Bybit 凭据，再补查账户侧持仓 / 挂单 / 最近成交
-- 对 active host services，还会显式暴露持久 kill latch 是否已锁住启动
+## 2. Service Management
 
-对 `bybit-mm.service`，当前 [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) 还增加了 market-data stale fail-fast：
+### Active services
 
-- 超过 `market_data_stale_s` 没有新的 WS 消息或 orderbook depth，会直接报错退出
-- 依赖 `infra/systemd/bybit-mm.service` 的 `Restart=on-failure` 自动拉起
-- 运维上不应再接受“行情停了但进程还活着”的假活状态
+| Service | Entry | Status |
+|---|---|---|
+| `bybit-alpha.service` | `python3 -m scripts.ops.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws` | BTC+ETH Alpha (BTC Sharpe 4.37, ETH 4.67) |
+| polymarket collector | `python3 -m polymarket.collector --mode intra --db data/polymarket/collector.db` | Background process (PID in `data/polymarket/collector.pid`) |
+| polymarket dryrun | `python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70` | RSI taker validation |
 
-### 3.2 Framework path only
+### Common operations
 
-如果运行的是 `LiveRunner`，才有以下能力：
+```bash
+# Start / restart / stop
+sudo systemctl start bybit-alpha.service
+sudo systemctl restart bybit-alpha.service    # checkpoints ensure instant recovery
+sudo systemctl stop bybit-alpha.service
 
-- `GET /health`
-- `GET /status`
-- `GET /operator`
-- `GET /control-history`
-- `GET /execution-alerts`
-- `GET /ops-audit`
-- `POST /control`
+# Status and logs
+sudo systemctl status bybit-alpha.service
+journalctl -u bybit-alpha.service -f
 
-当前 HTTP health server 不提供：
+# Hot-reload models (no restart needed)
+kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)
+```
 
-- `/metrics`
-- `/kill`
+### Inactive services (validated but not recommended)
 
-### 3.3 Prometheus
-
-`/metrics` 来自 [`monitoring/metrics/prometheus.py`](/quant_system/monitoring/metrics/prometheus.py) 的 `PrometheusExporter.start()`，不是 stdlib health server 自带能力。
-
-如果没有显式启动 `PrometheusExporter`，就不应假设有 `/metrics`。
+- `hft-signal.service` -- Sharpe -5, NOT recommended
+- `bybit-mm.service` -- BTC spread < fee, mathematically unprofitable
 
 ---
 
-## 4. Configuration Truth
+## 3. Model Management
 
-当前示例配置主要服务于 framework path：
+### Automated retraining
 
-- [`infra/config/examples/live.yaml`](/quant_system/infra/config/examples/live.yaml)
-- [`infra/config/examples/paper_trading.yaml`](/quant_system/infra/config/examples/paper_trading.yaml)
-- [`infra/config/examples/testnet_v8_gate_v2.yaml`](/quant_system/infra/config/examples/testnet_v8_gate_v2.yaml)
+- **Daily (2am UTC)**: `daily-retrain.timer` -- 4h models + SIGHUP hot-reload to running service
+- **Weekly (Sunday 2am)**: `auto-retrain.timer` -- 1h walk-forward retrain with IC/Sharpe validation gates
 
-这些 YAML 的真实定位是：
+### Manual retraining
 
-- 面向 `LiveRunner.from_config()`
-- 支持 flat 和 nested 两种 schema
-- 当前多为 Binance / testnet / framework 示例
-- 不等于 `bybit-alpha.service` 当前的 systemd 运行配置
+```bash
+# Retrain 1h + 4h models with hot-reload
+python3 -m scripts.auto_retrain --include-4h --sighup
 
-示例配置说明见 [`infra/config/examples/README.md`](/quant_system/infra/config/examples/README.md)。
+# Retrain 1h + 15m models
+python3 -m scripts.auto_retrain --include-15m --force
 
----
+# Retrain 15m only
+python3 -m scripts.auto_retrain --only-15m --force
 
-## 5. CI Truth
+# Dry-run (preview without saving)
+python3 -m scripts.auto_retrain --dry-run
 
-当前 CI 真实执行内容见 [`.github/workflows/ci.yml`](/quant_system/.github/workflows/ci.yml)：
+# Validate all production models
+python3 -m scripts.training.train_all_production --dry-run
 
-### `test`
+# Force retrain all production models
+python3 -m scripts.training.train_all_production --force
+```
 
-- 构建 `ci` 镜像
-- 构建 `paper` 镜像
-- `docker compose config`
-- 默认 compose smoke test
-- `tests/`（排除 `tests/performance`）
-- 单独的 `tests/integration/test_production_integration_e2e.py`
-- `execution/tests/`
-- Rust tests: `cargo test --manifest-path ext/rust/Cargo.toml --locked`
+### IC decay monitoring
 
-### `lint`
-
-- `ruff check --select E,W,F .`
-- strict `mypy`
-
-### `security`
-
-- `python3 -m scripts.ops.security_scan`
-
-### `model-check`
-
-- 校验 `scripts.ops.config.SYMBOL_CONFIG` 对应的 `models_v8/*/config.json`
-
-补充说明：
-
-- `pytest.ini` 默认排除了 `benchmark` 和 `slow`
-- 默认 CI 不会自动跑 `tests/performance`
-- 默认 CI 不会跑所有 slow tests
-- Rust crate 默认 test feature 现在不再强绑 `pyo3/extension-module`
-- 需要构建 Python 扩展时，显式使用 `maturin build --release --features python`
+```bash
+# Automated via ic-decay-monitor.timer (daily 3am UTC)
+# Manual check:
+python3 -m monitoring.ic_decay_monitor
+# RED = retrain needed, triggers Telegram alert
+```
 
 ---
 
-## 6. Incident Response
+## 4. Data Pipeline
 
-### 6.1 Directional alpha / market maker
+```bash
+# Cross-market data (also updates ETF volume)
+python3 -m scripts.data.download_cross_market
 
-排障顺序：
+# Stablecoin supply
+python3 -m scripts.data.download_stablecoin_supply
 
-1. 看 systemd
-2. 看日志是否继续推进
-3. 看交易所账户真相
+# On-chain data
+python3 -m scripts.data.download_onchain
 
-### 6.2 Framework path
+# Deribit implied volatility
+python3 -m scripts.data.download_deribit_iv --all
 
-排障顺序：
+# Deribit options put/call ratio
+python3 -m scripts.data.download_deribit_pcr --all
 
-1. 看 `health` / `status`
-2. 看 `operator` / `execution-alerts` / `ops-audit`
-3. 看 startup reconcile / periodic reconcile
-4. 看 checkpoint / restart 恢复链路
+# Standard data (handled by data-refresh.timer, but can run manually)
+python3 -m scripts.data.download_15m_klines
+python3 -m scripts.data.download_5m_klines --symbols ETHUSDT
+python3 -m scripts.data.download_funding_rates --symbols ETHUSDT SOLUSDT
+python3 -m scripts.data.download_oi_data --symbols ETHUSDT BTCUSDT
+python3 -m scripts.data.download_multi_exchange_funding --symbols ETHUSDT
+```
+
+---
+
+## 5. Troubleshooting
+
+### 4h runner produces no signals
+
+Check if watchdog is restarting the service. The 4h timeframe has `max_silent_s=18000` (5 hours) -- long silence is normal between bars.
+
+### Model not loading
+
+Check `model_loader.py` for `IsADirectoryError`. The `xgb_path.is_file()` guard prevents loading directories as model files.
+
+### Signal mismatch (live vs backtest)
+
+```bash
+python3 -m scripts.ops.signal_reconcile --hours 24
+python3 -m scripts.ops.compare_live_backtest --log-file logs/bybit_alpha.log
+```
+
+### IC decay detected
+
+```bash
+python3 -m monitoring.ic_decay_monitor
+# RED status = retrain needed
+# Trigger manual retrain:
+python3 -m scripts.auto_retrain --force --sighup
+```
+
+### Service keeps crashing
+
+```bash
+# Check recent logs
+journalctl -u bybit-alpha.service --since "1 hour ago"
+
+# Health watchdog status
+cat data/runtime/health_status.json
+cat data/runtime/alert_history.jsonl | tail -5
+
+# Full health check
+python3 -m scripts.ops.health_watchdog --json
+```
+
+### Bybit order rejections
+
+- `Qty invalid`: `_round_to_step()` not applied -- check all order paths
+- `ab not enough`: margin pre-flight check failed -- check available balance
+- `MAX_ORDER_NOTIONAL = $5,000` hard limit enforced in both AlphaRunner and PortfolioCombiner
+
+---
+
+## 6. Monitoring and Diagnostics
+
+```bash
+# Ops dashboard (unified status)
+python3 -m scripts.ops.ops_dashboard
+
+# Pre-live readiness check
+python3 -m scripts.ops.pre_live_checklist
+
+# Security audit
+python3 -m scripts.ops.security_scan
+
+# Static bug scan
+python3 -m scripts.ops.auto_bug_scan --severity warning
+
+# Test Telegram notifications
+python3 -m monitoring.notify
+
+# Weekly performance report
+python3 -m scripts.ops.weekly_report
+
+# Track record update
+python3 -m scripts.ops.demo_tracker
+```
 
 ---
 
 ## 7. Current Limits
 
-- 当前 active systemd services 还没有统一进 framework control plane
-- deploy workflow 还不能代表 host trading service 已更新
-- deploy workflow 失败于 scope guard 时，不会再错误触发 compose rollback/recreate
-- 示例配置与当前活跃 Bybit directional alpha service 仍是两套装配面
+- Production scope: **BTC + ETH only** (altcoins removed 2026-03-21 due to poor liquidity)
+- Kelly optimal leverage: **1.4x** (half-Kelly 0.7x; demo uses 10x)
+- `MAX_ORDER_NOTIONAL = $5,000` hard cap
+- Active systemd services do not expose framework control plane (`/control`, `/ops-audit`)
+- Deploy workflow does not auto-update host trading services (systemd managed separately)
+- Binance OI API retains only ~28 days -- must accumulate via cron

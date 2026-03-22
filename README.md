@@ -1,145 +1,157 @@
 # Quant System
 
-Production quantitative trading system for crypto perpetuals.
+加密货币永续合约量化交易系统（BTC + ETH）。
 
-当前代码库是混合运行时：
+- Python：运行时组装、交易所IO、运维工具、研究
+- Rust：状态推进、特征热路径、去重、执行原语
 
-- Python 负责运行时装配、交易所 IO、运维与研究工具
-- Rust 负责状态推进、特征热路径、去重、部分执行与风控原语
+## 当前状态（2026-03-22）
 
-## Truth Sources
+**Strategy H**：4h主导方向 + 1h仓位调节 + 15m COMBO确认
+- 回测：**Sharpe 2.25**，$500 → $215万 / 6.5年 @ 10x杠杆（T-1修正，无前视偏差）
+- 实盘：Bybit Demo 6个runner运行中（$35K权益），3条WS连接（kline.60/15/240）
+- 模型：Ridge(60%) + LightGBM(40%) 集成，185个特征，7个数据源
 
-优先阅读这些文档，而不是历史规划或旧脚本注释：
+| Runner | 角色 | 仓位比例 | Sharpe |
+|--------|------|---------|--------|
+| BTC/ETH 4h | 主力方向 | 15% / 10% | 3.62 / 4.57 |
+| BTC/ETH 1h | 仓位调节（4h gate） | 8% / 6% | 2.43 / 3.92 |
+| BTC/ETH 15m | COMBO辅助确认 | 5% / 5% | — |
 
-- 运行时真相: [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
-- 运行时契约: [`docs/runtime_contracts.md`](/quant_system/docs/runtime_contracts.md)
-- 执行制度: [`docs/execution_contracts.md`](/quant_system/docs/execution_contracts.md)
-- 生产排障 / 恢复: [`docs/production_runbook.md`](/quant_system/docs/production_runbook.md)
-- 部署真相: [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md)
-- 模型治理: [`docs/model_governance.md`](/quant_system/docs/model_governance.md)
-- 脚本目录说明: [`scripts/README.md`](/quant_system/scripts/README.md)
+## 文档索引
 
-## Current Runtime Truth
+| 文档 | 内容 |
+|------|------|
+| [`docs/deploy_truth.md`](docs/deploy_truth.md) | 部署真相 |
+| [`docs/operations.md`](docs/operations.md) | 运维手册 |
+| [`docs/production_runbook.md`](docs/production_runbook.md) | 生产操作手册 |
+| [`docs/wiring_truth.md`](docs/wiring_truth.md) | 模块接线状态 |
+| [`docs/runtime_contracts.md`](docs/runtime_contracts.md) | 运行时契约 |
+| [`CLAUDE.md`](CLAUDE.md) | Claude上下文 |
 
-| 路径 | 入口 | 当前定位 |
-|---|---|---|
-| 方向性 alpha | [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py) （由 [`scripts/run_bybit_alpha.py`](/quant_system/scripts/run_bybit_alpha.py) 转发） | 当前活跃的多品种 Bybit demo 交易路径；systemd 服务是 `bybit-alpha.service` |
-| 高频做市 | [`scripts/run_bybit_mm.py`](/quant_system/scripts/run_bybit_mm.py) | 当前活跃的专用 Bybit 做市路径；systemd 服务是 `bybit-mm.service` |
-| 框架型 live runtime | [`runner/live_runner.py`](/quant_system/runner/live_runner.py) | 完整 engine / decision / execution / recovery 框架路径；当前是候选 / 收敛路径，不是主机上的默认交易服务 |
-
-当前仓库最重要的边界是：
-
-- 事实事件推进状态
-- 决策模块只读 snapshot
-- 执行结果必须重新进入事件链
-- 不允许绕过状态真相源直接改仓位 / 账户状态
-
-## Deployment Truth
-
-当前存在两套部署面，不能混为一谈：
-
-- 主机上实际跑交易的服务是 systemd：[`infra/systemd/bybit-alpha.service`](/quant_system/infra/systemd/bybit-alpha.service) 和 [`infra/systemd/bybit-mm.service`](/quant_system/infra/systemd/bybit-mm.service)
-- 仓库里的 Docker / GitHub Actions 路径使用 [`docker-compose.yml`](/quant_system/docker-compose.yml) 和 [`scripts/deploy.sh`](/quant_system/scripts/deploy.sh)；它们当前管理的是 `quant-paper` / `quant-live` / `quant-framework`
-
-重要说明：
-
-- `quant-paper` / `quant-live` 容器运行的是 `scripts.run_bybit_alpha`
-- `quant-framework` 运行的是 `runner.live_runner`
-- GitHub Actions 的 deploy workflow 当前只会重建 / 重启 compose 服务，不会替你管理 `bybit-alpha.service` 或 `bybit-mm.service`
-- 如果提交改到了 host-managed trading artifacts，deploy workflow 现在会直接 fail fast，而不是误报“已经部署当前交易服务”
-- compose 通过 `.env` 注入 `BYBIT_*` 环境变量；`infra/systemd/bybit-alpha.service` 本身没有声明 `EnvironmentFile`，systemd 部署要靠主机环境或 drop-in 提供凭据
-
-## Quick Start
-
-### Install
+## 快速开始
 
 ```bash
+# 安装
 make rust
 pip install -e ".[live,data,ml,config,monitoring,dev,test]" --break-system-packages
-cp .env.example .env
+cp .env.example .env  # 填入 BYBIT_API_KEY, BYBIT_API_SECRET
+
+# 启动 Strategy H（6个runner）
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m BTCUSDT_4h ETHUSDT ETHUSDT_15m ETHUSDT_4h --ws
+
+# 或通过 systemd
+sudo systemctl start bybit-alpha.service
+
+# 模型热加载（无需重启，<200ms）
+sudo kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)
 ```
 
-### Run The Active Directional Alpha Path
+## 系统架构
+
+```
+信号流（Strategy H）：
+
+  4h Runner（主力）              1h Runner（调节器）           15m Runner（COMBO）
+  ┌──────────────────┐          ┌──────────────────┐          ┌──────────────┐
+  │ kline.240 → 模型  │──信号──→│ MultiTFConfluence│──AGREE──→│ kline.15      │
+  │ 独立交易          │ （gate） │ 4h同向 → 1.3x    │          │ 组合确认       │
+  │ BTC 15% ETH 10%  │          │ 4h反向 → 0.3x    │          │ 各5%          │
+  └──────────────────┘          │ BTC 8% ETH 6%    │          └──────────────┘
+                                └──────────────────┘
+
+数据源（7个，全部T-1日偏移防止前视偏差）：
+  传统金融 (SPY/QQQ/国债) → ETF成交量 (IBIT/GBTC) → 稳定币供给 (DeFiLlama)
+  → 隐含波动率 (Deribit DVOL) → 恐贪指数 → 资金费率 (Binance) → 链上数据 (Coin Metrics)
+```
+
+## 核心命令
 
 ```bash
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws --dry-run
+# 交易
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m BTCUSDT_4h ETHUSDT ETHUSDT_15m ETHUSDT_4h --ws
+
+# 监控
+python3 -m scripts.ops.health_watchdog              # 服务+数据健康检查
+python3 -m monitoring.ic_decay_monitor --alert       # IC衰减检测 + Telegram告警
+python3 -m scripts.ops.signal_reconcile --hours 24   # 实盘vs回测信号一致性
+
+# 模型训练
+python3 -m scripts.auto_retrain --include-4h --sighup  # 重训 + 热加载
+python3 -m scripts.training.train_4h_daily --all       # 训练4h/日线模型
+
+# 数据更新
+python3 -m scripts.data.download_cross_market        # 传统金融 + ETF成交量
+python3 -m scripts.data.download_stablecoin_supply   # 稳定币供给
+python3 -m scripts.data.download_deribit_iv --all    # DVOL数据
+python3 -m scripts.data.download_onchain             # 链上指标
+
+# 研究
+python3 -m scripts.research.backtest_small_capital   # $500/10x杠杆回测
+python3 -m scripts.research.monte_carlo_risk         # 万次蒙特卡洛风险模拟
+python3 -m scripts.ops.shadow_compare --model-a models_v8/BTCUSDT_gate_v2 --model-b models_v8/BTCUSDT_4h --symbol BTCUSDT --days 90  # A/B模型对比
+
+# 测试
+pytest tests/unit/ -x -q          # 单元测试 (~18s)
+pytest tests/ -x -q -m ""        # 全部测试 (~35s)
+cd ext/rust && cargo test         # Rust测试
+ruff check --select E,W,F .      # 代码检查
 ```
 
-当前这个入口是 AlphaRunner 路径，不是 `LiveRunner`。
+## 自动化运维
 
-### Run The Active Market-Maker Path
+| 定时器 | 频率 | 用途 |
+|--------|------|------|
+| health-watchdog | 每5分钟 | 服务健康 + 数据新鲜度 + Telegram告警 |
+| data-refresh | 每6小时 | 同步K线、资金费率、持仓量 |
+| daily-retrain | 每天凌晨2点 UTC | 4h模型轻量重训 + SIGHUP热加载 |
+| auto-retrain | 每周日凌晨2点 UTC | 1h模型走步验证重训 |
+| ic-decay-monitor | 每天凌晨3点 UTC | IC衰减检测 + Telegram告警 |
 
-```bash
-python3 -m scripts.run_bybit_mm --symbol ETHUSDT --leverage 20 --dry-run
-```
+## 风控体系
 
-### Check Active Host Runtime Health
+| 机制 | 说明 |
+|------|------|
+| **动态杠杆** | 回撤≥10% → 杠杆降至0.75x，≥20% → 0.5x，≥35% → 0.25x |
+| **BB入场调节** | 超卖入场 → 仓位1.2x，追涨入场 → 仓位0.3x |
+| **波动率自适应deadzone** | deadzone × (实现波动率 / 中位波动率)，范围[0.5x, 2.0x] |
+| **4h反转止损** | 当4h模型信号反转时，1h/15m立即平仓 |
+| **ATR追踪止损** | 三阶段：初始 → 保本 → 追踪 |
+| **Maker限价单** | PostOnly挂单，45秒超时，0费率 |
 
-```bash
-python3 -m scripts.ops.runtime_health_check
-python3 -m scripts.ops.runtime_health_check --service alpha
-python3 -m scripts.ops.runtime_health_check --service mm
-python3 -m scripts.ops.runtime_kill_latch --service alpha --json
-```
+## 项目结构
 
-这条检查不会把“只有 `systemd active`”误判成“交易已经活着”；如果 active host service 被持久 kill latch 锁住，也会直接显示出来。
+| 目录 | 用途 |
+|------|------|
+| `scripts/ops/` | AlphaRunner核心、配置、模型加载、信号验证 |
+| `scripts/training/` | 模型训练（1h、15m、4h/日线） |
+| `scripts/data/` | 数据下载（K线、传统金融、稳定币、DVOL、链上） |
+| `scripts/research/` | 回测、蒙特卡洛、特征扫描 |
+| `features/` | 特征计算（185+特征，V1-V24） |
+| `runner/` | 框架运行时、Gate链 |
+| `execution/` | 交易所适配器（Bybit、Hyperliquid、Binance） |
+| `alpha/` | ML模型、在线Ridge、推理桥 |
+| `monitoring/` | IC衰减、健康检查、告警、指标 |
+| `ext/rust/` | Rust核心库（_quant_hotpath，77模块，~30K行） |
+| `models_v8/` | 已训练模型（{品种}_gate_v2、_15m、_4h） |
+| `data_files/` | 数据文件（K线、资金费率、持仓、传统金融、ETF成交量、稳定币） |
+| `infra/` | systemd服务单元、配置、日志 |
 
-### Run The Framework Runtime
+## Alpha研究结论
 
-```bash
-python3 -m runner.live_runner --config infra/config/examples/live.yaml --shadow
-```
+| 方向 | 结果 | 说明 |
+|------|------|------|
+| 4h alpha | **Sharpe 3.62-4.57** | 最强时间框架，T-1修正 |
+| 1h alpha | Sharpe 2.43-3.92 | Strategy H中的调节器角色 |
+| 15m alpha | 边缘（仅ETH） | COMBO辅助 |
+| 5分钟/1分钟HFT | **失败**（Sharpe -5到-25） | 成本 > 信号边际 |
+| 做市 | **失败** | 逆向选择 > 价差（即使0%费率） |
+| 神经网络 | **失败** | Ridge > MLP > LGBM（4h OOS） |
+| 跨交易所套利 | **失败** | 价差 < 费用 |
+| 熊市做空 | **失败** | 90+策略全部测试 |
+| 波动率交易 | Sharpe 0.79 | 作为特征优于独立交易 |
+| 资金费率收割 | 年化11% | 中性对冲，容量有限 |
 
-说明：
-
-- 这个命令跑的是 framework path
-- `infra/config/examples/*.yaml` 主要面向 `LiveRunner` / Binance 风格配置，不是 `bybit-alpha.service` 当前使用的 systemd 部署配置
-
-### Compose
-
-```bash
-docker compose up -d quant-paper
-docker compose --profile live up -d quant-live
-docker compose --profile framework up -d quant-framework
-```
-
-## Testing And CI
-
-当前 CI 真相见 [`.github/workflows/ci.yml`](/quant_system/.github/workflows/ci.yml)。
-
-本地最接近 CI 的命令是：
-
-```bash
-python3 -m pytest tests/ -x -q --tb=short --ignore=tests/performance
-python3 -m pytest tests/integration/test_production_integration_e2e.py -x -q --tb=short -k "not test_build_with_data_scheduler"
-python3 -m pytest execution/tests/ -x -q --tb=short
-cargo test --manifest-path ext/rust/Cargo.toml --locked
-ruff check --select E,W,F .
-mypy core/ regime/ state/ decision/ engine/ event/ features/ execution/ alpha/ attribution/ runner/backtest/ --strict
-python3 -m scripts.ops.security_scan
-```
-
-补充说明：
-
-- `pytest.ini` 默认排除了 `benchmark` 和 `slow`
-- CI 额外会做 compose config 校验和默认 compose smoke test
-- Rust 默认测试入口现在就是 `cargo test --manifest-path ext/rust/Cargo.toml --locked`
-- Python wheel / extension 构建需要显式启用 `python` feature，例如 `maturin build --release --features python`
-- `make test` 目前只覆盖 Python tests + execution tests + Rust tests + lint，不包含 CI 里的 security、model-check 和单独的 framework integration step
-
-## Project Map
-
-- [`runner/`](/quant_system/runner): framework runtime、builder、恢复、operator control
-- [`scripts/`](/quant_system/scripts): 当前活跃的 alpha / 做市入口、研究脚本、运维工具、兼容包装层
-- [`execution/`](/quant_system/execution): adapter、canonical model、ingress、状态机、reconcile、store、observability
-- [`decision/`](/quant_system/decision): 决策编排、backtest module、regime wiring、组合逻辑
-- [`alpha/`](/quant_system/alpha): 在线推理桥、模型加载、模型实现
-- [`risk/`](/quant_system/risk): kill switch、相关性、保证金与组合风控
-- [`monitoring/`](/quant_system/monitoring): health、alerts、metrics、ops 视图
-- [`research/`](/quant_system/research): model registry、artifact store、实验支撑
-- [`infra/`](/quant_system/infra): config、logging、systemd 模板与基础设施 glue
-- [`tests/`](/quant_system/tests) + [`execution/tests/`](/quant_system/execution/tests): 单元、集成、恢复、契约与执行子系统测试
-
-## License
+## 许可证
 
 Proprietary

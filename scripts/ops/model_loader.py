@@ -45,7 +45,7 @@ def load_model(model_dir: Path) -> dict:
         # Also load XGBoost if available
         xgb_model = None
         xgb_path = model_dir / hm.get("xgb", "")
-        if xgb_path.exists():
+        if xgb_path.exists() and xgb_path.is_file():
             with open(xgb_path, "rb") as f:
                 xgb_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
             xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw

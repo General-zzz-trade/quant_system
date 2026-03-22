@@ -41,6 +41,13 @@ SYMBOL_CONFIG = {
     # BTC 15m alpha: cross-market features unlock (Sharpe 17.59 WF validated)
     "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
                     "interval": "15", "warmup": 800, "step": 0.001},
+    # BTC 4h alpha (Strategy H primary): IC=0.29, Sharpe 6.34, 22/22 WF PASS, cap=0.15
+    "BTCUSDT_4h": {"size": 0.001, "model_dir": "BTCUSDT_4h", "symbol": "BTCUSDT",
+                   "interval": "240", "warmup": 200, "step": 0.001,
+                   "use_composite_regime": True},
+    # ETH 4h alpha (Strategy H primary): IC=0.42, Sharpe 5.92, 21/21 WF PASS, cap=0.10
+    "ETHUSDT_4h": {"size": 0.01, "model_dir": "ETHUSDT_4h", "symbol": "ETHUSDT",
+                   "interval": "240", "warmup": 200, "step": 0.01},
 }
 
 # Shared cross-symbol signal state for consensus scaling.

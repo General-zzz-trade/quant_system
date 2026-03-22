@@ -112,6 +112,8 @@ def setup_crontab() -> None:
         f"15 */6 * * * cd {D} && {P} -m scripts.data.download_liquidations --symbol BTCUSDT >> {L}/liq_proxy.log 2>&1",  # noqa: E501
         f"0 4 * * * cd {D} && {P} -m scripts.ops.daily_reconciliation --log-file logs/bybit_alpha.log --days 1 >> {L}/reconciliation.log 2>&1",  # noqa: E501
         f"30 * * * * cd {D} && {P} -m scripts.data.download_deribit_options --currency BTC --once >> {L}/options_collector.log 2>&1",  # noqa: E501
+        f"35 * * * * cd {D} && {P} -m scripts.data.download_deribit_options --currency ETH --once >> {L}/options_collector.log 2>&1",  # noqa: E501
+        f"0 */6 * * * cd {D} && {P} -m scripts.data.download_deribit_pcr --all >> {L}/pcr_collector.log 2>&1",  # noqa: E501
         f"0 1 * * 0 cd {D} && {P} -m scripts.ops.auto_bug_scan --severity warning >> {L}/bug_scan.log 2>&1",  # noqa: E501
         f"0 3 * * 0 cd {D} && {P} -m scripts.ops.weekly_report >> {L}/weekly_report.log 2>&1",
         f"0 5 * * * bash {D}/scripts/ops/backup.sh >> {L}/backup.log 2>&1",

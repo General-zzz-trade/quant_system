@@ -51,7 +51,7 @@ SERVICES = {
     "bybit-alpha": {
         "unit": "bybit-alpha.service",
         "journal_match": "bybit_alpha",
-        "max_silent_s": 600,  # 10 min (1h bars)
+        "max_silent_s": 18000,  # 5 hours (4h bars close every 4h + margin)
     },
     "bybit-mm": {
         "unit": "bybit-mm.service",

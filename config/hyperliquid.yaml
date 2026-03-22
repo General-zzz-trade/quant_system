@@ -1,0 +1,16 @@
+venue: hyperliquid
+base_url: https://api.hyperliquid.xyz
+info_url: https://api.hyperliquid.xyz/info
+exchange_url: https://api.hyperliquid.xyz/exchange
+symbols:
+  - BTC
+  - ETH
+fees:
+  maker: 0.0000   # 0% maker
+  taker: 0.00035   # 0.035% taker
+leverage:
+  default: 10
+  max: 50
+min_order_size:
+  BTC: 0.001
+  ETH: 0.01

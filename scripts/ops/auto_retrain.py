@@ -71,6 +71,10 @@ DEFAULT_HORIZONS_15M = {
 }
 MODEL_DIR_15M_TEMPLATE = "models_v8/{symbol}_15m"
 
+# ── 4h Configuration ──
+SYMBOLS_4H = ["BTCUSDT", "ETHUSDT"]
+MODEL_DIR_4H_TEMPLATE = "models_v8/{symbol}_4h"
+
 # Validation thresholds
 MIN_IC = 0.02                         # minimum IC for new model to deploy
 MIN_SHARPE = 1.0                      # minimum Sharpe for new model
@@ -79,6 +83,61 @@ MIN_TRADES = 15                       # minimum OOS trades
 BOOTSTRAP_P5_MIN = 0.0               # bootstrap p5 must be positive
 MIN_FINAL_SHARPE = 0.5               # final fold Sharpe must be > this
 MIN_FINAL_AVG_NET_BPS = 2.0          # final fold avg net bps must be > this
+
+# ── Daily retrain configuration ──
+DAILY_MAX_AGE_HOURS = 24              # only retrain if model older than this
+DAILY_IC_TOLERANCE = 0.95             # new IC >= old IC * this (5% tolerance)
+DAILY_VALIDATION_MONTHS = 3           # shorter validation window for speed
+
+
+def _check_model_age_hours(symbol: str, model_dir: Optional[Path] = None) -> Optional[float]:
+    """Return model age in hours, or None if no model/date found."""
+    if model_dir is None:
+        model_dir = _model_dir_for(symbol)
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        return None
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+        train_date_str = cfg.get("train_date", "")
+        if not train_date_str:
+            return None
+        train_date = datetime.strptime(train_date_str.split(" ")[0], "%Y-%m-%d")
+        return (datetime.now() - train_date).total_seconds() / 3600
+    except (ValueError, KeyError):
+        return None
+
+
+def _daily_retrain_needed(symbol: str, model_dir: Optional[Path] = None) -> Tuple[bool, str]:
+    """Check if daily retrain is needed (model older than DAILY_MAX_AGE_HOURS).
+
+    Returns (needs_retrain, reason).
+    """
+    age_hours = _check_model_age_hours(symbol, model_dir)
+    if age_hours is None:
+        return True, "no existing model or missing train_date"
+    if age_hours < DAILY_MAX_AGE_HOURS:
+        return False, f"model is {age_hours:.1f}h old (< {DAILY_MAX_AGE_HOURS}h)"
+    return True, f"model is {age_hours:.1f}h old (>= {DAILY_MAX_AGE_HOURS}h)"
+
+
+def _daily_ic_gate(old_config: Optional[Dict[str, Any]], new_config: Dict[str, Any]) -> Tuple[bool, str]:
+    """Check if new model IC passes daily tolerance gate.
+
+    New IC must be >= old IC * DAILY_IC_TOLERANCE (5% tolerance).
+    If no old model, always passes.
+
+    Returns (passes, reason).
+    """
+    if old_config is None:
+        return True, "no old model to compare"
+    old_ic = old_config.get("metrics", {}).get("avg_ic", 0)
+    new_ic = new_config.get("metrics", {}).get("avg_ic", 0)
+    threshold = old_ic * DAILY_IC_TOLERANCE
+    if new_ic >= threshold:
+        return True, f"new IC {new_ic:.4f} >= {threshold:.4f} (old {old_ic:.4f} * {DAILY_IC_TOLERANCE})"
+    return False, f"new IC {new_ic:.4f} < {threshold:.4f} (old {old_ic:.4f} * {DAILY_IC_TOLERANCE})"
 
 
 def load_current_config(symbol: str) -> Optional[Dict[str, Any]]:
@@ -571,6 +630,121 @@ def retrain_15m_symbols(
     return results
 
 
+def retrain_4h_symbols(
+    symbols: List[str],
+    dry_run: bool = False,
+    force: bool = False,
+    max_age_days: int = 90,
+) -> Dict[str, Dict[str, Any]]:
+    """Retrain 4h models for the given symbols.
+
+    Trains via train_4h_daily, validates with IC/Sharpe gates, and saves.
+    Returns dict of symbol -> result.
+    """
+    results = {}
+
+    for symbol in symbols:
+        model_dir = Path(MODEL_DIR_4H_TEMPLATE.format(symbol=symbol))
+        data_path = Path(f"data_files/{symbol}_1h.csv")
+
+        result = {
+            "symbol": symbol,
+            "timeframe": "4h",
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "dry_run": dry_run,
+        }
+
+        # Check if retrain needed (reuse logic with 4h model dir)
+        if not force:
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                train_date_str = cfg.get("train_date", "")
+                if train_date_str:
+                    try:
+                        train_date = datetime.strptime(train_date_str.split(" ")[0], "%Y-%m-%d")
+                        age_days = (datetime.now() - train_date).days
+                        if age_days <= max_age_days:
+                            avg_ic = cfg.get("metrics", {}).get("avg_ic", 0)
+                            if avg_ic >= MIN_IC:
+                                logger.info("4h %s: model healthy (age=%dd, IC=%.4f), skipping",
+                                           symbol, age_days, avg_ic)
+                                result["skipped"] = True
+                                result["reason"] = f"model healthy (age={age_days}d, IC={avg_ic:.4f})"
+                                results[symbol] = result
+                                continue
+                    except ValueError as e:
+                        logger.warning("Failed to parse 4h model train_date for %s: %s", symbol, e)
+
+        if not data_path.exists():
+            logger.warning("4h %s: no data file at %s", symbol, data_path)
+            result["error"] = f"data file not found: {data_path}"
+            results[symbol] = result
+            continue
+
+        # Backup
+        if not dry_run and model_dir.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = model_dir.parent / f"{model_dir.name}_backup_{timestamp}"
+            shutil.copytree(model_dir, backup_dir)
+            result["backup_dir"] = str(backup_dir)
+            logger.info("Backed up 4h %s → %s", model_dir, backup_dir)
+
+        # Train
+        logger.info("Training 4h %s...", symbol)
+        t0 = time.time()
+
+        try:
+            from scripts.training.train_4h_daily import train_symbol
+            success = train_symbol(symbol, interval="4h")
+        except Exception as e:
+            logger.error("4h training failed for %s: %s", symbol, e)
+            result["error"] = str(e)
+            results[symbol] = result
+            log_retrain_event(result)
+            continue
+
+        train_time = time.time() - t0
+        result["train_time_sec"] = train_time
+
+        if not success:
+            logger.warning("4h training failed production checks for %s", symbol)
+            result["error"] = "failed production checks"
+
+            # Restore backup
+            if not dry_run and "backup_dir" in result:
+                backup_path = Path(result["backup_dir"])
+                if backup_path.exists() and model_dir.exists():
+                    shutil.rmtree(model_dir)
+                    shutil.copytree(backup_path, model_dir)
+                    logger.info("Restored 4h backup for %s", symbol)
+        else:
+            result["success"] = True
+            # Load new metrics
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    new_cfg = json.load(f)
+                new_metrics = new_cfg.get("metrics", {})
+                result["new_sharpe"] = new_metrics.get("sharpe", 0)
+                result["new_avg_ic"] = new_metrics.get("avg_ic", 0)
+                result["new_trades"] = new_metrics.get("trades", 0)
+
+            if dry_run:
+                logger.info("DRY RUN 4h %s: would deploy (Sharpe %.2f, IC %.4f)",
+                           symbol, result.get("new_sharpe", 0), result.get("new_avg_ic", 0))
+            else:
+                logger.info("DEPLOYED 4h %s: Sharpe %.2f, IC %.4f in %.0fs",
+                           symbol, result.get("new_sharpe", 0), result.get("new_avg_ic", 0), train_time)
+
+        results[symbol] = result
+        log_retrain_event(result)
+
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Automated Walk-Forward Retraining")
     parser.add_argument("--symbol", default=None,
@@ -593,6 +767,15 @@ def main():
                         help="Only retrain 15m models (skip 1h)")
     parser.add_argument("--symbols-15m", default=None,
                         help="Comma-separated 15m symbols (default: ETHUSDT,SOLUSDT)")
+    parser.add_argument("--include-4h", action="store_true",
+                        help="Also retrain 4h models (BTCUSDT, ETHUSDT)")
+    parser.add_argument("--only-4h", action="store_true",
+                        help="Only retrain 4h models (skip 1h and 15m)")
+    parser.add_argument("--symbols-4h", default=None,
+                        help="Comma-separated 4h symbols (default: BTCUSDT,ETHUSDT)")
+    parser.add_argument("--daily", action="store_true",
+                        help="Lightweight daily retrain: skip HPO, 3-month validation, "
+                             "only retrain if model > 24h old, IC tolerance gate")
     args = parser.parse_args()
 
     symbols = (
@@ -608,17 +791,30 @@ def main():
         if args.symbols_15m
         else SYMBOLS_15M
     )
-    run_1h = not args.only_15m
+
+    # Determine 4h symbols
+    symbols_4h = (
+        [s.strip().upper() for s in args.symbols_4h.split(",")]
+        if args.symbols_4h
+        else SYMBOLS_4H
+    )
+
+    run_1h = not args.only_15m and not args.only_4h
     run_15m = args.include_15m or args.only_15m
+    run_4h = args.include_4h or args.only_4h
+
+    retrain_mode = "daily_retrain" if args.daily else "weekly_retrain"
 
     print("=" * 70)
-    print("  AUTOMATED WALK-FORWARD RETRAINING")
+    print(f"  AUTOMATED WALK-FORWARD RETRAINING ({retrain_mode})")
     print(f"  Date:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     if run_1h:
         print(f"  1h Symbols:  {symbols}")
         print(f"  1h Horizons: {horizons}")
     if run_15m:
         print(f"  15m Symbols: {symbols_15m}")
+    if run_4h:
+        print(f"  4h Symbols:  {symbols_4h}")
     print(f"  Dry run:  {args.dry_run}")
     print(f"  Force:    {args.force}")
     print("=" * 70)
@@ -639,21 +835,33 @@ def main():
 
     # ── 1h Retrain ──
     if not run_1h:
-        print("\n  Skipping 1h retrain (--only-15m)")
+        print("\n  Skipping 1h retrain (--only-15m or --only-4h)")
 
     for symbol in (symbols if run_1h else []):
         print(f"\n{'─' * 70}")
         print(f"  {symbol}")
         print(f"{'─' * 70}")
 
-        # Check if retrain needed
-        needs, reason = check_needs_retrain(
-            symbol, force=args.force, max_age_days=args.max_age_days
-        )
-        if not needs:
-            print(f"  SKIP: {reason}")
-            results[symbol] = {"symbol": symbol, "skipped": True, "reason": reason}
-            continue
+        # Daily mode: check model age (must be > 24h)
+        if args.daily:
+            daily_needed, daily_reason = _daily_retrain_needed(symbol)
+            if not daily_needed and not args.force:
+                print(f"  SKIP (daily): {daily_reason}")
+                results[symbol] = {"symbol": symbol, "skipped": True, "reason": daily_reason,
+                                   "retrain_mode": retrain_mode}
+                continue
+            print(f"  Daily retrain needed: {daily_reason}")
+
+        # Check if retrain needed (weekly mode uses full check; daily skips if age gate passed)
+        if not args.daily:
+            needs, reason = check_needs_retrain(
+                symbol, force=args.force, max_age_days=args.max_age_days
+            )
+            if not needs:
+                print(f"  SKIP: {reason}")
+                results[symbol] = {"symbol": symbol, "skipped": True, "reason": reason}
+                continue
+            print(f"  Retrain needed: {reason}")
 
         # Data freshness pre-check (avoids training on stale data)
         fresh, fresh_msg = check_data_freshness(symbol)
@@ -662,8 +870,32 @@ def main():
             results[symbol] = {"symbol": symbol, "skipped": True, "reason": f"stale data: {fresh_msg}"}
             continue
 
-        print(f"  Retrain needed: {reason}")
+        # Capture old config for daily IC comparison
+        old_config_for_daily = load_current_config(symbol) if args.daily else None
+
         result = retrain_symbol(symbol, horizons=horizons, dry_run=args.dry_run)
+        result["retrain_mode"] = retrain_mode
+
+        # Daily mode: apply IC tolerance gate (new IC >= old IC * 0.95)
+        if args.daily and result.get("success") and not args.dry_run:
+            new_config = load_current_config(symbol)
+            if new_config is not None:
+                ic_pass, ic_reason = _daily_ic_gate(old_config_for_daily, new_config)
+                if not ic_pass:
+                    logger.warning("Daily IC gate FAILED for %s: %s", symbol, ic_reason)
+                    result["success"] = False
+                    result["error"] = f"daily IC gate failed: {ic_reason}"
+                    # Restore backup
+                    if "backup_dir" in result:
+                        backup_path = Path(result["backup_dir"])
+                        model_dir = _model_dir_for(symbol)
+                        if backup_path.exists():
+                            shutil.rmtree(model_dir)
+                            shutil.copytree(backup_path, model_dir)
+                            logger.info("Restored backup for %s (daily IC gate failed)", symbol)
+                else:
+                    logger.info("Daily IC gate PASSED for %s: %s", symbol, ic_reason)
+
         results[symbol] = result
 
         # Log event
@@ -681,6 +913,19 @@ def main():
         print(f"{'=' * 70}")
         results_15m = retrain_15m_symbols(
             symbols_15m,
+            dry_run=args.dry_run,
+            force=args.force,
+            max_age_days=args.max_age_days,
+        )
+
+    # ── 4h Retrain ──
+    results_4h = {}
+    if run_4h:
+        print(f"\n{'=' * 70}")
+        print("  4h MODEL RETRAIN")
+        print(f"{'=' * 70}")
+        results_4h = retrain_4h_symbols(
+            symbols_4h,
             dry_run=args.dry_run,
             force=args.force,
             max_age_days=args.max_age_days,
@@ -720,6 +965,22 @@ def main():
                 )
             else:
                 print(f"  {symbol} (15m): FAILED ({result.get('error', 'unknown')})")
+
+    # 4h summary
+    if results_4h:
+        print("\n  -- 4h Models --")
+        for symbol, result in results_4h.items():
+            if result.get("skipped"):
+                print(f"  {symbol} (4h): SKIPPED ({result.get('reason', '')})")
+            elif result.get("success"):
+                succeeded.append(f"{symbol}_4h")
+                print(
+                    f"  {symbol} (4h): SUCCESS "
+                    f"(Sharpe {result.get('new_sharpe', 0):.2f}, "
+                    f"IC {result.get('new_avg_ic', 0):.4f})"
+                )
+            else:
+                print(f"  {symbol} (4h): FAILED ({result.get('error', 'unknown')})")
 
     # CRITICAL: Parity check MUST run before SIGHUP to prevent live divergence.
     # If parity fails, restore backup and skip hot-reload.
@@ -777,10 +1038,12 @@ def main():
         else:
             print("  → WARNING: SIGHUP failed — manual model reload required")
 
-    # Send alerts — include both 1h and 15m failures
+    # Send alerts — include 1h, 15m, and 4h failures
     all_results = dict(results)
     for sym, r in results_15m.items():
         all_results[f"{sym}_15m"] = r
+    for sym, r in results_4h.items():
+        all_results[f"{sym}_4h"] = r
 
     failed = [s for s, r in all_results.items()
               if not r.get("success") and not r.get("skipped")]

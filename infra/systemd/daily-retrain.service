@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily model retrain
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.auto_retrain --daily --include-4h --sighup
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+StandardOutput=append:/quant_system/logs/retrain_daily.log
+StandardError=append:/quant_system/logs/retrain_daily.log

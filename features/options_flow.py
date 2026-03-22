@@ -236,3 +236,126 @@ def _rolling_zscore(window: Deque[float], value: float) -> float:
     var = sum((v - mean) ** 2 for v in vals) / len(vals)
     std = math.sqrt(var) if var > 0 else 1e-8
     return (value - mean) / std
+
+
+# ---------------------------------------------------------------------------
+# Batch IV features from DVOL daily CSV (for 4h alpha model)
+# ---------------------------------------------------------------------------
+
+#: Feature names produced by compute_iv_features_from_dvol()
+IV_FEATURE_NAMES = (
+    "iv_level",
+    "iv_rank_30d",
+    "iv_change_1d",
+    "iv_term_slope_daily",
+    "rv_iv_spread",
+)
+
+
+def compute_iv_features_from_dvol(
+    dvol_daily,
+    realized_vol_series=None,
+):
+    """Derive tradeable IV features from daily DVOL data.
+
+    Args:
+        dvol_daily: DataFrame with columns ['date', 'dvol', ...].
+            'dvol' is the Deribit DVOL index (annualized IV in %).
+        realized_vol_series: Optional series of realized vol (annualized, same index
+            as dvol_daily) for RV-IV spread computation. If None, rv_iv_spread = NaN.
+
+    Returns:
+        DataFrame indexed like dvol_daily with IV_FEATURE_NAMES columns.
+        All values are NaN-safe (missing data propagates as NaN).
+    """
+    import numpy as np
+    import pandas as pd
+
+    if dvol_daily.empty or "dvol" not in dvol_daily.columns:
+        return pd.DataFrame(
+            {name: np.nan for name in IV_FEATURE_NAMES},
+            index=dvol_daily.index if not dvol_daily.empty else pd.RangeIndex(0),
+        )
+
+    dvol = dvol_daily["dvol"].astype(float)
+    out = pd.DataFrame(index=dvol_daily.index)
+
+    # 1. iv_level: DVOL / 100 (normalized to 0-1 range, typical 0.3-1.0)
+    out["iv_level"] = dvol / 100.0
+
+    # 2. iv_rank_30d: percentile rank of current DVOL over trailing 30 days
+    out["iv_rank_30d"] = dvol.rolling(30, min_periods=10).apply(
+        lambda w: (w.values[-1:] <= w.values).sum() / len(w), raw=False
+    )
+
+    # 3. iv_change_1d: 1-day absolute change in DVOL (percentage points)
+    out["iv_change_1d"] = dvol.diff(1)
+
+    # 4. iv_term_slope_daily: intraday DVOL range / level (proxy for term structure tension)
+    #    When dvol_high/dvol_low available, use (high-low)/close; else NaN
+    if "dvol_high" in dvol_daily.columns and "dvol_low" in dvol_daily.columns:
+        dvol_high = dvol_daily["dvol_high"].astype(float)
+        dvol_low = dvol_daily["dvol_low"].astype(float)
+        out["iv_term_slope_daily"] = (dvol_high - dvol_low) / dvol.replace(0, np.nan)
+    else:
+        out["iv_term_slope_daily"] = np.nan
+
+    # 5. rv_iv_spread: realized vol - implied vol (vol risk premium, annualized %)
+    #    Negative = IV overpriced (normal), Positive = IV underpriced (unusual)
+    if realized_vol_series is not None:
+        # Align by index
+        rv = realized_vol_series.reindex(dvol_daily.index)
+        out["rv_iv_spread"] = rv - dvol
+    else:
+        out["rv_iv_spread"] = np.nan
+
+    return out
+
+
+def load_dvol_daily(currency: str, data_dir: str = "data_files"):
+    """Load daily DVOL CSV for a currency.
+
+    Tries {currency}_iv_daily.csv first (new format from download_deribit_iv.py),
+    falls back to aggregating {SYMBOL}_dvol_1h.csv if daily file not found.
+
+    Returns:
+        DataFrame with columns: date, dvol, dvol_high, dvol_low, dvol_open.
+        Empty DataFrame if no data available.
+    """
+    import pandas as pd
+
+    data_path = Path(data_dir)
+
+    # Try new daily format first
+    daily_path = data_path / f"{currency.lower()}_iv_daily.csv"
+    if daily_path.exists():
+        try:
+            df = pd.read_csv(daily_path)
+            df["date"] = pd.to_datetime(df["date"])
+            return df
+        except Exception as e:
+            _log.warning("Failed to load %s: %s", daily_path, e)
+
+    # Fall back to aggregating hourly DVOL file
+    symbol = f"{currency}USDT"
+    hourly_path = data_path / f"{symbol}_dvol_1h.csv"
+    if not hourly_path.exists():
+        return pd.DataFrame()
+
+    try:
+        hdf = pd.read_csv(hourly_path)
+        hdf["datetime"] = pd.to_datetime(hdf["timestamp"], unit="ms", utc=True)
+        hdf["date"] = hdf["datetime"].dt.date
+
+        daily = hdf.groupby("date").agg(
+            dvol=("close", "last"),
+            dvol_high=("high", "max"),
+            dvol_low=("low", "min"),
+            dvol_open=("open", "first"),
+            n_bars=("close", "count"),
+        ).reset_index()
+        daily["date"] = pd.to_datetime(daily["date"])
+        return daily
+    except Exception as e:
+        _log.warning("Failed to aggregate hourly DVOL for %s: %s", symbol, e)
+        return pd.DataFrame()

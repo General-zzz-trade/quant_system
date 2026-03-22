@@ -12,44 +12,44 @@
       "lgbm": "lgbm_h12.pkl",
       "xgb": "xgb_h12.pkl",
       "features": [
-        "coin_ret_1d",
         "spy_ret_1d",
-        "vix_level",
-        "qqq_ret_1d",
+        "iv_level",
+        "funding_zscore_24",
         "oc_tx_zscore_7",
-        "ret_24",
-        "ret_12",
         "oc_addr_zscore_14",
-        "oc_flowin_zscore_14",
-        "dom_vs_sui_ret_24",
+        "treasury_10y_chg_5d",
+        "oc_flowout_zscore_14",
+        "price_acceleration",
+        "ret_24",
+        "rsi_x_vol",
+        "dom_vs_sui_dev_20",
+        "rsi_x_atr",
         "fgi_normalized",
-        "fgi_extreme",
-        "vwap_dev_20",
-        "rsi_x_vol"
+        "fgi_extreme"
       ],
-      "ic": 0.298409127271771
+      "ic": 0.16376328542712507
     },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
       "xgb": "xgb_h24.pkl",
       "features": [
-        "coin_ret_1d",
         "spy_ret_1d",
-        "vix_level",
-        "qqq_ret_1d",
+        "iv_level",
+        "funding_zscore_24",
         "oc_tx_zscore_7",
         "oc_flowin_zscore_14",
-        "rsi_x_atr",
+        "treasury_10y_chg_5d",
         "oc_addr_zscore_14",
+        "rsi_x_atr",
         "rsi_x_vol",
         "fgi_normalized",
         "fgi_extreme",
-        "dom_vs_sui_dev_20",
-        "tlt_ret_5d",
-        "ret_autocorr_24"
+        "uso_ret_5d",
+        "ret_autocorr_24",
+        "iv_term_slope_daily"
       ],
-      "ic": 0.25656777186406476
+      "ic": 0.1870843101992566
     }
   ],
   "primary_horizon": 24,
@@ -77,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 7.974186975847539,
-    "avg_ic": 0.27748844956791785,
+    "sharpe": 3.916414299188081,
+    "avg_ic": 0.17542379781319084,
     "per_horizon_ic": {
-      "12": 0.298409127271771,
-      "24": 0.25656777186406476
+      "12": 0.16376328542712507,
+      "24": 0.1870843101992566
     },
-    "total_return": 0.33826777518389733,
-    "trades": 283,
-    "win_rate": 73.14487632508833,
-    "avg_net_bps": 239.05849836317833,
-    "bootstrap_sharpe_p5": 3.5081344727171464,
-    "bootstrap_sharpe_p50": 4.160695616297366,
-    "bootstrap_sharpe_p95": 4.889291438583459
+    "total_return": 0.1381660265087354,
+    "trades": 178,
+    "win_rate": 61.79775280898876,
+    "avg_net_bps": 155.24272641430946,
+    "bootstrap_sharpe_p5": 1.7360277395448576,
+    "bootstrap_sharpe_p50": 2.629116310404172,
+    "bootstrap_sharpe_p95": 3.467218467420775
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -97,11 +97,9 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-22 12:05",
+  "train_date": "2026-03-22 16:59",
   "data_range": "2019-11-27 \u2192 2026-03-22",
-  "n_bars": 55363,
-  "ridge_weight": 0.6,
-  "lgbm_weight": 0.4,
+  "n_bars": 55369,
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01
 }

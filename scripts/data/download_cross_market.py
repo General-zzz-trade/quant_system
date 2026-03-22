@@ -167,6 +167,47 @@ def build_cross_market_features() -> pd.DataFrame:
     return out.dropna(subset=["spy_ret_1d"])
 
 
+def build_etf_volume() -> None:
+    """Download ETF dollar volume data and save to etf_volume_daily.csv."""
+    etf_tickers = ["IBIT", "GBTC", "FBTC", "ETHA", "ETHE", "BITO"]
+    all_data = {}
+    for ticker in etf_tickers:
+        try:
+            df = fetch_yahoo(ticker)
+            if len(df) > 10:
+                all_data[ticker] = df
+                log.info("ETF vol %s: %d days", ticker, len(df))
+        except Exception as e:
+            log.debug("ETF vol %s failed: %s", ticker, e)
+
+    if not all_data:
+        log.warning("No ETF volume data downloaded")
+        return
+
+    # Use longest ETF as date index
+    longest = max(all_data, key=lambda t: len(all_data[t]))
+    dates = all_data[longest].index
+    out = pd.DataFrame({"date": dates})
+
+    # Aggregate BTC ETF dollar volume
+    agg = pd.Series(0.0, index=dates)
+    for t in ["IBIT", "GBTC", "FBTC", "BITO"]:
+        if t in all_data:
+            dvol = all_data[t]["close"] * all_data[t]["volume"]
+            agg = agg.add(dvol.reindex(dates, fill_value=0), fill_value=0)
+    out["btc_etf_dollar_vol"] = agg.values
+
+    # Per-ETF dollar volume
+    for t in ["IBIT", "GBTC", "ETHA"]:
+        if t in all_data:
+            dvol = all_data[t]["close"] * all_data[t]["volume"]
+            out[f"{t.lower()}_dollar_vol"] = dvol.reindex(dates, fill_value=0).values
+
+    etf_vol_path = Path("data_files/etf_volume_daily.csv")
+    out.to_csv(etf_vol_path, index=False)
+    log.info("ETF volume: %d days → %s", len(out), etf_vol_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download cross-market data")
     parser.add_argument("--days", type=int, default=None,
@@ -184,6 +225,9 @@ def main():
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     features.to_csv(OUTPUT_PATH)
     log.info("Saved %d rows to %s", len(features), OUTPUT_PATH)
+
+    # Also update ETF volume data
+    build_etf_volume()
 
     # Summary
     print(f"\nCross-market features: {len(features)} days")
