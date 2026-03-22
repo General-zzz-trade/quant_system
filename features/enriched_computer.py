@@ -148,6 +148,15 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
     "spx_btc_corr_30d",              # 30-day SPX-BTC correlation
     "spx_overnight_ret",              # SPX overnight return
     "vix_zscore_14",                  # 14-day VIX z-score
+    # --- V21: Cross-market features (Yahoo Finance, daily) ---
+    "spy_ret_1d",                     # SPY daily return (IC=-0.094 vs BTC next day)
+    "qqq_ret_1d",                     # QQQ daily return (IC=-0.095, strongest cross-market signal)
+    "spy_ret_5d",                     # SPY 5-day momentum
+    "vix_level",                      # VIX absolute level (IC=+0.080)
+    "tlt_ret_5d",                     # TLT 5-day return (IC=+0.039, liquidity proxy)
+    "uso_ret_5d",                     # USO 5-day return (IC=-0.055, oil momentum)
+    "coin_ret_1d",                    # Coinbase stock daily return (IC=-0.062)
+    "spy_extreme",                    # SPY |ret| > 2% flag (high-conviction signal)
     # --- V11: Social sentiment ---
     "social_volume_zscore_24",        # z-score of social volume over 24 bars
     "social_sentiment_score",         # normalized sentiment score
@@ -1997,6 +2006,7 @@ class EnrichedFeatureComputer:
         reference_closes: Optional[Dict[str, float]] = None,
         dvol: Optional[float] = None,
         options_metrics: Optional[Dict[str, float]] = None,
+        cross_market: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Optional[float]]:
         """Process a new bar and return computed features.
 
@@ -2005,7 +2015,8 @@ class EnrichedFeatureComputer:
         eth_close: ETH price at same bar time. Required for V14 BTC dominance features.
         reference_closes: Optional cross-asset reference close map for V14b dominance pairs.
         dvol: Deribit DVOL index value at same bar time. Required for V19 IV features.
-        options_metrics: Dict from OptionsFlowComputer (gamma_imbalance_zscore, max_pain_distance, etc).
+        options_metrics: Dict from OptionsFlowComputer.
+        cross_market: Dict with keys like spy_ret_1d, qqq_ret_1d, vix_level etc (from Yahoo Finance daily).
         """
         if symbol not in self._states:
             self._states[symbol] = _SymbolState()
@@ -2045,6 +2056,13 @@ class EnrichedFeatureComputer:
                         "vega_net_zscore", "iv_term_slope", "pcr_zscore",
                         "iv_rv_premium", "dvol_zscore"):
                 feats[key] = options_metrics.get(key)
+
+        # --- V21: Cross-market features (from Yahoo Finance daily data) ---
+        if cross_market:
+            for key in ("spy_ret_1d", "qqq_ret_1d", "spy_ret_5d",
+                        "vix_level", "tlt_ret_5d", "uso_ret_5d",
+                        "coin_ret_1d", "spy_extreme"):
+                feats[key] = cross_market.get(key)
 
         return feats
 
