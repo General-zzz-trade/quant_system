@@ -212,6 +212,9 @@ def compute_features_batch(
     # V17: On-chain features (TxTfrCnt, AdrActCnt, exchange flow)
     _add_v17_onchain_features(symbol, feat_df, timestamps)
 
+    # V21: Cross-market features (SPY/QQQ/VIX/TLT/USO/COIN from Yahoo Finance)
+    _add_cross_market_features(feat_df, timestamps)
+
     return feat_df
 
 
@@ -433,6 +436,59 @@ _ALL_MULTI_RATIO_NAMES = [
     "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
     "dom_vs_eth_dev_20", "dom_vs_eth_ret_24",
 ]
+
+
+def _add_cross_market_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> None:
+    """Add V21 cross-market features from Yahoo Finance daily data.
+
+    Loads data_files/cross_market_daily.csv and forward-fills daily values
+    to hourly bars via timestamp alignment.
+
+    Features: spy_ret_1d, qqq_ret_1d, spy_ret_5d, vix_level,
+              tlt_ret_5d, uso_ret_5d, coin_ret_1d, spy_extreme
+    """
+    cm_path = Path("data_files/cross_market_daily.csv")
+    if not cm_path.exists():
+        logger.debug("No cross_market_daily.csv — skipping V21 features")
+        return
+
+    try:
+        cm = pd.read_csv(cm_path, index_col="date", parse_dates=True)
+    except Exception:
+        logger.debug("Failed to load cross_market_daily.csv", exc_info=True)
+        return
+
+    # Convert bar timestamps to dates for alignment
+    bar_dates = pd.to_datetime(timestamps, unit="ms", utc=True).date
+
+    # For each cross-market column, forward-fill daily value to each bar
+    for col in ["spy_ret_1d", "qqq_ret_1d", "spy_ret_5d", "vix_level",
+                "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme"]:
+        if col not in cm.columns:
+            continue
+
+        # Build date → value lookup
+        cm_vals = cm[col].dropna()
+        cm_dates = cm_vals.index.date
+        cm_dict: dict[object, float] = dict(zip(cm_dates, cm_vals.values))
+
+        # Forward-fill: for each bar, use the most recent daily value
+        result = np.full(len(timestamps), np.nan, dtype=np.float64)
+        sorted_cm_dates = sorted(cm_dict.keys())
+        idx = 0
+        last_val = np.nan
+        for i, bd in enumerate(bar_dates):
+            while idx < len(sorted_cm_dates) and sorted_cm_dates[idx] <= bd:
+                last_val = cm_dict[sorted_cm_dates[idx]]
+                idx += 1
+            result[i] = last_val
+
+        feat_df[col] = result
+
+    n_filled = sum(1 for col in feat_df.columns if col.startswith("spy_") or col.startswith("qqq_")
+                   or col.startswith("vix_") or col.startswith("tlt_") or col.startswith("uso_")
+                   or col.startswith("coin_ret"))
+    logger.debug("V21 cross-market: %d features added", n_filled)
 
 
 def _add_dominance_features(symbol: str, feat_df: pd.DataFrame, closes: np.ndarray) -> None:
