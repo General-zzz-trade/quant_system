@@ -798,284 +798,13 @@ class TestUniverseSelector(unittest.TestCase):
 
 
 # ===========================================================================
-# risk/stress.py
+# state/store.py (risk/stress.py tests removed — module deleted)
 # ===========================================================================
 
-class TestStressEngine(unittest.TestCase):
 
-    def _make_account(self, equity=1000, positions=None):
-        from risk.stress import AccountExposure
-        return AccountExposure(
-            equity=Decimal(str(equity)),
-            balance=Decimal(str(equity)),
-            used_margin=Decimal("100"),
-            positions=positions or {},
-        )
-
-    def _make_scenario(self, name="test", pct="-0.10"):
-        from risk.stress import StressScenario, PriceShock
-        return StressScenario(
-            name=name,
-            global_shock=PriceShock(pct=Decimal(pct)),
-        )
-
-    def test_empty_scenarios_raises(self):
-        from risk.stress import StressEngine, StressEngineError
-        engine = StressEngine()
-        account = self._make_account()
-        with self.assertRaises(StressEngineError):
-            engine.run(account=account, scenarios=())
-
-    def test_single_scenario_no_positions(self):
-        from risk.stress import StressEngine
-        engine = StressEngine()
-        account = self._make_account(equity=1000)
-        sc = self._make_scenario("down10pct", "-0.10")
-        report = engine.run(account=account, scenarios=[sc])
-        self.assertEqual(len(report.results), 1)
-        r = report.results[0]
-        self.assertEqual(r.scenario, "down10pct")
-        self.assertEqual(r.pnl, Decimal("0"))  # no positions
-        self.assertEqual(r.drawdown_pct, Decimal("0"))  # no change
-        self.assertTrue(r.ok)
-
-    def test_long_position_down_shock(self):
-        from risk.stress import StressEngine, AccountExposure, PositionExposure, PriceShock, StressScenario
-
-        pos = PositionExposure(
-            symbol="ETHUSDT",
-            qty=Decimal("1"),
-            mark_price=Decimal("1000"),
-        )
-        account = AccountExposure(
-            equity=Decimal("1000"),
-            balance=Decimal("1000"),
-            positions={"ETHUSDT": pos},
-        )
-        sc = StressScenario(
-            name="down10",
-            global_shock=PriceShock(pct=Decimal("-0.10")),
-        )
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        r = report.results[0]
-        # PnL = (900 - 1000) * 1 * 1 = -100
-        self.assertEqual(r.pnl, Decimal("-100"))
-        self.assertEqual(r.equity_after, Decimal("900"))
-        self.assertTrue(r.drawdown_pct > 0)
-
-    def test_short_position_down_shock(self):
-        from risk.stress import StressEngine, AccountExposure, PositionExposure, PriceShock, StressScenario
-
-        pos = PositionExposure(
-            symbol="BTCUSDT",
-            qty=Decimal("-0.5"),  # short
-            mark_price=Decimal("40000"),
-        )
-        account = AccountExposure(
-            equity=Decimal("5000"),
-            balance=Decimal("5000"),
-            positions={"BTCUSDT": pos},
-        )
-        sc = StressScenario(name="btc_crash", global_shock=PriceShock(pct=Decimal("-0.20")))
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        r = report.results[0]
-        # PnL = (32000 - 40000) * -0.5 * 1 = 4000 (profit for short)
-        self.assertGreater(r.equity_after, account.equity)
-        self.assertEqual(r.drawdown_pct, Decimal("0"))  # profit, no drawdown
-
-    def test_price_shock_abs(self):
-        from risk.stress import PriceShock
-        shock = PriceShock(abs=Decimal("-500"))
-        new_price = shock.apply(Decimal("1000"))
-        self.assertEqual(new_price, Decimal("500"))
-
-    def test_price_shock_pct_and_abs_combined(self):
-        from risk.stress import PriceShock
-        shock = PriceShock(pct=Decimal("-0.10"), abs=Decimal("-50"))
-        # 1000 * 0.9 = 900, then -50 = 850
-        new_price = shock.apply(Decimal("1000"))
-        self.assertEqual(new_price, Decimal("850"))
-
-    def test_price_shock_clamp_min(self):
-        from risk.stress import PriceShock
-        shock = PriceShock(pct=Decimal("-0.90"), clamp_min_price=Decimal("200"))
-        # 1000 * 0.1 = 100, but clamp to 200
-        new_price = shock.apply(Decimal("1000"))
-        self.assertEqual(new_price, Decimal("200"))
-
-    def test_price_shock_clamp_max(self):
-        from risk.stress import PriceShock
-        shock = PriceShock(pct=Decimal("2.00"), clamp_max_price=Decimal("2500"))
-        new_price = shock.apply(Decimal("1000"))
-        self.assertEqual(new_price, Decimal("2500"))
-
-    def test_price_shock_cannot_go_negative(self):
-        from risk.stress import PriceShock
-        shock = PriceShock(pct=Decimal("-2.0"))
-        new_price = shock.apply(Decimal("100"))
-        self.assertEqual(new_price, Decimal("0"))
-
-    def test_stress_scenario_specific_shock(self):
-        from risk.stress import StressScenario, PriceShock
-        sc = StressScenario(
-            name="eth_crash",
-            shocks={"ETHUSDT": PriceShock(pct=Decimal("-0.30"))},
-            global_shock=PriceShock(pct=Decimal("-0.05")),
-        )
-        # Symbol-specific shock takes priority
-        eth_price = sc.shocked_price_for("ETHUSDT", Decimal("1000"))
-        self.assertEqual(eth_price, Decimal("700"))
-        # Global shock for other symbols
-        btc_price = sc.shocked_price_for("BTCUSDT", Decimal("40000"))
-        self.assertEqual(btc_price, Decimal("38000"))
-
-    def test_stress_scenario_no_shock(self):
-        from risk.stress import StressScenario
-        sc = StressScenario(name="flat")
-        price = sc.shocked_price_for("ETHUSDT", Decimal("1000"))
-        self.assertEqual(price, Decimal("1000"))
-
-    def test_threshold_min_equity_violation(self):
-        from risk.stress import (
-            StressEngine, StressThresholds, AccountExposure,
-            PositionExposure, PriceShock, StressScenario,
-        )
-
-        pos = PositionExposure(symbol="ETHUSDT", qty=Decimal("1"), mark_price=Decimal("1000"))
-        account = AccountExposure(equity=Decimal("1000"), balance=Decimal("1000"), positions={"ETHUSDT": pos})
-        sc = StressScenario(name="crash", global_shock=PriceShock(pct=Decimal("-0.90")))
-        thresholds = StressThresholds(min_equity=Decimal("500"))
-        engine = StressEngine(thresholds=thresholds)
-        report = engine.run(account=account, scenarios=[sc])
-        r = report.results[0]
-        self.assertFalse(r.ok)
-        codes = [v.code for v in r.violations]
-        self.assertIn("min_equity", codes)
-
-    def test_threshold_max_drawdown_violation(self):
-        from risk.stress import (
-            StressEngine, StressThresholds, AccountExposure,
-            PositionExposure, PriceShock, StressScenario,
-        )
-
-        pos = PositionExposure(symbol="ETHUSDT", qty=Decimal("1"), mark_price=Decimal("1000"))
-        account = AccountExposure(equity=Decimal("1000"), balance=Decimal("1000"), positions={"ETHUSDT": pos})
-        sc = StressScenario(name="crash", global_shock=PriceShock(pct=Decimal("-0.50")))
-        thresholds = StressThresholds(max_drawdown_pct=Decimal("0.20"))
-        engine = StressEngine(thresholds=thresholds)
-        report = engine.run(account=account, scenarios=[sc])
-        r = report.results[0]
-        self.assertFalse(r.ok)
-        codes = [v.code for v in r.violations]
-        self.assertIn("max_drawdown", codes)
-
-    def test_threshold_min_margin_ratio_violation(self):
-        from risk.stress import (
-            StressEngine, StressThresholds, AccountExposure,
-            PositionExposure, PriceShock, StressScenario,
-        )
-
-        pos = PositionExposure(symbol="ETHUSDT", qty=Decimal("1"), mark_price=Decimal("1000"))
-        account = AccountExposure(
-            equity=Decimal("1000"), balance=Decimal("1000"),
-            used_margin=Decimal("800"),
-            positions={"ETHUSDT": pos},
-        )
-        sc = StressScenario(name="crash", global_shock=PriceShock(pct=Decimal("-0.80")))
-        thresholds = StressThresholds(min_margin_ratio=Decimal("1.5"))
-        engine = StressEngine(thresholds=thresholds)
-        report = engine.run(account=account, scenarios=[sc])
-        r = report.results[0]
-        self.assertFalse(r.ok)
-        codes = [v.code for v in r.violations]
-        self.assertIn("min_margin_ratio", codes)
-
-    def test_no_margin_ratio_when_margin_zero(self):
-        from risk.stress import StressEngine, AccountExposure
-        account = AccountExposure(equity=Decimal("1000"), balance=Decimal("1000"), used_margin=Decimal("0"))
-        sc = self._make_scenario()
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        self.assertIsNone(report.results[0].margin_ratio)
-
-    def test_equity_zero_no_drawdown_pct(self):
-        from risk.stress import StressEngine, AccountExposure
-        account = AccountExposure(equity=Decimal("0"), balance=Decimal("0"))
-        sc = self._make_scenario()
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        self.assertEqual(report.results[0].drawdown_pct, Decimal("0"))
-
-    def test_worst_by_equity_and_drawdown(self):
-        from risk.stress import StressEngine, AccountExposure, PositionExposure, PriceShock, StressScenario
-
-        pos = PositionExposure(symbol="ETHUSDT", qty=Decimal("1"), mark_price=Decimal("1000"))
-        account = AccountExposure(equity=Decimal("1000"), balance=Decimal("1000"), positions={"ETHUSDT": pos})
-        scenarios = [
-            StressScenario(name="small", global_shock=PriceShock(pct=Decimal("-0.10"))),
-            StressScenario(name="large", global_shock=PriceShock(pct=Decimal("-0.50"))),
-        ]
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=scenarios, ts="2024-01-01")
-        worst_eq = report.worst_by_equity
-        self.assertEqual(worst_eq.scenario, "large")
-        worst_dd = report.worst_by_drawdown
-        self.assertEqual(worst_dd.scenario, "large")
-
-    def test_extra_liabilities(self):
-        from risk.stress import StressEngine, AccountExposure, StressScenario
-        account = AccountExposure(
-            equity=Decimal("1000"), balance=Decimal("1000"),
-            extra_liabilities=Decimal("100"),
-        )
-        sc = StressScenario(name="flat")  # no shock
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        # equity_after = 1000 + 0 - 100 = 900
-        self.assertEqual(report.results[0].equity_after, Decimal("900"))
-
-    def test_build_default_stress_scenarios(self):
-        from risk.stress import build_default_stress_scenarios
-        scenarios = build_default_stress_scenarios(symbols=["ETHUSDT", "BTCUSDT"])
-        names = [s.name for s in scenarios]
-        # global up/down + 2 per symbol (crash + squeeze)
-        self.assertIn("global_10pct_down", names)
-        self.assertIn("global_10pct_up", names)
-        self.assertIn("ETHUSDT_crash_30pct", names)
-        self.assertIn("BTCUSDT_squeeze_30pct", names)
-
-    def test_stress_result_ok_property(self):
-        from risk.stress import StressResult
-        r = StressResult(
-            scenario="test",
-            equity_before=Decimal("1000"),
-            equity_after=Decimal("900"),
-            pnl=Decimal("-100"),
-            drawdown_pct=Decimal("0.10"),
-            used_margin=Decimal("0"),
-            margin_ratio=None,
-        )
-        self.assertTrue(r.ok)
-
-    def test_multiplier_applied(self):
-        from risk.stress import StressEngine, AccountExposure, PositionExposure, PriceShock, StressScenario
-
-        # multiplier=10 (like a futures contract)
-        pos = PositionExposure(
-            symbol="BTC", qty=Decimal("1"), mark_price=Decimal("1000"), multiplier=Decimal("10")
-        )
-        account = AccountExposure(equity=Decimal("2000"), balance=Decimal("2000"), positions={"BTC": pos})
-        sc = StressScenario(name="down10", global_shock=PriceShock(pct=Decimal("-0.10")))
-        engine = StressEngine()
-        report = engine.run(account=account, scenarios=[sc])
-        # pnl = (900 - 1000) * 1 * 10 = -1000
-        self.assertEqual(report.results[0].pnl, Decimal("-1000"))
+# (TestStressEngine removed — risk/stress.py deleted)
 
 
-# ===========================================================================
-# state/store.py
 # ===========================================================================
 
 class TestInMemoryStateStore(unittest.TestCase):
@@ -1802,11 +1531,11 @@ class TestSignalDecayAnalyzer(unittest.TestCase):
 class TestPluginRegistry(unittest.TestCase):
 
     def setUp(self):
-        from core.plugins import reset_global_registries
+        from infra.plugins import reset_global_registries
         reset_global_registries()
 
     def test_register_decorator(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="my_plugin", version="1.0", description="test", tags=("a",))
@@ -1820,7 +1549,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertIn("a", entry.meta.tags)
 
     def test_register_uses_class_name_attribute(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register()
@@ -1831,7 +1560,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertIsNotNone(entry)
 
     def test_register_falls_back_to_classname(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register()
@@ -1842,18 +1571,18 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertIsNotNone(entry)
 
     def test_get_not_found_raises(self):
-        from core.plugins import PluginRegistry, PluginNotFoundError
+        from infra.plugins import PluginRegistry, PluginNotFoundError
         reg = PluginRegistry("test_cat")
         with self.assertRaises(PluginNotFoundError):
             reg.get("nonexistent")
 
     def test_get_optional(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         self.assertIsNone(reg.get_optional("nonexistent"))
 
     def test_register_instance(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         class MyInst:
@@ -1866,7 +1595,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(entry.meta.version, "2.0")
 
     def test_contains(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="x")
@@ -1877,7 +1606,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertNotIn("y", reg)
 
     def test_len(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         self.assertEqual(len(reg), 0)
 
@@ -1888,7 +1617,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(len(reg), 1)
 
     def test_list_names(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="p1")
@@ -1904,7 +1633,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertIn("p2", names)
 
     def test_list_entries(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="e1")
@@ -1915,7 +1644,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(len(entries), 1)
 
     def test_init_all(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         called = []
 
@@ -1930,7 +1659,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(called, [{"key": "val"}])
 
     def test_start_all(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         called = []
 
@@ -1943,7 +1672,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(called, ["started"])
 
     def test_stop_all(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         called = []
 
@@ -1956,7 +1685,7 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertEqual(called, ["stopped"])
 
     def test_plugins_without_lifecycle_hooks(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="plain")
@@ -1969,15 +1698,15 @@ class TestPluginRegistry(unittest.TestCase):
         reg.stop_all()
 
     def test_get_registry_creates_and_reuses(self):
-        from core.plugins import get_registry, reset_global_registries
+        from infra.plugins import get_registry, reset_global_registries
         reset_global_registries()
         r1 = get_registry("my_cat")
         r2 = get_registry("my_cat")
         self.assertIs(r1, r2)
 
     def test_category_plugin_convenience(self):
-        from core.plugins import strategy_plugin, venue_plugin, alpha_plugin, indicator_plugin, reset_global_registries
-        from core.plugins import get_registry
+        from infra.plugins import strategy_plugin, venue_plugin, alpha_plugin, indicator_plugin, reset_global_registries
+        from infra.plugins import get_registry
         reset_global_registries()
 
         @strategy_plugin(name="test_strat")
@@ -2002,20 +1731,20 @@ class TestPluginRegistry(unittest.TestCase):
         self.assertIn("test_ind", get_registry("indicator"))
 
     def test_discover_package_import_error(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         n = reg.discover_package("nonexistent_pkg_xyz")
         self.assertEqual(n, 0)
 
     def test_discover_package_no_path(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
         # sys module has no __path__, so should not iterate
         n = reg.discover_package("sys")
         self.assertEqual(n, 0)
 
     def test_params_schema_set(self):
-        from core.plugins import PluginRegistry
+        from infra.plugins import PluginRegistry
         reg = PluginRegistry("test_cat")
 
         @reg.register(name="schema_plugin", params_schema={"window": {"type": "int"}})
@@ -2033,14 +1762,14 @@ class TestPluginRegistry(unittest.TestCase):
 class TestTracingInterceptor(unittest.TestCase):
 
     def _make_envelope(self):
-        from core.types import Envelope, EventKind, EventMetadata, TraceContext
+        from event.core_types import Envelope, EventKind, EventMetadata, TraceContext
         trace = TraceContext.new_root()
         meta = EventMetadata.create(source="test", trace=trace)
         return Envelope(event=MagicMock(), metadata=meta, kind=EventKind.MARKET)
 
     def test_before_reduce_records_start(self):
-        from core.observability import TracingInterceptor
-        from core.interceptors import InterceptAction
+        from infra.observability import TracingInterceptor
+        from engine.interceptors import InterceptAction
         ti = TracingInterceptor()
         env = self._make_envelope()
         result = ti.before_reduce(env, None)
@@ -2048,7 +1777,7 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertIn(env.event_id, ti._active)
 
     def test_after_reduce_creates_span(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         ti = TracingInterceptor()
         env = self._make_envelope()
         ti.before_reduce(env, None)
@@ -2059,7 +1788,7 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertGreaterEqual(span.duration_ms, 0.0)
 
     def test_span_ring_buffer_evicts_oldest(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         ti = TracingInterceptor(max_spans=3)
         for _ in range(5):
             env = self._make_envelope()
@@ -2068,7 +1797,7 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertEqual(len(ti.spans), 3)
 
     def test_cleanup_stale(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         ti = TracingInterceptor(active_ttl_seconds=0.0)  # expire immediately
         env = self._make_envelope()
         ti._active[env.event_id] = time.monotonic() - 1.0  # already stale
@@ -2077,7 +1806,7 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertNotIn(env.event_id, ti._active)
 
     def test_auto_evict_when_active_large(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         ti = TracingInterceptor(active_ttl_seconds=0.0)
         # Fill _active with 101 stale entries
         for i in range(101):
@@ -2088,7 +1817,7 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertLess(len(ti._active), 50)
 
     def test_after_reduce_without_before(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         ti = TracingInterceptor()
         env = self._make_envelope()
         # Call after_reduce without before_reduce → duration should be 0
@@ -2097,11 +1826,11 @@ class TestTracingInterceptor(unittest.TestCase):
         self.assertEqual(span.duration_ms, 0.0)
 
     def test_name_property(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         self.assertEqual(TracingInterceptor().name, "tracing")
 
     def test_export_to_tracer(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         mock_tracer = MagicMock()
         ctx_mgr = MagicMock()
         mock_tracer.start_span = MagicMock(return_value=ctx_mgr)
@@ -2115,7 +1844,7 @@ class TestTracingInterceptor(unittest.TestCase):
         mock_tracer.start_span.assert_called_once()
 
     def test_export_to_tracer_exception_suppressed(self):
-        from core.observability import TracingInterceptor
+        from infra.observability import TracingInterceptor
         mock_tracer = MagicMock()
         mock_tracer.start_span.side_effect = RuntimeError("oops")
 
@@ -2129,22 +1858,22 @@ class TestTracingInterceptor(unittest.TestCase):
 class TestLoggingInterceptor(unittest.TestCase):
 
     def _make_envelope(self):
-        from core.types import Envelope, EventKind, EventMetadata, TraceContext
+        from event.core_types import Envelope, EventKind, EventMetadata, TraceContext
         trace = TraceContext.new_root()
         meta = EventMetadata.create(source="test", trace=trace)
         return Envelope(event=MagicMock(), metadata=meta, kind=EventKind.MARKET)
 
     def test_before_reduce_always_ok(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptAction
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptAction
         li = LoggingInterceptor()
         env = self._make_envelope()
         result = li.before_reduce(env, None)
         self.assertEqual(result.action, InterceptAction.CONTINUE)
 
     def test_record_non_continue_is_logged(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptResult
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptResult
         li = LoggingInterceptor()
         env = self._make_envelope()
         result = InterceptResult.reject("test_ic", "too risky")
@@ -2153,8 +1882,8 @@ class TestLoggingInterceptor(unittest.TestCase):
         self.assertEqual(li.entries[0]["action"], "REJECT")
 
     def test_record_continue_not_logged_by_default(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptResult
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptResult
         li = LoggingInterceptor(log_continue=False)
         env = self._make_envelope()
         result = InterceptResult.ok("test_ic")
@@ -2162,8 +1891,8 @@ class TestLoggingInterceptor(unittest.TestCase):
         self.assertEqual(len(li.entries), 0)
 
     def test_record_continue_logged_when_verbose(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptResult
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptResult
         li = LoggingInterceptor(log_continue=True)
         env = self._make_envelope()
         result = InterceptResult.ok("test_ic")
@@ -2171,8 +1900,8 @@ class TestLoggingInterceptor(unittest.TestCase):
         self.assertEqual(len(li.entries), 1)
 
     def test_entry_ring_buffer(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptResult
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptResult
         li = LoggingInterceptor(max_entries=3, log_continue=True)
         env = self._make_envelope()
         result = InterceptResult.ok("test_ic")
@@ -2181,8 +1910,8 @@ class TestLoggingInterceptor(unittest.TestCase):
         self.assertEqual(len(li.entries), 3)
 
     def test_log_fn_called(self):
-        from core.observability import LoggingInterceptor
-        from core.interceptors import InterceptResult
+        from infra.observability import LoggingInterceptor
+        from engine.interceptors import InterceptResult
         calls = []
         li = LoggingInterceptor(log_fn=lambda level, msg, **kw: calls.append((level, msg)))
         env = self._make_envelope()
@@ -2192,21 +1921,21 @@ class TestLoggingInterceptor(unittest.TestCase):
         self.assertEqual(calls[0][0], "warning")
 
     def test_name_property(self):
-        from core.observability import LoggingInterceptor
+        from infra.observability import LoggingInterceptor
         self.assertEqual(LoggingInterceptor().name, "logging")
 
 
 class TestMetricsInterceptor(unittest.TestCase):
 
     def _make_envelope(self):
-        from core.types import Envelope, EventKind, EventMetadata, TraceContext
+        from event.core_types import Envelope, EventKind, EventMetadata, TraceContext
         trace = TraceContext.new_root()
         meta = EventMetadata.create(source="test", trace=trace)
         return Envelope(event=MagicMock(), metadata=meta, kind=EventKind.MARKET)
 
     def test_before_reduce_increments_events_in(self):
-        from core.observability import MetricsInterceptor
-        from core.effects import InMemoryMetrics
+        from infra.observability import MetricsInterceptor
+        from infra.effects import InMemoryMetrics
         metrics = InMemoryMetrics()
         mi = MetricsInterceptor(metrics)
         env = self._make_envelope()
@@ -2215,8 +1944,8 @@ class TestMetricsInterceptor(unittest.TestCase):
         self.assertTrue(any("events_in" in k for k in snap))
 
     def test_after_reduce_increments_events_out_and_histogram(self):
-        from core.observability import MetricsInterceptor
-        from core.effects import InMemoryMetrics
+        from infra.observability import MetricsInterceptor
+        from infra.effects import InMemoryMetrics
         metrics = InMemoryMetrics()
         mi = MetricsInterceptor(metrics)
         env = self._make_envelope()
@@ -2227,8 +1956,8 @@ class TestMetricsInterceptor(unittest.TestCase):
         self.assertTrue(any("reduce_ms" in k for k in snap))
 
     def test_after_reduce_without_before(self):
-        from core.observability import MetricsInterceptor
-        from core.effects import InMemoryMetrics
+        from infra.observability import MetricsInterceptor
+        from infra.effects import InMemoryMetrics
         metrics = InMemoryMetrics()
         mi = MetricsInterceptor(metrics)
         env = self._make_envelope()
@@ -2236,8 +1965,8 @@ class TestMetricsInterceptor(unittest.TestCase):
         mi.after_reduce(env, None, None)
 
     def test_name_property(self):
-        from core.observability import MetricsInterceptor
-        from core.effects import InMemoryMetrics
+        from infra.observability import MetricsInterceptor
+        from infra.effects import InMemoryMetrics
         mi = MetricsInterceptor(InMemoryMetrics())
         self.assertEqual(mi.name, "metrics")
 
@@ -2249,42 +1978,42 @@ class TestMetricsInterceptor(unittest.TestCase):
 class TestEffectsModules(unittest.TestCase):
 
     def test_std_logger_debug(self):
-        from core.effects import StdLogger
+        from infra.effects import StdLogger
         logger = StdLogger("test.unit")
         with patch.object(logger._log, "debug") as mock_debug:
             logger.debug("hello", key="val")
             mock_debug.assert_called_once()
 
     def test_std_logger_info(self):
-        from core.effects import StdLogger
+        from infra.effects import StdLogger
         logger = StdLogger()
         with patch.object(logger._log, "info") as mock_info:
             logger.info("msg")
             mock_info.assert_called_once()
 
     def test_std_logger_warning(self):
-        from core.effects import StdLogger
+        from infra.effects import StdLogger
         logger = StdLogger()
         with patch.object(logger._log, "warning") as mock_warn:
             logger.warning("warn")
             mock_warn.assert_called_once()
 
     def test_std_logger_error(self):
-        from core.effects import StdLogger
+        from infra.effects import StdLogger
         logger = StdLogger()
         with patch.object(logger._log, "error") as mock_err:
             logger.error("err")
             mock_err.assert_called_once()
 
     def test_noop_metrics_no_raise(self):
-        from core.effects import NoopMetrics
+        from infra.effects import NoopMetrics
         m = NoopMetrics()
         m.counter("x", 1.0, tag="v")
         m.gauge("y", 2.0)
         m.histogram("z", 3.0)
 
     def test_in_memory_metrics_counter(self):
-        from core.effects import InMemoryMetrics
+        from infra.effects import InMemoryMetrics
         m = InMemoryMetrics()
         m.counter("hits", 1.0)
         m.counter("hits", 2.0)
@@ -2292,7 +2021,7 @@ class TestEffectsModules(unittest.TestCase):
         self.assertEqual(snap["hits"], 3.0)
 
     def test_in_memory_metrics_counter_with_tags(self):
-        from core.effects import InMemoryMetrics
+        from infra.effects import InMemoryMetrics
         m = InMemoryMetrics()
         m.counter("hits", 1.0, symbol="ETH")
         m.counter("hits", 1.0, symbol="BTC")
@@ -2300,41 +2029,41 @@ class TestEffectsModules(unittest.TestCase):
         self.assertEqual(len(snap), 2)
 
     def test_in_memory_metrics_gauge(self):
-        from core.effects import InMemoryMetrics
+        from infra.effects import InMemoryMetrics
         m = InMemoryMetrics()
         m.gauge("pnl", 100.0)
         m.gauge("pnl", 200.0)
         self.assertEqual(m.snapshot()["pnl"], 200.0)
 
     def test_in_memory_metrics_histogram(self):
-        from core.effects import InMemoryMetrics
+        from infra.effects import InMemoryMetrics
         m = InMemoryMetrics()
         m.histogram("latency_ms", 5.0)
         self.assertEqual(m.snapshot()["latency_ms"], 5.0)
 
     def test_in_memory_persist(self):
-        from core.effects import InMemoryPersist
+        from infra.effects import InMemoryPersist
         p = InMemoryPersist()
         p.save_snapshot("k", b"data")
         self.assertEqual(p.load_snapshot("k"), b"data")
         self.assertIsNone(p.load_snapshot("missing"))
 
     def test_std_random_uniform(self):
-        from core.effects import StdRandom
+        from infra.effects import StdRandom
         r = StdRandom(seed=42)
         v = r.uniform(0.0, 1.0)
         self.assertGreaterEqual(v, 0.0)
         self.assertLessEqual(v, 1.0)
 
     def test_std_random_choice(self):
-        from core.effects import StdRandom
+        from infra.effects import StdRandom
         r = StdRandom(seed=42)
         seq = [1, 2, 3, 4, 5]
         c = r.choice(seq)
         self.assertIn(c, seq)
 
     def test_deterministic_random_reproducible(self):
-        from core.effects import DeterministicRandom
+        from infra.effects import DeterministicRandom
         r1 = DeterministicRandom(seed=99)
         r2 = DeterministicRandom(seed=99)
         vals1 = [r1.uniform(0, 1) for _ in range(5)]
@@ -2342,14 +2071,14 @@ class TestEffectsModules(unittest.TestCase):
         self.assertEqual(vals1, vals2)
 
     def test_deterministic_random_choice(self):
-        from core.effects import DeterministicRandom
+        from infra.effects import DeterministicRandom
         r = DeterministicRandom(seed=42)
         seq = ["a", "b", "c"]
         c = r.choice(seq)
         self.assertIn(c, seq)
 
     def test_live_effects_factory(self):
-        from core.effects import live_effects
+        from infra.effects import live_effects
         fx = live_effects()
         self.assertIsNotNone(fx.clock)
         self.assertIsNotNone(fx.log)
@@ -2358,7 +2087,7 @@ class TestEffectsModules(unittest.TestCase):
         self.assertIsNotNone(fx.random)
 
     def test_test_effects_factory(self):
-        from core.effects import test_effects
+        from infra.effects import test_effects
         fx = test_effects(seed=7)
         self.assertIsNotNone(fx.clock)
 
@@ -2420,7 +2149,7 @@ class TestLoggingSetup(unittest.TestCase):
 
     def test_get_effects_logger(self):
         from infra.logging.setup import get_effects_logger
-        from core.effects import StdLogger
+        from infra.effects import StdLogger
         result = get_effects_logger()
         self.assertIsInstance(result, StdLogger)
 

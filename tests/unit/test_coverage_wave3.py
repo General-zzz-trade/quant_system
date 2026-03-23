@@ -32,43 +32,6 @@ import pytest
 # error_map
 # ─────────────────────────────────────────────────────────────
 
-class TestBinanceErrorMap:
-    def test_known_halt_code(self):
-        from execution.adapters.binance.error_map import classify_error, BinanceErrorAction
-        action, desc = classify_error(-1002)
-        assert action == BinanceErrorAction.HALT
-        assert "unauthorized" in desc
-
-    def test_known_retry_code(self):
-        from execution.adapters.binance.error_map import classify_error, BinanceErrorAction
-        action, desc = classify_error(-1003)
-        assert action == BinanceErrorAction.RETRY
-
-    def test_known_reject_code(self):
-        from execution.adapters.binance.error_map import classify_error, BinanceErrorAction
-        action, desc = classify_error(-1013)
-        assert action == BinanceErrorAction.REJECT
-
-    def test_unknown_code_defaults_reject(self):
-        from execution.adapters.binance.error_map import classify_error, BinanceErrorAction
-        action, desc = classify_error(-9999)
-        assert action == BinanceErrorAction.REJECT
-        assert "unknown code" in desc
-
-    def test_all_error_actions_exist(self):
-        from execution.adapters.binance.error_map import BinanceErrorAction
-        assert {a.value for a in BinanceErrorAction} == {"retry", "reject", "halt", "ignore"}
-
-    def test_halt_signature_error(self):
-        from execution.adapters.binance.error_map import classify_error, BinanceErrorAction
-        action, _ = classify_error(-1022)
-        assert action == BinanceErrorAction.HALT
-
-    def test_ignore_action_exists_in_enum(self):
-        from execution.adapters.binance.error_map import BinanceErrorAction
-        assert BinanceErrorAction.IGNORE.value == "ignore"
-
-
 # ─────────────────────────────────────────────────────────────
 # dedup_keys
 # ─────────────────────────────────────────────────────────────
@@ -116,43 +79,6 @@ class TestDedupKeys:
             fee=Decimal("0.001"), fee_asset=None, ts_ms=1000,
         )
         assert isinstance(d, str) and len(d) == 64
-
-
-# ─────────────────────────────────────────────────────────────
-# dedup_order_keys
-# ─────────────────────────────────────────────────────────────
-
-class TestDedupOrderKeys:
-    def test_make_order_key(self):
-        from execution.adapters.binance.dedup_order_keys import make_order_key
-        key = make_order_key(venue="binance", symbol="BTCUSDT", order_id="ord999")
-        assert key == "binance:BTCUSDT:order:ord999"
-
-    def test_payload_digest_for_order(self):
-        from execution.adapters.binance.dedup_order_keys import payload_digest_for_order
-        d = payload_digest_for_order(
-            symbol="BTCUSDT", order_id="ord1", client_order_id="cid1",
-            status="NEW", side="BUY", order_type="MARKET", tif="GTC",
-            qty=Decimal("0.01"), price=Decimal("50000.0"),
-            filled_qty=Decimal("0"), avg_price=None, ts_ms=1000,
-        )
-        assert isinstance(d, str) and len(d) == 64
-
-    def test_order_key_deterministic(self):
-        from execution.adapters.binance.dedup_order_keys import make_order_key
-        k1 = make_order_key(venue="binance", symbol="BTCUSDT", order_id="abc")
-        k2 = make_order_key(venue="binance", symbol="BTCUSDT", order_id="abc")
-        assert k1 == k2
-
-    def test_payload_digest_none_optionals(self):
-        from execution.adapters.binance.dedup_order_keys import payload_digest_for_order
-        d = payload_digest_for_order(
-            symbol="ETHUSDT", order_id="x1", client_order_id=None,
-            status="FILLED", side="SELL", order_type="LIMIT", tif=None,
-            qty=Decimal("2.0"), price=None,
-            filled_qty=Decimal("2.0"), avg_price=Decimal("3000.0"), ts_ms=0,
-        )
-        assert isinstance(d, str)
 
 
 # ─────────────────────────────────────────────────────────────
