@@ -1,4 +1,8 @@
-"""AlphaRunner — runs alpha strategy on Bybit with RustFeatureEngine + LightGBM."""
+"""AlphaRunner — DEPRECATED. Use decision/modules/alpha.py (AlphaDecisionModule) instead.
+
+New entry point: runner/alpha_main.py
+This file is kept for backward compatibility with runner/main.py.
+"""
 from __future__ import annotations
 
 import json

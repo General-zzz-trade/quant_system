@@ -93,7 +93,7 @@ class BacktestEngine:
 
         # Compute metrics from results
         signals = [r.get("signal", 0) for r in results]
-        equity = self._initial_equity
+        _equity = self._initial_equity  # noqa: F841
         trades = []
         pos = 0
         entry_idx = 0

@@ -21,9 +21,9 @@ import argparse
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -402,7 +402,7 @@ def run_t1_check(
     }
 
     if has_bias:
-        print(f"\n  WARNING: Cross-market features may have look-ahead bias on 15m")
+        print("\n  WARNING: Cross-market features may have look-ahead bias on 15m")
         print(f"  Sharpe WITH T-1: {avg_with:.2f}, WITHOUT T-1: {avg_without:.2f} "
               f"(+{bias_ratio*100:.0f}%)")
     else:

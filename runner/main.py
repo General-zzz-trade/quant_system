@@ -468,7 +468,6 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
 
 def _run_backtest(args) -> None:
     """Run strategy on historical data (no exchange connection)."""
-    import json
     import numpy as np
     import pandas as pd
     from pathlib import Path
@@ -487,7 +486,7 @@ def _run_backtest(args) -> None:
     # Load model via standard loader (handles pickle safely)
     model_dir = Path(f"models_v8/{symbol}_gate_v2")
     model_info = load_model(model_dir)
-    config = model_info["config"]
+    _config = model_info["config"]  # noqa: F841
     feat = compute_features_batch(symbol=symbol, df=df, include_v11=False)
 
     # Use primary horizon model
@@ -523,9 +522,11 @@ def _run_backtest(args) -> None:
                 pos = 0
         if pos == 0:
             if z[i] > dz:
-                pos = 1; eb = i
+                pos = 1
+                eb = i
             elif z[i] < -dz:
-                pos = -1; eb = i
+                pos = -1
+                eb = i
 
     arr = np.array(trades) if trades else np.array([0.0])
     sharpe = float(np.mean(arr) / np.std(arr) * np.sqrt(365)) if np.std(arr) > 0 else 0
@@ -557,7 +558,6 @@ def main(argv: list[str] | None = None):
 
     # Backtest mode: run strategy on historical data, no exchange needed
     if args.mode == "backtest":
-        from runner.strategy_base import BacktestEngine
         logger.info("Running backtest mode on %s", args.data or "default data")
         if not args.data:
             args.data = f"data_files/{args.symbols[0]}_1h.csv"

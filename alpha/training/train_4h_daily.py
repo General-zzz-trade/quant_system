@@ -462,7 +462,7 @@ def main():
             results[f"{symbol}_{interval}"] = r
 
     print(f"\n{'='*60}")
-    print(f"  Training Summary")
+    print("  Training Summary")
     print(f"{'='*60}")
     for key, r in results.items():
         status = r.get("status", "?")
