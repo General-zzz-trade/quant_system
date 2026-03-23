@@ -1343,13 +1343,38 @@ class AlphaRunner:
         # At 10x leverage, effective exposure = cap × 10:
         #   BTC_4h 0.15 × 10 = 1.5x effective, ETH_4h 0.10 × 10 = 1.0x effective
         #   BTC_1h 0.08 × 10 = 0.8x (scaler), ETH_1h 0.06 × 10 = 0.6x (scaler)
-        # Total portfolio effective leverage = 3.4x (4h-led, 1h-scaled)
-        # Base allocation weights (floor — used before IC data available)
-        _BASE_WEIGHTS = {
-            "BTCUSDT": 0.08, "ETHUSDT": 0.06, "ETHUSDT_15m": 0.05,
-            "BTCUSDT_15m": 0.05, "BTCUSDT_4h": 0.15, "ETHUSDT_4h": 0.10,
-        }
+        # Base allocation weights per runner (fraction of equity before leverage).
+        # ── Dynamic base weights: adapt to equity size + market regime ──
+        # Small account (<$500): concentrate on fewer positions, higher cap
+        # Medium ($500-$10K): standard allocation
+        # Large (>$10K): diversify, lower per-symbol cap
+        if equity < 500:
+            _BASE_WEIGHTS = {
+                "BTCUSDT": 0.25, "ETHUSDT": 0.25, "ETHUSDT_15m": 0.0,
+                "BTCUSDT_15m": 0.0, "BTCUSDT_4h": 0.35, "ETHUSDT_4h": 0.30,
+            }
+        elif equity < 10000:
+            _BASE_WEIGHTS = {
+                "BTCUSDT": 0.18, "ETHUSDT": 0.18, "ETHUSDT_15m": 0.05,
+                "BTCUSDT_15m": 0.05, "BTCUSDT_4h": 0.25, "ETHUSDT_4h": 0.20,
+            }
+        else:
+            _BASE_WEIGHTS = {
+                "BTCUSDT": 0.12, "ETHUSDT": 0.12, "ETHUSDT_15m": 0.05,
+                "BTCUSDT_15m": 0.05, "BTCUSDT_4h": 0.18, "ETHUSDT_4h": 0.15,
+            }
+
         base_cap = _BASE_WEIGHTS.get(self._runner_key or self._symbol, 0.10)
+
+        # Market regime scaling: trending → boost, ranging → shrink
+        # Uses regime_active from _check_regime (already computed this bar)
+        if self._regime_active:
+            # Active regime: use full cap
+            regime_cap_scale = 1.0
+        else:
+            # Filtered/ranging: reduce to 60% (still trade, just smaller)
+            regime_cap_scale = 0.6
+        base_cap *= regime_cap_scale
 
         # Adaptive allocation: scale base weight by runner's rolling IC health
         # IC healthy (GREEN) → 1.2x base, IC weak (YELLOW) → 0.8x, IC dead (RED) → 0.4x
@@ -1479,7 +1504,13 @@ class AlphaRunner:
                 for s in ["BTCUSDT", "ETHUSDT"]
                 if self._state_store is not None
             ) if self._state_store else 0
-            max_total = equity * 2.0
+            # Portfolio cap scales with equity: small accounts can be more aggressive
+            if equity < 500:
+                max_total = equity * 8.0   # small: allow up to 8x total
+            elif equity < 10000:
+                max_total = equity * 6.0   # medium: 6x
+            else:
+                max_total = equity * 5.0   # large: 5x (more conservative)
             if total_exposure + (size * price) > max_total and size > self._min_size:
                 allowed = max(0, max_total - total_exposure) / price
                 if allowed < self._min_size:
