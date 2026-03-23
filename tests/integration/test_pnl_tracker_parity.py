@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust not built")
 
 def make_py_tracker():
     """Create a pure-Python PnLTracker (no Rust delegation)."""
-    from scripts.ops.pnl_tracker import PnLTracker
+    from attribution.pnl_tracker import PnLTracker
     t = PnLTracker.__new__(PnLTracker)
     t._use_rust = False
     t._total_pnl = 0.0
@@ -206,20 +206,20 @@ class TestPnLTrackerWrapper:
     """Test the PnLTracker Python wrapper with Rust backend."""
 
     def test_wrapper_uses_rust_when_available(self):
-        from scripts.ops.pnl_tracker import PnLTracker, _HAS_RUST
+        from attribution.pnl_tracker import PnLTracker, _HAS_RUST
         t = PnLTracker()
         if _HAS_RUST:
             assert t._use_rust is True
 
     def test_wrapper_record_close_returns_dict(self):
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         t = PnLTracker()
         r = t.record_close("ETHUSDT", 1, 100.0, 110.0, 1.0, "test")
         assert isinstance(r, dict)
         assert "pnl_usd" in r
 
     def test_wrapper_properties_accessible(self):
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         t = PnLTracker()
         t.record_close("ETH", 1, 100.0, 110.0, 1.0, "win")
         assert t.total_pnl == pytest.approx(10.0)
@@ -230,7 +230,7 @@ class TestPnLTrackerWrapper:
         assert t.drawdown_pct == pytest.approx(0.0)
 
     def test_wrapper_summary(self):
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         t = PnLTracker()
         t.record_close("ETH", 1, 100.0, 110.0, 1.0, "win")
         s = t.summary()

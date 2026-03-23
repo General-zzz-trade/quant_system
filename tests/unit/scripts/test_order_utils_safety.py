@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
-from scripts.ops.order_utils import clamp_notional, reliable_close_position
+from execution.order_utils import clamp_notional, reliable_close_position
 
 
 class TestClampNotional:

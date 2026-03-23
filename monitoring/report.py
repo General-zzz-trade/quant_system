@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from scripts.ops.demo_tracker import TRACK_RECORD_PATH, load_track_record, compute_rolling_sharpe
+from monitoring.tracker import TRACK_RECORD_PATH, load_track_record, compute_rolling_sharpe
 
 # ---------------------------------------------------------------------------
 # Walk-forward baselines (hardcoded from CLAUDE.md)

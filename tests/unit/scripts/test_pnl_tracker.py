@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.ops.pnl_tracker import PnLTracker
+from attribution.pnl_tracker import PnLTracker
 
 
 class TestPnLTracker:

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 
 from execution.models.balances import BalanceSnapshot, CanonicalBalance
-from scripts.ops.pnl_tracker import PnLTracker
+from attribution.pnl_tracker import PnLTracker
 from scripts.ops.portfolio_combiner import PortfolioCombiner
 from scripts.ops.portfolio_manager import PortfolioManager
 

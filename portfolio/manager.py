@@ -4,8 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from scripts.ops.order_utils import clamp_notional
-from scripts.ops.pnl_tracker import PnLTracker
+from execution.order_utils import clamp_notional
+from attribution.pnl_tracker import PnLTracker
 
 logger = logging.getLogger(__name__)
 

@@ -33,7 +33,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.ops.daily_reconciliation import (  # noqa: E402
+from monitoring.daily_reconcile import (  # noqa: E402
     BarEntry,
     SymbolSession,
     parse_log,
@@ -73,14 +73,14 @@ class BacktestBar:
 def _resolve_symbol(runner_key: str) -> str:
     """Map runner key (e.g. ETHUSDT_15m) to underlying symbol."""
     # SYMBOL_CONFIG maps keys like ETHUSDT_15m -> {"symbol": "ETHUSDT"}
-    from scripts.ops.config import SYMBOL_CONFIG
+    from runner.strategy_config import SYMBOL_CONFIG
     cfg = SYMBOL_CONFIG.get(runner_key, {})
     return cfg.get("symbol", runner_key)
 
 
 def _resolve_interval(runner_key: str) -> str:
     """Map runner key to kline interval string."""
-    from scripts.ops.config import SYMBOL_CONFIG
+    from runner.strategy_config import SYMBOL_CONFIG
     cfg = SYMBOL_CONFIG.get(runner_key, {})
     return cfg.get("interval", "60")
 
@@ -127,7 +127,7 @@ def regenerate_backtest_signals(
     interval = _resolve_interval(runner_key)
 
     # Load model
-    from scripts.ops.config import SYMBOL_CONFIG
+    from runner.strategy_config import SYMBOL_CONFIG
     model_dir_name = SYMBOL_CONFIG.get(runner_key, {}).get("model_dir", runner_key)
     model_dir = MODEL_BASE / model_dir_name
 
@@ -136,7 +136,7 @@ def regenerate_backtest_signals(
         return []
 
     try:
-        from scripts.ops.model_loader import load_model
+        from alpha.model_loader_prod import load_model
         model_info = load_model(model_dir)
     except Exception as e:
         log.warning("Failed to load model %s: %s", model_dir, e)

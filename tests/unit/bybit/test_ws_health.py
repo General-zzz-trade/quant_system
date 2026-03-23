@@ -109,7 +109,7 @@ class TestAlphaRunnerDataStale:
         from unittest.mock import MagicMock as MM
         if "_quant_hotpath" not in sys.modules:
             sys.modules["_quant_hotpath"] = MM()
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         adapter = MM()
         adapter.get_ticker.return_value = {}
@@ -131,7 +131,7 @@ class TestAlphaRunnerDataStale:
         from unittest.mock import MagicMock as MM
         if "_quant_hotpath" not in sys.modules:
             sys.modules["_quant_hotpath"] = MM()
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         adapter = MM()
         adapter.get_ticker.return_value = {"fundingRate": "0.0001"}

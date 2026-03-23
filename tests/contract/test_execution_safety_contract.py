@@ -9,7 +9,7 @@ from execution.state_machine import (
     VALID_TRANSITIONS,
     OrderStatus,
 )
-from scripts.ops.config import MAX_ORDER_NOTIONAL
+from runner.strategy_config import MAX_ORDER_NOTIONAL
 
 
 # ── MAX_ORDER_NOTIONAL ──────────────────────────────────────

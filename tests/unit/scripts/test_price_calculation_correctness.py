@@ -77,8 +77,8 @@ except ImportError:
     _fake.rust_make_idempotency_key = lambda v, a, k: f"{v}:{a}:{k}"
     sys.modules["_quant_hotpath"] = _fake
 
-from scripts.ops.alpha_runner import AlphaRunner  # noqa: E402
-from scripts.ops.config import MAX_ORDER_NOTIONAL  # noqa: E402
+from runner.alpha_runner import AlphaRunner  # noqa: E402
+from runner.strategy_config import MAX_ORDER_NOTIONAL  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -410,14 +410,14 @@ class TestPriceCalculation:
 
     def test_zero_price_notional_clamp(self):
         """clamp_notional with price=0 must not divide by zero."""
-        from scripts.ops.order_utils import clamp_notional
+        from execution.order_utils import clamp_notional
         result = clamp_notional(1.0, 0.0, "ETHUSDT")
         assert result == 1.0
         assert not math.isnan(result)
 
     def test_zero_entry_price_pnl_tracker(self):
         """PnLTracker.record_close with entry_price=0 must not divide by zero."""
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         tracker = PnLTracker()
         trade = tracker.record_close(
             symbol="ETHUSDT", side=1, entry_price=0.0,
@@ -432,13 +432,13 @@ class TestPriceCalculation:
 
     def test_nan_price_rejected(self):
         """price=NaN must not propagate through clamp_notional."""
-        from scripts.ops.order_utils import clamp_notional
+        from execution.order_utils import clamp_notional
         result = clamp_notional(1.0, float("nan"), "ETHUSDT")
         assert result == 1.0 or not math.isnan(result)
 
     def test_nan_entry_price_pnl_tracker(self):
         """PnLTracker with NaN entry_price must not propagate NaN."""
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         tracker = PnLTracker()
         trade = tracker.record_close(
             symbol="ETHUSDT", side=1,
@@ -451,7 +451,7 @@ class TestPriceCalculation:
 
     def test_nan_exit_price_pnl_tracker(self):
         """PnLTracker with NaN exit_price must not propagate NaN."""
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         tracker = PnLTracker()
         trade = tracker.record_close(
             symbol="ETHUSDT", side=1,

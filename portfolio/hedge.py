@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from scripts.ops.balance_utils import get_total_and_free_balance
-from scripts.ops.order_utils import clamp_notional
+from execution.balance_utils import get_total_and_free_balance
+from execution.order_utils import clamp_notional
 
 logger = logging.getLogger(__name__)
 

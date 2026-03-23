@@ -60,7 +60,7 @@ def test_summarize_log_health_counts_recent_markers(tmp_path):
 
 
 def test_evaluate_alpha_health_passes_on_fresh_heartbeat(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "alpha.log"
@@ -85,7 +85,7 @@ def test_evaluate_alpha_health_passes_on_fresh_heartbeat(monkeypatch, tmp_path):
 
 
 def test_evaluate_alpha_health_fails_when_portfolio_is_killed(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "alpha.log"
@@ -124,7 +124,7 @@ def test_evaluate_alpha_health_fails_when_portfolio_is_killed(monkeypatch, tmp_p
 
 
 def test_evaluate_alpha_health_does_not_trust_account_only_activity(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "alpha.log"
@@ -159,7 +159,7 @@ def test_evaluate_alpha_health_does_not_trust_account_only_activity(monkeypatch,
 
 
 def test_evaluate_alpha_health_fails_when_log_is_stale(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "alpha.log"
@@ -190,7 +190,7 @@ def test_evaluate_alpha_health_fails_when_log_is_stale(monkeypatch, tmp_path):
 
 
 def test_evaluate_mm_health_allows_account_truth_to_prove_activity(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "mm.log"
@@ -228,7 +228,7 @@ def test_evaluate_mm_health_allows_account_truth_to_prove_activity(monkeypatch, 
 
 
 def test_require_account_turns_skip_into_failure(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "mm.log"
@@ -260,7 +260,7 @@ def test_require_account_turns_skip_into_failure(monkeypatch, tmp_path):
 
 
 def test_evaluate_alpha_health_fails_when_persistent_kill_latch_is_armed(monkeypatch, tmp_path):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     now = datetime(2026, 3, 19, 20, 0, 0)
     log = tmp_path / "alpha.log"
@@ -367,7 +367,7 @@ def test_account_truth_filters_old_fills():
 
 
 def test_main_returns_nonzero_on_failure(monkeypatch, capsys):
-    from scripts.ops import runtime_health_check as rhc
+    from runner import runtime_health_check as rhc
 
     monkeypatch.setattr(
         rhc,

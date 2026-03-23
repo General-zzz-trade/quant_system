@@ -11,10 +11,10 @@ from unittest.mock import patch
 with patch.dict(sys.modules, {"_quant_hotpath": None}):
     # Reload to pick up _HAS_RUST = False
     import importlib
-    from scripts.ops import pnl_tracker as _mod
+    from runner import pnl_tracker as _mod
     _orig_has_rust = _mod._HAS_RUST
     _mod._HAS_RUST = False
-    from scripts.ops.pnl_tracker import PnLTracker
+    from attribution.pnl_tracker import PnLTracker
 
 
 class TestPnLTrackerAttribution(unittest.TestCase):

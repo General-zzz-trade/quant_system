@@ -104,7 +104,7 @@ class TestParseCloseLine:
 
     def test_parse_close_line_prefixed_lowercase_with_pct(self) -> None:
         line = (
-            "2026-03-18 14:00:01,991 INFO scripts.ops.alpha_runner: "
+            "2026-03-18 14:00:01,991 INFO runner.alpha_runner: "
             "AXSUSDT CLOSE short: pnl=$-105.0948 (-3.00%) total=$-105.0948 wins=0/1"
         )
         result = parse_close_line(line)
@@ -148,7 +148,7 @@ class TestParseOpenLine:
         ("line", "expected_side", "expected_qty", "expected_price", "expected_stop"),
         [
             (
-                "2026-03-18 05:00:03,853 INFO scripts.ops.alpha_runner: "
+                "2026-03-18 05:00:03,853 INFO runner.alpha_runner: "
                 "Opened sell 4045.3000 @ ~$1.2 stop=$1.24 (ATR=0.86%): {'status': 'submitted'}",
                 "SELL",
                 4045.3,
@@ -156,7 +156,7 @@ class TestParseOpenLine:
                 1.24,
             ),
             (
-                "2026-03-18 06:00:01,105 INFO scripts.ops.alpha_runner: "
+                "2026-03-18 06:00:01,105 INFO runner.alpha_runner: "
                 "Opened buy 0.0670 @ ~$74475.7 stop=$72754.61 (ATR=0.78%): {'status': 'submitted'}",
                 "BUY",
                 0.067,
@@ -309,11 +309,11 @@ class TestParseIncremental:
     def test_parse_incremental_uses_logged_dates_and_real_close_formats(self, tmp_path: Path) -> None:
         log = tmp_path / "alpha.log"
         log.write_text(
-            "2026-03-17 23:59:59,999 INFO scripts.ops.alpha_runner: "
+            "2026-03-17 23:59:59,999 INFO runner.alpha_runner: "
             "WS ETHUSDT bar 1: $3500.00 z=1.50 sig=1 hold=0 regime=trending dz=0.5\n"
             "2026-03-18 00:00:02,263 INFO scripts.ops.portfolio_combiner: "
             "COMBO CLOSE short: pnl=$-3.0576 total=$-3.0576 wins=0/1\n"
-            "2026-03-18 14:00:01,991 INFO scripts.ops.alpha_runner: "
+            "2026-03-18 14:00:01,991 INFO runner.alpha_runner: "
             "AXSUSDT CLOSE short: pnl=$-105.0948 (-3.00%) total=$-105.0948 wins=0/1\n",
             encoding="utf-8",
         )

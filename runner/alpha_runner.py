@@ -1410,7 +1410,7 @@ class AlphaRunner:
 
         # Correlation-aware sizing: reduce when highly correlated with active positions
         try:
-            from scripts.ops.run_bybit_alpha import _correlation_computer
+            from runner.main import _correlation_computer
             if _correlation_computer is not None:
                 active = [s for s, sig in _consensus_signals.items()
                           if sig != 0 and s != self._symbol and s != self._runner_key]

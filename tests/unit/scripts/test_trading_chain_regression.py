@@ -30,7 +30,7 @@ class TestConsensusSignalsScope:
     """Verify _consensus_signals is never shadowed as a local in any method."""
 
     def test_consensus_signals_is_module_level_dict(self):
-        from scripts.ops.config import _consensus_signals
+        from runner.strategy_config import _consensus_signals
         assert isinstance(_consensus_signals, dict)
 
     def test_alpha_runner_imports_consensus(self):
@@ -46,7 +46,7 @@ class TestConsensusSignalsScope:
         This is the root cause of the 2026-03-22 16:00 crash:
         UnboundLocalError on _consensus_signals in process_bar.
         """
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         code = AlphaRunner.process_bar.__code__
         # Must be in co_names (global lookup), NOT co_varnames (local)
         assert '_consensus_signals' not in code.co_varnames, \
@@ -75,7 +75,7 @@ class TestConsensusSignalsScope:
 
     def test_evaluate_gates_passes_consensus(self):
         """_evaluate_gates must pass _consensus_signals to GateEvaluator."""
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         src = inspect.getsource(AlphaRunner._evaluate_gates)
         assert '_consensus_signals' in src, \
@@ -145,7 +145,7 @@ class TestWatchdogLogFileCheck:
 
     def test_bybit_alpha_has_log_file_config(self):
         """bybit-alpha config must have log_file set (stdout goes to file, not journal)."""
-        from scripts.ops.health_watchdog import SERVICES
+        from monitoring.watchdog import SERVICES
         cfg = SERVICES.get("bybit-alpha", {})
         assert "log_file" in cfg, \
             "bybit-alpha missing log_file config — watchdog will check journal (empty) and false-stale"
@@ -153,7 +153,7 @@ class TestWatchdogLogFileCheck:
 
     def test_log_file_check_returns_healthy_for_fresh_file(self, tmp_path):
         """Service with recently-modified log file should be HEALTHY, not stale."""
-        from scripts.ops.health_watchdog import check_service
+        from monitoring.watchdog import check_service
 
         log_file = tmp_path / "test.log"
         log_file.write_text("2026-03-23 test log line\n")
@@ -173,7 +173,7 @@ class TestWatchdogLogFileCheck:
 
     def test_log_file_check_returns_stale_for_old_file(self, tmp_path):
         """Service with old log file should be STALE."""
-        from scripts.ops.health_watchdog import check_service
+        from monitoring.watchdog import check_service
 
         log_file = tmp_path / "test.log"
         log_file.write_text("old log\n")
@@ -194,7 +194,7 @@ class TestWatchdogLogFileCheck:
         assert result["status"] == "stale"
 
     def test_log_file_missing_returns_stale(self, tmp_path):
-        from scripts.ops.health_watchdog import check_service
+        from monitoring.watchdog import check_service
 
         cfg = {
             "unit": "test.service",
@@ -247,7 +247,7 @@ class TestCheckpointEdgeCases:
 
     def test_restore_zero_bars_zero_closes(self, tmp_path):
         """Checkpoint with bars=0 and closes=[] is valid (fresh start, not corrupted)."""
-        from scripts.ops.checkpoint_manager import CheckpointManager
+        from state.checkpoint import CheckpointManager
         mgr = CheckpointManager(checkpoint_dir=tmp_path)
 
         mgr.save("ETHUSDT", '{"bars": []}', {"weights": []},
@@ -263,7 +263,7 @@ class TestCheckpointEdgeCases:
 
         Regression: ETHUSDT checkpoint had bars=810, closes=[] → z=? forever.
         """
-        from scripts.ops.checkpoint_manager import CheckpointManager
+        from state.checkpoint import CheckpointManager
         mgr = CheckpointManager(checkpoint_dir=tmp_path)
 
         # Save a corrupted checkpoint: bars processed but no price data
@@ -284,7 +284,7 @@ class TestCheckpointEdgeCases:
 
     def test_restore_valid_checkpoint_with_data(self, tmp_path):
         """Checkpoint with bars>0 AND closes should restore normally."""
-        from scripts.ops.checkpoint_manager import CheckpointManager
+        from state.checkpoint import CheckpointManager
         mgr = CheckpointManager(checkpoint_dir=tmp_path)
 
         mgr._dir.mkdir(parents=True, exist_ok=True)
@@ -304,7 +304,7 @@ class TestCheckpointEdgeCases:
 
     def test_restore_with_large_buffers(self, tmp_path):
         """Checkpoint with 500-element buffers should round-trip correctly."""
-        from scripts.ops.checkpoint_manager import CheckpointManager
+        from state.checkpoint import CheckpointManager
         mgr = CheckpointManager(checkpoint_dir=tmp_path)
 
         closes = [100.0 + i * 0.1 for i in range(500)]
@@ -326,7 +326,7 @@ class TestModelConfigCompleteness:
 
     @pytest.fixture
     def active_models(self):
-        from scripts.ops.config import SYMBOL_CONFIG, MODEL_BASE
+        from runner.strategy_config import SYMBOL_CONFIG, MODEL_BASE
         models = {}
         for key, cfg in SYMBOL_CONFIG.items():
             config_path = MODEL_BASE / cfg["model_dir"] / "config.json"
@@ -364,39 +364,39 @@ class TestModuleWiring:
     """Verify extracted modules are properly wired into AlphaRunner."""
 
     def test_alpha_runner_has_checkpoint_manager(self):
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         init_src = inspect.getsource(AlphaRunner.__init__)
         assert "CheckpointManager" in init_src
 
     def test_alpha_runner_has_gate_evaluator(self):
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         init_src = inspect.getsource(AlphaRunner.__init__)
         assert "GateEvaluator" in init_src
 
     def test_alpha_runner_has_entry_scaler(self):
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         init_src = inspect.getsource(AlphaRunner.__init__)
         assert "EntryScaler" in init_src
 
     def test_save_checkpoint_delegates(self):
         """_save_checkpoint must use self._ckpt, not inline JSON logic."""
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         src = inspect.getsource(AlphaRunner._save_checkpoint)
         assert "self._ckpt.save" in src, \
             "_save_checkpoint does not delegate to CheckpointManager"
 
     def test_evaluate_gates_delegates(self):
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         src = inspect.getsource(AlphaRunner._evaluate_gates)
         assert "self._gate_evaluator.evaluate" in src
 
     def test_compute_entry_scale_delegates(self):
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
         import inspect
         src = inspect.getsource(AlphaRunner._compute_entry_scale)
         assert "self._entry_scaler_module.bb_scale" in src
@@ -421,8 +421,8 @@ class TestExceptionWiring:
     """Verify exception types are imported and used in AlphaRunner."""
 
     def test_exceptions_imported(self):
-        from scripts.ops.alpha_runner import VenueError
-        from scripts.ops.exceptions import VenueError as VE
+        from runner.alpha_runner import VenueError
+        from core.exceptions import VenueError as VE
         assert VenueError is VE
 
     def test_venue_error_in_reconcile(self):
@@ -438,7 +438,7 @@ class TestSymbolConfigConsistency:
     """Verify SYMBOL_CONFIG entries are consistent."""
 
     def test_all_model_dirs_exist(self):
-        from scripts.ops.config import SYMBOL_CONFIG, MODEL_BASE
+        from runner.strategy_config import SYMBOL_CONFIG, MODEL_BASE
         for key, cfg in SYMBOL_CONFIG.items():
             model_dir = MODEL_BASE / cfg["model_dir"]
             assert model_dir.exists(), f"{key}: model_dir {model_dir} does not exist"
@@ -446,7 +446,7 @@ class TestSymbolConfigConsistency:
                 f"{key}: {model_dir}/config.json missing"
 
     def test_step_sizes_valid(self):
-        from scripts.ops.config import SYMBOL_CONFIG
+        from runner.strategy_config import SYMBOL_CONFIG
         for key, cfg in SYMBOL_CONFIG.items():
             step = cfg.get("step", 0.01)
             assert step > 0, f"{key}: invalid step size {step}"

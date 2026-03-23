@@ -14,7 +14,7 @@ import pytest
 
 def _make_runner(symbol="ETHUSDT", dry_run=True):
     """Create a minimal AlphaRunner with checkpoint support."""
-    from scripts.ops.alpha_runner import AlphaRunner
+    from runner.alpha_runner import AlphaRunner
 
     adapter = MagicMock()
     adapter.get_balances.return_value = {
@@ -135,7 +135,7 @@ class TestCheckpointNoRegression:
 
     def test_save_only_at_warmup_threshold(self, tmp_path):
         """Checkpoint saves only when bars_processed >= WARMUP_BARS."""
-        from scripts.ops.config import WARMUP_BARS
+        from runner.strategy_config import WARMUP_BARS
 
         runner = _make_runner()
         runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
@@ -268,17 +268,17 @@ class TestDynamicNotional:
     """Test dynamic MAX_ORDER_NOTIONAL scaling."""
 
     def test_dynamic_scales_with_equity(self):
-        from scripts.ops.config import get_max_order_notional, MAX_ORDER_NOTIONAL_PCT
+        from runner.strategy_config import get_max_order_notional, MAX_ORDER_NOTIONAL_PCT
 
         # Safety cap = equity × PCT (for leveraged positions)
         assert get_max_order_notional(35000) == 35000 * MAX_ORDER_NOTIONAL_PCT
         assert get_max_order_notional(500000) == 100000.0  # ceiling
 
     def test_floor_enforced(self):
-        from scripts.ops.config import get_max_order_notional
+        from runner.strategy_config import get_max_order_notional
         assert get_max_order_notional(0) == 100.0
         assert get_max_order_notional(10) == 100.0
 
     def test_ceiling_enforced(self):
-        from scripts.ops.config import get_max_order_notional
+        from runner.strategy_config import get_max_order_notional
         assert get_max_order_notional(10_000_000) == 100_000.0

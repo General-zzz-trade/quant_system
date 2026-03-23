@@ -206,7 +206,7 @@ class TestSilentFailureGuards:
         adapter = _make_mock_adapter(set_leverage_fail=True)
         model_info = _make_model_info()
 
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         runner = AlphaRunner(
             adapter, model_info, "ETHUSDT",
@@ -254,7 +254,7 @@ class TestSilentFailureGuards:
         """reliable_close_position failure must produce logger.error."""
         adapter = _make_mock_adapter()
 
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         runner = AlphaRunner(
             adapter, _make_model_info(), "ETHUSDT",
@@ -275,7 +275,7 @@ class TestSilentFailureGuards:
         runner._position_size = 0.01
 
         with caplog.at_level(logging.ERROR), \
-             patch("scripts.ops.alpha_runner.reliable_close_position",
+             patch("runner.alpha_runner.reliable_close_position",
                    return_value={"status": "failed", "attempts": 3}):
             result = runner._execute_signal_change(1, 0, 2000.0)
 
@@ -287,7 +287,7 @@ class TestSilentFailureGuards:
 
     def test_nan_feature_uses_neutral_not_zero(self):
         """NaN rsi_14 must become 50.0 (neutral), not 0.0."""
-        from scripts.ops.alpha_runner import _NEUTRAL_DEFAULTS
+        from runner.alpha_runner import _NEUTRAL_DEFAULTS
 
         # Verify the neutral default map has the right values
         assert _NEUTRAL_DEFAULTS["rsi_14"] == 50.0
@@ -301,7 +301,7 @@ class TestSilentFailureGuards:
         model_info = _make_model_info()
         model_info["features"] = ["rsi_14", "ls_ratio"]
 
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         runner = AlphaRunner(
             adapter, model_info, "ETHUSDT",
@@ -330,7 +330,7 @@ class TestSilentFailureGuards:
         adapter = _make_mock_adapter()
         model_info = _make_model_info()
 
-        from scripts.ops.alpha_runner import AlphaRunner, _NEUTRAL_DEFAULTS
+        from runner.alpha_runner import AlphaRunner, _NEUTRAL_DEFAULTS
 
         lgbm_mock = MagicMock()
         lgbm_mock.predict.return_value = [0.01]
@@ -382,7 +382,7 @@ class TestSilentFailureGuards:
         adapter = _make_mock_adapter(balances_fail=True)
         model_info = _make_model_info()
 
-        from scripts.ops.alpha_runner import AlphaRunner
+        from runner.alpha_runner import AlphaRunner
 
         runner = AlphaRunner(
             adapter, model_info, "ETHUSDT",

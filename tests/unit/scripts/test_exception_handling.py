@@ -7,13 +7,13 @@ import pytest
 class TestExceptionHierarchy:
 
     def test_import(self):
-        from scripts.ops.exceptions import (
+        from core.exceptions import (
             TradingError, VenueError, InsufficientMargin,
             OrderRejected, ModelError, DataError, ReconcileError,
         )
 
     def test_hierarchy(self):
-        from scripts.ops.exceptions import (
+        from core.exceptions import (
             TradingError, VenueError, InsufficientMargin,
             OrderRejected, ModelError, DataError, ReconcileError,
         )
@@ -25,33 +25,33 @@ class TestExceptionHierarchy:
         assert issubclass(ReconcileError, TradingError)
 
     def test_insufficient_margin_attrs(self):
-        from scripts.ops.exceptions import InsufficientMargin
+        from core.exceptions import InsufficientMargin
         e = InsufficientMargin(needed=1000.0, available=500.0)
         assert e.needed == 1000.0
         assert e.available == 500.0
         assert "1000" in str(e)
 
     def test_order_rejected_attrs(self):
-        from scripts.ops.exceptions import OrderRejected
+        from core.exceptions import OrderRejected
         e = OrderRejected("test", reason="Qty invalid", order_params={"qty": 0.001})
         assert e.reason == "Qty invalid"
         assert e.order_params["qty"] == 0.001
 
     def test_reconcile_error_attrs(self):
-        from scripts.ops.exceptions import ReconcileError
+        from core.exceptions import ReconcileError
         e = ReconcileError(local_pos=1.0, exchange_pos=0.0)
         assert e.local_pos == 1.0
         assert e.exchange_pos == 0.0
 
     def test_catch_venue_catches_margin(self):
-        from scripts.ops.exceptions import VenueError, InsufficientMargin
+        from core.exceptions import VenueError, InsufficientMargin
         try:
             raise InsufficientMargin("low balance")
         except VenueError:
             pass  # Should be caught
 
     def test_catch_trading_catches_all(self):
-        from scripts.ops.exceptions import (
+        from core.exceptions import (
             TradingError, VenueError, ModelError, DataError,
         )
         for exc_cls in [VenueError, ModelError, DataError]:
@@ -61,7 +61,7 @@ class TestExceptionHierarchy:
                 pass  # Should be caught
 
     def test_venue_error_not_caught_by_model(self):
-        from scripts.ops.exceptions import VenueError, ModelError
+        from core.exceptions import VenueError, ModelError
         with pytest.raises(VenueError):
             try:
                 raise VenueError("network timeout")
@@ -69,7 +69,7 @@ class TestExceptionHierarchy:
                 pass
 
     def test_default_messages(self):
-        from scripts.ops.exceptions import InsufficientMargin, OrderRejected, ReconcileError
+        from core.exceptions import InsufficientMargin, OrderRejected, ReconcileError
         e1 = InsufficientMargin(needed=500, available=100)
         assert "500" in str(e1) and "100" in str(e1)
         e2 = OrderRejected(reason="too small")
@@ -78,13 +78,13 @@ class TestExceptionHierarchy:
         assert "1.0" in str(e3)
 
     def test_exception_with_no_args(self):
-        from scripts.ops.exceptions import VenueError, ModelError, DataError
+        from core.exceptions import VenueError, ModelError, DataError
         for cls in [VenueError, ModelError, DataError]:
             e = cls()
             assert isinstance(e, Exception)
 
     def test_alpha_runner_uses_venue_error(self):
         """Verify AlphaRunner uses VenueError from exceptions module."""
-        from scripts.ops.alpha_runner import VenueError
-        from scripts.ops.exceptions import VenueError as VE
+        from runner.alpha_runner import VenueError
+        from core.exceptions import VenueError as VE
         assert VenueError is VE

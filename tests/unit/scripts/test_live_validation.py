@@ -157,21 +157,21 @@ class TestSignalReconcile:
 class TestSlippageAnalyzer:
 
     def test_import(self):
-        from scripts.ops.slippage_analyzer import parse_log, compute_stats
+        from monitoring.slippage import parse_log, compute_stats
 
     def test_missing_log(self, tmp_path):
-        from scripts.ops.slippage_analyzer import parse_log
+        from monitoring.slippage import parse_log
         result = parse_log(tmp_path / "nonexistent.log", 24)
         assert "error" in result
 
     def test_compute_stats_empty(self):
-        from scripts.ops.slippage_analyzer import compute_stats
+        from monitoring.slippage import compute_stats
         result = compute_stats({"fills": [], "maker_fills": 0, "market_fallbacks": 0})
         assert result["n_fills"] == 0
         assert result["maker_fill_rate"] == 0
 
     def test_compute_stats_basic(self):
-        from scripts.ops.slippage_analyzer import compute_stats
+        from monitoring.slippage import compute_stats
         fills = [
             {"symbol": "BTCUSDT", "slippage_bps": 1.5},
             {"symbol": "BTCUSDT", "slippage_bps": -0.5},
@@ -185,7 +185,7 @@ class TestSlippageAnalyzer:
         assert "ETHUSDT" in result["per_symbol"]
 
     def test_cost_comparison(self):
-        from scripts.ops.slippage_analyzer import compute_stats
+        from monitoring.slippage import compute_stats
         # Very low slippage → BETTER than backtest
         fills = [{"symbol": "BTCUSDT", "slippage_bps": 0.5} for _ in range(10)]
         result = compute_stats({"fills": fills, "maker_fills": 10, "market_fallbacks": 0})

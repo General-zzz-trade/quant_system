@@ -150,7 +150,7 @@ class TestPortfolioCombinerAgreeMode:
         # Safety cap: 10000 * 1.50 = $15000 → 15000/100 = 150
         # 30% equity cap: 10000 * 0.30 * lev(10) / 100 = 300 (higher)
         # Capped at safety limit
-        from scripts.ops.config import get_max_order_notional
+        from runner.strategy_config import get_max_order_notional
         max_size = get_max_order_notional(10000.0) / 100.0
         assert pc._position_size <= max_size + 0.01
 

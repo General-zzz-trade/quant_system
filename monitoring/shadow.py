@@ -125,7 +125,7 @@ def _load_model_and_predict(
     Uses the same model_loader as the live AlphaRunner to ensure
     identical ensemble weighting (Ridge 60% + LightGBM 40%).
     """
-    from scripts.ops.model_loader import load_model
+    from alpha.model_loader_prod import load_model
     from scripts.shared.signal_postprocess import rolling_zscore
 
     try:

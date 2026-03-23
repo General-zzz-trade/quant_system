@@ -29,7 +29,7 @@ def check_api_keys() -> Tuple[bool, Any]:
 def check_max_order_notional() -> Tuple[bool, Any]:
     """Verify MAX_ORDER_NOTIONAL is set to a safe value."""
     try:
-        from scripts.ops.config import MAX_ORDER_NOTIONAL
+        from runner.strategy_config import MAX_ORDER_NOTIONAL
     except ImportError:
         return False, "cannot import config"
     return MAX_ORDER_NOTIONAL <= 10000, MAX_ORDER_NOTIONAL

@@ -6,7 +6,7 @@ import pytest
 
 @pytest.fixture
 def scaler():
-    from scripts.ops.entry_scaler import EntryScaler
+    from portfolio.entry_scaler import EntryScaler
     return EntryScaler()
 
 

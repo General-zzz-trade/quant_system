@@ -18,7 +18,7 @@ import pytest
 
 def _make_runner(equity=1000.0, dry_run=True, symbol="ETHUSDT"):
     """Create a minimal AlphaRunner for chain testing."""
-    from scripts.ops.alpha_runner import AlphaRunner
+    from runner.alpha_runner import AlphaRunner
 
     adapter = MagicMock()
     adapter.get_balances.return_value = {

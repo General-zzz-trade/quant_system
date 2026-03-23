@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any
 
-from scripts.ops.config import MAX_ORDER_NOTIONAL
+from runner.strategy_config import MAX_ORDER_NOTIONAL
 
 logger = logging.getLogger(__name__)
 

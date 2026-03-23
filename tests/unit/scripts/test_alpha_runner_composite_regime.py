@@ -216,9 +216,9 @@ class TestCompositeRegimeEnabled:
 
 class TestSymbolConfig:
     def test_btc_has_composite_regime(self):
-        from scripts.ops.config import SYMBOL_CONFIG
+        from runner.strategy_config import SYMBOL_CONFIG
         assert SYMBOL_CONFIG["BTCUSDT"].get("use_composite_regime") is True
 
     def test_eth_no_composite_regime(self):
-        from scripts.ops.config import SYMBOL_CONFIG
+        from runner.strategy_config import SYMBOL_CONFIG
         assert SYMBOL_CONFIG["ETHUSDT"].get("use_composite_regime") is None

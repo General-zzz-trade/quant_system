@@ -9,7 +9,7 @@ import pytest
 
 class TestRunnerSwitch:
     def test_legacy_flag_is_explicitly_rejected_before_runtime_bootstrap(self, monkeypatch, capsys):
-        from scripts.ops import run_bybit_alpha as mod
+        from runner import run_bybit_alpha as mod
 
         monkeypatch.setattr(mod, "create_adapter", lambda: (_ for _ in ()).throw(AssertionError("should not boot")))
 

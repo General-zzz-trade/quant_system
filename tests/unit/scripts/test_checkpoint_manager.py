@@ -15,7 +15,7 @@ def tmp_ckpt_dir(tmp_path):
 
 @pytest.fixture
 def mgr(tmp_ckpt_dir):
-    from scripts.ops.checkpoint_manager import CheckpointManager
+    from state.checkpoint import CheckpointManager
     return CheckpointManager(checkpoint_dir=tmp_ckpt_dir)
 
 
@@ -45,7 +45,7 @@ class TestCheckpointManager:
         assert mgr.delete("BTC_4h") is False
 
     def test_creates_directory(self, tmp_ckpt_dir):
-        from scripts.ops.checkpoint_manager import CheckpointManager
+        from state.checkpoint import CheckpointManager
         mgr = CheckpointManager(checkpoint_dir=tmp_ckpt_dir / "deep" / "nested")
         mgr.save("test", "{}", {})
         assert mgr.exists("test")

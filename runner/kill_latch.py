@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from execution.adapters.bybit.config import BybitConfig
-from scripts.ops.runtime_ownership import _account_scope, _safe_token
+from runner.ownership import _account_scope, _safe_token
 
 DEFAULT_ENV_FILE = ".env"
 DEFAULT_KILL_DIR = "data/runtime/kills"

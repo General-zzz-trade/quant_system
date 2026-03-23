@@ -5,9 +5,9 @@ import logging
 import time
 from typing import Any
 
-from scripts.ops.balance_utils import get_total_and_free_balance
-from scripts.ops.order_utils import reliable_close_position
-from scripts.ops.pnl_tracker import PnLTracker
+from execution.balance_utils import get_total_and_free_balance
+from execution.order_utils import reliable_close_position
+from attribution.pnl_tracker import PnLTracker
 
 try:
     from _quant_hotpath import RustFillEvent as _RustFillEvent
@@ -239,7 +239,7 @@ class PortfolioCombiner:
             agree_count = sum(1 for s in self._signals.values() if s == desired)
             conviction = agree_count / len(self._signals)  # 0.5 = one alpha, 1.0 = both
             # Use equity-based leverage ladder (same as AlphaRunner)
-            from scripts.ops.alpha_runner import AlphaRunner
+            from runner.alpha_runner import AlphaRunner
             leverage = 2.0  # default
             for threshold, lev_val in AlphaRunner.LEVERAGE_LADDER:
                 if equity >= threshold:
@@ -252,7 +252,7 @@ class PortfolioCombiner:
             size = min(size, max_notional / price)
 
             # Enforce dynamic safety limit (scales with equity)
-            from scripts.ops.config import get_max_order_notional
+            from runner.strategy_config import get_max_order_notional
             dynamic_cap = get_max_order_notional(equity)
             notional = size * price
             if notional > dynamic_cap:

@@ -735,7 +735,7 @@ class TestPositionSizing:
 
     def test_max_notional_clamps(self, runner, adapter):
         """MAX_ORDER_NOTIONAL is enforced in config."""
-        from scripts.ops.config import MAX_ORDER_NOTIONAL
+        from runner.strategy_config import MAX_ORDER_NOTIONAL
         assert MAX_ORDER_NOTIONAL == 5000.0
 
     def test_step_size_rounding(self, runner, adapter):
@@ -895,7 +895,7 @@ class TestKillSwitch:
 
         # Set up state with a pure-Python PnLTracker (Rust mocked in this test file)
         # so peak_equity is a real float, not a MagicMock
-        from scripts.ops.pnl_tracker import PnLTracker
+        from attribution.pnl_tracker import PnLTracker
         real_pnl = PnLTracker()
         # Force pure-Python mode regardless of mock hotpath
         real_pnl._use_rust = False
