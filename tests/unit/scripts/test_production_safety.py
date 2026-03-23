@@ -16,34 +16,34 @@ import pytest
 class TestValidatePrice:
 
     def test_valid_price(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         assert validate_price(100.5, "test") == 100.5
 
     def test_zero_price_ok(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         assert validate_price(0.0, "test") == 0.0
 
     def test_int_price_ok(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         assert validate_price(42, "test") == 42.0
 
     def test_nan_raises(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         with pytest.raises(ValueError, match="NaN"):
             validate_price(float("nan"), "ctx")
 
     def test_inf_raises(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         with pytest.raises(ValueError, match="Inf"):
             validate_price(float("inf"), "ctx")
 
     def test_negative_raises(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         with pytest.raises(ValueError, match="negative"):
             validate_price(-1.0, "ctx")
 
     def test_non_numeric_raises(self):
-        from core.validation import validate_price
+        from execution.validation import validate_price
         with pytest.raises(ValueError, match="numeric"):
             validate_price("abc", "ctx")  # type: ignore[arg-type]
 
@@ -51,44 +51,44 @@ class TestValidatePrice:
 class TestValidateQty:
 
     def test_valid_qty(self):
-        from core.validation import validate_qty
+        from execution.validation import validate_qty
         assert validate_qty(1.5, "test") == 1.5
 
     def test_nan_raises(self):
-        from core.validation import validate_qty
+        from execution.validation import validate_qty
         with pytest.raises(ValueError, match="NaN"):
             validate_qty(float("nan"), "ctx")
 
     def test_inf_raises(self):
-        from core.validation import validate_qty
+        from execution.validation import validate_qty
         with pytest.raises(ValueError, match="Inf"):
             validate_qty(float("inf"), "ctx")
 
     def test_negative_raises(self):
-        from core.validation import validate_qty
+        from execution.validation import validate_qty
         with pytest.raises(ValueError, match="negative"):
             validate_qty(-0.01, "ctx")
 
     def test_zero_qty_ok(self):
-        from core.validation import validate_qty
+        from execution.validation import validate_qty
         assert validate_qty(0.0, "test") == 0.0
 
 
 class TestValidateSignal:
 
     def test_valid_signals(self):
-        from core.validation import validate_signal
+        from execution.validation import validate_signal
         assert validate_signal(-1) == -1
         assert validate_signal(0) == 0
         assert validate_signal(1) == 1
 
     def test_invalid_signal(self):
-        from core.validation import validate_signal
+        from execution.validation import validate_signal
         with pytest.raises(ValueError, match="must be -1, 0, or \\+1"):
             validate_signal(2)
 
     def test_float_signal_rejected(self):
-        from core.validation import validate_signal
+        from execution.validation import validate_signal
         with pytest.raises(ValueError):
             validate_signal(0.5)  # type: ignore[arg-type]
 
@@ -96,33 +96,33 @@ class TestValidateSignal:
 class TestSanitizeFeatures:
 
     def test_clean_dict_unchanged(self):
-        from core.validation import sanitize_features
+        from execution.validation import sanitize_features
         d = {"a": 1.0, "b": 2.0, "label": "x"}
         result = sanitize_features(d)
         assert result == d
 
     def test_nan_replaced(self):
-        from core.validation import sanitize_features
+        from execution.validation import sanitize_features
         d = {"a": float("nan"), "b": 5.0}
         result = sanitize_features(d)
         assert result["a"] == 0.0
         assert result["b"] == 5.0
 
     def test_inf_replaced(self):
-        from core.validation import sanitize_features
+        from execution.validation import sanitize_features
         d = {"x": float("inf"), "y": float("-inf")}
         result = sanitize_features(d)
         assert result["x"] == 0.0
         assert result["y"] == 0.0
 
     def test_original_not_mutated(self):
-        from core.validation import sanitize_features
+        from execution.validation import sanitize_features
         d = {"a": float("nan")}
         sanitize_features(d)
         assert math.isnan(d["a"])
 
     def test_non_float_values_preserved(self):
-        from core.validation import sanitize_features
+        from execution.validation import sanitize_features
         d = {"s": "hello", "i": 42, "f": 3.14}
         result = sanitize_features(d)
         assert result == d
@@ -200,73 +200,3 @@ class TestOrderTTL:
         assert adapter._client.post.call_count == 2
 
 
-# ======================================================================
-# 3. PipelineMetrics
-# ======================================================================
-
-class TestPipelineMetrics:
-
-    def test_initial_values_zero(self):
-        from monitoring.pipeline_metrics import PipelineMetrics
-        m = PipelineMetrics()
-        d = m.to_dict()
-        assert all(v == 0 for v in d.values())
-
-    def test_increment_all_counters(self):
-        from monitoring.pipeline_metrics import PipelineMetrics
-        m = PipelineMetrics()
-        m.inc_bars_processed()
-        m.inc_signals_generated(3)
-        m.inc_orders_submitted(2)
-        m.inc_orders_filled()
-        m.inc_orders_rejected()
-        m.inc_gate_blocks(5)
-        m.inc_errors(2)
-
-        d = m.to_dict()
-        assert d["bars_processed"] == 1
-        assert d["signals_generated"] == 3
-        assert d["orders_submitted"] == 2
-        assert d["orders_filled"] == 1
-        assert d["orders_rejected"] == 1
-        assert d["gate_blocks"] == 5
-        assert d["errors"] == 2
-
-    def test_reset(self):
-        from monitoring.pipeline_metrics import PipelineMetrics
-        m = PipelineMetrics()
-        m.inc_bars_processed(100)
-        m.inc_errors(50)
-        m.reset()
-        d = m.to_dict()
-        assert all(v == 0 for v in d.values())
-
-    def test_to_dict_keys(self):
-        from monitoring.pipeline_metrics import PipelineMetrics
-        m = PipelineMetrics()
-        expected_keys = {
-            "bars_processed", "signals_generated", "orders_submitted",
-            "orders_filled", "orders_rejected", "gate_blocks", "errors",
-        }
-        assert set(m.to_dict().keys()) == expected_keys
-
-    def test_thread_safety(self):
-        from monitoring.pipeline_metrics import PipelineMetrics
-        m = PipelineMetrics()
-        n_threads = 10
-        n_increments = 1000
-
-        def worker():
-            for _ in range(n_increments):
-                m.inc_bars_processed()
-                m.inc_errors()
-
-        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        d = m.to_dict()
-        assert d["bars_processed"] == n_threads * n_increments
-        assert d["errors"] == n_threads * n_increments

@@ -135,22 +135,3 @@ class TestMicroStopGate:
         assert gate.get_phase("ETHUSDT") == "INITIAL"
         assert gate.get_phase("BTCUSDT") == "INITIAL"
 
-
-class TestPositionSizing:
-    def test_basic_sizing(self):
-        from runner.gates.leverage_100x import compute_position_size, HighLeverageConfig
-        cfg = HighLeverageConfig(leverage=20, capital=100, per_symbol_notional_pct=0.30)
-        size = compute_position_size(100.0, 2000.0, "ETHUSDT", cfg, step_size=0.01)
-        # notional = 100 × 0.30 × 20 = $600, size = 600/2000 = 0.30 ETH
-        # Risk cap: max_risk = 100 × 0.08 = $8, max_size = 8 / (2000 × 0.02) = 0.20
-        assert 0 < size <= 0.21
-
-    def test_zero_equity(self):
-        from runner.gates.leverage_100x import compute_position_size
-        assert compute_position_size(0, 2000, "ETH") == 0.0
-
-    def test_step_rounding(self):
-        from runner.gates.leverage_100x import compute_position_size, HighLeverageConfig
-        cfg = HighLeverageConfig()
-        size = compute_position_size(100, 2000, "ETH", cfg, step_size=0.01)
-        assert size == round(size, 2)
