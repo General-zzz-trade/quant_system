@@ -286,10 +286,19 @@ def _stop_runners(runners: dict[str, AlphaRunner]) -> None:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Bybit alpha strategy runner")
+    parser = argparse.ArgumentParser(description="Unified strategy runner (backtest/paper/live)")
+    parser.add_argument("--strategy", default="alpha",
+                        choices=["alpha"],
+                        help="Strategy to run (default: alpha)")
+    parser.add_argument("--mode", default="live",
+                        choices=["live", "paper", "backtest"],
+                        help="Run mode: live (real orders), paper (dry-run), backtest (historical)")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"],
                         help="Symbols to trade (default: BTCUSDT ETHUSDT)")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Alias for --mode paper")
+    parser.add_argument("--data", type=str, default=None,
+                        help="CSV data path for --mode backtest")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--ws", action="store_true", help="Use WebSocket instead of REST polling")
     parser.add_argument("--log-level", default="INFO")
@@ -457,13 +466,104 @@ def _run_ws_mode(runners: dict, adapter: Any, dry_run: bool,
                     logger.info("Closing %s (key=%s) on exit...", real_symbol, key)
                     reliable_close_position(adapter, real_symbol, verify=False)
 
+def _run_backtest(args) -> None:
+    """Run strategy on historical data (no exchange connection)."""
+    import json
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    from features.batch_feature_engine import compute_features_batch
+    from shared.signal_postprocess import rolling_zscore, should_exit_position
+    from alpha.model_loader_prod import load_model
+
+    symbol = args.symbols[0]
+    data_path = args.data
+
+    logger.info("Backtest: %s on %s", symbol, data_path)
+    df = pd.read_csv(data_path)
+    closes = df["close"].values.astype(np.float64)
+    n = len(closes)
+
+    # Load model via standard loader (handles pickle safely)
+    model_dir = Path(f"models_v8/{symbol}_gate_v2")
+    model_info = load_model(model_dir)
+    config = model_info["config"]
+    feat = compute_features_batch(symbol=symbol, df=df, include_v11=False)
+
+    # Use primary horizon model
+    hm = model_info["horizon_models"][-1]
+    model = hm["lgbm"]
+    features = hm["features"]
+
+    X = np.full((n, len(features)), np.nan)
+    for i, fn in enumerate(features):
+        if fn in feat.columns:
+            X[:, i] = feat[fn].values
+    preds = model.predict(X)
+    z = rolling_zscore(preds, window=model_info.get("zscore_window", 720),
+                       warmup=model_info.get("zscore_warmup", 180))
+
+    dz = model_info["deadzone"]
+    mh = model_info["min_hold"]
+    maxh = model_info["max_hold"]
+
+    # Backtest
+    equity = 100.0
+    trades = []
+    pos = 0
+    eb = 0
+
+    for i in range(n):
+        if pos != 0:
+            if should_exit_position(position=pos, z_value=float(z[i]),
+                                   held_bars=i - eb, min_hold=mh, max_hold=maxh):
+                pnl = pos * (closes[i] - closes[eb]) / closes[eb]
+                equity *= (1 + pnl * 1.5)
+                trades.append(pnl)
+                pos = 0
+        if pos == 0:
+            if z[i] > dz:
+                pos = 1; eb = i
+            elif z[i] < -dz:
+                pos = -1; eb = i
+
+    arr = np.array(trades) if trades else np.array([0.0])
+    sharpe = float(np.mean(arr) / np.std(arr) * np.sqrt(365)) if np.std(arr) > 0 else 0
+    ret = (equity - 100) / 100 * 100
+    wr = float(np.mean(arr > 0) * 100) if len(arr) > 0 else 0
+
+    print(f"\n{'='*50}")
+    print(f"  Backtest: {symbol}")
+    print(f"  Data: {n:,} bars")
+    print(f"  Trades: {len(trades)}")
+    print(f"  Sharpe: {sharpe:.2f}")
+    print(f"  Return: {ret:+.1f}%")
+    print(f"  Win rate: {wr:.0f}%")
+    print(f"  $100 → ${equity:.0f}")
+    print(f"{'='*50}")
+
+
 def main(argv: list[str] | None = None):
     args = _parse_args(argv)
+
+    # --dry-run is alias for --mode paper
+    if args.dry_run:
+        args.mode = "paper"
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    # Backtest mode: run strategy on historical data, no exchange needed
+    if args.mode == "backtest":
+        from runner.strategy_base import BacktestEngine
+        logger.info("Running backtest mode on %s", args.data or "default data")
+        if not args.data:
+            args.data = f"data_files/{args.symbols[0]}_1h.csv"
+        # Create a minimal alpha runner for backtest
+        _run_backtest(args)
+        return
 
     adapter = create_adapter()
 
