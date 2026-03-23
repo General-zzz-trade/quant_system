@@ -1499,8 +1499,10 @@ class AlphaRunner:
         # Portfolio max exposure guard: total notional across all symbols
         # should not exceed 2x equity (prevents over-leverage even with hedging)
         try:
+            # RustStateStore uses Fd8 (qty × 10^8). Must divide by _SCALE.
+            _SCALE = 100_000_000
             total_exposure = sum(
-                abs(self._state_store.get_position(s).qty) * price
+                abs(self._state_store.get_position(s).qty) / _SCALE * price
                 for s in ["BTCUSDT", "ETHUSDT"]
                 if self._state_store is not None
             ) if self._state_store else 0
@@ -1973,6 +1975,26 @@ class AlphaRunner:
                 new_signal = actual_prev
 
             self._current_signal = new_signal
+
+            # Orphan position safety: if signal is now 0 but we have entry_price set
+            # from reconcile, AND exchange still has a position, keep the signal alive
+            # so stop-loss continues to protect the position.
+            if new_signal == 0 and self._entry_price > 0 and not self._dry_run:
+                try:
+                    positions = self._adapter.get_positions(symbol=self._symbol)
+                    has_real = any(not p.is_flat for p in positions)
+                    if has_real:
+                        # Exchange has position but signal says flat → keep old signal for protection
+                        exchange_side = 1 if any(p.is_long for p in positions if not p.is_flat) else -1
+                        self._current_signal = exchange_side
+                        new_signal = exchange_side
+                        logger.warning(
+                            "%s ORPHAN GUARD: signal=0 but exchange has %s position — "
+                            "keeping signal=%d for stop-loss protection",
+                            self._symbol, "LONG" if exchange_side == 1 else "SHORT", exchange_side,
+                        )
+                except Exception as exc:
+                    logger.debug("%s orphan check API failed: %s", self._symbol, exc)
 
             # Update shared consensus state for cross-symbol scaling
             if self._runner_key:

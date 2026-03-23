@@ -598,13 +598,24 @@ def main(argv: list[str] | None = None):
             latest = adapter.get_klines(real_symbol, interval=interval, limit=1)
             if latest:
                 bar = latest[0]
-                # Init bar: always dry-run to prevent spurious trades on restart.
-                # Z-score from warmup is unreliable — real signals start on live WS bars.
+                # Init bar: dry-run to prevent spurious trades on restart.
+                # CRITICAL: save and restore _current_signal after init process_bar.
+                # reconcile sets _current_signal = exchange_side, but process_bar
+                # may overwrite it to 0 if z doesn't exceed dz. This creates
+                # "orphan positions" — exchange has position but system thinks FLAT.
                 old_dry = runner._dry_run
+                reconciled_signal = runner._current_signal  # preserve reconcile result
                 runner._dry_run = True
                 result = runner.process_bar(bar)
                 runner._dry_run = old_dry
-                sig = result.get("signal", 0)
+                # Restore reconciled signal if it was non-zero (exchange has position)
+                if reconciled_signal != 0 and runner._current_signal == 0:
+                    runner._current_signal = reconciled_signal
+                    logger.info(
+                        "%s INITIAL: restoring reconciled signal=%d (process_bar wanted 0 but exchange has position)",
+                        symbol, reconciled_signal,
+                    )
+                sig = runner._current_signal
                 logger.info(
                     "%s INITIAL: sig=%s z=%s regime=%s (state only, trades start on next live bar)",
                     symbol, sig, result.get("z", "?"), result.get("regime", "?"),
