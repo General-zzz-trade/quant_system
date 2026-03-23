@@ -359,8 +359,8 @@ class TestDispatchIntegration:
         assert result[1] == pytest.approx(1.5)
 
     def test_rolling_dispatches_to_rust(self):
-        """Verify that features.rolling imports from Rust."""
-        from features.rolling import RollingWindow
+        """Verify that _quant_hotpath exports RollingWindow."""
+        from _quant_hotpath import RollingWindow
         rw = RollingWindow(5)
         rw.push(1.0)
         assert rw.n == 1

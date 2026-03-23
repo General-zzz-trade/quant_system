@@ -45,7 +45,7 @@ from features.dynamic_selector import (
     stable_icir_select,
     _rankdata,
 )
-from features.multi_timeframe import TF4H_FEATURE_NAMES
+from features.batch_feature_engine import TF4H_FEATURE_NAMES
 from research.overfit_detection import deflated_sharpe_ratio
 
 # Reuse V7 infrastructure

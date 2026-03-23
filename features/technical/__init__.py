@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from features.rolling import RollingWindow  # noqa: F401
+from _quant_hotpath import RollingWindow  # noqa: F401
 from features.types import Bar, Bars, FeatureSeries  # noqa: F401
 
 from _quant_hotpath import (

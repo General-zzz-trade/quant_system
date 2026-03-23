@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from features.rolling import RollingWindow
+from _quant_hotpath import RollingWindow
 
 logger = logging.getLogger(__name__)
 

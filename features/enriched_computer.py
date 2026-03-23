@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Deque, Dict, List, Optional
 
-from features.rolling import RollingWindow
+from _quant_hotpath import RollingWindow
 
 logger = logging.getLogger(__name__)
 

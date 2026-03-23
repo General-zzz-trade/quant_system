@@ -28,7 +28,7 @@ import pandas as pd
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from alpha.v11_config import V11Config, ExitConfig, RegimeGateConfig, TimeFilterConfig
 from decision.exit_manager import ExitManager

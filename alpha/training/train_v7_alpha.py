@@ -28,7 +28,7 @@ from features.enriched_computer import ENRICHED_FEATURE_NAMES
 from features.cross_asset_computer import CROSS_ASSET_FEATURE_NAMES
 from features.dynamic_selector import greedy_ic_select, _rankdata
 from alpha.signal_transform import pred_to_signal as _pred_to_signal
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 
 from research.hyperopt.optimizer import HyperOptimizer, HyperOptConfig
 from research.hyperopt.search_space import SearchSpace, ParamRange

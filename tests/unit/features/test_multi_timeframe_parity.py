@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 
 try:
     from _quant_hotpath import cpp_compute_4h_features, cpp_4h_feature_names

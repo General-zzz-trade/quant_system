@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from features.enriched_computer import EnrichedFeatureComputer, ENRICHED_FEATURE_NAMES
-from features.multi_timeframe import TF4H_FEATURE_NAMES
+from features.batch_feature_engine import TF4H_FEATURE_NAMES
 
 
 # ── Basis feature tests ─────────────────────────────────────
@@ -158,13 +158,13 @@ class TestMultiTimeframeIntegration:
         })
 
     def test_4h_features_correct_length(self):
-        from features.multi_timeframe import compute_4h_features
+        from features.batch_feature_engine import compute_4h_features
         df = self._make_1h_df(200)
         tf4h = compute_4h_features(df)
         assert len(tf4h) == 200
 
     def test_4h_feature_names(self):
-        from features.multi_timeframe import compute_4h_features
+        from features.batch_feature_engine import compute_4h_features
         df = self._make_1h_df(200)
         tf4h = compute_4h_features(df)
         for name in TF4H_FEATURE_NAMES:
@@ -172,7 +172,7 @@ class TestMultiTimeframeIntegration:
 
     def test_4h_no_lookahead(self):
         """Features for a 1h bar in group G should come from group G-1."""
-        from features.multi_timeframe import compute_4h_features
+        from features.batch_feature_engine import compute_4h_features
         df = self._make_1h_df(200)
         tf4h = compute_4h_features(df)
         # First 4 bars (group 0) should have NaN since there's no G-1

@@ -162,7 +162,7 @@ class TestMultiResolutionFeatures:
 
     def _mock_compute_4h(self, df_1h):
         """Mock compute_4h_features."""
-        from features.multi_timeframe import TF4H_FEATURE_NAMES
+        from features.batch_feature_engine import TF4H_FEATURE_NAMES
         n = len(df_1h)
         data = {c: np.random.randn(n) for c in TF4H_FEATURE_NAMES}
         return pd.DataFrame(data, index=df_1h.index)

@@ -43,7 +43,7 @@ from scipy.stats import spearmanr
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features, TF4H_FEATURE_NAMES
+from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 from features.dynamic_selector import greedy_ic_select
 from shared.signal_postprocess import rolling_zscore, should_exit_position
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST

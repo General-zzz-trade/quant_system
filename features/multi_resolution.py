@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 
 from features.batch_feature_engine import compute_features_batch
-from features.multi_timeframe import compute_4h_features
+from features.batch_feature_engine import compute_4h_features
 
 logger = logging.getLogger(__name__)
 

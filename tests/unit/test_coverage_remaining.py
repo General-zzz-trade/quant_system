@@ -671,7 +671,7 @@ class TestPrecomputedFeatureHook(unittest.TestCase):
 
         with patch("features.batch_feature_engine.compute_features_batch", return_value=feat_df):
             with patch("pathlib.Path.exists", return_value=False):
-                with patch("features.multi_timeframe.compute_4h_features", side_effect=Exception("no tf")):
+                with patch("features.batch_feature_engine.compute_4h_features", side_effect=Exception("no tf")):
                     hook = PrecomputedFeatureHook.from_dataframe(
                         "ETHUSDT", df, include_4h=True, include_interactions=False
                     )
