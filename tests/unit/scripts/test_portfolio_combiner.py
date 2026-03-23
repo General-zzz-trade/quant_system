@@ -143,14 +143,16 @@ class TestPortfolioCombinerAgreeMode:
         assert len(adapter.orders) == 0
 
     def test_position_size_capped(self):
-        """Size capped by dynamic MAX_ORDER_NOTIONAL (20% of equity)."""
+        """Size capped by safety notional limit (150% of equity)."""
         pc, _ = _make_combiner(equity=10000.0)
         pc.update_signal("1h", 1, 100.0)
         pc.update_signal("15m", 1, 100.0)
-        # Dynamic cap: 10000 * 0.20 = $2000 → size = 2000/100 = 20
-        # 30% equity cap: 10000 * 0.30 * lev / 100 may be higher
-        # Position must be capped at the lower of the two
-        assert pc._position_size <= 20.01
+        # Safety cap: 10000 * 1.50 = $15000 → 15000/100 = 150
+        # 30% equity cap: 10000 * 0.30 * lev(10) / 100 = 300 (higher)
+        # Capped at safety limit
+        from scripts.ops.config import get_max_order_notional
+        max_size = get_max_order_notional(10000.0) / 100.0
+        assert pc._position_size <= max_size + 0.01
 
     def test_get_status(self):
         pc, _ = _make_combiner()

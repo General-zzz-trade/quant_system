@@ -3,7 +3,7 @@
 
 Adapts train_v11.py pipeline for 15m bars:
 - Different data source (*_15m.csv)
-- No 4h multi-timeframe features (window sizes auto-adapt)
+- 4h features auto-added by compute_features_batch() (tf4h_* columns)
 - Different split sizes (4x more bars per month)
 - Saves to models_v8/{SYMBOL}_15m/ directory
 

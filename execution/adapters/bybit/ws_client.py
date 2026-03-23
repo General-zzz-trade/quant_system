@@ -99,7 +99,12 @@ class BybitWsClient:
             topics += [f"tickers.{s}" for s in self._symbols]
         ws.send(json.dumps({"op": "subscribe", "args": topics}))
         self._backoff = 1.0  # reset on successful connect
-        logger.info("Bybit WS connected, subscribed: %s", topics)
+        if self._reconnect_count > 0:
+            logger.info("Bybit WS reconnected (after %d retries), subscribed: %s",
+                         self._reconnect_count, topics)
+            self._reconnect_count = 0
+        else:
+            logger.info("Bybit WS connected, subscribed: %s", topics)
 
     @property
     def last_message_time(self) -> float:
@@ -180,7 +185,9 @@ class BybitWsClient:
         return self._last_prices.get(symbol, 0.0)
 
     def _on_error(self, ws: Any, error: Any) -> None:
-        logger.warning("Bybit WS error: %s", error)
+        self._reconnect_count += 1
+        logger.warning("Bybit WS error (reconnect #%d): %s", self._reconnect_count, error)
 
     def _on_close(self, ws: Any, close_status: Any, close_msg: Any) -> None:
-        logger.info("Bybit WS closed: %s %s", close_status, close_msg)
+        logger.info("Bybit WS closed (reconnect #%d): %s %s",
+                     self._reconnect_count, close_status, close_msg)

@@ -37,10 +37,10 @@ DEFAULT_PARAMS: Dict[Tuple[str, str], RegimeParams] = {
     # Weak trend + low vol
     ("weak_up", "low_vol"): RegimeParams(0.5, 24, 96, 0.7),
     ("weak_down", "low_vol"): RegimeParams(0.5, 24, 96, 0.7),
-    # Ranging
-    ("ranging", "low_vol"): RegimeParams(1.0, 24, 96, 0.5),
-    ("ranging", "normal_vol"): RegimeParams(1.2, 24, 96, 0.4),
-    ("ranging", "high_vol"): RegimeParams(1.5, 24, 48, 0.3),
+    # Ranging — relaxed: allow trading with moderate constraints (was too strict)
+    ("ranging", "low_vol"): RegimeParams(0.6, 18, 72, 0.6),
+    ("ranging", "normal_vol"): RegimeParams(0.8, 18, 72, 0.6),
+    ("ranging", "high_vol"): RegimeParams(1.2, 24, 48, 0.4),
     # Crisis: minimal trading (wildcard trend)
     ("*", "crisis"): RegimeParams(2.5, 48, 96, 0.1),
     # High vol fallback (wildcard trend)

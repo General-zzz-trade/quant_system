@@ -83,6 +83,11 @@ BLACKLIST = {
     "ls_ratio", "ls_ratio_zscore_24", "ls_extreme",
     "avg_trade_size",
     "oi_chg_x_ret1",
+    # Removed coins — features always NaN in live (2026-03-23)
+    "dom_vs_sui_dev_20", "dom_vs_sui_ret_24",
+    "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
+    # Missing ETF data
+    "xlf_ret_5d",
 }
 
 INTERACTION_FEATURES = [

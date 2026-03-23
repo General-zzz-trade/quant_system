@@ -58,15 +58,24 @@ def _make_runner(symbol="ETHUSDT", dry_run=True):
         dry_run=dry_run,
         oi_cache=oi_cache, start_oi_cache=False,
     )
+    # Pre-populate closes/rets so checkpoints pass corruption validation
+    # (bars>0 + empty closes = corrupted checkpoint since 2026-03-23 fix)
+    runner._closes = [2100.0 + i for i in range(100)]
+    runner._rets = [0.001] * 100
     return runner
 
 
 class TestCheckpointSaveRestore:
     """Core checkpoint functionality."""
 
+    def _set_ckpt_dir(self, runner, tmp_path):
+        """Set checkpoint directory on both legacy path and new CheckpointManager."""
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
+        runner._ckpt._dir = tmp_path
+
     def test_save_creates_file(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        self._set_ckpt_dir(runner, tmp_path)
         runner._bars_processed = 800
 
         runner._save_checkpoint()
@@ -80,7 +89,7 @@ class TestCheckpointSaveRestore:
 
     def test_restore_loads_state(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        self._set_ckpt_dir(runner, tmp_path)
         runner._bars_processed = 800
         runner._regime_active = False
 
@@ -88,7 +97,7 @@ class TestCheckpointSaveRestore:
 
         # Create fresh runner and restore
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        self._set_ckpt_dir(runner2, tmp_path)
         restored = runner2._restore_checkpoint()
 
         assert restored is True
@@ -97,12 +106,12 @@ class TestCheckpointSaveRestore:
 
     def test_restore_returns_false_when_no_file(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        self._set_ckpt_dir(runner, tmp_path)
         assert runner._restore_checkpoint() is False
 
     def test_restore_returns_false_on_corrupt_file(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        self._set_ckpt_dir(runner, tmp_path)
         (tmp_path / "ETHUSDT.json").write_text("{corrupt json!!!")
         assert runner._restore_checkpoint() is False
 
@@ -113,7 +122,7 @@ class TestCheckpointNoRegression:
     def test_no_save_below_warmup_bars(self, tmp_path):
         """Checkpoint should NOT save when bars_processed < WARMUP_BARS."""
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 10  # simulates post-restore state
 
         # Process bars 11-20 — periodic save triggers at bar 20
@@ -129,7 +138,7 @@ class TestCheckpointNoRegression:
         from scripts.ops.config import WARMUP_BARS
 
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
 
         # Simulate: restored with 10 bars, need to reach WARMUP_BARS
         runner._bars_processed = WARMUP_BARS - 1
@@ -146,7 +155,7 @@ class TestCheckpointNoRegression:
     def test_warmup_saves_checkpoint(self, tmp_path):
         """Full warmup always saves checkpoint at the end."""
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
 
         runner.warmup(limit=800, interval="60")
 
@@ -158,19 +167,19 @@ class TestCheckpointNoRegression:
     def test_restore_then_warmup_preserves_bars(self, tmp_path):
         """After restore, bars_processed should be the checkpoint value."""
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._save_checkpoint()
 
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        runner2._CHECKPOINT_DIR = tmp_path; runner2._ckpt._dir = tmp_path
         runner2._restore_checkpoint()
         assert runner2._bars_processed == 800
 
     def test_checkpoint_not_overwritten_by_partial(self, tmp_path):
         """A 800-bar checkpoint should survive process_bar at bars < 800."""
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._save_checkpoint()
 
@@ -178,7 +187,7 @@ class TestCheckpointNoRegression:
 
         # Simulate restore with bars=800, then process 10 more bars
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        runner2._CHECKPOINT_DIR = tmp_path; runner2._ckpt._dir = tmp_path
         runner2._restore_checkpoint()
         assert runner2._bars_processed == 800
 
@@ -198,14 +207,14 @@ class TestCheckpointDataIntegrity:
 
     def test_atr_buffer_preserved(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._atr_buffer = [0.01, 0.02, 0.015, 0.018]
 
         runner._save_checkpoint()
 
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        runner2._CHECKPOINT_DIR = tmp_path; runner2._ckpt._dir = tmp_path
         runner2._restore_checkpoint()
 
         assert len(runner2._atr_buffer) == 4
@@ -213,14 +222,14 @@ class TestCheckpointDataIntegrity:
 
     def test_closes_history_preserved(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._closes = [2100.0 + i for i in range(100)]
 
         runner._save_checkpoint()
 
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        runner2._CHECKPOINT_DIR = tmp_path; runner2._ckpt._dir = tmp_path
         runner2._restore_checkpoint()
 
         assert len(runner2._closes) == 100
@@ -229,7 +238,7 @@ class TestCheckpointDataIntegrity:
     def test_nan_in_data_handled(self, tmp_path):
         """NaN values in checkpoint data should not crash serialization."""
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._atr_buffer = [0.01, float("nan"), 0.015]
 
@@ -240,7 +249,7 @@ class TestCheckpointDataIntegrity:
 
     def test_regime_state_preserved(self, tmp_path):
         runner = _make_runner()
-        runner._CHECKPOINT_DIR = tmp_path
+        runner._CHECKPOINT_DIR = tmp_path; runner._ckpt._dir = tmp_path
         runner._bars_processed = 800
         runner._regime_active = False
         runner._deadzone = 1.5
@@ -248,7 +257,7 @@ class TestCheckpointDataIntegrity:
         runner._save_checkpoint()
 
         runner2 = _make_runner()
-        runner2._CHECKPOINT_DIR = tmp_path
+        runner2._CHECKPOINT_DIR = tmp_path; runner2._ckpt._dir = tmp_path
         runner2._restore_checkpoint()
 
         assert runner2._regime_active is False
@@ -259,11 +268,10 @@ class TestDynamicNotional:
     """Test dynamic MAX_ORDER_NOTIONAL scaling."""
 
     def test_dynamic_scales_with_equity(self):
-        from scripts.ops.config import get_max_order_notional
+        from scripts.ops.config import get_max_order_notional, MAX_ORDER_NOTIONAL_PCT
 
-        assert get_max_order_notional(500) == 100.0      # floor
-        assert get_max_order_notional(5000) == 1000.0
-        assert get_max_order_notional(35000) == 7000.0
+        # Safety cap = equity × PCT (for leveraged positions)
+        assert get_max_order_notional(35000) == 35000 * MAX_ORDER_NOTIONAL_PCT
         assert get_max_order_notional(500000) == 100000.0  # ceiling
 
     def test_floor_enforced(self):

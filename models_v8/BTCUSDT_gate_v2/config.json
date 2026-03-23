@@ -27,7 +27,7 @@
         "cvd_20",
         "fgi_normalized"
       ],
-      "ic": 0.045324890086391276
+      "ic": 0.029931688063033406
     },
     {
       "horizon": 24,
@@ -46,10 +46,10 @@
         "ret_autocorr_24",
         "btc_dom_dev_20",
         "basis_momentum",
-        "ret_24",
-        "rsi_14"
+        "total_supply_change_7d",
+        "ret_24"
       ],
-      "ic": 0.08078368394335653
+      "ic": 0.07645932749485895
     }
   ],
   "primary_horizon": 24,
@@ -57,10 +57,10 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 1.0,
-  "min_hold": 24,
-  "max_hold": 144,
-  "long_only": true,
+  "deadzone": 0.3,
+  "min_hold": 8,
+  "max_hold": 40,
+  "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
     "zscore_cap": 0.0,
@@ -77,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 2.425903371694384,
-    "avg_ic": 0.0630542870148739,
+    "sharpe": 2.3380487732365483,
+    "avg_ic": 0.05319550777894618,
     "per_horizon_ic": {
-      "12": 0.045324890086391276,
-      "24": 0.08078368394335653
+      "12": 0.029931688063033406,
+      "24": 0.07645932749485895
     },
-    "total_return": 0.07315462204126993,
-    "trades": 458,
-    "win_rate": 56.98689956331878,
-    "avg_net_bps": 31.945249799681196,
-    "bootstrap_sharpe_p5": 0.4583033541590593,
-    "bootstrap_sharpe_p50": 0.9807166487904309,
-    "bootstrap_sharpe_p95": 1.5627491346252167
+    "total_return": 0.07178117084432994,
+    "trades": 598,
+    "win_rate": 54.84949832775919,
+    "avg_net_bps": 24.007080549943126,
+    "bootstrap_sharpe_p5": 0.37009955044763654,
+    "bootstrap_sharpe_p50": 0.8180234819557751,
+    "bootstrap_sharpe_p95": 1.342004427536299
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -97,12 +97,11 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-22 16:57",
-  "data_range": "2019-09-08 \u2192 2026-03-22",
-  "n_bars": 57279,
+  "train_date": "2026-03-23 10:50",
+  "data_range": "2019-09-08 \u2192 2026-03-23",
+  "n_bars": 57297,
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01,
   "ridge_weight": 0.6,
-  "lgbm_weight": 0.4,
-  "monthly_gate": true
+  "lgbm_weight": 0.4
 }

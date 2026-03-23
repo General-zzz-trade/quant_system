@@ -206,10 +206,14 @@ class BybitAdapter:
                 "Order TTL expired (>%ds): orderLinkId=%s — cancelling",
                 _ORDER_TTL_SECONDS, oid,
             )
-            body = {
+            # Extract symbol from orderLinkId format: qs_{SYMBOL}_{side}_{ts}_{seq}
+            body: dict[str, str] = {
                 "category": self._config.category,
                 "orderLinkId": oid,
             }
+            parts = oid.split("_")
+            if len(parts) >= 3:
+                body["symbol"] = parts[1].upper()
             data = self._client.post("/v5/order/cancel", body)
             if data.get("retCode") == 0:
                 logger.info("Stale order cancelled: %s", oid)
@@ -265,7 +269,7 @@ class BybitAdapter:
 
     def send_limit_order(
         self, symbol: str, side: str, qty: float, price: float,
-        *, tif: str = "GTC", reduce_only: bool = False,
+        *, tif: str = "GTC", reduce_only: bool = False, post_only: bool = False,
     ) -> dict:
         """Send a limit order with orderLinkId for deduplication."""
         order_link_id = _make_order_link_id(symbol, side)
@@ -276,7 +280,7 @@ class BybitAdapter:
             "orderType": "Limit",
             "qty": str(qty),
             "price": str(price),
-            "timeInForce": tif.upper(),
+            "timeInForce": "PostOnly" if post_only else tif.upper(),
             "orderLinkId": order_link_id,
         }
         if reduce_only:
@@ -356,27 +360,65 @@ class BybitAdapter:
     def get_klines(
         self, symbol: str, interval: str = "60", limit: int = 200,
     ) -> list[dict]:
-        """Get historical klines. interval: "1"=1m, "5"=5m, "60"=1h, "D"=1d."""
-        data = self._client.get("/v5/market/kline", {
-            "category": self._config.category,
-            "symbol": symbol,
-            "interval": interval,
-            "limit": str(limit),
-        })
-        if data.get("retCode") != 0:
-            return []
-        items = data.get("result", {}).get("list", [])
-        return [
-            {
-                "time": int(k[0]) // 1000,
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5]),
+        """Get historical klines. interval: "1"=1m, "5"=5m, "60"=1h, "D"=1d.
+
+        Paginates automatically when limit > 200 (Bybit API max per request).
+        """
+        _API_MAX = 200
+        all_bars: list[dict] = []
+        end_ts: int | None = None  # None = fetch latest
+
+        remaining = limit
+        while remaining > 0:
+            batch = min(remaining, _API_MAX)
+            params: dict[str, str] = {
+                "category": self._config.category,
+                "symbol": symbol,
+                "interval": interval,
+                "limit": str(batch),
             }
-            for k in items
-        ]
+            if end_ts is not None:
+                params["end"] = str(end_ts)
+
+            data = self._client.get("/v5/market/kline", params)
+            if data.get("retCode") != 0:
+                break
+            items = data.get("result", {}).get("list", [])
+            if not items:
+                break
+
+            bars = [
+                {
+                    "time": int(k[0]) // 1000,
+                    "start": int(k[0]),
+                    "open": float(k[1]),
+                    "high": float(k[2]),
+                    "low": float(k[3]),
+                    "close": float(k[4]),
+                    "volume": float(k[5]),
+                }
+                for k in items
+            ]
+            all_bars.extend(bars)
+            remaining -= len(bars)
+
+            if len(items) < batch:
+                break  # no more data
+
+            # Bybit returns newest first; oldest item is last. Next page ends before it.
+            oldest_ts = int(items[-1][0])
+            end_ts = oldest_ts - 1
+
+        # Deduplicate by start timestamp (pagination overlap)
+        seen: set[int] = set()
+        unique: list[dict] = []
+        for b in all_bars:
+            ts = b.get("start", b["time"] * 1000)
+            if ts not in seen:
+                seen.add(ts)
+                unique.append(b)
+
+        return unique
 
     # ------------------------------------------------------------------
     # Account info

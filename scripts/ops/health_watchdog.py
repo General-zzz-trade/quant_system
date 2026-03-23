@@ -52,6 +52,7 @@ SERVICES = {
         "unit": "bybit-alpha.service",
         "journal_match": "bybit_alpha",
         "max_silent_s": 18000,  # 5 hours (4h bars close every 4h + margin)
+        "log_file": "logs/bybit_alpha.log",  # check file instead of journal (stdout→file)
     },
     "bybit-mm": {
         "unit": "bybit-mm.service",
@@ -92,7 +93,30 @@ def check_service(name: str, cfg: dict) -> dict:
         result["status"] = "inactive"
         return result
 
-    # Check recent journal output
+    # Check recent log activity — prefer log_file over journal (stdout→file services)
+    log_file = cfg.get("log_file")
+    if log_file:
+        try:
+            import os
+            log_path = os.path.join(os.getcwd(), log_file) if not os.path.isabs(log_file) else log_file
+            if os.path.exists(log_path):
+                age_s = time.time() - os.path.getmtime(log_path)
+                result["last_log_age_s"] = int(age_s)
+                result["recent_log_lines"] = 1  # file exists and was modified
+                if age_s > cfg["max_silent_s"]:
+                    result["problems"].append(f"log_stale_{int(age_s)}s")
+                    result["status"] = "stale"
+                else:
+                    result["status"] = "healthy"
+            else:
+                result["problems"].append("log_file_missing")
+                result["status"] = "stale"
+        except Exception as e:
+            result["problems"].append(f"log_file error: {e}")
+            result["status"] = "error"
+        return result
+
+    # Fallback: check journal output
     try:
         out = subprocess.run(
             ["journalctl", "-u", unit, "--since", "5 min ago",

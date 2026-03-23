@@ -44,7 +44,7 @@ try:
     from _quant_hotpath import RustCorrelationComputer
     _correlation_computer = RustCorrelationComputer(window=120)  # 5-day rolling
 except ImportError:
-    pass
+    _correlation_computer = None  # Rust extension not available
 
 def _resolve_runner_target(
     runner_key: str,
@@ -591,18 +591,22 @@ def main(argv: list[str] | None = None):
         # Emit initial signal immediately after warmup by processing the
         # latest bar.  Without this, 4h runners must wait up to 4 hours
         # for the next WS kline.240 close before producing any signal.
-        # Disable limit entry for initial signal (warmup bar price may be stale).
+        # CRITICAL: Run in dry_run mode to update signal state WITHOUT
+        # executing trades.  Prevents noise trades on service restart.
+        # Real trades begin on the first live WS bar after startup.
         try:
             latest = adapter.get_klines(real_symbol, interval=interval, limit=1)
             if latest:
                 bar = latest[0]
-                old_limit = runner._use_limit_entry
-                runner._use_limit_entry = False  # force market order for stale bar
+                # Init bar: always dry-run to prevent spurious trades on restart.
+                # Z-score from warmup is unreliable — real signals start on live WS bars.
+                old_dry = runner._dry_run
+                runner._dry_run = True
                 result = runner.process_bar(bar)
-                runner._use_limit_entry = old_limit  # restore for live bars
+                runner._dry_run = old_dry
                 sig = result.get("signal", 0)
                 logger.info(
-                    "%s INITIAL SIGNAL: sig=%s z=%s regime=%s (immediate after warmup)",
+                    "%s INITIAL: sig=%s z=%s regime=%s (state only, trades start on next live bar)",
                     symbol, sig, result.get("z", "?"), result.get("regime", "?"),
                 )
         except Exception as exc:

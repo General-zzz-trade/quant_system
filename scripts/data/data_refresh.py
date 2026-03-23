@@ -176,13 +176,12 @@ def refresh_klines(symbol: str, interval: str = "1h", dry_run: bool = False) -> 
         return result
 
     try:
-        from scripts.download_binance_klines import download_all
+        from scripts.data.download_binance_klines import download_all, interval_ms
 
         # Incremental: start from last known timestamp + 1 interval
         last_ts_ms = _get_last_kline_ts_ms(filepath)
         start_ms = None
         if last_ts_ms is not None:
-            from scripts.download_binance_klines import interval_ms
             start_ms = last_ts_ms + interval_ms(interval)
             logger.info(
                 "%s: incremental from %s",
@@ -190,50 +189,47 @@ def refresh_klines(symbol: str, interval: str = "1h", dry_run: bool = False) -> 
                 datetime.utcfromtimestamp(start_ms / 1000).isoformat(),
             )
 
-        download_all(
-            symbol=symbol,
-            interval=interval,
-            output_path=str(filepath),
-            start_ms=start_ms,
-        )
+        # Write to temp file first, then atomically replace on success.
+        # Prevents data loss if download fails mid-way (the old file survives).
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".csv", dir=str(DATA_DIR))
+        os.close(tmp_fd)
 
-        # Validate
-        if filepath.exists():
-            df = pd.read_csv(filepath)
-            result["rows"] = len(df)
-            result["success"] = True
-
-            # Post-download integrity check
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            nan_total = df[numeric_cols].isna().sum().sum()
-            if nan_total > 0:
-                result["warning"] = f"{nan_total} NaN values detected"
-        else:
-            result["error"] = "output file not created"
-    except ImportError:
-        # Fallback: call as subprocess (positional args: symbol interval output)
-        import subprocess
         try:
-            cmd = [
-                sys.executable,
-                os.path.join("/quant_system", "scripts", "download_binance_klines.py"),
-                symbol,
-                interval,
-                str(filepath),
-            ]
-            # For incremental, pass --start if we have existing data
-            last_ts_ms = _get_last_kline_ts_ms(filepath)
-            if last_ts_ms is not None:
-                start_dt = datetime.utcfromtimestamp(last_ts_ms / 1000)
-                cmd.extend(["--start", start_dt.strftime("%Y-%m-%d")])
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd="/quant_system")
-            result["success"] = proc.returncode == 0
-            if proc.returncode != 0:
-                result["error"] = proc.stderr[:500]
-        except subprocess.TimeoutExpired:
-            result["error"] = "download timed out (300s)"
+            n_rows = download_all(
+                symbol=symbol,
+                interval=interval,
+                output_path=tmp_path,
+                start_ms=start_ms,
+            )
+
+            # Validate: new file must have data
+            if n_rows > 0:
+                # If incremental, merge with existing data
+                if start_ms is not None and filepath.exists():
+                    existing = pd.read_csv(filepath)
+                    new_data = pd.read_csv(tmp_path)
+                    merged = pd.concat([existing, new_data]).drop_duplicates(
+                        subset=["open_time"], keep="last"
+                    ).sort_values("open_time")
+                    merged.to_csv(str(filepath), index=False)
+                    os.unlink(tmp_path)
+                    result["rows"] = len(merged)
+                else:
+                    os.replace(tmp_path, str(filepath))
+                    result["rows"] = n_rows
+                result["success"] = True
+            else:
+                # Empty download — keep existing file, discard temp
+                os.unlink(tmp_path)
+                result["rows"] = 0
+                result["success"] = True
+                result["note"] = "no new bars (up to date)"
         except Exception as e:
-            result["error"] = str(e)
+            # Download failed — keep existing file intact
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
     except Exception as e:
         result["error"] = str(e)
 
@@ -253,7 +249,7 @@ def refresh_funding_rates(symbol: str, dry_run: bool = False) -> Dict[str, Any]:
         import subprocess
         # download_funding_rates.py uses --symbols (nargs="+")
         cmd = [
-            sys.executable, "-m", "scripts.download_funding_rates",
+            sys.executable, "-m", "scripts.data.download_funding_rates",
             "--symbols", symbol,
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd="/quant_system")
@@ -272,8 +268,10 @@ def refresh_external_data(dry_run: bool = False) -> List[Dict[str, Any]]:
 
     # Each entry: (source_name, module_path, extra_args)
     scripts: List[Tuple[str, str, List[str]]] = [
-        ("fear_greed", "scripts.download_fear_greed", []),
-        ("open_interest", "scripts.download_open_interest", []),
+        ("fear_greed", "scripts.data.download_fear_greed", []),
+        ("open_interest", "scripts.data.download_open_interest", []),
+        ("dvol_btc", "scripts.data.download_deribit_dvol", ["--currency", "BTC"]),
+        ("dvol_eth", "scripts.data.download_deribit_dvol", ["--currency", "ETH"]),
     ]
 
     for source, module, extra_args in scripts:

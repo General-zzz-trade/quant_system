@@ -29,8 +29,8 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Active trading services**:
 ```bash
-# Strategy H: 4h primary + 1h scaler + 15m COMBO (6 runners, 3 WS):
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m BTCUSDT_4h ETHUSDT ETHUSDT_15m ETHUSDT_4h --ws
+# Strategy H: 4h primary + 1h scaler (4 runners, 2 WS — 15m disabled after WF FAIL):
+python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
 sudo systemctl restart bybit-alpha.service
 
 # Model hot-reload (no restart, <200ms):
@@ -80,6 +80,9 @@ python3 -m monitoring.ic_decay_monitor --alert                                # 
 python3 -m scripts.ops.shadow_compare --model-a models_v8/BTCUSDT_gate_v2 --model-b models_v8/BTCUSDT_4h --symbol BTCUSDT --days 90  # A/B model comparison
 python3 -m scripts.research.monte_carlo_risk                                  # Monte Carlo risk simulation (10K runs)
 python3 -m monitoring.notify                                                  # Test Telegram notification
+python3 -m scripts.ops.live_validation_dashboard                              # 30-day validation status
+python3 -m scripts.ops.live_validation_dashboard --markdown                   # Markdown report
+python3 -m scripts.ops.slippage_analyzer --hours 168                          # Weekly slippage analysis
 ```
 
 **Automated operations** (systemd timers + cron):
@@ -290,7 +293,7 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 **Current deployment** (2026-03-22):
 ```bash
 # ACTIVE:
-#   bybit-alpha.service → Strategy H: 6 runners (BTC+ETH × 1h/15m/4h), 3 WS (kline.60/15/240)
+#   bybit-alpha.service → Strategy H: 4 runners (BTC+ETH × 1h/4h), 2 WS (kline.60/240) — 15m disabled after WF FAIL
 #     Sharpe 2.25 (T-1 corrected), $500→$2.15M backtest, demo $35K equity
 #   polymarket collector + dryrun
 # ACTIVE timers:
@@ -313,7 +316,7 @@ export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for
 **Walk-forward baselines** (2026-03-22, T-1 corrected): see `results/walkforward/` for full data.
 - **4h PASS**: BTCUSDT (WF Sharpe 3.62, 20/22), ETHUSDT (WF Sharpe 4.57, 21/21)
 - **1h PASS**: ETHUSDT (Sharpe 3.92, 18/21), BTCUSDT (Sharpe 2.43, 15/22)
-- WEAK: all 15m except ETH marginal
+- **15m FAIL**: BTCUSDT (WF Sharpe 0.27, 3/4), ETHUSDT (WF Sharpe -1.36, 1/4) — overfit, consider disabling
 - FAIL: all 5m/1m, all altcoins
 - Production focus: **BTC + ETH only, 4h primary** (Strategy H)
 - Kelly optimal leverage: **14x full Kelly, 7x half-Kelly** (Monte Carlo 10K runs). Demo uses **10x**. Production recommended **3x** (MaxDD ~18%)

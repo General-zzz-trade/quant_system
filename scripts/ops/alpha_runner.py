@@ -19,6 +19,12 @@ from scripts.ops.balance_utils import get_total_and_free_balance
 from scripts.ops.data_fetcher import BinanceOICache, _fetch_binance_oi_data  # noqa: F401
 from scripts.ops.order_utils import reliable_close_position
 from scripts.ops.pnl_tracker import PnLTracker
+from scripts.ops.checkpoint_manager import CheckpointManager
+from scripts.ops.gate_evaluator import GateEvaluator
+from scripts.ops.entry_scaler import EntryScaler
+from scripts.ops.exceptions import (
+    VenueError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +77,10 @@ class AlphaRunner:
             self._vol_median = 0.013   # 4h bars: ~2x of 1h vol
         else:
             self._vol_median = 0.0063  # 1h bars (default, calibrated from ETH history)
-        self._min_hold = model_info["min_hold"]
-        self._max_hold = model_info["max_hold"]
+        self._min_hold_base = model_info["min_hold"]
+        self._max_hold_base = model_info["max_hold"]
+        self._min_hold = self._min_hold_base
+        self._max_hold = self._max_hold_base
         self._zscore_window = model_info["zscore_window"]
         self._zscore_warmup = model_info["zscore_warmup"]
         self._dry_run = dry_run
@@ -90,34 +98,40 @@ class AlphaRunner:
         self._current_signal = 0
         self._bars_processed = 0
 
-        # Regime filter state — thresholds scale with timeframe
+        # Regime filter state — adaptive thresholds from rolling percentiles.
+        # Replaces hardcoded thresholds that couldn't adapt to changing markets.
+        # Each metric uses its own rolling buffer to compute p20 (bottom quintile = "dead").
         self._closes: list[float] = []
         self._rets: list[float] = []
         self._regime_active = True
-        # Detect timeframe from model config: 15m bars have smaller per-bar returns
+
+        # Detect timeframe from model config
         version_str = model_info.get("config", {}).get("version", "")
         is_15m = "15m" in version_str
         is_4h = "4h" in version_str
+
+        # MA window scales with timeframe to cover same real time (~20 days)
         if is_15m:
-            # 15m bars: vol is ~2x lower, scale down threshold
-            self._vol_threshold = 0.002   # 20-bar vol on 15m ≈ 5h
-            self._trend_threshold = 0.02  # trend more sensitive on short TF
-            self._ma_window = 480 * 4     # 480×4 = 1920 bars = 20 days (same real time as 1h)
-            self._ranging_window = 400    # 400 bars = ~4 days (same as 100 1h bars)
-            self._ranging_threshold = 0.06  # slightly more lenient
+            self._ma_window = 1920       # 20 days at 15m
+            self._ranging_window = 400   # ~4 days at 15m
         elif is_4h:
-            # 4h bars: vol is ~2x higher than 1h, scale up threshold
-            self._vol_threshold = 0.008   # 20-bar vol on 4h ≈ 3.3 days
-            self._trend_threshold = 0.08  # wider trend band
-            self._ma_window = 120         # 120 bars = 20 days (same real time as 480 1h bars)
-            self._ranging_window = 25     # 25 bars = ~4 days
-            self._ranging_threshold = 0.12
+            self._ma_window = 120        # 20 days at 4h
+            self._ranging_window = 25    # ~4 days at 4h
         else:
-            self._vol_threshold = 0.004   # 20-bar vol on 1h ≈ 20h
-            self._trend_threshold = 0.04  # |close/MA480 - 1|
-            self._ma_window = 480         # 480 bars = 20 days
-            self._ranging_window = 100    # 100 bars = ~4 days
-            self._ranging_threshold = 0.08
+            self._ma_window = 480        # 20 days at 1h
+            self._ranging_window = 100   # ~4 days at 1h
+
+        # Rolling buffers for adaptive thresholds (populated during warmup + live)
+        self._vol_history: list[float] = []      # rolling vol_20 values
+        self._trend_history: list[float] = []    # rolling |trend| values
+        self._eff_history: list[float] = []      # rolling efficiency values
+        _adaptive_window = 200  # bars to compute percentile over (~8 days 1h, ~33 days 4h)
+        self._adaptive_window = _adaptive_window
+
+        # Seed thresholds (used before enough history; conservative = allow trading)
+        self._vol_threshold = 0.0       # 0 = always pass vol check until adaptive kicks in
+        self._trend_threshold = 0.0     # 0 = always pass trend check
+        self._ranging_threshold = 0.0   # 0 = never ranging
 
         # Threading lock for shared state (_current_signal, _entry_price, orders)
         self._trade_lock = threading.Lock()
@@ -198,6 +212,16 @@ class AlphaRunner:
         self._carry_gate = CarryCostGate()
         self._vpin_gate = VPINEntryGate()
         self._gate_scale: float = 1.0  # cumulative gate scale for logging
+        self._gate_evaluator = GateEvaluator(
+            liq_gate=self._liq_gate, mtf_gate=self._mtf_gate,
+            carry_gate=self._carry_gate, vpin_gate=self._vpin_gate,
+        )
+
+        # Checkpoint manager (extracted)
+        self._ckpt = CheckpointManager()
+
+        # Entry scaler (extracted)
+        self._entry_scaler_module = EntryScaler()
 
         # Online Ridge: incremental weight updates between weekly retrains
         self._online_ridge: Any = None
@@ -210,12 +234,33 @@ class AlphaRunner:
         self._cross_market_last_update: float = 0.0
         self._load_cross_market()
 
+        # External data caches for push_bar injection
+        # NOTE: Disabled until next planned retrain (injection changed prediction
+        # distribution → z-score buffer mismatch → unreliable signals for 30 days).
+        # Re-enable after auto-retrain rebuilds models with these features.
+        # self._onchain_data: dict[str, float] = {}
+        # self._fgi_value: float = float("nan")
+        # self._spot_close: float = float("nan")
+        # self._load_external_data()
+
         # Limit order entry: try maker (0 bps) before taker (4 bps) for new positions
         self._use_limit_entry: bool = True
         self._limit_entry_timeout: float = 30.0  # default; overridden by adaptive logic
         self._limit_entry_poll_interval: float = 2.0  # poll interval in seconds
         # Tick sizes for price improvement (Bybit USDT-M perps)
         self._tick_sizes: dict[str, float] = {"BTCUSDT": 0.10, "ETHUSDT": 0.01}
+        # Try to fetch actual tick size from exchange
+        try:
+            info = self._adapter._client.get("/v5/market/instruments-info", {
+                "category": "linear", "symbol": symbol,
+            })
+            items = info.get("result", {}).get("list", [])
+            if items:
+                tick = float(items[0].get("priceFilter", {}).get("tickSize", 0))
+                if tick > 0:
+                    self._tick_sizes[symbol] = tick
+        except Exception as exc:
+            logger.debug("%s tick_size fetch failed, using default: %s", symbol, exc)
         # Fill rate tracking: limit fills vs market fallbacks
         self._limit_fills: int = 0
         self._market_fallbacks: int = 0
@@ -279,8 +324,10 @@ class AlphaRunner:
             self._deadzone_base = model_info["deadzone"]
             self._deadzone = model_info["deadzone"]
             self._long_only = model_info.get("long_only", False)
-            self._min_hold = model_info["min_hold"]
-            self._max_hold = model_info["max_hold"]
+            self._min_hold_base = model_info["min_hold"]
+            self._max_hold_base = model_info["max_hold"]
+            self._min_hold = self._min_hold_base
+            self._max_hold = self._max_hold_base
             # Update config reference for version detection
             self._config = new_cfg
             logger.info(
@@ -405,6 +452,46 @@ class AlphaRunner:
         except Exception as e:
             logger.debug("%s cross-market load failed: %s", self._symbol, e)
 
+    def _load_external_data(self) -> None:
+        """Load on-chain, FGI, and spot data for push_bar injection."""
+        import pandas as pd
+        sym = self._symbol
+
+        # On-chain (daily, T-1 shifted)
+        asset = "btc" if "BTC" in sym else "eth"
+        try:
+            oc_path = Path(f"data_files/{asset}_onchain_daily.csv")
+            if oc_path.exists():
+                oc = pd.read_csv(oc_path)
+                last = oc.iloc[-1]
+                self._onchain_data = {
+                    "oc_flow_in": float(last.get("exchange_inflow", 0)),
+                    "oc_flow_out": float(last.get("exchange_outflow", 0)),
+                    "oc_addr": 0.0,  # not in this CSV format
+                    "oc_tx": 0.0,
+                }
+                logger.debug("%s on-chain loaded: %s", sym, self._onchain_data)
+        except Exception as e:
+            logger.debug("%s on-chain load failed: %s", sym, e)
+
+        # Fear & Greed index
+        try:
+            fgi_path = Path("data_files/fear_greed_index.csv")
+            if fgi_path.exists():
+                fgi = pd.read_csv(fgi_path)
+                self._fgi_value = float(fgi.iloc[-1].get("value", float("nan")))
+        except Exception as e:
+            logger.debug("%s FGI load failed: %s", sym, e)
+
+        # Spot close (for basis computation)
+        try:
+            spot_path = Path(f"data_files/{sym}_spot_1h.csv")
+            if spot_path.exists():
+                spot = pd.read_csv(spot_path)
+                self._spot_close = float(spot["close"].iloc[-1])
+        except Exception as e:
+            logger.debug("%s spot close load failed: %s", sym, e)
+
     def _fetch_eth_price(self) -> float:
         """Fetch current ETH price from Binance for dominance computation."""
         try:
@@ -451,16 +538,8 @@ class AlphaRunner:
 
     def _save_checkpoint(self) -> None:
         """Save engine + inference state to disk for fast restart."""
-        self._CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-        # Engine checkpoint is already a JSON string from Rust
-        engine_ckpt = self._engine.checkpoint()
-        # Inference checkpoint may be a dict — convert to JSON-safe
-        inference_ckpt = self._inference.checkpoint()
-        if isinstance(inference_ckpt, dict):
-            inference_ckpt = json.dumps(inference_ckpt)
-        ckpt = {
-            "engine": engine_ckpt,
-            "inference": inference_ckpt,
+        ckpt_name = self._runner_key or self._symbol
+        extra = {
             "bars_processed": self._bars_processed,
             "regime_active": self._regime_active,
             "deadzone": float(self._deadzone),
@@ -469,43 +548,32 @@ class AlphaRunner:
             "closes": [float(x) for x in self._closes[-500:]],
             "rets": [float(x) for x in self._rets[-500:]],
         }
-        ckpt_name = self._runner_key or self._symbol
-        path = self._CHECKPOINT_DIR / f"{ckpt_name}.json"
-        try:
-            path.write_text(json.dumps(ckpt, default=str, allow_nan=False))
-        except ValueError:
-            # If allow_nan=False raises, fall back with NaN converted to null
-            import re
-            raw = json.dumps(ckpt, default=str)
-            raw = re.sub(r'\bNaN\b', 'null', raw)
-            raw = re.sub(r'\bInfinity\b', 'null', raw)
-            raw = re.sub(r'\b-Infinity\b', 'null', raw)
-            path.write_text(raw)
-        logger.debug("%s checkpoint saved", self._symbol)
+        self._ckpt.save(
+            ckpt_name,
+            self._engine.checkpoint(),
+            self._inference.checkpoint(),
+            extra=extra,
+        )
 
     def _restore_checkpoint(self) -> bool:
         """Restore engine + inference state from disk. Returns True if restored."""
         ckpt_name = self._runner_key or self._symbol
-        path = self._CHECKPOINT_DIR / f"{ckpt_name}.json"
-        if not path.exists():
+        data = self._ckpt.restore(ckpt_name)
+        if data is None:
             return False
         try:
-            ckpt = json.loads(path.read_text())
-            # Engine checkpoint is a JSON string
-            engine_data = ckpt["engine"]
-            self._engine.restore_checkpoint(engine_data)
-            # Inference checkpoint may be a JSON string or dict
-            inference_data = ckpt["inference"]
+            self._engine.restore_checkpoint(data["engine"])
+            inference_data = data["inference"]
             if isinstance(inference_data, str):
                 inference_data = json.loads(inference_data)
             self._inference.restore(inference_data)
-            self._bars_processed = ckpt.get("bars_processed", 0)
-            self._regime_active = ckpt.get("regime_active", True)
-            self._deadzone = ckpt.get("deadzone", self._deadzone)
-            self._atr_buffer = ckpt.get("atr_buffer", [])
-            self._dom_ratio_buf = ckpt.get("dom_ratio_buf", [])
-            self._closes = ckpt.get("closes", [])
-            self._rets = ckpt.get("rets", [])
+            self._bars_processed = data.get("bars_processed", 0)
+            self._regime_active = data.get("regime_active", True)
+            self._deadzone = data.get("deadzone", self._deadzone)
+            self._atr_buffer = data.get("atr_buffer", [])
+            self._dom_ratio_buf = data.get("dom_ratio_buf", [])
+            self._closes = data.get("closes", [])
+            self._rets = data.get("rets", [])
             logger.info("%s checkpoint restored (bars=%d, regime=%s)",
                         self._symbol, self._bars_processed,
                         "active" if self._regime_active else "filtered")
@@ -604,6 +672,10 @@ class AlphaRunner:
         """
         try:
             positions = self._adapter.get_positions(symbol=self._symbol)
+        except VenueError as exc:
+            logger.error("VENUE_ERROR symbol=%s context=reconcile type=%s",
+                         self._symbol, type(exc).__name__)
+            return
         except Exception:
             logger.debug("%s reconcile: failed to fetch positions", self._symbol, exc_info=True)
             return
@@ -1033,11 +1105,32 @@ class AlphaRunner:
         return float(hm["lgbm"].predict([x])[0])
 
     def _get_leverage_for_equity(self, equity: float) -> float:
-        """Look up leverage from ladder based on current equity."""
+        """Look up base leverage from ladder, then scale by volatility.
+
+        Low vol → higher leverage (same risk budget), high vol → lower.
+        Formula: lev × (1 / vol_ratio^0.5), clamped to [0.5×, 1.5×] of base.
+        At vol_ratio=2.0 (2× median vol): lev × 0.71 (reduce by 29%).
+        At vol_ratio=0.5 (half median vol): lev × 1.41 (increase by 41%).
+        """
         lev = 1.0
         for threshold, lev_val in self.LEVERAGE_LADDER:
             if equity >= threshold:
                 lev = lev_val
+
+        # Vol-adaptive leverage: reduce from base when vol spikes, keep base otherwise.
+        # Crypto vol is too high (30-50% annual) for target-risk style leverage.
+        # Instead: base leverage × (1 / vol_ratio^0.3), clamped to [0.5×, 1.0×] of base.
+        # This only REDUCES leverage during high vol, never increases above base.
+        if len(self._rets) >= 20:
+            rv_20 = float(np.std(self._rets[-20:]))
+            vol_median = float(np.median(self._vol_history)) if len(self._vol_history) >= 50 else self._vol_median
+            if vol_median > 0:
+                vol_ratio = rv_20 / vol_median
+                vol_ratio = max(0.5, min(3.0, vol_ratio))
+                # Only reduce: high vol → scale down, normal/low vol → keep base
+                vol_scale = min(1.0, 1.0 / (vol_ratio ** 0.3))
+                lev *= vol_scale
+
         return lev
 
     def _get_consensus_scale(self) -> float:
@@ -1086,13 +1179,14 @@ class AlphaRunner:
 
         # Fraction of others that agree with me
         agree_frac = same_dir / n_total if n_total > 0 else 0
+        # n_total - same_dir - opposite_dir = neutrals (not penalized)
 
-        if agree_frac >= 0.75:  # 3/4+ agree (including unanimous)
+        if agree_frac >= 0.5:   # majority agree
             return 1.0
-        elif agree_frac >= 0.25:  # 1-2 out of 3-4 agree
-            return 0.7
-        else:  # nobody agrees
-            return 0.5
+        elif opposite_dir > same_dir:  # majority actively disagree
+            return 0.85  # was 0.7 — less penalty (only 2 runners, disagreement is normal)
+        else:  # mixed or mostly neutral — don't penalize for others being flat
+            return 0.90  # was 0.85
 
     def _update_dynamic_scale(self) -> None:
         """Update dynamic position scale based on rolling trade Sharpe.
@@ -1177,6 +1271,12 @@ class AlphaRunner:
             if equity is None:
                 logger.warning("%s sizing fallback: USDT total unavailable", self._symbol)
                 equity = 0.0
+        except VenueError as exc:
+            logger.error("VENUE_ERROR symbol=%s context=sizing type=%s retry=true",
+                         self._symbol, type(exc).__name__)
+            size = self._round_to_step(self._base_position_size)
+            self._position_size = size
+            return size
         except Exception as exc:
             logger.warning("%s sizing fallback: failed to fetch balances: %s", self._symbol, exc)
             size = self._round_to_step(self._base_position_size)
@@ -1191,17 +1291,10 @@ class AlphaRunner:
         # Get leverage from ladder
         target_lev = self._get_leverage_for_equity(equity)
 
-        # Dynamic leverage: reduce when in drawdown to prevent ruin
-        # DD > 20%: halve leverage, DD > 35%: quarter leverage
+        # Dynamic leverage: reduce when in drawdown (vol-aware thresholds)
         dd_pct = self._pnl.drawdown_pct if self._pnl.peak_equity > 0 else 0
-        if dd_pct >= 35.0:
-            dd_scale = 0.25
-        elif dd_pct >= 20.0:
-            dd_scale = 0.50
-        elif dd_pct >= 10.0:
-            dd_scale = 0.75
-        else:
-            dd_scale = 1.0
+        vol_ratio = (self._deadzone / self._deadzone_base) if self._deadzone_base > 0 else 1.0
+        dd_scale = self._entry_scaler_module.leverage_scale(dd_pct, vol_ratio=vol_ratio)
         target_lev *= dd_scale
         if dd_scale < 1.0:
             logger.info("%s DD_SCALE: dd=%.1f%% → lev_scale=%.2f → effective_lev=%.1fx",
@@ -1218,11 +1311,42 @@ class AlphaRunner:
         #   BTC_4h 0.15 × 10 = 1.5x effective, ETH_4h 0.10 × 10 = 1.0x effective
         #   BTC_1h 0.08 × 10 = 0.8x (scaler), ETH_1h 0.06 × 10 = 0.6x (scaler)
         # Total portfolio effective leverage = 3.4x (4h-led, 1h-scaled)
-        _SHARPE_WEIGHTS = {
+        # Base allocation weights (floor — used before IC data available)
+        _BASE_WEIGHTS = {
             "BTCUSDT": 0.08, "ETHUSDT": 0.06, "ETHUSDT_15m": 0.05,
             "BTCUSDT_15m": 0.05, "BTCUSDT_4h": 0.15, "ETHUSDT_4h": 0.10,
         }
-        per_sym_cap = _SHARPE_WEIGHTS.get(self._runner_key or self._symbol, 0.20)
+        base_cap = _BASE_WEIGHTS.get(self._runner_key or self._symbol, 0.10)
+
+        # Adaptive allocation: scale base weight by runner's rolling IC health
+        # IC healthy (GREEN) → 1.2x base, IC weak (YELLOW) → 0.8x, IC dead (RED) → 0.4x
+        try:
+            ic_path = Path("data/runtime/ic_health.json")
+            if ic_path.exists() and not hasattr(self, '_ic_scale_cache_ts'):
+                self._ic_scale_cache_ts = 0.0
+                self._ic_scale_cache: dict[str, float] = {}
+            # Refresh IC data every 6h
+            if hasattr(self, '_ic_scale_cache_ts') and time.time() - self._ic_scale_cache_ts > 21600:
+                import json as _json
+                ic_data = _json.loads(ic_path.read_text())
+                for m in ic_data.get("models", []):
+                    model_name = m.get("model", "")
+                    status = m.get("overall_status", "GREEN")
+                    scale = {"GREEN": 1.2, "YELLOW": 0.8, "RED": 0.4}.get(status, 1.0)
+                    self._ic_scale_cache[model_name] = scale
+                self._ic_scale_cache_ts = time.time()
+        except Exception as exc:
+            logger.debug("%s IC scale cache update failed: %s", self._symbol, exc)
+
+        # Map runner_key to model name for IC lookup
+        _runner_to_model = {
+            "BTCUSDT": "BTCUSDT_gate_v2", "ETHUSDT": "ETHUSDT_gate_v2",
+            "BTCUSDT_4h": "BTCUSDT_4h", "ETHUSDT_4h": "ETHUSDT_4h",
+        }
+        model_name = _runner_to_model.get(self._runner_key or self._symbol, "")
+        ic_scale = getattr(self, '_ic_scale_cache', {}).get(model_name, 1.0)
+        per_sym_cap = base_cap * ic_scale
+
         # Dynamic degradation: reduce cap when rolling Sharpe is negative
         per_sym_cap *= self._dynamic_scale
 
@@ -1240,6 +1364,19 @@ class AlphaRunner:
         except Exception:
             logger.debug("%s correlation sizing unavailable", self._symbol, exc_info=True)
 
+        # Directional hedge: if BTC and ETH have opposite signals,
+        # they partially hedge each other → allow slightly larger combined position
+        my_key = self._runner_key or self._symbol
+        peer_key = "ETHUSDT" if "BTC" in my_key else "BTCUSDT"
+        # Check all timeframes of peer
+        peer_sigs = [v for k, v in _consensus_signals.items() if peer_key in k and v != 0]
+        if peer_sigs and self._current_signal != 0:
+            peer_dir = 1 if sum(peer_sigs) > 0 else -1
+            if peer_dir != self._current_signal:
+                # Opposite directions = natural hedge → boost cap slightly
+                per_sym_cap *= 1.15
+                logger.debug("%s HEDGE_BOOST: opposite to %s → cap*1.15", self._symbol, peer_key)
+
         max_notional = equity * per_sym_cap * target_lev
         size = max_notional / price
 
@@ -1247,16 +1384,21 @@ class AlphaRunner:
         # risks roughly the same amount regardless of market regime.
         # target_vol = 1.5% (1h bar), scale = target / realized.
         # High vol → smaller position, low vol → larger position.
-        # Apply non-linear z-score scale + cross-symbol consensus scale
+        # Apply non-linear z-score scale + consensus + confidence-based cap
         z_scale = self._z_scale  # set in process_bar()
         consensus_scale = self._get_consensus_scale()
-        combined_scale = z_scale * consensus_scale
+        # Confidence cap: strong z-score → larger position, weak → smaller
+        confidence_scale = self._entry_scaler_module.confidence_cap_scale(
+            z_score=self._last_z_score if hasattr(self, '_last_z_score') else 0,
+            base_dz=self._deadzone_base,
+        )
+        combined_scale = z_scale * consensus_scale * confidence_scale
         size *= combined_scale
 
         if combined_scale != 1.0:
             logger.info(
-                "%s SCALE: z_scale=%.2f consensus=%.2f combined=%.2f",
-                self._symbol, z_scale, consensus_scale, combined_scale,
+                "%s SCALE: z_scale=%.2f consensus=%.2f confidence=%.2f combined=%.2f",
+                self._symbol, z_scale, consensus_scale, confidence_scale, combined_scale,
             )
 
         # Clamp to exchange limits
@@ -1295,6 +1437,26 @@ class AlphaRunner:
             except Exception as e:
                 logger.warning("%s set_leverage failed (non-fatal): %s", self._symbol, e)
 
+        # Portfolio max exposure guard: total notional across all symbols
+        # should not exceed 2x equity (prevents over-leverage even with hedging)
+        try:
+            total_exposure = sum(
+                abs(self._state_store.get_position(s).qty) * price
+                for s in ["BTCUSDT", "ETHUSDT"]
+                if self._state_store is not None
+            ) if self._state_store else 0
+            max_total = equity * 2.0
+            if total_exposure + (size * price) > max_total and size > self._min_size:
+                allowed = max(0, max_total - total_exposure) / price
+                if allowed < self._min_size:
+                    size = 0
+                else:
+                    size = self._round_to_step(allowed)
+                logger.info("%s PORTFOLIO_CAP: total_exposure=$%.0f + new=$%.0f > max=$%.0f → size=%.4f",
+                            self._symbol, total_exposure, size * price, max_total, size)
+        except Exception as exc:
+            logger.debug("%s portfolio exposure check unavailable: %s", self._symbol, exc)
+
         self._position_size = size
         return size
 
@@ -1310,140 +1472,47 @@ class AlphaRunner:
         """
         if not self._entry_scaler_enabled:
             return 1.0
-
-        w = self._entry_scaler_window
-        if len(self._closes) < w + 1:
-            return 1.0
-
-        recent = self._closes[-w:]
-        ma = sum(recent) / len(recent)
-        std = (sum((c - ma) ** 2 for c in recent) / len(recent)) ** 0.5
-        if std <= 0:
-            return 1.0
-
-        bb_pos = (self._closes[-1] - ma) / std
-
-        # Scale mapping: favorable entry = larger, chasing = smaller
-        if signal == 1:  # long
-            if bb_pos < -1.0:       # deeply oversold → boost
-                scale = 1.2
-            elif bb_pos < -0.5:     # moderately oversold
-                scale = 1.0
-            elif bb_pos < 0:        # neutral-low
-                scale = 0.7
-            elif bb_pos < 0.5:      # slightly overbought
-                scale = 0.5
-            else:                   # chasing highs
-                scale = 0.3
-        elif signal == -1:  # short (mirror)
-            if bb_pos > 1.0:
-                scale = 1.2
-            elif bb_pos > 0.5:
-                scale = 1.0
-            elif bb_pos > 0:
-                scale = 0.7
-            elif bb_pos > -0.5:
-                scale = 0.5
-            else:
-                scale = 0.3
-        else:
-            scale = 1.0
-
+        scale = self._entry_scaler_module.bb_scale(
+            signal, self._closes, self._entry_scaler_window,
+        )
         self._entry_scaler_last = scale
         return scale
 
     def _evaluate_gates(self, signal: int, feat_dict: dict) -> float:
         """Evaluate alpha expansion gates — returns cumulative scale factor.
 
-        Gates:
-          1. LiquidationCascade: block/scale during liquidation events
-          2. MultiTFConfluence: scale by 1h vs 4h alignment
-          3. CarryCost: adjust by funding+basis carry cost
-
-        Returns scale ∈ [0.0, ~1.5]. Scale is applied to position_size,
-        not to the signal itself (signal stays discrete ±1/0).
+        Delegates to GateEvaluator (extracted module).
+        Returns scale ∈ [0.0, ~1.5].
         """
-        if signal == 0:
-            return 1.0
-
-        ev = type("_GateEv", (), {"metadata": {"signal": signal}})()
-        ctx = {"signal": signal}
-
-        # Populate context from features
-        gate_features = [
-            "liquidation_volume_zscore_24", "oi_acceleration",
-            "liquidation_cascade_score", "liquidation_imbalance",
-            "tf4h_close_vs_ma20", "tf4h_rsi_14", "tf4h_macd_hist",
-            "funding_rate", "basis",
-            "vpin", "ob_imbalance", "spread_bps",  # for VPIN gate
-        ]
-        for key in gate_features:
-            val = feat_dict.get(key)
-            if val is not None:
-                fval = float(val)
-                if fval == fval:  # NaN check
-                    ctx[key] = fval
-
-        # Inject 4h model signal from consensus state (stronger than indicator-based)
-        # 4h runners update _consensus_signals; 1h/15m runners read it as gate input
-        base_sym = self._symbol.replace("USDT", "") + "USDT"
-        key_4h = f"{base_sym}_4h"
-        sig_4h = _consensus_signals.get(key_4h, 0)
-        if sig_4h != 0:
-            ctx["tf4h_model_signal"] = sig_4h
-
-        scale = 1.0
-
-        # Gate 1: Liquidation cascade
-        r = self._liq_gate.check(ev, ctx)
-        if not r.allowed:
-            logger.info("%s LiquidationCascade BLOCKED: %s", self._symbol, r.reason)
-            return 0.0
-        scale *= r.scale
-
-        # Gate 2: Multi-timeframe confluence
-        r = self._mtf_gate.check(ev, ctx)
-        scale *= r.scale
-
-        # Gate 3: Carry cost
-        r = self._carry_gate.check(ev, ctx)
-        scale *= r.scale
-
-        # Gate 4: VPIN entry timing (delays entry when microstructure unfavorable)
-        ctx["symbol"] = self._symbol
-        r = self._vpin_gate.check(ev, ctx)
-        if not r.allowed:
-            logger.info("%s VPIN BLOCKED: %s", self._symbol, r.reason)
-            return 0.0
-        scale *= r.scale
-
+        scale = self._gate_evaluator.evaluate(
+            signal, feat_dict, _consensus_signals,
+            self._runner_key or self._symbol, self._symbol,
+        )
         self._gate_scale = scale
         return scale
 
     def _check_regime(self, close: float, feat_dict: dict | None = None) -> bool:
         """Check if current market regime is favorable for trading.
 
-        Returns True if regime is active (OK to trade).
-        Three-layer filter:
-        1. Vol + trend (original): skip dead markets
-        2. Ranging detector: skip choppy range-bound markets
-        3. Dynamic deadzone: adapt to current volatility
-        4. (Optional) Composite regime: CompositeRegimeDetector + ParamRouter
+        Uses **adaptive thresholds** from rolling percentiles instead of hardcoded
+        values. Each metric (vol, trend, efficiency) maintains a history buffer;
+        the 20th percentile defines "dead market" — below that = filter.
 
-        Walk-forward analysis: RANGE/LOW-VOL folds lose money (avg -2.4 Sharpe).
-        BULL/BEAR folds make money (avg +1.7 Sharpe). This filter targets the gap.
+        This auto-calibrates to the current market:
+        - Bull run: vol/trend naturally higher → threshold rises → only truly dead periods filtered
+        - Ranging: vol/trend naturally lower → threshold drops → system stays active in quiet periods
+        - Pre-breakout: vol starts rising from low base → immediately detectable
 
         Args:
             close: Current bar close price.
             feat_dict: Feature dict from RustFeatureEngine (optional, for composite).
-                       Pass None on the first call (before features are computed).
         """
         self._closes.append(close)
         if len(self._closes) >= 2:
             ret = np.log(close / self._closes[-2])
             self._rets.append(ret)
 
-        # Truncate to bounded window to prevent unbounded memory growth
+        # Truncate to bounded window
         _max_history = self._ma_window + 100
         if len(self._closes) > _max_history:
             self._closes = self._closes[-_max_history:]
@@ -1454,58 +1523,75 @@ class AlphaRunner:
         if len(self._rets) < 20:
             return True
 
-        # 20-bar realized volatility
-        vol_20 = np.std(self._rets[-20:])
+        # ── Compute current metrics ──
+        vol_20 = float(np.std(self._rets[-20:]))
 
-        # Trend strength: |close / MA(480) - 1|
         if len(self._closes) >= self._ma_window:
             ma = np.mean(self._closes[-self._ma_window:])
             trend = abs(close / ma - 1)
         else:
             trend = 0.1  # assume active during warmup
 
-        # Layer 1: original vol + trend filter
-        base_active = (vol_20 >= self._vol_threshold) or (trend >= self._trend_threshold)
-
-        # Layer 2: ranging detector — detect choppy, directionless markets
-        is_ranging = False
+        efficiency = 1.0
         rw = self._ranging_window
         if len(self._closes) >= rw:
             window = self._closes[-rw:]
             net_move = abs(window[-1] - window[0])
-            total_path = sum(
-                abs(window[j] - window[j - 1]) for j in range(1, len(window))
-            )
+            total_path = sum(abs(window[j] - window[j-1]) for j in range(1, len(window)))
             efficiency = net_move / total_path if total_path > 0 else 0
-            is_ranging = (
-                efficiency < self._ranging_threshold
-                and trend < self._trend_threshold
-            )
+
+        # ── Update rolling history for adaptive thresholds ──
+        self._vol_history.append(vol_20)
+        self._trend_history.append(trend)
+        self._eff_history.append(efficiency)
+        aw = self._adaptive_window
+        if len(self._vol_history) > aw:
+            self._vol_history = self._vol_history[-aw:]
+        if len(self._trend_history) > aw:
+            self._trend_history = self._trend_history[-aw:]
+        if len(self._eff_history) > aw:
+            self._eff_history = self._eff_history[-aw:]
+
+        # ── Adaptive thresholds: p20 of rolling history ──
+        # Before enough history (< 50 bars), use permissive defaults (= active)
+        if len(self._vol_history) >= 50:
+            self._vol_threshold = float(np.percentile(self._vol_history, 20))
+            self._trend_threshold = float(np.percentile(self._trend_history, 20))
+            self._ranging_threshold = float(np.percentile(self._eff_history, 25))
+
+        # ── Layer 1: Vol + Trend (OR) ──
+        # "Dead market" = both vol AND trend are in their bottom quintile
+        # Use strict > (not >=) so zero vol/trend at exactly p20 = still dead
+        base_active = (vol_20 > self._vol_threshold) or (trend > self._trend_threshold)
+
+        # ── Layer 2: Ranging detector ──
+        # Choppy = low efficiency AND low trend (both below adaptive threshold)
+        is_ranging = (
+            efficiency < self._ranging_threshold
+            and trend < self._trend_threshold
+        ) if len(self._eff_history) >= 50 else False
 
         self._regime_active = base_active and not is_ranging
 
-        # Layer 3: High-vol blocker — extreme vol disables new entries.
-        if self._vol_median > 0 and vol_20 > self._vol_median * 1.5:
-            self._regime_active = False
+        # ── Vol-adaptive deadzone ──
+        # (replaces hardcoded vol_median with rolling median)
+        if len(self._vol_history) >= 50:
+            vol_median = float(np.median(self._vol_history))
+        else:
+            vol_median = self._vol_median  # fallback to hardcoded seed
 
-        # Layer 4: ADX trend filter for BTC — block when trend is weak
-        # BTC walk-forward shows 49% positive folds; ADX < 20 = no trend = noise.
-        if self._use_composite_regime and feat_dict is not None:
-            adx = feat_dict.get("adx_14")
-            if adx is not None and adx < 20:
-                self._regime_active = False
+        if vol_median > 0:
+            ratio = vol_20 / vol_median
+            # Clamp ratio [0.5, 2.0] — prevents extreme deadzone swings
+            ratio = max(0.5, min(2.0, ratio))
+            self._deadzone = self._deadzone_base * ratio
 
-        # Dynamic deadzone: scale with vol, clamp to [0.15, max(0.6, base)]
-        # Upper clamp must be at least the configured base so high-dz symbols
-        # (SUI 0.7, AXS 0.6) aren't silently capped down.
-        if self._vol_median > 0:
-            ratio = vol_20 / self._vol_median
-            dz_upper = max(0.6, self._deadzone_base)
-            self._deadzone = max(
-                0.15, min(dz_upper, self._deadzone_base * (ratio ** 0.5))
+            # Adaptive hold times: scale with vol
+            self._min_hold, self._max_hold = self._entry_scaler_module.adaptive_hold(
+                self._min_hold_base, self._max_hold_base, ratio,
             )
 
-        # Layer 4: Composite regime (opt-in, overrides deadzone/min_hold)
+        # Composite regime (opt-in, overrides deadzone/min_hold via ParamRouter)
         if (
             self._use_composite_regime
             and self._composite_detector is not None
@@ -1538,11 +1624,9 @@ class AlphaRunner:
         # Crisis → block trading
         if composite.is_crisis:
             self._regime_active = False
-        # Ranging → block new entries (only allow reduce-only / flat)
-        # Live data shows BTC in ranging|normal_vol 100% of time with
-        # negative IC (-0.44 at h=6), signal direction is wrong in ranging.
-        if "ranging" in str(composite.trend).lower():
-            self._regime_active = False
+        # Ranging → use ParamRouter scale/deadzone (reduced sizing, wider dz).
+        # No longer hard-blocks; h=6 had negative IC but h=24 (primary) is positive.
+        # ParamRouter already sets dz=1.2 + scale=0.4 for ranging, which is sufficient.
         logger.info(
             "%s CompositeRegime: %s|%s → dz=%.2f mh=%d scale=%.2f",
             self._symbol, composite.trend, composite.vol,
@@ -1668,21 +1752,32 @@ class AlphaRunner:
 
         # Non-linear z-score position sizing
         self._z_scale = self.compute_z_scale(z)
+        self._last_z_score = z  # for confidence_cap_scale in _compute_position_size
+
+        # Z-score reliability: during warmup, buffer has insufficient history
+        # so z-scores can be extreme. Dampen proportionally instead of zeroing.
+        required = self._zscore_window + self._zscore_warmup
+        if abs(z) >= 4.0 and self._bars_processed < required:
+            fill_ratio = self._bars_processed / required  # 0→1 as warmup progresses
+            old_z = z
+            z = z * fill_ratio  # gradual: 50% warmup → z halved
+            self._z_scale = self.compute_z_scale(z)
+            self._last_z_score = z
+            logger.info(
+                "%s Z_DAMPEN: |z|=%.1f × fill=%.0f%% → z=%.2f (bars=%d/%d)",
+                self._symbol, abs(old_z), fill_ratio * 100, z,
+                self._bars_processed, required,
+            )
+            self._last_z_score = z
 
         prev_signal = self._current_signal
 
         # Regime-adaptive deadzone: scale with realized vol
         # Low vol → lower deadzone (capture weaker signals)
-        # High vol → higher deadzone (filter noise)
-        if len(self._rets) >= 20:
-            rv_20 = np.std(self._rets[-20:])
-            vol_ratio = rv_20 / self._vol_median if self._vol_median > 0 else 1.0
-            # Clamp ratio to [0.5, 2.0] to prevent extreme scaling
-            vol_ratio = max(0.5, min(2.0, vol_ratio))
-            self._deadzone = self._deadzone_base * vol_ratio
+        # Vol-adaptive deadzone is now handled in _check_regime() using rolling median
 
         # Primary signal via RustInferenceBridge: z-score → deadzone → min-hold → max-hold
-        # Regime filter: pass deadzone=999 to force flat when regime is unfavorable
+        # Regime filter: pass deadzone=999 to force flat when regime is unfavorable.
         effective_dz = 999.0 if not regime_ok else self._deadzone
         new_signal = int(self._inference.apply_constraints(
             self._symbol, pred, hour_key,
@@ -1772,6 +1867,26 @@ class AlphaRunner:
             new_signal = 0
             # Sync bridge state to flat after forced exit
             self._inference.set_position(self._symbol, 0, 1)
+
+        # ── Direction alignment: ETH follows BTC's lead ──────────────
+        # BTC is crypto market leader (70% dominance). When ETH wants to
+        # open a NEW position opposing BTC's direction, block it.
+        # Only applies to: new entries (prev=0 → new≠0) on ETH runners.
+        # Does NOT apply to: exits, BTC runners, or same-direction trades.
+        if new_signal != 0 and prev_signal == 0 and "ETH" in self._symbol:
+            # Get BTC consensus direction (any timeframe)
+            btc_sigs = [v for k, v in _consensus_signals.items()
+                        if "BTC" in k and v != 0]
+            if btc_sigs:
+                btc_dir = 1 if sum(btc_sigs) > 0 else -1
+                if new_signal != btc_dir:
+                    logger.info(
+                        "%s DIRECTION_ALIGN: ETH wants %s but BTC consensus is %s → blocked",
+                        self._symbol,
+                        "LONG" if new_signal > 0 else "SHORT",
+                        "LONG" if btc_dir > 0 else "SHORT",
+                    )
+                    new_signal = 0
 
         # Acquire trade lock to guard shared state mutation and order execution
         # (prevents race with check_realtime_stoploss on WS tick thread)
@@ -1900,10 +2015,19 @@ class AlphaRunner:
         # Adaptive timeout based on spread width
         # BTC/ETH spreads are almost always <0.02% (1-2 ticks).
         # 15s was too short — most limit orders need 20-40s to fill on tight spreads.
+        # Adaptive timeout based on historical fill rate
+        total_attempts = self._limit_fills + self._market_fallbacks
+        if total_attempts >= 5:
+            fill_rate = self._limit_fills / total_attempts
+            # High fill rate → longer timeout (patient), low → shorter (don't waste time)
+            base_timeout = 15.0 + 30.0 * fill_rate  # 15s (0% fill) to 45s (100% fill)
+        else:
+            base_timeout = 25.0  # default before enough data
+
         if spread_pct < 0.02:
-            timeout = 45.0  # tight spread — needs patience for passive fill
+            timeout = base_timeout
         elif spread_pct <= 0.05:
-            timeout = 30.0  # normal spread
+            timeout = base_timeout * 0.8  # slightly less patient for normal spread
         else:
             timeout = 5.0   # wide spread — quick fallback to avoid adverse selection
 
@@ -2008,6 +2132,38 @@ class AlphaRunner:
                         }
         except Exception as exc:
             logger.warning("%s LIMIT ENTRY: cancel error: %s", symbol, exc)
+
+        # Before market fallback: try repricing once at current best bid/ask
+        # This catches cases where price moved away from our limit during the wait
+        try:
+            self._adapter.cancel_order(symbol, order_id)
+            # Re-fetch current price
+            ticker2 = self._adapter.get_ticker(symbol)
+            if ticker2 and ticker2.get("bid1Price"):
+                bid2 = float(ticker2["bid1Price"])
+                ask2 = float(ticker2["ask1Price"])
+                if side.lower() == "buy":
+                    reprice = bid2 if spread_ticks <= 1 else bid2 + tick
+                else:
+                    reprice = ask2 if spread_ticks <= 1 else ask2 - tick
+
+                logger.info("%s LIMIT REPRICE: %s @ $%.2f (was $%.2f)", symbol, side, reprice, limit_price)
+                reprice_result = self._adapter.send_limit_order(symbol, side, qty, reprice, post_only=True)
+                if reprice_result.get("orderId"):
+                    # Wait another 15s for the repriced order
+                    reprice_id = reprice_result["orderId"]
+                    time.sleep(15)
+                    fills = self._adapter.get_recent_fills(symbol=symbol)
+                    for f in fills:
+                        if getattr(f, "order_id", "") == reprice_id:
+                            logger.info("%s LIMIT REPRICE: FILLED as maker", symbol)
+                            self._limit_fills += 1
+                            self._log_fill_rate(symbol)
+                            return {"orderId": reprice_id, "status": "submitted", "entry_method": "limit_reprice"}
+                    # Still not filled, cancel and fall through to market
+                    self._adapter.cancel_order(symbol, reprice_id)
+        except Exception as e:
+            logger.warning("%s LIMIT REPRICE failed: %s", symbol, e)
 
         # Fall back to market order
         result = self._adapter.send_market_order(symbol, side, qty)
@@ -2188,7 +2344,7 @@ class AlphaRunner:
             except Exception:
                 _eq_for_cap = 0.0
             dynamic_cap = get_max_order_notional(_eq_for_cap) if _eq_for_cap > 0 else MAX_ORDER_NOTIONAL
-            effective_cap = dynamic_cap * min(self._z_scale, 1.0)
+            effective_cap = dynamic_cap  # safety cap, no z_scale reduction (sizing handles it)
             notional = self._position_size * price
             logger.debug("%s NOTIONAL CHECK: size=%.4f price=%.2f notional=$%.2f limit=$%.2f (z_cap=$%.0f)",
                          self._symbol, self._position_size, price, notional, dynamic_cap, effective_cap)
@@ -2217,6 +2373,9 @@ class AlphaRunner:
                     )
                     self._osm.transition(open_id, "rejected", reason="insufficient_margin")
                     return {"action": "margin_skip", "need": margin_needed, "avail": avail}
+            except VenueError as exc:
+                logger.error("VENUE_ERROR symbol=%s type=%s context=margin_precheck",
+                             self._symbol, type(exc).__name__)
             except Exception as exc:
                 logger.warning("%s MARGIN PRECHECK failed: %s", self._symbol, exc)
 
@@ -2233,8 +2392,12 @@ class AlphaRunner:
                 result = self._adapter.send_market_order(self._symbol, side, self._position_size)
             # Check if order actually succeeded
             if result.get("status") == "error" or result.get("retCode", 0) != 0:
-                logger.error("%s ORDER FAILED: %s", self._symbol, result)
-                self._osm.transition(open_id, "rejected", reason=str(result.get("retMsg", "")))
+                ret_msg = str(result.get("retMsg", ""))
+                if "ab not enough" in ret_msg.lower() or "insufficient" in ret_msg.lower():
+                    logger.error("MARGIN_INSUFFICIENT symbol=%s msg=%s", self._symbol, ret_msg)
+                else:
+                    logger.error("ORDER_REJECTED symbol=%s reason=%s", self._symbol, ret_msg)
+                self._osm.transition(open_id, "rejected", reason=ret_msg)
                 self._circuit_breaker.record_failure()
                 return {"action": "order_failed", "result": result}
 
@@ -2252,12 +2415,13 @@ class AlphaRunner:
                     fills = self._adapter.get_recent_fills(symbol=self._symbol)
                     if fills:
                         actual_price = float(fills[0].price)
-                        if abs(actual_price - price) / price > 0.001:
-                            logger.info(
-                                "%s SLIPPAGE: bar=$%.2f fill=$%.2f (%.3f%%)",
-                                self._symbol, price, actual_price,
-                                (actual_price - price) / price * 100,
-                            )
+                        # Log slippage vs bar close AND vs order price (true execution cost)
+                        bar_slip = (actual_price - price) / price * 100
+                        entry_method = result.get("entry_method", "unknown")
+                        logger.info(
+                            "%s FILL: method=%s fill=$%.2f bar_close=$%.2f bar_slip=%.3f%%",
+                            self._symbol, entry_method, actual_price, price, bar_slip,
+                        )
                 except Exception as e:
                     logger.warning("%s failed to get fill price, using bar close: %s",
                                    self._symbol, e)

@@ -1,5 +1,5 @@
 [Unit]
-Description=Bybit Alpha Strategy (BTC + ETH only, 20x)
+Description=Bybit Alpha Strategy H (BTC + ETH, 4h primary + 1h scaler)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ User=ubuntu
 WorkingDirectory=/quant_system
 EnvironmentFile=/quant_system/.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m ETHUSDT ETHUSDT_15m --ws
+ExecStart=/usr/bin/python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
 Restart=always
 RestartSec=30
 RestartPreventExitStatus=73

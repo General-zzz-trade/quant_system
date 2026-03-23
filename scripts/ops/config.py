@@ -8,12 +8,13 @@ INTERVAL = "60"  # Bybit: "60" = 1h
 WARMUP_BARS = 800  # Must be > zscore_window(720) + zscore_warmup(180) for full z-score convergence
 POLL_INTERVAL = 60  # seconds between checks
 
-# Max order notional as fraction of equity (dynamic).
-# Actual limit = equity × MAX_ORDER_NOTIONAL_PCT
-# At $35K equity: 0.20 × $35K = $7K per order (matches cap=0.15 × lev=10 ≈ $5.3K for BTC)
-# Hard floor: $100 (never go below this even if equity is tiny)
-# Hard ceiling: $100K (absolute max regardless of equity)
-MAX_ORDER_NOTIONAL_PCT = 0.20  # 20% of equity per order
+# Max order notional as fraction of equity (dynamic safety cap).
+# This is a SAFETY LIMIT, not the primary sizing control.
+# Primary sizing: _SHARPE_WEIGHTS × equity × leverage (in _compute_position_size).
+# This cap prevents any single order from exceeding a reasonable fraction of equity.
+# At $35K equity, 10x leverage: max per-symbol = cap(0.15) × lev(10) × equity = $52K
+# Safety cap should be above normal sizing but below total equity × leverage.
+MAX_ORDER_NOTIONAL_PCT = 1.50  # 150% of equity per order (safety cap for leveraged positions)
 MAX_ORDER_NOTIONAL_FLOOR = 100.0
 MAX_ORDER_NOTIONAL_CEILING = 100_000.0
 
@@ -35,19 +36,21 @@ SYMBOL_CONFIG = {
                  "use_composite_regime": True},
     # ETH: production dz=0.4, mh=18 (Sharpe 4.67, 17/21 PASS)
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
-    # 15m alpha: separate model, different interval
+    # 15m alpha: WF FAIL (Sharpe -1.36, 1/4 folds) — consider disabling
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
-    # BTC 15m alpha: cross-market features unlock (Sharpe 17.59 WF validated)
+    # BTC 15m alpha: WF FAIL (Sharpe 0.27, 3/4 folds) — overfit, consider disabling
     "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
                     "interval": "15", "warmup": 800, "step": 0.001},
     # BTC 4h alpha (Strategy H primary): IC=0.29, Sharpe 6.34, 22/22 WF PASS, cap=0.15
+    # warmup=300: zscore_window(180)+zscore_warmup(45)+feature_warmup(28)=253, +margin
     "BTCUSDT_4h": {"size": 0.001, "model_dir": "BTCUSDT_4h", "symbol": "BTCUSDT",
-                   "interval": "240", "warmup": 200, "step": 0.001,
+                   "interval": "240", "warmup": 300, "step": 0.001,
                    "use_composite_regime": True},
     # ETH 4h alpha (Strategy H primary): IC=0.42, Sharpe 5.92, 21/21 WF PASS, cap=0.10
+    # warmup=300: zscore_window(180)+zscore_warmup(45)+feature_warmup(28)=253, +margin
     "ETHUSDT_4h": {"size": 0.01, "model_dir": "ETHUSDT_4h", "symbol": "ETHUSDT",
-                   "interval": "240", "warmup": 200, "step": 0.01},
+                   "interval": "240", "warmup": 300, "step": 0.01},
 }
 
 # Shared cross-symbol signal state for consensus scaling.

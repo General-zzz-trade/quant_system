@@ -22,7 +22,9 @@ import json
 import logging
 import os
 import pickle  # noqa: S403 — trusted local model files produced by our training pipeline
+import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -55,6 +57,10 @@ IC_WINDOWS_DAYS = [30, 60, 90]
 # Decay thresholds (fraction of training IC)
 THRESHOLD_GREEN = 0.50   # >= 50% of training IC
 THRESHOLD_YELLOW = 0.25  # >= 25% of training IC
+
+# Auto-retrain on RED
+RETRAIN_COOLDOWN_SECONDS = 24 * 3600  # 24 hours between auto-retrains
+LAST_IC_RETRAIN_PATH = Path("data/runtime/last_ic_retrain.txt")
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +458,66 @@ def send_alerts(results: List[Dict[str, Any]]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Auto-retrain trigger
+# ---------------------------------------------------------------------------
+
+def _should_retrain() -> bool:
+    """Check if enough time has passed since last IC-triggered retrain."""
+    if not LAST_IC_RETRAIN_PATH.exists():
+        return True
+    try:
+        ts = float(LAST_IC_RETRAIN_PATH.read_text().strip())
+        elapsed = datetime.now(timezone.utc).timestamp() - ts
+        return elapsed > RETRAIN_COOLDOWN_SECONDS
+    except (ValueError, OSError):
+        return True
+
+
+def _run_retrain() -> None:
+    """Run auto_retrain in a subprocess (called from background thread)."""
+    try:
+        logger.info("Starting IC-triggered auto-retrain subprocess...")
+        subprocess.run(
+            [sys.executable, "-m", "scripts.auto_retrain", "--force", "--sighup"],
+            cwd="/quant_system",
+            timeout=1800,
+        )
+        logger.info("IC-triggered auto-retrain completed.")
+    except subprocess.TimeoutExpired:
+        logger.error("IC-triggered auto-retrain timed out after 1800s.")
+    except Exception as e:
+        logger.error("IC-triggered auto-retrain failed: %s", e)
+
+
+def maybe_trigger_retrain(results: List[Dict[str, Any]]) -> None:
+    """If any model is RED and cooldown has passed, trigger retrain in background."""
+    red_models = [
+        r["model"] for r in results
+        if r.get("overall_status") == "RED"
+    ]
+    if not red_models:
+        return
+
+    if not _should_retrain():
+        logger.info(
+            "IC RED detected for %s but retrain cooldown not elapsed — skipping.",
+            ", ".join(red_models),
+        )
+        return
+
+    for model in red_models:
+        logger.warning("IC RED detected for %s, triggering auto-retrain", model)
+
+    # Write timestamp to prevent re-triggering within 24h
+    LAST_IC_RETRAIN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LAST_IC_RETRAIN_PATH.write_text(str(datetime.now(timezone.utc).timestamp()))
+
+    # Launch retrain in background thread so monitor can finish promptly
+    t = threading.Thread(target=_run_retrain, daemon=True)
+    t.start()
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -488,6 +554,9 @@ def main() -> None:
 
     if args.alert:
         send_alerts(results)
+
+    # Auto-retrain if any model hit RED
+    maybe_trigger_retrain(results)
 
     # Exit code: 2 if any RED, 1 if any YELLOW, 0 if all GREEN
     statuses = [r.get("overall_status") for r in results if "overall_status" in r]
