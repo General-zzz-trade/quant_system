@@ -295,6 +295,32 @@ def refresh_external_data(dry_run: bool = False) -> List[Dict[str, Any]]:
 
         results.append(result)
 
+    # Post-download: normalize OI CSV format (external script may produce mixed columns)
+    for sym in ["BTCUSDT", "ETHUSDT"]:
+        oi_path = DATA_DIR / f"{sym}_open_interest.csv"
+        if oi_path.exists():
+            try:
+                import csv as _csv
+                rows = []
+                with open(oi_path) as _f:
+                    reader = _csv.reader(_f)
+                    _header = next(reader, None)
+                    for row in reader:
+                        try:
+                            ts = int(row[0])
+                            oi = float(row[1]) if len(row) == 2 else float(row[2])
+                            rows.append((ts, oi))
+                        except (ValueError, IndexError):
+                            continue
+                seen = {ts: oi for ts, oi in rows}
+                with open(oi_path, "w", newline="") as _f:
+                    w = _csv.writer(_f)
+                    w.writerow(["timestamp", "sum_open_interest"])
+                    for ts, oi in sorted(seen.items()):
+                        w.writerow([ts, oi])
+            except Exception as exc:
+                logger.warning("OI CSV normalization failed for %s: %s", sym, exc)
+
     return results
 
 

@@ -1522,6 +1522,12 @@ class AlphaRunner:
         except Exception as exc:
             logger.debug("%s portfolio exposure check unavailable: %s", self._symbol, exc)
 
+        # Final safety: ensure size is valid (not NaN/Inf/negative)
+        if np.isnan(size) or np.isinf(size) or size < 0:
+            logger.error("%s SIZING BLOCKED: invalid size=%.6f — falling back to min_size",
+                         self._symbol, size)
+            size = self._min_size
+
         self._position_size = size
         return size
 
@@ -2463,6 +2469,16 @@ class AlphaRunner:
                              self._symbol, type(exc).__name__)
             except Exception as exc:
                 logger.warning("%s MARGIN PRECHECK failed: %s", self._symbol, exc)
+
+            # Safety: reject NaN/zero/negative position size before sending any order
+            if (np.isnan(self._position_size) or self._position_size <= 0
+                    or np.isnan(price) or price <= 0):
+                logger.error(
+                    "%s ORDER BLOCKED: invalid size=%.6f or price=%.2f (NaN/zero)",
+                    self._symbol, self._position_size, price,
+                )
+                self._osm.transition(open_id, "rejected", reason="invalid_size_or_price")
+                return {"action": "blocked", "reason": "nan_or_zero_size"}
 
             # Try limit entry for maker fee (0 bps) on new positions;
             # fall back to market order if limit not filled within timeout.

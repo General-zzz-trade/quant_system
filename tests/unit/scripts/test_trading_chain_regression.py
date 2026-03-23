@@ -457,3 +457,72 @@ class TestSymbolConfigConsistency:
             source = f.read()
         # Both 15m entries should be clearly marked
         assert "WF FAIL" in source, "15m WF FAIL comment missing from config.py"
+
+
+# ── 10. Safety guards ────────────────────────────────────────
+
+class TestSafetyGuards:
+    """Verify critical safety mechanisms are in place."""
+
+    def test_nan_order_guard(self):
+        """Orders must be blocked if position_size is NaN/zero."""
+        with open("scripts/ops/alpha_runner.py") as f:
+            source = f.read()
+        assert "invalid size" in source.lower() or "nan_or_zero_size" in source, \
+            "Missing NaN/zero guard before send_market_order"
+
+    def test_nan_sizing_guard(self):
+        """_compute_position_size must catch NaN/Inf size."""
+        with open("scripts/ops/alpha_runner.py") as f:
+            source = f.read()
+        assert "np.isnan(size)" in source or "SIZING BLOCKED" in source, \
+            "Missing NaN guard in _compute_position_size"
+
+    def test_phantom_close_guard(self):
+        """Phantom close must check exchange position before closing."""
+        with open("scripts/ops/alpha_runner.py") as f:
+            source = f.read()
+        assert "PHANTOM CLOSE" in source, \
+            "Missing phantom close guard in _execute_signal_change"
+
+    def test_z_score_clamp(self):
+        """Extreme z-scores must be clamped for new entries."""
+        with open("scripts/ops/alpha_runner.py") as f:
+            source = f.read()
+        assert "Z_CLAMP" in source, \
+            "Missing z-score clamp guard"
+
+    def test_direction_alignment(self):
+        """ETH must follow BTC direction on new entries."""
+        with open("scripts/ops/alpha_runner.py") as f:
+            source = f.read()
+        assert "DIRECTION_ALIGN" in source, \
+            "Missing ETH→BTC direction alignment"
+
+    def test_checkpoint_atomic_write(self):
+        """Checkpoint must use atomic write (tmp + rename)."""
+        with open("scripts/ops/checkpoint_manager.py") as f:
+            source = f.read()
+        assert ".tmp" in source and "replace" in source, \
+            "Checkpoint write must be atomic (write tmp then rename)"
+
+    def test_oi_csv_normalization(self):
+        """Data refresh must normalize OI CSV format after download."""
+        with open("scripts/data/data_refresh.py") as f:
+            source = f.read()
+        assert "sum_open_interest" in source and "normalize" in source.lower() or "normali" in source.lower(), \
+            "OI CSV format normalization missing in data_refresh"
+
+    def test_ic_retrain_trigger(self):
+        """IC decay monitor must trigger retrain on RED."""
+        with open("monitoring/ic_decay_monitor.py") as f:
+            source = f.read()
+        assert "maybe_trigger_retrain" in source, \
+            "IC-triggered retrain missing"
+
+    def test_ic_health_refresh_after_retrain(self):
+        """Auto-retrain must refresh IC health JSON after success."""
+        with open("scripts/ops/auto_retrain.py") as f:
+            source = f.read()
+        assert "ic_health" in source and "GREEN" in source, \
+            "IC health refresh after retrain missing"

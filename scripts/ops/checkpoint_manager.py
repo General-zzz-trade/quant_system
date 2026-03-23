@@ -49,15 +49,18 @@ class CheckpointManager:
             ckpt.update(extra)
 
         path = self._dir / f"{runner_key}.json"
+        # Atomic write: write to temp file then rename (prevents corruption on crash)
+        tmp_path = path.with_suffix(".json.tmp")
         try:
-            path.write_text(json.dumps(ckpt, default=str, allow_nan=False))
+            data = json.dumps(ckpt, default=str, allow_nan=False)
         except ValueError:
             # NaN/Inf in data — sanitize
-            raw = json.dumps(ckpt, default=str)
-            raw = re.sub(r'\bNaN\b', 'null', raw)
-            raw = re.sub(r'\bInfinity\b', 'null', raw)
-            raw = re.sub(r'\b-Infinity\b', 'null', raw)
-            path.write_text(raw)
+            data = json.dumps(ckpt, default=str)
+            data = re.sub(r'\bNaN\b', 'null', data)
+            data = re.sub(r'\bInfinity\b', 'null', data)
+            data = re.sub(r'\b-Infinity\b', 'null', data)
+        tmp_path.write_text(data)
+        tmp_path.replace(path)  # atomic on same filesystem
 
         logger.debug("%s checkpoint saved", runner_key)
 
