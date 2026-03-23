@@ -57,9 +57,9 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 0.3,
-  "min_hold": 8,
-  "max_hold": 40,
+  "deadzone": 1.0,
+  "min_hold": 18,
+  "max_hold": 120,
   "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
