@@ -94,7 +94,7 @@ except ImportError:
     _fake_hotpath.RustMarketEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
     sys.modules["_quant_hotpath"] = _fake_hotpath
 
-from scripts.ops.alpha_runner import AlphaRunner  # noqa: E402
+from runner.alpha_runner import AlphaRunner  # noqa: E402
 
 
 # Minimal model_info for constructing AlphaRunner without real models

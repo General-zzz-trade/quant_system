@@ -103,7 +103,7 @@ except ImportError:
     _fake_hotpath.RustMarketEvent = lambda **kwargs: types.SimpleNamespace(**kwargs)
     sys.modules["_quant_hotpath"] = _fake_hotpath
 
-from scripts.ops.alpha_runner import AlphaRunner  # noqa: E402
+from runner.alpha_runner import AlphaRunner  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Shared fixtures & helpers
@@ -301,7 +301,7 @@ def _warm_regime(runner, n=25, base_price=100.0):
 class TestProcessBarWarmup:
     """Tests for process_bar during z-score warmup phase."""
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_warmup_returns_warmup_action(self, mock_oi, runner):
         """When zscore_normalize returns None, action should be 'warmup'."""
         runner._inference.zscore_normalize.return_value = None
@@ -309,7 +309,7 @@ class TestProcessBarWarmup:
         result = runner.process_bar(bar)
         assert result["action"] == "warmup"
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_warmup_no_orders(self, mock_oi, runner, adapter):
         """During warmup, no orders should be sent to the exchange."""
         runner._inference.zscore_normalize.return_value = None
@@ -317,7 +317,7 @@ class TestProcessBarWarmup:
         runner.process_bar(bar)
         assert adapter.orders == []
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_warmup_pred_included(self, mock_oi, runner):
         """Warmup result should include the 'pred' key with the ensemble prediction."""
         runner._inference.zscore_normalize.return_value = None
@@ -334,7 +334,7 @@ class TestProcessBarWarmup:
 class TestProcessBarSignal:
     """Tests for signal generation during normal (post-warmup) processing."""
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_high_pred_positive_signal(self, mock_oi, runner):
         """When apply_constraints returns +1, signal should be +1."""
         runner._inference.zscore_normalize.return_value = 1.5
@@ -344,7 +344,7 @@ class TestProcessBarSignal:
         result = runner.process_bar(bar)
         assert result["signal"] == 1
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_low_pred_negative_signal(self, mock_oi, runner):
         """When apply_constraints returns -1, signal should be -1."""
         runner._inference.zscore_normalize.return_value = -1.5
@@ -354,7 +354,7 @@ class TestProcessBarSignal:
         result = runner.process_bar(bar)
         assert result["signal"] == -1
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_neutral_pred_zero_signal(self, mock_oi, runner):
         """When apply_constraints returns 0, signal should be 0."""
         runner._inference.zscore_normalize.return_value = 0.1
@@ -364,7 +364,7 @@ class TestProcessBarSignal:
         result = runner.process_bar(bar)
         assert result["signal"] == 0
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_killed_process_bar_forces_flat_state(self, mock_oi, runner):
         """Kill state must not leave a stale non-zero local signal behind."""
         kill_switch = MagicMock()
@@ -382,7 +382,7 @@ class TestProcessBarSignal:
         assert runner._entry_price == 0.0
         runner._inference.set_position.assert_any_call("ETHUSDT", 0, 1)
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_min_hold_respected(self, mock_oi, runner):
         """After signal change, subsequent bars within min_hold keep same signal via bridge."""
         # Bar 1: signal goes to +1
@@ -400,7 +400,7 @@ class TestProcessBarSignal:
         result = runner.process_bar(_make_bar(close=100.2, low=100.0))
         assert result["signal"] == 1
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_regime_filtered_forces_flat(self, mock_oi, runner):
         """When regime is inactive, deadzone=999 forces signal to 0."""
         # Mock _check_regime to always return False (regime inactive)
@@ -657,7 +657,7 @@ class TestStopLoss:
         expected_trail = 2040.0 * (1 - 0.015 * 0.3)
         assert stop == pytest.approx(expected_trail, rel=0.01)
 
-    @patch("scripts.ops.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
+    @patch("runner.alpha_runner._fetch_binance_oi_data", return_value=_OI_STUB)
     def test_realtime_stop_triggers_close(self, mock_oi, runner, adapter):
         """Price crossing trailing stop level triggers position close.
 

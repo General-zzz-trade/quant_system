@@ -35,9 +35,9 @@ class TestConsensusSignalsScope:
 
     def test_alpha_runner_imports_consensus(self):
         """AlphaRunner must import _consensus_signals at module level."""
-        import scripts.ops.alpha_runner as mod
+        import runner.alpha_runner as mod
         assert hasattr(mod, '_consensus_signals')
-        from scripts.ops.config import _consensus_signals as cfg_cs
+        from runner.strategy_config import _consensus_signals as cfg_cs
         assert mod._consensus_signals is cfg_cs
 
     def test_process_bar_resolves_consensus_as_global(self):
@@ -58,7 +58,7 @@ class TestConsensusSignalsScope:
 
     def test_no_method_shadows_consensus_signals(self):
         """No AlphaRunner method should assign to _consensus_signals as a local."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         tree = ast.parse(source)
 
@@ -403,13 +403,13 @@ class TestModuleWiring:
 
     def test_leverage_scale_delegates(self):
         """Dynamic leverage must use EntryScaler.leverage_scale."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "self._entry_scaler_module.leverage_scale" in source
 
     def test_vol_adaptive_deadzone_in_check_regime(self):
         """Vol-adaptive deadzone is now computed in _check_regime using rolling median."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "vol_median" in source
         assert "self._deadzone_base * ratio" in source
@@ -426,7 +426,7 @@ class TestExceptionWiring:
         assert VenueError is VE
 
     def test_venue_error_in_reconcile(self):
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "except VenueError" in source, \
             "VenueError not caught anywhere in alpha_runner"
@@ -453,7 +453,7 @@ class TestSymbolConfigConsistency:
 
     def test_15m_configs_marked_as_fail(self):
         """15m entries should have WF FAIL comments (regression guard)."""
-        with open("scripts/ops/config.py") as f:
+        with open("runner/strategy_config.py") as f:
             source = f.read()
         # Both 15m entries should be clearly marked
         assert "WF FAIL" in source, "15m WF FAIL comment missing from config.py"
@@ -466,35 +466,35 @@ class TestSafetyGuards:
 
     def test_nan_order_guard(self):
         """Orders must be blocked if position_size is NaN/zero."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "invalid size" in source.lower() or "nan_or_zero_size" in source, \
             "Missing NaN/zero guard before send_market_order"
 
     def test_nan_sizing_guard(self):
         """_compute_position_size must catch NaN/Inf size."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "np.isnan(size)" in source or "SIZING BLOCKED" in source, \
             "Missing NaN guard in _compute_position_size"
 
     def test_phantom_close_guard(self):
         """Phantom close must check exchange position before closing."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "PHANTOM CLOSE" in source, \
             "Missing phantom close guard in _execute_signal_change"
 
     def test_z_score_clamp(self):
         """Extreme z-scores must be clamped for new entries."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "Z_CLAMP" in source, \
             "Missing z-score clamp guard"
 
     def test_direction_alignment(self):
         """ETH must follow BTC direction on new entries."""
-        with open("scripts/ops/alpha_runner.py") as f:
+        with open("runner/alpha_runner.py") as f:
             source = f.read()
         assert "DIRECTION_ALIGN" in source, \
             "Missing ETH→BTC direction alignment"

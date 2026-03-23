@@ -12,7 +12,7 @@ import pytest
 
 def _make_runner(symbol="ETHUSDT", dry_run=True):
     """Create a minimal AlphaRunner for gate integration testing."""
-    from scripts.ops.alpha_runner import AlphaRunner
+    from runner.alpha_runner import AlphaRunner
 
     adapter = MagicMock()
     adapter.get_balances.return_value = {
