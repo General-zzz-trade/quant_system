@@ -20,13 +20,13 @@ from dataclasses import dataclass
 from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
+from alpha.utils import fast_ic
 
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
-from scipy.stats import spearmanr
 
 # ── Config ──
 SYMBOL = "BTCUSDT"
@@ -48,14 +48,6 @@ ZSCORE_WINDOW_4H = 720   # In 1h bars (aligned)
 LEV_MIN = 2.0
 LEV_MAX = 3.0
 VOL_WARMUP = 168      # 7 days of 1h bars
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 # ── Z-score ──

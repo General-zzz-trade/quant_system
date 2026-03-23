@@ -19,6 +19,7 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from alpha.utils import fast_ic, compute_target
 
 sys.path.insert(0, "/quant_system")
 
@@ -26,7 +27,6 @@ from features.batch_feature_engine import compute_features_batch
 from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES
 from shared.signal_postprocess import rolling_zscore, should_exit_position
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
-from scipy.stats import spearmanr
 
 SYMBOL = "BTCUSDT"
 MODEL_DIR = Path("models_v8/BTCUSDT_gate_v2")
@@ -65,25 +65,6 @@ WEAK_V8_FEATURES = {
     "basis_zscore_24",       # IC=0.003
     "basis_momentum",        # IC=0.002 (lowest importance too)
 }
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
-
-
-def compute_target(closes, horizon):
-    n = len(closes)
-    y = np.full(n, np.nan)
-    y[:n-horizon] = closes[horizon:] / closes[:n-horizon] - 1
-    v = y[~np.isnan(y)]
-    if len(v) > 10:
-        p1, p99 = np.percentile(v, [1, 99])
-        y = np.where(np.isnan(y), np.nan, np.clip(y, p1, p99))
-    return y
 
 
 def backtest_signal(pred, closes, deadzone, min_hold, max_hold,

@@ -11,6 +11,7 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from alpha.utils import fast_ic
 
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
@@ -18,14 +19,6 @@ from features.dynamic_selector import greedy_ic_select
 
 WARMUP = 100
 COST_MAKER_RT_BPS = 4  # maker round-trip
-
-def fast_ic(x, y):
-    from scipy.stats import spearmanr
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 def resample_1m_to(df_1m: pd.DataFrame, minutes: int) -> pd.DataFrame:

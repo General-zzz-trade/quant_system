@@ -19,6 +19,7 @@ import logging
 import pickle  # used for ML model loading
 import argparse
 from pathlib import Path
+from alpha.utils import fast_ic
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +36,6 @@ from decision.hybrid_15m_executor import (  # noqa: E402
 )
 
 COST_BPS_RT = 4
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 def load_1h_model(symbol: str):

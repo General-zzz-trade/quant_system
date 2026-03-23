@@ -13,12 +13,12 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
+from alpha.utils import fast_ic, compute_target
 
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select
-from scipy.stats import spearmanr
 
 # ── Config ──
 SYMBOL = "BTCUSDT"
@@ -33,14 +33,6 @@ LAGGED_FEATURES = {
     "funding_annualized", "funding_vs_vol", "funding_term_slope",
     "fgi_normalized", "fgi_zscore_7", "fgi_extreme",
 }
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 def resample_1m_to_30m(df_1m):
@@ -74,17 +66,6 @@ def compute_features(df_30m):
             feat_df[col] = feat_df[col].shift(LAG_BARS)
     feature_names = [c for c in feat_df.columns if c not in ("close", "open_time", "timestamp")]
     return feat_df, feature_names
-
-
-def compute_target(closes, horizon):
-    n = len(closes)
-    y = np.full(n, np.nan)
-    y[:n-horizon] = closes[horizon:] / closes[:n-horizon] - 1
-    v = y[~np.isnan(y)]
-    if len(v) > 10:
-        p1, p99 = np.percentile(v, [1, 99])
-        y = np.where(np.isnan(y), np.nan, np.clip(y, p1, p99))
-    return y
 
 
 # ── Detailed Backtest Engine ──

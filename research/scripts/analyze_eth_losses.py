@@ -15,7 +15,7 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
+from alpha.utils import fast_ic
 
 sys.path.insert(0, "/quant_system")
 
@@ -210,14 +210,6 @@ def run_backtest(z_signal, closes, timestamps, deadzone, min_hold, max_hold):
         ))
 
     return trades, equity
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return np.nan
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 def main():

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from alpha.utils import fast_ic
 
 sys.path.insert(0, "/quant_system")
 
@@ -28,15 +29,6 @@ from features.dynamic_selector import greedy_ic_select
 WARMUP = 300
 COST_MAKER_RT = 4  # round-trip bps (maker)
 COST_TAKER_RT = 14  # round-trip bps (taker)
-
-
-def fast_ic(x, y):
-    from scipy.stats import spearmanr
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
 
 
 def load_data():

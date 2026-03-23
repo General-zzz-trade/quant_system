@@ -27,11 +27,11 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 
 from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select, stable_icir_select
 from shared.signal_postprocess import rolling_zscore, should_exit_position
+from alpha.utils import fast_ic, compute_target
 
 logger = logging.getLogger(__name__)
 
@@ -77,27 +77,6 @@ CROSS_MARKET_FEATURES = {
     "dvol_z", "dvol_mean_rev", "dvol_chg_24", "dvol_chg_72",
     "stablecoin_accel",
 }
-
-
-def fast_ic(x: np.ndarray, y: np.ndarray) -> float:
-    """Fast Spearman IC with NaN handling."""
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
-
-
-def compute_target(closes: np.ndarray, horizon: int) -> np.ndarray:
-    """Forward return target with 1-99 percentile clipping."""
-    n = len(closes)
-    y = np.full(n, np.nan)
-    y[:n - horizon] = closes[horizon:] / closes[:n - horizon] - 1
-    v = y[~np.isnan(y)]
-    if len(v) > 10:
-        p1, p99 = np.percentile(v, [1, 99])
-        y = np.where(np.isnan(y), np.nan, np.clip(y, p1, p99))
-    return y
 
 
 # ── Fold data structures ─────────────────────────────────────

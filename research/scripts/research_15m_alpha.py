@@ -20,8 +20,8 @@ from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 from shared.signal_postprocess import rolling_zscore, should_exit_position
+from alpha.utils import fast_ic, compute_target
 
 sys.path.insert(0, "/quant_system")
 
@@ -30,25 +30,6 @@ HORIZONS_15M = [4, 8, 16, 32, 64]  # in 15m bars = [1h, 2h, 4h, 8h, 16h]
 COST_BPS_RT = 4
 WARMUP = 30
 TOP_K = 14
-
-
-def fast_ic(x, y):
-    m = ~(np.isnan(x) | np.isnan(y))
-    if m.sum() < 50:
-        return 0.0
-    r, _ = spearmanr(x[m], y[m])
-    return float(r) if not np.isnan(r) else 0.0
-
-
-def compute_target(closes, horizon):
-    n = len(closes)
-    y = np.full(n, np.nan)
-    y[:n - horizon] = closes[horizon:] / closes[:n - horizon] - 1
-    v = y[~np.isnan(y)]
-    if len(v) > 10:
-        p1, p99 = np.percentile(v, [1, 99])
-        y = np.where(np.isnan(y), np.nan, np.clip(y, p1, p99))
-    return y
 
 
 def compute_15m_features(df: pd.DataFrame) -> pd.DataFrame:
