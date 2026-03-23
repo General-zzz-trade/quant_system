@@ -1,21 +1,16 @@
 """Shared signal post-processing helpers for research/backtest scripts.
 
-These are thin Python wrappers. The canonical implementations live in
-ext/rust/src/constraint_pipeline.rs. The batch Rust path (cpp_pred_to_signal)
-calls the same shared functions. When Rust is unavailable, these pure-Python
-fallbacks produce identical results.
+The canonical constraint pipeline lives in ext/rust/src/constraint_pipeline.rs.
+The batch Rust path (cpp_pred_to_signal) is the only implementation — there is
+no Python fallback. Pure-Python helpers (rolling_zscore, _compute_bear_mask,
+etc.) remain for research/backtest scripts that need them independently.
 """
 from __future__ import annotations
 
 from typing import Optional
 
 import numpy as np
-
-try:
-    from _quant_hotpath import cpp_pred_to_signal as _rust_pred_to_signal
-    _HAS_RUST = True
-except ImportError:
-    _HAS_RUST = False
+from _quant_hotpath import cpp_pred_to_signal as _rust_pred_to_signal
 
 
 def rolling_zscore(pred: np.ndarray, window: int = 720, warmup: int = 180) -> np.ndarray:
@@ -228,26 +223,14 @@ def pred_to_signal(
 ) -> np.ndarray:
     """Full constraint pipeline: z-score → discretize → min-hold → trend-hold.
 
-    Delegates to Rust (cpp_pred_to_signal) when available, which calls the
-    same shared constraint_pipeline.rs functions as the live/tick paths.
-    Falls back to pure Python with identical semantics.
+    Delegates to Rust cpp_pred_to_signal, which calls the same shared
+    constraint_pipeline.rs functions as the live/tick paths.
     """
-    if _HAS_RUST:
-        tv = list(trend_values) if trend_values is not None else []
-        return np.array(_rust_pred_to_signal(
-            list(y_pred), deadzone, min_hold, zscore_window, zscore_warmup,
-            long_only, trend_follow, tv, trend_threshold, max_hold,
-        ))
-
-    # Pure Python fallback — single-pass matching Rust enforce_hold_step semantics
-    z = rolling_zscore(y_pred, window=zscore_window, warmup=zscore_warmup)
-    if long_only:
-        z = np.maximum(z, 0.0)
-    raw = np.where(z > deadzone, 1.0, np.where(z < -deadzone, -1.0, 0.0))
-    signal = _enforce_hold_single_pass(
-        raw, min_hold, trend_follow, trend_values, trend_threshold, max_hold,
-    )
-    return signal
+    tv = list(trend_values) if trend_values is not None else []
+    return np.array(_rust_pred_to_signal(
+        list(y_pred), deadzone, min_hold, zscore_window, zscore_warmup,
+        long_only, trend_follow, tv, trend_threshold, max_hold,
+    ))
 
 
 def should_exit_position(

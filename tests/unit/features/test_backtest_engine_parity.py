@@ -256,7 +256,7 @@ class TestFullBacktest:
         The Python reference is computed with the same interleaved approach.
         """
         ts, closes, volumes, vol_20, y_pred, f_ts, f_rates = _make_synthetic_data(3000)
-        from scripts.signal_postprocess import rolling_zscore
+        from shared.signal_postprocess import rolling_zscore
 
         # Step 1: rolling z-score → discretize (same as Rust zscore_discretize_array)
         z = rolling_zscore(y_pred, window=720, warmup=180)

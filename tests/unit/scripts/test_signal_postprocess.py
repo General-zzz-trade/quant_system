@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from scripts.signal_postprocess import rolling_zscore, should_exit_position
+from shared.signal_postprocess import rolling_zscore, should_exit_position
 
 
 def test_rolling_zscore_returns_zero_before_warmup():

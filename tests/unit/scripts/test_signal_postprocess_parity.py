@@ -7,7 +7,7 @@ divergence where the old two-pass approach allowed extra trend extensions.
 """
 import numpy as np
 
-from scripts.signal_postprocess import (
+from shared.signal_postprocess import (
     _enforce_hold_single_pass,
     _enforce_min_hold,
     _apply_trend_hold,

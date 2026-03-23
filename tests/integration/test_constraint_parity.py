@@ -212,85 +212,6 @@ class TestMinHoldTiming:
         np.testing.assert_array_equal(np.array(live), np.array(batch))
 
 
-class TestPythonFallbackVsRustParity:
-    """Verify Python fallback in signal_postprocess matches Rust output."""
-
-    def test_python_fallback_vs_rust_parity(self):
-        """500 random preds through Rust vs Python fallback must be close."""
-        from unittest.mock import patch
-        from scripts import signal_postprocess
-
-        rng = np.random.RandomState(77)
-        preds = rng.randn(500)
-
-        # Rust path
-        rust_result = signal_postprocess.pred_to_signal(preds, min_hold=12, deadzone=0.5)
-
-        # Force Python fallback
-        with patch.object(signal_postprocess, "_HAS_RUST", False):
-            py_result = signal_postprocess.pred_to_signal(preds, min_hold=12, deadzone=0.5)
-
-        np.testing.assert_allclose(
-            rust_result, py_result, atol=1e-10,
-            err_msg="Rust vs Python fallback diverged (default params)",
-        )
-
-    def test_long_only_parity(self):
-        rng = np.random.RandomState(88)
-        preds = rng.randn(500)
-
-        from unittest.mock import patch
-        from scripts import signal_postprocess
-
-        rust_result = signal_postprocess.pred_to_signal(preds, min_hold=12, deadzone=0.5, long_only=True)
-
-        with patch.object(signal_postprocess, "_HAS_RUST", False):
-            py_result = signal_postprocess.pred_to_signal(preds, min_hold=12, deadzone=0.5, long_only=True)
-
-        np.testing.assert_allclose(rust_result, py_result, atol=1e-10)
-
-    def test_trend_follow_parity(self):
-        rng = np.random.RandomState(99)
-        preds = rng.randn(500)
-        trend_vals = np.sin(np.linspace(0, 10, 500)) * 0.5
-
-        from unittest.mock import patch
-        from scripts import signal_postprocess
-
-        rust_result = signal_postprocess.pred_to_signal(
-            preds, min_hold=12, deadzone=0.5,
-            trend_follow=True, trend_values=trend_vals,
-            trend_threshold=0.0, max_hold=60,
-        )
-
-        with patch.object(signal_postprocess, "_HAS_RUST", False):
-            py_result = signal_postprocess.pred_to_signal(
-                preds, min_hold=12, deadzone=0.5,
-                trend_follow=True, trend_values=trend_vals,
-                trend_threshold=0.0, max_hold=60,
-            )
-
-        np.testing.assert_allclose(rust_result, py_result, atol=1e-10)
-
-    def test_various_min_hold(self):
-        rng = np.random.RandomState(55)
-        preds = rng.randn(500)
-
-        from unittest.mock import patch
-        from scripts import signal_postprocess
-
-        for min_hold in [1, 6, 24, 48]:
-            rust_result = signal_postprocess.pred_to_signal(preds, min_hold=min_hold, deadzone=0.5)
-
-            with patch.object(signal_postprocess, "_HAS_RUST", False):
-                py_result = signal_postprocess.pred_to_signal(preds, min_hold=min_hold, deadzone=0.5)
-
-            np.testing.assert_allclose(
-                rust_result, py_result, atol=1e-10,
-                err_msg=f"Diverged at min_hold={min_hold}",
-            )
-
-
 class TestMonthlyGateFlip:
     """Verify monthly gate transitions are identical across paths.
 
@@ -302,7 +223,7 @@ class TestMonthlyGateFlip:
 
     def test_gate_transitions_consistent(self):
         """Close series crossing SMA(480) produces correct gate flips."""
-        from scripts.signal_postprocess import _compute_bear_mask
+        from shared.signal_postprocess import _compute_bear_mask
 
         n = 1000
         # Price starts above SMA, dips below, then recovers
