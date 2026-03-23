@@ -29,8 +29,8 @@ python3 -m scripts.walkforward_validate --symbol ETHUSDT --selector stable_greed
 
 **Active trading services**:
 ```bash
-# Strategy H: 4h primary + 1h scaler (4 runners, 2 WS — 15m disabled after WF FAIL):
-python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
+# Strategy H: 4h primary + 1h scaler (framework-native, 4 runners, 2 WS):
+python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
 sudo systemctl restart bybit-alpha.service
 
 # Model hot-reload (no restart, <200ms):
@@ -151,29 +151,30 @@ logs/            bybit_alpha.log, retrain_cron.log
 tests/           unit/ (runner, bybit, decision, features, state, event, monitoring, strategies, polymarket, scripts), integration/ (crash_recovery, fault_injection, constraint_parity, ...)
 ```
 
-**Data flow (Strategy H — 4h primary + 1h scaler, adaptive params)**:
+**Data flow (Strategy H — framework-native, 4h primary + 1h scaler)**:
 ```
-┌─ 4h Runners (PRIMARY, equity-adaptive cap) ─────────────────┐
-│ Bybit WS kline.240 → push_bar → adaptive regime filter      │
-│ → Ridge(60%)+LGBM(40%) ensemble → z-score → Z_CLAMP guard  │
-│ → discretize → direction alignment (ETH follows BTC)        │
-│ → signal → _consensus_signals["BTCUSDT_4h"]                 │
-└──────────────────────────────────────────────────────────────┘
-        │ 4h signal (gate input)
-        ▼
-┌─ 1h Runners (SCALER, equity-adaptive cap) ──────────────────┐
-│ Bybit WS kline.60 → push_bar → adaptive regime filter       │
-│ → ensemble predict → z-score → MultiTFConfluenceGate        │
-│ → BB Entry Scaler (continuous tanh) → vol-adaptive leverage  │
-│ → phantom close guard → Maker limit (PostOnly + reprice)    │
-└─────────────────────────────────────────────────────────────┘
+Bybit WS kline → MarketEvent → EngineCoordinator.emit()
+  │
+  ├─ EventDispatcher → Route.PIPELINE
+  ├─ FeatureComputeHook.on_event() → RustFeatureEngine → 120+ features
+  ├─ StatePipeline.apply() → RustStateStore (state update)
+  └─ DecisionBridge.on_pipeline_output()
+      └─ AlphaDecisionModule.decide(snapshot)
+          ├─ Regime filter (adaptive p20/p25 percentile)
+          ├─ EnsemblePredictor: Ridge(60%)+LGBM(40%)
+          ├─ SignalDiscretizer: z-score → z-clamp → deadzone → min-hold
+          ├─ Force exits: ATR stop, quick loss, z-reversal, 4h reversal
+          ├─ Direction alignment: ETH follows BTC
+          └─ AdaptivePositionSizer: equity-tier × IC × vol
+  │
+  └─ OrderEvent → ExecutionBridge → BybitExecutionAdapter
+      └─ FillEvent → StatePipeline (state update)
 
-Position sizing: equity × cap(tier) × IC_scale × leverage × z_scale × consensus × confidence × bb
+Position sizing: equity × cap(tier) × IC_scale × leverage × z_scale
 Regime filter: rolling p20/p25 percentile thresholds (self-calibrating)
-Cross-market features (T-1 shift): SPY/treasury/ETF_volume/DVOL/FGI/stablecoin
 ```
 
-**Python engine path**: Market event → FeatureComputeHook → Pipeline (RustStateStore) → DecisionModule → OrderRouter
+**Python engine path**: MarketEvent → FeatureComputeHook → StatePipeline → DecisionBridge → AlphaDecisionModule → ExecutionBridge
 **Binary path**: Binance WS → RustTickProcessor.process_tick_native() → risk gates → WS-API order (~4ms)
 
 ## Rust Crate (`ext/rust/`)
@@ -187,9 +188,9 @@ Cross-market features (T-1 shift): SPY/treasury/ETF_volume/DVOL/FGI/stablecoin
 - `RustStateStore` keeps state on Rust heap, Python gets snapshots via `get_*()`
 - `RustGateChain` processes 9 gate types in single FFI call (no per-gate Python↔Rust switching)
 
-## Rust Pipeline (12/12 components in production)
+## Rust Pipeline (framework-native)
 
-AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustInferenceBridge (z-score+deadzone+min-hold+max-hold), RustRiskEvaluator (drawdown+leverage), RustKillSwitch (global emergency stop), RustOrderStateMachine (order lifecycle), RustCircuitBreaker (3-failure/120s backoff), RustStateStore (position truth), RustFillEvent+RustMarketEvent (zero-copy), rust_pipeline_apply (atomic reducer). RustUnifiedPredictor, RustTickProcessor, RustWsClient imported but not active (see alpha_runner.py).
+AlphaDecisionModule uses Rust components via framework: RustFeatureEngine (120 features, via FeatureComputeHook), RustInferenceBridge (z-score+deadzone+min-hold+max-hold, via SignalDiscretizer), RustStateStore (position truth, via StatePipeline). Additional Rust components available: RustRiskEvaluator, RustKillSwitch, RustOrderStateMachine, RustCircuitBreaker, RustFillEvent+RustMarketEvent, rust_pipeline_apply.
 
 ## Key Files
 
@@ -203,15 +204,16 @@ AlphaRunner uses all 12 Rust components: RustFeatureEngine (120 features), RustI
 - `runner/live_runner.py` — Framework live runtime entry point
 - `runner/gate_chain.py` — GateChain: up to 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, MultiTFConfluence, LiquidationCascade, CarryCost)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`
-- `scripts/ops/config.py` — SYMBOL_CONFIG (BTC+ETH × 1h/4h = 4 runners, 15m disabled), MAX_ORDER_NOTIONAL_PCT
-- `scripts/ops/alpha_runner.py` — AlphaRunner: Strategy H runtime (adaptive params + 12 Rust components + checkpoint)
-- `scripts/ops/checkpoint_manager.py` — CheckpointManager: save/restore with corruption detection
-- `scripts/ops/gate_evaluator.py` — GateEvaluator: 4-gate evaluation (extracted from AlphaRunner)
-- `scripts/ops/entry_scaler.py` — EntryScaler: BB scale, adaptive hold, vol-aware DD, confidence sizing
-- `scripts/ops/exceptions.py` — Trading exception hierarchy (VenueError, InsufficientMargin, etc.)
-- `scripts/ops/live_validation_dashboard.py` — 30-day demo validation dashboard + checklist
-- `scripts/ops/slippage_analyzer.py` — Fill quality analysis (slippage, maker rate, cost vs backtest)
-- `scripts/ops/signal_reconcile.py` — Live vs backtest signal consistency validation
+- `runner/strategy_config.py` — SYMBOL_CONFIG (BTC+ETH × 1h/4h = 4 runners, 15m disabled), MAX_ORDER_NOTIONAL_PCT
+- `decision/modules/alpha.py` — AlphaDecisionModule: framework-native decision logic (~300 lines)
+- `decision/signals/alpha_signal.py` — EnsemblePredictor (Ridge+LGBM) + SignalDiscretizer (z-score+deadzone)
+- `decision/sizing/adaptive.py` — AdaptivePositionSizer: equity-tier + IC health + vol scaling
+- `runner/alpha_main.py` — Framework-native entry point (EngineCoordinator + WS)
+- `execution/adapters/bybit/execution_adapter.py` — BybitExecutionAdapter (ExecutionAdapter protocol)
+- `runner/alpha_runner.py` — DEPRECATED: old AlphaRunner (kept for backward compat with runner/main.py)
+- `state/checkpoint.py` — CheckpointManager: save/restore with corruption detection
+- `runner/gates/evaluator.py` — GateEvaluator: 4-gate evaluation
+- `core/exceptions.py` — Trading exception hierarchy (VenueError, InsufficientMargin, etc.)
 - `scripts/ops/daily_reconciliation.py` — Live vs backtest signal reconciliation + slippage analysis
 - `scripts/ops/shadow_compare.py` — A/B model comparison (shadow testing without execution)
 - `scripts/training/train_4h_daily.py` — 4h/daily model trainer (LGBM + T-1 cross-market)
@@ -406,11 +408,10 @@ Constraint pipeline in Rust (`constraint_pipeline.rs`) and Python (`signal_postp
 - FOMC day: IC=0.061 (p=0.003) but decaying and only 8/year
 
 **Current path split**:
-- `scripts/run_polymarket_dryrun.py` — **currently active** dry-run validation
-- `scripts/ops/run_bybit_alpha.py` — BTC+ETH Alpha (RECOMMENDED, BTC 4.37 ETH 4.67)
-- `scripts/run_hft_signal.py` — HFT 8-layer signal (stopped, Sharpe -5)
-- `scripts/run_bybit_mm.py` — market maker (stopped, not viable)
-- `runner/live_runner.py` — framework convergence target
+- `runner/alpha_main.py` — **PRODUCTION**: framework-native alpha (EngineCoordinator + AlphaDecisionModule)
+- `runner/main.py` — DEPRECATED legacy entry (AlphaRunner, kept for rollback)
+- `scripts/run_polymarket_dryrun.py` — dry-run validation
+- `runner/live_runner.py` — framework LiveRunner (alternative runtime)
 - `composite_regime_symbols` config controls per-symbol CompositeRegime (BTC only); ETH fixed params
 - `ETHRegimeProxy` (regime/eth_regime_proxy.py): uses BTC regime labels for ETH parameter routing (ETH-specific param table)
 
