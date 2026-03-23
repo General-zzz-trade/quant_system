@@ -156,6 +156,11 @@ class MockAdapter:
         return {"orderId": f"mock_{len(self.orders)}", "status": "Filled", "retCode": 0}
 
     def get_positions(self, symbol=None):
+        if hasattr(self, '_open_positions') and self._open_positions:
+            return list(self._open_positions)
+        # Default: if any order was sent, assume we have a position (for tests)
+        if self.orders:
+            return [type("P", (), {"is_flat": False, "is_long": True, "symbol": symbol or "ETHUSDT", "qty": 0.05})()]
         return []
 
     def get_balances(self):
@@ -440,6 +445,10 @@ class TestExecuteSignalChange:
         runner._position_size = 0.05
         runner._circuit_breaker.allow_request.return_value = True
         runner._osm.active_count.return_value = 1
+        # Mock exchange position so phantom guard doesn't skip the close
+        from unittest.mock import MagicMock as _MM
+        mock_pos = _MM(is_flat=False, is_long=True, symbol="ETHUSDT", qty=0.05)
+        adapter._open_positions = [mock_pos]
         runner._execute_signal_change(1, -1, 2100.0)
         # Should have close + sell order
         close_orders = [o for o in adapter.orders if o.get("action") == "close"]
@@ -455,6 +464,8 @@ class TestExecuteSignalChange:
         runner._entry_size = 0.05
         runner._position_size = 0.05
         runner._circuit_breaker.allow_request.return_value = True
+        from unittest.mock import MagicMock as _MM
+        adapter._open_positions = [_MM(is_flat=False, is_long=True, symbol="ETHUSDT", qty=0.05)]
         result = runner._execute_signal_change(1, 0, 2100.0)
         # Should have closed via adapter
         close_orders = [o for o in adapter.orders if o.get("action") == "close"]
@@ -484,6 +495,8 @@ class TestExecuteSignalChange:
         runner._entry_size = 0.05
         runner._position_size = 0.05
         runner._circuit_breaker.allow_request.return_value = True
+        from unittest.mock import MagicMock as _MM
+        adapter._open_positions = [_MM(is_flat=False, is_long=True, symbol="ETHUSDT", qty=0.05)]
 
         result = runner._execute_signal_change(1, -1, 2100.0)
 

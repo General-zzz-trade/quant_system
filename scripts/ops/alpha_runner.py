@@ -1819,19 +1819,20 @@ class AlphaRunner:
         self._z_scale = self.compute_z_scale(z)
         self._last_z_score = z  # for confidence_cap_scale in _compute_position_size
 
-        # Z-score reliability: during warmup, buffer has insufficient history
-        # so z-scores can be extreme. Dampen proportionally instead of zeroing.
-        required = self._zscore_window + self._zscore_warmup
-        if abs(z) >= 4.0 and self._bars_processed < required:
-            fill_ratio = self._bars_processed / required  # 0→1 as warmup progresses
+        # Z-score reliability guard: extreme z (|z| > 3.5) with no position
+        # is suspicious — likely caused by low prediction buffer variance.
+        # Force flat if unreliable, regardless of warmup stage.
+        if abs(z) > 3.5 and self._current_signal == 0:
+            # A genuine z > 3.5 is < 0.02% probability under normal distribution.
+            # Most likely cause: prediction buffer has near-zero std (all predictions ~same).
+            # Cap z at ±3.0 to allow strong-but-not-extreme signals, block noise.
             old_z = z
-            z = z * fill_ratio  # gradual: 50% warmup → z halved
+            z = 3.0 if z > 0 else -3.0
             self._z_scale = self.compute_z_scale(z)
             self._last_z_score = z
             logger.info(
-                "%s Z_DAMPEN: |z|=%.1f × fill=%.0f%% → z=%.2f (bars=%d/%d)",
-                self._symbol, abs(old_z), fill_ratio * 100, z,
-                self._bars_processed, required,
+                "%s Z_CLAMP: |z|=%.1f capped to %.1f (extreme z with no position → likely unreliable)",
+                self._symbol, abs(old_z), z,
             )
             self._last_z_score = z
 
@@ -2336,8 +2337,26 @@ class AlphaRunner:
             logger.warning("%s CIRCUIT BREAKER OPEN: %s", self._symbol, cb_state)
             return {"action": "circuit_open", "state": str(cb_state)}
 
-        # Close venue position
+        # Close venue position — first verify exchange actually has one
         if prev != 0:
+            # Guard: don't try to close a phantom position (from checkpoint restore)
+            try:
+                positions = self._adapter.get_positions(symbol=self._symbol)
+                has_real_pos = any(not p.is_flat for p in positions)
+            except Exception:
+                has_real_pos = True  # assume yes on API error (safer to attempt close)
+
+            if not has_real_pos:
+                logger.warning(
+                    "%s PHANTOM CLOSE: signal was %d but exchange has no position — "
+                    "resetting internal state without PnL",
+                    self._symbol, prev,
+                )
+                self._entry_price = 0.0
+                self._entry_size = 0.0
+                self._trade_peak_price = 0.0
+                return {"action": "phantom_close", "from": prev, "to": new}
+
             close_id = f"close_{self._symbol}_{int(time.time())}"
             self._osm.register(close_id, self._symbol, "sell" if prev == 1 else "buy",
                                "market", str(self._position_size))

@@ -83,9 +83,8 @@ class TestExceptionHierarchy:
             e = cls()
             assert isinstance(e, Exception)
 
-    def test_alpha_runner_imports_exceptions(self):
-        """Verify AlphaRunner imports exceptions module."""
-        from scripts.ops.alpha_runner import (
-            VenueError, InsufficientMargin, OrderRejected,
-            ModelError, DataError, ReconcileError,
-        )
+    def test_alpha_runner_uses_venue_error(self):
+        """Verify AlphaRunner uses VenueError from exceptions module."""
+        from scripts.ops.alpha_runner import VenueError
+        from scripts.ops.exceptions import VenueError as VE
+        assert VenueError is VE

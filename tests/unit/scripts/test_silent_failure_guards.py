@@ -148,8 +148,9 @@ def _make_mock_adapter(*, balances_fail=False, close_fail=False,
         client.post.return_value = {"retCode": 0}
     adapter._client = client
 
-    # get_positions
-    adapter.get_positions.return_value = []
+    # get_positions — return a mock position so phantom close guard doesn't trigger
+    mock_pos = SimpleNamespace(is_flat=False, is_long=True, symbol="ETHUSDT", qty=0.01)
+    adapter.get_positions.return_value = [mock_pos]
 
     # get_klines
     adapter.get_klines.return_value = []

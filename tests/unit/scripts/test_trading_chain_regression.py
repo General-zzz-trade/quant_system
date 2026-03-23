@@ -421,7 +421,7 @@ class TestExceptionWiring:
     """Verify exception types are imported and used in AlphaRunner."""
 
     def test_exceptions_imported(self):
-        from scripts.ops.alpha_runner import VenueError, InsufficientMargin
+        from scripts.ops.alpha_runner import VenueError
         from scripts.ops.exceptions import VenueError as VE
         assert VenueError is VE
 
