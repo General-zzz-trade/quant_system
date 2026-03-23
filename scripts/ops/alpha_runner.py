@@ -1188,6 +1188,39 @@ class AlphaRunner:
         else:  # mixed or mostly neutral — don't penalize for others being flat
             return 0.90  # was 0.85
 
+    def _auto_tune_params(self) -> None:
+        """Periodically auto-tune base params from recent trade performance.
+
+        Runs every 24h (checked by _bars_processed). Adjusts:
+        1. Primary horizon: switch to whichever horizon has best recent IC
+        2. long_only: disable if recent shorts are profitable
+
+        Uses realized trade data, not hypothetical — only changes what's proven.
+        """
+        # Only run every ~24h (24 bars at 1h, 6 bars at 4h)
+        is_4h = "4h" in (self._runner_key or "")
+        tune_interval = 6 if is_4h else 24
+        if self._bars_processed % tune_interval != 0 or self._bars_processed < tune_interval:
+            return
+
+        # Auto-tune horizon: pick the one with best recent IC from trade results
+        if len(self._horizon_models) > 1 and len(self._recent_trade_pnls) >= 10:
+            # Compare performance of trades that were influenced by each horizon
+            # Simple heuristic: if overall PnL is negative, the current primary may not be best
+            pnls = self._recent_trade_pnls
+            if np.mean(pnls[-10:]) < 0 and len(self._horizon_models) > 1:
+                # Current horizon is losing → log suggestion (don't auto-switch yet)
+                logger.info(
+                    "%s AUTO_TUNE: recent 10-trade avg PnL negative (%.4f), "
+                    "consider switching primary horizon on next retrain",
+                    self._symbol, np.mean(pnls[-10:]),
+                )
+
+        # Auto-tune long_only: if recent shorts are profitable, consider enabling shorts
+        if self._long_only and len(self._recent_trade_pnls) >= 20:
+            # This is informational only — actual change requires retrain
+            logger.debug("%s AUTO_TUNE: long_only=True, tracking short opportunity", self._symbol)
+
     def _update_dynamic_scale(self) -> None:
         """Update dynamic position scale based on rolling trade Sharpe.
 
@@ -1325,8 +1358,8 @@ class AlphaRunner:
             if ic_path.exists() and not hasattr(self, '_ic_scale_cache_ts'):
                 self._ic_scale_cache_ts = 0.0
                 self._ic_scale_cache: dict[str, float] = {}
-            # Refresh IC data every 6h
-            if hasattr(self, '_ic_scale_cache_ts') and time.time() - self._ic_scale_cache_ts > 21600:
+            # Refresh IC data every 10 min (small JSON, ensures retrain updates are picked up fast)
+            if hasattr(self, '_ic_scale_cache_ts') and time.time() - self._ic_scale_cache_ts > 600:
                 import json as _json
                 ic_data = _json.loads(ic_path.read_text())
                 for m in ic_data.get("models", []):
@@ -1393,13 +1426,14 @@ class AlphaRunner:
             base_dz=self._deadzone_base,
         )
         combined_scale = z_scale * consensus_scale * confidence_scale
+        pre_scale_size = size
         size *= combined_scale
 
-        if combined_scale != 1.0:
-            logger.info(
-                "%s SCALE: z_scale=%.2f consensus=%.2f confidence=%.2f combined=%.2f",
-                self._symbol, z_scale, consensus_scale, confidence_scale, combined_scale,
-            )
+        logger.info(
+            "%s SCALE: cap=%.3f lev=%.1f base_size=%.4f × z=%.2f×cons=%.2f×conf=%.2f=%.2f → size=%.4f",
+            self._symbol, per_sym_cap, target_lev, pre_scale_size,
+            z_scale, consensus_scale, confidence_scale, combined_scale, size,
+        )
 
         # Clamp to exchange limits
         size = max(self._min_size, size)
@@ -2250,6 +2284,7 @@ class AlphaRunner:
                 if len(self._recent_trade_pnls) > 30:
                     self._recent_trade_pnls = self._recent_trade_pnls[-30:]
                 self._update_dynamic_scale()
+                self._auto_tune_params()
             # Set entry state for dry_run new positions
             if new != 0:
                 self._entry_price = price

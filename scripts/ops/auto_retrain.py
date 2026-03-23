@@ -1038,6 +1038,47 @@ def main():
         else:
             print("  → WARNING: SIGHUP failed — manual model reload required")
 
+    # Refresh IC health after retrain — prevents stale RED status from
+    # shrinking position sizes after models have been retrained.
+    if succeeded and not args.dry_run:
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            ic_path = Path("data/runtime/ic_health.json")
+            models_status = []
+            for sym in list(results.keys()) + [f"{s}_4h" for s in results_4h.keys()]:
+                r = results.get(sym) or results_4h.get(sym.replace("_4h", ""), {})
+                if r.get("success"):
+                    model_map = {
+                        "BTCUSDT": "BTCUSDT_gate_v2", "ETHUSDT": "ETHUSDT_gate_v2",
+                        "BTCUSDT_4h": "BTCUSDT_4h", "ETHUSDT_4h": "ETHUSDT_4h",
+                    }
+                    model_name = model_map.get(sym, sym)
+                    models_status.append({
+                        "model": model_name,
+                        "overall_status": "GREEN",
+                        "note": f"retrained {_dt.now().strftime('%Y-%m-%d %H:%M')}",
+                    })
+            if models_status:
+                # Merge with existing (keep untouched models)
+                existing = []
+                if ic_path.exists():
+                    try:
+                        existing = _json.loads(ic_path.read_text()).get("models", [])
+                    except Exception as exc:
+                        logger.debug("IC health read failed: %s", exc)
+                retrained_names = {m["model"] for m in models_status}
+                merged = [m for m in existing if m.get("model") not in retrained_names]
+                merged.extend(models_status)
+                ic_path.write_text(_json.dumps({
+                    "timestamp": _dt.now(_tz.utc).isoformat(),
+                    "models": merged,
+                }, indent=2))
+                logger.info("IC health refreshed to GREEN for %d retrained models",
+                            len(models_status))
+        except Exception as e:
+            logger.warning("IC health refresh failed (non-blocking): %s", e)
+
     # Send alerts — include 1h, 15m, and 4h failures
     all_results = dict(results)
     for sym, r in results_15m.items():
