@@ -89,20 +89,20 @@ class TestDataRefreshModulePaths:
 
     def test_funding_module_importable(self):
         """The module path used by data-refresh for funding must be importable."""
-        mod = importlib.import_module("scripts.data.download_funding_rates")
+        mod = importlib.import_module("data.downloads.download_funding_rates")
         assert mod is not None
 
     def test_fear_greed_module_importable(self):
-        mod = importlib.import_module("scripts.data.download_fear_greed")
+        mod = importlib.import_module("data.downloads.download_fear_greed")
         assert mod is not None
 
     def test_open_interest_module_importable(self):
-        mod = importlib.import_module("scripts.data.download_open_interest")
+        mod = importlib.import_module("data.downloads.download_open_interest")
         assert mod is not None
 
     def test_data_refresh_uses_correct_paths(self):
-        """data_refresh.py must use scripts.data.* paths, not scripts.*."""
-        with open("scripts/data/data_refresh.py") as f:
+        """data_refresh.py must use data.downloads.* paths, not scripts.*."""
+        with open("data/downloads/data_refresh.py") as f:
             source = f.read()
 
         # These OLD paths must NOT appear
@@ -114,27 +114,27 @@ class TestDataRefreshModulePaths:
         ]
         for bad in bad_paths:
             assert bad not in source, \
-                f"data_refresh.py still uses old path {bad} — must use scripts.data.* instead"
+                f"data_refresh.py still uses old path {bad} — must use data.downloads.* instead"
 
         # These CORRECT paths must appear
         good_paths = [
-            "scripts.data.download_funding_rates",
-            "scripts.data.download_fear_greed",
-            "scripts.data.download_open_interest",
-            "scripts.data.download_binance_klines",
+            "data.downloads.download_funding_rates",
+            "data.downloads.download_fear_greed",
+            "data.downloads.download_open_interest",
+            "data.downloads.download_binance_klines",
         ]
         for good in good_paths:
             assert good in source, f"data_refresh.py missing correct path: {good}"
 
     def test_kline_download_uses_temp_file(self):
         """refresh_klines must write to temp file first to prevent data loss."""
-        with open("scripts/data/data_refresh.py") as f:
+        with open("data/downloads/data_refresh.py") as f:
             source = f.read()
         assert "tempfile.mkstemp" in source or "tmp_path" in source, \
             "refresh_klines must use temp file to prevent data loss on download failure"
 
     def test_kline_download_importable(self):
-        mod = importlib.import_module("scripts.data.download_binance_klines")
+        mod = importlib.import_module("data.downloads.download_binance_klines")
         assert mod is not None
 
 
@@ -508,7 +508,7 @@ class TestSafetyGuards:
 
     def test_oi_csv_normalization(self):
         """Data refresh must normalize OI CSV format after download."""
-        with open("scripts/data/data_refresh.py") as f:
+        with open("data/downloads/data_refresh.py") as f:
             source = f.read()
         assert "sum_open_interest" in source and "normalize" in source.lower() or "normali" in source.lower(), \
             "OI CSV format normalization missing in data_refresh"
