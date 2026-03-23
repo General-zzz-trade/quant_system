@@ -501,7 +501,7 @@ class TestSafetyGuards:
 
     def test_checkpoint_atomic_write(self):
         """Checkpoint must use atomic write (tmp + rename)."""
-        with open("scripts/ops/checkpoint_manager.py") as f:
+        with open("state/checkpoint.py") as f:
             source = f.read()
         assert ".tmp" in source and "replace" in source, \
             "Checkpoint write must be atomic (write tmp then rename)"
@@ -522,7 +522,7 @@ class TestSafetyGuards:
 
     def test_ic_health_refresh_after_retrain(self):
         """Auto-retrain must refresh IC health JSON after success."""
-        with open("scripts/ops/auto_retrain.py") as f:
+        with open("alpha/auto_retrain.py") as f:
             source = f.read()
         assert "ic_health" in source and "GREEN" in source, \
             "IC health refresh after retrain missing"

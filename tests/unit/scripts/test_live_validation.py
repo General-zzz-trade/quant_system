@@ -11,12 +11,12 @@ import pytest
 class TestDashboardImport:
 
     def test_import(self):
-        from scripts.ops.live_validation_dashboard import build_dashboard, print_terminal, print_markdown
+        from monitoring.dashboard import build_dashboard, print_terminal, print_markdown
         assert callable(build_dashboard)
 
     def test_build_dashboard_no_data(self, monkeypatch):
         """Dashboard should work with missing data files."""
-        from scripts.ops import live_validation_dashboard as mod
+        from monitoring import dashboard as mod
         monkeypatch.setattr(mod, "HEALTH_STATUS", Path("/nonexistent/health.json"))
         monkeypatch.setattr(mod, "IC_HEALTH", Path("/nonexistent/ic.json"))
         monkeypatch.setattr(mod, "TRACK_RECORD", Path("/nonexistent/track.json"))
@@ -31,13 +31,13 @@ class TestDashboardImport:
 class TestParseTrackRecord:
 
     def test_empty_track(self):
-        from scripts.ops.live_validation_dashboard import _parse_track_record
+        from monitoring.dashboard import _parse_track_record
         result = _parse_track_record({"daily": {}})
         assert result["days"] == 0
         assert result["total_pnl"] == 0
 
     def test_basic_metrics(self):
-        from scripts.ops.live_validation_dashboard import _parse_track_record
+        from monitoring.dashboard import _parse_track_record
         data = {
             "daily": {
                 "2026-03-01": {
@@ -69,7 +69,7 @@ class TestParseTrackRecord:
         assert result["per_runner"]["BTCUSDT"]["trades"] == 5
 
     def test_sharpe_computation(self):
-        from scripts.ops.live_validation_dashboard import _parse_track_record
+        from monitoring.dashboard import _parse_track_record
         # 30 days with varying positive returns
         daily = {}
         for i in range(30):
@@ -86,7 +86,7 @@ class TestParseTrackRecord:
 class TestChecklist:
 
     def test_all_pass(self):
-        from scripts.ops.live_validation_dashboard import build_dashboard
+        from monitoring.dashboard import build_dashboard
         # Can't easily mock all paths; just verify structure
         dashboard = build_dashboard()
         assert "checklist" in dashboard
@@ -95,7 +95,7 @@ class TestChecklist:
 
     def test_checklist_criteria(self):
         """Verify checklist has the expected items."""
-        from scripts.ops.live_validation_dashboard import build_dashboard
+        from monitoring.dashboard import build_dashboard
         dashboard = build_dashboard()
         expected_keys = [
             "Sharpe > 1.0 (30d rolling)",
@@ -110,11 +110,11 @@ class TestChecklist:
 class TestICHealth:
 
     def test_empty(self):
-        from scripts.ops.live_validation_dashboard import _check_ic_health
+        from monitoring.dashboard import _check_ic_health
         assert _check_ic_health(None) == {}
 
     def test_parse_list(self):
-        from scripts.ops.live_validation_dashboard import _check_ic_health
+        from monitoring.dashboard import _check_ic_health
         data = {"models": [
             {"model": "BTC_4h", "overall_status": "GREEN"},
             {"model": "ETH_1h", "overall_status": "YELLOW"},
@@ -124,7 +124,7 @@ class TestICHealth:
         assert result["ETH_1h"] == "YELLOW"
 
     def test_parse_dict(self):
-        from scripts.ops.live_validation_dashboard import _check_ic_health
+        from monitoring.dashboard import _check_ic_health
         data = {"models": {"BTC_4h": {"status": "GREEN"}}}
         result = _check_ic_health(data)
         assert result["BTC_4h"] == "GREEN"
@@ -133,12 +133,12 @@ class TestICHealth:
 class TestHealthStatus:
 
     def test_healthy(self):
-        from scripts.ops.live_validation_dashboard import _check_health_status
+        from monitoring.dashboard import _check_health_status
         data = {"checks": {"svc1": {"problems": []}, "svc2": {"problems": []}}}
         assert _check_health_status(data) == "HEALTHY"
 
     def test_issues(self):
-        from scripts.ops.live_validation_dashboard import _check_health_status
+        from monitoring.dashboard import _check_health_status
         data = {"checks": {"svc1": {"problems": ["stale data"]}}}
         assert "ISSUES" in _check_health_status(data)
 
@@ -146,11 +146,11 @@ class TestHealthStatus:
 class TestSignalReconcile:
 
     def test_missing(self):
-        from scripts.ops.live_validation_dashboard import _check_signal_reconcile
+        from monitoring.dashboard import _check_signal_reconcile
         assert _check_signal_reconcile(None) == -1.0
 
     def test_rate(self):
-        from scripts.ops.live_validation_dashboard import _check_signal_reconcile
+        from monitoring.dashboard import _check_signal_reconcile
         assert _check_signal_reconcile({"match_rate": 92.5}) == 92.5
 
 
