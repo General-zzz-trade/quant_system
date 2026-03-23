@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Deque, Dict, List, Optional
 
-from _quant_hotpath import RollingWindow
+from _quant_hotpath import PyAdxTracker, PyAtrTracker, PyEmaTracker, PyRsiTracker, RollingWindow
 
 logger = logging.getLogger(__name__)
 
@@ -228,211 +228,75 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
 
 
-@dataclass
 class _EMA:
-    """Incremental EMA tracker."""
-    span: int
-    _alpha: float = 0.0
-    _value: float = 0.0
-    _n: int = 0
+    """Incremental EMA tracker — Rust-backed via PyEmaTracker."""
 
-    def __post_init__(self) -> None:
-        self._alpha = 2.0 / (self.span + 1.0)
+    __slots__ = ("_inner",)
+
+    def __init__(self, span: int) -> None:
+        self._inner = PyEmaTracker(span)
 
     def push(self, x: float) -> None:
-        if self._n == 0:
-            self._value = x
-        else:
-            self._value = self._alpha * x + (1.0 - self._alpha) * self._value
-        self._n += 1
+        self._inner.push(x)
 
     @property
     def value(self) -> Optional[float]:
-        return self._value if self._n > 0 else None
+        return self._inner.value()
 
     @property
     def ready(self) -> bool:
-        return self._n >= self.span
+        return self._inner.ready()
 
 
-@dataclass
 class _RSITracker:
-    """Incremental RSI using Wilder's smoothing."""
-    period: int
-    _avg_gain: float = 0.0
-    _avg_loss: float = 0.0
-    _n: int = 0
-    _prev_close: Optional[float] = None
-    _init_gains: float = 0.0
-    _init_losses: float = 0.0
+    """Incremental RSI — Rust-backed via PyRsiTracker."""
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, period: int) -> None:
+        self._inner = PyRsiTracker(period)
 
     def push(self, close: float) -> None:
-        if self._prev_close is None:
-            self._prev_close = close
-            return
-
-        change = close - self._prev_close
-        self._prev_close = close
-        gain = max(change, 0.0)
-        loss = max(-change, 0.0)
-        self._n += 1
-
-        if self._n <= self.period:
-            self._init_gains += gain
-            self._init_losses += loss
-            if self._n == self.period:
-                self._avg_gain = self._init_gains / self.period
-                self._avg_loss = self._init_losses / self.period
-        else:
-            self._avg_gain = (self._avg_gain * (self.period - 1) + gain) / self.period
-            self._avg_loss = (self._avg_loss * (self.period - 1) + loss) / self.period
+        self._inner.push(close)
 
     @property
     def value(self) -> Optional[float]:
-        if self._n < self.period:
-            return None
-        if self._avg_loss == 0.0:
-            return 100.0
-        rs = self._avg_gain / self._avg_loss
-        return 100.0 - (100.0 / (1.0 + rs))
+        return self._inner.value()
 
 
-@dataclass
 class _ATRTracker:
-    """Incremental ATR using Wilder's smoothing."""
-    period: int
-    _atr: float = 0.0
-    _n: int = 0
-    _prev_close: Optional[float] = None
-    _init_sum: float = 0.0
+    """Incremental ATR — Rust-backed via PyAtrTracker."""
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, period: int) -> None:
+        self._inner = PyAtrTracker(period)
 
     def push(self, high: float, low: float, close: float) -> None:
-        if self._prev_close is None:
-            tr = high - low
-        else:
-            tr = max(
-                high - low,
-                abs(high - self._prev_close),
-                abs(low - self._prev_close),
-            )
-        self._prev_close = close
-        self._n += 1
-
-        if self._n <= self.period:
-            self._init_sum += tr
-            if self._n == self.period:
-                self._atr = self._init_sum / self.period
-        else:
-            self._atr = (self._atr * (self.period - 1) + tr) / self.period
+        self._inner.push(high, low, close)
 
     @property
     def value(self) -> Optional[float]:
-        return self._atr if self._n >= self.period else None
+        return self._inner.value()
+
+    def normalized(self, close: float) -> float:
+        return self._inner.normalized(close)
 
 
-@dataclass
 class _ADXTracker:
-    """Incremental ADX(14) using Wilder's smoothing.
+    """Incremental ADX — Rust-backed via PyAdxTracker."""
 
-    Requires 2*period bars of warmup before producing a value.
-    Steps:
-      1. True Range, +DM, -DM each bar
-      2. Wilder-smooth TR, +DM, -DM over `period` bars
-      3. +DI = 100 * smooth_+DM / smooth_TR, -DI analogous
-      4. DX = 100 * |+DI - -DI| / (+DI + -DI)
-      5. ADX = Wilder-smooth DX over `period` bars
-    """
-    period: int = 14
-    _n: int = 0
-    _prev_high: Optional[float] = None
-    _prev_low: Optional[float] = None
-    _prev_close: Optional[float] = None
-    # Wilder-smoothed values
-    _smooth_tr: float = 0.0
-    _smooth_plus_dm: float = 0.0
-    _smooth_minus_dm: float = 0.0
-    # ADX Wilder smoothing
-    _adx: float = 0.0
-    _dx_init_sum: float = 0.0
-    _dx_count: int = 0
-    _adx_initialized: bool = False
+    __slots__ = ("_inner",)
+
+    def __init__(self, period: int = 14) -> None:
+        self._inner = PyAdxTracker(period)
 
     def push(self, high: float, low: float, close: float) -> None:
-        if self._prev_close is None:
-            self._prev_high = high
-            self._prev_low = low
-            self._prev_close = close
-            return
-
-        self._n += 1
-        prev_high = self._prev_high or high
-        prev_low = self._prev_low or low
-        prev_close = self._prev_close
-
-        # True Range
-        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-
-        # Directional Movement
-        up_move = high - prev_high
-        down_move = prev_low - low
-        plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
-        minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
-
-        self._prev_high = high
-        self._prev_low = low
-        self._prev_close = close
-
-        p = self.period
-        if self._n <= p:
-            # Accumulate initial sums
-            self._smooth_tr += tr
-            self._smooth_plus_dm += plus_dm
-            self._smooth_minus_dm += minus_dm
-            if self._n == p:
-                # First DX after p bars
-                self._compute_dx_and_accumulate()
-        else:
-            # Wilder smoothing: new = prev - prev/period + current
-            self._smooth_tr = self._smooth_tr - self._smooth_tr / p + tr
-            self._smooth_plus_dm = self._smooth_plus_dm - self._smooth_plus_dm / p + plus_dm
-            self._smooth_minus_dm = self._smooth_minus_dm - self._smooth_minus_dm / p + minus_dm
-            self._compute_dx_and_accumulate()
-
-    def _compute_dx_and_accumulate(self) -> None:
-        if self._smooth_tr == 0:
-            # No price movement → no directional movement → DX = 0
-            dx = 0.0
-            p = self.period
-            if not self._adx_initialized:
-                self._dx_init_sum += dx
-                self._dx_count += 1
-                if self._dx_count >= p:
-                    self._adx = self._dx_init_sum / p
-                    self._adx_initialized = True
-            else:
-                self._adx = (self._adx * (p - 1) + dx) / p
-            return
-        plus_di = 100.0 * self._smooth_plus_dm / self._smooth_tr
-        minus_di = 100.0 * self._smooth_minus_dm / self._smooth_tr
-        di_sum = plus_di + minus_di
-        if di_sum == 0:
-            dx = 0.0
-        else:
-            dx = 100.0 * abs(plus_di - minus_di) / di_sum
-
-        p = self.period
-        if not self._adx_initialized:
-            self._dx_init_sum += dx
-            self._dx_count += 1
-            if self._dx_count >= p:
-                self._adx = self._dx_init_sum / p
-                self._adx_initialized = True
-        else:
-            self._adx = (self._adx * (p - 1) + dx) / p
+        self._inner.push(high, low, close)
 
     @property
     def value(self) -> Optional[float]:
-        return self._adx if self._adx_initialized else None
+        return self._inner.value()
 
 
 @dataclass
