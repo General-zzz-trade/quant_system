@@ -5,7 +5,7 @@ callers can catch at the granularity they want.
 """
 from __future__ import annotations
 
-from core.errors import StateError
+from infra.errors import StateError
 
 
 class ReducerError(StateError):

@@ -5,16 +5,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.bootstrap import SystemContext, bootstrap, bootstrap_test
-from core.clock import SimulatedClock
-from core.interceptors import (
+from infra.bootstrap import SystemContext, bootstrap, bootstrap_test
+from engine.clock import CoreSimulatedClock as SimulatedClock
+from engine.interceptors import (
     EventKindGate,
     InterceptAction,
     InterceptorChain,
     InterceptResult,
     PassthroughInterceptor,
 )
-from core.types import (
+from event.core_types import (
     Envelope,
     EventKind,
     EventMetadata,

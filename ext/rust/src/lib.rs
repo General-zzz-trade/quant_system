@@ -79,6 +79,8 @@ mod correlation;
 mod gate_chain;
 pub mod ridge_predict;
 pub mod market_maker;
+#[cfg(feature = "python")]
+mod py_incremental;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -352,6 +354,12 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Ridge predictor (linear model for standalone binary)
     m.add_class::<ridge_predict::RustRidgePredictor>()?;
+
+    // Incremental indicator trackers
+    m.add_class::<py_incremental::PyEmaTracker>()?;
+    m.add_class::<py_incremental::PyRsiTracker>()?;
+    m.add_class::<py_incremental::PyAtrTracker>()?;
+    m.add_class::<py_incremental::PyAdxTracker>()?;
 
     Ok(())
 }

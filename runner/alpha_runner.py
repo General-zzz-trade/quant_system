@@ -26,7 +26,7 @@ from attribution.pnl_tracker import PnLTracker
 from state.checkpoint import CheckpointManager
 from runner.gates.evaluator import GateEvaluator
 from portfolio.entry_scaler import EntryScaler
-from core.exceptions import (
+from infra.errors import (
     VenueError,
 )
 

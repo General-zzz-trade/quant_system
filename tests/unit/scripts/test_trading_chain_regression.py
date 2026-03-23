@@ -422,7 +422,7 @@ class TestExceptionWiring:
 
     def test_exceptions_imported(self):
         from runner.alpha_runner import VenueError
-        from core.exceptions import VenueError as VE
+        from infra.errors import VenueError as VE
         assert VenueError is VE
 
     def test_venue_error_in_reconcile(self):

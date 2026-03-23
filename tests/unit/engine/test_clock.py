@@ -10,18 +10,18 @@ def test_clock_protocol_exists():
 
 
 class TestReplayClockMonotonicity:
-    """Tests for non-monotonic feed() warning in core.clock.ReplayClock."""
+    """Tests for non-monotonic feed() warning in CoreReplayClock."""
 
     def test_backward_time_raises_warning(self, caplog):
         import logging
-        from core.clock import ReplayClock
+        from engine.clock import CoreReplayClock
         t0 = __import__("datetime").datetime(2026, 1, 1, 12, 0, 0,
                                               tzinfo=__import__("datetime").timezone.utc)
         t1 = __import__("datetime").datetime(2026, 1, 1, 11, 0, 0,
                                               tzinfo=__import__("datetime").timezone.utc)
-        clock = ReplayClock()
+        clock = CoreReplayClock()
         clock.feed(t0)
-        with caplog.at_level(logging.WARNING, logger="core.clock"):
+        with caplog.at_level(logging.WARNING, logger="engine.clock"):
             clock.feed(t1)  # backward
         warnings = [r for r in caplog.records
                     if r.levelno >= logging.WARNING and "monoton" in r.message.lower()]
@@ -29,14 +29,14 @@ class TestReplayClockMonotonicity:
 
     def test_forward_time_no_warning(self, caplog):
         import logging
-        from core.clock import ReplayClock
+        from engine.clock import CoreReplayClock
         t0 = __import__("datetime").datetime(2026, 1, 1, 12, 0, 0,
                                               tzinfo=__import__("datetime").timezone.utc)
         t1 = __import__("datetime").datetime(2026, 1, 1, 13, 0, 0,
                                               tzinfo=__import__("datetime").timezone.utc)
-        clock = ReplayClock()
+        clock = CoreReplayClock()
         clock.feed(t0)
-        with caplog.at_level(logging.WARNING, logger="core.clock"):
+        with caplog.at_level(logging.WARNING, logger="engine.clock"):
             clock.feed(t1)
         warnings = [r for r in caplog.records
                     if r.levelno >= logging.WARNING and "monoton" in r.message.lower()]

@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 from infra.config.loader import load_config
 
-from core.config import ConfigService
+from infra.config.core import ConfigService
 
 __all__ = ["load_config", "get_config_service", "ConfigService"]
 

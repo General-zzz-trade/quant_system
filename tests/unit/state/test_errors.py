@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.errors import StateError
+from infra.errors import StateError
 from state.errors import (
     ProjectionError,
     ReducerError,

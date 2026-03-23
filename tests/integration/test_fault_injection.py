@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.bus import BoundedEventBus, BusConfig, OverflowPolicy, PublishResult
-from core.types import Envelope, EventKind, EventMetadata, Priority
+from event.bounded_bus import BoundedEventBus, BusConfig, OverflowPolicy, PublishResult
+from event.core_types import Envelope, EventKind, EventMetadata, Priority
 from engine.execution_bridge import ExecutionBridge, ExecutionBridgeError
 
 

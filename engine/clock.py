@@ -1,11 +1,28 @@
 # engine/clock.py
+"""Unified clock module — merges engine clock (ClockMode/ReplayClock/LiveClock)
+with core clock (CoreClock protocol, CoreSystemClock, CoreSimulatedClock, CoreReplayClock).
+
+Engine clocks use advance_to/advance_by API with ClockMode enum.
+Core clocks use now()/monotonic()/sleep() API with datetime objects.
+Both coexist here; consumers import whichever API they need.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+import threading
+import time
+import time as _time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional, Protocol, runtime_checkable
-import time
 
+_log = logging.getLogger(__name__)
+
+
+# ============================================================
+# Engine Clock API (advance_to / advance_by)
+# ============================================================
 
 class ClockMode(str, Enum):
     LIVE = "live"
@@ -15,12 +32,7 @@ class ClockMode(str, Enum):
 @runtime_checkable
 class Clock(Protocol):
     """
-    Engine 时间制度的唯一来源。
-
-    机构级原则：
-    - 所有“当前时间”只能从 clock 获取
-    - replay 必须可控、单调、确定性
-    - live 必须只读（不可推进）
+    Engine clock protocol.
     """
 
     @property
@@ -45,13 +57,6 @@ class ClockImmutableError(ClockError):
 
 
 def _to_float_seconds(ts: Any) -> Optional[float]:
-    """
-    尝试把 ts 转成 float 秒（用于比较/推进）
-    支持：
-    - int/float
-    - 具有 timestamp() 方法的对象（datetime 等）
-    - 具有 .ts 或 .timestamp 字段（你后续可按需扩展）
-    """
     if ts is None:
         return None
     if isinstance(ts, (int, float)):
@@ -81,11 +86,7 @@ def _to_float_seconds(ts: Any) -> Optional[float]:
 @dataclass(slots=True)
 class ReplayClock:
     """
-    Replay 模式时钟：可控、可推进、单调递增。
-
-    设计要求：
-    - 初始 ts 可为空：由第一条 event set/advance_to 决定
-    - 所有推进必须单调（防止回放产生时间倒流导致状态不确定）
+    Replay mode clock: controllable, monotonic.
     """
     _ts: Any = None
 
@@ -97,7 +98,6 @@ class ReplayClock:
         return self._ts
 
     def set(self, ts: Any) -> None:
-        # set 也必须单调（制度强制）
         self.advance_to(ts)
 
     def advance_to(self, ts: Any) -> None:
@@ -111,9 +111,7 @@ class ReplayClock:
         old = _to_float_seconds(self._ts)
         new = _to_float_seconds(ts)
 
-        # 如果无法比较（自定义时间类型），退化为“引用一致性”策略：只允许同对象或字符串化不降序
         if old is None or new is None:
-            # 保守：只允许不倒退的“字符串比较”（仍可能不完美，但至少确定性）
             if str(ts) < str(self._ts):
                 raise ClockMonotonicError(f"ReplayClock time moved backwards: {self._ts} -> {ts}")
             self._ts = ts
@@ -128,13 +126,11 @@ class ReplayClock:
         if seconds < 0:
             raise ClockMonotonicError(f"ReplayClock cannot advance by negative seconds: {seconds}")
         if self._ts is None:
-            # 没有基准时间则以 0 为基准（由使用者决定是否允许）
             self._ts = float(seconds)
             return
 
         old = _to_float_seconds(self._ts)
         if old is None:
-            # 无法数值推进，退化：把推进值附加到字符串（确定性但不用于真实交易）
             self._ts = f"{self._ts}+{seconds}s"
             return
 
@@ -144,14 +140,9 @@ class ReplayClock:
 @dataclass(slots=True)
 class LiveClock:
     """
-    Live 模式时钟：只读，不允许推进（防止业务代码改写时间语义）。
-
-    默认：
-    - now() 返回 time.time()（wall-clock 秒）
-    - 如你未来要用“交易所时间”或 “bar 时间”，应由 Event/Header 提供，
-      并在 scheduler/dispatcher 层显式选择使用 event.ts 还是 clock.now()
+    Live mode clock: immutable, read-only.
     """
-    time_fn: Any = time.time  # 可注入（测试/模拟）
+    time_fn: Any = time.time
 
     @property
     def mode(self) -> ClockMode:
@@ -168,3 +159,127 @@ class LiveClock:
 
     def advance_by(self, seconds: float) -> None:
         raise ClockImmutableError("LiveClock is immutable; use ReplayClock for controllable time.")
+
+
+# ============================================================
+# Core Clock API (now/monotonic/sleep — datetime-based)
+# Migrated from core/clock.py. Prefixed with "Core" to avoid
+# name collisions with the engine Clock protocol above.
+# ============================================================
+
+class CoreClock(Protocol):
+    """Minimal clock contract used by Effects and infrastructure.
+
+    Uses datetime objects and monotonic floats, as opposed to the
+    engine Clock which uses generic timestamps.
+    """
+
+    def now(self) -> datetime:
+        """Current wall-clock time (timezone-aware UTC)."""
+        ...
+
+    def monotonic(self) -> float:
+        """Monotonic seconds — safe for latency measurement."""
+        ...
+
+    def sleep(self, seconds: float) -> None:
+        """Block for *seconds* (real or simulated)."""
+        ...
+
+
+class CoreSystemClock:
+    """Real wall clock — for live trading."""
+
+    __slots__ = ()
+
+    def now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def monotonic(self) -> float:
+        return _time.monotonic()
+
+    def sleep(self, seconds: float) -> None:
+        _time.sleep(seconds)
+
+
+@dataclass
+class CoreSimulatedClock:
+    """Manually-controlled clock — ``advance()`` or ``set()`` to move time.
+
+    ``sleep()`` is a no-op by default (instant); set ``real_sleep=True``
+    if you want to block for debugging.
+    """
+
+    _current: datetime = field(default_factory=lambda: datetime(2024, 1, 1, tzinfo=timezone.utc))
+    _mono: float = field(default=0.0)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    real_sleep: bool = False
+
+    def now(self) -> datetime:
+        with self._lock:
+            return self._current
+
+    def monotonic(self) -> float:
+        with self._lock:
+            return self._mono
+
+    def sleep(self, seconds: float) -> None:
+        if self.real_sleep:
+            _time.sleep(seconds)
+        else:
+            self.advance(timedelta(seconds=seconds))
+
+    def advance(self, delta: timedelta) -> None:
+        """Move time forward by *delta*."""
+        with self._lock:
+            self._current += delta
+            self._mono += delta.total_seconds()
+
+    def set(self, t: datetime) -> None:
+        """Jump to an absolute time.  Monotonic clock advances accordingly."""
+        with self._lock:
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            delta = (t - self._current).total_seconds()
+            self._mono += max(0.0, delta)
+            self._current = t
+
+
+@dataclass
+class CoreReplayClock:
+    """Clock driven by event timestamps — for deterministic replay.
+
+    Call ``feed(ts)`` with each event's timestamp; ``now()`` returns
+    the most recently fed value.  ``sleep()`` is a no-op.
+    """
+
+    _current: datetime = field(default_factory=lambda: datetime(2024, 1, 1, tzinfo=timezone.utc))
+    _mono: float = field(default=0.0)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def now(self) -> datetime:
+        with self._lock:
+            return self._current
+
+    def monotonic(self) -> float:
+        with self._lock:
+            return self._mono
+
+    def sleep(self, seconds: float) -> None:
+        pass  # no-op in replay
+
+    def feed(self, ts: datetime) -> None:
+        """Advance clock to *ts* (must be >= current)."""
+        with self._lock:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            delta = (ts - self._current).total_seconds()
+            if delta < 0:
+                _log.warning(
+                    "CoreReplayClock: non-monotonic feed — ts=%s is %.1fs before current=%s, ignoring",
+                    ts.isoformat(), abs(delta), self._current.isoformat(),
+                )
+                return
+            if delta > 0:
+                self._mono += delta
+                self._current = ts

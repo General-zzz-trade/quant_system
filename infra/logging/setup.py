@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.effects import StdLogger
+    from infra.effects import StdLogger
 
 
 def setup_logging(
@@ -56,7 +56,7 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
 def get_effects_logger() -> "StdLogger":
     """Get a LogEffect backed by the stdlib quant_system logger.
 
-    Returns a ``core.effects.StdLogger`` instance.
+    Returns an ``infra.effects.StdLogger`` instance.
     """
-    from core.effects import StdLogger
+    from infra.effects import StdLogger
     return StdLogger()

@@ -3,8 +3,8 @@
 Renamed from platform/ to avoid shadowing Python's stdlib ``platform`` module.
 These helpers avoid heavy dependencies and are safe to use in both backtests and live runs.
 
-For core services (ConfigService, Effects, Clock), prefer importing from ``core/``
-directly. This module provides convenience wrappers and backwards compatibility.
+Core services (ConfigService, Effects, Clock) now live in infra/ and engine/.
+This module provides convenience wrappers and access to all infrastructure utilities.
 """
 from infra.runtime.run_context import RunContext
 from infra.config.loader import load_config

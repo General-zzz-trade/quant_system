@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Sequence
 from execution.adapters.base import VenueAdapter
 
 if TYPE_CHECKING:
-    from core.plugins import PluginRegistry
+    from infra.plugins import PluginRegistry
 
 
 class AdapterNotFoundError(KeyError):

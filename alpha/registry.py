@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, Optional
 from .base import AlphaModel
 
 if TYPE_CHECKING:
-    from core.plugins import PluginRegistry
+    from infra.plugins import PluginRegistry
 
 
 @dataclass

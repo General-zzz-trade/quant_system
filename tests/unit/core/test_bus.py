@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from core.bus import (
+from event.bounded_bus import (
     BoundedEventBus,
     BusConfig,
     OverflowPolicy,
     PublishResult,
 )
-from core.types import Envelope, EventKind, EventMetadata, Priority
+from event.core_types import Envelope, EventKind, EventMetadata, Priority
 
 
 # ── Helpers ──────────────────────────────────────────────────

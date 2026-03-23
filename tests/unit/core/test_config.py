@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from core.config import (
+from infra.config.core import (
     ConfigKeyError,
     ConfigService,
     ConfigTypeError,
