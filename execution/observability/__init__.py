@@ -9,7 +9,6 @@ from execution.observability.incidents import (
 from execution.observability.metrics import ExecutionMetrics, Counter, Gauge  # noqa: F401
 from execution.observability.rejections import rejection_event_to_alert
 from execution.observability.redaction import redact_dict, redact_value, redact_url  # noqa: F401
-from execution.observability.tracing import Tracer, Span, SpanBuilder  # noqa: F401
 
 
-__all__ = ['build_execution_alert', 'AuditLog', 'ExecutionMetrics', 'rejection_event_to_alert', 'redact_dict', 'Tracer']
+__all__ = ['build_execution_alert', 'AuditLog', 'ExecutionMetrics', 'rejection_event_to_alert', 'redact_dict']

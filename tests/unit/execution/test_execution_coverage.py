@@ -8,11 +8,9 @@ Targets:
   execution/safety/limits.py
   execution/bridge/error_policy.py
   execution/bridge/request_ids.py
-  execution/bridge/venue_router.py
   execution/models/commands.py
   execution/store/ack_store.py
   execution/observability/redaction.py
-  execution/observability/tracing.py
   execution/observability/metrics.py
   execution/adapters/common/decimals.py
   execution/adapters/common/symbols.py
@@ -108,97 +106,6 @@ class TestRedaction(unittest.TestCase):
         url = "https://api.binance.com/api?symbol=BTCUSDT"
         result = self.redact_url(url)
         self.assertEqual(result, url)
-
-
-# ===========================================================================
-# 2. execution/observability/tracing.py
-# ===========================================================================
-class TestTracing(unittest.TestCase):
-
-    def setUp(self):
-        from execution.observability.tracing import Tracer, SpanBuilder, Span
-        self.Tracer = Tracer
-        self.SpanBuilder = SpanBuilder
-        self.Span = Span
-
-    def test_span_duration_ms(self):
-        span = self.Span(
-            span_id="abc",
-            trace_id="def",
-            operation="test_op",
-            start_ts=1000.0,
-            end_ts=1001.5,
-            status="ok",
-        )
-        self.assertAlmostEqual(span.duration_ms, 1500.0)
-
-    def test_span_builder_finish(self):
-        builder = self.SpanBuilder("submit_order")
-        span = builder.finish()
-        self.assertEqual(span.operation, "submit_order")
-        self.assertEqual(span.status, "ok")
-        self.assertIsNone(span.error)
-
-    def test_span_builder_error(self):
-        builder = self.SpanBuilder("submit_order")
-        builder.error("something went wrong")
-        span = builder.finish()
-        self.assertEqual(span.status, "error")
-        self.assertEqual(span.error, "something went wrong")
-
-    def test_span_builder_tag(self):
-        builder = self.SpanBuilder("op")
-        builder.tag("venue", "bybit").tag("symbol", "BTCUSDT")
-        span = builder.finish()
-        self.assertEqual(span.tags["venue"], "bybit")
-        self.assertEqual(span.tags["symbol"], "BTCUSDT")
-
-    def test_span_builder_custom_trace_id(self):
-        builder = self.SpanBuilder("op", trace_id="my-trace-123")
-        span = builder.finish()
-        self.assertEqual(span.trace_id, "my-trace-123")
-
-    def test_tracer_record_and_query(self):
-        tracer = self.Tracer()
-        builder = tracer.start_span("submit_order")
-        span = builder.finish()
-        tracer.record(span)
-        results = tracer.query(operation="submit_order")
-        self.assertEqual(len(results), 1)
-
-    def test_tracer_query_by_trace_id(self):
-        tracer = self.Tracer()
-        b1 = tracer.start_span("op", trace_id="trace-A")
-        s1 = b1.finish()
-        tracer.record(s1)
-        b2 = tracer.start_span("op", trace_id="trace-B")
-        s2 = b2.finish()
-        tracer.record(s2)
-        results = tracer.query(trace_id="trace-A")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].trace_id, "trace-A")
-
-    def test_tracer_max_spans_eviction(self):
-        tracer = self.Tracer(max_spans=5)
-        for i in range(10):
-            b = tracer.start_span(f"op-{i}")
-            tracer.record(b.finish())
-        # Should retain only latest max_spans
-        results = tracer.query(limit=100)
-        self.assertLessEqual(len(results), 5)
-
-    def test_tracer_query_limit(self):
-        tracer = self.Tracer()
-        for _ in range(20):
-            tracer.record(tracer.start_span("op").finish())
-        results = tracer.query(operation="op", limit=5)
-        self.assertEqual(len(results), 5)
-
-    def test_tracer_query_no_match(self):
-        tracer = self.Tracer()
-        tracer.record(tracer.start_span("op").finish())
-        results = tracer.query(operation="nonexistent")
-        self.assertEqual(len(results), 0)
 
 
 # ===========================================================================
@@ -1191,88 +1098,6 @@ class TestErrorPolicy(unittest.TestCase):
         d1 = policy.decide(error_code=-1003, attempt=1)
         d2 = policy.decide(error_code=-1003, attempt=2)
         self.assertLessEqual(d1.retry_delay_sec, d2.retry_delay_sec)
-
-
-# ===========================================================================
-# 15. execution/bridge/venue_router.py
-# ===========================================================================
-class TestVenueRouter(unittest.TestCase):
-
-    def _make_bridge(self, venue):
-        """Create a minimal ExecutionBridge with a mock client."""
-        from execution.bridge.execution_bridge import ExecutionBridge
-        client = MagicMock()
-        client.submit_order.return_value = {"orderId": "123"}
-        client.cancel_order.return_value = {"orderId": "123"}
-        bridge = ExecutionBridge(venue_clients={venue: client})
-        return bridge
-
-    def _make_cmd(self, venue, symbol="BTCUSDT"):
-        cmd = MagicMock()
-        cmd.venue = venue
-        cmd.symbol = symbol
-        cmd.command_id = "cmd-001"
-        cmd.idempotency_key = f"{venue}-{symbol}-001"
-        return cmd
-
-    def setUp(self):
-        from execution.bridge.venue_router import VenueRouter
-        self.Router = VenueRouter
-
-    def test_register_and_get_bridge(self):
-        router = self.Router()
-        bridge = self._make_bridge("bybit")
-        router.register("bybit", bridge)
-        self.assertIsNotNone(router.get_bridge("bybit"))
-
-    def test_get_bridge_case_insensitive(self):
-        router = self.Router()
-        bridge = self._make_bridge("bybit")
-        router.register("BYBIT", bridge)
-        self.assertIsNotNone(router.get_bridge("bybit"))
-
-    def test_get_bridge_missing_returns_none(self):
-        router = self.Router()
-        self.assertIsNone(router.get_bridge("unknown"))
-
-    def test_submit_routes_to_correct_bridge(self):
-        router = self.Router()
-        bridge = MagicMock()
-        bridge.submit.return_value = MagicMock(status="ACCEPTED")
-        router.register("bybit", bridge)
-        cmd = self._make_cmd("bybit")
-        router.submit(cmd)
-        bridge.submit.assert_called_once_with(cmd)
-
-    def test_cancel_routes_to_correct_bridge(self):
-        router = self.Router()
-        bridge = MagicMock()
-        bridge.cancel.return_value = MagicMock(status="ACCEPTED")
-        router.register("bybit", bridge)
-        cmd = self._make_cmd("bybit")
-        router.cancel(cmd)
-        bridge.cancel.assert_called_once_with(cmd)
-
-    def test_submit_unknown_venue_raises(self):
-        router = self.Router()
-        cmd = self._make_cmd("unknown_venue")
-        with self.assertRaises(KeyError):
-            router.submit(cmd)
-
-    def test_cancel_unknown_venue_raises(self):
-        router = self.Router()
-        cmd = self._make_cmd("unknown_venue")
-        with self.assertRaises(KeyError):
-            router.cancel(cmd)
-
-    def test_venues_property(self):
-        router = self.Router()
-        bridge1 = self._make_bridge("bybit")
-        bridge2 = self._make_bridge("binance")
-        router.register("bybit", bridge1)
-        router.register("binance", bridge2)
-        self.assertIn("bybit", router.venues)
-        self.assertIn("binance", router.venues)
 
 
 # ===========================================================================
