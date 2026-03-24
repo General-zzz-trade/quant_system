@@ -1,10 +1,9 @@
 # execution/safety/risk_gate.py
 """RiskGate — pre-execution risk checks before orders reach the venue.
 
-Validates:
-- Position limits (per-symbol and total notional)
-- Order size sanity (no fat-finger)
-- Kill switch not triggered
+Delegates numeric validation (notional, position, portfolio limits) to
+RustRiskGate via a single FFI call. Python layer handles dynamic callbacks
+(get_positions, get_open_order_count, is_killed) and attribute extraction.
 """
 from __future__ import annotations
 
@@ -41,31 +40,36 @@ class RiskCheckResult:
 
 @dataclass
 class RiskGate:
-    """Pre-execution risk gate. Must pass before orders reach the venue."""
+    """Pre-execution risk gate. Must pass before orders reach the venue.
+
+    Numeric checks (notional limits, open order count) are delegated to
+    RustRiskGate.  Python handles callback resolution and attribute extraction.
+    """
 
     config: RiskGateConfig = field(default_factory=RiskGateConfig)
     get_positions: Optional[Callable[[], Mapping[str, Any]]] = None
     get_open_order_count: Optional[Callable[[], int]] = None
     is_killed: Optional[Callable[[], bool]] = None
 
+    def __post_init__(self) -> None:
+        self._rust = _RustRiskGate(
+            max_open_orders=self.config.max_open_orders,
+            max_order_notional=self.config.max_order_notional,
+            max_position_notional=self.config.max_position_notional,
+            max_portfolio_notional=self.config.max_portfolio_notional,
+        )
+
     def check(self, cmd: Any) -> RiskCheckResult:
         """Check if an order command passes risk validation."""
-        # Kill switch check
-        if self.is_killed is not None and self.is_killed():
-            return RiskCheckResult(allowed=False, reason="kill_switch_active")
+        # Resolve dynamic state from callbacks
+        kill_switch_armed = self.is_killed is not None and self.is_killed()
+        open_order_count = self.get_open_order_count() if self.get_open_order_count is not None else 0
 
-        # Open order limit
-        if self.get_open_order_count is not None:
-            count = self.get_open_order_count()
-            if count >= self.config.max_open_orders:
-                return RiskCheckResult(
-                    allowed=False,
-                    reason=f"max_open_orders:{count}>={self.config.max_open_orders}",
-                )
-
-        # Order notional check — fail-closed: reject if qty or price missing
+        # Extract qty, price, symbol from command object
         qty = _get_qty(cmd)
         price = _get_price(cmd)
+        symbol = str(getattr(cmd, "symbol", ""))
+
         if qty is None or price is None:
             logger.warning(
                 "RiskGate: cannot extract qty=%s price=%s (checked mark_price/price/limit_price) from order, rejecting",
@@ -76,39 +80,33 @@ class RiskGate:
                 reason=f"missing_qty_or_price:qty={qty},price={price}",
             )
 
-        notional = abs(qty * price)
-        if notional > self.config.max_order_notional:
-            return RiskCheckResult(
-                allowed=False,
-                reason=f"order_notional:{notional:.2f}>{self.config.max_order_notional:.2f}",
-            )
-
-        # Position limit check
+        # Compute position/portfolio notionals from callbacks
+        position_notional = 0.0
+        portfolio_notional = 0.0
         if self.get_positions is not None:
-            symbol = str(getattr(cmd, "symbol", ""))
             positions = self.get_positions()
-            current_notional = _position_notional(positions, symbol, price)
-            order_notional = abs(qty * price)
-            new_notional = current_notional + order_notional
-
-            if new_notional > self.config.max_position_notional:
-                return RiskCheckResult(
-                    allowed=False,
-                    reason=f"position_notional:{new_notional:.2f}>{self.config.max_position_notional:.2f}",
-                )
-
-            # Portfolio-wide check — use order price only for the order's symbol
-            total = sum(
+            position_notional = _position_notional(positions, symbol, price)
+            # Portfolio-wide: sum all symbols (use order price only for order's symbol)
+            portfolio_notional = sum(
                 _position_notional(positions, s, price if s == symbol else 0.0)
                 for s in positions
-            ) + order_notional
-            if total > self.config.max_portfolio_notional:
-                return RiskCheckResult(
-                    allowed=False,
-                    reason=f"portfolio_notional:{total:.2f}>{self.config.max_portfolio_notional:.2f}",
-                )
+            )
 
-        return RiskCheckResult(allowed=True)
+        # Single FFI call to Rust for all numeric checks
+        allowed, reason = self._rust.check(
+            symbol=symbol,
+            side=str(getattr(cmd, "side", "BUY")),
+            qty=abs(qty),
+            price=price,
+            open_order_count=open_order_count,
+            position_notional=position_notional,
+            portfolio_notional=portfolio_notional,
+            kill_switch_armed=kill_switch_armed,
+        )
+
+        if allowed:
+            return RiskCheckResult(allowed=True)
+        return RiskCheckResult(allowed=False, reason=reason or "")
 
 
 def _get_qty(cmd: Any) -> Optional[float]:

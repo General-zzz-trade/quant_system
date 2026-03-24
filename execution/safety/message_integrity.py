@@ -1,5 +1,9 @@
 # execution/safety/message_integrity.py
-"""Payload integrity checking — detects data corruption in order/fill messages."""
+"""Payload integrity checking — detects data corruption in order/fill messages.
+
+Delegates digest computation to execution.models.digest (which uses Rust
+rust_stable_hash under the hood).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +15,7 @@ class IntegrityError(RuntimeError):
 
 
 def compute_payload_digest(payload: Mapping[str, Any]) -> str:
+    """Compute a 16-char SHA-256 digest of the payload via Rust."""
     from execution.models.digest import payload_digest
     return payload_digest(dict(payload), length=16)
 
@@ -23,7 +28,10 @@ class IntegrityCheckResult:
 
 
 class IntegrityChecker:
-    """消息完整性校验 — 对比 payload_digest 与重新计算的 digest。"""
+    """Message integrity checker — compares payload_digest with expected digest.
+
+    All SHA-256 computation is delegated to Rust via execution.models.digest.
+    """
 
     @staticmethod
     def verify(*, payload: Mapping[str, Any], expected_digest: str) -> IntegrityCheckResult:
