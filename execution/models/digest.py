@@ -1,29 +1,23 @@
 # execution/models/digest.py
 """Unified hashing and dedup key generation — single source of truth.
 
+Delegates SHA-256 computation to Rust (_quant_hotpath).
+
 ALL payload digest, stable hash, fill key, and order key computation
 MUST go through this module. No other file should import hashlib for
 dedup/integrity purposes.
-
-Replaces 5 scattered implementations:
-- execution/models/orders.py _stable_hash/_stable_json
-- execution/models/fill_events.py _stable_hash
-- execution/adapters/binance/dedup_keys.py
-- execution/adapters/binance/dedup_order_keys.py
-- execution/adapters/polymarket/mapper.py _stable_hash
-- execution/safety/message_integrity.py compute_payload_digest
-- execution/adapters/common/hashing.py payload_digest
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
+from _quant_hotpath import rust_stable_hash as _rust_stable_hash
+
 
 def _stable_json(obj: Mapping[str, Any]) -> str:
-    """Deterministic JSON serialization. Decimal → str, sorted keys, no spaces."""
+    """Deterministic JSON serialization. Decimal -> str, sorted keys, no spaces."""
     def _default(value: Any) -> Any:
         if isinstance(value, Decimal):
             return str(value)
@@ -36,21 +30,21 @@ def _stable_json(obj: Mapping[str, Any]) -> str:
 
 
 def stable_hash(obj: Mapping[str, Any]) -> str:
-    """Full SHA-256 hex digest of a dict (deterministic)."""
-    return hashlib.sha256(_stable_json(obj).encode("utf-8")).hexdigest()
+    """Full SHA-256 hex digest of a dict (deterministic). Delegates to Rust."""
+    return str(_rust_stable_hash(_stable_json(obj), 64))
 
 
 def payload_digest(obj: Mapping[str, Any], *, length: int = 0) -> str:
-    """SHA-256 digest, optionally truncated.
+    """SHA-256 digest, optionally truncated. Delegates to Rust.
 
     length=0 (default): full 64-char hex digest.
     length=16: 16-char truncated digest (legacy message_integrity compat).
     """
-    h = stable_hash(obj)
-    return h[:length] if length > 0 else h
+    effective_len = 64 if length <= 0 else length
+    return str(_rust_stable_hash(_stable_json(obj), effective_len))
 
 
-# ── Key builders ──────────────────────────────────────────────
+# -- Key builders ----------------------------------------------------------
 
 
 def fill_key(*, venue: str, symbol: str, trade_id: str) -> str:
@@ -63,7 +57,7 @@ def order_key(*, venue: str, symbol: str, order_id: str) -> str:
     return f"{venue}:{symbol}:order:{order_id}"
 
 
-# ── Typed digest builders ────────────────────────────────────
+# -- Typed digest builders -------------------------------------------------
 
 
 def fill_digest(

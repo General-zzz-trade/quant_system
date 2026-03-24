@@ -17,6 +17,7 @@ from typing import Optional, Sequence
 from execution.state_machine.transitions import OrderStatus, Transition
 
 from _quant_hotpath import RustOrderStateMachine as _RustOrderStateMachine
+from _quant_hotpath import RustOrderState as _RustOrderState
 
 
 class OrderStateMachineError(RuntimeError):
@@ -77,7 +78,7 @@ def _transition_from_rust(raw: object) -> Transition:
     )
 
 
-def _state_from_rust(raw: object) -> OrderState:
+def _state_from_rust(raw: "_RustOrderState | object") -> OrderState:
     return OrderState(
         order_id=str(getattr(raw, "order_id")),
         client_order_id=getattr(raw, "client_order_id", None),

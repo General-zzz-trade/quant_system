@@ -1,14 +1,18 @@
 # execution/safety/duplicate_guard.py
-"""Idempotency guard — detects duplicate fills/orders and payload corruption."""
+"""Idempotency guard — detects duplicate fills/orders and payload corruption.
+
+Uses RustFillDedupGuard for TTL-based dedup and RustDedupStore for persistent key-value dedup.
+"""
 from __future__ import annotations
 
 import hashlib
 import json
 from threading import RLock
 from time import monotonic
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from _quant_hotpath import RustFillDedupGuard as _RustFillDedupGuard
+from _quant_hotpath import RustDedupStore as _RustDedupStore
 
 
 class DuplicateError(RuntimeError):
@@ -57,6 +61,32 @@ class DuplicateGuard:
     def clear(self) -> None:
         with self._lock:
             self._inner.clear()
+
+
+class PersistentDedupGuard:
+    """RustDedupStore-backed dedup guard for restart-safe deduplication.
+
+    Uses RustDedupStore (in-memory key-value with TTL) for lightweight
+    persistent dedup without SQLite overhead.
+    """
+
+    def __init__(self) -> None:
+        self._store = _RustDedupStore()
+
+    def put(self, key: str, value: str) -> None:
+        self._store.put(key, value)
+
+    def get(self, key: str) -> Optional[str]:
+        return self._store.get(key)
+
+    def seen(self, key: str) -> bool:
+        return self._store.get(key) is not None
+
+    def prune(self) -> int:
+        return int(self._store.prune())
+
+    def clear(self) -> None:
+        self._store.clear()
 
 
 def make_duplicate_guard(**kwargs: Any) -> DuplicateGuard:

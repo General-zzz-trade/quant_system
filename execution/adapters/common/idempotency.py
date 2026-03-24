@@ -1,9 +1,10 @@
 # execution/adapters/common/idempotency.py
-"""Idempotency key generation for adapters."""
+"""Idempotency key generation for adapters — delegates to Rust."""
 from __future__ import annotations
 
-import hashlib
 from typing import Optional
+
+from _quant_hotpath import rust_stable_hash as _rust_stable_hash
 
 
 def make_fill_idem_key(
@@ -18,9 +19,9 @@ def make_fill_idem_key(
     price: str = "",
 ) -> str:
     """
-    生成成交幂等键。
+    Generate fill idempotency key via Rust SHA-256.
 
-    优先使用 fill_id，其次 trade_id，最后退化为字段组合 hash。
+    Priority: fill_id > trade_id > field combo hash.
     """
     if fill_id:
         base = f"{venue}|{symbol}|fill|{fill_id}"
@@ -28,7 +29,7 @@ def make_fill_idem_key(
         base = f"{venue}|{symbol}|trade|{trade_id}"
     else:
         base = f"{venue}|{symbol}|combo|{order_id}|{side}|{qty}|{price}"
-    return hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
+    return str(_rust_stable_hash(base, 24))
 
 
 def make_order_idem_key(
@@ -37,6 +38,6 @@ def make_order_idem_key(
     symbol: str,
     order_id: str,
 ) -> str:
-    """生成订单幂等键。"""
+    """Generate order idempotency key via Rust SHA-256."""
     base = f"{venue}|{symbol}|order|{order_id}"
-    return hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
+    return str(_rust_stable_hash(base, 24))

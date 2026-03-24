@@ -1,10 +1,15 @@
 # execution/state_machine/transitions.py
-"""Order status enum and valid transition rules."""
+"""Order status enum and valid transition rules.
+
+RustOrderTransition is available for Rust-side transition validation.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, FrozenSet, Set
+
+from _quant_hotpath import RustOrderTransition as _RustOrderTransition
 
 
 class OrderStatus(str, Enum):
@@ -66,3 +71,13 @@ TERMINAL_STATUSES: FrozenSet[OrderStatus] = frozenset({
     OrderStatus.REJECTED,
     OrderStatus.EXPIRED,
 })
+
+
+def transition_from_rust(raw: "_RustOrderTransition | object") -> Transition:
+    """Convert a RustOrderTransition to a Python Transition."""
+    return Transition(
+        from_status=OrderStatus(str(getattr(raw, "from_status")).lower()),
+        to_status=OrderStatus(str(getattr(raw, "to_status")).lower()),
+        ts_ms=int(getattr(raw, "ts_ms", 0)),
+        reason=str(getattr(raw, "reason", "")),
+    )
