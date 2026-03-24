@@ -14,7 +14,7 @@ pytest tests/unit/event/ -x -q   # Event module tests (145 tests)
 pytest tests/unit/strategies/ -x -q  # Strategy registry tests (10 tests)
 pytest -m slow               # Slow tests only (parity, NN, XGB)
 pytest -m benchmark          # Performance benchmarks
-cd rust && cargo test  # Rust unit tests (default feature set for tests)
+cargo test  # Rust unit tests (default feature set for tests)
 ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
@@ -105,12 +105,12 @@ python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"  
 Rust Python extension builds must explicitly enable `python`, for example:
 
 ```bash
-cd rust && maturin build --release --features python
+maturin build --release --features python
 ```
 
 **Binary build** (standalone Rust trader, requires Python linkage):
 ```bash
-cd rust && RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-lpython3.12" cargo build --release --bin quant_trader
+RUSTFLAGS="-C link-arg=-L/usr/lib/x86_64-linux-gnu -C link-arg=-lpython3.12" cargo build --release --bin quant_trader
 ./target/release/quant_trader --config config.testnet.yaml [--dry-run]
 ```
 
@@ -179,7 +179,7 @@ Regime filter: rolling p20/p25 percentile thresholds (self-calibrating)
 
 ## Rust Crate (`rust/`)
 
-- Single crate `_quant_hotpath`, 77 .rs modules, ~30K LOC; see `lib.rs` for full export list
+- Single crate `_quant_hotpath`, 77 .rs modules, ~30K LOC; see `rust_lib.rs` for full export list; .rs files distributed into `{module}/rust/` dirs
 - Exports: ~38 PyO3 classes + ~100 functions (195 total)
 - Binary: `quant_trader` standalone trading binary (no Python runtime)
 - Naming: `cpp_*` = C++ migration functions, `rust_*` = new kernel modules
@@ -199,8 +199,8 @@ AlphaDecisionModule uses Rust components via framework: RustFeatureEngine (120 f
 - `engine/feature_hook.py` — Bridges RustFeatureEngine into pipeline
 - `features/enriched_computer.py` — 157 enriched feature definitions (V1-V19: ADX, OI, dominance, DVOL)
 - `features/feature_catalog.py` — PRODUCTION_FEATURES frozenset (183 features); `validate_model_features()`
-- `rust/src/lib.rs` — Rust module registry + PyO3 exports
-- `rust/src/constraint_pipeline.rs` — Signal constraints (batch + incremental)
+- `rust_lib.rs` — Rust module registry + PyO3 exports
+- `decision/rust/constraint_pipeline.rs` — Signal constraints (batch + incremental)
 - `runner/live_runner.py` — Framework live runtime entry point
 - `runner/gate_chain.py` — GateChain: up to 16 gates with `process_with_audit()` (incl. StagedRiskGate, AdaptiveStopGate, MultiTFConfluence, LiquidationCascade, CarryCost)
 - `runner/config.py` — LiveRunnerConfig (~85 fields); factory: `.lite()`, `.paper()`, `.prod()`

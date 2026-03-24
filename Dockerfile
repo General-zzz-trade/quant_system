@@ -20,10 +20,21 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN pip install --no-cache-dir maturin
 
-COPY rust/ rust/
+COPY Cargo.toml Cargo.lock rust_lib.rs ./
+COPY common_rust/ common_rust/
+COPY event/rust/ event/rust/
+COPY features/rust/ features/rust/
+COPY state/rust/ state/rust/
+COPY decision/rust/ decision/rust/
+COPY execution/rust/ execution/rust/
+COPY risk/rust/ risk/rust/
+COPY regime/rust/ regime/rust/
+COPY engine/rust/ engine/rust/
+COPY research/rust/ research/rust/
+COPY rust_bin/ rust_bin/
 COPY _quant_hotpath/ _quant_hotpath/
 
-RUN cd rust && maturin build --release --features python --out /tmp/wheels && \
+RUN maturin build --release --features python --out /tmp/wheels && \
     pip install /tmp/wheels/*.whl && \
     cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so /tmp/hotpath.so 2>/dev/null || true
 
@@ -48,7 +59,7 @@ RUN pip install --no-cache-dir maturin
 COPY . .
 
 # Build Rust extension in CI
-RUN cd rust && maturin develop --release --features python 2>/dev/null || true
+RUN maturin develop --release --features python 2>/dev/null || true
 RUN cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
 
 ENV PYTHONPATH=/app

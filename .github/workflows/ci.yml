@@ -60,7 +60,7 @@ jobs:
       - name: Run Rust tests
         run: |
           docker run --rm -v "$PWD":/app -w /app quant-ci:test \
-            sh -lc 'cargo test --manifest-path /app/rust/Cargo.toml --locked'
+            sh -lc 'cargo test --manifest-path /app/Cargo.toml --locked'
 
   lint:
     runs-on: [self-hosted, quant-server]

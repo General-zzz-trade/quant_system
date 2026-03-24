@@ -1,16 +1,202 @@
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-pub mod event;
-pub mod features;
-pub mod state;
-pub mod decision;
-pub mod execution;
-pub mod risk;
-pub mod regime;
-pub mod engine;
-pub mod research;
-pub mod common;
+pub mod event {
+    #[cfg(feature = "python")]
+    #[path = "rust/header.rs"]
+    pub mod header;
+    #[path = "rust/id.rs"]
+    pub mod id;
+    #[cfg(feature = "python")]
+    #[path = "rust/types.rs"]
+    pub mod types;
+    #[path = "rust/data_events.rs"]
+    pub mod data_events;
+    #[path = "rust/store.rs"]
+    pub mod store;
+    #[path = "rust/validation.rs"]
+    pub mod validation;
+    #[path = "rust/validators.rs"]
+    pub mod validators;
+}
+
+pub mod features {
+    #[path = "rust/engine.rs"]
+    pub mod engine;
+    #[path = "rust/indicators.rs"]
+    pub mod indicators;
+    #[path = "rust/technical.rs"]
+    pub mod technical;
+    #[path = "rust/rolling_window.rs"]
+    pub mod rolling_window;
+    #[path = "rust/incremental_trackers.rs"]
+    pub mod incremental_trackers;
+    #[cfg(feature = "python")]
+    #[path = "rust/py_incremental.rs"]
+    pub mod py_incremental;
+    #[path = "rust/cross_asset.rs"]
+    pub mod cross_asset;
+    #[path = "rust/multi_timeframe.rs"]
+    pub mod multi_timeframe;
+    #[path = "rust/fast_1m.rs"]
+    pub mod fast_1m;
+    #[path = "rust/fast_rng.rs"]
+    pub mod fast_rng;
+    #[path = "rust/factor_signals.rs"]
+    pub mod factor_signals;
+    #[path = "rust/regime_buffer.rs"]
+    pub mod regime_buffer;
+    #[path = "rust/correlation.rs"]
+    pub mod correlation;
+    #[path = "rust/microstructure.rs"]
+    pub mod microstructure;
+    #[path = "rust/cross_sectional.rs"]
+    pub mod cross_sectional;
+}
+
+pub mod state {
+    #[path = "rust/store.rs"]
+    pub mod store;
+    #[path = "rust/types.rs"]
+    pub mod types;
+    #[path = "rust/reducers.rs"]
+    pub mod reducers;
+    #[path = "rust/checkpoint.rs"]
+    pub mod checkpoint;
+    #[path = "rust/fixed_decimal.rs"]
+    pub mod fixed_decimal;
+}
+
+pub mod decision {
+    #[path = "rust/constraint_pipeline.rs"]
+    pub mod constraint_pipeline;
+    #[path = "rust/inference_bridge.rs"]
+    pub mod inference_bridge;
+    #[path = "rust/math.rs"]
+    pub mod math;
+    #[path = "rust/policy.rs"]
+    pub mod policy;
+    #[path = "rust/signals.rs"]
+    pub mod signals;
+    #[path = "rust/micro_alpha.rs"]
+    pub mod micro_alpha;
+    #[path = "rust/ensemble_calibrate.rs"]
+    pub mod ensemble_calibrate;
+    #[path = "rust/ml"]
+    pub mod ml {
+        #[path = "tree_predict.rs"]
+        pub mod tree_predict;
+        #[path = "ridge_predict.rs"]
+        pub mod ridge_predict;
+        #[path = "unified_predictor.rs"]
+        pub mod unified_predictor;
+        #[path = "ml_decision.rs"]
+        pub mod ml_decision;
+    }
+}
+
+pub mod execution {
+    #[path = "rust/order_state_machine.rs"]
+    pub mod order_state_machine;
+    #[path = "rust/order_submit.rs"]
+    pub mod order_submit;
+    #[path = "rust/payload_dedup.rs"]
+    pub mod payload_dedup;
+    #[path = "rust/fill_dedup.rs"]
+    pub mod fill_dedup;
+    #[path = "rust/stores.rs"]
+    pub mod stores;
+    #[path = "rust/ws_client.rs"]
+    pub mod ws_client;
+}
+
+pub mod risk {
+    #[path = "rust/engine.rs"]
+    pub mod engine;
+    #[path = "rust/rules.rs"]
+    pub mod rules;
+    #[path = "rust/aggregator.rs"]
+    pub mod aggregator;
+    #[path = "rust/drawdown.rs"]
+    pub mod drawdown;
+    #[path = "rust/adaptive_stop.rs"]
+    pub mod adaptive_stop;
+    #[path = "rust/gate_chain.rs"]
+    pub mod gate_chain;
+}
+
+pub mod regime {
+    #[path = "rust/detector.rs"]
+    pub mod detector;
+}
+
+pub mod engine {
+    #[path = "rust/pipeline.rs"]
+    pub mod pipeline;
+    #[path = "rust/guards.rs"]
+    pub mod guards;
+    #[path = "rust/core_types.rs"]
+    pub mod core_types;
+    #[path = "rust/kernel.rs"]
+    pub mod kernel;
+    #[path = "rust/tick_processor.rs"]
+    pub mod tick_processor;
+}
+
+pub mod research {
+    #[path = "rust/backtest.rs"]
+    pub mod backtest;
+    #[path = "rust/pnl_tracker.rs"]
+    pub mod pnl_tracker;
+    #[path = "rust/attribution.rs"]
+    pub mod attribution;
+    #[path = "rust/feature_selection.rs"]
+    pub mod feature_selection;
+    #[path = "rust/feature_selector.rs"]
+    pub mod feature_selector;
+    #[path = "rust/greedy_select.rs"]
+    pub mod greedy_select;
+    #[path = "rust/bootstrap.rs"]
+    pub mod bootstrap;
+    #[path = "rust/monte_carlo.rs"]
+    pub mod monte_carlo;
+}
+
+#[path = "common_rust"]
+pub mod common {
+    #[path = "request_id.rs"]
+    pub mod request_id;
+    #[path = "signer.rs"]
+    pub mod signer;
+    #[path = "digest.rs"]
+    pub mod digest;
+    #[path = "route_match.rs"]
+    pub mod route_match;
+    #[path = "saga.rs"]
+    pub mod saga;
+    #[path = "sequence_buffer.rs"]
+    pub mod sequence_buffer;
+    #[path = "spsc_ring.rs"]
+    pub mod spsc_ring;
+    #[path = "dedup_guard.rs"]
+    pub mod dedup_guard;
+    #[path = "json_parse.rs"]
+    pub mod json_parse;
+    #[path = "rate_limiter.rs"]
+    pub mod rate_limiter;
+    #[path = "target.rs"]
+    pub mod target;
+    #[path = "portfolio_allocator.rs"]
+    pub mod portfolio_allocator;
+    #[path = "portfolio_math.rs"]
+    pub mod portfolio_math;
+    #[path = "market_maker.rs"]
+    pub mod market_maker;
+    #[path = "factor_math.rs"]
+    pub mod factor_math;
+    #[path = "linalg_math.rs"]
+    pub mod linalg_math;
+}
 
 #[cfg(feature = "python")]
 #[pymodule]

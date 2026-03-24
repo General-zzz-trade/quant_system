@@ -9,11 +9,12 @@ python = ["pyo3/extension-module"]
 
 [lib]
 name = "_quant_hotpath"
+path = "rust_lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "quant_trader"
-path = "src/bin/main.rs"
+path = "rust_bin/main.rs"
 
 [dependencies]
 pyo3 = { version = "0.23" }

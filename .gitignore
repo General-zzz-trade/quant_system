@@ -50,7 +50,7 @@ validation_output/
 .hypothesis/
 
 # Rust build artifacts
-rust/target/
+target/
 _quant_hotpath/
 quant_hotpath-*.dist-info/
 logs/
