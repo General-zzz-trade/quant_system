@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+
+# Re-export from recovery.py for backward compat
+from runner.recovery import restore_kill_switch_state  # noqa: F401
 import os
 from typing import Any, Dict
 

@@ -45,6 +45,7 @@ from polymarket.collector_sampling import (
 from polymarket.collector_signals import (  # noqa: E402
     VolatilityTracker,
     RSITracker,
+    binary_call_fair_value,  # re-export for backward compat
 )
 
 logger = logging.getLogger(__name__)
