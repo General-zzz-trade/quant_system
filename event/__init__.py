@@ -1,6 +1,7 @@
 """Event system — Rust-backed types + headers."""
-from event.types import (
+from event.events import (
     EventType,
+    BaseEvent,
     MarketEvent,
     SignalEvent,
     IntentEvent,
@@ -10,10 +11,21 @@ from event.types import (
     ControlEvent,
     FundingEvent,
 )
+from event.domain import (
+    Side,
+    Symbol,
+    Venue,
+    Qty,
+    Price,
+    Money,
+    OrderType,
+    TimeInForce,
+)
 from event.header import EventHeader
 
 __all__ = [
     "EventType",
+    "BaseEvent",
     "EventHeader",
     "MarketEvent",
     "SignalEvent",
@@ -23,4 +35,12 @@ __all__ = [
     "RiskEvent",
     "ControlEvent",
     "FundingEvent",
+    "Side",
+    "Symbol",
+    "Venue",
+    "Qty",
+    "Price",
+    "Money",
+    "OrderType",
+    "TimeInForce",
 ]

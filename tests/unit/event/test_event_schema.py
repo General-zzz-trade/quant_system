@@ -1,5 +1,5 @@
 # tests/unit/event/test_event_schema.py
-"""Event type unit tests — subscribe, publish, routing, round-trip."""
+"""Event type unit tests — construction, field access, routing."""
 from __future__ import annotations
 
 import pytest
@@ -51,57 +51,24 @@ class TestEventTypeEnum:
 
 
 # ---------------------------------------------------------------------------
-# Tests: MarketEvent round-trip
+# Tests: MarketEvent
 # ---------------------------------------------------------------------------
 
 class TestMarketEvent:
-    def test_from_dict_iso_string(self) -> None:
-        body = {
-            "ts": "2024-01-15T12:00:00+00:00",
-            "symbol": "BTCUSDT",
-            "open": "42000",
-            "high": "43000",
-            "low": "41000",
-            "close": "42500",
-            "volume": "1000",
-        }
-        evt = MarketEvent.from_dict(header=_market_header(), body=body)
-        assert evt.symbol == "BTCUSDT"
-        assert evt.close == Decimal("42500")
-        assert evt.ts.tzinfo is not None
-
-    def test_from_dict_z_suffix(self) -> None:
-        body = {
-            "ts": "2024-01-15T12:00:00Z",
-            "symbol": "BTCUSDT",
-            "open": "42000", "high": "43000", "low": "41000",
-            "close": "42500", "volume": "1000",
-        }
-        evt = MarketEvent.from_dict(header=_market_header(), body=body)
-        assert evt.ts.tzinfo is not None
-
-    def test_from_dict_naive_ts_raises(self) -> None:
-        body = {
-            "ts": "2024-01-15T12:00:00",
-            "symbol": "BTCUSDT",
-            "open": "42000", "high": "43000", "low": "41000",
-            "close": "42500", "volume": "1000",
-        }
-        with pytest.raises(ValueError, match="tz-aware"):
-            MarketEvent.from_dict(header=_market_header(), body=body)
-
-    def test_to_dict(self) -> None:
+    def test_construction_and_fields(self) -> None:
         evt = MarketEvent(
             header=_market_header(),
             ts=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
             symbol="BTCUSDT",
-            open=Decimal("42000"), high=Decimal("43000"),
-            low=Decimal("41000"), close=Decimal("42500"),
+            open=Decimal("42000"),
+            high=Decimal("43000"),
+            low=Decimal("41000"),
+            close=Decimal("42500"),
             volume=Decimal("1000"),
         )
-        d = evt.to_dict()
-        assert d["symbol"] == "BTCUSDT"
-        assert d["close"] == Decimal("42500")
+        assert evt.symbol == "BTCUSDT"
+        assert evt.close == Decimal("42500")
+        assert evt.ts.tzinfo is not None
 
     def test_version(self) -> None:
         evt = MarketEvent(
@@ -114,19 +81,33 @@ class TestMarketEvent:
         )
         assert evt.version == 1
 
+    def test_rust_backing(self) -> None:
+        evt = MarketEvent(
+            header=_market_header(),
+            ts=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            symbol="BTCUSDT",
+            open=Decimal("42000"), high=Decimal("43000"),
+            low=Decimal("41000"), close=Decimal("42500"),
+            volume=Decimal("1000"),
+        )
+        assert evt.to_rust() is not None
+
 
 # ---------------------------------------------------------------------------
 # Tests: SignalEvent
 # ---------------------------------------------------------------------------
 
 class TestSignalEvent:
-    def test_round_trip(self) -> None:
-        body = {"signal_id": "sig-1", "symbol": "BTCUSDT", "side": "long", "strength": "0.85"}
-        evt = SignalEvent.from_dict(header=_Header(event_type="signal"), body=body)
+    def test_construction(self) -> None:
+        evt = SignalEvent(
+            header=_Header(event_type="signal"),
+            signal_id="sig-1",
+            symbol="BTCUSDT",
+            side="long",
+            strength=Decimal("0.85"),
+        )
         assert evt.signal_id == "sig-1"
         assert evt.strength == Decimal("0.85")
-        d = evt.to_dict()
-        assert d["signal_id"] == "sig-1"
 
 
 # ---------------------------------------------------------------------------
@@ -134,15 +115,18 @@ class TestSignalEvent:
 # ---------------------------------------------------------------------------
 
 class TestIntentEvent:
-    def test_round_trip(self) -> None:
-        body = {
-            "intent_id": "int-1", "symbol": "BTCUSDT", "side": "buy",
-            "target_qty": "0.5", "reason_code": "signal", "origin": "strat_a",
-        }
-        evt = IntentEvent.from_dict(header=_Header(event_type="intent"), body=body)
+    def test_construction(self) -> None:
+        evt = IntentEvent(
+            header=_Header(event_type="intent"),
+            intent_id="int-1",
+            symbol="BTCUSDT",
+            side="buy",
+            target_qty=Decimal("0.5"),
+            reason_code="signal",
+            origin="strat_a",
+        )
         assert evt.target_qty == Decimal("0.5")
-        d = evt.to_dict()
-        assert d["origin"] == "strat_a"
+        assert evt.origin == "strat_a"
 
 
 # ---------------------------------------------------------------------------
@@ -150,21 +134,29 @@ class TestIntentEvent:
 # ---------------------------------------------------------------------------
 
 class TestOrderEvent:
-    def test_round_trip(self) -> None:
-        body = {
-            "order_id": "ord-1", "intent_id": "int-1", "symbol": "BTCUSDT",
-            "side": "buy", "qty": "1.5", "price": "42000",
-        }
-        evt = OrderEvent.from_dict(header=_Header(event_type="order"), body=body)
+    def test_construction_with_price(self) -> None:
+        evt = OrderEvent(
+            header=_Header(event_type="order"),
+            order_id="ord-1",
+            intent_id="int-1",
+            symbol="BTCUSDT",
+            side="buy",
+            qty=Decimal("1.5"),
+            price=Decimal("42000"),
+        )
         assert evt.qty == Decimal("1.5")
         assert evt.price == Decimal("42000")
 
     def test_price_none(self) -> None:
-        body = {
-            "order_id": "ord-1", "intent_id": "int-1", "symbol": "BTCUSDT",
-            "side": "buy", "qty": "1.5", "price": None,
-        }
-        evt = OrderEvent.from_dict(header=_Header(event_type="order"), body=body)
+        evt = OrderEvent(
+            header=_Header(event_type="order"),
+            order_id="ord-1",
+            intent_id="int-1",
+            symbol="BTCUSDT",
+            side="buy",
+            qty=Decimal("1.5"),
+            price=None,
+        )
         assert evt.price is None
 
 
@@ -173,16 +165,18 @@ class TestOrderEvent:
 # ---------------------------------------------------------------------------
 
 class TestFillEvent:
-    def test_round_trip(self) -> None:
-        body = {
-            "fill_id": "fl-1", "order_id": "ord-1", "symbol": "BTCUSDT",
-            "qty": "0.5", "price": "42500",
-        }
-        evt = FillEvent.from_dict(header=_fill_header(), body=body)
+    def test_construction(self) -> None:
+        evt = FillEvent(
+            header=_fill_header(),
+            fill_id="fl-1",
+            order_id="ord-1",
+            symbol="BTCUSDT",
+            qty=Decimal("0.5"),
+            price=Decimal("42500"),
+        )
         assert evt.qty == Decimal("0.5")
         assert evt.price == Decimal("42500")
-        d = evt.to_dict()
-        assert d["fill_id"] == "fl-1"
+        assert evt.fill_id == "fl-1"
 
 
 # ---------------------------------------------------------------------------
@@ -190,23 +184,30 @@ class TestFillEvent:
 # ---------------------------------------------------------------------------
 
 class TestRiskControlEvent:
-    def test_risk_round_trip(self) -> None:
-        body = {"rule_id": "r-1", "level": "warn", "message": "drawdown high"}
-        evt = RiskEvent.from_dict(header=_Header(event_type="risk"), body=body)
+    def test_risk_construction(self) -> None:
+        evt = RiskEvent(
+            header=_Header(event_type="risk"),
+            rule_id="r-1",
+            level="warn",
+            message="drawdown high",
+        )
         assert evt.level == "warn"
-        d = evt.to_dict()
-        assert d["message"] == "drawdown high"
+        assert evt.message == "drawdown high"
 
-    def test_control_round_trip(self) -> None:
-        body = {"command": "halt", "reason": "manual stop"}
-        evt = ControlEvent.from_dict(header=_Header(event_type="control"), body=body)
+    def test_control_construction(self) -> None:
+        evt = ControlEvent(
+            header=_Header(event_type="control"),
+            command="halt",
+            reason="manual stop",
+        )
         assert evt.command == "halt"
-        d = evt.to_dict()
-        assert d["reason"] == "manual stop"
+        assert evt.reason == "manual stop"
 
-    def test_control_reduce_only_round_trip(self) -> None:
-        body = {"command": "reduce_only", "reason": "manual reduce only"}
-        evt = ControlEvent.from_dict(header=_Header(event_type="control"), body=body)
+    def test_control_reduce_only(self) -> None:
+        evt = ControlEvent(
+            header=_Header(event_type="control"),
+            command="reduce_only",
+            reason="manual reduce only",
+        )
         assert evt.command == "reduce_only"
-        d = evt.to_dict()
-        assert d["reason"] == "manual reduce only"
+        assert evt.reason == "manual reduce only"

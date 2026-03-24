@@ -1,4 +1,4 @@
-"""Extended tests for event.types — construction, to_dict/from_dict, domain types."""
+"""Extended tests for event.events and event.domain — construction and domain types."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -144,37 +144,12 @@ class TestEventConstruction:
 
 
 # ---------------------------------------------------------------------------
-# Tests: to_dict / from_dict round-trip
+# Tests: Field access
 # ---------------------------------------------------------------------------
 
 
-class TestToDictFromDict:
-    def test_fill_to_dict_excludes_none_side(self) -> None:
-        evt = FillEvent(
-            header=_H(),
-            fill_id="fl-1",
-            order_id="ord-1",
-            symbol="ETHUSDT",
-            qty=Decimal("1"),
-            price=Decimal("3050"),
-        )
-        d = evt.to_dict()
-        assert "side" not in d
-
-    def test_fill_to_dict_includes_side_when_set(self) -> None:
-        evt = FillEvent(
-            header=_H(),
-            fill_id="fl-1",
-            order_id="ord-1",
-            symbol="ETHUSDT",
-            qty=Decimal("1"),
-            price=Decimal("3050"),
-            side="sell",
-        )
-        d = evt.to_dict()
-        assert d["side"] == "sell"
-
-    def test_intent_to_dict_from_dict(self) -> None:
+class TestFieldAccess:
+    def test_intent_fields(self) -> None:
         evt = IntentEvent(
             header=_H(),
             intent_id="int-rt",
@@ -184,23 +159,19 @@ class TestToDictFromDict:
             reason_code="rebalance",
             origin="portfolio_v2",
         )
-        d = evt.to_dict()
-        restored = IntentEvent.from_dict(header=_H(), body=d)
-        assert restored.intent_id == "int-rt"
-        assert restored.target_qty == Decimal("100")
-        assert restored.origin == "portfolio_v2"
+        assert evt.intent_id == "int-rt"
+        assert evt.target_qty == Decimal("100")
+        assert evt.origin == "portfolio_v2"
 
-    def test_risk_to_dict_from_dict(self) -> None:
+    def test_risk_fields(self) -> None:
         evt = RiskEvent(
             header=_H(),
             rule_id="max_leverage",
             level="block",
             message="leverage exceeded 3x",
         )
-        d = evt.to_dict()
-        restored = RiskEvent.from_dict(header=_H(), body=d)
-        assert restored.level == "block"
-        assert restored.message == "leverage exceeded 3x"
+        assert evt.level == "block"
+        assert evt.message == "leverage exceeded 3x"
 
     def test_control_event_variants(self) -> None:
         for cmd in ["halt", "reduce_only", "resume", "flush", "shutdown"]:
@@ -209,30 +180,18 @@ class TestToDictFromDict:
                 command=cmd,
                 reason=f"testing {cmd}",
             )
-            d = evt.to_dict()
-            restored = ControlEvent.from_dict(header=_H(), body=d)
-            assert restored.command == cmd
+            assert evt.command == cmd
 
-    def test_funding_from_dict_z_suffix(self) -> None:
-        body = {
-            "ts": "2024-06-01T08:00:00Z",
-            "symbol": "ETHUSDT",
-            "funding_rate": "0.0002",
-            "mark_price": "3100",
-        }
-        evt = FundingEvent.from_dict(header=_H(), body=body)
+    def test_funding_event_fields(self) -> None:
+        evt = FundingEvent(
+            header=_H(),
+            ts=datetime(2024, 6, 1, 8, 0, 0, tzinfo=timezone.utc),
+            symbol="ETHUSDT",
+            funding_rate=Decimal("0.0002"),
+            mark_price=Decimal("3100"),
+        )
         assert evt.ts.tzinfo is not None
         assert evt.funding_rate == Decimal("0.0002")
-
-    def test_funding_from_dict_naive_ts_raises(self) -> None:
-        body = {
-            "ts": "2024-06-01T08:00:00",
-            "symbol": "ETHUSDT",
-            "funding_rate": "0.0001",
-            "mark_price": "3050",
-        }
-        with pytest.raises(ValueError, match="tz-aware"):
-            FundingEvent.from_dict(header=_H(), body=body)
 
 
 # ---------------------------------------------------------------------------
