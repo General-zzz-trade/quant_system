@@ -1,9 +1,9 @@
 # Production Deployment Checklist
 
-> 状态: 历史 testnet/testnet-validation 检查表，默认面向旧版 `testnet_v8_gate_v2` 路径
-> 更新时间: 2026-03-12
-> 当前默认生产路径与恢复制度请优先参考:
-> [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md),
+> **Status**: COMPLETED (2026-03-24) — 历史 testnet 检查表，面向旧版 `testnet_v8_gate_v2` 路径.
+> 当前生产入口: `runner/alpha_main.py` (Strategy H: BTC+ETH x 1h/4h, Bybit demo).
+> 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 部署文档: [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md),
 > [`docs/operations.md`](/quant_system/docs/operations.md),
 > [`docs/production_runbook.md`](/quant_system/docs/production_runbook.md)
 

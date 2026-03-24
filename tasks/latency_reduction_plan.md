@@ -1,8 +1,8 @@
 # 延迟压缩计划 — 基于实测基线
 
-> 状态: 性能专项计划，保留用于历史基线和优化思路，不代表当前全部已执行项
-> 更新时间: 2026-03-12
-> 当前性能收口相关进展请结合 [`tasks/perf_milestones.md`](/quant_system/tasks/perf_milestones.md) 和 [`research.md`](/quant_system/research.md) 阅读
+> **Status**: COMPLETED (2026-03-24) — 性能优化计划，历史基线参考.
+> 更新时间: 2026-03-12. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 性能里程碑请参考 [`tasks/perf_milestones.md`](/quant_system/tasks/perf_milestones.md).
 
 ## 实测基线（lowlatency 6.11 + isolcpus=1）
 

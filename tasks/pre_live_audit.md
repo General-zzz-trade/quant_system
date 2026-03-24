@@ -1,5 +1,9 @@
 # Pre-Live Safety Audit (2026-03-17)
 
+> **Status**: COMPLETED (2026-03-24) — Pre-live audit passed. System is live on Bybit demo.
+> 生产入口已从 `alpha_runner.py` 迁移至 `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+
 ## 1. API Keys
 - [x] No hardcoded keys in source code (verified via grep)
 - [x] .env.example documents all required vars
@@ -9,7 +13,7 @@
 
 ## 2. Order Safety
 - [x] MAX_ORDER_NOTIONAL = $500 in config.py
-- [x] Checked before every send_market_order in alpha_runner.py
+- [x] Checked before every send_market_order (now via AlphaDecisionModule in runner/alpha_main.py)
 - [x] RustCircuitBreaker: 3 failures in 120s → block orders
 - [x] RustOrderStateMachine: dedup check (active_count > 2 → block)
 - [x] orderLinkId set on every order (Bybit server-side dedup)

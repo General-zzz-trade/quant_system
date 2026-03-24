@@ -1,12 +1,11 @@
 # Python → Rust 全面迁移路线图
 
-> 状态: 历史迁移路线图快照（2026-03-07）
-> 当前 Rust 迁移边界请优先参考:
-> [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md),
-> [`docs/rust_replacement_matrix.md`](/quant_system/docs/rust_replacement_matrix.md),
-> [`tasks/refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+> **Status**: COMPLETED (2026-03-24) — Rust 迁移已远超此路线图目标.
+> 当前状态: 77 .rs modules, ~30K LOC, ~38 PyO3 classes + ~100 functions (198 total exports, 100% wired).
+> .rs 文件已分布至 `{module}/rust/` 目录. Python fallback 全部移除.
+> 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
 
-## 当前状态 (2026-03-07)
+## 原始状态 (2026-03-07, 历史快照)
 
 **Rust**: 41 .rs 模块, ~12,300 LOC, 33 classes + 69 functions
 **已迁移热路径**: pipeline, reducers, detect/normalize, sizing, constraints, ML decision
@@ -130,7 +129,7 @@
 | `execution/` 交易所适配器 | ~13,700 | IO 密集, 非 CPU 瓶颈 |
 | `engine/` 编排层 | ~2,000 | 纯 control flow, dict 操作 |
 | `features/` 特征管道 | ~3,000 | 编排层 (计算已在 Rust) |
-| `core/` 框架代码 | ~1,900 | 初始化, 配置, 插件 |
+| `core/` 框架代码 (现分布至 infra/, engine/, event/) | ~1,900 | 初始化, 配置, 插件 |
 | `event/` 事件框架 | ~3,500 | 类型定义, 序列化, 回放 |
 | `state/reducers/` | ~460 | 策略回测自定义路径 |
 | `decision/signals/` | ~2,000 | 研究层信号逻辑 |

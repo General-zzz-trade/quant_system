@@ -1,56 +1,63 @@
 # Wiring Truth — Module Integration Status
 
-> 更新时间: 2026-03-22
+> 更新时间: 2026-03-24
 > 目标: 记录每个功能模块是否已接入生产路径
-> 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+> 上位真相源: [`CLAUDE.md`](/quant_system/CLAUDE.md)
 
-## 两条生产路径
+## 生产路径
 
-当前系统有两条独立的生产路径，接线状态需要分别追踪：
+当前生产路径已统一为框架原生路径 (EngineCoordinator + AlphaDecisionModule):
 
 | 路径 | 入口 | 部署 | 状态 |
 |------|------|------|------|
-| **AlphaRunner** | `scripts/ops/run_bybit_alpha.py` | systemd `bybit-alpha.service` | **当前活跃** |
+| **Framework-native (Strategy H)** | `runner/alpha_main.py` | systemd `bybit-alpha.service` | **当前活跃** (4 runners, 2 WS) |
 | **LiveRunner** | `runner/live_runner.py` | docker `quant-framework` / `quant-runner.service` | 可用（非默认） |
+| ~~AlphaRunner~~ | ~~`runner/alpha_runner.py`~~ | — | **DEPRECATED** (kept for rollback) |
 
 ## Production-Wired Modules
 
-### AlphaRunner 路径（当前生产主路径）
+### Framework-native 路径（当前生产主路径）
+
+Data flow: `Bybit WS kline → MarketEvent → EngineCoordinator.emit() → FeatureComputeHook → StatePipeline → DecisionBridge → AlphaDecisionModule → ExecutionBridge`
 
 | Module | File | Wired Via | Notes |
 |--------|------|-----------|-------|
-| RustFeatureEngine | rust/ | alpha_runner.py `__init__` | 120 features, always Rust |
-| RustInferenceBridge | rust/ | alpha_runner.py `process_bar` | z-score + deadzone + min-hold + max-hold |
-| RustRiskEvaluator | rust/ | alpha_runner.py `process_bar` | Drawdown + leverage check |
-| RustKillSwitch | rust/ | alpha_runner.py (shared) | Global emergency stop |
-| RustOrderStateMachine | rust/ | alpha_runner.py | Order lifecycle tracking |
-| RustCircuitBreaker | rust/ | alpha_runner.py | 3-failure/120s backoff |
-| RustStateStore | rust/ | alpha_runner.py (shared) | Position truth |
-| CompositeRegimeDetector | regime/composite.py | alpha_runner.py `_check_regime` | **仅 BTC** (`use_composite_regime=True`) |
-| RegimeParamRouter | regime/param_router.py | alpha_runner.py `_apply_composite_regime` | **仅 BTC**: params → deadzone/min_hold 闭环 |
+| RustFeatureEngine | {module}/rust/ | engine/feature_hook.py (FeatureComputeHook) | 120+ features, always Rust (no Python fallback) |
+| RustInferenceBridge | {module}/rust/ | decision/signals/alpha_signal.py (SignalDiscretizer) | z-score + deadzone + min-hold + max-hold |
+| RustRiskEvaluator | {module}/rust/ | runner/gate_chain.py | Drawdown + leverage check |
+| RustKillSwitch | {module}/rust/ | runner/gate_chain.py | Global emergency stop |
+| RustOrderStateMachine | {module}/rust/ | execution/ | Order lifecycle tracking |
+| RustCircuitBreaker | {module}/rust/ | execution/ | 3-failure/120s backoff |
+| RustStateStore | {module}/rust/ | engine/pipeline.py (StatePipeline) | Position truth (Rust heap, Python gets snapshots) |
+| RustGateChain | {module}/rust/ | runner/gate_chain.py | 9 gate types in single FFI call |
+| CompositeRegimeDetector | regime/composite.py | decision/regime_bridge.py | **仅 BTC** (`composite_regime_symbols` config) |
+| RegimeParamRouter | regime/param_router.py | decision/regime_bridge.py | **仅 BTC**: params → deadzone/min_hold |
 | ADX(14) | features/enriched_computer.py | RustFeatureEngine feeds feat_dict | 28-bar warmup; feeds TrendRegimeDetector via feat_dict |
-| PortfolioCombiner | scripts/ops/portfolio_combiner.py | run_bybit_alpha.py | AGREE ONLY for ETH 1h+15m |
-| MultiTFConfluenceGate | runner/gates/multi_tf_confluence_gate.py | alpha_runner.py `_evaluate_gates` | 1h vs 4h alignment; prefers model IC=0.29 over indicator voting IC=0.05 |
-| LiquidationCascadeGate | runner/gates/liquidation_cascade_gate.py | alpha_runner.py `_evaluate_gates` | Cascade protection (zscore>3 block) |
-| CarryCostGate | runner/gates/carry_cost_gate.py | alpha_runner.py `_evaluate_gates` | Funding+basis carry cost adjustment |
-| OnlineRidge | alpha/online_ridge.py | alpha_runner.py `_ensemble_predict` | RLS incremental weight updates (λ=0.997) |
-| OnlineRidge (4h) | alpha/online_ridge.py | run_bybit_alpha.py `enable_online_ridge` | RLS for 4h runners |
+| PortfolioCombiner | scripts/ops/portfolio_combiner.py | runner/alpha_main.py | AGREE ONLY mode |
+| MultiTFConfluenceGate | runner/gates/multi_tf_confluence_gate.py | runner/gate_chain.py | 1h vs 4h alignment |
+| LiquidationCascadeGate | runner/gates/liquidation_cascade_gate.py | runner/gate_chain.py | Cascade protection (zscore>3 block) |
+| CarryCostGate | runner/gates/carry_cost_gate.py | runner/gate_chain.py | Funding+basis carry cost adjustment |
+| OnlineRidge | alpha/online_ridge.py | decision/signals/alpha_signal.py | RLS incremental weight updates (λ=0.997, 4h runners) |
 | OptionsFlowComputer | features/options_flow.py | enriched_computer.py `on_bar` | 7 Deribit options features |
-| BTCUSDT_4h Runner | alpha_runner.py | run_bybit_alpha.py | **WIRED**: Strategy H primary, cap 15% |
-| ETHUSDT_4h Runner | alpha_runner.py | run_bybit_alpha.py | **WIRED**: Strategy H primary, cap 10% |
-| SIGHUP Hot-Reload | run_bybit_alpha.py | signal handler | **WIRED**: <200ms reload |
-| Per-Runner Checkpoint | alpha_runner.py | `_runner_key` | **WIRED**: per-runner state persistence |
-| Dynamic Leverage | alpha_runner.py | DD-based scaling | **WIRED**: drawdown-based leverage adjustment |
-| Vol-Adaptive Deadzone | alpha_runner.py | rv/vol_median | **WIRED**: realized vol / median vol scaling |
-| BB Entry Scaler | alpha_runner.py | `_compute_entry_scale` | **WIRED**: Bollinger Band entry scaling |
-| 4h Z-Score Stop | alpha_runner.py | reads `_consensus_signals` | **WIRED**: cross-timeframe stop signal |
-| VenueRouter | execution/adapters/venue_router.py | run_bybit_alpha.py | **WIRED**: optional via `HYPERLIQUID_PRIVATE_KEY` |
-| IC Decay Monitor | monitoring/ic_decay_monitor.py | systemd timer | **WIRED**: automated IC decay alerting |
+| AlphaDecisionModule | decision/modules/alpha.py | engine/coordinator.py via DecisionBridge | Framework-native decision logic (~300 lines) |
+| EnsemblePredictor | decision/signals/alpha_signal.py | AlphaDecisionModule | Ridge(60%) + LGBM(40%) |
+| SignalDiscretizer | decision/signals/alpha_signal.py | AlphaDecisionModule | z-score → deadzone → discretize |
+| AdaptivePositionSizer | decision/sizing/adaptive.py | AlphaDecisionModule | equity-tier × IC × vol |
+| BTCUSDT_4h Runner | runner/alpha_main.py | runner/strategy_config.py SYMBOL_CONFIG | **WIRED**: Strategy H primary |
+| ETHUSDT_4h Runner | runner/alpha_main.py | runner/strategy_config.py SYMBOL_CONFIG | **WIRED**: Strategy H primary |
+| SIGHUP Hot-Reload | runner/alpha_main.py | signal handler | **WIRED**: <200ms reload all 4 models |
+| Per-Runner Checkpoint | state/checkpoint.py | CheckpointManager | **WIRED**: per-runner state persistence |
+| Dynamic Leverage | decision/sizing/adaptive.py | vol_scale | **WIRED**: base 10x × vol_scale |
+| Vol-Adaptive Deadzone | decision/signals/alpha_signal.py | rv/vol_median | **WIRED**: realized vol / median vol scaling |
+| BB Entry Scaler | decision/modules/alpha.py | continuous tanh [0.75, 1.2] | **WIRED**: Bollinger Band entry scaling |
+| 4h Z-Score Stop | decision/modules/alpha.py | force exits | **WIRED**: cross-timeframe stop signal |
+| VenueRouter | execution/adapters/venue_router.py | runner/alpha_main.py | **WIRED**: optional via `HYPERLIQUID_PRIVATE_KEY` |
+| IC Decay Monitor | monitoring/ic_decay_monitor.py | systemd timer (daily 3am) | **WIRED**: automated IC decay alerting + auto-retrain on RED |
 | Signal Reconciliation | scripts/ops/signal_reconcile.py | manual / cron | **WIRED**: live vs expected signal comparison |
 | Shadow A/B Compare | scripts/ops/shadow_compare.py | manual / cron | **WIRED**: shadow mode A/B signal comparison |
-| ETHRegimeProxy | regime/eth_regime_proxy.py | Available, not yet wired | BTC regime → ETH param routing |
-| PipelineMetrics | monitoring/pipeline_metrics.py | Available, not yet wired | Thread-safe pipeline counters |
-| InputValidation | core/validation.py | Available, not yet wired | NaN/Inf price/qty validation |
+| ETHRegimeProxy | regime/eth_regime_proxy.py | decision/modules/alpha.py | **WIRED**: BTC regime → ETH param routing |
+| PipelineMetrics | monitoring/pipeline_metrics.py | engine/pipeline.py | **WIRED**: Thread-safe pipeline counters |
+| InputValidation | core/validation.py | core/ | **WIRED**: NaN/Inf price/qty validation |
 | DailyReconciliation | scripts/ops/daily_reconciliation.py | Manual / cron | Live vs backtest signal comparison |
 
 ### Feature Pipeline (Enriched Features)
@@ -96,7 +103,7 @@
 
 ## Configuration Flags
 
-### AlphaRunner (SYMBOL_CONFIG in scripts/ops/config.py)
+### Framework-native (SYMBOL_CONFIG in runner/strategy_config.py)
 
 | Flag | Default | Effect |
 |------|---------|--------|

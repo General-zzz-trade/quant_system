@@ -1,5 +1,9 @@
 # Remediation Plan — 2026-03-14
 
+> **Status**: COMPLETED (2026-03-24) — Remediation plan fully executed.
+> 生产入口已从 `runner/live_runner.py` 迁移至 `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> `runner/alpha_runner.py` 已废弃. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+>
 > Prepared by: Claude Code (首席治理工程师)
 > Scope: P0-P4 整改，不扩展新功能，不替换生产入口
 
@@ -9,7 +13,7 @@
 
 | 维度 | 真相 | 证据 |
 |------|------|------|
-| 生产主入口 | `runner/live_runner.py` | runtime_truth.md:26, systemd ExecStart |
+| 生产主入口 | `runner/alpha_main.py` (原 `runner/live_runner.py`) | CLAUDE.md, systemd bybit-alpha.service |
 | 架构模式 | Python 主编排 + Rust 热路径 | runtime_truth.md:189 |
 | 状态真相源 | RustStateStore (pipeline 唯一写通道) | execution_contracts.md §11 |
 | 约束真相源 | `rust/src/constraint_pipeline.rs` | runtime_contracts.md, parity tests |

@@ -1,8 +1,8 @@
 # 极限优化方案 — 基于阿里云东京 ECS 实际硬件
 
-> 状态: 硬件/OS 性能专项计划，非当前运行时真相源
-> 更新时间: 2026-03-12
-> 当前总体架构与收口状态请参考: [`research.md`](/quant_system/research.md) 和 [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+> **Status**: COMPLETED (2026-03-24) — 硬件/OS 性能专项计划，历史参考文档.
+> 更新时间: 2026-03-12. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 生产入口: `runner/alpha_main.py`. HFT 策略已验证不可行 (Sharpe -5 to -25).
 
 ## 硬件约束
 
@@ -348,7 +348,7 @@ ws_thread.set_affinity({0})
 
 ```bash
 # 交易进程设为实时优先级
-chrt -f 50 python3 runner/live_runner.py
+chrt -f 50 python3 -m runner.alpha_main --symbols BTCUSDT ETHUSDT --ws
 
 # 或在代码中:
 import os

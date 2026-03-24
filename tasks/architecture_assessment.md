@@ -1,8 +1,9 @@
 # 项目架构水平评估报告
 
-> 状态: 历史阶段性评估（2026-02-22）
-> 当前代码库评估请优先参考: [`research.md`](/quant_system/research.md)
-> 当前收口状态请参考: [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+> **Status**: COMPLETED (2026-03-24) — Historical architecture assessment snapshot.
+> 原始评估日期: 2026-02-22. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 生产入口已迁移至 `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> Rust crate: 77 .rs modules, ~30K LOC, 198 exports (100% wired). `runner/alpha_runner.py` 已废弃.
 
 > 评估日期: 2026-02-22
 > 评估视角: Staff/Principal Engineer 级架构评审

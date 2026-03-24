@@ -1,8 +1,8 @@
 # Lessons Learned
 
-> 状态: 研究与迭代过程中的经验记录
-> 更新时间: 2026-03-12
-> 该文档保留时间上下文，不作为当前运行时或生产契约真相源；当前系统现状请参考 [`research.md`](/quant_system/research.md)
+> 状态: 研究与迭代过程中的经验记录 (仍然有效，持续更新)
+> 更新时间: 2026-03-24
+> 该文档保留时间上下文，不作为当前运行时或生产契约真相源；当前系统现状请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md)
 
 ## Alpha & Signal Quality
 

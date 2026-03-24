@@ -1,9 +1,9 @@
 # 下一阶段开发计划
 
-> 状态: 当前主计划已从第一轮”收口”进入第三轮”alpha 自动化 + regime-adaptive 参数 + 执行优化”
-> 更新时间: 2026-03-13
-> 上位现状文档: [`research.md`](/quant_system/research.md)
-> 当前收口成果: [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md)
+> **Status**: COMPLETED (2026-03-24) — 第三轮计划已执行完毕. 系统已全面迁移至框架原生路径.
+> 更新时间: 2026-03-13. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 生产入口: `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> Rust: 77 modules, 198 exports (100% wired). `runner/alpha_runner.py` 已废弃.
 
 ---
 

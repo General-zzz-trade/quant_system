@@ -1,8 +1,9 @@
 # 下一步开发计划
 
-> 状态: 已被更完整的 [`refactor_master_plan.md`](/quant_system/tasks/refactor_master_plan.md) 取代
-> 更新时间: 2026-03-12
-> 本文保留为阶段性计划快照，不再作为当前执行主计划
+> **Status**: COMPLETED (2026-03-24) — 已被后续计划完全取代.
+> 更新时间: 2026-03-12. 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+> 生产入口已从 `runner/live_runner.py` 迁移至 `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> 本文保留为阶段性计划快照，不再作为当前执行主计划.
 
 > 基准日期: 2026-03-12
 > 基准来源: 当前源码，而非历史 README / 迁移路线图
@@ -15,7 +16,7 @@
 | 维度 | 当前状态 | 结论 |
 |---|---|---|
 | 功能闭环 | 已具备行情、状态、特征、决策、风控、执行、监控、回测、实盘 | 核心闭环已形成 |
-| 生产真相源 | 分散在 `runner/live_runner.py`、`rust/`、若干文档中 | 需要收口 |
+| 生产真相源 | 已收口至 `runner/alpha_main.py` + `CLAUDE.md` (原分散在 `runner/live_runner.py`、`rust/`、若干文档中) | 已完成 |
 | Python / Rust 边界 | 已混合运行，Rust 已覆盖大量热路径，Python 仍主编排 | 迁移未最终完成 |
 | live/backtest/replay 一致性 | 大方向一致，但约束与边界仍需明确 | 需要统一契约 |
 | 故障恢复 | 已有 reconcile / healer / timeout / checkpoint / replay | 需要制度化演练与补强 |
@@ -33,7 +34,7 @@
 
 **要做的事**
 - [x] 新建 `docs/runtime_truth.md`
-- [ ] 明确 `runner/live_runner.py` 为当前 Python 生产主入口
+- [x] 明确 `runner/alpha_main.py` 为当前 Python 生产主入口 (原 `runner/live_runner.py`，已迁移)
 - [ ] 明确 `rust/src/bin/main.rs` 为候选/演进路径，而非当前默认真相源
 - [ ] 梳理核心子系统 owner：`engine` / `state` / `features` / `risk` / `execution`
 - [ ] 清理 README / operations / api 中与现状冲突的说法
@@ -183,7 +184,7 @@ Phase 3:
 
 ## 本轮已开始执行
 
-- [x] 重写 `research.md`
+- [x] 重写 `research.md` (现已整合至 `CLAUDE.md`)
 - [x] 新建 `docs/runtime_truth.md`
 - [x] 新建 `docs/runtime_contracts.md`
 - [x] 更新 `tasks/next_development_plan.md`

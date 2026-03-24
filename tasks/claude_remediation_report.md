@@ -1,5 +1,9 @@
 # Remediation Report — 2026-03-14
 
+> **Status**: COMPLETED (2026-03-24) — Historical remediation report.
+> 后续生产入口已从 `runner/live_runner.py` 迁移至 `runner/alpha_main.py`.
+> 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
+>
 > Completed by: Claude Code (首席治理工程师)
 
 ---

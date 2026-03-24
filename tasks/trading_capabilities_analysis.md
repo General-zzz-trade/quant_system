@@ -1,7 +1,9 @@
 # 项目交易能力分析报告
 
-> 状态: 历史能力评估（2026-02-22），其中“纯 Python 实现”等表述已不再代表当前现状
-> 当前交易能力与系统形态请优先参考 [`research.md`](/quant_system/research.md)
+> **Status**: COMPLETED (2026-03-24) — 历史能力评估快照 (2026-02-22).
+> “纯 Python 实现” 等表述已不再代表当前现状. 当前: Python 编排 + Rust 热路径 (77 modules, 198 exports).
+> 生产入口: `runner/alpha_main.py` (EngineCoordinator + AlphaDecisionModule).
+> 当前架构请参考 [`CLAUDE.md`](/quant_system/CLAUDE.md).
 
 > 分析日期: 2026-02-22
 
@@ -9,7 +11,7 @@
 
 ## 一、项目概述
 
-本项目是一套**机构级加密货币量化交易系统**，采用事件驱动架构，纯 Python 实现。代码量约 19,468 行（406 个 Python 文件），架构清晰、模块化程度高。
+本项目是一套**机构级加密货币量化交易系统**，采用事件驱动架构。(注: 原文为”纯 Python 实现”，当前已迁移为 Python 编排 + Rust 热路径混合架构。) 原始评估时代码量约 19,468 行（406 个 Python 文件），架构清晰、模块化程度高。
 
 ---
 
