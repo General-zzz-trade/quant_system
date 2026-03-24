@@ -1,5 +1,5 @@
 # tests/unit/event/test_event_schema.py
-"""EventBus and event type unit tests — subscribe, publish, routing, round-trip."""
+"""Event type unit tests — subscribe, publish, routing, round-trip."""
 from __future__ import annotations
 
 import pytest
@@ -18,7 +18,6 @@ from event.types import (
     RiskEvent,
     SignalEvent,
 )
-from event.bus import EventBus
 
 
 # ---------------------------------------------------------------------------
@@ -211,87 +210,3 @@ class TestRiskControlEvent:
         assert evt.command == "reduce_only"
         d = evt.to_dict()
         assert d["reason"] == "manual reduce only"
-
-
-# ---------------------------------------------------------------------------
-# Tests: EventBus subscribe / publish
-# ---------------------------------------------------------------------------
-
-class TestEventBus:
-    def test_subscribe_by_type(self) -> None:
-        bus = EventBus()
-        received: List[Any] = []
-        # EventType.MARKET is the Enum member (not the string "market")
-        bus.subscribe(handler=lambda e: received.append(e), event_type=EventType.MARKET)
-        evt = MarketEvent(
-            header=_market_header(),
-            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            symbol="BTCUSDT",
-            open=Decimal("0"), high=Decimal("0"),
-            low=Decimal("0"), close=Decimal("0"), volume=Decimal("0"),
-        )
-        bus.publish(evt)
-        assert len(received) == 1
-
-    def test_subscribe_by_class(self) -> None:
-        bus = EventBus()
-        received: List[Any] = []
-        bus.subscribe(handler=lambda e: received.append(e), event_cls=MarketEvent)
-        evt = MarketEvent(
-            header=_market_header(),
-            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            symbol="BTCUSDT",
-            open=Decimal("0"), high=Decimal("0"),
-            low=Decimal("0"), close=Decimal("0"), volume=Decimal("0"),
-        )
-        bus.publish(evt)
-        assert len(received) == 1
-
-    def test_subscribe_any(self) -> None:
-        bus = EventBus()
-        received: List[Any] = []
-        bus.subscribe_any(handler=lambda e: received.append(e))
-        evt = MarketEvent(
-            header=_market_header(),
-            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            symbol="BTCUSDT",
-            open=Decimal("0"), high=Decimal("0"),
-            low=Decimal("0"), close=Decimal("0"), volume=Decimal("0"),
-        )
-        bus.publish(evt)
-        assert len(received) == 1
-
-    def test_subscribe_requires_type_or_cls(self) -> None:
-        bus = EventBus()
-        with pytest.raises(ValueError, match="至少"):
-            bus.subscribe(handler=lambda e: None)
-
-    def test_no_match_no_call(self) -> None:
-        bus = EventBus()
-        received: List[Any] = []
-        bus.subscribe(handler=lambda e: received.append(e), event_type=EventType.SIGNAL)
-        # Publish a market event → signal handler should not fire
-        evt = MarketEvent(
-            header=_market_header(),
-            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            symbol="BTCUSDT",
-            open=Decimal("0"), high=Decimal("0"),
-            low=Decimal("0"), close=Decimal("0"), volume=Decimal("0"),
-        )
-        bus.publish(evt)
-        assert len(received) == 0
-
-    def test_multiple_handlers_order(self) -> None:
-        bus = EventBus()
-        order: List[int] = []
-        bus.subscribe(handler=lambda e: order.append(1), event_type=EventType.MARKET)
-        bus.subscribe(handler=lambda e: order.append(2), event_type=EventType.MARKET)
-        evt = MarketEvent(
-            header=_market_header(),
-            ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            symbol="BTCUSDT",
-            open=Decimal("0"), high=Decimal("0"),
-            low=Decimal("0"), close=Decimal("0"), volume=Decimal("0"),
-        )
-        bus.publish(evt)
-        assert order == [1, 2]

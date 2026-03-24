@@ -1,8 +1,7 @@
-"""Fault injection tests: network faults, data faults, state faults, resource exhaustion.
+"""Fault injection tests: network faults, data faults, state faults.
 
 Tests exercise:
 - ExecutionBridge retry logic and circuit breaker
-- BoundedEventBus backpressure, overflow policies, and stats tracking
 - NaN/None safe-value handling patterns from alpha_runner
 - Kill switch triggering (Rust, skipped if unavailable)
 - Position reconciliation pattern
@@ -16,17 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from event.bounded_bus import BoundedEventBus, BusConfig, OverflowPolicy, PublishResult
-from event.core_types import Envelope, EventKind, EventMetadata, Priority
 from engine.execution_bridge import ExecutionBridge, ExecutionBridgeError
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _make_envelope(priority: Priority = Priority.NORMAL) -> Envelope[None]:
-    """Create a minimal valid Envelope for bus tests."""
-    meta = EventMetadata.create(source="test")
-    return Envelope(event=None, metadata=meta, kind=EventKind.MARKET, priority=priority)
 
 
 def _make_bridge(
@@ -287,89 +276,6 @@ class TestStateFaults:
         assert live_qty == 0.1
         # Verify adapter.get_positions was called (reconcile path hit)
         adapter.get_positions.assert_called_once()
-
-
-# ── TestResourceExhaustion ────────────────────────────────────────────────────
-
-class TestResourceExhaustion:
-    """Tests BoundedEventBus behavior under load and overflow conditions."""
-
-    def test_bus_backpressure_at_high_watermark(self) -> None:
-        """Publishing past 80% capacity triggers backpressure signals in stats."""
-        bus = BoundedEventBus(BusConfig(capacity=10, high_watermark=0.8))
-
-        results = []
-        for _ in range(10):
-            env = _make_envelope(Priority.NORMAL)
-            results.append(bus.publish(env))
-
-        stats = bus.stats()
-        # At least some publishes above the 80% watermark (item 9+) must trigger backpressure
-        assert stats["backpressure_signals"] > 0, (
-            f"Expected backpressure signals after filling past watermark; stats={stats}"
-        )
-        assert stats["published"] >= 8
-
-    def test_bus_drop_lowest_policy(self) -> None:
-        """DROP_LOWEST: publishing CRITICAL when full should evict a LOW priority event."""
-        bus = BoundedEventBus(BusConfig(
-            capacity=5,
-            high_watermark=0.8,
-            overflow_policy=OverflowPolicy.DROP_LOWEST,
-        ))
-
-        # Fill to capacity with LOW priority events
-        for _ in range(5):
-            bus.publish(_make_envelope(Priority.LOW))
-
-        assert bus.size == 5
-
-        # Now publish a CRITICAL event — it should replace a LOW-priority one
-        result = bus.publish(_make_envelope(Priority.CRITICAL))
-
-        assert result == PublishResult.ACCEPTED, (
-            f"CRITICAL event should be accepted under DROP_LOWEST; got {result}"
-        )
-        dropped = bus.stats()["dropped"]
-        assert dropped > 0, f"Expected at least one LOW event to be dropped; stats={bus.stats()}"
-
-    def test_bus_reject_policy(self) -> None:
-        """REJECT overflow policy: once capacity is reached, next publish returns REJECTED."""
-        bus = BoundedEventBus(BusConfig(
-            capacity=3,
-            high_watermark=0.8,
-            overflow_policy=OverflowPolicy.REJECT,
-        ))
-
-        # Fill to capacity
-        for _ in range(3):
-            bus.publish(_make_envelope(Priority.NORMAL))
-
-        assert bus.size == 3
-
-        # Next publish must be rejected
-        result = bus.publish(_make_envelope(Priority.NORMAL))
-        assert result == PublishResult.REJECTED, (
-            f"Expected REJECTED when bus is full under REJECT policy; got {result}"
-        )
-
-    def test_bus_stats_tracking(self) -> None:
-        """Published events are counted in stats; delivered count updates after drain."""
-        bus = BoundedEventBus(BusConfig(capacity=100))
-
-        delivered_events: list[Envelope[Any]] = []
-        bus.subscribe(lambda env: delivered_events.append(env))
-
-        for _ in range(5):
-            bus.publish(_make_envelope())
-
-        stats_before_drain = bus.stats()
-        assert stats_before_drain["published"] == 5
-
-        bus.drain(batch_size=10)
-
-        stats_after_drain = bus.stats()
-        assert stats_after_drain["delivered"] >= 0  # may be 0 if no subscribers matched
 
 
 # ── TestWsStale ───────────────────────────────────────────────────────────────
