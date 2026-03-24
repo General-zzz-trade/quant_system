@@ -2,20 +2,21 @@
 """Unified clock module — merges engine clock (ClockMode/ReplayClock/LiveClock)
 with core clock (CoreClock protocol, CoreSystemClock, CoreSimulatedClock, CoreReplayClock).
 
-Engine clocks use advance_to/advance_by API with ClockMode enum.
-Core clocks use now()/monotonic()/sleep() API with datetime objects.
-Both coexist here; consumers import whichever API they need.
+CoreSystemClock and CoreSimulatedClock delegate to Rust equivalents.
+Engine clocks (ReplayClock, LiveClock) remain pure Python.
 """
 from __future__ import annotations
 
 import logging
-import threading
 import time
 import time as _time
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional, Protocol, runtime_checkable
+
+from _quant_hotpath import RustSimulatedClock, RustSystemClock
 
 _log = logging.getLogger(__name__)
 
@@ -31,13 +32,8 @@ class ClockMode(str, Enum):
 
 @runtime_checkable
 class Clock(Protocol):
-    """
-    Engine clock protocol.
-    """
-
     @property
     def mode(self) -> ClockMode: ...
-
     def now(self) -> Any: ...
     def set(self, ts: Any) -> None: ...
     def advance_to(self, ts: Any) -> None: ...
@@ -47,10 +43,8 @@ class Clock(Protocol):
 class ClockError(RuntimeError):
     pass
 
-
 class ClockMonotonicError(ClockError):
     pass
-
 
 class ClockImmutableError(ClockError):
     pass
@@ -61,15 +55,11 @@ def _to_float_seconds(ts: Any) -> Optional[float]:
         return None
     if isinstance(ts, (int, float)):
         return float(ts)
-
-    # datetime-like
     if hasattr(ts, "timestamp") and callable(getattr(ts, "timestamp")):
         try:
             return float(ts.timestamp())
         except Exception:
             return None
-
-    # common attribute names
     for attr in ("ts", "timestamp"):
         if hasattr(ts, attr):
             v = getattr(ts, attr)
@@ -85,9 +75,7 @@ def _to_float_seconds(ts: Any) -> Optional[float]:
 
 @dataclass(slots=True)
 class ReplayClock:
-    """
-    Replay mode clock: controllable, monotonic.
-    """
+    """Replay mode clock: controllable, monotonic."""
     _ts: Any = None
 
     @property
@@ -103,23 +91,18 @@ class ReplayClock:
     def advance_to(self, ts: Any) -> None:
         if ts is None:
             return
-
         if self._ts is None:
             self._ts = ts
             return
-
         old = _to_float_seconds(self._ts)
         new = _to_float_seconds(ts)
-
         if old is None or new is None:
             if str(ts) < str(self._ts):
                 raise ClockMonotonicError(f"ReplayClock time moved backwards: {self._ts} -> {ts}")
             self._ts = ts
             return
-
         if new < old:
             raise ClockMonotonicError(f"ReplayClock time moved backwards: {self._ts} -> {ts}")
-
         self._ts = ts
 
     def advance_by(self, seconds: float) -> None:
@@ -128,20 +111,16 @@ class ReplayClock:
         if self._ts is None:
             self._ts = float(seconds)
             return
-
         old = _to_float_seconds(self._ts)
         if old is None:
             self._ts = f"{self._ts}+{seconds}s"
             return
-
         self._ts = old + float(seconds)
 
 
 @dataclass(slots=True)
 class LiveClock:
-    """
-    Live mode clock: immutable, read-only.
-    """
+    """Live mode clock: immutable, read-only."""
     time_fn: Any = time.time
 
     @property
@@ -163,65 +142,55 @@ class LiveClock:
 
 # ============================================================
 # Core Clock API (now/monotonic/sleep — datetime-based)
-# Migrated from core/clock.py. Prefixed with "Core" to avoid
-# name collisions with the engine Clock protocol above.
+# CoreSystemClock and CoreSimulatedClock delegate to Rust.
 # ============================================================
 
 class CoreClock(Protocol):
-    """Minimal clock contract used by Effects and infrastructure.
-
-    Uses datetime objects and monotonic floats, as opposed to the
-    engine Clock which uses generic timestamps.
-    """
-
-    def now(self) -> datetime:
-        """Current wall-clock time (timezone-aware UTC)."""
-        ...
-
-    def monotonic(self) -> float:
-        """Monotonic seconds — safe for latency measurement."""
-        ...
-
-    def sleep(self, seconds: float) -> None:
-        """Block for *seconds* (real or simulated)."""
-        ...
+    """Minimal clock contract used by Effects and infrastructure."""
+    def now(self) -> datetime: ...
+    def monotonic(self) -> float: ...
+    def sleep(self, seconds: float) -> None: ...
 
 
 class CoreSystemClock:
-    """Real wall clock — for live trading."""
+    """Real wall clock — delegates to RustSystemClock for now/monotonic."""
 
-    __slots__ = ()
+    __slots__ = ("_rust",)
+
+    def __init__(self) -> None:
+        self._rust = RustSystemClock()
 
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.fromisoformat(self._rust.now().replace("Z", "+00:00"))
 
     def monotonic(self) -> float:
-        return _time.monotonic()
+        return self._rust.monotonic()
 
     def sleep(self, seconds: float) -> None:
         _time.sleep(seconds)
 
 
-@dataclass
 class CoreSimulatedClock:
-    """Manually-controlled clock — ``advance()`` or ``set()`` to move time.
+    """Manually-controlled clock — delegates to RustSimulatedClock.
 
     ``sleep()`` is a no-op by default (instant); set ``real_sleep=True``
     if you want to block for debugging.
     """
 
-    _current: datetime = field(default_factory=lambda: datetime(2024, 1, 1, tzinfo=timezone.utc))
-    _mono: float = field(default=0.0)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    real_sleep: bool = False
+    __slots__ = ("_rust", "real_sleep")
+
+    def __init__(self, *, real_sleep: bool = False,
+                 start: Optional[datetime] = None) -> None:
+        self._rust = RustSimulatedClock()
+        self.real_sleep = real_sleep
+        if start is not None:
+            self.set(start)
 
     def now(self) -> datetime:
-        with self._lock:
-            return self._current
+        return datetime.fromisoformat(self._rust.now().replace("Z", "+00:00"))
 
     def monotonic(self) -> float:
-        with self._lock:
-            return self._mono
+        return self._rust.monotonic()
 
     def sleep(self, seconds: float) -> None:
         if self.real_sleep:
@@ -231,18 +200,13 @@ class CoreSimulatedClock:
 
     def advance(self, delta: timedelta) -> None:
         """Move time forward by *delta*."""
-        with self._lock:
-            self._current += delta
-            self._mono += delta.total_seconds()
+        self._rust.advance(delta.total_seconds())
 
     def set(self, t: datetime) -> None:
-        """Jump to an absolute time.  Monotonic clock advances accordingly."""
-        with self._lock:
-            if t.tzinfo is None:
-                t = t.replace(tzinfo=timezone.utc)
-            delta = (t - self._current).total_seconds()
-            self._mono += max(0.0, delta)
-            self._current = t
+        """Jump to an absolute time."""
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        self._rust.set(t.timestamp())
 
 
 @dataclass
