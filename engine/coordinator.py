@@ -266,7 +266,7 @@ class EngineCoordinator:
 
     @property
     def is_trading_halted(self) -> bool:
-        return self._trading_gate.is_halted()
+        return self._trading_gate.is_halted
 
     @property
     def interceptor_chain(self) -> RustInterceptorChain:
@@ -288,7 +288,7 @@ class EngineCoordinator:
                 raise RuntimeError("EngineCoordinator is stopped")
 
         # Trading gate: drop events when halted (safety mechanism)
-        if self._trading_gate.is_halted():
+        if self._trading_gate.is_halted:
             _logger.warning("Trading halted — dropping %s event", type(event).__name__)
             return
 
