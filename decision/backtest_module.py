@@ -1,144 +1,30 @@
 """ML Signal Decision Module for event-driven backtest engine.
 
-Implements DecisionModule protocol to bridge ML model predictions
-into the existing event-driven backtest infrastructure.
-
-This module:
-  - Receives snapshots from the pipeline (bar-by-bar)
-  - Runs ML model predictions (LGBM+XGB ensemble)
-  - Applies rolling z-score normalization
-  - Generates IntentEvent + OrderEvent via the existing event system
-  - Tracks position state for hold constraints
-
-All look-ahead bias prevention is handled by the engine's
-EmbargoExecutionAdapter (fills at next bar's open price).
+Bridges ML model predictions into backtest infrastructure.
+Look-ahead bias prevention via EmbargoExecutionAdapter.
 """
 from __future__ import annotations
 
 import json
 import logging
-import pickle  # noqa: S301 - used for ML model loading
+import pickle  # noqa: S301 - used for ML model loading (trusted local models only)
 from collections import deque
-from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence
 
-import numpy as np
+from decision.backtest_module_predict import (  # noqa: E402
+    _ZScoreBuf,
+    _resolve_primary_horizon_config,  # noqa: F401
+    _resolve_primary_model_artifacts,
+)
 
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _ZScoreBuf:
-    """Rolling z-score normalization (causal, backward-looking only)."""
-    window: int = 720
-    warmup: int = 180
-    _buf: Deque[float] = field(default_factory=deque)
-
-    def __post_init__(self) -> None:
-        self._buf = deque(maxlen=self.window)
-
-    def push(self, value: float) -> float:
-        self._buf.append(value)
-        if len(self._buf) < self.warmup:
-            return 0.0
-        arr = np.array(self._buf)
-        std = float(np.std(arr))
-        if std < 1e-12:
-            return 0.0
-        return (value - float(np.mean(arr))) / std
-
-    @property
-    def ready(self) -> bool:
-        return len(self._buf) >= self.warmup
-
-
-def _resolve_primary_horizon_config(config: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
-    horizon_models = config.get("horizon_models") or []
-    if not horizon_models:
-        return None
-    primary_horizon = config.get("primary_horizon")
-    if primary_horizon is not None:
-        for hm in horizon_models:
-            if hm.get("horizon") == primary_horizon:
-                return hm
-    return horizon_models[0]
-
-
-def _resolve_primary_model_artifacts(
-    model_dir: Path,
-    config: Mapping[str, Any],
-) -> Optional[Dict[str, Any]]:
-    primary = _resolve_primary_horizon_config(config)
-    if primary is not None:
-        lgbm_file = primary.get("lgbm")
-        if not lgbm_file:
-            return None
-        artifacts: Dict[str, Any] = {
-            "lgbm": model_dir / str(lgbm_file),
-            "xgb": model_dir / str(primary.get("xgb")) if primary.get("xgb") else None,
-            "ridge": model_dir / str(primary.get("ridge")) if primary.get("ridge") else None,
-            "features": list(primary.get("features", [])),
-            "ridge_features": primary.get("ridge_features"),
-        }
-        return artifacts if artifacts["lgbm"].exists() else None
-
-    lgbm_path = model_dir / "lgbm_v8.pkl"
-    if not lgbm_path.exists():
-        return None
-    return {
-        "lgbm": lgbm_path,
-        "xgb": model_dir / "xgb_v8.pkl" if (model_dir / "xgb_v8.pkl").exists() else None,
-        "ridge": None,
-        "features": None,
-        "ridge_features": None,
-    }
-
-
 class MLSignalDecisionModule:
-    """Decision module that generates orders from ML model predictions.
-
-    Parameters
-    ----------
-    symbol : str
-        Trading symbol (e.g. "BTCUSDT").
-    model_dir : str or Path
-        Directory with config.json and its referenced model artifacts.
-    equity : float
-        Starting equity for position sizing.
-    risk_fraction : float
-        Fraction of equity per trade (before leverage).
-    deadzone : float
-        Z-score threshold for entry. If None, uses config.json value.
-    min_hold : int
-        Minimum bars before exit allowed.
-    max_hold : int
-        Maximum bars before forced exit.
-    long_only : bool
-        Only take long positions.
-    trend_follow : bool
-        Extend existing positions when trend remains favorable.
-    trend_indicator : str
-        Feature name used for trend gating.
-    trend_threshold : float
-        Threshold applied to trend feature.
-    monthly_gate : bool
-        If enabled, only allow entries when close is above trailing MA window.
-    monthly_gate_window : int
-        Window size for the monthly gate moving average.
-    vol_target : float, optional
-        If set, scale position size by target_vol / realized_vol_feature.
-    vol_feature : str
-        Feature name used for vol targeting.
-    zscore_window : int
-        Rolling z-score window (bars).
-    leverage : float
-        Fixed leverage multiplier for position sizing.
-    v11_config : V11Config, optional
-        V11 config object. If provided, overrides hardcoded params.
-    """
+    """Decision module: ML predictions -> orders (LGBM+XGB+Ridge ensemble)."""
 
     def __init__(
         self,
@@ -423,48 +309,10 @@ class MLSignalDecisionModule:
         events: List[Any] = []
         if self._position != 0:
             if not self._passes_monthly_gate(close, snapshot):
-                bear_score = None
-                if self._bear_model is not None:
-                    ts = self._get_timestamp_utc(snapshot)
-                    bear_sig = self._bear_model.predict(
-                        symbol=self.symbol, ts=ts, features=features)
-                    if bear_sig is not None and bear_sig.side == "long":
-                        if self._bear_thresholds:
-                            prob = 0.5 + bear_sig.strength
-                            bear_score = 0.0
-                            for thresh, s in self._bear_thresholds:
-                                if prob > thresh:
-                                    bear_score = s
-                                    break
-                        else:
-                            bear_score = -1.0
-                    else:
-                        bear_score = 0.0
-
-                if bear_score is not None and bear_score != 0:
-                    # Bear model says stay in position — sync Rust hold state
-                    # (matches live bridge.py:262-263)
-                    if self._rust_bridge is not None:
-                        cur_rust_pos = self._rust_bridge.get_position(self.symbol)
-                        if bear_score != cur_rust_pos:
-                            self._rust_bridge.set_position(self.symbol, bear_score, 1)
-                    self._position = bear_score
-                    return events
-                else:
-                    # No bear model or bear score is 0 → flatten
-                    if self._rust_bridge is not None:
-                        cur_rust_pos = self._rust_bridge.get_position(self.symbol)
-                        if cur_rust_pos != 0.0:
-                            self._rust_bridge.set_position(self.symbol, 0.0, 1)
-                    side = "sell" if self._position > 0 else "buy"
-                    events.extend(self._make_order(
-                        side=side,
-                        qty=abs(current_qty),
-                        event_id=event_id,
-                        reason="monthly_gate",
-                    ))
-                    self._exit_mgr.on_exit(self.symbol)
-                    self._position = 0.0
+                from decision.backtest_module_exit_entry import handle_bear_model_exit
+                should_return, events = handle_bear_model_exit(
+                    self, features, snapshot, close, current_qty, event_id, events)
+                if should_return:
                     return events
 
             # Match live constraint behavior: once the discretized score falls
@@ -513,25 +361,8 @@ class MLSignalDecisionModule:
                 return events
 
             if desired != 0 and not self._passes_monthly_gate(close, snapshot):
-                if self._bear_model is not None:
-                    ts = self._get_timestamp_utc(snapshot)
-                    bear_sig = self._bear_model.predict(
-                        symbol=self.symbol, ts=ts, features=features)
-                    if bear_sig is not None and bear_sig.side == "long":
-                        if self._bear_thresholds:
-                            prob = 0.5 + bear_sig.strength
-                            bear_entry_score = 0.0
-                            for thresh, s in self._bear_thresholds:
-                                if prob > thresh:
-                                    bear_entry_score = s
-                                    break
-                        else:
-                            bear_entry_score = -1.0
-                        desired = int(bear_entry_score) if bear_entry_score != 0 else 0
-                    else:
-                        desired = 0
-                else:
-                    desired = 0
+                from decision.backtest_module_exit_entry import handle_bear_model_entry
+                desired = handle_bear_model_entry(self, features, snapshot, desired)
 
             if desired != 0:
                 # Compute order qty: equity × risk_fraction × leverage × regime_scale / price
@@ -567,55 +398,8 @@ class MLSignalDecisionModule:
 
         # ── Independent short model (mirrors live bridge.py:287-330) ──
         if self._short_model is not None:
-            ts = self._get_timestamp_utc(snapshot)
-            short_sig = self._short_model.predict(
-                symbol=self.symbol, ts=ts, features=features)
-            short_score = 0.0
-            if short_sig is not None and short_sig.strength is not None:
-                raw = short_sig.strength
-                if short_sig.side == "short":
-                    raw = -raw
-                elif short_sig.side == "flat":
-                    raw = 0.0
-
-                # Apply Rust constraint path if available (same as live)
-                if self._rust_bridge is not None:
-                    hour_key = int(ts.timestamp()) // 3600 if ts is not None else 0
-                    short_score = self._rust_bridge.process_short_signal(
-                        self.symbol, raw, hour_key,
-                        self._deadzone, self._min_hold)
-                else:
-                    # Python fallback for short signal (deadzone + min-hold).
-                    # Production always uses the Rust path above which
-                    # includes the full constraint pipeline (deadzone +
-                    # min-hold + trend-hold).  This fallback exists only
-                    # for environments without _quant_hotpath.
-                    if not hasattr(self, '_short_hold_count'):
-                        self._short_hold_count = 0
-                        self._prev_short_score = 0.0
-
-                    if abs(raw) > self._deadzone:
-                        short_score = raw
-                        self._short_hold_count += 1
-                    elif self._prev_short_score != 0.0:
-                        if self._short_hold_count < self._min_hold:
-                            short_score = self._prev_short_score
-                            self._short_hold_count += 1
-                        else:
-                            self._short_hold_count = 0
-                    else:
-                        self._short_hold_count = 0
-                    self._prev_short_score = short_score
-
-                # Vol-adaptive sizing for short
-                if short_score != 0.0 and self._vol_target is not None:
-                    vol_val = features.get(self._vol_feature)
-                    if vol_val is not None and vol_val > 1e-8:
-                        scale = min(self._vol_target / float(vol_val), 1.0)
-                        short_score *= scale
-
-            features[self._short_score_key] = short_score
-            self._last_short_score = short_score
+            from decision.backtest_module_exit_entry import process_short_model
+            process_short_model(self, features, snapshot)
 
         return events
 

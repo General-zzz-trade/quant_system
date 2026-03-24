@@ -8,12 +8,11 @@ from __future__ import annotations
 import json
 import csv
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +31,12 @@ from engine.coordinator import CoordinatorConfig, EngineCoordinator  # noqa: E40
 from engine.decision_bridge import DecisionBridge  # noqa: E402
 from engine.execution_bridge import ExecutionBridge  # noqa: E402
 from event.header import EventHeader  # noqa: E402
-from event.types import EventType, MarketEvent, IntentEvent, OrderEvent  # noqa: E402
-from _quant_hotpath import RustPositionState as PositionState  # noqa: E402
+from event.types import EventType, MarketEvent  # noqa: E402
 from state import PortfolioState, RiskState, RiskLimits  # noqa: E402,F401 — state type aliases for backtest snapshot typing
 
 # Re-export from subpackage for backward compatibility
 from runner.backtest.csv_io import iter_ohlcv_csv  # noqa: E402
-from runner.backtest.adapter import BacktestExecutionAdapter, _make_id  # noqa: E402
+from runner.backtest.adapter import BacktestExecutionAdapter  # noqa: E402
 from runner.backtest.metrics import (  # noqa: E402
     EquityPoint,
     _max_drawdown,  # noqa: F401 -- re-exported for backtest_cli.py
@@ -49,143 +47,13 @@ from runner.backtest.metrics import (  # noqa: E402
 
 
 # ============================================================
-# Decision module
+# Decision module (extracted to runner/backtest_runner_decision.py)
 # ============================================================
 
-
-class MovingAverageCrossModule:
-    def __init__(self, *, symbol: str, window: int, order_qty: Decimal, origin: str = "ma_cross") -> None:
-        self.symbol = symbol.upper()
-        self.window = int(window)
-        self.order_qty = Decimal(str(order_qty))
-        self.origin = origin
-        self._closes: List[Decimal] = []
-
-    def decide(self, snapshot: Any) -> Iterable[Any]:
-        market, positions, event_id = _snapshot_views(snapshot)
-        close = getattr(market, "close", None) or getattr(market, "last_price", None)
-        if close is None:
-            return ()
-
-        close_d = Decimal(str(close))
-        self._closes.append(close_d)
-        if len(self._closes) > self.window:
-            self._closes.pop(0)
-        if len(self._closes) < self.window:
-            return ()
-
-        ma = sum(self._closes) / Decimal(str(self.window))
-
-        pos = positions.get(self.symbol) or PositionState.empty(self.symbol)
-        qty = getattr(pos, "qty", Decimal("0"))
-
-        want_long = close_d > ma
-
-        events: List[Any] = []
-        if qty == 0 and want_long:
-            events.extend(self._open_long(event_id=event_id))
-        elif qty > 0 and (not want_long):
-            events.extend(self._close_long(qty=qty, event_id=event_id))
-
-        return events
-
-    def _open_long(self, *, event_id: Optional[str]) -> Sequence[Any]:
-        intent_id = _make_id("intent")
-        order_id = _make_id("order")
-
-        intent_h = EventHeader.new_root(
-            event_type=EventType.INTENT,
-            version=1,
-            source=f"decision:{self.origin}",
-            correlation_id=str(event_id) if event_id else None,
-        )
-        order_h = EventHeader.from_parent(
-            parent=intent_h,
-            event_type=EventType.ORDER,
-            version=1,
-            source=f"decision:{self.origin}",
-        )
-
-        return (
-            IntentEvent(
-                header=intent_h,
-                intent_id=intent_id,
-                symbol=self.symbol,
-                side="buy",
-                target_qty=self.order_qty,
-                reason_code="ma_cross_long",
-                origin=self.origin,
-            ),
-            OrderEvent(
-                header=order_h,
-                order_id=order_id,
-                intent_id=intent_id,
-                symbol=self.symbol,
-                side="buy",
-                qty=self.order_qty,
-                price=None,
-            ),
-        )
-
-    def _close_long(self, *, qty: Decimal, event_id: Optional[str]) -> Sequence[Any]:
-        intent_id = _make_id("intent")
-        order_id = _make_id("order")
-
-        intent_h = EventHeader.new_root(
-            event_type=EventType.INTENT,
-            version=1,
-            source=f"decision:{self.origin}",
-            correlation_id=str(event_id) if event_id else None,
-        )
-        order_h = EventHeader.from_parent(
-            parent=intent_h,
-            event_type=EventType.ORDER,
-            version=1,
-            source=f"decision:{self.origin}",
-        )
-
-        q = abs(qty)
-        return (
-            IntentEvent(
-                header=intent_h,
-                intent_id=intent_id,
-                symbol=self.symbol,
-                side="sell",
-                target_qty=q,
-                reason_code="ma_cross_exit",
-                origin=self.origin,
-            ),
-            OrderEvent(
-                header=order_h,
-                order_id=order_id,
-                intent_id=intent_id,
-                symbol=self.symbol,
-                side="sell",
-                qty=q,
-                price=None,
-            ),
-        )
-
-
-def _snapshot_views(snapshot: Any) -> Tuple[Any, Mapping[str, Any], Optional[str]]:
-    if hasattr(snapshot, "market") and hasattr(snapshot, "positions"):
-        market = getattr(snapshot, "market")
-        positions = getattr(snapshot, "positions")
-        event_id = getattr(snapshot, "event_id", None)
-        return market, positions, event_id
-
-    if isinstance(snapshot, dict):
-        market = snapshot.get("market")
-        if market is None:
-            markets = snapshot.get("markets") or {}
-            market = next(iter(markets.values()), None) if markets else None
-        positions = snapshot.get("positions") or {}
-        event_id = snapshot.get("event_id")
-        if market is None:
-            raise RuntimeError("snapshot missing market/markets")
-        return market, positions, event_id
-
-    raise RuntimeError(f"unsupported snapshot type: {type(snapshot).__name__}")
+from runner.backtest_runner_decision import (  # noqa: E402
+    MovingAverageCrossModule,
+    _snapshot_views,  # noqa: F401
+)
 
 
 # ============================================================
@@ -510,124 +378,8 @@ def run_backtest(
     return equity, fills
 
 
-# ============================================================
-# Walk-Forward Validation
-# ============================================================
-
-
-@dataclass(frozen=True, slots=True)
-class WalkForwardWindow:
-    """One window of a walk-forward test."""
-    window_idx: int
-    train_bars: int
-    test_bars: int
-    test_summary: Dict[str, Any]
-
-
-def run_walk_forward(
-    *,
-    csv_path: Path,
-    symbol: str,
-    starting_balance: Decimal,
-    ma_window: int,
-    order_qty: Decimal,
-    fee_bps: Decimal,
-    slippage_bps: Decimal = Decimal("0"),
-    train_size: int = 500,
-    test_size: int = 100,
-    out_dir: Optional[Path] = None,
-) -> List[WalkForwardWindow]:
-    all_bars = list(iter_ohlcv_csv(csv_path))
-    if len(all_bars) < train_size + test_size:
-        raise ValueError(
-            f"Not enough bars for walk-forward: need {train_size + test_size}, got {len(all_bars)}"
-        )
-
-    results: List[WalkForwardWindow] = []
-    window_idx = 0
-    start = 0
-
-    while start + train_size + test_size <= len(all_bars):
-        test_start = start + train_size
-        test_end = test_start + test_size
-        test_window_bars = all_bars[start:test_end]
-        test_only_bars = all_bars[test_start:test_end]
-
-        import tempfile
-        import os
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, newline=""
-        ) as tmp:
-            writer = csv.writer(tmp)
-            writer.writerow(["ts", "open", "high", "low", "close", "volume"])
-            for bar in test_window_bars:
-                writer.writerow([
-                    bar.ts.isoformat(),
-                    str(bar.o),
-                    str(bar.h),
-                    str(bar.l),
-                    str(bar.c),
-                    str(bar.v) if bar.v is not None else "0",
-                ])
-            tmp_path = tmp.name
-
-        try:
-            window_out = (out_dir / f"window_{window_idx:03d}") if out_dir else None
-            equity, fills = run_backtest(
-                csv_path=Path(tmp_path),
-                symbol=symbol,
-                starting_balance=starting_balance,
-                ma_window=ma_window,
-                order_qty=order_qty,
-                fee_bps=fee_bps,
-                slippage_bps=slippage_bps,
-                out_dir=window_out,
-            )
-
-            test_equity = equity[train_size:] if len(equity) > train_size else equity
-            test_fills_raw = fills
-
-            trades = _build_trades_from_fills(test_fills_raw)
-            summary = _build_summary(
-                equity=test_equity,
-                trades=trades,
-                csv_path=csv_path,
-                symbol=symbol,
-            )
-            summary["window_idx"] = window_idx
-            summary["train_bars"] = train_size
-            summary["test_bars"] = len(test_only_bars)
-            summary["test_start_ts"] = test_only_bars[0].ts.isoformat() if test_only_bars else ""
-            summary["test_end_ts"] = test_only_bars[-1].ts.isoformat() if test_only_bars else ""
-
-            results.append(WalkForwardWindow(
-                window_idx=window_idx,
-                train_bars=train_size,
-                test_bars=len(test_only_bars),
-                test_summary=summary,
-            ))
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError as e:
-                logger.debug("Failed to clean up temp file %s: %s", tmp_path, e)
-
-        start += test_size
-        window_idx += 1
-
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        wf_path = out_dir / "walk_forward_summary.json"
-        with wf_path.open("w", encoding="utf-8") as f:
-            json.dump(
-                [_json_safe(w.test_summary) for w in results],
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-
-    return results
+# Walk-Forward Validation (extracted to runner/backtest_runner_wf.py)
+from runner.backtest_runner_wf import WalkForwardWindow, run_walk_forward  # noqa: F401, E402
 
 
 # Re-export multi-backtest for backward compatibility

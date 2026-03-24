@@ -1,19 +1,12 @@
 """Backtest execution adapter with realistic trading simulation.
 
-Capabilities (all opt-in, backward compatible):
-- Immediate market order fills (default, always on)
-- Limit order fill logic: fills only if bar touches limit price
-- Partial fills: optional volume-based partial fill model
-- Trading rules: min_qty, step_size, tick_size, min_notional → reject if violated
-- Funding settlement: accrues funding cost on open positions
-- ATR adaptive stop-loss: 3-phase (initial → breakeven → trailing)
-- Execution summary: gross/net pnl, fees, slippage, funding, rejections, partials
+Opt-in capabilities: limit fills, partial fills, trading rules, funding,
+ATR adaptive stop, volume slippage, margin/liquidation, gate chain.
 """
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional
@@ -35,86 +28,14 @@ def _make_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:16]}"
 
 
-# ── Trading Rules ────────────────────────────────────────────────
-
-@dataclass(frozen=True)
-class TradingRules:
-    """Exchange trading rules for order validation."""
-    min_qty: Decimal = Decimal("0.001")
-    step_size: Decimal = Decimal("0.001")
-    tick_size: Decimal = Decimal("0.01")
-    min_notional: Decimal = Decimal("5")     # minimum order value in quote currency
-    max_qty: Optional[Decimal] = None
-
-    def round_qty(self, qty: Decimal) -> Decimal:
-        """Round qty down to nearest step_size."""
-        if self.step_size <= 0:
-            return qty
-        return (qty / self.step_size).to_integral_value(rounding=ROUND_DOWN) * self.step_size
-
-    def round_price(self, price: Decimal) -> Decimal:
-        """Round price to nearest tick_size."""
-        if self.tick_size <= 0:
-            return price
-        return (price / self.tick_size).to_integral_value(rounding=ROUND_DOWN) * self.tick_size
-
-    def validate(self, qty: Decimal, price: Decimal) -> Optional[str]:
-        """Return rejection reason string, or None if valid."""
-        if qty < self.min_qty:
-            return f"qty {qty} < min_qty {self.min_qty}"
-        if self.max_qty is not None and qty > self.max_qty:
-            return f"qty {qty} > max_qty {self.max_qty}"
-        notional = qty * price
-        if notional < self.min_notional:
-            return f"notional {notional} < min_notional {self.min_notional}"
-        return None
-
-
-# ── Execution Summary ────────────────────────────────────────────
-
-@dataclass
-class ExecutionSummary:
-    """Accumulated execution statistics for backtest reporting."""
-    total_orders: int = 0
-    filled_orders: int = 0
-    rejected_orders: int = 0
-    expired_orders: int = 0
-    partial_fill_count: int = 0
-    total_fills: int = 0
-    gross_pnl: Decimal = Decimal("0")
-    net_pnl: Decimal = Decimal("0")
-    total_fees: Decimal = Decimal("0")
-    total_slippage: Decimal = Decimal("0")
-    total_funding: Decimal = Decimal("0")
-    liquidation_count: int = 0
-    rejection_reasons: Dict[str, int] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "total_orders": self.total_orders,
-            "filled_orders": self.filled_orders,
-            "rejected_orders": self.rejected_orders,
-            "expired_orders": self.expired_orders,
-            "partial_fill_count": self.partial_fill_count,
-            "total_fills": self.total_fills,
-            "gross_pnl": float(self.gross_pnl),
-            "net_pnl": float(self.net_pnl),
-            "total_fees": float(self.total_fees),
-            "total_slippage": float(self.total_slippage),
-            "total_funding": float(self.total_funding),
-            "liquidation_count": self.liquidation_count,
-            "rejection_reasons": dict(self.rejection_reasons),
-        }
+# Trading Rules and Execution Summary extracted to adapter_helpers.py
+from runner.backtest.adapter_helpers import TradingRules, ExecutionSummary  # noqa: F401, E402
 
 
 # ── Main Adapter ─────────────────────────────────────────────────
 
 class BacktestExecutionAdapter:
-    """Realistic backtest execution adapter.
-
-    All new capabilities are opt-in via constructor parameters.
-    Default behavior (no new params) is identical to the original adapter.
-    """
+    """Realistic backtest execution adapter (all capabilities opt-in)."""
 
     def __init__(
         self,
@@ -325,72 +246,13 @@ class BacktestExecutionAdapter:
 
     def check_adaptive_stop(self, symbol: str) -> Optional[Any]:
         """Check if adaptive stop-loss triggered. Returns fill event or None."""
-        if not self._adaptive_stop:
-            return None
-        sym = symbol.upper()
-        qty = self._pos_qty.get(sym, Decimal("0"))
-        if qty == 0:
-            return None
-
-        entry = self._entry_price.get(sym, 0.0)
-        if entry <= 0:
-            return None
-
-        side = 1 if qty > 0 else -1
-        atr = sum(self._atr_buffer[-14:]) / max(len(self._atr_buffer[-14:]), 1) if self._atr_buffer else 0.015
-
-        if side > 0:
-            self._peak_price[sym] = max(self._peak_price.get(sym, entry), self._bar_high)
-            profit = (self._peak_price[sym] - entry) / entry
-        else:
-            self._peak_price[sym] = min(self._peak_price.get(sym, entry), self._bar_low)
-            profit = (entry - self._peak_price[sym]) / entry
-
-        if profit >= atr * self._atr_trail_trigger:
-            sd = atr * self._atr_trail_step
-            stop = self._peak_price[sym] * (1 - sd) if side > 0 else self._peak_price[sym] * (1 + sd)
-        elif profit >= atr * self._atr_breakeven_trigger:
-            buf = atr * 0.1
-            stop = entry * (1 + buf) if side > 0 else entry * (1 - buf)
-        else:
-            sd = min(atr * self._atr_stop_mult, 0.05)
-            sd = max(sd, 0.003)
-            stop = entry * (1 - sd) if side > 0 else entry * (1 + sd)
-
-        triggered = False
-        if side > 0 and self._bar_low <= stop:
-            triggered = True
-        elif side < 0 and self._bar_high >= stop:
-            triggered = True
-
-        if not triggered:
-            return None
-
-        close_side = "sell" if side > 0 else "buy"
-        close_qty = abs(qty)
-        order = SimpleNamespace(
-            header=EventHeader.new_root(event_type=EventType.FILL, version=1, source=self._source),
-            symbol=sym, side=close_side, qty=close_qty, price=None,
-            order_type="market",
-        )
-        fills = self.send_order(order)
-        return fills[0] if fills else None
+        from runner.backtest.adapter_stops import check_adaptive_stop
+        return check_adaptive_stop(self, symbol)
 
     # ── Core order processing ────────────────────────────────────
 
     def send_order(self, order_event: Any) -> List[Any]:
-        """Process an order event. Returns list of fill events (0 or 1+).
-
-        Enhanced flow:
-        1. Extract order fields
-        2. Apply trading rules → reject if violated
-        3. Determine fill price (market vs limit)
-        4. Apply partial fill model
-        5. Apply slippage
-        6. Update position + compute PnL
-        7. Track execution summary
-        8. Emit fill event
-        """
+        """Process an order event. Returns list of fill events (0 or 1+)."""
         self.summary.total_orders += 1
 
         sym = str(getattr(order_event, "symbol")).upper()
@@ -603,39 +465,11 @@ class BacktestExecutionAdapter:
     def apply_gate_chain(self, order_event: Any, *,
                          alpha_health_scale: float = 1.0,
                          regime_scale: float = 1.0) -> Optional[Any]:
-        """Simplified gate chain proxy for backtest.
-
-        Applies three gate-like checks (matching live gate_chain.py concepts):
-        1. Position cap: rejects if adding to same-direction exceeds max_position_pct
-        2. Alpha health scale: reduces qty by health factor (0.0/0.5/1.0)
-        3. Regime scale: reduces qty by regime factor
-
-        Returns modified order event, or None if rejected.
-        """
-        if alpha_health_scale <= 0 or regime_scale <= 0:
-            self.summary.rejected_orders += 1
-            self.summary.rejection_reasons["gate_health"] = \
-                self.summary.rejection_reasons.get("gate_health", 0) + 1
-            return None
-
-        qty = Decimal(str(getattr(order_event, "qty", 0)))
-        scaled_qty = qty * Decimal(str(alpha_health_scale)) * Decimal(str(regime_scale))
-
-        if self._rules:
-            scaled_qty = self._rules.round_qty(scaled_qty)
-            if scaled_qty < self._rules.min_qty:
-                self.summary.rejected_orders += 1
-                self.summary.rejection_reasons["gate_below_min"] = \
-                    self.summary.rejection_reasons.get("gate_below_min", 0) + 1
-                return None
-
-        # Return modified order with scaled qty
-        modified = SimpleNamespace(**{
-            k: getattr(order_event, k) for k in ("header", "symbol", "side", "price", "order_type")
-            if hasattr(order_event, k)
-        })
-        modified.qty = scaled_qty
-        return modified
+        """Simplified gate chain proxy for backtest."""
+        from runner.backtest.adapter_stops import apply_gate_chain
+        return apply_gate_chain(self, order_event,
+                                alpha_health_scale=alpha_health_scale,
+                                regime_scale=regime_scale)
 
     def get_position(self, symbol: str) -> Decimal:
         return self._pos_qty.get(symbol.upper(), Decimal("0"))

@@ -409,94 +409,10 @@ class EqualWeightAllocator:
 
 
 # -------------------------
-# 波动率目标（风险预算雏形）
+# 波动率目标（风险预算雏形） -- extracted to portfolio/allocator_vol_target.py
 # -------------------------
 
-@dataclass(frozen=True, slots=True)
-class VolTargetAllocator:
-    """
-    波动率目标分配（风险预算雏形）
-
-    输入 inputs:
-      - target_vol: 目标组合年化波动（例如 0.15）
-      - vols: Mapping[str, float|Decimal] 每个标的年化波动（例如 0.60）
-      - base_weights: 可选，若提供则先按 base_weights 分配，再按目标波动缩放整体名义
-        否则默认按 1/vol 等风险权重（近似 risk parity 的最小版本）
-
-    输出：
-      - 本质仍输出 target_weights（相对），然后用 max_gross_leverage 约束防止过度杠杆
-    """
-    name: str = "vol_target_allocator"
-
-    def allocate(
-        self,
-        *,
-        ts: Any,
-        symbols: Sequence[str],
-        account: AccountSnapshot,
-        prices: PriceProvider,
-        constraints: PortfolioConstraints,
-        inputs: Mapping[str, Any] | None = None,
-        tags: Tuple[str, ...] = (),
-    ) -> AllocationPlan:
-        if inputs is None:
-            raise AllocatorError("VolTargetAllocator 需要 inputs")
-        if "target_vol" not in inputs or "vols" not in inputs:
-            raise AllocatorError("VolTargetAllocator 需要 inputs['target_vol'] 与 inputs['vols']")
-
-        target_vol = _d(inputs["target_vol"])
-        vols: Mapping[str, Any] = inputs["vols"]
-        base_weights: Optional[Mapping[str, Any]] = inputs.get("base_weights")
-
-        if target_vol <= 0:
-            raise AllocatorError("target_vol 必须为正")
-
-        # 1) 生成相对权重（未缩放）
-        rel_w: Dict[str, Decimal] = {}
-        if base_weights is not None:
-            for s in symbols:
-                rel_w[s] = _d(base_weights.get(s, 0))
-        else:
-            # 近似：w ~ 1/vol（vol 越大权重越小）
-            for s in symbols:
-                v = _d(vols.get(s))
-                if v is None or v <= 0:
-                    raise AllocatorError(f"缺少或无效波动率：{s} vol={v}")
-                rel_w[s] = Decimal("1") / v
-
-        # 2) 归一化到 sum(abs)=1（便于解释）
-        denom = sum(_abs(x) for x in rel_w.values())
-        if denom == 0:
-            raise AllocatorError("权重全为 0")
-        for s in list(rel_w.keys()):
-            rel_w[s] = rel_w[s] / denom
-
-        # 3) 估算组合波动（极简版本：假设相关性=0）
-        #    port_vol ≈ sqrt(sum(w^2 * vol^2))
-        port_var = Decimal("0")
-        for s in symbols:
-            v = _d(vols.get(s))
-            port_var += (rel_w[s] * v) * (rel_w[s] * v)
-        port_vol = port_var.sqrt() if port_var > 0 else Decimal("0")
-        if port_vol <= 0:
-            raise AllocatorError("组合波动估算为 0，检查 vols/base_weights")
-
-        # 4) 缩放因子：scale = target_vol / port_vol
-        scale = target_vol / port_vol
-
-        # 5) 将 scale 作用到权重（意味着使用更多/更少名义）
-        #    注意：最终仍会被 max_gross_leverage 截断，保证实盘安全
-        scaled_w = {s: rel_w[s] * scale for s in symbols}
-
-        return TargetWeightAllocator().allocate(
-            ts=ts,
-            symbols=symbols,
-            account=account,
-            prices=prices,
-            constraints=constraints,
-            inputs={"target_weights": scaled_w, "weight_residual_to_cash": True},
-            tags=tags + (self.name,),
-        )
+from portfolio.allocator_vol_target import VolTargetAllocator  # noqa: F401, E402
 
 
 # Re-export constraint functions and utilities from allocator_constraints.py

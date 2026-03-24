@@ -27,12 +27,10 @@ from typing import Any, Optional, Tuple
 from execution.adapters.hyperliquid.client import HyperliquidRestClient
 from execution.adapters.hyperliquid.config import HyperliquidConfig
 from execution.adapters.hyperliquid.mapper import (
-    coin_to_symbol,
     map_balance,
     map_fill,
     map_instrument,
     map_order,
-    map_orderbook,
     map_position,
     normalize_coin,
 )
@@ -432,128 +430,25 @@ class HyperliquidAdapter:
         return {"status": "error", "data": data}
 
     # ------------------------------------------------------------------
-    # Market data
+    # Market data + account info + helpers (extracted to adapter_market.py)
     # ------------------------------------------------------------------
 
     def get_ticker(self, symbol: str) -> dict:
-        """Get latest ticker (mid price, bid, ask, funding rate)."""
-        coin = normalize_coin(symbol)
-
-        # Get L2 book for bid/ask
-        book_data = self._client.info_request({"type": "l2Book", "coin": coin})
-        if not isinstance(book_data, dict) or "levels" not in book_data:
-            return {}
-
-        book = map_orderbook(book_data)
-        bids = book.get("bids", [])
-        asks = book.get("asks", [])
-
-        best_bid = bids[0][0] if bids else 0.0
-        best_ask = asks[0][0] if asks else 0.0
-        mid = (best_bid + best_ask) / 2 if best_bid and best_ask else best_bid or best_ask
-
-        # Get funding rate from asset contexts
-        funding_rate = 0.0
-        if not self._asset_ctxs:
-            self._refresh_meta()
-        if coin.upper() in self._asset_index:
-            idx = self._asset_index[coin.upper()]
-            if idx < len(self._asset_ctxs):
-                ctx = self._asset_ctxs[idx]
-                funding_rate = float(ctx.get("funding", 0))
-
-        return {
-            "symbol": coin_to_symbol(coin),
-            "lastPrice": mid,
-            "bid1Price": best_bid,
-            "ask1Price": best_ask,
-            "volume24h": 0.0,  # Not directly available from L2 book
-            "fundingRate": funding_rate,
-        }
+        from execution.adapters.hyperliquid.adapter_market import get_ticker
+        return get_ticker(self, symbol)
 
     def get_orderbook(self, symbol: str) -> dict:
-        """Get L2 orderbook.
-
-        Returns:
-            Dict with "bids", "asks" (list of [price, size, n_orders]),
-            "coin", "ts_ms".
-        """
-        coin = normalize_coin(symbol)
-        data = self._client.info_request({"type": "l2Book", "coin": coin})
-        if not isinstance(data, dict) or "levels" not in data:
-            return {"bids": [], "asks": [], "coin": coin, "ts_ms": 0}
-        return map_orderbook(data)
+        from execution.adapters.hyperliquid.adapter_market import get_orderbook
+        return get_orderbook(self, symbol)
 
     def get_funding_rates(self) -> list[dict]:
-        """Get current funding rates for all assets."""
-        if not self._asset_ctxs:
-            self._refresh_meta()
-
-        rates = []
-        for i, ctx in enumerate(self._asset_ctxs):
-            if i < len(self._universe):
-                coin = self._universe[i].get("name", "")
-                rates.append({
-                    "symbol": coin_to_symbol(coin),
-                    "fundingRate": float(ctx.get("funding", 0)),
-                    "markPx": float(ctx.get("markPx", 0)),
-                    "openInterest": float(ctx.get("openInterest", 0)),
-                    "volume24h": float(ctx.get("dayNtlVlm", 0)),
-                })
-        return rates
-
-    # ------------------------------------------------------------------
-    # Account info
-    # ------------------------------------------------------------------
+        from execution.adapters.hyperliquid.adapter_market import get_funding_rates
+        return get_funding_rates(self)
 
     def get_account_info(self) -> dict:
-        """Get detailed account information."""
-        bal = self.get_balances()
-        result: dict[str, Any] = {
-            "venue": "hyperliquid",
-            "is_testnet": self._config.is_testnet,
-        }
-        for b in bal.balances:
-            result[f"{b.asset}_free"] = float(b.free)
-            result[f"{b.asset}_locked"] = float(b.locked)
-            result[f"{b.asset}_total"] = float(b.total)
-        return result
+        from execution.adapters.hyperliquid.adapter_market import get_account_info
+        return get_account_info(self)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _parse_order_response(
-        self, data: Any, coin: str, side: str, qty: float,
-    ) -> dict:
-        """Parse exchange response for order submission."""
-        if isinstance(data, dict):
-            if data.get("status") == "ok":
-                response = data.get("response", {})
-                if response.get("type") == "order":
-                    statuses = response.get("data", {}).get("statuses", [])
-                    if statuses:
-                        s = statuses[0]
-                        if "resting" in s:
-                            order_info = s["resting"]
-                            return {
-                                "orderId": str(order_info.get("oid", "")),
-                                "status": "submitted",
-                            }
-                        elif "filled" in s:
-                            fill_info = s["filled"]
-                            return {
-                                "orderId": str(fill_info.get("oid", "")),
-                                "status": "filled",
-                                "avgPrice": fill_info.get("avgPx"),
-                                "filledQty": fill_info.get("totalSz"),
-                            }
-                        elif "error" in s:
-                            return {"status": "error", "msg": s["error"]}
-                logger.info(
-                    "Hyperliquid %s %s %.6f submitted", side, coin, qty,
-                )
-                return {"status": "submitted", "data": data}
-            elif data.get("status") == "error":
-                return {"status": "error", "msg": data.get("msg", str(data))}
-        return {"status": "error", "msg": str(data)}
+    def _parse_order_response(self, data: Any, coin: str, side: str, qty: float) -> dict:
+        from execution.adapters.hyperliquid.adapter_market import parse_order_response
+        return parse_order_response(data, coin, side, qty)
