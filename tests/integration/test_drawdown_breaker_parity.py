@@ -11,22 +11,12 @@ pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust not built")
 
 
 def make_py_breaker(config=None):
-    """Force Python path (no Rust)."""
-    from collections import deque
+    """Create a DrawdownCircuitBreaker (now always Rust-backed)."""
     from unittest.mock import MagicMock
     from risk.kill_switch import KillSwitch
     from risk.drawdown_breaker import DrawdownBreakerConfig, DrawdownCircuitBreaker
     ks = MagicMock(spec=KillSwitch)
-    b = DrawdownCircuitBreaker.__new__(DrawdownCircuitBreaker)
-    b._kill_switch = ks
-    b._config = config or DrawdownBreakerConfig()
-    b._alert_manager = None
-    b._use_rust = False
-    b._equity_hwm = 0.0
-    b._current_dd_pct = 0.0
-    b._state = "normal"
-    b._equity_history = deque(maxlen=1000)
-    b._last_warning_ts = 0.0
+    b = DrawdownCircuitBreaker(ks, config or DrawdownBreakerConfig())
     return b, ks
 
 
@@ -173,13 +163,13 @@ class TestDrawdownBreakerParity:
     """Parity tests: Rust vs Python paths produce the same outcomes."""
 
     def test_python_wrapper_uses_rust(self):
-        """DrawdownCircuitBreaker uses Rust when available."""
+        """DrawdownCircuitBreaker uses Rust (always, no fallback)."""
         from unittest.mock import MagicMock
         from risk.kill_switch import KillSwitch
         from risk.drawdown_breaker import DrawdownBreakerConfig, DrawdownCircuitBreaker
         ks = MagicMock(spec=KillSwitch)
         b = DrawdownCircuitBreaker(ks, DrawdownBreakerConfig())
-        assert b._use_rust is True
+        assert hasattr(b, '_inner')  # Rust inner object always present
 
     def test_python_wrapper_escalation_calls_kill_switch(self):
         """Verify DrawdownCircuitBreaker wrapper calls KillSwitch correctly."""
@@ -296,10 +286,10 @@ class TestDrawdownBreakerParity:
         assert b.state == "normal"
         assert b.current_drawdown_pct == pytest.approx(0.0)
 
-    def test_rust_vs_python_threshold_parity(self):
-        """Rust and Python paths produce the same state transitions."""
+    def test_wrapper_vs_rust_threshold_parity(self):
+        """Wrapper and direct Rust produce the same state transitions."""
         from risk.drawdown_breaker import DrawdownBreakerConfig
-        py_b, _ = make_py_breaker(DrawdownBreakerConfig(velocity_pct=99.0))
+        wrapper, _ = make_py_breaker(DrawdownBreakerConfig(velocity_pct=99.0))
         rust = RustDrawdownBreaker(warning_pct=10.0, reduce_pct=15.0, kill_pct=20.0, velocity_pct=99.0)
 
         equity_sequence = [
@@ -311,17 +301,17 @@ class TestDrawdownBreakerParity:
         ]
 
         for eq, ts in equity_sequence:
-            py_state = py_b.on_equity_update(eq, ts)
+            wrapper_state = wrapper.on_equity_update(eq, ts)
             rust_state, _ = rust.on_equity_update(eq, ts)
-            assert py_state == rust_state, (
+            assert wrapper_state == rust_state, (
                 f"Parity mismatch at equity={eq}, ts={ts}: "
-                f"Python={py_state}, Rust={rust_state}"
+                f"wrapper={wrapper_state}, Rust={rust_state}"
             )
 
-    def test_rust_vs_python_velocity_parity(self):
-        """Velocity detection matches between Python and Rust."""
+    def test_wrapper_vs_rust_velocity_parity(self):
+        """Velocity detection matches between wrapper and direct Rust."""
         from risk.drawdown_breaker import DrawdownBreakerConfig
-        py_b, _ = make_py_breaker(DrawdownBreakerConfig(
+        wrapper, _ = make_py_breaker(DrawdownBreakerConfig(
             velocity_pct=5.0, velocity_window_sec=900.0,
             warning_pct=99.0, reduce_pct=99.0, kill_pct=99.0,
         ))
@@ -330,13 +320,13 @@ class TestDrawdownBreakerParity:
             warning_pct=99.0, reduce_pct=99.0, kill_pct=99.0,
         )
 
-        py_b.on_equity_update(1000.0, 0.0)
+        wrapper.on_equity_update(1000.0, 0.0)
         rust.on_equity_update(1000.0, 0.0)
 
-        # 6% drop within window → both should kill
-        py_state = py_b.on_equity_update(940.0, 60.0)
+        # 6% drop within window -> both should kill
+        wrapper_state = wrapper.on_equity_update(940.0, 60.0)
         rust_state, action = rust.on_equity_update(940.0, 60.0)
 
-        assert py_state == rust_state == "killed"
+        assert wrapper_state == rust_state == "killed"
         assert action is not None
         assert action[0] == "hard_kill"
