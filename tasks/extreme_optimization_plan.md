@@ -88,8 +88,8 @@ Python: coordinator.emit()
 - 内部合并 float 提取 + process_tick + features dict 构造
 
 **文件改动**:
-- `ext/rust/src/hot_loop.rs` (新建, ~300 LOC)
-- `ext/rust/src/lib.rs` (注册新模块)
+- `rust/src/hot_loop.rs` (新建, ~300 LOC)
+- `rust/src/lib.rs` (注册新模块)
 - `engine/coordinator.py` (简化 _handle_market_tick_fast)
 
 ### D.2: 外部数据 Rust 缓存 (~1 天)
@@ -116,7 +116,7 @@ impl ExternalDataCache {
 ```
 
 **文件改动**:
-- `ext/rust/src/external_cache.rs` (新建, ~150 LOC)
+- `rust/src/external_cache.rs` (新建, ~150 LOC)
 - `engine/feature_hook.py` (后台线程填充)
 
 ### D.3: Snapshot 消除 (~1 天)
@@ -150,7 +150,7 @@ struct RustTickBundle {
 ```
 
 **文件改动**:
-- `ext/rust/src/hot_loop.rs` (扩展 RustTickBundle)
+- `rust/src/hot_loop.rs` (扩展 RustTickBundle)
 - `engine/pipeline.py` (删除 _build_snapshot 调用)
 - `decision/ml_decision.py` (适配 RustTickBundle)
 
@@ -176,8 +176,8 @@ fn compute_rolling_means_avx512(windows: &[&[f64]; 8], out: &mut [f64; 8]) {
 **预计节省**: 30→10 μs (特征计算部分)
 
 **文件改动**:
-- `ext/rust/src/feature_engine.rs` (SIMD 路径)
-- `ext/rust/Cargo.toml` (target-feature flag)
+- `rust/src/feature_engine.rs` (SIMD 路径)
+- `rust/Cargo.toml` (target-feature flag)
 
 ---
 
@@ -211,8 +211,8 @@ Binance 支持 WebSocket API 下单 (wss://ws-api.binance.com/ws-api/v3):
 - 签名在 Rust 中计算 (SHA256 HMAC, 已有 sha2/hmac crate)
 
 **文件改动**:
-- `ext/rust/src/ws_client.rs` (扩展 send 功能)
-- `ext/rust/src/order_submit.rs` (新建, ~200 LOC)
+- `rust/src/ws_client.rs` (扩展 send 功能)
+- `rust/src/order_submit.rs` (新建, ~200 LOC)
 - `execution/adapters/binance/ws_order_adapter.py` (新建, ~100 LOC)
 - `execution/order_router.py` (WS 优先路由)
 

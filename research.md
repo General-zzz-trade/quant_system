@@ -70,7 +70,7 @@
 
 - 生产复杂度集中在 [`runner/`](/quant_system/runner)、[`engine/`](/quant_system/engine)、[`execution/`](/quant_system/execution)、[`risk/`](/quant_system/risk)
 - 维护复杂度集中在 [`scripts/`](/quant_system/scripts) 与测试体系
-- 演进复杂度集中在 [`ext/rust/`](/quant_system/ext/rust) 与 Python/Rust 双栈边界
+- 演进复杂度集中在 [`rust/`](/quant_system/rust) 与 Python/Rust 双栈边界
 
 ---
 
@@ -125,7 +125,7 @@
 | [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py) | 事件重放与一致性验证 |
 | [`runner/live_paper_runner.py`](/quant_system/runner/live_paper_runner.py) | 更接近 live 语义的 paper 路径 |
 | [`runner/paper_runner.py`](/quant_system/runner/paper_runner.py) | 简化 demo / stdin paper runner |
-| [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs) | 候选 Rust runtime，不是默认生产入口 |
+| [`rust/src/bin/main.rs`](/quant_system/rust/src/bin/main.rs) | 候选 Rust runtime，不是默认生产入口 |
 
 ### 4.2 当前统一事件链
 
@@ -191,7 +191,7 @@ Market / Replay / Backtest input
 
 ## 5. Rust 内核现状
 
-[`ext/rust/Cargo.toml`](/quant_system/ext/rust/Cargo.toml) 当前同时产出：
+[`rust/Cargo.toml`](/quant_system/rust/Cargo.toml) 当前同时产出：
 
 - PyO3 扩展库 `_quant_hotpath`
 - 独立二进制 `quant_trader`
@@ -911,7 +911,7 @@ Market / Replay / Backtest input
 
 ### 16.3 Standalone Binary (quant_trader)
 
-`ext/rust/src/bin/main.rs` (~2,600 LOC):
+`rust/src/bin/main.rs` (~2,600 LOC):
 
 **数据流**:
 - Kline stream → bar close → RustTickProcessor.process_tick_full() → ML 预测 + 信号约束

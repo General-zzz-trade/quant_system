@@ -21,7 +21,7 @@ build/
 !.env.example
 
 # Rust build (compiled inside Docker)
-ext/rust/target/
+rust/target/
 
 # Data — mounted as volumes, not baked into image
 data_files/

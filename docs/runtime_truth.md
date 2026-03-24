@@ -21,7 +21,7 @@
 - 当前主机上的方向性交易真相以 `scripts/ops/run_bybit_alpha.py` 为准
 - 当前主机上的做市交易真相以 `scripts/run_bybit_mm.py` 为准
 - `runner/live_runner.py` 仍然是 framework runtime 的真相源，但不是当前默认 host trading service
-- `ext/rust/src/bin/main.rs` 仍是重要候选路径，不是当前默认入口
+- `rust/src/bin/main.rs` 仍是重要候选路径，不是当前默认入口
 
 ---
 
@@ -77,7 +77,7 @@ runner/live_runner.py
 | [`runner/backtest_runner.py`](/quant_system/runner/backtest_runner.py) | 历史回测入口 | 高 |
 | [`runner/replay_runner.py`](/quant_system/runner/replay_runner.py) | 回放与一致性验证 | 高 |
 | [`runner/paper_runner.py`](/quant_system/runner/paper_runner.py) | 简化模拟 / 演示路径 | 中 |
-| [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs) | 候选独立运行时 | 中 |
+| [`rust/src/bin/main.rs`](/quant_system/rust/src/bin/main.rs) | 候选独立运行时 | 中 |
 
 说明：
 

@@ -15,7 +15,7 @@
 | 维度 | 当前状态 | 结论 |
 |---|---|---|
 | 功能闭环 | 已具备行情、状态、特征、决策、风控、执行、监控、回测、实盘 | 核心闭环已形成 |
-| 生产真相源 | 分散在 `runner/live_runner.py`、`ext/rust/`、若干文档中 | 需要收口 |
+| 生产真相源 | 分散在 `runner/live_runner.py`、`rust/`、若干文档中 | 需要收口 |
 | Python / Rust 边界 | 已混合运行，Rust 已覆盖大量热路径，Python 仍主编排 | 迁移未最终完成 |
 | live/backtest/replay 一致性 | 大方向一致，但约束与边界仍需明确 | 需要统一契约 |
 | 故障恢复 | 已有 reconcile / healer / timeout / checkpoint / replay | 需要制度化演练与补强 |
@@ -34,7 +34,7 @@
 **要做的事**
 - [x] 新建 `docs/runtime_truth.md`
 - [ ] 明确 `runner/live_runner.py` 为当前 Python 生产主入口
-- [ ] 明确 `ext/rust/src/bin/main.rs` 为候选/演进路径，而非当前默认真相源
+- [ ] 明确 `rust/src/bin/main.rs` 为候选/演进路径，而非当前默认真相源
 - [ ] 梳理核心子系统 owner：`engine` / `state` / `features` / `risk` / `execution`
 - [ ] 清理 README / operations / api 中与现状冲突的说法
 

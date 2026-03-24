@@ -15,8 +15,8 @@
 **Goal:** Move 4 BTC/ETH dominance features from Python (DominanceComputer) to RustFeatureEngine.
 
 **Files:**
-- Modify: `ext/rust/src/feature_engine.rs` — add `push_dominance(btc_close, eth_close)` method
-- Modify: `ext/rust/src/lib.rs` — expose new method via PyO3
+- Modify: `rust/src/feature_engine.rs` — add `push_dominance(btc_close, eth_close)` method
+- Modify: `rust/src/lib.rs` — expose new method via PyO3
 - Modify: `engine/feature_hook.py` — pass eth_close to RustFeatureEngine
 - Create: `tests/integration/test_dominance_rust_parity.py`
 

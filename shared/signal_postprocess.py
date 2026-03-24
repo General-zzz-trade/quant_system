@@ -1,6 +1,6 @@
 """Shared signal post-processing helpers for research/backtest scripts.
 
-The canonical constraint pipeline lives in ext/rust/src/constraint_pipeline.rs.
+The canonical constraint pipeline lives in rust/src/constraint_pipeline.rs.
 The batch Rust path (cpp_pred_to_signal) is the only implementation — there is
 no Python fallback. Pure-Python helpers (rolling_zscore, _compute_bear_mask,
 etc.) remain for research/backtest scripts that need them independently.
@@ -157,7 +157,7 @@ def _enforce_hold_single_pass(
     allowing trend extension beyond what Rust permits.
 
     This single-pass version uses the same logic as enforce_hold_step in
-    ext/rust/src/constraint_pipeline.rs.
+    rust/src/constraint_pipeline.rs.
     """
     n = len(raw)
     if n == 0:

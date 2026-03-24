@@ -54,7 +54,7 @@
 
 | 文件 | 改动 |
 |------|------|
-| `ext/rust/src/state_store.rs` | 扩展 `process_event()` 方法, 内部调用 reducers |
+| `rust/src/state_store.rs` | 扩展 `process_event()` 方法, 内部调用 reducers |
 | `engine/pipeline.py` | 新增 RustStateStore fast path (绕过所有 Python state) |
 | `engine/coordinator.py` | 持有 RustStateStore, 按需导出 |
 | `state/rust_adapters.py` | 保留 adapters (给 slow path / backtest), 但热路径不再使用 |
@@ -94,7 +94,7 @@
 
 | 文件 | 改动 |
 |------|------|
-| `ext/rust/src/decision_engine.rs` | 新建: 完整决策管道 |
+| `rust/src/decision_engine.rs` | 新建: 完整决策管道 |
 | `decision/engine.py` | 简化为 Rust wrapper |
 | `decision/signals/adaptive_ensemble.py` | 保留 Python, 新增 Rust 等价 |
 

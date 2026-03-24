@@ -276,9 +276,9 @@ Python today:
 
 Rust already available:
 
-- `ext/rust/src/sequence_buffer.rs`
-- `ext/rust/src/fill_dedup.rs`
-- `ext/rust/src/payload_dedup.rs`
+- `rust/src/sequence_buffer.rs`
+- `rust/src/fill_dedup.rs`
+- `rust/src/payload_dedup.rs`
 
 Why this is a good target:
 
@@ -294,9 +294,9 @@ Python today:
 
 Rust already available:
 
-- `ext/rust/src/route_match.rs`
-- `ext/rust/src/event_types.rs`
-- `ext/rust/src/event_validators.rs`
+- `rust/src/route_match.rs`
+- `rust/src/event_types.rs`
+- `rust/src/event_validators.rs`
 
 Why this is a good target:
 
@@ -319,8 +319,8 @@ Python today:
 
 Rust already available:
 
-- `ext/rust/src/order_state_machine.rs`
-- `ext/rust/src/execution_store.rs`
+- `rust/src/order_state_machine.rs`
+- `rust/src/execution_store.rs`
 
 Why this is a good target:
 
@@ -337,9 +337,9 @@ Python today:
 
 Rust already available:
 
-- `ext/rust/src/inference_bridge.rs`
-- `ext/rust/src/ml_decision.rs`
-- `ext/rust/src/backtest_engine.rs`
+- `rust/src/inference_bridge.rs`
+- `rust/src/ml_decision.rs`
+- `rust/src/backtest_engine.rs`
 
 Why this is a good target:
 

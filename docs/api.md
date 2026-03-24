@@ -232,7 +232,7 @@ runner.coordinator    # Engine coordinator access
 Note:
 
 - 当前活跃的 directional alpha service 不是这个入口；它是 [`scripts/ops/run_bybit_alpha.py`](/quant_system/scripts/ops/run_bybit_alpha.py)
-- The repository also contains a standalone Rust trader under [`ext/rust/src/bin/main.rs`](/quant_system/ext/rust/src/bin/main.rs).
+- The repository also contains a standalone Rust trader under [`rust/src/bin/main.rs`](/quant_system/rust/src/bin/main.rs).
 - That binary is an important runtime path, but it is not the default production truth source today.
 
 ## Risk Components

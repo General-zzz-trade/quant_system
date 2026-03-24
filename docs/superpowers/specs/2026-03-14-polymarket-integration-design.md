@@ -205,7 +205,7 @@ class PolymarketConfig:
 | monitoring/ (Prometheus, alerts) | Yes | Observability |
 | runner/recovery.py | Partial | Checkpoint/restore pattern |
 | features/enriched_computer.py | No | Price technical features not applicable |
-| ext/rust/constraint_pipeline.rs | No | z-score/deadzone/trend-hold not applicable |
+| rust/constraint_pipeline.rs | No | z-score/deadzone/trend-hold not applicable |
 | engine/coordinator.py | No | Independent event loop |
 | runner/gate_chain.py | No | Futures-specific gates |
 

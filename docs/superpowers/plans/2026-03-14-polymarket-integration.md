@@ -981,7 +981,7 @@ pytest tests/unit/polymarket/ tests/integration/test_polymarket_flow.py -v --tb=
 ```bash
 pytest tests/unit/runner/ -x -q -k "not test_control_plane_flush"
 pytest execution/tests/ -x -q
-cd ext/rust && cargo test
+cd rust && cargo test
 ```
 
 - [ ] **Step 3: Update CLAUDE.md**

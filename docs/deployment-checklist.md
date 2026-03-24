@@ -7,7 +7,7 @@
 - [ ] `make rust`
 - [ ] `python3 -m pytest tests/ -x -q --tb=short --ignore=tests/performance`
 - [ ] `python3 -m pytest execution/tests/ -x -q --tb=short`
-- [ ] `cargo test --manifest-path ext/rust/Cargo.toml --locked`
+- [ ] `cargo test --manifest-path rust/Cargo.toml --locked`
 - [ ] `ruff check --select E,W,F .`
 - [ ] `python3 -m scripts.ops.security_scan`
 - [ ] 若本次变更涉及 `infra/systemd/bybit-*.service`、`scripts/run_bybit_mm.py`、`scripts/ops/run_bybit_alpha.py` 或 `execution/market_maker/`，不要把 compose deploy workflow 当成 host trading deploy

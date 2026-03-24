@@ -55,7 +55,7 @@ if self._event_count % 10 == 0:
 **问题**: `decision/utils.py:stable_hash()` 用 Python hashlib.sha1，每 tick 2 次调用。
 SHA1 本身 ~5 μs/call Python，加上 `.encode()` + 循环。
 
-**方案 A**: 迁移到已有的 `rust_stable_hash()` (SHA256，ext/rust/src/digest.rs)。
+**方案 A**: 迁移到已有的 `rust_stable_hash()` (SHA256，rust/src/digest.rs)。
 
 ```python
 # decision/utils.py
@@ -206,7 +206,7 @@ python3 -m pytest tests/unit/engine/ tests/integration/ -x -q
 ### Phase 1: UserStream + Trade JSON → Rust（3天）
 
 **文件**: `user_stream_processor_um.py`, `ws_trade_stream.py`
-**新 Rust**: `ext/rust/src/json_parse.rs` 扩展
+**新 Rust**: `rust/src/json_parse.rs` 扩展
 
 ```rust
 // 已有: rust_parse_kline, rust_parse_depth
@@ -234,7 +234,7 @@ pub fn rust_parse_agg_trade(raw: &str) -> Option<PyDict>    // aggTrade → fiel
     └─ 直接拿到 Rust event object → dispatch
 ```
 
-**新 Rust 模块**: `ext/rust/src/ws_client.rs` (~500 LOC)
+**新 Rust 模块**: `rust/src/ws_client.rs` (~500 LOC)
 
 **PyO3 API**:
 ```rust

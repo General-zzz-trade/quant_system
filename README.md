@@ -94,7 +94,7 @@ python3 -m scripts.ops.shadow_compare --model-a models_v8/BTCUSDT_gate_v2 --mode
 # 测试
 pytest tests/unit/ -x -q          # 单元测试 (~18s)
 pytest tests/ -x -q -m ""        # 全部测试 (~35s)
-cd ext/rust && cargo test         # Rust测试
+cd rust && cargo test         # Rust测试
 ruff check --select E,W,F .      # 代码检查
 ```
 
@@ -132,7 +132,7 @@ ruff check --select E,W,F .      # 代码检查
 | `execution/` | 交易所适配器（Bybit、Hyperliquid、Binance） |
 | `alpha/` | ML模型、在线Ridge、推理桥 |
 | `monitoring/` | IC衰减、健康检查、告警、指标 |
-| `ext/rust/` | Rust核心库（_quant_hotpath，77模块，~30K行） |
+| `rust/` | Rust核心库（_quant_hotpath，77模块，~30K行） |
 | `models_v8/` | 已训练模型（{品种}_gate_v2、_15m、_4h） |
 | `data_files/` | 数据文件（K线、资金费率、持仓、传统金融、ETF成交量、稳定币） |
 | `infra/` | systemd服务单元、配置、日志 |

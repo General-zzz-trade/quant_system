@@ -127,7 +127,7 @@ python-dotenv==1.2.2
 python-magic==0.4.27
 pytz==2024.1
 PyYAML==6.0.1
-quant_hotpath @ file:///quant_system/ext/rust/target/wheels/quant_hotpath-0.1.0-cp312-cp312-manylinux_2_38_x86_64.whl#sha256=8ecda0e74b4a39a46d19728648c143eaba9d7bc9a8e99d6e1fc247f472aaabf5
+quant_hotpath @ file:///quant_system/rust/target/wheels/quant_hotpath-0.1.0-cp312-cp312-manylinux_2_38_x86_64.whl#sha256=8ecda0e74b4a39a46d19728648c143eaba9d7bc9a8e99d6e1fc247f472aaabf5
 regex==2026.2.28
 requests==2.31.0
 rich==13.7.1

@@ -32,7 +32,7 @@
 
 ## 3. 本阶段不做的事
 
-- 不把 `ext/rust/src/bin/main.rs` 提升为默认生产入口
+- 不把 `rust/src/bin/main.rs` 提升为默认生产入口
 - 不把 `bybit-alpha.service` 文档误写成已经切到 `LiveRunner`
 - 不把 `bybit-mm.service` 包装成 framework 子路径
 

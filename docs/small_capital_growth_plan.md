@@ -48,7 +48,7 @@ class StagedRiskManager:
 ### 实现文件
 - NEW: `risk/staged_risk.py`
 - MODIFY: `decision/backtest_module.py` (集成StagedRiskManager)
-- MODIFY: `ext/rust/src/bin/main.rs` (Rust二进制集成)
+- MODIFY: `rust/src/bin/main.rs` (Rust二进制集成)
 
 ---
 
@@ -118,7 +118,7 @@ class DrawdownController:
 ### 实现
 - NEW: `risk/drawdown_controller.py`
 - MODIFY: `decision/backtest_module.py`
-- MODIFY: `ext/rust/src/bin/main.rs` (已有max_drawdown_pct, 需要分级)
+- MODIFY: `rust/src/bin/main.rs` (已有max_drawdown_pct, 需要分级)
 
 ---
 

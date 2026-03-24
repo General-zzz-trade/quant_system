@@ -144,7 +144,7 @@ sysctl -w net.core.optmem_max=16777216
 当前 EngineLoop 用 `queue.Queue`（内部 threading.Lock + Condition）。
 每次 put/get 有 ~5-10μs 的 mutex 开销。
 
-### 3.1 新建 `ext/rust/src/spsc_ring.rs`
+### 3.1 新建 `rust/src/spsc_ring.rs`
 ```rust
 // 无锁单生产者单消费者环形缓冲区
 // PyO3 导出：RustSpscRing

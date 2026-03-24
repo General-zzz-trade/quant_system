@@ -39,7 +39,7 @@ The core runtime must no longer depend on Python implementations for:
 
 ## Current State
 
-The repository already contains a substantial Rust crate under `ext/rust/`.
+The repository already contains a substantial Rust crate under `rust/`.
 
 What exists today:
 
@@ -245,10 +245,10 @@ Replace:
 
 Use existing work in:
 
-- `ext/rust/src/state_types.rs`
-- `ext/rust/src/state_reducers.rs`
-- `ext/rust/src/event_types.rs`
-- `ext/rust/src/event_validators.rs`
+- `rust/src/state_types.rs`
+- `rust/src/state_reducers.rs`
+- `rust/src/event_types.rs`
+- `rust/src/event_validators.rs`
 
 Exit criteria:
 
@@ -266,10 +266,10 @@ Replace:
 
 Use existing work in:
 
-- `ext/rust/src/pipeline.rs`
-- `ext/rust/src/dedup_guard.rs`
-- `ext/rust/src/route_match.rs`
-- `ext/rust/src/engine_guards.rs`
+- `rust/src/pipeline.rs`
+- `rust/src/dedup_guard.rs`
+- `rust/src/route_match.rs`
+- `rust/src/engine_guards.rs`
 
 Gap to close:
 
@@ -296,9 +296,9 @@ Replace:
 
 Use existing work in:
 
-- `ext/rust/src/risk_engine.rs`
-- `ext/rust/src/fill_dedup.rs`
-- `ext/rust/src/sequence_buffer.rs`
+- `rust/src/risk_engine.rs`
+- `rust/src/fill_dedup.rs`
+- `rust/src/sequence_buffer.rs`
 
 Exit criteria:
 
@@ -317,10 +317,10 @@ Replace:
 
 Use existing work in:
 
-- `ext/rust/src/feature_engine.rs`
-- `ext/rust/src/technical.rs`
-- `ext/rust/src/multi_timeframe.rs`
-- `ext/rust/src/ml_decision.rs`
+- `rust/src/feature_engine.rs`
+- `rust/src/technical.rs`
+- `rust/src/multi_timeframe.rs`
+- `rust/src/ml_decision.rs`
 
 Exit criteria:
 
@@ -338,7 +338,7 @@ Replace:
 
 Use existing work in:
 
-- `ext/rust/src/backtest_engine.rs`
+- `rust/src/backtest_engine.rs`
 
 Exit criteria:
 
@@ -405,7 +405,7 @@ The repository should be reorganized so the Rust kernel is a first-class product
 
 Recommended direction:
 
-- keep `ext/rust/` temporarily as the implementation root
+- keep `rust/` temporarily as the implementation root
 - introduce workspace-style separation inside it
 - rename `cpp_*` exports that are now Rust-owned
 - update README and build flow to reflect Rust as mandatory for the kernel

@@ -12,7 +12,7 @@
 | 生产主入口 | `runner/live_runner.py` | runtime_truth.md:26, systemd ExecStart |
 | 架构模式 | Python 主编排 + Rust 热路径 | runtime_truth.md:189 |
 | 状态真相源 | RustStateStore (pipeline 唯一写通道) | execution_contracts.md §11 |
-| 约束真相源 | `ext/rust/src/constraint_pipeline.rs` | runtime_contracts.md, parity tests |
+| 约束真相源 | `rust/src/constraint_pipeline.rs` | runtime_contracts.md, parity tests |
 | 配置真相源 | `runner/config.py` LiveRunnerConfig (93字段) | 4 factory methods: lite/paper/testnet/prod |
 | 脚本真相源 | `scripts/catalog.py` (99 脚本, 6 分组) | render_catalog() CLI |
 | 模型治理 | registry → shadow_compare → promote → SIGHUP → reload | model_governance.md |

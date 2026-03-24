@@ -87,7 +87,7 @@
 
 ### 验证
 ```bash
-cd ext/rust && cargo test
+cd rust && cargo test
 make rust
 pytest tests/ -x -q
 ```

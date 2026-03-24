@@ -2,8 +2,8 @@
 """Analyze quant_trader dry-run logs to evaluate signal quality.
 
 Usage:
-    python scripts/analyze_explore_log.py ext/rust/1s_explore.log
-    python scripts/analyze_explore_log.py ext/rust/3m_explore.log
+    python scripts/analyze_explore_log.py rust/1s_explore.log
+    python scripts/analyze_explore_log.py rust/3m_explore.log
 
 Computes:
     - Direction hit rate: does signal predict next bar's price direction?

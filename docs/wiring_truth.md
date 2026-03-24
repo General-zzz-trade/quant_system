@@ -19,13 +19,13 @@
 
 | Module | File | Wired Via | Notes |
 |--------|------|-----------|-------|
-| RustFeatureEngine | ext/rust/ | alpha_runner.py `__init__` | 120 features, always Rust |
-| RustInferenceBridge | ext/rust/ | alpha_runner.py `process_bar` | z-score + deadzone + min-hold + max-hold |
-| RustRiskEvaluator | ext/rust/ | alpha_runner.py `process_bar` | Drawdown + leverage check |
-| RustKillSwitch | ext/rust/ | alpha_runner.py (shared) | Global emergency stop |
-| RustOrderStateMachine | ext/rust/ | alpha_runner.py | Order lifecycle tracking |
-| RustCircuitBreaker | ext/rust/ | alpha_runner.py | 3-failure/120s backoff |
-| RustStateStore | ext/rust/ | alpha_runner.py (shared) | Position truth |
+| RustFeatureEngine | rust/ | alpha_runner.py `__init__` | 120 features, always Rust |
+| RustInferenceBridge | rust/ | alpha_runner.py `process_bar` | z-score + deadzone + min-hold + max-hold |
+| RustRiskEvaluator | rust/ | alpha_runner.py `process_bar` | Drawdown + leverage check |
+| RustKillSwitch | rust/ | alpha_runner.py (shared) | Global emergency stop |
+| RustOrderStateMachine | rust/ | alpha_runner.py | Order lifecycle tracking |
+| RustCircuitBreaker | rust/ | alpha_runner.py | 3-failure/120s backoff |
+| RustStateStore | rust/ | alpha_runner.py (shared) | Position truth |
 | CompositeRegimeDetector | regime/composite.py | alpha_runner.py `_check_regime` | **仅 BTC** (`use_composite_regime=True`) |
 | RegimeParamRouter | regime/param_router.py | alpha_runner.py `_apply_composite_regime` | **仅 BTC**: params → deadzone/min_hold 闭环 |
 | ADX(14) | features/enriched_computer.py | RustFeatureEngine feeds feat_dict | 28-bar warmup; feeds TrendRegimeDetector via feat_dict |
@@ -83,8 +83,8 @@
 | StagedRiskManager | risk/staged_risk.py | monitoring_builder + gate_chain | StagedRiskGate; equity-based 5-stage risk |
 | BurninGate | runner/preflight.py | portfolio_builder.py | Blocks live trading until phases complete |
 | ADX(14) | features/enriched_computer.py | _ADXTracker incremental | 28-bar warmup; feeds TrendRegimeDetector |
-| RustFeatureEngine | ext/rust/ | engine/feature_hook.py | 120 features, always Rust (no Python fallback) |
-| RustInferenceBridge | ext/rust/ | feature_hook + inference_bridge | z-score + deadzone + min-hold + max-hold |
+| RustFeatureEngine | rust/ | engine/feature_hook.py | 120 features, always Rust (no Python fallback) |
+| RustInferenceBridge | rust/ | feature_hook + inference_bridge | z-score + deadzone + min-hold + max-hold |
 
 ## Partially Wired / Optional
 

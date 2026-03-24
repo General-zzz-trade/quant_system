@@ -393,7 +393,7 @@ Old code is NOT deleted until new code matches old on all metrics for 2 weeks.
 - `engine/coordinator.py` — untouched
 - `engine/pipeline.py` — untouched
 - `engine/feature_hook.py` — untouched
-- `ext/rust/` — untouched
+- `rust/` — untouched
 - `execution/adapters/binance/` — untouched
 - `decision/` — untouched
 - All existing tests — untouched
