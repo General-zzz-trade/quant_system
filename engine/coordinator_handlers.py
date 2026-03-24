@@ -14,6 +14,7 @@ from typing import Any
 from engine.pipeline import (
     PipelineInput, PipelineOutput, _detect_kind, _build_snapshot,
 )
+from _quant_hotpath import RustTickResult  # type: ignore[import-untyped]
 
 
 def _time_mod_time() -> int:
@@ -106,7 +107,7 @@ def handle_market_tick_fast(coord: Any, event: Any, tp: Any) -> None:
         warmup_done = bar_count >= fh.warmup_bars
 
     # Single Rust call: features + predict + state + pre-built features dict
-    result = tp.process_tick_full(
+    result: RustTickResult = tp.process_tick_full(
         symbol, close_f, volume, high, low, open_, hour_key,
         warmup_done=warmup_done, ts=ts_str,
     )

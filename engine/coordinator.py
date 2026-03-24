@@ -24,6 +24,8 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     RustStateStore,
     RustEventValidator,
     RustInMemoryEventStore,
+    RustInterceptorChain,
+    RustTradingGate,
     rust_validate_side,
     rust_validate_signal_side,
     rust_validate_venue,
@@ -177,6 +179,12 @@ class EngineCoordinator:
         self._event_validator = RustEventValidator(max_seen=10000)
         self._event_store = RustInMemoryEventStore()
 
+        # Rust interceptor chain: pre/post event processing hooks
+        self._interceptor_chain = RustInterceptorChain()
+
+        # Rust trading gate: halt/resume mechanism
+        self._trading_gate = RustTradingGate()
+
         # ---- register handlers (single chain) ----
         self._dispatcher.register(route=Route.PIPELINE, handler=self._handle_pipeline_event)
         self._dispatcher.register(route=Route.DECISION, handler=self._handle_decision_event)
@@ -246,6 +254,25 @@ class EngineCoordinator:
             if self._runtime is not None and self._runtime_handler is not None:
                 self.detach_runtime()
 
+    def halt_trading(self, reason: str = "") -> None:
+        """Halt trading via RustTradingGate. All subsequent events are dropped until resumed."""
+        self._trading_gate.halt()
+        _logger.warning("Trading halted%s", f": {reason}" if reason else "")
+
+    def resume_trading(self) -> None:
+        """Resume trading after a halt."""
+        self._trading_gate.resume()
+        _logger.info("Trading resumed")
+
+    @property
+    def is_trading_halted(self) -> bool:
+        return self._trading_gate.is_halted()
+
+    @property
+    def interceptor_chain(self) -> RustInterceptorChain:
+        """Expose interceptor chain for pre/post event hooks."""
+        return self._interceptor_chain
+
     def emit(self, event: Any, *, actor: str = "live") -> None:
         """
         engine 的统一入口（手动注入 / tests / live 注入 / scheduler 注入）
@@ -259,6 +286,17 @@ class EngineCoordinator:
                 pass
             if self._phase == EnginePhase.STOPPED:
                 raise RuntimeError("EngineCoordinator is stopped")
+
+        # Trading gate: drop events when halted (safety mechanism)
+        if self._trading_gate.is_halted():
+            _logger.warning("Trading halted — dropping %s event", type(event).__name__)
+            return
+
+        # Interceptor chain: run pre-event hooks (warn-only, never crash)
+        try:
+            self._interceptor_chain.run(event)
+        except Exception:
+            _logger.debug("Interceptor chain error (non-fatal)", exc_info=True)
 
         # Invalidate cached view on state change
         self._cached_view = None

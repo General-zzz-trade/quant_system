@@ -14,6 +14,8 @@ except Exception:  # pragma: no cover
 from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_detect_event_kind as _rust_detect_kind,
     rust_normalize_to_facts as _rust_normalize,
+    rust_detect_kernel_event_kind as _rust_detect_kernel_kind,
+    rust_normalize_kernel_event_to_facts as _rust_normalize_kernel,
     RustProcessResult,
     RustMarketReducer,
     RustPositionReducer,
@@ -112,6 +114,28 @@ def normalize_to_facts(event: Any) -> List[Any]:
         return list(_rust_normalize(event))
     except RuntimeError as e:
         raise FactNormalizationError(str(e)) from e
+
+
+def detect_kernel_event_kind(payload_json: str) -> str:
+    """Classify a kernel-level event (binary path JSON payload).
+
+    Falls back to the standard detector on failure so callers always
+    get a usable kind string.
+    """
+    try:
+        return str(_rust_detect_kernel_kind(payload_json))
+    except Exception:
+        _pipeline_logger.debug("Kernel event kind detection failed, payload truncated: %s", payload_json[:120])
+        return "UNKNOWN"
+
+
+def normalize_kernel_event_to_facts(payload_json: str) -> str:
+    """Normalize a kernel-level event payload to a fact representation.
+
+    Used on the binary (standalone Rust trader) path where events arrive
+    as JSON strings rather than Python objects.
+    """
+    return str(_rust_normalize_kernel(payload_json))
 
 
 def _build_snapshot(
