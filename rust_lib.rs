@@ -1,3 +1,6 @@
+// rust_lib.rs — PyO3 module registry (single #[pymodule] function).
+// 528 lines — cannot split further (module registration must be one function).
+
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
