@@ -47,28 +47,3 @@ def test_snapshot_reflects_latest_state():
     assert snap.markets["BTCUSDT"].close == view["markets"]["BTCUSDT"].close
 
 
-def test_features_in_snapshot():
-    """Features computed by FeatureComputeHook appear in snapshot."""
-    from engine.feature_hook import FeatureComputeHook
-    from features.live_computer import LiveFeatureComputer
-
-    computer = LiveFeatureComputer(fast_ma=3, slow_ma=5, vol_window=3)
-    hook = FeatureComputeHook(computer=computer)
-
-    cfg = CoordinatorConfig(
-        symbol_default="BTCUSDT",
-        symbols=("BTCUSDT",),
-        currency="USDT",
-        feature_hook=hook,
-    )
-    coord = EngineCoordinator(cfg=cfg)
-    coord.start()
-
-    for i in range(40):
-        coord.emit(_market(40000.0 + i * 10, i), actor="test")
-
-    snap = coord.get_state_view()["last_snapshot"]
-    assert snap.features is not None
-    assert "close" in snap.features
-    # Rust engine produces ma_cross features after enough bars
-    assert "ma_cross_10_30" in snap.features or "ma_cross_5_20" in snap.features

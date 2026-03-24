@@ -7,14 +7,8 @@ import pytest
 
 
 ACTIVE_RUNTIME_ARTIFACTS = (
-    "scripts/run_bybit_alpha.py",
-    "scripts/ops/run_bybit_alpha.py",
+    "runner/alpha_main.py",
     "infra/systemd/bybit-alpha.service",
-    "scripts/run_bybit_mm.py",
-    "infra/systemd/bybit-mm.service",
-    "execution/market_maker/__init__.py",
-    "tests/unit/market_maker/test_engine.py",
-    "tests/unit/scripts/test_run_bybit_mm.py",
 )
 
 

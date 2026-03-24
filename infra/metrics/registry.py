@@ -1,7 +1,6 @@
-"""Metrics registry — bridges simple counters with core.effects.MetricsEffect.
+"""Metrics registry — simple counters for runners and pipeline stages.
 
-Provides a standalone ``Metrics`` class for runners and a factory
-to create one backed by the core Effects system.
+Provides a standalone ``Metrics`` class for runners and monitoring.
 """
 from __future__ import annotations
 
@@ -13,8 +12,7 @@ from typing import Any, Dict, Optional
 class Metrics:
     """Simple metrics container for runners and standalone use.
 
-    Can optionally delegate to a ``MetricsEffect`` from core.effects
-    for structured metrics collection.
+    Simple metrics container with increment/gauge/timing operations.
     """
 
     values: Dict[str, Any] = field(default_factory=dict)
