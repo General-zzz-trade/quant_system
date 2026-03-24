@@ -1,4 +1,4 @@
-"""Parity test: RustPnLTracker vs Python PnLTracker.
+"""Parity test: RustPnLTracker vs reference Python logic.
 
 Requires _quant_hotpath to be built. Skipped if Rust not available.
 """
@@ -13,17 +13,49 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not HAS_RUST, reason="Rust not built")
 
 
-def make_py_tracker():
-    """Create a pure-Python PnLTracker (no Rust delegation)."""
-    from attribution.pnl_tracker import PnLTracker
-    t = PnLTracker.__new__(PnLTracker)
-    t._use_rust = False
-    t._total_pnl = 0.0
-    t._peak_equity = 0.0
-    t._trade_count = 0
-    t._win_count = 0
-    t._trades = []
-    return t
+class _RefTracker:
+    """Minimal reference Python PnL tracker for parity comparison."""
+
+    def __init__(self):
+        self.total_pnl = 0.0
+        self.peak_equity = 0.0
+        self.trade_count = 0
+        self.win_count = 0
+
+    def record_close(self, symbol, side, entry_price, exit_price, size, reason=""):
+        if side == 1:
+            pnl_pct = (exit_price - entry_price) / entry_price * 100
+        else:
+            pnl_pct = (entry_price - exit_price) / entry_price * 100
+        pnl_usd = pnl_pct / 100 * entry_price * size
+        self.total_pnl += pnl_usd
+        self.trade_count += 1
+        if pnl_usd > 0:
+            self.win_count += 1
+        self.peak_equity = max(self.peak_equity, self.total_pnl)
+        return {
+            "symbol": symbol, "side": side, "entry": entry_price,
+            "exit": exit_price, "size": size, "pnl_usd": pnl_usd,
+            "pnl_pct": pnl_pct, "reason": reason,
+            "total_pnl": self.total_pnl, "trade_count": self.trade_count,
+        }
+
+    @property
+    def win_rate(self):
+        return self.win_count / self.trade_count * 100 if self.trade_count > 0 else 0
+
+    @property
+    def drawdown_pct(self):
+        if self.peak_equity <= 0:
+            return 0.0
+        return (self.peak_equity - self.total_pnl) / self.peak_equity * 100
+
+    def summary(self):
+        return {
+            "total_pnl": self.total_pnl, "trades": self.trade_count,
+            "wins": self.win_count, "win_rate": self.win_rate,
+            "peak": self.peak_equity, "drawdown": self.drawdown_pct,
+        }
 
 
 class TestRustPnLTrackerBasic:
@@ -58,7 +90,7 @@ class TestRustPnLTrackerBasic:
     def test_peak_equity_tracks_max(self):
         rust = RustPnLTracker()
         rust.record_close("ETH", 1, 100.0, 110.0, 1.0, "win")  # pnl=10
-        rust.record_close("ETH", 1, 110.0, 100.0, 1.0, "loss")  # pnl≈-9.09
+        rust.record_close("ETH", 1, 110.0, 100.0, 1.0, "loss")  # pnl=-9.09
         # peak should be ~10.0, current should be ~0.91
         assert rust.peak_equity == pytest.approx(10.0, rel=1e-9)
         assert rust.drawdown_pct > 0.0
@@ -127,11 +159,11 @@ class TestRustPnLTrackerBasic:
 
 
 class TestPnLTrackerParity:
-    """Numeric parity between RustPnLTracker and pure-Python path."""
+    """Numeric parity between RustPnLTracker and reference Python logic."""
 
     def test_long_win_parity(self):
         rust = RustPnLTracker()
-        py = make_py_tracker()
+        py = _RefTracker()
         r_rust = rust.record_close("ETHUSDT", 1, 100.0, 110.0, 1.0, "signal")
         r_py = py.record_close("ETHUSDT", 1, 100.0, 110.0, 1.0, "signal")
         assert r_rust["pnl_usd"] == pytest.approx(r_py["pnl_usd"], rel=1e-9)
@@ -139,7 +171,7 @@ class TestPnLTrackerParity:
 
     def test_short_win_parity(self):
         rust = RustPnLTracker()
-        py = make_py_tracker()
+        py = _RefTracker()
         r_rust = rust.record_close("ETHUSDT", -1, 100.0, 90.0, 1.0, "stop")
         r_py = py.record_close("ETHUSDT", -1, 100.0, 90.0, 1.0, "stop")
         assert r_rust["pnl_pct"] == pytest.approx(r_py["pnl_pct"], rel=1e-9)
@@ -148,7 +180,7 @@ class TestPnLTrackerParity:
     def test_sequence_parity(self):
         """Run same trade sequence through Rust and Python, compare results."""
         rust = RustPnLTracker()
-        py = make_py_tracker()
+        py = _RefTracker()
 
         trades = [
             ("ETHUSDT", 1, 100.0, 110.0, 1.0, "win"),
@@ -172,7 +204,7 @@ class TestPnLTrackerParity:
 
     def test_summary_parity(self):
         rust = RustPnLTracker()
-        py = make_py_tracker()
+        py = _RefTracker()
 
         trades = [
             ("ETH", 1, 2000.0, 2100.0, 0.5, "win"),
@@ -194,7 +226,7 @@ class TestPnLTrackerParity:
 
     def test_btc_large_notional_parity(self):
         rust = RustPnLTracker()
-        py = make_py_tracker()
+        py = _RefTracker()
         # Large notional: BTC at $50k, size=0.5
         r_rust = rust.record_close("BTCUSDT", 1, 50000.0, 55000.0, 0.5, "tp")
         r_py = py.record_close("BTCUSDT", 1, 50000.0, 55000.0, 0.5, "tp")
@@ -205,11 +237,10 @@ class TestPnLTrackerParity:
 class TestPnLTrackerWrapper:
     """Test the PnLTracker Python wrapper with Rust backend."""
 
-    def test_wrapper_uses_rust_when_available(self):
-        from attribution.pnl_tracker import PnLTracker, _HAS_RUST
+    def test_wrapper_uses_rust(self):
+        from attribution.pnl_tracker import PnLTracker
         t = PnLTracker()
-        if _HAS_RUST:
-            assert t._use_rust is True
+        assert hasattr(t, "_inner")
 
     def test_wrapper_record_close_returns_dict(self):
         from attribution.pnl_tracker import PnLTracker
@@ -234,4 +265,5 @@ class TestPnLTrackerWrapper:
         t = PnLTracker()
         t.record_close("ETH", 1, 100.0, 110.0, 1.0, "win")
         s = t.summary()
-        assert set(s.keys()) == {"total_pnl", "trades", "wins", "win_rate", "peak", "drawdown"}
+        assert set(s.keys()) == {"total_pnl", "trades", "wins", "win_rate", "peak", "drawdown",
+                                  "pnl_by_symbol", "pnl_by_horizon", "best_symbol", "worst_symbol"}

@@ -1,17 +1,13 @@
-"""PnLTracker — unified P&L tracking for all alpha sources."""
+"""PnLTracker — unified P&L tracking, Rust-backed via RustPnLTracker."""
 from __future__ import annotations
 
 import logging
 import math
 from collections import defaultdict
 
-logger = logging.getLogger(__name__)
+from _quant_hotpath import RustPnLTracker
 
-try:
-    from _quant_hotpath import RustPnLTracker as _RustPnLTracker
-    _HAS_RUST = True
-except ImportError:
-    _HAS_RUST = False
+logger = logging.getLogger(__name__)
 
 
 class PnLTracker:
@@ -21,25 +17,14 @@ class PnLTracker:
     and PortfolioCombiner. Tracks total PnL, win rate, peak equity,
     drawdown, and recent trade log.
 
-    Delegates to RustPnLTracker when _quant_hotpath is available,
-    falls back to pure Python otherwise.
+    Delegates to RustPnLTracker for core PnL computation.
     """
 
     def __init__(self):
-        if _HAS_RUST:
-            self._inner = _RustPnLTracker()
-            self._use_rust = True
-            self._trades: list[dict] = []  # Python-side mirror for .trades access
-        else:
-            self._use_rust = False
-            # Pure-Python state (only populated when Rust unavailable)
-            self._total_pnl: float = 0.0
-            self._peak_equity: float = 0.0
-            self._trade_count: int = 0
-            self._win_count: int = 0
-            self._trades = []  # recent trade log
+        self._inner = RustPnLTracker()
+        self._trades: list[dict] = []  # Python-side mirror for .trades access
 
-        # Per-symbol attribution (always Python-side, works with both Rust and Python)
+        # Per-symbol attribution
         self._symbol_pnl: dict[str, float] = defaultdict(float)
         self._symbol_trades: dict[str, list[float]] = defaultdict(list)
         # Per-horizon attribution
@@ -52,27 +37,19 @@ class PnLTracker:
 
     @property
     def total_pnl(self) -> float:
-        if self._use_rust:
-            return self._inner.total_pnl
-        return self._total_pnl
+        return self._inner.total_pnl
 
     @property
     def peak_equity(self) -> float:
-        if self._use_rust:
-            return self._inner.peak_equity
-        return self._peak_equity
+        return self._inner.peak_equity
 
     @property
     def trade_count(self) -> int:
-        if self._use_rust:
-            return int(self._inner.trade_count)
-        return self._trade_count
+        return int(self._inner.trade_count)
 
     @property
     def win_count(self) -> int:
-        if self._use_rust:
-            return int(self._inner.win_count)
-        return self._win_count
+        return int(self._inner.win_count)
 
     @property
     def trades(self) -> list[dict]:
@@ -113,60 +90,25 @@ class PnLTracker:
                     "pnl_pct": 0.0, "reason": reason, "total_pnl": self.total_pnl,
                     "trade_count": self.trade_count, "error": "invalid_exit_price"}
 
-        if self._use_rust:
-            trade = self._inner.record_close(symbol, side, entry_price, exit_price, size, reason)
-            if horizon is not None:
-                trade["horizon"] = horizon
-            self._trades.append(trade)
-            if len(self._trades) > 100:
-                self._trades = self._trades[-100:]
-            pnl_usd = trade.get("pnl_usd", 0.0)
-            self._record_attribution(symbol, pnl_usd, horizon)
-            return trade
-
-        if side == 1:  # was long
-            pnl_pct = (exit_price - entry_price) / entry_price * 100
-        else:  # was short
-            pnl_pct = (entry_price - exit_price) / entry_price * 100
-
-        pnl_usd = pnl_pct / 100 * entry_price * size
-        self._total_pnl += pnl_usd
-        self._trade_count += 1
-        if pnl_usd > 0:
-            self._win_count += 1
-
-        self._peak_equity = max(self._peak_equity, self._total_pnl)
-
-        trade = {
-            "symbol": symbol, "side": side, "entry": entry_price,
-            "exit": exit_price, "size": size, "pnl_usd": pnl_usd,
-            "pnl_pct": pnl_pct, "reason": reason,
-            "total_pnl": self._total_pnl, "trade_count": self._trade_count,
-        }
+        trade = self._inner.record_close(symbol, side, entry_price, exit_price, size, reason)
         if horizon is not None:
             trade["horizon"] = horizon
         self._trades.append(trade)
         if len(self._trades) > 100:
             self._trades = self._trades[-100:]
-
+        pnl_usd = trade.get("pnl_usd", 0.0)
         self._record_attribution(symbol, pnl_usd, horizon)
         return trade
 
     @property
     def win_rate(self) -> float:
         """Win rate as percentage (0-100)."""
-        if self._use_rust:
-            return self._inner.win_rate
-        return self._win_count / self._trade_count * 100 if self._trade_count > 0 else 0
+        return self._inner.win_rate
 
     @property
     def drawdown_pct(self) -> float:
         """Current drawdown from peak equity as percentage."""
-        if self._use_rust:
-            return self._inner.drawdown_pct
-        if self._peak_equity <= 0:
-            return 0.0
-        return (self._peak_equity - self._total_pnl) / self._peak_equity * 100
+        return self._inner.drawdown_pct
 
     # ------------------------------------------------------------------
     # Attribution internals
@@ -231,14 +173,7 @@ class PnLTracker:
 
     def summary(self) -> dict:
         """Return full attribution summary for logging/monitoring."""
-        if self._use_rust:
-            base = self._inner.summary()
-        else:
-            base = {
-                "total_pnl": self._total_pnl, "trades": self._trade_count,
-                "wins": self._win_count, "win_rate": self.win_rate,
-                "peak": self._peak_equity, "drawdown": self.drawdown_pct,
-            }
+        base = self._inner.summary()
         # Extend with attribution data
         base["pnl_by_symbol"] = self.pnl_by_symbol
         base["pnl_by_horizon"] = self.pnl_by_horizon

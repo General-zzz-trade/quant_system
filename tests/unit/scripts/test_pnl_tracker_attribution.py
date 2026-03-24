@@ -2,31 +2,16 @@
 from __future__ import annotations
 
 import math
-import sys
 import unittest
-from unittest.mock import patch
 
-
-# Force pure-Python path so tests don't depend on Rust build
-with patch.dict(sys.modules, {"_quant_hotpath": None}):
-    # Reload to pick up _HAS_RUST = False
-    import importlib
-    from runner import pnl_tracker as _mod
-    _orig_has_rust = _mod._HAS_RUST
-    _mod._HAS_RUST = False
-    from attribution.pnl_tracker import PnLTracker
+from attribution.pnl_tracker import PnLTracker
 
 
 class TestPnLTrackerAttribution(unittest.TestCase):
     """Per-symbol and per-horizon attribution tests."""
 
     def setUp(self):
-        # Ensure pure-Python path
-        _mod._HAS_RUST = False
         self.tracker = PnLTracker()
-
-    def tearDown(self):
-        _mod._HAS_RUST = _orig_has_rust
 
     # ------------------------------------------------------------------
     # Backward compatibility
