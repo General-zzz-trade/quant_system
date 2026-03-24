@@ -2,30 +2,28 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 
-
-from state.account import AccountState
-from state.market import MarketState
-from state.position import PositionState
+from state import MarketState, PositionState, AccountState
 from state.snapshot import StateSnapshot
 from state.store import InMemoryStateStore, SqliteStateStore
+
+_SCALE = 100_000_000
 
 
 def _make_snapshot(
     symbol: str = "ETHUSDT",
     bar_index: int = 0,
-    balance: Decimal = Decimal("10000"),
+    balance: int = 10000 * _SCALE,
     event_type: str = "bar",
     ts: datetime | None = None,
 ) -> StateSnapshot:
     ts = ts or datetime(2024, 1, 1, tzinfo=timezone.utc)
     account = AccountState.initial(currency="USDT", balance=balance)
     market = MarketState(
-        symbol=symbol, last_price=Decimal("3500"),
-        open=Decimal("3400"), high=Decimal("3600"),
-        low=Decimal("3300"), close=Decimal("3500"),
-        volume=Decimal("1000"), last_ts=ts,
+        symbol=symbol, last_price=3500 * _SCALE,
+        open=3400 * _SCALE, high=3600 * _SCALE,
+        low=3300 * _SCALE, close=3500 * _SCALE,
+        volume=1000 * _SCALE, last_ts=ts.isoformat(),
     )
     position = PositionState.empty(symbol)
     return StateSnapshot.of(
@@ -119,14 +117,14 @@ class TestSqliteStateStore:
             cp = store2.latest("ETHUSDT")
             assert cp is not None
 
-    def test_round_trip_preserves_decimals(self, tmp_path):
+    def test_round_trip_preserves_values(self, tmp_path):
         db_path = tmp_path / "state.db"
         with SqliteStateStore(db_path) as store:
-            snap = _make_snapshot(balance=Decimal("12345.678"))
+            snap = _make_snapshot(balance=1234567800000)  # 12345.678 * _SCALE
             store.save(snap)
             cp = store.latest("ETHUSDT")
             assert cp is not None
-            assert cp.snapshot.account.balance == Decimal("12345.678")
+            assert cp.snapshot.account.balance == 1234567800000
 
     def test_history_table_accumulation(self, tmp_path):
         db_path = tmp_path / "state.db"

@@ -1,14 +1,13 @@
 """Tests: StatePipeline uses RustStateStore for all state management."""
 from __future__ import annotations
 
-from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
 from engine.pipeline import PipelineInput, StatePipeline
-from state.account import AccountState
-from state.market import MarketState
+from state import AccountState
+from state import MarketState
 from _quant_hotpath import RustStateStore
 
 pytest.importorskip("_quant_hotpath")
@@ -26,7 +25,7 @@ def _make_input(event, *, markets=None, account=None, positions=None, idx=0) -> 
         event_index=idx,
         symbol_default="BTCUSDT",
         markets=markets or {"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
-        account=account or AccountState.initial(currency="USDT", balance=Decimal("10000")),
+        account=account or AccountState.initial(currency="USDT", balance=10000 * _SCALE),
         positions=positions or {},
     )
 
@@ -120,5 +119,5 @@ def test_rust_pipeline_snapshot_contains_derived_state() -> None:
     assert out.snapshot is not None
     assert out.snapshot.portfolio is not None
     assert out.snapshot.risk is not None
-    assert out.snapshot.portfolio.total_equity == Decimal("10000")
+    assert out.snapshot.portfolio.total_equity == "10000"
     assert out.snapshot.risk.blocked is False

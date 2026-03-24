@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from engine.pipeline import PipelineInput, StatePipeline
-from state.account import AccountState
-from state.market import MarketState
+from state import AccountState
+from state import MarketState
 from _quant_hotpath import RustStateStore
 
 _SCALE = 100_000_000
@@ -52,7 +52,7 @@ def _make_input(event, *, markets=None, account=None, positions=None, idx=0):
             "BTCUSDT": MarketState.empty(symbol="BTCUSDT"),
             "ETHUSDT": MarketState.empty(symbol="ETHUSDT"),
         },
-        account=account or AccountState.initial(currency="USDT", balance=Decimal("100000")),
+        account=account or AccountState.initial(currency="USDT", balance=100000 * _SCALE),
         positions=positions or {},
     )
 

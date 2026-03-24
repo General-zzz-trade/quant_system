@@ -7,23 +7,32 @@ from decision.engine import DecisionEngine
 from decision.config import DecisionConfig
 from decision.signals.technical.mean_reversion import MeanReversionSignal
 
-from state.market import MarketState
-from state.account import AccountState
-from state.position import PositionState
-from state.risk import RiskState
+from state import MarketState
+from state import AccountState
+from state import PositionState
+from state import RiskState
 from state.snapshot import StateSnapshot
+
+_SCALE = 100_000_000
 
 
 def _snap(*, o: str, c: str, pos_qty: str = "0", halted: bool = False) -> StateSnapshot:
     ts = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
-    market = MarketState(symbol="BTCUSDT", last_price=Decimal(c), open=Decimal(o), high=Decimal(max(o,c)),
-        low=Decimal(min(o,c)), close=Decimal(c), volume=None, last_ts=ts)
-    acct = AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"),
-        margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
-            fees_paid=Decimal("0"), last_ts=ts)
-    pos = PositionState(symbol="BTCUSDT", qty=Decimal(pos_qty), avg_price=None, last_price=Decimal(c), last_ts=ts)
-    risk = RiskState(blocked=False, halted=halted, level="OK", message=None, flags=(), equity_peak=Decimal("1000"),
-        drawdown_pct=Decimal("0"), last_ts=ts)
+    ts_str = ts.isoformat()
+    o_i = int(Decimal(o) * _SCALE)
+    c_i = int(Decimal(c) * _SCALE)
+    h_i = max(o_i, c_i)
+    l_i = min(o_i, c_i)
+    market = MarketState(symbol="BTCUSDT", last_price=c_i, open=o_i, high=h_i,
+        low=l_i, close=c_i, volume=None, last_ts=ts_str)
+    acct = AccountState(currency="USDT", balance=1000 * _SCALE, margin_used=0,
+        margin_available=1000 * _SCALE, realized_pnl=0, unrealized_pnl=0,
+            fees_paid=0, last_ts=ts_str)
+    pos = PositionState(
+        symbol="BTCUSDT", qty=int(Decimal(pos_qty) * _SCALE),
+        avg_price=None, last_price=c_i, last_ts=ts_str)
+    risk = RiskState(blocked=False, halted=halted, level="OK", message=None, flags=[],
+        equity_peak="1000", drawdown_pct="0", last_ts=ts_str)
     return StateSnapshot(
         symbol="BTCUSDT",
         ts=ts,
@@ -63,6 +72,7 @@ def test_decision_engine_respects_risk_halt():
 def test_decision_engine_supports_rust_market_state():
     rust = pytest.importorskip("_quant_hotpath")
     ts = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
+    ts_str = ts.isoformat()
     snap = StateSnapshot(
         symbol="BTCUSDT",
         ts=ts,
@@ -78,17 +88,17 @@ def test_decision_engine_supports_rust_market_state():
                 low=9_000_000_000,
                 last_price=9_000_000_000,
                 volume=1_000_000_000,
-                last_ts=ts.isoformat(),
+                last_ts=ts_str,
             )
         },
-        positions={"BTCUSDT": PositionState(symbol="BTCUSDT", qty=Decimal("0"), avg_price=None,
-            last_price=Decimal("90"), last_ts=ts)},
-        account=AccountState(currency="USDT", balance=Decimal("1000"), margin_used=Decimal("0"),
-            margin_available=Decimal("1000"), realized_pnl=Decimal("0"), unrealized_pnl=Decimal("0"),
-                fees_paid=Decimal("0"), last_ts=ts),
+        positions={"BTCUSDT": PositionState(symbol="BTCUSDT", qty=0, avg_price=None,
+            last_price=90 * _SCALE, last_ts=ts_str)},
+        account=AccountState(currency="USDT", balance=1000 * _SCALE, margin_used=0,
+            margin_available=1000 * _SCALE, realized_pnl=0, unrealized_pnl=0,
+                fees_paid=0, last_ts=ts_str),
         portfolio=None,
-        risk=RiskState(blocked=False, halted=False, level="OK", message=None, flags=(), equity_peak=Decimal("1000"),
-            drawdown_pct=Decimal("0"), last_ts=ts),
+        risk=RiskState(blocked=False, halted=False, level="OK", message=None, flags=[],
+            equity_peak="1000", drawdown_pct="0", last_ts=ts_str),
     )
     cfg = DecisionConfig(symbols=["BTCUSDT"], max_positions=1, risk_fraction=Decimal("0.1"), min_notional=Decimal("5"))
     eng = DecisionEngine(cfg=cfg, signal_model=MeanReversionSignal())

@@ -11,8 +11,8 @@ from engine.pipeline import (
     PipelineInput,
     StatePipeline,
 )
-from state.account import AccountState
-from state.market import MarketState
+from state import AccountState
+from state import MarketState
 from _quant_hotpath import RustStateStore
 
 
@@ -92,7 +92,7 @@ def _make_input(event, event_index=0, account=None, markets=None, positions=None
         event_index=event_index,
         symbol_default="BTCUSDT",
         markets=markets or {"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
-        account=account or AccountState.initial(currency="USDT", balance=Decimal("10000")),
+        account=account or AccountState.initial(currency="USDT", balance=10000 * _SCALE),
         positions=positions or {},
     )
 

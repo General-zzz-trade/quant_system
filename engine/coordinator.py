@@ -17,23 +17,7 @@ from engine.pipeline import (
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from event.events import BaseEvent
-from state.rust_adapters import (
-    account_from_rust,
-    account_to_rust,
-    market_from_rust,
-    market_to_rust,
-    portfolio_from_rust,
-    portfolio_to_rust,
-    position_from_rust,
-    position_to_rust,
-    risk_from_rust,
-    risk_to_rust,
-)
-
 from _quant_hotpath import (  # type: ignore[import-untyped]
-    RustAccountState,
-    RustMarketState,
-    RustPositionState,
     RustStateStore,
 )
 
@@ -215,19 +199,7 @@ class EngineCoordinator:
             if self._cached_view is not None:
                 return self._cached_view
             bundle = dict(self._store.export_state())
-            markets = {
-                sym: market_from_rust(mkt) if isinstance(mkt, RustMarketState) else mkt
-                for sym, mkt in dict(bundle["markets"]).items()
-            }
-            account = (
-                account_from_rust(bundle["account"])
-                if isinstance(bundle["account"], RustAccountState)
-                else bundle["account"]
-            )
-            positions = {
-                sym: position_from_rust(pos) if isinstance(pos, RustPositionState) else pos
-                for sym, pos in dict(bundle["positions"]).items()
-            }
+            markets = dict(bundle["markets"])
             view = {
                 "phase": self._phase.value,
                 "symbol_default": self._cfg.symbol_default,
@@ -236,10 +208,10 @@ class EngineCoordinator:
                 "last_ts": bundle.get("last_ts"),
                 "markets": markets,
                 "market": markets.get(self._cfg.symbol_default, next(iter(markets.values()))),
-                "account": account,
-                "positions": positions,
-                "portfolio": portfolio_from_rust(bundle["portfolio"]),
-                "risk": risk_from_rust(bundle["risk"]),
+                "account": bundle["account"],
+                "positions": dict(bundle["positions"]),
+                "portfolio": bundle["portfolio"],
+                "risk": bundle["risk"],
                 "last_snapshot": self._last_snapshot,
             }
             self._cached_view = view
@@ -339,35 +311,15 @@ class EngineCoordinator:
         with self._lock:
             if self._phase != EnginePhase.INIT:
                 raise RuntimeError("Can only restore during INIT phase")
-            rust_markets = {
-                sym: mkt if isinstance(mkt, RustMarketState) else market_to_rust(mkt)
-                for sym, mkt in snapshot.markets.items()
-            }
-            rust_account = (
-                snapshot.account
-                if isinstance(snapshot.account, RustAccountState)
-                else account_to_rust(snapshot.account)
-            )
-            rust_positions = {
-                sym: pos if isinstance(pos, RustPositionState) else position_to_rust(pos)
-                for sym, pos in dict(snapshot.positions).items()
-            }
-            rust_portfolio = None
-            if getattr(snapshot, "portfolio", None) is not None:
-                rust_portfolio = portfolio_to_rust(snapshot.portfolio)
-            rust_risk = None
-            if getattr(snapshot, "risk", None) is not None:
-                rust_risk = risk_to_rust(snapshot.risk)
-
             self._store.load_exported(
-                rust_markets,
-                rust_positions,
-                rust_account,
+                dict(snapshot.markets),
+                dict(snapshot.positions),
+                snapshot.account,
                 event_index=snapshot.bar_index,
                 last_event_id=snapshot.event_id,
                 last_ts=(snapshot.ts.isoformat() if getattr(snapshot, "ts", None) is not None else None),
-                portfolio=rust_portfolio,
-                risk=rust_risk,
+                portfolio=getattr(snapshot, "portfolio", None),
+                risk=getattr(snapshot, "risk", None),
             )
 
     def detach_runtime(self) -> None:

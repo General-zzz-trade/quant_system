@@ -1,12 +1,11 @@
-"""Tests for state.position.PositionState."""
+"""Tests for RustPositionState (via state.PositionState alias)."""
 from __future__ import annotations
-
-from datetime import datetime, timezone
-from decimal import Decimal
 
 import pytest
 
-from state.position import PositionState
+from state import PositionState
+
+_SCALE = 100_000_000
 
 
 class TestPositionStateEmpty:
@@ -16,7 +15,7 @@ class TestPositionStateEmpty:
 
     def test_empty_qty_zero(self):
         p = PositionState.empty("ETHUSDT")
-        assert p.qty == Decimal("0")
+        assert p.qty == 0
 
     def test_empty_fields_none(self):
         p = PositionState.empty("ETHUSDT")
@@ -31,37 +30,32 @@ class TestPositionStateIsFlat:
         assert p.is_flat is True
 
     def test_is_flat_with_qty(self):
-        p = PositionState(symbol="ETHUSDT", qty=Decimal("1.5"))
+        p = PositionState(symbol="ETHUSDT", qty=150000000)
         assert p.is_flat is False
 
     def test_is_flat_negative_qty(self):
-        p = PositionState(symbol="ETHUSDT", qty=Decimal("-1.5"))
+        p = PositionState(symbol="ETHUSDT", qty=-150000000)
         assert p.is_flat is False
-
-    def test_is_flat_decimal_zero(self):
-        p = PositionState(symbol="ETHUSDT", qty=Decimal("0.00"))
-        assert p.is_flat is True
 
 
 class TestPositionStateWithUpdate:
     def test_with_update_all_fields(self):
         p = PositionState.empty("ETHUSDT")
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
         updated = p.with_update(
-            qty=Decimal("2.5"),
-            avg_price=Decimal("3500"),
-            last_price=Decimal("3550"),
-            ts=ts,
+            qty=250000000,
+            avg_price=3500 * _SCALE,
+            last_price=3550 * _SCALE,
+            ts="2024-01-01T00:00:00+00:00",
         )
-        assert updated.qty == Decimal("2.5")
-        assert updated.avg_price == Decimal("3500")
-        assert updated.last_price == Decimal("3550")
-        assert updated.last_ts == ts
+        assert updated.qty == 250000000
+        assert updated.avg_price == 3500 * _SCALE
+        assert updated.last_price == 3550 * _SCALE
+        assert updated.last_ts == "2024-01-01T00:00:00+00:00"
 
     def test_with_update_preserves_symbol(self):
         p = PositionState.empty("BTCUSDT")
         updated = p.with_update(
-            qty=Decimal("0.1"), avg_price=Decimal("50000"),
+            qty=10000000, avg_price=50000 * _SCALE,
             last_price=None, ts=None,
         )
         assert updated.symbol == "BTCUSDT"
@@ -69,47 +63,27 @@ class TestPositionStateWithUpdate:
     def test_with_update_negative_qty_short(self):
         p = PositionState.empty("ETHUSDT")
         updated = p.with_update(
-            qty=Decimal("-5"), avg_price=Decimal("3000"),
-            last_price=Decimal("3100"), ts=None,
+            qty=-5 * _SCALE, avg_price=3000 * _SCALE,
+            last_price=3100 * _SCALE, ts=None,
         )
-        assert updated.qty == Decimal("-5")
+        assert updated.qty == -5 * _SCALE
         assert updated.is_flat is False
 
     def test_frozen_immutability(self):
         p = PositionState.empty("ETHUSDT")
         with pytest.raises(AttributeError):
-            p.qty = Decimal("1")  # type: ignore[misc]
-
-    def test_with_update_ts_none_keeps_previous(self):
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        p = PositionState(symbol="ETHUSDT", qty=Decimal("1"), last_ts=ts)
-        updated = p.with_update(
-            qty=Decimal("2"), avg_price=None, last_price=None, ts=None,
-        )
-        assert updated.last_ts == ts
+            p.qty = 1 * _SCALE  # type: ignore[misc]
 
     def test_none_avg_price(self):
-        p = PositionState(symbol="ETHUSDT", qty=Decimal("0"), avg_price=None)
+        p = PositionState(symbol="ETHUSDT", qty=0, avg_price=None)
         assert p.avg_price is None
 
+    def test_float_accessors(self):
+        p = PositionState(symbol="ETHUSDT", qty=250000000, avg_price=350000000000)
+        assert p.qty_f == pytest.approx(2.5)
+        assert p.avg_price_f == pytest.approx(3500.0)
 
-class TestPositionStateValidation:
-    def test_nan_qty_rejected(self):
-        import pytest
-        from state.position import PositionState
-        pos = PositionState.empty("ETHUSDT")
-        with pytest.raises(ValueError, match="qty"):
-            pos.with_update(qty=Decimal("NaN"), avg_price=Decimal("3000"), last_price=None, ts=None)
-
-    def test_inf_avg_price_rejected(self):
-        import pytest
-        from state.position import PositionState
-        pos = PositionState.empty("ETHUSDT")
-        with pytest.raises(ValueError, match="avg_price"):
-            pos.with_update(qty=Decimal("1"), avg_price=Decimal("Inf"), last_price=None, ts=None)
-
-    def test_valid_update_passes(self):
-        from state.position import PositionState
-        pos = PositionState.empty("ETHUSDT")
-        updated = pos.with_update(qty=Decimal("1.5"), avg_price=Decimal("3000"), last_price=Decimal("3010"), ts=None)
-        assert updated.qty == Decimal("1.5")
+    def test_equality(self):
+        p1 = PositionState("ETHUSDT", qty=100 * _SCALE)
+        p2 = PositionState("ETHUSDT", qty=100 * _SCALE)
+        assert p1 == p2

@@ -6,10 +6,10 @@ from decimal import Decimal
 from event.header import EventHeader
 from event.types import EventType, FillEvent, IntentEvent, MarketEvent, OrderEvent
 from runner.backtest_runner import MovingAverageCrossModule
-from state.account import AccountState
-from state.market import MarketState
-from state.position import PositionState
+from state import AccountState, MarketState, PositionState
 from state.snapshot import StateSnapshot
+
+_SCALE = 100_000_000
 
 
 def test_state_snapshot_contract_baseline() -> None:
@@ -23,13 +23,13 @@ def test_state_snapshot_contract_baseline() -> None:
         markets={
             "BTCUSDT": MarketState(
                 symbol="BTCUSDT",
-                last_price=Decimal("101"),
-                close=Decimal("101"),
-                last_ts=ts,
+                last_price=101 * _SCALE,
+                close=101 * _SCALE,
+                last_ts=ts.isoformat(),
             )
         },
         positions={"BTCUSDT": PositionState.empty("BTCUSDT")},
-        account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
+        account=AccountState.initial(currency="USDT", balance=10000 * _SCALE),
         portfolio=None,
         risk=None,
     )
@@ -56,12 +56,12 @@ def test_backtest_decision_events_follow_contract_baseline() -> None:
             markets={
                 "BTCUSDT": MarketState(
                     symbol="BTCUSDT",
-                    last_price=Decimal(close),
-                    close=Decimal(close),
+                    last_price=int(Decimal(close) * _SCALE),
+                    close=int(Decimal(close) * _SCALE),
                 )
             },
             positions={"BTCUSDT": PositionState.empty("BTCUSDT")},
-            account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
+            account=AccountState.initial(currency="USDT", balance=10000 * _SCALE),
         )
 
     mod.decide(_market_snapshot("100"))
@@ -151,4 +151,3 @@ def test_event_minimum_fields_baseline() -> None:
         assert event.header.event_id
         assert event.header.ts_ns > 0
         assert event.header.source == "test"
-

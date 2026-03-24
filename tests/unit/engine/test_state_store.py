@@ -7,7 +7,7 @@ import pytest
 from decimal import Decimal
 from types import SimpleNamespace
 
-from state.rust_adapters import _SCALE
+from state.store import _SCALE
 
 try:
     from _quant_hotpath import RustStateStore
@@ -251,9 +251,9 @@ class TestStorePathPipeline:
         assert out.advanced is True
         assert out.snapshot is not None
         assert "BTCUSDT" in out.positions
-        assert out.positions["BTCUSDT"].qty != Decimal("0")
-        assert out.account.balance != Decimal("10000")
-        assert out.portfolio.total_equity == Decimal("9999")
+        assert out.positions["BTCUSDT"].qty != 0
+        assert out.account.balance != 10000 * _SCALE
+        assert out.portfolio.total_equity == "9999"
         assert out.risk.blocked is False
 
     def test_snapshot_only_on_change(self):

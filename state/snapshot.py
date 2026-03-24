@@ -5,9 +5,9 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Tuple
 
-from state.portfolio import PortfolioState
-from state.risk import RiskState
-
+# State fields are Rust PyO3 types (RustMarketState, RustPositionState, etc.)
+# imported via ``from state import MarketState, ...`` which re-exports from
+# _quant_hotpath.  Snapshot is duck-typed so no direct import needed here.
 
 def _freeze_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
     # If already a lazy-convert mapping or MappingProxyType, return as-is
@@ -26,8 +26,7 @@ def _freeze_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
 class StateSnapshot:
     """Immutable snapshot at an event boundary.
 
-    State fields accept both Python dataclass types (MarketState etc.)
-    and Rust PyO3 types (RustMarketState etc.) — duck-typed.
+    State fields are Rust PyO3 types (RustMarketState etc.) — duck-typed.
     """
 
     symbol: str
@@ -40,8 +39,8 @@ class StateSnapshot:
     positions: Mapping[str, Any]
     account: Any
 
-    portfolio: Optional[PortfolioState] = None
-    risk: Optional[RiskState] = None
+    portfolio: Any = None
+    risk: Any = None
     features: Optional[Mapping[str, Any]] = None
 
     @property

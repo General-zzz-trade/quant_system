@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, List, Mapping, Optional, Tuple
 
 try:
     from state.snapshot import StateSnapshot
@@ -14,18 +14,8 @@ except Exception:  # pragma: no cover
 from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_detect_event_kind as _rust_detect_kind,
     rust_normalize_to_facts as _rust_normalize,
-    RustMarketState as _RustMarketState,
-    RustPositionState as _RustPositionState,
-    RustAccountState as _RustAccountState,
 )
 
-from state.rust_adapters import (
-    account_from_rust,
-    market_from_rust,
-    portfolio_from_rust,
-    position_from_rust,
-    risk_from_rust,
-)
 
 
 # ============================================================
@@ -104,33 +94,6 @@ def normalize_to_facts(event: Any) -> List[Any]:
         raise FactNormalizationError(str(e)) from e
 
 
-class _LazyConvertMapping(Mapping[str, Any]):
-    """Lazily converts Rust state types to Python on first access per key."""
-
-    __slots__ = ("_raw", "_converted", "_converter", "_check_type")
-
-    def __init__(self, raw: Mapping[str, Any], converter: Any, check_type: Any) -> None:
-        self._raw = raw
-        self._converted: dict[str, Any] = {}
-        self._converter = converter
-        self._check_type = check_type
-
-    def __getitem__(self, key: str) -> Any:
-        if key in self._converted:
-            return self._converted[key]
-        val = self._raw[key]
-        if isinstance(val, self._check_type):
-            val = self._converter(val)
-        self._converted[key] = val
-        return val
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._raw)
-
-    def __len__(self) -> int:
-        return len(self._raw)
-
-
 def _build_snapshot(
     *,
     raw_event: Any,
@@ -149,16 +112,6 @@ def _build_snapshot(
     if event_id is not None and not isinstance(event_id, str):
         event_id = None
 
-    if skip_convert:
-        # Fast path: pass Rust objects directly (duck-typed, consumers use _f fields)
-        snapshot_markets = markets
-        snapshot_account = account
-        snapshot_positions = positions
-    else:
-        snapshot_markets = _LazyConvertMapping(markets, market_from_rust, _RustMarketState)
-        snapshot_account = account_from_rust(account) if isinstance(account, _RustAccountState) else account
-        snapshot_positions = _LazyConvertMapping(positions, position_from_rust, _RustPositionState)
-
     if _HAS_STRICT_SNAPSHOT:
         event_type_str = getattr(raw_event, "event_type", "unknown")
         if hasattr(event_type_str, "value"):
@@ -169,9 +122,9 @@ def _build_snapshot(
             event_id=event_id,
             event_type=str(event_type_str),
             bar_index=event_index,
-            markets=snapshot_markets,
-            positions=snapshot_positions,
-            account=snapshot_account,
+            markets=markets,
+            positions=positions,
+            account=account,
             portfolio=portfolio,
             risk=risk,
             features=features,
@@ -181,9 +134,9 @@ def _build_snapshot(
         "event_id": event_id,
         "event_index": event_index,
         "ts": ts,
-        "markets": snapshot_markets,
-        "account": snapshot_account,
-        "positions": snapshot_positions,
+        "markets": markets,
+        "account": account,
+        "positions": positions,
         "portfolio": portfolio,
         "risk": risk,
         "features": features,
@@ -194,8 +147,8 @@ def _export_store_state(store: Any) -> Tuple[Mapping[str, Any], Any, Mapping[str
     markets = store.get_markets()
     positions = store.get_positions()
     account = store.get_account()
-    portfolio = portfolio_from_rust(store.get_portfolio())
-    risk = risk_from_rust(store.get_risk())
+    portfolio = store.get_portfolio()
+    risk = store.get_risk()
     return (
         markets, account, positions, portfolio, risk,
         store.event_index,

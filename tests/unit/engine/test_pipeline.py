@@ -16,8 +16,8 @@ from engine.pipeline import (
     _detect_kind,
     normalize_to_facts,
 )
-from state.account import AccountState
-from state.market import MarketState
+from state import AccountState
+from state import MarketState
 from _quant_hotpath import RustStateStore
 
 _SCALE = 100_000_000
@@ -97,7 +97,7 @@ def _make_pipeline_input(event: Any, event_index: int = 0) -> PipelineInput:
         event_index=event_index,
         symbol_default="BTCUSDT",
         markets={"BTCUSDT": MarketState.empty(symbol="BTCUSDT")},
-        account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
+        account=AccountState.initial(currency="USDT", balance=10000 * _SCALE),
         positions={},
     )
 

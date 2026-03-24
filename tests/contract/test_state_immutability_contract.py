@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 from types import MappingProxyType
 
 import pytest
 
-from state.account import AccountState
-from state.market import MarketState
-from state.position import PositionState
+from state import AccountState, MarketState, PositionState
 from state.snapshot import StateSnapshot
 
-
+_SCALE = 100_000_000
 _TS = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
@@ -25,13 +22,13 @@ def _make_snapshot(**overrides) -> StateSnapshot:
         event_type="market",
         bar_index=0,
         markets={"BTCUSDT": MarketState(
-            symbol="BTCUSDT", last_price=Decimal("100"),
-            close=Decimal("100"), last_ts=_TS,
+            symbol="BTCUSDT", last_price=100 * _SCALE,
+            close=100 * _SCALE, last_ts=_TS.isoformat(),
         )},
         positions={"BTCUSDT": PositionState(
-            symbol="BTCUSDT", qty=Decimal("0"),
+            symbol="BTCUSDT", qty=0,
         )},
-        account=AccountState.initial(currency="USDT", balance=Decimal("10000")),
+        account=AccountState.initial(currency="USDT", balance=10000 * _SCALE),
     )
     defaults.update(overrides)
     return StateSnapshot.of(**defaults)
@@ -64,40 +61,40 @@ class TestSnapshotImmutability:
 
 class TestAccountImmutability:
     def test_account_initial_frozen(self):
-        acct = AccountState.initial(currency="USDT", balance=Decimal("10000"))
+        acct = AccountState.initial(currency="USDT", balance=10000 * _SCALE)
         with pytest.raises((AttributeError, TypeError)):
-            acct.balance = Decimal("999")  # type: ignore[misc]
+            acct.balance = 999 * _SCALE  # type: ignore[misc]
 
     def test_account_with_update_returns_new(self):
-        acct = AccountState.initial(currency="USDT", balance=Decimal("10000"))
+        acct = AccountState.initial(currency="USDT", balance=10000 * _SCALE)
         updated = acct.with_update(
-            balance=Decimal("9000"),
-            margin_used=Decimal("100"),
-            realized_pnl=Decimal("0"),
-            unrealized_pnl=Decimal("-50"),
-            fees_paid=Decimal("2"),
-            ts=_TS,
+            balance=9000 * _SCALE,
+            margin_used=100 * _SCALE,
+            realized_pnl=0,
+            unrealized_pnl=-50 * _SCALE,
+            fees_paid=2 * _SCALE,
+            ts=_TS.isoformat(),
         )
         assert updated is not acct
-        assert updated.balance == Decimal("9000")
-        assert acct.balance == Decimal("10000")
+        assert updated.balance == 9000 * _SCALE
+        assert acct.balance == 10000 * _SCALE
 
 
 class TestMarketStateImmutability:
     def test_market_state_frozen(self):
         mkt = MarketState(
-            symbol="BTCUSDT", last_price=Decimal("100"),
-            close=Decimal("100"), last_ts=_TS,
+            symbol="BTCUSDT", last_price=100 * _SCALE,
+            close=100 * _SCALE, last_ts=_TS.isoformat(),
         )
         with pytest.raises((AttributeError, TypeError)):
-            mkt.last_price = Decimal("200")  # type: ignore[misc]
+            mkt.last_price = 200 * _SCALE  # type: ignore[misc]
 
 
 class TestPositionImmutability:
     def test_position_frozen(self):
-        pos = PositionState(symbol="BTCUSDT", qty=Decimal("1"))
+        pos = PositionState(symbol="BTCUSDT", qty=1 * _SCALE)
         with pytest.raises((AttributeError, TypeError)):
-            pos.qty = Decimal("2")  # type: ignore[misc]
+            pos.qty = 2 * _SCALE  # type: ignore[misc]
 
 
 class TestDecisionDoesNotMutateState:
@@ -106,7 +103,7 @@ class TestDecisionDoesNotMutateState:
         snap = _make_snapshot()
         # Simulate what a decision module does: read from snapshot
         price = snap.markets["BTCUSDT"].last_price
-        assert price == Decimal("100")
+        assert price == 100 * _SCALE
         # Verify it cannot be changed
         with pytest.raises(TypeError):
             snap.markets["BTCUSDT"] = None  # type: ignore[index]

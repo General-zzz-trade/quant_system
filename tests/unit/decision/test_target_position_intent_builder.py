@@ -5,14 +5,17 @@ from decimal import Decimal
 
 from decision.intents.target_position import TargetPositionIntentBuilder
 from decision.types import TargetPosition
-from state.account import AccountState
-from state.market import MarketState
-from state.position import PositionState
+from state import AccountState
+from state import MarketState
+from state import PositionState
 from state.snapshot import StateSnapshot
+
+_SCALE = 100_000_000
 
 
 def _snapshot(pos_qty: str = '0') -> StateSnapshot:
     ts = datetime(2026, 1, 10, 0, 0, 0, tzinfo=timezone.utc)
+    ts_str = ts.isoformat()
     return StateSnapshot(
         symbol='BTCUSDT',
         ts=ts,
@@ -22,33 +25,33 @@ def _snapshot(pos_qty: str = '0') -> StateSnapshot:
         markets={
             'BTCUSDT': MarketState(
                 symbol='BTCUSDT',
-                last_price=Decimal('100'),
-                open=Decimal('100'),
-                high=Decimal('101'),
-                low=Decimal('99'),
-                close=Decimal('100'),
-                volume=Decimal('1'),
-                last_ts=ts,
+                last_price=100 * _SCALE,
+                open=100 * _SCALE,
+                high=101 * _SCALE,
+                low=99 * _SCALE,
+                close=100 * _SCALE,
+                volume=1 * _SCALE,
+                last_ts=ts_str,
             )
         },
         positions={
             'BTCUSDT': PositionState(
                 symbol='BTCUSDT',
-                qty=Decimal(pos_qty),
+                qty=int(Decimal(pos_qty) * _SCALE),
                 avg_price=None,
-                last_price=Decimal('100'),
-                last_ts=ts,
+                last_price=100 * _SCALE,
+                last_ts=ts_str,
             )
         },
         account=AccountState(
             currency='USDT',
-            balance=Decimal('1000'),
-            margin_used=Decimal('0'),
-            margin_available=Decimal('1000'),
-            realized_pnl=Decimal('0'),
-            unrealized_pnl=Decimal('0'),
-            fees_paid=Decimal('0'),
-            last_ts=ts,
+            balance=1000 * _SCALE,
+            margin_used=0,
+            margin_available=1000 * _SCALE,
+            realized_pnl=0,
+            unrealized_pnl=0,
+            fees_paid=0,
+            last_ts=ts_str,
         ),
         portfolio=None,
         risk=None,

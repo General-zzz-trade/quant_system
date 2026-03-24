@@ -20,7 +20,7 @@ from runner.backtest.metrics import (
     _build_summary,
     _build_trades_from_fills,
 )
-from state.position import PositionState
+from state import PositionState
 
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -33,10 +33,11 @@ def _make_snapshot(
     event_id: str | None = None,
 ) -> SimpleNamespace:
     market = SimpleNamespace(close=Decimal(str(close)), last_price=Decimal(str(close)))
+    _SCALE = 100_000_000
     pos = PositionState(
         symbol="BTCUSDT",
-        qty=Decimal(str(position_qty)),
-        avg_price=Decimal(str(avg_price)) if avg_price is not None else None,
+        qty=int(position_qty * _SCALE),
+        avg_price=int(avg_price * _SCALE) if avg_price is not None else None,
     )
     return SimpleNamespace(
         market=market,

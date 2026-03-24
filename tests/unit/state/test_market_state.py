@@ -1,12 +1,11 @@
-"""Tests for state.market.MarketState."""
+"""Tests for RustMarketState (via state.MarketState alias)."""
 from __future__ import annotations
-
-from datetime import datetime, timezone
-from decimal import Decimal
 
 import pytest
 
-from state.market import MarketState
+from state import MarketState
+
+_SCALE = 100_000_000
 
 
 class TestMarketStateEmpty:
@@ -28,80 +27,72 @@ class TestMarketStateEmpty:
 class TestMarketStateWithTick:
     def test_with_tick_sets_last_price(self):
         m = MarketState.empty("ETHUSDT")
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        updated = m.with_tick(price=Decimal("3500.50"), ts=ts)
-        assert updated.last_price == Decimal("3500.50")
-        assert updated.last_ts == ts
+        updated = m.with_tick(price=int(3500_50000000), ts="2024-01-01T00:00:00+00:00")
+        assert updated.last_price == 350050000000
+        assert updated.last_ts == "2024-01-01T00:00:00+00:00"
 
     def test_with_tick_preserves_ohlcv(self):
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
         m = MarketState(
             symbol="ETHUSDT",
-            open=Decimal("100"),
-            high=Decimal("110"),
-            low=Decimal("90"),
-            close=Decimal("105"),
-            volume=Decimal("1000"),
+            open=100 * _SCALE,
+            high=110 * _SCALE,
+            low=90 * _SCALE,
+            close=105 * _SCALE,
+            volume=1000 * _SCALE,
         )
-        updated = m.with_tick(price=Decimal("106"), ts=ts)
-        assert updated.open == Decimal("100")
-        assert updated.high == Decimal("110")
-        assert updated.low == Decimal("90")
-        assert updated.close == Decimal("105")
-        assert updated.volume == Decimal("1000")
+        updated = m.with_tick(price=106 * _SCALE, ts="2024-01-01T00:00:00+00:00")
+        assert updated.open == 100 * _SCALE
+        assert updated.high == 110 * _SCALE
+        assert updated.low == 90 * _SCALE
+        assert updated.close == 105 * _SCALE
+        assert updated.volume == 1000 * _SCALE
 
-    def test_with_tick_ts_none_keeps_previous(self):
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        m = MarketState(symbol="ETHUSDT", last_ts=ts)
-        updated = m.with_tick(price=Decimal("100"), ts=None)
-        assert updated.last_ts == ts
+    def test_with_tick_ts_none_keeps_none(self):
+        m = MarketState.empty("ETHUSDT")
+        updated = m.with_tick(price=100 * _SCALE)
+        assert updated.last_ts is None
 
 
 class TestMarketStateWithBar:
     def test_with_bar_sets_ohlcv(self):
         m = MarketState.empty("ETHUSDT")
-        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
         updated = m.with_bar(
-            o=Decimal("100"), h=Decimal("110"),
-            l=Decimal("90"), c=Decimal("105"),
-            v=Decimal("5000"), ts=ts,
+            o=100 * _SCALE, h=110 * _SCALE,
+            l=90 * _SCALE, c=105 * _SCALE,
+            v=5000 * _SCALE, ts="2024-01-01T00:00:00+00:00",
         )
-        assert updated.open == Decimal("100")
-        assert updated.high == Decimal("110")
-        assert updated.low == Decimal("90")
-        assert updated.close == Decimal("105")
-        assert updated.volume == Decimal("5000")
+        assert updated.open == 100 * _SCALE
+        assert updated.high == 110 * _SCALE
+        assert updated.low == 90 * _SCALE
+        assert updated.close == 105 * _SCALE
+        assert updated.volume == 5000 * _SCALE
 
     def test_with_bar_last_price_equals_close(self):
         m = MarketState.empty("ETHUSDT")
         updated = m.with_bar(
-            o=Decimal("100"), h=Decimal("110"),
-            l=Decimal("90"), c=Decimal("105"),
-            v=Decimal("5000"), ts=None,
+            o=100 * _SCALE, h=110 * _SCALE,
+            l=90 * _SCALE, c=105 * _SCALE,
+            v=5000 * _SCALE,
         )
-        assert updated.last_price == Decimal("105")
-
-    def test_with_bar_volume_none(self):
-        m = MarketState.empty("ETHUSDT")
-        updated = m.with_bar(
-            o=Decimal("100"), h=Decimal("110"),
-            l=Decimal("90"), c=Decimal("105"),
-            v=None, ts=None,
-        )
-        assert updated.volume is None
+        assert updated.last_price == 105 * _SCALE
 
     def test_frozen_immutability(self):
         m = MarketState.empty("ETHUSDT")
         with pytest.raises(AttributeError):
-            m.last_price = Decimal("100")  # type: ignore[misc]
+            m.last_price = 100 * _SCALE  # type: ignore[misc]
 
-    def test_with_bar_naive_ts_becomes_utc(self):
-        m = MarketState.empty("ETHUSDT")
-        naive_ts = datetime(2024, 6, 15, 12, 0, 0)
-        updated = m.with_bar(
-            o=Decimal("100"), h=Decimal("110"),
-            l=Decimal("90"), c=Decimal("105"),
-            v=Decimal("1000"), ts=naive_ts,
+    def test_float_accessors(self):
+        m = MarketState(
+            symbol="ETHUSDT",
+            last_price=350050000000,
+            open=100 * _SCALE,
+            close=105 * _SCALE,
         )
-        assert updated.last_ts is not None
-        assert updated.last_ts.tzinfo is not None
+        assert m.last_price_f == pytest.approx(3500.5)
+        assert m.open_f == pytest.approx(100.0)
+        assert m.close_f == pytest.approx(105.0)
+
+    def test_equality(self):
+        m1 = MarketState("ETHUSDT", last_price=100 * _SCALE)
+        m2 = MarketState("ETHUSDT", last_price=100 * _SCALE)
+        assert m1 == m2

@@ -8,8 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from decision.backtest_module import MLSignalDecisionModule
-from state.position import PositionState
+from state import PositionState
 
+
+_SCALE = 100_000_000
 
 def _snapshot(*, close: float, features: dict[str, float] | None = None, qty: float = 0.0):
     market = SimpleNamespace(close=Decimal(str(close)), last_price=Decimal(str(close)))
@@ -17,8 +19,8 @@ def _snapshot(*, close: float, features: dict[str, float] | None = None, qty: fl
     if qty != 0:
         positions["BTCUSDT"] = PositionState(
             symbol="BTCUSDT",
-            qty=Decimal(str(qty)),
-            avg_price=Decimal(str(close)),
+            qty=int(qty * _SCALE),
+            avg_price=int(close * _SCALE),
         )
     return SimpleNamespace(
         market=market,

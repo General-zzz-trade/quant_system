@@ -41,10 +41,10 @@ from unittest.mock import MagicMock, patch
 def _make_snapshot(symbol="ETHUSDT", bar_index=0, ts=None, positions=None, account=None):
     """Build a minimal StateSnapshot for tests."""
     from state.snapshot import StateSnapshot
-    from state.account import AccountState
-    from state.market import MarketState
+    from state import AccountState
+    from state import MarketState
 
-    acct = account or AccountState.initial(currency="USDT", balance=Decimal("1000"))
+    acct = account or AccountState.initial(currency="USDT", balance=1000 * 100_000_000)
     mkts = {symbol: MarketState.empty(symbol)}
     pos = positions or {}
     return StateSnapshot.of(

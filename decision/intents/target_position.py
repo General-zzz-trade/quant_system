@@ -17,7 +17,12 @@ class TargetPositionIntentBuilder:
 
     def build(self, snapshot: StateSnapshot, target: TargetPosition) -> OrderSpec | None:
         pos = snapshot.positions.get(target.symbol)
-        cur = pos.qty if pos is not None else Decimal("0")
+        # Rust PositionState stores qty as i64 (Fd8); use qty_f for Decimal-string interface
+        if pos is not None:
+            cur_f = getattr(pos, "qty_f", None)
+            cur = cur_f if cur_f is not None else pos.qty
+        else:
+            cur = Decimal("0")
         built = _rust_build_delta_order_fields(str(target.target_qty), str(cur))
         if built is None:
             return None

@@ -12,8 +12,10 @@ import pytest
 from alpha.base import Signal
 from alpha.inference.bridge import LiveInferenceBridge
 from decision.backtest_module import MLSignalDecisionModule
-from state.position import PositionState
+from state import PositionState
 
+
+_SCALE = 100_000_000
 
 def _snapshot(*, close: float, features: dict[str, float] | None = None, qty: float = 0.0,
               timestamp_ms: int | None = None):
@@ -22,8 +24,8 @@ def _snapshot(*, close: float, features: dict[str, float] | None = None, qty: fl
     if qty != 0.0:
         positions["BTCUSDT"] = PositionState(
             symbol="BTCUSDT",
-            qty=Decimal(str(qty)),
-            avg_price=Decimal(str(close)),
+            qty=int(qty * _SCALE),
+            avg_price=int(close * _SCALE),
         )
     ts = timestamp_ms if timestamp_ms is not None else int(datetime(2026, 1, 1).timestamp() * 1000)
     return SimpleNamespace(

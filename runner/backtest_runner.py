@@ -23,7 +23,7 @@ from engine.decision_bridge import DecisionBridge  # noqa: E402
 from engine.execution_bridge import ExecutionBridge  # noqa: E402
 from event.header import EventHeader  # noqa: E402
 from event.types import EventType, MarketEvent, IntentEvent, OrderEvent  # noqa: E402
-from state.position import PositionState  # noqa: E402
+from _quant_hotpath import RustPositionState as PositionState  # noqa: E402
 
 # Re-export from subpackage for backward compatibility
 from runner.backtest.csv_io import iter_ohlcv_csv  # noqa: E402
