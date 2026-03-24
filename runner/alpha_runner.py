@@ -172,7 +172,8 @@ class AlphaRunner:
 
         from _quant_hotpath import (RustFeatureEngine, RustInferenceBridge,
                                     RustOrderStateMachine, RustCircuitBreaker,
-                                    RustFillEvent, RustMarketEvent)
+                                    RustFillEvent, RustMarketEvent,
+                                    RustProcessResult)
         self._engine = RustFeatureEngine()
         self._inference = RustInferenceBridge(
             zscore_window=self._zscore_window,
@@ -185,6 +186,7 @@ class AlphaRunner:
         # Stash classes for constructing Rust events later
         self._RustFillEvent = RustFillEvent
         self._RustMarketEvent = RustMarketEvent
+        self._RustProcessResult = RustProcessResult
 
         # V14: BTC dominance ratio buffer (BTC/ETH)
         self._dom_ratio_buf: list[float] = []
@@ -388,7 +390,12 @@ class AlphaRunner:
                 realized_pnl=realized_pnl,
                 ts=str(int(time.time() * 1000)),
             )
-            self._state_store.process_event(fill, self._symbol)
+            result: self._RustProcessResult = self._state_store.process_event(fill, self._symbol)
+            if result.advanced:
+                logger.debug(
+                    "%s fill state advanced: index=%d kind=%s",
+                    self._symbol, result.event_index, result.kind,
+                )
         except Exception:
             logger.debug("%s StateStore fill recording failed", self._symbol,
                          exc_info=True)
@@ -409,7 +416,12 @@ class AlphaRunner:
                 volume=bar["volume"],
                 ts=str(int(time.time() * 1000)),
             )
-            self._state_store.process_event(me, self._symbol)
+            result: self._RustProcessResult = self._state_store.process_event(me, self._symbol)
+            if result.advanced:
+                logger.debug(
+                    "%s market state advanced: index=%d kind=%s",
+                    self._symbol, result.event_index, result.kind,
+                )
         except Exception:
             logger.debug("%s StateStore market update failed", self._symbol,
                          exc_info=True)

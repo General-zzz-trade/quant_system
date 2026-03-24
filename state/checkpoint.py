@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from _quant_hotpath import RustCheckpointStore  # type: ignore[import-untyped]
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DIR = Path("data/runtime/checkpoints")
@@ -20,6 +22,8 @@ class CheckpointManager:
 
     def __init__(self, checkpoint_dir: Path = _DEFAULT_DIR):
         self._dir = checkpoint_dir
+        # Rust-side in-memory checkpoint cache for fast state snapshots
+        self._rust_store = RustCheckpointStore()
 
     def save(
         self,

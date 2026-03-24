@@ -10,10 +10,11 @@ from execution.order_utils import reliable_close_position
 from attribution.pnl_tracker import PnLTracker
 
 try:
-    from _quant_hotpath import RustFillEvent as _RustFillEvent
+    from _quant_hotpath import RustFillEvent as _RustFillEvent, RustProcessResult
     _HAS_RUST_FILL = True
 except ImportError:
     _HAS_RUST_FILL = False
+    RustProcessResult = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,12 @@ class PortfolioCombiner:
                 realized_pnl=0.0,
                 ts=str(int(time.time() * 1000)),
             )
-            self._state_store.process_event(fill, self._symbol)
+            result: RustProcessResult = self._state_store.process_event(fill, self._symbol)
+            if result.advanced:
+                logger.debug(
+                    "COMBO fill state advanced: index=%d kind=%s",
+                    result.event_index, result.kind,
+                )
         except Exception as e:
             logger.debug("COMBO StateStore fill recording failed: %s", e)
 

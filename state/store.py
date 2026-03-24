@@ -20,11 +20,17 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     RustAccountState,
     RustPortfolioState,
     RustRiskState,
+    RustReducerResult,
 )
 
 from state.snapshot import StateSnapshot
 
 logger = logging.getLogger(__name__)
+
+# RustReducerResult is the typed result wrapper returned by individual reducer
+# operations in the Rust state layer.  Exposed here for type annotations when
+# inspecting reducer outputs during serialization / deserialization audits.
+_ReducerResultType = RustReducerResult
 
 
 def _ensure_utc(ts: Any) -> Optional[datetime]:

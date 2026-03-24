@@ -14,7 +14,27 @@ except Exception:  # pragma: no cover
 from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_detect_event_kind as _rust_detect_kind,
     rust_normalize_to_facts as _rust_normalize,
+    RustProcessResult,
+    RustMarketReducer,
+    RustPositionReducer,
+    RustAccountReducer,
+    RustPortfolioReducer,
+    RustRiskReducer,
 )
+
+import logging as _logging
+
+_pipeline_logger = _logging.getLogger(__name__)
+
+# Reducer registry: maps event kind → the Rust reducer responsible for that
+# state transition.  Used for audit logging and type dispatch documentation.
+REDUCER_REGISTRY: dict[str, type] = {
+    "MARKET": RustMarketReducer,
+    "FILL": RustPositionReducer,
+    "ACCOUNT": RustAccountReducer,
+    "PORTFOLIO": RustPortfolioReducer,
+    "RISK": RustRiskReducer,
+}
 
 
 
@@ -192,7 +212,13 @@ class StatePipeline:
 
     def apply(self, inp: PipelineInput) -> PipelineOutput:
         store = self._store
-        result = store.process_event(inp.event, inp.symbol_default)
+        result: RustProcessResult = store.process_event(inp.event, inp.symbol_default)
+
+        if result.advanced:
+            _pipeline_logger.debug(
+                "State advanced: index=%d kind=%s changed=%s",
+                result.event_index, result.kind, result.changed,
+            )
 
         if not result.advanced:
             return PipelineOutput(

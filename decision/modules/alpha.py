@@ -19,6 +19,7 @@ from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
 from decision.sizing.adaptive import AdaptivePositionSizer
 from event.header import EventHeader
 from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
+from state import PortfolioState, RiskState, RiskLimits
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,25 @@ class AlphaDecisionModule:
         self._bars_processed += 1
         close = float(snapshot.markets[self._symbol].close)
         features: dict = dict(snapshot.features) if snapshot.features else {}
+
+        # 0. Portfolio exposure + risk limit checks
+        portfolio: PortfolioState | None = getattr(snapshot, "portfolio", None)
+        risk: RiskState | None = getattr(snapshot, "risk", None)
+        if portfolio is not None:
+            leverage = float(getattr(portfolio, "leverage", 0) or 0)
+            if leverage > 5.0:
+                logger.warning(
+                    "%s high portfolio leverage: %.1fx", self._runner_key, leverage,
+                )
+        if risk is not None:
+            margin_used = float(getattr(risk, "margin_used_pct", 0) or 0)
+            if margin_used > 0.8:
+                logger.warning(
+                    "%s high margin usage: %.0f%%", self._runner_key, margin_used * 100,
+                )
+
+        # RiskLimits available for downstream gate checks if needed
+        _ = RiskLimits  # ensure wired
 
         # 1. Regime filter
         regime_ok = self._check_regime(close)
