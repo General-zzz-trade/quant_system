@@ -30,6 +30,14 @@ from pathlib import Path  # noqa: E402
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch  # noqa: E402
 from alpha.training.train_multi_horizon import rolling_zscore  # noqa: E402
+from _quant_hotpath import (  # type: ignore[import-untyped]  # noqa: E402
+    cpp_simulate_paths as rust_simulate_paths,
+    MCResult as RustMCResult,
+    BootstrapResult as RustBootstrapResult,
+)
+
+# Rust-accelerated Monte Carlo path simulation — 10K runs in <100ms
+_rust_simulate = rust_simulate_paths
 
 DATA_DIR = Path("data_files")
 MODEL_DIR = Path("models_v8")

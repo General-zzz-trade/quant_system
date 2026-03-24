@@ -19,8 +19,17 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from runner.gate_chain import GateResult
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustVPINCalculator,
+    RustVPINResult,
+)
 
 _log = logging.getLogger(__name__)
+
+# Rust-accelerated VPIN calculator — available for tick-level VPIN
+# computation in the binary hot path.
+VPINCalculatorType = RustVPINCalculator
+VPINResultType = RustVPINResult
 
 
 @dataclass

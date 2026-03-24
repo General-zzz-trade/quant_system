@@ -13,7 +13,17 @@ import json
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
-from _quant_hotpath import rust_stable_hash as _rust_stable_hash
+from _quant_hotpath import rust_stable_hash as _rust_stable_hash  # noqa: E402
+from _quant_hotpath import rust_payload_digest as _rust_payload_digest  # noqa: E402
+
+
+def raw_payload_digest(data: str, length: int = 64) -> str:
+    """Compute SHA-256 digest of raw string data using Rust kernel.
+
+    Unlike payload_digest() which serializes a dict, this operates on
+    pre-serialized string data for maximum throughput.
+    """
+    return str(_rust_payload_digest(data, length))
 
 
 def _stable_json(obj: Mapping[str, Any]) -> str:

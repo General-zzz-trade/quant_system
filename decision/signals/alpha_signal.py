@@ -13,6 +13,18 @@ from typing import Any
 
 import numpy as np
 
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustMLDecision,
+    rust_compute_feature_signal,
+    rust_adaptive_ensemble_calibrate,
+)
+
+# Rust ML decision state machine — available for alternative inference path
+# that bypasses Python ensemble when all features are Rust-computed.
+MLDecisionType = RustMLDecision
+_rust_feature_signal = rust_compute_feature_signal
+_rust_ensemble_calibrate = rust_adaptive_ensemble_calibrate
+
 logger = logging.getLogger(__name__)
 
 # Neutral fallback values for NaN features — 0.0 would be a directional signal

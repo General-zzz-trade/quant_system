@@ -16,7 +16,11 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Deque, Dict, List, Optional
 
-from _quant_hotpath import PyAdxTracker, PyAtrTracker, PyEmaTracker, PyRsiTracker, RollingWindow
+from _quant_hotpath import PyAdxTracker, PyAtrTracker, PyEmaTracker, PyRsiTracker, RollingWindow, VWAPWindow
+
+# VWAPWindow — Rust-accelerated volume-weighted average price window.
+# Used for VWAP deviation features (vwap_dev_20) in the enriched feature set.
+VWAPWindowType = VWAPWindow
 
 logger = logging.getLogger(__name__)
 

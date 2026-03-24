@@ -20,6 +20,14 @@ from decision.sizing.adaptive import AdaptivePositionSizer
 from event.header import EventHeader
 from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
 from state import PortfolioState, RiskState, RiskLimits
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustRegimeParams,
+    RustRidgePredictor,
+)
+
+# Type aliases for Rust-accelerated components used in framework-native path
+RegimeParamsType = RustRegimeParams
+RidgePredictorType = RustRidgePredictor
 
 logger = logging.getLogger(__name__)
 

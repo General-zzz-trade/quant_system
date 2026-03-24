@@ -17,6 +17,22 @@ logger = logging.getLogger(__name__)
 
 from _quant_hotpath import cpp_compute_all_features, cpp_feature_names  # noqa: E402
 from _quant_hotpath import cpp_compute_4h_features as _cpp_4h  # noqa: E402
+from _quant_hotpath import (  # noqa: E402
+    cpp_4h_feature_names,
+    cpp_fast_1m_feature_names,
+    cpp_compute_fast_1m_features,
+    rust_extract_orderbook_features,
+)
+
+# Feature name lists from Rust for cross-validation with Python definitions
+RUST_4H_FEATURE_NAMES: tuple[str, ...] = tuple(cpp_4h_feature_names())
+RUST_1M_FEATURE_NAMES: tuple[str, ...] = tuple(cpp_fast_1m_feature_names())
+
+# Rust orderbook feature extraction — used by tick-level collectors
+extract_orderbook_features = rust_extract_orderbook_features
+
+# Rust 1-minute feature computation — used by HFT signal path
+compute_fast_1m_features = cpp_compute_fast_1m_features
 
 TF4H_FEATURE_NAMES = (
     "tf4h_ret_1",            # 4h return (= 4h lookback)

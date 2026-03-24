@@ -32,6 +32,10 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_validate_order_type,
     rust_validate_tif,
     rust_validate_numeric_range,
+    rust_validate_enum_value,
+    rust_validate_event_batch,
+    rust_validate_monotonic_time,
+    rust_validate_required_fields,
 )
 
 _SCALE = 100_000_000
@@ -273,6 +277,14 @@ class EngineCoordinator:
         """Expose interceptor chain for pre/post event hooks."""
         return self._interceptor_chain
 
+    def validate_event_batch(self, events: list[Any]) -> list[str]:
+        """Validate a batch of events using Rust batch validator.
+
+        Returns list of validation error messages (empty = all valid).
+        Used during replay warmup to validate historical event integrity.
+        """
+        return list(rust_validate_event_batch(events))
+
     def emit(self, event: Any, *, actor: str = "live") -> None:
         """
         engine 的统一入口（手动注入 / tests / live 注入 / scheduler 注入）
@@ -341,6 +353,30 @@ class EngineCoordinator:
                     price_f = float(price)
                     if not rust_validate_numeric_range(price_f, 0.0, 1e12):
                         _logger.warning("Price out of range: %s on %s", price, type(event).__name__)
+                except (TypeError, ValueError):
+                    pass
+
+            # Validate enum fields via Rust (generic validator)
+            status = getattr(event, "status", None)
+            if status is not None:
+                if not rust_validate_enum_value(str(status)):
+                    _logger.debug("Unrecognized enum status '%s' on %s", status, type(event).__name__)
+
+            # Validate required fields present
+            required = ("symbol", "side")
+            field_dict = {f: getattr(event, f, None) for f in required if hasattr(event, f)}
+            if field_dict:
+                missing = rust_validate_required_fields(field_dict)
+                if missing:
+                    _logger.warning("Missing required fields %s on %s", missing, type(event).__name__)
+
+            # Monotonic time check
+            ts = getattr(event, "ts", None) or getattr(event, "timestamp", None)
+            if ts is not None:
+                try:
+                    ts_val = float(ts) if not isinstance(ts, str) else 0.0
+                    if ts_val > 0 and not rust_validate_monotonic_time(ts_val):
+                        _logger.debug("Non-monotonic timestamp on %s", type(event).__name__)
                 except (TypeError, ValueError):
                     pass
 

@@ -8,6 +8,12 @@ from threading import RLock
 from time import monotonic
 from typing import Optional
 
+from _quant_hotpath import RustOrderLimiter  # type: ignore[import-untyped]
+
+# Rust-backed order limiter — available for latency-sensitive paths where
+# Python lock contention is a concern.  Same semantics as OrderLimiter.
+RustOrderLimiterType = RustOrderLimiter
+
 
 @dataclass(frozen=True, slots=True)
 class OrderLimitsConfig:

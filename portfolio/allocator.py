@@ -635,6 +635,22 @@ def plan_to_target_notional(plan: AllocationPlan) -> Dict[str, Decimal]:
 # --- Rust acceleration ---
 try:
     from _quant_hotpath import RustPortfolioAllocator  # noqa: F401
+    from _quant_hotpath import (
+        cpp_compute_exposures,
+        cpp_factor_model_covariance,
+        cpp_estimate_specific_risk,
+        cpp_black_litterman_posterior,
+        rust_allocate_portfolio,
+        rust_strategy_weights,
+    )
     _RUST_ALLOCATOR_AVAILABLE = True
+
+    # Rust-accelerated portfolio analytics
+    compute_exposures = cpp_compute_exposures
+    factor_model_covariance = cpp_factor_model_covariance
+    estimate_specific_risk = cpp_estimate_specific_risk
+    black_litterman_posterior = cpp_black_litterman_posterior
+    allocate_portfolio = rust_allocate_portfolio
+    strategy_weights = rust_strategy_weights
 except ImportError:
     _RUST_ALLOCATOR_AVAILABLE = False

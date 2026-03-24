@@ -12,7 +12,17 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional
 
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustRiskGate as _RustRiskGate,
+    RustRiskResult as _RustRiskResult,
+)
+
 logger = logging.getLogger(__name__)
+
+# Rust-accelerated risk gate and result types — available for
+# single-FFI-call risk evaluation in the binary hot path.
+RustRiskGateType = _RustRiskGate
+RustRiskResultType = _RustRiskResult
 
 
 @dataclass(frozen=True, slots=True)

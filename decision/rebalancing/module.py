@@ -13,6 +13,11 @@ from types import SimpleNamespace
 from decision.market_access import get_decimal_attr
 from decision.rebalancing.schedule import RebalanceSchedule, AlwaysRebalance
 from event.types import IntentEvent
+from _quant_hotpath import rust_compute_rebalance_intents  # type: ignore[import-untyped]
+
+# Rust-accelerated rebalance intent computation — used for batch rebalance
+# across many symbols when latency matters.
+_rust_rebalance_intents = rust_compute_rebalance_intents
 
 
 def _d(x: Any) -> Decimal:

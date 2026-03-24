@@ -28,7 +28,23 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     RustDecisionOutput,
     RustTargetPosition,
     RustOrderSpec,
+    rust_rolling_sharpe,
+    rust_max_drawdown,
 )
+
+
+def compute_rolling_sharpe(returns: list[float], window: int = 252) -> float:
+    """Compute rolling Sharpe ratio using Rust-accelerated kernel."""
+    if not returns:
+        return 0.0
+    return float(rust_rolling_sharpe(returns, window))
+
+
+def compute_max_drawdown(equity_curve: list[float]) -> float:
+    """Compute max drawdown using Rust-accelerated kernel."""
+    if not equity_curve:
+        return 0.0
+    return float(rust_max_drawdown(equity_curve))
 
 
 def _utc_now() -> datetime:

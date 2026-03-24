@@ -7,7 +7,20 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Protocol, Tuple
 
 
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    rust_demux_user_stream,
+    rust_parse_agg_trade,
+)
+
 logger = logging.getLogger(__name__)
+
+# Rust-accelerated user stream demux — classifies event type without
+# full JSON parsing.  Used in the binary hot path.
+_demux_user_stream = rust_demux_user_stream
+
+# Rust aggregate trade parser — extracts price/qty/side from raw JSON
+# in a single FFI call.
+_parse_agg_trade = rust_parse_agg_trade
 
 
 class SupportsIngestFill(Protocol):

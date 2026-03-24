@@ -11,6 +11,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from _quant_hotpath import RustMMQuote  # type: ignore[import-untyped]
+
+# Rust market-maker quote type — available for Rust-native quoting
+# in latency-sensitive market-making paths.
+MMQuoteType = RustMMQuote
+
 
 @dataclass(frozen=True)
 class QuotePair:

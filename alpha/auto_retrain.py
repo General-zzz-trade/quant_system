@@ -46,6 +46,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, "/quant_system")
 
+from _quant_hotpath import cpp_greedy_ic_select  # type: ignore[import-untyped]  # noqa: E402
+
+# Rust-accelerated greedy IC feature selection — used during walk-forward
+# retrain to select optimal feature subsets in O(n*k) instead of O(n^2).
+_rust_greedy_ic_select = cpp_greedy_ic_select
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",

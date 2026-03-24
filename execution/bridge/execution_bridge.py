@@ -14,6 +14,12 @@ from typing import Any, Callable, Deque, Dict, Mapping, Optional, Protocol
 
 from execution.store.ack_store import InMemoryAckStore
 from execution.store.interfaces import AckStore
+from _quant_hotpath import RustSagaManager  # type: ignore[import-untyped]
+
+# Rust order lifecycle saga manager — match-exhaustive state machine with
+# mandatory TTL.  Available for binary path or when Python RLock contention
+# is a concern.
+SagaManagerType = RustSagaManager
 
 logger = logging.getLogger(__name__)
 
