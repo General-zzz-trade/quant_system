@@ -10,9 +10,9 @@ from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
 # 顶级机构级 portfolio/allocator.py（核心：目标仓位生成器）
 # ============================================================
 # 设计定位：
-# - Allocator 属于 portfolio 层：回答“资金如何分配/仓位如何配”
+# - Allocator 属于 portfolio 层：回答"资金如何分配/仓位如何配"
 # - 它不下单、不做撮合、不做风控裁决（风控在 risk 层）
-# - 它输出“目标仓位/目标权重/目标名义金额”（Target），给 rebalance/execution 去实现
+# - 它输出"目标仓位/目标权重/目标名义金额"（Target），给 rebalance/execution 去实现
 #
 # 核心能力（最小可冻结版本）：
 # 1) 支持多种分配策略：
@@ -27,7 +27,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
 #
 # 注意：
 # - 真实顶级机构还会加：协方差/风险模型、优化器（QP/二阶锥）、成本模型联动
-# - 但 allocator 的“契约/边界/可复现”必须先正确（这版就是可冻结核心）
+# - 但 allocator 的"契约/边界/可复现"必须先正确（这版就是可冻结核心）
 # ============================================================
 
 
@@ -96,8 +96,8 @@ class AccountSnapshot(Protocol):
 @dataclass(frozen=True, slots=True)
 class PortfolioConstraints:
     """
-    组合层约束（Allocator 可用的“预算/偏好”）
-    注意：这些不是 risk 层的一票否决，而是“组合目标要尽量满足”的软/硬约束。
+    组合层约束（Allocator 可用的"预算/偏好"）
+    注意：这些不是 risk 层的一票否决，而是"组合目标要尽量满足"的软/硬约束。
     """
     # 单标的权重上限（例如 0.25 表示最多 25% 权重）
     max_weight: Optional[Decimal] = None
@@ -108,7 +108,7 @@ class PortfolioConstraints:
     # 组合最大毛杠杆（gross_notional / equity），例如 2.0
     max_gross_leverage: Optional[Decimal] = None
 
-    # 调仓换手上限（turnover cap）：限制每次调仓的“绝对名义增量 / equity”
+    # 调仓换手上限（turnover cap）：限制每次调仓的"绝对名义增量 / equity"
     # 例如 0.10 表示本次调仓最多动用 10% 权益的名义增量
     turnover_cap: Optional[Decimal] = None
 
@@ -225,7 +225,6 @@ class TargetWeightAllocator:
             raise AllocatorError("account.equity 必须为正")
 
         raw_w: Mapping[str, Any] = inputs["target_weights"]
-        weight_residual_to_cash = bool(inputs.get("weight_residual_to_cash", True))
 
         # 1) 取出权重（未提供的 symbol 视为 0）
         w: Dict[str, Decimal] = {}
@@ -234,6 +233,48 @@ class TargetWeightAllocator:
                 w[s] = _d(raw_w[s])
             else:
                 w[s] = Decimal("0")
+
+        # Validate prices up-front (both paths need valid prices)
+        for s in symbols:
+            px = _d(prices.price(s))
+            if px <= 0:
+                raise AllocatorError(f"价格无效：{s} price={px}")
+
+        # --- Rust fast path: delegate weight->constraint->qty to Rust ---
+        if _RUST_ALLOCATOR_AVAILABLE:
+            final_targets = _rust_allocate_targets(
+                symbols=symbols,
+                target_weights=w,
+                equity=equity,
+                prices=prices,
+                current_qty=account.positions_qty,
+                constraints=constraints,
+            )
+
+            gross_before = _gross_notional(account.positions_qty, prices)
+            gross_after = _gross_notional(
+                {t.symbol: t.target_qty for t in final_targets.values()}, prices,
+            )
+
+            diag = AllocationDiagnostics(
+                equity=equity,
+                gross_before=gross_before,
+                gross_after=gross_after,
+                leverage_before=_safe_div(gross_before, equity),
+                leverage_after=_safe_div(gross_after, equity),
+                turnover_used=Decimal("0"),  # Rust handles turnover internally
+                notes=("rust_delegated",),
+            )
+
+            return AllocationPlan(
+                ts=ts,
+                targets=tuple(final_targets[s] for s in symbols),
+                diagnostics=diag,
+                tags=tags + (self.name,),
+            )
+
+        # --- Python fallback path (unchanged) ---
+        weight_residual_to_cash = bool(inputs.get("weight_residual_to_cash", True))
 
         # 2) 空头权限
         if not constraints.allow_short:
@@ -250,8 +291,8 @@ class TargetWeightAllocator:
                     notes.append(f"max_weight: {s} {w[s]} -> {_sign(w[s]) * cap}")
                     w[s] = _sign(w[s]) * cap
 
-        # 4) 若要求“剩余为现金”，则不强制归一化；否则可选择归一化（这里保持机构常用：不强行归一化）
-        #    解释：顶级机构常把权重当“目标风险/资金占用”，不一定要 sum=1
+        # 4) 若要求"剩余为现金"，则不强制归一化；否则可选择归一化（这里保持机构常用：不强行归一化）
+        #    解释：顶级机构常把权重当"目标风险/资金占用"，不一定要 sum=1
         if not weight_residual_to_cash:
             # 可选：归一化到 sum(abs)=1（更像 risk-parity 后处理）；但默认不做
             pass
@@ -260,8 +301,6 @@ class TargetWeightAllocator:
         targets_pre: Dict[str, TargetPosition] = {}
         for s in symbols:
             px = _d(prices.price(s))
-            if px <= 0:
-                raise AllocatorError(f"价格无效：{s} price={px}")
 
             tw = w[s]
             # 目标名义金额：|w| * equity
@@ -584,7 +623,7 @@ def _apply_turnover_cap(
         return dict(targets), turnover, ()
 
     # 缩放名义变化（线性缩放到 cap）
-    # 解释：不改变目标方向，只缩小“调仓步长”
+    # 解释：不改变目标方向，只缩小"调仓步长"
     scale = cap / turnover  # < 1
 
     out: Dict[str, TargetPosition] = {}
@@ -617,7 +656,7 @@ def _apply_turnover_cap(
 
 
 # ============================================================
-# 可选：工具函数（把 AllocationPlan 变成“目标名义/目标权重字典”）
+# 可选：工具函数（把 AllocationPlan 变成"目标名义/目标权重字典"）
 # ============================================================
 
 def plan_to_target_qty(plan: AllocationPlan) -> Dict[str, Decimal]:
@@ -654,3 +693,70 @@ try:
     strategy_weights = rust_strategy_weights
 except ImportError:
     _RUST_ALLOCATOR_AVAILABLE = False
+
+
+# ============================================================
+# Rust-delegated allocation (used by TargetWeightAllocator)
+# ============================================================
+
+def _rust_allocate_targets(
+    symbols: Sequence[str],
+    target_weights: Dict[str, Decimal],
+    equity: Decimal,
+    prices: PriceProvider,
+    current_qty: Mapping[str, Decimal],
+    constraints: PortfolioConstraints,
+) -> Dict[str, TargetPosition]:
+    """Delegate weight->constraint->qty math to rust_allocate_portfolio.
+
+    Returns dict[symbol, TargetPosition] in the same shape as Python path.
+    """
+    # Convert Decimal inputs to float for Rust FFI
+    w_f = {s: float(target_weights.get(s, 0)) for s in symbols}
+    px_f = {s: float(prices.price(s)) for s in symbols}
+    eq_f = float(equity)
+    cq_f = {s: float(current_qty.get(s, 0)) for s in symbols}
+
+    result = rust_allocate_portfolio(
+        target_weights=w_f,
+        prices=px_f,
+        equity=eq_f,
+        current_qty=cq_f,
+        max_weight=(
+            float(constraints.max_weight) if constraints.max_weight is not None else None
+        ),
+        max_notional_per_symbol=(
+            float(constraints.max_notional_per_symbol)
+            if constraints.max_notional_per_symbol is not None else None
+        ),
+        max_gross_leverage=(
+            float(constraints.max_gross_leverage)
+            if constraints.max_gross_leverage is not None else None
+        ),
+        turnover_cap=(
+            float(constraints.turnover_cap)
+            if constraints.turnover_cap is not None else None
+        ),
+        allow_short=constraints.allow_short,
+    )
+
+    # Wrap Rust output back into TargetPosition dataclasses
+    targets: Dict[str, TargetPosition] = {}
+    for s in symbols:
+        if s not in result:
+            targets[s] = TargetPosition(
+                symbol=s,
+                target_qty=Decimal("0"),
+                target_notional=Decimal("0"),
+                target_weight=Decimal("0"),
+            )
+            continue
+        r = result[s]
+        targets[s] = TargetPosition(
+            symbol=s,
+            target_qty=Decimal(str(r["qty"])),
+            target_notional=Decimal(str(r["notional"])),
+            target_weight=Decimal(str(r["weight"])),
+            meta={"price": str(px_f[s]), "rust_delegated": "true"},
+        )
+    return targets
