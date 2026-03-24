@@ -1,4 +1,4 @@
-"""Event system — types, headers, factory, bus."""
+"""Event system — Rust-backed types, headers, bus."""
 from event.types import (
     EventType,
     MarketEvent,
@@ -7,6 +7,8 @@ from event.types import (
     OrderEvent,
     FillEvent,
     RiskEvent,
+    ControlEvent,
+    FundingEvent,
 )
 from event.header import EventHeader
 from event.bus import EventBus
@@ -21,4 +23,6 @@ __all__ = [
     "OrderEvent",
     "FillEvent",
     "RiskEvent",
+    "ControlEvent",
+    "FundingEvent",
 ]

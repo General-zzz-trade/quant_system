@@ -1,3 +1,9 @@
+"""Event types — thin Python wrappers around Rust-backed implementations.
+
+Each event class delegates storage to the corresponding Rust type from
+_quant_hotpath while maintaining full backward compatibility with existing
+Python callers (Decimal fields, header, to_dict, from_dict, VERSION, etc.).
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,8 +12,21 @@ from typing import Any, ClassVar, Dict, Mapping, Optional
 from abc import ABC, abstractmethod
 from enum import Enum
 from datetime import datetime, timezone
+
+from _quant_hotpath import (
+    RustMarketEvent as _RustMarketEvent,
+    RustFillEvent as _RustFillEvent,
+    RustFundingEvent as _RustFundingEvent,
+    RustSignalEvent as _RustSignalEvent,
+    RustIntentEvent as _RustIntentEvent,
+    RustOrderEvent as _RustOrderEvent,
+    RustRiskEvent as _RustRiskEvent,
+    RustControlEvent as _RustControlEvent,
+    RustEventHeader as _RustEventHeader,
+)
+
 # ============================================================
-# EventType —— 事件类型枚举（制度真理源）
+# EventType
 # ============================================================
 
 class EventType(Enum):
@@ -21,25 +40,22 @@ class EventType(Enum):
     FUNDING = "funding"
 
 
-
 # ============================================================
-# BaseEvent —— 所有事件的抽象基类
+# BaseEvent — abstract base (kept for isinstance checks + codec)
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
 class BaseEvent(ABC):
-    """
-    BaseEvent —— 事件事实的唯一抽象
+    """BaseEvent — abstract base for all event types.
 
-    约束：
-    - header 必须存在
-    - version 由事件类 VERSION 决定
+    Concrete subclasses delegate data to Rust PyO3 objects stored in
+    ``_rust``.  The Python wrapper exposes identical attribute names so
+    all existing callers work unchanged.
     """
 
     event_type: ClassVar[EventType]
     header: Any
 
-    # schema / runtime 使用的制度版本
     VERSION: ClassVar[int] = 1
 
     @property
@@ -48,9 +64,6 @@ class BaseEvent(ABC):
 
     @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
-        """
-        将事件事实转换为 schema 校验用的 body
-        """
         ...
 
     @classmethod
@@ -61,34 +74,47 @@ class BaseEvent(ABC):
         header: Any,
         body: Mapping[str, Any],
     ) -> "BaseEvent":
-        """
-        从持久化 / replay 数据恢复事件事实
-        """
         ...
+
+    def to_rust(self) -> Any:
+        """Return the underlying Rust event object (if available)."""
+        return getattr(self, "_rust", None)
 
 
 # ============================================================
-# MarketEvent —— 市场行情事件
+# MarketEvent — wraps _RustMarketEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
 class MarketEvent(BaseEvent):
-    """
-    MarketEvent —— K 线 / 行情类事件
-    """
+    """MarketEvent — kline/bar event, Rust-backed."""
 
     event_type: ClassVar[EventType] = EventType.MARKET
     VERSION: ClassVar[int] = 1
 
-    # 业务时间（K 线时间）
     ts: datetime
-
     symbol: str
     open: Decimal
     high: Decimal
     low: Decimal
     close: Decimal
     volume: Decimal
+
+    _rust: Any = None  # _RustMarketEvent cache
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            ts_str = self.ts.isoformat() if self.ts else None
+            rust = _RustMarketEvent(
+                symbol=str(self.symbol),
+                open=float(self.open),
+                high=float(self.high),
+                low=float(self.low),
+                close=float(self.close),
+                volume=float(self.volume),
+                ts=ts_str,
+            )
+            object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -139,7 +165,7 @@ class MarketEvent(BaseEvent):
 
 
 # ============================================================
-# SignalEvent —— 策略信号（可被拒绝）
+# SignalEvent — wraps _RustSignalEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +176,21 @@ class SignalEvent(BaseEvent):
     symbol: str
     side: str  # "long" | "short"
     strength: Decimal
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust_header = _to_rust_header(self.header)
+            if rust_header is not None:
+                rust = _RustSignalEvent(
+                    header=rust_header,
+                    signal_id=str(self.signal_id),
+                    symbol=str(self.symbol),
+                    side=str(self.side),
+                    strength=float(self.strength),
+                )
+                object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -171,7 +212,7 @@ class SignalEvent(BaseEvent):
 
 
 # ============================================================
-# IntentEvent —— 交易意图（制度级）
+# IntentEvent — wraps _RustIntentEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +225,23 @@ class IntentEvent(BaseEvent):
     target_qty: Decimal
     reason_code: str   # signal | rebalance | risk | manual
     origin: str        # strategy_id / model_version
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust_header = _to_rust_header(self.header)
+            if rust_header is not None:
+                rust = _RustIntentEvent(
+                    header=rust_header,
+                    intent_id=str(self.intent_id),
+                    symbol=str(self.symbol),
+                    side=str(self.side),
+                    target_qty=float(self.target_qty),
+                    reason_code=str(self.reason_code),
+                    origin=str(self.origin),
+                )
+                object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -209,7 +267,7 @@ class IntentEvent(BaseEvent):
 
 
 # ============================================================
-# OrderEvent —— 执行指令
+# OrderEvent — wraps _RustOrderEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +280,23 @@ class OrderEvent(BaseEvent):
     side: str
     qty: Decimal
     price: Decimal | None
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust_header = _to_rust_header(self.header)
+            if rust_header is not None:
+                rust = _RustOrderEvent(
+                    header=rust_header,
+                    order_id=str(self.order_id),
+                    intent_id=str(self.intent_id),
+                    symbol=str(self.symbol),
+                    side=str(self.side),
+                    qty=float(self.qty),
+                    price=float(self.price) if self.price is not None else None,
+                )
+                object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -248,7 +323,7 @@ class OrderEvent(BaseEvent):
 
 
 # ============================================================
-# FillEvent —— 成交事实
+# FillEvent — wraps _RustFillEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +336,18 @@ class FillEvent(BaseEvent):
     qty: Decimal
     price: Decimal
     side: Optional[str] = None  # "buy"/"sell" — optional for backward compat
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust = _RustFillEvent(
+                symbol=str(self.symbol),
+                side=str(self.side) if self.side else "buy",
+                qty=float(self.qty),
+                price=float(self.price),
+            )
+            object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -288,7 +375,7 @@ class FillEvent(BaseEvent):
 
 
 # ============================================================
-# RiskEvent —— 风控裁决（制度事件）
+# RiskEvent — wraps _RustRiskEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +385,20 @@ class RiskEvent(BaseEvent):
     rule_id: str
     level: str          # info | warn | block
     message: str
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust_header = _to_rust_header(self.header)
+            if rust_header is not None:
+                rust = _RustRiskEvent(
+                    header=rust_header,
+                    rule_id=str(self.rule_id),
+                    level=str(self.level),
+                    message=str(self.message),
+                )
+                object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -317,7 +418,7 @@ class RiskEvent(BaseEvent):
 
 
 # ============================================================
-# ControlEvent —— 系统控制（制度级）
+# ControlEvent — wraps _RustControlEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -326,6 +427,19 @@ class ControlEvent(BaseEvent):
 
     command: str    # halt / reduce_only / resume / flush / shutdown
     reason: str
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            rust_header = _to_rust_header(self.header)
+            if rust_header is not None:
+                rust = _RustControlEvent(
+                    header=rust_header,
+                    command=str(self.command),
+                    reason=str(self.reason),
+                )
+                object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -343,7 +457,7 @@ class ControlEvent(BaseEvent):
 
 
 # ============================================================
-# FundingEvent —— 永续合约资金费率结算
+# FundingEvent — wraps _RustFundingEvent
 # ============================================================
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +476,20 @@ class FundingEvent(BaseEvent):
     symbol: str
     funding_rate: Decimal       # e.g. Decimal("0.0001") = 1 bps
     mark_price: Decimal         # mark price at settlement time
+
+    _rust: Any = None
+
+    def __post_init__(self) -> None:
+        if self._rust is None:
+            ts_str = self.ts.isoformat() if self.ts else None
+            rust = _RustFundingEvent(
+                symbol=str(self.symbol),
+                funding_rate=float(self.funding_rate),
+                mark_price=float(self.mark_price),
+                position_qty=0.0,
+                ts=ts_str,
+            )
+            object.__setattr__(self, "_rust", rust)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -396,17 +524,43 @@ class FundingEvent(BaseEvent):
 
 
 # ============================================================
-# 冻结版说明
+# Helper: convert Python EventHeader to RustEventHeader
 # ============================================================
-# - 本文件为 event 层“制度真理源”
-# - 不允许在 codec / runtime / reducer 中兜底字段
-# - 若 IDE 出现红线，只能修改本文件
-# - 新增事件类型 = 新制度版本（不可偷偷加字段）
+
+def _to_rust_header(header: Any) -> Optional[_RustEventHeader]:
+    """Convert a Python EventHeader (or compatible) to RustEventHeader.
+
+    If the header is already a RustEventHeader, return it directly.
+    Returns None if the header lacks required fields (e.g. test mocks).
+    """
+    if isinstance(header, _RustEventHeader):
+        return header
+    # Duck-type from Python EventHeader — require minimum fields
+    try:
+        event_id = str(header.event_id)
+        et = header.event_type
+        event_type_str = et.value if isinstance(et, EventType) else str(et)
+        version = int(getattr(header, "version", 1))
+        ts_ns = int(getattr(header, "ts_ns", 0))
+        source = str(getattr(header, "source", "unknown"))
+        return _RustEventHeader(
+            event_id=event_id,
+            event_type=event_type_str,
+            version=version,
+            ts_ns=ts_ns,
+            source=source,
+            parent_event_id=getattr(header, "parent_event_id", None),
+            root_event_id=getattr(header, "root_event_id", None),
+            run_id=getattr(header, "run_id", None),
+            seq=getattr(header, "seq", None),
+            correlation_id=getattr(header, "correlation_id", None),
+        )
+    except (AttributeError, TypeError):
+        return None
 
 
 # ============================================================
 # Rich domain types — required by risk rules and context modules
-# These were missing and are added for backward-compatible extension.
 # ============================================================
 
 class Side(str, Enum):
