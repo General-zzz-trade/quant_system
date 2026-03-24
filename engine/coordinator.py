@@ -16,6 +16,7 @@ from engine.pipeline import (
 )
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
+from event.events import BaseEvent
 from state.rust_adapters import (
     account_from_rust,
     account_to_rust,
@@ -285,6 +286,14 @@ class EngineCoordinator:
 
         # Invalidate cached view on state change
         self._cached_view = None
+
+        # Type safety: log non-BaseEvent emissions at debug level
+        if __debug__ and not isinstance(event, BaseEvent):
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Non-BaseEvent emitted: %s", type(event).__name__,
+            )
+
         # 不要在 lock 内 dispatch（防止 handler 再次 emit 导致死锁/长锁）
         self._dispatcher.dispatch(event=event, actor=actor)
 

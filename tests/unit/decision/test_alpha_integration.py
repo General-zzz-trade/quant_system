@@ -126,9 +126,10 @@ def test_ensemble_to_discretizer_to_module_flow():
     bridge.apply_constraints.return_value = 1
     snap = _make_snapshot(close=91000.0)
     events = list(module.decide(snap))
-    assert len(events) >= 1, "Expected OrderEvent on strong signal"
-    order = events[0]
-    assert isinstance(order, OrderEvent)
+    assert len(events) >= 1, "Expected events on strong signal"
+    orders = [e for e in events if isinstance(e, OrderEvent)]
+    assert len(orders) >= 1, "Expected at least one OrderEvent"
+    order = orders[0]
     assert order.side == "buy"
     assert order.symbol == "BTCUSDT"
     assert order.qty > 0
@@ -174,4 +175,10 @@ def test_direction_alignment_integration():
 
     # Direction alignment should block the short entry
     assert module._signal == 0, "ETH short should be blocked by BTC long consensus"
-    assert len(events) == 0, "No orders when direction alignment blocks"
+    orders = [e for e in events if isinstance(e, OrderEvent)]
+    assert len(orders) == 0, "No orders when direction alignment blocks"
+    # A RiskEvent should be emitted for the block
+    from event.events import RiskEvent
+    risk_events = [e for e in events if isinstance(e, RiskEvent)]
+    assert len(risk_events) == 1, "RiskEvent emitted on direction alignment block"
+    assert risk_events[0].rule_id == "direction_alignment"

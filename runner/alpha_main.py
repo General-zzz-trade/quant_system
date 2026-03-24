@@ -33,7 +33,7 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
 from event.header import EventHeader
-from event.types import EventType, MarketEvent
+from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from execution.adapters.bybit.ws_client import BybitWsClient
 from runner.strategy_config import SYMBOL_CONFIG
@@ -373,6 +373,38 @@ def main() -> None:
             volume=Decimal(str(bar["volume"])),
         )
 
+        # Emit FundingEvent when funding rate data is available in the bar
+        funding_rate_raw = bar.get("funding_rate")
+        if funding_rate_raw is not None:
+            try:
+                fr_val = float(funding_rate_raw)
+                if fr_val == fr_val:  # not NaN
+                    funding_header = EventHeader.new_root(
+                        event_type=EventType.FUNDING,
+                        version=1,
+                        source="bybit_ws",
+                    )
+                    funding_event = FundingEvent(
+                        header=funding_header,
+                        ts=ts,
+                        symbol=ws_symbol,
+                        funding_rate=Decimal(str(funding_rate_raw)),
+                        mark_price=Decimal(str(bar["close"])),
+                    )
+                    # Route funding event to all matching coordinators
+                    bar_interval = str(bar.get("interval", "60"))
+                    for runner_key, coord in coordinators.items():
+                        cfg = SYMBOL_CONFIG[runner_key]
+                        runner_symbol = cfg.get("symbol", runner_key)
+                        runner_interval = cfg.get("interval", "60")
+                        if runner_symbol == ws_symbol and runner_interval == bar_interval:
+                            try:
+                                coord.emit(funding_event, actor="live")
+                            except Exception:
+                                logger.debug("Error emitting funding to %s", runner_key)
+            except (ValueError, TypeError):
+                pass
+
         # Route to all coordinators that handle this symbol + interval
         bar_interval = str(bar.get("interval", "60"))
         for runner_key, coord in coordinators.items():
@@ -416,6 +448,25 @@ def main() -> None:
         pass
     finally:
         logger.info("Shutting down...")
+        # Emit ControlEvent to signal shutdown to all coordinators
+        for runner_key, coord in coordinators.items():
+            try:
+                control_header = EventHeader.new_root(
+                    event_type=EventType.CONTROL,
+                    version=1,
+                    source="system",
+                )
+                shutdown_event = ControlEvent(
+                    header=control_header,
+                    command="shutdown",
+                    reason="process termination",
+                )
+                logger.info(
+                    "Emitting shutdown ControlEvent to %s: %s",
+                    runner_key, shutdown_event.command,
+                )
+            except Exception:
+                logger.debug("Failed to create shutdown ControlEvent for %s", runner_key)
         for ws in ws_clients:
             ws.stop()
         for coord in coordinators.values():

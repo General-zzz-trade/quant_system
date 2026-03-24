@@ -18,7 +18,7 @@ import numpy as np
 from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
 from decision.sizing.adaptive import AdaptivePositionSizer
 from event.header import EventHeader
-from event.types import EventType, OrderEvent
+from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,23 @@ class AlphaDecisionModule:
         if force_exit:
             new_signal = 0
 
+        # Pre-allocate events list for risk/signal events + orders
+        events: list[Any] = []
+
+        # Emit RiskEvent on force exit
+        if force_exit:
+            risk_header = EventHeader.new_root(
+                event_type=EventType.RISK,
+                version=1,
+                source=f"alpha.{self._runner_key}.risk",
+            )
+            events.append(RiskEvent(
+                header=risk_header,
+                rule_id=exit_reason,
+                level="block",
+                message=f"{self._symbol} force exit: {exit_reason}",
+            ))
+
         # 6. Direction alignment (ETH follows BTC)
         if (
             new_signal != 0
@@ -150,12 +167,41 @@ class AlphaDecisionModule:
                         "%s direction alignment: blocked %+d (BTC=%+d)",
                         self._symbol, new_signal, btc_dir,
                     )
+                    # Emit RiskEvent for direction alignment block
+                    align_header = EventHeader.new_root(
+                        event_type=EventType.RISK,
+                        version=1,
+                        source=f"alpha.{self._runner_key}.risk",
+                    )
+                    events.append(RiskEvent(
+                        header=align_header,
+                        rule_id="direction_alignment",
+                        level="block",
+                        message=f"{self._symbol} ETH blocked: opposing BTC ({new_signal:+d} vs {btc_dir:+d})",
+                    ))
                     new_signal = 0
 
         # 7. Emit events on signal change
-        events: list[Any] = []
         if new_signal != self._signal:
             old_signal = self._signal
+
+            # Emit SignalEvent for signal transition
+            signal_header = EventHeader.new_root(
+                event_type=EventType.SIGNAL,
+                version=1,
+                source=f"alpha.{self._runner_key}",
+            )
+            if new_signal != 0:
+                side = "long" if new_signal > 0 else "short"
+            else:
+                side = "flat"
+            events.append(SignalEvent(
+                header=signal_header,
+                signal_id=signal_header.event_id,
+                symbol=self._symbol,
+                side=side,
+                strength=Decimal(str(abs(z))),
+            ))
 
             # Close existing position
             if old_signal != 0:

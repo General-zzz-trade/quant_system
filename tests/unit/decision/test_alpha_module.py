@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from decision.modules.alpha import AlphaDecisionModule
-from event.types import OrderEvent
+from event.types import OrderEvent, RiskEvent, SignalEvent
 
 
 # ── snapshot helper ─────────────────────────────────────────────
@@ -100,15 +100,18 @@ class TestAlphaDecisionModule:
     """Core AlphaDecisionModule tests."""
 
     def test_decide_returns_order_events(self):
-        """Predict -> signal=1 -> OrderEvent emitted."""
+        """Predict -> signal=1 -> OrderEvent + SignalEvent emitted."""
         mod, _, _, _ = _make_module(signal=1, z=1.5)
         snap = _make_snapshot()
         events = list(mod.decide(snap))
-        assert len(events) == 1
-        assert isinstance(events[0], OrderEvent)
-        assert events[0].side == "buy"
-        assert events[0].symbol == "BTCUSDT"
-        assert events[0].qty > 0
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        signals = [e for e in events if isinstance(e, SignalEvent)]
+        assert len(orders) == 1
+        assert orders[0].side == "buy"
+        assert orders[0].symbol == "BTCUSDT"
+        assert orders[0].qty > 0
+        assert len(signals) == 1
+        assert signals[0].side == "long"
 
     def test_decide_flat_no_events(self):
         """Predict -> signal=0 -> empty."""
@@ -125,7 +128,12 @@ class TestAlphaDecisionModule:
         mod.set_consensus({"BTCUSDT": 1, "BTCUSDT_4h": 1})
         snap = _make_snapshot(symbol="ETHUSDT")
         events = list(mod.decide(snap))
-        assert len(events) == 0
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        assert len(orders) == 0
+        # RiskEvent emitted for direction alignment block
+        risk_events = [e for e in events if isinstance(e, RiskEvent)]
+        assert len(risk_events) == 1
+        assert risk_events[0].rule_id == "direction_alignment"
 
     def test_direction_alignment_allows_same_dir(self):
         """ETH long allowed when BTC consensus is long."""
@@ -135,8 +143,9 @@ class TestAlphaDecisionModule:
         mod.set_consensus({"BTCUSDT": 1})
         snap = _make_snapshot(symbol="ETHUSDT")
         events = list(mod.decide(snap))
-        assert len(events) == 1
-        assert events[0].side == "buy"
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        assert len(orders) == 1
+        assert orders[0].side == "buy"
 
     def test_force_exit_quick_loss(self):
         """-2% drop from entry -> close order."""
@@ -144,16 +153,20 @@ class TestAlphaDecisionModule:
         # First bar: open long
         snap1 = _make_snapshot(close=90000.0)
         events1 = list(mod.decide(snap1))
-        assert len(events1) == 1
-        assert events1[0].side == "buy"
+        orders1 = [e for e in events1 if isinstance(e, OrderEvent)]
+        assert len(orders1) == 1
+        assert orders1[0].side == "buy"
 
         # Second bar: -2% drop, signal still +1 from discretizer
         # but force exit should trigger
         disc.discretize.return_value = (1, 1.0)
         snap2 = _make_snapshot(close=88000.0)
         events2 = list(mod.decide(snap2))
-        # Should emit close event
-        assert any(e.qty == Decimal("0") for e in events2)
+        # Should emit close OrderEvent + RiskEvent
+        orders2 = [e for e in events2 if isinstance(e, OrderEvent)]
+        assert any(e.qty == Decimal("0") for e in orders2)
+        risk_events = [e for e in events2 if isinstance(e, RiskEvent)]
+        assert len(risk_events) >= 1
 
     def test_force_exit_z_reversal(self):
         """Long + z=-0.5 -> close order."""
@@ -167,7 +180,8 @@ class TestAlphaDecisionModule:
         disc.discretize.return_value = (1, -0.5)
         snap2 = _make_snapshot(close=90000.0)
         events = list(mod.decide(snap2))
-        assert any(e.qty == Decimal("0") for e in events)
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        assert any(e.qty == Decimal("0") for e in orders)
 
     def test_regime_filter_warmup_active(self):
         """<20 bars -> regime always active."""
@@ -186,7 +200,7 @@ class TestAlphaDecisionModule:
         assert AlphaDecisionModule._compute_z_scale(0.3) == 0.5
 
     def test_signal_change_emits_close_then_open(self):
-        """prev=1, new=-1 -> close + open = 2 events.
+        """prev=1, new=-1 -> SignalEvent + close + open = 3 events.
 
         We must avoid force-exit triggers: use a close-to-entry price
         and set the discretizer to return signal=-1 directly so the
@@ -204,13 +218,18 @@ class TestAlphaDecisionModule:
         with patch.object(mod, "_check_force_exits", return_value=(False, "")):
             snap2 = _make_snapshot(close=90000.0)
             events = list(mod.decide(snap2))
-        assert len(events) == 2
-        # First event: close (sell, qty=0)
-        assert events[0].side == "sell"
-        assert events[0].qty == Decimal("0")
-        # Second event: open short (sell, qty>0)
-        assert events[1].side == "sell"
-        assert events[1].qty > 0
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        assert len(orders) == 2
+        # First order: close (sell, qty=0)
+        assert orders[0].side == "sell"
+        assert orders[0].qty == Decimal("0")
+        # Second order: open short (sell, qty>0)
+        assert orders[1].side == "sell"
+        assert orders[1].qty > 0
+        # SignalEvent also emitted
+        signals = [e for e in events if isinstance(e, SignalEvent)]
+        assert len(signals) == 1
+        assert signals[0].side == "short"
 
     def test_no_features_returns_empty(self):
         """Predictor returns None -> no events."""
@@ -256,9 +275,10 @@ class TestAlphaDecisionModule:
         disc.discretize.return_value = (0, 0.0)
         snap2 = _make_snapshot(close=90000.0)
         events = list(mod.decide(snap2))
-        assert len(events) == 1
-        assert events[0].qty == Decimal("0")
-        assert events[0].side == "sell"  # opposite of long
+        orders = [e for e in events if isinstance(e, OrderEvent)]
+        assert len(orders) == 1
+        assert orders[0].qty == Decimal("0")
+        assert orders[0].side == "sell"  # opposite of long
 
     def test_deadzone_base_preserved(self):
         """Vol-adaptive deadzone modifies discretizer but base is stored."""

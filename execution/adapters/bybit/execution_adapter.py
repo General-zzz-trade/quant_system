@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 from event.header import EventHeader
 from event.types import EventType, FillEvent
+from event.domain import TimeInForce
 from execution.order_utils import reliable_close_position
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,9 @@ class BybitExecutionAdapter:
 
     def __init__(self, adapter: Any) -> None:
         self._adapter = adapter
+
+    # Default time-in-force for market orders
+    DEFAULT_TIF: TimeInForce = TimeInForce.GTC
 
     # ------------------------------------------------------------------
     def send_order(self, order_event: Any) -> Iterable[Any]:
@@ -36,6 +40,13 @@ class BybitExecutionAdapter:
             symbol: str = order_event.symbol
             side: str = order_event.side
             qty: Decimal = order_event.qty
+
+            # Resolve time-in-force from order event or use default
+            tif: TimeInForce = getattr(
+                order_event, "time_in_force", self.DEFAULT_TIF,
+            )
+            if isinstance(tif, str):
+                tif = TimeInForce(tif)
 
             # --- dispatch -------------------------------------------
             if qty == 0:
