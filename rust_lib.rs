@@ -173,6 +173,8 @@ pub mod engine {
     pub mod core_types;
     #[path = "rust/kernel.rs"]
     pub mod kernel;
+    #[path = "rust/tick_result.rs"]
+    pub mod tick_result;
     #[path = "rust/tick_processor.rs"]
     pub mod tick_processor;
 }
