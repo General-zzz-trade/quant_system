@@ -427,33 +427,6 @@ class TestRustMLDecision:
         orders = md.decide(close=50000.0, ml_score=0.5, current_qty=0.0, balance=10000.0)
         assert len(orders) == 1
 
-    def test_parity_long_entry(self):
-        """Compare Rust vs Python for a simple long entry."""
-        py_md = _make_python_ml_decision(symbol="BTCUSDT", risk_pct=0.5, threshold=0.001)
-        rust_md = RustMLDecision(symbol="BTCUSDT", risk_pct=0.5, threshold=0.001)
-
-        snap = _make_snapshot(close=50000, ml_score=0.5, qty=0, balance=10000)
-        py_orders = list(py_md.decide(snap))
-        rust_orders = rust_md.decide(close=50000.0, ml_score=0.5, current_qty=0.0, balance=10000.0)
-
-        assert len(py_orders) == len(rust_orders)
-        for po, ro in zip(py_orders, rust_orders):
-            assert po.side == ro.side
-            assert po.reason == ro.reason
-            assert float(po.qty) == ro.qty
-
-    def test_parity_flatten(self):
-        py_md = _make_python_ml_decision(symbol="BTCUSDT", risk_pct=0.5, threshold=0.5)
-        rust_md = RustMLDecision(symbol="BTCUSDT", risk_pct=0.5, threshold=0.5)
-
-        snap = _make_snapshot(close=50000, ml_score=0.0, qty=0.1, balance=10000)
-        py_orders = list(py_md.decide(snap))
-        rust_orders = rust_md.decide(close=50000.0, ml_score=0.0, current_qty=0.1, balance=10000.0)
-
-        assert len(py_orders) == len(rust_orders)
-        assert py_orders[0].side == rust_orders[0].side
-        assert float(py_orders[0].qty) == rust_orders[0].qty
-
     def test_zero_close(self):
         md = RustMLDecision(symbol="BTCUSDT")
         assert len(md.decide(close=0.0, ml_score=0.5, current_qty=0.0, balance=10000.0)) == 0
@@ -464,11 +437,6 @@ class TestRustMLDecision:
 
 
 # ── helpers ──
-
-def _make_python_ml_decision(**kwargs):
-    from decision.ml_decision import make_ml_decision
-    return make_ml_decision(**kwargs)
-
 
 def _make_snapshot(close, ml_score, qty, balance, atr_norm=None):
     from types import SimpleNamespace

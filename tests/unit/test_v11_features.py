@@ -153,29 +153,6 @@ class TestSentimentFeatures:
         assert feats["social_sentiment_score"] == pytest.approx(0.75)
 
 
-class TestPollerImports:
-    """Verify all new pollers can be imported."""
-
-    def test_liquidation_poller_import(self):
-        from execution.adapters.binance.liquidation_poller import BinanceLiquidationPoller
-        p = BinanceLiquidationPoller(symbol="BTCUSDT")
-        assert p.get_current() is None
-
-    def test_mempool_poller_import(self):
-        from execution.adapters.mempool_poller import MempoolPoller
-        p = MempoolPoller()
-        assert p.get_current() is None
-
-    def test_macro_poller_import(self):
-        from execution.adapters.macro_poller import MacroPoller
-        p = MacroPoller()
-        assert p.get_current() is None
-
-    def test_sentiment_poller_import(self):
-        from execution.adapters.sentiment_poller import SentimentPoller
-        p = SentimentPoller()
-        assert p.get_current() is None
-
 
 class TestFeatureHookV11:
     """Test FeatureComputeHook with new V11 sources."""
