@@ -18,7 +18,8 @@ use crate::decision::constraint_pipeline::{
 };
 use crate::event::data_events::{RustFillEvent, RustFundingEvent, RustMarketEvent};
 use crate::state::reducers::{RustAccountReducer, RustMarketReducer, RustPositionReducer};
-use crate::state::store::{compute_portfolio_from, compute_risk_from, RustProcessResult};
+use crate::state::store::RustProcessResult;
+use crate::state::store_compute::{compute_portfolio_from, compute_risk_from};
 use crate::state::types::{
     RustAccountState, RustMarketState, RustPortfolioState, RustPositionState, RustRiskLimits,
     RustRiskState,
