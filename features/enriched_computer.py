@@ -13,14 +13,21 @@ import logging
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from math import sqrt
 from typing import Deque, Dict, List, Optional
 
-from _quant_hotpath import PyAdxTracker, PyAtrTracker, PyEmaTracker, PyRsiTracker, RollingWindow, VWAPWindow
+from _quant_hotpath import RollingWindow, VWAPWindow
 
 # VWAPWindow — Rust-accelerated volume-weighted average price window.
 # Used for VWAP deviation features (vwap_dev_20) in the enriched feature set.
 VWAPWindowType = VWAPWindow
+
+from features.enriched_trackers import (  # noqa: E402
+    _EMA,
+    _RSITracker,
+    _ATRTracker,
+    _ADXTracker,
+    _build_multi_dominance_ratios,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,77 +237,6 @@ ENRICHED_FEATURE_NAMES: tuple[str, ...] = (
 )
 
 _WARMUP_BARS = 65  # bars needed before all features are valid (funding_ma8 needs 64h)
-
-
-class _EMA:
-    """Incremental EMA tracker — Rust-backed via PyEmaTracker."""
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, span: int) -> None:
-        self._inner = PyEmaTracker(span)
-
-    def push(self, x: float) -> None:
-        self._inner.push(x)
-
-    @property
-    def value(self) -> Optional[float]:
-        return self._inner.value()
-
-    @property
-    def ready(self) -> bool:
-        return self._inner.ready()
-
-
-class _RSITracker:
-    """Incremental RSI — Rust-backed via PyRsiTracker."""
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, period: int) -> None:
-        self._inner = PyRsiTracker(period)
-
-    def push(self, close: float) -> None:
-        self._inner.push(close)
-
-    @property
-    def value(self) -> Optional[float]:
-        return self._inner.value()
-
-
-class _ATRTracker:
-    """Incremental ATR — Rust-backed via PyAtrTracker."""
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, period: int) -> None:
-        self._inner = PyAtrTracker(period)
-
-    def push(self, high: float, low: float, close: float) -> None:
-        self._inner.push(high, low, close)
-
-    @property
-    def value(self) -> Optional[float]:
-        return self._inner.value()
-
-    def normalized(self, close: float) -> float:
-        return self._inner.normalized(close)
-
-
-class _ADXTracker:
-    """Incremental ADX — Rust-backed via PyAdxTracker."""
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, period: int = 14) -> None:
-        self._inner = PyAdxTracker(period)
-
-    def push(self, high: float, low: float, close: float) -> None:
-        self._inner.push(high, low, close)
-
-    @property
-    def value(self) -> Optional[float]:
-        return self._inner.value()
 
 
 @dataclass
@@ -923,57 +859,6 @@ class EnrichedFeatureComputer:
             self._states.clear()
 
 
-def _symbol_aliases(symbol: str) -> tuple[str, ...]:
-    upper = str(symbol).upper()
-    aliases = [upper]
-    if upper.endswith("USDT"):
-        aliases.append(upper[:-4])
-    else:
-        aliases.append(f"{upper}USDT")
-    return tuple(dict.fromkeys(aliases))
 
-
-def _resolve_multi_dominance_pairs(symbol: str) -> tuple[tuple[str, str], ...]:
-    for alias in _symbol_aliases(symbol):
-        pairs = _MULTI_DOMINANCE_PAIRS.get(alias)
-        if pairs:
-            return pairs
-    return ()
-
-
-def _build_multi_dominance_ratios(
-    symbol: str,
-    close: float,
-    reference_closes: Optional[Dict[str, float]],
-) -> Dict[str, float]:
-    if close <= 0 or not reference_closes:
-        return {}
-    normalized_refs = {
-        str(ref_symbol).upper(): ref_close
-        for ref_symbol, ref_close in reference_closes.items()
-        if ref_close is not None
-    }
-    ratios: Dict[str, float] = {}
-    for ref_symbol, prefix in _resolve_multi_dominance_pairs(symbol):
-        ref_close = _lookup_reference_close(normalized_refs, ref_symbol)
-        if ref_close is not None and ref_close > 0:
-            ratios[prefix] = close / ref_close
-    return ratios
-
-
-def _lookup_reference_close(reference_closes: Dict[str, float], ref_symbol: str) -> Optional[float]:
-    for alias in _symbol_aliases(ref_symbol):
-        ref_close = reference_closes.get(alias)
-        if ref_close is not None:
-            return ref_close
-    return None
-
-
-def _window_zscore(values: Deque[float], window: int) -> Optional[float]:
-    if len(values) < window:
-        return None
-    window_vals = list(values)[-window:]
-    mean = sum(window_vals) / len(window_vals)
-    var = sum((value - mean) ** 2 for value in window_vals) / len(window_vals)
-    std = sqrt(var) if var > 0 else 0.0
-    return (window_vals[-1] - mean) / std if std > 1e-8 else 0.0
+# _symbol_aliases, _resolve_multi_dominance_pairs, _build_multi_dominance_ratios,
+# _lookup_reference_close, _window_zscore -> features.enriched_trackers

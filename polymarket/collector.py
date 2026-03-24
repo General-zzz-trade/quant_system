@@ -32,6 +32,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from polymarket.collector_db import (
+    init_db,
+    store_snapshot,
+    update_result,
+    store_intra_sample_v2,
+    get_stats as _get_stats_db,
+)
+from polymarket.collector_sampling import (
+    current_window_ts_15m,
+    next_window_ts_15m,
+    sample_15m_once,
+)
+
 logger = logging.getLogger(__name__)
 
 _WINDOW_5M = 300   # 5 minutes
@@ -164,7 +177,7 @@ class PolymarketCollector:
     def __init__(self, db_path: str = "data/polymarket/collector.db"):
         self._db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+        init_db(db_path)
         self._running = False
         self._vol_tracker = VolatilityTracker(window=60)
         self._rsi_tracker = RSITracker(period=5)       # RSI on 5m closes
@@ -172,183 +185,27 @@ class PolymarketCollector:
         self._token_cache_15m: dict = {"window_ts": None}
 
     # ------------------------------------------------------------------
-    # Database
+    # Database delegates
     # ------------------------------------------------------------------
 
-    def _init_db(self):
-        conn = sqlite3.connect(self._db_path)
-        conn.execute("PRAGMA journal_mode=WAL")  # concurrent read/write safe
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS market_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp_utc TEXT NOT NULL,
-                window_start_ts INTEGER NOT NULL,
-                slug TEXT NOT NULL,
-                up_price REAL,
-                down_price REAL,
-                volume REAL,
-                binance_btc_open REAL,
-                binance_btc_close REAL,
-                binance_result TEXT,
-                polymarket_result TEXT,
-                final_volume REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_window_ts
-            ON market_snapshots(window_start_ts)
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS intra_window_samples (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                window_start_ts INTEGER NOT NULL,
-                sample_time_utc TEXT NOT NULL,
-                elapsed_sec INTEGER NOT NULL,
-                binance_price REAL NOT NULL,
-                strike_price REAL,
-                move_bps REAL,
-                fair_value_up REAL,
-                fair_value_down REAL,
-                polymarket_up_price REAL,
-                polymarket_down_price REAL,
-                pricing_delay REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # V2 schema: CLOB orderbook data + RSI signal
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS intra_window_samples_v2 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                window_start_ts INTEGER NOT NULL,
-                sample_time_utc TEXT NOT NULL,
-                elapsed_sec INTEGER NOT NULL,
-                binance_price REAL NOT NULL,
-                strike_price REAL,
-                move_bps REAL,
-                fair_value_up REAL,
-                fair_value_down REAL,
-                clob_up_best_bid REAL,
-                clob_up_best_ask REAL,
-                clob_up_spread REAL,
-                clob_up_bid_depth REAL,
-                clob_up_ask_depth REAL,
-                clob_down_best_bid REAL,
-                clob_down_best_ask REAL,
-                clob_up_mid REAL,
-                pricing_delay REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Add RSI columns if not yet present (safe migration)
-        try:
-            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN rsi_5 REAL")
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN rsi_signal TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE intra_window_samples_v2 ADD COLUMN btc_ret_3bar REAL")
-        except sqlite3.OperationalError:
-            pass
-
-        # 15m market samples table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS samples_15m (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                window_start_ts INTEGER NOT NULL,
-                sample_time_utc TEXT NOT NULL,
-                elapsed_sec INTEGER NOT NULL,
-                binance_price REAL NOT NULL,
-                strike_price REAL,
-                move_bps REAL,
-                fair_value_up REAL,
-                fair_value_down REAL,
-                clob_up_best_bid REAL,
-                clob_up_best_ask REAL,
-                clob_up_spread REAL,
-                clob_up_bid_depth REAL,
-                clob_up_ask_depth REAL,
-                clob_down_best_bid REAL,
-                clob_down_best_ask REAL,
-                clob_up_mid REAL,
-                pricing_delay REAL,
-                rsi_5 REAL,
-                rsi_signal TEXT,
-                btc_ret_3bar REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_samples_15m_window_ts
-            ON samples_15m(window_start_ts)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_intra_v2_window_ts
-            ON intra_window_samples_v2(window_start_ts)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_intra_window_ts
-            ON intra_window_samples(window_start_ts)
-        """)
-        conn.commit()
-        conn.close()
-
     def _store(self, record: dict):
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            """
-            INSERT INTO market_snapshots
-            (timestamp_utc, window_start_ts, slug, up_price, down_price,
-             volume, binance_btc_open)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record["timestamp_utc"],
-                record["window_start_ts"],
-                record["slug"],
-                record.get("up_price"),
-                record.get("down_price"),
-                record.get("volume", 0),
-                record.get("binance_btc_open"),
-            ),
-        )
-        conn.commit()
-        conn.close()
+        store_snapshot(self._db_path, record)
 
-    def _update_result(
-        self,
-        window_ts: int,
-        polymarket_result: str | None = None,
-        binance_result: str | None = None,
-        btc_close: float | None = None,
-        final_volume: float | None = None,
-    ):
-        conn = sqlite3.connect(self._db_path)
-        sets: list[str] = []
-        params: list = []
-        if polymarket_result is not None:
-            sets.append("polymarket_result = ?")
-            params.append(polymarket_result)
-        if binance_result is not None:
-            sets.append("binance_result = ?")
-            params.append(binance_result)
-        if btc_close is not None:
-            sets.append("binance_btc_close = ?")
-            params.append(btc_close)
-        if final_volume is not None:
-            sets.append("final_volume = ?")
-            params.append(final_volume)
-        if sets:
-            params.append(window_ts)
-            conn.execute(
-                f"UPDATE market_snapshots SET {', '.join(sets)} WHERE window_start_ts = ?",
-                params,
-            )
-            conn.commit()
-        conn.close()
+    def _update_result(self, window_ts, polymarket_result=None,
+                       binance_result=None, btc_close=None, final_volume=None):
+        update_result(self._db_path, window_ts, polymarket_result,
+                      binance_result, btc_close, final_volume)
+
+    def _store_intra_sample(self, sample: dict) -> None:
+        from polymarket.collector_db import store_intra_sample
+        store_intra_sample(self._db_path, sample)
+
+    def _store_intra_sample_v2(self, sample: dict) -> None:
+        store_intra_sample_v2(self._db_path, sample)
+
+    def _store_sample_15m(self, sample: dict) -> None:
+        from polymarket.collector_db import store_sample_15m
+        store_sample_15m(self._db_path, sample)
 
     # ------------------------------------------------------------------
     # External API helpers
@@ -367,12 +224,7 @@ class PolymarketCollector:
             return 0.0
 
     def _get_binance_5m_kline(self, window_ts: int) -> dict:
-        """Get the Binance 5m kline (open, close) for a specific window.
-
-        Uses the Binance klines REST API (public, no auth) to get the exact
-        open and close prices for the 5-minute window starting at window_ts.
-        This is more accurate than spot price snapshots.
-        """
+        """Get the Binance 5m kline for a specific window."""
         start_ms = window_ts * 1000
         end_ms = (window_ts + _WINDOW_SEC) * 1000 - 1
         url = (
@@ -455,200 +307,21 @@ class PolymarketCollector:
         now = int(time.time())
         return ((now // _WINDOW_SEC) + 1) * _WINDOW_SEC
 
-    # ------------------------------------------------------------------
-    # Collection
-    # ------------------------------------------------------------------
+    # 15m time helpers (delegates)
+    @staticmethod
+    def _current_window_ts_15m() -> int:
+        return current_window_ts_15m()
 
-    def collect_one(self) -> dict:
-        """Collect one data point for the current 5m window.
-
-        Also back-fills the *previous* window with accurate Binance kline
-        open/close data and derives the Up/Down result.
-        Returns the recorded data dict.
-        """
-        now = datetime.now(timezone.utc)
-        window_ts = self._current_window_ts()
-
-        # 1. Fetch current market metadata from Polymarket
-        market = self._get_current_5m_market(window_ts)
-
-        # 2. Get current Binance spot price
-        btc_now = self._get_binance_price()
-
-        # 3. Back-fill PREVIOUS window with accurate Binance 5m kline
-        prev_ts = window_ts - _WINDOW_SEC
-        prev_kline = self._get_binance_5m_kline(prev_ts)
-        prev_market = self._get_current_5m_market(prev_ts)
-
-        if prev_kline:
-            # Derive result from Binance kline open vs close
-            # This matches Polymarket's rule: "Up if close >= open"
-            kline_open = prev_kline["open"]
-            kline_close = prev_kline["close"]
-            if kline_close >= kline_open:
-                binance_result = "Up"
-            else:
-                binance_result = "Down"
-
-            self._update_result(
-                prev_ts,
-                polymarket_result=prev_market.get("winner"),
-                binance_result=binance_result,
-                btc_close=kline_close,
-                final_volume=prev_market.get("volume"),
-            )
-
-            # Also update the open price if we stored it without kline data
-            conn = sqlite3.connect(self._db_path)
-            conn.execute(
-                "UPDATE market_snapshots SET binance_btc_open = ? "
-                "WHERE window_start_ts = ? AND "
-                "(binance_btc_open IS NULL OR binance_btc_open = 0)",
-                (kline_open, prev_ts),
-            )
-            conn.commit()
-            conn.close()
-        else:
-            # Fallback: use spot price approximation
-            self._backfill_previous(prev_ts, prev_market.get("winner"), prev_market, btc_now)
-
-        # 4. Store current window snapshot
-        record = {
-            "timestamp_utc": now.strftime("%Y-%m-%dT%H:%M:%S"),
-            "window_start_ts": window_ts,
-            "slug": market.get("slug", f"btc-updown-5m-{window_ts}"),
-            "up_price": market.get("up_price"),
-            "down_price": market.get("down_price"),
-            "volume": market.get("volume", 0),
-            "binance_btc_open": btc_now,  # approximate; will be corrected by kline in next cycle
-        }
-        self._store(record)
-
-        prev_result = prev_kline and ("Up" if prev_kline["close"] >= prev_kline["open"] else "Down")
-        logger.info(
-            "Collected: ts=%d btc=$%.0f vol=$%.0f | prev: open=$%.0f close=$%.0f → %s",
-            window_ts,
-            btc_now,
-            record.get("volume") or 0,
-            prev_kline.get("open", 0) if prev_kline else 0,
-            prev_kline.get("close", 0) if prev_kline else 0,
-            prev_result or "no_kline",
-        )
-        return record
-
-    def _backfill_previous(
-        self,
-        prev_ts: int,
-        poly_result: str | None,
-        prev_market: dict,
-        btc_close: float,
-    ):
-        """Update the previous window row with settlement info."""
-        # Derive Binance-based result from stored open price
-        conn = sqlite3.connect(self._db_path)
-        row = conn.execute(
-            "SELECT binance_btc_open FROM market_snapshots WHERE window_start_ts = ?",
-            (prev_ts,),
-        ).fetchone()
-        conn.close()
-
-        binance_result = None
-        if row and row[0] and btc_close:
-            prev_open = row[0]
-            if btc_close > prev_open:
-                binance_result = "Up"
-            elif btc_close < prev_open:
-                binance_result = "Down"
-            else:
-                binance_result = "Flat"
-
-        self._update_result(
-            prev_ts,
-            polymarket_result=poly_result,
-            binance_result=binance_result,
-            btc_close=btc_close,
-            final_volume=prev_market.get("volume"),
-        )
+    @staticmethod
+    def _next_window_ts_15m() -> int:
+        return next_window_ts_15m()
 
     # ------------------------------------------------------------------
-    # Intra-window sampling
+    # CLOB helpers
     # ------------------------------------------------------------------
-
-    def _store_intra_sample(self, sample: dict) -> None:
-        """Store an intra-window sample to the legacy v1 table."""
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            """
-            INSERT INTO intra_window_samples
-            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
-             strike_price, move_bps, fair_value_up, fair_value_down,
-             polymarket_up_price, polymarket_down_price, pricing_delay)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                sample["window_start_ts"],
-                sample["sample_time_utc"],
-                sample["elapsed_sec"],
-                sample["binance_price"],
-                sample.get("strike_price"),
-                sample.get("move_bps"),
-                sample.get("fair_value_up"),
-                sample.get("fair_value_down"),
-                sample.get("polymarket_up_price"),
-                sample.get("polymarket_down_price"),
-                sample.get("pricing_delay"),
-            ),
-        )
-        conn.commit()
-        conn.close()
-
-    def _store_intra_sample_v2(self, sample: dict) -> None:
-        """Store an intra-window sample with CLOB orderbook data + RSI."""
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            """
-            INSERT INTO intra_window_samples_v2
-            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
-             strike_price, move_bps, fair_value_up, fair_value_down,
-             clob_up_best_bid, clob_up_best_ask, clob_up_spread,
-             clob_up_bid_depth, clob_up_ask_depth,
-             clob_down_best_bid, clob_down_best_ask,
-             clob_up_mid, pricing_delay,
-             rsi_5, rsi_signal, btc_ret_3bar)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                sample["window_start_ts"],
-                sample["sample_time_utc"],
-                sample["elapsed_sec"],
-                sample["binance_price"],
-                sample.get("strike_price"),
-                sample.get("move_bps"),
-                sample.get("fair_value_up"),
-                sample.get("fair_value_down"),
-                sample.get("clob_up_best_bid"),
-                sample.get("clob_up_best_ask"),
-                sample.get("clob_up_spread"),
-                sample.get("clob_up_bid_depth"),
-                sample.get("clob_up_ask_depth"),
-                sample.get("clob_down_best_bid"),
-                sample.get("clob_down_best_ask"),
-                sample.get("clob_up_mid"),
-                sample.get("pricing_delay"),
-                sample.get("rsi_5"),
-                sample.get("rsi_signal"),
-                sample.get("btc_ret_3bar"),
-            ),
-        )
-        conn.commit()
-        conn.close()
 
     def _resolve_token_ids(self, window_ts: int) -> dict:
-        """Resolve CLOB token IDs for a 5m window from Gamma /markets API.
-
-        Called once per window. Returns {"up_token": str, "down_token": str}
-        or empty dict on failure.
-        """
+        """Resolve CLOB token IDs for a 5m window from Gamma /markets API."""
         slug = f"btc-updown-5m-{window_ts}"
         url = f"https://gamma-api.polymarket.com/markets?slug={slug}"
         req = Request(
@@ -678,11 +351,7 @@ class PolymarketCollector:
         return {}
 
     def _get_clob_orderbook(self, token_id: str) -> dict:
-        """Fetch real orderbook from CLOB API for a single token.
-
-        Returns {"best_bid", "best_ask", "mid", "spread", "bid_depth", "ask_depth"}
-        with prices from actual live orders (not cached Gamma data).
-        """
+        """Fetch real orderbook from CLOB API for a single token."""
         url = f"https://clob.polymarket.com/book?token_id={token_id}"
         req = Request(
             url,
@@ -693,12 +362,10 @@ class PolymarketCollector:
                 book = json.loads(resp.read())
                 bids = book.get("bids", [])
                 asks = book.get("asks", [])
-                # Find true best bid (highest) and best ask (lowest)
                 best_bid = max((float(b["price"]) for b in bids), default=0.0)
                 best_ask = min((float(a["price"]) for a in asks), default=1.0)
                 mid = (best_bid + best_ask) / 2 if bids and asks else None
                 spread = best_ask - best_bid if bids and asks else None
-                # Depth: total notional within 10 cents of mid
                 mid_ref = mid or 0.5
                 bid_depth = sum(
                     float(b["size"]) * float(b["price"])
@@ -723,26 +390,17 @@ class PolymarketCollector:
         return {}
 
     def _get_polymarket_prices(self, window_ts: int) -> dict:
-        """Fetch real-time Polymarket prices from CLOB orderbook.
-
-        V2: Uses CLOB API directly for real orderbook data instead of
-        cached Gamma API outcomePrices. Resolves token IDs from Gamma
-        once per window, then queries CLOB for live bid/ask.
-        """
-        # Resolve token IDs (cached per window via caller)
+        """Fetch real-time Polymarket prices from CLOB orderbook."""
         if not hasattr(self, "_token_cache") or self._token_cache.get("window_ts") != window_ts:
             tokens = self._resolve_token_ids(window_ts)
             self._token_cache = {"window_ts": window_ts, **tokens}
 
         up_token = self._token_cache.get("up_token")
         down_token = self._token_cache.get("down_token")
-
         if not up_token:
             return {}
 
         result: dict = {"source": "clob"}
-
-        # Fetch Up orderbook
         up_book = self._get_clob_orderbook(up_token)
         if up_book:
             result["up_price"] = up_book.get("mid")
@@ -751,268 +409,110 @@ class PolymarketCollector:
             result["up_spread"] = up_book.get("spread")
             result["up_bid_depth"] = up_book.get("bid_depth", 0)
             result["up_ask_depth"] = up_book.get("ask_depth", 0)
-
-        # Fetch Down orderbook
         if down_token:
             down_book = self._get_clob_orderbook(down_token)
             if down_book:
                 result["down_price"] = down_book.get("mid")
                 result["down_best_bid"] = down_book.get("best_bid", 0)
                 result["down_best_ask"] = down_book.get("best_ask", 1)
-
         return result
 
-    def collect_intra_window(self) -> None:
-        """Run 30-second sampling within a single 5-minute window.
+    # ------------------------------------------------------------------
+    # Collection
+    # ------------------------------------------------------------------
 
-        V2: Fetches real CLOB orderbook data (not cached Gamma API).
-        Samples Binance price + CLOB best bid/ask every 30 seconds,
-        computes Black-Scholes binary option fair values, measures pricing delay
-        vs CLOB mid-price, and stores results.
-
-        V3 addition: Records RSI(5) signal at window open for alpha validation.
-        """
+    def collect_one(self) -> dict:
+        """Collect one data point for the current 5m window."""
+        now = datetime.now(timezone.utc)
         window_ts = self._current_window_ts()
 
-        # Get strike price (Binance spot at window open)
-        strike = self._get_binance_price()
-        if strike > 0:
-            self._vol_tracker.update(strike)
-            # Update RSI with this window's opening price (= prev window close)
-            self._rsi_tracker.update(strike)
+        market = self._get_current_5m_market(window_ts)
+        btc_now = self._get_binance_price()
 
-        sigma = self._vol_tracker.sigma_annual
+        # Back-fill PREVIOUS window with accurate Binance 5m kline
+        prev_ts = window_ts - _WINDOW_SEC
+        prev_kline = self._get_binance_5m_kline(prev_ts)
+        prev_market = self._get_current_5m_market(prev_ts)
 
-        # Capture RSI state at window open (before any intra-window movement)
-        rsi_at_open = self._rsi_tracker.value
-        rsi_signal = self._rsi_tracker.signal
-
-        # 3-bar return for momentum context
-        closes = self._rsi_tracker._closes
-        btc_ret_3bar = None
-        if len(closes) >= 4:
-            btc_ret_3bar = (closes[-1] - closes[-4]) / closes[-4]
-
-        # Resolve token IDs once per window
-        self._token_cache = {"window_ts": None}  # force refresh
-        tokens = self._resolve_token_ids(window_ts)
-        self._token_cache = {"window_ts": window_ts, **tokens}
-        has_tokens = bool(tokens.get("up_token"))
-
-        logger.info(
-            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s RSI=%.0f(%s) ret3=%s",
-            window_ts, strike, sigma, "yes" if has_tokens else "NO",
-            rsi_at_open, rsi_signal,
-            f"{btc_ret_3bar*100:+.2f}%" if btc_ret_3bar is not None else "N/A",
-        )
-
-        # Sample every 30 seconds for the remainder of the window
-        while self._running:
-            now = time.time()
-            elapsed = int(now - window_ts)
-
-            # If we've passed the window boundary, break out
-            if elapsed >= _WINDOW_SEC:
-                break
-
-            # Get current Binance price
-            price = self._get_binance_price()
-            if price <= 0:
-                time.sleep(_INTRA_INTERVAL)
-                continue
-
-            # Get CLOB orderbook data
-            pm = self._get_polymarket_prices(window_ts)
-            up_mid = pm.get("up_price")
-            up_bid = pm.get("up_best_bid", 0)
-            up_ask = pm.get("up_best_ask", 1)
-            up_spread = pm.get("up_spread")
-            up_bid_depth = pm.get("up_bid_depth", 0)
-            up_ask_depth = pm.get("up_ask_depth", 0)
-            down_bid = pm.get("down_best_bid", 0)
-            down_ask = pm.get("down_best_ask", 1)
-
-            # Compute fair values
-            remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
-            move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
-            fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
-            fair_down = 1.0 - fair_up
-
-            # Pricing delay: CLOB mid vs BS fair value
-            pricing_delay = None
-            if up_mid is not None:
-                pricing_delay = up_mid - fair_up
-
-            sample = {
-                "window_start_ts": window_ts,
-                "sample_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
-                "elapsed_sec": elapsed,
-                "binance_price": price,
-                "strike_price": strike,
-                "move_bps": move_bps,
-                "fair_value_up": fair_up,
-                "fair_value_down": fair_down,
-                "clob_up_best_bid": up_bid if pm else None,
-                "clob_up_best_ask": up_ask if pm else None,
-                "clob_up_spread": up_spread,
-                "clob_up_bid_depth": up_bid_depth if pm else None,
-                "clob_up_ask_depth": up_ask_depth if pm else None,
-                "clob_down_best_bid": down_bid if pm else None,
-                "clob_down_best_ask": down_ask if pm else None,
-                "clob_up_mid": up_mid,
-                "pricing_delay": pricing_delay,
-                "rsi_5": rsi_at_open,
-                "rsi_signal": rsi_signal,
-                "btc_ret_3bar": btc_ret_3bar,
-            }
-            self._store_intra_sample_v2(sample)
-
-            # Log with CLOB orderbook data + RSI
-            delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
-            rsi_str = f"RSI={rsi_at_open:.0f}({rsi_signal})"
-            logger.info(
-                "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
-                "clob=%.3f bid=%.2f ask=%.2f spd=%.2f %s %s",
-                elapsed, price, move_bps, fair_up,
-                up_mid or 0, up_bid, up_ask, up_spread or 0,
-                delay_str, rsi_str,
+        if prev_kline:
+            kline_open = prev_kline["open"]
+            kline_close = prev_kline["close"]
+            binance_result = "Up" if kline_close >= kline_open else "Down"
+            self._update_result(
+                prev_ts,
+                polymarket_result=prev_market.get("winner"),
+                binance_result=binance_result,
+                btc_close=kline_close,
+                final_volume=prev_market.get("volume"),
             )
+            conn = sqlite3.connect(self._db_path)
+            conn.execute(
+                "UPDATE market_snapshots SET binance_btc_open = ? "
+                "WHERE window_start_ts = ? AND "
+                "(binance_btc_open IS NULL OR binance_btc_open = 0)",
+                (kline_open, prev_ts),
+            )
+            conn.commit()
+            conn.close()
+        else:
+            self._backfill_previous(prev_ts, prev_market.get("winner"), prev_market, btc_now)
 
-            # Update vol tracker
-            self._vol_tracker.update(price)
+        record = {
+            "timestamp_utc": now.strftime("%Y-%m-%dT%H:%M:%S"),
+            "window_start_ts": window_ts,
+            "slug": market.get("slug", f"btc-updown-5m-{window_ts}"),
+            "up_price": market.get("up_price"),
+            "down_price": market.get("down_price"),
+            "volume": market.get("volume", 0),
+            "binance_btc_open": btc_now,
+        }
+        self._store(record)
 
-            # Sleep until next 30-second mark
-            next_sample = window_ts + ((elapsed // _INTRA_INTERVAL) + 1) * _INTRA_INTERVAL
-            sleep_sec = max(0, next_sample - time.time())
-            end_time = time.time() + sleep_sec
-            while self._running and time.time() < end_time:
-                time.sleep(min(1, max(0, end_time - time.time())))
-
-    # ------------------------------------------------------------------
-    # 15-minute window collection
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _current_window_ts_15m() -> int:
-        now = int(time.time())
-        return (now // _WINDOW_15M) * _WINDOW_15M
-
-    @staticmethod
-    def _next_window_ts_15m() -> int:
-        now = int(time.time())
-        return ((now // _WINDOW_15M) + 1) * _WINDOW_15M
-
-    def _resolve_token_ids_15m(self, window_ts: int) -> dict:
-        """Resolve CLOB token IDs for a 15m window."""
-        slug = f"btc-updown-15m-{window_ts}"
-        url = f"https://gamma-api.polymarket.com/markets?slug={slug}"
-        req = Request(
-            url,
-            headers={"Accept": "application/json", "User-Agent": "quant-collector/1.0"},
+        prev_result = prev_kline and ("Up" if prev_kline["close"] >= prev_kline["open"] else "Down")
+        logger.info(
+            "Collected: ts=%d btc=$%.0f vol=$%.0f | prev: open=$%.0f close=$%.0f -> %s",
+            window_ts, btc_now, record.get("volume") or 0,
+            prev_kline.get("open", 0) if prev_kline else 0,
+            prev_kline.get("close", 0) if prev_kline else 0,
+            prev_result or "no_kline",
         )
-        try:
-            with urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-                if not data or not isinstance(data, list):
-                    return {}
-                m = data[0]
-                tokens_raw = m.get("clobTokenIds", "[]")
-                tokens = json.loads(tokens_raw) if isinstance(tokens_raw, str) else tokens_raw
-                outcomes_raw = m.get("outcomes", "[]")
-                outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
-                result = {}
-                for i, token_id in enumerate(tokens):
-                    outcome = outcomes[i] if i < len(outcomes) else ("Up" if i == 0 else "Down")
-                    if outcome == "Up":
-                        result["up_token"] = token_id
-                    elif outcome == "Down":
-                        result["down_token"] = token_id
-                return result
-        except Exception as e:
-            logger.debug("Failed to resolve 15m tokens for ts=%d: %s", window_ts, e)
-        return {}
+        return record
 
-    def _get_polymarket_prices_15m(self, window_ts: int) -> dict:
-        """Fetch CLOB orderbook for a 15m window."""
-        if self._token_cache_15m.get("window_ts") != window_ts:
-            tokens = self._resolve_token_ids_15m(window_ts)
-            self._token_cache_15m = {"window_ts": window_ts, **tokens}
-
-        up_token = self._token_cache_15m.get("up_token")
-        down_token = self._token_cache_15m.get("down_token")
-        if not up_token:
-            return {}
-
-        result: dict = {"source": "clob"}
-        up_book = self._get_clob_orderbook(up_token)
-        if up_book:
-            result["up_price"] = up_book.get("mid")
-            result["up_best_bid"] = up_book.get("best_bid", 0)
-            result["up_best_ask"] = up_book.get("best_ask", 1)
-            result["up_spread"] = up_book.get("spread")
-            result["up_bid_depth"] = up_book.get("bid_depth", 0)
-            result["up_ask_depth"] = up_book.get("ask_depth", 0)
-        if down_token:
-            down_book = self._get_clob_orderbook(down_token)
-            if down_book:
-                result["down_best_bid"] = down_book.get("best_bid", 0)
-                result["down_best_ask"] = down_book.get("best_ask", 1)
-        return result
-
-    def _store_sample_15m(self, sample: dict) -> None:
-        """Store a 15m window sample."""
+    def _backfill_previous(self, prev_ts, poly_result, prev_market, btc_close):
+        """Update the previous window row with settlement info."""
         conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            """
-            INSERT INTO samples_15m
-            (window_start_ts, sample_time_utc, elapsed_sec, binance_price,
-             strike_price, move_bps, fair_value_up, fair_value_down,
-             clob_up_best_bid, clob_up_best_ask, clob_up_spread,
-             clob_up_bid_depth, clob_up_ask_depth,
-             clob_down_best_bid, clob_down_best_ask,
-             clob_up_mid, pricing_delay,
-             rsi_5, rsi_signal, btc_ret_3bar)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                sample["window_start_ts"],
-                sample["sample_time_utc"],
-                sample["elapsed_sec"],
-                sample["binance_price"],
-                sample.get("strike_price"),
-                sample.get("move_bps"),
-                sample.get("fair_value_up"),
-                sample.get("fair_value_down"),
-                sample.get("clob_up_best_bid"),
-                sample.get("clob_up_best_ask"),
-                sample.get("clob_up_spread"),
-                sample.get("clob_up_bid_depth"),
-                sample.get("clob_up_ask_depth"),
-                sample.get("clob_down_best_bid"),
-                sample.get("clob_down_best_ask"),
-                sample.get("clob_up_mid"),
-                sample.get("pricing_delay"),
-                sample.get("rsi_5"),
-                sample.get("rsi_signal"),
-                sample.get("btc_ret_3bar"),
-            ),
-        )
-        conn.commit()
+        row = conn.execute(
+            "SELECT binance_btc_open FROM market_snapshots WHERE window_start_ts = ?",
+            (prev_ts,),
+        ).fetchone()
         conn.close()
 
-    def _sample_15m_once(self, window_ts: int, strike: float, sigma: float,
-                         rsi_val: float, rsi_sig: str, ret_3bar: float | None) -> None:
-        """Take one 15m CLOB sample and store it."""
-        now = time.time()
-        elapsed = int(now - window_ts)
-        if elapsed >= _WINDOW_15M:
-            return
+        binance_result = None
+        if row and row[0] and btc_close:
+            prev_open = row[0]
+            if btc_close > prev_open:
+                binance_result = "Up"
+            elif btc_close < prev_open:
+                binance_result = "Down"
+            else:
+                binance_result = "Flat"
 
-        price = self._get_binance_price()
-        if price <= 0:
-            return
+        self._update_result(
+            prev_ts,
+            polymarket_result=poly_result,
+            binance_result=binance_result,
+            btc_close=btc_close,
+            final_volume=prev_market.get("volume"),
+        )
 
-        pm = self._get_polymarket_prices_15m(window_ts)
+    # ------------------------------------------------------------------
+    # Intra-window sampling (5m)
+    # ------------------------------------------------------------------
+
+    def _build_intra_sample(self, window_ts, elapsed, price, strike, sigma,
+                            rsi_at_open, rsi_signal, btc_ret_3bar):
+        """Build a single 5m intra-window sample dict."""
+        pm = self._get_polymarket_prices(window_ts)
         up_mid = pm.get("up_price")
         up_bid = pm.get("up_best_bid", 0)
         up_ask = pm.get("up_best_ask", 1)
@@ -1022,7 +522,7 @@ class PolymarketCollector:
         down_bid = pm.get("down_best_bid", 0)
         down_ask = pm.get("down_best_ask", 1)
 
-        remaining_min = max(0, (_WINDOW_15M - elapsed)) / 60.0
+        remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
         move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
         fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
         pricing_delay = (up_mid - fair_up) if up_mid is not None else None
@@ -1045,20 +545,110 @@ class PolymarketCollector:
             "clob_down_best_ask": down_ask if pm else None,
             "clob_up_mid": up_mid,
             "pricing_delay": pricing_delay,
-            "rsi_5": rsi_val,
-            "rsi_signal": rsi_sig,
-            "btc_ret_3bar": ret_3bar,
+            "rsi_5": rsi_at_open,
+            "rsi_signal": rsi_signal,
+            "btc_ret_3bar": btc_ret_3bar,
         }
-        self._store_sample_15m(sample)
+        return sample, up_mid, up_bid, up_ask, up_spread, fair_up, move_bps, pricing_delay
+
+    def _init_5m_window(self):
+        """Initialize state at the start of a 5m window. Returns tuple."""
+        window_ts = self._current_window_ts()
+        strike = self._get_binance_price()
+        if strike > 0:
+            self._vol_tracker.update(strike)
+            self._rsi_tracker.update(strike)
+
+        sigma = self._vol_tracker.sigma_annual
+        rsi_at_open = self._rsi_tracker.value
+        rsi_signal = self._rsi_tracker.signal
+        closes = self._rsi_tracker._closes
+        btc_ret_3bar = None
+        if len(closes) >= 4:
+            btc_ret_3bar = (closes[-1] - closes[-4]) / closes[-4]
+
+        self._token_cache = {"window_ts": None}
+        tokens = self._resolve_token_ids(window_ts)
+        self._token_cache = {"window_ts": window_ts, **tokens}
+        has_tokens = bool(tokens.get("up_token"))
+
+        logger.info(
+            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s RSI=%.0f(%s) ret3=%s",
+            window_ts, strike, sigma, "yes" if has_tokens else "NO",
+            rsi_at_open, rsi_signal,
+            f"{btc_ret_3bar*100:+.2f}%" if btc_ret_3bar is not None else "N/A",
+        )
+        return window_ts, strike, sigma, rsi_at_open, rsi_signal, btc_ret_3bar
+
+    def _sample_5m_tick(self, window_ts, strike, sigma, rsi_at_open, rsi_signal, btc_ret_3bar):
+        """Take one 5m intra-window sample."""
+        now = time.time()
+        elapsed = int(now - window_ts)
+        if elapsed >= _WINDOW_SEC:
+            return False
+
+        price = self._get_binance_price()
+        if price <= 0:
+            return True  # continue, just skip
+
+        sample, up_mid, up_bid, up_ask, up_spread, fair_up, move_bps, pricing_delay = (
+            self._build_intra_sample(
+                window_ts, elapsed, price, strike, sigma,
+                rsi_at_open, rsi_signal, btc_ret_3bar,
+            )
+        )
+        self._store_intra_sample_v2(sample)
 
         delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
+        rsi_str = f"RSI={rsi_at_open:.0f}({rsi_signal})"
         logger.info(
-            "  15m t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
-            "clob=%.3f bid=%.2f ask=%.2f %s RSI=%.0f(%s)",
+            "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
+            "clob=%.3f bid=%.2f ask=%.2f spd=%.2f %s %s",
             elapsed, price, move_bps, fair_up,
-            up_mid or 0, up_bid, up_ask, delay_str,
-            rsi_val, rsi_sig,
+            up_mid or 0, up_bid, up_ask, up_spread or 0,
+            delay_str, rsi_str,
         )
+        self._vol_tracker.update(price)
+        return True
+
+    def collect_intra_window(self) -> None:
+        """Run 30-second sampling within a single 5-minute window."""
+        window_ts, strike, sigma, rsi_at_open, rsi_signal, btc_ret_3bar = (
+            self._init_5m_window()
+        )
+
+        while self._running:
+            now = time.time()
+            elapsed = int(now - window_ts)
+            if elapsed >= _WINDOW_SEC:
+                break
+
+            price = self._get_binance_price()
+            if price > 0:
+                sample, up_mid, up_bid, up_ask, up_spread, fair_up, move_bps, pricing_delay = (
+                    self._build_intra_sample(
+                        window_ts, elapsed, price, strike, sigma,
+                        rsi_at_open, rsi_signal, btc_ret_3bar,
+                    )
+                )
+                self._store_intra_sample_v2(sample)
+
+                delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
+                rsi_str = f"RSI={rsi_at_open:.0f}({rsi_signal})"
+                logger.info(
+                    "  t+%ds: BTC=$%.0f move=%+.1fbps fair=%.3f "
+                    "clob=%.3f bid=%.2f ask=%.2f spd=%.2f %s %s",
+                    elapsed, price, move_bps, fair_up,
+                    up_mid or 0, up_bid, up_ask, up_spread or 0,
+                    delay_str, rsi_str,
+                )
+                self._vol_tracker.update(price)
+
+            next_sample = window_ts + ((elapsed // _INTRA_INTERVAL) + 1) * _INTRA_INTERVAL
+            sleep_sec = max(0, next_sample - time.time())
+            end_time = time.time() + sleep_sec
+            while self._running and time.time() < end_time:
+                time.sleep(min(1, max(0, end_time - time.time())))
 
     # ------------------------------------------------------------------
     # Stats
@@ -1066,62 +656,14 @@ class PolymarketCollector:
 
     def get_stats(self) -> dict:
         """Return collection statistics."""
-        conn = sqlite3.connect(self._db_path)
-        row = conn.execute(
-            "SELECT COUNT(*), MIN(timestamp_utc), MAX(timestamp_utc) FROM market_snapshots"
-        ).fetchone()
-        results = conn.execute(
-            "SELECT polymarket_result, COUNT(*) FROM market_snapshots "
-            "WHERE polymarket_result IS NOT NULL GROUP BY polymarket_result"
-        ).fetchall()
-
-        # Intra-window stats (v1 legacy)
-        intra_row = conn.execute(
-            "SELECT COUNT(*) FROM intra_window_samples"
-        ).fetchone()
-        intra_count = intra_row[0] if intra_row else 0
-
-        # V2 CLOB stats
-        intra_v2_row = conn.execute(
-            "SELECT COUNT(*) FROM intra_window_samples_v2"
-        ).fetchone()
-        intra_v2_count = intra_v2_row[0] if intra_v2_row else 0
-
-        # Average pricing delay from v2 CLOB data
-        accuracy_row = conn.execute(
-            "SELECT AVG(ABS(pricing_delay)), AVG(clob_up_spread) "
-            "FROM intra_window_samples_v2 WHERE pricing_delay IS NOT NULL"
-        ).fetchone()
-        avg_pricing_delay = accuracy_row[0] if accuracy_row and accuracy_row[0] is not None else None
-        avg_clob_spread = accuracy_row[1] if accuracy_row and accuracy_row[1] is not None else None
-
-        conn.close()
-
-        stats = {
-            "total_records": row[0],
-            "first_record": row[1],
-            "last_record": row[2],
-            "results": {r[0]: r[1] for r in results},
-            "intra_window_samples_v1": intra_count,
-            "intra_window_samples_v2": intra_v2_count,
-            "avg_pricing_delay": avg_pricing_delay,
-            "avg_clob_spread": avg_clob_spread,
-            "current_sigma_annual": self._vol_tracker.sigma_annual,
-        }
-        return stats
+        return _get_stats_db(self._db_path, self._vol_tracker.sigma_annual)
 
     # ------------------------------------------------------------------
     # Continuous run
     # ------------------------------------------------------------------
 
     def start(self, mode: str = "basic"):
-        """Run collector continuously, aligned to 5-minute boundaries.
-
-        Args:
-            mode: 'basic' for one sample per window (original),
-                  'intra' for 30-second intra-window sampling with fair values.
-                  In intra mode, also samples 15m windows at each 30s tick.
-        """
+        """Run collector continuously, aligned to 5-minute boundaries."""
         self._running = True
         logger.info("Polymarket collector starting (db=%s, mode=%s)", self._db_path, mode)
 
@@ -1135,7 +677,6 @@ class PolymarketCollector:
         while self._running:
             try:
                 if mode == "intra":
-                    # Wait until next 5m window boundary
                     next_boundary = self._next_window_ts()
                     wait_sec = max(0, next_boundary - time.time() + _SETTLE_OFFSET)
                     end_wait = time.time() + wait_sec
@@ -1148,7 +689,6 @@ class PolymarketCollector:
                     new_15m_ts = self._current_window_ts_15m()
                     if new_15m_ts != cur_15m_ts:
                         cur_15m_ts = new_15m_ts
-                        # Get 15m strike and update 15m RSI
                         strike_15m = self._get_binance_price()
                         if strike_15m > 0:
                             self._rsi_tracker_15m.update(strike_15m)
@@ -1158,7 +698,6 @@ class PolymarketCollector:
                         ret_3bar_15m = None
                         if len(closes_15m) >= 4:
                             ret_3bar_15m = (closes_15m[-1] - closes_15m[-4]) / closes_15m[-4]
-                        # Reset 15m token cache
                         self._token_cache_15m = {"window_ts": None}
                         logger.info(
                             "15m window start: ts=%d strike=$%.0f RSI=%.0f(%s) ret3=%s",
@@ -1166,8 +705,6 @@ class PolymarketCollector:
                             f"{ret_3bar_15m*100:+.2f}%" if ret_3bar_15m is not None else "N/A",
                         )
 
-                    # Run 5m intra-window sampling (this blocks for ~5 min)
-                    # During each 30s tick, also sample 15m market
                     self._collect_intra_with_15m(
                         cur_15m_ts, strike_15m, rsi_15m_val, rsi_15m_sig, ret_3bar_15m,
                     )
@@ -1184,38 +721,10 @@ class PolymarketCollector:
                 while self._running and time.time() < end_time:
                     time.sleep(1)
 
-    def _collect_intra_with_15m(
-        self,
-        ts_15m: int, strike_15m: float,
-        rsi_15m: float, rsi_sig_15m: str, ret3_15m: float | None,
-    ) -> None:
+    def _collect_intra_with_15m(self, ts_15m, strike_15m, rsi_15m, rsi_sig_15m, ret3_15m):
         """Run 5m intra-window sampling, also sampling 15m market at each tick."""
-        # Standard 5m collection (sets up strike, RSI, etc.)
-        window_ts = self._current_window_ts()
-        strike = self._get_binance_price()
-        if strike > 0:
-            self._vol_tracker.update(strike)
-            self._rsi_tracker.update(strike)
-
-        sigma = self._vol_tracker.sigma_annual
-        rsi_at_open = self._rsi_tracker.value
-        rsi_signal = self._rsi_tracker.signal
-        closes_5m = self._rsi_tracker._closes
-        btc_ret_3bar = None
-        if len(closes_5m) >= 4:
-            btc_ret_3bar = (closes_5m[-1] - closes_5m[-4]) / closes_5m[-4]
-
-        # Resolve 5m tokens
-        self._token_cache = {"window_ts": None}
-        tokens = self._resolve_token_ids(window_ts)
-        self._token_cache = {"window_ts": window_ts, **tokens}
-        has_tokens = bool(tokens.get("up_token"))
-
-        logger.info(
-            "Intra-window start: ts=%d strike=$%.0f sigma=%.2f tokens=%s RSI=%.0f(%s) ret3=%s",
-            window_ts, strike, sigma, "yes" if has_tokens else "NO",
-            rsi_at_open, rsi_signal,
-            f"{btc_ret_3bar*100:+.2f}%" if btc_ret_3bar is not None else "N/A",
+        window_ts, strike, sigma, rsi_at_open, rsi_signal, btc_ret_3bar = (
+            self._init_5m_window()
         )
 
         while self._running:
@@ -1230,44 +739,12 @@ class PolymarketCollector:
                 continue
 
             # --- 5m sample ---
-            pm = self._get_polymarket_prices(window_ts)
-            up_mid = pm.get("up_price")
-            up_bid = pm.get("up_best_bid", 0)
-            up_ask = pm.get("up_best_ask", 1)
-            up_spread = pm.get("up_spread")
-            up_bid_depth = pm.get("up_bid_depth", 0)
-            up_ask_depth = pm.get("up_ask_depth", 0)
-            down_bid = pm.get("down_best_bid", 0)
-            down_ask = pm.get("down_best_ask", 1)
-
-            remaining_min = max(0, (_WINDOW_SEC - elapsed)) / 60.0
-            move_bps = ((price - strike) / strike * 10000) if strike > 0 else 0.0
-            fair_up = binary_call_fair_value(price, strike, remaining_min, sigma)
-            fair_down = 1.0 - fair_up
-            pricing_delay = (up_mid - fair_up) if up_mid is not None else None
-
-            sample = {
-                "window_start_ts": window_ts,
-                "sample_time_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
-                "elapsed_sec": elapsed,
-                "binance_price": price,
-                "strike_price": strike,
-                "move_bps": move_bps,
-                "fair_value_up": fair_up,
-                "fair_value_down": fair_down,
-                "clob_up_best_bid": up_bid if pm else None,
-                "clob_up_best_ask": up_ask if pm else None,
-                "clob_up_spread": up_spread,
-                "clob_up_bid_depth": up_bid_depth if pm else None,
-                "clob_up_ask_depth": up_ask_depth if pm else None,
-                "clob_down_best_bid": down_bid if pm else None,
-                "clob_down_best_ask": down_ask if pm else None,
-                "clob_up_mid": up_mid,
-                "pricing_delay": pricing_delay,
-                "rsi_5": rsi_at_open,
-                "rsi_signal": rsi_signal,
-                "btc_ret_3bar": btc_ret_3bar,
-            }
+            sample, up_mid, up_bid, up_ask, up_spread, fair_up, move_bps, pricing_delay = (
+                self._build_intra_sample(
+                    window_ts, elapsed, price, strike, sigma,
+                    rsi_at_open, rsi_signal, btc_ret_3bar,
+                )
+            )
             self._store_intra_sample_v2(sample)
 
             delay_str = f"delay={pricing_delay:+.3f}" if pricing_delay is not None else "no_clob"
@@ -1282,16 +759,17 @@ class PolymarketCollector:
 
             # --- 15m sample (piggyback on same tick) ---
             try:
-                self._sample_15m_once(
-                    ts_15m, strike_15m, sigma,
+                sample_15m_once(
+                    self._db_path, ts_15m, strike_15m, sigma,
                     rsi_15m, rsi_sig_15m, ret3_15m,
+                    self._get_binance_price, self._get_clob_orderbook,
+                    self._token_cache_15m, binary_call_fair_value,
                 )
             except Exception:
                 logger.debug("15m sample failed", exc_info=True)
 
             self._vol_tracker.update(price)
 
-            # Sleep until next 30-second mark
             next_sample = window_ts + ((elapsed // _INTRA_INTERVAL) + 1) * _INTRA_INTERVAL
             sleep_sec = max(0, next_sample - time.time())
             end_time = time.time() + sleep_sec

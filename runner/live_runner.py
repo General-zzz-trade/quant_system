@@ -1,5 +1,5 @@
 # runner/live_runner.py
-"""LiveRunner — framework live trading runner.
+"""LiveRunner -- framework live trading runner.
 
 Assembles:
   - EngineCoordinator + EngineLoop
@@ -51,6 +51,13 @@ from runner.recovery import (
     EventRecorder,
     PeriodicCheckpointer,
 )
+from runner.live_runner_helpers import (
+    build_config_from_file,
+    auto_discover_models,
+    handle_model_reload,
+    run_adaptive_btc_check,
+    apply_attribution_feedback,
+)
 
 # Phase builders (extracted to runner/builders/)
 from runner.builders.core_infra_builder import build_core_infra as _build_core_infra
@@ -70,22 +77,17 @@ from runner.builders.rust_components_builder import build_rust_components as _bu
 logger = logging.getLogger(__name__)
 
 
-# ── Sub-builder helpers (used by builders) ─────────────────────────
+# -- Sub-builder helpers (used by builders) --
 
 
 def _find_module_attr(decision_bridge: Any, attr: str) -> Any:
-    """Walk DecisionBridge.modules to find first module carrying `attr`.
-
-    Handles RegimeAwareDecisionModule wrapping (checks .inner too).
-    Returns None if not found or decision_bridge is None.
-    """
+    """Walk DecisionBridge.modules to find first module carrying `attr`."""
     if decision_bridge is None:
         return None
     for mod in getattr(decision_bridge, 'modules', []):
         val = getattr(mod, attr, None)
         if val is not None:
             return val
-        # Unwrap RegimeAwareDecisionModule
         inner = getattr(mod, 'inner', None)
         if inner is not None:
             val = getattr(inner, attr, None)
@@ -121,11 +123,7 @@ class _SubsystemReport:
 
 @dataclass
 class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
-    """Full live trading runner with reconciliation, kill switch, and margin monitoring.
-
-    Use LiveRunner.build() to assemble the complete framework live stack.
-    Call start() to begin trading (blocks until stop() or signal).
-    """
+    """Full live trading runner with reconciliation, kill switch, and margin monitoring."""
 
     loop: Any  # EngineLoop
     coordinator: Any  # EngineCoordinator
@@ -156,14 +154,14 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
     freshness_monitor: Optional[Any] = None
     alpha_health_monitor: Optional[Any] = None
     ws_order_gateway: Optional[Any] = None
-    ensemble_combiner: Optional[Any] = None  # Direction 13: multi-TF ensemble
-    regime_sizer: Optional[Any] = None  # Direction 17: regime-aware sizing
-    staged_risk: Optional[Any] = None  # Staged risk manager (equity-based)
-    live_signal_tracker: Optional[Any] = None  # Direction 18: attribution feedback
-    portfolio_allocator: Optional[Any] = None  # Direction 19: cross-asset allocator
+    ensemble_combiner: Optional[Any] = None
+    regime_sizer: Optional[Any] = None
+    staged_risk: Optional[Any] = None
+    live_signal_tracker: Optional[Any] = None
+    portfolio_allocator: Optional[Any] = None
     periodic_checkpointer: Optional[PeriodicCheckpointer] = None
     event_recorder: Optional[EventRecorder] = None
-    ack_store: Optional[Any] = None  # SQLiteAckStore when enable_persistent_stores=True
+    ack_store: Optional[Any] = None
     _fills: List[Dict[str, Any]] = field(default_factory=list)
     _control_history: List[OperatorControlRecord] = field(default_factory=list)
     _running: bool = field(default=False, init=False)
@@ -209,49 +207,25 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         sentiment_source: Any = None,
         bear_model: Any = None,
     ) -> "LiveRunner":
-        """Build the full framework live stack.
-
-        Args:
-            config: Runner configuration.
-            venue_clients: Mapping of venue name to venue client object.
-                           The client for config.venue is used as the execution adapter.
-            decision_modules: Decision modules (strategy, risk, etc.).
-            transport: WsTransport override (for testing).
-            metrics_exporter: Optional PrometheusExporter.
-            fetch_venue_state: Callable returning exchange state dict for reconciliation.
-            fetch_margin: Callable returning current margin ratio (0.0-1.0).
-            on_fill: Optional fill callback.
-            alert_sink: Optional AlertSink for health/margin alerts.
-        """
+        """Build the full framework live stack."""
         symbol_default = config.symbols[0]
         fills: List[Dict[str, Any]] = []
         report = _SubsystemReport()
 
-        # Phase 1: core infrastructure
         latency_tracker, _record_fill, kill_switch, alert_sink = _build_core_infra(
             config, on_fill, alert_sink, fills,
         )
-
-        # Phase 1.5: Rust hot-path components (optional)
         rust = _build_rust_components(config, config.symbols)
-
-        # Phase 2: monitoring
         health, hook, alpha_health_monitor, regime_sizer, staged_risk, live_signal_tracker = (
             _build_monitoring(config, kill_switch, metrics_exporter)
         )
-
-        # Phase 3: portfolio and correlation
         (
             portfolio_allocator, correlation_computer, _update_correlation,
             attribution_tracker, correlation_gate,
         ) = _build_portfolio_and_correlation(config)
-
-        # Phase 4: order infrastructure
         order_state_machine, timeout_tracker, model_loader_inst, alpha_models = (
             _build_order_infra(config, alpha_models)
         )
-
-        # Phase 5: features and inference
         feat_hook, inference_bridge, _dominance_computer = _build_features_and_inference(
             config, feature_computer, alpha_models, inference_bridges,
             unified_predictors, metrics_exporter, hook, report,
@@ -261,8 +235,6 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             put_call_ratio_source, onchain_source, liquidation_source,
             mempool_source, macro_source, sentiment_source,
         )
-
-        # Phase 6: coordinator and pipeline
         (
             coordinator, risk_gate, portfolio_aggregator,
             _emit_handler, _emit, _event_recorder_ref,
@@ -273,30 +245,20 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             live_signal_tracker, alpha_health_monitor, regime_sizer,
             staged_risk, portfolio_allocator, fetch_margin, report,
         )
-
-        # Phase 7: execution
         venue_client, ws_order_gateway = _build_execution(
             config, venue_clients, coordinator, kill_switch,
             _emit, _record_fill, risk_gate, report, _FillRecordingAdapter,
         )
-
-        # Phase 8: decision bridge and engine loop
         decision_bridge_inst, module_reloader, loop = _build_decision(
             config, decision_modules, _emit, coordinator,
         )
-
-        # Phase 9: market data runtime
         runtime, binance_urls = _build_market_data(
             config, transport, venue_client, loop,
         )
-
-        # Phase 10: user stream
         user_stream_client = _build_user_stream(
             config, venue_client, coordinator, binance_urls,
             user_stream_transport, report,
         )
-
-        # Phase 11: persistence and recovery
         (
             reconcile_scheduler, margin_monitor, alert_manager,
             state_store, event_log, data_scheduler, freshness_monitor,
@@ -308,8 +270,6 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             alert_sink, health, latency_tracker, alpha_health_monitor,
             report,
         )
-
-        # Phase 12: shutdown, health server, checkpointer
         (
             shutdown_handler, health_server, control_plane,
             periodic_checkpointer, event_recorder, _runner_ref,
@@ -322,52 +282,32 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         )
 
         runner = cls(
-            loop=loop,
-            coordinator=coordinator,
-            runtime=runtime,
-            kill_switch=kill_switch,
-            health=health,
-            reconcile_scheduler=reconcile_scheduler,
-            margin_monitor=margin_monitor,
-            shutdown_handler=shutdown_handler,
-            latency_tracker=latency_tracker,
-            alert_manager=alert_manager,
-            health_server=health_server,
-            state_store=state_store,
-            event_log=event_log,
+            loop=loop, coordinator=coordinator, runtime=runtime, kill_switch=kill_switch,
+            health=health, reconcile_scheduler=reconcile_scheduler,
+            margin_monitor=margin_monitor, shutdown_handler=shutdown_handler,
+            latency_tracker=latency_tracker, alert_manager=alert_manager,
+            health_server=health_server, state_store=state_store, event_log=event_log,
             correlation_computer=correlation_computer,
-            attribution_tracker=attribution_tracker,
-            correlation_gate=correlation_gate,
-            risk_gate=risk_gate,
-            module_reloader=module_reloader,
-            decision_bridge=decision_bridge_inst,
-            user_stream=user_stream_client,
-            order_state_machine=order_state_machine,
-            timeout_tracker=timeout_tracker,
-            model_loader=model_loader_inst,
-            inference_bridge=inference_bridge,
+            attribution_tracker=attribution_tracker, correlation_gate=correlation_gate,
+            risk_gate=risk_gate, module_reloader=module_reloader,
+            decision_bridge=decision_bridge_inst, user_stream=user_stream_client,
+            order_state_machine=order_state_machine, timeout_tracker=timeout_tracker,
+            model_loader=model_loader_inst, inference_bridge=inference_bridge,
             ensemble_combiner=inference_bridge if config.enable_multi_tf_ensemble else None,
             portfolio_aggregator=portfolio_aggregator,
-            data_scheduler=data_scheduler,
-            freshness_monitor=freshness_monitor,
+            data_scheduler=data_scheduler, freshness_monitor=freshness_monitor,
             alpha_health_monitor=alpha_health_monitor,
-            ws_order_gateway=ws_order_gateway,
-            regime_sizer=regime_sizer,
-            staged_risk=staged_risk,
-            live_signal_tracker=live_signal_tracker,
+            ws_order_gateway=ws_order_gateway, regime_sizer=regime_sizer,
+            staged_risk=staged_risk, live_signal_tracker=live_signal_tracker,
             portfolio_allocator=portfolio_allocator,
             periodic_checkpointer=periodic_checkpointer,
-            event_recorder=event_recorder,
-            ack_store=ack_store,
-            _fills=fills,
+            event_recorder=event_recorder, ack_store=ack_store, _fills=fills,
         )
         if control_plane is not None:
             control_plane.runner = runner
-        # Patch late-binding reference so cleanup callback can stop the runner
         _runner_ref.append(runner)
         runner._config = config
         runner._rust_components = rust
-        # Patch event recorder into pipeline output hook and emit handler
         if event_recorder is not None:
             _event_recorder_ref[0] = event_recorder
             _emit_handler._event_recorder = event_recorder
@@ -391,129 +331,18 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
         feature_computer: Any = None,
         inference_bridges: Optional[Dict[str, Any]] = None,
     ) -> "LiveRunner":
-        """Build a LiveRunner from a YAML/JSON config file.
+        """Build a LiveRunner from a YAML/JSON config file."""
+        runner_config, _raw = build_config_from_file(
+            config_path, shadow_mode=shadow_mode,
+        )
 
-        Supports two config formats:
-          - Flat: keys map 1:1 to LiveRunnerConfig fields (production.yaml)
-          - Nested: trading.symbol, risk.*, execution.* sections (legacy)
-
-        When feature_computer and inference_bridges are not provided,
-        auto-discovers and loads models from models_v8/.
-        """
-        import dataclasses
-        from infra.config.loader import load_config_secure, resolve_credentials
-
-        raw = load_config_secure(config_path)
-
-        # ── Detect config format: flat vs nested ──
-        is_flat = "symbols" in raw or "venue" in raw
-        is_nested = "trading" in raw
-
-        if is_flat:
-            # Flat format: keys map directly to LiveRunnerConfig fields
-            config_fields = {f.name for f in dataclasses.fields(LiveRunnerConfig)}
-            kwargs: Dict[str, Any] = {}
-            for k, v in raw.items():
-                if k in config_fields:
-                    kwargs[k] = v
-            # Ensure symbols is a tuple
-            if "symbols" in kwargs:
-                kwargs["symbols"] = tuple(kwargs["symbols"])
-            # Apply shadow_mode override from CLI
-            kwargs["shadow_mode"] = shadow_mode
-            runner_config = LiveRunnerConfig(**kwargs)
-        elif is_nested:
-            # Legacy nested format: validate against nested schema
-            from infra.config.schema import validate_trading_config
-            errors = validate_trading_config(raw)
-            if errors:
-                raise ValueError(
-                    f"Config validation failed ({config_path}):\n"
-                    + "\n".join(f"  - {e}" for e in errors)
-                )
-            trading = raw.get("trading", {})
-            risk = raw.get("risk", {})
-            monitoring = raw.get("monitoring", {})
-            log_cfg = raw.get("logging", {})
-
-            symbol = trading.get("symbol", "BTCUSDT")
-            symbols = tuple(trading["symbols"]) if "symbols" in trading else (symbol,)
-
-            kwargs = {}
-            if risk.get("max_position_notional") is not None:
-                kwargs["max_position_notional"] = float(risk["max_position_notional"])
-            if risk.get("max_order_notional") is not None:
-                kwargs["max_order_notional"] = float(risk["max_order_notional"])
-            if risk.get("max_leverage") is not None:
-                leverage = float(risk["max_leverage"])
-                kwargs["max_gross_leverage"] = leverage
-                kwargs["max_net_leverage"] = leverage
-            if risk.get("max_drawdown_pct") is not None:
-                # Legacy nested configs only provided a single drawdown stop.
-                # Map it conservatively into the ordered warning/reduce/kill ladder.
-                dd_kill = float(risk["max_drawdown_pct"])
-                kwargs["dd_warning_pct"] = dd_kill * 0.5
-                kwargs["dd_reduce_pct"] = dd_kill * 0.75
-                kwargs["dd_kill_pct"] = dd_kill
-            if monitoring.get("health_check_interval") is not None:
-                kwargs["health_stale_data_sec"] = float(monitoring["health_check_interval"])
-            if monitoring.get("health_port") is not None:
-                kwargs["health_port"] = int(monitoring["health_port"])
-            if monitoring.get("health_host") is not None:
-                kwargs["health_host"] = str(monitoring["health_host"])
-            if monitoring.get("health_auth_token_env") is not None:
-                kwargs["health_auth_token_env"] = str(monitoring["health_auth_token_env"])
-
-            runner_config = LiveRunnerConfig(
-                symbols=symbols,
-                venue=trading.get("exchange", "binance"),
-                enable_structured_logging=log_cfg.get("structured", True),
-                log_level=log_cfg.get("level", "INFO"),
-                log_file=log_cfg.get("file"),
-                shadow_mode=shadow_mode,
-                testnet=bool(trading.get("testnet", False)),
-                **kwargs,
-            )
-        else:
-            raise ValueError(
-                f"Config format not recognized ({config_path}): "
-                "expected flat keys (symbols, venue) or nested sections (trading, risk)"
-            )
-
-        resolve_credentials(raw)
-
-        # ── Auto-discover and load models if not provided ──
         if feature_computer is None or inference_bridges is None:
-            from runner.model_discovery import (
-                discover_active_models,
-                load_symbol_models,
-                build_inference_bridge,
-                build_feature_computer,
+            feature_computer, inference_bridges = auto_discover_models(
+                runner_config,
+                feature_computer=feature_computer,
+                inference_bridges=inference_bridges,
+                metrics_exporter=metrics_exporter,
             )
-
-            if feature_computer is None:
-                feature_computer = build_feature_computer()
-
-            if inference_bridges is None:
-                active = discover_active_models()
-                bridges: Dict[str, Any] = {}
-                for sym in runner_config.symbols:
-                    if sym in active:
-                        info = active[sym]
-                        models, weights = load_symbol_models(
-                            sym, info["dir"], info["config"],
-                        )
-                        if models:
-                            bridges[sym] = build_inference_bridge(
-                                sym, models, info["config"], runner_config,
-                                metrics_exporter=metrics_exporter,
-                                ensemble_weights=weights,
-                            )
-                        else:
-                            logger.warning("No models loaded for %s — no inference bridge", sym)
-                    else:
-                        logger.warning("No active model found for %s in models_v8/", sym)
-                inference_bridges = bridges if bridges else None
 
         return cls.build(
             runner_config,
@@ -560,30 +389,7 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             logger.warning("Performance tuning partially failed: %s", e)
 
     def _apply_attribution_feedback(self) -> None:
-        """Apply attribution-based weight adjustments to ensemble combiner (Direction 18)."""
-        tracker = self.live_signal_tracker
-        if tracker is None or not hasattr(tracker, 'compute_weight_recommendations'):
-            return
-
-        recommendations = tracker.compute_weight_recommendations(
-            alpha_health_monitor=self.alpha_health_monitor,
-        )
-
-        combiner = self.ensemble_combiner
-        if combiner is None:
-            return
-
-        # Apply to all combiners (may be dict of per-symbol combiners)
-        combiners = combiner.values() if isinstance(combiner, dict) else [combiner]
-        for c in combiners:
-            if hasattr(c, 'update_weight'):
-                for origin, weight_mult in recommendations.items():
-                    if weight_mult < 1.0:
-                        c.update_weight(origin, weight_mult)
-                        logger.info(
-                            "Attribution feedback: %s weight -> %.2f",
-                            origin, weight_mult,
-                        )
+        apply_attribution_feedback(self)
 
     def start(self) -> None:
         """Start the live trading system. Blocks until stop() or signal."""
@@ -592,112 +398,29 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
             with self._lifecycle_lock:
                 self._stopped = False
                 self._running = True
-
                 self._apply_perf_tuning()
-
-                # ── Systemd watchdog notify (Direction 20) ──
-                try:
-                    import socket
-                    _sd_addr = os.environ.get("NOTIFY_SOCKET")
-                    if _sd_addr:
-                        _sd_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-                        if _sd_addr.startswith("@"):
-                            _sd_addr = "\0" + _sd_addr[1:]
-
-                        def _sd_notify_fn(msg: str) -> None:
-                            try:
-                                _sd_sock.sendto(msg.encode(), _sd_addr)
-                            except Exception as e:
-                                logger.error(
-                                    "Failed to send systemd notify '%s': %s",
-                                    msg, e, exc_info=True,
-                                )
-
-                        _sd_notify_fn("READY=1")
-                        logger.info("Systemd notify: READY=1")
-                except Exception as e:
-                    logger.error("Failed to initialize systemd watchdog: %s", e, exc_info=True)
+                _sd_notify_fn = _setup_systemd_notify()
 
                 if self.shutdown_handler is not None:
                     self.shutdown_handler.install_handlers()
-
                 self.coordinator.start()
-                if self.health is not None:
-                    self.health.start()
-                if self.reconcile_scheduler is not None:
-                    self.reconcile_scheduler.start()
-                if self.margin_monitor is not None:
-                    self.margin_monitor.start()
+                _start_optional(self.health)
+                _start_optional(self.reconcile_scheduler)
+                _start_optional(self.margin_monitor)
                 if self.alert_manager is not None:
                     self.alert_manager.start_periodic()
-                if self.health_server is not None:
-                    self.health_server.start()
-                if self.module_reloader is not None:
-                    self.module_reloader.start()
-                if self.data_scheduler is not None:
-                    self.data_scheduler.start()
-                if self.freshness_monitor is not None:
-                    self.freshness_monitor.start()
-                if self.periodic_checkpointer is not None:
-                    self.periodic_checkpointer.start()
+                _start_optional(self.health_server)
+                _start_optional(self.module_reloader)
+                _start_optional(self.data_scheduler)
+                _start_optional(self.freshness_monitor)
+                _start_optional(self.periodic_checkpointer)
 
-                # SIGHUP: schedule model reload on next main loop iteration
-                # Works with both ModelRegistry and direct model file reload
-                import signal as _signal
-
-                def _sighup_handler(signum: int, frame: Any) -> None:
-                    logger.info("SIGHUP received — scheduling model reload")
-                    self._reload_models_pending = True
-
-                try:
-                    if threading.current_thread() is threading.main_thread():
-                        _signal.signal(_signal.SIGHUP, _sighup_handler)
-                    else:
-                        logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
-                except (OSError, AttributeError, ValueError) as e:
-                    logger.warning("Failed to install SIGHUP handler: %s", e)
-
+                _install_sighup(self)
                 self.runtime.start()
-
-                if self.user_stream is not None:
-                    def _user_stream_loop() -> None:
-                        try:
-                            self.user_stream.connect()
-                            self._record_user_stream_connect()
-                        except Exception:
-                            self._record_user_stream_failure(kind="connect")
-                            logger.warning("User stream initial connect failed", exc_info=True)
-                            return
-                        _backoff = 1.0
-                        _MAX_BACKOFF = 60.0
-                        while self._running:
-                            try:
-                                self.user_stream.step()
-                                _backoff = 1.0  # reset on success
-                            except Exception:
-                                self._record_user_stream_failure(kind="step")
-                                logger.warning(
-                                    "User stream step error, reconnecting in %.0fs",
-                                    _backoff, exc_info=True,
-                                )
-                                time.sleep(_backoff)
-                                try:
-                                    self.user_stream.connect()
-                                    self._record_user_stream_connect()
-                                    _backoff = 1.0  # reset on successful reconnect
-                                except Exception:
-                                    self._record_user_stream_failure(kind="reconnect")
-                                    logger.warning("User stream reconnect failed", exc_info=True)
-                                    _backoff = min(_backoff * 2, _MAX_BACKOFF)
-
-                    t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
-                    t.start()
-                    self._user_stream_thread = t
-                    logger.info("User stream thread started")
-
+                _start_user_stream(self)
                 self.loop.start_background()
 
-            # ── Adaptive BTC config selector state ──
+            # Adaptive BTC config selector state
             _last_adaptive_check = 0.0
             _adaptive_selector = None
             cfg = getattr(self, "_config", None)
@@ -705,57 +428,33 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                 try:
                     from alpha.adaptive_config import AdaptiveConfigSelector
                     _adaptive_selector = AdaptiveConfigSelector()
-                    logger.info(
-                        "Adaptive BTC config selector enabled (interval=%dh)",
-                        cfg.adaptive_btc_interval_hours,
-                    )
+                    logger.info("Adaptive BTC config selector enabled (interval=%dh)",
+                                cfg.adaptive_btc_interval_hours)
                 except Exception:
                     logger.warning("Adaptive config selector init failed", exc_info=True)
 
             logger.info("LiveRunner started. Press Ctrl+C to stop.")
             while self._running:
                 time.sleep(1.0)
-                # Check for timed-out orders
                 if self.timeout_tracker is not None:
-                    timed_out = self.timeout_tracker.check_timeouts()
-                    if timed_out:
-                        logger.warning("Timed out orders: %s", timed_out)
-                        venue = str(getattr(getattr(self, "_config", None), "venue", ""))
-                        timeout_sec = float(getattr(self.timeout_tracker, "timeout_sec", 0.0))
-                        for order_id in timed_out:
-                            try:
-                                self._emit_execution_incident(
-                                    timeout_to_alert(
-                                        venue=venue,
-                                        symbol="*",
-                                        order_id=str(order_id),
-                                        timeout_sec=timeout_sec,
-                                    )
-                                )
-                            except Exception:
-                                logger.exception("timeout alert emit failed for order=%s", order_id)
+                    _check_timeouts(self)
                 if self._reload_models_pending:
                     self._reload_models_pending = False
                     self._handle_model_reload()
-                # ── Adaptive BTC config check (periodic) ──
                 if _adaptive_selector is not None:
                     now = time.time()
                     interval_sec = cfg.adaptive_btc_interval_hours * 3600
                     if now - _last_adaptive_check >= interval_sec:
                         _last_adaptive_check = now
                         self._run_adaptive_btc_check(_adaptive_selector)
-
-                # ── Attribution feedback loop (Direction 18) ──
                 if (self.live_signal_tracker is not None
                         and self.ensemble_combiner is not None):
                     now = time.time()
                     if not hasattr(self, '_last_attr_feedback'):
                         self._last_attr_feedback = now
-                    if now - self._last_attr_feedback >= 3600:  # hourly
+                    if now - self._last_attr_feedback >= 3600:
                         self._last_attr_feedback = now
                         self._apply_attribution_feedback()
-
-                # ── Systemd watchdog notify (Direction 20) ──
                 if _sd_notify_fn is not None:
                     _sd_notify_fn("WATCHDOG=1")
 
@@ -780,190 +479,148 @@ class LiveRunner(OperatorControlMixin, OperatorObservabilityMixin):
                     logger.warning("User stream close error", exc_info=True)
                 if self._user_stream_thread is not None:
                     from infra.threading_utils import safe_join_thread
-
                     safe_join_thread(self._user_stream_thread, timeout=5.0)
                     self._user_stream_thread = None
-            if self.periodic_checkpointer is not None:
-                self.periodic_checkpointer.stop()
-            if self.freshness_monitor is not None:
-                self.freshness_monitor.stop()
-            if self.data_scheduler is not None:
-                self.data_scheduler.stop()
-            if self.module_reloader is not None:
-                self.module_reloader.stop()
-            if self.health_server is not None:
-                self.health_server.stop()
-            if self.alert_manager is not None:
-                self.alert_manager.stop()
-            if self.margin_monitor is not None:
-                self.margin_monitor.stop()
-            if self.reconcile_scheduler is not None:
-                self.reconcile_scheduler.stop()
+            for sub in (self.periodic_checkpointer, self.freshness_monitor,
+                        self.data_scheduler, self.module_reloader,
+                        self.health_server, self.alert_manager,
+                        self.margin_monitor, self.reconcile_scheduler):
+                if sub is not None:
+                    try:
+                        sub.stop()
+                    except Exception:
+                        logger.warning("Subsystem stop error", exc_info=True)
             self.runtime.stop()
             self.loop.stop_background()
             self.coordinator.stop()
             if self.health is not None:
                 self.health.stop()
-
             if self.ws_order_gateway is not None:
                 try:
                     self.ws_order_gateway.stop()
                 except Exception:
                     logger.warning("WS order gateway stop error", exc_info=True)
-
             logger.info("LiveRunner stopped. Total fills: %d", len(self._fills))
 
     def _run_adaptive_btc_check(self, selector: Any) -> None:
-        """Run adaptive config selection for BTC and update inference bridge params."""
-        try:
-            import numpy as np
-            import pandas as pd
-
-            data_path = "data_files/BTCUSDT_1h.csv"
-            df = pd.read_csv(data_path)
-            if len(df) < 720:
-                logger.warning("Adaptive BTC: insufficient data (%d rows)", len(df))
-                return
-
-            closes = df["close"].values.astype(np.float64)
-
-            # Compute z-scores from close returns (simple approximation)
-            returns = np.diff(np.log(closes))
-            window = 720
-            if len(returns) < window:
-                return
-            rolling_mean = pd.Series(returns).rolling(window).mean().values
-            rolling_std = pd.Series(returns).rolling(window).std().values
-            z_scores = np.where(rolling_std > 1e-10, (returns - rolling_mean) / rolling_std, 0.0)
-
-            result = selector.select_robust(z_scores, closes[1:])
-
-            if result.confidence != "high":
-                logger.info(
-                    "Adaptive BTC: confidence=%s (need 'high'), keeping fixed params. "
-                    "sharpe=%.2f trades=%d",
-                    result.confidence, result.sharpe, result.trades,
-                )
-                return
-
-            # Update inference bridge params for BTCUSDT only
-            bridge = self.inference_bridge
-            if bridge is None:
-                return
-            if isinstance(bridge, dict):
-                bridge = bridge.get("BTCUSDT")
-            if bridge is None or not hasattr(bridge, "update_params"):
-                return
-
-            bridge.update_params(
-                "BTCUSDT",
-                deadzone=result.deadzone,
-                min_hold=result.min_hold,
-                max_hold=result.max_hold,
-                long_only=result.long_only,
-            )
-            logger.info(
-                "Adaptive BTC applied: deadzone=%.1f min_hold=%d max_hold=%d "
-                "long_only=%s sharpe=%.2f confidence=%s",
-                result.deadzone, result.min_hold, result.max_hold,
-                result.long_only, result.sharpe, result.confidence,
-            )
-        except Exception:
-            logger.warning("Adaptive BTC check failed", exc_info=True)
+        run_adaptive_btc_check(self, selector)
 
     def _handle_model_reload(self) -> None:
-        """Handle SIGHUP model reload via ModelRegistry or direct file reload."""
-        cfg = getattr(self, '_config', None)
-
-        # Path 1: ModelRegistry-based reload
-        if self.model_loader is not None:
-            try:
-                names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
-                new_models = self.model_loader.reload_if_changed(names)
-                if new_models is not None and self.inference_bridge is not None:
-                    self.inference_bridge.update_models(new_models)
-                    self._record_model_reload(
-                        outcome="reloaded",
-                        model_names=names,
-                        detail={"reloaded_count": len(new_models)},
-                    )
-                elif new_models is None:
-                    self._record_model_reload(
-                        outcome="noop",
-                        model_names=names,
-                        detail={"reloaded_count": 0},
-                    )
-            except Exception:
-                names = tuple(cfg.model_names) if cfg and cfg.model_names else ()
-                self._record_model_reload(
-                    outcome="failed",
-                    model_names=names,
-                    detail=None,
-                    error="model_hot_reload_failed",
-                )
-                logger.exception("Model hot-reload failed")
-            return
-
-        # Path 2: Direct file reload (for auto_retrain.py SIGHUP)
-        if self.inference_bridge is not None:
-            try:
-                from alpha.models.lgbm_alpha import LGBMAlphaModel
-                from pathlib import Path as _Path
-
-                symbols = tuple(cfg.symbols) if cfg else ()
-                models = []
-                for sym in symbols:
-                    model_dir = _Path(f"models_v8/{sym}_gate_v2")
-                    if not model_dir.exists():
-                        continue
-                    pkl_files = sorted(model_dir.glob("*.pkl"))
-                    for pkl in pkl_files:
-                        m = LGBMAlphaModel(name=f"{sym}_{pkl.stem}")
-                        m.load(pkl)
-                        models.append(m)
-                if models:
-                    bridge = self.inference_bridge
-                    if isinstance(bridge, dict):
-                        for sym in symbols:
-                            b = bridge.get(sym)
-                            if b is not None:
-                                sym_models = [m for m in models if sym in m.name]
-                                if sym_models:
-                                    b.update_models(sym_models)
-                    else:
-                        bridge.update_models(models)
-                    self._record_model_reload(
-                        outcome="reloaded",
-                        model_names=symbols,
-                        detail={"reloaded_count": len(models), "source": "file_reload"},
-                    )
-                    logger.info("Direct model reload: %d model(s) from disk", len(models))
-                else:
-                    self._record_model_reload(
-                        outcome="noop",
-                        model_names=symbols,
-                        detail={"reloaded_count": 0, "source": "file_reload"},
-                    )
-            except Exception:
-                symbols = tuple(cfg.symbols) if cfg else ()
-                self._record_model_reload(
-                    outcome="failed",
-                    model_names=symbols,
-                    detail=None,
-                    error="direct_file_reload_failed",
-                )
-                logger.exception("Direct model file reload failed")
+        handle_model_reload(self)
 
     # halt, reduce_only, resume, flush, shutdown, apply_control
-    # → OperatorControlMixin (runner/operator_control.py)
+    # -> OperatorControlMixin (runner/operator_control.py)
 
-    # operator_status_snapshot, operator_status, execution_alert_history,
-    # model_alert_history, ops_timeline, ops_audit_snapshot, control_history,
-    # fills, event_index, _record_control, _record_user_stream_connect,
-    # _record_user_stream_failure, _stream_status, _incident_state,
-    # _recommended_action, _last_incident, _record_model_reload,
-    # _emit_execution_incident, _emit_control_alert
-    # → OperatorObservabilityMixin (runner/observability.py)
+    # operator_status_snapshot, operator_status, execution_alert_history, ...
+    # -> OperatorObservabilityMixin (runner/observability.py)
+
+
+# -- Module-level helpers --
+
+
+def _setup_systemd_notify():
+    """Set up systemd watchdog notify. Returns notify function or None."""
+    try:
+        import socket
+        _sd_addr = os.environ.get("NOTIFY_SOCKET")
+        if _sd_addr:
+            _sd_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            if _sd_addr.startswith("@"):
+                _sd_addr = "\0" + _sd_addr[1:]
+
+            def _sd_notify_fn(msg: str) -> None:
+                try:
+                    _sd_sock.sendto(msg.encode(), _sd_addr)
+                except Exception as e:
+                    logger.error("Failed to send systemd notify '%s': %s", msg, e, exc_info=True)
+
+            _sd_notify_fn("READY=1")
+            logger.info("Systemd notify: READY=1")
+            return _sd_notify_fn
+    except Exception as e:
+        logger.error("Failed to initialize systemd watchdog: %s", e, exc_info=True)
+    return None
+
+
+def _start_optional(subsystem: Any) -> None:
+    """Start a subsystem if it is not None."""
+    if subsystem is not None:
+        subsystem.start()
+
+
+def _install_sighup(runner: LiveRunner) -> None:
+    """Install SIGHUP handler for model hot-reload."""
+    import signal as _signal
+
+    def _sighup_handler(signum: int, frame: Any) -> None:
+        logger.info("SIGHUP received -- scheduling model reload")
+        runner._reload_models_pending = True
+
+    try:
+        if threading.current_thread() is threading.main_thread():
+            _signal.signal(_signal.SIGHUP, _sighup_handler)
+        else:
+            logger.warning("Skipping LiveRunner SIGHUP handler: not running in main thread")
+    except (OSError, AttributeError, ValueError) as e:
+        logger.warning("Failed to install SIGHUP handler: %s", e)
+
+
+def _start_user_stream(runner: LiveRunner) -> None:
+    """Start user stream in a background thread."""
+    if runner.user_stream is None:
+        return
+
+    def _user_stream_loop() -> None:
+        try:
+            runner.user_stream.connect()
+            runner._record_user_stream_connect()
+        except Exception:
+            runner._record_user_stream_failure(kind="connect")
+            logger.warning("User stream initial connect failed", exc_info=True)
+            return
+        _backoff = 1.0
+        _MAX_BACKOFF = 60.0
+        while runner._running:
+            try:
+                runner.user_stream.step()
+                _backoff = 1.0
+            except Exception:
+                runner._record_user_stream_failure(kind="step")
+                logger.warning("User stream step error, reconnecting in %.0fs",
+                               _backoff, exc_info=True)
+                time.sleep(_backoff)
+                try:
+                    runner.user_stream.connect()
+                    runner._record_user_stream_connect()
+                    _backoff = 1.0
+                except Exception:
+                    runner._record_user_stream_failure(kind="reconnect")
+                    logger.warning("User stream reconnect failed", exc_info=True)
+                    _backoff = min(_backoff * 2, _MAX_BACKOFF)
+
+    t = threading.Thread(target=_user_stream_loop, daemon=True, name="user-stream")
+    t.start()
+    runner._user_stream_thread = t
+    logger.info("User stream thread started")
+
+
+def _check_timeouts(runner: LiveRunner) -> None:
+    """Check for timed-out orders and emit alerts."""
+    timed_out = runner.timeout_tracker.check_timeouts()
+    if timed_out:
+        logger.warning("Timed out orders: %s", timed_out)
+        venue = str(getattr(getattr(runner, "_config", None), "venue", ""))
+        timeout_sec = float(getattr(runner.timeout_tracker, "timeout_sec", 0.0))
+        for order_id in timed_out:
+            try:
+                runner._emit_execution_incident(
+                    timeout_to_alert(
+                        venue=venue, symbol="*",
+                        order_id=str(order_id), timeout_sec=timeout_sec,
+                    )
+                )
+            except Exception:
+                logger.exception("timeout alert emit failed for order=%s", order_id)
 
 
 def _reconcile_startup(
@@ -973,30 +630,22 @@ def _reconcile_startup(
 ) -> List[str]:
     """Compare local state against exchange state. Returns list of mismatch descriptions."""
     mismatches: List[str] = []
-
     venue_positions = venue_state.get("positions", {})
     local_positions = local_view.get("positions", {})
 
     for sym in symbols:
         local_pos = local_positions.get(sym)
         venue_pos = venue_positions.get(sym)
-
         local_qty = float(getattr(local_pos, "qty", 0) if local_pos else 0)
         venue_qty = float(venue_pos.get("qty", 0) if isinstance(venue_pos, dict) else 0)
-
         if abs(local_qty - venue_qty) > 1e-8:
-            mismatches.append(
-                f"{sym} position: local={local_qty}, venue={venue_qty}"
-            )
+            mismatches.append(f"{sym} position: local={local_qty}, venue={venue_qty}")
 
     local_account = local_view.get("account")
     local_balance = float(getattr(local_account, "balance", 0) if local_account else 0)
     venue_balance = float(venue_state.get("balance", 0))
     if abs(local_balance - venue_balance) > 0.01:
-        mismatches.append(
-            f"Balance: local={local_balance:.2f}, venue={venue_balance:.2f}"
-        )
-
+        mismatches.append(f"Balance: local={local_balance:.2f}, venue={venue_balance:.2f}")
     return mismatches
 
 
