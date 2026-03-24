@@ -1,5 +1,5 @@
 // runner.inc.rs — Main async entry point and event loop.
-// Single async fn main() — 1175 lines. Cannot split via include!() because Rust's
+// Single async fn main() — 1178 lines. Cannot split via include!() because Rust's
 // include!() macro expands to a single syntactic element, not multiple statements.
 // The function shares ~30 local variables across init/setup/loop/shutdown phases.
 #[tokio::main]

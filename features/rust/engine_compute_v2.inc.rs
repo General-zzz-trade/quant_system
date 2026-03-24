@@ -1,7 +1,8 @@
 // engine_compute_v2.inc.rs — V7+ feature computation (basis, FGI, alpha rebuild,
 // cross-factor, options, on-chain, liquidation, mempool, macro, social).
 // Included inside BarState::get_features() from engine_compute.inc.rs.
-
+// Wrapped in a block expression so include!() sees a single expression.
+{
         // --- V7: Basis ---
         out[F_BASIS] = self.last_basis;
         if self.basis_window_24.full() && !self.last_basis.is_nan() {
@@ -320,3 +321,4 @@
                 out[F_SOCIAL_VOLUME_PRICE_DIV] = 0.0;
             }
         }
+}
