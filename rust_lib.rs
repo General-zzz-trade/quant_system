@@ -8,6 +8,12 @@ pub mod event {
     #[path = "rust/id.rs"]
     pub mod id;
     #[cfg(feature = "python")]
+    #[path = "rust/decision_types.rs"]
+    pub mod decision_types;
+    #[cfg(feature = "python")]
+    #[path = "rust/event_classes.rs"]
+    pub mod event_classes;
+    #[cfg(feature = "python")]
     #[path = "rust/types.rs"]
     pub mod types;
     #[path = "rust/data_events.rs"]
