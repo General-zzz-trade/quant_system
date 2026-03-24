@@ -7,13 +7,15 @@ from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
 import logging as _logging
 import threading
-import time as _time_mod
-from datetime import datetime as _datetime_type
 
 from engine.dispatcher import EventDispatcher, Route
 from engine.pipeline import (
-    PipelineConfig, PipelineInput, PipelineOutput, StatePipeline,
-    _detect_kind, _build_snapshot,
+    PipelineConfig, PipelineOutput, StatePipeline,
+)
+from engine.coordinator_handlers import (
+    handle_pipeline_event,
+    handle_decision_event,
+    handle_execution_event,
 )
 from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
@@ -27,18 +29,11 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_validate_venue,
     rust_validate_order_type,
     rust_validate_tif,
-    rust_validate_required_fields,
-    rust_validate_monotonic_time,
     rust_validate_numeric_range,
-    rust_validate_enum_value,
-    rust_validate_event_batch,
 )
 
 _SCALE = 100_000_000
 _logger = _logging.getLogger(__name__)
-
-def _time_mod_time() -> int:
-    return int(_time_mod.time())
 
 
 # ============================================================
@@ -236,51 +231,6 @@ class EngineCoordinator:
             self._cached_view = view
             return view
 
-    @property
-    def event_store(self) -> RustInMemoryEventStore:
-        """Expose Rust event store for audit / diagnostics."""
-        return self._event_store
-
-    @property
-    def event_validator(self) -> RustEventValidator:
-        """Expose Rust event validator for external use."""
-        return self._event_validator
-
-    def validate_monotonic_timestamps(self, ts_list: list) -> list[int]:
-        """Validate monotonic ordering of ISO timestamp strings.
-
-        Returns indices where monotonicity is violated.
-        """
-        return rust_validate_monotonic_time(ts_list)
-
-    def validate_required_fields(self, event_dict: dict, required: list[str]) -> list[str]:
-        """Validate required fields on an event dict via Rust.
-
-        Returns list of missing field names.
-        """
-        return rust_validate_required_fields(event_dict, required)
-
-    def validate_enum_value(self, value: str, allowed: list[str]) -> bool:
-        """Check if value is in the allowed set via Rust."""
-        return rust_validate_enum_value(value, allowed)
-
-    def validate_event_batch(self, events: list, required_fields: list[str]) -> dict:
-        """Validate a batch of event dicts via Rust.
-
-        Returns dict of {index: [error_strings]} for events with errors.
-        """
-        return dict(rust_validate_event_batch(events, required_fields))
-
-    def get_positions_raw(self) -> Mapping[str, Any]:
-        """Fast path: export only positions from Rust (no Decimal conversion)."""
-        with self._lock:
-            return dict(self._store.get_positions())
-
-    def get_account_raw(self) -> Any:
-        """Fast path: export only account from Rust (no Decimal conversion)."""
-        with self._lock:
-            return self._store.get_account()
-
     def start(self) -> None:
         with self._lock:
             if self._phase == EnginePhase.RUNNING:
@@ -434,178 +384,14 @@ class EngineCoordinator:
         # 否则无能为力：忽略
 
     # --------------------------------------------------------
-    # Dispatcher handlers
+    # Dispatcher handlers (delegated to coordinator_handlers.py)
     # --------------------------------------------------------
 
     def _handle_pipeline_event(self, event: Any) -> None:
-        """PIPELINE handler：事实事件推进 state 的唯一入口"""
-        if self._tick_processors is not None:
-            kind = _detect_kind(event)
-            symbol = getattr(event, "symbol", self._cfg.symbol_default)
-            tp = self._tick_processors.get(symbol)
-            if tp is None:
-                tp = next(iter(self._tick_processors.values()))
-            if kind == "MARKET":
-                self._handle_market_tick_fast(event, tp)
-                return
-            if kind == "FILL":
-                tp.process_fill(event)
-                return
-            if kind == "FUNDING":
-                tp.process_funding(event)
-                return
-            return
-
-        # ── Original slow path ──
-        features = None
-        if self._cfg.feature_hook is not None:
-            features = self._cfg.feature_hook.on_event(event)
-
-        inp = PipelineInput(
-            event=event,
-            event_index=0,
-            symbol_default=self._cfg.symbol_default,
-            markets={},
-            account=None,
-            positions={},
-            features=features,
-        )
-
-        assert self._pipeline is not None
-        out = self._pipeline.apply(inp)
-
-        with self._lock:
-            if out.snapshot is not None:
-                self._last_snapshot = out.snapshot
-
-        # 观测钩子（不进锁，不阻塞主链路）
-        if self._cfg.on_pipeline_output is not None:
-            if out.advanced or self._cfg.emit_on_non_advanced:
-                self._cfg.on_pipeline_output(out)
-
-        if self._cfg.on_snapshot is not None and out.snapshot is not None:
-            self._cfg.on_snapshot(out.snapshot)
-
-        # 决策触发制度：仅在 MARKET 事件推进时触发
-        if self._decision_bridge is not None and out.advanced and out.snapshot is not None:
-            if _detect_kind(event) == "MARKET":
-                self._decision_bridge.on_pipeline_output(out)
-
-    def _handle_market_tick_fast(self, event: Any, tp: Any) -> None:
-        """Fast path: single Rust call for features + predict + state + features dict."""
-        symbol = getattr(event, "symbol", self._cfg.symbol_default)
-        close_f = float(getattr(event, "close", 0))
-        volume = float(getattr(event, "volume", 0) or 0)
-        high = float(getattr(event, "high", 0) or 0)
-        low = float(getattr(event, "low", 0) or 0)
-        open_ = float(getattr(event, "open", 0) or 0)
-
-        ts = getattr(event, "ts", None)
-        if isinstance(ts, _datetime_type):
-            hour_key = int(ts.timestamp()) // 3600
-            ts_str = ts.isoformat()
-        elif isinstance(ts, str):
-            ts_str = ts
-            hour_key = _time_mod_time() // 3600
-        else:
-            ts_str = None
-            hour_key = _time_mod_time() // 3600
-
-        # Push external data (delegated to feature_hook sources via tick_processor)
-        fh = self._feature_hook
-        if fh is not None:
-            fh.push_external_data(symbol, event, tp)
-
-        # Determine warmup status
-        warmup_done = True
-        if fh is not None:
-            bar_count = fh.increment_bar_count(symbol)
-            warmup_done = bar_count >= fh.warmup_bars
-
-        # Single Rust call: features + predict + state + pre-built features dict
-        result = tp.process_tick_full(
-            symbol, close_f, volume, high, low, open_, hour_key,
-            warmup_done=warmup_done, ts=ts_str,
-        )
-
-        # Use pre-built features dict from Rust (eliminates ~35μs Python dict ops)
-        features = result.features_dict
-
-        # Cross-asset features (if enabled)
-        if fh is not None and fh.cross_asset is not None:
-            funding_rate = features.get("funding_rate")
-            fh.cross_asset.on_bar(symbol, close=close_f, funding_rate=funding_rate,
-                                  high=high, low=low)
-            cross_feats = fh.cross_asset.get_features(symbol)
-            features.update(cross_feats)
-
-        # Tag features with symbol for downstream hooks (alpha health, etc.)
-        features["_symbol"] = symbol
-
-        # Store last features in feature_hook for non-market event lookups
-        if fh is not None:
-            fh.set_last_features(symbol, features)
-
-        # Skip Decimal conversion: pass Rust objects directly to snapshot/output.
-        snapshot = _build_snapshot(
-            raw_event=event,
-            event_index=result.event_index,
-            markets=result.markets,
-            account=result.account,
-            positions=result.positions,
-            portfolio=result.portfolio,
-            risk=result.risk,
-            features=features,
-            skip_convert=True,
-        )
-
-        self._last_snapshot = snapshot
-
-        # Build PipelineOutput for hooks + decision bridge
-        out = PipelineOutput(
-            markets=result.markets,
-            account=result.account,
-            positions=result.positions,
-            portfolio=result.portfolio,
-            risk=result.risk,
-            features=features,
-            event_index=result.event_index,
-            last_event_id=result.last_event_id,
-            last_ts=result.last_ts,
-            snapshot=snapshot,
-            advanced=True,
-        )
-
-        if self._cfg.on_pipeline_output is not None:
-            self._cfg.on_pipeline_output(out)
-
-        if self._cfg.on_snapshot is not None:
-            self._cfg.on_snapshot(snapshot)
-
-        if self._decision_bridge is not None:
-            self._decision_bridge.on_pipeline_output(out)
+        handle_pipeline_event(self, event)
 
     def _handle_decision_event(self, event: Any) -> None:
-        """
-        DECISION handler：冻结版 v1.0 默认不做任何副作用。
-
-        说明：
-        - decision_bridge 由 pipeline 输出驱动（out.snapshot）产生“意见事件”
-        - dispatcher 会把意见事件再次路由：
-            - OrderEvent -> EXECUTION
-            - 其他 -> DECISION / DROP（视 event 类型而定）
-
-        后续在 risk/guards 完善后，可以在这里接入：
-        - risk gate / kill-switch
-        - decision event audit
-        """
-        # v1.0：明确 no-op（不吞异常，不产生副作用）
-        return
+        handle_decision_event(self, event)
 
     def _handle_execution_event(self, event: Any) -> None:
-        """
-        EXECUTION handler：所有下单只允许走 ExecutionBridge
-        """
-        if self._execution_bridge is None:
-            raise RuntimeError("ExecutionBridge is not attached")
-        self._execution_bridge.handle_event(event)
+        handle_execution_event(self, event)
