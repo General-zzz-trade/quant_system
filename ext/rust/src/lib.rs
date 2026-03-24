@@ -81,6 +81,8 @@ pub mod ridge_predict;
 pub mod market_maker;
 #[cfg(feature = "python")]
 mod py_incremental;
+#[cfg(feature = "python")]
+pub mod event_header;
 
 #[cfg(feature = "python")]
 #[pymodule]
@@ -243,6 +245,14 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<rust_events::RustMarketEvent>()?;
     m.add_class::<rust_events::RustFillEvent>()?;
     m.add_class::<rust_events::RustFundingEvent>()?;
+
+    // Event header + framework event types (causation tracing)
+    m.add_class::<event_header::RustEventHeader>()?;
+    m.add_class::<event_types::RustSignalEvent>()?;
+    m.add_class::<event_types::RustIntentEvent>()?;
+    m.add_class::<event_types::RustOrderEvent>()?;
+    m.add_class::<event_types::RustRiskEvent>()?;
+    m.add_class::<event_types::RustControlEvent>()?;
 
     // State store (unified pipeline)
     m.add_class::<state_store::RustStateStore>()?;
