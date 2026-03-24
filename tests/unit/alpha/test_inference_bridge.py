@@ -1,4 +1,4 @@
-"""Tests for Alpha inference pipeline: InferenceEngine, LiveInferenceBridge, AlphaRegistry."""
+"""Tests for Alpha inference pipeline: InferenceEngine, LiveInferenceBridge."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 from alpha.base import Signal
 from alpha.inference import InferenceEngine
 from alpha.inference.bridge import LiveInferenceBridge
-from alpha.registry import AlphaRegistry
 
 
 # ── Stub model ────────────────────────────────────────────────
@@ -131,41 +130,6 @@ class TestLiveInferenceBridge:
         result = bridge.enrich("BTCUSDT", None, {})
 
         assert "ml_score" in result
-
-
-# ── AlphaRegistry ─────────────────────────────────────────────
-
-class TestAlphaRegistry:
-    def test_register_and_get(self):
-        registry = AlphaRegistry()
-        model = StubAlphaModel(name="test_model")
-        registry.register(model)
-
-        retrieved = registry.get("test_model")
-        assert retrieved is model
-
-    def test_get_missing_returns_none(self):
-        registry = AlphaRegistry()
-        assert registry.get("nonexistent") is None
-
-    def test_list_names(self):
-        registry = AlphaRegistry()
-        registry.register(StubAlphaModel(name="m1"))
-        registry.register(StubAlphaModel(name="m2"))
-
-        names = list(registry.list_names())
-        assert "m1" in names
-        assert "m2" in names
-
-    def test_register_overwrite(self):
-        registry = AlphaRegistry()
-        m1 = StubAlphaModel(name="dup", _strength=0.1)
-        m2 = StubAlphaModel(name="dup", _strength=0.9)
-        registry.register(m1)
-        registry.register(m2)
-
-        retrieved = registry.get("dup")
-        assert retrieved._strength == 0.9
 
 
 # ── Sequencing stub for constraint tests ──────────────────────

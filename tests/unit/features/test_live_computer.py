@@ -1,14 +1,12 @@
 # tests/unit/features/test_live_computer.py
-"""Tests for LiveFeatureComputer and FeatureSignal."""
+"""Tests for LiveFeatureComputer."""
 from __future__ import annotations
 
-from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
 from features.live_computer import LiveFeatureComputer
-from decision.signals.feature_signal import FeatureSignal
 
 
 # ── LiveFeatureComputer tests ────────────────────────────────
@@ -88,76 +86,3 @@ class TestLiveFeatureComputer:
         comp.on_bar("ETHUSDT", close=100.0)
         comp.reset()
         assert len(comp.symbols) == 0
-
-
-# ── FeatureSignal tests ──────────────────────────────────────
-
-class TestFeatureSignal:
-    def _snapshot(self, symbol: str = "BTCUSDT", close: float = 100.0) -> SimpleNamespace:
-        return SimpleNamespace(
-            markets={symbol: SimpleNamespace(close=close, volume=10.0, last_price=close)},
-        )
-
-    def test_neutral_without_data(self):
-        sig = FeatureSignal()
-        result = sig.compute(self._snapshot(), "BTCUSDT")
-        # Only 1 bar → no MA → neutral
-        assert result.side == "flat"
-        assert result.score == Decimal("0")
-
-    def test_signal_after_warmup(self):
-        sig = FeatureSignal(
-            computer=LiveFeatureComputer(fast_ma=3, slow_ma=5),
-            momentum_threshold=0.001,
-        )
-        # Feed rising prices → buy signal
-        for i in range(10):
-            snap = self._snapshot("BTCUSDT", close=100.0 + i * 2)
-            result = sig.compute(snap, "BTCUSDT")
-        # After warmup, should have signal
-        assert result.side in ("buy", "sell", "flat")
-
-    def test_meta_populated(self):
-        sig = FeatureSignal(
-            computer=LiveFeatureComputer(fast_ma=3, slow_ma=5),
-        )
-        for i in range(10):
-            result = sig.compute(self._snapshot("BTCUSDT", 100 + i), "BTCUSDT")
-        if result.meta is not None:
-            assert "momentum" in result.meta
-
-    def test_missing_market_neutral(self):
-        sig = FeatureSignal()
-        snap = SimpleNamespace(markets={})
-        result = sig.compute(snap, "BTCUSDT")
-        assert result.side == "flat"
-
-    def test_confidence_reduced_by_vol(self):
-        sig = FeatureSignal(
-            computer=LiveFeatureComputer(fast_ma=3, slow_ma=5, vol_window=5),
-            vol_penalty_factor=5.0,
-        )
-        # Feed volatile prices
-        import math
-        for i in range(20):
-            price = 100.0 + 10.0 * math.sin(i * 0.5)
-            sig.compute(self._snapshot("BTCUSDT", price), "BTCUSDT")
-        result = sig.compute(self._snapshot("BTCUSDT", 105.0), "BTCUSDT")
-        # Confidence should be reduced by volatility
-        assert float(result.confidence) <= 1.0
-
-    def test_supports_rust_market_state(self):
-        rust = pytest.importorskip("_quant_hotpath")
-        sig = FeatureSignal(computer=LiveFeatureComputer(fast_ma=3, slow_ma=5))
-        snap = SimpleNamespace(
-            markets={
-                "BTCUSDT": rust.RustMarketState(
-                    symbol="BTCUSDT",
-                    close=10_000_000_000,
-                    last_price=10_000_000_000,
-                    volume=1_000_000_000,
-                )
-            }
-        )
-        result = sig.compute(snap, "BTCUSDT")
-        assert result.side == "flat"

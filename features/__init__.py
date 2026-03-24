@@ -14,8 +14,6 @@ from .technical import (
     log_returns,
     volatility,
 )
-from .store import FeatureStore
-
 __all__ = [
     "Bar",
     "Bars",
@@ -28,5 +26,4 @@ __all__ = [
     "returns",
     "log_returns",
     "volatility",
-    "FeatureStore",
 ]

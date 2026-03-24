@@ -1,3 +1,1 @@
-from .ma_cross import MACrossAlpha
-
-__all__ = ["MACrossAlpha"]
+"""Alpha model implementations — LGBM, XGB, LSTM, Transformer."""

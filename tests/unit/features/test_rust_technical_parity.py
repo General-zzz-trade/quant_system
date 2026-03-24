@@ -365,7 +365,7 @@ class TestDispatchIntegration:
         rw.push(1.0)
         assert rw.n == 1
 
-    def test_kyle_lambda_imports_rust(self):
-        """Verify microstructure OLS imports from Rust directly."""
-        from features.microstructure.kyle_lambda import _cpp_ols
-        assert callable(_cpp_ols)
+    def test_rust_ols_callable(self):
+        """Verify Rust OLS function is importable directly."""
+        from _quant_hotpath import cpp_ols
+        assert callable(cpp_ols)

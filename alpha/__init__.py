@@ -4,6 +4,5 @@ This package provides small, dependency-free building blocks.
 """
 
 from .base import AlphaModel, Signal
-from .registry import AlphaRegistry
 
-__all__ = ["AlphaModel", "Signal", "AlphaRegistry"]
+__all__ = ["AlphaModel", "Signal"]
