@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from event.factory.market import MarketEventFactory
-from event.types import MarketEvent
+from event.header import EventHeader
+from event.types import EventType, MarketEvent
 
 from _quant_hotpath import rust_parse_kline
 
@@ -29,7 +29,14 @@ class KlineProcessor:
         if d is None:
             return None
         ts = datetime.fromtimestamp(d["ts_ms"] / 1000.0, tz=timezone.utc)
-        return MarketEventFactory.bar(
+        header = EventHeader.new_root(
+            event_type=EventType.MARKET,
+            version=MarketEvent.VERSION,
+            source=self.source,
+            run_id=self.run_id,
+        )
+        return MarketEvent(
+            header=header,
             ts=ts,
             symbol=d["symbol"],
             open=Decimal(d["open"]),
@@ -37,6 +44,4 @@ class KlineProcessor:
             low=Decimal(d["low"]),
             close=Decimal(d["close"]),
             volume=Decimal(d["volume"]),
-            source=self.source,
-            run_id=self.run_id,
         )

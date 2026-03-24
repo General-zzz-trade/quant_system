@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from .types import EventType
-from .errors import EventValidationError
 
 from _quant_hotpath import (
     rust_event_id as _rust_event_id,
@@ -95,53 +94,4 @@ class EventHeader:
             run_id=self.run_id,
             seq=self.seq,
             correlation_id=self.correlation_id,
-        )
-
-    # ---------- validation ----------
-
-    def validate(self) -> None:
-        if not isinstance(self.event_type, EventType):
-            raise EventValidationError("header.event_type must be EventType")
-
-        if not isinstance(self.version, int) or self.version < 1:
-            raise EventValidationError("header.version must be int >= 1")
-
-        if not isinstance(self.ts_ns, int):
-            raise EventValidationError("header.ts_ns must be int (ns)")
-
-        if not self.event_id:
-            raise EventValidationError("header.event_id missing")
-
-        if not self.root_event_id:
-            raise EventValidationError("header.root_event_id missing")
-
-    # ---------- serialization ----------
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_id": self.event_id,
-            "event_type": self.event_type.value,
-            "version": self.version,
-            "ts_ns": self.ts_ns,
-            "source": self.source,
-            "parent_event_id": self.parent_event_id,
-            "root_event_id": self.root_event_id,
-            "run_id": self.run_id,
-            "seq": self.seq,
-            "correlation_id": self.correlation_id,
-        }
-
-    @staticmethod
-    def from_dict(d: Dict[str, Any]) -> EventHeader:
-        return EventHeader(
-            event_id=d["event_id"],
-            event_type=EventType(d["event_type"]),
-            version=d["version"],
-            ts_ns=d["ts_ns"],
-            source=d["source"],
-            parent_event_id=d.get("parent_event_id"),
-            root_event_id=d.get("root_event_id"),
-            run_id=d.get("run_id"),
-            seq=d.get("seq"),
-            correlation_id=d.get("correlation_id"),
         )

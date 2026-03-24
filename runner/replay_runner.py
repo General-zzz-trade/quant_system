@@ -132,24 +132,11 @@ class JsonlEventSource:
         return self._count
 
     def __iter__(self) -> Iterator[Any]:
-        try:
-            from event.codec import decode_event_json
-            use_codec = True
-        except Exception:
-            use_codec = False
-
         with self._path.open("r") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                if use_codec:
-                    try:
-                        yield decode_event_json(line)
-                        continue
-                    except Exception as e:
-                        logger.debug("Codec decode failed, falling back to raw dict: %s", e)
-                # Fallback: yield raw dict
                 yield json.loads(line)
 
 

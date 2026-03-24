@@ -10,8 +10,8 @@ from decimal import Decimal
 from typing import Any, Dict, List
 from urllib.request import Request, urlopen
 
-from event.factory.market import MarketEventFactory
-from event.types import MarketEvent
+from event.header import EventHeader
+from event.types import EventType, MarketEvent
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,13 @@ class RestKlineSource:
         events = []
         for k in raw_klines:
             ts = datetime.fromtimestamp(int(k["t"]) / 1000.0, tz=timezone.utc)
-            ev = MarketEventFactory.bar(
+            header = EventHeader.new_root(
+                event_type=EventType.MARKET,
+                version=MarketEvent.VERSION,
+                source=self.source,
+            )
+            ev = MarketEvent(
+                header=header,
                 ts=ts,
                 symbol=symbol.upper(),
                 open=Decimal(k["o"]),
@@ -73,7 +79,6 @@ class RestKlineSource:
                 low=Decimal(k["l"]),
                 close=Decimal(k["c"]),
                 volume=Decimal(k["v"]),
-                source=self.source,
             )
             events.append(ev)
         return events
