@@ -20,7 +20,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from _quant_hotpath import RustInferenceBridge
+from _quant_hotpath import (
+    RustInferenceBridge,
+    rust_event_types,
+    rust_sides,
+    rust_signal_sides,
+    rust_venues,
+    rust_order_types,
+    rust_time_in_force,
+)
 
 from alpha.model_loader_prod import create_adapter, load_model
 from data.quality.validators import BarValidator
@@ -286,6 +294,20 @@ def main() -> None:
     parser.add_argument("--ws", action="store_true", help="Use WebSocket for live bars")
     parser.add_argument("--dry-run", action="store_true", help="No execution (signals only)")
     args = parser.parse_args()
+
+    # Validate Rust event configuration at startup
+    VALID_EVENT_TYPES = set(rust_event_types())
+    VALID_SIDES = set(rust_sides())
+    VALID_SIGNAL_SIDES = set(rust_signal_sides())
+    VALID_VENUES = set(rust_venues())
+    VALID_ORDER_TYPES = set(rust_order_types())
+    VALID_TIF = set(rust_time_in_force())
+    logger.info(
+        "Event config validated: %d event types, %d sides, %d signal sides, "
+        "%d venues, %d order types, %d TIF values",
+        len(VALID_EVENT_TYPES), len(VALID_SIDES), len(VALID_SIGNAL_SIDES),
+        len(VALID_VENUES), len(VALID_ORDER_TYPES), len(VALID_TIF),
+    )
 
     # Adapter (Bybit REST)
     adapter = create_adapter()

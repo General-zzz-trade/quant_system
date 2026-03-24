@@ -23,6 +23,12 @@ from decision.composer import DefaultComposer
 from decision.audit import DecisionAuditor
 from decision.intents.validators import IntentValidator
 from decision.market_access import get_decimal_attr
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustSignalResult,
+    RustDecisionOutput,
+    RustTargetPosition,
+    RustOrderSpec,
+)
 
 
 def _utc_now() -> datetime:
@@ -205,6 +211,46 @@ class DecisionEngine:
         if self.auditor:
             self.auditor.record(out)
         return out
+
+    def to_rust_output(self, out: DecisionOutput) -> RustDecisionOutput:
+        """Convert a Python DecisionOutput to a RustDecisionOutput.
+
+        Useful for passing decision results to Rust-accelerated downstream
+        consumers (risk evaluation, execution pipeline, etc.).
+        """
+        rust_targets = [
+            RustTargetPosition(
+                symbol=t.symbol,
+                target_qty=float(t.target_qty),
+                reason_code=t.reason_code,
+                origin=t.origin,
+            )
+            for t in out.targets
+        ]
+        rust_orders = [
+            RustOrderSpec(
+                order_id=o.order_id,
+                intent_id=o.intent_id,
+                symbol=o.symbol,
+                side=o.side,
+                qty=float(o.qty),
+                order_type=o.order_type,
+                price=float(o.price) if o.price is not None else None,
+                tif=o.tif,
+            )
+            for o in out.orders
+        ]
+        return RustDecisionOutput(
+            ts=out.ts.isoformat(),
+            strategy_id=out.strategy_id,
+            targets=rust_targets,
+            orders=rust_orders,
+        )
+
+    @staticmethod
+    def rust_signal_result(symbol: str, side: str, score: float, confidence: float = 1.0) -> RustSignalResult:
+        """Create a RustSignalResult for Rust-accelerated signal consumers."""
+        return RustSignalResult(symbol=symbol, side=side, score=score, confidence=confidence)
 
     def decide(self, snapshot: StateSnapshot) -> Sequence[Any]:
         """Compatibility method for engine.DecisionBridge.

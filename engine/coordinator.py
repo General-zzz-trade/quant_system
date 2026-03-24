@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
 
+import logging as _logging
 import threading
 import time as _time_mod
 from datetime import datetime as _datetime_type
@@ -19,9 +20,23 @@ from engine.execution_bridge import ExecutionBridge
 from event.events import BaseEvent
 from _quant_hotpath import (  # type: ignore[import-untyped]
     RustStateStore,
+    RustEventValidator,
+    RustInMemoryEventStore,
+    rust_validate_side,
+    rust_validate_signal_side,
+    rust_validate_venue,
+    rust_validate_order_type,
+    rust_validate_tif,
+    rust_validate_required_fields,
+    rust_validate_monotonic_time,
+    rust_validate_numeric_range,
+    rust_validate_enum_value,
+    rust_validate_event_batch,
 )
 
 _SCALE = 100_000_000
+_logger = _logging.getLogger(__name__)
+
 def _time_mod_time() -> int:
     return int(_time_mod.time())
 
@@ -163,6 +178,10 @@ class EngineCoordinator:
         self._last_snapshot: Optional[Any] = None
         self._cached_view: Optional[Mapping[str, Any]] = None
 
+        # Rust event validation + audit store
+        self._event_validator = RustEventValidator(max_seen=10000)
+        self._event_store = RustInMemoryEventStore()
+
         # ---- register handlers (single chain) ----
         self._dispatcher.register(route=Route.PIPELINE, handler=self._handle_pipeline_event)
         self._dispatcher.register(route=Route.DECISION, handler=self._handle_decision_event)
@@ -217,6 +236,41 @@ class EngineCoordinator:
             self._cached_view = view
             return view
 
+    @property
+    def event_store(self) -> RustInMemoryEventStore:
+        """Expose Rust event store for audit / diagnostics."""
+        return self._event_store
+
+    @property
+    def event_validator(self) -> RustEventValidator:
+        """Expose Rust event validator for external use."""
+        return self._event_validator
+
+    def validate_monotonic_timestamps(self, ts_list: list) -> list[int]:
+        """Validate monotonic ordering of ISO timestamp strings.
+
+        Returns indices where monotonicity is violated.
+        """
+        return rust_validate_monotonic_time(ts_list)
+
+    def validate_required_fields(self, event_dict: dict, required: list[str]) -> list[str]:
+        """Validate required fields on an event dict via Rust.
+
+        Returns list of missing field names.
+        """
+        return rust_validate_required_fields(event_dict, required)
+
+    def validate_enum_value(self, value: str, allowed: list[str]) -> bool:
+        """Check if value is in the allowed set via Rust."""
+        return rust_validate_enum_value(value, allowed)
+
+    def validate_event_batch(self, events: list, required_fields: list[str]) -> dict:
+        """Validate a batch of event dicts via Rust.
+
+        Returns dict of {index: [error_strings]} for events with errors.
+        """
+        return dict(rust_validate_event_batch(events, required_fields))
+
     def get_positions_raw(self) -> Mapping[str, Any]:
         """Fast path: export only positions from Rust (no Decimal conversion)."""
         with self._lock:
@@ -261,10 +315,51 @@ class EngineCoordinator:
 
         # Type safety: log non-BaseEvent emissions at debug level
         if __debug__ and not isinstance(event, BaseEvent):
-            import logging as _logging
-            _logging.getLogger(__name__).debug(
+            _logger.debug(
                 "Non-BaseEvent emitted: %s", type(event).__name__,
             )
+
+        # ── Rust event validation (warn-only, never crash) ──
+        try:
+            side = getattr(event, "side", None)
+            if side is not None:
+                if not rust_validate_side(str(side)):
+                    _logger.warning("Invalid side '%s' on %s", side, type(event).__name__)
+
+            signal_side = getattr(event, "signal_side", None)
+            if signal_side is not None:
+                if not rust_validate_signal_side(str(signal_side)):
+                    _logger.warning("Invalid signal_side '%s' on %s", signal_side, type(event).__name__)
+
+            venue = getattr(event, "venue", None)
+            if venue is not None:
+                if not rust_validate_venue(str(venue)):
+                    _logger.warning("Invalid venue '%s' on %s", venue, type(event).__name__)
+
+            order_type = getattr(event, "order_type", None)
+            if order_type is not None:
+                if not rust_validate_order_type(str(order_type)):
+                    _logger.warning("Invalid order_type '%s' on %s", order_type, type(event).__name__)
+
+            tif = getattr(event, "tif", None)
+            if tif is not None:
+                if not rust_validate_tif(str(tif)):
+                    _logger.warning("Invalid tif '%s' on %s", tif, type(event).__name__)
+
+            # Validate price is in sane range if present
+            price = getattr(event, "price", None)
+            if price is not None:
+                try:
+                    price_f = float(price)
+                    if not rust_validate_numeric_range(price_f, 0.0, 1e12):
+                        _logger.warning("Price out of range: %s on %s", price, type(event).__name__)
+                except (TypeError, ValueError):
+                    pass
+
+            # Store event for audit trail
+            self._event_store.append(event)
+        except Exception:
+            _logger.debug("Event validation skipped due to unexpected error", exc_info=True)
 
         # 不要在 lock 内 dispatch（防止 handler 再次 emit 导致死锁/长锁）
         self._dispatcher.dispatch(event=event, actor=actor)
