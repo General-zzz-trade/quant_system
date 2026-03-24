@@ -28,6 +28,13 @@ def get_max_order_notional(equity: float) -> float:
 # Backward compat: static value used by code that imports MAX_ORDER_NOTIONAL directly
 MAX_ORDER_NOTIONAL = 5_000.0  # fallback if equity unknown
 
+# Leverage ladder: 10x across all tiers for demo signal validation.
+# For real money, scale down (edit this ladder).
+LEVERAGE_LADDER = [
+    (0, 10.0),   # all tiers: 10x
+]
+
+
 # Default symbols + position sizes
 # 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)
 SYMBOL_CONFIG = {
