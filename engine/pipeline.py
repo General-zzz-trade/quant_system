@@ -16,6 +16,7 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     rust_normalize_to_facts as _rust_normalize,
     rust_detect_kernel_event_kind as _rust_detect_kernel_kind,
     rust_normalize_kernel_event_to_facts as _rust_normalize_kernel,
+    rust_pipeline_apply,  # noqa: F401 — re-exported for callers
     RustProcessResult,
     RustMarketReducer,
     RustPositionReducer,

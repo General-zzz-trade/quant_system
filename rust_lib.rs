@@ -237,6 +237,12 @@ pub mod common {
     pub mod linalg_math;
 }
 
+pub mod alpha {
+    #[cfg(feature = "python")]
+    #[path = "rust/online_ridge.rs"]
+    pub mod online_ridge;
+}
+
 #[cfg(feature = "python")]
 #[pymodule]
 fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -523,6 +529,9 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<features::py_incremental::PyRsiTracker>()?;
     m.add_class::<features::py_incremental::PyAtrTracker>()?;
     m.add_class::<features::py_incremental::PyAdxTracker>()?;
+
+    // Online Ridge regression (RLS incremental updates)
+    m.add_class::<alpha::online_ridge::RustOnlineRidge>()?;
 
     Ok(())
 }
