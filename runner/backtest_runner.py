@@ -10,13 +10,24 @@ import csv
 import argparse
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_utc(ts):
+    """Convert a datetime to UTC, treating naive datetimes as UTC."""
+    if ts is None:
+        return None
+    if not isinstance(ts, datetime):
+        raise TypeError(f"ts must be datetime, got {type(ts).__name__}")
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 from engine.coordinator import CoordinatorConfig, EngineCoordinator  # noqa: E402
 from engine.decision_bridge import DecisionBridge  # noqa: E402
@@ -238,12 +249,10 @@ def run_backtest(
             return
         # Rust types return last_ts as ISO string; convert to datetime
         if isinstance(ts, str):
-            from state._util import ensure_utc
-            from datetime import datetime as _dt
             raw = ts.strip()
             if raw.endswith("Z"):
                 raw = raw[:-1] + "+00:00"
-            ts = ensure_utc(_dt.fromisoformat(raw))
+            ts = _ensure_utc(datetime.fromisoformat(raw))
 
         # Use float accessors if available (Rust types), else Decimal
         close_f = getattr(m, "close_f", None)
@@ -681,12 +690,10 @@ def run_multi_backtest(
         if ts is None:
             return
         if isinstance(ts, str):
-            from state._util import ensure_utc
-            from datetime import datetime as _dt
             raw = ts.strip()
             if raw.endswith("Z"):
                 raw = raw[:-1] + "+00:00"
-            ts = ensure_utc(_dt.fromisoformat(raw))
+            ts = _ensure_utc(datetime.fromisoformat(raw))
 
         close_f = getattr(m, "close_f", None)
         if close_f is not None:

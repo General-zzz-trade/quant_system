@@ -1,31 +1,180 @@
+"""State checkpoint stores with JSON serialization (Rust-native to_dict/from_dict).
+
+Serialization uses Rust types' built-in to_dict()/from_dict() methods.
+"""
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
-
-from state.snapshot import StateSnapshot  # noqa: E402
-from state._util import ensure_utc  # noqa: E402
-
-# Import serialization helpers (canonical home: state.serialization)
-# Re-export for backward compatibility — existing callers can still do
-#   from state.store import _dc_to_dict, _state_decoder_hook, _SCALE, ...
-from state.serialization import (  # noqa: E402, F401
-    _SCALE,
-    _dc_to_dict,
-    _StateEncoder,
-    _state_decoder_hook,
-    _serialize_snapshot,
-    _deserialize_snapshot,
-    _reconstruct_snapshot,
+from _quant_hotpath import (  # type: ignore[import-untyped]
+    RustMarketState,
+    RustPositionState,
+    RustAccountState,
+    RustPortfolioState,
+    RustRiskState,
 )
 
+from state.snapshot import StateSnapshot
+
+logger = logging.getLogger(__name__)
+
+
+def _ensure_utc(ts: Any) -> Optional[datetime]:
+    if ts is None:
+        return None
+    if not isinstance(ts, datetime):
+        raise TypeError(f"ts must be datetime, got {type(ts).__name__}")
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+# Fixed-point scale: 10^8 (matches Rust Fd8)
+_SCALE = 100_000_000
+
+# ---------------------------------------------------------------------------
+# Serialization helpers (Rust types ↔ JSON)
+# ---------------------------------------------------------------------------
+
+_RUST_TYPES = (RustMarketState, RustPositionState, RustAccountState,
+               RustPortfolioState, RustRiskState)
+
+
+def _dc_to_dict(obj: Any) -> Any:
+    """Recursively convert Rust state types / dataclasses / Decimal / datetime to plain dicts."""
+    if isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    if isinstance(obj, Decimal):
+        return {"__decimal__": str(obj)}
+    if isinstance(obj, datetime):
+        return {"__datetime__": obj.isoformat()}
+    if isinstance(obj, _RUST_TYPES):
+        return dict(obj.to_dict())
+    if hasattr(obj, "__dataclass_fields__"):
+        return {f: _dc_to_dict(getattr(obj, f)) for f in obj.__dataclass_fields__}
+    if isinstance(obj, dict):
+        return {k: _dc_to_dict(v) for k, v in obj.items()}
+    if hasattr(obj, "items") and callable(getattr(obj, "items")):
+        return {k: _dc_to_dict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_dc_to_dict(v) for v in obj]
+    return obj
+
+
+class _StateEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Decimal):
+            return {"__decimal__": str(obj)}
+        if isinstance(obj, datetime):
+            return {"__datetime__": obj.isoformat()}
+        if isinstance(obj, _RUST_TYPES):
+            return dict(obj.to_dict())
+        if hasattr(obj, "__dataclass_fields__"):
+            return _dc_to_dict(obj)
+        if hasattr(obj, "items") and callable(getattr(obj, "items")):
+            return {k: _dc_to_dict(v) for k, v in obj.items()}
+        return super().default(obj)
+
+
+def _state_decoder_hook(d: dict[str, Any]) -> Any:
+    if "__decimal__" in d:
+        return Decimal(d["__decimal__"])
+    if "__datetime__" in d:
+        dt = datetime.fromisoformat(d["__datetime__"])
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return d
+
+
+def _serialize_snapshot(snap: StateSnapshot) -> str:
+    return json.dumps(snap, cls=_StateEncoder, ensure_ascii=False)
+
+
+def _deserialize_snapshot(blob: str) -> StateSnapshot:
+    raw = json.loads(blob, object_hook=_state_decoder_hook)
+    return _reconstruct_snapshot(raw)
+
+
+def _reconstruct_snapshot(d: dict[str, Any]) -> StateSnapshot:
+    """Reconstruct a StateSnapshot from a plain dict (deserialized JSON)."""
+    # Multi-symbol compat: new format "markets" dict, old format "market" single object
+    markets: Dict[str, Any] = {}
+    if "markets" in d and isinstance(d["markets"], dict):
+        for sym, md in d["markets"].items():
+            if isinstance(md, dict):
+                md.pop("__dc__", None)
+                if "symbol" not in md:
+                    md["symbol"] = sym
+                markets[sym] = RustMarketState.from_dict(md)
+    elif "market" in d:
+        market_d = d["market"]
+        if isinstance(market_d, dict):
+            market_d.pop("__dc__", None)
+            sym = market_d.get("symbol", d.get("symbol", "UNKNOWN"))
+            if "symbol" not in market_d:
+                market_d["symbol"] = sym
+            markets[sym] = RustMarketState.from_dict(market_d)
+
+    account_d = d["account"]
+    if isinstance(account_d, dict):
+        account_d.pop("__dc__", None)
+        account = RustAccountState.from_dict(account_d)
+    else:
+        account = account_d  # Already a Rust type
+
+    positions: Dict[str, Any] = {}
+    raw_pos = d.get("positions") or {}
+    for sym, pos_d in raw_pos.items():
+        if isinstance(pos_d, dict):
+            pos_d.pop("__dc__", None)
+            if "symbol" not in pos_d:
+                pos_d["symbol"] = sym
+            positions[sym] = RustPositionState.from_dict(pos_d)
+
+    portfolio = None
+    if d.get("portfolio") is not None:
+        pd = d["portfolio"]
+        if isinstance(pd, dict):
+            pd.pop("__dc__", None)
+            portfolio = RustPortfolioState.from_dict(pd)
+        else:
+            portfolio = pd
+
+    risk = None
+    if d.get("risk") is not None:
+        rd = d["risk"]
+        if isinstance(rd, dict):
+            rd.pop("__dc__", None)
+            risk = RustRiskState.from_dict(rd)
+        else:
+            risk = rd
+
+    return StateSnapshot.of(
+        symbol=d["symbol"],
+        ts=d.get("ts"),
+        event_id=d.get("event_id"),
+        event_type=d.get("event_type", ""),
+        bar_index=d.get("bar_index", 0),
+        markets=markets,
+        positions=positions,
+        account=account,
+        portfolio=portfolio,
+        risk=risk,
+    )
+
+
+# ---------------------------------------------------------------------------
+# State checkpoint types and stores
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True, slots=True)
 class StateCheckpoint:
@@ -39,7 +188,7 @@ class StateCheckpoint:
 def _build_checkpoint(snapshot: StateSnapshot) -> StateCheckpoint:
     return StateCheckpoint(
         symbol=snapshot.symbol,
-        ts=ensure_utc(snapshot.ts) if snapshot.ts is not None else None,
+        ts=_ensure_utc(snapshot.ts) if snapshot.ts is not None else None,
         event_id=snapshot.event_id,
         bar_index=snapshot.bar_index,
         snapshot=snapshot,

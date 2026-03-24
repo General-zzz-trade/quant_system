@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
 
 use crate::state::fixed_decimal::{Fd8, SCALE};
@@ -124,6 +124,33 @@ impl RustMarketState {
         }
     }
 
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("symbol", &self.symbol)?;
+        d.set_item("last_price", self.last_price)?;
+        d.set_item("open", self.open)?;
+        d.set_item("high", self.high)?;
+        d.set_item("low", self.low)?;
+        d.set_item("close", self.close)?;
+        d.set_item("volume", self.volume)?;
+        d.set_item("last_ts", &self.last_ts)?;
+        Ok(d)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyDict>) -> PyResult<Self> {
+        Ok(Self {
+            symbol: d.get_item("symbol")?.map(|v| v.extract()).transpose()?.unwrap_or_default(),
+            last_price: d.get_item("last_price")?.and_then(|v| v.extract().ok()),
+            open: d.get_item("open")?.and_then(|v| v.extract().ok()),
+            high: d.get_item("high")?.and_then(|v| v.extract().ok()),
+            low: d.get_item("low")?.and_then(|v| v.extract().ok()),
+            close: d.get_item("close")?.and_then(|v| v.extract().ok()),
+            volume: d.get_item("volume")?.and_then(|v| v.extract().ok()),
+            last_ts: d.get_item("last_ts")?.and_then(|v| v.extract().ok()),
+        })
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "RustMarketState(symbol='{}', last_price={}, open={}, high={}, low={}, close={}, volume={}, last_ts={})",
@@ -244,6 +271,27 @@ impl RustPositionState {
             last_price,
             last_ts: ts,
         }
+    }
+
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("symbol", &self.symbol)?;
+        d.set_item("qty", self.qty)?;
+        d.set_item("avg_price", self.avg_price)?;
+        d.set_item("last_price", self.last_price)?;
+        d.set_item("last_ts", &self.last_ts)?;
+        Ok(d)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyDict>) -> PyResult<Self> {
+        Ok(Self {
+            symbol: d.get_item("symbol")?.map(|v| v.extract()).transpose()?.unwrap_or_default(),
+            qty: d.get_item("qty")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            avg_price: d.get_item("avg_price")?.and_then(|v| v.extract().ok()),
+            last_price: d.get_item("last_price")?.and_then(|v| v.extract().ok()),
+            last_ts: d.get_item("last_ts")?.and_then(|v| v.extract().ok()),
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -367,6 +415,33 @@ impl RustAccountState {
             fees_paid,
             last_ts: ts,
         }
+    }
+
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("currency", &self.currency)?;
+        d.set_item("balance", self.balance)?;
+        d.set_item("margin_used", self.margin_used)?;
+        d.set_item("margin_available", self.margin_available)?;
+        d.set_item("realized_pnl", self.realized_pnl)?;
+        d.set_item("unrealized_pnl", self.unrealized_pnl)?;
+        d.set_item("fees_paid", self.fees_paid)?;
+        d.set_item("last_ts", &self.last_ts)?;
+        Ok(d)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyDict>) -> PyResult<Self> {
+        Ok(Self {
+            currency: d.get_item("currency")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "USDT".to_string()),
+            balance: d.get_item("balance")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            margin_used: d.get_item("margin_used")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            margin_available: d.get_item("margin_available")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            realized_pnl: d.get_item("realized_pnl")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            unrealized_pnl: d.get_item("unrealized_pnl")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            fees_paid: d.get_item("fees_paid")?.and_then(|v| v.extract().ok()).unwrap_or(0),
+            last_ts: d.get_item("last_ts")?.and_then(|v| v.extract().ok()),
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -606,6 +681,47 @@ impl RustPortfolioState {
         })
     }
 
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("total_equity", &self.total_equity)?;
+        d.set_item("cash_balance", &self.cash_balance)?;
+        d.set_item("realized_pnl", &self.realized_pnl)?;
+        d.set_item("unrealized_pnl", &self.unrealized_pnl)?;
+        d.set_item("fees_paid", &self.fees_paid)?;
+        d.set_item("gross_exposure", &self.gross_exposure)?;
+        d.set_item("net_exposure", &self.net_exposure)?;
+        d.set_item("leverage", &self.leverage)?;
+        d.set_item("margin_used", &self.margin_used)?;
+        d.set_item("margin_available", &self.margin_available)?;
+        d.set_item("margin_ratio", &self.margin_ratio)?;
+        let sym_list = PyList::new(py, &self.symbols)?;
+        d.set_item("symbols", sym_list)?;
+        d.set_item("last_ts", &self.last_ts)?;
+        Ok(d)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyDict>) -> PyResult<Self> {
+        let symbols: Vec<String> = d.get_item("symbols")?
+            .map(|v| v.extract().unwrap_or_default())
+            .unwrap_or_default();
+        Ok(Self {
+            total_equity: d.get_item("total_equity")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            cash_balance: d.get_item("cash_balance")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            realized_pnl: d.get_item("realized_pnl")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            unrealized_pnl: d.get_item("unrealized_pnl")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            fees_paid: d.get_item("fees_paid")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            gross_exposure: d.get_item("gross_exposure")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            net_exposure: d.get_item("net_exposure")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            leverage: d.get_item("leverage")?.and_then(|v| v.extract().ok()),
+            margin_used: d.get_item("margin_used")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            margin_available: d.get_item("margin_available")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            margin_ratio: d.get_item("margin_ratio")?.and_then(|v| v.extract().ok()),
+            symbols,
+            last_ts: d.get_item("last_ts")?.and_then(|v| v.extract().ok()),
+        })
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "RustPortfolioState(equity='{}', cash='{}', gross_exp='{}', net_exp='{}', leverage={}, symbols={:?})",
@@ -759,6 +875,37 @@ impl RustRiskState {
             drawdown_pct,
             last_ts: ts,
         }
+    }
+
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("blocked", self.blocked)?;
+        d.set_item("halted", self.halted)?;
+        d.set_item("level", &self.level)?;
+        d.set_item("message", &self.message)?;
+        let flags_list = PyList::new(py, &self.flags)?;
+        d.set_item("flags", flags_list)?;
+        d.set_item("equity_peak", &self.equity_peak)?;
+        d.set_item("drawdown_pct", &self.drawdown_pct)?;
+        d.set_item("last_ts", &self.last_ts)?;
+        Ok(d)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyDict>) -> PyResult<Self> {
+        let flags: Vec<String> = d.get_item("flags")?
+            .map(|v| v.extract().unwrap_or_default())
+            .unwrap_or_default();
+        Ok(Self {
+            blocked: d.get_item("blocked")?.and_then(|v| v.extract().ok()).unwrap_or(false),
+            halted: d.get_item("halted")?.and_then(|v| v.extract().ok()).unwrap_or(false),
+            level: d.get_item("level")?.and_then(|v| v.extract().ok()),
+            message: d.get_item("message")?.and_then(|v| v.extract().ok()),
+            flags,
+            equity_peak: d.get_item("equity_peak")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            drawdown_pct: d.get_item("drawdown_pct")?.map(|v| v.extract()).transpose()?.unwrap_or_else(|| "0".to_string()),
+            last_ts: d.get_item("last_ts")?.and_then(|v| v.extract().ok()),
+        })
     }
 
     fn __repr__(&self) -> String {
