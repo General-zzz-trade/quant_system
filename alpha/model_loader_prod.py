@@ -11,6 +11,34 @@ from infra.model_signing import load_verified_pickle
 logger = logging.getLogger(__name__)
 
 
+def _try_load_rust_tree(json_path: Path):
+    """Try to load a RustTreePredictor from a JSON export. Returns None on failure."""
+    if not json_path.exists():
+        return None
+    try:
+        from _quant_hotpath import RustTreePredictor
+        predictor = RustTreePredictor.load(str(json_path))
+        logger.info("Loaded RustTreePredictor from %s", json_path)
+        return predictor
+    except Exception:
+        logger.debug("RustTreePredictor unavailable for %s", json_path, exc_info=True)
+        return None
+
+
+def _try_load_rust_ridge(json_path: Path):
+    """Try to load a RustRidgePredictor from a JSON export. Returns None on failure."""
+    if not json_path.exists():
+        return None
+    try:
+        from _quant_hotpath import RustRidgePredictor
+        predictor = RustRidgePredictor(str(json_path))
+        logger.info("Loaded RustRidgePredictor from %s", json_path)
+        return predictor
+    except Exception:
+        logger.debug("RustRidgePredictor unavailable for %s", json_path, exc_info=True)
+        return None
+
+
 def load_model(model_dir: Path) -> dict:
     """Load model config + all horizon models for IC-weighted ensemble.
 
@@ -79,6 +107,15 @@ def load_model(model_dir: Path) -> dict:
                 lgbm_expected, len(hm["features"]), hm["horizon"],
             )
 
+        # Try loading Rust-native predictors from JSON exports (faster inference)
+        lgbm_json_path = model_dir / hm["lgbm"].replace(".pkl", ".json")
+        rust_tree = _try_load_rust_tree(lgbm_json_path)
+
+        rust_ridge = None
+        if ridge_name:
+            ridge_json_path = model_dir / ridge_name.replace(".pkl", ".json")
+            rust_ridge = _try_load_rust_ridge(ridge_json_path)
+
         horizon_models.append({
             "horizon": hm["horizon"],
             "lgbm": model,
@@ -87,6 +124,8 @@ def load_model(model_dir: Path) -> dict:
             "ridge_features": ridge_features,  # may differ from lgbm features
             "features": hm["features"],
             "ic": hm.get("ic", 0.01),
+            "rust_tree": rust_tree,
+            "rust_ridge": rust_ridge,
         })
 
     if not horizon_models:

@@ -52,6 +52,28 @@ def _safe_val(v: Any, feat_name: str = "") -> float:
         return neutral
 
 
+def _rust_or_sklearn_ridge(hm: dict, feature_values: list[float]) -> float:
+    """Predict using RustRidgePredictor if available, else sklearn Ridge."""
+    rust_ridge = hm.get("rust_ridge")
+    if rust_ridge is not None:
+        try:
+            return float(rust_ridge.predict(feature_values))
+        except Exception:
+            logger.debug("RustRidgePredictor.predict failed, falling back to sklearn", exc_info=True)
+    return float(hm["ridge"].predict([feature_values])[0])
+
+
+def _rust_or_sklearn_tree(hm: dict, feature_values: list[float]) -> float:
+    """Predict using RustTreePredictor if available, else sklearn LGBM."""
+    rust_tree = hm.get("rust_tree")
+    if rust_tree is not None:
+        try:
+            return float(rust_tree.predict_array(feature_values))
+        except Exception:
+            logger.debug("RustTreePredictor.predict_array failed, falling back to sklearn", exc_info=True)
+    return float(hm["lgbm"].predict([feature_values])[0])
+
+
 class EnsemblePredictor:
     """Ridge(60%) + LGBM(40%) IC-weighted ensemble predictor.
 
@@ -68,6 +90,10 @@ class EnsemblePredictor:
 
     def predict(self, feat_dict: dict) -> float | None:
         """Produce ensemble prediction from feature dict.
+
+        Uses Rust-native predictors (RustRidgePredictor / RustTreePredictor)
+        when available for faster inference. Falls back to sklearn if Rust
+        predictors are absent or raise an exception.
 
         Returns weighted average across horizons (IC-weighted), or None
         if no valid predictions.
@@ -88,15 +114,15 @@ class EnsemblePredictor:
             if ridge_model is not None:
                 rf = hm.get("ridge_features") or feats
                 rx = [_safe_val(feat_dict.get(f), f) for f in rf]
-                ridge_pred = float(ridge_model.predict([rx])[0])
+                ridge_pred = _rust_or_sklearn_ridge(hm, rx)
 
                 if self._ridge_only_4h:
                     pred = ridge_pred
                 else:
-                    lgbm_pred = float(hm["lgbm"].predict([x])[0])
+                    lgbm_pred = _rust_or_sklearn_tree(hm, x)
                     pred = ridge_pred * self._ridge_w + lgbm_pred * self._lgbm_w
             else:
-                pred = float(hm["lgbm"].predict([x])[0])
+                pred = _rust_or_sklearn_tree(hm, x)
 
             weighted_sum += pred * ic
             weight_total += ic
