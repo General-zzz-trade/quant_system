@@ -147,13 +147,24 @@ class AdaptivePositionSizer:
             price = 0.0
 
         if _RUST_SIZER:
-            result = rust_adaptive_target_qty(
-                self.runner_key, equity, price,
-                self.step_size, self.min_size, self.max_qty,
-                float(weight), leverage, ic_scale,
-                regime_active, z_scale,
-            )
-            return Decimal(str(result))
+            try:
+                result = rust_adaptive_target_qty(
+                    self.runner_key, equity, price,
+                    self.step_size, self.min_size, self.max_qty,
+                    float(weight), leverage, ic_scale,
+                    regime_active, z_scale,
+                )
+                logger.debug("sizer_path=rust runner=%s qty=%s", self.runner_key, result)
+                return Decimal(str(result))
+            except Exception:
+                logger.warning(
+                    "Rust sizer failed for %s, falling back to Python",
+                    self.runner_key,
+                    exc_info=True,
+                )
+
+        else:
+            logger.debug("sizer_path=python runner=%s (Rust not available)", self.runner_key)
 
         if equity <= 0 or price <= 0:
             return self._round_to_step(self.min_size)
