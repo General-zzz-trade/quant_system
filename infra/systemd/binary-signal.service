@@ -1,5 +1,5 @@
 [Unit]
-Description=Binary 5m RSI Signal (BTC)
+Description=INACTIVE — Binary 5m RSI Signal (BTC)
 After=network-online.target
 Wants=network-online.target
 

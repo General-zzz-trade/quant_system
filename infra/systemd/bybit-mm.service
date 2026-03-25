@@ -1,5 +1,5 @@
 [Unit]
-Description=Bybit Market Maker (ORDIUSDT 50x)
+Description=INACTIVE — Bybit Market Maker (ORDIUSDT 50x)
 After=network-online.target
 Wants=network-online.target
 

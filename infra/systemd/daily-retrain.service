@@ -6,9 +6,9 @@ After=network.target
 Type=oneshot
 WorkingDirectory=/quant_system
 # Default: 1h + 4h retrain. To include 15m, add --include-15m:
-#   ExecStart=/usr/bin/python3 -m scripts.auto_retrain --daily --include-4h --include-15m --sighup
+#   ExecStart=/usr/bin/python3 -m alpha.auto_retrain --daily --include-4h --include-15m --sighup
 # Or run 15m separately: python3 -m alpha.retrain_15m --force
-ExecStart=/usr/bin/python3 -m scripts.auto_retrain --daily --include-4h --sighup
+ExecStart=/usr/bin/python3 -m alpha.auto_retrain --daily --include-4h --sighup
 User=ubuntu
 Environment=PYTHONPATH=/quant_system
 StandardOutput=append:/quant_system/logs/retrain_daily.log

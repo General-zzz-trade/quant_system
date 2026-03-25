@@ -1,5 +1,5 @@
 [Unit]
-Description=Signal-driven HFT (BTC+ETH+SOL)
+Description=INACTIVE — Signal-driven HFT (BTC+ETH+SOL)
 After=network-online.target
 Wants=network-online.target
 

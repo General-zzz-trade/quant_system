@@ -9,13 +9,10 @@ INTERVAL = "60"  # Bybit: "60" = 1h
 WARMUP_BARS = 800  # Must be > zscore_window(720) + zscore_warmup(180) for full z-score convergence
 POLL_INTERVAL = 60  # seconds between checks
 
-# Max order notional as fraction of equity (dynamic safety cap).
-# This is a SAFETY LIMIT, not the primary sizing control.
-# Primary sizing: _SHARPE_WEIGHTS × equity × leverage (in _compute_position_size).
-# This cap prevents any single order from exceeding a reasonable fraction of equity.
-# At $35K equity, 10x leverage: max per-symbol = cap(0.15) × lev(10) × equity = $52K
-# Safety cap should be above normal sizing but below total equity × leverage.
-MAX_ORDER_NOTIONAL_PCT = 1.50  # 150% of equity per order (safety cap for leveraged positions)
+# Safety cap: 250% of equity (normal max ~ 150% at 10x leverage).
+# 67% headroom above normal. Catches sizing bugs without blocking normal trades.
+# Absolute ceiling: $100K regardless of equity.
+MAX_ORDER_NOTIONAL_PCT = 2.50
 MAX_ORDER_NOTIONAL_FLOOR = 100.0
 MAX_ORDER_NOTIONAL_CEILING = 100_000.0
 
@@ -41,23 +38,23 @@ LEVERAGE_LADDER = [
 # Default symbols + position sizes
 # 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)
 SYMBOL_CONFIG = {
-    # BTC: optimized dz=1.0, mh=24, maxh=144, monthly-gate (Sharpe 4.37, 20/22 PASS)
+    # BTC 1h: dz=1.0, mh=18, maxh=120 (Sharpe 2.34, retrained 2026-03-23)
     "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001,
                  "use_composite_regime": True},
-    # ETH: production dz=0.4, mh=18 (Sharpe 4.67, 17/21 PASS)
+    # ETH 1h: dz=0.9, mh=18, maxh=60, long_only (Sharpe 3.92)
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
-    # ETH 15m: WF FAIL (2026-03-22). Pending retrain with V14+microstructure features
+    # ETH 15m: DISABLED — WF FAIL (Sharpe -1.36)
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
-    # BTC 15m: WF FAIL (2026-03-22). Pending retrain with V14+microstructure features
+    # BTC 15m: DISABLED — WF FAIL (Sharpe 0.27)
     "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
                     "interval": "15", "warmup": 800, "step": 0.001},
-    # BTC 4h alpha (Strategy H primary): IC=0.29, Sharpe 6.34, 22/22 WF PASS, cap=0.15
+    # BTC 4h: Strategy H primary, WF Sharpe 3.62 (20/22)
     # warmup=300: zscore_window(180)+zscore_warmup(45)+feature_warmup(28)=253, +margin
     "BTCUSDT_4h": {"size": 0.001, "model_dir": "BTCUSDT_4h", "symbol": "BTCUSDT",
                    "interval": "240", "warmup": 300, "step": 0.001,
                    "use_composite_regime": True},
-    # ETH 4h alpha (Strategy H primary): IC=0.42, Sharpe 5.92, 21/21 WF PASS, cap=0.10
+    # ETH 4h: Strategy H primary, WF Sharpe 4.57 (21/21)
     # warmup=300: zscore_window(180)+zscore_warmup(45)+feature_warmup(28)=253, +margin
     "ETHUSDT_4h": {"size": 0.01, "model_dir": "ETHUSDT_4h", "symbol": "ETHUSDT",
                    "interval": "240", "warmup": 300, "step": 0.01},
