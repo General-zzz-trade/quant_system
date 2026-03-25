@@ -150,7 +150,7 @@ def _build_snapshot(
     risk: Any,
     features: Optional[Mapping[str, Any]] = None,
     skip_convert: bool = False,
-) -> Any:
+) -> StateSnapshot | dict[str, Any]:
     header = getattr(raw_event, "header", None)
     event_id = getattr(header, "event_id", None)
     ts = getattr(header, "ts", None)
@@ -275,7 +275,7 @@ class StatePipeline:
                 bundled_event_index, bundled_last_event_id, bundled_last_ts,
             ) = _export_store_state(store)
 
-            snapshot: Optional[Any] = _build_snapshot(
+            snapshot: StateSnapshot | dict[str, Any] = _build_snapshot(
                 raw_event=inp.event,
                 event_index=next_index,
                 markets=markets,

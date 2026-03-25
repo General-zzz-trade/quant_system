@@ -166,8 +166,8 @@ pub mod risk {
     pub mod gate_chain;
 }
 
+#[path = "strategy/regime/rust"]
 pub mod regime {
-    #[path = "rust/detector.rs"]
     pub mod detector;
 }
 

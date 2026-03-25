@@ -10,8 +10,6 @@ from decision.allocators.single_asset import SingleAssetAllocator
 from decision.allocators.constraints import AllocationConstraints
 from decision.sizing.fixed_fraction import FixedFractionSizer
 from decision.intents.target_position import TargetPositionIntentBuilder
-from decision.execution_policy.marketable_limit import MarketableLimitPolicy
-from decision.execution_policy.passive import PassivePolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,5 +36,7 @@ class DefaultComposer:
 
     def build_execution_policy(self, name: str, slippage_bps: Decimal) -> Any:
         if name == "passive":
+            from strategy.execution_policy.passive import PassivePolicy
             return PassivePolicy(offset_bps=slippage_bps)
+        from strategy.execution_policy.marketable_limit import MarketableLimitPolicy
         return MarketableLimitPolicy(slippage_bps=slippage_bps)

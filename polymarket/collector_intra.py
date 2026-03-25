@@ -113,7 +113,7 @@ def collect_intra_with_15m(collector, ts_15m, strike_15m, rsi_15m, rsi_sig_15m, 
 
 def run_continuous(collector, mode: str = "basic"):
     """Run collector continuously, aligned to 5-minute boundaries."""
-    from polymarket.collector import _WINDOW_SEC, _SETTLE_OFFSET
+    from polymarket.collector import _SETTLE_OFFSET
     collector._running = True
     logger.info("Polymarket collector starting (db=%s, mode=%s)", collector._db_path, mode)
 

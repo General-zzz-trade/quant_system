@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Sequence
@@ -17,7 +17,6 @@ from decision.types import (
 )
 from decision.utils import stable_hash, dec_str, canonical_meta
 from decision.selectors import UniverseSelector
-from strategy.signals.base import NullSignal
 from decision.risk_overlay.kill_conditions import BasicKillOverlay
 from decision.composer import DefaultComposer
 from decision.audit import DecisionAuditor
@@ -72,10 +71,15 @@ class DecisionEngine:
     """
 
     cfg: DecisionConfig
-    signal_model: Any = NullSignal()
+    signal_model: Any = field(default=None)
     composer: DefaultComposer = DefaultComposer()
 
     auditor: Optional[DecisionAuditor] = None
+
+    def __post_init__(self) -> None:
+        if self.signal_model is None:
+            from strategy.signals.base import NullSignal
+            object.__setattr__(self, "signal_model", NullSignal())
 
     def run(self, snapshot: StateSnapshot, *, ctx: Optional[DecisionContext] = None) -> DecisionOutput:
         if ctx is None:
