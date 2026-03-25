@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 
 
 from decision.regime_policy import RegimePolicy
-from regime.base import RegimeLabel
-from regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
-from regime.param_router import (
+from strategy.regime.base import RegimeLabel
+from strategy.regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
+from strategy.regime.param_router import (
     RegimeParamRouter,
     RegimeParams,
     _FALLBACK,

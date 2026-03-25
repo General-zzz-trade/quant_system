@@ -4,7 +4,7 @@ Verifies that compute_stop_price() and check_stop() results are identical
 between the Rust and Python implementations for all phases and edge cases.
 """
 import pytest
-from runner.gates.adaptive_stop_gate import AdaptiveStopGate
+from strategy.gates.adaptive_stop_gate import AdaptiveStopGate
 
 try:
     from _quant_hotpath import RustAdaptiveStopGate
@@ -188,7 +188,7 @@ class TestAdaptiveStopParity:
 
         # Both should now be in TRAILING
         assert rust.get_phase(sym) == "TRAILING"
-        from runner.gates.adaptive_stop_gate import StopPhase
+        from strategy.gates.adaptive_stop_gate import StopPhase
         assert py.get_phase(sym) == StopPhase.TRAILING
 
         # Stop prices at 103 should match

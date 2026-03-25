@@ -2,8 +2,8 @@
 
 import pytest
 
-from regime.composite import CompositeRegimeLabel
-from regime.param_router import DEFAULT_PARAMS, RegimeParamRouter, RegimeParams
+from strategy.regime.composite import CompositeRegimeLabel
+from strategy.regime.param_router import DEFAULT_PARAMS, RegimeParamRouter, RegimeParams
 
 
 @pytest.fixture

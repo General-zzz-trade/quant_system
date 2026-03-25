@@ -24,7 +24,7 @@ class MockGate:
 
 @pytest.fixture
 def evaluator():
-    from runner.gates.evaluator import GateEvaluator
+    from strategy.gates.evaluator import GateEvaluator
     return GateEvaluator(
         liq_gate=MockGate(),
         mtf_gate=MockGate(),
@@ -43,7 +43,7 @@ class TestGateEvaluator:
         assert scale == 1.0
 
     def test_liq_gate_blocks(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         ev = GateEvaluator(
             liq_gate=MockGate(allowed=False, reason="cascade"),
             mtf_gate=MockGate(), carry_gate=MockGate(), vpin_gate=MockGate(),
@@ -51,7 +51,7 @@ class TestGateEvaluator:
         assert ev.evaluate(1, {}, {}, "BTC_4h", "BTCUSDT") == 0.0
 
     def test_vpin_gate_blocks(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         ev = GateEvaluator(
             liq_gate=MockGate(), mtf_gate=MockGate(), carry_gate=MockGate(),
             vpin_gate=MockGate(allowed=False, reason="toxic"),
@@ -59,7 +59,7 @@ class TestGateEvaluator:
         assert ev.evaluate(-1, {}, {}, "ETH_1h", "ETHUSDT") == 0.0
 
     def test_scale_multiplication(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         ev = GateEvaluator(
             liq_gate=MockGate(scale=0.8),
             mtf_gate=MockGate(scale=1.2),
@@ -70,7 +70,7 @@ class TestGateEvaluator:
         assert abs(scale - 0.8 * 1.2 * 0.7) < 1e-6
 
     def test_consensus_signal_injected(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         calls = []
         class RecordingGate:
             def check(self, ev, ctx):
@@ -85,7 +85,7 @@ class TestGateEvaluator:
         assert calls[0].get("tf4h_model_signal") == 1
 
     def test_features_populated_in_context(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         calls = []
         class RecordingGate:
             def check(self, ev, ctx):
@@ -101,7 +101,7 @@ class TestGateEvaluator:
         assert calls[0]["basis"] == 0.05
 
     def test_nan_features_excluded(self):
-        from runner.gates.evaluator import GateEvaluator
+        from strategy.gates.evaluator import GateEvaluator
         calls = []
         class RecordingGate:
             def check(self, ev, ctx):

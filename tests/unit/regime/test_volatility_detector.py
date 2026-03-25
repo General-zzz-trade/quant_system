@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from regime.volatility import VolatilityRegimeDetector
+from strategy.regime.volatility import VolatilityRegimeDetector
 
 
 @pytest.fixture

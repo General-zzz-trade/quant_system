@@ -240,7 +240,7 @@ class PortfolioCombiner:
             agree_count = sum(1 for s in self._signals.values() if s == desired)
             conviction = agree_count / len(self._signals)  # 0.5 = one alpha, 1.0 = both
             # Use equity-based leverage ladder
-            from runner.strategy_config import LEVERAGE_LADDER
+            from strategy.config import LEVERAGE_LADDER
             leverage = 2.0  # default
             for threshold, lev_val in LEVERAGE_LADDER:
                 if equity >= threshold:
@@ -253,7 +253,7 @@ class PortfolioCombiner:
             size = min(size, max_notional / price)
 
             # Enforce dynamic safety limit (scales with equity)
-            from runner.strategy_config import get_max_order_notional
+            from strategy.config import get_max_order_notional
             dynamic_cap = get_max_order_notional(equity)
             notional = size * price
             if notional > dynamic_cap:

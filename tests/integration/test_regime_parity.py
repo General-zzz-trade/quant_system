@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 from datetime import datetime
 
-from regime.volatility import VolatilityRegimeDetector
-from regime.trend import TrendRegimeDetector
-from regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
-from regime.param_router import RegimeParamRouter, RegimeParams, DEFAULT_PARAMS
+from strategy.regime.volatility import VolatilityRegimeDetector
+from strategy.regime.trend import TrendRegimeDetector
+from strategy.regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
+from strategy.regime.param_router import RegimeParamRouter, RegimeParams, DEFAULT_PARAMS
 
 try:
     from _quant_hotpath import RustCompositeRegimeDetector, RustRegimeParamRouter
@@ -303,7 +303,7 @@ class TestCompositeDetectorParity:
 
     def test_composite_detect_returns_regime_label(self):
         """CompositeRegimeDetector.detect() returns RegimeLabel with Rust backend."""
-        from regime.base import RegimeLabel
+        from strategy.regime.base import RegimeLabel
         det = CompositeRegimeDetector()
         ts = datetime.utcnow()
         symbol = "ETHUSDT"

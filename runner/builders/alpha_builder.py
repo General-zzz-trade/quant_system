@@ -15,7 +15,7 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
-from runner.strategy_config import SYMBOL_CONFIG, LEVERAGE_LADDER
+from strategy.config import SYMBOL_CONFIG, LEVERAGE_LADDER
 
 logger = logging.getLogger(__name__)
 

@@ -104,7 +104,7 @@ def prepare_15m_extra_features(symbol: str, df_15m: Any) -> Any:
 
             # Try to compute regime labels from 1h data
             try:
-                from regime.composite_regime import CompositeRegimeDetector
+                from strategy.regime.composite import CompositeRegimeDetector
                 detector = CompositeRegimeDetector()
                 regime_labels = []
                 for _, row in df_1h.iterrows():

@@ -41,7 +41,7 @@ class TestEquityLeverageParity:
     """Verify equity leverage brackets match AlphaRunner's LEVERAGE_LADDER."""
 
     def test_leverage_brackets_match_alpha_runner(self):
-        from runner.gates.equity_leverage_gate import _bracket_leverage
+        from strategy.gates.equity_leverage_gate import _bracket_leverage
         assert _bracket_leverage(500) == 1.5
         assert _bracket_leverage(4999) == 1.5
         assert _bracket_leverage(5000) == 1.5
@@ -52,7 +52,7 @@ class TestEquityLeverageParity:
         assert _bracket_leverage(100000) == 1.0
 
     def test_bracket_boundary_at_zero(self):
-        from runner.gates.equity_leverage_gate import _bracket_leverage
+        from strategy.gates.equity_leverage_gate import _bracket_leverage
         assert _bracket_leverage(0) == 1.5
 
 
@@ -60,7 +60,7 @@ class TestZScaleParity:
     """Verify z-score scaling matches AlphaRunner's compute_z_scale."""
 
     def test_z_scale_thresholds_match(self):
-        from runner.gates.equity_leverage_gate import _z_scale
+        from strategy.gates.equity_leverage_gate import _z_scale
         assert _z_scale(2.5) == 1.5
         assert _z_scale(-2.1) == 1.5
         assert _z_scale(1.5) == 1.0
@@ -70,7 +70,7 @@ class TestZScaleParity:
         assert _z_scale(0.0) == 0.5
 
     def test_negative_z_mirrors_positive(self):
-        from runner.gates.equity_leverage_gate import _z_scale
+        from strategy.gates.equity_leverage_gate import _z_scale
         assert _z_scale(-2.5) == _z_scale(2.5)
         assert _z_scale(-1.5) == _z_scale(1.5)
         assert _z_scale(-0.8) == _z_scale(0.8)
@@ -80,18 +80,18 @@ class TestConsensusScaleParity:
     """Verify consensus scaling matches AlphaRunner's _get_consensus_scale."""
 
     def test_consensus_scale_matches_alpha_runner(self):
-        from runner.gates.consensus_scaling_gate import _consensus_scale
+        from strategy.gates.consensus_scaling_gate import _consensus_scale
         assert _consensus_scale("ETH", 1, {"BTC": -1, "SUI": -1, "AXS": -1}) == 1.3
         assert _consensus_scale("ETH", 1, {"BTC": 1, "SUI": 1, "AXS": 1}) == 1.0
         assert _consensus_scale("ETH", 1, {"BTC": 1, "SUI": -1, "AXS": -1}) == 0.7
         assert _consensus_scale("ETH", 1, {}) == 1.0
 
     def test_self_key_excluded(self):
-        from runner.gates.consensus_scaling_gate import _consensus_scale
+        from strategy.gates.consensus_scaling_gate import _consensus_scale
         assert _consensus_scale("ETH", 1, {"ETH": -1}) == 1.0
 
     def test_short_side_contrarian(self):
-        from runner.gates.consensus_scaling_gate import _consensus_scale
+        from strategy.gates.consensus_scaling_gate import _consensus_scale
         assert _consensus_scale("ETH", -1, {"BTC": 1, "SUI": 1, "AXS": 1}) == 1.3
 
 
@@ -99,21 +99,21 @@ class TestAdaptiveStopParity:
     """Verify ATR stop phases match AlphaRunner's 3-phase logic."""
 
     def test_gate_exists_and_is_callable(self):
-        from runner.gates.adaptive_stop_gate import AdaptiveStopGate
+        from strategy.gates.adaptive_stop_gate import AdaptiveStopGate
         gate = AdaptiveStopGate()
         assert hasattr(gate, "on_new_position")
         assert hasattr(gate, "check_stop")
         assert hasattr(gate, "compute_stop_price")
 
     def test_new_position_long(self):
-        from runner.gates.adaptive_stop_gate import AdaptiveStopGate
+        from strategy.gates.adaptive_stop_gate import AdaptiveStopGate
         gate = AdaptiveStopGate()
         gate.on_new_position("ETH", side=1, entry_price=3000.0)
         # Should not stop immediately
         assert gate.check_stop("ETH", 3000.0) is False
 
     def test_stop_triggers_on_large_drop(self):
-        from runner.gates.adaptive_stop_gate import AdaptiveStopGate
+        from strategy.gates.adaptive_stop_gate import AdaptiveStopGate
         gate = AdaptiveStopGate()
         gate.on_new_position("ETH", side=1, entry_price=3000.0)
         # 10% drop should trigger stop (exceeds 5% hard floor)

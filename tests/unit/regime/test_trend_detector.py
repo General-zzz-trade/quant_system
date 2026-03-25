@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from regime.trend import TrendRegimeDetector
+from strategy.regime.trend import TrendRegimeDetector
 
 
 @pytest.fixture

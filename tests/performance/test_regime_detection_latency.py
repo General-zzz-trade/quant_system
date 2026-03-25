@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from regime.composite import CompositeRegimeDetector
-from regime.param_router import RegimeParamRouter
-from regime.volatility import VolatilityRegimeDetector
-from regime.trend import TrendRegimeDetector
+from strategy.regime.composite import CompositeRegimeDetector
+from strategy.regime.param_router import RegimeParamRouter
+from strategy.regime.volatility import VolatilityRegimeDetector
+from strategy.regime.trend import TrendRegimeDetector
 
 _TS = datetime(2026, 3, 17, tzinfo=timezone.utc)
 
@@ -53,7 +53,7 @@ def test_composite_detect_latency():
 @pytest.mark.benchmark
 def test_param_router_latency():
     """RegimeParamRouter.route must be <0.01ms (pure dict lookup)."""
-    from regime.composite import CompositeRegimeLabel
+    from strategy.regime.composite import CompositeRegimeLabel
     router = RegimeParamRouter()
 
     labels = [

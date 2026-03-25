@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 
-from runner.gates.consensus_scaling_gate import (
+from strategy.gates.consensus_scaling_gate import (
     ConsensusScalingGate,
     _consensus_scale,
 )

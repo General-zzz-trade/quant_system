@@ -312,7 +312,7 @@ class EngineMonitoringHook:
 
         # Lazily create volatility detector
         if self._vol_detector is None:
-            from regime.volatility import VolatilityRegimeDetector
+            from strategy.regime.volatility import VolatilityRegimeDetector
             self._vol_detector = VolatilityRegimeDetector()
 
         from datetime import datetime, timezone

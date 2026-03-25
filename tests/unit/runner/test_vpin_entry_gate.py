@@ -2,7 +2,7 @@
 
 import time
 from unittest.mock import MagicMock
-from runner.gates.vpin_entry_gate import VPINEntryConfig, VPINEntryGate
+from strategy.gates.vpin_entry_gate import VPINEntryConfig, VPINEntryGate
 
 
 def _make_ev(signal=1):

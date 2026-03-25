@@ -39,7 +39,7 @@ from event.header import EventHeader
 from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
 from execution.adapters.bybit.ws_client import BybitWsClient
 from runner.builders.alpha_builder import build_coordinator as _build_coordinator
-from runner.strategy_config import SYMBOL_CONFIG
+from strategy.config import SYMBOL_CONFIG
 from runner.warmup import warmup as _warmup
 
 logger = logging.getLogger(__name__)

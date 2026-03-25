@@ -32,7 +32,7 @@ class TestMaxOrderNotional:
         assert "MAX_ORDER_NOTIONAL" in text
 
     def test_max_order_notional_reasonable(self):
-        from runner.strategy_config import MAX_ORDER_NOTIONAL_PCT, MAX_ORDER_NOTIONAL_CEILING
+        from strategy.config import MAX_ORDER_NOTIONAL_PCT, MAX_ORDER_NOTIONAL_CEILING
         assert 0 < MAX_ORDER_NOTIONAL_PCT <= 5.0, f"PCT={MAX_ORDER_NOTIONAL_PCT} out of range"
         assert MAX_ORDER_NOTIONAL_CEILING <= 200_000, f"Ceiling={MAX_ORDER_NOTIONAL_CEILING} too high"
 

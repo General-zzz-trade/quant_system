@@ -108,7 +108,7 @@ def build_coordinator_and_pipeline(
     # ── VPIN Entry Gate (optional microstructure timing) ────
     vpin_entry_gate = None
     try:
-        from runner.gates.vpin_entry_gate import VPINEntryGate, VPINEntryConfig
+        from strategy.gates.vpin_entry_gate import VPINEntryGate, VPINEntryConfig
         vpin_entry_gate = VPINEntryGate(VPINEntryConfig(enabled=True))
         logger.info("VPINEntryGate enabled (microstructure timing)")
     except Exception:

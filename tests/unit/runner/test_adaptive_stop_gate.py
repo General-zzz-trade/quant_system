@@ -19,7 +19,7 @@ import pytest
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from runner.gates.adaptive_stop_gate import AdaptiveStopGate, StopPhase
+from strategy.gates.adaptive_stop_gate import AdaptiveStopGate, StopPhase
 
 
 # ── Minimal ORDER event stub ─────────────────────────────────────────────────

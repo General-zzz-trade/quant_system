@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 
-from runner.gates.equity_leverage_gate import (
+from strategy.gates.equity_leverage_gate import (
     EquityLeverageGate,
     _bracket_leverage,
     _z_scale,

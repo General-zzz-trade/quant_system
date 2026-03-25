@@ -4,9 +4,9 @@ from datetime import datetime
 
 import pytest
 
-from regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
-from regime.trend import TrendRegimeDetector
-from regime.volatility import VolatilityRegimeDetector
+from strategy.regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
+from strategy.regime.trend import TrendRegimeDetector
+from strategy.regime.volatility import VolatilityRegimeDetector
 
 
 def _ts():

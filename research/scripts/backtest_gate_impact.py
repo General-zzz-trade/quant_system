@@ -194,7 +194,7 @@ def _apply_multi_tf_gate(
     feat_df: pd.DataFrame,
 ) -> tuple[np.ndarray, float]:
     """Apply MultiTF Confluence Gate scaling."""
-    from runner.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
+    from strategy.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
     gate = MultiTFConfluenceGate()
     scales = np.ones(len(signal))
 
@@ -230,7 +230,7 @@ def _apply_liquidation_cascade_gate(
     feat_df: pd.DataFrame,
 ) -> tuple[np.ndarray, float]:
     """Apply Liquidation Cascade Gate scaling."""
-    from runner.gates.liquidation_cascade_gate import LiquidationCascadeGate
+    from strategy.gates.liquidation_cascade_gate import LiquidationCascadeGate
     gate = LiquidationCascadeGate()
     scales = np.ones(len(signal))
 
@@ -261,7 +261,7 @@ def _apply_carry_cost_gate(
     feat_df: pd.DataFrame,
 ) -> tuple[np.ndarray, float]:
     """Apply Carry Cost Gate scaling."""
-    from runner.gates.carry_cost_gate import CarryCostGate
+    from strategy.gates.carry_cost_gate import CarryCostGate
     gate = CarryCostGate()
     scales = np.ones(len(signal))
 
@@ -288,9 +288,9 @@ def _apply_all_gates(
     feat_df: pd.DataFrame,
 ) -> tuple[np.ndarray, float]:
     """Apply all new gates in chain order."""
-    from runner.gates.liquidation_cascade_gate import LiquidationCascadeGate
-    from runner.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
-    from runner.gates.carry_cost_gate import CarryCostGate
+    from strategy.gates.liquidation_cascade_gate import LiquidationCascadeGate
+    from strategy.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
+    from strategy.gates.carry_cost_gate import CarryCostGate
 
     liq_gate = LiquidationCascadeGate()
     mtf_gate = MultiTFConfluenceGate()
