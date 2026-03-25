@@ -32,8 +32,8 @@ jobs:
         run: |
           ruff check --select E,W,F \
             decision/ engine/ event/ state/ execution/ features/ \
-            risk/ regime/ alpha/ portfolio/ attribution/ runner/ \
-            monitoring/ infra/
+            risk/ alpha/ attribution/ runner/ \
+            monitoring/ infra/ strategy/ polymarket/
 
   rust-test:
     runs-on: ubuntu-latest
