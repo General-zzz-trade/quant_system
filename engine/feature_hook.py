@@ -1,4 +1,3 @@
-# engine/feature_hook.py
 """FeatureComputeHook — computes features from market events for the pipeline."""
 from __future__ import annotations
 
@@ -8,38 +7,23 @@ import time as _time_mod
 from datetime import datetime
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Union
 
+from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine
+from engine.feature_hook_dominance import DominanceMixin
+from engine.feature_hook_nan import NanTrackingMixin
+from event.types import EventType as _EventType
+
 logger = logging.getLogger(__name__)
 _log = logger
 
-# Module-level cache of latest close prices by base symbol (e.g. "BTCUSDT", "ETHUSDT").
-# Shared across all FeatureComputeHook instances (there is only one in production).
-# Used to provide the "other" symbol's close for V14 dominance feature computation.
+# Module-level close price cache shared across hook instances for V14 dominance.
 _last_closes: Dict[str, float] = {}
 
 
-def _base_symbol(symbol: str) -> str:
-    """Strip timeframe suffix to get base symbol: 'BTCUSDT_4h' -> 'BTCUSDT'."""
-    for suffix in ("_4h", "_15m", "_1d"):
-        if symbol.endswith(suffix):
-            return symbol[: -len(suffix)]
-    return symbol
-
-from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine  # noqa: E402
-from event.types import EventType as _EventType  # noqa: E402
-
-
-class FeatureComputeHook:
+class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
     """Bridges RustFeatureEngine into the engine pipeline.
 
-    Called before pipeline.apply() to compute features from market events.
-    Features are injected into PipelineInput.features and flow through
-    to StateSnapshot.features for downstream ML signal consumption.
-
-    Optionally integrates LiveInferenceBridge to run ML models and inject
-    ml_score into the features dict.
-
-    Uses per-symbol RustFeatureEngine instances for fast incremental
-    feature computation.
+    Computes features from market events, injects into PipelineInput.features,
+    and optionally runs ML models via LiveInferenceBridge.
     """
 
     def __init__(self, computer: Any,
@@ -280,25 +264,20 @@ class FeatureComputeHook:
                 social_volume = sent.get("social_volume", NaN) or NaN
                 sentiment_score = sent.get("sentiment_score", NaN) or NaN
 
-        return dict(
-            hour=hour, dow=dow,
-            funding_rate=funding_rate,
-            trades=trades, taker_buy_volume=taker_buy_volume,
-            quote_volume=quote_volume, taker_buy_quote_volume=taker_buy_quote_volume,
-            open_interest=open_interest, ls_ratio=ls_ratio,
-            spot_close=spot_close, fear_greed=fear_greed,
-            implied_vol=implied_vol, put_call_ratio=put_call_ratio,
-            oc_flow_in=oc_flow_in, oc_flow_out=oc_flow_out,
-            oc_supply=oc_supply, oc_addr=oc_addr,
-            oc_tx=oc_tx, oc_hashrate=oc_hashrate,
-            liq_total_vol=liq_total_vol, liq_buy_vol=liq_buy_vol,
-            liq_sell_vol=liq_sell_vol, liq_count=liq_count,
-            mempool_fastest_fee=mempool_fastest, mempool_economy_fee=mempool_economy,
-            mempool_size=mempool_size,
-            macro_dxy=macro_dxy, macro_spx=macro_spx, macro_vix=macro_vix,
-            macro_day=macro_day,
-            social_volume=social_volume, sentiment_score=sentiment_score,
-        )
+        return dict(hour=hour, dow=dow, funding_rate=funding_rate,
+                    trades=trades, taker_buy_volume=taker_buy_volume,
+                    quote_volume=quote_volume, taker_buy_quote_volume=taker_buy_quote_volume,
+                    open_interest=open_interest, ls_ratio=ls_ratio,
+                    spot_close=spot_close, fear_greed=fear_greed,
+                    implied_vol=implied_vol, put_call_ratio=put_call_ratio,
+                    oc_flow_in=oc_flow_in, oc_flow_out=oc_flow_out,
+                    oc_supply=oc_supply, oc_addr=oc_addr, oc_tx=oc_tx, oc_hashrate=oc_hashrate,
+                    liq_total_vol=liq_total_vol, liq_buy_vol=liq_buy_vol,
+                    liq_sell_vol=liq_sell_vol, liq_count=liq_count,
+                    mempool_fastest_fee=mempool_fastest, mempool_economy_fee=mempool_economy,
+                    mempool_size=mempool_size, macro_dxy=macro_dxy, macro_spx=macro_spx,
+                    macro_vix=macro_vix, macro_day=macro_day,
+                    social_volume=social_volume, sentiment_score=sentiment_score)
 
     # ── Public API for Coordinator fast path ──
 
@@ -326,61 +305,7 @@ class FeatureComputeHook:
         """Store the latest features dict for a symbol."""
         self._last_features[symbol] = features
 
-    # ── NaN rate tracking ──
-
-    def _track_nan(self, symbol: str, features: Dict[str, Any]) -> None:
-        """Scan features for NaN/None and update counters. Lightweight dict ops only."""
-        if symbol not in self._nan_counts:
-            self._nan_counts[symbol] = {}
-            self._nan_recent[symbol] = {}
-        sym_counts = self._nan_counts[symbol]
-        sym_recent = self._nan_recent[symbol]
-
-        self._nan_bar_counts[symbol] = self._nan_bar_counts.get(symbol, 0) + 1
-        recent_bars = self._nan_recent_bars.get(symbol, 0) + 1
-        self._nan_recent_bars[symbol] = recent_bars
-
-        for key, val in features.items():
-            is_nan = val is None or (isinstance(val, float) and math.isnan(val))
-            if is_nan:
-                sym_counts[key] = sym_counts.get(key, 0) + 1
-                sym_recent[key] = sym_recent.get(key, 0) + 1
-
-        # Check recent window and warn
-        if recent_bars >= self._NAN_WARN_WINDOW:
-            for feat, cnt in sym_recent.items():
-                rate = cnt / recent_bars
-                if rate > self._NAN_WARN_RATE:
-                    _log.warning(
-                        "NaN rate %.1f%% for %s/%s in last %d bars",
-                        rate * 100, symbol, feat, recent_bars,
-                    )
-            # Reset recent window
-            self._nan_recent[symbol] = {}
-            self._nan_recent_bars[symbol] = 0
-
-    def nan_report(self) -> Dict[str, Dict[str, float]]:
-        """Return {symbol: {feature: nan_rate}} for features with nan_rate > 1%."""
-        result: Dict[str, Dict[str, float]] = {}
-        for symbol, feat_counts in self._nan_counts.items():
-            total = self._nan_bar_counts.get(symbol, 0)
-            if total == 0:
-                continue
-            bad: Dict[str, float] = {}
-            for feat, cnt in feat_counts.items():
-                rate = cnt / total
-                if rate > 0.01:
-                    bad[feat] = round(rate, 4)
-            if bad:
-                result[symbol] = bad
-        return result
-
-    def reset_nan_stats(self) -> None:
-        """Clear all NaN tracking counters."""
-        self._nan_counts.clear()
-        self._nan_bar_counts.clear()
-        self._nan_recent.clear()
-        self._nan_recent_bars.clear()
+    # NaN tracking methods (_track_nan, nan_report, reset_nan_stats) provided by NanTrackingMixin
 
     def push_external_data(self, symbol: str, event: Any, target: Any) -> None:
         """Resolve external data sources and push to target (tick processor).
@@ -438,43 +363,7 @@ class FeatureComputeHook:
         except Exception:
             _log.debug("Microstructure merge failed for %s — skipped", symbol, exc_info=True)
 
-    def _push_dominance(self, symbol: str, close_f: float,
-                        features: Dict[str, Any]) -> None:
-        """Compute V14 dominance features and merge into *features* dict in-place.
-
-        Uses the module-level ``_last_closes`` cache to obtain the counterpart
-        symbol's close (BTC needs ETH close and vice-versa).  Only called when
-        both prices are available; never crashes the pipeline.
-
-        For the legacy path, reuses the existing RustFeatureEngine in
-        ``_rust_engines``.  For the unified-predictor path (no entry in
-        ``_rust_engines``), a lightweight engine is lazily created in
-        ``_dom_engines`` — push_dominance state is independent from push_bar.
-        """
-        try:
-            base = _base_symbol(symbol)
-            # Update module-level close cache for this base symbol
-            _last_closes[base] = close_f
-
-            btc_close = _last_closes.get("BTCUSDT")
-            eth_close = _last_closes.get("ETHUSDT")
-            if btc_close is None or eth_close is None:
-                return  # counterpart not yet available — skip silently
-
-            # Prefer main engine; fall back to dedicated dominance engine
-            engine = self._rust_engines.get(symbol)
-            if engine is None:
-                if symbol not in self._dom_engines:
-                    self._dom_engines[symbol] = _RustFeatureEngine()
-                engine = self._dom_engines[symbol]
-
-            dom_feats = engine.push_dominance(btc_close, eth_close)
-            if dom_feats:
-                for k, v in dom_feats.items():
-                    if v is not None:
-                        features[k] = v
-        except Exception:
-            _log.debug("push_dominance failed for %s — skipped", symbol, exc_info=True)
+    # _push_dominance provided by DominanceMixin
 
     def _rust_push(self, symbol: str, close_f: float, volume: float,
                    high: float, low: float, open_: float, event: Any) -> Dict[str, Any]:
@@ -587,46 +476,14 @@ class FeatureComputeHook:
                       high: float, low: float, open_: float, event: Any) -> Dict[str, Any]:
         """Push bar to unified predictor and return features dict with ml_score injected.
 
-        Uses cached external data path: resolves sources once per change via
-        push_external_data(), then calls slim push_bar_predict() with only OHLCV.
+        Uses cached external data path via push_external_data(), then calls
+        slim push_bar_predict() with only OHLCV.
         """
-        # Push external data: full resolve every 5 bars, event-fields only otherwise.
-        # Most external sources (funding=8h, OI=5m, macro=1d) change far slower than bars.
-        ext_count = self._ext_push_count.get(symbol, 0)
-        if ext_count % 5 == 0:
-            src = self._resolve_bar_sources(symbol, event)
-            self._ext_cache[symbol] = src
-            predictor.push_external_data(symbol, **src)
-        else:
-            # Update only per-bar fields (trades, taker_buy_volume, etc.) from event
-            cached = self._ext_cache.get(symbol)
-            if cached is not None:
-                trades = float(getattr(event, "trades", 0) or 0)
-                taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
-                quote_volume = float(getattr(event, "quote_volume", 0) or 0)
-                taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
-                ts = getattr(event, "ts", None)
-                hour = ts.hour if isinstance(ts, datetime) else -1
-                dow = ts.weekday() if isinstance(ts, datetime) else -1
-                cached["hour"] = hour
-                cached["dow"] = dow
-                cached["trades"] = trades
-                cached["taker_buy_volume"] = taker_buy_volume
-                cached["quote_volume"] = quote_volume
-                cached["taker_buy_quote_volume"] = taker_buy_quote_volume
-                predictor.push_external_data(symbol, **cached)
-            else:
-                src = self._resolve_bar_sources(symbol, event)
-                self._ext_cache[symbol] = src
-                predictor.push_external_data(symbol, **src)
-        self._ext_push_count[symbol] = ext_count + 1
+        self.push_external_data(symbol, event, predictor)
 
         # Compute hour_key for signal constraints
         ts = getattr(event, "ts", None)
-        if isinstance(ts, datetime):
-            hour_key = int(ts.timestamp()) // 3600
-        else:
-            hour_key = int(_time_mod.time()) // 3600
+        hour_key = int(ts.timestamp()) // 3600 if isinstance(ts, datetime) else int(_time_mod.time()) // 3600
 
         # Single Rust call: push bar + predict + get features (no None values)
         result: Tuple[Any, Dict[str, Any]] = predictor.push_bar_predict_features(

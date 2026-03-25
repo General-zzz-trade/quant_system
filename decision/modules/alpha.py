@@ -18,6 +18,7 @@ import numpy as np
 from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
 from decision.sizing.adaptive import AdaptivePositionSizer
 from monitoring.decision_audit import DecisionAuditLogger
+from decision.modules.alpha_orders import make_open_order, make_close_order
 from event.header import EventHeader
 from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
 from state import PortfolioState, RiskState, RiskLimits
@@ -117,8 +118,6 @@ class AlphaDecisionModule:
 
         # Decision audit logger (best-effort, never affects trading)
         self._audit = DecisionAuditLogger()
-
-    # ── public API ──────────────────────────────────────────────
 
     def set_consensus(self, signals: dict[str, int]) -> None:
         """Update cross-symbol consensus signals."""
@@ -323,24 +322,19 @@ class AlphaDecisionModule:
 
         return events
 
-    # ── regime filter ───────────────────────────────────────────
-
     def _check_regime(self, close: float) -> bool:
         """Adaptive p20/p25 percentile regime filter."""
         self._closes.append(close)
-
         if len(self._closes) >= 2:
             log_ret = np.log(self._closes[-1] / self._closes[-2])
             self._rets.append(log_ret)
 
-        # Truncate buffers
         max_buf = self._ma_window + 100
         if len(self._closes) > max_buf:
             self._closes = self._closes[-max_buf:]
         if len(self._rets) > max_buf:
             self._rets = self._rets[-max_buf:]
 
-        # Need minimum history
         if len(self._rets) < 20:
             self._regime_active = True
             return True
@@ -353,7 +347,6 @@ class AlphaDecisionModule:
         self._vol_history.append(vol_20)
         self._trend_history.append(trend)
 
-        # Cap adaptive buffers
         if len(self._vol_history) > self._adaptive_window:
             self._vol_history = self._vol_history[-self._adaptive_window:]
         if len(self._trend_history) > self._adaptive_window:
@@ -366,15 +359,12 @@ class AlphaDecisionModule:
         else:
             self._regime_active = True
 
-        # Vol-adaptive deadzone
         vol_med = float(np.median(self._vol_history)) if self._vol_history else self._vol_median
         if vol_med > 0:
             ratio = np.clip(vol_20 / vol_med, 0.5, 2.0)
             self._discretizer.deadzone = self._deadzone_base * float(ratio)
 
         return self._regime_active
-
-    # ── ATR ─────────────────────────────────────────────────────
 
     def _update_atr(self, snapshot: Any) -> None:
         """Update ATR buffer from OHLC data."""
@@ -399,8 +389,6 @@ class AlphaDecisionModule:
             return 0.015
         window = self._atr_buffer[-14:]
         return float(np.mean(window))
-
-    # ── force exits ─────────────────────────────────────────────
 
     def _check_force_exits(self, close: float, z: float) -> tuple[bool, str]:
         """Check for forced exit conditions.  Priority order."""
@@ -464,8 +452,6 @@ class AlphaDecisionModule:
 
         return False, ""
 
-    # ── z-scale ─────────────────────────────────────────────────
-
     @staticmethod
     def _compute_z_scale(z: float) -> float:
         """Map |z| to confidence-based position scale."""
@@ -477,8 +463,6 @@ class AlphaDecisionModule:
         if abs_z > 0.5:
             return 0.7
         return 0.5
-
-    # ── IC health ───────────────────────────────────────────────
 
     def _refresh_ic_scale(self) -> None:
         """Read IC health JSON every 10 minutes."""
@@ -498,55 +482,19 @@ class AlphaDecisionModule:
         except Exception:
             logger.debug("IC health read failed, keeping scale=%.1f", self._ic_scale)
 
-    # ── event factories ─────────────────────────────────────────
+    # ── event factories (delegated to alpha_orders module) ──────
 
     def _make_open_order(
         self, price: float, signal: int, qty: Decimal,
     ) -> list[OrderEvent]:
         """Create OrderEvent for opening a new position."""
-        header = EventHeader.new_root(
-            event_type=EventType.ORDER,
-            version=1,
-            source=f"alpha.{self._runner_key}",
-        )
-        side = "buy" if signal == 1 else "sell"
-        return [
-            OrderEvent(
-                header=header,
-                order_id=header.event_id,
-                intent_id=header.event_id,
-                symbol=self._symbol,
-                side=side,
-                qty=qty,
-                price=Decimal(str(price)),
-            )
-        ]
+        return make_open_order(self._symbol, self._runner_key, price, signal, qty)
 
     def _make_close_order(
         self, price: float, old_signal: int, reason: str,
     ) -> list[OrderEvent]:
         """Create OrderEvent for closing current position."""
-        # Use tracked qty; fallback to min_size to avoid zero-qty rejection
-        qty = self._current_qty if self._current_qty > 0 else self._sizer.min_size
-        header = EventHeader.new_root(
-            event_type=EventType.ORDER,
-            version=1,
-            source=f"alpha.{self._runner_key}",
+        return make_close_order(
+            self._symbol, self._runner_key, price, old_signal, reason,
+            self._current_qty, self._sizer.min_size,
         )
-        # Close side is opposite of position
-        side = "sell" if old_signal == 1 else "buy"
-        logger.info(
-            "%s CLOSE %s qty=%.6f reason=%s price=%.2f",
-            self._runner_key, side, float(qty), reason, price,
-        )
-        return [
-            OrderEvent(
-                header=header,
-                order_id=header.event_id,
-                intent_id=header.event_id,
-                symbol=self._symbol,
-                side=side,
-                qty=Decimal(str(qty)),
-                price=Decimal(str(price)),
-            )
-        ]
