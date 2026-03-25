@@ -126,9 +126,17 @@ class AdaptivePositionSizer:
         z_scale : float
             Z-score confidence scaler.
         """
-        equity = float(snapshot.account.balance)
+        # Prefer _f (float) accessors over raw Fd8 i64
+        acct = snapshot.account
+        _bf = getattr(acct, "balance_f", None)
+        equity = float(_bf) if isinstance(_bf, (int, float)) and _bf > 0 else float(acct.balance)
+
         market = snapshot.markets.get(symbol)
-        price = float(market.close) if market is not None else 0.0
+        if market is not None:
+            _cf = getattr(market, "close_f", None)
+            price = float(_cf) if isinstance(_cf, (int, float)) and _cf > 0 else float(market.close)
+        else:
+            price = 0.0
 
         if _RUST_SIZER:
             result = rust_adaptive_target_qty(
