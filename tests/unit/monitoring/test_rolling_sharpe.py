@@ -1,9 +1,7 @@
 """Tests for monitoring/rolling_sharpe.py — RollingSharpeTracker."""
 from __future__ import annotations
 
-import math
 
-import pytest
 
 from monitoring.rolling_sharpe import RollingSharpeTracker
 

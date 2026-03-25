@@ -285,7 +285,7 @@ def walkforward_ic_stability(df: pd.DataFrame, feats: pd.DataFrame, symbol: str)
     # Show by quarter
     mdf["quarter"] = mdf["date"].dt.to_period("Q")
     qsum = mdf.groupby("quarter")["ic"].agg(["mean", "std", "count"])
-    print(f"\n  Quarterly IC:")
+    print("\n  Quarterly IC:")
     for q, row in qsum.iterrows():
         bar = "█" * int(abs(row["mean"]) * 500)
         sign = "+" if row["mean"] > 0 else "-"
@@ -361,7 +361,7 @@ def mean_reversion_strategy_sim(df: pd.DataFrame, feats: pd.DataFrame, symbol: s
         print(f"    Avg daily P&L: {net_pnl.sum()/n_days*10000:.1f} bps")
 
     # What about maker fees? (0 bps or rebate)
-    print(f"\n  --- With MAKER fees (0 bps fee + 1 bps slip) ---")
+    print("\n  --- With MAKER fees (0 bps fee + 1 bps slip) ---")
     MAKER_COST = 0.0001  # 1 bps total
     threshold = 0.3
     pos = pd.Series(0.0, index=df.index)

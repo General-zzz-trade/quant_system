@@ -6,11 +6,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
-from data.quality.live_validator import LiveBarValidator
 from execution.adapters.binance.rest_kline_source import RestKlineSource
 from execution.adapters.binance.ws_market_stream_um import BinanceUmMarketStreamWsClient
+
+if TYPE_CHECKING:
+    from data.quality.live_validator import LiveBarValidator
 
 logger = logging.getLogger(__name__)
 

@@ -388,7 +388,7 @@ def main():
 
     # Save results
     rdf.to_csv("data_files/5m_feature_ic_scan.csv", index=False)
-    print(f"\nFull results saved to data_files/5m_feature_ic_scan.csv")
+    print("\nFull results saved to data_files/5m_feature_ic_scan.csv")
     print(f"Total features scanned: {rdf['feature'].nunique()}")
     print(f"Total IC computations: {len(rdf)}")
 

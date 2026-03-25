@@ -20,7 +20,6 @@ Targets (0% or low coverage):
 from __future__ import annotations
 
 import json
-import time
 from decimal import Decimal
 from io import BytesIO
 from unittest.mock import MagicMock, patch

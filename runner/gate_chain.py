@@ -8,27 +8,12 @@ The chain short-circuits on rejection: later gates are never called.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
+from strategy.gates.types import Gate, GateResult  # canonical location
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class GateResult:
-    """Result of a single gate check."""
-    allowed: bool
-    scale: float = 1.0   # qty multiplier (1.0 = no change)
-    reason: str = ""
-
-
-class Gate(Protocol):
-    """Protocol for order gates."""
-    name: str
-
-    def check(self, ev: Any, context: Dict[str, Any]) -> GateResult:
-        ...
 
 
 class GateChain:

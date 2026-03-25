@@ -27,13 +27,12 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
 from alpha.training.train_v7_alpha import (
-    V7_DEFAULT_PARAMS,
     _compute_target,
     _load_and_compute_features,
     BLACKLIST,
@@ -372,7 +371,7 @@ def main():
     )
 
     print(f"\n{'=' * 72}")
-    print(f"  Bear-Market Short-Only Alpha — Walk-Forward Research")
+    print("  Bear-Market Short-Only Alpha — Walk-Forward Research")
     print(f"  Symbol: {args.symbol}  |  Horizon: {args.horizon}  |  Deadzone: {args.deadzone}")
     print(f"  Min-hold: {args.min_hold}  |  Top-K features: {args.top_k}")
     print(f"  Bear detection: close < SMA({args.ma_window})")
@@ -524,13 +523,13 @@ def main():
             feat_counts[f] = feat_counts.get(f, 0) + 1
 
     if feat_counts:
-        print(f"\n  Top features (by selection frequency across folds):")
+        print("\n  Top features (by selection frequency across folds):")
         sorted_feats = sorted(feat_counts.items(), key=lambda x: -x[1])
         for fname, count in sorted_feats[:15]:
             bar = "#" * count
             in_pool = "*" if fname in BEAR_FEATURE_POOL else " "
             print(f"    {in_pool} {fname:<30s}  {count:2d}/{len(results)}  {bar}")
-        print(f"    (* = in curated bear pool)")
+        print("    (* = in curated bear pool)")
 
     # ── Verdict ──
     print(f"\n{'=' * 72}")

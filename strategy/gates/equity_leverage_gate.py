@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, Optional
 
-from runner.gate_chain import GateResult
+from strategy.gates.types import GateResult
 
 _log = logging.getLogger(__name__)
 

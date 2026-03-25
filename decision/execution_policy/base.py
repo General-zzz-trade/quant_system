@@ -1,2 +1,6 @@
-"""Backward-compat stub — moved to strategy/execution_policy/base.py"""
-from strategy.execution_policy.base import *  # noqa: F401, F403
+"""Backward-compat stub — lazy re-export from strategy/execution_policy/base.py"""
+
+
+def __getattr__(name: str):  # noqa: ANN001
+    import strategy.execution_policy.base as _mod
+    return getattr(_mod, name)

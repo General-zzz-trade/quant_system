@@ -1,9 +1,6 @@
 """Tests for CheckpointManager."""
 from __future__ import annotations
 
-import json
-import math
-from pathlib import Path
 
 import pytest
 

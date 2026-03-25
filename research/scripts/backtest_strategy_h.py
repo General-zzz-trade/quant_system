@@ -7,7 +7,7 @@ Full WF validation, $500 start, 10x leverage, BTC+ETH portfolio.
 from __future__ import annotations
 import warnings; warnings.filterwarnings("ignore")  # noqa: E702
 import json, pickle, sys, numpy as np, pandas as pd  # noqa: S403,E401
-from pathlib import Path; from scipy import stats  # noqa: E702
+from pathlib import Path   # noqa: E702
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from alpha.training.train_multi_horizon import rolling_zscore
@@ -158,7 +158,7 @@ def main():
         for n,r in v.items():
             print(f"  {n:<20} {r['sharpe']:7.2f} {r['cagr']:7.1f} {r['ret']:10.1f} {r['mdd']:7.1f} {r['n']:6d} {r['wr']:5.1f} {r['avg_sc']:5.2f} {r['l_wr']:5.1f} {r['s_wr']:5.1f}")
         # WF
-        print(f"\n  Walk-Forward (90-day folds):")
+        print("\n  Walk-Forward (90-day folds):")
         for name,bb in [("H: no BB",False),("H: +BB",True)]:
             wf=wf_h(cl,s4,s1,lev,cap,bb)
             if wf:

@@ -1,7 +1,6 @@
 """Tests for RustPortfolioState — creation, to_dict/from_dict round-trip, field access."""
 from __future__ import annotations
 
-import pytest
 
 from _quant_hotpath import RustPortfolioState  # type: ignore[import-untyped]
 

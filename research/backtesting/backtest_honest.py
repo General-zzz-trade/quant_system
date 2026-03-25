@@ -21,7 +21,6 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from alpha.utils import fast_ic
 
 sys.path.insert(0, "/quant_system")
 

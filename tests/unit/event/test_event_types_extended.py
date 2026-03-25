@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-import pytest
 
 from event.types import (
     ControlEvent,

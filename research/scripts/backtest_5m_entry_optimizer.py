@@ -476,7 +476,7 @@ def run_parameter_sweep(sig_5m, df_5m, feats_5m, symbol, leverage=10.0):
 
     rdf = pd.DataFrame(results)
     rdf = rdf.sort_values("sharpe", ascending=False)
-    print(f"\n  Top 10 parameter combinations:")
+    print("\n  Top 10 parameter combinations:")
     print(f"  {'Wait':>5} {'Thr':>5} {'Sharpe':>8} {'Net%':>8} {'WR%':>6} {'MaxDD%':>8} {'Trades':>7} {'AvgScale':>9}")
     for _, r in rdf.head(10).iterrows():
         print(f"  {r['max_wait']:5.0f} {r['threshold']:5.1f} {r['sharpe']:8.2f} {r['net_total']:8.1f} "

@@ -84,7 +84,7 @@ def bb_scale(cl, i, d, w=12):
     return 1.0
 def main():
     init, lev = 500.0, 10.0; caps = {"BTCUSDT": 0.15, "ETHUSDT": 0.10}; syms = list(caps.keys())
-    print(f"\n{'='*70}"); print(f"  Strategy H: $500 → ? with 10x leverage"); print(f"{'='*70}")
+    print(f"\n{'='*70}"); print("  Strategy H: $500 → ? with 10x leverage"); print(f"{'='*70}")
     data = {}
     for sym in syms:
         df1=load_resample(sym,"1h"); df4=load_resample(sym,"4h"); cl=df1["close"].values; dt=df1["datetime"].values
@@ -109,11 +109,11 @@ def main():
         pk=max(pk,eq); dd=(eq-pk)/pk*100 if pk>0 else 0; mdd=min(mdd,dd); eqh.append(eq)
         meq[f"{dt_v.year}-{dt_v.month:02d}"]=eq
     T=pd.DataFrame(tlog); nd=ml/24; ny=nd/365; cagr=(eq/init)**(1/max(ny,0.1))-1
-    print(f"\n  {'='*50}"); print(f"  PERFORMANCE"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  PERFORMANCE"); print(f"  {'='*50}")
     print(f"  ${init:,.0f} → ${eq:,.0f}"); print(f"  Return: {(eq/init-1)*100:,.1f}%"); print(f"  CAGR: {cagr*100:.1f}%"); print(f"  MaxDD: {mdd:.1f}%"); print(f"  Trades: {len(T)}")
     if len(T)==0: return
     W=T[T["net"]>0]; L=T[T["net"]<=0]
-    print(f"\n  {'='*50}"); print(f"  TRADES"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  TRADES"); print(f"  {'='*50}")
     print(f"  WR: {len(W)/len(T)*100:.1f}% ({len(W)}/{len(T)})"); print(f"  Avg Win: {W['net'].mean():.2f}%"); print(f"  Avg Loss: {L['net'].mean():.2f}%" if len(L)>0 else "")
     print(f"  Best: {T['net'].max():.2f}%  Worst: {T['net'].min():.2f}%")
     pf=W['pnl'].sum()/abs(L['pnl'].sum()) if len(L)>0 and L['pnl'].sum()!=0 else float('inf')
@@ -126,7 +126,7 @@ def main():
         print(f"    Long: {len(lt)} WR={len(lt[lt['net']>0])/max(len(lt),1)*100:.1f}%", end="")
         if len(sht)>0: print(f"  Short: {len(sht)} WR={len(sht[sht['net']>0])/max(len(sht),1)*100:.1f}%")
         else: print()
-    print(f"\n  {'='*50}"); print(f"  YEARLY BREAKDOWN"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  YEARLY BREAKDOWN"); print(f"  {'='*50}")
     T["yr"]=T["t"].dt.year; ys=init
     for yr in sorted(T["yr"].unique()):
         yt=T[T["yr"]==yr]; ye=yt["eq"].iloc[-1]; yr_r=(ye/ys-1)*100; yw=len(yt[yt["net"]>0])/len(yt)*100
@@ -145,17 +145,17 @@ def main():
     for _,t in T.iterrows():
         if t["net"]<=0: sk+=1; msk=max(msk,sk)
         else: sk=0
-    print(f"\n  {'='*50}"); print(f"  RISK METRICS"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  RISK METRICS"); print(f"  {'='*50}")
     print(f"  Sharpe:     {sharpe:.2f}"); print(f"  Sortino:    {sortino:.2f}"); print(f"  Calmar:     {calmar:.2f}")
     print(f"  Daily Vol:  {np.std(dr)*100:.2f}%"); print(f"  Ann Vol:    {np.std(dr)*np.sqrt(365)*100:.1f}%")
     print(f"  Monthly WR: {posm}/{len(ms)} ({100*posm/max(len(ms),1):.0f}%)"); print(f"  Max Loss Streak: {msk}")
-    print(f"\n  {'='*50}"); print(f"  MILESTONES"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  MILESTONES"); print(f"  {'='*50}")
     for m in [1000,2500,5000,10000,25000,50000,100000,250000,500000,1_000_000,5_000_000,10_000_000,50_000_000,100_000_000]:
         for idx,e in enumerate(eqh):
             if e>=m:
                 days=idx/24; dt_at=pd.Timestamp(data["BTCUSDT"]["dt"][min(idx,ml-1)])
                 print(f"    ${m:>14,}  day {days:5.0f} ({days/30:5.1f}mo)  ~{dt_at.date()}"); break
-    print(f"\n  {'='*50}"); print(f"  TOP DRAWDOWNS"); print(f"  {'='*50}")
+    print(f"\n  {'='*50}"); print("  TOP DRAWDOWNS"); print(f"  {'='*50}")
     pka=np.maximum.accumulate(ea); dda=(ea-pka)/pka*100; idd=False; dds=0; ddl=[]
     for i in range(len(dda)):
         if dda[i]<-1 and not idd: dds=i; idd=True

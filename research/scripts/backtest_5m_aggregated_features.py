@@ -281,7 +281,7 @@ def ic_scan(feats_1h: pd.DataFrame, df_1h: pd.DataFrame, symbol: str) -> pd.Data
 
 def compare_with_existing(ic_results: pd.DataFrame, df_1h: pd.DataFrame, symbol: str):
     """Compare new 5m-aggregated features with existing 1h features."""
-    print(f"\n  --- Comparison with existing 1h features ---")
+    print("\n  --- Comparison with existing 1h features ---")
 
     close = df_1h["close"]
     vol = df_1h["volume"]
@@ -333,11 +333,11 @@ def compare_with_existing(ic_results: pd.DataFrame, df_1h: pd.DataFrame, symbol:
     best_new = ic_results[ic_results["symbol"] == symbol]
     best_new = best_new.loc[best_new.groupby("feature")["abs_ic"].idxmax()].sort_values("abs_ic", ascending=False)
 
-    print(f"\n  EXISTING 1h features (best IC):")
+    print("\n  EXISTING 1h features (best IC):")
     for _, r in best_existing.head(10).iterrows():
         print(f"    {r['abs_ic']:.5f}  {r['feature']:30s}  h={r['horizon']}")
 
-    print(f"\n  NEW 5m-aggregated features (top 20):")
+    print("\n  NEW 5m-aggregated features (top 20):")
     for _, r in best_new.head(20).iterrows():
         sig = "***" if r["pval"] < 0.001 else "**" if r["pval"] < 0.01 else "*" if r["pval"] < 0.05 else ""
         print(f"    {r['abs_ic']:.5f} {sig:3s}  {r['feature']:40s}  h={r['horizon']}  IC={r['ic']:+.5f}")
@@ -350,7 +350,7 @@ def compare_with_existing(ic_results: pd.DataFrame, df_1h: pd.DataFrame, symbol:
         for _, r in beating.iterrows():
             print(f"    {r['abs_ic']:.5f}  {r['feature']:40s}  h={r['horizon']}")
     else:
-        print(f"    None")
+        print("    None")
 
     # New features with IC > 0.03 (practical threshold)
     strong = best_new[best_new["abs_ic"] > 0.03]
@@ -460,7 +460,7 @@ def main():
             max_ic=("abs_ic", "max"),
             n_feats=("feature", "nunique"),
         ).round(5)
-        print(f"\n  Category × Horizon (mean |IC|):")
+        print("\n  Category × Horizon (mean |IC|):")
         pivot = ic_results.groupby(["category", "horizon_bars"])["abs_ic"].mean().unstack()
         pivot.columns = [f"{c}h" for c in pivot.columns]
         print(pivot.round(5).to_string())
@@ -475,7 +475,7 @@ def main():
         walkforward_ic_test(feats_1h, df_1h, symbol, top_names, h=96)
 
     # Save
-    print(f"\n\nDone. Results ready for model training integration.")
+    print("\n\nDone. Results ready for model training integration.")
 
 
 if __name__ == "__main__":

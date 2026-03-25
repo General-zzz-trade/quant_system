@@ -15,7 +15,7 @@ import pickle  # noqa: S403 — trusted local model artifacts, HMAC-signed
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd

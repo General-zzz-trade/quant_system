@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from runner.gate_chain import GateResult
+from strategy.gates.types import GateResult
 from _quant_hotpath import (  # type: ignore[import-untyped]
     RustVPINCalculator,
     RustVPINResult,

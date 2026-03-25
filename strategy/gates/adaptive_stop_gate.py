@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Deque, Dict, Optional
 
-from runner.gate_chain import GateResult
+from strategy.gates.types import GateResult
 
 try:
     from _quant_hotpath import RustAdaptiveStopGate as _RustAdaptiveStopGate

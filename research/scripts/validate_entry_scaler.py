@@ -17,7 +17,6 @@ import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from dataclasses import dataclass, field
 
 MODEL_DIR = Path("models_v8")
 DATA_DIR = Path("data_files")
@@ -285,7 +284,7 @@ def walkforward_test(data: pd.DataFrame, symbol: str, leverage: float = 10.0):
     r2 = agg(results_scaler, "ENTRY SCALER (BB-based)")
 
     # Improvement
-    print(f"\n  --- Improvement ---")
+    print("\n  --- Improvement ---")
     sharpe_chg = (r2["mean_sharpe"] / r1["mean_sharpe"] - 1) * 100 if r1["mean_sharpe"] != 0 else 0
     dd_chg = r2["mean_dd"] - r1["mean_dd"]
     worst_dd_chg = r2["worst_dd"] - r1["worst_dd"]
@@ -294,7 +293,7 @@ def walkforward_test(data: pd.DataFrame, symbol: str, leverage: float = 10.0):
     print(f"    Worst MaxDD: {worst_dd_chg:+.1f}%")
 
     # Full period backtest
-    print(f"\n  --- Full Period Backtest ---")
+    print("\n  --- Full Period Backtest ---")
     full_base = backtest_with_scaler(data, leverage, use_scaler=False)
     full_scale = backtest_with_scaler(data, leverage, use_scaler=True)
 

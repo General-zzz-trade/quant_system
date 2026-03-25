@@ -307,7 +307,7 @@ def main():
 
     # Grand summary
     print(f"\n\n{'='*70}")
-    print(f"  GRAND SUMMARY (BTC + ETH Portfolio)")
+    print("  GRAND SUMMARY (BTC + ETH Portfolio)")
     print(f"{'='*70}")
 
     # Full portfolio: BTC 1h + BTC 4h + ETH 1h + ETH 4h

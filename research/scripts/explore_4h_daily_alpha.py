@@ -14,7 +14,6 @@ from __future__ import annotations
 import warnings
 warnings.filterwarnings("ignore")
 
-import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -384,14 +383,14 @@ def explore_timeframe(df: pd.DataFrame, tf_label: str, symbol: str,
     crypto_feats = best[~best["feature"].str.startswith("cm_")]
     cm_feats = best[best["feature"].str.startswith("cm_")]
 
-    print(f"\n    Top 10 crypto-native features:")
+    print("\n    Top 10 crypto-native features:")
     for _, r in crypto_feats.head(10).iterrows():
         sig = "***" if r["pval"] < 0.001 else "**" if r["pval"] < 0.01 else "*" if r["pval"] < 0.05 else ""
         h_label = horizon_labels[horizons.index(r["horizon"])] if r["horizon"] in horizons else f"{r['horizon']}b"
         print(f"      {r['abs_ic']:.5f} {sig:3s}  {r['feature']:30s}  h={h_label}")
 
     if len(cm_feats) > 0:
-        print(f"\n    Top 10 cross-market features:")
+        print("\n    Top 10 cross-market features:")
         for _, r in cm_feats.head(10).iterrows():
             sig = "***" if r["pval"] < 0.001 else "**" if r["pval"] < 0.01 else "*" if r["pval"] < 0.05 else ""
             h_label = horizon_labels[horizons.index(r["horizon"])] if r["horizon"] in horizons else f"{r['horizon']}b"
@@ -450,7 +449,7 @@ def explore_timeframe(df: pd.DataFrame, tf_label: str, symbol: str,
     trades_per_year = bpy / avg_hold if avg_hold > 0 else 0
     annual_cost_bps = trades_per_year * 2 * (FEE + SLIP) * 10000  # round trip
 
-    print(f"\n    Cost profile:")
+    print("\n    Cost profile:")
     print(f"      Avg hold: {avg_hold:.1f} bars ({avg_hold * 24/bars_per_day:.1f}h)")
     print(f"      Trades/year: {trades_per_year:.0f}")
     print(f"      Annual cost: {annual_cost_bps:.0f} bps")

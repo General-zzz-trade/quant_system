@@ -5,7 +5,6 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from engine.coordinator_handlers import (
     handle_pipeline_event,

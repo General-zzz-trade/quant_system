@@ -8,7 +8,7 @@ Compares 9 approaches for combining 15m, 1h, 4h signals.
 from __future__ import annotations
 import warnings; warnings.filterwarnings("ignore")
 import json, pickle, sys, numpy as np, pandas as pd  # noqa: S403,E401,E702
-from pathlib import Path; from scipy import stats  # noqa: E702
+from pathlib import Path   # noqa: E702
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from alpha.training.train_multi_horizon import rolling_zscore
@@ -216,7 +216,7 @@ def main():
             r=results[k]
             print(f"  {r['label']:<25} {r['sharpe']:7.2f} {r['cagr']:7.1f} {r['ret']:10.1f} {r['mdd']:8.1f} {r['n']:7d} {r['wr']:6.1f}")
         ranked=sorted(results.items(),key=lambda x:x[1]["sharpe"],reverse=True)
-        print(f"\n  Ranking by Sharpe:")
+        print("\n  Ranking by Sharpe:")
         for i,(k,r) in enumerate(ranked):
             mark="  ★ BEST" if i==0 else ""
             print(f"    {i+1}. {r['label']:<25} Sharpe={r['sharpe']:6.2f} MaxDD={r['mdd']:6.1f}%{mark}")

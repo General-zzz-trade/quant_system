@@ -2,11 +2,10 @@
 """Event type unit tests — construction, field access, routing."""
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import Optional
 
 from event.types import (
     ControlEvent,

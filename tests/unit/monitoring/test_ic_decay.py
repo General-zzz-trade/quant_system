@@ -2,11 +2,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
-import numpy as np
 import pandas as pd
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +121,7 @@ class TestOutputStructure:
 
     def test_save_results_creates_valid_json(self, tmp_path):
         """save_results should produce a valid JSON file with expected keys."""
-        from monitoring.ic_decay_monitor import save_results, OUTPUT_PATH
+        from monitoring.ic_decay_monitor import save_results
         import monitoring.ic_decay_monitor as mod
 
         orig_path = mod.OUTPUT_PATH

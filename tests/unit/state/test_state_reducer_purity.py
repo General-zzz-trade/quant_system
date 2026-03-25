@@ -1,7 +1,6 @@
 """Tests for state reducer purity — reducers must not mutate inputs."""
 from __future__ import annotations
 
-import pytest
 
 from _quant_hotpath import (  # type: ignore[import-untyped]
     RustMarketReducer,

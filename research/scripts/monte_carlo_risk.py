@@ -32,8 +32,6 @@ from features.batch_feature_engine import compute_features_batch  # noqa: E402
 from alpha.training.train_multi_horizon import rolling_zscore  # noqa: E402
 from _quant_hotpath import (  # type: ignore[import-untyped]  # noqa: E402
     cpp_simulate_paths as rust_simulate_paths,
-    MCResult as RustMCResult,
-    BootstrapResult as RustBootstrapResult,
 )
 
 # Rust-accelerated Monte Carlo path simulation — 10K runs in <100ms
@@ -421,13 +419,13 @@ def estimate_kelly(trade_returns: np.ndarray) -> dict:
 def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: float):
     """Print formatted results table."""
     print(f"\n{'=' * 80}")
-    print(f"  MONTE CARLO RISK SIMULATION -- Strategy H")
+    print("  MONTE CARLO RISK SIMULATION -- Strategy H")
     print(f"  {10_000:,} bootstrap simulations, {n_trades} trades resampled")
     print(f"  Backtest span: {n_years:.1f} years | Initial equity: $500")
     print(f"{'=' * 80}")
 
     # Kelly estimate
-    print(f"\n  KELLY LEVERAGE ESTIMATE")
+    print("\n  KELLY LEVERAGE ESTIMATE")
     print(f"  {'-' * 50}")
     print(f"  Mean trade return:   {kelly['mean_return'] * 100:+.4f}%")
     print(f"  Return std:          {kelly['return_std'] * 100:.4f}%")
@@ -436,7 +434,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
     print(f"  Quarter Kelly:       {kelly['quarter_kelly']:.2f}x")
 
     # Ruin probability table
-    print(f"\n  PROBABILITY OF RUIN (equity < $50)")
+    print("\n  PROBABILITY OF RUIN (equity < $50)")
     print(f"  {'-' * 50}")
     print(f"  {'Leverage':>10s}  {'Ruin %':>10s}  {'Ruined':>10s}")
     for key in sorted(results.keys(), key=lambda x: float(x.replace("x", ""))):
@@ -447,7 +445,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
         )
 
     # MaxDD table
-    print(f"\n  EXPECTED MAX DRAWDOWN")
+    print("\n  EXPECTED MAX DRAWDOWN")
     print(f"  {'-' * 60}")
     print(f"  {'Leverage':>10s}  {'Median':>10s}  {'5th pctl':>10s}  {'95th pctl':>10s}")
     for key in sorted(results.keys(), key=lambda x: float(x.replace("x", ""))):
@@ -459,7 +457,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
         )
 
     # CAGR table
-    print(f"\n  EXPECTED CAGR")
+    print("\n  EXPECTED CAGR")
     print(f"  {'-' * 60}")
     print(f"  {'Leverage':>10s}  {'Median':>10s}  {'5th pctl':>10s}  {'95th pctl':>10s}")
     for key in sorted(results.keys(), key=lambda x: float(x.replace("x", ""))):
@@ -471,7 +469,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
         )
 
     # Final equity table
-    print(f"\n  FINAL EQUITY DISTRIBUTION ($500 start)")
+    print("\n  FINAL EQUITY DISTRIBUTION ($500 start)")
     print(f"  {'-' * 70}")
     print(
         f"  {'Leverage':>10s}  {'Median':>12s}  {'5th pctl':>12s}  "
@@ -486,7 +484,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
         )
 
     # Time to milestones
-    print(f"\n  TIME TO MILESTONES (median trades to reach target)")
+    print("\n  TIME TO MILESTONES (median trades to reach target)")
     print(f"  {'-' * 70}")
     print(
         f"  {'Leverage':>10s}  {'$10K trades':>12s}  {'$10K prob':>10s}  "
@@ -508,7 +506,7 @@ def print_results_table(results: dict, kelly: dict, n_trades: int, n_years: floa
 
 def main():
     print(f"\n{'=' * 70}")
-    print(f"  Monte Carlo Risk Simulation -- Strategy H")
+    print("  Monte Carlo Risk Simulation -- Strategy H")
     print(f"{'=' * 70}")
 
     # Step 1: Extract trade returns from backtest

@@ -395,7 +395,7 @@ def print_best_config(df: pd.DataFrame, results: list[PairResult], fee_bps: floa
     monthly_returns = np.array(monthly_returns)
     positive_months = (monthly_returns > 0).sum()
 
-    print(f"\n  Performance Summary:")
+    print("\n  Performance Summary:")
     print(f"  {'Sharpe Ratio:':<25} {result.sharpe:.2f}")
     print(f"  {'Total Return:':<25} {result.total_return:.1%}")
     print(f"  {'Annual Return:':<25} {result.annual_return:.1%}")
@@ -423,7 +423,7 @@ def print_best_config(df: pd.DataFrame, results: list[PairResult], fee_bps: floa
             print("  -> HIGH correlation: limited diversification benefit")
 
     # Pass/Fail assessment
-    print(f"\n  Assessment:")
+    print("\n  Assessment:")
     if result.sharpe >= 1.0 and result.max_drawdown > -0.20:
         print("  PASS — viable strategy (Sharpe >= 1.0, MaxDD > -20%)")
     elif result.sharpe >= 0.5:
@@ -458,7 +458,7 @@ def main() -> None:
     # Show ratio stats
     ratio = (df["btc_close"] / df["eth_close"]).values
     valid_ratio = ratio[~np.isnan(ratio)]
-    print(f"\n  BTC/ETH Ratio Stats:")
+    print("\n  BTC/ETH Ratio Stats:")
     print(f"    Mean:   {np.mean(valid_ratio):.2f}")
     print(f"    Std:    {np.std(valid_ratio):.2f}")
     print(f"    Min:    {np.min(valid_ratio):.2f}")

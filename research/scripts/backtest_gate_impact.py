@@ -22,25 +22,20 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from alpha.training.train_v7_alpha import (
-    V7_DEFAULT_PARAMS,
-    _compute_target,
     _load_and_compute_features,
 )
-from features.batch_backtest import run_backtest_fast
 
 log = logging.getLogger("gate_impact")
 

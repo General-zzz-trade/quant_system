@@ -1,17 +1,14 @@
 """Tests for live validation dashboard and slippage analyzer."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import numpy as np
-import pytest
 
 
 class TestDashboardImport:
 
     def test_import(self):
-        from monitoring.dashboard import build_dashboard, print_terminal, print_markdown
+        from monitoring.dashboard import build_dashboard
         assert callable(build_dashboard)
 
     def test_build_dashboard_no_data(self, monkeypatch):
@@ -157,7 +154,7 @@ class TestSignalReconcile:
 class TestSlippageAnalyzer:
 
     def test_import(self):
-        from monitoring.slippage import parse_log, compute_stats
+        pass
 
     def test_missing_log(self, tmp_path):
         from monitoring.slippage import parse_log

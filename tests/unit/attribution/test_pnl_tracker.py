@@ -1,8 +1,7 @@
 """Tests for attribution/pnl_tracker.py — RustPnLTracker wrapper."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-import math
+from unittest.mock import MagicMock
 
 import pytest
 

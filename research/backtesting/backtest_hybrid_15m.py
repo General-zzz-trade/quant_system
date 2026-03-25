@@ -19,13 +19,11 @@ import logging
 import pickle  # used for ML model loading
 import argparse
 from pathlib import Path
-from alpha.utils import fast_ic
 
 logger = logging.getLogger(__name__)
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from scipy.stats import spearmanr  # noqa: E402
 
 sys.path.insert(0, "/quant_system")
 

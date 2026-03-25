@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 
 # ======================================================================
@@ -38,7 +37,6 @@ class TestOrderTTL:
         assert "link1" in adapter._pending_orders
 
     def test_stale_order_cancelled(self):
-        from execution.adapters.bybit import adapter as adapter_mod
 
         adapter = self._make_adapter()
         # Simulate an order submitted 60 seconds ago (well past TTL)

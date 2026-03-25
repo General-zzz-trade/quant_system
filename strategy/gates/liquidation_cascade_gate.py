@@ -18,7 +18,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from runner.gate_chain import GateResult
+from strategy.gates.types import GateResult
 
 _log = logging.getLogger(__name__)
 
