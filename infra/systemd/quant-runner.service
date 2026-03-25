@@ -1,5 +1,5 @@
 [Unit]
-Description=Quant System Live Trading Runner
+Description=INACTIVE — Quant System Live Trading Runner (replaced by bybit-alpha)
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=600
