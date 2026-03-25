@@ -57,8 +57,12 @@ THRESHOLD_GREEN = 0.50   # >= 50% of training IC
 THRESHOLD_YELLOW = 0.25  # >= 25% of training IC
 
 # Auto-retrain on RED
-RETRAIN_COOLDOWN_SECONDS = 24 * 3600  # 24 hours between auto-retrains
+RETRAIN_COOLDOWN_SECONDS = 48 * 3600  # 48 hours between auto-retrains (prevent loops)
 LAST_IC_RETRAIN_PATH = Path("data/runtime/last_ic_retrain.txt")
+
+# Consecutive RED tracking — only trigger retrain after N consecutive RED days
+RED_HISTORY_PATH = Path("data/runtime/ic_red_history.json")
+CONSECUTIVE_RED_DAYS_THRESHOLD = 3  # require 3 consecutive RED days before retrain
 
 
 # ---------------------------------------------------------------------------
@@ -367,12 +371,104 @@ def _should_retrain() -> bool:
         return True
 
 
-def _run_retrain() -> None:
-    """Run auto_retrain in a subprocess (called from background thread)."""
+def _load_red_history() -> Dict[str, List[str]]:
+    """Load consecutive RED history: {model_name: [date_str, ...]}."""
+    if not RED_HISTORY_PATH.exists():
+        return {}
     try:
-        logger.info("Starting IC-triggered auto-retrain subprocess...")
+        with open(RED_HISTORY_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_red_history(history: Dict[str, List[str]]) -> None:
+    """Persist RED history to disk."""
+    RED_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(RED_HISTORY_PATH, "w") as f:
+        json.dump(history, f, indent=2)
+
+
+def _update_red_history(results: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Update per-model RED history based on current evaluation results.
+
+    For each model:
+    - If RED today, append today's date to history (if not already present).
+    - If NOT RED today, clear that model's history (streak broken).
+
+    Returns the updated history dict.
+    """
+    history = _load_red_history()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    evaluated_models = set()
+    for r in results:
+        model = r.get("model")
+        if not model:
+            continue
+        evaluated_models.add(model)
+        status = r.get("overall_status", "UNKNOWN")
+
+        if status == "RED":
+            dates = history.get(model, [])
+            if not dates or dates[-1] != today:
+                dates.append(today)
+            # Keep only last N+1 days to avoid unbounded growth
+            history[model] = dates[-(CONSECUTIVE_RED_DAYS_THRESHOLD + 2):]
+        else:
+            # Streak broken — clear history for this model
+            if model in history:
+                del history[model]
+
+    _save_red_history(history)
+    return history
+
+
+def _models_needing_retrain(
+    results: List[Dict[str, Any]],
+    red_history: Dict[str, List[str]],
+) -> List[str]:
+    """Return model names that have been RED for >= CONSECUTIVE_RED_DAYS_THRESHOLD days.
+
+    Only returns models whose consecutive recent dates form an unbroken streak
+    of at least CONSECUTIVE_RED_DAYS_THRESHOLD days.
+    """
+    candidates = []
+    for r in results:
+        model = r.get("model")
+        if not model or r.get("overall_status") != "RED":
+            continue
+        dates = red_history.get(model, [])
+        if len(dates) < CONSECUTIVE_RED_DAYS_THRESHOLD:
+            continue
+        # Verify the last N dates are truly consecutive calendar days
+        recent = dates[-CONSECUTIVE_RED_DAYS_THRESHOLD:]
+        try:
+            parsed = [datetime.strptime(d, "%Y-%m-%d") for d in recent]
+            consecutive = all(
+                (parsed[i + 1] - parsed[i]).days <= 1
+                for i in range(len(parsed) - 1)
+            )
+        except (ValueError, IndexError):
+            consecutive = False
+        if consecutive:
+            candidates.append(model)
+    return candidates
+
+
+def _run_retrain(symbols: Optional[List[str]] = None) -> None:
+    """Run auto_retrain in a subprocess (called from background thread).
+
+    If *symbols* is provided, only retrain those symbols (via --symbols flag).
+    Otherwise falls back to full retrain.
+    """
+    try:
+        cmd = [sys.executable, "-m", "alpha.auto_retrain", "--force", "--sighup"]
+        if symbols:
+            cmd.extend(["--symbols"] + symbols)
+        logger.info("Starting IC-triggered auto-retrain subprocess: %s", " ".join(cmd))
         subprocess.run(
-            [sys.executable, "-m", "scripts.auto_retrain", "--force", "--sighup"],
+            cmd,
             cwd="/quant_system",
             timeout=1800,
         )
@@ -383,31 +479,67 @@ def _run_retrain() -> None:
         logger.error("IC-triggered auto-retrain failed: %s", e)
 
 
+def _model_to_symbol(model_name: str) -> Optional[str]:
+    """Map model directory name to symbol for targeted retrain."""
+    for dir_name, symbol, _interval in ACTIVE_MODELS:
+        if dir_name == model_name:
+            return symbol
+    return None
+
+
 def maybe_trigger_retrain(results: List[Dict[str, Any]]) -> None:
-    """If any model is RED and cooldown has passed, trigger retrain in background."""
-    red_models = [
-        r["model"] for r in results
-        if r.get("overall_status") == "RED"
-    ]
-    if not red_models:
+    """Trigger retrain only for models that have been RED for 3+ consecutive days.
+
+    Safety guards:
+    - 48h cooldown between retrain triggers (prevents retrain loops).
+    - Only RED models are retrained; GREEN/YELLOW models are untouched.
+    - Consecutive RED history persisted to data/runtime/ic_red_history.json.
+    """
+    # Step 1: Update RED history with today's results
+    red_history = _update_red_history(results)
+
+    # Step 2: Identify models that crossed the consecutive-RED threshold
+    retrain_models = _models_needing_retrain(results, red_history)
+    if not retrain_models:
+        # Log if RED but not yet at threshold
+        red_today = [r["model"] for r in results if r.get("overall_status") == "RED"]
+        for model in red_today:
+            days = len(red_history.get(model, []))
+            logger.info(
+                "IC RED for %s (%d/%d consecutive days) — waiting for threshold.",
+                model, days, CONSECUTIVE_RED_DAYS_THRESHOLD,
+            )
         return
 
+    # Step 3: Check cooldown
     if not _should_retrain():
         logger.info(
-            "IC RED detected for %s but retrain cooldown not elapsed — skipping.",
-            ", ".join(red_models),
+            "IC RED threshold met for %s but retrain cooldown not elapsed (48h) — skipping.",
+            ", ".join(retrain_models),
         )
         return
 
-    for model in red_models:
-        logger.warning("IC RED detected for %s, triggering auto-retrain", model)
+    # Step 4: Map model names to symbols for targeted retrain
+    symbols_to_retrain = []
+    for model in retrain_models:
+        sym = _model_to_symbol(model)
+        if sym and sym not in symbols_to_retrain:
+            symbols_to_retrain.append(sym)
+        logger.warning(
+            "IC RED for %d consecutive days on %s — triggering auto-retrain",
+            len(red_history.get(model, [])), model,
+        )
 
-    # Write timestamp to prevent re-triggering within 24h
+    # Step 5: Write cooldown timestamp
     LAST_IC_RETRAIN_PATH.parent.mkdir(parents=True, exist_ok=True)
     LAST_IC_RETRAIN_PATH.write_text(str(datetime.now(timezone.utc).timestamp()))
 
-    # Launch retrain in background thread so monitor can finish promptly
-    t = threading.Thread(target=_run_retrain, daemon=True)
+    # Step 6: Launch targeted retrain in background thread
+    t = threading.Thread(
+        target=_run_retrain,
+        args=(symbols_to_retrain if symbols_to_retrain else None,),
+        daemon=True,
+    )
     t.start()
 
 

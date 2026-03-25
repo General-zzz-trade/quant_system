@@ -146,3 +146,148 @@ class TestOutputStructure:
             assert data["models"][0]["overall_status"] == "GREEN"
         finally:
             mod.OUTPUT_PATH = orig_path
+
+
+# ---------------------------------------------------------------------------
+# Consecutive RED tracking and auto-retrain trigger
+# ---------------------------------------------------------------------------
+
+class TestRedHistory:
+    """Tests for _update_red_history and _models_needing_retrain."""
+
+    def _make_result(self, model: str, status: str) -> dict:
+        return {"model": model, "overall_status": status, "symbol": "BTCUSDT"}
+
+    def test_red_model_accumulates_history(self, tmp_path):
+        """RED model should accumulate dates in history."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            results = [self._make_result("BTCUSDT_gate_v2", "RED")]
+            history = mod._update_red_history(results)
+            assert "BTCUSDT_gate_v2" in history
+            assert len(history["BTCUSDT_gate_v2"]) == 1
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_green_clears_history(self, tmp_path):
+        """GREEN result should clear that model's RED streak."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            # Seed with RED history
+            mod._save_red_history({"BTCUSDT_gate_v2": ["2026-03-01", "2026-03-02"]})
+
+            results = [self._make_result("BTCUSDT_gate_v2", "GREEN")]
+            history = mod._update_red_history(results)
+            assert "BTCUSDT_gate_v2" not in history
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_no_retrain_before_threshold(self, tmp_path):
+        """Should not trigger retrain with fewer than 3 consecutive RED days."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            # Only 2 consecutive days
+            history = {"BTCUSDT_gate_v2": ["2026-03-24", "2026-03-25"]}
+            results = [self._make_result("BTCUSDT_gate_v2", "RED")]
+            candidates = mod._models_needing_retrain(results, history)
+            assert candidates == []
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_retrain_triggered_at_threshold(self, tmp_path):
+        """Should trigger retrain after 3 consecutive RED days."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            history = {"BTCUSDT_gate_v2": ["2026-03-24", "2026-03-25", "2026-03-26"]}
+            results = [self._make_result("BTCUSDT_gate_v2", "RED")]
+            candidates = mod._models_needing_retrain(results, history)
+            assert candidates == ["BTCUSDT_gate_v2"]
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_non_consecutive_dates_rejected(self, tmp_path):
+        """Non-consecutive dates (gap > 1 day) should not trigger retrain."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            # Gap between day 2 and day 4
+            history = {"BTCUSDT_gate_v2": ["2026-03-22", "2026-03-24", "2026-03-26"]}
+            results = [self._make_result("BTCUSDT_gate_v2", "RED")]
+            candidates = mod._models_needing_retrain(results, history)
+            assert candidates == []
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_green_model_not_retrained(self, tmp_path):
+        """GREEN model should never appear in retrain candidates."""
+        import monitoring.ic_decay_monitor as mod
+
+        orig = mod.RED_HISTORY_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            history = {"BTCUSDT_gate_v2": ["2026-03-24", "2026-03-25", "2026-03-26"]}
+            results = [self._make_result("BTCUSDT_gate_v2", "GREEN")]
+            candidates = mod._models_needing_retrain(results, history)
+            assert candidates == []
+        finally:
+            mod.RED_HISTORY_PATH = orig
+
+    def test_cooldown_prevents_retrain(self, tmp_path):
+        """48h cooldown should prevent re-triggering."""
+        import monitoring.ic_decay_monitor as mod
+        from datetime import datetime, timezone
+
+        orig_hist = mod.RED_HISTORY_PATH
+        orig_last = mod.LAST_IC_RETRAIN_PATH
+        try:
+            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
+            mod.LAST_IC_RETRAIN_PATH = tmp_path / "last_retrain.txt"
+
+            # Write a recent timestamp (1 hour ago)
+            recent_ts = datetime.now(timezone.utc).timestamp() - 3600
+            mod.LAST_IC_RETRAIN_PATH.write_text(str(recent_ts))
+
+            assert mod._should_retrain() is False
+        finally:
+            mod.RED_HISTORY_PATH = orig_hist
+            mod.LAST_IC_RETRAIN_PATH = orig_last
+
+    def test_cooldown_expired_allows_retrain(self, tmp_path):
+        """Expired cooldown (>48h) should allow retrain."""
+        import monitoring.ic_decay_monitor as mod
+        from datetime import datetime, timezone
+
+        orig_last = mod.LAST_IC_RETRAIN_PATH
+        try:
+            mod.LAST_IC_RETRAIN_PATH = tmp_path / "last_retrain.txt"
+
+            # Write an old timestamp (72 hours ago)
+            old_ts = datetime.now(timezone.utc).timestamp() - 72 * 3600
+            mod.LAST_IC_RETRAIN_PATH.write_text(str(old_ts))
+
+            assert mod._should_retrain() is True
+        finally:
+            mod.LAST_IC_RETRAIN_PATH = orig_last
+
+    def test_model_to_symbol_mapping(self):
+        """_model_to_symbol should map known model dirs to symbols."""
+        from monitoring.ic_decay_monitor import _model_to_symbol
+
+        assert _model_to_symbol("BTCUSDT_gate_v2") == "BTCUSDT"
+        assert _model_to_symbol("ETHUSDT_gate_v2") == "ETHUSDT"
+        assert _model_to_symbol("BTCUSDT_4h") == "BTCUSDT"
+        assert _model_to_symbol("unknown_model") is None
