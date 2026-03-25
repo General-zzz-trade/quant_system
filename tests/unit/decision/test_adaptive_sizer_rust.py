@@ -170,13 +170,13 @@ class TestAdaptiveSizerRustDirect:
     """Direct Rust function tests (not parity, just correctness)."""
 
     def test_basic_computation(self):
-        # small tier, BTCUSDT_4h cap=0.35, lev=10 → notional=400*0.35*10=1400
-        # size = 1400/60000 ≈ 0.02333 → 0.023
+        # small tier, BTCUSDT_4h cap=0.40, lev=10 → notional=400*0.40*10=1600
+        # size = 1600/60000 ≈ 0.02666 → 0.026
         qty = rust_adaptive_target_qty(
             "BTCUSDT_4h", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, True, 1.0,
         )
-        assert qty == 0.023
+        assert qty == 0.026
 
     def test_regime_inactive_60pct(self):
         active = rust_adaptive_target_qty(

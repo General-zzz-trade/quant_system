@@ -194,9 +194,9 @@ class TestAlphaDecisionModule:
 
     def test_z_scale_mapping(self):
         """Verify all 4 z_scale brackets."""
-        assert AlphaDecisionModule._compute_z_scale(2.5) == 1.5
+        assert AlphaDecisionModule._compute_z_scale(2.5) == 1.2  # capped at 1.2
         assert AlphaDecisionModule._compute_z_scale(1.5) == 1.0
-        assert AlphaDecisionModule._compute_z_scale(0.7) == 0.7
+        assert AlphaDecisionModule._compute_z_scale(0.7) == 0.8
         assert AlphaDecisionModule._compute_z_scale(0.3) == 0.5
 
     def test_signal_change_emits_close_then_open(self):

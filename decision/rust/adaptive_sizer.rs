@@ -11,26 +11,27 @@ use pyo3::prelude::*;
 #[inline]
 fn tier_cap(tier: &str, runner_key: &str) -> f64 {
     const DEFAULT_CAP: f64 = 0.15;
+    // Must match Python _TIER_WEIGHTS in decision/sizing/adaptive.py
     match tier {
         "small" => match runner_key {
-            "BTCUSDT" => 0.25,
-            "ETHUSDT" => 0.25,
-            "BTCUSDT_4h" => 0.35,
-            "ETHUSDT_4h" => 0.30,
+            "BTCUSDT" => 0.30,
+            "ETHUSDT" => 0.30,
+            "BTCUSDT_4h" => 0.40,
+            "ETHUSDT_4h" => 0.40,
             _ => DEFAULT_CAP,
         },
         "medium" => match runner_key {
-            "BTCUSDT" => 0.18,
-            "ETHUSDT" => 0.18,
-            "BTCUSDT_4h" => 0.25,
-            "ETHUSDT_4h" => 0.20,
+            "BTCUSDT" => 0.20,
+            "ETHUSDT" => 0.20,
+            "BTCUSDT_4h" => 0.30,
+            "ETHUSDT_4h" => 0.30,
             _ => DEFAULT_CAP,
         },
         "large" => match runner_key {
-            "BTCUSDT" => 0.12,
-            "ETHUSDT" => 0.12,
-            "BTCUSDT_4h" => 0.18,
-            "ETHUSDT_4h" => 0.15,
+            "BTCUSDT" => 0.15,
+            "ETHUSDT" => 0.15,
+            "BTCUSDT_4h" => 0.20,
+            "ETHUSDT_4h" => 0.20,
             _ => DEFAULT_CAP,
         },
         _ => DEFAULT_CAP,
@@ -154,9 +155,9 @@ mod tests {
 
     #[test]
     fn test_tier_cap_known_keys() {
-        assert_eq!(tier_cap("small", "BTCUSDT_4h"), 0.35);
-        assert_eq!(tier_cap("medium", "BTCUSDT"), 0.18);
-        assert_eq!(tier_cap("large", "ETHUSDT"), 0.12);
+        assert_eq!(tier_cap("small", "BTCUSDT_4h"), 0.40);
+        assert_eq!(tier_cap("medium", "BTCUSDT"), 0.20);
+        assert_eq!(tier_cap("large", "ETHUSDT"), 0.15);
     }
 
     #[test]
@@ -167,14 +168,14 @@ mod tests {
 
     #[test]
     fn test_basic_sizing_small() {
-        // small tier, BTCUSDT_4h cap=0.35, lev=10, weight=1, ic=1, z=1
-        // notional = 400 * 0.35 * 10 * 1 = 1400
-        // size = 1400 / 60000 = 0.02333... → round_to_step(0.001) = 0.023
+        // small tier, BTCUSDT_4h cap=0.40, lev=10, weight=1, ic=1, z=1
+        // notional = 400 * 0.40 * 10 * 1 = 1600
+        // size = 1600 / 60000 = 0.02666... → round_to_step(0.001) = 0.026
         let qty = rust_adaptive_target_qty(
             "BTCUSDT_4h", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.023);
+        assert_eq!(qty, 0.026);
     }
 
     #[test]

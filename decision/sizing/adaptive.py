@@ -21,24 +21,27 @@ except ImportError:
 
 # ── Equity-tier base weights per runner key ────────────────────────
 # Keys match SYMBOL_CONFIG runner_key values.
+# Design: 10x total leverage at medium tier (BTC 5x + ETH 5x).
+# Within each symbol: 4h gets 60% (higher conviction), 1h gets 40%.
+# z_scale/IC/regime further adjust at runtime.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
-    "small": {  # equity < 500
-        "BTCUSDT": 0.25,
-        "ETHUSDT": 0.25,
-        "BTCUSDT_4h": 0.35,
+    "small": {  # equity < 500 — more aggressive to get meaningful positions
+        "BTCUSDT": 0.30,
+        "ETHUSDT": 0.30,
+        "BTCUSDT_4h": 0.40,
+        "ETHUSDT_4h": 0.40,
+    },
+    "medium": {  # 500 <= equity < 10_000 — target 10x total
+        "BTCUSDT": 0.20,
+        "ETHUSDT": 0.20,
+        "BTCUSDT_4h": 0.30,
         "ETHUSDT_4h": 0.30,
     },
-    "medium": {  # 500 <= equity < 10_000
-        "BTCUSDT": 0.18,
-        "ETHUSDT": 0.18,
-        "BTCUSDT_4h": 0.25,
+    "large": {  # equity >= 10_000 — conservative (~7x total)
+        "BTCUSDT": 0.15,
+        "ETHUSDT": 0.15,
+        "BTCUSDT_4h": 0.20,
         "ETHUSDT_4h": 0.20,
-    },
-    "large": {  # equity >= 10_000
-        "BTCUSDT": 0.12,
-        "ETHUSDT": 0.12,
-        "BTCUSDT_4h": 0.18,
-        "ETHUSDT_4h": 0.15,
     },
 }
 

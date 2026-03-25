@@ -469,11 +469,11 @@ class AlphaDecisionModule:
         """Map |z| to confidence-based position scale."""
         abs_z = abs(z)
         if abs_z > 2.0:
-            return 1.5
+            return 1.2   # cap at 1.2x (was 1.5x) — prevents 15x spikes
         if abs_z > 1.0:
             return 1.0
         if abs_z > 0.5:
-            return 0.7
+            return 0.8   # slightly more aggressive at moderate z
         return 0.5
 
     def _refresh_ic_scale(self) -> None:
