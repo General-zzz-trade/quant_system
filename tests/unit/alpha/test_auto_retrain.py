@@ -18,14 +18,14 @@ class TestCalibrateEnsembleWeights:
 
     def test_returns_none_when_no_config(self, tmp_path: Path):
         """Should return None gracefully when config.json is missing."""
-        from alpha.auto_retrain_helpers import calibrate_ensemble_weights
+        from alpha.retrain.helpers import calibrate_ensemble_weights
 
         result = calibrate_ensemble_weights(tmp_path, shrinkage=0.3)
         assert result is None
 
     def test_returns_none_when_no_score_data(self, tmp_path: Path):
         """Should return None when config exists but no score/return history."""
-        from alpha.auto_retrain_helpers import calibrate_ensemble_weights
+        from alpha.retrain.helpers import calibrate_ensemble_weights
 
         cfg = {"metrics": {}}  # no per_horizon_ic
         (tmp_path / "config.json").write_text(json.dumps(cfg))
@@ -37,7 +37,7 @@ class TestCalibrateEnsembleWeights:
            create=True)
     def test_returns_weights_with_valid_data(self, mock_rust, tmp_path: Path):
         """Should return normalized weights dict when Rust calibration succeeds."""
-        from alpha.auto_retrain_helpers import calibrate_ensemble_weights
+        from alpha.retrain.helpers import calibrate_ensemble_weights
 
         cfg = {
             "metrics": {"per_horizon_ic": {"6": 0.05, "12": 0.04, "24": 0.03}},
@@ -61,7 +61,7 @@ class TestCalibrateEnsembleWeights:
 
     def test_never_raises_on_error(self, tmp_path: Path):
         """Should return None on any internal error, never raise."""
-        from alpha.auto_retrain_helpers import calibrate_ensemble_weights
+        from alpha.retrain.helpers import calibrate_ensemble_weights
 
         # Write invalid JSON
         (tmp_path / "config.json").write_text("{invalid json")
@@ -79,7 +79,7 @@ class TestSaveExperimentMetadata:
 
     def test_writes_json_with_expected_fields(self, tmp_path: Path):
         """Should write experiment_meta.json with all required fields."""
-        from alpha.auto_retrain_helpers import save_experiment_metadata
+        from alpha.retrain.helpers import save_experiment_metadata
 
         cfg = {
             "metrics": {"avg_ic": 0.05, "sharpe": 2.0, "train_rows": 5000},
@@ -110,14 +110,14 @@ class TestSaveExperimentMetadata:
 
     def test_returns_false_on_missing_config(self, tmp_path: Path):
         """Should return False when config.json does not exist."""
-        from alpha.auto_retrain_helpers import save_experiment_metadata
+        from alpha.retrain.helpers import save_experiment_metadata
 
         ok = save_experiment_metadata(tmp_path, "BTCUSDT", [6], None)
         assert ok is False
 
     def test_returns_false_on_error_never_raises(self, tmp_path: Path):
         """Should return False on any error, never raise."""
-        from alpha.auto_retrain_helpers import save_experiment_metadata
+        from alpha.retrain.helpers import save_experiment_metadata
 
         (tmp_path / "config.json").write_text("{bad json")
         ok = save_experiment_metadata(tmp_path, "BTCUSDT", [6], None)
@@ -133,7 +133,7 @@ class TestCheckModelAgeHours:
 
     def test_returns_hours_for_existing_model(self, tmp_path: Path):
         """Should return age in hours when config has valid train_date."""
-        from alpha.auto_retrain import _check_model_age_hours
+        from alpha.retrain.pipeline import _check_model_age_hours
 
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         cfg = {"train_date": yesterday}
@@ -146,14 +146,14 @@ class TestCheckModelAgeHours:
 
     def test_returns_none_for_missing_model(self, tmp_path: Path):
         """Should return None when config.json does not exist."""
-        from alpha.auto_retrain import _check_model_age_hours
+        from alpha.retrain.pipeline import _check_model_age_hours
 
         age = _check_model_age_hours("BTCUSDT", model_dir=tmp_path)
         assert age is None
 
     def test_returns_none_for_missing_train_date(self, tmp_path: Path):
         """Should return None when config exists but train_date is missing."""
-        from alpha.auto_retrain import _check_model_age_hours
+        from alpha.retrain.pipeline import _check_model_age_hours
 
         cfg = {"metrics": {"avg_ic": 0.05}}
         (tmp_path / "config.json").write_text(json.dumps(cfg))

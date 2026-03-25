@@ -34,7 +34,7 @@ from features.batch_feature_engine import compute_features_batch  # noqa: E402
 from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAMES  # noqa: E402
 from shared.signal_postprocess import rolling_zscore  # noqa: E402
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES  # noqa: E402
-from alpha.adaptive_config import AdaptiveConfigSelector, _fast_backtest  # noqa: E402
+from alpha.retrain.adaptive_config import AdaptiveConfigSelector, _fast_backtest  # noqa: E402
 
 COST_BPS_RT = 4
 BARS_PER_DAY = 24
