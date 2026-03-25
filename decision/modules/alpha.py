@@ -131,7 +131,13 @@ class AlphaDecisionModule:
     def decide(self, snapshot: Any) -> Iterable[Any]:
         """Read-only snapshot → opinion events.  No side effects on venue."""
         self._bars_processed += 1
-        close = float(snapshot.markets[self._symbol].close)
+        mkt = snapshot.markets[self._symbol]
+        # Prefer close_f (float) over close (may be Fd8 i64 on Rust types)
+        _cf = getattr(mkt, "close_f", None)
+        if isinstance(_cf, (int, float)) and _cf > 0:
+            close = float(_cf)
+        else:
+            close = float(mkt.close)
         features: dict = dict(snapshot.features) if snapshot.features else {}
 
         # 0. Portfolio exposure + risk limit checks

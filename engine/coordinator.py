@@ -331,9 +331,16 @@ class EngineCoordinator:
                         evt_dict[attr] = str(val)
             ts = getattr(event, "ts", None) or getattr(event, "timestamp", None)
             if ts is not None:
-                evt_dict["ts"] = float(ts)
+                if isinstance(ts, (int, float)):
+                    evt_dict["ts"] = float(ts)
+                elif hasattr(ts, "timestamp"):
+                    evt_dict["ts"] = ts.timestamp()
             etype = type(event).__name__
             evt_dict["event_type"] = etype
+            # Validate signal sides separately from order sides
+            side_val = evt_dict.get("side")
+            if side_val in ("long", "short", "flat"):
+                evt_dict.pop("side", None)  # signal sides not validated as order sides
             self._event_validator.validate(evt_dict)
         except (ValueError, TypeError) as _ve:
             _logger.warning("Event validation: %s", _ve)
