@@ -4,6 +4,7 @@ Replaces the prediction and signal logic from AlphaRunner with two
 composable, testable components:
 
 - EnsemblePredictor: Ridge(60%) + LGBM(40%) IC-weighted ensemble
+  - Optional OnlineRidge: incremental RLS weight updates between retrains
 - SignalDiscretizer: z-score normalize + deadzone + min-hold + z-clamp
 """
 from __future__ import annotations
@@ -79,6 +80,10 @@ class EnsemblePredictor:
 
     For 4h models (config version contains "4h"), uses Ridge-only
     because LGBM overfits on low-frequency data.
+
+    When OnlineRidge is available, it replaces the static sklearn Ridge
+    with incremental RLS updates between weekly retrains. The static
+    Ridge remains as a fallback if OnlineRidge fails or is unavailable.
     """
 
     def __init__(self, horizon_models: list[dict], config: dict) -> None:
@@ -88,12 +93,76 @@ class EnsemblePredictor:
         self._ridge_w = config.get("ridge_weight", 0.6)
         self._lgbm_w = config.get("lgbm_weight", 0.4)
 
+        # Online Ridge: incremental weight updates between retrains
+        self._online_ridge: Any | None = None
+        self._online_ridge_features: list[str] | None = None
+        self._init_online_ridge(config)
+
+    def _init_online_ridge(self, config: dict) -> None:
+        """Try to create OnlineRidge from the first horizon model's Ridge weights.
+
+        Best-effort: if anything fails, self._online_ridge stays None and
+        the static Ridge path is used. Never raises.
+        """
+        if not self._horizon_models:
+            return
+
+        forgetting = config.get("online_ridge_forgetting", 0.99)
+
+        try:
+            from alpha.online_ridge import OnlineRidge
+        except Exception:
+            logger.debug("OnlineRidge import failed, using static Ridge", exc_info=True)
+            return
+
+        # Use the first horizon model that has a Ridge with extractable weights
+        for hm in self._horizon_models:
+            ridge_model = hm.get("ridge")
+            if ridge_model is None:
+                continue
+
+            rf = hm.get("ridge_features") or hm.get("features", [])
+            n_features = len(rf)
+            if n_features == 0:
+                continue
+
+            try:
+                # Extract weights from sklearn Ridge or compatible object
+                coef = np.asarray(ridge_model.coef_, dtype=np.float64).ravel()
+                intercept = float(ridge_model.intercept_)
+                if len(coef) != n_features:
+                    logger.warning(
+                        "OnlineRidge: coef size %d != feature count %d, skipping",
+                        len(coef), n_features,
+                    )
+                    continue
+
+                online = OnlineRidge(
+                    n_features=n_features,
+                    forgetting_factor=forgetting,
+                )
+                online.load_from_weights(coef, intercept)
+                self._online_ridge = online
+                self._online_ridge_features = list(rf)
+                logger.info(
+                    "OnlineRidge initialized: %d features, forgetting=%.4f",
+                    n_features, forgetting,
+                )
+                return
+            except Exception:
+                logger.debug("OnlineRidge init from Ridge weights failed", exc_info=True)
+                continue
+
     def predict(self, feat_dict: dict) -> float | None:
         """Produce ensemble prediction from feature dict.
 
         Uses Rust-native predictors (RustRidgePredictor / RustTreePredictor)
         when available for faster inference. Falls back to sklearn if Rust
         predictors are absent or raise an exception.
+
+        When OnlineRidge is available and initialized, it replaces the static
+        Ridge prediction for the first horizon model. Falls back to static
+        Ridge if OnlineRidge.predict raises.
 
         Returns weighted average across horizons (IC-weighted), or None
         if no valid predictions.
@@ -104,7 +173,7 @@ class EnsemblePredictor:
         weighted_sum = 0.0
         weight_total = 0.0
 
-        for hm in self._horizon_models:
+        for hm_idx, hm in enumerate(self._horizon_models):
             feats = hm["features"]
             x = [_safe_val(feat_dict.get(f), f) for f in feats]
 
@@ -114,7 +183,32 @@ class EnsemblePredictor:
             if ridge_model is not None:
                 rf = hm.get("ridge_features") or feats
                 rx = [_safe_val(feat_dict.get(f), f) for f in rf]
-                ridge_pred = _rust_or_sklearn_ridge(hm, rx)
+
+                # Try OnlineRidge for the first horizon model
+                ridge_pred = None
+                if (
+                    hm_idx == 0
+                    and self._online_ridge is not None
+                    and self._online_ridge_features is not None
+                ):
+                    try:
+                        online_x = [
+                            _safe_val(feat_dict.get(f), f)
+                            for f in self._online_ridge_features
+                        ]
+                        ridge_pred = float(self._online_ridge.predict(
+                            np.array(online_x, dtype=np.float64),
+                        ))
+                    except Exception:
+                        logger.debug(
+                            "OnlineRidge.predict failed, falling back to static Ridge",
+                            exc_info=True,
+                        )
+                        ridge_pred = None
+
+                # Fallback to static Ridge
+                if ridge_pred is None:
+                    ridge_pred = _rust_or_sklearn_ridge(hm, rx)
 
                 if self._ridge_only_4h:
                     pred = ridge_pred
@@ -129,7 +223,68 @@ class EnsemblePredictor:
 
         if weight_total <= 0:
             return None
+
+        # Cache last prediction features for online update
+        self._last_feat_dict = feat_dict
+
         return weighted_sum / weight_total
+
+    def update_online_ridge(self, realized_return: float) -> bool:
+        """Update OnlineRidge weights with the realized return from the previous bar.
+
+        Called after each bar when the actual return is known.
+
+        Args:
+            realized_return: The actual forward return (e.g., log return or pct return)
+                that the model was trying to predict.
+
+        Returns:
+            True if the update succeeded, False otherwise.
+        """
+        if self._online_ridge is None or self._online_ridge_features is None:
+            return False
+
+        feat_dict = getattr(self, "_last_feat_dict", None)
+        if feat_dict is None:
+            return False
+
+        try:
+            x = np.array(
+                [_safe_val(feat_dict.get(f), f) for f in self._online_ridge_features],
+                dtype=np.float64,
+            )
+            pred_error = self._online_ridge.update(x, realized_return)
+
+            # Log periodically (every 100 updates)
+            n = self._online_ridge.n_updates
+            if n > 0 and n % 100 == 0:
+                logger.info(
+                    "OnlineRidge update #%d: pred_error=%.6f, drift=%.6f",
+                    n, pred_error, self._online_ridge.weight_drift,
+                )
+            return True
+        except Exception:
+            logger.debug("OnlineRidge.update failed", exc_info=True)
+            return False
+
+    def reset_online_ridge(self) -> None:
+        """Reset OnlineRidge to static weights (call after weekly retrain)."""
+        if self._online_ridge is not None:
+            try:
+                self._online_ridge.reset_to_static()
+                logger.info("OnlineRidge reset to static weights")
+            except Exception:
+                logger.debug("OnlineRidge.reset_to_static failed", exc_info=True)
+
+    @property
+    def online_ridge_stats(self) -> dict | None:
+        """Return OnlineRidge statistics, or None if unavailable."""
+        if self._online_ridge is None:
+            return None
+        try:
+            return self._online_ridge.stats
+        except Exception:
+            return None
 
     def calibrate_weights(
         self,

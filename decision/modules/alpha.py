@@ -164,6 +164,16 @@ class AlphaDecisionModule:
         # RiskLimits available for downstream gate checks if needed
         _ = RiskLimits  # ensure wired
 
+        # 0b. Online Ridge update: feed realized return from previous bar
+        if len(self._closes) >= 2:
+            try:
+                prev_close = self._closes[-1]  # before appending current close
+                if prev_close > 0:
+                    realized_ret = np.log(close / prev_close)
+                    self._predictor.update_online_ridge(realized_ret)
+            except Exception:
+                pass  # never crash the trading loop
+
         # 1. Regime filter
         regime_ok = self._check_regime(close)
 
