@@ -470,6 +470,13 @@ class AlphaDecisionModule:
                     if v != 0 and v != self._signal:
                         return True, f"4h_reversal({k}={v})"
 
+        # Direction alignment exit (ETH follows BTC)
+        if "ETH" in self._symbol and not self._is_4h:
+            btc_key = self._symbol.replace("ETH", "BTC")
+            btc_signal = self._consensus.get(btc_key, 0)
+            if btc_signal != 0 and btc_signal != self._signal:
+                return True, f"alignment_exit(eth={self._signal},btc={btc_signal})"
+
         return False, ""
 
     @staticmethod
