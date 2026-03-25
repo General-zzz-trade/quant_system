@@ -154,6 +154,6 @@ class TestAutoRetrainDryRun:
 
     def test_dry_run_flag_exists(self):
         """Verify auto_retrain supports --dry-run."""
-        import scripts.auto_retrain as retrain_mod
+        import alpha.auto_retrain as retrain_mod
         # Module should be importable
         assert hasattr(retrain_mod, 'logger')

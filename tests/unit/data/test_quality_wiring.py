@@ -234,7 +234,7 @@ class TestQualityCheckOnSampleData:
 class TestWarmupValidation:
     def test_validate_warmup_bars_runs_without_error(self) -> None:
         """_validate_warmup_bars should process adapter-format dicts."""
-        from runner.alpha_main import _validate_warmup_bars
+        from runner.warmup import validate_warmup_bars as _validate_warmup_bars
 
         bars = []
         for i in range(10):
@@ -253,12 +253,12 @@ class TestWarmupValidation:
 
     def test_validate_warmup_bars_empty(self) -> None:
         """_validate_warmup_bars should handle empty list."""
-        from runner.alpha_main import _validate_warmup_bars
+        from runner.warmup import validate_warmup_bars as _validate_warmup_bars
         _validate_warmup_bars([], "BTCUSDT", "60")
 
     def test_validate_warmup_bars_4h_interval(self) -> None:
         """_validate_warmup_bars should use 4h interval for 240."""
-        from runner.alpha_main import _validate_warmup_bars
+        from runner.warmup import validate_warmup_bars as _validate_warmup_bars
 
         bars = []
         for i in range(5):

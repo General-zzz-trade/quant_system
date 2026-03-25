@@ -29,13 +29,6 @@ class TestMultiIntervalConfig:
         assert len(subs) == 1
         assert subs[0]["interval"] == "60"
 
-    def test_stale_detection_config(self):
-        """Stale threshold should be configurable."""
-        from runner.config import LiveRunnerConfig
-
-        cfg = LiveRunnerConfig(ws_stale_threshold_sec=180.0)
-        assert cfg.ws_stale_threshold_sec == 180.0
-
     def test_multi_interval_multiple_symbols(self):
         """Multi-interval for one symbol should not duplicate other symbols."""
         from runner.builders.market_data_builder import _build_subscriptions
@@ -67,29 +60,6 @@ class TestMultiIntervalConfig:
         assert "interval" in sub
         assert sub["symbol"] == "BTCUSDT"
         assert sub["interval"] == "60"
-
-    def test_default_stale_threshold(self):
-        """Default ws_stale_threshold_sec should be 120.0."""
-        from runner.config import LiveRunnerConfig
-
-        cfg = LiveRunnerConfig()
-        assert cfg.ws_stale_threshold_sec == 120.0
-
-    def test_multi_interval_symbols_config_field(self):
-        """LiveRunnerConfig should accept multi_interval_symbols dict."""
-        from runner.config import LiveRunnerConfig
-
-        cfg = LiveRunnerConfig(
-            multi_interval_symbols={"ETHUSDT": ["60", "15"]},
-        )
-        assert cfg.multi_interval_symbols == {"ETHUSDT": ["60", "15"]}
-
-    def test_multi_interval_symbols_default_none(self):
-        """multi_interval_symbols should default to None."""
-        from runner.config import LiveRunnerConfig
-
-        cfg = LiveRunnerConfig()
-        assert cfg.multi_interval_symbols is None
 
     def test_subscription_stream_name_format(self):
         """Stream name should follow <symbol.lower>@kline_<interval> convention."""

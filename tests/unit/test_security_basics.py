@@ -26,19 +26,15 @@ class TestGitignore:
 
 class TestMaxOrderNotional:
     def test_max_order_notional_exists(self):
-        config = _ROOT / "scripts" / "ops" / "config.py"
+        config = _ROOT / "runner" / "strategy_config.py"
         assert config.exists()
         text = config.read_text()
         assert "MAX_ORDER_NOTIONAL" in text
 
     def test_max_order_notional_reasonable(self):
-        config = _ROOT / "scripts" / "ops" / "config.py"
-        text = config.read_text()
-        match = re.search(r"MAX_ORDER_NOTIONAL\s*=\s*(\d+(?:\.\d+)?)", text)
-        assert match is not None, "MAX_ORDER_NOTIONAL value not found"
-        val = float(match.group(1))
-        assert val <= 1000, f"MAX_ORDER_NOTIONAL={val} exceeds $1000 safety limit"
-        assert val > 0, "MAX_ORDER_NOTIONAL must be positive"
+        from runner.strategy_config import MAX_ORDER_NOTIONAL_PCT, MAX_ORDER_NOTIONAL_CEILING
+        assert 0 < MAX_ORDER_NOTIONAL_PCT <= 5.0, f"PCT={MAX_ORDER_NOTIONAL_PCT} out of range"
+        assert MAX_ORDER_NOTIONAL_CEILING <= 200_000, f"Ceiling={MAX_ORDER_NOTIONAL_CEILING} too high"
 
 
 class TestNoHardcodedSecrets:

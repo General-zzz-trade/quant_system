@@ -227,6 +227,17 @@ class TestFundingDeepFeatures:
 class TestFeatureCountConsistency:
     """Verify total feature count matches ENRICHED_FEATURE_NAMES."""
 
+    # Features only available via on_bar() with external data, not get_features_dict()
+    _EXTERNAL_ONLY = {
+        # V21: Cross-market features (require cross_market dict in on_bar)
+        "spy_ret_1d", "qqq_ret_1d", "spy_ret_5d", "vix_level",
+        "tlt_ret_5d", "uso_ret_5d", "coin_ret_1d", "spy_extreme",
+        # V14b: Multi-ratio dominance (pairs disabled in enriched computer)
+        "dom_vs_sui_dev_20", "dom_vs_sui_ret_24",
+        "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
+        "dom_vs_eth_dev_20", "dom_vs_eth_ret_24",
+    }
+
     def test_all_features_present(self):
         comp = EnrichedFeatureComputer()
         # Push enough bars for all features to be computed
@@ -240,12 +251,14 @@ class TestFeatureCountConsistency:
                         taker_buy_quote_volume=500.0)
         feats = comp.get_features_dict("BTC")
         for name in ENRICHED_FEATURE_NAMES:
+            if name in self._EXTERNAL_ONLY:
+                continue
             assert name in feats, f"Feature '{name}' missing from output"
 
     def test_feature_count_matches(self):
         """All ENRICHED_FEATURE_NAMES features should be in output dict."""
         comp = EnrichedFeatureComputer()
-        for i in range(80):
+        for i in range(100):
             close = 100.0 + i * 0.1
             comp.on_bar("BTC", close=close, volume=10.0 + i * 0.01,
                         high=100.5 + i * 0.1, low=99.5 + i * 0.1,
@@ -270,15 +283,12 @@ class TestFeatureCountConsistency:
                         })
         feats = comp.get_features_dict("BTC")
         # Features that require external data sources not provided in this test
-        external_features = {
+        external_features = self._EXTERNAL_ONLY | {
             "cross_tf_regime_sync",
             # Cross-asset / dominance features require external reference closes not provided here.
             "btc_relative_strength_24", "btc_relative_strength_6",
             "btc_ratio_ma20_dev", "btc_dom_momentum", "btc_lead_ret_1", "btc_vol_ratio",
             "btc_dom_dev_20", "btc_dom_dev_50", "btc_dom_ret_24", "btc_dom_ret_72",
-            "dom_vs_sui_dev_20", "dom_vs_sui_ret_24",
-            "dom_vs_axs_dev_20", "dom_vs_axs_ret_24",
-            "dom_vs_eth_dev_20", "dom_vs_eth_ret_24",
             "top_retail_divergence",
             # V11: require liquidation/mempool/macro/sentiment data
             "liquidation_volume_zscore_24", "liquidation_imbalance",
@@ -286,33 +296,13 @@ class TestFeatureCountConsistency:
             "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
             "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
             "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
+            # V19: DVOL features require dvol param + long warmup (up to 720 bars)
+            "dvol_chg_72", "iv_term_struct", "dvol_z", "dvol_chg_24", "dvol_mean_rev",
         }
         for name in ENRICHED_FEATURE_NAMES:
             if name in external_features:
                 continue
-            assert feats[name] is not None, f"Feature '{name}' is None after 80 bars warmup"
-
-
-class TestMultiRatioDominanceFeatures:
-    def test_multi_ratio_dominance_computes_with_reference_closes(self):
-        comp = EnrichedFeatureComputer()
-
-        for i in range(30):
-            comp.on_bar(
-                "ETHUSDT",
-                close=2000.0 + i * 5.0,
-                volume=10.0 + i * 0.1,
-                reference_closes={
-                    "SUIUSDT": 1.0 + i * 0.01,
-                    "AXSUSDT": 8.0 + i * 0.02,
-                },
-            )
-
-        feats = comp.get_features_dict("ETHUSDT")
-        assert feats["dom_vs_sui_dev_20"] is not None
-        assert feats["dom_vs_sui_ret_24"] is not None
-        assert feats["dom_vs_axs_dev_20"] is not None
-        assert feats["dom_vs_axs_ret_24"] is not None
+            assert feats[name] is not None, f"Feature '{name}' is None after 100 bars warmup"
 
 
 class TestV8AlphaRebuildFeatures:

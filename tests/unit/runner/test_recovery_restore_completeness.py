@@ -172,7 +172,7 @@ class TestRestoreAllIncludesAllComponents:
 
 class TestFindModuleAttr:
     def test_finds_attr_on_direct_module(self):
-        from runner.live_runner import _find_module_attr
+        from runner.live_runner_builder_helpers import _find_module_attr
 
         exit_mgr = MagicMock()
         module = MagicMock()
@@ -185,7 +185,7 @@ class TestFindModuleAttr:
         assert _find_module_attr(bridge, '_exit_mgr') is exit_mgr
 
     def test_finds_attr_on_inner_module(self):
-        from runner.live_runner import _find_module_attr
+        from runner.live_runner_builder_helpers import _find_module_attr
 
         regime_gate = MagicMock()
         inner = MagicMock()
@@ -200,11 +200,11 @@ class TestFindModuleAttr:
         assert _find_module_attr(bridge, '_regime_gate') is regime_gate
 
     def test_returns_none_when_bridge_is_none(self):
-        from runner.live_runner import _find_module_attr
+        from runner.live_runner_builder_helpers import _find_module_attr
         assert _find_module_attr(None, '_exit_mgr') is None
 
     def test_returns_none_when_no_modules(self):
-        from runner.live_runner import _find_module_attr
+        from runner.live_runner_builder_helpers import _find_module_attr
         bridge = MagicMock()
         bridge.modules = []
         assert _find_module_attr(bridge, '_exit_mgr') is None
