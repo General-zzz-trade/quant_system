@@ -178,5 +178,5 @@ def handle_decision_event(coord: Any, event: Any) -> None:
 def handle_execution_event(coord: Any, event: Any) -> None:
     """EXECUTION handler: all orders go through ExecutionBridge."""
     if coord._execution_bridge is None:
-        raise RuntimeError("ExecutionBridge is not attached")
+        return  # silently drop during warmup (execution bridge detached)
     coord._execution_bridge.handle_event(event)
