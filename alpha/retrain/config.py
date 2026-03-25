@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-DEFAULT_HORIZONS = [12, 24]          # h48 dropped by default (negative IC)
+DEFAULT_HORIZONS = [24]               # h12 dropped: IC collapsed in live (BTC -341%, ETH -91%)
 MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
 MODEL_DIR_OVERRIDES: dict[str, str] = {}
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
@@ -24,6 +24,10 @@ MODEL_DIR_15M_TEMPLATE = "models_v8/{symbol}_15m"
 # ── 4h Configuration ──
 SYMBOLS_4H = ["BTCUSDT", "ETHUSDT"]
 MODEL_DIR_4H_TEMPLATE = "models_v8/{symbol}_4h"
+DEFAULT_HORIZONS_4H = {
+    "BTCUSDT": [6, 24],   # h12 dropped: IC collapsed in live (-341%)
+    "ETHUSDT": [6],        # h12 dropped: train IC=0.007 (near zero); h6 IC=0.110 (good)
+}
 
 # Validation thresholds
 MIN_IC = 0.02                         # minimum IC for new model to deploy

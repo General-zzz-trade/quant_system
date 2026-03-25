@@ -20,6 +20,7 @@ from alpha.retrain.pipeline import (
     DEFAULT_HORIZONS_15M,
     log_retrain_event,
 )
+from alpha.retrain.config import DEFAULT_HORIZONS_4H
 
 logger = logging.getLogger(__name__)
 
@@ -346,12 +347,13 @@ def retrain_4h_symbols(
             logger.info("Backed up 4h %s -> %s", model_dir, backup_dir)
 
         # Train
-        logger.info("Training 4h %s...", symbol)
+        horizons = DEFAULT_HORIZONS_4H.get(symbol, [6, 24])
+        logger.info("Training 4h %s with horizons %s...", symbol, horizons)
         t0 = time.time()
 
         try:
             from scripts.training.train_4h_daily import train_symbol
-            success = train_symbol(symbol, interval="4h")
+            success = train_symbol(symbol, interval="4h", horizons=horizons)
         except Exception as e:
             logger.error("4h training failed for %s: %s", symbol, e)
             result["error"] = str(e)

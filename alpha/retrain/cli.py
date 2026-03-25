@@ -191,7 +191,7 @@ def main():
     """Main entry point for auto_retrain CLI."""
     parser = argparse.ArgumentParser(description="Automated Walk-Forward Retraining")
     parser.add_argument("--symbol", default=None, help="Comma-separated symbols")
-    parser.add_argument("--horizons", default="12,24", help="Comma-separated horizons")
+    parser.add_argument("--horizons", default="24", help="Comma-separated horizons")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-age-days", type=int, default=90)
