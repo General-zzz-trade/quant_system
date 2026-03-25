@@ -78,6 +78,7 @@ class AlphaDecisionModule:
 
         # Pure decision state
         self._signal: int = 0
+        self._current_qty: Decimal = Decimal("0")
         self._entry_price: float = 0.0
         self._trade_peak: float = 0.0
         self._bars_processed: int = 0
@@ -266,6 +267,7 @@ class AlphaDecisionModule:
                 except Exception:
                     pass
                 events.extend(self._make_close_order(close, old_signal, reason))
+                self._current_qty = Decimal("0")
 
             # Open new position
             if new_signal != 0:
@@ -289,6 +291,8 @@ class AlphaDecisionModule:
                         self._runner_key, vpin, self._vpin_caution_thresh,
                         qty, self._vpin_scale_factor,
                     )
+                if qty <= 0:
+                    return events  # skip zero/negative qty (warmup, edge case)
                 events.extend(self._make_open_order(close, new_signal, qty))
                 try:
                     self._audit.log_entry(
@@ -301,6 +305,7 @@ class AlphaDecisionModule:
                     pass
                 self._entry_price = close
                 self._trade_peak = close
+                self._current_qty = qty
             else:
                 self._entry_price = 0.0
                 self._trade_peak = 0.0
@@ -514,7 +519,9 @@ class AlphaDecisionModule:
     def _make_close_order(
         self, price: float, old_signal: int, reason: str,
     ) -> list[OrderEvent]:
-        """Create OrderEvent for closing current position (qty=0)."""
+        """Create OrderEvent for closing current position."""
+        # Use tracked qty; fallback to min_size to avoid zero-qty rejection
+        qty = self._current_qty if self._current_qty > 0 else self._sizer.min_size
         header = EventHeader.new_root(
             event_type=EventType.ORDER,
             version=1,
@@ -523,8 +530,8 @@ class AlphaDecisionModule:
         # Close side is opposite of position
         side = "sell" if old_signal == 1 else "buy"
         logger.info(
-            "%s CLOSE %s reason=%s price=%.2f",
-            self._runner_key, side, reason, price,
+            "%s CLOSE %s qty=%.6f reason=%s price=%.2f",
+            self._runner_key, side, float(qty), reason, price,
         )
         return [
             OrderEvent(
@@ -533,7 +540,7 @@ class AlphaDecisionModule:
                 intent_id=header.event_id,
                 symbol=self._symbol,
                 side=side,
-                qty=Decimal("0"),
+                qty=Decimal(str(qty)),
                 price=Decimal(str(price)),
             )
         ]

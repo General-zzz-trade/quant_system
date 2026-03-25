@@ -270,7 +270,7 @@ def compute_features_batch(
     _add_cross_market_features(feat_df, timestamps)
 
     # V22: Deribit IV features (DVOL-based: iv_level, iv_rank_30d, iv_change_1d, etc.)
-    _add_iv_features(feat_df, symbol, timestamps)
+    _add_iv_features(symbol, feat_df, timestamps, closes)
 
     # V23: Stablecoin supply features (DeFiLlama: total supply change, z-score, dominance)
     _add_stablecoin_features(feat_df, timestamps)

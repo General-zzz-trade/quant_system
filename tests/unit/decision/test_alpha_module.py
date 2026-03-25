@@ -164,7 +164,7 @@ class TestAlphaDecisionModule:
         events2 = list(mod.decide(snap2))
         # Should emit close OrderEvent + RiskEvent
         orders2 = [e for e in events2 if isinstance(e, OrderEvent)]
-        assert any(e.qty == Decimal("0") for e in orders2)
+        assert any(e.qty > Decimal("0") for e in orders2)  # close with tracked qty
         risk_events = [e for e in events2 if isinstance(e, RiskEvent)]
         assert len(risk_events) >= 1
 
@@ -181,7 +181,7 @@ class TestAlphaDecisionModule:
         snap2 = _make_snapshot(close=90000.0)
         events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
-        assert any(e.qty == Decimal("0") for e in orders)
+        assert any(e.qty > Decimal("0") for e in orders)
 
     def test_regime_filter_warmup_active(self):
         """<20 bars -> regime always active."""
@@ -220,9 +220,9 @@ class TestAlphaDecisionModule:
             events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
         assert len(orders) == 2
-        # First order: close (sell, qty=0)
+        # First order: close (sell, qty>0 — tracked position qty)
         assert orders[0].side == "sell"
-        assert orders[0].qty == Decimal("0")
+        assert orders[0].qty > Decimal("0")
         # Second order: open short (sell, qty>0)
         assert orders[1].side == "sell"
         assert orders[1].qty > 0
@@ -277,7 +277,7 @@ class TestAlphaDecisionModule:
         events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
         assert len(orders) == 1
-        assert orders[0].qty == Decimal("0")
+        assert orders[0].qty > Decimal("0")  # close with tracked qty
         assert orders[0].side == "sell"  # opposite of long
 
     def test_deadzone_base_preserved(self):

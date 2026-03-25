@@ -128,23 +128,9 @@ def _build_coordinator(
         sizer=sizer,
     )
 
-    # Try to build RustTickProcessor for fast path (optional, falls back to Python)
+    # RustTickProcessor disabled until fill-qty-0 warmup bug is resolved.
+    # The Python pipeline (feature_hook → pipeline → decision_bridge) is production-tested.
     tick_proc = None
-    try:
-        from runner.builders.tick_processor_builder import build_tick_processor
-
-        model_dir = MODEL_BASE / cfg.get("model_dir", runner_key)
-        balance = _get_initial_balance(adapter)
-        tick_proc = build_tick_processor(
-            symbols=[symbol],
-            currency="USDT",
-            balance=balance,
-            model_dirs={runner_key: model_dir},
-            zscore_window=model_info.get("zscore_window", 720),
-            zscore_warmup=model_info.get("zscore_warmup", 180),
-        )
-    except Exception:
-        logger.debug("Tick processor build failed (non-fatal)", exc_info=True)
 
     # Coordinator config
     coordinator_cfg = CoordinatorConfig(
