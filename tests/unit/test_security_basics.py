@@ -26,7 +26,7 @@ class TestGitignore:
 
 class TestMaxOrderNotional:
     def test_max_order_notional_exists(self):
-        config = _ROOT / "runner" / "strategy_config.py"
+        config = _ROOT / "strategy" / "config.py"
         assert config.exists()
         text = config.read_text()
         assert "MAX_ORDER_NOTIONAL" in text

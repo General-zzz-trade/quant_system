@@ -1,22 +1,4 @@
-"""Market regime detection.
-
-Regime detectors transform market data or feature summaries into discrete labels.
-The implementations are lightweight and designed for backtesting and live use.
-"""
-
-from .base import RegimeDetector, RegimeLabel
-from .composite import CompositeRegimeDetector, CompositeRegimeLabel
-from .param_router import RegimeParamRouter, RegimeParams
-from .trend import TrendRegimeDetector
-from .volatility import VolatilityRegimeDetector
-
-__all__ = [
-    "RegimeDetector",
-    "RegimeLabel",
-    "TrendRegimeDetector",
-    "VolatilityRegimeDetector",
-    "CompositeRegimeDetector",
-    "CompositeRegimeLabel",
-    "RegimeParamRouter",
-    "RegimeParams",
-]
+"""Backward-compat — regime detection moved to strategy/regime/."""
+from strategy.regime.base import *  # noqa: F401, F403
+from strategy.regime.composite import *  # noqa: F401, F403
+from strategy.regime.param_router import *  # noqa: F401, F403
