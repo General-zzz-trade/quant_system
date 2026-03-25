@@ -374,7 +374,7 @@ class TestHyperliquidClient:
         mock_urlopen.return_value = resp
 
         client = self._make_client()
-        result = client.info_request({"type": "meta"})
+        _result = client.info_request({"type": "meta"})
 
         # Verify URL
         call_args = mock_urlopen.call_args

@@ -9,7 +9,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 
-import pytest
 
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 

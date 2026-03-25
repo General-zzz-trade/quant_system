@@ -205,7 +205,7 @@ class TestAlignmentExit:
         mod._discretizer.discretize.return_value = (1, 1.5)
 
         snap = _make_snapshot(close=3000.0)
-        events = list(mod.decide(snap))
+        _events = list(mod.decide(snap))
 
         # Should have generated close order(s) due to force exit
         assert mod._signal == 0, "Signal should be reset to 0 after alignment exit"

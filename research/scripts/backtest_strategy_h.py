@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Backtest Strategy H: 4h direction + 1h position scaling + BB entry scaler.
 
 Note: Uses pickle to load sklearn/lightgbm model files (industry standard ML format).

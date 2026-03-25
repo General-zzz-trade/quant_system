@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Explore 4h and daily alpha: IC scan, WF validation, cost analysis.
 
 Key hypothesis: longer timeframes should have:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Analyze optimal multi-timeframe integration strategy.
 
 Uses pickle to load sklearn/lightgbm trained model files (standard ML serialization).

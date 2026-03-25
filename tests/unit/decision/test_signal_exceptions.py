@@ -8,14 +8,12 @@ from __future__ import annotations
 import math
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from decision.signals.alpha_signal import (
     EnsemblePredictor,
     SignalDiscretizer,
     _safe_val,
-    _NEUTRAL_DEFAULTS,
 )
 
 

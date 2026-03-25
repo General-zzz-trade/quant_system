@@ -28,6 +28,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -70,7 +71,7 @@ DATA_FILES = {
 }
 
 
-def check_service(name: str, cfg: dict) -> dict:
+def check_service(name: str, cfg: dict[str, Any]) -> dict[str, Any]:
     """Check a systemd service health."""
     unit = cfg["unit"]
     result = {"name": name, "unit": unit, "status": "unknown", "problems": []}
@@ -165,7 +166,7 @@ def check_service(name: str, cfg: dict) -> dict:
     return result
 
 
-def check_data_freshness() -> list[dict]:
+def check_data_freshness() -> list[dict[str, Any]]:
     """Check if data files are fresh enough."""
     results = []
     now = time.time()
@@ -190,7 +191,7 @@ def check_data_freshness() -> list[dict]:
     return results
 
 
-def check_polymarket_collector() -> dict:
+def check_polymarket_collector() -> dict[str, Any]:
     """Check if Polymarket collector is alive."""
     result = {"name": "polymarket-collector", "status": "unknown", "problems": []}
     pid_file = "data/polymarket/collector.pid"
@@ -225,7 +226,7 @@ def check_polymarket_collector() -> dict:
     return result
 
 
-def check_account() -> dict:
+def check_account() -> dict[str, Any]:
     """Check Bybit account health."""
     result = {"status": "unknown", "problems": []}
     try:
@@ -437,7 +438,7 @@ def run_watchdog(auto_restart: bool = False, json_output: bool = False) -> int:
     return 0
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Health watchdog")
     parser.add_argument("--restart", action="store_true", help="Auto-restart stale services")

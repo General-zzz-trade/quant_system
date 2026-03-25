@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Deep analysis of 5m native features:
 1. Ensemble IC (top features combined)
 2. Cost-adjusted expected edge

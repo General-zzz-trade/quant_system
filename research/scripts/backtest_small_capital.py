@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 # Small capital backtest: $500/10x/Strategy H
 # Uses pickle for sklearn/lightgbm model loading (required by user for ML pipeline)
 from __future__ import annotations

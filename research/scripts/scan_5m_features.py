@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Comprehensive 5m native feature IC scan.
 
 Scans 4 categories of genuinely 5m-frequency features:

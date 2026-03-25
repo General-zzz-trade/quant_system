@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any
 
 from event.header import EventHeader
 from event.types import EventType, FillEvent
@@ -33,7 +33,7 @@ class BybitExecutionAdapter:
     _RETRY_DELAY: float = 0.5
 
     # ------------------------------------------------------------------
-    def _send_with_retry(self, symbol: str, side: str, qty: float) -> dict:
+    def _send_with_retry(self, symbol: str, side: str, qty: float) -> dict[str, Any]:
         """Send market order with retries on transient failures."""
         last_err: Exception | None = None
         for attempt in range(1, self._MAX_RETRIES + 1):
@@ -51,7 +51,7 @@ class BybitExecutionAdapter:
         return {"status": "error", "msg": str(last_err)}
 
     # ------------------------------------------------------------------
-    def send_order(self, order_event: Any) -> Iterable[Any]:
+    def send_order(self, order_event: Any) -> tuple[FillEvent, ...]:
         """Execute *order_event* via Bybit REST and return FillEvent(s).
 
         Returns an empty tuple on any failure so the pipeline can

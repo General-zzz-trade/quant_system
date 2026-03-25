@@ -6,17 +6,14 @@ empty consensus, force-exit edge cases, division-by-zero guards.
 from __future__ import annotations
 
 import json
-import math
 import os
 import tempfile
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pytest
 
-from decision.modules.alpha import AlphaDecisionModule, _IC_HEALTH_PATH
-from event.types import OrderEvent, RiskEvent, SignalEvent
+from decision.modules.alpha import AlphaDecisionModule
+from event.types import OrderEvent, RiskEvent
 
 
 # ── helpers ────────────────────────────────────────────────────────
@@ -127,7 +124,7 @@ class TestAlphaDecideExceptions:
         mod, pred, _, _ = _make_module(signal=1, z=1.5)
         nan_feats = {"rsi_14": float("nan"), "vol_20": float("nan")}
         snap = _make_snapshot(features=nan_feats)
-        events = list(mod.decide(snap))
+        _events = list(mod.decide(snap))
         # predictor.predict gets called with NaN values; module doesn't crash
         pred.predict.assert_called_once()
         call_feats = pred.predict.call_args[0][0]
@@ -162,7 +159,7 @@ class TestAlphaDecideExceptions:
         snap = _make_snapshot(close=0.0)
         # close=0 → close_f=0 → fallback to raw .close
         snap.markets["BTCUSDT"].close_f = 0.0
-        events = list(mod.decide(snap))
+        _events = list(mod.decide(snap))
         # Should not crash; may or may not produce events depending on path
 
     # -- price = NaN → no crash ----------------------------------------
@@ -172,7 +169,7 @@ class TestAlphaDecideExceptions:
         snap = _make_snapshot(close=float("nan"))
         snap.markets["BTCUSDT"].close_f = float("nan")
         # decide() should not raise
-        events = list(mod.decide(snap))
+        _events = list(mod.decide(snap))
 
     # -- signal = 0 but position exists → no new order -----------------
 
@@ -197,7 +194,7 @@ class TestAlphaDecideExceptions:
 
         # Second call with a reversed z → z_reversal
         disc.discretize.return_value = (0, -0.5)
-        events2 = list(mod.decide(snap))
+        _events2 = list(mod.decide(snap))
         # Should not crash even with ATR=0
 
     # -- ATR = NaN → force exit doesn't crash --------------------------
@@ -210,7 +207,7 @@ class TestAlphaDecideExceptions:
         mod._atr_buffer = [float("nan")] * 20
         disc.discretize.return_value = (-1, -1.0)
         # Should not raise
-        events = list(mod.decide(snap))
+        _events = list(mod.decide(snap))
 
     # -- z_score = NaN → discretizer returns (0, NaN), no open ---------
 

@@ -113,7 +113,7 @@ class TestRollingSharpeStatus:
         random.seed(42)
         for _ in range(100):
             tracker.update("BTCUSDT", random.gauss(0.0001, 0.01))
-        s = tracker.sharpe("BTCUSDT")
+        _s = tracker.sharpe("BTCUSDT")
         # Due to randomness, just verify it produces a status (not None)
         status = tracker.status()
         assert status["BTCUSDT"] in ("GREEN", "YELLOW", "RED")

@@ -15,9 +15,7 @@ Designed to run weekly via systemd timer (log-archive.timer).
 import argparse
 import gzip
 import logging
-import os
 import shutil
-import sys
 import tarfile
 from datetime import datetime, timedelta
 from pathlib import Path

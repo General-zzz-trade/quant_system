@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Full backtest: 4h alpha with actual trained models, 10x leverage, $500 start.
 
 Uses pickle for loading sklearn/lightgbm trained model files (standard ML format).

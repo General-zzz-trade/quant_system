@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """Backtest: 5m entry timing + position scaling for 1h/15m alpha.
 
 Tests 3 approaches vs baseline:

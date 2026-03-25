@@ -5,13 +5,11 @@ step_size edge cases, z_scale boundaries.
 """
 from __future__ import annotations
 
-import math
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-from decision.sizing.adaptive import AdaptivePositionSizer, _TIER_WEIGHTS
+from decision.sizing.adaptive import AdaptivePositionSizer
 
 
 # ── helpers ────────────────────────────────────────────────────────

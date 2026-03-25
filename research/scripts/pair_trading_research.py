@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402,E501,E701,E702,E741,F841,E401
 """BTC/ETH Ratio Mean-Reversion Pair Trading — Parameter Sweep & Backtest.
 
 Strategy: track BTC/ETH price ratio, trade deviations from rolling mean.
