@@ -15,3 +15,10 @@ __all__ = [
     "LiquidationCascadeGate",
     "MultiTFConfluenceGate",
 ]
+
+# VPINEntryGate requires Rust _quant_hotpath — optional import
+try:
+    from runner.gates.vpin_entry_gate import VPINEntryGate, VPINEntryConfig  # noqa: F401
+    __all__ += ["VPINEntryGate", "VPINEntryConfig"]
+except ImportError:
+    pass

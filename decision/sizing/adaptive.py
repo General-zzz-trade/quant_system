@@ -13,6 +13,12 @@ from state.snapshot import StateSnapshot
 
 logger = logging.getLogger(__name__)
 
+try:
+    from _quant_hotpath import rust_adaptive_target_qty
+    _RUST_SIZER = True
+except ImportError:
+    _RUST_SIZER = False
+
 # ── Equity-tier base weights per runner key ────────────────────────
 # Keys match SYMBOL_CONFIG runner_key values.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
@@ -120,6 +126,15 @@ class AdaptivePositionSizer:
         equity = float(snapshot.account.balance)
         market = snapshot.markets.get(symbol)
         price = float(market.close) if market is not None else 0.0
+
+        if _RUST_SIZER:
+            result = rust_adaptive_target_qty(
+                self.runner_key, equity, price,
+                self.step_size, self.min_size, self.max_qty,
+                float(weight), leverage, ic_scale,
+                regime_active, z_scale,
+            )
+            return Decimal(str(result))
 
         if equity <= 0 or price <= 0:
             return self._round_to_step(self.min_size)

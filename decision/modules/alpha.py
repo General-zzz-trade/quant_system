@@ -109,11 +109,19 @@ class AlphaDecisionModule:
         # Capture base deadzone before vol-adaptive modifications
         self._deadzone_base: float = discretizer.deadzone
 
+        # Microstructure VPIN scaling (optional, live-only)
+        self._vpin_caution_thresh: float = 0.5
+        self._vpin_scale_factor: float = 0.7  # reduce size by 30% when VPIN > threshold
+
     # ── public API ──────────────────────────────────────────────
 
     def set_consensus(self, signals: dict[str, int]) -> None:
         """Update cross-symbol consensus signals."""
         self._consensus.update(signals)
+
+    def update_predictor(self, predictor: EnsemblePredictor) -> None:
+        """Hot-swap the ensemble predictor (SIGHUP reload)."""
+        self._predictor = predictor
 
     def decide(self, snapshot: Any) -> Iterable[Any]:
         """Read-only snapshot → opinion events.  No side effects on venue."""
@@ -248,6 +256,16 @@ class AlphaDecisionModule:
                     regime_active=self._regime_active,
                     z_scale=z_scale,
                 )
+                # VPIN-based size reduction: if microstructure data shows
+                # high toxicity, reduce position size (optional, live-only)
+                vpin = features.get("vpin")
+                if vpin is not None and vpin > self._vpin_caution_thresh:
+                    qty = Decimal(str(float(qty) * self._vpin_scale_factor))
+                    logger.info(
+                        "%s VPIN=%.3f > %.2f — size reduced to %.4f (×%.1f)",
+                        self._runner_key, vpin, self._vpin_caution_thresh,
+                        qty, self._vpin_scale_factor,
+                    )
                 events.extend(self._make_open_order(close, new_signal, qty))
                 self._entry_price = close
                 self._trade_peak = close

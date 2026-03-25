@@ -180,8 +180,7 @@ def push_bar(state, close: float, volume: float, high: float, low: float, open_:
     state._last_quote_volume = quote_volume
 
     if volume > 0:
-        state.vwap_cv_window.push(close * volume)
-        state.vwap_v_window.push(volume)
+        state.vwap_window.push(close, volume)
     if trades > 0:
         state.trades_ema_20.push(trades)
         state.trades_ema_5.push(trades)

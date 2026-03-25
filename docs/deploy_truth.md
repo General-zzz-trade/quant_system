@@ -10,11 +10,11 @@
 ### bybit-alpha.service — ACTIVE
 
 ```
-ExecStart: python3 -m scripts.run_bybit_alpha --symbols BTCUSDT BTCUSDT_15m BTCUSDT_4h ETHUSDT ETHUSDT_15m ETHUSDT_4h --ws
+ExecStart: python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
 ```
 
-- **6 runners**: BTC+ETH × 1h/15m/4h (Strategy H)
-- **3 WS connections**: kline.60, kline.15, kline.240
+- **4 runners**: BTC+ETH × 1h/4h (Strategy H)
+- **2 WS connections**: kline.60, kline.240
 - **Demo account**: $35,285 USDT on api-demo.bybit.com
 - **Backtest Sharpe**: 2.25 (T-1 corrected, no look-ahead bias)
 - **SIGHUP hot-reload**: <200ms model swap without restart
@@ -91,8 +91,8 @@ sudo systemctl restart bybit-alpha.service
 
 | Compose 服务 | 命令 | 定位 |
 |---|---|---|
-| `quant-paper` | `scripts.run_bybit_alpha ... --dry-run` | CI smoke / paper |
-| `quant-live` | `scripts.run_bybit_alpha ...` | containerized live |
+| `quant-paper` | `runner.alpha_main ... --dry-run` | CI smoke / paper |
+| `quant-live` | `runner.alpha_main ...` | containerized live |
 | `quant-framework` | `runner.live_runner --config ...` | framework candidate |
 
 Deploy workflow (`scripts/deploy.sh`) 只管 compose 路径，不会同步 host systemd 服务。
@@ -130,3 +130,20 @@ sudo systemctl start daily-retrain.service
 docker compose up -d quant-paper
 docker compose --profile live up -d quant-live
 ```
+
+---
+
+## 8. 日志管理
+
+```bash
+# 部署 logrotate
+sudo bash infra/deploy_logrotate.sh
+
+# 手动触发轮转
+sudo logrotate -f /etc/logrotate.d/quant-system
+
+# 检查日志大小
+du -sh /quant_system/logs/*.log | sort -h
+```
+
+配置: `infra/logrotate.d/quant-system` — daily rotation, 14 天保留, 50MB maxsize, copytruncate。

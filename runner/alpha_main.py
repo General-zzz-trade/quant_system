@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -22,6 +23,7 @@ from typing import Any
 
 from _quant_hotpath import (
     RustInferenceBridge,
+    RustKillSwitch,
     rust_event_types,
     rust_sides,
     rust_signal_sides,
@@ -371,6 +373,38 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
+    # SIGHUP: hot-reload models without restart
+    def _handle_sighup(signum: int, frame: Any) -> None:
+        """Hot-reload models from disk for all runners."""
+        logger.info("SIGHUP received — reloading models...")
+        t0 = time.monotonic()
+        reloaded = 0
+        failed = 0
+        for runner_key, alpha_mod in modules.items():
+            try:
+                cfg = SYMBOL_CONFIG[runner_key]
+                model_dir = MODEL_BASE / cfg["model_dir"]
+                model_info = load_model(model_dir)
+                new_predictor = EnsemblePredictor(
+                    model_info["horizon_models"],
+                    model_info["config"],
+                )
+                alpha_mod.update_predictor(new_predictor)
+                reloaded += 1
+                logger.info("Reloaded model for %s", runner_key)
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "Failed to reload model for %s — keeping current", runner_key,
+                )
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        logger.info(
+            "Hot-reload complete: %d reloaded, %d failed, %.1fms",
+            reloaded, failed, elapsed_ms,
+        )
+
+    signal.signal(signal.SIGHUP, _handle_sighup)
+
     # WS on_bar callback: route bar to matching coordinators
     def _on_bar(ws_symbol: str, bar: dict) -> None:
         if not bar.get("confirm", True):
@@ -462,10 +496,58 @@ def main() -> None:
             ws_clients.append(ws)
             logger.info("WS started: interval=%s symbols=%s", interval, symbols)
 
+    # Daily drawdown kill switch
+    _kill_switch = RustKillSwitch()
+    _daily_start_equity: float | None = None
+    _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "5.0"))
+    _SCALE = 100_000_000
+    _loop_iter = 0
+
+    def _get_equity() -> float | None:
+        """Read equity from the first coordinator's state store (Fd8 → float)."""
+        for coord in coordinators.values():
+            try:
+                account = coord._store.get_account()
+                return account.balance / _SCALE
+            except Exception:
+                pass
+        return None
+
     # Main loop
     try:
         while not shutdown:
             time.sleep(1)
+            _loop_iter += 1
+
+            # Check daily drawdown every 60 iterations (~60s)
+            if _loop_iter % 60 == 0:
+                try:
+                    equity = _get_equity()
+                    if equity is not None and equity > 0:
+                        if _daily_start_equity is None:
+                            _daily_start_equity = equity
+                            logger.info(
+                                "Daily drawdown tracker initialized: start_equity=%.2f",
+                                _daily_start_equity,
+                            )
+                        elif _daily_start_equity > 0:
+                            dd_pct = (1.0 - equity / _daily_start_equity) * 100
+                            if dd_pct > _MAX_DAILY_DRAWDOWN_PCT:
+                                logger.critical(
+                                    "DAILY DRAWDOWN %.1f%% exceeds limit %.1f%% — killing trading",
+                                    dd_pct, _MAX_DAILY_DRAWDOWN_PCT,
+                                )
+                                _kill_switch.arm(
+                                    "global", "daily_dd", "hard_kill",
+                                    f"daily drawdown {dd_pct:.1f}%",
+                                    ttl_seconds=3600.0,
+                                )
+                                for coord in coordinators.values():
+                                    coord.halt_trading(
+                                        reason=f"daily drawdown {dd_pct:.1f}%"
+                                    )
+                except Exception:
+                    pass  # never crash the main loop
     except KeyboardInterrupt:
         pass
     finally:

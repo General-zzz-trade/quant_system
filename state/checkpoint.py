@@ -66,6 +66,11 @@ class CheckpointManager:
         tmp_path.write_text(data)
         tmp_path.replace(path)  # atomic on same filesystem
 
+        try:
+            self._rust_store.save_latest("default", runner_key, data)
+        except Exception:
+            pass
+
         logger.debug("%s checkpoint saved", runner_key)
 
     def restore(self, runner_key: str) -> Optional[Dict[str, Any]]:
@@ -74,6 +79,13 @@ class CheckpointManager:
         Returns:
             Dict with checkpoint data, or None if no checkpoint exists.
         """
+        try:
+            cached = self._rust_store.load_latest("default", runner_key)
+            if cached is not None:
+                return json.loads(cached)
+        except Exception:
+            pass
+
         path = self._dir / f"{runner_key}.json"
         if not path.exists():
             return None

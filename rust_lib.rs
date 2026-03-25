@@ -119,6 +119,10 @@ pub mod decision {
     pub mod micro_alpha;
     #[path = "rust/ensemble_calibrate.rs"]
     pub mod ensemble_calibrate;
+    #[path = "rust/adaptive_sizer.rs"]
+    pub mod adaptive_sizer;
+    #[path = "rust/exit_manager.rs"]
+    pub mod exit_manager;
     #[path = "rust/ml"]
     pub mod ml {
         #[path = "tree_predict.rs"]
@@ -421,6 +425,10 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decision::math::rust_fixed_fraction_qty, m)?)?;
     m.add_function(wrap_pyfunction!(decision::math::rust_volatility_adjusted_qty, m)?)?;
     m.add_function(wrap_pyfunction!(decision::math::rust_apply_allocation_constraints, m)?)?;
+    m.add_function(wrap_pyfunction!(decision::adaptive_sizer::rust_adaptive_target_qty, m)?)?;
+
+    // Exit manager
+    m.add_class::<decision::exit_manager::RustExitManager>()?;
     m.add_function(wrap_pyfunction!(decision::policy::rust_build_delta_order_fields, m)?)?;
     m.add_function(wrap_pyfunction!(decision::policy::rust_limit_price, m)?)?;
     m.add_function(wrap_pyfunction!(decision::policy::rust_limit_price_f64, m)?)?;

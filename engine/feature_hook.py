@@ -11,6 +11,19 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Union
 logger = logging.getLogger(__name__)
 _log = logger
 
+# Module-level cache of latest close prices by base symbol (e.g. "BTCUSDT", "ETHUSDT").
+# Shared across all FeatureComputeHook instances (there is only one in production).
+# Used to provide the "other" symbol's close for V14 dominance feature computation.
+_last_closes: Dict[str, float] = {}
+
+
+def _base_symbol(symbol: str) -> str:
+    """Strip timeframe suffix to get base symbol: 'BTCUSDT_4h' -> 'BTCUSDT'."""
+    for suffix in ("_4h", "_15m", "_1d"):
+        if symbol.endswith(suffix):
+            return symbol[: -len(suffix)]
+    return symbol
+
 from _quant_hotpath import RustFeatureEngine as _RustFeatureEngine  # noqa: E402
 from event.types import EventType as _EventType  # noqa: E402
 
@@ -45,7 +58,8 @@ class FeatureComputeHook:
                  mempool_source: Any = None,
                  macro_source: Any = None,
                  sentiment_source: Any = None,
-                 unified_predictor: Any = None) -> None:
+                 unified_predictor: Any = None,
+                 microstructure_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._unified = unified_predictor
@@ -63,12 +77,21 @@ class FeatureComputeHook:
         self._mempool_source = mempool_source
         self._macro_source = macro_source
         self._sentiment_source = sentiment_source
+        self._microstructure_source = microstructure_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
         self._rust_engines: Dict[str, Any] = {}
+        self._dom_engines: Dict[str, Any] = {}   # dedicated engines for push_dominance (unified path)
         # External data cache for unified predictor path
         self._ext_cache: Dict[str, Dict[str, Any]] = {}
         self._ext_push_count: Dict[str, int] = {}
+        # NaN rate tracking (Task A)
+        self._nan_counts: Dict[str, Dict[str, int]] = {}  # symbol -> feature -> count
+        self._nan_bar_counts: Dict[str, int] = {}  # symbol -> total bars tracked
+        self._nan_recent: Dict[str, Dict[str, int]] = {}  # symbol -> feature -> count in last window
+        self._nan_recent_bars: Dict[str, int] = {}  # symbol -> bars in recent window
+        self._NAN_WARN_WINDOW = 100
+        self._NAN_WARN_RATE = 0.05
 
         # Schema validation: warn if model requires features the computer doesn't provide
         if inference_bridge is not None and unified_predictor is None:
@@ -303,6 +326,62 @@ class FeatureComputeHook:
         """Store the latest features dict for a symbol."""
         self._last_features[symbol] = features
 
+    # ── NaN rate tracking ──
+
+    def _track_nan(self, symbol: str, features: Dict[str, Any]) -> None:
+        """Scan features for NaN/None and update counters. Lightweight dict ops only."""
+        if symbol not in self._nan_counts:
+            self._nan_counts[symbol] = {}
+            self._nan_recent[symbol] = {}
+        sym_counts = self._nan_counts[symbol]
+        sym_recent = self._nan_recent[symbol]
+
+        self._nan_bar_counts[symbol] = self._nan_bar_counts.get(symbol, 0) + 1
+        recent_bars = self._nan_recent_bars.get(symbol, 0) + 1
+        self._nan_recent_bars[symbol] = recent_bars
+
+        for key, val in features.items():
+            is_nan = val is None or (isinstance(val, float) and math.isnan(val))
+            if is_nan:
+                sym_counts[key] = sym_counts.get(key, 0) + 1
+                sym_recent[key] = sym_recent.get(key, 0) + 1
+
+        # Check recent window and warn
+        if recent_bars >= self._NAN_WARN_WINDOW:
+            for feat, cnt in sym_recent.items():
+                rate = cnt / recent_bars
+                if rate > self._NAN_WARN_RATE:
+                    _log.warning(
+                        "NaN rate %.1f%% for %s/%s in last %d bars",
+                        rate * 100, symbol, feat, recent_bars,
+                    )
+            # Reset recent window
+            self._nan_recent[symbol] = {}
+            self._nan_recent_bars[symbol] = 0
+
+    def nan_report(self) -> Dict[str, Dict[str, float]]:
+        """Return {symbol: {feature: nan_rate}} for features with nan_rate > 1%."""
+        result: Dict[str, Dict[str, float]] = {}
+        for symbol, feat_counts in self._nan_counts.items():
+            total = self._nan_bar_counts.get(symbol, 0)
+            if total == 0:
+                continue
+            bad: Dict[str, float] = {}
+            for feat, cnt in feat_counts.items():
+                rate = cnt / total
+                if rate > 0.01:
+                    bad[feat] = round(rate, 4)
+            if bad:
+                result[symbol] = bad
+        return result
+
+    def reset_nan_stats(self) -> None:
+        """Clear all NaN tracking counters."""
+        self._nan_counts.clear()
+        self._nan_bar_counts.clear()
+        self._nan_recent.clear()
+        self._nan_recent_bars.clear()
+
     def push_external_data(self, symbol: str, event: Any, target: Any) -> None:
         """Resolve external data sources and push to target (tick processor).
 
@@ -335,6 +414,67 @@ class FeatureComputeHook:
                 self._ext_cache[symbol] = src
                 target.push_external_data(symbol, **src)
         self._ext_push_count[symbol] = ext_count + 1
+
+    def _merge_microstructure(self, symbol: str, features: Dict[str, Any]) -> None:
+        """Merge microstructure features (VPIN, OB imbalance, spread, depth ratio) into features dict.
+
+        Reads from the optional microstructure_source. If unavailable or erroring,
+        features are simply not added (graceful degradation). Never crashes the pipeline.
+        """
+        if self._microstructure_source is None:
+            return
+        try:
+            _ms_src = self._resolve_source(self._microstructure_source, symbol)
+            if _ms_src is None:
+                return
+            ms_data = self._safe_call_source(_ms_src, "microstructure", symbol)
+            if ms_data is None:
+                return
+            # Merge known microstructure keys into features dict
+            for key in ("vpin", "ob_imbalance", "spread_bps", "depth_ratio"):
+                val = ms_data.get(key)
+                if val is not None:
+                    features[key] = float(val)
+        except Exception:
+            _log.debug("Microstructure merge failed for %s — skipped", symbol, exc_info=True)
+
+    def _push_dominance(self, symbol: str, close_f: float,
+                        features: Dict[str, Any]) -> None:
+        """Compute V14 dominance features and merge into *features* dict in-place.
+
+        Uses the module-level ``_last_closes`` cache to obtain the counterpart
+        symbol's close (BTC needs ETH close and vice-versa).  Only called when
+        both prices are available; never crashes the pipeline.
+
+        For the legacy path, reuses the existing RustFeatureEngine in
+        ``_rust_engines``.  For the unified-predictor path (no entry in
+        ``_rust_engines``), a lightweight engine is lazily created in
+        ``_dom_engines`` — push_dominance state is independent from push_bar.
+        """
+        try:
+            base = _base_symbol(symbol)
+            # Update module-level close cache for this base symbol
+            _last_closes[base] = close_f
+
+            btc_close = _last_closes.get("BTCUSDT")
+            eth_close = _last_closes.get("ETHUSDT")
+            if btc_close is None or eth_close is None:
+                return  # counterpart not yet available — skip silently
+
+            # Prefer main engine; fall back to dedicated dominance engine
+            engine = self._rust_engines.get(symbol)
+            if engine is None:
+                if symbol not in self._dom_engines:
+                    self._dom_engines[symbol] = _RustFeatureEngine()
+                engine = self._dom_engines[symbol]
+
+            dom_feats = engine.push_dominance(btc_close, eth_close)
+            if dom_feats:
+                for k, v in dom_feats.items():
+                    if v is not None:
+                        features[k] = v
+        except Exception:
+            _log.debug("push_dominance failed for %s — skipped", symbol, exc_info=True)
 
     def _rust_push(self, symbol: str, close_f: float, volume: float,
                    high: float, low: float, open_: float, event: Any) -> Dict[str, Any]:
@@ -401,6 +541,13 @@ class FeatureComputeHook:
                 cross_feats = self._cross_asset.get_features(symbol)
                 features.update(cross_feats)
 
+            # V14 dominance features (BTC/ETH ratio deviation, momentum, return diff)
+            self._push_dominance(symbol, close_f, features)
+
+            # Microstructure features (VPIN, OB imbalance) — optional, live-only
+            self._merge_microstructure(symbol, features)
+
+            self._track_nan(symbol, features)
             self._last_features[symbol] = features
             return features
 
@@ -416,6 +563,9 @@ class FeatureComputeHook:
             cross_feats = self._cross_asset.get_features(symbol)
             features.update(cross_feats)
 
+        # V14 dominance features (BTC/ETH ratio deviation, momentum, return diff)
+        self._push_dominance(symbol, close_f, features)
+
         bridge = self._resolve_inference(symbol)
         if bridge is not None and count >= self._warmup_bars:
             ts = getattr(event, "ts", None)
@@ -426,6 +576,10 @@ class FeatureComputeHook:
                     ts = None
             features = bridge.enrich(symbol, ts, features)
 
+        # Microstructure features (VPIN, OB imbalance) — optional, live-only
+        self._merge_microstructure(symbol, features)
+
+        self._track_nan(symbol, features)
         self._last_features[symbol] = features
         return features
 

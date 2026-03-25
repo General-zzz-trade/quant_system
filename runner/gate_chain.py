@@ -38,11 +38,63 @@ class GateChain:
     Scaling gates multiply into the event's qty field cumulatively.
     """
 
+    # Mapping from Python gate class names to Rust gate_type strings
+    _GATE_TYPE_MAP: Dict[str, str] = {
+        "EquityLeverageGate": "equity_leverage",
+        "ConsensusScalingGate": "consensus_scaling",
+        "RustDrawdownGate": "drawdown",
+        "CorrelationCheckGate": "correlation",
+        "AlphaHealthGate": "alpha_health",
+        "RegimeSizerGate": "regime_sizer",
+        "StagedRiskGate": "staged_risk",
+        "VPINEntryGate": "vpin_entry",
+    }
+
     def __init__(self, gates: Sequence[Gate]) -> None:
         self._gates = list(gates)
+        self._rust_chain: Optional[Any] = None
+
+        if _RUST_GATE_CHAIN_AVAILABLE:
+            try:
+                rust_chain = RustGateChain()
+                for gate in self._gates:
+                    cls_name = type(gate).__name__
+                    gate_type = self._GATE_TYPE_MAP.get(cls_name)
+                    if gate_type is not None:
+                        rust_chain.add_gate(gate_type, {})
+                    else:
+                        # Unrecognized gate → register as "python" with callback
+                        rust_chain.add_gate("python", {"name": gate.name})
+                self._rust_chain = rust_chain
+                logger.debug("RustGateChain initialized with %d gates", len(self._gates))
+            except Exception:
+                logger.warning("Failed to initialize RustGateChain, using Python fallback",
+                               exc_info=True)
+                self._rust_chain = None
 
     def process(self, ev: Any, context: Dict[str, Any]) -> Optional[Any]:
         """Run event through all gates. Returns modified event or None if rejected."""
+        # Rust fast path
+        if self._rust_chain is not None:
+            try:
+                result = self._rust_chain.process(context)
+                if not result.get("allowed", True):
+                    drop_gate = result.get("drop_gate", "RustGateChain")
+                    logger.warning(
+                        "%s REJECTED order for %s: %s",
+                        drop_gate, context.get("symbol", "?"),
+                        result.get("audit", "blocked"),
+                    )
+                    return None
+                scale = result.get("scale", 1.0)
+                if scale < 1.0:
+                    ev = _apply_scale(ev, scale, "RustGateChain")
+                return ev
+            except Exception:
+                logger.warning("RustGateChain.process() failed, falling back to Python",
+                               exc_info=True)
+
+        # Python fallback
         for gate in self._gates:
             result = gate.check(ev, context)
             if not result.allowed:
@@ -380,6 +432,8 @@ def build_gate_chain(
     multi_tf_confluence_gate: Optional[Any] = None,
     liquidation_cascade_gate: Optional[Any] = None,
     carry_cost_gate: Optional[Any] = None,
+    # --- Microstructure gates ---
+    vpin_entry_gate: Optional[Any] = None,
 ) -> GateChain:
     """Build the standard gate chain with all available subsystems."""
     gates: List[Gate] = [
@@ -413,6 +467,9 @@ def build_gate_chain(
         gates.append(equity_leverage_gate)
     if consensus_scaling_gate is not None:
         gates.append(consensus_scaling_gate)
+    # VPIN entry gate: microstructure timing (after sizing, before portfolio allocator)
+    if vpin_entry_gate is not None:
+        gates.append(vpin_entry_gate)
     if portfolio_allocator is not None:
         gates.append(PortfolioAllocatorGate(portfolio_allocator, get_state_view))
     if hook is not None:

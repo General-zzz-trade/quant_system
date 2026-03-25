@@ -116,6 +116,7 @@ class ExecutionBridge:
     _buckets: Dict[str, TokenBucket] = field(default_factory=dict, init=False, repr=False)
     _breakers: Dict[str, CircuitBreaker] = field(default_factory=dict, init=False, repr=False)
     _pending: Deque[tuple[Any, str]] = field(default_factory=deque, init=False, repr=False)
+    _saga_manager: Optional[Any] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if isinstance(self.ack_store, InMemoryAckStore):
@@ -123,6 +124,11 @@ class ExecutionBridge:
                 "ExecutionBridge using InMemoryAckStore — idempotency keys will be "
                 "lost on restart. Pass SQLiteAckStore for production use."
             )
+        try:
+            from _quant_hotpath import RustSagaManager as _RSM
+            self._saga_manager = _RSM()
+        except ImportError:
+            self._saga_manager = None
 
     @staticmethod
     def _ack_to_payload(a: Ack) -> Mapping[str, Any]:
@@ -322,6 +328,18 @@ class ExecutionBridge:
                     error=None,
                 )
                 self.ack_store.put(idem, self._ack_to_payload(ack))
+                # Saga audit: create saga entry and mark acknowledged
+                if self._saga_manager is not None and action == "submit":
+                    try:
+                        side = str(getattr(cmd, "side", "unknown"))
+                        qty = float(getattr(cmd, "qty", 0.0))
+                        intent_id = str(getattr(cmd, "intent_id", command_id))
+                        self._saga_manager.create(
+                            command_id, intent_id, symbol, side, qty,
+                        )
+                        self._saga_manager.transition(command_id, "acked")
+                    except Exception:
+                        logger.debug("saga create/ack failed for %s", command_id, exc_info=True)
                 if self.on_ack:
                     self.on_ack(ack)
                 return ack
@@ -341,6 +359,12 @@ class ExecutionBridge:
                     error=last_err,
                 )
                 self.ack_store.put(idem, self._ack_to_payload(ack))
+                # Saga audit: mark rejected
+                if self._saga_manager is not None and action == "submit":
+                    try:
+                        self._saga_manager.transition(command_id, "rejected", reason=last_err)
+                    except Exception:
+                        pass
                 if self.on_ack:
                     self.on_ack(ack)
                 return ack
@@ -407,3 +431,28 @@ class ExecutionBridge:
         if self.on_ack:
             self.on_ack(ack)
         return ack
+
+    def record_fill(self, order_id: str, fill_qty: float, fill_price: float) -> None:
+        """Record a fill event in the saga manager (audit only)."""
+        if self._saga_manager is not None:
+            try:
+                self._saga_manager.record_fill(order_id, fill_qty, fill_price)
+            except Exception:
+                logger.debug("saga record_fill failed for %s", order_id, exc_info=True)
+
+    def check_saga_timeouts(self) -> None:
+        """Check for timed-out sagas (audit only)."""
+        if self._saga_manager is not None:
+            try:
+                self._saga_manager.check_timeouts()
+            except Exception:
+                logger.debug("saga check_timeouts failed", exc_info=True)
+
+    def get_saga(self, order_id: str) -> Any:
+        """Get saga state for an order (audit only)."""
+        if self._saga_manager is not None:
+            try:
+                return self._saga_manager.get_saga(order_id)
+            except Exception:
+                return None
+        return None

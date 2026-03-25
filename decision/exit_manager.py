@@ -148,3 +148,30 @@ class ExitManager:
                 return False
 
         return True
+
+
+# ---------------------------------------------------------------------------
+# Rust fast path (optional)
+# ---------------------------------------------------------------------------
+try:
+    from _quant_hotpath import RustExitManager as _RustExitManager
+    _HAS_RUST_EXIT = True
+except ImportError:
+    _HAS_RUST_EXIT = False
+
+
+def create_exit_manager(config, min_hold=12, max_hold=96):
+    """Create ExitManager — Rust if available, else Python."""
+    if _HAS_RUST_EXIT:
+        tf = config.time_filter
+        return _RustExitManager(
+            trailing_stop_pct=config.trailing_stop_pct,
+            reversal_threshold=config.reversal_threshold,
+            deadzone_fade=config.deadzone_fade,
+            zscore_cap=config.zscore_cap,
+            time_filter_enabled=tf.enabled if tf else False,
+            skip_hours=list(tf.skip_hours_utc) if tf and tf.enabled else [],
+            min_hold=min_hold,
+            max_hold=max_hold,
+        )
+    return ExitManager(config=config, min_hold=min_hold, max_hold=max_hold)

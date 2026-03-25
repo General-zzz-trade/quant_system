@@ -289,9 +289,9 @@ try:
     class RustAcceleratedRiskAggregator:
         """Thin wrapper around RustRiskAggregator matching RiskAggregator API."""
 
-        def __init__(self, rules=(), *, fail_safe_action="reject", **kwargs):
+        def __init__(self, *, rules=(), fail_safe_action=RiskAction.REJECT, **kwargs):
             self._rust = _RustRiskAggregator()
-            self._py_fallback = RiskAggregator(rules, fail_safe_action=fail_safe_action, **kwargs)
+            self._py_fallback = RiskAggregator(rules=rules, fail_safe_action=fail_safe_action, **kwargs)
             for rule in rules:
                 name = getattr(rule, 'name', str(rule))
                 rtype = type(rule).__name__.lower().replace('rule', '')
@@ -302,8 +302,62 @@ try:
                     pass
 
         def evaluate_order(self, order, *, meta=None):
-            """Delegate to Python (Rust is used for hot-path evaluate())."""
-            return self._py_fallback.evaluate_order(order, meta=meta or {})
+            """Try Rust fast path first, fall back to Python on error."""
+            if meta is None:
+                meta = {}
+            try:
+                ctx = {
+                    "symbol": getattr(order, "symbol", ""),
+                    "side": str(getattr(order, "side", "")),
+                    "qty": float(getattr(order, "qty", 0)),
+                    "price": float(getattr(order, "price", 0)),
+                }
+                ctx.update(meta)
+                verdict, reasons = self._rust.evaluate(ctx)
+                return self._wrap_verdict(verdict, reasons)
+            except Exception:
+                return self._py_fallback.evaluate_order(order, meta=meta)
+
+        @staticmethod
+        def _wrap_verdict(verdict: str, reasons: list) -> RiskDecision:
+            """Convert Rust (verdict_str, reason_dicts) into a RiskDecision."""
+            from risk.decisions import (
+                RiskAction, RiskCode, RiskDecision, RiskScope, RiskViolation,
+            )
+            action_map = {
+                "allow": RiskAction.ALLOW,
+                "reject": RiskAction.REJECT,
+                "reduce": RiskAction.REDUCE,
+                "kill": RiskAction.KILL,
+            }
+            action = action_map.get(verdict.lower(), RiskAction.REJECT)
+
+            if action == RiskAction.ALLOW:
+                return RiskDecision.allow()
+
+            violations = tuple(
+                RiskViolation(
+                    code=RiskCode.UNKNOWN,
+                    message=r.get("message", str(r)),
+                    scope=RiskScope.GLOBAL,
+                    severity=r.get("severity", "error"),
+                    details=r,
+                )
+                for r in reasons
+            ) or (
+                RiskViolation(
+                    code=RiskCode.UNKNOWN,
+                    message=f"Rust risk verdict: {verdict}",
+                    scope=RiskScope.GLOBAL,
+                ),
+            )
+
+            return RiskDecision(
+                action=action,
+                scope=RiskScope.GLOBAL,
+                violations=violations,
+                tags=("rust_accelerated",),
+            )
 
         def snapshot(self):
             return self._py_fallback.snapshot()

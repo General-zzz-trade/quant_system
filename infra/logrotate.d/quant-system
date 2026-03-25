@@ -1,11 +1,11 @@
 /quant_system/logs/*.log {
     daily
-    rotate 7
+    rotate 14
     compress
     delaycompress
     missingok
     notifempty
+    maxsize 50M
     copytruncate
-    maxsize 100M
     su ubuntu ubuntu
 }

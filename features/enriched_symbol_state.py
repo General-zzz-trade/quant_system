@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Optional
+from typing import Any, Deque, Dict, Optional
 
-from _quant_hotpath import RollingWindow
+from _quant_hotpath import RollingWindow, VWAPWindow
 
 from features.enriched_trackers import (
     _EMA,
@@ -136,9 +136,8 @@ class _SymbolState:
     fgi_history_7d: Deque[float] = field(default_factory=lambda: deque(maxlen=8))
     _last_fgi: Optional[float] = None
 
-    # V8: VWAP deviation windows
-    vwap_cv_window: RollingWindow = field(default_factory=lambda: RollingWindow(20))
-    vwap_v_window: RollingWindow = field(default_factory=lambda: RollingWindow(20))
+    # V8: VWAP deviation window (Rust VWAPWindow — single push(price, volume))
+    vwap_window: Any = field(default_factory=lambda: VWAPWindow(20))
 
     # V8: Adaptive vol regime
     vol_regime_ema: _EMA = field(default_factory=lambda: _EMA(span=5))

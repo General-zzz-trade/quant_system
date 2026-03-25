@@ -13,8 +13,9 @@ DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")
 
 # ── 15m Configuration ──
-SYMBOLS_15M = ["ETHUSDT"]  # SOLUSDT 15m FAIL (1/4 PASS), removed
+SYMBOLS_15M = ["BTCUSDT", "ETHUSDT"]  # SOLUSDT 15m FAIL (1/4 PASS), removed
 DEFAULT_HORIZONS_15M = {
+    "BTCUSDT": [4, 8],       # 1h, 2h -- high frequency
     "ETHUSDT": [4, 8],       # 1h, 2h -- high frequency
     "SOLUSDT": [4, 8, 16],   # 1h, 2h, 4h
 }

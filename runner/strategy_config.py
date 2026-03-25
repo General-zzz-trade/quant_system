@@ -1,6 +1,7 @@
 """Shared configuration constants for the Bybit alpha runner."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 MODEL_BASE = Path("models_v8")
@@ -28,10 +29,12 @@ def get_max_order_notional(equity: float) -> float:
 # Backward compat: static value used by code that imports MAX_ORDER_NOTIONAL directly
 MAX_ORDER_NOTIONAL = 5_000.0  # fallback if equity unknown
 
-# Leverage ladder: 10x across all tiers for demo signal validation.
-# For real money, scale down (edit this ladder).
+# Live/Demo mode detection from BYBIT_BASE_URL
+_IS_LIVE = os.environ.get("BYBIT_BASE_URL", "").startswith("https://api.bybit.com")
+
+# Leverage: 3x for live (Kelly half=7x, conservative=3x), 10x for demo
 LEVERAGE_LADDER = [
-    (0, 10.0),   # all tiers: 10x
+    (0, 3.0 if _IS_LIVE else 10.0),
 ]
 
 
@@ -43,10 +46,10 @@ SYMBOL_CONFIG = {
                  "use_composite_regime": True},
     # ETH: production dz=0.4, mh=18 (Sharpe 4.67, 17/21 PASS)
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
-    # 15m alpha: WF FAIL (Sharpe -1.36, 1/4 folds) — consider disabling
+    # ETH 15m: WF FAIL (2026-03-22). Pending retrain with V14+microstructure features
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
-    # BTC 15m alpha: WF FAIL (Sharpe 0.27, 3/4 folds) — overfit, consider disabling
+    # BTC 15m: WF FAIL (2026-03-22). Pending retrain with V14+microstructure features
     "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
                     "interval": "15", "warmup": 800, "step": 0.001},
     # BTC 4h alpha (Strategy H primary): IC=0.29, Sharpe 6.34, 22/22 WF PASS, cap=0.15

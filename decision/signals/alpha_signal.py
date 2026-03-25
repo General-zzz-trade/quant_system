@@ -105,6 +105,43 @@ class EnsemblePredictor:
             return None
         return weighted_sum / weight_total
 
+    def calibrate_weights(
+        self,
+        score_history: dict,
+        return_history: list,
+        method: str = "ic_weighted",
+        shrinkage: float = 0.3,
+        lookback: int = 200,
+    ) -> bool:
+        """Calibrate ensemble weights adaptively using Rust accelerator.
+
+        Updates ridge_w / lgbm_w in-place if calibration succeeds.
+
+        Returns True if weights were updated, False otherwise.
+        """
+        try:
+            result = _rust_ensemble_calibrate(
+                method, score_history, return_history, shrinkage, lookback,
+            )
+        except Exception:
+            logger.debug("rust_adaptive_ensemble_calibrate failed", exc_info=True)
+            return False
+        if result is None:
+            return False
+        ridge_w = result.get("ridge", self._ridge_w)
+        lgbm_w = result.get("lgbm", self._lgbm_w)
+        # Sanity: weights must be non-negative and sum to ~1
+        total = ridge_w + lgbm_w
+        if total <= 0:
+            return False
+        self._ridge_w = ridge_w / total
+        self._lgbm_w = lgbm_w / total
+        logger.info(
+            "Ensemble weights calibrated: ridge=%.3f lgbm=%.3f (method=%s)",
+            self._ridge_w, self._lgbm_w, method,
+        )
+        return True
+
 
 class SignalDiscretizer:
     """Z-score normalize + deadzone + min-hold signal discretizer.
@@ -196,3 +233,37 @@ class SignalDiscretizer:
         ))
 
         return signal, z
+
+    @staticmethod
+    def feature_signal(
+        momentum: float,
+        volatility: float,
+        vwap_ratio: float,
+        *,
+        momentum_threshold: float = 0.001,
+        vol_penalty_factor: float = 2.0,
+        vwap_weight: float = 0.3,
+    ) -> tuple[int, float, float]:
+        """Compute a feature-based signal via Rust fast-path.
+
+        Useful as an auxiliary signal for decision modules that need a quick
+        directional read from raw features without running the full ML ensemble.
+
+        Args:
+            momentum: price momentum (e.g. ret_1 or ma_cross)
+            volatility: realized volatility (e.g. vol_20)
+            vwap_ratio: (close - vwap) / close deviation
+
+        Returns:
+            (side, score, confidence) where side is +1/-1/0,
+            score is the raw signal strength, and confidence is [0, 1].
+        """
+        side_str, score, confidence = _rust_feature_signal(
+            momentum, volatility, vwap_ratio,
+            momentum_threshold=momentum_threshold,
+            vol_penalty_factor=vol_penalty_factor,
+            vwap_weight=vwap_weight,
+        )
+        _SIDE_MAP = {"buy": 1, "sell": -1, "flat": 0}
+        side = _SIDE_MAP.get(side_str, 0)
+        return side, float(score), float(confidence)

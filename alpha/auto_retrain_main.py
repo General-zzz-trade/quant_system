@@ -22,6 +22,7 @@ from alpha.auto_retrain import (
     retrain_symbol, log_retrain_event,
     cleanup_old_backups, send_sighup_to_runner, send_alert,
     download_15m_data, retrain_15m_symbols, retrain_4h_symbols,
+    calibrate_ensemble_weights, save_experiment_metadata,  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,11 @@ def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
             continue
 
         old_config_for_daily = load_current_config(symbol) if args.daily else None
-        result = retrain_symbol(symbol, horizons=horizons, dry_run=args.dry_run)
+        trigger = "scheduled" if not args.force else "manual"
+        if args.daily:
+            trigger = "scheduled"
+        result = retrain_symbol(symbol, horizons=horizons, dry_run=args.dry_run,
+                                retrain_trigger=trigger)
         result["retrain_mode"] = retrain_mode
 
         if args.daily and result.get("success") and not args.dry_run:

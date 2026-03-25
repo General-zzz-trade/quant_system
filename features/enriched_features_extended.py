@@ -217,11 +217,9 @@ def compute_extended_features(
         feats["taker_bq_ratio"] = None
 
     # vwap_dev_20: VWAP deviation (mean reversion signal)
-    if state.vwap_cv_window.full and state.vwap_v_window.full and close and close > 0:
-        sum_cv = state.vwap_cv_window.mean * state.vwap_cv_window.n
-        sum_v = state.vwap_v_window.mean * state.vwap_v_window.n
-        if sum_v > 0:
-            vwap = sum_cv / sum_v
+    if state.vwap_window.full and close and close > 0:
+        vwap = state.vwap_window.vwap
+        if vwap is not None and vwap > 0:
             feats["vwap_dev_20"] = (close - vwap) / close
         else:
             feats["vwap_dev_20"] = None

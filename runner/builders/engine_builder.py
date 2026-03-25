@@ -105,6 +105,15 @@ def build_coordinator_and_pipeline(
             report.record("portfolio_risk", False, str(e))
             logger.warning("Portfolio risk setup failed — continuing without", exc_info=True)
 
+    # ── VPIN Entry Gate (optional microstructure timing) ────
+    vpin_entry_gate = None
+    try:
+        from runner.gates.vpin_entry_gate import VPINEntryGate, VPINEntryConfig
+        vpin_entry_gate = VPINEntryGate(VPINEntryConfig(enabled=True))
+        logger.info("VPINEntryGate enabled (microstructure timing)")
+    except Exception:
+        logger.debug("VPINEntryGate not available — skipping", exc_info=True)
+
     # Build gate chain for ORDER event processing
     from runner.gate_chain import build_gate_chain
     gate_chain = build_gate_chain(
@@ -118,6 +127,7 @@ def build_coordinator_and_pipeline(
         portfolio_allocator=portfolio_allocator,
         hook=hook,
         kill_switch=kill_switch,
+        vpin_entry_gate=vpin_entry_gate,
     )
 
     from runner.emit_handler import LiveEmitHandler

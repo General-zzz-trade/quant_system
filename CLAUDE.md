@@ -41,7 +41,7 @@ python3 -m monitoring.data_quality_check --symbol BTCUSDT --json   # Single symb
 **CRITICAL after Rust build**: copy .so then verify:
 ```bash
 cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
-python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"  # expect 198
+python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"  # expect 200
 ```
 
 Rust builds must enable `python` feature: `maturin build --release --features python`
@@ -52,8 +52,8 @@ Rust builds must enable `python` feature: `maturin build --release --features py
 decision/        DecisionModule protocol, AlphaDecisionModule, signals, sizing
   modules/alpha.py   Framework-native decision logic (~415 lines)
   signals/           EnsemblePredictor + SignalDiscretizer
-  sizing/            AdaptivePositionSizer (equity-tier + IC + vol)
-  rust/              11 .rs (constraint pipeline, inference bridge, ML predict)
+  sizing/            AdaptivePositionSizer (equity-tier + IC + vol, Rust delegate)
+  rust/              13 .rs (constraint pipeline, inference bridge, ML predict, sizer, exit mgr)
 
 engine/          EngineCoordinator, Pipeline, Bridges, Dispatcher
   coordinator.py     Event orchestration hub
@@ -114,7 +114,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
 ## Rust Integration
 
 - 102 .rs files distributed in `{module}/rust/` dirs; build entry: `Cargo.toml` + `rust_lib.rs` at project root
-- 198 PyO3 exports, 100% used by production Python
+- 200 PyO3 exports, 100% used by production Python
 - State types use i64 fixed-point (Fd8, ×10^8); `_SCALE = 100_000_000`
 - `RustStateStore` = position truth on Rust heap; Python gets snapshots via `get_*()`
 - `RustFeatureEngine` = incremental features; `checkpoint()`/`restore_checkpoint()` persist as JSON

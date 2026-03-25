@@ -184,9 +184,9 @@ class MLSignalDecisionModule:
             pass  # Fall back to Python _ZScoreBuf + _discretize_signal
 
         # V11 modules
-        from decision.exit_manager import ExitManager
+        from decision.exit_manager import create_exit_manager
         from decision.regime_gate import RegimeGate
-        self._exit_mgr = ExitManager(
+        self._exit_mgr = create_exit_manager(
             config=cfg.exit,
             min_hold=self._min_hold,
             max_hold=self._max_hold,

@@ -319,6 +319,27 @@ class EngineCoordinator:
                 "Non-BaseEvent emitted: %s", type(event).__name__,
             )
 
+        # Batched Rust event validation (dedup + monotonic + type-specific)
+        try:
+            evt_dict = {}
+            for attr in ("symbol", "side", "signal_side", "venue", "order_type", "qty", "price", "event_type"):
+                val = getattr(event, attr, None)
+                if val is not None:
+                    if isinstance(val, (int, float)):
+                        evt_dict[attr] = float(val)
+                    else:
+                        evt_dict[attr] = str(val)
+            ts = getattr(event, "ts", None) or getattr(event, "timestamp", None)
+            if ts is not None:
+                evt_dict["ts"] = float(ts)
+            etype = type(event).__name__
+            evt_dict["event_type"] = etype
+            self._event_validator.validate(evt_dict)
+        except (ValueError, TypeError) as _ve:
+            _logger.warning("Event validation: %s", _ve)
+        except Exception:
+            pass
+
         # ── Rust event validation (warn-only, never crash) ──
         try:
             side = getattr(event, "side", None)
