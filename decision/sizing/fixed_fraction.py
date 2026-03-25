@@ -28,9 +28,13 @@ class FixedFractionSizer:
             if uf is not None:
                 equity += uf
             return Decimal(str(equity))
-        equity = acct.balance
+        # Fallback: raw values may be Fd8 i64 (×10^8)
+        raw_b = float(acct.balance)
+        equity = raw_b / 100_000_000 if raw_b > 1_000_000 else raw_b
         try:
-            equity = equity + acct.unrealized_pnl
+            raw_u = float(acct.unrealized_pnl)
+            upnl = raw_u / 100_000_000 if abs(raw_u) > 1_000_000 else raw_u
+            equity += upnl
         except Exception as e:
             logger.warning("Failed to add unrealized PnL to equity: %s", e)
         return Decimal(str(equity))

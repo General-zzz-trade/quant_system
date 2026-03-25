@@ -385,8 +385,14 @@ class AlphaDecisionModule:
         if len(self._closes) < 2:
             return
         mkt = snapshot.markets[self._symbol]
-        high = float(mkt.high)
-        low = float(mkt.low)
+        _hf = getattr(mkt, "high_f", None)
+        high = float(_hf) if isinstance(_hf, (int, float)) and _hf > 0 else float(mkt.high)
+        if high > 1_000_000:
+            high /= 100_000_000
+        _lf = getattr(mkt, "low_f", None)
+        low = float(_lf) if isinstance(_lf, (int, float)) and _lf > 0 else float(mkt.low)
+        if low > 1_000_000:
+            low /= 100_000_000
         prev_close = self._closes[-2]
         close = self._closes[-1]
 
