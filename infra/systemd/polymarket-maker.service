@@ -1,0 +1,24 @@
+[Unit]
+Description=Polymarket 5m BTC Up/Down Market Maker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 scripts/run_polymarket_maker.py --refresh 30 --log-level INFO
+Restart=always
+RestartSec=30
+RestartPreventExitStatus=73
+StandardOutput=append:/quant_system/logs/polymarket_maker.log
+StandardError=append:/quant_system/logs/polymarket_maker.log
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=25%
+
+[Install]
+WantedBy=multi-user.target
