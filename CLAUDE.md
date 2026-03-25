@@ -88,14 +88,15 @@ risk/            Risk gates (StagedRisk, AdaptiveStop, GateChain)
 
 runner/          Runtime (alpha_main entry, backtest, recovery)
   alpha_main.py      PRODUCTION entry (EngineCoordinator + WS)
-  strategy_config.py SYMBOL_CONFIG (BTC+ETH × 1h/4h)
+  (config in strategy/config.py)
 
 alpha/           ML models (loader, online Ridge, auto-retrain)
 monitoring/      Ops (watchdog, IC decay, data quality, Telegram, rolling Sharpe, decision audit)
-portfolio/       Portfolio (allocator with Rust delegate, combiner, hedge)
-attribution/     PnL tracking (Rust-backed PnLTracker)
+attribution/     PnL tracking (Rust-backed PnLTracker, integrated into alpha_main)
+strategy/        Strategy config + regime detection + execution policy
+  config.py        SYMBOL_CONFIG, MAX_ORDER_NOTIONAL_PCT, LEVERAGE_LADDER
+  regime/          CompositeRegime + ParamRouter
 data/            Data downloads + quality checks
-regime/          Regime detection (CompositeRegime + ParamRouter)
 infra/           Logging, config, systemd, errors
 research/        Research scripts + Rust tools
 ```
@@ -121,7 +122,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
 - State types use i64 fixed-point (Fd8, ×10^8); `_SCALE = 100_000_000`
 - `RustStateStore` = position truth on Rust heap; Python gets snapshots via `get_*()`
 - `RustFeatureEngine` = incremental features; `checkpoint()`/`restore_checkpoint()` persist as JSON
-- `RustTickProcessor` = full hot-path (~80μs): features + predict + state in single FFI call
+- `RustTickProcessor` = full hot-path (~80μs): features + predict + state in single FFI call; all 4 runners on Rust hot path
 - Event types: all 9 event classes backed by Rust PyO3 frozen classes
 
 ## Key Files
@@ -136,7 +137,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
 - `engine/decision_bridge.py` — DecisionModule protocol + bridge
 - `execution/adapters/bybit/execution_adapter.py` — BybitExecutionAdapter (ExecutionAdapter protocol)
 - `execution/adapters/bybit/adapter.py` — Bybit REST V5 adapter
-- `runner/strategy_config.py` — SYMBOL_CONFIG, MAX_ORDER_NOTIONAL_PCT, LEVERAGE_LADDER
+- `strategy/config.py` — SYMBOL_CONFIG, MAX_ORDER_NOTIONAL_PCT, LEVERAGE_LADDER
 - `state/snapshot.py` — StateSnapshot (frozen, duck-typed for Rust/Python)
 - `state/store.py` — SQLite checkpoint persistence
 - `features/enriched_computer.py` — Incremental feature computation (Rust trackers)
@@ -144,8 +145,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
 - `alpha/auto_retrain.py` — Auto-retrain orchestrator (weekly + daily + IC-triggered)
 - `monitoring/ic_decay_monitor.py` — IC decay detection (GREEN/YELLOW/RED + Telegram)
 - `monitoring/data_quality_check.py` — OHLC consistency + gap detection
-- `attribution/pnl_tracker.py` — PnL tracking (Rust-backed, no Python fallback)
-- `portfolio/allocator.py` — Portfolio allocation (Rust-delegated core math)
+- `attribution/pnl_tracker.py` — PnL tracking (Rust-backed, integrated into alpha_main)
 - `monitoring/decision_audit.py` — Structured JSONL audit log (signal/entry/exit)
 - `monitoring/rolling_sharpe.py` — Per-symbol rolling Sharpe tracker (GREEN/YELLOW/RED)
 - `infra/model_signing.py` — HMAC model signing + verification (enforced in live)
@@ -195,7 +195,7 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 **Safety & security**:
 - Model signing: HMAC-SHA256 via `QUANT_MODEL_SIGN_KEY`. Live mode **always** requires signatures; demo allows bypass
 - Daily drawdown kill switch: `MAX_DAILY_DRAWDOWN_PCT` (default 5%) arms `RustKillSwitch` in main loop
-- Leverage auto-detection: 3x for live (`api.bybit.com`), 10x for demo — see `strategy_config.py:_IS_LIVE`
+- Leverage auto-detection: 3x for live (`api.bybit.com`), 10x for demo — see `strategy/config.py:_IS_LIVE`
 - VPIN entry gate: reduces qty 30% when `vpin > 0.5` (microstructure toxicity)
 - Decision audit: `data/runtime/decision_audit.jsonl` — every signal/entry/exit logged as JSON
 

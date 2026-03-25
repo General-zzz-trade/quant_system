@@ -229,16 +229,8 @@ pub mod common {
     pub mod rate_limiter;
     #[path = "target.rs"]
     pub mod target;
-    #[path = "portfolio_allocator.rs"]
-    pub mod portfolio_allocator;
-    #[path = "portfolio_math.rs"]
-    pub mod portfolio_math;
     #[path = "market_maker.rs"]
     pub mod market_maker;
-    #[path = "factor_math.rs"]
-    pub mod factor_math;
-    #[path = "linalg_math.rs"]
-    pub mod linalg_math;
 }
 
 pub mod alpha {
@@ -300,18 +292,10 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(features::technical::cpp_rolling_volatility, m)?)?;
     m.add_function(wrap_pyfunction!(features::technical::cpp_price_impact, m)?)?;
 
-    // C++ migration — Sprint 2: cross-sectional + portfolio + factor + linalg
+    // C++ migration — Sprint 2: cross-sectional analytics
     m.add_function(wrap_pyfunction!(features::cross_sectional::cpp_momentum_rank, m)?)?;
     m.add_function(wrap_pyfunction!(features::cross_sectional::cpp_rolling_beta, m)?)?;
     m.add_function(wrap_pyfunction!(features::cross_sectional::cpp_relative_strength, m)?)?;
-    m.add_function(wrap_pyfunction!(common::portfolio_math::cpp_sample_covariance, m)?)?;
-    m.add_function(wrap_pyfunction!(common::portfolio_math::cpp_ewma_covariance, m)?)?;
-    m.add_function(wrap_pyfunction!(common::portfolio_math::cpp_rolling_correlation, m)?)?;
-    m.add_function(wrap_pyfunction!(common::portfolio_math::cpp_portfolio_variance, m)?)?;
-    m.add_function(wrap_pyfunction!(common::factor_math::cpp_compute_exposures, m)?)?;
-    m.add_function(wrap_pyfunction!(common::factor_math::cpp_factor_model_covariance, m)?)?;
-    m.add_function(wrap_pyfunction!(common::factor_math::cpp_estimate_specific_risk, m)?)?;
-    m.add_function(wrap_pyfunction!(common::linalg_math::cpp_black_litterman_posterior, m)?)?;
 
     // C++ migration — Sprint 3: feature selection + sampling
     m.add_function(wrap_pyfunction!(research::feature_selection::cpp_correlation_select, m)?)?;
@@ -457,10 +441,6 @@ fn _quant_hotpath(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Cross-asset computer
     m.add_class::<features::cross_asset::RustCrossAssetComputer>()?;
-
-    // Portfolio allocator
-    m.add_function(wrap_pyfunction!(common::portfolio_allocator::rust_allocate_portfolio, m)?)?;
-    m.add_class::<common::portfolio_allocator::RustPortfolioAllocator>()?;
 
     // Inference bridge
     m.add_class::<decision::inference_bridge::RustInferenceBridge>()?;

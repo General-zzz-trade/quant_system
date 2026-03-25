@@ -17,10 +17,6 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     cpp_rolling_beta,
     cpp_relative_strength,
     cpp_vol_normalized_target,
-    cpp_rolling_correlation,
-    cpp_sample_covariance,
-    cpp_ewma_covariance,
-    cpp_portfolio_variance,
 )
 
 __all__ = [
@@ -34,8 +30,4 @@ __all__ = [
     "cpp_rolling_beta",
     "cpp_relative_strength",
     "cpp_vol_normalized_target",
-    "cpp_rolling_correlation",
-    "cpp_sample_covariance",
-    "cpp_ewma_covariance",
-    "cpp_portfolio_variance",
 ]
