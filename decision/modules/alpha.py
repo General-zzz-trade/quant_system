@@ -140,7 +140,9 @@ class AlphaDecisionModule:
         if isinstance(_cf, (int, float)) and _cf > 0:
             close = float(_cf)
         else:
-            close = float(mkt.close)
+            # Fallback: raw .close may be Fd8 i64 (×10^8)
+            raw = float(mkt.close)
+            close = raw / 100_000_000 if raw > 1_000_000 else raw
         features: dict = dict(snapshot.features) if snapshot.features else {}
 
         # 0. Portfolio exposure + risk limit checks

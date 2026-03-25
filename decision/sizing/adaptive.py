@@ -129,12 +129,20 @@ class AdaptivePositionSizer:
         # Prefer _f (float) accessors over raw Fd8 i64
         acct = snapshot.account
         _bf = getattr(acct, "balance_f", None)
-        equity = float(_bf) if isinstance(_bf, (int, float)) and _bf > 0 else float(acct.balance)
+        if isinstance(_bf, (int, float)) and _bf > 0:
+            equity = float(_bf)
+        else:
+            raw_b = float(acct.balance)
+            equity = raw_b / 100_000_000 if raw_b > 1_000_000 else raw_b
 
         market = snapshot.markets.get(symbol)
         if market is not None:
             _cf = getattr(market, "close_f", None)
-            price = float(_cf) if isinstance(_cf, (int, float)) and _cf > 0 else float(market.close)
+            if isinstance(_cf, (int, float)) and _cf > 0:
+                price = float(_cf)
+            else:
+                raw_c = float(market.close)
+                price = raw_c / 100_000_000 if raw_c > 1_000_000 else raw_c
         else:
             price = 0.0
 
