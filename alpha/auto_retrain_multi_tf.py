@@ -23,6 +23,126 @@ from alpha.auto_retrain import (
 
 logger = logging.getLogger(__name__)
 
+# ── 15m cross-TF feature injection ──
+# Extra features to inject into 15m training data beyond standard bar features.
+# These are computed by batch_feature_engine but need explicit inclusion for 15m.
+
+# V14 dominance features (already in batch_feature_engine via _add_dominance_features)
+_15M_DOMINANCE_FEATURES = [
+    "btc_dom_dev_20",   # BTC/ETH ratio deviation from 20-bar MA
+    "btc_dom_dev_50",   # BTC/ETH ratio deviation from 50-bar MA
+    "btc_dom_ret_24",   # BTC/ETH ratio 24-bar pct change
+    "btc_dom_ret_72",   # BTC/ETH ratio 72-bar pct change
+]
+
+# Cross-TF: 1h regime label injected as 15m feature
+_15M_CROSS_TF_FEATURES = [
+    "regime_1h_label",  # from RustCompositeRegimeDetector on 1h bars, ffill to 15m
+]
+
+
+def prepare_15m_extra_features(symbol: str, df_15m: Any) -> Any:
+    """Inject dominance and cross-TF regime features into 15m training DataFrame.
+
+    Called before model training to enrich 15m bars with:
+    1. V14 dominance features (BTC/ETH ratio metrics) — already computed if
+       batch_feature_engine is used, but added explicitly for standalone 15m data.
+    2. 1h regime label forward-filled to 15m resolution.
+
+    Args:
+        symbol: Trading symbol (e.g. "BTCUSDT").
+        df_15m: 15m OHLCV DataFrame with timestamp/open_time column.
+
+    Returns:
+        df_15m with extra columns added in-place (also returned for chaining).
+    """
+    import numpy as np
+    import pandas as pd
+
+    ts_col = "open_time" if "open_time" in df_15m.columns else "timestamp"
+
+    # --- V14: Dominance features ---
+    # Load 1h ETH data for BTC/ETH ratio (only meaningful for BTCUSDT)
+    if symbol == "BTCUSDT":
+        eth_path = Path("data_files/ETHUSDT_15m.csv")
+        if eth_path.exists():
+            eth_df = pd.read_csv(eth_path)
+            eth_ts_col = "open_time" if "open_time" in eth_df.columns else "timestamp"
+            # Merge on timestamp for aligned ratio computation
+            merged = df_15m[[ts_col, "close"]].merge(
+                eth_df[[eth_ts_col, "close"]].rename(
+                    columns={eth_ts_col: ts_col, "close": "eth_close"}
+                ),
+                on=ts_col, how="left",
+            )
+            eth_close = merged["eth_close"].values
+            btc_close = merged["close"].values
+            ratio = np.where(eth_close > 0, btc_close / eth_close, np.nan)
+            ratio_s = pd.Series(ratio)
+            ma20 = ratio_s.rolling(20).mean().values
+            ma50 = ratio_s.rolling(50).mean().values
+            df_15m["btc_dom_dev_20"] = ratio / np.where(ma20 > 0, ma20, np.nan) - 1
+            df_15m["btc_dom_dev_50"] = ratio / np.where(ma50 > 0, ma50, np.nan) - 1
+            df_15m["btc_dom_ret_24"] = ratio_s.pct_change(24).values
+            df_15m["btc_dom_ret_72"] = ratio_s.pct_change(72).values
+            logger.info("15m %s: injected V14 dominance features (4 cols)", symbol)
+        else:
+            for col in _15M_DOMINANCE_FEATURES:
+                df_15m[col] = np.nan
+            logger.warning("15m %s: ETH 15m data not found, dominance features = NaN", symbol)
+    else:
+        # For ETH, dominance features are less meaningful (self-referential)
+        for col in _15M_DOMINANCE_FEATURES:
+            df_15m[col] = np.nan
+
+    # --- Cross-TF: 1h regime label ---
+    regime_path = Path(f"data_files/{symbol}_1h.csv")
+    if regime_path.exists():
+        try:
+            df_1h = pd.read_csv(regime_path)
+            h1_ts_col = "open_time" if "open_time" in df_1h.columns else "timestamp"
+
+            # Try to compute regime labels from 1h data
+            try:
+                from regime.composite_regime import CompositeRegimeDetector
+                detector = CompositeRegimeDetector()
+                regime_labels = []
+                for _, row in df_1h.iterrows():
+                    label = detector.detect(row.to_dict())
+                    regime_labels.append(label)
+                df_1h["regime_1h_label"] = regime_labels
+            except (ImportError, Exception) as e:
+                # Fallback: use simple volatility regime (0=low, 1=mid, 2=high)
+                logger.debug("Regime detector unavailable (%s), using vol proxy", e)
+                returns = df_1h["close"].pct_change()
+                vol_20 = returns.rolling(20).std()
+                vol_median = vol_20.median()
+                df_1h["regime_1h_label"] = np.where(
+                    vol_20 > vol_median * 1.5, 2,
+                    np.where(vol_20 > vol_median * 0.5, 1, 0)
+                )
+
+            # Merge 1h regime into 15m via asof join (forward-fill)
+            df_1h_regime = df_1h[[h1_ts_col, "regime_1h_label"]].rename(
+                columns={h1_ts_col: ts_col}
+            )
+            df_15m = pd.merge_asof(
+                df_15m.sort_values(ts_col),
+                df_1h_regime.sort_values(ts_col),
+                on=ts_col,
+                direction="backward",
+            )
+            logger.info("15m %s: injected cross-TF regime_1h_label", symbol)
+        except Exception as e:
+            logger.warning("15m %s: cross-TF regime injection failed: %s", symbol, e)
+            df_15m["regime_1h_label"] = np.nan
+    else:
+        import numpy as np
+        df_15m["regime_1h_label"] = np.nan
+        logger.warning("15m %s: 1h data not found for cross-TF regime", symbol)
+
+    return df_15m
+
 
 def download_15m_data(symbols: List[str]) -> Dict[str, int]:
     """Download fresh 15m kline data before retraining.

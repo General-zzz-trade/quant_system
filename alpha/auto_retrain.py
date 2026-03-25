@@ -505,6 +505,12 @@ def retrain_symbol(
 
     result["success"] = True
 
+    # ── Sign model artifacts (HMAC-SHA256) ──
+    if not dry_run:
+        from infra.model_signing import sign_model_dir
+        n_signed = sign_model_dir(model_dir)
+        result["files_signed"] = n_signed
+
     # ── Task A: Adaptive ensemble weight calibration ──
     if not dry_run:
         cal_weights = calibrate_ensemble_weights(model_dir, shrinkage=0.3)

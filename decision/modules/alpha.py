@@ -17,6 +17,7 @@ import numpy as np
 
 from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
 from decision.sizing.adaptive import AdaptivePositionSizer
+from monitoring.decision_audit import DecisionAuditLogger
 from event.header import EventHeader
 from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
 from state import PortfolioState, RiskState, RiskLimits
@@ -113,6 +114,9 @@ class AlphaDecisionModule:
         self._vpin_caution_thresh: float = 0.5
         self._vpin_scale_factor: float = 0.7  # reduce size by 30% when VPIN > threshold
 
+        # Decision audit logger (best-effort, never affects trading)
+        self._audit = DecisionAuditLogger()
+
     # ── public API ──────────────────────────────────────────────
 
     def set_consensus(self, signals: dict[str, int]) -> None:
@@ -171,6 +175,16 @@ class AlphaDecisionModule:
         force_exit, exit_reason = self._check_force_exits(close, z)
         if force_exit:
             new_signal = 0
+
+        # Audit: log every signal evaluation (best-effort)
+        try:
+            self._audit.log_signal(
+                symbol=self._symbol, runner_key=self._runner_key,
+                z_score=z, signal=new_signal, confidence=abs(z),
+                features=features, force_exit=exit_reason or None,
+            )
+        except Exception:
+            pass
 
         # Pre-allocate events list for risk/signal events + orders
         events: list[Any] = []
@@ -242,6 +256,15 @@ class AlphaDecisionModule:
             # Close existing position
             if old_signal != 0:
                 reason = exit_reason if force_exit else "signal_change"
+                try:
+                    self._audit.log_exit(
+                        symbol=self._symbol,
+                        side="sell" if old_signal == 1 else "buy",
+                        qty=0.0, price=close, reason=reason,
+                        entry_price=self._entry_price,
+                    )
+                except Exception:
+                    pass
                 events.extend(self._make_close_order(close, old_signal, reason))
 
             # Open new position
@@ -267,6 +290,15 @@ class AlphaDecisionModule:
                         qty, self._vpin_scale_factor,
                     )
                 events.extend(self._make_open_order(close, new_signal, qty))
+                try:
+                    self._audit.log_entry(
+                        symbol=self._symbol,
+                        side="buy" if new_signal == 1 else "sell",
+                        qty=float(qty), price=close,
+                        reason="signal", z_score=z, ic_scale=self._ic_scale,
+                    )
+                except Exception:
+                    pass
                 self._entry_price = close
                 self._trade_peak = close
             else:

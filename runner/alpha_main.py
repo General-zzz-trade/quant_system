@@ -56,6 +56,22 @@ MODEL_BASE = Path("models_v8")
 # ── Builder ─────────────────────────────────────────────────
 
 
+def _get_initial_balance(adapter: Any) -> float:
+    """Fetch USDT equity from Bybit adapter for tick processor initialization.
+
+    Returns 0.0 on any failure (tick processor will be initialized with zero
+    balance and updated from exchange on first bar).
+    """
+    try:
+        snapshot = adapter.get_balances()
+        bal = snapshot.get("USDT")
+        if bal is not None:
+            return float(bal.total)
+    except Exception:
+        logger.debug("Could not fetch initial balance for tick processor", exc_info=True)
+    return 0.0
+
+
 def _build_coordinator(
     symbol: str,
     runner_key: str,
@@ -112,12 +128,31 @@ def _build_coordinator(
         sizer=sizer,
     )
 
+    # Try to build RustTickProcessor for fast path (optional, falls back to Python)
+    tick_proc = None
+    try:
+        from runner.builders.tick_processor_builder import build_tick_processor
+
+        model_dir = MODEL_BASE / cfg.get("model_dir", runner_key)
+        balance = _get_initial_balance(adapter)
+        tick_proc = build_tick_processor(
+            symbols=[symbol],
+            currency="USDT",
+            balance=balance,
+            model_dirs={runner_key: model_dir},
+            zscore_window=model_info.get("zscore_window", 720),
+            zscore_warmup=model_info.get("zscore_warmup", 180),
+        )
+    except Exception:
+        logger.debug("Tick processor build failed (non-fatal)", exc_info=True)
+
     # Coordinator config
     coordinator_cfg = CoordinatorConfig(
         symbol_default=symbol,
         symbols=(symbol,),
         currency="USDT",
         feature_hook=feature_hook,
+        tick_processor=tick_proc,
     )
 
     # Assemble coordinator
@@ -139,10 +174,12 @@ def _build_coordinator(
         )
         coordinator.attach_execution_bridge(execution_bridge)
 
+    fast_path = "RustTickProcessor ENABLED" if tick_proc is not None else "Python pipeline (tick processor unavailable)"
     logger.info(
-        "Built coordinator: runner_key=%s symbol=%s dry_run=%s warmup=%d",
+        "Built coordinator: runner_key=%s symbol=%s dry_run=%s warmup=%d path=%s",
         runner_key, symbol, dry_run,
         cfg.get("warmup", 300 if is_4h else 800),
+        fast_path,
     )
     return coordinator, alpha_module
 

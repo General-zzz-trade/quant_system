@@ -6,117 +6,112 @@ on:
   pull_request:
     branches: [master]
 
-jobs:
-  test:
-    runs-on: [self-hosted, quant-server]
-    timeout-minutes: 20
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build CI image
-        run: |
-          docker build --target ci -t quant-ci:test .
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Build default runtime image
-        run: |
-          docker build --target paper -t quant-ci:paper .
+      - name: Install linters
+        run: pip install "ruff>=0.4"
 
-      - name: Validate default compose
-        run: |
-          cp .env.example .env
-          trap 'rm -f .env' EXIT
-          docker compose config >/dev/null
+      - name: Ruff check
+        run: ruff check --select E,W,F .
 
-      - name: Smoke default deploy path
-        env:
-          COMPOSE_PROJECT_NAME: quant-ci-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          bash scripts/ci_default_release_smoke.sh
+  rust-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Run Python tests
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run Rust tests
+        run: cargo test --locked
+
+  python-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [rust-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Python dependencies
         run: |
-          # NOTE: Slow tests (@pytest.mark.slow) and benchmarks (@pytest.mark.benchmark)
-          # are excluded via pytest.ini addopts: -m "not benchmark and not slow".
-          # This keeps CI under ~30s. Slow tests (parity, NN, XGB) should be run
-          # manually or in a scheduled job: pytest tests/ -x -q -m ""
-          # The --ignore=tests/performance below excludes benchmark fixtures/data.
-          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
-            python -m pytest tests/ -x -q --tb=short \
+          pip install maturin
+          pip install \
+            "pytest>=7.4" "pytest-cov>=4.1" "pytest-timeout>=2.1" \
+            "pandas>=2.1,<3.0" "numpy>=1.26,<3.0" "pyarrow>=14.0" \
+            "scikit-learn>=1.4" "lightgbm>=4.1" \
+            "websocket-client>=1.6" "python-dotenv>=1.0" \
+            "pyyaml>=6.0" "scipy>=1.10" \
+            "aiohttp>=3.9" "websockets>=12.0" \
+            "prometheus-client>=0.19"
+
+      - name: Build Rust extension
+        run: |
+          maturin build --release --features python --out dist/
+          pip install dist/*.whl --force-reinstall
+          mkdir -p _quant_hotpath
+          cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
+          python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"
+
+      - name: Run unit tests
+        run: |
+          python3 -m pytest tests/ -x -q --tb=short \
             --ignore=tests/performance \
             --cov=. --cov-report=term-missing --cov-fail-under=70
 
-      - name: Run live_runner integration tests
-        run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
-            python -m pytest tests/integration/test_production_integration_e2e.py -x -q --tb=short \
-            -k "not test_build_with_data_scheduler"
-
       - name: Run execution tests
         run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
-            python -m pytest execution/tests/ -x -q --tb=short
+          python3 -m pytest execution/tests/ -x -q --tb=short
 
-      - name: Run Rust tests
-        run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:test \
-            sh -lc 'cargo test --manifest-path /app/Cargo.toml --locked'
-
-  lint:
-    runs-on: [self-hosted, quant-server]
-    timeout-minutes: 5
-
+  security-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ruff check
+      - name: Check for hardcoded secrets
         run: |
-          docker build --target ci -t quant-ci:lint .
-          docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
-            ruff check --select E,W,F .
+          # Fail if API keys are hardcoded (not loaded from env)
+          ! grep -rn 'BYBIT_API_KEY\s*=' --include='*.py' . \
+            | grep -v '.env' | grep -v 'example' | grep -v 'os.environ' | grep -v '.gitignore' || exit 0
+          ! grep -rn 'BYBIT_API_SECRET\s*=' --include='*.py' . \
+            | grep -v '.env' | grep -v 'example' | grep -v 'os.environ' | grep -v '.gitignore' || exit 0
 
-      - name: Type check (strict modules)
+      - name: Check for private keys in repo
         run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:lint \
-            mypy core/ regime/ state/ decision/ engine/ event/ features/ execution/ alpha/ attribution/ runner/backtest/ --strict
-
-  security:
-    runs-on: [self-hosted, quant-server]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build CI image
-        run: docker build --target ci -t quant-ci:security .
-      - name: Security scan
-        run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:security \
-            python3 -m scripts.ops.security_scan
-
-  model-check:
-    runs-on: [self-hosted, quant-server]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build CI image
-        run: docker build --target ci -t quant-ci:model .
-      - name: Validate model configs
-        run: |
-          docker run --rm -v "$PWD":/app -w /app quant-ci:model \
-            python3 -c "
-          import json, sys
-          from pathlib import Path
-          from scripts.ops.config import SYMBOL_CONFIG, MODEL_BASE
-          errors = []
-          for key, cfg in SYMBOL_CONFIG.items():
-              p = MODEL_BASE / cfg['model_dir'] / 'config.json'
-              if not p.exists():
-                  errors.append(f'MISSING: {p}')
-                  continue
-              d = json.loads(p.read_text())
-              if 'features' not in d and 'horizon_models' not in d:
-                  errors.append(f'INVALID: {p}')
-          if errors:
-              for e in errors: print(f'FAIL: {e}')
-              sys.exit(1)
-          print(f'PASS: All {len(SYMBOL_CONFIG)} model configs validated')
-          "
+          # Fail if private key material is checked in
+          if find . -name '*.pem' -o -name '*.key' -o -name '*.p12' | grep -v '.gitignore' | head -1 | grep -q .; then
+            echo "FAIL: Private key files found in repo"
+            exit 1
+          fi

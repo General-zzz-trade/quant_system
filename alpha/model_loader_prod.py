@@ -6,17 +6,18 @@ import logging
 import os
 from pathlib import Path
 
+from infra.model_signing import load_verified_pickle
+
 logger = logging.getLogger(__name__)
 
 
 def load_model(model_dir: Path) -> dict:
     """Load model config + all horizon models for IC-weighted ensemble.
 
-    Uses pickle for LightGBM/XGBoost model files — trusted local
-    artifacts produced by our own training pipeline.
+    All model artifacts are HMAC-verified before deserialization.
+    In live mode (BYBIT_BASE_URL=https://api.bybit.com), unsigned or
+    tampered models are rejected with a clear error.
     """
-    import pickle  # noqa: S403 — trusted local model files only
-
     # Handle case where model_dir is a directory vs file path
     if model_dir.is_dir():
         config_path = model_dir / "config.json"
@@ -32,22 +33,20 @@ def load_model(model_dir: Path) -> dict:
     with open(config_path) as f:
         config = json.load(f)
 
-    # Load ALL horizon models for ensemble
+    # Load ALL horizon models for ensemble (HMAC-verified)
     horizon_models = []
     for hm in config.get("horizon_models", []):
         lgbm_path = model_dir / hm["lgbm"]
         if not lgbm_path.exists():
             continue
-        with open(lgbm_path, "rb") as f:
-            raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+        raw = load_verified_pickle(lgbm_path)
         model = raw["model"] if isinstance(raw, dict) else raw
 
         # Also load XGBoost if available
         xgb_model = None
         xgb_path = model_dir / hm.get("xgb", "")
         if xgb_path.exists() and xgb_path.is_file():
-            with open(xgb_path, "rb") as f:
-                xgb_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+            xgb_raw = load_verified_pickle(xgb_path)
             xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
 
         # Also load Ridge if available (walk-forward winner: 15/20 PASS)
@@ -56,8 +55,7 @@ def load_model(model_dir: Path) -> dict:
         ridge_name = hm.get("ridge", "")
         ridge_path = model_dir / ridge_name if ridge_name else None
         if ridge_path and ridge_path.is_file():
-            with open(ridge_path, "rb") as f:
-                ridge_raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+            ridge_raw = load_verified_pickle(ridge_path)
             ridge_model = ridge_raw["model"] if isinstance(ridge_raw, dict) else ridge_raw
             ridge_features = ridge_raw.get("features") if isinstance(ridge_raw, dict) else None
 

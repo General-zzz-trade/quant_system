@@ -9,3 +9,15 @@
     copytruncate
     su ubuntu ubuntu
 }
+
+/quant_system/data/runtime/decision_audit.jsonl {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    maxsize 100M
+    copytruncate
+    su ubuntu ubuntu
+}
