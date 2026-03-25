@@ -4,7 +4,6 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from decision.modules.alpha import AlphaDecisionModule
 from event.types import OrderEvent, RiskEvent, SignalEvent

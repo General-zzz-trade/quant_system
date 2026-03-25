@@ -2,7 +2,6 @@
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
 
 from decision.sizing.adaptive import AdaptivePositionSizer
 

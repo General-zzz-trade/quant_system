@@ -8,7 +8,6 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
 
 from decision.modules.alpha import AlphaDecisionModule
 from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
