@@ -179,7 +179,7 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 **Trading & safety**:
 - `MAX_ORDER_NOTIONAL_PCT = 250%` of equity (safety cap); dynamic via `get_max_order_notional(equity)`
 - `_round_to_step()` applied in ALL sizing paths — prevents Bybit `Qty invalid` rejections
-- SYMBOL_CONFIG: BTC+ETH only; 15m disabled after WF FAIL
+- SYMBOL_CONFIG: BTC+ETH 1h/4h active; BTC 15m WF PASS (Sharpe 11.42), ETH 15m still disabled
 - `_NEUTRAL_DEFAULTS`: NaN features → neutral values (ls_ratio→1.0, rsi_14→50.0), not 0.0
 - `reliable_close_position()` replaces bare `close_position()` calls
 - `RustStateStore` initialized with real exchange balance (Fd8)
@@ -210,7 +210,8 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 **Walk-forward baselines** (T-1 corrected):
 - 4h PASS: BTC (Sharpe 3.62), ETH (Sharpe 4.57)
 - 1h PASS: BTC (Sharpe 2.43), ETH (Sharpe 3.92)
-- 15m FAIL: disabled
+- 15m BTC PASS: Sharpe 11.42, IC 0.303 (enabled in SYMBOL_CONFIG)
+- 15m ETH FAIL: disabled
 - Kelly optimal: 14x full / 7x half. Demo 10x. Production recommended 3x.
 
 ## Environment
