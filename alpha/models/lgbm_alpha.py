@@ -4,9 +4,11 @@ Implements AlphaModel Protocol. Requires: pip install lightgbm scikit-learn
 """
 from __future__ import annotations
 
+from strategy.signals.base import Signal  # noqa: E402
+
 import logging
 import pickle
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -14,13 +16,7 @@ from typing import Any, Dict, Optional, Sequence
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class _Signal:
-    symbol: str
-    ts: datetime
-    side: str
-    strength: float = 1.0
-    meta: Dict[str, Any] = field(default_factory=dict)
+
 
 
 @dataclass
@@ -40,7 +36,7 @@ class LGBMAlphaModel:
 
     def predict(
         self, *, symbol: str, ts: datetime, features: Dict[str, Any],
-    ) -> Optional[_Signal]:
+    ) -> Optional[Signal]:
         if self._rust_predictor is None and self._model is None:
             return None
 
@@ -55,10 +51,10 @@ class LGBMAlphaModel:
             pred = self._model.predict(x)[0]
 
         if pred > self.threshold:
-            return _Signal(symbol=symbol, ts=ts, side="long", strength=min(abs(pred), 1.0))
+            return Signal(symbol=symbol, ts=ts, side="long", strength=min(abs(pred), 1.0))
         elif pred < -self.threshold:
-            return _Signal(symbol=symbol, ts=ts, side="short", strength=min(abs(pred), 1.0))
-        return _Signal(symbol=symbol, ts=ts, side="flat", strength=0.0)
+            return Signal(symbol=symbol, ts=ts, side="short", strength=min(abs(pred), 1.0))
+        return Signal(symbol=symbol, ts=ts, side="flat", strength=0.0)
 
     def fit(
         self,
