@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from _quant_hotpath import RustInferenceBridge
@@ -17,6 +18,8 @@ from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from runner.strategy_config import SYMBOL_CONFIG, LEVERAGE_LADDER
 
 logger = logging.getLogger(__name__)
+
+MODEL_BASE = Path("models_v8")
 
 
 def get_initial_balance(adapter: Any) -> float:
@@ -95,12 +98,25 @@ def build_coordinator(
         leverage=leverage,
     )
 
-    # RustTickProcessor disabled until fill-qty-0 warmup bug is resolved.
-    tick_proc = None
-
     # Fetch exchange balance for state store initialization
     balance = get_initial_balance(adapter)
     logger.info("Initial balance for %s: $%.2f", runner_key, balance)
+
+    # RustTickProcessor: full hot-path (~80μs vs ~1ms Python pipeline)
+    tick_proc = None
+    try:
+        from runner.builders.tick_processor_builder import build_tick_processor
+
+        tick_proc = build_tick_processor(
+            symbols=[symbol],
+            currency="USDT",
+            balance=balance,
+            model_dirs={runner_key: MODEL_BASE / cfg.get("model_dir", runner_key)},
+            zscore_window=model_info.get("zscore_window", 720),
+            zscore_warmup=model_info.get("zscore_warmup", 180),
+        )
+    except Exception:
+        logger.debug("Tick processor build skipped (non-fatal)", exc_info=True)
 
     # Coordinator config
     coordinator_cfg = CoordinatorConfig(
