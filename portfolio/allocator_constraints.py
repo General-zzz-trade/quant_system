@@ -6,7 +6,7 @@ Extracted from allocator.py to reduce file size.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from portfolio.allocator import (
     AllocationPlan,
