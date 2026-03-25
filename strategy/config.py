@@ -46,8 +46,8 @@ SYMBOL_CONFIG = {
     # ETH 15m: DISABLED — WF FAIL (Sharpe -1.36)
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},
-    # BTC 15m: WF PASS (Sharpe 11.42, IC 0.303, 129 trades, 80.6% WR, retrained 2026-03-22)
-    # Multi-horizon v11: h16+h64, IC-weighted ensemble, dz=0.8, mh=16, maxh=128
+    # BTC 15m: DISABLED — WF OOS Sharpe inflated (11.42 on small window),
+    # full-sample Sharpe 0.50, recent 6m Sharpe -0.35. Cost-sensitive at 15m frequency.
     "BTCUSDT_15m": {"size": 0.001, "model_dir": "BTCUSDT_15m", "symbol": "BTCUSDT",
                     "interval": "15", "warmup": 800, "max_qty": 1190, "step": 0.001},
     # BTC 4h: Strategy H primary, WF Sharpe 3.62 (20/22)
