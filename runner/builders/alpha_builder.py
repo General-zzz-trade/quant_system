@@ -96,8 +96,11 @@ def build_coordinator(
     )
 
     # RustTickProcessor disabled until fill-qty-0 warmup bug is resolved.
-    # The Python pipeline (feature_hook -> pipeline -> decision_bridge) is production-tested.
     tick_proc = None
+
+    # Fetch exchange balance for state store initialization
+    balance = get_initial_balance(adapter)
+    logger.info("Initial balance for %s: $%.2f", runner_key, balance)
 
     # Coordinator config
     coordinator_cfg = CoordinatorConfig(
@@ -106,6 +109,7 @@ def build_coordinator(
         currency="USDT",
         feature_hook=feature_hook,
         tick_processor=tick_proc,
+        starting_balance=balance,
     )
 
     # Assemble coordinator
