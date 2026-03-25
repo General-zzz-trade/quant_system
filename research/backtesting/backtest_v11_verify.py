@@ -32,7 +32,7 @@ from features.batch_feature_engine import compute_4h_features, TF4H_FEATURE_NAME
 from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
 from alpha.v11_config import V11Config, ExitConfig, RegimeGateConfig, TimeFilterConfig
 from decision.exit_manager import ExitManager
-from decision.regime_gate import RegimeGate
+from strategy.regime_gate import RegimeGate
 
 COST_BPS_RT = 4
 ZSCORE_WINDOW = 720

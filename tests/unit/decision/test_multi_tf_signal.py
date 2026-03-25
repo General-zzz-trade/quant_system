@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any, Mapping, Optional
 
 
-from decision.signals.ml.multi_tf_signal import (
+from strategy.signals.ml.multi_tf_signal import (
     MultiTimeframeSignal,
     _ZScoreBuffer,
     _HoldState,

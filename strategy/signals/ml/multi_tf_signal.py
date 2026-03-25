@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 # Helper classes extracted to multi_tf_helpers.py
-from decision.signals.ml.multi_tf_helpers import _ZScoreBuffer, _HoldState, _BarAcc  # noqa: F401, E402
+from strategy.signals.ml.multi_tf_helpers import _ZScoreBuffer, _HoldState, _BarAcc  # noqa: F401, E402
 
 
 class MultiTimeframeSignal:

@@ -10,7 +10,7 @@ Signal classification
 **Infrastructure** (protocol & adaptive wrappers):
   - ``SignalModel`` — structural typing protocol all signals satisfy (base.py)
 """
-from decision.signals.base import NullSignal, SignalModel
-from decision.signals.ensemble import WeightedEnsembleSignal
+from strategy.signals.base import NullSignal, SignalModel
+from strategy.signals.ensemble import WeightedEnsembleSignal
 
 __all__ = ["NullSignal", "SignalModel", "WeightedEnsembleSignal"]

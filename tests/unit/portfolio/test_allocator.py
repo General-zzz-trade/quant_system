@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from decision.allocators.base import EqualWeightAllocator
 from decision.candidates.base import PassthroughCandidates
-from decision.signals.base import NullSignal
+from strategy.signals.base import NullSignal
 from decision.types import Candidate, SignalResult
 
 

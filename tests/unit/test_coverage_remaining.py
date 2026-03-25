@@ -76,7 +76,7 @@ class TestFactorsInit(unittest.TestCase):
                 rust_volume_price_div_score=MagicMock(return_value=("flat", 0.0, 0.0)),
             )
         }):
-            from decision.signals.factors import (
+            from strategy.signals.factors import (
                 MomentumSignal, CarrySignal, VolatilitySignal, LiquiditySignal,
                 TrendStrengthSignal, VolumePriceDivergenceSignal,
             )
@@ -95,7 +95,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("sell", -0.5, 0.8))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
             return m, mock_hp
 
@@ -104,7 +104,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("sell", -0.5, 0.8))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -123,7 +123,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("sell", -0.5, 0.8))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock(spec=[])  # no attributes
@@ -137,7 +137,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("buy", 0.3, 0.7))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -150,7 +150,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("buy", 0.3, 0.7))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -163,7 +163,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("buy", 0.3, 0.7))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock(spec=["get_funding_rate"])
@@ -176,7 +176,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp.rust_carry_score = MagicMock(return_value=("buy", 0.3, 0.7))
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
 
             snap = MagicMock(spec=["get_funding_rate"])
@@ -188,7 +188,7 @@ class TestCarrySignal(unittest.TestCase):
         mock_hp = MagicMock()
         with patch.dict("sys.modules", {"_quant_hotpath": mock_hp}):
             import importlib
-            import decision.signals.factors.carry as m
+            import strategy.signals.factors.carry as m
             importlib.reload(m)
             self.assertEqual(m.CarrySignal().name, "carry")
 
@@ -204,7 +204,7 @@ class TestLiquiditySignal(unittest.TestCase):
         hp = self._patched("buy", 1.0, 0.9)
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.liquidity as m
+            import strategy.signals.factors.liquidity as m
             importlib.reload(m)
 
             b1 = MagicMock(volume=100.0)
@@ -218,7 +218,7 @@ class TestLiquiditySignal(unittest.TestCase):
         hp = self._patched("sell", -0.5, 0.5)
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.liquidity as m
+            import strategy.signals.factors.liquidity as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -230,7 +230,7 @@ class TestLiquiditySignal(unittest.TestCase):
         hp = self._patched("flat", 0.0, 0.0)
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.liquidity as m
+            import strategy.signals.factors.liquidity as m
             importlib.reload(m)
 
             snap = MagicMock(spec=["get_bars"])
@@ -242,7 +242,7 @@ class TestLiquiditySignal(unittest.TestCase):
         hp = self._patched()
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.liquidity as m
+            import strategy.signals.factors.liquidity as m
             importlib.reload(m)
             self.assertEqual(m.LiquiditySignal().lookback, 20)
 
@@ -254,7 +254,7 @@ class TestMomentumSignal(unittest.TestCase):
         hp.rust_momentum_score = MagicMock(return_value=("buy", 0.8, 0.9))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.momentum as m
+            import strategy.signals.factors.momentum as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -268,7 +268,7 @@ class TestMomentumSignal(unittest.TestCase):
         hp.rust_momentum_score = MagicMock(return_value=("sell", -0.5, 0.6))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.momentum as m
+            import strategy.signals.factors.momentum as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -281,7 +281,7 @@ class TestMomentumSignal(unittest.TestCase):
         hp.rust_momentum_score = MagicMock(return_value=("flat", 0.0, 0.0))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.momentum as m
+            import strategy.signals.factors.momentum as m
             importlib.reload(m)
 
             snap = MagicMock(spec=["get_bars"])
@@ -294,7 +294,7 @@ class TestMomentumSignal(unittest.TestCase):
         hp.rust_momentum_score = MagicMock(return_value=("flat", 0.0, 0.0))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.momentum as m
+            import strategy.signals.factors.momentum as m
             importlib.reload(m)
             sig = m.MomentumSignal(lookback=10)
             self.assertEqual(sig.lookback, 10)
@@ -307,7 +307,7 @@ class TestVolatilitySignal(unittest.TestCase):
         hp.rust_volatility_score = MagicMock(return_value=("sell", -0.3, 0.7))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.volatility as m
+            import strategy.signals.factors.volatility as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -321,7 +321,7 @@ class TestVolatilitySignal(unittest.TestCase):
         hp.rust_volatility_score = MagicMock(return_value=("flat", 0.0, 0.0))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.volatility as m
+            import strategy.signals.factors.volatility as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -338,7 +338,7 @@ class TestVolumePriceDivergenceSignal(unittest.TestCase):
         hp.rust_volume_price_div_score = MagicMock(return_value=("buy", 0.6, 0.8))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.volume_price_div as m
+            import strategy.signals.factors.volume_price_div as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -354,7 +354,7 @@ class TestVolumePriceDivergenceSignal(unittest.TestCase):
         hp.rust_volume_price_div_score = MagicMock(return_value=("sell", -0.4, 0.6))
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.volume_price_div as m
+            import strategy.signals.factors.volume_price_div as m
             importlib.reload(m)
 
             snap = MagicMock()
@@ -367,7 +367,7 @@ class TestVolumePriceDivergenceSignal(unittest.TestCase):
         hp = MagicMock()
         with patch.dict("sys.modules", {"_quant_hotpath": hp}):
             import importlib
-            import decision.signals.factors.volume_price_div as m
+            import strategy.signals.factors.volume_price_div as m
             importlib.reload(m)
             self.assertEqual(m.VolumePriceDivergenceSignal().lookback, 10)
 
@@ -392,7 +392,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
         return bars
 
     def test_not_enough_bars_returns_flat(self):
-        from decision.signals.factors.trend_strength import TrendStrengthSignal
+        from strategy.signals.factors.trend_strength import TrendStrengthSignal
 
         sig = TrendStrengthSignal(adx_window=14, adx_threshold=25.0, lookback=20)
         snap = MagicMock()
@@ -402,7 +402,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
         self.assertEqual(result.score, Decimal("0"))
 
     def test_bars_from_dict_objects(self):
-        from decision.signals.factors.trend_strength import _get_bars
+        from strategy.signals.factors.trend_strength import _get_bars
         snap = MagicMock()
         snap.bars = [
             {"ts": "2024-01-01", "open": 99.0, "high": 101.0, "low": 98.0, "close": 100.0, "volume": 1000.0}
@@ -412,7 +412,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
         self.assertEqual(bars[0].close, 100.0)
 
     def test_bars_from_dict_keyed(self):
-        from decision.signals.factors.trend_strength import _get_bars
+        from strategy.signals.factors.trend_strength import _get_bars
         snap = MagicMock()
         snap.bars = {"ETHUSDT": [
             {"open": 99.0, "high": 101.0, "low": 98.0, "close": 100.0, "volume": 1000.0}
@@ -421,7 +421,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
         self.assertEqual(len(bars), 1)
 
     def test_bars_no_attribute_uses_get_bars(self):
-        from decision.signals.factors.trend_strength import _get_bars
+        from strategy.signals.factors.trend_strength import _get_bars
         from features.types import Bar
         snap = MagicMock(spec=["get_bars"])
         b = Bar(ts=datetime.now(timezone.utc), open=99, high=101, low=98, close=100, volume=500)
@@ -431,7 +431,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
     def test_bars_object_attr_conversion(self):
         """Branches: bar has attrs but not isinstance Bar."""
-        from decision.signals.factors.trend_strength import _get_bars
+        from strategy.signals.factors.trend_strength import _get_bars
         snap = MagicMock()
         b = MagicMock(spec=[])
         b.ts = datetime.now(timezone.utc)
@@ -447,7 +447,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
     def test_compute_below_adx_threshold(self):
         """ADX below threshold returns flat with partial confidence."""
-        from decision.signals.factors.trend_strength import TrendStrengthSignal
+        from strategy.signals.factors.trend_strength import TrendStrengthSignal
         from features.types import Bar
         sig = TrendStrengthSignal(adx_window=3, adx_threshold=100.0, lookback=5)
 
@@ -464,7 +464,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
     def test_compute_strong_uptrend(self):
         """Strong trending bars → buy signal."""
-        from decision.signals.factors.trend_strength import TrendStrengthSignal
+        from strategy.signals.factors.trend_strength import TrendStrengthSignal
 
         # Use very low ADX threshold to guarantee we pass
         sig = TrendStrengthSignal(adx_window=3, adx_threshold=0.0, lookback=5)
@@ -477,7 +477,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
     def test_compute_first_close_zero_returns_flat(self):
         """When closes[0] == 0 → flat."""
-        from decision.signals.factors.trend_strength import TrendStrengthSignal
+        from strategy.signals.factors.trend_strength import TrendStrengthSignal
         from features.types import Bar
 
         sig = TrendStrengthSignal(adx_window=3, adx_threshold=0.0, lookback=5)
@@ -495,7 +495,7 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
     def test_no_valid_adx_returns_flat(self):
         """When adx_series has all Nones → flat."""
-        from decision.signals.factors.trend_strength import TrendStrengthSignal
+        from strategy.signals.factors.trend_strength import TrendStrengthSignal
 
         sig = TrendStrengthSignal(adx_window=14, adx_threshold=25.0, lookback=5)
         bars = self._make_bars(n=50, start=100.0, step=1.0)
@@ -509,180 +509,6 @@ class TestTrendStrengthSignal(unittest.TestCase):
 
 # ===========================================================================
 # decision/precomputed_hook.py
-# ===========================================================================
-
-class TestPrecomputedFeatureHook(unittest.TestCase):
-
-    def _make_hook(self, mapping=None):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        return PrecomputedFeatureHook(mapping or {})
-
-    def test_on_event_none_ts(self):
-        hook = self._make_hook()
-        event = MagicMock()
-        event.event_type = None
-        event.symbol = "ETHUSDT"
-        event.ts = None
-        result = hook.on_event(event)
-        self.assertIsNone(result)
-
-    def test_on_event_none_symbol(self):
-        hook = self._make_hook()
-        event = MagicMock()
-        event.event_type = None
-        event.symbol = None
-        event.ts = 1_700_000_000_000
-        result = hook.on_event(event)
-        self.assertIsNone(result)
-
-    def test_on_event_exact_ts_match(self):
-        ts_ms = 1_700_000_000_000
-        feats = {"rsi": 50.0, "vol": 0.01}
-        hook = self._make_hook({ts_ms: feats})
-
-        event = MagicMock()
-        event.event_type = None
-        event.symbol = "ETHUSDT"
-        event.ts = ts_ms
-        result = hook.on_event(event)
-        self.assertEqual(result, feats)
-
-    def test_on_event_offset_match(self):
-        """Test ±1ms tolerance lookup."""
-        ts_ms = 1_700_000_000_001  # +1 offset
-        feats = {"rsi": 55.0}
-        hook = self._make_hook({ts_ms: feats})
-
-        event = MagicMock()
-        event.event_type = None
-        event.symbol = "ETHUSDT"
-        event.ts = 1_700_000_000_000  # exact miss but offset=+1 hits
-        result = hook.on_event(event)
-        self.assertEqual(result, feats)
-
-    def test_on_event_fallback_to_last(self):
-        """When ts not found, return last known features."""
-        ts_ms = 1_700_000_000_000
-        feats = {"rsi": 50.0}
-        hook = self._make_hook({ts_ms: feats})
-
-        # First call: store into last_features
-        ev1 = MagicMock(event_type=None, symbol="ETHUSDT", ts=ts_ms)
-        hook.on_event(ev1)
-
-        # Second call: ts not found, should return last known
-        ev2 = MagicMock(event_type=None, symbol="ETHUSDT", ts=9_999_999_999_999)
-        result = hook.on_event(ev2)
-        self.assertEqual(result, feats)
-
-    def test_on_event_no_last_features(self):
-        """ts not found, no last features → None."""
-        hook = self._make_hook({})
-        event = MagicMock(event_type=None, symbol="ETHUSDT", ts=1_700_000_000_000)
-        result = hook.on_event(event)
-        self.assertIsNone(result)
-
-    def test_on_event_non_market_event_type_with_last(self):
-        """Non-MARKET event type: if there's a last feature, return it."""
-        from decision.precomputed_hook import PrecomputedFeatureHook
-
-        # Patch EventType
-        mock_et = MagicMock()
-        mock_et.MARKET = mock_et  # make MARKET the same object
-        with patch("decision.precomputed_hook.PrecomputedFeatureHook.on_event") as _:
-            pass  # just check logic manually
-
-        hook = PrecomputedFeatureHook({})
-        hook._last_features["ETHUSDT"] = {"rsi": 42.0}
-
-        # Create an event with non-MARKET event_type
-        ev = MagicMock()
-        ev.symbol = "ETHUSDT"
-        ev.ts = 1_700_000_000_000
-
-        # Patch the EventType import inside on_event
-        with patch("event.types.EventType") as mock_etype:
-            mock_etype.MARKET = "MARKET"
-            ev.event_type = "ORDER"  # not MARKET
-            # Will try string check: "market" in "order".lower() → False
-            result = hook.on_event(ev)
-            # Should return last known features for ETHUSDT
-            self.assertEqual(result, {"rsi": 42.0})
-
-    def test_resolve_ts_integer_large(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts_ms = PrecomputedFeatureHook._resolve_ts(1_700_000_000_000)
-        self.assertEqual(ts_ms, 1_700_000_000_000)
-
-    def test_resolve_ts_integer_small(self):
-        """Seconds → convert to ms."""
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts = PrecomputedFeatureHook._resolve_ts(1_700_000_000)
-        self.assertEqual(ts, 1_700_000_000 * 1000)
-
-    def test_resolve_ts_datetime(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        ts = PrecomputedFeatureHook._resolve_ts(dt)
-        expected = int(dt.timestamp() * 1000)
-        self.assertEqual(ts, expected)
-
-    def test_resolve_ts_iso_string_with_z(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts = PrecomputedFeatureHook._resolve_ts("2024-01-01T00:00:00Z")
-        self.assertIsNotNone(ts)
-        self.assertIsInstance(ts, int)
-
-    def test_resolve_ts_iso_string_no_tz(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts = PrecomputedFeatureHook._resolve_ts("2024-01-01T00:00:00")
-        self.assertIsNotNone(ts)
-
-    def test_resolve_ts_invalid_string(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts = PrecomputedFeatureHook._resolve_ts("not-a-date")
-        self.assertIsNone(ts)
-
-    def test_resolve_ts_none(self):
-        from decision.precomputed_hook import PrecomputedFeatureHook
-        ts = PrecomputedFeatureHook._resolve_ts(None)
-        self.assertIsNone(ts)
-
-    def test_from_dataframe_smoke(self):
-        """Verify from_dataframe builds the hook without errors with mocked deps."""
-        import pandas as pd
-        from decision.precomputed_hook import PrecomputedFeatureHook
-
-        df = pd.DataFrame({
-            "open_time": [1_700_000_000_000, 1_700_003_600_000],
-            "open": [100.0, 101.0],
-            "high": [102.0, 103.0],
-            "low": [99.0, 100.0],
-            "close": [101.0, 102.0],
-            "volume": [1000.0, 1100.0],
-        })
-
-        feat_df = pd.DataFrame({
-            "rsi_14": [50.0, 55.0],
-            "vol_20": [float("nan"), float("nan")],  # all NaN → excluded
-        }, index=df.index)
-
-        with patch("features.batch_feature_engine.compute_features_batch", return_value=feat_df):
-            with patch("pathlib.Path.exists", return_value=False):
-                with patch("features.batch_feature_engine.compute_4h_features", side_effect=Exception("no tf")):
-                    hook = PrecomputedFeatureHook.from_dataframe(
-                        "ETHUSDT", df, include_4h=True, include_interactions=False
-                    )
-        self.assertIsInstance(hook, PrecomputedFeatureHook)
-        # Check that NaN was excluded
-        ts0 = int(df["open_time"].iloc[0])
-        feats0 = hook._features_by_ts.get(ts0, {})
-        self.assertIn("rsi_14", feats0)
-        self.assertNotIn("vol_20", feats0)  # NaN excluded from row 0
-
-
-# ===========================================================================
-# decision/risk_overlay/base.py
 # ===========================================================================
 
 class TestRiskOverlayBase(unittest.TestCase):

@@ -1,7 +1,7 @@
 """Tests for LiquidationCascadeGate."""
 
 from unittest.mock import MagicMock
-from runner.gates.liquidation_cascade_gate import (
+from strategy.gates.liquidation_cascade_gate import (
     LiquidationCascadeGate,
     LiquidationCascadeConfig,
 )

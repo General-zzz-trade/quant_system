@@ -17,7 +17,7 @@ from decision.types import (
 )
 from decision.utils import stable_hash, dec_str, canonical_meta
 from decision.selectors import UniverseSelector
-from decision.signals.base import NullSignal
+from strategy.signals.base import NullSignal
 from decision.risk_overlay.kill_conditions import BasicKillOverlay
 from decision.composer import DefaultComposer
 from decision.audit import DecisionAuditor

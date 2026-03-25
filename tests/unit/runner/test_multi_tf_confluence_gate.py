@@ -1,7 +1,7 @@
 """Tests for MultiTFConfluenceGate."""
 
 from unittest.mock import MagicMock
-from runner.gates.multi_tf_confluence_gate import (
+from strategy.gates.multi_tf_confluence_gate import (
     MultiTFConfluenceGate,
     MultiTFConfluenceConfig,
 )

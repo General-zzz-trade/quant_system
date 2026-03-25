@@ -1,7 +1,7 @@
 """Tests for CarryCostGate."""
 
 from unittest.mock import MagicMock
-from runner.gates.carry_cost_gate import CarryCostGate, CarryCostConfig
+from strategy.gates.carry_cost_gate import CarryCostGate, CarryCostConfig
 
 
 def _make_ev(signal=0):

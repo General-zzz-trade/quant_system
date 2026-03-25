@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from alpha.v11_config import RegimeGateConfig
-from decision.regime_gate import RegimeGate
+from strategy.regime_gate import RegimeGate
 
 
 @pytest.fixture

@@ -2,9 +2,9 @@
 
 from unittest.mock import MagicMock
 
-from runner.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
-from runner.gates.liquidation_cascade_gate import LiquidationCascadeGate
-from runner.gates.carry_cost_gate import CarryCostGate
+from strategy.gates.multi_tf_confluence_gate import MultiTFConfluenceGate
+from strategy.gates.liquidation_cascade_gate import LiquidationCascadeGate
+from strategy.gates.carry_cost_gate import CarryCostGate
 
 
 def _ev(signal=1):

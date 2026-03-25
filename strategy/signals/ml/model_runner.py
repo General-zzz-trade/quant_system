@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Mapping, Optional
 
 from decision.types import SignalResult, SignalSide
-from decision.signals.ml.features_contract import FeaturesContract
+from strategy.signals.ml.features_contract import FeaturesContract
 
 
 @dataclass(frozen=True, slots=True)

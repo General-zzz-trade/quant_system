@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any, Sequence, Tuple
 
 from decision.types import SignalResult, SignalSide
-from decision.signals.base import SignalModel
+from strategy.signals.base import SignalModel
 
 
 @dataclass(frozen=True, slots=True)

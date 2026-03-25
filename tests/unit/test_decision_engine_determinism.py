@@ -5,7 +5,7 @@ import pytest
 
 from decision.engine import DecisionEngine
 from decision.config import DecisionConfig
-from decision.signals.technical.mean_reversion import MeanReversionSignal
+from strategy.signals.technical.mean_reversion import MeanReversionSignal
 
 from state import MarketState
 from state import AccountState

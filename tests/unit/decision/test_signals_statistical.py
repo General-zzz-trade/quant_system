@@ -5,10 +5,10 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 
-from decision.signals.statistical.cointegration import CointegrationSignal
-from decision.signals.statistical.zscore import ZScoreSignal
-from decision.signals.ml.features_contract import FeaturesContract
-from decision.signals.ml.model_runner import ModelRunnerSignal
+from strategy.signals.statistical.cointegration import CointegrationSignal
+from strategy.signals.statistical.zscore import ZScoreSignal
+from strategy.signals.ml.features_contract import FeaturesContract
+from strategy.signals.ml.model_runner import ModelRunnerSignal
 
 
 # ── CointegrationSignal ──────────────────────────────────────────────

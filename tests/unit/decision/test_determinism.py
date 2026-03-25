@@ -15,7 +15,7 @@ from typing import Any
 from decision.config import DecisionConfig
 from decision.engine import DecisionEngine
 from decision.types import SignalResult
-from decision.signals.base import NullSignal
+from strategy.signals.base import NullSignal
 from state.snapshot import StateSnapshot
 
 

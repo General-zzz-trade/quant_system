@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from decision.regime_gate import RegimeGate
+from strategy.regime_gate import RegimeGate
 
 
 def _make_regime_gate(enabled=True) -> RegimeGate:
