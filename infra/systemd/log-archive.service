@@ -1,0 +1,16 @@
+[Unit]
+Description=Archive rotated quant-system logs
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 /quant_system/scripts/archive_logs.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

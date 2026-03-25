@@ -1,0 +1,9 @@
+[Unit]
+Description=Quant system daily backup (4am UTC, after retrain)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

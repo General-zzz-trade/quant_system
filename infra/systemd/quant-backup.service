@@ -1,0 +1,12 @@
+[Unit]
+Description=Quant system daily backup
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 scripts/backup_remote.py
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+StandardOutput=append:/quant_system/logs/backup.log
+StandardError=append:/quant_system/logs/backup.log
