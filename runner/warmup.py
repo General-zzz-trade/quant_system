@@ -115,6 +115,12 @@ def warmup(
     except Exception:
         logger.exception("Warmup data quality check failed (non-fatal)")
 
+    # Detach execution bridge during warmup to prevent real orders from
+    # historical bar replay. Reattach after warmup completes.
+    saved_exec_bridge = getattr(coordinator, "_execution_bridge", None)
+    if saved_exec_bridge is not None:
+        coordinator._execution_bridge = None
+
     count = 0
     for bar in bars:
         ts_ms = bar.get("time") or bar.get("start") or 0
@@ -137,6 +143,10 @@ def warmup(
         )
         coordinator.emit(event, actor="warmup")
         count += 1
+
+    # Reattach execution bridge for live trading
+    if saved_exec_bridge is not None:
+        coordinator._execution_bridge = saved_exec_bridge
 
     logger.info("Warmup complete: %s %d bars", symbol, count)
     return count

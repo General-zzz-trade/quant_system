@@ -118,7 +118,7 @@ def main() -> None:
     for module in modules.values():
         module.set_consensus(consensus)
 
-    # Warmup each coordinator
+    # Warmup each coordinator (execution bridge detached — no real orders)
     for runner_key, coord in coordinators.items():
         cfg = SYMBOL_CONFIG[runner_key]
         symbol = cfg.get("symbol", runner_key)
@@ -126,6 +126,14 @@ def main() -> None:
         is_4h = "4h" in runner_key
         warmup_limit = cfg.get("warmup", 300 if is_4h else 800)
         _warmup(coord, adapter, symbol, interval, warmup_limit)
+
+    # Reset alpha module signal state after warmup so live starts clean
+    for runner_key, alpha_mod in modules.items():
+        alpha_mod._signal = 0
+        alpha_mod._current_qty = __import__("decimal").Decimal("0")
+        alpha_mod._entry_price = 0.0
+        alpha_mod._trade_peak = 0.0
+    logger.info("Post-warmup reset: all alpha modules signal=0")
 
     # Start all coordinators
     for coord in coordinators.values():
