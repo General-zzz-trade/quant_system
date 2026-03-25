@@ -131,7 +131,7 @@ class AlphaDecisionModule:
         """Hot-swap the ensemble predictor (SIGHUP reload)."""
         self._predictor = predictor
 
-    def decide(self, snapshot: Any) -> Iterable[Any]:
+    def decide(self, snapshot: Any) -> Iterable[RiskEvent | SignalEvent | OrderEvent]:
         """Read-only snapshot → opinion events.  No side effects on venue."""
         self._bars_processed += 1
         mkt = snapshot.markets[self._symbol]
@@ -199,7 +199,7 @@ class AlphaDecisionModule:
             pass
 
         # Pre-allocate events list for risk/signal events + orders
-        events: list[Any] = []
+        events: list[RiskEvent | SignalEvent | OrderEvent] = []
 
         # Emit RiskEvent on force exit
         if force_exit:
@@ -431,15 +431,15 @@ class AlphaDecisionModule:
             profit_pct = 1.0 - (self._trade_peak / self._entry_price)
             drawdown_pct = (close - self._trade_peak) / self._trade_peak if self._trade_peak > 0 else 0.0
 
-        # Phase selection
-        if profit_pct >= 0.5 * atr:
-            # Trailing phase
+        # Phase selection (3-phase: trailing → breakeven → initial)
+        if profit_pct >= 1.0 * atr:
+            # Trailing phase: tight stop near peak
             stop_dist = atr * 0.2
         elif profit_pct >= 0.5 * atr:
-            # Breakeven phase (same threshold, kept for clarity)
+            # Breakeven phase: moderate stop near entry
             stop_dist = atr * 0.1
         else:
-            # Initial phase
+            # Initial phase: wide stop for new positions
             stop_dist = atr * 1.2
 
         # Hard floor/ceiling
@@ -494,6 +494,12 @@ class AlphaDecisionModule:
         model_name = _RUNNER_MODEL_MAP.get(self._runner_key, self._runner_key)
         try:
             if not os.path.exists(_IC_HEALTH_PATH):
+                return
+            # Stale file detection: if >2h old, degrade to YELLOW
+            file_age = now - os.path.getmtime(_IC_HEALTH_PATH)
+            if file_age > 7200:  # 2 hours
+                logger.warning("IC health file stale (%.0fs old), degrading to YELLOW", file_age)
+                self._ic_scale = _IC_SCALE_MAP.get("YELLOW", 0.8)
                 return
             with open(_IC_HEALTH_PATH) as f:
                 data = json.load(f)

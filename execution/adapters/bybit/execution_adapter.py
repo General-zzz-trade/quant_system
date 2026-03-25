@@ -29,6 +29,27 @@ class BybitExecutionAdapter:
     # Default time-in-force for market orders
     DEFAULT_TIF: TimeInForce = TimeInForce.GTC
 
+    _MAX_RETRIES: int = 3
+    _RETRY_DELAY: float = 0.5
+
+    # ------------------------------------------------------------------
+    def _send_with_retry(self, symbol: str, side: str, qty: float) -> dict:
+        """Send market order with retries on transient failures."""
+        last_err: Exception | None = None
+        for attempt in range(1, self._MAX_RETRIES + 1):
+            try:
+                return self._adapter.send_market_order(symbol, side, qty)
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    "send_market_order attempt %d/%d failed: %s",
+                    attempt, self._MAX_RETRIES, e,
+                )
+                if attempt < self._MAX_RETRIES:
+                    time.sleep(self._RETRY_DELAY)
+        logger.error("send_market_order exhausted %d retries", self._MAX_RETRIES)
+        return {"status": "error", "msg": str(last_err)}
+
     # ------------------------------------------------------------------
     def send_order(self, order_event: Any) -> Iterable[Any]:
         """Execute *order_event* via Bybit REST and return FillEvent(s).
@@ -52,9 +73,7 @@ class BybitExecutionAdapter:
             if qty == 0:
                 resp = reliable_close_position(self._adapter, symbol)
             else:
-                resp = self._adapter.send_market_order(
-                    symbol, side, float(qty),
-                )
+                resp = self._send_with_retry(symbol, side, float(qty))
 
             # --- check result ---------------------------------------
             status = resp.get("status", "")
@@ -69,7 +88,7 @@ class BybitExecutionAdapter:
             time.sleep(0.3)
             try:
                 fills = self._adapter.get_recent_fills(symbol=symbol)
-                fill_price = fills[0].price if fills else float(qty)
+                fill_price = fills[0].price if fills else 0.0
             except Exception:
                 fill_price = 0.0
 

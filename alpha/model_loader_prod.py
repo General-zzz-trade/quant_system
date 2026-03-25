@@ -71,6 +71,14 @@ def load_model(model_dir: Path) -> dict:
                 ridge_model = None
                 ridge_features = None
 
+        # Validate LGBM feature count matches config
+        lgbm_expected = getattr(model, 'n_features_', None) or getattr(model, 'num_feature', lambda: None)()
+        if lgbm_expected and len(hm["features"]) != lgbm_expected:
+            logger.warning(
+                "LGBM expects %d features but config has %d for horizon %s",
+                lgbm_expected, len(hm["features"]), hm["horizon"],
+            )
+
         horizon_models.append({
             "horizon": hm["horizon"],
             "lgbm": model,
