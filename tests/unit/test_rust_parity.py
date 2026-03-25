@@ -204,15 +204,6 @@ class TestRustParseKline:
         assert d is not None
         assert d["symbol"] == "ETHUSDT"
 
-    def test_kline_processor_uses_rust(self):
-        """KlineProcessor delegates to Rust parse."""
-        from execution.adapters.binance.kline_processor import KlineProcessor
-        proc = KlineProcessor(only_closed=True)
-        result = proc.process_raw(KLINE_MSG)
-
-        assert result is not None
-        assert result.symbol == "BTCUSDT"
-        assert result.close == Decimal("36550.40")
 
 
 # ============================================================

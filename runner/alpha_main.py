@@ -42,6 +42,13 @@ from runner.builders.alpha_builder import build_coordinator as _build_coordinato
 from strategy.config import SYMBOL_CONFIG
 from runner.warmup import warmup as _warmup
 
+# PnL tracking (graceful degradation if attribution module unavailable)
+try:
+    from attribution.pnl_tracker import PnLTracker as _PnLTracker
+    _HAS_PNL_TRACKER = True
+except Exception:
+    _HAS_PNL_TRACKER = False
+
 logger = logging.getLogger(__name__)
 
 MODEL_BASE = Path("models_v8")
@@ -117,6 +124,80 @@ def main() -> None:
     consensus: dict[str, int] = {}
     for module in modules.values():
         module.set_consensus(consensus)
+
+    # ── PnL Tracker (observer mode — read-only, never affects trading) ──
+    pnl_tracker: Any = None
+    if _HAS_PNL_TRACKER:
+        try:
+            pnl_tracker = _PnLTracker()
+            # Track open positions: {symbol: {"side": int, "entry_price": float, "qty": float}}
+            _pnl_positions: dict[str, dict[str, Any]] = {}
+
+            def _on_fill_for_pnl(event: Any) -> None:
+                """Observer: record fills into PnLTracker. Never raises."""
+                try:
+                    # Only handle FillEvent (has fill_id attribute)
+                    if not hasattr(event, "fill_id"):
+                        return
+                    symbol = str(getattr(event, "symbol", ""))
+                    if not symbol:
+                        return
+                    fill_price = float(getattr(event, "price", 0))
+                    fill_qty = float(getattr(event, "qty", 0))
+                    fill_side = str(getattr(event, "side", "buy"))
+                    if fill_price <= 0 or fill_qty <= 0:
+                        return
+
+                    # Determine side as int: +1 for long, -1 for short
+                    side_int = 1 if fill_side == "buy" else -1
+
+                    pos = _pnl_positions.get(symbol)
+                    if pos is not None and pos["side"] != side_int:
+                        # Closing fill (opposite side to existing position)
+                        pnl_tracker.record_close(
+                            symbol=symbol,
+                            side=pos["side"],
+                            entry_price=pos["entry_price"],
+                            exit_price=fill_price,
+                            size=min(fill_qty, pos["qty"]),
+                            reason="fill",
+                        )
+                        remaining = pos["qty"] - fill_qty
+                        if remaining <= 1e-12:
+                            _pnl_positions.pop(symbol, None)
+                        else:
+                            pos["qty"] = remaining
+                    else:
+                        # Opening or adding to position
+                        if pos is None:
+                            _pnl_positions[symbol] = {
+                                "side": side_int,
+                                "entry_price": fill_price,
+                                "qty": fill_qty,
+                            }
+                        else:
+                            # Average entry price
+                            total_qty = pos["qty"] + fill_qty
+                            pos["entry_price"] = (
+                                (pos["entry_price"] * pos["qty"] + fill_price * fill_qty)
+                                / total_qty
+                            )
+                            pos["qty"] = total_qty
+                except Exception:
+                    logger.debug("PnL fill observer error", exc_info=True)
+
+            # Register fill observer on each coordinator's dispatcher
+            from engine.dispatcher import Route
+            for coord in coordinators.values():
+                coord.dispatcher.register(
+                    route=Route.PIPELINE, handler=_on_fill_for_pnl,
+                )
+            logger.info("PnL tracker initialized and attached to %d coordinators", len(coordinators))
+        except Exception:
+            logger.warning("PnL tracker initialization failed — continuing without PnL tracking", exc_info=True)
+            pnl_tracker = None
+    else:
+        logger.warning("attribution module unavailable — PnL tracking disabled")
 
     # Warmup each coordinator (execution bridge detached — no real orders)
     for runner_key, coord in coordinators.items():
@@ -326,10 +407,32 @@ def main() -> None:
                                     )
                 except Exception:
                     pass  # never crash the main loop
+
+                # PnL status (observer-only, never crashes main loop)
+                if pnl_tracker is not None:
+                    try:
+                        tc = pnl_tracker.trade_count
+                        if tc > 0:
+                            logger.info(
+                                "PnL status: trades=%d pnl=%.2f win_rate=%.1f%% dd=%.2f%% | %s",
+                                tc, pnl_tracker.total_pnl,
+                                pnl_tracker.win_rate * 100,
+                                pnl_tracker.drawdown_pct,
+                                pnl_tracker.pnl_by_symbol,
+                            )
+                    except Exception:
+                        pass
     except KeyboardInterrupt:
         pass
     finally:
         logger.info("Shutting down...")
+        # PnL summary at shutdown
+        if pnl_tracker is not None:
+            try:
+                summary = pnl_tracker.summary()
+                logger.info("PnL summary at shutdown: %s", summary)
+            except Exception:
+                logger.debug("Failed to generate PnL shutdown summary", exc_info=True)
         # Emit ControlEvent to signal shutdown to all coordinators
         for runner_key, coord in coordinators.items():
             try:

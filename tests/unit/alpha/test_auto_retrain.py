@@ -32,9 +32,7 @@ class TestCalibrateEnsembleWeights:
         result = calibrate_ensemble_weights(tmp_path, shrinkage=0.3)
         assert result is None
 
-    @patch("alpha.auto_retrain_helpers.rust_adaptive_ensemble_calibrate",
-           create=True)
-    def test_returns_weights_with_valid_data(self, mock_rust, tmp_path: Path):
+    def test_returns_weights_with_valid_data(self, tmp_path: Path):
         """Should return normalized weights dict when Rust calibration succeeds."""
         from alpha.retrain.helpers import calibrate_ensemble_weights
 
@@ -43,15 +41,12 @@ class TestCalibrateEnsembleWeights:
         }
         (tmp_path / "config.json").write_text(json.dumps(cfg))
 
-        mock_rust.return_value = {"ridge": 0.7, "lgbm": 0.3}
+        mock_rust = MagicMock(return_value={"ridge": 0.7, "lgbm": 0.3})
 
-        with patch("alpha.auto_retrain_helpers.rust_adaptive_ensemble_calibrate",
-                    mock_rust):
-            # Need to patch at import site inside the function
-            with patch.dict("sys.modules", {"_quant_hotpath": MagicMock(
-                rust_adaptive_ensemble_calibrate=mock_rust,
-            )}):
-                result = calibrate_ensemble_weights(tmp_path, shrinkage=0.3)
+        with patch.dict("sys.modules", {"_quant_hotpath": MagicMock(
+            rust_adaptive_ensemble_calibrate=mock_rust,
+        )}):
+            result = calibrate_ensemble_weights(tmp_path, shrinkage=0.3)
 
         assert result is not None
         assert "ridge" in result

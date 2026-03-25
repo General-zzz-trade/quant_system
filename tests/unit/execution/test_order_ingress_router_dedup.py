@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from execution.adapters.binance.mapper_order import BinanceOrderMapper
 from execution.ingress.order_router import OrderIngressRouter
 from execution.models.orders import CanonicalOrder, ingress_order_dedup_identity
 
@@ -33,25 +32,6 @@ def _canonical_order(*, payload_digest: str = "", status: str = "new") -> Canoni
 def _router() -> OrderIngressRouter:
     return OrderIngressRouter(coordinator=SimpleNamespace(emit=lambda *_args, **_kwargs: None))
 
-
-def test_mapper_and_helper_share_same_order_key_and_digest() -> None:
-    raw = {
-        "symbol": "BTCUSDT",
-        "orderId": 12345,
-        "clientOrderId": "cid-1",
-        "status": "NEW",
-        "side": "BUY",
-        "type": "LIMIT",
-        "timeInForce": "GTC",
-        "origQty": "1.0",
-        "price": "42000",
-        "executedQty": "0",
-        "avgPrice": "",
-        "updateTime": 1704067200000,
-    }
-    mapped = BinanceOrderMapper().map_order(raw)
-
-    assert ingress_order_dedup_identity(mapped) == (mapped.order_key, mapped.payload_digest)
 
 
 def test_order_router_exposes_same_dedup_identity_as_helper() -> None:

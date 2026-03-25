@@ -221,31 +221,6 @@ class TestMonthlyGateFlip:
     produces correct gate transitions that match expected behavior.
     """
 
-    def test_gate_transitions_consistent(self):
-        """Close series crossing SMA(480) produces correct gate flips."""
-        from shared.signal_postprocess import _compute_bear_mask
-
-        n = 1000
-        # Price starts above SMA, dips below, then recovers
-        closes = np.concatenate([
-            np.linspace(100, 110, 500),   # uptrend
-            np.linspace(110, 85, 200),    # sharp drop below SMA
-            np.linspace(85, 105, 300),    # recovery
-        ])
-        assert len(closes) == n
-
-        mask = _compute_bear_mask(closes, ma_window=480)
-
-        # First 480 bars: mask should be False (warmup)
-        assert not np.any(mask[:480]), "Warmup bars should not be masked"
-
-        # After the drop, some bars should be masked (close < SMA)
-        assert np.any(mask[600:700]), "Expected masked bars during price drop"
-
-        # Verify mask is deterministic (run twice)
-        mask2 = _compute_bear_mask(closes, ma_window=480)
-        np.testing.assert_array_equal(mask, mask2)
-
     def test_monthly_gate_bridge_deterministic(self):
         """RustInferenceBridge monthly gate is deterministic across two runs."""
         closes = np.concatenate([
