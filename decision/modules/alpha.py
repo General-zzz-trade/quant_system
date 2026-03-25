@@ -70,12 +70,14 @@ class AlphaDecisionModule:
         predictor: EnsemblePredictor,
         discretizer: SignalDiscretizer,
         sizer: AdaptivePositionSizer,
+        leverage: float = 10.0,
     ) -> None:
         self._symbol = symbol
         self._runner_key = runner_key
         self._predictor = predictor
         self._discretizer = discretizer
         self._sizer = sizer
+        self._leverage = leverage
 
         # Pure decision state
         self._signal: int = 0
@@ -109,8 +111,10 @@ class AlphaDecisionModule:
         self._ic_scale: float = 1.0
         self._ic_cache_ts: float = 0.0
 
-        # Capture base deadzone before vol-adaptive modifications
+        # Adaptive parameter bases (vol-scaled at runtime)
         self._deadzone_base: float = discretizer.deadzone
+        self._min_hold_base: int = discretizer.min_hold
+        self._max_hold_base: int = discretizer.max_hold
 
         # Microstructure VPIN scaling (optional, live-only)
         self._vpin_caution_thresh: float = 0.5
@@ -281,7 +285,7 @@ class AlphaDecisionModule:
                 qty = self._sizer.target_qty(
                     snapshot,
                     self._symbol,
-                    leverage=10.0,
+                    leverage=self._leverage,
                     ic_scale=self._ic_scale,
                     regime_active=self._regime_active,
                     z_scale=z_scale,
@@ -361,8 +365,16 @@ class AlphaDecisionModule:
 
         vol_med = float(np.median(self._vol_history)) if self._vol_history else self._vol_median
         if vol_med > 0:
-            ratio = np.clip(vol_20 / vol_med, 0.5, 2.0)
-            self._discretizer.deadzone = self._deadzone_base * float(ratio)
+            ratio = float(np.clip(vol_20 / vol_med, 0.5, 2.0))
+            # Deadzone: scale linearly with vol ratio
+            self._discretizer.deadzone = self._deadzone_base * ratio
+            # Min-hold: scale with sqrt(vol_ratio) — high vol → longer hold
+            self._discretizer.min_hold = max(1, int(self._min_hold_base * ratio ** 0.5))
+            # Max-hold: scale inversely — high vol → shorter max hold
+            self._discretizer.max_hold = max(
+                self._discretizer.min_hold + 1,
+                int(self._max_hold_base / ratio),
+            )
 
         return self._regime_active
 

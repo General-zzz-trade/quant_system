@@ -14,7 +14,7 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
-from runner.strategy_config import SYMBOL_CONFIG
+from runner.strategy_config import SYMBOL_CONFIG, LEVERAGE_LADDER
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,9 @@ def build_coordinator(
         max_qty=cfg.get("max_qty", 0),
     )
 
+    # Leverage from strategy_config (auto-detects live vs demo)
+    leverage = LEVERAGE_LADDER[0][1] if LEVERAGE_LADDER else 10.0
+
     # Decision module
     alpha_module = AlphaDecisionModule(
         symbol=symbol,
@@ -89,6 +92,7 @@ def build_coordinator(
         predictor=predictor,
         discretizer=discretizer,
         sizer=sizer,
+        leverage=leverage,
     )
 
     # RustTickProcessor disabled until fill-qty-0 warmup bug is resolved.
