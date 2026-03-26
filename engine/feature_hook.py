@@ -44,11 +44,14 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                  sentiment_source: Any = None,
                  unified_predictor: Any = None,
                  microstructure_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
-                 cross_market_source: Optional[Callable[[], Dict[str, float]]] = None) -> None:
+                 cross_market_source: Optional[Callable[[], Dict[str, float]]] = None,
+                 taker_source: Optional[Callable[[], Dict[str, float]]] = None,
+                 _set_bar_ts: Optional[Callable[[int], None]] = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._unified = unified_predictor
         self._warmup_bars = warmup_bars
+        self._set_bar_ts = _set_bar_ts
         self._funding_rate_source = funding_rate_source
         self._cross_asset = cross_asset_computer
         self._oi_source = oi_source
@@ -64,6 +67,7 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         self._sentiment_source = sentiment_source
         self._microstructure_source = microstructure_source
         self._cross_market_source = cross_market_source
+        self._taker_source = taker_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
         self._rust_engines: Dict[str, Any] = {}
@@ -174,6 +178,17 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         if isinstance(ts, datetime):
             hour, dow = ts.hour, ts.weekday()
 
+        # Set bar timestamp so CsvCursor sources return time-appropriate values
+        if self._set_bar_ts is not None:
+            ts_ms = 0
+            if isinstance(ts, datetime):
+                ts_ms = int(ts.timestamp() * 1000)
+            elif isinstance(ts, (int, float)) and ts > 0:
+                # Already epoch-ms or epoch-s
+                ts_ms = int(ts * 1000) if ts < 1e12 else int(ts)
+            if ts_ms > 0:
+                self._set_bar_ts(ts_ms)
+
         funding_rate = NaN
         _funding_src = self._resolve_source(self._funding_rate_source, symbol)
         if _funding_src is not None:
@@ -185,6 +200,14 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
         quote_volume = float(getattr(event, "quote_volume", 0) or 0)
         taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
+
+        # Fallback: when WS/REST kline lacks taker data (all zeros), use CSV source
+        if self._taker_source is not None and trades == 0.0 and taker_buy_volume == 0.0:
+            taker_data = self._safe_call_source(self._taker_source, "taker", symbol)
+            if taker_data is not None:
+                taker_buy_volume = float(taker_data.get("taker_buy_volume", 0) or 0)
+                trades = float(taker_data.get("trades", 0) or 0)
+                taker_buy_quote_volume = float(taker_data.get("taker_buy_quote_volume", 0) or 0)
 
         open_interest = NaN
         ls_ratio = NaN
@@ -340,6 +363,16 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                 taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)
                 quote_volume = float(getattr(event, "quote_volume", 0) or 0)
                 taker_buy_quote_volume = float(getattr(event, "taker_buy_quote_volume", 0) or 0)
+                # Fallback to CSV taker source when event lacks taker data
+                if self._taker_source is not None and trades == 0.0 and taker_buy_volume == 0.0:
+                    ts = getattr(event, "ts", None)
+                    if self._set_bar_ts is not None and isinstance(ts, datetime):
+                        self._set_bar_ts(int(ts.timestamp() * 1000))
+                    taker_data = self._safe_call_source(self._taker_source, "taker", symbol)
+                    if taker_data is not None:
+                        taker_buy_volume = float(taker_data.get("taker_buy_volume", 0) or 0)
+                        trades = float(taker_data.get("trades", 0) or 0)
+                        taker_buy_quote_volume = float(taker_data.get("taker_buy_quote_volume", 0) or 0)
                 ts = getattr(event, "ts", None)
                 cached["hour"] = ts.hour if isinstance(ts, datetime) else -1
                 cached["dow"] = ts.weekday() if isinstance(ts, datetime) else -1

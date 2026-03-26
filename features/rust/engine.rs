@@ -391,6 +391,11 @@ pub(crate) struct BarState {
     bar_count: i32,
 
     // Cross-market daily values (set via push_cross_market)
+    // 4h accumulator: every 4 bars forms one 4h close → 20-bar window for BB %B
+    tf4h_bar_acc: i32,         // counts 1h bars within current 4h group (0..3)
+    tf4h_close_buf: CircBuf,   // 20 most recent 4h closes
+    tf4h_last_close: f64,      // running close of current 4h group
+
     cm_spy_close: f64,
     cm_tlt_close: f64,
     cm_uso_close: f64,

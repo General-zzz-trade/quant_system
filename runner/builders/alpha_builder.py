@@ -1,11 +1,12 @@
 """Builder and balance helpers for alpha_main coordinator construction."""
 from __future__ import annotations
 
+import bisect
 import csv
 import logging
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Optional, Tuple
 
 from _quant_hotpath import RustInferenceBridge
 
@@ -23,6 +24,150 @@ logger = logging.getLogger(__name__)
 
 MODEL_BASE = Path("models_v8")
 DATA_DIR = Path("data_files")
+
+
+# ── CSV cursor: loads full history so each bar gets its own time-appropriate value ──
+
+class CsvCursor:
+    """Stateful cursor over a time-sorted CSV — returns the latest value <= bar_ts.
+
+    This solves the z-score NaN problem: instead of feeding the same latest CSV
+    value on every warmup bar (giving std=0 → z=NaN), each bar gets the
+    historically correct value, providing variance to the z-score buffer.
+    """
+
+    def __init__(self, path: Path, ts_col: str, val_col: str,
+                 ts_unit: str = "ms") -> None:
+        """Load *path* and index (timestamp → value) pairs sorted by timestamp.
+
+        ts_unit: "ms" (epoch millis), "s" (epoch seconds), or "date" (YYYY-MM-DD).
+        """
+        self._timestamps: List[int] = []   # epoch-ms, sorted
+        self._values: List[float] = []
+        self._fallback: float = math.nan
+        if not path.exists():
+            return
+        try:
+            with open(path) as f:
+                reader = csv.DictReader(f)
+                rows: List[Tuple[int, float]] = []
+                for row in reader:
+                    ts_raw = row.get(ts_col, "")
+                    val_raw = row.get(val_col, "")
+                    if not ts_raw or not val_raw:
+                        continue
+                    try:
+                        val = float(val_raw)
+                    except (ValueError, TypeError):
+                        continue
+                    if math.isnan(val):
+                        continue
+                    ts_ms = self._parse_ts(ts_raw, ts_unit)
+                    if ts_ms is not None:
+                        rows.append((ts_ms, val))
+                rows.sort(key=lambda r: r[0])
+                self._timestamps = [r[0] for r in rows]
+                self._values = [r[1] for r in rows]
+                if self._values:
+                    self._fallback = self._values[-1]
+        except Exception:
+            logger.warning("CsvCursor: failed to load %s", path, exc_info=True)
+
+    @staticmethod
+    def _parse_ts(raw: str, unit: str) -> Optional[int]:
+        """Parse a timestamp string to epoch-milliseconds."""
+        try:
+            if unit == "ms":
+                return int(float(raw))
+            if unit == "s":
+                return int(float(raw) * 1000)
+            if unit == "date":
+                # "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+                from datetime import datetime as _dt, timezone as _tz
+                for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+                    try:
+                        d = _dt.strptime(raw.strip()[:19], fmt).replace(tzinfo=_tz.utc)
+                        return int(d.timestamp() * 1000)
+                    except ValueError:
+                        continue
+                return None
+            # ISO format fallback
+            from datetime import datetime as _dt, timezone as _tz
+            d = _dt.fromisoformat(raw.replace("Z", "+00:00"))
+            return int(d.timestamp() * 1000)
+        except Exception:
+            return None
+
+    def get(self, bar_ts_ms: int) -> float:
+        """Return the latest value whose timestamp <= *bar_ts_ms*.
+
+        If bar_ts_ms is 0 (not set), returns the latest value in the CSV
+        (live-trading fallback, same as the old behavior).
+        """
+        if not self._timestamps:
+            return self._fallback
+        if bar_ts_ms <= 0:
+            return self._fallback
+        idx = bisect.bisect_right(self._timestamps, bar_ts_ms) - 1
+        if idx < 0:
+            return self._values[0]
+        return self._values[idx]
+
+    @property
+    def loaded(self) -> bool:
+        return len(self._timestamps) > 0
+
+
+class CsvDictCursor:
+    """Like CsvCursor but returns a dict of multiple value columns per row."""
+
+    def __init__(self, path: Path, ts_col: str, val_cols: dict[str, str],
+                 ts_unit: str = "ms") -> None:
+        """val_cols: {output_key: csv_column_name}."""
+        self._timestamps: List[int] = []
+        self._rows: List[dict[str, float]] = []
+        self._fallback: dict[str, float] = {k: math.nan for k in val_cols}
+        if not path.exists():
+            return
+        try:
+            with open(path) as f:
+                reader = csv.DictReader(f)
+                entries: List[Tuple[int, dict[str, float]]] = []
+                for row in reader:
+                    ts_raw = row.get(ts_col, "")
+                    if not ts_raw:
+                        continue
+                    ts_ms = CsvCursor._parse_ts(ts_raw, ts_unit)
+                    if ts_ms is None:
+                        continue
+                    vals: dict[str, float] = {}
+                    for out_key, csv_col in val_cols.items():
+                        try:
+                            vals[out_key] = float(row.get(csv_col, "nan"))
+                        except (ValueError, TypeError):
+                            vals[out_key] = math.nan
+                    entries.append((ts_ms, vals))
+                entries.sort(key=lambda r: r[0])
+                self._timestamps = [e[0] for e in entries]
+                self._rows = [e[1] for e in entries]
+                if self._rows:
+                    self._fallback = self._rows[-1]
+        except Exception:
+            logger.warning("CsvDictCursor: failed to load %s", path, exc_info=True)
+
+    def get(self, bar_ts_ms: int) -> dict[str, float]:
+        if not self._timestamps:
+            return dict(self._fallback)
+        if bar_ts_ms <= 0:
+            return dict(self._fallback)
+        idx = bisect.bisect_right(self._timestamps, bar_ts_ms) - 1
+        if idx < 0:
+            return dict(self._rows[0])
+        return dict(self._rows[idx])
+
+    @property
+    def loaded(self) -> bool:
+        return len(self._timestamps) > 0
 
 
 # ── Static data source loaders (from CSV files refreshed by data-refresh timer) ──
@@ -85,163 +230,243 @@ def _load_latest_onchain(path: Path) -> dict:
         return {}
 
 
-def _build_data_sources(symbol: str) -> dict:
+def _build_data_sources(symbol: str, interval: str = "60") -> dict:
     """Build all external data source callables for FeatureComputeHook.
 
-    Each source returns the latest value from CSV files that are refreshed
-    every 6 hours by the data-refresh systemd timer. Values are cached in
-    memory and refreshed every 60 seconds (not on every bar push).
+    Uses CsvCursor objects to load full CSV history so that during warmup
+    each bar gets its historically correct value (different per bar),
+    preventing z-score buffers from being filled with identical values
+    (which would cause std=0 → z-score=NaN).
+
+    The shared _bar_ts[0] is set by FeatureComputeHook before resolving
+    sources each bar, so cursors return the value at that bar's timestamp.
     """
-    _cache: dict[str, Any] = {}
-    _cache_ts: dict[str, float] = {}
-    _CACHE_TTL = 60.0  # seconds
+    # Shared mutable timestamp — set by feature_hook before each bar
+    _bar_ts: list[int] = [0]
 
-    import time as _time
-
-    def _cached(key: str, loader):
-        """Return cached value, refresh if older than TTL."""
-        now = _time.monotonic()
-        if key not in _cache or (now - _cache_ts.get(key, 0)) > _CACHE_TTL:
-            _cache[key] = loader()
-            _cache_ts[key] = now
-        return _cache[key]
+    def _set_bar_ts(ts_ms: int) -> None:
+        _bar_ts[0] = ts_ms
 
     sources: dict[str, Any] = {}
+    sources["_set_bar_ts"] = _set_bar_ts
 
-    # Funding rate
+    # ── Funding rate (8h intervals, ts in epoch-ms) ──
     funding_path = DATA_DIR / f"{symbol}_funding.csv"
     if funding_path.exists():
-        sources["funding_rate_source"] = lambda _p=funding_path: _cached(
-            "funding", lambda: _load_latest_csv_value(_p, val_col="funding_rate"))
+        _funding_cursor = CsvCursor(funding_path, "timestamp", "funding_rate", ts_unit="ms")
+        if _funding_cursor.loaded:
+            sources["funding_rate_source"] = lambda: _funding_cursor.get(_bar_ts[0])
+            logger.debug("CsvCursor: funding_rate loaded %d rows", len(_funding_cursor._timestamps))
 
-    # Open interest
+    # ── Open interest (hourly, ts in epoch-ms) ──
     oi_path = DATA_DIR / f"{symbol}_open_interest.csv"
     if oi_path.exists():
-        sources["oi_source"] = lambda _p=oi_path: _cached(
-            "oi", lambda: _load_latest_csv_value(_p, val_col="sum_open_interest"))
+        _oi_cursor = CsvCursor(oi_path, "timestamp", "sum_open_interest", ts_unit="ms")
+        if _oi_cursor.loaded:
+            sources["oi_source"] = lambda: _oi_cursor.get(_bar_ts[0])
 
-    # Long/short ratio
+    # ── Long/short ratio (hourly, ts in epoch-ms) ──
     ls_path = DATA_DIR / f"{symbol}_ls_ratio.csv"
     if ls_path.exists():
-        sources["ls_ratio_source"] = lambda _p=ls_path: _cached(
-            "ls", lambda: _load_latest_csv_value(_p, val_col="long_short_ratio"))
+        _ls_cursor = CsvCursor(ls_path, "timestamp", "long_short_ratio", ts_unit="ms")
+        if _ls_cursor.loaded:
+            sources["ls_ratio_source"] = lambda: _ls_cursor.get(_bar_ts[0])
 
-    # Spot close (for basis calculation)
+    # ── Spot close (hourly, ts in epoch-ms column "open_time") ──
     spot_path = DATA_DIR / f"{symbol}_spot_1h.csv"
     if spot_path.exists():
-        sources["spot_close_source"] = lambda _p=spot_path: _cached(
-            "spot", lambda: _load_latest_csv_value(_p, val_col="close"))
+        _spot_cursor = CsvCursor(spot_path, "open_time", "close", ts_unit="ms")
+        if _spot_cursor.loaded:
+            sources["spot_close_source"] = lambda: _spot_cursor.get(_bar_ts[0])
 
-    # Fear & Greed Index (symbol-independent)
+    # ── Fear & Greed Index (daily, ts in epoch-seconds) ──
     fgi_path = DATA_DIR / "fear_greed_index.csv"
     if fgi_path.exists():
-        sources["fgi_source"] = lambda _p=fgi_path: _cached(
-            "fgi", lambda: _load_latest_csv_value(_p, val_col="value"))
+        _fgi_cursor = CsvCursor(fgi_path, "timestamp", "value", ts_unit="s")
+        if _fgi_cursor.loaded:
+            sources["fgi_source"] = lambda: _fgi_cursor.get(_bar_ts[0])
 
-    # Implied volatility (Deribit) — column is 'implied_vol'
+    # ── Implied volatility (Deribit, ISO timestamps) ──
     iv_path = DATA_DIR / f"{symbol}_deribit_iv.csv"
     if iv_path.exists():
-        sources["implied_vol_source"] = lambda _p=iv_path: _cached(
-            "iv", lambda: _load_latest_csv_value(_p, val_col="implied_vol"))
+        _iv_cursor = CsvCursor(iv_path, "timestamp", "implied_vol", ts_unit="iso")
+        if _iv_cursor.loaded:
+            sources["implied_vol_source"] = lambda: _iv_cursor.get(_bar_ts[0])
 
-    # Put/call ratio
+    # ── Put/call ratio ──
     pcr_path = DATA_DIR / f"{symbol}_deribit_pcr.csv"
     if not pcr_path.exists():
         pcr_path = DATA_DIR / f"{symbol}_deribit_iv.csv"
     if pcr_path.exists():
-        sources["put_call_ratio_source"] = lambda _p=pcr_path: _cached(
-            "pcr", lambda: _load_latest_csv_value(_p, val_col="put_call_ratio"))
+        _pcr_cursor = CsvCursor(pcr_path, "timestamp", "put_call_ratio", ts_unit="iso")
+        if _pcr_cursor.loaded:
+            sources["put_call_ratio_source"] = lambda: _pcr_cursor.get(_bar_ts[0])
 
-    # On-chain metrics (file naming: btc_onchain_daily.csv, eth_onchain_daily.csv)
-    # CSV columns: exchange_reserve, exchange_inflow, exchange_outflow, exchange_netflow
-    # FeatureHook expects: FlowInExUSD, FlowOutExUSD, SplyExNtv, AdrActCnt, TxTfrCnt, HashRate
-    sym_lower = symbol.replace("USDT", "").lower()  # BTCUSDT → btc
+    # ── On-chain metrics (daily, date column) ──
+    sym_lower = symbol.replace("USDT", "").lower()
     onchain_path = DATA_DIR / f"{sym_lower}_onchain_daily.csv"
     if onchain_path.exists():
-        def _onchain_mapped(_p=onchain_path):
-            raw = _cached("onchain_raw", lambda: _load_latest_onchain(_p))
-            return {
-                "FlowInExUSD": float(raw.get("exchange_inflow", "nan")),
-                "FlowOutExUSD": float(raw.get("exchange_outflow", "nan")),
-                "SplyExNtv": float(raw.get("exchange_reserve", "nan")),
-                "AdrActCnt": math.nan,  # not in this CSV
-                "TxTfrCnt": math.nan,   # not in this CSV
-                "HashRate": math.nan,   # not in this CSV
-            }
-        sources["onchain_source"] = _onchain_mapped
+        _onchain_cursor = CsvDictCursor(
+            onchain_path, "date",
+            {
+                "FlowInExUSD": "exchange_inflow",
+                "FlowOutExUSD": "exchange_outflow",
+                "SplyExNtv": "exchange_reserve",
+                "_netflow": "exchange_netflow",
+            },
+            ts_unit="date",
+        )
+        if _onchain_cursor.loaded:
+            def _onchain_at_ts(_c=_onchain_cursor):
+                row = _c.get(_bar_ts[0])
+                flow_in = row.get("FlowInExUSD", math.nan)
+                flow_out = row.get("FlowOutExUSD", math.nan)
+                netflow = row.pop("_netflow", math.nan)
+                # Proxy: AdrActCnt ~ abs(netflow) (activity proportional to net movement)
+                row["AdrActCnt"] = abs(netflow) if not math.isnan(netflow) else math.nan
+                # Proxy: TxTfrCnt ~ inflow + outflow (total flow volume as tx proxy)
+                if not math.isnan(flow_in) and not math.isnan(flow_out):
+                    row["TxTfrCnt"] = flow_in + flow_out
+                else:
+                    row["TxTfrCnt"] = math.nan
+                row["HashRate"] = math.nan
+                return row
+            sources["onchain_source"] = _onchain_at_ts
 
-    # Liquidation proxy
-    # CSV columns: ts, liq_proxy_volume, liq_proxy_buy, liq_proxy_sell, liq_proxy_imbalance, liq_proxy_cluster
-    # FeatureHook expects: liq_total_volume, liq_buy_volume, liq_sell_volume, liq_count
+    # ── Liquidation proxy (hourly, ts in epoch-ms) ──
     liq_path = DATA_DIR / f"{symbol}_liquidation_proxy.csv"
     if liq_path.exists():
-        def _liq_mapped(_p=liq_path):
-            raw = _cached("liq_raw", lambda: _load_latest_onchain(_p))
-            return {
-                "liq_total_volume": float(raw.get("liq_proxy_volume", "nan")),
-                "liq_buy_volume": float(raw.get("liq_proxy_buy", "nan")),
-                "liq_sell_volume": float(raw.get("liq_proxy_sell", "nan")),
-                "liq_count": 0.0,  # proxy doesn't have count
-            }
-        sources["liquidation_source"] = _liq_mapped
+        _liq_cursor = CsvDictCursor(
+            liq_path, "ts",
+            {
+                "liq_total_volume": "liq_proxy_volume",
+                "liq_buy_volume": "liq_proxy_buy",
+                "liq_sell_volume": "liq_proxy_sell",
+            },
+            ts_unit="ms",
+        )
+        if _liq_cursor.loaded:
+            def _liq_at_ts(_c=_liq_cursor):
+                row = _c.get(_bar_ts[0])
+                row["liq_count"] = 0.0
+                return row
+            sources["liquidation_source"] = _liq_at_ts
 
-    # Macro from fred_macro.csv or individual ETF files
+    # ── Macro (fred_macro.csv or individual ETF files) ──
     macro_path = DATA_DIR / "fred_macro.csv"
     if not macro_path.exists() or macro_path.stat().st_size < 50:
-        # Try assembling from individual macro files
         spy_path = DATA_DIR / "macro" / "SPY_daily.csv"
         vix_path = DATA_DIR / "macro" / "VIX_daily.csv"
         if spy_path.exists():
-            def _macro_from_etfs(_spy=spy_path, _vix=vix_path):
-                result = {"dxy": math.nan, "spx": math.nan, "vix": math.nan, "date": ""}
-                try:
-                    result["spx"] = _load_latest_csv_value(_spy, val_col="close")
-                except Exception:
-                    pass
-                try:
-                    result["vix"] = _load_latest_csv_value(_vix, val_col="close")
-                except Exception:
-                    pass
-                return result
-            sources["macro_source"] = lambda: _cached("macro", _macro_from_etfs)
-    else:
-        sources["macro_source"] = lambda _p=macro_path: _cached(
-            "macro", lambda: _load_latest_macro(_p))
+            _spy_macro_cursor = CsvCursor(spy_path, "date", "close", ts_unit="date")
+            _vix_macro_cursor = CsvCursor(vix_path, "date", "close", ts_unit="date") if vix_path.exists() else None
 
-    # Cross-market ETF data (SPY, TLT, USO, XLF/GLD, etc.)
+            def _macro_from_etfs():
+                result = {"dxy": math.nan, "spx": math.nan, "vix": math.nan, "date": ""}
+                result["spx"] = _spy_macro_cursor.get(_bar_ts[0])
+                if _vix_macro_cursor is not None:
+                    result["vix"] = _vix_macro_cursor.get(_bar_ts[0])
+                return result
+            sources["macro_source"] = _macro_from_etfs
+    else:
+        sources["macro_source"] = lambda _p=macro_path: _load_latest_macro(_p)
+
+    # ── Cross-market ETF data (SPY, TLT, USO, GLD — daily, date column) ──
     macro_dir = DATA_DIR / "macro"
     spy_etf = macro_dir / "SPY_daily.csv"
     tlt_etf = macro_dir / "TLT_daily.csv"
     uso_etf = macro_dir / "USO_daily.csv"
     gld_etf = macro_dir / "GLD_daily.csv"
     if spy_etf.exists():
-        def _cross_market_loader(
-            _spy=spy_etf, _tlt=tlt_etf, _uso=uso_etf, _gld=gld_etf,
-        ):
+        _spy_cm = CsvCursor(spy_etf, "date", "close", ts_unit="date")
+        _tlt_cm = CsvCursor(tlt_etf, "date", "close", ts_unit="date") if tlt_etf.exists() else None
+        _uso_cm = CsvCursor(uso_etf, "date", "close", ts_unit="date") if uso_etf.exists() else None
+        _gld_cm = CsvCursor(gld_etf, "date", "close", ts_unit="date") if gld_etf.exists() else None
+
+        def _cross_market_at_ts():
             result: dict[str, float] = {}
-            try:
-                result["spy_close"] = _load_latest_csv_value(_spy, val_col="close")
-            except Exception:
-                pass
-            try:
-                if _tlt.exists():
-                    result["tlt_close"] = _load_latest_csv_value(_tlt, val_col="close")
-            except Exception:
-                pass
-            try:
-                if _uso.exists():
-                    result["uso_close"] = _load_latest_csv_value(_uso, val_col="close")
-            except Exception:
-                pass
-            try:
-                if _gld.exists():
-                    result["xlf_close"] = _load_latest_csv_value(_gld, val_col="close")
-            except Exception:
-                pass
+            ts = _bar_ts[0]
+            if _spy_cm.loaded:
+                result["spy_close"] = _spy_cm.get(ts)
+            if _tlt_cm is not None and _tlt_cm.loaded:
+                result["tlt_close"] = _tlt_cm.get(ts)
+            if _uso_cm is not None and _uso_cm.loaded:
+                result["uso_close"] = _uso_cm.get(ts)
+            if _gld_cm is not None and _gld_cm.loaded:
+                result["xlf_close"] = _gld_cm.get(ts)
+            if _usdt_dom_cm is not None and _usdt_dom_cm.loaded:
+                result["usdt_dominance"] = _usdt_dom_cm.get(ts)
             return result
 
-        sources["cross_market_source"] = lambda: _cached(
-            "cross_market", _cross_market_loader)
+        # USDT dominance (optional — from data_files/usdt_dominance.csv or macro/usdt_dominance.csv)
+        _usdt_dom_cm = None
+        for _ud_path in [DATA_DIR / "usdt_dominance.csv", macro_dir / "usdt_dominance.csv"]:
+            if _ud_path.exists():
+                try:
+                    _usdt_dom_cm = CsvCursor(_ud_path, "date", "value", ts_unit="date")
+                    if _usdt_dom_cm.loaded:
+                        logger.info("Loaded usdt_dominance from %s", _ud_path)
+                        break
+                    else:
+                        _usdt_dom_cm = None
+                except Exception:
+                    _usdt_dom_cm = None
+
+        sources["cross_market_source"] = _cross_market_at_ts
+
+    # ── Taker data (taker_buy_volume, trades, taker_buy_quote_volume from kline CSV) ──
+    # Bybit WS/REST klines do NOT provide taker fields, so we load from local CSV.
+    # For 4h bars, aggregate 4 consecutive 1h bars.
+    if interval == "15":
+        taker_csv = DATA_DIR / f"{symbol}_15m.csv"
+    else:
+        taker_csv = DATA_DIR / f"{symbol}_1h.csv"
+    if taker_csv.exists():
+        _taker_cursor = CsvDictCursor(
+            taker_csv, "open_time",
+            {
+                "taker_buy_volume": "taker_buy_volume",
+                "trades": "trades",
+                "taker_buy_quote_volume": "taker_buy_quote_volume",
+            },
+            ts_unit="ms",
+        )
+        if _taker_cursor.loaded:
+            if interval == "240":
+                # 4h bars: aggregate 4 consecutive 1h bars
+                # Build aggregated index once at load time
+                _agg: dict[int, dict[str, float]] = {}
+                for i, ts_ms in enumerate(_taker_cursor._timestamps):
+                    ts_sec = ts_ms // 1000
+                    hour_of_day = (ts_sec % 86400) // 3600
+                    boundary_hour = (hour_of_day // 4) * 4
+                    boundary_ms = ((ts_sec // 86400) * 86400 + boundary_hour * 3600) * 1000
+                    if boundary_ms not in _agg:
+                        _agg[boundary_ms] = {"taker_buy_volume": 0.0, "trades": 0.0, "taker_buy_quote_volume": 0.0}
+                    row = _taker_cursor._rows[i]
+                    for k in ("taker_buy_volume", "trades", "taker_buy_quote_volume"):
+                        v = row.get(k, 0.0)
+                        if not math.isnan(v):
+                            _agg[boundary_ms][k] += v
+                # Build sorted lists for bisect lookup
+                _agg_ts = sorted(_agg.keys())
+                _agg_vals = [_agg[t] for t in _agg_ts]
+
+                def _taker_4h_lookup():
+                    ts = _bar_ts[0]
+                    if ts <= 0 or not _agg_ts:
+                        return {"taker_buy_volume": 0.0, "trades": 0.0, "taker_buy_quote_volume": 0.0}
+                    idx = bisect.bisect_right(_agg_ts, ts) - 1
+                    if idx < 0:
+                        return dict(_agg_vals[0])
+                    return dict(_agg_vals[idx])
+                sources["taker_source"] = _taker_4h_lookup
+                logger.info("Taker source: %s (4h aggregated, %d entries)", taker_csv.name, len(_agg_ts))
+            else:
+                def _taker_lookup(_c=_taker_cursor):
+                    return _c.get(_bar_ts[0])
+                sources["taker_source"] = _taker_lookup
+                logger.info("Taker source: %s (%d rows)", taker_csv.name, len(_taker_cursor._timestamps))
 
     return sources
 
@@ -278,7 +503,8 @@ def build_coordinator(
     is_4h = "4h" in runner_key
 
     # External data sources (CSV files refreshed by data-refresh timer)
-    data_sources = _build_data_sources(symbol)
+    interval = cfg.get("interval", "60")
+    data_sources = _build_data_sources(symbol, interval=interval)
     n_sources = len(data_sources)
     logger.info("Data sources for %s: %d connected (%s)",
                 runner_key, n_sources, ", ".join(sorted(data_sources.keys())))

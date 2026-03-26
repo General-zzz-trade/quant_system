@@ -369,8 +369,12 @@
             }
             out[F_IV_RANK_30D] = below as f64 / 30.0;
         }
-        // iv_term_slope_daily = NaN (requires term structure data not available)
-        // out[F_IV_TERM_SLOPE_DAILY] remains NaN
+        // iv_term_slope_daily: proxy using IV-RV spread (implied_vol - realized_vol)
+        // Term structure slope approximated by the difference between implied
+        // and realized volatility — positive means contango (IV > RV).
+        if !self.last_implied_vol.is_nan() && !vol20_v.is_nan() {
+            out[F_IV_TERM_SLOPE_DAILY] = self.last_implied_vol - vol20_v;
+        }
 
         // ================================================================
         // Phase 4: On-chain z-score features
@@ -476,8 +480,25 @@
         // Cross-asset placeholders: NaN (dom_vs_sui, dom_vs_axs)
         // out[F_DOM_VS_SUI], out[F_DOM_VS_AXS] remain NaN
 
-        // 4h feature placeholder: NaN
-        // out[F_TF4H_BB_PCTB_20] remains NaN
+        // 4h BB %B: Bollinger Band percentile from 20x 4h closes
+        if self.tf4h_close_buf.size() >= 20 {
+            let mut sum4 = 0.0_f64;
+            let mut sumsq4 = 0.0_f64;
+            for i in 0..20 {
+                let v = self.tf4h_close_buf.get(self.tf4h_close_buf.size() - 20 + i);
+                sum4 += v;
+                sumsq4 += v * v;
+            }
+            let mean4 = sum4 / 20.0;
+            let var4 = sumsq4 / 20.0 - mean4 * mean4;
+            if var4 > 1e-16 {
+                let std4 = var4.sqrt();
+                let upper4 = mean4 + 2.0 * std4;
+                let lower4 = mean4 - 2.0 * std4;
+                let current4 = self.tf4h_close_buf.back();
+                out[F_TF4H_BB_PCTB_20] = (current4 - lower4) / (upper4 - lower4);
+            }
+        }
 
         // USDT dominance: passthrough from push_cross_market
         if !self.cm_usdt_dominance.is_nan() {

@@ -129,6 +129,11 @@ impl BarState {
             last_quote_volume: 0.0,
             bar_count: 0,
 
+            // 4h accumulator for tf4h_bb_pctb_20
+            tf4h_bar_acc: 0,
+            tf4h_close_buf: CircBuf::new(20),
+            tf4h_last_close: f64::NAN,
+
             // Cross-market
             cm_spy_close: f64::NAN,
             cm_tlt_close: f64::NAN,
@@ -365,6 +370,14 @@ impl BarState {
             self.avg_trade_size_ema_20.push(ats);
             let vpt = volume / trades;
             self.volume_per_trade_ema_20.push(vpt);
+        }
+
+        // --- 4h accumulator: every 4 bars → one 4h close for BB %B ---
+        self.tf4h_last_close = close;
+        self.tf4h_bar_acc += 1;
+        if self.tf4h_bar_acc >= 4 {
+            self.tf4h_close_buf.push(close);
+            self.tf4h_bar_acc = 0;
         }
 
         self.bar_count += 1;
