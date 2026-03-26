@@ -375,18 +375,11 @@ class AlphaDecisionModule:
         else:
             self._regime_active = True
 
-        vol_med = float(np.median(self._vol_history)) if self._vol_history else self._vol_median
-        if vol_med > 0:
-            ratio = float(np.clip(vol_20 / vol_med, 0.5, 2.0))
-            # Deadzone: scale linearly with vol ratio
-            self._discretizer.deadzone = self._deadzone_base * ratio
-            # Min-hold: scale with sqrt(vol_ratio) — high vol → longer hold
-            self._discretizer.min_hold = max(1, int(self._min_hold_base * ratio ** 0.5))
-            # Max-hold: scale inversely — high vol → shorter max hold
-            self._discretizer.max_hold = max(
-                self._discretizer.min_hold + 1,
-                int(self._max_hold_base / ratio),
-            )
+        # Fixed deadzone/hold — backtest shows fixed outperforms vol-adaptive
+        # (vol-adaptive reduced Return by 43% due to widening dz on strong signals)
+        self._discretizer.deadzone = self._deadzone_base
+        self._discretizer.min_hold = self._min_hold_base
+        self._discretizer.max_hold = self._max_hold_base
 
         return self._regime_active
 
