@@ -214,7 +214,13 @@ def main() -> None:
         alpha_mod._current_qty = __import__("decimal").Decimal("0")
         alpha_mod._entry_price = 0.0
         alpha_mod._trade_peak = 0.0
-    logger.info("Post-warmup reset: all alpha modules signal=0")
+        alpha_mod._last_trade_bar = alpha_mod._bars_processed  # cooldown from warmup end
+        # Reset Rust-side hold counter via discretizer bridge
+        try:
+            alpha_mod._discretizer._bridge.reset_hold(alpha_mod._symbol)
+        except Exception:
+            pass  # bridge may not support reset_hold
+    logger.info("Post-warmup reset: all alpha modules signal=0, hold counters reset")
 
     # Start all coordinators
     for coord in coordinators.values():

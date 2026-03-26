@@ -85,6 +85,7 @@ class AlphaDecisionModule:
         self._entry_price: float = 0.0
         self._trade_peak: float = 0.0
         self._bars_processed: int = 0
+        self._last_trade_bar: int = -9999  # cooldown: bar index of last trade (init allows first trade)
 
         # Regime filter buffers
         self._closes: list[float] = []
@@ -143,6 +144,14 @@ class AlphaDecisionModule:
             # Fallback: raw .close may be Fd8 i64 (×10^8)
             raw = float(mkt.close)
             close = raw / 100_000_000 if raw > 1_000_000 else raw
+
+        # Guard: skip duplicate bar timestamps (same bar replayed → no new information)
+        _mkt_obj = snapshot.markets.get(self._symbol) if isinstance(snapshot.markets, dict) else None
+        bar_ts = getattr(_mkt_obj, 'last_ts', None) if _mkt_obj is not None else None
+        if isinstance(bar_ts, (int, float)) and bar_ts > 0:
+            if hasattr(self, '_last_bar_ts') and bar_ts == self._last_bar_ts:
+                return ()
+            self._last_bar_ts = bar_ts
         features: dict = dict(snapshot.features) if snapshot.features else {}
 
         # 0. Portfolio exposure + risk limit checks
@@ -253,9 +262,23 @@ class AlphaDecisionModule:
                     ))
                     new_signal = 0
 
-        # 7. Emit events on signal change
+        # 7. Trade cooldown: prevent rapid-fire flat→entry cycles
+        # After closing a position, wait min_hold bars before opening a new one.
+        # This matches the Rust backtest behavior and prevents warmup-induced churn.
+        # Note: signal FLIPS (long→short) are allowed — cooldown only gates flat→entry.
+        if new_signal != 0 and self._signal == 0 and not force_exit:
+            bars_since_last = self._bars_processed - self._last_trade_bar
+            try:
+                min_hold = int(self._discretizer.min_hold)
+            except (TypeError, ValueError):
+                min_hold = 6
+            if bars_since_last < min_hold:
+                new_signal = 0  # too soon after last trade, stay flat
+
+        # 8. Emit events on signal change
         if new_signal != self._signal:
             old_signal = self._signal
+            self._last_trade_bar = self._bars_processed
 
             # Emit SignalEvent for signal transition
             signal_header = EventHeader.new_root(
