@@ -414,12 +414,9 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             if rust_name in out and model_name not in out:
                 out[model_name] = out[rust_name]
 
-        # ETF 5d returns: Rust computes gold_ret_5d from xlf_close buffer.
-        # Map it and compute missing ETF returns from cross_market source.
-        if "gold_ret_5d" in out:
-            for alias in ("xlf_ret_5d", "tlt_ret_5d", "uso_ret_5d"):
-                if alias not in out:
-                    out[alias] = out["gold_ret_5d"]  # approximate: same macro regime
+        # Legacy alias: gold_ret_5d → xlf_ret_5d (both now computed natively by Rust)
+        # tlt_ret_5d, uso_ret_5d, xlf_ret_5d, ethe_ret_1d are all computed independently
+        # in Rust push_cross_market — no approximate mapping needed.
 
         return out
 

@@ -62,7 +62,7 @@ engine/          EngineCoordinator, Pipeline, Bridges, Dispatcher
   coordinator.py     Event orchestration hub
   pipeline.py        State transitions (→ RustStateStore)
   feature_hook.py    Bridges RustFeatureEngine into pipeline
-  rust/              9 .rs (tick_processor ~80μs, pipeline, guards)
+  rust/              9 .rs (tick_processor [disabled], pipeline, guards)
 
 event/           Event types (Rust PyO3 driven, Python thin wrappers)
   events.py          8 event classes (MarketEvent, OrderEvent, FillEvent, etc.)
@@ -122,7 +122,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
 - State types use i64 fixed-point (Fd8, ×10^8); `_SCALE = 100_000_000`
 - `RustStateStore` = position truth on Rust heap; Python gets snapshots via `get_*()`
 - `RustFeatureEngine` = incremental features; `checkpoint()`/`restore_checkpoint()` persist as JSON
-- `RustTickProcessor` = full hot-path (~80μs): features + predict + state in single FFI call; all 4 runners on Rust hot path
+- `RustTickProcessor` = full hot-path (~80μs) **DISABLED**: its internal z-score buffer diverges from Python InferenceBridge; Python pipeline is Rust-accelerated (~200μs/bar) making the ~120μs gap not worth dual signal routing; all 4 runners use Python pipeline
 - Event types: all 9 event classes backed by Rust PyO3 frozen classes
 
 ## Key Files

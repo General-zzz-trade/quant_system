@@ -295,8 +295,9 @@ impl RustFeatureEngine {
     /// Push cross-market daily data (ETF closes, Treasury yield, USDT dominance).
     ///
     /// Call this once per bar (or when new daily data arrives) AFTER push_bar().
-    /// Computes derived features: spy_ret_1d, spy_ret_5d, spy_ret_10d, tlt_ret_5d,
-    /// uso_ret_5d (gold proxy), ethe_ret_1d, gbtc_vol_zscore, treasury chg_5d,
+    /// Computes derived features: spy_ret_1d, spy_ret_5d, spy_ret_10d,
+    /// tlt_ret_5d, uso_ret_5d, xlf_ret_5d (also as gold_ret_5d legacy),
+    /// ethe_ret_1d (also as etf_premium legacy), gbtc_vol_zscore, treasury chg_5d,
     /// usdt_dominance passthrough, spy_extreme (|ret|>2% → sign).
     #[pyo3(signature = (spy_close=f64::NAN, tlt_close=f64::NAN, uso_close=f64::NAN,
                          xlf_close=f64::NAN, ethe_close=f64::NAN, gbtc_vol=f64::NAN,
@@ -387,11 +388,29 @@ impl RustFeatureEngine {
             self.cached_features[F_TNX_CHANGE_5D] = st.cm_treasury_buf.back() - old;
         }
 
-        // gold_ret_5d (using XLF as proxy for gold/macro sentiment)
+        // gold_ret_5d (using XLF as proxy for gold/macro sentiment — legacy name)
         if st.cm_xlf_buf.size() >= 6 {
             let old = st.cm_xlf_buf.back_n(5);
             if old > 0.0 {
-                self.cached_features[F_GOLD_RET_5D] = st.cm_xlf_buf.back() / old - 1.0;
+                let ret = st.cm_xlf_buf.back() / old - 1.0;
+                self.cached_features[F_GOLD_RET_5D] = ret;
+                self.cached_features[F_XLF_RET_5D] = ret;
+            }
+        }
+
+        // tlt_ret_5d (independent TLT 5-day return)
+        if st.cm_tlt_buf.size() >= 6 {
+            let old = st.cm_tlt_buf.back_n(5);
+            if old > 0.0 {
+                self.cached_features[F_TLT_RET_5D] = st.cm_tlt_buf.back() / old - 1.0;
+            }
+        }
+
+        // uso_ret_5d (independent USO 5-day return)
+        if st.cm_uso_buf.size() >= 6 {
+            let old = st.cm_uso_buf.back_n(5);
+            if old > 0.0 {
+                self.cached_features[F_USO_RET_5D] = st.cm_uso_buf.back() / old - 1.0;
             }
         }
 
@@ -404,11 +423,13 @@ impl RustFeatureEngine {
             self.cached_features[F_IBIT_FLOW_ZSCORE] = zscore_buf(&tmp, 1e-8);
         }
 
-        // etf_premium: ETHE ret_1d (crypto ETF premium proxy)
+        // etf_premium / ethe_ret_1d: ETHE 1-day return (crypto ETF premium proxy)
         if st.cm_ethe_buf.size() >= 2 {
             let prev = st.cm_ethe_buf.back_n(1);
             if prev > 0.0 {
-                self.cached_features[F_ETF_PREMIUM] = st.cm_ethe_buf.back() / prev - 1.0;
+                let ret = st.cm_ethe_buf.back() / prev - 1.0;
+                self.cached_features[F_ETF_PREMIUM] = ret;
+                self.cached_features[F_ETHE_RET_1D] = ret;
             }
         }
 

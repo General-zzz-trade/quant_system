@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-pub const N_FEATURES: usize = 137;
+pub const N_FEATURES: usize = 141;
 const PI: f64 = std::f64::consts::PI;
 
 // Feature index constants
@@ -160,6 +160,12 @@ const F_TF4H_BB_PCTB_20: usize = 135;
 // --- USDT dominance (NaN placeholder) ---
 const F_USDT_DOMINANCE: usize = 136;
 
+// --- Independent ETF returns (computed via push_cross_market) ---
+const F_TLT_RET_5D: usize = 137;
+const F_USO_RET_5D: usize = 138;
+const F_XLF_RET_5D: usize = 139;
+const F_ETHE_RET_1D: usize = 140;
+
 pub const FEATURE_NAMES: [&str; N_FEATURES] = [
     "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
     "ma_cross_10_30", "ma_cross_5_20", "close_vs_ma20", "close_vs_ma50",
@@ -219,6 +225,8 @@ pub const FEATURE_NAMES: [&str; N_FEATURES] = [
     "tf4h_bb_pctb_20",
     // USDT dominance (NaN placeholder)
     "usdt_dominance",
+    // Independent ETF returns
+    "tlt_ret_5d", "uso_ret_5d", "xlf_ret_5d", "ethe_ret_1d",
 ];
 
 // ── Primitive types: CircBuf, RollingWindow, EMAState, RSIState, ATRState, helpers ──

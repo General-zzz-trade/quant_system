@@ -333,11 +333,25 @@ def build_coordinator(
     balance = get_initial_balance(adapter)
     logger.info("Initial balance for %s: $%.2f", runner_key, balance)
 
-    # RustTickProcessor: full hot-path (~80μs vs ~1ms Python pipeline)
-    # DISABLED: tick processor has its own internal z-score buffer that doesn't
-    # sync with Python-side InferenceBridge. This causes z=0 in production
-    # because decide() reads from the Python bridge (empty) instead of the
-    # tick processor's Rust buffer. Re-enable once signal routing is unified.
+    # RustTickProcessor: PERMANENTLY DISABLED (architecture decision, 2026-03)
+    #
+    # Why not use it:
+    #   tick_processor has its own internal z-score buffer that cannot sync with
+    #   the Python-side InferenceBridge used by AlphaDecisionModule.decide().
+    #   When enabled, decide() reads z=0 from the Python bridge (empty) while
+    #   the tick processor's Rust buffer holds the real z-scores — signals diverge.
+    #
+    # Why it's not worth fixing:
+    #   The Python pipeline already delegates every critical path to Rust:
+    #     - RustFeatureEngine push+get:   ~25μs
+    #     - EnsemblePredictor predict:    ~34μs  (RustTreePredictor/RustRidgePredictor)
+    #     - RustInferenceBridge z-score:   ~2μs
+    #     - AdaptivePositionSizer (Rust):  ~1μs
+    #     - AlphaDecisionModule.decide():  ~200μs total (incl. Python glue)
+    #   vs tick_processor monolithic:      ~80μs
+    #   The ~120μs difference does not justify maintaining two signal routing
+    #   paths, especially since 10+ external CSV data sources (funding, OI,
+    #   on-chain, macro) can only be injected through the Python pipeline.
     tick_proc = None
 
     # Coordinator config
@@ -369,7 +383,8 @@ def build_coordinator(
         )
         coordinator.attach_execution_bridge(execution_bridge)
 
-    fast_path = "RustTickProcessor ENABLED" if tick_proc is not None else "Python pipeline (tick processor unavailable)"
+    fast_path = ("RustTickProcessor ENABLED" if tick_proc is not None
+                  else "Python pipeline (Rust-accelerated, ~200us/bar)")
     logger.info(
         "Built coordinator: runner_key=%s symbol=%s dry_run=%s warmup=%d path=%s",
         runner_key, symbol, dry_run,
