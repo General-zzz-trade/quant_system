@@ -277,6 +277,10 @@ def main() -> None:
         coord.start()
     logger.info("All %d coordinators started", len(coordinators))
 
+    # Clear trade cooldown so instant signal can enter immediately
+    for runner_key, alpha_mod in modules.items():
+        alpha_mod._last_trade_bar = -9999  # allow first live trade without waiting min_hold bars
+
     # Instant signal: fetch the latest confirmed bar and process it immediately
     # so we don't wait up to 59 min for the next bar close.
     for runner_key, coord in coordinators.items():
