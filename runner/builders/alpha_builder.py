@@ -89,71 +89,81 @@ def _build_data_sources(symbol: str) -> dict:
     """Build all external data source callables for FeatureComputeHook.
 
     Each source returns the latest value from CSV files that are refreshed
-    every 6 hours by the data-refresh systemd timer.
+    every 6 hours by the data-refresh systemd timer. Values are cached in
+    memory and refreshed every 60 seconds (not on every bar push).
     """
+    _cache: dict[str, Any] = {}
+    _cache_ts: dict[str, float] = {}
+    _CACHE_TTL = 60.0  # seconds
+
+    import time as _time
+
+    def _cached(key: str, loader):
+        """Return cached value, refresh if older than TTL."""
+        now = _time.monotonic()
+        if key not in _cache or (now - _cache_ts.get(key, 0)) > _CACHE_TTL:
+            _cache[key] = loader()
+            _cache_ts[key] = now
+        return _cache[key]
+
     sources: dict[str, Any] = {}
 
     # Funding rate
     funding_path = DATA_DIR / f"{symbol}_funding.csv"
     if funding_path.exists():
-        sources["funding_rate_source"] = lambda _p=funding_path: _load_latest_csv_value(
-            _p, val_col="funding_rate"
-        )
+        sources["funding_rate_source"] = lambda _p=funding_path: _cached(
+            "funding", lambda: _load_latest_csv_value(_p, val_col="funding_rate"))
 
     # Open interest
     oi_path = DATA_DIR / f"{symbol}_open_interest.csv"
     if oi_path.exists():
-        sources["oi_source"] = lambda _p=oi_path: _load_latest_csv_value(
-            _p, val_col="sum_open_interest"
-        )
+        sources["oi_source"] = lambda _p=oi_path: _cached(
+            "oi", lambda: _load_latest_csv_value(_p, val_col="sum_open_interest"))
 
     # Long/short ratio
     ls_path = DATA_DIR / f"{symbol}_ls_ratio.csv"
     if ls_path.exists():
-        sources["ls_ratio_source"] = lambda _p=ls_path: _load_latest_csv_value(
-            _p, val_col="long_short_ratio"
-        )
+        sources["ls_ratio_source"] = lambda _p=ls_path: _cached(
+            "ls", lambda: _load_latest_csv_value(_p, val_col="long_short_ratio"))
 
     # Spot close (for basis calculation)
     spot_path = DATA_DIR / f"{symbol}_spot_1h.csv"
     if spot_path.exists():
-        sources["spot_close_source"] = lambda _p=spot_path: _load_latest_csv_value(
-            _p, val_col="close"
-        )
+        sources["spot_close_source"] = lambda _p=spot_path: _cached(
+            "spot", lambda: _load_latest_csv_value(_p, val_col="close"))
 
     # Fear & Greed Index (symbol-independent)
     fgi_path = DATA_DIR / "fear_greed_index.csv"
     if fgi_path.exists():
-        sources["fgi_source"] = lambda _p=fgi_path: _load_latest_csv_value(
-            _p, val_col="value"
-        )
+        sources["fgi_source"] = lambda _p=fgi_path: _cached(
+            "fgi", lambda: _load_latest_csv_value(_p, val_col="value"))
 
     # Implied volatility (Deribit) — column is 'implied_vol'
     iv_path = DATA_DIR / f"{symbol}_deribit_iv.csv"
     if iv_path.exists():
-        sources["implied_vol_source"] = lambda _p=iv_path: _load_latest_csv_value(
-            _p, val_col="implied_vol"
-        )
+        sources["implied_vol_source"] = lambda _p=iv_path: _cached(
+            "iv", lambda: _load_latest_csv_value(_p, val_col="implied_vol"))
 
     # Put/call ratio
     pcr_path = DATA_DIR / f"{symbol}_deribit_pcr.csv"
     if not pcr_path.exists():
-        pcr_path = DATA_DIR / f"{symbol}_deribit_iv.csv"  # may be in same file
+        pcr_path = DATA_DIR / f"{symbol}_deribit_iv.csv"
     if pcr_path.exists():
-        sources["put_call_ratio_source"] = lambda _p=pcr_path: _load_latest_csv_value(
-            _p, val_col="put_call_ratio"
-        )
+        sources["put_call_ratio_source"] = lambda _p=pcr_path: _cached(
+            "pcr", lambda: _load_latest_csv_value(_p, val_col="put_call_ratio"))
 
     # On-chain metrics (file naming: btc_onchain_daily.csv, eth_onchain_daily.csv)
     sym_lower = symbol.replace("USDT", "").lower()  # BTCUSDT → btc
     onchain_path = DATA_DIR / f"{sym_lower}_onchain_daily.csv"
     if onchain_path.exists():
-        sources["onchain_source"] = lambda _p=onchain_path: _load_latest_onchain(_p)
+        sources["onchain_source"] = lambda _p=onchain_path: _cached(
+            "onchain", lambda: _load_latest_onchain(_p))
 
     # Liquidation proxy
     liq_path = DATA_DIR / f"{symbol}_liquidation_proxy.csv"
     if liq_path.exists():
-        sources["liquidation_source"] = lambda _p=liq_path: _load_latest_onchain(_p)
+        sources["liquidation_source"] = lambda _p=liq_path: _cached(
+            "liq", lambda: _load_latest_onchain(_p))
 
     # Macro from fred_macro.csv or individual ETF files
     macro_path = DATA_DIR / "fred_macro.csv"
@@ -173,9 +183,10 @@ def _build_data_sources(symbol: str) -> dict:
                 except Exception:
                     pass
                 return result
-            sources["macro_source"] = _macro_from_etfs
+            sources["macro_source"] = lambda: _cached("macro", _macro_from_etfs)
     else:
-        sources["macro_source"] = lambda _p=macro_path: _load_latest_macro(_p)
+        sources["macro_source"] = lambda _p=macro_path: _cached(
+            "macro", lambda: _load_latest_macro(_p))
 
     return sources
 
