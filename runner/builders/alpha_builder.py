@@ -1,7 +1,9 @@
 """Builder and balance helpers for alpha_main coordinator construction."""
 from __future__ import annotations
 
+import csv
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,162 @@ from strategy.config import SYMBOL_CONFIG, LEVERAGE_LADDER
 logger = logging.getLogger(__name__)
 
 MODEL_BASE = Path("models_v8")
+DATA_DIR = Path("data_files")
+
+
+# ── Static data source loaders (from CSV files refreshed by data-refresh timer) ──
+
+def _load_latest_csv_value(path: Path, ts_col: str = "timestamp", val_col: str = None) -> float:
+    """Load the latest value from a 2-column CSV (timestamp, value)."""
+    if not path.exists():
+        return math.nan
+    try:
+        with open(path) as f:
+            reader = csv.DictReader(f)
+            last_row = None
+            for row in reader:
+                last_row = row
+            if last_row is None:
+                return math.nan
+            if val_col:
+                return float(last_row[val_col])
+            # Auto-detect: use second column
+            cols = list(last_row.keys())
+            return float(last_row[cols[1]])
+    except Exception:
+        return math.nan
+
+
+def _load_latest_macro(path: Path) -> dict:
+    """Load latest macro data from macro_daily.csv."""
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            reader = csv.DictReader(f)
+            last_row = None
+            for row in reader:
+                last_row = row
+            if last_row is None:
+                return {}
+            return {
+                "dxy": float(last_row.get("dxy", "nan")),
+                "spx": float(last_row.get("spx", last_row.get("spy_close", "nan"))),
+                "vix": float(last_row.get("vix", "nan")),
+                "date": last_row.get("date", ""),
+            }
+    except Exception:
+        return {}
+
+
+def _load_latest_onchain(path: Path) -> dict:
+    """Load latest on-chain metrics."""
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            reader = csv.DictReader(f)
+            last_row = None
+            for row in reader:
+                last_row = row
+            return dict(last_row) if last_row else {}
+    except Exception:
+        return {}
+
+
+def _build_data_sources(symbol: str) -> dict:
+    """Build all external data source callables for FeatureComputeHook.
+
+    Each source returns the latest value from CSV files that are refreshed
+    every 6 hours by the data-refresh systemd timer.
+    """
+    sources: dict[str, Any] = {}
+
+    # Funding rate
+    funding_path = DATA_DIR / f"{symbol}_funding.csv"
+    if funding_path.exists():
+        sources["funding_rate_source"] = lambda _p=funding_path: _load_latest_csv_value(
+            _p, val_col="funding_rate"
+        )
+
+    # Open interest
+    oi_path = DATA_DIR / f"{symbol}_open_interest.csv"
+    if oi_path.exists():
+        sources["oi_source"] = lambda _p=oi_path: _load_latest_csv_value(
+            _p, val_col="sum_open_interest"
+        )
+
+    # Long/short ratio
+    ls_path = DATA_DIR / f"{symbol}_ls_ratio.csv"
+    if ls_path.exists():
+        sources["ls_ratio_source"] = lambda _p=ls_path: _load_latest_csv_value(
+            _p, val_col="long_short_ratio"
+        )
+
+    # Spot close (for basis calculation)
+    spot_path = DATA_DIR / f"{symbol}_spot_1h.csv"
+    if spot_path.exists():
+        sources["spot_close_source"] = lambda _p=spot_path: _load_latest_csv_value(
+            _p, val_col="close"
+        )
+
+    # Fear & Greed Index (symbol-independent)
+    fgi_path = DATA_DIR / "fear_greed_index.csv"
+    if fgi_path.exists():
+        sources["fgi_source"] = lambda _p=fgi_path: _load_latest_csv_value(
+            _p, val_col="value"
+        )
+
+    # Implied volatility (Deribit) — column is 'implied_vol'
+    iv_path = DATA_DIR / f"{symbol}_deribit_iv.csv"
+    if iv_path.exists():
+        sources["implied_vol_source"] = lambda _p=iv_path: _load_latest_csv_value(
+            _p, val_col="implied_vol"
+        )
+
+    # Put/call ratio
+    pcr_path = DATA_DIR / f"{symbol}_deribit_pcr.csv"
+    if not pcr_path.exists():
+        pcr_path = DATA_DIR / f"{symbol}_deribit_iv.csv"  # may be in same file
+    if pcr_path.exists():
+        sources["put_call_ratio_source"] = lambda _p=pcr_path: _load_latest_csv_value(
+            _p, val_col="put_call_ratio"
+        )
+
+    # On-chain metrics (file naming: btc_onchain_daily.csv, eth_onchain_daily.csv)
+    sym_lower = symbol.replace("USDT", "").lower()  # BTCUSDT → btc
+    onchain_path = DATA_DIR / f"{sym_lower}_onchain_daily.csv"
+    if onchain_path.exists():
+        sources["onchain_source"] = lambda _p=onchain_path: _load_latest_onchain(_p)
+
+    # Liquidation proxy
+    liq_path = DATA_DIR / f"{symbol}_liquidation_proxy.csv"
+    if liq_path.exists():
+        sources["liquidation_source"] = lambda _p=liq_path: _load_latest_onchain(_p)
+
+    # Macro from fred_macro.csv or individual ETF files
+    macro_path = DATA_DIR / "fred_macro.csv"
+    if not macro_path.exists() or macro_path.stat().st_size < 50:
+        # Try assembling from individual macro files
+        spy_path = DATA_DIR / "macro" / "SPY_daily.csv"
+        vix_path = DATA_DIR / "macro" / "VIX_daily.csv"
+        if spy_path.exists():
+            def _macro_from_etfs(_spy=spy_path, _vix=vix_path):
+                result = {"dxy": math.nan, "spx": math.nan, "vix": math.nan, "date": ""}
+                try:
+                    result["spx"] = _load_latest_csv_value(_spy, val_col="close")
+                except Exception:
+                    pass
+                try:
+                    result["vix"] = _load_latest_csv_value(_vix, val_col="close")
+                except Exception:
+                    pass
+                return result
+            sources["macro_source"] = _macro_from_etfs
+    else:
+        sources["macro_source"] = lambda _p=macro_path: _load_latest_macro(_p)
+
+    return sources
 
 
 def get_initial_balance(adapter: Any) -> float:
@@ -53,10 +211,17 @@ def build_coordinator(
     cfg = SYMBOL_CONFIG.get(runner_key, {})
     is_4h = "4h" in runner_key
 
+    # External data sources (CSV files refreshed by data-refresh timer)
+    data_sources = _build_data_sources(symbol)
+    n_sources = len(data_sources)
+    logger.info("Data sources for %s: %d connected (%s)",
+                runner_key, n_sources, ", ".join(sorted(data_sources.keys())))
+
     # Feature engine (per-symbol Rust instance created lazily by hook)
     feature_hook = FeatureComputeHook(
         computer=None,
         warmup_bars=cfg.get("warmup", 300 if is_4h else 800),
+        **data_sources,
     )
 
     # Inference bridge for z-score normalization + constraints
