@@ -42,6 +42,35 @@ from runner.builders.alpha_builder import build_coordinator as _build_coordinato
 from strategy.config import SYMBOL_CONFIG
 from runner.warmup import warmup as _warmup
 
+# Z-score buffer checkpoint paths
+_ZSCORE_CHECKPOINT_DIR = Path("data/runtime/zscore_checkpoints")
+
+def _save_zscore_checkpoint(runner_key: str, bridge) -> None:
+    """Save InferenceBridge z-score buffer to disk for fast restart."""
+    try:
+        _ZSCORE_CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        data = bridge.checkpoint()
+        path = _ZSCORE_CHECKPOINT_DIR / f"{runner_key}.json"
+        import json
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass  # best-effort
+
+def _restore_zscore_checkpoint(runner_key: str, bridge) -> bool:
+    """Restore InferenceBridge z-score buffer from disk. Returns True if restored."""
+    try:
+        import json
+        path = _ZSCORE_CHECKPOINT_DIR / f"{runner_key}.json"
+        if not path.exists():
+            return False
+        with open(path) as f:
+            data = json.load(f)
+        bridge.restore(data)
+        return True
+    except Exception:
+        return False
+
 # PnL tracking (graceful degradation if attribution module unavailable)
 try:
     from attribution.pnl_tracker import PnLTracker as _PnLTracker
@@ -199,6 +228,19 @@ def main() -> None:
     else:
         logger.warning("attribution module unavailable — PnL tracking disabled")
 
+    # Restore z-score checkpoints BEFORE warmup (preserves historical variance)
+    restored_count = 0
+    for runner_key, alpha_mod in modules.items():
+        try:
+            bridge = alpha_mod._discretizer._bridge
+            if _restore_zscore_checkpoint(runner_key, bridge):
+                restored_count += 1
+                logger.info("Restored z-score checkpoint for %s", runner_key)
+        except Exception:
+            pass
+    if restored_count > 0:
+        logger.info("Restored %d/%d z-score checkpoints — signals ready immediately", restored_count, len(modules))
+
     # Warmup each coordinator (execution bridge detached — no real orders)
     for runner_key, coord in coordinators.items():
         cfg = SYMBOL_CONFIG[runner_key]
@@ -207,6 +249,14 @@ def main() -> None:
         is_4h = "4h" in runner_key
         warmup_limit = cfg.get("warmup", 300 if is_4h else 800)
         _warmup(coord, adapter, symbol, interval, warmup_limit)
+
+    # Save z-score checkpoints AFTER warmup (for next restart)
+    for runner_key, alpha_mod in modules.items():
+        try:
+            _save_zscore_checkpoint(runner_key, alpha_mod._discretizer._bridge)
+        except Exception:
+            pass
+    logger.info("Saved z-score checkpoints for %d runners", len(modules))
 
     # Reset alpha module signal state after warmup so live starts clean
     for runner_key, alpha_mod in modules.items():
@@ -384,6 +434,14 @@ def main() -> None:
             time.sleep(1)
             _loop_iter += 1
 
+            # Save z-score checkpoints every 300 iterations (~5min)
+            if _loop_iter % 300 == 0:
+                for rk, am in modules.items():
+                    try:
+                        _save_zscore_checkpoint(rk, am._discretizer._bridge)
+                    except Exception:
+                        pass
+
             # Check daily drawdown every 60 iterations (~60s)
             if _loop_iter % 60 == 0:
                 try:
@@ -432,6 +490,13 @@ def main() -> None:
         pass
     finally:
         logger.info("Shutting down...")
+        # Save z-score checkpoints for fast restart
+        for rk, am in modules.items():
+            try:
+                _save_zscore_checkpoint(rk, am._discretizer._bridge)
+            except Exception:
+                pass
+        logger.info("Z-score checkpoints saved for %d runners", len(modules))
         # PnL summary at shutdown
         if pnl_tracker is not None:
             try:
