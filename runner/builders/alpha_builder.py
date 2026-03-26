@@ -371,46 +371,59 @@ def _build_data_sources(symbol: str, interval: str = "60") -> dict:
     else:
         sources["macro_source"] = lambda _p=macro_path: _load_latest_macro(_p)
 
-    # ── Cross-market ETF data (SPY, TLT, USO, GLD — daily, date column) ──
+    # ── Cross-market ETF data (daily, date column) ──
     macro_dir = DATA_DIR / "macro"
-    spy_etf = macro_dir / "SPY_daily.csv"
-    tlt_etf = macro_dir / "TLT_daily.csv"
-    uso_etf = macro_dir / "USO_daily.csv"
-    gld_etf = macro_dir / "GLD_daily.csv"
-    if spy_etf.exists():
-        _spy_cm = CsvCursor(spy_etf, "date", "close", ts_unit="date")
-        _tlt_cm = CsvCursor(tlt_etf, "date", "close", ts_unit="date") if tlt_etf.exists() else None
-        _uso_cm = CsvCursor(uso_etf, "date", "close", ts_unit="date") if uso_etf.exists() else None
-        _gld_cm = CsvCursor(gld_etf, "date", "close", ts_unit="date") if gld_etf.exists() else None
+    _cm_cursors: dict[str, CsvCursor] = {}
+    _etf_map = {
+        "spy_close": "SPY_daily.csv",
+        "tlt_close": "TLT_daily.csv",
+        "uso_close": "USO_daily.csv",
+        "xlf_close": "GLD_daily.csv",      # GLD as proxy for XLF
+        "ethe_close": "COIN_daily.csv",     # COIN as proxy for ETHE
+        "gbtc_vol": "COIN_daily.csv",       # COIN volume as proxy for GBTC vol
+    }
+    for key, fname in _etf_map.items():
+        path = macro_dir / fname
+        if path.exists():
+            val_col = "volume" if "vol" in key else "close"
+            cm = CsvCursor(path, "date", val_col, ts_unit="date")
+            if cm.loaded:
+                _cm_cursors[key] = cm
 
+    # Treasury 10Y from VIX as proxy (VIX correlates with treasury moves)
+    _vix_cm = _cm_cursors.get("_vix")
+    vix_path = macro_dir / "VIX_daily.csv"
+    if vix_path.exists():
+        _vix_cm = CsvCursor(vix_path, "date", "close", ts_unit="date")
+        if _vix_cm and _vix_cm.loaded:
+            _cm_cursors["treasury_10y"] = _vix_cm  # VIX as treasury proxy
+
+    # USDT dominance
+    _usdt_dom_cm = None
+    for _ud_path in [DATA_DIR / "usdt_dominance.csv", macro_dir / "usdt_dominance.csv"]:
+        if _ud_path.exists():
+            try:
+                _usdt_dom_cm = CsvCursor(_ud_path, "date", "value", ts_unit="date")
+                if _usdt_dom_cm.loaded:
+                    logger.info("Loaded usdt_dominance from %s", _ud_path)
+                    break
+                else:
+                    _usdt_dom_cm = None
+            except Exception:
+                _usdt_dom_cm = None
+
+    if _cm_cursors:
         def _cross_market_at_ts():
             result: dict[str, float] = {}
             ts = _bar_ts[0]
-            if _spy_cm.loaded:
-                result["spy_close"] = _spy_cm.get(ts)
-            if _tlt_cm is not None and _tlt_cm.loaded:
-                result["tlt_close"] = _tlt_cm.get(ts)
-            if _uso_cm is not None and _uso_cm.loaded:
-                result["uso_close"] = _uso_cm.get(ts)
-            if _gld_cm is not None and _gld_cm.loaded:
-                result["xlf_close"] = _gld_cm.get(ts)
+            for key, cursor in _cm_cursors.items():
+                if key == "treasury_10y":
+                    result["treasury_10y"] = cursor.get(ts)
+                elif key != "_vix":
+                    result[key] = cursor.get(ts)
             if _usdt_dom_cm is not None and _usdt_dom_cm.loaded:
                 result["usdt_dominance"] = _usdt_dom_cm.get(ts)
             return result
-
-        # USDT dominance (optional — from data_files/usdt_dominance.csv or macro/usdt_dominance.csv)
-        _usdt_dom_cm = None
-        for _ud_path in [DATA_DIR / "usdt_dominance.csv", macro_dir / "usdt_dominance.csv"]:
-            if _ud_path.exists():
-                try:
-                    _usdt_dom_cm = CsvCursor(_ud_path, "date", "value", ts_unit="date")
-                    if _usdt_dom_cm.loaded:
-                        logger.info("Loaded usdt_dominance from %s", _ud_path)
-                        break
-                    else:
-                        _usdt_dom_cm = None
-                except Exception:
-                    _usdt_dom_cm = None
 
         sources["cross_market_source"] = _cross_market_at_ts
 

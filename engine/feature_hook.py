@@ -436,12 +436,13 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         out = {k: v for k, v in features.items() if v is not None}
 
         # Alias mapping: Rust feature names → model config feature names
-        # Rust engine uses generic names; models expect specific ETF names
         _ALIASES = {
             "tnx_change_5d": "treasury_10y_chg_5d",
             "etf_premium": "ethe_ret_1d",
             "ibit_flow_zscore": "gbtc_vol_zscore_14",
             "spy_vix_change": "spy_extreme",
+            "btc_dom_ratio_dev_20": "btc_dom_dev_20",
+            "btc_dom_return_diff_24h": "btc_dom_ret_24",
         }
         for rust_name, model_name in _ALIASES.items():
             if rust_name in out and model_name not in out:
