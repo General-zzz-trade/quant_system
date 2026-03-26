@@ -25,8 +25,8 @@ MODEL_DIR_15M_TEMPLATE = "models_v8/{symbol}_15m"
 SYMBOLS_4H = ["BTCUSDT", "ETHUSDT"]
 MODEL_DIR_4H_TEMPLATE = "models_v8/{symbol}_4h"
 DEFAULT_HORIZONS_4H = {
-    "BTCUSDT": [6, 24],   # h12 dropped: IC collapsed in live (-341%)
-    "ETHUSDT": [6],        # h12 dropped: train IC=0.007 (near zero); h6 IC=0.110 (good)
+    "BTCUSDT": [6, 12, 24],  # ensemble (Sharpe 6.08) > any single horizon; keep all
+    "ETHUSDT": [6],           # h12 dropped: train IC=0.007 (near zero); h6 IC=0.110 (good)
 }
 
 # Validation thresholds
