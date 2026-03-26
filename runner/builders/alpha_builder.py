@@ -153,17 +153,37 @@ def _build_data_sources(symbol: str) -> dict:
             "pcr", lambda: _load_latest_csv_value(_p, val_col="put_call_ratio"))
 
     # On-chain metrics (file naming: btc_onchain_daily.csv, eth_onchain_daily.csv)
+    # CSV columns: exchange_reserve, exchange_inflow, exchange_outflow, exchange_netflow
+    # FeatureHook expects: FlowInExUSD, FlowOutExUSD, SplyExNtv, AdrActCnt, TxTfrCnt, HashRate
     sym_lower = symbol.replace("USDT", "").lower()  # BTCUSDT → btc
     onchain_path = DATA_DIR / f"{sym_lower}_onchain_daily.csv"
     if onchain_path.exists():
-        sources["onchain_source"] = lambda _p=onchain_path: _cached(
-            "onchain", lambda: _load_latest_onchain(_p))
+        def _onchain_mapped(_p=onchain_path):
+            raw = _cached("onchain_raw", lambda: _load_latest_onchain(_p))
+            return {
+                "FlowInExUSD": float(raw.get("exchange_inflow", "nan")),
+                "FlowOutExUSD": float(raw.get("exchange_outflow", "nan")),
+                "SplyExNtv": float(raw.get("exchange_reserve", "nan")),
+                "AdrActCnt": math.nan,  # not in this CSV
+                "TxTfrCnt": math.nan,   # not in this CSV
+                "HashRate": math.nan,   # not in this CSV
+            }
+        sources["onchain_source"] = _onchain_mapped
 
     # Liquidation proxy
+    # CSV columns: ts, liq_proxy_volume, liq_proxy_buy, liq_proxy_sell, liq_proxy_imbalance, liq_proxy_cluster
+    # FeatureHook expects: liq_total_volume, liq_buy_volume, liq_sell_volume, liq_count
     liq_path = DATA_DIR / f"{symbol}_liquidation_proxy.csv"
     if liq_path.exists():
-        sources["liquidation_source"] = lambda _p=liq_path: _cached(
-            "liq", lambda: _load_latest_onchain(_p))
+        def _liq_mapped(_p=liq_path):
+            raw = _cached("liq_raw", lambda: _load_latest_onchain(_p))
+            return {
+                "liq_total_volume": float(raw.get("liq_proxy_volume", "nan")),
+                "liq_buy_volume": float(raw.get("liq_proxy_buy", "nan")),
+                "liq_sell_volume": float(raw.get("liq_proxy_sell", "nan")),
+                "liq_count": 0.0,  # proxy doesn't have count
+            }
+        sources["liquidation_source"] = _liq_mapped
 
     # Macro from fred_macro.csv or individual ETF files
     macro_path = DATA_DIR / "fred_macro.csv"

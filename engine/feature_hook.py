@@ -152,9 +152,21 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             return self._inference.get(symbol)
         return self._inference
 
+    @staticmethod
+    def _to_float_or_nan(val: Any) -> float:
+        """Convert value to float, returning NaN for None/missing. Preserves 0.0."""
+        if val is None:
+            return math.nan
+        try:
+            f = float(val)
+            return f  # 0.0 is valid, not NaN
+        except (TypeError, ValueError):
+            return math.nan
+
     def _resolve_bar_sources(self, symbol: str, event: Any) -> Dict[str, Any]:
         """Resolve all external data sources into keyword args for push_bar."""
         NaN = math.nan
+        _f = self._to_float_or_nan
         hour, dow = -1, -1
         ts = getattr(event, "ts", None)
         if isinstance(ts, datetime):
@@ -216,39 +228,39 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         if _onchain_src is not None:
             oc = self._safe_call_source(_onchain_src, "onchain", symbol)
             if oc is not None:
-                oc_flow_in = oc.get("FlowInExUSD", NaN) or NaN
-                oc_flow_out = oc.get("FlowOutExUSD", NaN) or NaN
-                oc_supply = oc.get("SplyExNtv", NaN) or NaN
-                oc_addr = oc.get("AdrActCnt", NaN) or NaN
-                oc_tx = oc.get("TxTfrCnt", NaN) or NaN
-                oc_hashrate = oc.get("HashRate", NaN) or NaN
+                oc_flow_in = _f(oc.get("FlowInExUSD"))
+                oc_flow_out = _f(oc.get("FlowOutExUSD"))
+                oc_supply = _f(oc.get("SplyExNtv"))
+                oc_addr = _f(oc.get("AdrActCnt"))
+                oc_tx = _f(oc.get("TxTfrCnt"))
+                oc_hashrate = _f(oc.get("HashRate"))
 
         liq_total_vol = liq_buy_vol = liq_sell_vol = liq_count = NaN
         _liq_src = self._resolve_source(self._liquidation_source, symbol)
         if _liq_src is not None:
             liq = self._safe_call_source(_liq_src, "liquidation", symbol)
             if liq is not None:
-                liq_total_vol = liq.get("liq_total_volume", NaN) or NaN
-                liq_buy_vol = liq.get("liq_buy_volume", NaN) or NaN
-                liq_sell_vol = liq.get("liq_sell_volume", NaN) or NaN
-                liq_count = liq.get("liq_count", NaN) or NaN
+                liq_total_vol = _f(liq.get("liq_total_volume"))
+                liq_buy_vol = _f(liq.get("liq_buy_volume"))
+                liq_sell_vol = _f(liq.get("liq_sell_volume"))
+                liq_count = _f(liq.get("liq_count"))
 
         mempool_fastest = mempool_economy = mempool_size = NaN
         if self._mempool_source is not None:
             mp = self._safe_call_source(self._mempool_source, "mempool", symbol)
             if mp is not None:
-                mempool_fastest = mp.get("fastest_fee", NaN) or NaN
-                mempool_economy = mp.get("economy_fee", NaN) or NaN
-                mempool_size = mp.get("mempool_size", NaN) or NaN
+                mempool_fastest = _f(mp.get("fastest_fee"))
+                mempool_economy = _f(mp.get("economy_fee"))
+                mempool_size = _f(mp.get("mempool_size"))
 
         macro_dxy = macro_spx = macro_vix = NaN
         macro_day = -1
         if self._macro_source is not None:
             macro = self._safe_call_source(self._macro_source, "macro", symbol)
             if macro is not None:
-                macro_dxy = macro.get("dxy", NaN) or NaN
-                macro_spx = macro.get("spx", NaN) or NaN
-                macro_vix = macro.get("vix", NaN) or NaN
+                macro_dxy = _f(macro.get("dxy"))
+                macro_spx = _f(macro.get("spx"))
+                macro_vix = _f(macro.get("vix"))
                 date_str = macro.get("date")
                 if date_str:
                     try:
@@ -261,8 +273,8 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         if self._sentiment_source is not None:
             sent = self._safe_call_source(self._sentiment_source, "sentiment", symbol)
             if sent is not None:
-                social_volume = sent.get("social_volume", NaN) or NaN
-                sentiment_score = sent.get("sentiment_score", NaN) or NaN
+                social_volume = _f(sent.get("social_volume"))
+                sentiment_score = _f(sent.get("sentiment_score"))
 
         return dict(hour=hour, dow=dow, funding_rate=funding_rate,
                     trades=trades, taker_buy_volume=taker_buy_volume,
