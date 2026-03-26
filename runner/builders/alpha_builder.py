@@ -103,20 +103,11 @@ def build_coordinator(
     logger.info("Initial balance for %s: $%.2f", runner_key, balance)
 
     # RustTickProcessor: full hot-path (~80μs vs ~1ms Python pipeline)
+    # DISABLED: tick processor has its own internal z-score buffer that doesn't
+    # sync with Python-side InferenceBridge. This causes z=0 in production
+    # because decide() reads from the Python bridge (empty) instead of the
+    # tick processor's Rust buffer. Re-enable once signal routing is unified.
     tick_proc = None
-    try:
-        from runner.builders.tick_processor_builder import build_tick_processor
-
-        tick_proc = build_tick_processor(
-            symbols=[symbol],
-            currency="USDT",
-            balance=balance,
-            model_dirs={runner_key: MODEL_BASE / cfg.get("model_dir", runner_key)},
-            zscore_window=model_info.get("zscore_window", 720),
-            zscore_warmup=model_info.get("zscore_warmup", 180),
-        )
-    except Exception:
-        logger.debug("Tick processor build skipped (non-fatal)", exc_info=True)
 
     # Coordinator config
     coordinator_cfg = CoordinatorConfig(
