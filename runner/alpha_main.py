@@ -277,6 +277,36 @@ def main() -> None:
         coord.start()
     logger.info("All %d coordinators started", len(coordinators))
 
+    # Instant signal: fetch the latest confirmed bar and process it immediately
+    # so we don't wait up to 59 min for the next bar close.
+    for runner_key, coord in coordinators.items():
+        try:
+            cfg = SYMBOL_CONFIG[runner_key]
+            symbol = cfg.get("symbol", runner_key)
+            interval = cfg.get("interval", "60")
+            bars = adapter.get_klines(symbol, interval=interval, limit=2)
+            if bars and len(bars) >= 2:
+                # bars[0] is the latest (possibly incomplete), bars[1] is previous confirmed
+                confirmed = bars[0] if bars[0].get("confirm", False) else bars[1]
+                ts_ms = confirmed.get("time") or confirmed.get("start") or 0
+                ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+                header = EventHeader.new_root(
+                    event_type=EventType.MARKET, version=1, source="instant_signal",
+                )
+                event = MarketEvent(
+                    header=header, ts=ts, symbol=symbol,
+                    open=Decimal(str(confirmed["open"])),
+                    high=Decimal(str(confirmed["high"])),
+                    low=Decimal(str(confirmed["low"])),
+                    close=Decimal(str(confirmed["close"])),
+                    volume=Decimal(str(confirmed["volume"])),
+                )
+                coord.emit(event, actor="live")
+                logger.info("Instant signal: emitted latest %s bar (%s) to %s",
+                            interval, ts.strftime("%H:%M"), runner_key)
+        except Exception:
+            logger.debug("Instant signal failed for %s (non-fatal)", runner_key, exc_info=True)
+
     # Graceful shutdown
     shutdown = False
 
