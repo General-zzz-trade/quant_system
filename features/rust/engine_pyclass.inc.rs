@@ -292,6 +292,132 @@ impl RustFeatureEngine {
         format!("RustFeatureEngine(bar_count={}, warmed_up={})", self.state.bar_count, self.state.bar_count >= 65)
     }
 
+    /// Push cross-market daily data (ETF closes, Treasury yield, USDT dominance).
+    ///
+    /// Call this once per bar (or when new daily data arrives) AFTER push_bar().
+    /// Computes derived features: spy_ret_1d, spy_ret_5d, spy_ret_10d, tlt_ret_5d,
+    /// uso_ret_5d (gold proxy), ethe_ret_1d, gbtc_vol_zscore, treasury chg_5d,
+    /// usdt_dominance passthrough, spy_extreme (|ret|>2% → sign).
+    #[pyo3(signature = (spy_close=f64::NAN, tlt_close=f64::NAN, uso_close=f64::NAN,
+                         xlf_close=f64::NAN, ethe_close=f64::NAN, gbtc_vol=f64::NAN,
+                         treasury_10y=f64::NAN, usdt_dominance=f64::NAN))]
+    fn push_cross_market(
+        &mut self,
+        spy_close: f64,
+        tlt_close: f64,
+        uso_close: f64,
+        xlf_close: f64,
+        ethe_close: f64,
+        gbtc_vol: f64,
+        treasury_10y: f64,
+        usdt_dominance: f64,
+    ) {
+        let st = &mut self.state;
+
+        // Store raw values and push to buffers
+        if !spy_close.is_nan() {
+            st.cm_spy_close = spy_close;
+            st.cm_spy_buf.push(spy_close);
+        }
+        if !tlt_close.is_nan() {
+            st.cm_tlt_close = tlt_close;
+            st.cm_tlt_buf.push(tlt_close);
+        }
+        if !uso_close.is_nan() {
+            st.cm_uso_close = uso_close;
+            st.cm_uso_buf.push(uso_close);
+        }
+        if !xlf_close.is_nan() {
+            st.cm_xlf_close = xlf_close;
+            st.cm_xlf_buf.push(xlf_close);
+        }
+        if !ethe_close.is_nan() {
+            st.cm_ethe_close = ethe_close;
+            st.cm_ethe_buf.push(ethe_close);
+        }
+        if !gbtc_vol.is_nan() {
+            st.cm_gbtc_vol = gbtc_vol;
+            st.cm_gbtc_vol_buf.push(gbtc_vol);
+        }
+        if !treasury_10y.is_nan() {
+            st.cm_treasury_10y = treasury_10y;
+            st.cm_treasury_buf.push(treasury_10y);
+        }
+        if !usdt_dominance.is_nan() {
+            st.cm_usdt_dominance = usdt_dominance;
+        }
+
+        // Compute derived features and update cached_features
+
+        // spy_ret_1d = SPY[0]/SPY[-1] - 1
+        if st.cm_spy_buf.size() >= 2 {
+            let prev = st.cm_spy_buf.back_n(1);
+            if prev > 0.0 {
+                let ret_1d = st.cm_spy_buf.back() / prev - 1.0;
+                self.cached_features[F_SPY_RET_1D] = ret_1d;
+                // spy_extreme: |ret|>2% → sign, else 0
+                // (mapped to spy_vix_change slot as an extreme indicator)
+                self.cached_features[F_SPY_VIX_CHANGE] = if ret_1d.abs() > 0.02 {
+                    ret_1d.signum()
+                } else {
+                    0.0
+                };
+            }
+        }
+
+        // spy_ret_5d
+        if st.cm_spy_buf.size() >= 6 {
+            let old = st.cm_spy_buf.back_n(5);
+            if old > 0.0 {
+                self.cached_features[F_SPY_RET_5D] = st.cm_spy_buf.back() / old - 1.0;
+            }
+        }
+
+        // spy_ret_10d
+        if st.cm_spy_buf.size() >= 11 {
+            let old = st.cm_spy_buf.back_n(10);
+            if old > 0.0 {
+                self.cached_features[F_SPY_RET_10D] = st.cm_spy_buf.back() / old - 1.0;
+            }
+        }
+
+        // tnx_change_5d (treasury yield 5-day change)
+        if st.cm_treasury_buf.size() >= 6 {
+            let old = st.cm_treasury_buf.back_n(5);
+            self.cached_features[F_TNX_CHANGE_5D] = st.cm_treasury_buf.back() - old;
+        }
+
+        // gold_ret_5d (using XLF as proxy for gold/macro sentiment)
+        if st.cm_xlf_buf.size() >= 6 {
+            let old = st.cm_xlf_buf.back_n(5);
+            if old > 0.0 {
+                self.cached_features[F_GOLD_RET_5D] = st.cm_xlf_buf.back() / old - 1.0;
+            }
+        }
+
+        // ibit_flow_zscore (using GBTC volume z-score as ETF flow proxy)
+        if st.cm_gbtc_vol_buf.size() >= 14 {
+            let mut tmp = [0.0_f64; 14];
+            for i in 0..14 {
+                tmp[i] = st.cm_gbtc_vol_buf.get(i);
+            }
+            self.cached_features[F_IBIT_FLOW_ZSCORE] = zscore_buf(&tmp, 1e-8);
+        }
+
+        // etf_premium: ETHE ret_1d (crypto ETF premium proxy)
+        if st.cm_ethe_buf.size() >= 2 {
+            let prev = st.cm_ethe_buf.back_n(1);
+            if prev > 0.0 {
+                self.cached_features[F_ETF_PREMIUM] = st.cm_ethe_buf.back() / prev - 1.0;
+            }
+        }
+
+        // USDT dominance passthrough
+        if !usdt_dominance.is_nan() {
+            self.cached_features[F_USDT_DOMINANCE] = usdt_dominance;
+        }
+    }
+
     /// Push BTC and ETH closes to compute V14 dominance features.
     ///
     /// Returns a dict with 4 keys:

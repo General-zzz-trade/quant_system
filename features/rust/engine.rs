@@ -140,7 +140,7 @@ const F_TOTAL_ZSCORE_14: usize = 122;
 const F_TOTAL_ZSCORE_30: usize = 123;
 const F_TOTAL_SUPPLY_CHANGE_7D: usize = 124;
 
-// --- ETF features (NaN placeholder, filled by Python) ---
+// --- ETF features (computed via push_cross_market) ---
 const F_SPY_RET_1D: usize = 125;
 const F_SPY_RET_5D: usize = 126;
 const F_SPY_RET_10D: usize = 127;
@@ -381,6 +381,24 @@ pub(crate) struct BarState {
     last_taker_buy_quote_volume: f64,
     last_quote_volume: f64,
     bar_count: i32,
+
+    // Cross-market daily values (set via push_cross_market)
+    cm_spy_close: f64,
+    cm_tlt_close: f64,
+    cm_uso_close: f64,
+    cm_xlf_close: f64,
+    cm_ethe_close: f64,
+    cm_gbtc_vol: f64,
+    cm_treasury_10y: f64,
+    cm_usdt_dominance: f64,
+    // Rolling buffers for computing returns
+    cm_spy_buf: CircBuf,     // 10-bar SPY for ret_1d/5d/10d
+    cm_tlt_buf: CircBuf,     // 6-bar TLT for ret_5d
+    cm_uso_buf: CircBuf,     // 6-bar USO for ret_5d
+    cm_xlf_buf: CircBuf,     // 6-bar XLF for ret_5d (gold proxy)
+    cm_ethe_buf: CircBuf,    // 2-bar ETHE for ret_1d
+    cm_gbtc_vol_buf: CircBuf, // 14-bar GBTC vol for zscore
+    cm_treasury_buf: CircBuf, // 6-bar treasury for chg_5d
 }
 
 // ── BarState: new(), push(), get_bar_history() ──

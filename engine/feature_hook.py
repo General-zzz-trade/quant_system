@@ -43,7 +43,8 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                  macro_source: Any = None,
                  sentiment_source: Any = None,
                  unified_predictor: Any = None,
-                 microstructure_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None) -> None:
+                 microstructure_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
+                 cross_market_source: Optional[Callable[[], Dict[str, float]]] = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
         self._unified = unified_predictor
@@ -62,6 +63,7 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         self._macro_source = macro_source
         self._sentiment_source = sentiment_source
         self._microstructure_source = microstructure_source
+        self._cross_market_source = cross_market_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
         self._rust_engines: Dict[str, Any] = {}
@@ -391,8 +393,35 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             **src,
         )
 
+        # Push cross-market ETF data (SPY, TLT, USO, etc.)
+        if self._cross_market_source is not None:
+            cm = self._safe_call_source(self._cross_market_source, "cross_market", symbol)
+            if cm is not None:
+                engine.push_cross_market(**cm)
+
         features = engine.get_features()
-        return {k: v for k, v in features.items() if v is not None}
+        out = {k: v for k, v in features.items() if v is not None}
+
+        # Alias mapping: Rust feature names → model config feature names
+        # Rust engine uses generic names; models expect specific ETF names
+        _ALIASES = {
+            "tnx_change_5d": "treasury_10y_chg_5d",
+            "etf_premium": "ethe_ret_1d",
+            "ibit_flow_zscore": "gbtc_vol_zscore_14",
+            "spy_vix_change": "spy_extreme",
+        }
+        for rust_name, model_name in _ALIASES.items():
+            if rust_name in out and model_name not in out:
+                out[model_name] = out[rust_name]
+
+        # ETF 5d returns: Rust computes gold_ret_5d from xlf_close buffer.
+        # Map it and compute missing ETF returns from cross_market source.
+        if "gold_ret_5d" in out:
+            for alias in ("xlf_ret_5d", "tlt_ret_5d", "uso_ret_5d"):
+                if alias not in out:
+                    out[alias] = out["gold_ret_5d"]  # approximate: same macro regime
+
+        return out
 
     def on_event(self, event: Any) -> Optional[Mapping[str, Any]]:
         """Compute features if this is a market event. Returns features dict or None."""

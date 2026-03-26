@@ -208,6 +208,41 @@ def _build_data_sources(symbol: str) -> dict:
         sources["macro_source"] = lambda _p=macro_path: _cached(
             "macro", lambda: _load_latest_macro(_p))
 
+    # Cross-market ETF data (SPY, TLT, USO, XLF/GLD, etc.)
+    macro_dir = DATA_DIR / "macro"
+    spy_etf = macro_dir / "SPY_daily.csv"
+    tlt_etf = macro_dir / "TLT_daily.csv"
+    uso_etf = macro_dir / "USO_daily.csv"
+    gld_etf = macro_dir / "GLD_daily.csv"
+    if spy_etf.exists():
+        def _cross_market_loader(
+            _spy=spy_etf, _tlt=tlt_etf, _uso=uso_etf, _gld=gld_etf,
+        ):
+            result: dict[str, float] = {}
+            try:
+                result["spy_close"] = _load_latest_csv_value(_spy, val_col="close")
+            except Exception:
+                pass
+            try:
+                if _tlt.exists():
+                    result["tlt_close"] = _load_latest_csv_value(_tlt, val_col="close")
+            except Exception:
+                pass
+            try:
+                if _uso.exists():
+                    result["uso_close"] = _load_latest_csv_value(_uso, val_col="close")
+            except Exception:
+                pass
+            try:
+                if _gld.exists():
+                    result["xlf_close"] = _load_latest_csv_value(_gld, val_col="close")
+            except Exception:
+                pass
+            return result
+
+        sources["cross_market_source"] = lambda: _cached(
+            "cross_market", _cross_market_loader)
+
     return sources
 
 

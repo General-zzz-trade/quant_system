@@ -468,15 +468,19 @@
             }
         }
 
-        // ETF features: NaN placeholders (filled by Python layer)
-        // out[F_SPY_RET_1D..F_ETF_PREMIUM] remain NaN from initialization
+        // ETF features: computed via push_cross_market() and cached in
+        // cached_features (PyO3 layer). In batch/get_features() path they
+        // remain NaN — filled only when push_cross_market() is called on
+        // the RustFeatureEngine wrapper.
 
-        // Cross-asset placeholders: NaN
+        // Cross-asset placeholders: NaN (dom_vs_sui, dom_vs_axs)
         // out[F_DOM_VS_SUI], out[F_DOM_VS_AXS] remain NaN
 
         // 4h feature placeholder: NaN
         // out[F_TF4H_BB_PCTB_20] remains NaN
 
-        // USDT dominance placeholder: NaN
-        // out[F_USDT_DOMINANCE] remains NaN
+        // USDT dominance: passthrough from push_cross_market
+        if !self.cm_usdt_dominance.is_nan() {
+            out[F_USDT_DOMINANCE] = self.cm_usdt_dominance;
+        }
 }

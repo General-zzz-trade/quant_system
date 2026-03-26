@@ -128,6 +128,23 @@ impl BarState {
             last_taker_buy_quote_volume: 0.0,
             last_quote_volume: 0.0,
             bar_count: 0,
+
+            // Cross-market
+            cm_spy_close: f64::NAN,
+            cm_tlt_close: f64::NAN,
+            cm_uso_close: f64::NAN,
+            cm_xlf_close: f64::NAN,
+            cm_ethe_close: f64::NAN,
+            cm_gbtc_vol: f64::NAN,
+            cm_treasury_10y: f64::NAN,
+            cm_usdt_dominance: f64::NAN,
+            cm_spy_buf: CircBuf::new(11),
+            cm_tlt_buf: CircBuf::new(6),
+            cm_uso_buf: CircBuf::new(6),
+            cm_xlf_buf: CircBuf::new(6),
+            cm_ethe_buf: CircBuf::new(2),
+            cm_gbtc_vol_buf: CircBuf::new(14),
+            cm_treasury_buf: CircBuf::new(6),
         }
     }
 
