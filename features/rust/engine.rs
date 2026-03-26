@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-pub const N_FEATURES: usize = 105;
+pub const N_FEATURES: usize = 137;
 const PI: f64 = std::f64::consts::PI;
 
 // Feature index constants
@@ -110,6 +110,56 @@ const F_SOCIAL_VOLUME_ZSCORE_24: usize = 102;
 const F_SOCIAL_SENTIMENT_SCORE: usize = 103;
 const F_SOCIAL_VOLUME_PRICE_DIV: usize = 104;
 
+// --- Phase 1: Alias features (zero computation) ---
+const F_OC_ADDR_ZSCORE_14: usize = 105;
+const F_OC_TX_ZSCORE_14: usize = 106;
+const F_OC_NETFLOW_ZSCORE_7: usize = 107;
+const F_BTC_DOM_DEV_20: usize = 108;
+const F_BTC_DOM_RET_24: usize = 109;
+
+// --- Phase 2: Interaction features ---
+const F_RSI_X_ATR: usize = 110;
+const F_RSI_X_VOL: usize = 111;
+const F_TREND_X_VOL: usize = 112;
+
+// --- Phase 3: IV derived features ---
+const F_IV_LEVEL: usize = 113;
+const F_IV_RANK_30D: usize = 114;
+const F_IV_TERM_SLOPE_DAILY: usize = 115;
+
+// --- Phase 4: On-chain z-score features ---
+const F_OC_FLOWIN_ZSCORE_7: usize = 116;
+const F_OC_FLOWIN_ZSCORE_14: usize = 117;
+const F_OC_FLOWOUT_ZSCORE_14: usize = 118;
+const F_OC_TX_ZSCORE_7: usize = 119;
+
+// --- Phase 5: Other features ---
+const F_RET_AUTOCORR_24: usize = 120;
+const F_OB_IMBALANCE_X_VOL: usize = 121;
+const F_TOTAL_ZSCORE_14: usize = 122;
+const F_TOTAL_ZSCORE_30: usize = 123;
+const F_TOTAL_SUPPLY_CHANGE_7D: usize = 124;
+
+// --- ETF features (NaN placeholder, filled by Python) ---
+const F_SPY_RET_1D: usize = 125;
+const F_SPY_RET_5D: usize = 126;
+const F_SPY_RET_10D: usize = 127;
+const F_SPY_VIX_CHANGE: usize = 128;
+const F_TNX_CHANGE_5D: usize = 129;
+const F_GOLD_RET_5D: usize = 130;
+const F_IBIT_FLOW_ZSCORE: usize = 131;
+const F_ETF_PREMIUM: usize = 132;
+
+// --- Cross-asset (NaN placeholder) ---
+const F_DOM_VS_SUI: usize = 133;
+const F_DOM_VS_AXS: usize = 134;
+
+// --- 4h feature (NaN placeholder) ---
+const F_TF4H_BB_PCTB_20: usize = 135;
+
+// --- USDT dominance (NaN placeholder) ---
+const F_USDT_DOMINANCE: usize = 136;
+
 pub const FEATURE_NAMES: [&str; N_FEATURES] = [
     "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
     "ma_cross_10_30", "ma_cross_5_20", "close_vs_ma20", "close_vs_ma50",
@@ -148,6 +198,27 @@ pub const FEATURE_NAMES: [&str; N_FEATURES] = [
     "mempool_fee_zscore_24", "mempool_size_zscore_24", "fee_urgency_ratio",
     "dxy_change_5d", "spx_btc_corr_30d", "spx_overnight_ret", "vix_zscore_14",
     "social_volume_zscore_24", "social_sentiment_score", "social_volume_price_div",
+    // Phase 1: Aliases
+    "oc_addr_zscore_14", "oc_tx_zscore_14", "oc_netflow_zscore_7",
+    "btc_dom_dev_20", "btc_dom_ret_24",
+    // Phase 2: Interactions
+    "rsi_x_atr", "rsi_x_vol", "trend_x_vol",
+    // Phase 3: IV derived
+    "iv_level", "iv_rank_30d", "iv_term_slope_daily",
+    // Phase 4: On-chain z-scores
+    "oc_flowin_zscore_7", "oc_flowin_zscore_14", "oc_flowout_zscore_14", "oc_tx_zscore_7",
+    // Phase 5: Other
+    "ret_autocorr_24", "ob_imbalance_x_vol", "total_zscore_14", "total_zscore_30",
+    "total_supply_change_7d",
+    // ETF (NaN placeholders)
+    "spy_ret_1d", "spy_ret_5d", "spy_ret_10d", "spy_vix_change",
+    "tnx_change_5d", "gold_ret_5d", "ibit_flow_zscore", "etf_premium",
+    // Cross-asset (NaN placeholders)
+    "dom_vs_sui", "dom_vs_axs",
+    // 4h feature (NaN placeholder)
+    "tf4h_bb_pctb_20",
+    // USDT dominance (NaN placeholder)
+    "usdt_dominance",
 ];
 
 // ── Primitive types: CircBuf, RollingWindow, EMAState, RSIState, ATRState, helpers ──
@@ -260,6 +331,20 @@ pub(crate) struct BarState {
     onchain_hashrate_ema: EMAState,
     last_onchain_supply: f64,
     last_onchain_hashrate: f64,
+
+    // Phase 4: separate flow-in / flow-out buffers for z-scores
+    onchain_flowin_buf: CircBuf,
+    onchain_flowout_buf: CircBuf,
+
+    // Phase 3: IV rank (30-bar window)
+    iv_window_30: CircBuf,
+
+    // Phase 5: OI raw buffers for total_zscore
+    oi_raw_buf_14: CircBuf,
+    oi_raw_buf_30: CircBuf,
+
+    // Phase 5: return history for autocorrelation
+    return_history_buf: CircBuf,
 
     liq_volume_buf: CircBuf,
     liq_imbalance_buf: CircBuf,

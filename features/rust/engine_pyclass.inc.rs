@@ -130,7 +130,7 @@ impl RustFeatureEngine {
         self.prev_momentum_val = new_mom;
     }
 
-    /// Get the current 105-feature vector as a dict {name: value}.
+    /// Get the current feature vector as a dict {name: value}.
     /// NaN values are converted to None. Returns cached features from last push_bar().
     #[pyo3(signature = ())]
     fn get_features(&self) -> std::collections::HashMap<String, Option<f64>> {
@@ -384,8 +384,15 @@ impl RustFeatureEngine {
             let btc_sum: f64 = self.dom_btc_ret_buf[n_btc - 24..].iter().sum();
             let eth_sum: f64 = self.dom_eth_ret_buf[n_eth - 24..].iter().sum();
             result.insert("btc_dom_return_diff_24h".to_string(), Some(btc_sum - eth_sum));
+            // Also set cached feature for btc_dom_ret_24
+            self.cached_features[F_BTC_DOM_RET_24] = btc_sum - eth_sum;
         } else {
             result.insert("btc_dom_return_diff_24h".to_string(), None);
+        }
+
+        // Set btc_dom_dev_20 in cached features
+        if let Some(&Some(dev)) = result.get("btc_dom_ratio_dev_20") {
+            self.cached_features[F_BTC_DOM_DEV_20] = dev;
         }
 
         result

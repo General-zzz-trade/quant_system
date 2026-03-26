@@ -84,6 +84,16 @@ impl BarState {
             last_onchain_supply: f64::NAN,
             last_onchain_hashrate: f64::NAN,
 
+            onchain_flowin_buf: CircBuf::new(14),
+            onchain_flowout_buf: CircBuf::new(14),
+
+            iv_window_30: CircBuf::new(30),
+
+            oi_raw_buf_14: CircBuf::new(14),
+            oi_raw_buf_30: CircBuf::new(30),
+
+            return_history_buf: CircBuf::new(48),
+
             liq_volume_buf: CircBuf::new(24),
             liq_imbalance_buf: CircBuf::new(6),
             last_liq_volume: f64::NAN,
@@ -194,6 +204,9 @@ impl BarState {
                 self.oi_change_ema_8.push(change);
             }
             self.last_oi = open_interest;
+            // Phase 5: raw OI for total_zscore
+            self.oi_raw_buf_14.push(open_interest);
+            self.oi_raw_buf_30.push(open_interest);
             if close > 0.0 && volume > 0.0 {
                 let raw_lev = open_interest / (close * volume);
                 self.leverage_proxy_ema.push(raw_lev);
@@ -226,6 +239,7 @@ impl BarState {
         if !implied_vol.is_nan() {
             self.last_implied_vol = implied_vol;
             self.iv_window_24.push(implied_vol);
+            self.iv_window_30.push(implied_vol);
         }
         if !put_call_ratio_val.is_nan() {
             self.last_put_call_ratio = put_call_ratio_val;
@@ -234,6 +248,13 @@ impl BarState {
         // --- On-chain ---
         if !oc_flow_in.is_nan() && !oc_flow_out.is_nan() {
             self.onchain_netflow_buf.push(oc_flow_in - oc_flow_out);
+        }
+        // Phase 4: separate flow-in/flow-out buffers
+        if !oc_flow_in.is_nan() {
+            self.onchain_flowin_buf.push(oc_flow_in);
+        }
+        if !oc_flow_out.is_nan() {
+            self.onchain_flowout_buf.push(oc_flow_out);
         }
         if !oc_supply.is_nan() {
             self.onchain_supply_buf.push(oc_supply);
@@ -348,6 +369,8 @@ impl BarState {
             let ret = (close - self.last_close) / self.last_close;
             self.return_window_20.push(ret);
             self.return_window_5.push(ret);
+            // Phase 5: return history for autocorrelation
+            self.return_history_buf.push(ret);
         }
         self.last_close = close;
 

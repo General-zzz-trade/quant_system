@@ -321,4 +321,162 @@
                 out[F_SOCIAL_VOLUME_PRICE_DIV] = 0.0;
             }
         }
+
+        // ================================================================
+        // Phase 1: Alias features (zero computation)
+        // ================================================================
+        // oc_addr_zscore_14 = active_addr_zscore_14
+        out[F_OC_ADDR_ZSCORE_14] = out[F_ACTIVE_ADDR_ZSCORE_14];
+        // oc_tx_zscore_14 = tx_count_zscore_14
+        out[F_OC_TX_ZSCORE_14] = out[F_TX_COUNT_ZSCORE_14];
+        // oc_netflow_zscore_7 = exchange_netflow_zscore
+        out[F_OC_NETFLOW_ZSCORE_7] = out[F_EXCHANGE_NETFLOW_ZSCORE];
+        // btc_dom_dev_20, btc_dom_ret_24: NaN — populated externally via push_dominance()
+        // out[F_BTC_DOM_DEV_20] remains NaN (set by init)
+        // out[F_BTC_DOM_RET_24] remains NaN (set by init)
+
+        // ================================================================
+        // Phase 2: Interaction features (pure multiplication)
+        // ================================================================
+        let rsi14_out = out[F_RSI_14];
+        let atr_norm_out = out[F_ATR_NORM_14];
+        if !rsi14_out.is_nan() && !atr_norm_out.is_nan() {
+            out[F_RSI_X_ATR] = rsi14_out * atr_norm_out;
+        }
+        if !rsi14_out.is_nan() && !vol20_v.is_nan() {
+            out[F_RSI_X_VOL] = rsi14_out * vol20_v;
+        }
+        let close_vs_ma50_out = out[F_CLOSE_VS_MA50];
+        if !close_vs_ma50_out.is_nan() && !vol20_v.is_nan() {
+            out[F_TREND_X_VOL] = close_vs_ma50_out * vol20_v;
+        }
+
+        // ================================================================
+        // Phase 3: IV derived features
+        // ================================================================
+        // iv_level = raw implied_vol value
+        if !self.last_implied_vol.is_nan() {
+            out[F_IV_LEVEL] = self.last_implied_vol;
+        }
+        // iv_rank_30d = percentile rank of current IV in 30-bar window
+        if self.iv_window_30.size() >= 30 && !self.last_implied_vol.is_nan() {
+            let current = self.last_implied_vol;
+            let mut below = 0_usize;
+            for i in 0..30 {
+                if self.iv_window_30.get(i) <= current {
+                    below += 1;
+                }
+            }
+            out[F_IV_RANK_30D] = below as f64 / 30.0;
+        }
+        // iv_term_slope_daily = NaN (requires term structure data not available)
+        // out[F_IV_TERM_SLOPE_DAILY] remains NaN
+
+        // ================================================================
+        // Phase 4: On-chain z-score features
+        // ================================================================
+        // oc_flowin_zscore_7
+        if self.onchain_flowin_buf.size() >= 7 {
+            let mut tmp = [0.0_f64; 7];
+            let start = self.onchain_flowin_buf.size() - 7;
+            for i in 0..7 {
+                tmp[i] = self.onchain_flowin_buf.get(start + i);
+            }
+            out[F_OC_FLOWIN_ZSCORE_7] = zscore_buf(&tmp, 1e-8);
+        }
+        // oc_flowin_zscore_14
+        if self.onchain_flowin_buf.size() >= 14 {
+            let mut tmp = [0.0_f64; 14];
+            for i in 0..14 {
+                tmp[i] = self.onchain_flowin_buf.get(i);
+            }
+            out[F_OC_FLOWIN_ZSCORE_14] = zscore_buf(&tmp, 1e-8);
+        }
+        // oc_flowout_zscore_14
+        if self.onchain_flowout_buf.size() >= 14 {
+            let mut tmp = [0.0_f64; 14];
+            for i in 0..14 {
+                tmp[i] = self.onchain_flowout_buf.get(i);
+            }
+            out[F_OC_FLOWOUT_ZSCORE_14] = zscore_buf(&tmp, 1e-8);
+        }
+        // oc_tx_zscore_7
+        if self.onchain_tx_buf.size() >= 7 {
+            let mut tmp = [0.0_f64; 7];
+            let start = self.onchain_tx_buf.size() - 7;
+            for i in 0..7 {
+                tmp[i] = self.onchain_tx_buf.get(start + i);
+            }
+            out[F_OC_TX_ZSCORE_7] = zscore_buf(&tmp, 1e-8);
+        }
+
+        // ================================================================
+        // Phase 5: Other features
+        // ================================================================
+        // ret_autocorr_24: autocorrelation of returns over 24 bars
+        if self.return_history_buf.size() >= 24 {
+            let start = self.return_history_buf.size() - 24;
+            let mut rets = [0.0_f64; 24];
+            for i in 0..24 {
+                rets[i] = self.return_history_buf.get(start + i);
+            }
+            let mut sum_r = 0.0;
+            for &r in &rets { sum_r += r; }
+            let mean_r = sum_r / 24.0;
+            let mut var_r = 0.0;
+            for &r in &rets { let d = r - mean_r; var_r += d * d; }
+            if var_r > 1e-16 {
+                let mut cov_r = 0.0;
+                for i in 0..23 {
+                    cov_r += (rets[i] - mean_r) * (rets[i + 1] - mean_r);
+                }
+                out[F_RET_AUTOCORR_24] = cov_r / var_r;
+            }
+        }
+
+        // ob_imbalance_x_vol = taker_imbalance * vol_ratio_20
+        let taker_imb_out = out[F_TAKER_IMBALANCE];
+        let vol_ratio_out = out[F_VOL_RATIO_20];
+        if !taker_imb_out.is_nan() && !vol_ratio_out.is_nan() {
+            out[F_OB_IMBALANCE_X_VOL] = taker_imb_out * vol_ratio_out;
+        }
+
+        // total_zscore_14: z-score of raw OI over 14 bars
+        if self.oi_raw_buf_14.size() >= 14 {
+            let mut tmp = [0.0_f64; 14];
+            for i in 0..14 {
+                tmp[i] = self.oi_raw_buf_14.get(i);
+            }
+            out[F_TOTAL_ZSCORE_14] = zscore_buf(&tmp, 1e-8);
+        }
+
+        // total_zscore_30: z-score of raw OI over 30 bars
+        if self.oi_raw_buf_30.size() >= 30 {
+            let mut tmp = [0.0_f64; 30];
+            for i in 0..30 {
+                tmp[i] = self.oi_raw_buf_30.get(i);
+            }
+            out[F_TOTAL_ZSCORE_30] = zscore_buf(&tmp, 1e-8);
+        }
+
+        // total_supply_change_7d: onchain supply 7-day change rate
+        if self.onchain_supply_buf.size() >= 7 {
+            let old_supply = self.onchain_supply_buf.get(self.onchain_supply_buf.size() - 7);
+            let new_supply = self.onchain_supply_buf.back();
+            if old_supply > 1e-8 {
+                out[F_TOTAL_SUPPLY_CHANGE_7D] = (new_supply - old_supply) / old_supply;
+            }
+        }
+
+        // ETF features: NaN placeholders (filled by Python layer)
+        // out[F_SPY_RET_1D..F_ETF_PREMIUM] remain NaN from initialization
+
+        // Cross-asset placeholders: NaN
+        // out[F_DOM_VS_SUI], out[F_DOM_VS_AXS] remain NaN
+
+        // 4h feature placeholder: NaN
+        // out[F_TF4H_BB_PCTB_20] remains NaN
+
+        // USDT dominance placeholder: NaN
+        // out[F_USDT_DOMINANCE] remains NaN
 }
