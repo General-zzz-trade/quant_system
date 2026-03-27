@@ -63,14 +63,26 @@ class BinanceAdapter:
         self._rate_policy = make_rate_limit_policy()
         self._client = BinanceRestClient(rest_cfg, rate_policy=self._rate_policy)
         self._connected = False
+        self._hedge_mode = False
 
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
 
     def connect(self) -> bool:
-        """Test connection by fetching account balance."""
+        """Test connection by fetching account balance and position mode."""
         try:
+            # Detect Hedge Mode
+            try:
+                pm = self._client.request_signed(
+                    method="GET", path="/fapi/v1/positionSide/dual",
+                )
+                self._hedge_mode = pm.get("dualSidePosition", False)
+                if self._hedge_mode:
+                    logger.info("Binance Hedge Mode detected — using positionSide")
+            except Exception:
+                pass
+
             data = self._client.request_signed(
                 method="GET",
                 path="/fapi/v2/account",
@@ -196,14 +208,21 @@ class BinanceAdapter:
         self, symbol: str, side: str, qty: float,
         *, reduce_only: bool = False,
     ) -> dict:
-        """Send a market order."""
+        """Send a market order. Supports both One-way and Hedge Mode."""
+        buy = side.lower() == "buy"
         params: dict[str, Any] = {
             "symbol": symbol,
-            "side": "BUY" if side.lower() == "buy" else "SELL",
+            "side": "BUY" if buy else "SELL",
             "type": "MARKET",
             "quantity": str(qty),
         }
-        if reduce_only:
+        # Hedge Mode: positionSide required
+        if self._hedge_mode:
+            if reduce_only:
+                params["positionSide"] = "SHORT" if buy else "LONG"
+            else:
+                params["positionSide"] = "LONG" if buy else "SHORT"
+        elif reduce_only:
             params["reduceOnly"] = True
         try:
             data = self._client.request_signed(
@@ -235,17 +254,23 @@ class BinanceAdapter:
         self, symbol: str, side: str, qty: float, price: float,
         *, tif: str = "GTC", reduce_only: bool = False, post_only: bool = False,
     ) -> dict:
-        """Send a limit order."""
+        """Send a limit order. Supports Hedge Mode."""
+        buy = side.lower() == "buy"
         time_in_force = "GTX" if post_only else tif.upper()
         params: dict[str, Any] = {
             "symbol": symbol,
-            "side": "BUY" if side.lower() == "buy" else "SELL",
+            "side": "BUY" if buy else "SELL",
             "type": "LIMIT",
             "quantity": str(qty),
             "price": str(price),
             "timeInForce": time_in_force,
         }
-        if reduce_only:
+        if self._hedge_mode:
+            if reduce_only:
+                params["positionSide"] = "SHORT" if buy else "LONG"
+            else:
+                params["positionSide"] = "LONG" if buy else "SHORT"
+        elif reduce_only:
             params["reduceOnly"] = True
         try:
             data = self._client.request_signed(
