@@ -306,7 +306,7 @@ class AlphaDecisionModule:
                     self._audit.log_exit(
                         symbol=self._symbol,
                         side="sell" if old_signal == 1 else "buy",
-                        qty=0.0, price=close, reason=reason,
+                        qty=float(self._current_qty), price=close, reason=reason,
                         entry_price=self._entry_price,
                     )
                 except Exception:

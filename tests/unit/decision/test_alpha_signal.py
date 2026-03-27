@@ -151,18 +151,17 @@ class TestSignalDiscretizer:
         assert z == pytest.approx(2.0)
         bridge.apply_constraints.assert_called_once()
 
-    def test_regime_filtered_forces_flat(self):
-        """When regime_ok=False, deadzone=999 forces flat."""
+    def test_regime_filtered_widens_deadzone(self):
+        """When regime_ok=False, deadzone is widened by 1.5x (not blocked)."""
         bridge = self._make_bridge(z_val=2.0, signal=0)
         sd = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=0.5, min_hold=5, max_hold=60, long_only=False,
         )
         signal, z = sd.discretize(pred=0.01, hour_key=100, regime_ok=False)
-        assert signal == 0
-        # Verify deadzone=999.0 was passed
+        # Verify deadzone=0.75 (0.5 * 1.5) was passed instead of 999.0
         call_kwargs = bridge.apply_constraints.call_args
-        assert call_kwargs[1]["deadzone"] == 999.0
+        assert call_kwargs[1]["deadzone"] == pytest.approx(0.75)
 
     def test_z_clamp_extreme_no_position(self):
         """Z > 3.5 with no position clamped to 3.0."""

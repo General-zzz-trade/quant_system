@@ -402,8 +402,10 @@ class SignalDiscretizer:
                 self._symbol, abs(old_z), z,
             )
 
-        # Regime filter: pass deadzone=999 to force flat
-        effective_dz = 999.0 if not regime_ok else self.deadzone
+        # Regime filter: widen deadzone by 50% instead of blocking all signals.
+        # Position sizing already applies 0.6x discount when regime_active=False,
+        # so we only raise the bar slightly — not block outright.
+        effective_dz = self.deadzone * 1.5 if not regime_ok else self.deadzone
 
         signal = int(self._bridge.apply_constraints(
             self._symbol, pred, hour_key,

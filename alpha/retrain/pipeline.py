@@ -175,6 +175,66 @@ def check_needs_retrain(
     return False, "model is healthy"
 
 
+# ── Per-bar feature diversity check ──
+# Features computed from OHLCV that change every bar (not daily/weekly external data).
+# Models that lack these features produce degenerate (nearly constant) predictions
+# when daily features stay constant between data refreshes.
+_PER_BAR_FEATURES = frozenset({
+    "ret_1", "ret_3", "ret_6", "ret_12", "ret_24",
+    "price_acceleration", "trend_x_vol", "ret_autocorr_24",
+    "rsi_x_atr", "rsi_x_vol", "rsi_14", "rsi_6",
+    "bb_pctb_20", "bb_width_20", "atr_norm_14",
+    "ma_cross_5_20", "ma_cross_10_30", "macd_hist",
+    "close_vs_ma20", "close_vs_ma50", "vwap_dev_20",
+    "vol_ratio_20", "vol_ma_ratio_5_20", "volume_momentum_10",
+    "mean_reversion_20", "parkinson_vol", "cvd_20",
+    "funding_zscore_24", "basis", "basis_zscore_24", "basis_momentum",
+})
+
+_MIN_PER_BAR_FEATURES = 4  # minimum per-bar features to avoid prediction degeneracy
+
+
+def check_prediction_diversity(config: Dict[str, Any]) -> Tuple[bool, str]:
+    """Check if model has enough per-bar features to avoid prediction degeneracy.
+
+    Tree models (LGBM/XGB) produce discrete outputs. When most split features
+    are daily/weekly data that stays constant intra-day, predictions collapse to
+    a handful of unique values, making z-score normalization ineffective.
+
+    Ridge models produce continuous outputs and mitigate this, but the underlying
+    feature set should still include per-bar features for signal quality.
+
+    Returns (ok, message).
+    """
+    has_ridge = False
+    min_per_bar = float("inf")
+    for hm in config.get("horizon_models", []):
+        feats = set(hm.get("features", []))
+        per_bar = feats & _PER_BAR_FEATURES
+        min_per_bar = min(min_per_bar, len(per_bar))
+        if hm.get("ridge"):
+            has_ridge = True
+
+    if min_per_bar == float("inf"):
+        return True, "no horizon models"
+
+    if min_per_bar >= _MIN_PER_BAR_FEATURES:
+        return True, f"{min_per_bar} per-bar features (>= {_MIN_PER_BAR_FEATURES})"
+
+    if has_ridge:
+        # Ridge produces continuous outputs, partially mitigating degeneracy
+        return True, (
+            f"only {min_per_bar} per-bar features but Ridge present "
+            f"(continuous output mitigates LGBM degeneracy)"
+        )
+
+    return False, (
+        f"only {min_per_bar} per-bar features (< {_MIN_PER_BAR_FEATURES}) "
+        f"and no Ridge model — prediction degeneracy risk "
+        f"(z-score buffer will have few unique values)"
+    )
+
+
 def retrain_symbol(
     symbol: str,
     horizons: List[int],
@@ -296,6 +356,13 @@ def retrain_symbol(
     result["new_sharpe"] = new_sharpe
     result["new_avg_ic"] = new_avg_ic
     result["new_trades"] = new_trades
+
+    # Prediction diversity check (warn-only, non-blocking)
+    div_ok, div_msg = check_prediction_diversity(new_config)
+    if not div_ok:
+        logger.warning("Prediction diversity WARNING for %s: %s", symbol, div_msg)
+    else:
+        logger.info("Prediction diversity OK for %s: %s", symbol, div_msg)
 
     # Validation gates
     gates = {

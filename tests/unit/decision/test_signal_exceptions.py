@@ -263,17 +263,17 @@ class TestSignalDiscretizerExceptions:
         signal, z = disc.discretize(0.5, hour_key=5, regime_ok=True, current_signal=1)
         assert z == 4.0  # not clamped
 
-    def test_regime_not_ok_forces_high_deadzone(self):
-        """Regime not OK → effective deadzone = 999 (forces flat)."""
+    def test_regime_not_ok_widens_deadzone(self):
+        """Regime not OK → effective deadzone = base * 1.5 (widened, not blocked)."""
         bridge = _make_bridge(z_val=1.5, constraint_val=0)
         disc = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=1.0, min_hold=18, max_hold=120,
         )
         signal, z = disc.discretize(0.5, hour_key=5, regime_ok=False)
-        # apply_constraints called with deadzone=999.0
+        # apply_constraints called with deadzone=1.5 (1.0 * 1.5)
         call_kwargs = bridge.apply_constraints.call_args
-        assert call_kwargs[1]["deadzone"] == 999.0 or call_kwargs[0][3] == 999.0
+        assert call_kwargs[1]["deadzone"] == pytest.approx(1.5)
 
     def test_long_only_passed_to_bridge(self):
         """long_only flag is forwarded to the bridge."""

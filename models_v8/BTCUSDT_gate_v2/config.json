@@ -27,7 +27,8 @@
         "cvd_20",
         "fgi_normalized"
       ],
-      "ic": 0.029931688063033406
+      "ic": 0.029931688063033406,
+      "ridge": "ridge_h12.pkl"
     },
     {
       "horizon": 24,
@@ -49,7 +50,8 @@
         "total_supply_change_7d",
         "ret_24"
       ],
-      "ic": 0.07645932749485895
+      "ic": 0.07645932749485895,
+      "ridge": "ridge_h24.pkl"
     }
   ],
   "primary_horizon": 24,

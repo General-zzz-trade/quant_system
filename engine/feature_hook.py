@@ -18,6 +18,16 @@ _log = logger
 # Module-level close price cache shared across hook instances for V14 dominance.
 _last_closes: Dict[str, float] = {}
 
+# Alias mapping: Rust feature names → model config feature names.
+# Applied after get_features() to bridge naming gaps between Rust engine
+# output and model feature expectations.
+_RUST_ALIASES: Dict[str, str] = {
+    "tnx_change_5d": "treasury_10y_chg_5d",
+    "etf_premium": "ethe_ret_1d",
+    "ibit_flow_zscore": "gbtc_vol_zscore_14",
+    "spy_vix_change": "spy_extreme",
+}
+
 
 class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
     """Bridges RustFeatureEngine into the engine pipeline.
@@ -412,6 +422,50 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
 
     # _push_dominance provided by DominanceMixin
 
+    @staticmethod
+    def _fill_derived_features(features: Dict[str, Any]) -> None:
+        """Fill interaction/derived features from their components when Rust left them NaN.
+
+        This is a Python-level fallback for features that depend on other features
+        and may be NaN during early warmup or when Rust computation paths diverge.
+        Only fills if the feature is missing AND components are available.
+        """
+        # trend_x_vol = close_vs_ma50 * vol_20
+        if "trend_x_vol" not in features:
+            cv50 = features.get("close_vs_ma50")
+            vol20 = features.get("vol_20")
+            if cv50 is not None and vol20 is not None:
+                features["trend_x_vol"] = cv50 * vol20
+
+        # price_acceleration = current_momentum - prev_momentum
+        # (Rust handles this; Python fallback only if Rust missed it but ma_cross_10_30 exists)
+        # Not easy to compute here since we don't have prev_momentum state — skip.
+
+        # rsi_x_atr = rsi_14 * atr_norm_14
+        if "rsi_x_atr" not in features:
+            rsi = features.get("rsi_14")
+            atr = features.get("atr_norm_14")
+            if rsi is not None and atr is not None:
+                features["rsi_x_atr"] = rsi * atr
+
+        # rsi_x_vol = rsi_14 * vol_20
+        if "rsi_x_vol" not in features:
+            rsi = features.get("rsi_14")
+            vol20 = features.get("vol_20")
+            if rsi is not None and vol20 is not None:
+                features["rsi_x_vol"] = rsi * vol20
+
+    @staticmethod
+    def _apply_aliases(features: Dict[str, Any]) -> None:
+        """Apply Rust→model alias mapping to features dict in-place.
+
+        Called after all feature sources (Rust engine, cross-asset, dominance,
+        microstructure) have been merged, so all possible Rust names are present.
+        """
+        for rust_name, model_name in _RUST_ALIASES.items():
+            if rust_name in features and model_name not in features:
+                features[model_name] = features[rust_name]
+
     def _rust_push(self, symbol: str, close_f: float, volume: float,
                    high: float, low: float, open_: float, event: Any) -> Dict[str, Any]:
         """Push bar to per-symbol RustFeatureEngine and return features dict."""
@@ -436,21 +490,9 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         out = {k: v for k, v in features.items() if v is not None}
 
         # Alias mapping: Rust feature names → model config feature names
-        _ALIASES = {
-            "tnx_change_5d": "treasury_10y_chg_5d",
-            "etf_premium": "ethe_ret_1d",
-            "ibit_flow_zscore": "gbtc_vol_zscore_14",
-            "spy_vix_change": "spy_extreme",
-            "btc_dom_ratio_dev_20": "btc_dom_dev_20",
-            "btc_dom_return_diff_24h": "btc_dom_ret_24",
-        }
-        for rust_name, model_name in _ALIASES.items():
+        for rust_name, model_name in _RUST_ALIASES.items():
             if rust_name in out and model_name not in out:
                 out[model_name] = out[rust_name]
-
-        # Legacy alias: gold_ret_5d → xlf_ret_5d (both now computed natively by Rust)
-        # tlt_ret_5d, uso_ret_5d, xlf_ret_5d, ethe_ret_1d are all computed independently
-        # in Rust push_cross_market — no approximate mapping needed.
 
         return out
 
@@ -508,6 +550,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             # Microstructure features (VPIN, OB imbalance) — optional, live-only
             self._merge_microstructure(symbol, features)
 
+            # Final pass: fill interaction features from components + apply aliases
+            self._fill_derived_features(features)
+            self._apply_aliases(features)
+
             self._track_nan(symbol, features)
             self._last_features[symbol] = features
             return features
@@ -539,6 +585,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
 
         # Microstructure features (VPIN, OB imbalance) — optional, live-only
         self._merge_microstructure(symbol, features)
+
+        # Final pass: fill interaction features from components + apply aliases
+        self._fill_derived_features(features)
+        self._apply_aliases(features)
 
         self._track_nan(symbol, features)
         self._last_features[symbol] = features
