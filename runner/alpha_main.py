@@ -251,6 +251,19 @@ def main() -> None:
     if restored_count > 0:
         logger.info("Restored %d/%d z-score checkpoints — signals ready immediately", restored_count, len(modules))
 
+    # Seed cross-symbol close prices so dominance features work during warmup
+    try:
+        from engine.feature_hook import _last_closes
+        for sym in ["BTCUSDT", "ETHUSDT"]:
+            ticker = adapter.get_ticker(sym)
+            if ticker:
+                price = float(getattr(ticker, "last_price", 0) or 0)
+                if price > 0:
+                    _last_closes[sym] = price
+                    logger.info("Seeded %s close=%.2f for dominance", sym, price)
+    except Exception:
+        logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
+
     # Parallel warmup — each coordinator warms up in its own thread
     # (execution bridge detached — no real orders)
     from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -398,19 +398,29 @@ def _build_data_sources(symbol: str, interval: str = "60") -> dict:
         if _vix_cm and _vix_cm.loaded:
             _cm_cursors["treasury_10y"] = _vix_cm  # VIX as treasury proxy
 
-    # USDT dominance
+    # USDT dominance — try dedicated CSV, then UUP (US Dollar ETF) as proxy
     _usdt_dom_cm = None
-    for _ud_path in [DATA_DIR / "usdt_dominance.csv", macro_dir / "usdt_dominance.csv"]:
+    _usdt_paths = [
+        DATA_DIR / "usdt_dominance.csv",
+        macro_dir / "usdt_dominance.csv",
+    ]
+    for _ud_path in _usdt_paths:
         if _ud_path.exists():
             try:
                 _usdt_dom_cm = CsvCursor(_ud_path, "date", "value", ts_unit="date")
                 if _usdt_dom_cm.loaded:
                     logger.info("Loaded usdt_dominance from %s", _ud_path)
                     break
-                else:
-                    _usdt_dom_cm = None
+                _usdt_dom_cm = None
             except Exception:
                 _usdt_dom_cm = None
+    # Fallback: UUP (US Dollar ETF) as proxy — higher USD → higher USDT dominance
+    if _usdt_dom_cm is None:
+        uup_path = macro_dir / "UUP_daily.csv"
+        if uup_path.exists():
+            _usdt_dom_cm = CsvCursor(uup_path, "date", "close", ts_unit="date")
+            if _usdt_dom_cm and _usdt_dom_cm.loaded:
+                logger.info("Using UUP as usdt_dominance proxy from %s", uup_path)
 
     if _cm_cursors:
         def _cross_market_at_ts():
