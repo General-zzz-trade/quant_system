@@ -753,15 +753,26 @@ def main() -> None:
                     break
 
         for interval, symbols in interval_symbols.items():
-            ws = BybitWsClient(
-                symbols=symbols,
-                interval=interval,
-                on_bar=_on_bar,
-                on_tick=_on_tick,
-            )
+            if args.venue == "binance":
+                from execution.adapters.binance.ws_kline_client import BinanceWsClient
+                ws = BinanceWsClient(
+                    symbols=symbols,
+                    interval=interval,
+                    on_bar=_on_bar,
+                    on_tick=_on_tick,
+                    testnet=True,
+                )
+            else:
+                ws = BybitWsClient(
+                    symbols=symbols,
+                    interval=interval,
+                    on_bar=_on_bar,
+                    on_tick=_on_tick,
+                )
             ws.start()
             ws_clients.append(ws)
-            logger.info("WS started: interval=%s symbols=%s", interval, symbols)
+            logger.info("WS started: interval=%s symbols=%s venue=%s",
+                        interval, symbols, args.venue)
 
     # Daily drawdown kill switch
     _kill_switch = RustKillSwitch()
