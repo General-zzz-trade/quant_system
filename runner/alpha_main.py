@@ -617,6 +617,21 @@ def main() -> None:
                 except Exception:
                     logger.exception("Error emitting bar to %s", runner_key)
 
+                # Override z-score buffer with batch prediction (fixes incremental divergence)
+                if "4h" not in runner_key and "15m" not in runner_key:
+                    try:
+                        from runner.batch_predictor import predict_latest
+                        model_dir = cfg.get("model_dir", runner_key)
+                        batch_pred = predict_latest(ws_symbol, model_dir)
+                        if batch_pred is not None:
+                            am = modules.get(runner_key)
+                            if am is not None:
+                                bridge = am._discretizer._bridge
+                                hour_key = am._bars_processed
+                                bridge.zscore_normalize(ws_symbol, batch_pred, hour_key)
+                    except Exception:
+                        pass  # fallback to incremental prediction
+
     # WebSocket setup
     ws_clients: list[BybitWsClient] = []
     if args.ws:
