@@ -21,7 +21,18 @@ logger = logging.getLogger(__name__)
 
 
 class BybitExecutionAdapter:
-    """Adapt BybitAdapter to the framework ExecutionAdapter protocol."""
+    """Adapt BybitAdapter to the framework ExecutionAdapter protocol.
+
+    # TODO(perf): WS order submission (~20ms vs ~200ms REST)
+    # Bybit supports WS trade API at wss://stream.bybit.com/v5/trade
+    # Requirements for implementation:
+    #   1. New Rust RustBybitWsOrderGateway (existing RustWsOrderGateway is Binance-only)
+    #   2. Bybit HMAC auth handshake on dedicated trade WS connection
+    #   3. JSON-RPC format: {"header":{"X-BAPI-TIMESTAMP":..., ...}, "op":"order.create", ...}
+    #   4. Response parsing, timeout handling, reconnect logic
+    #   5. REST fallback when WS disconnected
+    # Estimated: ~300 lines Rust + ~150 lines Python. Deferred until latency is bottleneck.
+    """
 
     def __init__(self, adapter: Any) -> None:
         self._adapter = adapter

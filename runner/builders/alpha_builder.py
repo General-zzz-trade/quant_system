@@ -6,9 +6,12 @@ import csv
 import logging
 import math
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, TYPE_CHECKING
 
 from _quant_hotpath import RustInferenceBridge
+
+if TYPE_CHECKING:
+    from data.oi_cache import BinanceOICache
 
 from decision.modules.alpha import AlphaDecisionModule
 from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
@@ -230,7 +233,8 @@ def _load_latest_onchain(path: Path) -> dict:
         return {}
 
 
-def _build_data_sources(symbol: str, interval: str = "60") -> dict:
+def _build_data_sources(symbol: str, interval: str = "60",
+                        oi_cache: Optional["BinanceOICache"] = None) -> dict:
     """Build all external data source callables for FeatureComputeHook.
 
     Uses CsvCursor objects to load full CSV history so that during warmup
@@ -259,18 +263,68 @@ def _build_data_sources(symbol: str, interval: str = "60") -> dict:
             logger.debug("CsvCursor: funding_rate loaded %d rows", len(_funding_cursor._timestamps))
 
     # ── Open interest (hourly, ts in epoch-ms) ──
+    # CSV cursor as baseline (needed for warmup bars with historical timestamps)
+    _oi_csv_cursor: CsvCursor | None = None
     oi_path = DATA_DIR / f"{symbol}_open_interest.csv"
     if oi_path.exists():
-        _oi_cursor = CsvCursor(oi_path, "timestamp", "sum_open_interest", ts_unit="ms")
-        if _oi_cursor.loaded:
-            sources["oi_source"] = lambda: _oi_cursor.get(_bar_ts[0])
+        _oi_csv_cursor = CsvCursor(oi_path, "timestamp", "sum_open_interest", ts_unit="ms")
+        if not _oi_csv_cursor.loaded:
+            _oi_csv_cursor = None
+
+    # Live OI from BinanceOICache (55s refresh) with CSV fallback
+    if oi_cache is not None:
+        def _oi_live(_cache=oi_cache, _csv=_oi_csv_cursor):
+            # During warmup (_bar_ts > 0 and historical), use CSV for correct values
+            ts = _bar_ts[0]
+            if ts > 0 and _csv is not None:
+                import time as _t
+                now_ms = int(_t.time() * 1000)
+                # If bar is more than 5 minutes old, it's a warmup bar — use CSV
+                if now_ms - ts > 300_000:
+                    return _csv.get(ts)
+            # Live bar: prefer cache
+            cached = _cache.get()
+            oi_val = cached.get("open_interest", math.nan)
+            if not math.isnan(oi_val) and oi_val > 0:
+                return oi_val
+            # Fallback to CSV latest
+            if _csv is not None:
+                return _csv.get(ts)
+            return math.nan
+        sources["oi_source"] = _oi_live
+        logger.info("OI source: BinanceOICache (live, 55s) + CSV fallback for %s", symbol)
+    elif _oi_csv_cursor is not None:
+        sources["oi_source"] = lambda: _oi_csv_cursor.get(_bar_ts[0])
 
     # ── Long/short ratio (hourly, ts in epoch-ms) ──
+    # CSV cursor as baseline
+    _ls_csv_cursor: CsvCursor | None = None
     ls_path = DATA_DIR / f"{symbol}_ls_ratio.csv"
     if ls_path.exists():
-        _ls_cursor = CsvCursor(ls_path, "timestamp", "long_short_ratio", ts_unit="ms")
-        if _ls_cursor.loaded:
-            sources["ls_ratio_source"] = lambda: _ls_cursor.get(_bar_ts[0])
+        _ls_csv_cursor = CsvCursor(ls_path, "timestamp", "long_short_ratio", ts_unit="ms")
+        if not _ls_csv_cursor.loaded:
+            _ls_csv_cursor = None
+
+    # Live LS ratio from BinanceOICache with CSV fallback
+    if oi_cache is not None:
+        def _ls_live(_cache=oi_cache, _csv=_ls_csv_cursor):
+            ts = _bar_ts[0]
+            if ts > 0 and _csv is not None:
+                import time as _t
+                now_ms = int(_t.time() * 1000)
+                if now_ms - ts > 300_000:
+                    return _csv.get(ts)
+            cached = _cache.get()
+            ls_val = cached.get("ls_ratio", math.nan)
+            if not math.isnan(ls_val):
+                return ls_val
+            if _csv is not None:
+                return _csv.get(ts)
+            return math.nan
+        sources["ls_ratio_source"] = _ls_live
+        logger.info("LS ratio source: BinanceOICache (live, 55s) + CSV fallback for %s", symbol)
+    elif _ls_csv_cursor is not None:
+        sources["ls_ratio_source"] = lambda: _ls_csv_cursor.get(_bar_ts[0])
 
     # ── Spot close (hourly, ts in epoch-ms column "open_time") ──
     spot_path = DATA_DIR / f"{symbol}_spot_1h.csv"
@@ -516,6 +570,7 @@ def build_coordinator(
     model_info: dict,
     adapter: Any,
     dry_run: bool = False,
+    oi_cache: Optional["BinanceOICache"] = None,
 ) -> tuple[EngineCoordinator, AlphaDecisionModule]:
     """Build a full coordinator pipeline for one runner.
 
@@ -527,7 +582,7 @@ def build_coordinator(
 
     # External data sources (CSV files refreshed by data-refresh timer)
     interval = cfg.get("interval", "60")
-    data_sources = _build_data_sources(symbol, interval=interval)
+    data_sources = _build_data_sources(symbol, interval=interval, oi_cache=oi_cache)
     n_sources = len(data_sources)
     logger.info("Data sources for %s: %d connected (%s)",
                 runner_key, n_sources, ", ".join(sorted(data_sources.keys())))

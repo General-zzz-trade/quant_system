@@ -40,8 +40,11 @@ from event.types import EventType, ControlEvent, FillEvent, FundingEvent, Market
 from execution.adapters.bybit.ws_client import BybitWsClient
 from runner.builders.alpha_builder import build_coordinator as _build_coordinator
 from strategy.config import SYMBOL_CONFIG
+from monitoring.notify import send_alert, AlertLevel
+from monitoring.rolling_sharpe import RollingSharpeTracker
 from runner.limit_order_manager import LimitOrderManager
 from runner.warmup import warmup as _warmup
+from data.oi_cache import BinanceOICache
 
 # Z-score buffer checkpoint paths
 _ZSCORE_CHECKPOINT_DIR = Path("data/runtime/zscore_checkpoints")
@@ -135,6 +138,19 @@ def main() -> None:
     coordinators: dict[str, EngineCoordinator] = {}
     modules: dict[str, AlphaDecisionModule] = {}
 
+    # Live OI/LS caches — one per unique symbol (shared across 1h/4h runners)
+    oi_caches: dict[str, BinanceOICache] = {}
+    for runner_key in args.symbols:
+        cfg = SYMBOL_CONFIG.get(runner_key)
+        if cfg is None:
+            continue
+        sym = cfg.get("symbol", runner_key)
+        if sym not in oi_caches:
+            oi_caches[sym] = BinanceOICache(sym)
+    for sym, cache in oi_caches.items():
+        cache.start()
+        logger.info("Started BinanceOICache for %s (55s refresh)", sym)
+
     for runner_key in args.symbols:
         cfg = SYMBOL_CONFIG.get(runner_key)
         if cfg is None:
@@ -151,6 +167,7 @@ def main() -> None:
             model_info=model_info,
             adapter=adapter,
             dry_run=args.dry_run,
+            oi_cache=oi_caches.get(symbol),
         )
         coordinators[runner_key] = coord
         modules[runner_key] = module
@@ -686,6 +703,12 @@ def main() -> None:
     _SCALE = 100_000_000
     _loop_iter = 0
 
+    # Live Sharpe tracker — alerts when Sharpe < 0 for 3 consecutive checks
+    _sharpe_tracker = RollingSharpeTracker(window=720, interval="1h")
+    _sharpe_neg_streak: dict[str, int] = {}  # symbol -> consecutive negative count
+    _SHARPE_NEG_THRESHOLD = 3  # alert after N consecutive negative checks
+    _last_pnl_trade_count: int = 0  # track how many trades we've already fed
+
     def _get_equity() -> float | None:
         """Read equity from the first coordinator's state store (Fd8 → float)."""
         for coord in coordinators.values():
@@ -885,6 +908,55 @@ def main() -> None:
                             )
                     except Exception:
                         pass
+
+            # Live Sharpe check every 3600 iterations (~1 hour)
+            if _loop_iter % 3600 == 0 and pnl_tracker is not None:
+                try:
+                    # Feed new trades into the sharpe tracker
+                    all_trades = pnl_tracker.trades
+                    new_trades = all_trades[_last_pnl_trade_count:]
+                    _last_pnl_trade_count = len(all_trades)
+                    for t in new_trades:
+                        sym = t.get("symbol", "UNKNOWN")
+                        pnl_pct = t.get("pnl_pct", 0.0)
+                        if pnl_pct == 0.0:
+                            # Derive from USD pnl if pnl_pct not available
+                            entry = t.get("entry", 0)
+                            size = t.get("size", 0)
+                            pnl_usd = t.get("pnl_usd", 0)
+                            notional = entry * size if entry and size else 0
+                            pnl_pct = (pnl_usd / notional * 100) if notional > 0 else 0.0
+                        _sharpe_tracker.update(sym, pnl_pct)
+
+                    # Check Sharpe per symbol
+                    report = _sharpe_tracker.report()
+                    statuses = _sharpe_tracker.status()
+                    for sym, sharpe_val in report.items():
+                        status = statuses.get(sym, "?")
+                        logger.info("SHARPE %s: %.3f [%s]", sym, sharpe_val, status)
+                        if sharpe_val < 0:
+                            _sharpe_neg_streak[sym] = _sharpe_neg_streak.get(sym, 0) + 1
+                        else:
+                            _sharpe_neg_streak[sym] = 0
+
+                        if _sharpe_neg_streak.get(sym, 0) >= _SHARPE_NEG_THRESHOLD:
+                            send_alert(
+                                AlertLevel.WARNING,
+                                f"Live Sharpe negative {_sharpe_neg_streak[sym]}x: {sym}",
+                                details={
+                                    "symbol": sym,
+                                    "sharpe": f"{sharpe_val:.3f}",
+                                    "streak": str(_sharpe_neg_streak[sym]),
+                                    "trades": str(len(all_trades)),
+                                },
+                                source="alpha_main.sharpe_monitor",
+                            )
+                            logger.warning(
+                                "SHARPE ALERT %s: %.3f negative for %d consecutive hours",
+                                sym, sharpe_val, _sharpe_neg_streak[sym],
+                            )
+                except Exception:
+                    pass  # never crash the main loop
     except KeyboardInterrupt:
         pass
     finally:
@@ -928,6 +1000,10 @@ def main() -> None:
                 )
             except Exception:
                 logger.debug("Failed to create shutdown ControlEvent for %s", runner_key)
+        # Stop OI caches
+        for sym, cache in oi_caches.items():
+            cache.stop()
+            logger.info("Stopped BinanceOICache for %s", sym)
         for ws in ws_clients:
             ws.stop()
         for coord in coordinators.values():
