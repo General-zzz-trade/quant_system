@@ -6,6 +6,7 @@ After=network.target
 Type=oneshot
 WorkingDirectory=/quant_system
 ExecStart=/usr/bin/python3 -m data.downloads.data_refresh
+ExecStartPost=/usr/bin/python3 /quant_system/scripts/sync_zscore_from_batch.py
 User=ubuntu
 Environment=PYTHONPATH=/quant_system
 StandardOutput=append:/quant_system/logs/data_refresh.log
