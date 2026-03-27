@@ -40,6 +40,7 @@ from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
 from execution.adapters.bybit.ws_client import BybitWsClient
 from runner.builders.alpha_builder import build_coordinator as _build_coordinator
 from strategy.config import SYMBOL_CONFIG
+from runner.limit_order_manager import LimitOrderManager
 from runner.warmup import warmup as _warmup
 
 # Z-score buffer checkpoint paths
@@ -120,6 +121,15 @@ def main() -> None:
     # Adapter (Bybit REST)
     adapter = create_adapter()
     logger.info("Bybit adapter connected")
+
+    # Limit order pre-placement manager (reduces slippage vs market orders)
+    _limit_mgr = LimitOrderManager(
+        adapter=adapter,
+        offset_bps=float(os.environ.get("LIMIT_OFFSET_BPS", "30")),
+        post_only=True,
+        ttl_seconds=float(os.environ.get("LIMIT_TTL_S", "300")),
+        qty_scale=float(os.environ.get("LIMIT_QTY_SCALE", "0.5")),
+    )
 
     # Build coordinators
     coordinators: dict[str, EngineCoordinator] = {}
@@ -358,6 +368,37 @@ def main() -> None:
     def _on_bar(ws_symbol: str, bar: dict) -> None:
         if not bar.get("confirm", True):
             return
+
+        # Bar closed: cancel any stale pre-placed limit orders for this symbol
+        # and check if any were filled (so we don't double-enter)
+        try:
+            if _limit_mgr.has_pending(ws_symbol):
+                fill_info = _limit_mgr.check_fill(ws_symbol)
+                if fill_info:
+                    # Limit order was filled — update the alpha module state
+                    for rk, am in modules.items():
+                        cfg = SYMBOL_CONFIG[rk]
+                        if cfg.get("symbol", rk) != ws_symbol:
+                            continue
+                        if "4h" in rk or "15m" in rk:
+                            continue
+                        if am._signal != 0:
+                            continue  # already in a position
+                        # Mark the position as entered via limit fill
+                        side = fill_info["side"]
+                        am._signal = 1 if side == "buy" else -1
+                        am._entry_price = fill_info["price"]
+                        am._current_qty = Decimal(str(fill_info["qty"]))
+                        am._bars_held = 0
+                        logger.info(
+                            "LIMIT FILL applied %s: signal=%d entry=$%.2f qty=%.4f",
+                            rk, am._signal, am._entry_price, fill_info["qty"],
+                        )
+                else:
+                    # Not filled — cancel stale order
+                    _limit_mgr.cancel_stale(ws_symbol)
+        except Exception:
+            logger.debug("Limit order bar-close check failed for %s", ws_symbol, exc_info=True)
 
         ts_ms = bar.get("time") or bar.get("start") or 0
         ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
@@ -650,6 +691,8 @@ def main() -> None:
                                     if abs(z) > dz:
                                         direction = "BUY" if z > 0 else "SELL"
                                         preview_z = f" | PREVIEW z={z:+.2f} → {direction} ***"
+                                        # Cancel any pending limit — we're going market
+                                        _limit_mgr.cancel_stale(sym)
                                         # EARLY ENTRY: trigger trade if no position
                                         if current_signal == 0:
                                             # Emit a synthetic bar at current price
@@ -680,8 +723,35 @@ def main() -> None:
                                                 logger.debug("Early entry failed for %s", sym, exc_info=True)
                                     elif abs(z) > dz * 0.7:
                                         preview_z = f" | PREVIEW z={z:+.2f} (approaching dz={dz})"
+                                        # PRE-PLACE limit order at favorable price
+                                        if current_signal == 0 and not args.dry_run:
+                                            try:
+                                                limit_side = "buy" if z > 0 else "sell"
+                                                # Use sizer for proper qty
+                                                snap = coordinators[runner_key]._state_store
+                                                limit_qty = alpha_mod._sizer.target_qty(
+                                                    snap, sym,
+                                                    leverage=alpha_mod._leverage,
+                                                    ic_scale=alpha_mod._ic_scale,
+                                                )
+                                                _limit_mgr.maybe_place(
+                                                    symbol=sym,
+                                                    side=limit_side,
+                                                    qty=float(limit_qty),
+                                                    current_price=price,
+                                                    z_score=z,
+                                                    deadzone=dz,
+                                                )
+                                            except Exception:
+                                                logger.debug(
+                                                    "Limit pre-place failed %s",
+                                                    sym, exc_info=True,
+                                                )
                                     else:
                                         preview_z = f" | z={z:+.2f}"
+                                        # Signal faded: cancel any pending limit
+                                        if abs(z) < dz * 0.5:
+                                            _limit_mgr.cancel_stale(sym)
                         except Exception:
                             pass
 
@@ -691,6 +761,15 @@ def main() -> None:
                         )
                     except Exception:
                         pass
+
+            # Cancel TTL-expired limit orders every 60s
+            if _loop_iter % 60 == 0:
+                try:
+                    expired = _limit_mgr.cancel_expired()
+                    if expired > 0:
+                        logger.info("Cancelled %d TTL-expired limit orders", expired)
+                except Exception:
+                    pass
 
             # Check daily drawdown every 60 iterations (~60s)
             if _loop_iter % 60 == 0:
@@ -740,6 +819,12 @@ def main() -> None:
         pass
     finally:
         logger.info("Shutting down...")
+        # Cancel any pending limit orders
+        try:
+            _limit_mgr.cancel_all_pending()
+            logger.info("All pending limit orders cancelled")
+        except Exception:
+            logger.debug("Failed to cancel pending limit orders", exc_info=True)
         # Save z-score checkpoints for fast restart
         for rk, am in modules.items():
             try:
