@@ -423,38 +423,100 @@ def main() -> None:
         except Exception:
             pass
 
-    # Instant signal DISABLED: incremental features produce divergent predictions
-    # from batch features, causing wrong-direction trades. The batch z-score
-    # checkpoint is loaded correctly; wait for next live bar (max ~59 min)
-    # where batch_predictor will override the z-score buffer.
-    _instant_signal_enabled = False
-    for runner_key, coord in coordinators.items():
+    # Instant signal via BATCH prediction (not incremental features).
+    # Pushes batch prediction into z-score buffer and checks for signal.
+    # If z > deadzone → places order directly. Skips incremental feature pipeline.
+    for runner_key, alpha_mod in modules.items():
         try:
             cfg = SYMBOL_CONFIG[runner_key]
+            if "4h" in runner_key or "15m" in runner_key:
+                continue
             symbol = cfg.get("symbol", runner_key)
-            interval = cfg.get("interval", "60")
-            if _instant_signal_enabled:
-                bars = adapter.get_klines(symbol, interval=interval, limit=2)
-                if bars and len(bars) >= 2:
-                    confirmed = bars[0] if bars[0].get("confirm", False) else bars[1]
-                    ts_ms = confirmed.get("time") or confirmed.get("start") or 0
-                    ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
-                    header = EventHeader.new_root(
-                        event_type=EventType.MARKET, version=1, source="instant_signal",
+            model_dir = cfg.get("model_dir", runner_key)
+
+            from runner.batch_predictor import predict_latest
+            batch_pred = predict_latest(symbol, model_dir)
+            if batch_pred is None:
+                continue
+
+            bridge = alpha_mod._discretizer._bridge
+            hour_key = alpha_mod._bars_processed + 1
+            z_val = bridge.zscore_normalize(symbol, batch_pred, hour_key)
+
+            if z_val is None:
+                continue
+            z = max(-5.0, min(5.0, z_val))
+            dz = alpha_mod._discretizer.deadzone
+
+            if abs(z) > dz and alpha_mod._signal == 0:
+                # Signal detected — get current price and place order
+                bars = adapter.get_klines(symbol, interval="60", limit=1)
+                if not bars:
+                    continue
+                price = float(bars[0].get("close", 0))
+                if price <= 0:
+                    continue
+
+                new_signal = 1 if z > 0 else -1
+                side = "buy" if new_signal == 1 else "sell"
+                direction = "LONG" if new_signal == 1 else "SHORT"
+
+                # Size the position
+                equity = 0.0
+                try:
+                    bal = adapter.get_balances().get("USDT")
+                    if bal:
+                        equity = float(bal.total)
+                except Exception:
+                    pass
+                if equity <= 0:
+                    continue
+
+                # Build minimal snapshot for sizer
+                _acct = type("A", (), {
+                    "balance_f": equity,
+                    "balance": int(equity * 100_000_000),
+                })()
+                _mkt = type("M", (), {
+                    "close_f": price,
+                    "close": int(price * 100_000_000),
+                })()
+                _snap = type("S", (), {
+                    "account": _acct,
+                    "markets": {symbol: _mkt},
+                    "features": {},
+                    "portfolio": None,
+                    "risk": None,
+                })()
+                qty = alpha_mod._sizer.target_qty(
+                    _snap, symbol,
+                    leverage=alpha_mod._leverage,
+                    ic_scale=alpha_mod._ic_scale,
+                )
+                if float(qty) <= 0:
+                    continue
+
+                # Place order
+                resp = adapter.send_market_order(symbol, side, float(qty))
+                status = resp.get("status", "")
+                if status not in ("error", "failed"):
+                    alpha_mod._signal = new_signal
+                    alpha_mod._entry_price = price
+                    alpha_mod._trade_peak = price
+                    alpha_mod._current_qty = qty
+                    logger.info(
+                        "BATCH INSTANT %s: z=%+.2f > dz=%.1f → %s %.4f @ $%.2f",
+                        symbol, z, dz, direction, float(qty), price,
                     )
-                    event = MarketEvent(
-                        header=header, ts=ts, symbol=symbol,
-                        open=Decimal(str(confirmed["open"])),
-                        high=Decimal(str(confirmed["high"])),
-                        low=Decimal(str(confirmed["low"])),
-                        close=Decimal(str(confirmed["close"])),
-                        volume=Decimal(str(confirmed["volume"])),
-                    )
-                    coord.emit(event, actor="live")
-                    logger.info("Instant signal: emitted latest %s bar (%s) to %s",
-                                interval, ts.strftime("%H:%M"), runner_key)
+                else:
+                    logger.warning("BATCH INSTANT %s order failed: %s", symbol, resp)
+            else:
+                logger.info(
+                    "Batch instant %s: z=%+.2f (dz=%.1f) → %s",
+                    symbol, z, dz, "FLAT" if abs(z) <= dz else "HOLD",
+                )
         except Exception:
-            logger.debug("Instant signal failed for %s (non-fatal)", runner_key, exc_info=True)
+            logger.debug("Batch instant failed for %s", runner_key, exc_info=True)
 
     # Graceful shutdown
     shutdown = False
