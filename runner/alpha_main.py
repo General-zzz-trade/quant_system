@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
+import signal  # noqa: F401 — used in run() for SIGINT/SIGTERM/SIGHUP handlers
 import sys
 import time
 from datetime import datetime, timezone
@@ -327,6 +327,36 @@ def main() -> None:
         except Exception:
             pass  # bridge may not support reset_hold
     logger.info("Post-warmup reset: all alpha modules signal=0, hold counters reset")
+
+    # Sync positions from exchange — if exchange has an open position,
+    # restore alpha module state so stop-loss/quick_loss work correctly.
+    try:
+        exchange_positions = adapter.get_positions()
+        if exchange_positions:
+            for pos in exchange_positions:
+                sym = pos.symbol
+                side = pos.side  # "Buy" or "Sell"
+                qty = float(pos.qty)
+                entry = float(pos.entry_price)
+                if qty <= 0 or entry <= 0:
+                    continue
+                # Find matching 1h runner (not 4h — exchange position is shared)
+                for rk, am in modules.items():
+                    cfg = SYMBOL_CONFIG[rk]
+                    if cfg.get("symbol", rk) == sym and "4h" not in rk and "15m" not in rk:
+                        signal = 1 if side == "Buy" else -1
+                        am._signal = signal
+                        am._entry_price = entry
+                        am._trade_peak = entry
+                        am._current_qty = __import__("decimal").Decimal(str(qty))
+                        am._last_trade_bar = -9999  # allow immediate exit if needed
+                        logger.info(
+                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → signal=%+d",
+                            sym, side, qty, entry, signal,
+                        )
+                        break
+    except Exception:
+        logger.debug("Position sync failed (non-fatal)", exc_info=True)
 
     # Start all coordinators
     for coord in coordinators.values():
