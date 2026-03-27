@@ -5,7 +5,7 @@ After=network.target data-refresh.service
 [Service]
 Type=oneshot
 WorkingDirectory=/quant_system
-ExecStart=/usr/bin/python3 -m alpha.auto_retrain --horizons 12,24
+ExecStart=/usr/bin/python3 -m alpha.retrain.cli --horizons 24 --include-4h --sighup
 User=ubuntu
 Environment=PYTHONPATH=/quant_system
 StandardOutput=append:/quant_system/logs/retrain_cron.log

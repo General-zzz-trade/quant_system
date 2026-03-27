@@ -127,6 +127,12 @@ def _load_model_pkl(model_dir: Path, filename: str):
 def _compute_features(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
     """Compute features using batch feature engine."""
     try:
+        # Fix mixed-format OI CSV before feature computation
+        from scripts.run_full_backtest import _fix_oi_file
+        _fix_oi_file(symbol)
+    except Exception:
+        pass
+    try:
         from features.batch_feature_engine import compute_features_batch
         feat_df = compute_features_batch(
             symbol, df,
