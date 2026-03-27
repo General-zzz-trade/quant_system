@@ -405,6 +405,24 @@ def main() -> None:
     for runner_key, alpha_mod in modules.items():
         alpha_mod._last_trade_bar = -9999  # allow first trade immediately
 
+    # Push batch predictions into z-score buffer BEFORE instant signal
+    # This ensures the first signal uses batch-calibrated predictions
+    for runner_key, alpha_mod in modules.items():
+        try:
+            cfg = SYMBOL_CONFIG[runner_key]
+            if "4h" in runner_key or "15m" in runner_key:
+                continue
+            symbol = cfg.get("symbol", runner_key)
+            model_dir = cfg.get("model_dir", runner_key)
+            from runner.batch_predictor import predict_latest
+            batch_pred = predict_latest(symbol, model_dir)
+            if batch_pred is not None:
+                bridge = alpha_mod._discretizer._bridge
+                bridge.zscore_normalize(symbol, batch_pred, alpha_mod._bars_processed)
+                logger.info("Batch prediction pushed: %s pred=%+.6f", symbol, batch_pred)
+        except Exception:
+            pass
+
     # Instant signal: process latest bar immediately (don't wait up to 59 min).
     for runner_key, coord in coordinators.items():
         try:
