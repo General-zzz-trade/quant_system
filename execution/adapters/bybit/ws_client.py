@@ -150,9 +150,10 @@ class BybitWsClient:
             if not confirm:
                 continue  # skip unconfirmed (still forming) bars
 
-            # Extract symbol from topic: "kline.60.ETHUSDT" → "ETHUSDT"
+            # Extract symbol + interval from topic: "kline.60.ETHUSDT" → interval=60, symbol=ETHUSDT
             parts = topic.split(".")
             symbol = parts[2] if len(parts) >= 3 else ""
+            ws_interval = parts[1] if len(parts) >= 2 else str(self._interval)
 
             bar_ts = int(kline.get("start", 0))
 
@@ -170,6 +171,7 @@ class BybitWsClient:
                 "volume": float(kline.get("volume", 0)),
                 "turnover": float(kline.get("turnover", 0)),
                 "confirm": True,
+                "interval": ws_interval,
             }
 
             logger.info("WS bar: %s close=$%.2f vol=%.0f", symbol, bar["close"], bar["volume"])
