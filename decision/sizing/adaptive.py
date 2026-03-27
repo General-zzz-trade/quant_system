@@ -37,11 +37,11 @@ _TIER_WEIGHTS: dict[str, dict[str, float]] = {
         "BTCUSDT_4h": 0.30,
         "ETHUSDT_4h": 0.30,
     },
-    "large": {  # equity >= 10_000 — conservative (~7x total)
-        "BTCUSDT": 0.15,
-        "ETHUSDT": 0.15,
-        "BTCUSDT_4h": 0.20,
-        "ETHUSDT_4h": 0.20,
+    "large": {  # equity >= 10_000 — 10x leverage safe (60% cap × 10x × 1.2 z_scale = 7.2x max)
+        "BTCUSDT": 0.13,
+        "ETHUSDT": 0.13,
+        "BTCUSDT_4h": 0.17,
+        "ETHUSDT_4h": 0.17,
     },
 }
 
