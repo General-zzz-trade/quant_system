@@ -339,7 +339,7 @@ def main() -> None:
 
     # RE-LOAD batch z-score checkpoints AFTER warmup to override
     # the incorrect incremental predictions that warmup pushed into the buffer.
-    # This is the critical fix for the batch/incremental feature divergence.
+    # DO NOT save checkpoints here — preserve the batch-synced version.
     for runner_key, alpha_mod in modules.items():
         try:
             bridge = alpha_mod._discretizer._bridge
@@ -347,6 +347,8 @@ def main() -> None:
                 logger.info("Re-loaded batch z-score checkpoint for %s (post-warmup)", runner_key)
         except Exception:
             pass
+    # NOTE: intentionally NOT saving checkpoints here.
+    # The batch-synced checkpoint must survive until next sync_zscore_from_batch.py run.
 
     # Re-enable audit logging after warmup
     for alpha_mod in modules.values():
@@ -946,13 +948,9 @@ def main() -> None:
                     except Exception:
                         logger.debug("Auto-reload check failed for %s", rk, exc_info=True)
 
-            # Save z-score checkpoints every 300 iterations (~5min)
-            if _loop_iter % 300 == 0:
-                for rk, am in modules.items():
-                    try:
-                        _save_zscore_checkpoint(rk, am._discretizer._bridge)
-                    except Exception:
-                        pass
+            # Z-score checkpoint save DISABLED — batch-synced checkpoints
+            # must not be overwritten by incremental predictions.
+            # Run scripts/sync_zscore_from_batch.py to update checkpoints.
 
             # Real-time market monitor + intra-bar signal preview
             # Every 60s: preview z-score as if bar closed NOW at current tick price
@@ -1188,13 +1186,9 @@ def main() -> None:
             logger.info("All pending limit orders cancelled")
         except Exception:
             logger.debug("Failed to cancel pending limit orders", exc_info=True)
-        # Save z-score checkpoints for fast restart
-        for rk, am in modules.items():
-            try:
-                _save_zscore_checkpoint(rk, am._discretizer._bridge)
-            except Exception:
-                pass
-        logger.info("Z-score checkpoints saved for %d runners", len(modules))
+        # Z-score checkpoint save DISABLED on shutdown — batch-synced
+        # checkpoints preserved. Use sync_zscore_from_batch.py to update.
+        logger.info("Z-score checkpoints preserved (batch-synced)")
         # PnL summary at shutdown
         if pnl_tracker is not None:
             try:
