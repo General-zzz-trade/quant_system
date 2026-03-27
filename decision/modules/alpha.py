@@ -153,6 +153,7 @@ class AlphaDecisionModule:
                 return ()
             self._last_bar_ts = bar_ts
         features: dict = dict(snapshot.features) if snapshot.features else {}
+        self._last_features = features  # cache for intra-bar preview
 
         # 0. Portfolio exposure + risk limit checks
         portfolio: PortfolioState | None = getattr(snapshot, "portfolio", None)

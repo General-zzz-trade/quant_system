@@ -483,22 +483,24 @@ def main() -> None:
                     except Exception:
                         pass
 
-            # Real-time market monitor: every 60s preview z-score with latest price
+            # Real-time market monitor + intra-bar signal preview
+            # Every 60s: preview z-score as if bar closed NOW at current tick price
             if _loop_iter % 60 == 0 and _rt_prices:
                 for runner_key, alpha_mod in modules.items():
                     try:
                         cfg = SYMBOL_CONFIG[runner_key]
                         sym = cfg.get("symbol", runner_key)
-                        if "4h" in runner_key:
+                        if "4h" in runner_key or "15m" in runner_key:
                             continue  # only monitor 1h runners
                         price = _rt_prices.get(sym, 0)
                         if price <= 0:
                             continue
-                        # Preview: what would the signal be at current price?
                         last_close = alpha_mod._closes[-1] if alpha_mod._closes else 0
                         if last_close <= 0:
                             continue
                         move_pct = (price / last_close - 1) * 100
+
+                        # Position info
                         current_signal = alpha_mod._signal
                         pos_info = ""
                         if current_signal != 0:
@@ -506,9 +508,70 @@ def main() -> None:
                             if entry > 0:
                                 pnl_pct = current_signal * (price / entry - 1) * 100
                                 pos_info = f" | pos={'LONG' if current_signal > 0 else 'SHORT'} pnl={pnl_pct:+.2f}%"
+
+                        # Intra-bar signal preview: predict with current price as if bar closed
+                        preview_z = ""
+                        try:
+                            # Build mock features with current price
+                            _lf = getattr(alpha_mod, '_last_features', None)
+                            features = dict(_lf) if _lf else {}
+                            # Update price-derived features
+                            if last_close > 0:
+                                features["ret_1"] = price / last_close - 1
+                            # Predict
+                            pred = alpha_mod._predictor.predict(features)
+                            if pred is not None:
+                                # Preview z-score WITHOUT mutating the bridge state
+                                bridge = alpha_mod._discretizer._bridge
+                                state = bridge.checkpoint()
+                                # Use a fake hour_key that won't collide with real bars
+                                preview_hour = alpha_mod._bars_processed * 100 + _loop_iter
+                                z_val = bridge.zscore_normalize(sym, pred, preview_hour)
+                                bridge.restore(state)  # restore original state
+                                if z_val is not None:
+                                    z = max(-5.0, min(5.0, z_val))
+                                    dz = alpha_mod._discretizer.deadzone
+                                    if abs(z) > dz:
+                                        direction = "BUY" if z > 0 else "SELL"
+                                        preview_z = f" | PREVIEW z={z:+.2f} → {direction} ***"
+                                        # EARLY ENTRY: trigger trade if no position
+                                        if current_signal == 0:
+                                            # Emit a synthetic bar at current price
+                                            try:
+                                                early_header = EventHeader.new_root(
+                                                    event_type=EventType.MARKET,
+                                                    version=1,
+                                                    source="early_entry",
+                                                )
+                                                early_event = MarketEvent(
+                                                    header=early_header,
+                                                    ts=datetime.now(timezone.utc),
+                                                    symbol=sym,
+                                                    open=Decimal(str(last_close)),
+                                                    high=Decimal(str(max(price, last_close))),
+                                                    low=Decimal(str(min(price, last_close))),
+                                                    close=Decimal(str(price)),
+                                                    volume=Decimal("0"),
+                                                )
+                                                coord = coordinators[runner_key]
+                                                coord.emit(early_event, actor="live")
+                                                logger.info(
+                                                    "EARLY ENTRY %s: z=%+.2f > dz=%.1f, "
+                                                    "emitted synthetic bar at $%.2f",
+                                                    sym, z, dz, price,
+                                                )
+                                            except Exception:
+                                                logger.debug("Early entry failed for %s", sym, exc_info=True)
+                                    elif abs(z) > dz * 0.7:
+                                        preview_z = f" | PREVIEW z={z:+.2f} (approaching dz={dz})"
+                                    else:
+                                        preview_z = f" | z={z:+.2f}"
+                        except Exception:
+                            pass
+
                         logger.info(
-                            "MONITOR %s: $%.2f (move=%+.2f%% from last bar)%s",
-                            sym, price, move_pct, pos_info,
+                            "MONITOR %s: $%.2f (move=%+.2f%%)%s%s",
+                            sym, price, move_pct, pos_info, preview_z,
                         )
                     except Exception:
                         pass
