@@ -435,11 +435,18 @@ def main() -> None:
             if symbol not in interval_symbols[interval]:
                 interval_symbols[interval].append(symbol)
 
+        # Real-time price tracker for market monitoring
+        _rt_prices: dict[str, float] = {}
+
+        def _on_tick(ws_symbol: str, price: float) -> None:
+            _rt_prices[ws_symbol] = price
+
         for interval, symbols in interval_symbols.items():
             ws = BybitWsClient(
                 symbols=symbols,
                 interval=interval,
                 on_bar=_on_bar,
+                on_tick=_on_tick,
             )
             ws.start()
             ws_clients.append(ws)
@@ -473,6 +480,36 @@ def main() -> None:
                 for rk, am in modules.items():
                     try:
                         _save_zscore_checkpoint(rk, am._discretizer._bridge)
+                    except Exception:
+                        pass
+
+            # Real-time market monitor: every 60s preview z-score with latest price
+            if _loop_iter % 60 == 0 and _rt_prices:
+                for runner_key, alpha_mod in modules.items():
+                    try:
+                        cfg = SYMBOL_CONFIG[runner_key]
+                        sym = cfg.get("symbol", runner_key)
+                        if "4h" in runner_key:
+                            continue  # only monitor 1h runners
+                        price = _rt_prices.get(sym, 0)
+                        if price <= 0:
+                            continue
+                        # Preview: what would the signal be at current price?
+                        last_close = alpha_mod._closes[-1] if alpha_mod._closes else 0
+                        if last_close <= 0:
+                            continue
+                        move_pct = (price / last_close - 1) * 100
+                        current_signal = alpha_mod._signal
+                        pos_info = ""
+                        if current_signal != 0:
+                            entry = alpha_mod._entry_price
+                            if entry > 0:
+                                pnl_pct = current_signal * (price / entry - 1) * 100
+                                pos_info = f" | pos={'LONG' if current_signal > 0 else 'SHORT'} pnl={pnl_pct:+.2f}%"
+                        logger.info(
+                            "MONITOR %s: $%.2f (move=%+.2f%% from last bar)%s",
+                            sym, price, move_pct, pos_info,
+                        )
                     except Exception:
                         pass
 
