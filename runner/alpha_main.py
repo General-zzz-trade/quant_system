@@ -435,11 +435,127 @@ def main() -> None:
             if symbol not in interval_symbols[interval]:
                 interval_symbols[interval].append(symbol)
 
-        # Real-time price tracker for market monitoring
+        # Real-time price tracker + wick detector
         _rt_prices: dict[str, float] = {}
+        _rt_highs: dict[str, float] = {}   # rolling 5-min high
+        _rt_lows: dict[str, float] = {}    # rolling 5-min low
+        _rt_history: dict[str, list] = {}  # (ts, price) for 5 min
+        _wick_cooldown: dict[str, float] = {}  # last wick trade ts
+
+        _WICK_THRESHOLD = 0.008   # 0.8% move = potential wick
+        _WICK_BOUNCE = 0.003      # 0.3% bounce from extreme = confirmed wick
+        _WICK_COOLDOWN_S = 300.0  # 5 min between wick trades
+        _WICK_WINDOW_S = 60.0     # look back 60s for extreme
 
         def _on_tick(ws_symbol: str, price: float) -> None:
             _rt_prices[ws_symbol] = price
+            now = time.time()
+
+            # Maintain 60s price history
+            hist = _rt_history.setdefault(ws_symbol, [])
+            hist.append((now, price))
+            # Trim to 60s window
+            cutoff = now - _WICK_WINDOW_S
+            while hist and hist[0][0] < cutoff:
+                hist.pop(0)
+
+            if len(hist) < 3:
+                return
+
+            # Find min/max in window
+            prices = [p for _, p in hist]
+            win_high = max(prices)
+            win_low = min(prices)
+            first_price = hist[0][1]
+
+            # Detect wick: price dropped >threshold then bounced >bounce
+            # or price spiked >threshold then dropped >bounce
+            if first_price <= 0:
+                return
+
+            # Check cooldown
+            last_wick = _wick_cooldown.get(ws_symbol, 0)
+            if now - last_wick < _WICK_COOLDOWN_S:
+                return
+
+            # Wick DOWN (buy opportunity): dropped from first, now bouncing
+            drop = (first_price - win_low) / first_price
+            bounce_from_low = (price - win_low) / win_low if win_low > 0 else 0
+            if drop > _WICK_THRESHOLD and bounce_from_low > _WICK_BOUNCE:
+                # Check: do we have a long signal or no position?
+                for rk, am in modules.items():
+                    cfg = SYMBOL_CONFIG[rk]
+                    if cfg.get("symbol", rk) != ws_symbol:
+                        continue
+                    if "4h" in rk or "15m" in rk:
+                        continue
+                    if am._signal != 0:
+                        continue  # already in position
+                    _wick_cooldown[ws_symbol] = now
+                    logger.info(
+                        "WICK DOWN %s: drop=%.2f%% bounce=%.2f%% "
+                        "($%.0f→$%.0f→$%.0f) — triggering early buy",
+                        ws_symbol, drop * 100, bounce_from_low * 100,
+                        first_price, win_low, price,
+                    )
+                    try:
+                        wh = EventHeader.new_root(
+                            event_type=EventType.MARKET,
+                            version=1, source="wick_buy",
+                        )
+                        we = MarketEvent(
+                            header=wh,
+                            ts=datetime.now(timezone.utc),
+                            symbol=ws_symbol,
+                            open=Decimal(str(first_price)),
+                            high=Decimal(str(win_high)),
+                            low=Decimal(str(win_low)),
+                            close=Decimal(str(price)),
+                            volume=Decimal("0"),
+                        )
+                        coordinators[rk].emit(we, actor="live")
+                    except Exception:
+                        logger.debug("Wick buy failed", exc_info=True)
+                    break
+
+            # Wick UP (sell opportunity): spiked from first, now dropping
+            spike = (win_high - first_price) / first_price
+            drop_from_high = (win_high - price) / win_high if win_high > 0 else 0
+            if spike > _WICK_THRESHOLD and drop_from_high > _WICK_BOUNCE:
+                for rk, am in modules.items():
+                    cfg = SYMBOL_CONFIG[rk]
+                    if cfg.get("symbol", rk) != ws_symbol:
+                        continue
+                    if "4h" in rk or "15m" in rk:
+                        continue
+                    if am._signal != 0:
+                        continue
+                    _wick_cooldown[ws_symbol] = now
+                    logger.info(
+                        "WICK UP %s: spike=%.2f%% drop=%.2f%% "
+                        "($%.0f→$%.0f→$%.0f) — triggering early sell",
+                        ws_symbol, spike * 100, drop_from_high * 100,
+                        first_price, win_high, price,
+                    )
+                    try:
+                        wh = EventHeader.new_root(
+                            event_type=EventType.MARKET,
+                            version=1, source="wick_sell",
+                        )
+                        we = MarketEvent(
+                            header=wh,
+                            ts=datetime.now(timezone.utc),
+                            symbol=ws_symbol,
+                            open=Decimal(str(first_price)),
+                            high=Decimal(str(win_high)),
+                            low=Decimal(str(win_low)),
+                            close=Decimal(str(price)),
+                            volume=Decimal("0"),
+                        )
+                        coordinators[rk].emit(we, actor="live")
+                    except Exception:
+                        logger.debug("Wick sell failed", exc_info=True)
+                    break
 
         for interval, symbols in interval_symbols.items():
             ws = BybitWsClient(
