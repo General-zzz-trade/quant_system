@@ -719,11 +719,52 @@ def main() -> None:
                 pass
         return None
 
+    # Auto-reload: watch model config.json files for changes
+    _model_mtimes: dict[str, float] = {}
+    for rk in modules:
+        cfg = SYMBOL_CONFIG[rk]
+        cfg_path = MODEL_BASE / cfg["model_dir"] / "config.json"
+        if cfg_path.exists():
+            _model_mtimes[rk] = cfg_path.stat().st_mtime
+
     # Main loop
     try:
         while not shutdown:
             time.sleep(1)
             _loop_iter += 1
+
+            # Auto-reload: check model files every 30s for changes
+            if _loop_iter % 30 == 0:
+                for rk, alpha_mod in modules.items():
+                    try:
+                        cfg = SYMBOL_CONFIG[rk]
+                        cfg_path = MODEL_BASE / cfg["model_dir"] / "config.json"
+                        if not cfg_path.exists():
+                            continue
+                        mtime = cfg_path.stat().st_mtime
+                        old_mtime = _model_mtimes.get(rk, 0)
+                        if mtime > old_mtime and old_mtime > 0:
+                            # Config changed — auto-reload this model
+                            model_dir = MODEL_BASE / cfg["model_dir"]
+                            model_info = load_model(model_dir)
+                            new_predictor = EnsemblePredictor(
+                                model_info["horizon_models"],
+                                model_info["config"],
+                            )
+                            alpha_mod.update_predictor(new_predictor)
+                            alpha_mod._discretizer.deadzone = model_info["deadzone"]
+                            alpha_mod._discretizer.min_hold = model_info["min_hold"]
+                            alpha_mod._discretizer.max_hold = model_info["max_hold"]
+                            alpha_mod._discretizer._long_only = model_info.get("long_only", False)
+                            logger.info(
+                                "AUTO-RELOAD %s: config.json changed, model reloaded "
+                                "(dz=%.1f mh=%d lo=%s)",
+                                rk, model_info["deadzone"], model_info["min_hold"],
+                                model_info.get("long_only", False),
+                            )
+                        _model_mtimes[rk] = mtime
+                    except Exception:
+                        logger.debug("Auto-reload check failed for %s", rk, exc_info=True)
 
             # Save z-score checkpoints every 300 iterations (~5min)
             if _loop_iter % 300 == 0:
