@@ -174,7 +174,7 @@ class BybitWsClient:
                 "interval": ws_interval,
             }
 
-            logger.info("WS bar: %s close=$%.2f vol=%.0f", symbol, bar["close"], bar["volume"])
+            logger.info("WS bar: %s interval=%s close=$%.2f vol=%.0f", symbol, ws_interval, bar["close"], bar["volume"])
 
             if self._on_bar:
                 try:
