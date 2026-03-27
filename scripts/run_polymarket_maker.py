@@ -50,7 +50,7 @@ def main() -> None:
     )
 
     from polymarket.config import PolymarketConfig
-    from polymarket.runner import PolymarketMakerRunner
+    from polymarket.runner import PolymarketRunner
 
     # Load config from YAML if it exists, override with env vars
     if os.path.exists(args.config):
@@ -61,16 +61,15 @@ def main() -> None:
             api_secret=os.environ.get("POLYMARKET_API_SECRET", ""),
             base_url=os.environ.get("POLYMARKET_BASE_URL",
                                     "https://clob.polymarket.com"),
+            scan_interval_sec=int(args.refresh),
         )
 
-    runner = PolymarketMakerRunner(
-        config,
-        gamma=args.gamma,
-        kappa=args.kappa,
-        order_size=args.order_size,
-        max_inventory=args.max_inventory,
-        refresh_interval=args.refresh,
-    )
+    # Log maker parameters (used for future A-S maker extension)
+    log = logging.getLogger(__name__)
+    log.info("Maker params: gamma=%.3f kappa=%.3f order_size=%.1f max_inv=%.1f refresh=%.0fs",
+             args.gamma, args.kappa, args.order_size, args.max_inventory, args.refresh)
+
+    runner = PolymarketRunner(config)
 
     # Graceful shutdown on SIGINT/SIGTERM
     def _shutdown(signum: int, frame: object) -> None:
