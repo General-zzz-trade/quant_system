@@ -36,12 +36,15 @@ class BinanceConfig:
         return self.testnet
 
     @classmethod
-    def from_env(
-        cls,
-        *,
-        api_key: str,
-        api_secret: str,
-        testnet: bool = True,
-        **kw: Any,
-    ) -> "BinanceConfig":
-        return cls(api_key=api_key, api_secret=api_secret, testnet=testnet, **kw)
+    def from_env(cls, testnet: bool = True, **kw: Any) -> "BinanceConfig":
+        """Create config from environment variables."""
+        import os
+        if testnet:
+            key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
+            secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
+        else:
+            key = os.environ.get("BINANCE_API_KEY", "")
+            secret = os.environ.get("BINANCE_API_SECRET", "")
+        if not key or not secret:
+            raise RuntimeError("Binance API key/secret not set in environment")
+        return cls(api_key=key, api_secret=secret, testnet=testnet, **kw)
