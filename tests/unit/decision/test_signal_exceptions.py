@@ -234,24 +234,24 @@ class TestSignalDiscretizerExceptions:
         bridge.apply_constraints.assert_called_once()
 
     def test_extreme_z_positive_clamped(self):
-        """Z > 3.5 with no position → clamped to +3.0."""
+        """Z > 3.5 with no position → clamped to deadzone + 0.5."""
         bridge = _make_bridge(z_val=4.0, constraint_val=1)
         disc = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=1.0, min_hold=18, max_hold=120,
         )
         signal, z = disc.discretize(0.5, hour_key=5, regime_ok=True, current_signal=0)
-        assert z == 3.0
+        assert z == 1.5  # deadzone(1.0) + 0.5
 
     def test_extreme_z_negative_clamped(self):
-        """Z < -3.5 with no position → clamped to -3.0."""
+        """Z < -3.5 with no position → clamped to -(deadzone + 0.5)."""
         bridge = _make_bridge(z_val=-4.0, constraint_val=-1)
         disc = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=1.0, min_hold=18, max_hold=120,
         )
         signal, z = disc.discretize(0.5, hour_key=5, regime_ok=True, current_signal=0)
-        assert z == -3.0
+        assert z == -1.5  # -(deadzone(1.0) + 0.5)
 
     def test_extreme_z_with_position_no_clamp(self):
         """Z > 3.5 with existing position → no clamping."""

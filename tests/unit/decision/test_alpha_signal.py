@@ -164,24 +164,24 @@ class TestSignalDiscretizer:
         assert call_kwargs[1]["deadzone"] == pytest.approx(0.75)
 
     def test_z_clamp_extreme_no_position(self):
-        """Z > 3.5 with no position clamped to 3.0."""
+        """Z > 3.5 with no position clamped to deadzone + 0.5."""
         bridge = self._make_bridge(z_val=4.5, signal=1)
         sd = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=0.5, min_hold=5, max_hold=60, long_only=False,
         )
         signal, z = sd.discretize(pred=0.01, hour_key=100, regime_ok=True, current_signal=0)
-        assert z == pytest.approx(3.0)
+        assert z == pytest.approx(1.0)  # deadzone(0.5) + 0.5 = 1.0
 
     def test_z_clamp_negative(self):
-        """Z < -3.5 with no position clamped to -3.0."""
+        """Z < -3.5 with no position clamped to -(deadzone + 0.5)."""
         bridge = self._make_bridge(z_val=-4.5, signal=-1)
         sd = SignalDiscretizer(
             bridge=bridge, symbol="BTCUSDT",
             deadzone=0.5, min_hold=5, max_hold=60, long_only=False,
         )
         signal, z = sd.discretize(pred=0.01, hour_key=100, regime_ok=True, current_signal=0)
-        assert z == pytest.approx(-3.0)
+        assert z == pytest.approx(-1.0)  # -(deadzone(0.5) + 0.5) = -1.0
 
     def test_z_clamp_not_applied_when_in_position(self):
         """Z > 3.5 NOT clamped when already in position."""

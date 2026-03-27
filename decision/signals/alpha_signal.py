@@ -392,14 +392,16 @@ class SignalDiscretizer:
         # Clip extreme z-scores to [-5, 5]
         z = max(-5.0, min(5.0, z_val))
 
-        # Z-clamp: |z| > 3.5 with no position -> cap +/-3.0
+        # Z-clamp: |z| > 3.5 with no position -> cap to deadzone + 0.5
+        # Prevents post-warmup z-score spikes from triggering trades
         if abs(z) > 3.5 and current_signal == 0:
             old_z = z
-            z = 3.0 if z > 0 else -3.0
+            cap = self.deadzone + 0.5  # just above deadzone, not extreme
+            z = cap if z > 0 else -cap
             logger.info(
                 "%s Z_CLAMP: |z|=%.1f capped to %.1f "
-                "(extreme z with no position -> likely unreliable)",
-                self._symbol, abs(old_z), z,
+                "(extreme z with no position -> likely unreliable, dz=%.1f)",
+                self._symbol, abs(old_z), abs(z), self.deadzone,
             )
 
         # Regime filter: widen deadzone by 50% instead of blocking all signals.

@@ -371,12 +371,18 @@ def main() -> None:
         coord.start()
     logger.info("All %d coordinators started", len(coordinators))
 
-    # Clear trade cooldown so instant signal can enter immediately
+    # Post-restart stabilization: block NEW entries for first 3 live bars
+    # to let z-score buffer stabilize. Exits (stop-loss) still work.
+    # _last_trade_bar = bars_processed means cooldown = min_hold bars from now.
+    # Position sync already set _last_trade_bar=-9999 for existing positions (exits OK).
     for runner_key, alpha_mod in modules.items():
-        alpha_mod._last_trade_bar = -9999  # allow first live trade without waiting min_hold bars
+        if alpha_mod._signal == 0:  # no position → enforce cooldown
+            alpha_mod._last_trade_bar = alpha_mod._bars_processed
+            logger.info("Stabilization: %s blocked from new entries for %d bars",
+                        runner_key, alpha_mod._discretizer.min_hold)
 
-    # Instant signal: fetch the latest confirmed bar and process it immediately
-    # so we don't wait up to 59 min for the next bar close.
+    # Instant signal: ONLY for position management (exits), not new entries.
+    # The cooldown above prevents new entries during stabilization.
     for runner_key, coord in coordinators.items():
         try:
             cfg = SYMBOL_CONFIG[runner_key]
