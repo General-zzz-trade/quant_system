@@ -1,0 +1,66 @@
+{
+  "symbol": "ETHUSDT",
+  "interval": "4h",
+  "version": "v11-4h",
+  "multi_horizon": true,
+  "horizons": [
+    6
+  ],
+  "horizon_models": [
+    {
+      "horizon": 6,
+      "lgbm": "lgb_h6.pkl",
+      "xgb": "xgb_h6.pkl",
+      "features": [
+        "spy_ret_1d",
+        "iv_level",
+        "funding_zscore_24",
+        "oc_tx_zscore_7",
+        "oc_flowin_zscore_7",
+        "gbtc_vol_zscore_14",
+        "dom_vs_axs_dev_20",
+        "iv_rank_30d",
+        "cvd_10",
+        "fgi_normalized",
+        "fgi_extreme",
+        "xlf_ret_5d",
+        "dow_sin",
+        "oc_tx_zscore_14"
+      ],
+      "ic": 0.1099
+    }
+  ],
+  "ensemble_method": "ic_weighted",
+  "features": [
+    "spy_ret_1d",
+    "iv_level",
+    "funding_zscore_24",
+    "oc_tx_zscore_7",
+    "oc_flowin_zscore_7",
+    "gbtc_vol_zscore_14",
+    "dom_vs_axs_dev_20",
+    "iv_rank_30d",
+    "cvd_10",
+    "fgi_normalized",
+    "fgi_extreme",
+    "xlf_ret_5d",
+    "dow_sin",
+    "oc_tx_zscore_14"
+  ],
+  "zscore_window": 180,
+  "zscore_warmup": 45,
+  "deadzone": 3.0,
+  "min_hold": 6,
+  "max_hold": 24,
+  "long_only": false,
+  "monthly_gate": false,
+  "metrics": {
+    "sharpe": 4.88,
+    "total_ret": 76.0,
+    "trades": 55,
+    "win_rate": 58.9
+  },
+  "train_date": "2026-03-23 10:53",
+  "train_bars": 13848,
+  "train_days": 2308
+}

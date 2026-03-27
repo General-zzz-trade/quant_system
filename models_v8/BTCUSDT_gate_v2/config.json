@@ -12,9 +12,6 @@
       "lgbm": "lgbm_h12.pkl",
       "xgb": "xgb_h12.pkl",
       "features": [
-        "spy_ret_1d",
-        "iv_level",
-        "funding_zscore_24",
         "treasury_10y_chg_5d",
         "price_acceleration",
         "oc_addr_zscore_14",
@@ -25,33 +22,34 @@
         "ret_24",
         "ret_12",
         "cvd_20",
-        "fgi_normalized"
+        "fgi_normalized",
+        "basis_carry_adj",
+        "fgi_extreme",
+        "stablecoin_supply_chg_7d"
       ],
-      "ic": 0.029931688063033406,
-      "ridge": "ridge_h12.pkl"
+      "ic": 0.04540438400174775
     },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
       "xgb": "xgb_h24.pkl",
       "features": [
-        "spy_ret_1d",
-        "iv_level",
-        "funding_zscore_24",
         "treasury_10y_chg_5d",
         "oc_flowin_zscore_7",
         "basis",
         "fgi_normalized",
-        "iv_rank_30d",
         "fgi_extreme",
+        "vix_level",
+        "atr_norm_14",
         "ret_autocorr_24",
         "btc_dom_dev_20",
+        "dow_cos",
+        "oc_tx_zscore_14",
         "basis_momentum",
-        "total_supply_change_7d",
-        "ret_24"
+        "parkinson_vol",
+        "dow_sin"
       ],
-      "ic": 0.07645932749485895,
-      "ridge": "ridge_h24.pkl"
+      "ic": 0.03426837961023125
     }
   ],
   "primary_horizon": 24,
@@ -59,10 +57,10 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 1.2,
+  "deadzone": 2.0,
   "min_hold": 6,
-  "max_hold": 120,
-  "long_only": false,
+  "max_hold": 96,
+  "long_only": true,
   "exit": {
     "trailing_stop_pct": 0.0,
     "zscore_cap": 0.0,
@@ -79,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 2.3380487732365483,
-    "avg_ic": 0.05319550777894618,
+    "sharpe": 2.1121415671992705,
+    "avg_ic": 0.0398363818059895,
     "per_horizon_ic": {
-      "12": 0.029931688063033406,
-      "24": 0.07645932749485895
+      "12": 0.04540438400174775,
+      "24": 0.03426837961023125
     },
-    "total_return": 0.07178117084432994,
-    "trades": 598,
-    "win_rate": 54.84949832775919,
-    "avg_net_bps": 24.007080549943126,
-    "bootstrap_sharpe_p5": 0.37009955044763654,
-    "bootstrap_sharpe_p50": 0.8180234819557751,
-    "bootstrap_sharpe_p95": 1.342004427536299
+    "total_return": 0.04862608110205232,
+    "trades": 180,
+    "win_rate": 63.888888888888886,
+    "avg_net_bps": 54.02897900228036,
+    "bootstrap_sharpe_p5": 0.4703956441550804,
+    "bootstrap_sharpe_p50": 1.4010033253451346,
+    "bootstrap_sharpe_p95": 2.4338861673972896
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -99,11 +97,15 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-23 10:50",
-  "data_range": "2019-09-08 \u2192 2026-03-23",
-  "n_bars": 57297,
+  "train_date": "2026-03-27 15:06",
+  "data_range": "2019-09-08 \u2192 2026-03-27",
+  "n_bars": 57393,
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01,
   "ridge_weight": 0.6,
-  "lgbm_weight": 0.4
+  "lgbm_weight": 0.4,
+  "ensemble_weights": {
+    "ridge": 0.5,
+    "lgbm": 0.5
+  }
 }

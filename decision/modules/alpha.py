@@ -513,7 +513,7 @@ class AlphaDecisionModule:
         else:
             adverse = (close - self._entry_price) / self._entry_price
 
-        if adverse > 0.01:
+        if adverse > 0.005:  # 0.5% adverse = 5% account loss at 10x
             return True, f"quick_loss({adverse:.3f})"
 
         # Z reversal

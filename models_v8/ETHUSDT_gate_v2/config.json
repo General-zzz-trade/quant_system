@@ -59,8 +59,8 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 1.2,
-  "min_hold": 6,
+  "deadzone": 2.5,
+  "min_hold": 3,
   "max_hold": 60,
   "long_only": false,
   "exit": {

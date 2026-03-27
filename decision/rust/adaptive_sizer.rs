@@ -28,10 +28,10 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
             _ => DEFAULT_CAP,
         },
         "large" => match runner_key {
-            "BTCUSDT" => 0.13,
-            "ETHUSDT" => 0.13,
-            "BTCUSDT_4h" => 0.17,
-            "ETHUSDT_4h" => 0.17,
+            "BTCUSDT" => 0.08,
+            "ETHUSDT" => 0.08,
+            "BTCUSDT_4h" => 0.10,
+            "ETHUSDT_4h" => 0.10,
             _ => DEFAULT_CAP,
         },
         _ => DEFAULT_CAP,
@@ -157,7 +157,7 @@ mod tests {
     fn test_tier_cap_known_keys() {
         assert_eq!(tier_cap("small", "BTCUSDT_4h"), 0.40);
         assert_eq!(tier_cap("medium", "BTCUSDT"), 0.20);
-        assert_eq!(tier_cap("large", "ETHUSDT"), 0.13);
+        assert_eq!(tier_cap("large", "ETHUSDT"), 0.08);
     }
 
     #[test]
