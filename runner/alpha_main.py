@@ -344,7 +344,7 @@ def main() -> None:
                 for rk, am in modules.items():
                     cfg = SYMBOL_CONFIG[rk]
                     if cfg.get("symbol", rk) == sym and "4h" not in rk and "15m" not in rk:
-                        signal = 1 if side == "Buy" else -1
+                        signal = 1 if side.lower() == "buy" else -1
                         am._signal = signal
                         am._entry_price = entry
                         am._trade_peak = entry
