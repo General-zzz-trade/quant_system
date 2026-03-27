@@ -26,6 +26,7 @@ _RUST_ALIASES: Dict[str, str] = {
     "etf_premium": "ethe_ret_1d",
     "ibit_flow_zscore": "gbtc_vol_zscore_14",
     "spy_vix_change": "spy_extreme",
+    "total_supply_change_7d": "stablecoin_supply_chg_7d",
 }
 
 
@@ -454,6 +455,12 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             vol20 = features.get("vol_20")
             if rsi is not None and vol20 is not None:
                 features["rsi_x_vol"] = rsi * vol20
+
+        # vix_level = iv_rv_spread as proxy (VIX correlates with IV-RV)
+        if "vix_level" not in features:
+            ivrs = features.get("iv_rv_spread")
+            if ivrs is not None:
+                features["vix_level"] = ivrs
 
     @staticmethod
     def _apply_aliases(features: Dict[str, Any]) -> None:
