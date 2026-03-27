@@ -344,15 +344,15 @@ def main() -> None:
                 for rk, am in modules.items():
                     cfg = SYMBOL_CONFIG[rk]
                     if cfg.get("symbol", rk) == sym and "4h" not in rk and "15m" not in rk:
-                        signal = 1 if side.lower() == "buy" else -1
-                        am._signal = signal
+                        pos_signal = 1 if side.lower() == "buy" else -1
+                        am._signal = pos_signal
                         am._entry_price = entry
                         am._trade_peak = entry
                         am._current_qty = __import__("decimal").Decimal(str(qty))
                         am._last_trade_bar = -9999  # allow immediate exit if needed
                         logger.info(
-                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → signal=%+d",
-                            sym, side, qty, entry, signal,
+                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → pos_signal=%+d",
+                            sym, side, qty, entry, pos_signal,
                         )
                         break
     except Exception:
