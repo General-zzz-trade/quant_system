@@ -281,6 +281,10 @@ def main() -> None:
     except Exception:
         logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
 
+    # Disable audit logging during warmup (prevents fake entries in decision_audit.jsonl)
+    for alpha_mod in modules.values():
+        alpha_mod._audit_enabled = False
+
     # Parallel warmup — each coordinator warms up in its own thread
     # (execution bridge detached — no real orders)
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -313,6 +317,10 @@ def main() -> None:
         except Exception:
             pass
     logger.info("Saved z-score checkpoints for %d runners", len(modules))
+
+    # Re-enable audit logging after warmup
+    for alpha_mod in modules.values():
+        alpha_mod._audit_enabled = True
 
     # Reset alpha module signal state after warmup so live starts clean
     for runner_key, alpha_mod in modules.items():

@@ -262,6 +262,13 @@ def _build_data_sources(symbol: str, interval: str = "60",
             sources["funding_rate_source"] = lambda: _funding_cursor.get(_bar_ts[0])
             logger.debug("CsvCursor: funding_rate loaded %d rows", len(_funding_cursor._timestamps))
 
+    # Fix mixed-format OI CSV before loading
+    try:
+        from scripts.run_full_backtest import _fix_oi_file
+        _fix_oi_file(symbol)
+    except Exception:
+        pass
+
     # ── Open interest (hourly, ts in epoch-ms) ──
     # CSV cursor as baseline (needed for warmup bars with historical timestamps)
     _oi_csv_cursor: CsvCursor | None = None

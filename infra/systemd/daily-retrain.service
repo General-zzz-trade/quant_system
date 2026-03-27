@@ -10,6 +10,6 @@ WorkingDirectory=/quant_system
 # Or run 15m separately: python3 -m alpha.retrain_15m --force
 ExecStart=/usr/bin/python3 -m alpha.retrain.cli --daily --include-4h --sighup
 User=ubuntu
-Environment=PYTHONPATH=/quant_system
+Environment=PYTHONPATH=/quant_system:/home/ubuntu/dev
 StandardOutput=append:/quant_system/logs/retrain_daily.log
 StandardError=append:/quant_system/logs/retrain_daily.log

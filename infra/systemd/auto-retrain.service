@@ -7,7 +7,7 @@ Type=oneshot
 WorkingDirectory=/quant_system
 ExecStart=/usr/bin/python3 -m alpha.retrain.cli --horizons 24 --include-4h --sighup
 User=ubuntu
-Environment=PYTHONPATH=/quant_system
+Environment=PYTHONPATH=/quant_system:/home/ubuntu/dev
 StandardOutput=append:/quant_system/logs/retrain_cron.log
 StandardError=append:/quant_system/logs/retrain_cron.log
 TimeoutStartSec=3600

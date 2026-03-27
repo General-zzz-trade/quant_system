@@ -123,6 +123,7 @@ class AlphaDecisionModule:
 
         # Decision audit logger (best-effort, never affects trading)
         self._audit = DecisionAuditLogger()
+        self._audit_enabled = True  # disabled during warmup to prevent fake entries
 
     def set_consensus(self, signals: dict[str, int]) -> None:
         """Update cross-symbol consensus signals."""
@@ -208,15 +209,16 @@ class AlphaDecisionModule:
         if force_exit:
             new_signal = 0
 
-        # Audit: log every signal evaluation (best-effort)
-        try:
-            self._audit.log_signal(
-                symbol=self._symbol, runner_key=self._runner_key,
-                z_score=z, signal=new_signal, confidence=abs(z),
-                features=features, force_exit=exit_reason or None,
-            )
-        except Exception:
-            pass
+        # Audit: log every signal evaluation (best-effort, skipped during warmup)
+        if self._audit_enabled:
+            try:
+                self._audit.log_signal(
+                    symbol=self._symbol, runner_key=self._runner_key,
+                    z_score=z, signal=new_signal, confidence=abs(z),
+                    features=features, force_exit=exit_reason or None,
+                )
+            except Exception:
+                pass
 
         # Pre-allocate events list for risk/signal events + orders
         events: list[RiskEvent | SignalEvent | OrderEvent] = []
@@ -334,15 +336,16 @@ class AlphaDecisionModule:
             # Close existing position
             if old_signal != 0:
                 reason = exit_reason if force_exit else "signal_change"
-                try:
-                    self._audit.log_exit(
-                        symbol=self._symbol,
-                        side="sell" if old_signal == 1 else "buy",
-                        qty=float(self._current_qty), price=close, reason=reason,
-                        entry_price=self._entry_price,
-                    )
-                except Exception:
-                    pass
+                if self._audit_enabled:
+                    try:
+                        self._audit.log_exit(
+                            symbol=self._symbol,
+                            side="sell" if old_signal == 1 else "buy",
+                            qty=float(self._current_qty), price=close, reason=reason,
+                            entry_price=self._entry_price,
+                        )
+                    except Exception:
+                        pass
                 events.extend(self._make_close_order(close, old_signal, reason))
                 self._current_qty = Decimal("0")
 
@@ -371,15 +374,16 @@ class AlphaDecisionModule:
                 if qty <= 0:
                     return events  # skip zero/negative qty (warmup, edge case)
                 events.extend(self._make_open_order(close, new_signal, qty))
-                try:
-                    self._audit.log_entry(
-                        symbol=self._symbol,
-                        side="buy" if new_signal == 1 else "sell",
-                        qty=float(qty), price=close,
-                        reason="signal", z_score=z, ic_scale=self._ic_scale,
-                    )
-                except Exception:
-                    pass
+                if self._audit_enabled:
+                    try:
+                        self._audit.log_entry(
+                            symbol=self._symbol,
+                            side="buy" if new_signal == 1 else "sell",
+                            qty=float(qty), price=close,
+                            reason="signal", z_score=z, ic_scale=self._ic_scale,
+                        )
+                    except Exception:
+                        pass
                 self._entry_price = close
                 self._trade_peak = close
                 self._current_qty = qty
