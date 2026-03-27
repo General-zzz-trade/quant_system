@@ -60,7 +60,7 @@
   "zscore_window": 720,
   "zscore_warmup": 180,
   "deadzone": 2.5,
-  "min_hold": 3,
+  "min_hold": 9,
   "max_hold": 60,
   "long_only": false,
   "exit": {

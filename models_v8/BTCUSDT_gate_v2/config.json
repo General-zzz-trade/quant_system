@@ -27,7 +27,8 @@
         "fgi_extreme",
         "stablecoin_supply_chg_7d"
       ],
-      "ic": 0.04540438400174775
+      "ic": 0.04540438400174775,
+      "ridge": "ridge_h12.pkl"
     },
     {
       "horizon": 24,
@@ -49,7 +50,8 @@
         "parkinson_vol",
         "dow_sin"
       ],
-      "ic": 0.03426837961023125
+      "ic": 0.03426837961023125,
+      "ridge": "ridge_h24.pkl"
     }
   ],
   "primary_horizon": 24,
@@ -57,7 +59,7 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 2.0,
+  "deadzone": 1.8,
   "min_hold": 6,
   "max_hold": 96,
   "long_only": true,
