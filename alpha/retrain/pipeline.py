@@ -306,12 +306,14 @@ def retrain_symbol(
                 cfg["ic_min_threshold"] = -0.01
 
                 # Preserve manual overrides from old config
-                _PRESERVE_KEYS = ["long_only", "ridge_weight", "lgbm_weight"]
+                # Force-override: training sweep may set long_only=True but we want
+                # to keep the manually optimized value from old config.
+                _FORCE_PRESERVE = ["long_only", "ridge_weight", "lgbm_weight"]
                 if old_config:
-                    for key in _PRESERVE_KEYS:
-                        if key in old_config and key not in cfg:
+                    for key in _FORCE_PRESERVE:
+                        if key in old_config:
                             cfg[key] = old_config[key]
-                            logger.info("%s: preserved %s=%s from old config", symbol, key, old_config[key])
+                            logger.info("%s: force-preserved %s=%s from old config", symbol, key, old_config[key])
 
                     # Preserve Ridge model references in horizon_models
                     # Training scripts don't produce Ridge — those are trained separately.

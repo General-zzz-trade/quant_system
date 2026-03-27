@@ -62,7 +62,7 @@
   "deadzone": 1.8,
   "min_hold": 6,
   "max_hold": 96,
-  "long_only": true,
+  "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
     "zscore_cap": 0.0,
