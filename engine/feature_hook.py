@@ -82,6 +82,8 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
         self._rust_engines: Dict[str, Any] = {}
+        # Live funding rate cache: overrides CSV cursor when set
+        self._live_funding_rates: Dict[str, float] = {}
         self._dom_engines: Dict[str, Any] = {}   # dedicated engines for push_dominance (unified path)
         # External data cache for unified predictor path
         self._ext_cache: Dict[str, Dict[str, Any]] = {}
@@ -97,6 +99,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         # Schema validation: warn if model requires features the computer doesn't provide
         if inference_bridge is not None and unified_predictor is None:
             self._validate_feature_schema(inference_bridge, computer)
+
+    def update_live_funding_rate(self, symbol: str, rate: float) -> None:
+        """Update live funding rate from WS ticker stream, overriding CSV cursor."""
+        self._live_funding_rates[symbol] = rate
 
     @staticmethod
     def _validate_feature_schema(inference_bridge: Any, computer: Any) -> None:
@@ -201,11 +207,16 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                 self._set_bar_ts(ts_ms)
 
         funding_rate = NaN
-        _funding_src = self._resolve_source(self._funding_rate_source, symbol)
-        if _funding_src is not None:
-            rate = self._safe_call_source(_funding_src, "funding_rate", symbol)
-            if rate is not None:
-                funding_rate = rate
+        # Prefer live WS funding rate over CSV cursor
+        _live_fr = self._live_funding_rates.get(symbol)
+        if _live_fr is not None:
+            funding_rate = _live_fr
+        else:
+            _funding_src = self._resolve_source(self._funding_rate_source, symbol)
+            if _funding_src is not None:
+                rate = self._safe_call_source(_funding_src, "funding_rate", symbol)
+                if rate is not None:
+                    funding_rate = rate
 
         trades = float(getattr(event, "trades", 0) or 0)
         taker_buy_volume = float(getattr(event, "taker_buy_volume", 0) or 0)

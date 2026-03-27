@@ -112,6 +112,7 @@ Bybit WS kline → MarketEvent → EngineCoordinator.emit()
       ├─ EnsemblePredictor: Ridge(60%)+LGBM(40%), Rust-native inference preferred
       ├─ SignalDiscretizer: z-score → z-clamp → fixed deadzone → min-hold
       ├─ Force exits: ATR 3-phase stop, quick loss, z-reversal, 4h reversal, alignment exit
+      ├─ 4h direction filter: 1h entry blocked when 4h signal opposes
       ├─ Direction alignment: ETH follows BTC (entry + holding)
       └─ AdaptivePositionSizer: equity-tier × IC × vol (Rust delegate)
   └─ OrderEvent → ExecutionBridge → BybitExecutionAdapter (3x retry) → FillEvent
@@ -157,6 +158,7 @@ Real-time layer (parallel to bar flow):
 Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3.0)
   → Fixed deadzone (no vol-adaptive scaling) → Discretize (+1/-1/0)
   → Fixed min-hold → Trade cooldown (min_hold bars between flat→entry)
+  → 4h direction filter (1h entry blocked when 4h opposes)
   → Direction alignment (ETH follows BTC, entry + holding)
   → Force exits (ATR 3-phase/quick_loss/z_reversal/4h_reversal/alignment_exit)
   → AdaptivePositionSizer (equity-tier × IC × leverage × z_scale)

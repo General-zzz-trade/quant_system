@@ -11,6 +11,7 @@
       "horizon": 12,
       "lgbm": "lgbm_h12.pkl",
       "xgb": "xgb_h12.pkl",
+      "ridge": "ridge_h12.pkl",
       "features": [
         "spy_ret_1d",
         "iv_level",
@@ -33,6 +34,7 @@
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
       "xgb": "xgb_h24.pkl",
+      "ridge": "ridge_h24.pkl",
       "features": [
         "spy_ret_1d",
         "iv_level",
@@ -101,5 +103,11 @@
   "data_range": "2019-11-27 \u2192 2026-03-22",
   "n_bars": 55369,
   "ic_ema_span": 720,
-  "ic_min_threshold": -0.01
+  "ic_min_threshold": -0.01,
+  "ridge_weight": 0.6,
+  "lgbm_weight": 0.4,
+  "ensemble_weights": {
+    "ridge": 0.5,
+    "lgbm": 0.5
+  }
 }

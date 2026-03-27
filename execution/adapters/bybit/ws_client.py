@@ -40,6 +40,7 @@ class BybitWsClient:
         self._on_bar = on_bar
         self._on_tick = on_tick
         self._last_prices: dict[str, float] = {}
+        self._last_funding_rates: dict[str, float] = {}
         # Public market data always uses production WS (same data for demo/live)
         self._url = WS_PUBLIC
         self._ws: Any = None
@@ -127,7 +128,7 @@ class BybitWsClient:
 
         topic = data.get("topic", "")
 
-        # Handle ticker updates (real-time price for stop-loss)
+        # Handle ticker updates (real-time price for stop-loss + funding rate)
         if "tickers" in topic and "data" in data:
             td = data["data"]
             symbol = td.get("symbol", "")
@@ -140,6 +141,15 @@ class BybitWsClient:
                         self._on_tick(symbol, price)
                     except Exception:
                         pass  # non-fatal
+            # Extract real-time funding rate from ticker stream
+            fr = td.get("fundingRate")
+            if fr is not None:
+                try:
+                    fr_val = float(fr)
+                    if fr_val == fr_val:  # not NaN
+                        self._last_funding_rates[symbol] = fr_val
+                except (ValueError, TypeError):
+                    pass
             return
 
         if "kline" not in topic or "data" not in data:
@@ -185,6 +195,10 @@ class BybitWsClient:
     def get_last_price(self, symbol: str) -> float:
         """Get last known price from ticker stream (0 if not yet received)."""
         return self._last_prices.get(symbol, 0.0)
+
+    def get_last_funding_rate(self, symbol: str) -> float | None:
+        """Get last known funding rate from ticker stream (None if not yet received)."""
+        return self._last_funding_rates.get(symbol)
 
     def _on_error(self, ws: Any, error: Any) -> None:
         self._reconnect_count += 1

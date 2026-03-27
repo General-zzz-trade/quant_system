@@ -263,6 +263,38 @@ class AlphaDecisionModule:
                     ))
                     new_signal = 0
 
+        # 6b. 4h direction filter (1h entries only)
+        # If 4h signal opposes a new 1h entry, block the entry.
+        # Strong 4h conviction should prevent counter-trend 1h trades.
+        if (
+            new_signal != 0
+            and self._signal == 0
+            and not self._is_4h
+        ):
+            base_sym = self._symbol.replace("_15m", "")
+            tf4h_key = f"{base_sym}_4h"
+            tf4h_signal = self._consensus.get(tf4h_key, 0)
+            if tf4h_signal != 0 and tf4h_signal != new_signal:
+                logger.info(
+                    "%s 4h direction filter: blocked %+d entry (4h=%+d)",
+                    self._runner_key, new_signal, tf4h_signal,
+                )
+                try:
+                    align_header = EventHeader.new_root(
+                        event_type=EventType.RISK,
+                        version=1,
+                        source=f"alpha.{self._runner_key}.risk",
+                    )
+                    events.append(RiskEvent(
+                        header=align_header,
+                        rule_id="4h_direction_filter",
+                        level="block",
+                        message=f"{self._symbol} 1h blocked: 4h opposes ({new_signal:+d} vs {tf4h_signal:+d})",
+                    ))
+                except Exception:
+                    pass
+                new_signal = 0
+
         # 7. Trade cooldown: prevent rapid-fire flat→entry cycles
         # After closing a position, wait min_hold bars before opening a new one.
         # This matches the Rust backtest behavior and prevents warmup-induced churn.

@@ -36,7 +36,7 @@ from decision.modules.alpha import AlphaDecisionModule
 from decision.signals.alpha_signal import EnsemblePredictor
 from engine.coordinator import EngineCoordinator
 from event.header import EventHeader
-from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
+from event.types import EventType, ControlEvent, FillEvent, FundingEvent, MarketEvent
 from execution.adapters.bybit.ws_client import BybitWsClient
 from runner.builders.alpha_builder import build_coordinator as _build_coordinator
 from strategy.config import SYMBOL_CONFIG
@@ -393,6 +393,9 @@ def main() -> None:
 
     signal.signal(signal.SIGHUP, _handle_sighup)
 
+    # Live funding rate cache — updated by WS ticker, consumed by feature hooks
+    _live_funding: dict[str, float] = {}
+
     # WS on_bar callback: route bar to matching coordinators
     def _on_bar(ws_symbol: str, bar: dict) -> None:
         if not bar.get("confirm", True):
@@ -404,7 +407,7 @@ def main() -> None:
             if _limit_mgr.has_pending(ws_symbol):
                 fill_info = _limit_mgr.check_fill(ws_symbol)
                 if fill_info:
-                    # Limit order was filled — update the alpha module state
+                    # Limit order was filled — update alpha module + state store
                     for rk, am in modules.items():
                         cfg = SYMBOL_CONFIG[rk]
                         if cfg.get("symbol", rk) != ws_symbol:
@@ -417,12 +420,36 @@ def main() -> None:
                         side = fill_info["side"]
                         am._signal = 1 if side == "buy" else -1
                         am._entry_price = fill_info["price"]
+                        am._trade_peak = fill_info["price"]
                         am._current_qty = Decimal(str(fill_info["qty"]))
-                        am._bars_held = 0
+                        am._last_trade_bar = am._bars_processed
+                        am._consensus[rk] = am._signal
                         logger.info(
                             "LIMIT FILL applied %s: signal=%d entry=$%.2f qty=%.4f",
                             rk, am._signal, am._entry_price, fill_info["qty"],
                         )
+                        # Emit FillEvent so coordinator state store tracks the position
+                        coord = coordinators.get(rk)
+                        if coord is not None:
+                            fill_header = EventHeader.new_root(
+                                event_type=EventType.FILL,
+                                version=1,
+                                source=f"limit_fill.{rk}",
+                            )
+                            fill_ev = FillEvent(
+                                header=fill_header,
+                                fill_id=fill_info.get("orderId", fill_header.event_id),
+                                order_id=fill_info.get("orderId", ""),
+                                symbol=ws_symbol,
+                                qty=Decimal(str(fill_info["qty"])),
+                                price=Decimal(str(fill_info["price"])),
+                                side=side,
+                            )
+                            coord.emit(fill_ev, actor="limit_fill")
+                            logger.info(
+                                "LIMIT FillEvent emitted %s → coordinator %s",
+                                ws_symbol, rk,
+                            )
                 else:
                     # Not filled — cancel stale order
                     _limit_mgr.cancel_stale(ws_symbol)
@@ -479,6 +506,20 @@ def main() -> None:
                                 logger.debug("Error emitting funding to %s", runner_key)
             except (ValueError, TypeError):
                 pass
+
+        # Push live funding rates from WS ticker to feature hooks before bar emit
+        for ws in ws_clients:
+            fr = ws.get_last_funding_rate(ws_symbol)
+            if fr is not None:
+                _live_funding[ws_symbol] = fr
+                break
+        if ws_symbol in _live_funding:
+            for runner_key, coord in coordinators.items():
+                cfg = SYMBOL_CONFIG[runner_key]
+                if cfg.get("symbol", runner_key) == ws_symbol:
+                    hook = getattr(coord, "_feature_hook", None)
+                    if hook is not None:
+                        hook.update_live_funding_rate(ws_symbol, _live_funding[ws_symbol])
 
         # Route to all coordinators that handle this symbol + interval
         bar_interval = str(bar.get("interval", "60"))
