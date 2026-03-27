@@ -21,6 +21,7 @@ from engine.decision_bridge import DecisionBridge
 from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
+from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from strategy.config import SYMBOL_CONFIG, LEVERAGE_LADDER
 
 logger = logging.getLogger(__name__)
@@ -687,7 +688,11 @@ def build_coordinator(
 
     # Attach execution bridge (live only)
     if not dry_run:
-        exec_adapter = BybitExecutionAdapter(adapter)
+        venue = getattr(adapter, "venue", "bybit")
+        if venue == "binance":
+            exec_adapter = BinanceExecutionAdapter(adapter)
+        else:
+            exec_adapter = BybitExecutionAdapter(adapter)
         execution_bridge = ExecutionBridge(
             adapter=exec_adapter,
             dispatcher_emit=coordinator.emit,

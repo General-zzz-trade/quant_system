@@ -87,6 +87,25 @@ logger = logging.getLogger(__name__)
 MODEL_BASE = Path("models_v8")
 
 
+def _create_binance_adapter():
+    """Create Binance Futures adapter from environment variables."""
+    from execution.adapters.binance import BinanceAdapter, BinanceConfig
+
+    api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
+    api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
+    if not api_key or not api_secret:
+        raise RuntimeError(
+            "BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET "
+            "environment variables are required for --venue binance."
+        )
+    testnet = os.environ.get("BINANCE_TESTNET", "1").lower() in ("1", "true", "yes")
+    config = BinanceConfig(api_key=api_key, api_secret=api_secret, testnet=testnet)
+    adapter = BinanceAdapter(config)
+    if not adapter.connect():
+        raise RuntimeError("Failed to connect to Binance Futures")
+    return adapter
+
+
 # ── Main ────────────────────────────────────────────────────
 
 
@@ -105,6 +124,10 @@ def main() -> None:
     )
     parser.add_argument("--ws", action="store_true", help="Use WebSocket for live bars")
     parser.add_argument("--dry-run", action="store_true", help="No execution (signals only)")
+    parser.add_argument(
+        "--venue", choices=["bybit", "binance"], default="bybit",
+        help="Exchange venue (default: bybit)",
+    )
     args = parser.parse_args()
 
     # Validate Rust event configuration at startup
@@ -121,9 +144,13 @@ def main() -> None:
         len(VALID_VENUES), len(VALID_ORDER_TYPES), len(VALID_TIF),
     )
 
-    # Adapter (Bybit REST)
-    adapter = create_adapter()
-    logger.info("Bybit adapter connected")
+    # Adapter (venue-specific REST)
+    if args.venue == "binance":
+        adapter = _create_binance_adapter()
+        logger.info("Binance adapter connected")
+    else:
+        adapter = create_adapter()
+        logger.info("Bybit adapter connected")
 
     # Limit order pre-placement manager (reduces slippage vs market orders)
     _limit_mgr = LimitOrderManager(
