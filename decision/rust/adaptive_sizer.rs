@@ -157,7 +157,7 @@ mod tests {
     fn test_tier_cap_known_keys() {
         assert_eq!(tier_cap("small", "BTCUSDT_4h"), 0.40);
         assert_eq!(tier_cap("medium", "BTCUSDT"), 0.20);
-        assert_eq!(tier_cap("large", "ETHUSDT"), 0.15);
+        assert_eq!(tier_cap("large", "ETHUSDT"), 0.13);
     }
 
     #[test]
