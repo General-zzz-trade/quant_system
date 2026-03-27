@@ -305,14 +305,22 @@ def retrain_symbol(
                 cfg["ic_ema_span"] = 720
                 cfg["ic_min_threshold"] = -0.01
 
-                # Preserve manual overrides from old config (long_only, ridge_weight, etc.)
-                # These were optimized via config sweep and should survive retraining.
+                # Preserve manual overrides from old config
                 _PRESERVE_KEYS = ["long_only", "ridge_weight", "lgbm_weight"]
                 if old_config:
                     for key in _PRESERVE_KEYS:
                         if key in old_config and key not in cfg:
                             cfg[key] = old_config[key]
                             logger.info("%s: preserved %s=%s from old config", symbol, key, old_config[key])
+
+                    # Preserve Ridge model references in horizon_models
+                    # Training scripts don't produce Ridge — those are trained separately.
+                    old_hms = {hm["horizon"]: hm for hm in old_config.get("horizon_models", [])}
+                    for hm in cfg.get("horizon_models", []):
+                        old_hm = old_hms.get(hm["horizon"], {})
+                        if "ridge" not in hm and "ridge" in old_hm:
+                            hm["ridge"] = old_hm["ridge"]
+                            logger.info("%s h%d: preserved ridge=%s", symbol, hm["horizon"], old_hm["ridge"])
 
                 with open(cfg_path, "w") as f:
                     json.dump(cfg, f, indent=2)
