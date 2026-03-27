@@ -251,14 +251,30 @@ def main() -> None:
     if restored_count > 0:
         logger.info("Restored %d/%d z-score checkpoints — signals ready immediately", restored_count, len(modules))
 
-    # Warmup each coordinator (execution bridge detached — no real orders)
-    for runner_key, coord in coordinators.items():
+    # Parallel warmup — each coordinator warms up in its own thread
+    # (execution bridge detached — no real orders)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _warmup_one(runner_key: str, coord):
         cfg = SYMBOL_CONFIG[runner_key]
         symbol = cfg.get("symbol", runner_key)
         interval = cfg.get("interval", "60")
         is_4h = "4h" in runner_key
         warmup_limit = cfg.get("warmup", 300 if is_4h else 800)
         _warmup(coord, adapter, symbol, interval, warmup_limit)
+        return runner_key
+
+    t0_warmup = time.monotonic()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_warmup_one, rk, co): rk for rk, co in coordinators.items()}
+        for fut in as_completed(futures):
+            try:
+                rk = fut.result()
+                logger.debug("Warmup done: %s", rk)
+            except Exception:
+                logger.exception("Warmup failed for %s", futures[fut])
+    logger.info("Parallel warmup complete: %d runners in %.1fs",
+                len(coordinators), time.monotonic() - t0_warmup)
 
     # Save z-score checkpoints AFTER warmup (for next restart)
     for runner_key, alpha_mod in modules.items():
