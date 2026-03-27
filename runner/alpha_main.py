@@ -337,13 +337,16 @@ def main() -> None:
     logger.info("Parallel warmup complete: %d runners in %.1fs",
                 len(coordinators), time.monotonic() - t0_warmup)
 
-    # Save z-score checkpoints AFTER warmup (for next restart)
+    # RE-LOAD batch z-score checkpoints AFTER warmup to override
+    # the incorrect incremental predictions that warmup pushed into the buffer.
+    # This is the critical fix for the batch/incremental feature divergence.
     for runner_key, alpha_mod in modules.items():
         try:
-            _save_zscore_checkpoint(runner_key, alpha_mod._discretizer._bridge)
+            bridge = alpha_mod._discretizer._bridge
+            if _restore_zscore_checkpoint(runner_key, bridge):
+                logger.info("Re-loaded batch z-score checkpoint for %s (post-warmup)", runner_key)
         except Exception:
             pass
-    logger.info("Saved z-score checkpoints for %d runners", len(modules))
 
     # Re-enable audit logging after warmup
     for alpha_mod in modules.values():
