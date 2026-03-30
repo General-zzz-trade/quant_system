@@ -1,6 +1,11 @@
 """Exit Manager — trailing stop, z-score cap, time filter, signal-based exits.
 
-All exit/entry gating logic in one place, parameterized by ExitConfig.
+DEPRECATED: Not used in production. The live trading exit framework is
+AlphaDecisionModule._check_force_exits() in decision/modules/alpha.py,
+which implements adaptive vol-scaled ATR trailing, profit-lock, z-fade,
+z-reversal, 4h-reversal, alignment exit, and max_hold.
+
+This class is retained for research/backtest use only.
 """
 from __future__ import annotations
 

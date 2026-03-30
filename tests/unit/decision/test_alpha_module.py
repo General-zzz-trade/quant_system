@@ -163,7 +163,7 @@ class TestAlphaDecisionModule:
         events2 = list(mod.decide(snap2))
         # Should emit close OrderEvent + RiskEvent
         orders2 = [e for e in events2 if isinstance(e, OrderEvent)]
-        assert any(e.qty > Decimal("0") for e in orders2)  # close with tracked qty
+        assert any(e.qty == Decimal("0") for e in orders2)  # qty=0 delegates to exchange
         risk_events = [e for e in events2 if isinstance(e, RiskEvent)]
         assert len(risk_events) >= 1
 
@@ -180,7 +180,7 @@ class TestAlphaDecisionModule:
         snap2 = _make_snapshot(close=90000.0)
         events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
-        assert any(e.qty > Decimal("0") for e in orders)
+        assert any(e.qty == Decimal("0") for e in orders)
 
     def test_regime_filter_warmup_active(self):
         """<20 bars -> regime always active."""
@@ -191,12 +191,16 @@ class TestAlphaDecisionModule:
             list(mod.decide(snap))
         assert mod._regime_active is True
 
-    def test_z_scale_mapping(self):
-        """Verify all 4 z_scale brackets."""
-        assert AlphaDecisionModule._compute_z_scale(2.5) == 1.2  # capped at 1.2
-        assert AlphaDecisionModule._compute_z_scale(1.5) == 1.0
-        assert AlphaDecisionModule._compute_z_scale(0.7) == 0.8
-        assert AlphaDecisionModule._compute_z_scale(0.3) == 0.5
+    def test_signal_weight_monotonic(self):
+        """Signal weight increases monotonically with |z|."""
+        mod, _, _, _ = _make_module()
+        prev_w = 0.0
+        for z_val in [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]:
+            w = mod._signal_weight(z_val)
+            assert w >= prev_w, f"w({z_val})={w} < w(prev)={prev_w}"
+            prev_w = w
+        # Verify saturation
+        assert mod._signal_weight(5.0) > 0.99
 
     def test_signal_change_emits_close_then_open(self):
         """prev=1, new=-1 -> SignalEvent + close + open = 3 events.
@@ -219,9 +223,9 @@ class TestAlphaDecisionModule:
             events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
         assert len(orders) == 2
-        # First order: close (sell, qty>0 — tracked position qty)
+        # First order: close (sell, qty=0 — delegates to exchange)
         assert orders[0].side == "sell"
-        assert orders[0].qty > Decimal("0")
+        assert orders[0].qty == Decimal("0")
         # Second order: open short (sell, qty>0)
         assert orders[1].side == "sell"
         assert orders[1].qty > 0
@@ -276,7 +280,7 @@ class TestAlphaDecisionModule:
         events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
         assert len(orders) == 1
-        assert orders[0].qty > Decimal("0")  # close with tracked qty
+        assert orders[0].qty == Decimal("0")  # qty=0 delegates to exchange
         assert orders[0].side == "sell"  # opposite of long
 
     def test_deadzone_base_preserved(self):

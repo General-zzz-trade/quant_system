@@ -219,16 +219,17 @@ class TestAlphaDecideExceptions:
         orders = [e for e in events if isinstance(e, OrderEvent)]
         assert len(orders) == 0
 
-    # -- z_score = inf → z_clamp in _compute_z_scale -------------------
+    # -- z_score = inf → _signal_weight handles gracefully --------------
 
-    def test_z_score_inf_z_scale(self):
-        # _compute_z_scale should handle inf gracefully
-        z_scale = AlphaDecisionModule._compute_z_scale(float("inf"))
-        assert z_scale == 1.2  # abs(inf) > 2.0 → 1.2
+    def test_signal_weight_inf(self):
+        mod, _, _, _ = _make_module()
+        w = mod._signal_weight(float("inf"))
+        assert w == 1.0  # saturates at 1.0
 
-    def test_z_score_neg_inf_z_scale(self):
-        z_scale = AlphaDecisionModule._compute_z_scale(float("-inf"))
-        assert z_scale == 1.2
+    def test_signal_weight_neg_inf(self):
+        mod, _, _, _ = _make_module()
+        w = mod._signal_weight(float("-inf"))
+        assert w == 1.0  # abs(-inf) saturates at 1.0
 
     # -- IC health file corrupt JSON → keeps old value -----------------
 
@@ -379,18 +380,19 @@ class TestAlphaDecideExceptions:
             # The qty in the order may be Decimal(0.07) or similar
             assert float(orders[0].qty) <= 0.1
 
-    # -- _compute_z_scale boundary values ------------------------------
+    # -- _signal_weight boundary values ----------------------------------
 
-    def test_z_scale_boundary_values(self):
-        assert AlphaDecisionModule._compute_z_scale(0.0) == 0.5
-        assert AlphaDecisionModule._compute_z_scale(0.49) == 0.5
-        assert AlphaDecisionModule._compute_z_scale(0.5) == 0.5
-        assert AlphaDecisionModule._compute_z_scale(0.51) == 0.8
-        assert AlphaDecisionModule._compute_z_scale(1.0) == 0.8
-        assert AlphaDecisionModule._compute_z_scale(1.01) == 1.0
-        assert AlphaDecisionModule._compute_z_scale(2.0) == 1.0
-        assert AlphaDecisionModule._compute_z_scale(2.01) == 1.2
-        assert AlphaDecisionModule._compute_z_scale(100.0) == 1.2
+    def test_signal_weight_boundary_values(self):
+        mod, _, _, _ = _make_module()
+        # deadzone = 0.9, floor = 0.9*0.4 = 0.36, full = 0.9*1.5 = 1.35
+        assert mod._signal_weight(0.0) == 0.0       # below floor
+        assert mod._signal_weight(0.3) == 0.0        # below floor
+        w_mid = mod._signal_weight(0.9)              # at deadzone
+        assert 0.4 < w_mid < 0.7                     # sigmoid midpoint ~50%
+        w_strong = mod._signal_weight(1.35)           # at full
+        assert w_strong > 0.85                        # near saturation
+        w_max = mod._signal_weight(5.0)               # very strong
+        assert w_max >= 0.99                          # fully saturated
 
     # -- force exit emits RiskEvent ------------------------------------
 

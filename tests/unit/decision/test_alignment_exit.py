@@ -80,6 +80,8 @@ def _set_holding(mod: AlphaDecisionModule, signal: int, entry_price: float = 300
     # Seed enough close/ATR history to avoid warmup issues
     mod._closes = [entry_price] * 30
     mod._atr_buffer = [0.01] * 20
+    # Set last_trade_bar so max_hold doesn't trigger before the exit under test
+    mod._last_trade_bar = mod._bars_processed
 
 
 # ── tests ────────────────────────────────────────────────────────

@@ -49,6 +49,7 @@ def train_symbol(
 
     logger.info("Running 4h production training: %s", " ".join(cmd))
 
+    env = {**__import__("os").environ, "PYTHONPATH": "/home/ubuntu/dev:/quant_system"}
     try:
         result = subprocess.run(
             cmd,
@@ -56,6 +57,7 @@ def train_symbol(
             capture_output=True,
             text=True,
             timeout=3600,  # 1 hour max
+            env=env,
         )
     except subprocess.TimeoutExpired:
         logger.error("4h training timed out for %s", symbol)

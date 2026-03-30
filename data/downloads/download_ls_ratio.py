@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Download historical Open Interest data from Binance Futures API.
+"""Download historical Long/Short Ratio from Binance Futures API.
 
-API: GET /futures/data/openInterestHist?symbol=BTCUSDT&period=1h&limit=500
-Returns OI at 1h intervals.
+API: GET /futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=500
 
 Usage:
-    python3 -m scripts.download_open_interest
-    python3 -m scripts.download_open_interest --symbols BTCUSDT ETHUSDT
+    python3 -m scripts.download_ls_ratio
+    python3 -m scripts.download_ls_ratio --symbols BTCUSDT ETHUSDT
 """
 from __future__ import annotations
 
@@ -20,19 +19,17 @@ from typing import List
 from urllib.request import urlopen
 
 BASE_URL = "https://fapi.binance.com"
-LIMIT = 500  # max per request
+LIMIT = 500
 
 
-def download_oi(symbol: str) -> List[dict]:
-    """Download all available OI records for a symbol.
+def download_ls_ratio(symbol: str) -> List[dict]:
+    """Download all available L/S ratio records for a symbol.
 
-    Binance /futures/data/openInterestHist only keeps ~30 days of history.
-    We first fetch without startTime, then paginate forward from the last record.
+    Binance /futures/data/globalLongShortAccountRatio only keeps ~30 days.
     """
     all_records: List[dict] = []
 
-    # First request: no startTime to get earliest available
-    url = f"{BASE_URL}/futures/data/openInterestHist?symbol={symbol}&period=1h&limit={LIMIT}"
+    url = f"{BASE_URL}/futures/data/globalLongShortAccountRatio?symbol={symbol}&period=1h&limit={LIMIT}"
     try:
         with urlopen(url, timeout=30) as resp:
             data = json.loads(resp.read().decode())
@@ -48,11 +45,10 @@ def download_oi(symbol: str) -> List[dict]:
     last_dt = datetime.fromtimestamp(data[-1]["timestamp"] / 1000, tz=timezone.utc)
     print(f"  {symbol}: {len(all_records)} records ({first_dt.strftime('%Y-%m-%d')} to {last_dt.strftime('%Y-%m-%d %H:%M')})")  # noqa: E501
 
-    # Paginate forward if we got a full page
     while len(data) == LIMIT:
         cursor = data[-1]["timestamp"] + 1
         url = (
-            f"{BASE_URL}/futures/data/openInterestHist"
+            f"{BASE_URL}/futures/data/globalLongShortAccountRatio"
             f"?symbol={symbol}&period=1h&limit={LIMIT}&startTime={cursor}"
         )
         try:
@@ -90,17 +86,17 @@ def save_csv(records: List[dict], path: Path) -> None:
     with open(path, "a", newline="") as f:
         writer = csv.writer(f)
         if write_header:
-            writer.writerow(["timestamp", "sum_open_interest"])
+            writer.writerow(["timestamp", "long_short_ratio"])
         for r in new_records:
             writer.writerow([
                 r["timestamp"],
-                r["sumOpenInterest"],
+                r["longShortRatio"],
             ])
     print(f"  Saved {len(new_records)} new records to {path} ({len(existing_ts)} existing)")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download Binance Open Interest")
+    parser = argparse.ArgumentParser(description="Download Binance L/S Ratio")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "SOLUSDT"])
     parser.add_argument("--out", default="data_files", help="Output directory")
     args = parser.parse_args()
@@ -108,10 +104,10 @@ def main() -> None:
     out_dir = Path(args.out)
 
     for symbol in args.symbols:
-        print(f"\nDownloading OI for {symbol}...")
-        records = download_oi(symbol)
+        print(f"\nDownloading L/S ratio for {symbol}...")
+        records = download_ls_ratio(symbol)
         if records:
-            save_csv(records, out_dir / f"{symbol}_open_interest.csv")
+            save_csv(records, out_dir / f"{symbol}_ls_ratio.csv")
         else:
             print(f"  No records for {symbol}")
 

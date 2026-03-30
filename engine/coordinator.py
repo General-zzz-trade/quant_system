@@ -332,11 +332,17 @@ class EngineCoordinator:
             ts = getattr(event, "ts", None) or getattr(event, "timestamp", None)
             if ts is not None:
                 if isinstance(ts, (int, float)):
-                    evt_dict["ts"] = float(ts)
+                    evt_dict["timestamp"] = float(ts)
                 elif hasattr(ts, "timestamp"):
-                    evt_dict["ts"] = ts.timestamp()
+                    evt_dict["timestamp"] = ts.timestamp()
             etype = type(event).__name__
             evt_dict["event_type"] = etype
+            # Propagate event_id from header so Rust validator can find it
+            header = getattr(event, "header", None)
+            if header is not None:
+                eid = getattr(header, "event_id", None)
+                if eid is not None:
+                    evt_dict["event_id"] = str(eid)
             # Validate signal sides separately from order sides
             side_val = evt_dict.get("side")
             if side_val in ("long", "short", "flat"):
@@ -351,7 +357,13 @@ class EngineCoordinator:
         try:
             side = getattr(event, "side", None)
             if side is not None:
-                if not rust_validate_side(str(side)):
+                # SignalEvent uses "long"/"short"/"flat" — not order sides
+                _is_signal_evt = type(event).__name__ == "SignalEvent"
+                if _is_signal_evt:
+                    _mapped = {"long": "buy", "short": "sell"}.get(str(side), str(side))
+                    if not rust_validate_signal_side(_mapped):
+                        _logger.warning("Invalid signal side '%s' on %s", side, type(event).__name__)
+                elif not rust_validate_side(str(side)):
                     _logger.warning("Invalid side '%s' on %s", side, type(event).__name__)
 
             signal_side = getattr(event, "signal_side", None)

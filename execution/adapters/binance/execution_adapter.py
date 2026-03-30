@@ -83,13 +83,23 @@ class BinanceExecutionAdapter:
                 )
                 return ()
 
-            # --- fetch actual fill price ----------------------------
+            # --- fetch actual fill qty and price ----------------------
             time.sleep(0.3)
+            fill_qty = qty
+            fill_price = Decimal("0")
             try:
                 fills = self._adapter.get_recent_fills(symbol=symbol)
-                fill_price = fills[0].price if fills else 0.0
+                if fills:
+                    fill_price = Decimal(str(fills[0].price))
+                    # For close orders (qty=0), use the actual executed qty
+                    if qty == 0:
+                        fill_qty = Decimal(str(fills[0].qty))
             except Exception:
-                fill_price = 0.0
+                pass
+
+            # Skip FillEvent if nothing was actually executed
+            if fill_qty == 0:
+                return ()
 
             # --- build FillEvent ------------------------------------
             header = EventHeader.from_parent(
@@ -103,8 +113,8 @@ class BinanceExecutionAdapter:
                 fill_id=header.event_id,
                 order_id=order_event.order_id,
                 symbol=symbol,
-                qty=order_event.qty,
-                price=Decimal(str(fill_price)),
+                qty=fill_qty,
+                price=fill_price,
                 side=side,
             )
             return (fill,)

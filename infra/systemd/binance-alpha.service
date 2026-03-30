@@ -1,0 +1,25 @@
+[Unit]
+Description=Binance Alpha Strategy H (BTC+ETH 1h+4h, demo testnet)
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+# Sync z-score checkpoints from batch predictions before starting.
+# Ensures the z-score buffer matches backtest (not incremental) predictions.
+# Sync needs ~400M for batch feature computation (runs before ExecStart, not concurrent).
+ExecStartPre=/usr/bin/python3 /quant_system/scripts/sync_zscore_from_batch.py
+ExecStart=/usr/bin/python3 -m runner.alpha_main --venue binance --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
+User=ubuntu
+TimeoutStopSec=15
+MemoryMax=768M
+CPUQuota=50%
+StandardOutput=append:/quant_system/logs/binance_alpha.log
+StandardError=append:/quant_system/logs/binance_alpha.log
+
+[Install]
+WantedBy=multi-user.target

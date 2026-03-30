@@ -245,7 +245,7 @@ def retrain_symbol(
 
     Returns a result dict with success status and metrics.
     """
-    from scripts.training.train_v11 import train_symbol_v11
+    from alpha.training.train_v12 import train_symbol as train_symbol_v11
 
     result = {
         "symbol": symbol,
@@ -290,10 +290,6 @@ def retrain_symbol(
         success = train_symbol_v11(
             symbol,
             horizons=horizons,
-            trailing_stop_pct=0.0,
-            zscore_cap=0.0,
-            regime_gate_enabled=False,
-            lgbm_xgb_weight=0.5,
         )
         # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:

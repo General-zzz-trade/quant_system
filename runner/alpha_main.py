@@ -389,7 +389,7 @@ def main() -> None:
                         am._entry_price = entry
                         am._trade_peak = entry
                         am._current_qty = __import__("decimal").Decimal(str(qty))
-                        am._last_trade_bar = -9999  # allow immediate exit if needed
+                        am._last_trade_bar = am._bars_processed  # treat sync as trade start for max_hold
                         logger.info(
                             "POSITION SYNC %s: %s qty=%.4f entry=%.2f → pos_signal=%+d",
                             sym, side, qty, entry, pos_signal,
@@ -406,9 +406,10 @@ def main() -> None:
     # Allow instant signal to trigger immediately after restart.
     # Z-clamp (|z|>3.5 → dz+0.5) prevents extreme post-warmup z-scores
     # from causing wrong-direction trades. Existing positions are already
-    # synced via POSITION SYNC above.
+    # synced via POSITION SYNC above — preserve their _last_trade_bar.
     for runner_key, alpha_mod in modules.items():
-        alpha_mod._last_trade_bar = -9999  # allow first trade immediately
+        if alpha_mod._signal == 0:
+            alpha_mod._last_trade_bar = -9999  # allow first trade immediately
 
     # Push batch predictions into z-score buffer BEFORE instant signal
     # This ensures the first signal uses batch-calibrated predictions
@@ -509,6 +510,7 @@ def main() -> None:
                     alpha_mod._entry_price = price
                     alpha_mod._trade_peak = price
                     alpha_mod._current_qty = qty
+                    alpha_mod._last_trade_bar = alpha_mod._bars_processed
                     logger.info(
                         "BATCH INSTANT %s: z=%+.2f > dz=%.1f → %s %.4f @ $%.2f",
                         symbol, z, dz, direction, float(qty), price,
@@ -568,6 +570,11 @@ def main() -> None:
 
     # Live funding rate cache — updated by WS ticker, consumed by feature hooks
     _live_funding: dict[str, float] = {}
+    # Track consecutive emit failures per runner for alerting
+    _emit_fail_count: dict[str, int] = {}
+    # Cached exchange position snapshot — refreshed by reconciliation loop,
+    # checked on each bar to detect divergence early (no extra REST calls).
+    _exchange_pos_cache: dict[str, float] = {}  # symbol → signed qty
 
     # WS on_bar callback: route bar to matching coordinators
     def _on_bar(ws_symbol: str, bar: dict) -> None:
@@ -694,6 +701,13 @@ def main() -> None:
                     if hook is not None:
                         hook.update_live_funding_rate(ws_symbol, _live_funding[ws_symbol])
 
+        # Invalidate batch prediction cache for this symbol (new bar = new data)
+        try:
+            from runner.batch_predictor import invalidate_cache
+            invalidate_cache(ws_symbol)
+        except Exception:
+            pass
+
         # Route to all coordinators that handle this symbol + interval
         bar_interval = str(bar.get("interval", "60"))
         for runner_key, coord in coordinators.items():
@@ -701,12 +715,8 @@ def main() -> None:
             runner_symbol = cfg.get("symbol", runner_key)
             runner_interval = cfg.get("interval", "60")
             if runner_symbol == ws_symbol and runner_interval == bar_interval:
-                try:
-                    coord.emit(event, actor="live")
-                except Exception:
-                    logger.exception("Error emitting bar to %s", runner_key)
-
-                # Override z-score buffer with batch prediction (fixes incremental divergence)
+                # Inject batch prediction BEFORE emit so decide() uses it
+                # instead of incremental features (prevents z-score buffer contamination)
                 if "4h" not in runner_key and "15m" not in runner_key:
                     try:
                         from runner.batch_predictor import predict_latest
@@ -715,11 +725,34 @@ def main() -> None:
                         if batch_pred is not None:
                             am = modules.get(runner_key)
                             if am is not None:
-                                bridge = am._discretizer._bridge
-                                hour_key = am._bars_processed
-                                bridge.zscore_normalize(ws_symbol, batch_pred, hour_key)
+                                am._batch_pred_override = batch_pred
                     except Exception:
-                        pass  # fallback to incremental prediction
+                        pass
+
+                try:
+                    coord.emit(event, actor="live")
+                    _emit_fail_count.pop(runner_key, None)
+                except Exception:
+                    _emit_fail_count[runner_key] = _emit_fail_count.get(runner_key, 0) + 1
+                    logger.error(
+                        "Error emitting bar to %s (consecutive=%d)",
+                        runner_key, _emit_fail_count[runner_key], exc_info=True,
+                    )
+
+                # Bar-level divergence check: module vs cached exchange position.
+                # No REST call — uses cache refreshed every 5 min by reconciliation.
+                if "4h" not in runner_key and "15m" not in runner_key:
+                    am = modules.get(runner_key)
+                    if am is not None:
+                        ex_qty = _exchange_pos_cache.get(ws_symbol, 0.0)
+                        mod_signal = am._signal
+                        # system=flat but exchange=position → will be caught by reconciliation
+                        # system=position but exchange=flat → order may have been rejected
+                        if mod_signal != 0 and abs(ex_qty) == 0 and am._bars_processed > 810:
+                            logger.warning(
+                                "DIVERGENCE %s: module=%+d qty=%.4f but exchange cache=FLAT",
+                                ws_symbol, mod_signal, float(am._current_qty),
+                            )
 
     # WebSocket setup
     ws_clients: list[BybitWsClient] = []
@@ -741,10 +774,12 @@ def main() -> None:
         _rt_history: dict[str, list] = {}  # (ts, price) for 5 min
         _wick_cooldown: dict[str, float] = {}  # last wick trade ts
 
-        _WICK_THRESHOLD = 0.008   # 0.8% move = potential wick
-        _WICK_BOUNCE = 0.003      # 0.3% bounce from extreme = confirmed wick
-        _WICK_COOLDOWN_S = 300.0  # 5 min between wick trades
-        _WICK_WINDOW_S = 60.0     # look back 60s for extreme
+        # Wick detector thresholds scale with ATR: low-vol → lower thresholds
+        # so wicks are detected in calm markets (BTC ATR 0.39% → thresh ~0.5%)
+        _WICK_THRESHOLD_BASE = 0.008  # baseline 0.8% (scaled by ATR ratio)
+        _WICK_BOUNCE_BASE = 0.003     # baseline 0.3% bounce
+        _WICK_COOLDOWN_S = 300.0      # 5 min between wick trades
+        _WICK_WINDOW_S = 60.0         # look back 60s for extreme
 
         def _on_tick(ws_symbol: str, price: float) -> None:
             _rt_prices[ws_symbol] = price
@@ -778,9 +813,20 @@ def main() -> None:
                 return
 
             # Wick DOWN (buy opportunity): dropped from first, now bouncing
+            # Adaptive thresholds: scale by ATR ratio (low-vol → lower bar)
+            _atr_for_wick = 0.0
+            for rk, am in modules.items():
+                _cfg = SYMBOL_CONFIG.get(rk, {})
+                if _cfg.get("symbol", rk) == ws_symbol and "4h" not in rk:
+                    _atr_for_wick = am._current_atr()
+                    break
+            _atr_ratio = min(max(_atr_for_wick / 0.006, 0.5), 2.0) if _atr_for_wick > 0 else 1.0
+            _wick_thresh = _WICK_THRESHOLD_BASE * _atr_ratio
+            _wick_bounce = _WICK_BOUNCE_BASE * _atr_ratio
+
             drop = (first_price - win_low) / first_price
             bounce_from_low = (price - win_low) / win_low if win_low > 0 else 0
-            if drop > _WICK_THRESHOLD and bounce_from_low > _WICK_BOUNCE:
+            if drop > _wick_thresh and bounce_from_low > _wick_bounce:
                 # Check: do we have a long signal or no position?
                 for rk, am in modules.items():
                     cfg = SYMBOL_CONFIG[rk]
@@ -820,7 +866,7 @@ def main() -> None:
             # Wick UP (sell opportunity): spiked from first, now dropping
             spike = (win_high - first_price) / first_price
             drop_from_high = (win_high - price) / win_high if win_high > 0 else 0
-            if spike > _WICK_THRESHOLD and drop_from_high > _WICK_BOUNCE:
+            if spike > _wick_thresh and drop_from_high > _wick_bounce:
                 for rk, am in modules.items():
                     cfg = SYMBOL_CONFIG[rk]
                     if cfg.get("symbol", rk) != ws_symbol:
@@ -978,92 +1024,52 @@ def main() -> None:
                                 pnl_pct = current_signal * (price / entry - 1) * 100
                                 pos_info = f" | pos={'LONG' if current_signal > 0 else 'SHORT'} pnl={pnl_pct:+.2f}%"
 
-                        # Intra-bar signal preview: predict with current price as if bar closed
+                        # Intra-bar signal preview using BATCH prediction
+                        # (incremental features diverge ~100x, making preview unreliable)
                         preview_z = ""
                         try:
-                            # Build mock features with current price
-                            _lf = getattr(alpha_mod, '_last_features', None)
-                            features = dict(_lf) if _lf else {}
-                            # Update price-derived features
-                            if last_close > 0:
-                                features["ret_1"] = price / last_close - 1
-                            # Predict
-                            pred = alpha_mod._predictor.predict(features)
-                            if pred is not None:
-                                # Preview z-score WITHOUT mutating the bridge state
+                            from runner.batch_predictor import predict_latest
+                            cfg_m = SYMBOL_CONFIG.get(runner_key, {})
+                            model_dir = cfg_m.get("model_dir", runner_key)
+                            batch_pred = predict_latest(sym, model_dir)
+                            if batch_pred is not None:
                                 bridge = alpha_mod._discretizer._bridge
                                 state = bridge.checkpoint()
-                                # Use a fake hour_key that won't collide with real bars
                                 preview_hour = alpha_mod._bars_processed * 100 + _loop_iter
-                                z_val = bridge.zscore_normalize(sym, pred, preview_hour)
-                                bridge.restore(state)  # restore original state
+                                z_val = bridge.zscore_normalize(sym, batch_pred, preview_hour)
+                                bridge.restore(state)
                                 if z_val is not None:
                                     z = max(-5.0, min(5.0, z_val))
                                     dz = alpha_mod._discretizer.deadzone
                                     if abs(z) > dz:
                                         direction = "BUY" if z > 0 else "SELL"
                                         preview_z = f" | PREVIEW z={z:+.2f} → {direction} ***"
-                                        # Cancel any pending limit — we're going market
-                                        _limit_mgr.cancel_stale(sym)
-                                        # EARLY ENTRY: trigger trade if no position
-                                        if current_signal == 0:
-                                            # Emit a synthetic bar at current price
-                                            try:
-                                                early_header = EventHeader.new_root(
-                                                    event_type=EventType.MARKET,
-                                                    version=1,
-                                                    source="early_entry",
-                                                )
-                                                early_event = MarketEvent(
-                                                    header=early_header,
-                                                    ts=datetime.now(timezone.utc),
-                                                    symbol=sym,
-                                                    open=Decimal(str(last_close)),
-                                                    high=Decimal(str(max(price, last_close))),
-                                                    low=Decimal(str(min(price, last_close))),
-                                                    close=Decimal(str(price)),
-                                                    volume=Decimal("0"),
-                                                )
-                                                coord = coordinators[runner_key]
-                                                coord.emit(early_event, actor="live")
-                                                logger.info(
-                                                    "EARLY ENTRY %s: z=%+.2f > dz=%.1f, "
-                                                    "emitted synthetic bar at $%.2f",
-                                                    sym, z, dz, price,
-                                                )
-                                            except Exception:
-                                                logger.debug("Early entry failed for %s", sym, exc_info=True)
-                                    elif abs(z) > dz * 0.7:
+                                    elif abs(z) > dz * 0.5:
                                         preview_z = f" | PREVIEW z={z:+.2f} (approaching dz={dz})"
-                                        # PRE-PLACE limit order at favorable price
+                                        # Pre-place limit order (batch preview is reliable)
                                         if current_signal == 0 and not args.dry_run:
                                             try:
                                                 limit_side = "buy" if z > 0 else "sell"
-                                                # Use sizer for proper qty
                                                 snap = coordinators[runner_key]._state_store
                                                 limit_qty = alpha_mod._sizer.target_qty(
                                                     snap, sym,
                                                     leverage=alpha_mod._leverage,
                                                     ic_scale=alpha_mod._ic_scale,
                                                 )
+                                                if alpha_mod._tier1_size > 0:
+                                                    limit_qty = Decimal(str(
+                                                        float(limit_qty) * alpha_mod._tier1_size
+                                                    ))
                                                 _limit_mgr.maybe_place(
-                                                    symbol=sym,
-                                                    side=limit_side,
+                                                    symbol=sym, side=limit_side,
                                                     qty=float(limit_qty),
                                                     current_price=price,
-                                                    z_score=z,
-                                                    deadzone=dz,
+                                                    z_score=z, deadzone=dz,
                                                 )
                                             except Exception:
-                                                logger.debug(
-                                                    "Limit pre-place failed %s",
-                                                    sym, exc_info=True,
-                                                )
+                                                logger.debug("Limit pre-place failed %s", sym, exc_info=True)
                                     else:
                                         preview_z = f" | z={z:+.2f}"
-                                        # Signal faded: cancel any pending limit
-                                        if abs(z) < dz * 0.5:
-                                            _limit_mgr.cancel_stale(sym)
                         except Exception:
                             pass
 
@@ -1127,6 +1133,96 @@ def main() -> None:
                             )
                     except Exception:
                         pass
+
+            # Position reconciliation every 300 iterations (~5 min)
+            # Exchange is the single source of truth for position state.
+            # This loop detects divergence between module state and exchange,
+            # syncing module ← exchange when they disagree.
+            if _loop_iter % 300 == 0 and _loop_iter > 0:
+                try:
+                    exchange_positions = adapter.get_positions()
+                    ex_map: dict[str, float] = {}
+                    for pos in exchange_positions:
+                        if not pos.is_flat:
+                            ex_map[pos.symbol] = float(pos.qty) if pos.is_long else -float(pos.qty)
+                    _exchange_pos_cache.clear()
+                    _exchange_pos_cache.update(ex_map)
+                    for rk, am in modules.items():
+                        cfg_r = SYMBOL_CONFIG.get(rk, {})
+                        sym = cfg_r.get("symbol", rk)
+                        if "4h" in rk or "15m" in rk:
+                            continue
+                        if am._signal != 0:
+                            internal_qty = float(am._current_qty) * (1 if am._signal > 0 else -1)
+                        else:
+                            internal_qty = 0.0
+                        exchange_qty = ex_map.get(sym, 0.0)
+
+                        # Best price: prefer tick (realtime) > bar close > REST
+                        _mkt_price = _rt_prices.get(sym, 0.0)
+                        if _mkt_price <= 0:
+                            from engine.feature_hook import _last_closes
+                            _mkt_price = _last_closes.get(sym, 0.0)
+                        if _mkt_price <= 0:
+                            try:
+                                _tk = adapter.get_ticker(sym)
+                                _mkt_price = float(getattr(_tk, "last_price", 0) or 0)
+                            except Exception:
+                                _mkt_price = 0.0
+
+                        # Detect dust: exchange has position but system thinks flat
+                        if am._signal == 0 and abs(exchange_qty) > 0:
+                            if _mkt_price <= 0:
+                                # Cannot determine price — sync as real position
+                                logger.warning(
+                                    "RECONCILE %s: no market price for dust check, syncing %.4f",
+                                    sym, exchange_qty,
+                                )
+                                am._signal = 1 if exchange_qty > 0 else -1
+                                am._current_qty = Decimal(str(abs(exchange_qty)))
+                                am._last_trade_bar = am._bars_processed
+                                continue
+                            notional = abs(exchange_qty) * _mkt_price
+                            if notional < 100:  # dust threshold $100
+                                logger.warning(
+                                    "RECONCILE %s: dust position detected (exchange=%.4f, notional=$%.2f) — closing",
+                                    sym, exchange_qty, notional,
+                                )
+                                try:
+                                    adapter.close_position(sym)
+                                except Exception:
+                                    pass
+                            else:
+                                logger.warning(
+                                    "RECONCILE %s: exchange position %.4f but system=FLAT — syncing (price=$%.2f)",
+                                    sym, exchange_qty, _mkt_price,
+                                )
+                                am._signal = 1 if exchange_qty > 0 else -1
+                                am._current_qty = Decimal(str(abs(exchange_qty)))
+                                am._entry_price = _mkt_price
+                                am._trade_peak = _mkt_price
+                                am._last_trade_bar = am._bars_processed
+                        # Detect: system thinks has position but exchange is flat
+                        elif am._signal != 0 and abs(exchange_qty) == 0:
+                            logger.warning(
+                                "RECONCILE %s: system=%+d qty=%.4f but exchange=FLAT — resetting to flat",
+                                sym, am._signal, float(am._current_qty),
+                            )
+                            am._signal = 0
+                            am._current_qty = Decimal("0")
+                            am._entry_price = 0.0
+                            am._trade_peak = 0.0
+                        # Detect qty mismatch: both have position but different size
+                        elif am._signal != 0 and abs(exchange_qty) > 0:
+                            diff_pct = abs(abs(internal_qty) - abs(exchange_qty)) / max(abs(exchange_qty), 1e-8) * 100
+                            if diff_pct > 10:
+                                logger.warning(
+                                    "RECONCILE %s: qty mismatch internal=%.4f exchange=%.4f (%.1f%%)",
+                                    sym, internal_qty, exchange_qty, diff_pct,
+                                )
+                                am._current_qty = Decimal(str(abs(exchange_qty)))
+                except Exception:
+                    logger.warning("Position reconciliation failed", exc_info=True)
 
             # Live Sharpe check every 3600 iterations (~1 hour)
             if _loop_iter % 3600 == 0 and pnl_tracker is not None:

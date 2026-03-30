@@ -80,7 +80,22 @@ def _load_schedule(path: Path, ts_col: str, val_col: str) -> Dict[int, float]:
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            schedule[int(row[ts_col])] = float(row[val_col])
+            raw = row[val_col]
+            try:
+                val = float(raw)
+            except (ValueError, TypeError):
+                # Mixed-format CSV: newer rows have extra columns (symbol,
+                # value, ...) that shift the named column.  Fall back to
+                # the overflow list that DictReader stores under None.
+                overflow = row.get(None)
+                if overflow:
+                    try:
+                        val = float(overflow[0])
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                else:
+                    continue
+            schedule[int(row[ts_col])] = val
     return schedule
 
 
@@ -269,7 +284,10 @@ def compute_features_batch(
     # V21: Cross-market features (SPY/QQQ/VIX/TLT/USO/COIN from Yahoo Finance)
     _add_cross_market_features(feat_df, timestamps)
 
-    # V22: Deribit IV features (DVOL-based: iv_level, iv_rank_30d, iv_change_1d, etc.)
+    # IV legacy features (iv_level, iv_term_slope_daily from deribit_iv.csv)
+    _add_iv_legacy_features(symbol, feat_df, timestamps)
+
+    # V22: Deribit IV features (DVOL-based: dvol_zscore, dvol_chg_24, etc.)
     _add_iv_features(symbol, feat_df, timestamps, closes)
 
     # V23: Stablecoin supply features (DeFiLlama: total supply change, z-score, dominance)
@@ -287,6 +305,7 @@ from features.batch_features_extra import (  # noqa: E402
     _add_v15_features,
     _add_v16_features,
     _add_v17_onchain_features,
+    _add_iv_legacy_features,
     _add_cross_market_features,
     _add_dominance_features,
     _add_iv_features,
