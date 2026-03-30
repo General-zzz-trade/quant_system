@@ -290,6 +290,7 @@ def retrain_symbol(
         success = train_symbol_v11(
             symbol,
             horizons=horizons,
+            ic_recent_years=1.5,  # use recent IC for feature selection
         )
         # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:

@@ -101,6 +101,8 @@ class AlphaDecisionModule:
         self._last_stop_bar: int = -9999  # bar index of last forced exit
         self._last_stop_direction: int = 0  # direction of last stopped position
         self._stop_cooldown_bars: int = 6  # bars to wait after stop before same-dir entry
+        self._consecutive_stops: int = 0   # count of consecutive forced exits
+        self._stop_pause_until: int = 0    # bar index until which trading is paused
 
         # Graduated entry: position size scales continuously with |z|.
         # Replaces the old binary deadzone + tier1/tier2 system.
@@ -368,7 +370,16 @@ class AlphaDecisionModule:
             )
             new_signal = 0
 
-        # 6d. Stop-loss cooldown: after forced exit, wait extra bars
+        # 6d. Consecutive stop pause: after 3+ consecutive stops, pause trading.
+        if new_signal != 0 and self._signal == 0 and self._bars_processed < self._stop_pause_until:
+            logger.info(
+                "%s stop pause active: blocked until bar %d (current %d, %d consecutive stops)",
+                self._runner_key, self._stop_pause_until,
+                self._bars_processed, self._consecutive_stops,
+            )
+            new_signal = 0
+
+        # 6e. Stop-loss cooldown: after forced exit, wait extra bars
         # Prevents "stop → re-enter same direction → stop again" loops.
         if new_signal != 0 and self._signal == 0:
             bars_since_stop = self._bars_processed - self._last_stop_bar
@@ -473,6 +484,18 @@ class AlphaDecisionModule:
                 if force_exit:
                     self._last_stop_bar = self._bars_processed
                     self._last_stop_direction = old_signal
+                    self._consecutive_stops += 1
+                    # After 3 consecutive stops, pause trading for 12 bars
+                    if self._consecutive_stops >= 3:
+                        self._stop_pause_until = self._bars_processed + 12
+                        logger.warning(
+                            "%s STOP PAUSE: %d consecutive stops → paused until bar %d",
+                            self._runner_key, self._consecutive_stops,
+                            self._stop_pause_until,
+                        )
+                else:
+                    # Normal exit (signal_change) resets counter
+                    self._consecutive_stops = 0
 
             # Open new position — size proportional to signal_weight
             if new_signal != 0:
