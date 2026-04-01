@@ -210,6 +210,10 @@ class BinanceAdapter:
     ) -> dict:
         """Send a market order. Supports both One-way and Hedge Mode."""
         buy = side.lower() == "buy"
+        logger.info(
+            "send_market_order: %s %s qty=%s reduce_only=%s hedge=%s",
+            symbol, side, qty, reduce_only, self._hedge_mode,
+        )
         params: dict[str, Any] = {
             "symbol": symbol,
             "side": "BUY" if buy else "SELL",

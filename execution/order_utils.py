@@ -37,6 +37,14 @@ def reliable_close_position(
                 time.sleep(0.5)
             continue
 
+        if r.get("status") == "no_position":
+            logger.warning(
+                "reliable_close %s attempt %d: exchange reports no open position",
+                symbol, attempt,
+            )
+            result["status"] = "no_position"
+            break
+
         if r.get("status") != "error" and r.get("retCode", 0) == 0:
             result.update(r)
             result["status"] = "closed"
@@ -48,7 +56,7 @@ def reliable_close_position(
         if attempt < max_retries:
             time.sleep(0.5)
 
-    if result["status"] != "closed":
+    if result["status"] not in ("closed", "no_position"):
         return result
 
     if not verify:

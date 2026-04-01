@@ -422,8 +422,18 @@ class AlphaDecisionModule:
                 regime_active=self._regime_active,
                 z_scale=1.0,
             )
-            target_qty = Decimal(str(float(full_qty) * sw))
+            try:
+                _rounded = self._sizer._round_to_step(float(full_qty) * sw)
+                target_qty = _rounded if isinstance(_rounded, Decimal) else Decimal(str(float(full_qty) * sw))
+            except Exception:
+                target_qty = Decimal(str(float(full_qty) * sw))
             add_qty = target_qty - self._current_qty
+            try:
+                _rounded = self._sizer._round_to_step(float(add_qty))
+                if isinstance(_rounded, Decimal):
+                    add_qty = _rounded
+            except Exception:
+                pass
             if add_qty > Decimal("0") and float(add_qty) > float(full_qty) * 0.05:
                 events.extend(self._make_open_order(close, self._signal, add_qty))
                 avg_entry = (
@@ -537,6 +547,14 @@ class AlphaDecisionModule:
                         self._runner_key, vpin, self._vpin_caution_thresh,
                         qty, self._vpin_scale_factor,
                     )
+                # Re-apply lot-size rounding after all multiplications
+                # (sw, 4h boost, VPIN all introduce float precision errors)
+                try:
+                    _rounded = self._sizer._round_to_step(float(qty))
+                    if isinstance(_rounded, Decimal):
+                        qty = _rounded
+                except Exception:
+                    pass
                 if qty <= 0:
                     return events  # skip zero/negative qty (warmup, edge case)
                 events.extend(self._make_open_order(close, new_signal, qty))
