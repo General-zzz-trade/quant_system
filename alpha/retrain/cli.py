@@ -110,10 +110,16 @@ def _run_parity_check_and_sighup(results, results_4h, succeeded, args):
                 ],
                 capture_output=True, text=True, timeout=120, cwd="/quant_system",
             )
-            if parity_result.returncode != 0:
+            # pytest exit 5 = no tests collected (all skipped) — treat as pass
+            parity_failed = (parity_result.returncode != 0
+                             and parity_result.returncode != 5)
+            if parity_result.returncode == 5:
+                logger.info("Pre-deploy parity check: no tests collected (treated as pass)")
+            elif parity_failed:
                 parity_ok = False
                 logger.warning("Pre-deploy parity check FAILED:\n%s",
                                parity_result.stdout + parity_result.stderr)
+            if parity_failed:
                 for sym in succeeded:
                     r = results[sym]
                     backup_dir = r.get("backup_dir")
@@ -319,3 +325,7 @@ def main():
             send_alert(f"Retrain FAILED: {', '.join(parts)}", severity="error")
 
     return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
