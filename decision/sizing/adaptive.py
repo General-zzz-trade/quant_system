@@ -25,23 +25,31 @@ except ImportError:
 # Within each symbol: 4h gets 60% (higher conviction), 1h gets 40%.
 # z_scale/IC/regime further adjust at runtime.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
-    "small": {  # equity < 500 — more aggressive to get meaningful positions
-        "BTCUSDT": 0.30,
-        "ETHUSDT": 0.30,
-        "BTCUSDT_4h": 0.40,
-        "ETHUSDT_4h": 0.40,
+    "micro": {  # equity < 500 — concentrated sizing so small accounts can
+                # still reach exchange minimum-lot thresholds at 3x live
+                # leverage. At $397 equity × 0.65 × 3 / $72.9k ≈ 0.0106
+                # which rounds to 0.01 BTC = 1 OKX contract.
+        "BTCUSDT": 0.65,   # was 0.40 — must reach 0.01 BTC min lot at $400+
+        "ETHUSDT": 0.65,   # was 0.40 — allows ~3 OKX ETH contracts
+        "SOLUSDT": 0.40,   # SOL tick is small, less concentration needed
+        "BTCUSDT_4h": 0.0,
+        "ETHUSDT_4h": 0.0,
     },
-    "medium": {  # 500 <= equity < 10_000 — target 10x total
-        "BTCUSDT": 0.20,
-        "ETHUSDT": 0.20,
-        "BTCUSDT_4h": 0.30,
-        "ETHUSDT_4h": 0.30,
+    "medium": {  # 500 <= equity < 10_000
+        # 14-day data: BTC $228/15=$15/trade, ETH $1749/8=$219/trade
+        # BTC was under-sized; raise to match ETH exposure
+        "BTCUSDT": 0.45,  # was 0.35 (1h only trades now that 4h is signal-only)
+        "ETHUSDT": 0.45,  # was 0.40
+        "SOLUSDT": 0.30,
+        "BTCUSDT_4h": 0.0,  # signal_only — no orders
+        "ETHUSDT_4h": 0.0,
     },
-    "large": {  # equity >= 10_000 — 10x leverage safe (36% cap × 10x × 1.2 z_scale = 4.3x max)
-        "BTCUSDT": 0.08,
-        "ETHUSDT": 0.08,
-        "BTCUSDT_4h": 0.10,
-        "ETHUSDT_4h": 0.10,
+    "large": {  # equity >= 10_000 — 10x leverage safe
+        "BTCUSDT": 0.10,  # was 0.08
+        "ETHUSDT": 0.10,  # was 0.08
+        "SOLUSDT": 0.08,
+        "BTCUSDT_4h": 0.0,
+        "ETHUSDT_4h": 0.0,
     },
 }
 
@@ -90,7 +98,7 @@ class AdaptivePositionSizer:
     @staticmethod
     def _equity_tier(equity: float) -> str:
         if equity < 500:
-            return "small"
+            return "micro"
         if equity < 10_000:
             return "medium"
         return "large"

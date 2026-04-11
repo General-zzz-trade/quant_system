@@ -251,12 +251,27 @@ def retrain_symbol(
     dry_run: bool = False,
     retrain_trigger: str = "scheduled",
     skip_comparison_gate: bool = False,
+    label_mode: str = "forward_return",
+    tb_upper_pct: float = 0.02,
+    tb_lower_pct: float = 0.01,
+    meta_labeling: bool = False,
 ) -> Dict[str, Any]:
     """Retrain a symbol and validate the new model.
 
     skip_comparison_gate: if True, bypass comparison vs old training Sharpe.
         Use when old model is suspected of overfitting (live IC << training IC)
         and comparison would block a more robust new model.
+
+    label_mode: "forward_return" (legacy) or "triple_barrier" (López de Prado).
+        Triple-barrier aligns the target with real-world exit logic (ATR stop
+        vs take-profit vs time-out).  Backtest showed +57% Sharpe on ETH 1h
+        when switched from forward_return to TB with 1.5%/1.0% bands.
+
+    tb_upper_pct / tb_lower_pct: take-profit / stop-loss bands as decimal
+        fractions.  Only used when label_mode == "triple_barrier".
+
+    meta_labeling: enable secondary k-fold classifier (López de Prado D5) that
+        gates low-confidence signals at inference time.
 
     Returns a result dict with success status and metrics.
     """
@@ -313,6 +328,10 @@ def retrain_symbol(
             ic_recent_years=1.5,  # use recent IC for feature selection
             forced_features=forced,
             max_train_years=max_train_yrs,
+            label_mode=label_mode,
+            tb_upper_pct=tb_upper_pct,
+            tb_lower_pct=tb_lower_pct,
+            meta_labeling=meta_labeling,
         )
         # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:

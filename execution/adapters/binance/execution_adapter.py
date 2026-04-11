@@ -17,6 +17,7 @@ from event.header import EventHeader
 from event.types import EventType, FillEvent
 from event.domain import TimeInForce
 from execution.order_utils import reliable_close_position
+from monitoring.tca import TCALogger
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,10 @@ logger = logging.getLogger(__name__)
 class BinanceExecutionAdapter:
     """Adapt BinanceAdapter to the framework ExecutionAdapter protocol."""
 
-    def __init__(self, adapter: Any) -> None:
+    def __init__(self, adapter: Any, circuit_breaker: Any = None) -> None:
         self._adapter = adapter
+        self._cb = circuit_breaker  # RustCircuitBreaker (optional)
+        self._tca = TCALogger(venue="binance")
 
     DEFAULT_TIF: TimeInForce = TimeInForce.GTC
 
@@ -68,6 +71,22 @@ class BinanceExecutionAdapter:
             if isinstance(tif, str):
                 tif = TimeInForce(tif)
 
+            # --- circuit breaker gate --------------------------------
+            if self._cb is not None and qty != 0 and not self._cb.allow_request():
+                logger.warning(
+                    "binance order blocked by circuit breaker: symbol=%s side=%s",
+                    symbol, side,
+                )
+                return ()
+
+            # TCA: capture ref price (bar close stamped on OrderEvent) +
+            # send timestamp before dispatching the REST call.
+            try:
+                ref_price = float(getattr(order_event, "price", None) or 0.0)
+            except Exception:
+                ref_price = 0.0
+            _send_ts = time.time()
+
             # --- dispatch -------------------------------------------
             if qty == 0:
                 resp = reliable_close_position(self._adapter, symbol)
@@ -77,6 +96,8 @@ class BinanceExecutionAdapter:
             # --- check result ---------------------------------------
             status = resp.get("status", "")
             if status in ("error", "failed"):
+                if self._cb is not None:
+                    self._cb.record_failure()
                 logger.warning(
                     "binance order failed: symbol=%s side=%s qty=%s resp=%s",
                     symbol, side, qty, resp,
@@ -101,6 +122,9 @@ class BinanceExecutionAdapter:
             if fill_qty == 0:
                 return ()
 
+            if self._cb is not None:
+                self._cb.record_success()
+
             # --- build FillEvent ------------------------------------
             header = EventHeader.from_parent(
                 parent=order_event.header,
@@ -117,6 +141,22 @@ class BinanceExecutionAdapter:
                 price=fill_price,
                 side=side,
             )
+
+            # TCA — fail-open, never blocks the return.
+            try:
+                self._tca.record_fill(
+                    symbol=symbol,
+                    side=side,
+                    qty=float(fill_qty),
+                    ref_price=ref_price,
+                    fill_price=float(fill_price),
+                    latency_ms=(time.time() - _send_ts) * 1000.0,
+                    order_id=str(order_event.order_id),
+                    fill_id=str(header.event_id),
+                )
+            except Exception:
+                logger.debug("TCA record_fill failed", exc_info=True)
+
             return (fill,)
 
         except Exception:

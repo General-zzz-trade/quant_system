@@ -401,6 +401,7 @@ def main() -> None:
         alpha_mod._current_qty = __import__("decimal").Decimal("0")
         alpha_mod._entry_price = 0.0
         alpha_mod._trade_peak = 0.0
+        alpha_mod._entry_bar = 0   # no active entry after reset
         alpha_mod._last_trade_bar = alpha_mod._bars_processed  # cooldown from warmup end
         # Reset Rust-side hold counter via discretizer bridge
         try:
@@ -431,9 +432,18 @@ def main() -> None:
                         am._trade_peak = entry
                         am._current_qty = __import__("decimal").Decimal(str(qty))
                         am._last_trade_bar = am._bars_processed  # treat sync as trade start for max_hold
+                        # Critical: set _entry_bar so min-hold guard (alpha.py:497)
+                        # protects the synced position from immediate signal_change
+                        # exit. Post-warmup z-score window is cold → fresh |z| often
+                        # drops below dz for first few bars; without this the sync'd
+                        # position would be liquidated on the very next bar.
+                        am._entry_bar = am._bars_processed
+                        mh_protect = int(getattr(am._discretizer, "min_hold", 6))
                         logger.info(
-                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → pos_signal=%+d",
+                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → "
+                            "pos_signal=%+d (entry_bar=%d, protected %d bars)",
                             sym, side, qty, entry, pos_signal,
+                            am._bars_processed, mh_protect,
                         )
                         break
     except Exception:

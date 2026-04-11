@@ -16,8 +16,9 @@ Ramp schedule (conservative, only raises — never lowers)::
                          requires ≥ 100 fills + 14-day PnL > +2%
 
 State is persisted in ``data/runtime/okx_ramp_state.json`` so the script
-is idempotent.  Call the binance-alpha runner's SIGHUP after updating
-.env so the live process picks up the new cap without a restart.
+is idempotent.  Restart the okx-alpha service after updating .env —
+SIGHUP only reloads models, not the notional cap, so the runner must
+re-read env vars via a fresh process start.
 
 Intended to run hourly (or every 6h) via systemd timer; safe to invoke
 manually::
@@ -126,35 +127,29 @@ def _update_env_cap(new_cap: float) -> None:
     os.chmod(ENV_PATH, stat.S_IRUSR | stat.S_IWUSR)
 
 
-def _sighup_okx_runner() -> bool:
-    """Ask systemd for the okx-alpha PID and send SIGHUP for hot-reload."""
-    try:
-        res = subprocess.run(
-            ["systemctl", "show", "-p", "MainPID", "okx-alpha.service"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if res.returncode != 0:
-            return False
-        line = res.stdout.strip()
-        if "=" not in line:
-            return False
-        pid_str = line.split("=", 1)[1].strip()
-        if not pid_str or pid_str == "0":
-            return False
-        pid = int(pid_str)
-    except Exception as e:
-        logger.warning("systemctl lookup failed: %s", e)
-        return False
+def _reload_okx_runner() -> bool:
+    """Restart okx-alpha.service so the new notional cap is picked up.
+
+    SIGHUP only reloads model files — the runner's adapter config
+    (including ``max_order_notional_usd``) is locked to the env vars
+    that systemd injected at process start.  A full restart is
+    required so the new ``OKX_MAX_ORDER_NOTIONAL`` from ``.env``
+    enters the new process environment.
+
+    Cost: ~4s downtime + parallel warmup.  Acceptable since ramp
+    promotions happen at most a few times per week.
+    """
     try:
         r = subprocess.run(
-            ["sudo", "-n", "kill", "-HUP", str(pid)],
-            capture_output=True, text=True, timeout=5,
+            ["sudo", "-n", "systemctl", "restart", "okx-alpha.service"],
+            capture_output=True, text=True, timeout=30,
         )
         if r.returncode == 0:
-            logger.info("SIGHUP sent to okx-alpha (pid=%d)", pid)
+            logger.info("okx-alpha.service restarted (new cap in effect)")
             return True
+        logger.warning("systemctl restart failed: %s", r.stderr.strip())
     except Exception as e:
-        logger.warning("sudo SIGHUP failed: %s", e)
+        logger.warning("systemctl restart exception: %s", e)
     return False
 
 
@@ -323,9 +318,9 @@ def main() -> int:
     state["last_check_ts"] = time.time()
     _save_state(state)
 
-    sighup_ok = _sighup_okx_runner()
+    reload_ok = _reload_okx_runner()
     print(f"PROMOTED to L{nxt.level} (${nxt.cap_usd:.0f})."
-          f" SIGHUP {'sent' if sighup_ok else 'FAILED — manual restart required'}")
+          f" okx-alpha restart {'succeeded' if reload_ok else 'FAILED — manual restart required'}")
 
     # Telegram alert (best effort)
     try:

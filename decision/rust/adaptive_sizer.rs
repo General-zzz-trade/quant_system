@@ -13,25 +13,30 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
     const DEFAULT_CAP: f64 = 0.15;
     // Must match Python _TIER_WEIGHTS in decision/sizing/adaptive.py
     match tier {
-        "small" => match runner_key {
-            "BTCUSDT" => 0.30,
-            "ETHUSDT" => 0.30,
-            "BTCUSDT_4h" => 0.40,
-            "ETHUSDT_4h" => 0.40,
+        // Micro: equity < 500 — concentrated weights so small accounts
+        // can still reach exchange minimum-lot thresholds at live 3x lev.
+        "micro" => match runner_key {
+            "BTCUSDT" => 0.65,
+            "ETHUSDT" => 0.65,
+            "SOLUSDT" => 0.40,
+            "BTCUSDT_4h" => 0.0,  // signal_only
+            "ETHUSDT_4h" => 0.0,
             _ => DEFAULT_CAP,
         },
         "medium" => match runner_key {
-            "BTCUSDT" => 0.20,
-            "ETHUSDT" => 0.20,
-            "BTCUSDT_4h" => 0.30,
-            "ETHUSDT_4h" => 0.30,
+            "BTCUSDT" => 0.45,
+            "ETHUSDT" => 0.45,
+            "SOLUSDT" => 0.30,
+            "BTCUSDT_4h" => 0.0,  // signal_only
+            "ETHUSDT_4h" => 0.0,
             _ => DEFAULT_CAP,
         },
         "large" => match runner_key {
-            "BTCUSDT" => 0.08,
-            "ETHUSDT" => 0.08,
-            "BTCUSDT_4h" => 0.10,
-            "ETHUSDT_4h" => 0.10,
+            "BTCUSDT" => 0.10,
+            "ETHUSDT" => 0.10,
+            "SOLUSDT" => 0.08,
+            "BTCUSDT_4h" => 0.0,
+            "ETHUSDT_4h" => 0.0,
             _ => DEFAULT_CAP,
         },
         _ => DEFAULT_CAP,
@@ -42,7 +47,7 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
 #[inline]
 fn equity_tier(equity: f64) -> &'static str {
     if equity < 500.0 {
-        "small"
+        "micro"
     } else if equity < 10_000.0 {
         "medium"
     } else {
@@ -146,8 +151,8 @@ mod tests {
 
     #[test]
     fn test_equity_tier() {
-        assert_eq!(equity_tier(100.0), "small");
-        assert_eq!(equity_tier(499.9), "small");
+        assert_eq!(equity_tier(100.0), "micro");
+        assert_eq!(equity_tier(499.9), "micro");
         assert_eq!(equity_tier(500.0), "medium");
         assert_eq!(equity_tier(9999.9), "medium");
         assert_eq!(equity_tier(10_000.0), "large");
@@ -155,27 +160,46 @@ mod tests {
 
     #[test]
     fn test_tier_cap_known_keys() {
-        assert_eq!(tier_cap("small", "BTCUSDT_4h"), 0.40);
-        assert_eq!(tier_cap("medium", "BTCUSDT"), 0.20);
-        assert_eq!(tier_cap("large", "ETHUSDT"), 0.08);
+        assert_eq!(tier_cap("micro", "BTCUSDT"), 0.65);
+        assert_eq!(tier_cap("medium", "BTCUSDT"), 0.45);
+        assert_eq!(tier_cap("large", "ETHUSDT"), 0.10);
+        // 4h is signal_only — no position
+        assert_eq!(tier_cap("medium", "BTCUSDT_4h"), 0.0);
     }
 
     #[test]
-    fn test_tier_cap_fallback() {
-        assert_eq!(tier_cap("small", "SOLUSDT"), 0.15);
+    fn test_tier_cap_sol() {
+        // SOLUSDT now has explicit entries in all tiers.
+        assert_eq!(tier_cap("micro", "SOLUSDT"), 0.40);
+        assert_eq!(tier_cap("medium", "SOLUSDT"), 0.30);
+        assert_eq!(tier_cap("large", "SOLUSDT"), 0.08);
         assert_eq!(tier_cap("unknown", "BTCUSDT"), 0.15);
     }
 
     #[test]
-    fn test_basic_sizing_small() {
-        // small tier, BTCUSDT_4h cap=0.40, lev=10, weight=1, ic=1, z=1
-        // notional = 400 * 0.40 * 10 * 1 = 1600
-        // size = 1600 / 60000 = 0.02666... → round_to_step(0.001) = 0.026
+    fn test_micro_tier_reaches_btc_min_lot() {
+        // Regression for OKX-live $397 equity: must reach ≥0.01 BTC
+        // (OKX BTC-USDT-SWAP minimum = 1 contract = 0.01 BTC).
+        // 397 × 0.65 × 3 / 72900 = 0.01062 → round_to_step(0.01) = 0.01
         let qty = rust_adaptive_target_qty(
-            "BTCUSDT_4h", 400.0, 60000.0, 0.001, 0.001, 0.0,
+            "BTCUSDT", 397.0, 72900.0, 0.01, 0.01, 0.0,
+            1.0, 3.0, 1.0, true, 1.0,
+        );
+        assert!(qty >= 0.01, "micro tier must reach 0.01 BTC at 3x lev, got {qty}");
+    }
+
+    #[test]
+    fn test_basic_sizing_micro() {
+        // micro tier, BTCUSDT_4h cap=0.0, lev=10 — 4h is signal-only
+        // So qty falls back to min_size since base_cap=0.
+        // Use BTCUSDT (cap=0.65) instead to validate sizing math:
+        // notional = 400 * 0.65 * 10 * 1 = 2600
+        // size = 2600 / 60000 ≈ 0.0433 → round_to_step(0.001) = 0.043
+        let qty = rust_adaptive_target_qty(
+            "BTCUSDT", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.026);
+        assert_eq!(qty, 0.043);
     }
 
     #[test]
@@ -229,12 +253,15 @@ mod tests {
 
     #[test]
     fn test_ic_scaling() {
+        // Use ETHUSDT (1h primary, cap > 0) — 4h runners are now
+        // signal_only (cap=0.0) so they floor to min_size regardless
+        // of ic_scale and cannot demonstrate scaling.
         let green = rust_adaptive_target_qty(
-            "ETHUSDT_4h", 1000.0, 3000.0, 0.001, 0.001, 0.0,
+            "ETHUSDT", 1000.0, 3000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.2, true, 1.0,
         );
         let red = rust_adaptive_target_qty(
-            "ETHUSDT_4h", 1000.0, 3000.0, 0.001, 0.001, 0.0,
+            "ETHUSDT", 1000.0, 3000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 0.4, true, 1.0,
         );
         assert!(green > red);
@@ -242,8 +269,10 @@ mod tests {
 
     #[test]
     fn test_max_qty_clamp() {
+        // Use BTCUSDT (cap>0) so clamp is actually exercised —
+        // BTCUSDT_4h has cap=0.0 so qty would be min_size, not hit the clamp.
         let qty = rust_adaptive_target_qty(
-            "BTCUSDT_4h", 50000.0, 60000.0, 0.001, 0.001, 0.01,
+            "BTCUSDT", 50000.0, 60000.0, 0.001, 0.001, 0.01,
             1.0, 10.0, 1.0, true, 1.0,
         );
         assert!(qty <= 0.01);

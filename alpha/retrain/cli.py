@@ -28,6 +28,25 @@ from alpha.retrain.pipeline import (
 logger = logging.getLogger(__name__)
 
 
+def _tb_symbol_set(args) -> set[str]:
+    """Return the set of symbols that should train with triple-barrier labels.
+
+    Sources (union):
+      - ``--triple-barrier SYMS`` (comma list, e.g. ``ETHUSDT,SOLUSDT``)
+      - ``--triple-barrier-eth`` flag (shorthand for ``ETHUSDT``)
+      - ``--triple-barrier-all`` flag (all symbols)
+    """
+    out: set[str] = set()
+    if getattr(args, "triple_barrier_all", False):
+        return {s.upper() for s in SYMBOLS}
+    if getattr(args, "triple_barrier_eth", False):
+        out.add("ETHUSDT")
+    raw = getattr(args, "triple_barrier", None)
+    if raw:
+        out.update(s.strip().upper() for s in raw.split(",") if s.strip())
+    return out
+
+
 def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
     """Run 1h retrain loop. Returns results dict."""
     results: Dict[str, dict] = {}
@@ -65,10 +84,25 @@ def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
         trigger = "scheduled" if not args.force else "manual"
         if args.daily:
             trigger = "scheduled"
-        result = retrain_symbol(symbol, horizons=horizons, dry_run=args.dry_run,
-                                retrain_trigger=trigger,
-                                skip_comparison_gate=args.no_comparison_gate)
+
+        # Per-symbol triple-barrier opt-in.  D6 backtest (2026-04-10) showed
+        # ETH 1h TB(1.5%/1.0%) achieves Sharpe 2.74 vs 1.74 forward_return
+        # (+57% improvement).  Gated by CLI to avoid silently breaking the
+        # other symbols that still prefer forward_return.
+        tb_enabled = symbol in _tb_symbol_set(args)
+        label_mode = "triple_barrier" if tb_enabled else "forward_return"
+
+        result = retrain_symbol(
+            symbol, horizons=horizons, dry_run=args.dry_run,
+            retrain_trigger=trigger,
+            skip_comparison_gate=args.no_comparison_gate,
+            label_mode=label_mode,
+            tb_upper_pct=float(args.tb_upper),
+            tb_lower_pct=float(args.tb_lower),
+            meta_labeling=bool(args.meta_labeling),
+        )
         result["retrain_mode"] = retrain_mode
+        result["label_mode"] = label_mode
 
         if args.daily and result.get("success") and not args.dry_run:
             new_config = load_current_config(symbol)
@@ -214,6 +248,26 @@ def main():
     parser.add_argument("--no-comparison-gate", action="store_true",
                         help="Skip comparison vs old training Sharpe "
                              "(use when old model is overfit: live IC << train IC)")
+    # Triple-barrier label opt-in (D6 — López de Prado).  Backtest on
+    # ETH 1h: Sharpe 1.74 → 2.74 with TB(1.5%/1.0%), a +57% improvement.
+    # BTC 1h backtest was less clear so TB stays opt-in per-symbol.
+    parser.add_argument("--triple-barrier", default=None,
+                        metavar="SYMS",
+                        help="Comma-separated list of symbols to train with "
+                             "triple-barrier labels (e.g. ETHUSDT,SOLUSDT)")
+    parser.add_argument("--triple-barrier-eth", action="store_true",
+                        help="Shorthand for --triple-barrier ETHUSDT")
+    parser.add_argument("--triple-barrier-all", action="store_true",
+                        help="Train ALL 1h symbols with triple-barrier labels")
+    parser.add_argument("--tb-upper", type=float, default=0.015,
+                        help="Triple-barrier upper (take-profit) band, "
+                             "decimal fraction (default 0.015 = 1.5%%)")
+    parser.add_argument("--tb-lower", type=float, default=0.010,
+                        help="Triple-barrier lower (stop-loss) band, "
+                             "decimal fraction (default 0.010 = 1.0%%)")
+    parser.add_argument("--meta-labeling", action="store_true",
+                        help="Enable D5 meta-labeling k-fold classifier "
+                             "(secondary gate for low-confidence signals)")
     parser.add_argument("--sighup", action="store_true",
                         help="Alias for --notify-runner")
     args = parser.parse_args()

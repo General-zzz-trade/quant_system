@@ -66,7 +66,7 @@ class TestSizerExceptions:
 
     def test_max_qty_zero_means_unlimited(self):
         sizer = AdaptivePositionSizer(
-            runner_key="BTCUSDT_4h", max_qty=0, min_size=0.001,
+            runner_key="BTCUSDT", max_qty=0, min_size=0.001,
         )
         snap = _snap(equity=50000, price=60000.0)
         qty = sizer.target_qty(snap, "BTCUSDT")
@@ -75,7 +75,7 @@ class TestSizerExceptions:
 
     def test_max_qty_positive_clamps(self):
         sizer = AdaptivePositionSizer(
-            runner_key="BTCUSDT_4h", max_qty=0.005, min_size=0.001,
+            runner_key="BTCUSDT", max_qty=0.005, min_size=0.001,
         )
         snap = _snap(equity=50000, price=60000.0)
         qty = sizer.target_qty(snap, "BTCUSDT")
@@ -103,7 +103,7 @@ class TestSizerExceptions:
         assert qty == Decimal("0.001")
 
     def test_z_scale_large_increases_qty(self):
-        sizer = AdaptivePositionSizer(runner_key="BTCUSDT_4h", min_size=0.001)
+        sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=5000, price=60000.0)
         qty_normal = sizer.target_qty(snap, "BTCUSDT", z_scale=1.0)
         qty_large = sizer.target_qty(snap, "BTCUSDT", z_scale=2.0)
@@ -133,8 +133,8 @@ class TestSizerExceptions:
         assert result == Decimal("0.12345")
 
     def test_equity_tier_boundaries(self):
-        assert AdaptivePositionSizer._equity_tier(0) == "small"
-        assert AdaptivePositionSizer._equity_tier(499) == "small"
+        assert AdaptivePositionSizer._equity_tier(0) == "micro"
+        assert AdaptivePositionSizer._equity_tier(499) == "micro"
         assert AdaptivePositionSizer._equity_tier(500) == "medium"
         assert AdaptivePositionSizer._equity_tier(9999) == "medium"
         assert AdaptivePositionSizer._equity_tier(10000) == "large"

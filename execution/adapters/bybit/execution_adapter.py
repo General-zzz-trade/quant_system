@@ -16,6 +16,7 @@ from event.header import EventHeader
 from event.types import EventType, FillEvent
 from event.domain import TimeInForce
 from execution.order_utils import reliable_close_position
+from monitoring.tca import TCALogger
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class BybitExecutionAdapter:
 
     def __init__(self, adapter: Any) -> None:
         self._adapter = adapter
+        self._tca = TCALogger(venue="bybit")
 
     # Default time-in-force for market orders
     DEFAULT_TIF: TimeInForce = TimeInForce.GTC
@@ -80,6 +82,13 @@ class BybitExecutionAdapter:
             if isinstance(tif, str):
                 tif = TimeInForce(tif)
 
+            # TCA: bar-close reference + send timestamp for slippage/latency.
+            try:
+                ref_price = float(getattr(order_event, "price", None) or 0.0)
+            except Exception:
+                ref_price = 0.0
+            _send_ts = time.time()
+
             # --- dispatch -------------------------------------------
             if qty == 0:
                 resp = reliable_close_position(self._adapter, symbol)
@@ -119,6 +128,22 @@ class BybitExecutionAdapter:
                 price=Decimal(str(fill_price)),
                 side=side,
             )
+
+            # TCA — fail-open, never blocks the return.
+            try:
+                self._tca.record_fill(
+                    symbol=symbol,
+                    side=side,
+                    qty=float(order_event.qty),
+                    ref_price=ref_price,
+                    fill_price=float(fill_price),
+                    latency_ms=(time.time() - _send_ts) * 1000.0,
+                    order_id=str(order_event.order_id),
+                    fill_id=str(header.event_id),
+                )
+            except Exception:
+                logger.debug("TCA record_fill failed", exc_info=True)
+
             return (fill,)
 
         except Exception:
