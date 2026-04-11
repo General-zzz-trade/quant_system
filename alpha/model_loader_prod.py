@@ -110,6 +110,22 @@ def load_model(model_dir: Path) -> dict:
                     logger.warning("XGB load failed for %s: %s", xgb_path, exc)
                     xgb_model = None
 
+        # Meta-labeling secondary classifier — LGBM binary, native JSON.
+        # Gates +1/-1 directional signals at inference time: if secondary
+        # model predicts P(correct) < threshold, the runner treats the
+        # signal as flat.
+        meta_model = None
+        meta_name = hm.get("meta", "")
+        if meta_name:
+            meta_path = model_dir / meta_name
+            if meta_path.exists() and meta_path.is_file():
+                try:
+                    import lightgbm as lgb_lib
+                    meta_model = lgb_lib.Booster(model_file=str(meta_path))
+                except Exception as exc:
+                    logger.warning("Meta-label load failed for %s: %s", meta_path, exc)
+                    meta_model = None
+
         # Also load Ridge if available (walk-forward winner: 15/20 PASS)
         ridge_model = None
         ridge_features = None
@@ -159,6 +175,8 @@ def load_model(model_dir: Path) -> dict:
             "ic": hm.get("ic", 0.01),
             "rust_tree": rust_tree,
             "rust_ridge": rust_ridge,
+            "meta": meta_model,
+            "meta_input_features": hm.get("meta_input_features"),
         })
 
     if not horizon_models:

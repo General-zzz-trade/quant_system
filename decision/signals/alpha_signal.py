@@ -116,6 +116,13 @@ class EnsemblePredictor:
         # the config will override this to 0.30 (train_v12 writes the
         # 30/40/30 weights under `ensemble_weights` + `xgb_weight`).
         self._xgb_w = config.get("xgb_weight", 0.0)
+        # Meta-labeling threshold (López de Prado): when the secondary
+        # classifier predicts P(correct) < this, suppress the directional
+        # signal.  Default 0.55 requires modest edge over random (0.50).
+        # Set meta_label_threshold=0 to disable the gate entirely.
+        self._meta_threshold = float(config.get("meta_label_threshold", 0.55))
+        # Cache last raw prediction for the meta input feature vector
+        self._last_raw_pred: float | None = None
         # Regime-gated ensemble weights: trust Ridge more in high-vol
         # (fewer samples, linear model is more robust), LGBM more in low-vol
         # (stable regime, tree model captures non-linearities).
@@ -297,7 +304,42 @@ class EnsemblePredictor:
         # Cache last prediction features for online update
         self._last_feat_dict = feat_dict
 
-        return weighted_sum / weight_total
+        final_pred = weighted_sum / weight_total
+        self._last_raw_pred = float(final_pred)
+        return final_pred
+
+    def meta_confidence(self, feat_dict: dict) -> float | None:
+        """Meta-labeling secondary model confidence: P(primary call correct).
+
+        Uses the first horizon_model's meta Booster.  Feature vector is
+        the primary features PLUS two meta-features (|pred|, pred) so
+        the secondary model can see the primary's magnitude/direction.
+        Returns None when no meta model is loaded or any error occurs —
+        callers should treat None as "pass-through" (no gating).
+        """
+        if not self._horizon_models:
+            return None
+        hm0 = self._horizon_models[0]
+        meta = hm0.get("meta")
+        if meta is None:
+            return None
+        if self._last_raw_pred is None:
+            return None
+
+        try:
+            base_feats = hm0.get("features", [])
+            xs = [_safe_val(feat_dict.get(f), f) for f in base_feats]
+            xs.append(abs(self._last_raw_pred))
+            xs.append(self._last_raw_pred)
+            arr = np.asarray(xs, dtype=np.float64).reshape(1, -1)
+            p = float(meta.predict(arr)[0])
+            return p
+        except Exception:
+            logger.debug("meta confidence failed", exc_info=True)
+            return None
+
+    def meta_threshold(self) -> float:
+        return self._meta_threshold
 
     def update_online_ridge(self, realized_return: float) -> bool:
         """Update OnlineRidge weights with the realized return from the previous bar.

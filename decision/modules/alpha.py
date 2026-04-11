@@ -250,6 +250,29 @@ class AlphaDecisionModule:
             )
             new_signal = 0
 
+        # 4b'. Meta-labeling gate (López de Prado).  If the model has a
+        # secondary classifier loaded and it predicts P(correct) below
+        # the threshold, suppress the NEW entry.  Exits and existing
+        # positions pass through unchanged.
+        if (
+            self._signal == 0
+            and new_signal != 0
+            and hasattr(self._predictor, "meta_confidence")
+        ):
+            try:
+                meta_p = self._predictor.meta_confidence(features)
+                if meta_p is not None:
+                    thr = self._predictor.meta_threshold()
+                    if meta_p < thr:
+                        logger.info(
+                            "%s meta-label gate: blocked new entry "
+                            "P(correct)=%.3f < %.3f",
+                            self._runner_key, meta_p, thr,
+                        )
+                        new_signal = 0
+            except Exception:
+                logger.debug("meta-label gate error", exc_info=True)
+
         # 4c. Graduated entry: soft deadzone replaces binary tier1/tier2.
         # If z exceeds the soft floor (0.7×dz) but is below hard deadzone,
         # enter with a fraction proportional to signal strength.

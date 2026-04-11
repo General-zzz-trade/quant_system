@@ -166,6 +166,7 @@ def train_single_horizon(
     label_mode: str = "forward_return",
     tb_upper_pct: float = 0.02,
     tb_lower_pct: float = 0.01,
+    meta_labeling: bool = False,
 ) -> dict[str, Any] | None:
     """Train LGBM + Ridge for a single horizon.
 
@@ -350,12 +351,106 @@ def train_single_horizon(
           f"IC_lgbm={ic_lgbm:.4f}, IC_ridge={ic_ridge:.4f}{xgb_str}")
     print(f"    Features: {selected}")
 
+    # ── Meta-labeling (López de Prado Chapter 3) ─────────────────────
+    # Train a secondary LGBM classifier that predicts whether the
+    # primary ensemble's directional call will be correct.  At inference
+    # time we only act on +1 / -1 signals where P(correct) >= 0.55.
+    #
+    # Training labels are generated from IN-SAMPLE fold predictions
+    # (same train range as the primary models, with the embargo-held
+    # val slice used as an audit check).  Using OOS test predictions
+    # would be a leak — those are supposed to measure live performance.
+    meta_model = None
+    meta_ic = None
+    if meta_labeling:
+        try:
+            # 1. Build primary ensemble predictions on the training slice
+            #    via K-fold cross-validation so the secondary model sees
+            #    out-of-fold (not in-sample) primary calls.
+            from sklearn.model_selection import KFold
+            n_tr = len(y_train)
+            if n_tr >= 500:
+                kf = KFold(n_splits=5, shuffle=False)  # time-ordered
+                oof = np.full(n_tr, np.nan)
+                X_tr_clean = np.nan_to_num(X_train, nan=0.0)
+                for tr_idx, va_idx in kf.split(np.arange(n_tr)):
+                    # Embargo inside the fold too (horizon bars gap)
+                    if len(va_idx) == 0:
+                        continue
+                    gap = int(horizon)
+                    tr_mask = (tr_idx < va_idx[0] - gap) | (tr_idx > va_idx[-1] + gap)
+                    tr_use = tr_idx[tr_mask]
+                    if len(tr_use) < 100:
+                        continue
+                    fold_l = lgb.train(
+                        lgbm_params,
+                        lgb.Dataset(X_tr_clean[tr_use], y_train[tr_use]),
+                        valid_sets=[lgb.Dataset(X_tr_clean[va_idx], y_train[va_idx])],
+                        callbacks=[lgb.log_evaluation(0)],
+                    )
+                    oof[va_idx] = fold_l.predict(X_tr_clean[va_idx])
+
+                # 2. Derive "was the directional call correct?" labels.
+                #    Skip rows with NaN primary pred or NaN target.
+                valid = ~np.isnan(oof) & ~np.isnan(y_train)
+                primary_sign = np.sign(oof[valid])
+                actual_sign = np.sign(y_train[valid])
+                meta_y = (primary_sign == actual_sign).astype(np.int32)
+                meta_X = X_tr_clean[valid]
+
+                # 3. Train secondary LGBM classifier.  Same features +
+                #    two meta-features: |primary_pred|, primary_pred.
+                meta_extra = np.column_stack([
+                    np.abs(oof[valid]),
+                    oof[valid],
+                ])
+                meta_X_full = np.hstack([meta_X, meta_extra])
+
+                meta_params = dict(lgbm_params)
+                meta_params["objective"] = "binary"
+                meta_params["metric"] = "auc"
+                meta_params["num_leaves"] = 15
+                meta_params["n_estimators"] = 150
+                meta_params["learning_rate"] = 0.05
+                # Binary LightGBM needs its own Dataset (no early stopping — unused)
+                meta_params.pop("early_stopping_rounds", None)
+                meta_split = int(len(meta_y) * 0.85)
+                meta_train_ds = lgb.Dataset(
+                    meta_X_full[:meta_split], meta_y[:meta_split]
+                )
+                meta_val_ds = lgb.Dataset(
+                    meta_X_full[meta_split:], meta_y[meta_split:],
+                    reference=meta_train_ds,
+                )
+                meta_model = lgb.train(
+                    meta_params, meta_train_ds,
+                    valid_sets=[meta_val_ds],
+                    callbacks=[lgb.log_evaluation(0)],
+                )
+
+                # 4. Quick sanity: secondary AUC on held-out tail
+                from sklearn.metrics import roc_auc_score
+                preds_val = meta_model.predict(meta_X_full[meta_split:])
+                if len(np.unique(meta_y[meta_split:])) > 1:
+                    meta_auc = float(roc_auc_score(meta_y[meta_split:], preds_val))
+                    meta_ic = meta_auc - 0.5  # re-expressed as "edge over random"
+                    print(f"    h={horizon}: meta-label AUC={meta_auc:.3f} "
+                          f"(edge={meta_ic:+.3f})")
+        except Exception as exc:
+            import warnings
+            warnings.warn(f"meta-labeling failed for h={horizon}: {exc}",
+                          stacklevel=2)
+            meta_model = None
+            meta_ic = None
+
     return {
         "horizon": horizon,
         "features": selected,
         "lgbm_model": lgbm_model,
         "ridge_model": ridge_model,
         "xgb_model": xgb_model,
+        "meta_model": meta_model,
+        "meta_edge": meta_ic,
         "lgbm_pred_oos": lgbm_pred,
         "ridge_pred_oos": ridge_pred,
         "xgb_pred_oos": xgb_pred,
@@ -438,6 +533,7 @@ def train_symbol(
     label_mode: str = "forward_return",
     tb_upper_pct: float = 0.02,
     tb_lower_pct: float = 0.01,
+    meta_labeling: bool = False,
 ) -> bool:
     """Train V12 models for one symbol."""
     model_dir = Path(f"models_v8/{symbol}_gate_v2")
@@ -479,6 +575,7 @@ def train_symbol(
             label_mode=label_mode,
             tb_upper_pct=tb_upper_pct,
             tb_lower_pct=tb_lower_pct,
+            meta_labeling=meta_labeling,
         )
         if result is not None:
             horizon_results[h] = result
@@ -638,6 +735,19 @@ def train_symbol(
             "features": r["features"],
             "ic": r["ic_ensemble"],
         }
+
+        # Optional meta-labeling secondary model — LGBM binary classifier
+        # saved as native JSON (language-agnostic, no pickle attack surface).
+        meta_obj = r.get("meta_model")
+        if meta_obj is not None:
+            meta_name = f"meta_h{h}.json"
+            try:
+                meta_obj.save_model(str(model_dir / meta_name))
+                hc["meta"] = meta_name
+                hc["meta_edge"] = r.get("meta_edge")
+                hc["meta_input_features"] = r["features"] + ["_abs_pred", "_signed_pred"]
+            except Exception as exc:
+                print(f"  WARN: meta save failed for h={h}: {exc}")
 
         # Optional XGBoost member — saved as native JSON (not pickle) so the
         # artifact is language-agnostic and has no pickle-deserialisation
