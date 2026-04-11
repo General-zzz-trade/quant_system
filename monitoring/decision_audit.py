@@ -1,6 +1,10 @@
 """Structured decision audit logger — every signal/position/exit is logged as JSON.
 
-Writes to data/runtime/decision_audit.jsonl (one JSON object per line).
+Writes to data/runtime/decision_audit_{venue}.jsonl by default (one JSON
+object per line). The per-venue split prevents two parallel runners
+(binance + okx) from clobbering each other's session log on startup.
+Every record is also tagged with a `venue` field for downstream queries.
+
 Designed for post-trade analysis and regulatory audit trail.
 """
 from __future__ import annotations
@@ -11,13 +15,30 @@ import time
 from pathlib import Path
 logger = logging.getLogger(__name__)
 
-AUDIT_PATH = Path("data/runtime/decision_audit.jsonl")
+AUDIT_DIR = Path("data/runtime")
+# Legacy single-file path — kept for backward compatibility with tools that
+# still read this path directly (watchdog pre-multi-venue, etc.)
+AUDIT_PATH = AUDIT_DIR / "decision_audit.jsonl"
+
+
+def audit_path_for(venue: str) -> Path:
+    """Return the per-venue audit log path."""
+    venue = (venue or "unknown").lower()
+    return AUDIT_DIR / f"decision_audit_{venue}.jsonl"
 
 
 class DecisionAuditLogger:
-    """Append-only structured logger for decision events."""
+    """Append-only structured logger for decision events.
 
-    def __init__(self, path: Path = AUDIT_PATH):
+    Each instance writes to its own per-venue file. Every emitted record
+    is stamped with the `venue` field so consumers that merge venues can
+    still distinguish them.
+    """
+
+    def __init__(self, path: Path | None = None, venue: str = "binance"):
+        self._venue = (venue or "unknown").lower()
+        if path is None:
+            path = audit_path_for(self._venue)
         self._path = path
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._file = None
@@ -65,6 +86,7 @@ class DecisionAuditLogger:
             record = {
                 "ts": time.time(),
                 "type": event_type,
+                "venue": self._venue,
                 **data,
             }
             self._ensure_open()

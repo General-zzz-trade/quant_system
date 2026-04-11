@@ -698,7 +698,8 @@ def build_coordinator(
     # Leverage from strategy_config (auto-detects live vs demo)
     leverage = LEVERAGE_LADDER[0][1] if LEVERAGE_LADDER else 10.0
 
-    # Decision module
+    # Decision module (venue stamps audit log + tags downstream events)
+    venue = getattr(adapter, "venue", "binance")
     alpha_module = AlphaDecisionModule(
         symbol=symbol,
         runner_key=runner_key,
@@ -707,6 +708,7 @@ def build_coordinator(
         sizer=sizer,
         leverage=leverage,
         signal_only=is_4h,  # 4h runners publish to consensus only, no orders
+        venue=venue,
     )
 
     # Fetch exchange balance for state store initialization

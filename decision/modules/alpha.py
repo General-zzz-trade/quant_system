@@ -71,6 +71,8 @@ class AlphaDecisionModule:
         discretizer: SignalDiscretizer,
         sizer: AdaptivePositionSizer,
         leverage: float = 10.0,
+        signal_only: bool = False,
+        venue: str = "binance",
     ) -> None:
         self._symbol = symbol
         self._runner_key = runner_key
@@ -78,11 +80,14 @@ class AlphaDecisionModule:
         self._discretizer = discretizer
         self._sizer = sizer
         self._leverage = leverage
+        self._signal_only = signal_only
+        self._venue = (venue or "binance").lower()
 
         # Pure decision state
         self._signal: int = 0
         self._current_qty: Decimal = Decimal("0")
         self._entry_price: float = 0.0
+        self._entry_bar: int = 0   # bar index when position was opened
         self._trade_peak: float = 0.0
         self._bars_processed: int = 0
         self._last_trade_bar: int = -9999  # cooldown: bar index of last trade (init allows first trade)
@@ -112,7 +117,7 @@ class AlphaDecisionModule:
         #   BTC (dz=2.0): floor=0.7×dz=1.4 → Sharpe 2.89 (vs 2.75 hard)
         #   ETH (dz=1.5): floor=0.4×dz=0.6 → Sharpe 3.11 (vs 2.92 hard)
         if "ETH" in symbol:
-            floor_ratio = 0.4
+            floor_ratio = 0.7  # was 0.4 — too low caused churn (z=-0.5 entries all stopped out)
         else:
             floor_ratio = 0.7
         self._soft_dz_floor: float = discretizer.deadzone * floor_ratio
@@ -146,8 +151,10 @@ class AlphaDecisionModule:
         # Prevents incremental features from contaminating the z-score buffer.
         self._batch_pred_override: float | None = None
 
-        # Decision audit logger (best-effort, never affects trading)
-        self._audit = DecisionAuditLogger()
+        # Decision audit logger (best-effort, never affects trading).
+        # Per-venue file prevents two parallel runners from clobbering
+        # each other's session log on startup.
+        self._audit = DecisionAuditLogger(venue=self._venue)
         self._audit_enabled = True  # disabled during warmup to prevent fake entries
 
     def set_consensus(self, signals: dict[str, int]) -> None:
@@ -233,8 +240,18 @@ class AlphaDecisionModule:
             current_signal=self._signal,
         )
 
-        # 4b. Graduated entry: soft deadzone replaces binary tier1/tier2.
-        # If z exceeds the soft floor (0.4×dz) but is below hard deadzone,
+        # 4b. IC RED gate: block new entries when model IC is RED (negative).
+        # The model is producing anti-correlated predictions — trading on them
+        # generates random noise trades. Only block entries, not exits.
+        if self._ic_scale <= _IC_SCALE_MAP["RED"] and self._signal == 0 and new_signal != 0:
+            logger.info(
+                "%s IC RED gate: blocked new entry (ic_scale=%.1f)",
+                self._runner_key, self._ic_scale,
+            )
+            new_signal = 0
+
+        # 4c. Graduated entry: soft deadzone replaces binary tier1/tier2.
+        # If z exceeds the soft floor (0.7×dz) but is below hard deadzone,
         # enter with a fraction proportional to signal strength.
         sw = self._signal_weight(z)
         if new_signal == 0 and self._signal == 0 and sw > 0.02:
@@ -313,7 +330,9 @@ class AlphaDecisionModule:
             base_sym = self._symbol.replace("_15m", "")
             tf4h_key = f"{base_sym}_4h"
             tf4h_signal = self._consensus.get(tf4h_key, 0)
-            if tf4h_signal != 0 and tf4h_signal != new_signal:
+            # Skip 4h filter when 4h IC health is RED (negative IC = noise)
+            tf4h_ic_ok = self._consensus.get(f"{tf4h_key}_ic_ok", True)
+            if tf4h_ic_ok and tf4h_signal != 0 and tf4h_signal != new_signal:
                 logger.info(
                     "%s 4h direction filter: blocked %+d entry (4h=%+d)",
                     self._runner_key, new_signal, tf4h_signal,
@@ -448,6 +467,44 @@ class AlphaDecisionModule:
                     float(add_qty), float(self._current_qty),
                 )
 
+        # 7d. Min-hold guard: prevent signal_change exits before min_hold bars.
+        # Force exits (ATR stop, quick loss, etc.) bypass this — only signal_change
+        # is subject to min_hold. Rust constraint pipeline has a bug where
+        # hold_counter=0 → hold_count=min_hold, allowing immediate exit.
+        if (
+            not force_exit
+            and self._signal != 0
+            and new_signal != self._signal
+            and self._entry_bar > 0
+        ):
+            bars_held = self._bars_processed - self._entry_bar
+            try:
+                mh = int(self._discretizer.min_hold)
+            except (TypeError, ValueError):
+                mh = 6
+            if bars_held < mh:
+                new_signal = self._signal  # keep current position
+
+        # 7e. Signal-change magnitude threshold: require the opposing signal
+        # to be STRONG (|z| >= hard deadzone) before flipping position.
+        # Rationale: graduated entries (|z| < dz) should not be flipped by
+        # another graduated-strength opposite signal — requires conviction.
+        # Backtest 14-day: signal_change exits lost $67 across 17 trades (WR=53%).
+        # This filter prevents signal_change from cutting winners short on noise.
+        if (
+            not force_exit
+            and self._signal != 0
+            and new_signal != 0
+            and new_signal != self._signal
+        ):
+            dz_hard = float(self._discretizer.deadzone)
+            if abs(z) < dz_hard:
+                logger.debug(
+                    "%s signal_change blocked: |z|=%.2f < dz=%.2f (weak opposing signal)",
+                    self._runner_key, abs(z), dz_hard,
+                )
+                new_signal = self._signal  # keep current position
+
         # Reset entry_tier on exit
         if new_signal == 0 and self._signal != 0:
             self._entry_tier = 0
@@ -572,14 +629,25 @@ class AlphaDecisionModule:
                 self._entry_price = close
                 self._trade_peak = close
                 self._current_qty = qty
+                self._entry_bar = self._bars_processed
             else:
                 self._entry_price = 0.0
                 self._trade_peak = 0.0
+                self._entry_bar = 0
 
             self._signal = new_signal
 
         # 8. Update consensus
         self._consensus[self._runner_key] = self._signal
+        # Publish IC health for 4h direction filter
+        if self._is_4h:
+            self._consensus[f"{self._runner_key}_ic_ok"] = self._ic_scale >= 0.5
+
+        # Signal-only mode: publish consensus but suppress order execution.
+        # Used by 4h runners that provide direction signals to 1h runners
+        # without independently trading the same exchange position.
+        if self._signal_only:
+            events = [e for e in events if not hasattr(e, "order_id")]
 
         return events
 

@@ -337,13 +337,15 @@ def main() -> None:
     except Exception:
         logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
 
-    # Truncate audit log on startup — previous run's entries are stale.
-    # Fresh log per session prevents warmup artifacts from prior runs.
+    # Truncate this venue's audit log on startup — previous run's entries
+    # are stale. Fresh log per session prevents warmup artifacts from prior
+    # runs. Per-venue file prevents clobbering when multiple runners parallel.
     try:
-        audit_path = Path("data/runtime/decision_audit.jsonl")
+        from monitoring.decision_audit import audit_path_for
+        audit_path = audit_path_for(args.venue)
         if audit_path.exists():
             audit_path.write_text("")
-            logger.info("Cleared decision_audit.jsonl for fresh session")
+            logger.info("Cleared %s for fresh session", audit_path.name)
     except Exception:
         pass
 

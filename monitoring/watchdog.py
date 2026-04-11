@@ -53,7 +53,19 @@ SERVICES = {
         "unit": "bybit-alpha.service",
         "journal_match": "bybit_alpha",
         "max_silent_s": 18000,  # 5 hours (4h bars close every 4h + margin)
-        "log_file": "logs/bybit_alpha.log",  # check file instead of journal (stdout→file)
+        "log_file": "logs/bybit_alpha.log",
+    },
+    "binance-alpha": {
+        "unit": "binance-alpha.service",
+        "journal_match": "binance_alpha",
+        "max_silent_s": 18000,  # 5h — tolerates 4h bar cadence
+        "log_file": "logs/binance_alpha.log",
+    },
+    "okx-alpha": {
+        "unit": "okx-alpha.service",
+        "journal_match": "okx_alpha",
+        "max_silent_s": 18000,  # 5h — tolerates 4h bar cadence
+        "log_file": "logs/okx_alpha.log",
     },
     "bybit-mm": {
         "unit": "bybit-mm.service",
@@ -226,6 +238,33 @@ def check_polymarket_collector() -> dict[str, Any]:
     return result
 
 
+def check_disk_space() -> dict[str, Any]:
+    """Check root filesystem usage.
+
+    Alerts at >85% (warning), >95% (critical).
+    """
+    result: dict[str, Any] = {"status": "unknown", "problems": []}
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage("/")
+        used_pct = used / total * 100
+        result["used_pct"] = round(used_pct, 1)
+        result["free_gb"] = round(free / (1024**3), 1)
+        result["total_gb"] = round(total / (1024**3), 1)
+
+        if used_pct >= 95:
+            result["status"] = "critical"
+            result["problems"].append(f"critical disk usage: {used_pct:.1f}% used, {result['free_gb']}GB free")
+        elif used_pct >= 85:
+            result["status"] = "warning"
+            result["problems"].append(f"high disk usage: {used_pct:.1f}% used, {result['free_gb']}GB free")
+        else:
+            result["status"] = "ok"
+    except Exception as e:
+        result["problems"].append(f"disk_check_failed: {e}")
+    return result
+
+
 def check_account() -> dict[str, Any]:
     """Check Bybit account health."""
     result = {"status": "unknown", "problems": []}
@@ -334,6 +373,10 @@ def run_watchdog(auto_restart: bool = False, json_output: bool = False) -> int:
     # 4. Check account
     account = check_account()
     report["checks"]["account"] = account
+
+    # 5. Check disk space
+    disk = check_disk_space()
+    report["checks"]["disk"] = disk
 
     # Aggregate problems
     all_problems = []
