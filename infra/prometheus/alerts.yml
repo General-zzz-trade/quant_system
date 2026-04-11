@@ -1,0 +1,54 @@
+groups:
+  - name: quant-system-critical
+    interval: 1m
+    rules:
+      - alert: ServiceDown
+        expr: quant_service_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Quant service {{ $labels.service }} is DOWN"
+          description: "{{ $labels.service }} has been inactive for 2+ minutes."
+
+      - alert: ExporterStale
+        expr: time() - quant_exporter_last_scrape_unixtime > 180
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus exporter stale"
+          description: "No fresh scrape from quant_prometheus_exporter for >3min."
+
+  - name: quant-system-risk
+    interval: 1m
+    rules:
+      - alert: PortfolioCapExceeded
+        expr: quant_portfolio_cap_usage > 1.0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Portfolio cap exceeded: {{ $labels.symbol }} {{ $labels.side }}"
+          description: "cap_usage={{ $value }} — new orders will be blocked by the gate."
+
+      - alert: ICHealthRed
+        expr: quant_model_ic_status == -1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model IC RED: {{ $labels.model }}"
+          description: "Live IC decayed significantly below training baseline."
+
+  - name: quant-system-pnl
+    interval: 5m
+    rules:
+      - alert: Large24hLoss
+        expr: quant_pnl_24h_usd < -200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "24h PnL < -$200 on {{ $labels.venue }}"
+          description: "Current 24h PnL = {{ $value }}. Review trades."

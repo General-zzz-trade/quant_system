@@ -1,0 +1,20 @@
+[Unit]
+Description=Quant-system Prometheus exporter (HTTP :9102 /metrics)
+After=network.target binance-alpha.service okx-alpha.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.prometheus_exporter --port 9102 --bind 127.0.0.1
+User=ubuntu
+MemoryMax=128M
+CPUQuota=20%
+StandardOutput=append:/quant_system/logs/prometheus_exporter.log
+StandardError=append:/quant_system/logs/prometheus_exporter.log
+
+[Install]
+WantedBy=multi-user.target

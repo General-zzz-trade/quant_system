@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    environment: prod
+    stack: quant-system
+
+# Quant-system self-scrape — picks up the lightweight exporter
+# running on the same host at 127.0.0.1:9102/metrics.
+scrape_configs:
+  - job_name: quant-system
+    static_configs:
+      - targets:
+          - 127.0.0.1:9102
+    metric_relabel_configs:
+      # Keep only quant_* metrics (drops default HTTP-server overhead)
+      - source_labels: [__name__]
+        regex: 'quant_.*'
+        action: keep
+
+# Optional: node_exporter (install separately with apt install prometheus-node-exporter)
+# - job_name: node
+#   static_configs:
+#     - targets: ['127.0.0.1:9100']
+
+# Alerting rules — fire Telegram via Alertmanager webhook
+rule_files:
+  - /quant_system/infra/prometheus/alerts.yml

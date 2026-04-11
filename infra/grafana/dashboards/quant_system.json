@@ -1,0 +1,162 @@
+{
+  "title": "Quant System — Live",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "tags": ["quant", "live"],
+  "templating": {
+    "list": [
+      {
+        "name": "venue",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(quant_service_up, service)",
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "name": "symbol",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(quant_portfolio_cap_usd, symbol)",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Status",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "quant_service_up", "legendFormat": "{{service}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Service Memory",
+      "type": "timeseries",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "quant_service_memory_bytes / 1024 / 1024", "legendFormat": "{{service}} MB", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+    },
+    {
+      "id": 3,
+      "title": "Model IC Status",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 4},
+      "targets": [
+        {"expr": "quant_model_ic_status", "legendFormat": "{{model}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {
+              "1": {"text": "GREEN", "color": "green"},
+              "0": {"text": "YELLOW", "color": "yellow"},
+              "-1": {"text": "RED", "color": "red"}
+            }}
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Signal z-score (by venue / symbol)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "quant_signal_zscore", "legendFormat": "{{venue}}:{{symbol}}", "refId": "A"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Signal direction (-1/0/+1)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "quant_signal_direction", "legendFormat": "{{venue}}:{{symbol}}", "refId": "A"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Position notional (USD)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "quant_position_notional_usd", "legendFormat": "{{venue}}:{{symbol}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 7,
+      "title": "Portfolio cap usage (fraction)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "quant_portfolio_cap_usage", "legendFormat": "{{symbol}} {{side}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 0.5},
+            {"color": "red", "value": 0.9}
+          ]}
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "24h trades (by venue)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 20, "w": 6, "h": 6},
+      "targets": [
+        {"expr": "quant_trades_24h", "legendFormat": "{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "id": 9,
+      "title": "24h PnL USD (by venue)",
+      "type": "timeseries",
+      "gridPos": {"x": 6, "y": 20, "w": 6, "h": 6},
+      "targets": [
+        {"expr": "quant_pnl_24h_usd", "legendFormat": "{{venue}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 10,
+      "title": "OKX ramp level",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 20, "w": 6, "h": 6},
+      "targets": [
+        {"expr": "quant_okx_ramp_level", "refId": "A"}
+      ]
+    },
+    {
+      "id": 11,
+      "title": "OKX ramp cap USD",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 20, "w": 6, "h": 6},
+      "targets": [
+        {"expr": "quant_okx_ramp_cap_usd", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    }
+  ]
+}
