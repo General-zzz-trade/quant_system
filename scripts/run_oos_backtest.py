@@ -157,7 +157,8 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
                      regime_gated: bool = False,
                      latency_ms: float = 0.0,
                      restart_every_bars: int = 0,
-                     sizer_tier_cap_override: Optional[float] = None) -> Dict[str, Any]:
+                     sizer_tier_cap_override: Optional[float] = None,
+                     sizer_leverage_override: Optional[float] = None) -> Dict[str, Any]:
     """Run one OOS backtest for a trained model.
 
     overrides: optional dict of ``bt_config`` keys to override the
@@ -284,7 +285,13 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
             bt_config["sizer_tier_cap"] = float(sizer_tier_cap_override)
         else:
             bt_config["sizer_tier_cap"] = tier_p["tier_cap"]
-        bt_config["sizer_leverage"] = tier_p["leverage"]
+        # Leverage override: _live_tier_params hardcodes 3.0 (live Bybit
+        # default). OKX production uses up to 100x — when stress-testing
+        # hypothetical setups pass e.g. 10.0 to see the sized-up effect.
+        if sizer_leverage_override is not None:
+            bt_config["sizer_leverage"] = float(sizer_leverage_override)
+        else:
+            bt_config["sizer_leverage"] = tier_p["leverage"]
         bt_config["sizer_ic_scale"] = tier_p["ic_scale"]
         bt_config["sizer_regime_gated"] = regime_gated
         # Regime multipliers: match the #2 proposal in the D10 model
@@ -536,6 +543,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--sizer-leverage", type=float, default=None,
+        help=(
+            "Override the sizer leverage (default 3.0 from "
+            "_live_tier_params).  Use 10.0 to test OKX's higher-lev "
+            "regime.  Combine with a smaller --sizer-tier-cap to "
+            "keep effective_leverage (= tier_cap × leverage) bounded."
+        ),
+    )
+    parser.add_argument(
         "--restart-every-bars", type=int, default=0,
         help=(
             "Simulate alpha_main process restarts every N bars.  Each "
@@ -590,6 +606,7 @@ def main():
             latency_ms=args.latency_ms,
             restart_every_bars=args.restart_every_bars,
             sizer_tier_cap_override=args.sizer_tier_cap,
+            sizer_leverage_override=args.sizer_leverage,
         )
         elapsed = time.time() - t0
         result["time_s"] = round(elapsed, 1)
