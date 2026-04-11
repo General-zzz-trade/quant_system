@@ -16,6 +16,11 @@ Environment=PYTHONPATH=/quant_system
 # Change with care: lowering tier_cap without lowering leverage increases
 # risk; raising both simultaneously amplifies drawdown.
 Environment=OKX_LEVERAGE=10
+# D15 limit-order tuning: tighten offset from 30 bps → 20 bps.  Lower
+# offset = more aggressive price = higher fill rate at the cost of
+# slightly less favourable prices.  TCA after 30+ fills will tell
+# whether 20 is too tight; revert to 30 if unfilled rate spikes.
+Environment=LIMIT_OFFSET_BPS=20
 # Safety caps: tiny defaults for the first 24h.  Bump these in .env once
 # ≥5 successful trades have cleared without any qty/price anomaly.
 #   OKX_MAX_ORDER_NOTIONAL=50   (per-order USD cap)

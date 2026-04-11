@@ -9,11 +9,14 @@ RestartSec=30
 WorkingDirectory=/quant_system
 EnvironmentFile=/quant_system/.env
 Environment=PYTHONPATH=/quant_system
+# D15 limit-order tuning — match OKX setting for parity diagnostics.
+Environment=LIMIT_OFFSET_BPS=20
 # Sync z-score checkpoints from batch predictions before starting.
 # Ensures the z-score buffer matches backtest (not incremental) predictions.
 # Sync needs ~400M for batch feature computation (runs before ExecStart, not concurrent).
 ExecStartPre=/usr/bin/python3 /quant_system/scripts/sync_zscore_from_batch.py
-ExecStart=/usr/bin/python3 -m runner.alpha_main --venue binance --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
+# ETHUSDT_4h removed: IC RED for 14+ days, retrain 2x failed, produces noise trades
+ExecStart=/usr/bin/python3 -m runner.alpha_main --venue binance --symbols BTCUSDT BTCUSDT_4h ETHUSDT --ws
 User=ubuntu
 TimeoutStopSec=15
 MemoryMax=768M

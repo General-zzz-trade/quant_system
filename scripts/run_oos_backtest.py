@@ -158,7 +158,8 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
                      latency_ms: float = 0.0,
                      restart_every_bars: int = 0,
                      sizer_tier_cap_override: Optional[float] = None,
-                     sizer_leverage_override: Optional[float] = None) -> Dict[str, Any]:
+                     sizer_leverage_override: Optional[float] = None,
+                     sizer_ic_scale_override: Optional[float] = None) -> Dict[str, Any]:
     """Run one OOS backtest for a trained model.
 
     overrides: optional dict of ``bt_config`` keys to override the
@@ -292,7 +293,10 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
             bt_config["sizer_leverage"] = float(sizer_leverage_override)
         else:
             bt_config["sizer_leverage"] = tier_p["leverage"]
-        bt_config["sizer_ic_scale"] = tier_p["ic_scale"]
+        if sizer_ic_scale_override is not None:
+            bt_config["sizer_ic_scale"] = float(sizer_ic_scale_override)
+        else:
+            bt_config["sizer_ic_scale"] = tier_p["ic_scale"]
         bt_config["sizer_regime_gated"] = regime_gated
         # Regime multipliers: match the #2 proposal in the D10 model
         # improvement plan — 0.40 mid / 0.15 high vol.
@@ -552,6 +556,14 @@ def main():
         ),
     )
     parser.add_argument(
+        "--sizer-ic-scale", type=float, default=None,
+        help=(
+            "Override the sizer IC-scale multiplier (default 1.2 = "
+            "GREEN).  Used to sweep the _IC_SCALE_MAP values and find "
+            "the optimum for the GREEN/YELLOW/RED tiers."
+        ),
+    )
+    parser.add_argument(
         "--restart-every-bars", type=int, default=0,
         help=(
             "Simulate alpha_main process restarts every N bars.  Each "
@@ -607,6 +619,7 @@ def main():
             restart_every_bars=args.restart_every_bars,
             sizer_tier_cap_override=args.sizer_tier_cap,
             sizer_leverage_override=args.sizer_leverage,
+            sizer_ic_scale_override=args.sizer_ic_scale,
         )
         elapsed = time.time() - t0
         result["time_s"] = round(elapsed, 1)

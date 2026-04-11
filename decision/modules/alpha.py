@@ -950,12 +950,43 @@ class AlphaDecisionModule:
                 return
             with open(_IC_HEALTH_PATH) as f:
                 data = json.load(f)
-            # Walk the models array, match by model name, pull overall_status.
+            # Walk the models array, match by model name.  D15 change:
+            # prefer the 30-day window when available instead of the
+            # ``overall_status`` aggregate.
+            #
+            # Context: ``overall_status`` is derived from the "primary
+            # window" in monitoring/ic_decay_monitor.py, which is the
+            # 60d window.  ETH 4h surfaced a case on 2026-04-12 where
+            # 60d IC was +0.066 (GREEN) but the 30d window had already
+            # flipped to -0.033 (RED).  Reading ``overall_status``
+            # reported GREEN, so the gate did not fire even though the
+            # recent month of live data said the model was producing
+            # noise.  Reading 30d first catches drift sooner.
+            #
+            # Fallback chain when 30d data is missing: 60d → overall_status
+            # → GREEN default.  "Missing" includes stale ic_health.json
+            # written by an older monitoring version that did not emit
+            # per-window detail.
             status = "GREEN"
             for m in data.get("models", []):
-                if m.get("model") == model_name:
+                if m.get("model") != model_name:
+                    continue
+                # Find any horizon's 30d window; the worst wins.
+                worst_30d: str | None = None
+                for h in m.get("horizons", []) or []:
+                    w30 = (h.get("windows") or {}).get("30d") or {}
+                    win_status = w30.get("status")
+                    win_ic = w30.get("ic")
+                    if win_status == "RED" or (isinstance(win_ic, (int, float)) and win_ic < 0):
+                        worst_30d = "RED"
+                        break
+                    if win_status == "YELLOW" and worst_30d != "RED":
+                        worst_30d = "YELLOW"
+                if worst_30d is not None:
+                    status = worst_30d
+                else:
                     status = m.get("overall_status", "GREEN")
-                    break
+                break
             self._ic_scale = _IC_SCALE_MAP.get(status, 1.0)
         except Exception:
             logger.debug("IC health read failed, keeping scale=%.1f", self._ic_scale)
