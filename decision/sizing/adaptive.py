@@ -25,13 +25,16 @@ except ImportError:
 # Within each symbol: 4h gets 60% (higher conviction), 1h gets 40%.
 # z_scale/IC/regime further adjust at runtime.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
-    "micro": {  # equity < 500 — concentrated sizing so small accounts can
-                # still reach exchange minimum-lot thresholds at 3x live
-                # leverage. At $397 equity × 0.65 × 3 / $72.9k ≈ 0.0106
-                # which rounds to 0.01 BTC = 1 OKX contract.
-        "BTCUSDT": 0.65,   # was 0.40 — must reach 0.01 BTC min lot at $400+
-        "ETHUSDT": 0.65,   # was 0.40 — allows ~3 OKX ETH contracts
-        "SOLUSDT": 0.40,   # SOL tick is small, less concentration needed
+    "micro": {  # equity < 500 — BTC-heavy 2:1 ratio (D13 portfolio
+                # backtest finding).  10x leverage × (0.20, 0.10) gives
+                # joint Sharpe +6.36, Return +451%, MaxDD -18.2% on $400
+                # over 12 months.  Individual BTC Sharpe 7.92 > ETH 5.11
+                # justifies the 2:1 allocation; near-zero per-bar
+                # correlation (-0.038) provides real diversification.
+                # Effective leverage = cap × lev: BTC 2.0x, ETH 1.0x.
+        "BTCUSDT": 0.20,   # was 0.65 — BTC-heavy per D13 ratio sweep
+        "ETHUSDT": 0.10,   # was 0.65 — half of BTC
+        "SOLUSDT": 0.40,   # unchanged (dropped from active roster)
         "BTCUSDT_4h": 0.0,
         "ETHUSDT_4h": 0.0,
     },

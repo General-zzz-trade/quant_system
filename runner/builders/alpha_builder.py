@@ -24,7 +24,9 @@ from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
 from execution.safety.limits import OrderLimiter, OrderLimitsConfig
-from strategy.config import SYMBOL_CONFIG, LEVERAGE_LADDER
+from strategy.config import (
+    SYMBOL_CONFIG, LEVERAGE_LADDER, OKX_LEVERAGE, BINANCE_LEVERAGE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -695,11 +697,21 @@ def build_coordinator(
         max_qty=cfg.get("max_qty", 0),
     )
 
-    # Leverage from strategy_config (auto-detects live vs demo)
-    leverage = LEVERAGE_LADDER[0][1] if LEVERAGE_LADDER else 10.0
+    # Venue-aware leverage resolution (D13).  OKX and Binance each
+    # have their own env-var override so a $400 OKX live account can
+    # run 10x while Bybit demo keeps its legacy 3x.  Combined with
+    # the micro tier_cap (BTC 0.20, ETH 0.10) this gives effective
+    # leverage of (2.0x, 1.0x) — the Sharpe-optimal point from D13.
+    venue = getattr(adapter, "venue", "binance")
+    if venue == "okx":
+        leverage = OKX_LEVERAGE
+    elif venue == "binance":
+        leverage = BINANCE_LEVERAGE
+    else:
+        leverage = LEVERAGE_LADDER[0][1] if LEVERAGE_LADDER else 10.0
+    logger.info("Leverage resolved for %s venue=%s: %.1fx", runner_key, venue, leverage)
 
     # Decision module (venue stamps audit log + tags downstream events)
-    venue = getattr(adapter, "venue", "binance")
     alpha_module = AlphaDecisionModule(
         symbol=symbol,
         runner_key=runner_key,

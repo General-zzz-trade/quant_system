@@ -50,13 +50,25 @@ PORTFOLIO_NOTIONAL_CAPS_USD: dict[str, float] = {
 # trade when the monitor script is unhealthy.
 PORTFOLIO_RISK_MAX_STALE_SEC = 300  # 5 minutes
 
-# Live/Demo mode detection from BYBIT_BASE_URL
+# Live/Demo mode detection from BYBIT_BASE_URL (legacy — only affects
+# Bybit path which has been deprecated since 2026-03).
 _IS_LIVE = os.environ.get("BYBIT_BASE_URL", "").startswith("https://api.bybit.com")
 
-# Leverage: 3x for live (Kelly half=7x, conservative=3x), 10x for demo
+# Leverage ladder — legacy Bybit-era default.  OKX + Binance now read
+# their own ``OKX_LEVERAGE`` / ``BINANCE_LEVERAGE`` env vars resolved
+# per-venue in runner/builders/alpha_builder.py.
 LEVERAGE_LADDER = [
     (0, 3.0 if _IS_LIVE else 10.0),
 ]
+
+# Per-venue leverage overrides.  D13 balanced config uses OKX 10x with
+# micro tier_cap (BTC 0.20, ETH 0.10) giving effective leverage
+# (BTC 2.0x, ETH 1.0x) — the portfolio backtest Sharpe-optimal point
+# at the current $400 micro-tier.  Raise ``OKX_LEVERAGE`` only in
+# coordination with a matching tier_cap reduction so effective leverage
+# stays bounded.
+OKX_LEVERAGE = float(os.environ.get("OKX_LEVERAGE", "10"))
+BINANCE_LEVERAGE = float(os.environ.get("BINANCE_LEVERAGE", "10"))  # testnet default
 
 
 # Default symbols + position sizes
@@ -67,11 +79,16 @@ LEVERAGE_LADDER = [
 #   full utilization.  SOL model artefacts kept on disk in
 #   models_v8/SOLUSDT_gate_v2/ for possible future reactivation.
 SYMBOL_CONFIG = {
-    # BTC 1h: primary — 12-month live-eq Sharpe +3.77 (best symbol)
-    "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001,
-                 "use_composite_regime": True},
-    # ETH 1h: secondary — 12-month live-eq Sharpe +2.92
-    "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
+    # BTC 1h: primary — 12-month live-eq Sharpe +8.00 (D12 tuned).
+    # step=0.0001 matches OKX BTC-USDT-SWAP minSz (0.01 contracts ×
+    # ctVal 0.01 BTC) — previously 0.001 was 10× too coarse.
+    "BTCUSDT": {"size": 0.0001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190,
+                "step": 0.0001, "use_composite_regime": True},
+    # ETH 1h: secondary — 12-month live-eq Sharpe +5.05 (D12 tuned).
+    # step=0.001 matches OKX ETH-USDT-SWAP minSz (0.01 contracts ×
+    # ctVal 0.1 ETH) — previously 0.01 was 10× too coarse.
+    "ETHUSDT": {"size": 0.001, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000,
+                "step": 0.001},
     # ETH 15m: DISABLED — WF FAIL (Sharpe -1.36)
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},

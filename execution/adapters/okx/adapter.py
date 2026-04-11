@@ -127,6 +127,30 @@ class OkxAdapter:
                         )
                         break
 
+            # 4. Set leverage on each tradeable instrument to the value
+            #    configured by strategy.config.OKX_LEVERAGE (default 10).
+            #    Must happen BEFORE any orders; otherwise OKX uses whatever
+            #    leverage was last set (possibly 3x from the UI) and the
+            #    backtest sizing assumptions won't match exchange reality.
+            #    Best-effort — logged and swallowed so a set_leverage
+            #    failure doesn't block trading (account may already be
+            #    at the target leverage).
+            try:
+                import os as _os
+                target_lev = int(float(_os.environ.get("OKX_LEVERAGE", "10")))
+                from execution.adapters.okx.symbol_map import _SYMBOL_TO_OKX
+                for internal_sym in _SYMBOL_TO_OKX.keys():
+                    try:
+                        self.set_leverage(internal_sym, target_lev)
+                        logger.info("OKX set_leverage %s → %dx", internal_sym, target_lev)
+                    except Exception as e:
+                        logger.warning(
+                            "OKX set_leverage failed for %s: %s (using account default)",
+                            internal_sym, e,
+                        )
+            except Exception:
+                logger.debug("OKX leverage init skipped", exc_info=True)
+
             self._connected = True
             return True
         except OkxNonRetryableError as e:

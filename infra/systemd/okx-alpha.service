@@ -11,6 +11,11 @@ RestartSec=30
 WorkingDirectory=/quant_system
 EnvironmentFile=/quant_system/.env
 Environment=PYTHONPATH=/quant_system
+# D13 balanced config: 10x leverage with micro tier_cap (BTC 0.20, ETH 0.10)
+# gives effective (2.0x, 1.0x) — portfolio Sharpe +6.36 in 12-month OOS.
+# Change with care: lowering tier_cap without lowering leverage increases
+# risk; raising both simultaneously amplifies drawdown.
+Environment=OKX_LEVERAGE=10
 # Safety caps: tiny defaults for the first 24h.  Bump these in .env once
 # ≥5 successful trades have cleared without any qty/price anomaly.
 #   OKX_MAX_ORDER_NOTIONAL=50   (per-order USD cap)

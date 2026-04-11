@@ -13,11 +13,12 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
     const DEFAULT_CAP: f64 = 0.15;
     // Must match Python _TIER_WEIGHTS in decision/sizing/adaptive.py
     match tier {
-        // Micro: equity < 500 — concentrated weights so small accounts
-        // can still reach exchange minimum-lot thresholds at live 3x lev.
+        // Micro: equity < 500 — BTC-heavy 2:1 ratio per D13 portfolio
+        // backtest.  10x leverage × (0.20, 0.10) gives joint Sharpe
+        // +6.36 and MaxDD -18.2% on $400 over 12 months.
         "micro" => match runner_key {
-            "BTCUSDT" => 0.65,
-            "ETHUSDT" => 0.65,
+            "BTCUSDT" => 0.20,
+            "ETHUSDT" => 0.10,
             "SOLUSDT" => 0.40,
             "BTCUSDT_4h" => 0.0,  // signal_only
             "ETHUSDT_4h" => 0.0,
@@ -160,7 +161,9 @@ mod tests {
 
     #[test]
     fn test_tier_cap_known_keys() {
-        assert_eq!(tier_cap("micro", "BTCUSDT"), 0.65);
+        // D13: micro tier BTC-heavy 2:1 from portfolio backtest
+        assert_eq!(tier_cap("micro", "BTCUSDT"), 0.20);
+        assert_eq!(tier_cap("micro", "ETHUSDT"), 0.10);
         assert_eq!(tier_cap("medium", "BTCUSDT"), 0.45);
         assert_eq!(tier_cap("large", "ETHUSDT"), 0.10);
         // 4h is signal_only — no position
@@ -177,29 +180,27 @@ mod tests {
     }
 
     #[test]
-    fn test_micro_tier_reaches_btc_min_lot() {
-        // Regression for OKX-live $397 equity: must reach ≥0.01 BTC
-        // (OKX BTC-USDT-SWAP minimum = 1 contract = 0.01 BTC).
-        // 397 × 0.65 × 3 / 72900 = 0.01062 → round_to_step(0.01) = 0.01
+    fn test_micro_tier_reaches_btc_min_lot_at_10x() {
+        // D13 balanced config: micro BTC cap 0.20 × 10x leverage.
+        // Must reach the OKX minSz (0.0001 BTC = 0.01 contracts).
+        // 397 × 0.20 × 10 / 72900 = 0.01089 BTC → 108 × minSz.
         let qty = rust_adaptive_target_qty(
-            "BTCUSDT", 397.0, 72900.0, 0.01, 0.01, 0.0,
-            1.0, 3.0, 1.0, true, 1.0,
+            "BTCUSDT", 397.0, 72900.0, 0.0001, 0.0001, 0.0,
+            1.0, 10.0, 1.0, true, 1.0,
         );
-        assert!(qty >= 0.01, "micro tier must reach 0.01 BTC at 3x lev, got {qty}");
+        assert!(qty >= 0.0001, "micro BTC must reach 0.0001 BTC min lot at 10x, got {qty}");
     }
 
     #[test]
     fn test_basic_sizing_micro() {
-        // micro tier, BTCUSDT_4h cap=0.0, lev=10 — 4h is signal-only
-        // So qty falls back to min_size since base_cap=0.
-        // Use BTCUSDT (cap=0.65) instead to validate sizing math:
-        // notional = 400 * 0.65 * 10 * 1 = 2600
-        // size = 2600 / 60000 ≈ 0.0433 → round_to_step(0.001) = 0.043
+        // D13 micro BTC cap=0.20, lev=10, ic=1, z=1, regime=active:
+        // notional = 400 * 0.20 * 10 * 1 = 800
+        // size = 800 / 60000 ≈ 0.01333 → round_to_step(0.001) = 0.013
         let qty = rust_adaptive_target_qty(
             "BTCUSDT", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.043);
+        assert_eq!(qty, 0.013);
     }
 
     #[test]
