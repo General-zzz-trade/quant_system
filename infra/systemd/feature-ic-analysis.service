@@ -1,0 +1,13 @@
+[Unit]
+Description=Feature IC analysis — daily stability check with Telegram alert
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.feature_ic_analysis --alert
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=-/quant_system/.env
+StandardOutput=append:/quant_system/logs/feature_ic_analysis.log
+StandardError=append:/quant_system/logs/feature_ic_analysis.log

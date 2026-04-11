@@ -92,6 +92,17 @@ class EnsemblePredictor:
         self._ridge_only_4h = "4h" in config.get("version", "")
         self._ridge_w = config.get("ridge_weight", 0.6)
         self._lgbm_w = config.get("lgbm_weight", 0.4)
+        # Regime-gated ensemble weights: trust Ridge more in high-vol
+        # (fewer samples, linear model is more robust), LGBM more in low-vol
+        # (stable regime, tree model captures non-linearities).
+        # Uses `vol_ma_ratio_5_20` feature (short/long vol ratio).
+        # >high_thresh: high-vol regime (expanding); <low_thresh: low-vol (stable).
+        # Set regime_gating=False in config to disable.
+        self._regime_gating = config.get("regime_gating", True)
+        self._regime_vol_feat = config.get("regime_vol_feature", "vol_ma_ratio_5_20")
+        self._regime_high_thresh = config.get("regime_high_thresh", 1.3)
+        self._regime_low_thresh = config.get("regime_low_thresh", 0.8)
+        self._regime_shift = config.get("regime_weight_shift", 0.15)
 
         # Online Ridge: incremental weight updates between retrains
         self._online_ridge: Any | None = None
@@ -214,7 +225,31 @@ class EnsemblePredictor:
                     pred = ridge_pred
                 else:
                     lgbm_pred = _rust_or_sklearn_tree(hm, x)
-                    pred = ridge_pred * self._ridge_w + lgbm_pred * self._lgbm_w
+                    # Per-horizon weights: if horizon_model has explicit weights, use them
+                    rw = hm.get("ridge_weight", self._ridge_w)
+                    lw = hm.get("lgbm_weight", self._lgbm_w)
+                    # Regime-gated dynamic weight shift
+                    if self._regime_gating:
+                        vol_val = feat_dict.get(self._regime_vol_feat)
+                        try:
+                            vr = float(vol_val) if vol_val is not None else None
+                        except (TypeError, ValueError):
+                            vr = None
+                        if vr is not None and not np.isnan(vr):
+                            shift = self._regime_shift
+                            if vr > self._regime_high_thresh:
+                                # high-vol: Ridge up, LGBM down
+                                rw = min(1.0, rw + shift)
+                                lw = max(0.0, lw - shift)
+                            elif vr < self._regime_low_thresh:
+                                # low-vol: LGBM up, Ridge down
+                                rw = max(0.0, rw - shift)
+                                lw = min(1.0, lw + shift)
+                            # re-normalize in case of clip
+                            tot = rw + lw
+                            if tot > 0:
+                                rw, lw = rw / tot, lw / tot
+                    pred = ridge_pred * rw + lgbm_pred * lw
             else:
                 pred = _rust_or_sklearn_tree(hm, x)
 
