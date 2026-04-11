@@ -352,15 +352,45 @@ def retrain_symbol(
                 cfg["ic_ema_span"] = 720
                 cfg["ic_min_threshold"] = -0.01
 
-                # Preserve manual overrides from old config
-                # Force-override: training sweep may set long_only=True but we want
-                # to keep the manually optimized value from old config.
-                _FORCE_PRESERVE = ["long_only", "ridge_weight", "lgbm_weight"]
+                # Preserve manual overrides from old config.
+                #
+                # D14 changes:
+                #  * Added deadzone/min_hold/max_hold — the D12 grid-
+                #    search found dz=1.8 mh=12 max_hold=60 for BTC and
+                #    dz=1.2 mh=12 for ETH.  The internal config sweep
+                #    in train_v12 optimises a narrower window and often
+                #    lands on worse points; preserve the global optimum.
+                #  * ridge_weight/lgbm_weight preservation is now
+                #    CONDITIONAL: skipped when the new model has a
+                #    non-zero xgb_weight.  Otherwise the preserved
+                #    2-way weights overwrite the training-time
+                #    IC-proportional 3-way blend and break the ensemble.
+                _FORCE_PRESERVE = [
+                    "long_only",
+                    "deadzone",        # D14
+                    "min_hold",        # D14
+                    "max_hold",        # D14
+                ]
+                new_has_xgb = bool(cfg.get("xgb_weight"))
+                if not new_has_xgb:
+                    # Legacy 2-way model — safe to force-preserve the
+                    # manual ridge/lgbm tuning.
+                    _FORCE_PRESERVE.extend(["ridge_weight", "lgbm_weight"])
+
                 if old_config:
                     for key in _FORCE_PRESERVE:
                         if key in old_config:
                             cfg[key] = old_config[key]
                             logger.info("%s: force-preserved %s=%s from old config", symbol, key, old_config[key])
+                    if new_has_xgb:
+                        logger.info(
+                            "%s: XGB active — using training-time 3-way "
+                            "ensemble weights (ridge=%.3f lgbm=%.3f xgb=%.3f)",
+                            symbol,
+                            cfg.get("ridge_weight", 0),
+                            cfg.get("lgbm_weight", 0),
+                            cfg.get("xgb_weight", 0),
+                        )
 
                     # Preserve Ridge model references in horizon_models
                     # Training scripts don't produce Ridge — those are trained separately.
