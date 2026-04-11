@@ -193,6 +193,16 @@ _PER_BAR_FEATURES = frozenset({
 
 _MIN_PER_BAR_FEATURES = 4  # minimum per-bar features to avoid prediction degeneracy
 
+# Features ONLY available in batch (training) but NOT in live feature_hook.
+# Models should not rely heavily on these — they become 0.0 in live inference.
+_BATCH_ONLY_FEATURES = frozenset({
+    # stablecoin_supply_zscore was batch-only until 2026-04-04 (now computed in live)
+    # Keep this set updated when adding new batch-only features.
+    "ob_imbalance_proxy",       # batch_features_extra only
+    "net_taker_delta",          # batch_features_extra only
+})
+_BATCH_ONLY_WARN_THRESHOLD = 0.25  # warn if >25% importance is batch-only
+
 
 def check_prediction_diversity(config: Dict[str, Any]) -> Tuple[bool, str]:
     """Check if model has enough per-bar features to avoid prediction degeneracy.
@@ -240,12 +250,18 @@ def retrain_symbol(
     horizons: List[int],
     dry_run: bool = False,
     retrain_trigger: str = "scheduled",
+    skip_comparison_gate: bool = False,
 ) -> Dict[str, Any]:
     """Retrain a symbol and validate the new model.
+
+    skip_comparison_gate: if True, bypass comparison vs old training Sharpe.
+        Use when old model is suspected of overfitting (live IC << training IC)
+        and comparison would block a more robust new model.
 
     Returns a result dict with success status and metrics.
     """
     from alpha.training.train_v12 import train_symbol as train_symbol_v11
+    from alpha.retrain.config import FORCED_FEATURES, MAX_TRAIN_YEARS
 
     result = {
         "symbol": symbol,
@@ -287,10 +303,16 @@ def retrain_symbol(
     t0 = time.time()
 
     try:
+        forced = FORCED_FEATURES.get(symbol)
+        max_train_yrs = MAX_TRAIN_YEARS.get(symbol, 0)
+        if max_train_yrs > 0:
+            logger.info("%s: training window capped to last %.1f years", symbol, max_train_yrs)
         success = train_symbol_v11(
             symbol,
             horizons=horizons,
             ic_recent_years=1.5,  # use recent IC for feature selection
+            forced_features=forced,
+            max_train_years=max_train_yrs,
         )
         # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:
@@ -382,7 +404,10 @@ def retrain_symbol(
     }
 
     # Comparison gate: new model should not be drastically worse
-    if old_config:
+    if skip_comparison_gate:
+        gates["comparison_gate"] = True
+        logger.info("%s: comparison_gate SKIPPED (override)", symbol)
+    elif old_config:
         old_sharpe = result.get("old_sharpe", 0)
         if old_sharpe > 0:
             gates["comparison_gate"] = new_sharpe >= old_sharpe * DECAY_TOLERANCE
@@ -497,17 +522,54 @@ def send_sighup_to_runner() -> bool:
         except (ValueError, ProcessLookupError, PermissionError) as e:
             logger.warning("Pidfile SIGHUP failed: %s", e)
 
-    # Fallback: find runner by process name
+    # Fallback 1: ask systemd for the main PID of known services
+    try:
+        import subprocess
+        for unit in ("binance-alpha.service", "bybit-alpha.service"):
+            res = subprocess.run(
+                ["systemctl", "show", "-p", "MainPID", unit],
+                capture_output=True, text=True, timeout=5,
+            )
+            if res.returncode != 0:
+                continue
+            line = res.stdout.strip()
+            if "=" not in line:
+                continue
+            pid_str = line.split("=", 1)[1].strip()
+            if not pid_str or pid_str == "0":
+                continue
+            try:
+                pid = int(pid_str)
+            except ValueError:
+                continue
+            # Prefer sudo since systemd-owned process
+            sud = subprocess.run(
+                ["sudo", "-n", "kill", "-HUP", str(pid)],
+                capture_output=True, text=True, timeout=5,
+            )
+            if sud.returncode == 0:
+                logger.info("Sent SIGHUP to %s (pid=%d via systemctl)", unit, pid)
+                return True
+            try:
+                os.kill(pid, signal.SIGHUP)
+                logger.info("Sent SIGHUP to %s (pid=%d)", unit, pid)
+                return True
+            except PermissionError:
+                logger.warning("Permission denied sending SIGHUP to pid=%d (%s)", pid, unit)
+    except Exception as e:
+        logger.warning("systemctl SIGHUP fallback failed: %s", e)
+
+    # Fallback 2: pgrep by module name (alpha_main / live_runner)
     try:
         import subprocess
         result = subprocess.run(
-            ["pgrep", "-f", "live_runner"],
+            ["pgrep", "-f", "runner.alpha_main"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
             for line in result.stdout.strip().split("\n"):
                 pid = int(line.strip())
-                if pid != os.getpid():  # Don't signal ourselves
+                if pid != os.getpid():
                     os.kill(pid, signal.SIGHUP)
                     logger.info("Sent SIGHUP to runner (pid=%d from pgrep)", pid)
                     return True

@@ -66,7 +66,8 @@ def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
         if args.daily:
             trigger = "scheduled"
         result = retrain_symbol(symbol, horizons=horizons, dry_run=args.dry_run,
-                                retrain_trigger=trigger)
+                                retrain_trigger=trigger,
+                                skip_comparison_gate=args.no_comparison_gate)
         result["retrain_mode"] = retrain_mode
 
         if args.daily and result.get("success") and not args.dry_run:
@@ -210,6 +211,9 @@ def main():
     parser.add_argument("--only-4h", action="store_true")
     parser.add_argument("--symbols-4h", default=None)
     parser.add_argument("--daily", action="store_true")
+    parser.add_argument("--no-comparison-gate", action="store_true",
+                        help="Skip comparison vs old training Sharpe "
+                             "(use when old model is overfit: live IC << train IC)")
     parser.add_argument("--sighup", action="store_true",
                         help="Alias for --notify-runner")
     args = parser.parse_args()

@@ -7,8 +7,49 @@ from pathlib import Path
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 DEFAULT_HORIZONS = [24]               # h12 dropped: IC collapsed in live (BTC -341%, ETH -91%)
+
+# Per-symbol forced features: always included in IC selection regardless of rank.
+# These are hand-picked for IC stability (consistent sign across 30/60/90/180d windows)
+# and live availability (computed in feature_hook, not batch-only).
+FORCED_FEATURES: dict[str, list[str]] = {
+    "ETHUSDT": [
+        # 9 features — audit 2026-04-11: dropped macd_hist (SIGN_FLIP 180d),
+        # dropped vix_chg_1d (WEAK: 30d -0.008), added stablecoin_supply_chg_7d
+        # (STRONG across all windows). Rationale: ETH 1h h12 60d IC ~0 indicated
+        # overfitting; tightened forced list to STRONG-only features.
+        "ls_ratio",                 # +0.151/+0.166/+0.166/+0.166 (STRONG)
+        "oc_netflow_zscore_7",      # +0.236/+0.279/+0.087/+0.025 (STRONG, on-chain)
+        "vix_level",                # +0.086/+0.131/+0.138/+0.039 (STRONG, macro)
+        "fgi_extreme",              # -0.160/-0.102/-0.063/-0.080 (STRONG, contrarian)
+        "funding_sign_persist",     # +0.131/+0.101/+0.098/+0.033 (STRONG, sentiment)
+        "spy_ret_1d",               # -0.016/-0.131/-0.058/-0.050 (STRONG, risk-off)
+        "qqq_ret_1d",               # -0.015/-0.144/-0.046/-0.058 (STRONG, tech)
+        "iwm_ret_1d",               # -0.024/-0.110/-0.058/-0.052 (STRONG, small-cap)
+        "stablecoin_supply_chg_7d", # +0.110/+0.027/+0.063/+0.040 (STRONG, liquidity)
+    ],
+    "BTCUSDT": [
+        # Soft forcing: only 5 core macro features (2026-04-10 audit)
+        # Previous attempt with 10 forced hit comparison_gate — too rigid.
+        # These 5 are the highest-conviction stable signals across 30/60/90/180d;
+        # let greedy IC selection fill remaining slots for diversification.
+        "vix_chg_1d",    # +0.09/+0.17/+0.09/+0.04 (unique contrarian alpha)
+        "gld_ret_5d",    # +0.17/+0.04/+0.06/+0.01 (safe-haven divergence)
+        "spy_ret_1d",    # -0.07/-0.16/-0.07/-0.06 (equity risk-off)
+        "qqq_ret_1d",    # -0.07/-0.17/-0.07/-0.08 (tech risk-off)
+        "iwm_ret_1d",    # -0.08/-0.13/-0.07/-0.05 (small-cap risk-off)
+    ],
+}
 MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
 MODEL_DIR_OVERRIDES: dict[str, str] = {}
+
+# Per-symbol training window cutoff (regime-focused training).
+# Older crypto data (pre-2023) is often too different from current regime.
+# 0 = use all data (default). N = last N years from train_end.
+# 2026-04-11: ETH set to 3.0 after discovering h12 60d IC ~0 (overfitting on
+# long 2019-2022 tail that has different correlations vs 2023-2026 regime).
+MAX_TRAIN_YEARS: dict[str, float] = {
+    "ETHUSDT": 3.0,
+}
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")
 

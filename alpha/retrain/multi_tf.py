@@ -280,6 +280,8 @@ def retrain_15m_symbols(
 
         results[symbol] = result
         log_retrain_event(result)
+        if result.get("success") and not dry_run:
+            _cleanup_backups_for(model_dir, keep=3)
 
     return results
 
@@ -396,5 +398,20 @@ def retrain_4h_symbols(
 
         results[symbol] = result
         log_retrain_event(result)
+        if result.get("success") and not dry_run:
+            # cleanup_old_backups uses _model_dir_for which appends _gate_v2;
+            # 4h dirs don't have that suffix, so clean up directly.
+            _cleanup_backups_for(model_dir, keep=3)
 
     return results
+
+
+def _cleanup_backups_for(model_dir: Path, keep: int = 3) -> None:
+    """Keep only the N most recent backups for a model directory."""
+    parent = model_dir.parent
+    pattern = f"{model_dir.name}_backup_*"
+    backups = sorted(parent.glob(pattern), key=lambda p: p.stat().st_mtime)
+    if len(backups) > keep:
+        for old in backups[:-keep]:
+            shutil.rmtree(old)
+            logger.info("Cleaned up old backup: %s", old)
