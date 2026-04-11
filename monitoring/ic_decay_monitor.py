@@ -29,7 +29,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 
 logger = logging.getLogger(__name__)
 
@@ -179,23 +178,17 @@ def _rolling_spearman_ic(
     returns: np.ndarray,
     window: int,
 ) -> float:
-    """Compute Spearman IC over the last `window` bars."""
-    n = min(len(preds), len(returns))
-    if n < window:
-        return np.nan
+    """Spearman IC over the last ``window`` bars (canonical).
 
-    p = preds[-window:]
-    r = returns[-window:]
-
-    # Remove NaN pairs
-    mask = ~(np.isnan(p) | np.isnan(r))
-    p, r = p[mask], r[mask]
-
-    if len(p) < 30:
-        return np.nan
-
-    ic, _ = spearmanr(p, r)
-    return float(ic) if np.isfinite(ic) else np.nan
+    Delegates to ``shared.ic_metrics.rolling_ic`` so that the formula
+    used here is identical to the one used in ``alpha/training/train_v12.py``.
+    Previously both modules had their own inline spearmanr wrapper with
+    slightly different NaN handling, making ``training IC`` (stored in
+    config.json) and ``live rolling IC`` (reported here) not strictly
+    comparable.
+    """
+    from shared.ic_metrics import rolling_ic
+    return rolling_ic(preds, returns, window=window, min_samples=30)
 
 
 def _classify_decay(rolling_ic: float, training_ic: float) -> str:

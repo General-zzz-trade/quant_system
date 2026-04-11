@@ -272,4 +272,74 @@ impl RustOnlineRidge {
             self.n_features, self.n_updates, self.weight_drift()
         )
     }
+
+    /// Serialize full state to a dict for checkpointing.
+    ///
+    /// Restoring the P matrix is essential for continuing RLS updates
+    /// smoothly after a process restart.  Without it, subsequent
+    /// updates behave as if n_updates=0 even though the weights are
+    /// already drifted, producing discontinuous learning.
+    fn to_dict<'py>(
+        &self,
+        py: pyo3::Python<'py>,
+    ) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::types::PyDict>> {
+        use pyo3::types::PyDict;
+        let d = PyDict::new(py);
+        d.set_item("n_features", self.n_features)?;
+        d.set_item("n_updates", self.n_updates)?;
+        d.set_item("forgetting_factor", self.forgetting_factor)?;
+        d.set_item("regularization", self.regularization)?;
+        d.set_item("max_update_magnitude", self.max_update_magnitude)?;
+        d.set_item("min_samples", self.min_samples)?;
+        d.set_item("weights", self.weights.clone())?;
+        d.set_item("intercept", self.intercept)?;
+        d.set_item("p_matrix", self.p_matrix.clone())?;
+        if let Some(ref sw) = self.static_weights {
+            d.set_item("static_weights", sw.clone())?;
+        }
+        d.set_item("static_intercept", self.static_intercept)?;
+        Ok(d)
+    }
+
+    /// Restore state from a dict produced by ``to_dict``.
+    ///
+    /// n_features must match.  Incompatible checkpoints are rejected so
+    /// a feature-count change after retrain is safe.
+    fn from_dict(&mut self, data: &pyo3::Bound<'_, pyo3::types::PyDict>) -> pyo3::PyResult<bool> {
+        let n_features: usize = match data.get_item("n_features")? {
+            Some(v) => v.extract()?,
+            None => return Ok(false),
+        };
+        if n_features != self.n_features {
+            return Ok(false);
+        }
+        if let Some(v) = data.get_item("weights")? {
+            let w: Vec<f64> = v.extract()?;
+            if w.len() == self.n_features {
+                self.weights = w;
+            }
+        }
+        if let Some(v) = data.get_item("intercept")? {
+            self.intercept = v.extract()?;
+        }
+        if let Some(v) = data.get_item("p_matrix")? {
+            let p: Vec<f64> = v.extract()?;
+            if p.len() == self.n_features * self.n_features {
+                self.p_matrix = p;
+            }
+        }
+        if let Some(v) = data.get_item("n_updates")? {
+            self.n_updates = v.extract()?;
+        }
+        if let Some(v) = data.get_item("static_weights")? {
+            let sw: Vec<f64> = v.extract()?;
+            if sw.len() == self.n_features {
+                self.static_weights = Some(sw);
+            }
+        }
+        if let Some(v) = data.get_item("static_intercept")? {
+            self.static_intercept = v.extract()?;
+        }
+        Ok(true)
+    }
 }

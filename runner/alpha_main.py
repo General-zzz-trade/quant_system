@@ -76,6 +76,54 @@ def _restore_zscore_checkpoint(runner_key: str, bridge) -> bool:
     except Exception:
         return False
 
+
+# OnlineRidge checkpoint paths — same dir as z-score, separate file so
+# retraining can invalidate one without the other.
+_ONLINE_RIDGE_CHECKPOINT_DIR = Path("data/runtime/online_ridge_checkpoints")
+
+
+def _save_online_ridge_checkpoint(runner_key: str, online_ridge) -> None:
+    """Save OnlineRidge RLS state (weights + P matrix + n_updates).
+
+    Without this, every alpha_main restart throws away whatever
+    incremental learning accumulated since the last weekly retrain.
+    The live z-score buffer is still continuous but the raw predictions
+    feeding it collapse back to the static sklearn weights, which causes
+    a visible z-score discontinuity (observed 2026-04-11: pre-restart
+    z=+2.33 → post-restart z=+0.73 for ETH 1h).
+    """
+    if online_ridge is None:
+        return
+    try:
+        _ONLINE_RIDGE_CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+        data = online_ridge.to_dict()
+        path = _ONLINE_RIDGE_CHECKPOINT_DIR / f"{runner_key}.json"
+        import json
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass  # best-effort, never blocks main loop
+
+
+def _restore_online_ridge_checkpoint(runner_key: str, online_ridge) -> bool:
+    """Restore OnlineRidge state from disk. Returns True if restored.
+
+    Safe across retrain: if feature count changed, from_dict returns
+    False and the caller keeps the freshly-loaded static weights.
+    """
+    if online_ridge is None:
+        return False
+    try:
+        import json
+        path = _ONLINE_RIDGE_CHECKPOINT_DIR / f"{runner_key}.json"
+        if not path.exists():
+            return False
+        with open(path) as f:
+            data = json.load(f)
+        return online_ridge.from_dict(data)
+    except Exception:
+        return False
+
 # PnL tracking (graceful degradation if attribution module unavailable)
 try:
     from attribution.pnl_tracker import PnLTracker as _PnLTracker
@@ -388,7 +436,19 @@ def main() -> None:
                 logger.info("Re-loaded batch z-score checkpoint for %s (post-warmup)", runner_key)
         except Exception:
             pass
-    # NOTE: intentionally NOT saving checkpoints here.
+        # Restore OnlineRidge RLS state — preserves drifted weights + P
+        # matrix across restarts so z-score buffer stays continuous and
+        # online learning doesn't reset to n_updates=0 every launch.
+        try:
+            _or = getattr(alpha_mod._predictor, "_online_ridge", None)
+            if _or is not None and _restore_online_ridge_checkpoint(runner_key, _or):
+                logger.info(
+                    "Re-loaded OnlineRidge checkpoint for %s: n_updates=%d drift=%.4f",
+                    runner_key, _or.n_updates, _or.weight_drift,
+                )
+        except Exception:
+            logger.debug("OnlineRidge restore failed for %s", runner_key, exc_info=True)
+    # NOTE: intentionally NOT saving z-score checkpoints here.
     # The batch-synced checkpoint must survive until next sync_zscore_from_batch.py run.
 
     # Re-enable audit logging after warmup
@@ -1331,6 +1391,46 @@ def main() -> None:
                                     sym, internal_qty, exchange_qty, diff_pct,
                                 )
                                 am._current_qty = Decimal(str(abs(exchange_qty)))
+                                # Serious (>20%) divergence deserves a Telegram
+                                # alert — prevents silent state drift on real money.
+                                if diff_pct > 20:
+                                    try:
+                                        send_alert(
+                                            AlertLevel.WARNING,
+                                            f"Position DIVERGENCE on {sym}",
+                                            details={
+                                                "venue": getattr(adapter, "venue", "?"),
+                                                "symbol": sym,
+                                                "internal_qty": f"{internal_qty:+.4f}",
+                                                "exchange_qty": f"{exchange_qty:+.4f}",
+                                                "diff_pct": f"{diff_pct:.1f}%",
+                                            },
+                                            source="reconcile",
+                                        )
+                                    except Exception:
+                                        pass
+                        # Direction flip: system says LONG but exchange says SHORT
+                        # (or vice versa) — critical bug, immediate alert.
+                        if (am._signal != 0 and abs(exchange_qty) > 0
+                                and (am._signal > 0) != (exchange_qty > 0)):
+                            logger.error(
+                                "RECONCILE %s: DIRECTION FLIP internal=%+d exchange=%+.4f — forcing flat",
+                                sym, am._signal, exchange_qty,
+                            )
+                            try:
+                                send_alert(
+                                    AlertLevel.CRITICAL,
+                                    f"DIRECTION FLIP on {sym}",
+                                    details={
+                                        "venue": getattr(adapter, "venue", "?"),
+                                        "symbol": sym,
+                                        "internal_signal": str(am._signal),
+                                        "exchange_qty": f"{exchange_qty:+.4f}",
+                                    },
+                                    source="reconcile",
+                                )
+                            except Exception:
+                                pass
                 except Exception:
                     logger.warning("Position reconciliation failed", exc_info=True)
 
@@ -1395,6 +1495,20 @@ def main() -> None:
         # Z-score checkpoint save DISABLED on shutdown — batch-synced
         # checkpoints preserved. Use sync_zscore_from_batch.py to update.
         logger.info("Z-score checkpoints preserved (batch-synced)")
+
+        # OnlineRidge checkpoint SAVE — preserves drifted RLS weights
+        # + P matrix so next restart continues online learning instead
+        # of resetting to the static sklearn coefficients (which was
+        # causing the observed post-restart z-score discontinuity).
+        for runner_key, alpha_mod in modules.items():
+            try:
+                _or = getattr(alpha_mod._predictor, "_online_ridge", None)
+                if _or is not None:
+                    _save_online_ridge_checkpoint(runner_key, _or)
+            except Exception:
+                logger.debug("OnlineRidge save failed for %s",
+                             runner_key, exc_info=True)
+        logger.info("OnlineRidge checkpoints saved")
         # PnL summary at shutdown
         if pnl_tracker is not None:
             try:

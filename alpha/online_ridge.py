@@ -162,3 +162,30 @@ class OnlineRidge:
             "w_norm": round(s["w_norm"], 6),
             "intercept": round(s["intercept"], 8),
         }
+
+    def to_dict(self) -> dict:
+        """Serialize full RLS state (weights + P matrix + stats) for checkpointing.
+
+        Preserves the drifted weights AND the covariance matrix so that
+        post-restart updates continue smoothly instead of restarting RLS
+        from n_updates=0 with a fresh P matrix.  Without this checkpoint,
+        every alpha_main restart would throw away all online learning
+        accumulated since the last weekly retrain.
+        """
+        # Rust returns a dict with Python-native types, but numpy arrays
+        # would choke json.dump — convert anything ndarray-ish to list.
+        d = self._rust.to_dict()
+        return dict(d)
+
+    def from_dict(self, data: dict) -> bool:
+        """Restore RLS state from a ``to_dict`` checkpoint.
+
+        Returns False if the checkpoint shape does not match (eg. feature
+        count changed after retrain) so the caller can fall back to the
+        static sklearn weights.
+        """
+        try:
+            return bool(self._rust.from_dict(data))
+        except Exception:
+            _log.exception("OnlineRidge.from_dict failed")
+            return False

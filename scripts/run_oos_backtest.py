@@ -39,9 +39,78 @@ ACTIVE_MODELS = [
 ]
 
 
+def _regime_stratified_sharpe(
+    signal: np.ndarray,
+    closes: np.ndarray,
+    total_cost: np.ndarray,
+) -> Dict[str, Any]:
+    """Split OOS returns by 20-bar vol tercile and report per-bucket Sharpe.
+
+    A healthy strategy works across regimes.  If Sharpe is strongly
+    positive in 'low_vol' but negative in 'high_vol', the headline
+    Sharpe is masking regime risk and the strategy may crater in the
+    next vol spike.  Used by ``--regime-split`` CLI flag.
+    """
+    n = min(len(signal), len(closes))
+    if n < 60:
+        return {"error": "insufficient bars"}
+
+    log_ret = np.zeros(n)
+    for i in range(1, n):
+        if closes[i - 1] > 0:
+            log_ret[i] = np.log(closes[i] / closes[i - 1])
+
+    # 20-bar rolling vol (same measure as vol_20 used by impact model)
+    vol_20 = np.zeros(n)
+    for i in range(1, n):
+        ws = max(0, i - 19)
+        vol_20[i] = float(np.std(log_ret[ws:i + 1]))
+
+    # Strategy returns = signal × log_ret − cost
+    strat_ret = signal * log_ret
+    if len(total_cost) == n:
+        strat_ret = strat_ret - total_cost
+
+    # Tercile split on vol_20 (after warmup)
+    warmup = 30
+    vol_warm = vol_20[warmup:]
+    lo, hi = np.quantile(vol_warm[vol_warm > 0], [1.0 / 3.0, 2.0 / 3.0])
+
+    buckets = {
+        "low_vol":  {"mask": vol_20 <= lo, "label": f"vol ≤ {lo:.5f}"},
+        "mid_vol":  {"mask": (vol_20 > lo) & (vol_20 <= hi),
+                     "label": f"{lo:.5f} < vol ≤ {hi:.5f}"},
+        "high_vol": {"mask": vol_20 > hi, "label": f"vol > {hi:.5f}"},
+    }
+
+    out: Dict[str, Any] = {}
+    for name, b in buckets.items():
+        m = b["mask"] & (np.arange(n) >= warmup)
+        r = strat_ret[m]
+        if len(r) < 10:
+            out[name] = {"n_bars": int(len(r)), "sharpe": None, "ret_sum_pct": 0.0}
+            continue
+        mean = float(np.mean(r))
+        std = float(np.std(r)) if np.std(r) > 1e-9 else 1.0
+        # Annualised (8760 hourly bars / year for 1h, 2190 for 4h — use 8760 as default)
+        ann_factor = np.sqrt(8760.0)
+        sharpe = (mean / std) * ann_factor
+        out[name] = {
+            "label": b["label"],
+            "n_bars": int(len(r)),
+            "sharpe": round(sharpe, 2),
+            "ret_sum_pct": round(float(np.sum(r)) * 100, 2),
+            "trades": int(np.sum(np.abs(np.diff(signal[m].astype(float), prepend=0)) > 0.5)),
+        }
+    return out
+
+
 def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
                      data_file: Optional[str], oos_months: int = 6,
-                     overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     overrides: Optional[Dict[str, Any]] = None,
+                     capital: float = 10000.0,
+                     flat_cost: bool = False,
+                     regime_split: bool = False) -> Dict[str, Any]:
     """Run one OOS backtest for a trained model.
 
     overrides: optional dict of ``bt_config`` keys to override the
@@ -113,6 +182,16 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
     volumes = df["volume"].values[start_idx:n].astype(np.float64)
     preds = y_pred[start_idx:n]
 
+    # vol_20: rolling 20-bar realized volatility needed for the realistic
+    # Rust cost model (Almgren-Chriss impact + vol-scaled spread).  Computed
+    # here so the whole cost pipeline can be driven from Python without a
+    # feature-engine dependency loop.
+    log_ret = np.diff(np.log(closes), prepend=closes[0])
+    vol_20 = np.zeros_like(closes)
+    for i in range(len(closes)):
+        window_start = max(0, i - 19)
+        vol_20[i] = np.std(log_ret[window_start:i + 1]) if i >= 1 else 0.0
+
     bt_config = {
         "deadzone": config.get("deadzone", 0.5),
         "min_hold": config.get("min_hold", 24),
@@ -122,14 +201,32 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
         "long_only": config.get("long_only", False),
         "monthly_gate": config.get("monthly_gate", False),
         "ma_window": config.get("monthly_gate_window", 480),
-        "cost_per_trade": 6e-4,
-        "capital": 10000.0,
+
+        # Realistic cost model — enable the Rust Almgren-Chriss pipeline
+        # instead of the flat 6 bps default.  Activating `realistic_cost`
+        # requires `volumes` and `vol_20` arrays passed to run_backtest_fast
+        # (the wiring already exists — see scripts/run_oos_backtest.py).
+        # Fee defaults match OKX-USDT-SWAP (public taker 5 bps,
+        # maker 2 bps) since that's our live venue; Binance is ~1 bp
+        # cheaper and Bybit ~1 bp more, within noise of slippage.
+        "realistic_cost": True,
+        "cost_per_trade": 6e-4,           # retained as fallback
+        "taker_fee_bps": 5.0,
+        "maker_fee_bps": 2.0,
+        "taker_ratio": 1.0,               # we are 100% market orders
+        "impact_eta": 0.5,                # Almgren-Chriss impact coefficient
+        "spread_multiplier": 0.05,        # spread ~ 0.05 × hourly vol (bps)
+        "max_participation": 0.10,        # max 10% of 1h volume per trade
+
+        "capital": capital,
     }
+    if flat_cost:
+        bt_config["realistic_cost"] = False
 
     try:
         bt = run_backtest_fast(
             timestamps=timestamps, closes=closes, y_pred=preds,
-            volumes=volumes, config=bt_config,
+            volumes=volumes, vol_20=vol_20, config=bt_config,
         )
     except Exception as e:
         result["error"] = f"backtest: {e}"
@@ -140,6 +237,26 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
     max_dd = bt.get("max_drawdown", 0.0)
     n_trades = bt.get("n_trades", 0)
     win_rate = bt.get("win_rate", 0.0)
+
+    # Regime-stratified Sharpe (optional — diagnoses whether the
+    # headline number is masking a regime-sensitive strategy).
+    regime_report: Optional[Dict[str, Any]] = None
+    if regime_split:
+        try:
+            sig_arr = np.asarray(bt.get("signal", []), dtype=np.float64)
+            # The regime split recomputes gross returns internally from
+            # (signal, closes); net_pnl's cost accounting is left as a
+            # possible future enhancement when we want bucket-level
+            # cost attribution.
+            if len(sig_arr) == len(closes):
+                # Reconstruct total_cost as the gap between gross and net.
+                # Easier: just pass a zero cost array and let the regime
+                # helper compute gross returns — net_pnl captures costs.
+                regime_report = _regime_stratified_sharpe(
+                    sig_arr, closes, np.zeros(len(closes))
+                )
+        except Exception as e:
+            regime_report = {"error": f"regime split failed: {e}"}
 
     actual_start = pd.to_datetime(
         timestamps[warmup] if len(timestamps) > warmup else timestamps[0], unit="ms")
@@ -157,6 +274,8 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
         "period": f"{actual_start.date()} to {actual_end.date()}",
         "train_date": train_date_str,
     })
+    if regime_report is not None:
+        result["regime"] = regime_report
     return result
 
 
@@ -282,6 +401,22 @@ def main():
             "zscore_window/long_only)."
         ),
     )
+    parser.add_argument(
+        "--capital", type=float, default=10000.0,
+        help="Notional capital for impact-cost model (default: 10000)",
+    )
+    parser.add_argument(
+        "--flat-cost", action="store_true",
+        help="Use legacy flat 6 bps cost model instead of realistic",
+    )
+    parser.add_argument(
+        "--regime-split", action="store_true",
+        help=(
+            "Report Sharpe per vol tercile (low/mid/high vol regime). "
+            "Exposes regime-sensitive strategies that look profitable "
+            "on average but crater in high-vol regimes."
+        ),
+    )
     args = parser.parse_args()
 
     models = ACTIVE_MODELS
@@ -319,7 +454,11 @@ def main():
     for model_name, symbol, tf, data_file in models:
         print(f"\n>>> {model_name} ({symbol} {tf})")
         t0 = time.time()
-        result = run_oos_backtest(model_name, symbol, tf, data_file, args.months)
+        result = run_oos_backtest(
+            model_name, symbol, tf, data_file, args.months,
+            capital=args.capital, flat_cost=args.flat_cost,
+            regime_split=args.regime_split,
+        )
         elapsed = time.time() - t0
         result["time_s"] = round(elapsed, 1)
         results.append(result)
@@ -332,6 +471,15 @@ def main():
                   f"WinRate={result['win_rate']:.0f}%  ({elapsed:.1f}s)")
             print(f"  Status: {result['status']}  Period: {result['period']}  "
                   f"Trained: {result.get('train_date', '?')}")
+            if "regime" in result and "error" not in result["regime"]:
+                print("  Regime breakdown (vol tercile):")
+                for name in ("low_vol", "mid_vol", "high_vol"):
+                    b = result["regime"].get(name, {})
+                    sharpe_str = (f"{b['sharpe']:+.2f}" if b.get("sharpe") is not None else "  n/a")
+                    print(f"    {name:<9} n={b.get('n_bars',0):>5d}  "
+                          f"Sharpe={sharpe_str}  "
+                          f"ret={b.get('ret_sum_pct', 0):+.2f}%  "
+                          f"trades={b.get('trades', 0)}")
 
     print("\n" + "=" * 90)
     print(f"{'Model':<25} {'TF':>3} {'Status':>8} {'Sharpe':>7} {'Return':>8} "

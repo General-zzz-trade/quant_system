@@ -269,8 +269,19 @@ class TestAlphaDecideExceptions:
         mod._ic_scale = 1.0
         mod._ic_cache_ts = 0
 
+        # Uses the actual on-disk schema produced by
+        # monitoring/ic_decay_monitor.py: a top-level "models" array
+        # with per-model dicts keyed by "overall_status".  The old test
+        # asserted a different schema that the reader never actually
+        # matched (latent bug — _ic_scale silently stayed 1.0 forever).
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"BTCUSDT_gate_v2": {"status": "RED"}}, f)
+            json.dump({
+                "timestamp": "2026-04-11T00:00:00Z",
+                "models": [
+                    {"model": "BTCUSDT_gate_v2", "overall_status": "RED"},
+                    {"model": "ETHUSDT_gate_v2", "overall_status": "GREEN"},
+                ],
+            }, f)
             f.flush()
             tmp_path = f.name
 
@@ -359,6 +370,10 @@ class TestAlphaDecideExceptions:
         events = list(mod.decide(snap))
         open_orders = [e for e in events if isinstance(e, OrderEvent)]
         assert open_orders[0].side == "buy"
+
+        # Advance past min_hold (18 bars) so signal_change exit is allowed
+        for _ in range(20):
+            list(mod.decide(snap))
 
         # Flatten signal
         disc.discretize.return_value = (0, 0.0)

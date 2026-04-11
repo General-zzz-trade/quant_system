@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import pickle  # noqa: S403 — trusted local model artifacts, HMAC-signed
 import shutil
 import sys
@@ -234,11 +235,20 @@ def train_single_horizon(
         train_start = max(train_end - train_lookback, WARMUP)
     else:
         train_start = WARMUP
-    # Embargo: the last `horizon` training labels reference closes inside the
-    # OOS test window (y[i] = closes[i+h] - closes[i]). Exclude them to
-    # prevent train→test leakage. Same motivation as Lopez de Prado's
+    # Embargo: the last `horizon` training labels reference closes inside
+    # the OOS test window (y[i] = closes[i+h] - closes[i]).  Exclude them
+    # to prevent train→test leakage.  Same motivation as López de Prado's
     # purged-embargo walk-forward.
-    train_cap = max(train_start + 1, train_end - int(horizon))
+    #
+    # We add a 5-bar safety margin on top of the raw horizon because many
+    # features carry rolling-window information (e.g. RSI_14, vol_20) that
+    # straddles the boundary — the outgoing feature values at train_end-h
+    # still carry faint memory of the forward window.  Five bars is small
+    # enough to not meaningfully reduce training size (~0.1% of 800 bars)
+    # but large enough to kill any remaining overlap.
+    EMBARGO_SAFETY_BARS = 5
+    effective_embargo = int(horizon) + EMBARGO_SAFETY_BARS
+    train_cap = max(train_start + 1, train_end - effective_embargo)
     X_train = np.nan_to_num(X[train_start:train_cap, :][:, feat_idx], nan=0.0)
     y_train = y[train_start:train_cap]
     valid = ~np.isnan(y_train)
@@ -259,11 +269,12 @@ def train_single_horizon(
         "early_stopping_rounds": 30,
     }
     # Purged train/val split with embargo to prevent label leakage.
-    # Target y[i] depends on closes[i+horizon], so the last `horizon` bars of
-    # the training slice have labels that overlap into the validation slice.
-    # Drop those `horizon` bars between train and val (embargo).
+    # Target y[i] depends on closes[i+horizon], so the last `horizon` bars
+    # of the training slice have labels that overlap into the validation
+    # slice.  Drop those `horizon + 5` bars between train and val
+    # (embargo) — matches the train→OOS embargo above for consistency.
     val_bars = 720
-    embargo = int(horizon)  # one full label-lookahead
+    embargo = int(horizon) + EMBARGO_SAFETY_BARS
     val_start = len(X_train) - val_bars
     train_end_idx = max(0, val_start - embargo)
     ds_train = lgb.Dataset(X_train[:train_end_idx], y_train[:train_end_idx])
@@ -327,19 +338,21 @@ def train_single_horizon(
                           stacklevel=2)
             xgb_pred = None
 
-    # IC on OOS
+    # IC on OOS — use canonical shared/ic_metrics.compute_ic so the
+    # training IC is directly comparable to live rolling IC produced
+    # by monitoring/ic_decay_monitor.py.
     y_test = y[train_end:]
     valid_test = ~np.isnan(y_test)
     if valid_test.sum() < 50:
         return None
 
-    from scipy.stats import spearmanr
-    ic_lgbm, _ = spearmanr(lgbm_pred[valid_test], y_test[valid_test])
-    ic_ridge, _ = spearmanr(ridge_pred[valid_test], y_test[valid_test])
+    from shared.ic_metrics import compute_ic
+    ic_lgbm = compute_ic(lgbm_pred[valid_test], y_test[valid_test])
+    ic_ridge = compute_ic(ridge_pred[valid_test], y_test[valid_test])
     ic_xgb = None
     if xgb_pred is not None:
-        ic_xgb, _ = spearmanr(xgb_pred[valid_test], y_test[valid_test])
-        ic_xgb = float(ic_xgb) if not np.isnan(ic_xgb) else None
+        _xgb_ic = compute_ic(xgb_pred[valid_test], y_test[valid_test])
+        ic_xgb = _xgb_ic if not math.isnan(_xgb_ic) else None
 
     if ic_xgb is not None:
         ic_ensemble = float((ic_lgbm + ic_ridge + ic_xgb) / 3)

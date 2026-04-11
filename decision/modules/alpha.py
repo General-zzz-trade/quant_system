@@ -912,7 +912,27 @@ class AlphaDecisionModule:
         return float(min(w, 1.0))
 
     def _refresh_ic_scale(self) -> None:
-        """Read IC health JSON every 10 minutes."""
+        """Read IC health JSON every 10 minutes.
+
+        ic_health.json schema (written by monitoring/ic_decay_monitor.py):
+
+            {
+              "timestamp": "...",
+              "models": [
+                {"model": "BTCUSDT_gate_v2", "overall_status": "GREEN", ...},
+                {"model": "BTCUSDT_4h",      "overall_status": "RED",   ...},
+                ...
+              ]
+            }
+
+        Previous implementation read ``data[model_name]["status"]`` which
+        never matched the actual structure — ``_ic_scale`` silently stayed
+        at 1.0 forever, so both the IC-RED entry gate (line 246) and the
+        4h direction-filter ``ic_ok`` guard (line 357) never fired.  This
+        is the Oct-2025 latent bug surfaced during the 2026-04-11 live
+        diagnosis — the monitor said 4h was RED but the runner was still
+        using it as a direction filter.
+        """
         now = time.time()
         if now - self._ic_cache_ts < _IC_REFRESH_SECS:
             return
@@ -930,7 +950,12 @@ class AlphaDecisionModule:
                 return
             with open(_IC_HEALTH_PATH) as f:
                 data = json.load(f)
-            status = data.get(model_name, {}).get("status", "GREEN")
+            # Walk the models array, match by model name, pull overall_status.
+            status = "GREEN"
+            for m in data.get("models", []):
+                if m.get("model") == model_name:
+                    status = m.get("overall_status", "GREEN")
+                    break
             self._ic_scale = _IC_SCALE_MAP.get(status, 1.0)
         except Exception:
             logger.debug("IC health read failed, keeping scale=%.1f", self._ic_scale)
