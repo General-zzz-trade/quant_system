@@ -105,12 +105,58 @@ def _regime_stratified_sharpe(
     return out
 
 
+def _runner_key_for(model_name: str) -> str:
+    """Map ``BTCUSDT_gate_v2`` → ``BTCUSDT`` runner key for sizer lookup."""
+    if model_name.endswith("_gate_v2"):
+        return model_name[: -len("_gate_v2")]
+    return model_name
+
+
+def _live_tier_params(capital: float, runner_key: str) -> Dict[str, float]:
+    """Replicate ``decision.sizing.adaptive`` tier selection for backtest.
+
+    Returns the tier_cap + leverage + ic_scale that the live sizer
+    would have applied for an account of this size.  This is the
+    minimum-viable mirror — does *not* include z_scale (which is
+    time-varying and baked into the raw signal) or step_size rounding
+    (which matters at very small notional and is approximated away).
+    """
+    from decision.sizing.adaptive import _TIER_WEIGHTS, _DEFAULT_CAP
+
+    if capital < 500:
+        tier = "micro"
+    elif capital < 10_000:
+        tier = "medium"
+    else:
+        tier = "large"
+    tier_cap = _TIER_WEIGHTS.get(tier, {}).get(runner_key, _DEFAULT_CAP)
+
+    # Leverage matches live: 3x live, 10x demo.  Default to 3 since
+    # the OKX production account is live mode.
+    leverage = 3.0
+    # IC scale — default GREEN baseline (1.2).  Backtest has no
+    # time-varying IC oracle; use a constant that matches the
+    # "typical healthy" case.  Callers can override via overrides.
+    ic_scale = 1.2
+
+    return {
+        "tier": tier,
+        "tier_cap": tier_cap,
+        "leverage": leverage,
+        "ic_scale": ic_scale,
+    }
+
+
 def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
                      data_file: Optional[str], oos_months: int = 6,
                      overrides: Optional[Dict[str, Any]] = None,
                      capital: float = 10000.0,
                      flat_cost: bool = False,
-                     regime_split: bool = False) -> Dict[str, Any]:
+                     regime_split: bool = False,
+                     live_sizer: bool = False,
+                     regime_gated: bool = False,
+                     latency_ms: float = 0.0,
+                     restart_every_bars: int = 0) -> Dict[str, Any]:
     """Run one OOS backtest for a trained model.
 
     overrides: optional dict of ``bt_config`` keys to override the
@@ -222,6 +268,36 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
     }
     if flat_cost:
         bt_config["realistic_cost"] = False
+
+    # Live-equivalent sizer: replicate AdaptivePositionSizer chain so
+    # backtest PnL scale matches execution reality.  Opt-in via
+    # ``live_sizer=True`` — the default keeps legacy ``signal * 1.0``
+    # behaviour for scripts that have not been audited.
+    if live_sizer:
+        runner_key = _runner_key_for(model_name)
+        tier_p = _live_tier_params(capital, runner_key)
+        bt_config["sizer_tier_cap"] = tier_p["tier_cap"]
+        bt_config["sizer_leverage"] = tier_p["leverage"]
+        bt_config["sizer_ic_scale"] = tier_p["ic_scale"]
+        bt_config["sizer_regime_gated"] = regime_gated
+        # Regime multipliers: match the #2 proposal in the D10 model
+        # improvement plan — 0.40 mid / 0.15 high vol.
+        bt_config["sizer_regime_mid_mult"] = 0.40
+        bt_config["sizer_regime_high_mult"] = 0.15
+
+    # Latency slippage: charge turnover × drift_frac × |next_bar_return|
+    # as an adverse cost.  500ms on a 1h bar ≈ 0.014 fraction of the
+    # range that actually happens during the latency window, but the
+    # price movement in that window is essentially noise so we use a
+    # more conservative 0.05 drift_frac that matches observed OKX-REST
+    # behaviour on smaller markets.
+    if latency_ms > 0:
+        bt_config["latency_ms"] = latency_ms
+        # 0.05 × 1bar = 5% of bar move charged as slip.
+        bt_config["latency_drift_frac"] = 0.05 * (latency_ms / 500.0)
+
+    if restart_every_bars > 0:
+        bt_config["restart_every_bars"] = restart_every_bars
 
     try:
         bt = run_backtest_fast(
@@ -417,6 +493,41 @@ def main():
             "on average but crater in high-vol regimes."
         ),
     )
+    parser.add_argument(
+        "--live-sizer", action="store_true",
+        help=(
+            "Replicate AdaptivePositionSizer in the backtest: applies "
+            "tier_cap × leverage × ic_scale to the signal so backtest "
+            "PnL scale matches live execution.  Without this flag the "
+            "backtest uses signal=±1 as literal position fraction."
+        ),
+    )
+    parser.add_argument(
+        "--regime-gated", action="store_true",
+        help=(
+            "Apply the D10 proposed vol-regime sizing multipliers "
+            "(mid_mult=0.40, high_mult=0.15) inside the backtest.  "
+            "Requires --live-sizer."
+        ),
+    )
+    parser.add_argument(
+        "--latency-ms", type=float, default=0.0,
+        help=(
+            "Simulate order→fill latency in milliseconds.  Charges "
+            "adverse slippage proportional to next-bar price movement.  "
+            "Default 0 = no latency cost (legacy).  Try 500 to match "
+            "observed OKX REST roundtrip."
+        ),
+    )
+    parser.add_argument(
+        "--restart-every-bars", type=int, default=0,
+        help=(
+            "Simulate alpha_main process restarts every N bars.  Each "
+            "restart forces signal=0 for zscore_warmup bars (180 by "
+            "default), modelling the cold-start period observed in "
+            "production.  Typical values: 168 (weekly), 720 (monthly)."
+        ),
+    )
     args = parser.parse_args()
 
     models = ACTIVE_MODELS
@@ -458,6 +569,10 @@ def main():
             model_name, symbol, tf, data_file, args.months,
             capital=args.capital, flat_cost=args.flat_cost,
             regime_split=args.regime_split,
+            live_sizer=args.live_sizer,
+            regime_gated=args.regime_gated,
+            latency_ms=args.latency_ms,
+            restart_every_bars=args.restart_every_bars,
         )
         elapsed = time.time() - t0
         result["time_s"] = round(elapsed, 1)
