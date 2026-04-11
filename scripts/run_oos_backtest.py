@@ -34,6 +34,7 @@ except ImportError:
 ACTIVE_MODELS = [
     ("BTCUSDT_gate_v2", "BTCUSDT", "1h", "BTCUSDT_1h.csv"),
     ("ETHUSDT_gate_v2", "ETHUSDT", "1h", "ETHUSDT_1h.csv"),
+    ("SOLUSDT_gate_v2", "SOLUSDT", "1h", "SOLUSDT_1h.csv"),
     ("BTCUSDT_4h",      "BTCUSDT", "4h", None),
     ("ETHUSDT_4h",      "ETHUSDT", "4h", None),
 ]
@@ -182,18 +183,17 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
         for k, v in overrides.items():
             config[k] = v
 
-    # Determine OOS start: max(train_date, now - oos_months)
+    # Determine OOS start: use ``now - oos_months`` directly.
+    #
+    # NOTE: train_v12 walk-forward uses the last 18 months as its
+    # internal OOS window (train_end = n - 18*BARS_PER_MONTH), so
+    # requesting e.g. ``--months 12`` on a freshly trained model
+    # overlaps with the training OOS window — that's fine because
+    # the data + labels were held out during training.  The previous
+    # formula used ``train_date - 30d`` which only gave us the post-
+    # train period (1 month for a model trained today).
     train_date_str = config.get("train_date", "")
-    if train_date_str:
-        try:
-            train_dt = datetime.strptime(train_date_str.split(" ")[0], "%Y-%m-%d")
-        except ValueError:
-            train_dt = datetime.now() - timedelta(days=oos_months * 30)
-    else:
-        train_dt = datetime.now() - timedelta(days=oos_months * 30)
-
-    oos_start = max(train_dt - timedelta(days=30),  # 30-day buffer for z-score warmup
-                    datetime.now() - timedelta(days=oos_months * 30))
+    oos_start = datetime.now() - timedelta(days=oos_months * 30)
 
     try:
         df = load_data(data_file, symbol, timeframe)
