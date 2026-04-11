@@ -26,6 +26,28 @@ def get_max_order_notional(equity: float) -> float:
 # Backward compat: static value used by code that imports MAX_ORDER_NOTIONAL directly
 MAX_ORDER_NOTIONAL = 5_000.0  # fallback if equity unknown
 
+# ── Portfolio-level risk (cross-venue) ──────────────────────────────────
+# Per-symbol ceiling on COMBINED notional across every venue. When
+# binance-alpha + okx-alpha both trade the same symbol, this prevents
+# both venues piling into the same side and creating 2x implicit
+# leverage relative to the intended per-strategy sizing.
+#
+# Enforced by runner/_CompositeRiskGate via the PortfolioRiskFile reader
+# (data/runtime/portfolio_risk.json — refreshed every 60s by
+# scripts/portfolio_risk_monitor.py).
+#
+# Numbers are conservative: $2000 BTC / $1000 ETH total across venues
+# is ~5x the per-order cap of $50 for OKX first-24h, giving room for
+# both venues to hold a full target size simultaneously.
+PORTFOLIO_NOTIONAL_CAPS_USD: dict[str, float] = {
+    "BTCUSDT": 2000.0,
+    "ETHUSDT": 1000.0,
+}
+# Stale-file threshold — if portfolio_risk.json is older than this we
+# fall back to "allow order, log warning" rather than blocking every
+# trade when the monitor script is unhealthy.
+PORTFOLIO_RISK_MAX_STALE_SEC = 300  # 5 minutes
+
 # Live/Demo mode detection from BYBIT_BASE_URL
 _IS_LIVE = os.environ.get("BYBIT_BASE_URL", "").startswith("https://api.bybit.com")
 

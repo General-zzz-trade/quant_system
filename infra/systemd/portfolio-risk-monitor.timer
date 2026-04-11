@@ -1,0 +1,11 @@
+[Unit]
+Description=Portfolio risk monitor — every 60s
+
+[Timer]
+# Every minute (safer freshness budget vs the 5-min stale threshold)
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

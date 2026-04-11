@@ -1,0 +1,13 @@
+[Unit]
+Description=Portfolio risk monitor — writes cross-venue exposure snapshot
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.portfolio_risk_monitor
+User=ubuntu
+StandardOutput=append:/quant_system/logs/portfolio_risk_monitor.log
+StandardError=append:/quant_system/logs/portfolio_risk_monitor.log

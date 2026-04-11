@@ -767,7 +767,10 @@ def build_coordinator(
             exec_adapter = BybitExecutionAdapter(adapter)
 
         # Composite risk gate: OrderLimiter + KillSwitch drawdown check
-        risk_gate = _build_composite_gate(kill_switch=kill_switch)
+        risk_gate = _build_composite_gate(
+            kill_switch=kill_switch,
+            venue=getattr(adapter, "venue", "binance"),
+        )
 
         execution_bridge = ExecutionBridge(
             adapter=exec_adapter,
@@ -790,15 +793,29 @@ def build_coordinator(
 # ── OrderLimiter factory ──────────────────────────────────────
 
 class _CompositeRiskGate:
-    """Composite risk gate: OrderLimiter + KillSwitch at execution boundary.
+    """Composite risk gate: KillSwitch + OrderLimiter + PortfolioRiskFile.
 
     ExecutionBridge calls ``risk_gate.check(event)`` and expects an object
     with ``.allowed`` and ``.reason`` attributes.
+
+    Order of checks (fail-fast, cheap → expensive):
+      1. KillSwitch  — per-venue daily drawdown cutoff
+      2. OrderLimiter — per-venue rate + notional + daily caps
+      3. PortfolioRiskFileReader — cross-venue total notional cap
+         (fail-open: missing/stale file → allow, log a warning)
     """
 
-    def __init__(self, limiter: OrderLimiter, kill_switch: Any = None) -> None:
+    def __init__(
+        self,
+        limiter: OrderLimiter,
+        kill_switch: Any = None,
+        portfolio_reader: Any = None,
+        venue: str = "binance",
+    ) -> None:
         self._limiter = limiter
         self._kill_switch = kill_switch
+        self._portfolio_reader = portfolio_reader
+        self._venue = venue
 
     def check(self, event: Any) -> Any:
         from decimal import Decimal as D
@@ -821,12 +838,42 @@ class _CompositeRiskGate:
         if not result.allowed:
             return type("R", (), {"allowed": False, "reason": result.detail or result.violated_rule})()
 
+        # 3. Cross-venue portfolio cap (fail-open on missing/stale file)
+        if self._portfolio_reader is not None:
+            try:
+                sym = str(getattr(event, "symbol", ""))
+                side = str(getattr(event, "side", "buy")).lower()
+                px = float(price) if price is not None else 0.0
+                qf = float(qty) if qty is not None else 0.0
+                # Only gate new directional exposure — reduce_only / qty=0 skip
+                if qf != 0 and px > 0:
+                    proposed_notional = abs(qf) * px
+                    ok, reason = self._portfolio_reader.check_would_exceed(
+                        symbol=sym,
+                        venue=self._venue,
+                        side=side,
+                        proposed_notional_usd=proposed_notional,
+                    )
+                    if not ok:
+                        return type("R", (), {
+                            "allowed": False,
+                            "reason": f"portfolio_gate: {reason}",
+                        })()
+            except Exception:
+                pass  # fail-open on reader exception
+
         return _OK
 
 
-def _build_composite_gate(kill_switch: Any = None) -> _CompositeRiskGate:
-    """Build composite risk gate with OrderLimiter + KillSwitch."""
+def _build_composite_gate(
+    kill_switch: Any = None,
+    venue: str = "binance",
+) -> _CompositeRiskGate:
+    """Build composite risk gate: OrderLimiter + KillSwitch + PortfolioRiskFile."""
     from decimal import Decimal as D
+    from runner.gates.portfolio_risk_file import PortfolioRiskFileReader
+    from strategy.config import PORTFOLIO_RISK_MAX_STALE_SEC
+
     cfg = OrderLimitsConfig(
         max_order_notional=D("25000"),    # $25k max per order
         max_daily_orders=200,             # 200 orders/day max
@@ -834,9 +881,19 @@ def _build_composite_gate(kill_switch: Any = None) -> _CompositeRiskGate:
         max_orders_per_second=2.0,        # 2 orders/sec rate limit
     )
     limiter = OrderLimiter(cfg)
-    gate = _CompositeRiskGate(limiter, kill_switch=kill_switch)
+    portfolio_reader = PortfolioRiskFileReader(
+        max_stale_seconds=float(PORTFOLIO_RISK_MAX_STALE_SEC),
+    )
+    gate = _CompositeRiskGate(
+        limiter,
+        kill_switch=kill_switch,
+        portfolio_reader=portfolio_reader,
+        venue=venue,
+    )
     logger.info(
-        "CompositeRiskGate initialized: OrderLimiter(max=$25k, daily=$500k, rate=2/s) + KillSwitch(%s)",
+        "CompositeRiskGate initialized: OrderLimiter(max=$25k, daily=$500k, rate=2/s) "
+        "+ KillSwitch(%s) + PortfolioRiskFile(venue=%s)",
         "active" if kill_switch is not None else "none",
+        venue,
     )
     return gate
