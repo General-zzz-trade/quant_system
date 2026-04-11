@@ -330,7 +330,10 @@ def retrain_symbol(
         success = train_symbol_v11(
             symbol,
             horizons=horizons,
-            ic_recent_years=1.5,  # use recent IC for feature selection
+            dry_run=dry_run,          # D12 fix: was silently dropped, causing
+                                      # --dry-run to overwrite live models
+                                      # anyway and reset their runtime params.
+            ic_recent_years=1.5,      # use recent IC for feature selection
             forced_features=forced,
             max_train_years=max_train_yrs,
             label_mode=label_mode,
