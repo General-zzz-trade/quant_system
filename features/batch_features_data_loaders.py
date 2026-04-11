@@ -204,6 +204,251 @@ def _add_iv_features(
             feat_df[feat] = np.nan
 
 
+def _add_options_flow_features(
+    symbol: str,
+    feat_df: pd.DataFrame,
+    timestamps: np.ndarray,
+) -> None:
+    """Add Deribit options flow features (D10 — P2 #7).
+
+    Data source: ``data_files/{btc|eth}_options_hourly.csv``, written by
+    ``data.downloads.download_deribit_options`` (systemd timer
+    ``deribit-options.timer``).  Schema::
+
+        timestamp,date,index_price,pcr_oi,pcr_volume,
+        call_oi,put_oi,total_option_oi,
+        call_vol_24h,put_vol_24h,max_pain,max_pain_distance,atm_iv_near
+
+    Features added (all forward-fill aligned to bar timestamps):
+
+    * ``pcr_oi``            — raw open-interest put/call ratio
+    * ``pcr_volume``        — raw 24h volume put/call ratio
+    * ``pcr_oi_z48``        — 48-bar rolling z-score of ``pcr_oi`` (stale
+      baseline is a stronger signal than raw level)
+    * ``pcr_oi_chg_24``     — 24-bar pct change
+    * ``options_oi_skew``   — ``(call_oi - put_oi) / total_option_oi`` in
+      [-1, +1] — positive = call-heavy = bullish positioning
+    * ``atm_iv_near``       — at-the-money implied vol (near expiry)
+    * ``atm_iv_chg_24``     — 24-bar pct change in ATM IV
+
+    All features default to NaN if the CSV is missing or empty.  The
+    file accumulates hourly so historical training windows will see
+    NaNs for periods before the service was deployed — this is fine,
+    the downstream `_NEUTRAL_DEFAULTS` layer maps NaN to a neutral
+    value so the model doesn't get confused.
+    """
+    base = symbol.replace("USDT", "").lower()  # btc / eth / sol
+    path = Path(f"data_files/{base}_options_hourly.csv")
+
+    features = [
+        "pcr_oi", "pcr_volume", "pcr_oi_z48", "pcr_oi_chg_24",
+        "options_oi_skew", "atm_iv_near", "atm_iv_chg_24",
+    ]
+
+    if not path.exists():
+        for f in features:
+            feat_df[f] = np.nan
+        return
+
+    try:
+        odf = pd.read_csv(path)
+        if "timestamp" not in odf.columns or len(odf) < 2:
+            for f in features:
+                feat_df[f] = np.nan
+            return
+
+        odf = odf.copy()
+        odf["ts_ms"] = (pd.to_datetime(odf["timestamp"])
+                        .astype("datetime64[ms]").astype(np.int64))
+        odf = odf.sort_values("ts_ms").reset_index(drop=True)
+
+        def _align_ffill(vals: np.ndarray) -> np.ndarray:
+            """Nearest-past join: for each target ts, find last options row."""
+            src_ts = odf["ts_ms"].values.astype(np.float64)
+            out = np.full(len(timestamps), np.nan)
+            j = 0
+            for i, ts in enumerate(timestamps):
+                while j < len(src_ts) - 1 and src_ts[j + 1] <= ts:
+                    j += 1
+                if j < len(src_ts) and src_ts[j] <= ts:
+                    # Accept up to 2h stale before rejecting (hourly file).
+                    if (ts - src_ts[j]) <= 2 * 3600_000:
+                        out[i] = vals[j]
+            return out
+
+        # Raw levels
+        pcr_oi_raw = odf["pcr_oi"].astype(np.float64).values
+        pcr_vol_raw = odf["pcr_volume"].astype(np.float64).values
+        call_oi = odf["call_oi"].astype(np.float64).values
+        put_oi = odf["put_oi"].astype(np.float64).values
+        total_oi = odf["total_option_oi"].astype(np.float64).values
+        atm_iv_raw = odf.get("atm_iv_near",
+                             pd.Series(np.full(len(odf), np.nan))).astype(np.float64).values
+
+        # Derived: rolling pcr_oi z-score (48-bar window)
+        pcr_oi_series = pd.Series(pcr_oi_raw)
+        roll_mean = pcr_oi_series.rolling(48, min_periods=48).mean()
+        roll_std = pcr_oi_series.rolling(48, min_periods=48).std()
+        pcr_oi_z_raw = np.where(
+            roll_std > 1e-6,
+            (pcr_oi_raw - roll_mean) / roll_std,
+            np.nan,
+        )
+
+        # Derived: 24-bar changes
+        pcr_oi_chg = pcr_oi_series.pct_change(24).values
+        atm_iv_chg = pd.Series(atm_iv_raw).pct_change(24).values
+
+        # OI skew: (call - put) / total — bounded [-1, +1]
+        skew_raw = np.where(
+            total_oi > 0,
+            (call_oi - put_oi) / total_oi,
+            np.nan,
+        )
+
+        # Forward-fill align every series onto bar timestamps
+        feat_df["pcr_oi"] = _align_ffill(pcr_oi_raw)
+        feat_df["pcr_volume"] = _align_ffill(pcr_vol_raw)
+        feat_df["pcr_oi_z48"] = _align_ffill(pcr_oi_z_raw)
+        feat_df["pcr_oi_chg_24"] = _align_ffill(pcr_oi_chg)
+        feat_df["options_oi_skew"] = _align_ffill(skew_raw)
+        feat_df["atm_iv_near"] = _align_ffill(atm_iv_raw)
+        feat_df["atm_iv_chg_24"] = _align_ffill(atm_iv_chg)
+
+    except Exception as e:
+        logger.warning("Options flow feature computation failed for %s: %s", symbol, e)
+        for f in features:
+            feat_df[f] = np.nan
+
+
+def _add_defi_flow_features(
+    symbol: str,
+    feat_df: pd.DataFrame,
+    timestamps: np.ndarray,
+) -> None:
+    """Add DeFi / on-chain flow features (D10 — P2 #8).
+
+    Two data sources, both produced by systemd timers:
+
+    * ``data_files/defi_l2_tvl.csv`` (``defi-flows.timer``) — daily roll-up
+      of Layer-2 TVL across Arbitrum / Optimism / Base / etc. from
+      DeFiLlama::
+
+          date,total_l2_tvl,chain_count,l2_tvl_chg_1d,l2_tvl_chg_7d
+
+    * ``data_files/{btc|eth}_onchain_daily.csv`` — legacy daily netflow
+      snapshot (exchange_reserve, inflow, outflow, netflow).  The
+      existing V17 loader reads ``data/onchain/*_onchain_combined.csv``
+      which is a *different* Coin Metrics feed; this one is the raw
+      DeFi-flows pipeline and should be used when Coin Metrics is
+      unavailable.
+
+    Features added:
+
+    * ``l2_tvl_chg_1d``       — raw 1-day L2 TVL change (fraction)
+    * ``l2_tvl_chg_7d``       — raw 7-day L2 TVL change (fraction)
+    * ``l2_tvl_chg_7d_z30``   — 7-day change, z-score over 30-day window
+      (regime-robust: isolates anomalies from trend)
+    * ``l2_chain_count``      — number of L2 chains tracked; indirect
+      breadth measure of DeFi fragmentation
+    * ``exchange_netflow_z14``  — 14-day z-score of the daily
+      ``exchange_netflow`` from ``{btc|eth}_onchain_daily.csv``.
+      Positive = tokens flowing to exchanges (distribution / bearish);
+      negative = outflow (accumulation / bullish).
+
+    NaN if the CSV is missing or too short; downstream `_NEUTRAL_DEFAULTS`
+    maps NaN to neutral.
+    """
+    base = symbol.replace("USDT", "").lower()  # btc / eth / sol
+
+    features = [
+        "l2_tvl_chg_1d", "l2_tvl_chg_7d", "l2_tvl_chg_7d_z30",
+        "l2_chain_count", "exchange_netflow_z14",
+    ]
+    for f in features:
+        feat_df[f] = np.nan
+
+    # ── L2 TVL (shared across all symbols) ──────────────────────────
+    tvl_path = Path("data_files/defi_l2_tvl.csv")
+    if tvl_path.exists():
+        try:
+            t_df = pd.read_csv(tvl_path)
+            if "date" in t_df.columns and len(t_df) >= 2:
+                t_df = t_df.copy()
+                t_df["date"] = pd.to_datetime(t_df["date"])
+                t_df = t_df.sort_values("date").reset_index(drop=True)
+                t_df["ts_ms"] = (t_df["date"]
+                                 .astype("datetime64[ms]").astype(np.int64))
+                tvl_ts = t_df["ts_ms"].values.astype(np.float64)
+
+                def _daily_ffill(col_vals: np.ndarray) -> np.ndarray:
+                    out = np.full(len(timestamps), np.nan)
+                    j = 0
+                    for i, ts in enumerate(timestamps):
+                        while j < len(tvl_ts) - 1 and tvl_ts[j + 1] <= ts:
+                            j += 1
+                        if j < len(tvl_ts) and tvl_ts[j] <= ts:
+                            out[i] = col_vals[j]
+                    return out
+
+                chg1 = t_df.get("l2_tvl_chg_1d",
+                                pd.Series(np.nan, index=t_df.index)).values.astype(np.float64)
+                chg7 = t_df.get("l2_tvl_chg_7d",
+                                pd.Series(np.nan, index=t_df.index)).values.astype(np.float64)
+                chain_cnt = t_df.get("chain_count",
+                                     pd.Series(np.nan, index=t_df.index)).values.astype(np.float64)
+
+                # 30-day rolling z-score of 7d change — trend-relative
+                c7_series = pd.Series(chg7)
+                roll_mean = c7_series.rolling(30, min_periods=15).mean()
+                roll_std = c7_series.rolling(30, min_periods=15).std()
+                chg7_z = np.where(roll_std > 1e-9,
+                                  (chg7 - roll_mean) / roll_std,
+                                  np.nan)
+
+                feat_df["l2_tvl_chg_1d"] = _daily_ffill(chg1)
+                feat_df["l2_tvl_chg_7d"] = _daily_ffill(chg7)
+                feat_df["l2_tvl_chg_7d_z30"] = _daily_ffill(chg7_z)
+                feat_df["l2_chain_count"] = _daily_ffill(chain_cnt)
+        except Exception as e:
+            logger.warning("L2 TVL feature failed: %s", e)
+
+    # ── Exchange netflow z-score (per-symbol) ──────────────────────
+    if base in ("btc", "eth"):
+        oc_path = Path(f"data_files/{base}_onchain_daily.csv")
+        if oc_path.exists():
+            try:
+                oc_df = pd.read_csv(oc_path)
+                if ("date" in oc_df.columns
+                        and "exchange_netflow" in oc_df.columns
+                        and len(oc_df) >= 20):
+                    oc_df = oc_df.copy()
+                    oc_df["date"] = pd.to_datetime(oc_df["date"])
+                    oc_df = oc_df.sort_values("date").reset_index(drop=True)
+                    oc_df["ts_ms"] = (oc_df["date"]
+                                      .astype("datetime64[ms]").astype(np.int64))
+                    oc_ts = oc_df["ts_ms"].values.astype(np.float64)
+
+                    nf = oc_df["exchange_netflow"].astype(np.float64).values
+                    nf_series = pd.Series(nf)
+                    roll_mean = nf_series.rolling(14, min_periods=7).mean()
+                    roll_std = nf_series.rolling(14, min_periods=7).std()
+                    nf_z = np.where(roll_std > 1e-9,
+                                    (nf - roll_mean) / roll_std,
+                                    np.nan)
+
+                    out = np.full(len(timestamps), np.nan)
+                    j = 0
+                    for i, ts in enumerate(timestamps):
+                        while j < len(oc_ts) - 1 and oc_ts[j + 1] <= ts:
+                            j += 1
+                        if j < len(oc_ts) and oc_ts[j] <= ts:
+                            out[i] = nf_z[j]
+                    feat_df["exchange_netflow_z14"] = out
+            except Exception as e:
+                logger.warning("Exchange netflow feature failed for %s: %s", symbol, e)
+
+
 def _add_stablecoin_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> None:
     """Add stablecoin supply features (V22).
 

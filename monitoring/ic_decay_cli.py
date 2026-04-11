@@ -137,6 +137,15 @@ def main() -> None:
         "--json", action="store_true",
         help="JSON output only (no table)",
     )
+    parser.add_argument(
+        "--auto-retrain", action="store_true",
+        help=(
+            "Close the loop: on a 3+ consecutive RED streak, launch "
+            "alpha.retrain.cli in the background (48h cooldown, targeted "
+            "by symbol).  Off by default — observation-only without "
+            "this flag.  Intended for a dedicated systemd timer."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -158,7 +167,7 @@ def main() -> None:
     if args.alert:
         send_alerts(results)
 
-    maybe_trigger_retrain(results)
+    maybe_trigger_retrain(results, enabled=args.auto_retrain)
 
     statuses = [r.get("overall_status") for r in results if "overall_status" in r]
     if "RED" in statuses:

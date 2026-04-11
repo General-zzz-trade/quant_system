@@ -296,6 +296,18 @@ def compute_features_batch(
     # V24: ETF volume/flow features (Yahoo Finance: IBIT/GBTC/ETHA dollar volume)
     _add_etf_volume_features(feat_df, timestamps)
 
+    # V25: Deribit options flow (PCR_OI, PCR_VOL, OI skew, ATM IV — D10 #7)
+    # Fed by deribit-options.timer → data_files/{btc,eth}_options_hourly.csv.
+    # NaN while the file is short on history; model rescaling handled by
+    # downstream _NEUTRAL_DEFAULTS.
+    _add_options_flow_features(symbol, feat_df, timestamps)
+
+    # V26: DeFi / L2 TVL flow features (D10 #8)
+    # Fed by defi-flows.timer → data_files/defi_l2_tvl.csv +
+    # data_files/{btc,eth}_onchain_daily.csv.  Daily cadence: features
+    # are forward-filled to hourly bars.
+    _add_defi_flow_features(symbol, feat_df, timestamps)
+
     return feat_df
 
 
@@ -309,6 +321,8 @@ from features.batch_features_extra import (  # noqa: E402
     _add_cross_market_features,
     _add_dominance_features,
     _add_iv_features,
+    _add_options_flow_features,
+    _add_defi_flow_features,
     _add_stablecoin_features,
     _add_etf_volume_features,
     _load_liq_schedule,

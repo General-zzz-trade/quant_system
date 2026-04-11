@@ -91,25 +91,9 @@ def _add_v16_features(
     vol_ma24 = pd.Series(volumes).rolling(24).mean().values
     feat_df["ob_volume_clock"] = np.where(vol_ma24 > 0, vol_ma6 / vol_ma24 - 1, 0.0)
 
-    # IV-RV spread (load from Deribit IV file if available)
-    from pathlib import Path
-    iv_path = Path(f"data_files/{symbol}_deribit_iv.csv")
-    if iv_path.exists():
-        try:
-            iv_df = pd.read_csv(iv_path)
-            iv_df["ts_ms"] = pd.to_datetime(iv_df["timestamp"]).astype(np.int64) // 10**6
-            iv_s = iv_df.sort_values("ts_ms")
-            # TODO: interpolate IV onto kline timestamps for iv_rv_spread
-            _ = iv_s  # placeholder for future IV interpolation
-        except Exception:
-            pass
-    # If IV not available from file, try from existing features
+    # IV-RV spread placeholder (actual IV features added in _add_iv_legacy_features)
     if "iv_rv_spread" not in feat_df.columns:
-        if "implied_vol_zscore_24" in feat_df.columns and "vol_20" in feat_df.columns:
-            # Can't compute IV-RV without raw IV, leave as NaN
-            feat_df["iv_rv_spread"] = np.nan
-        else:
-            feat_df["iv_rv_spread"] = np.nan
+        feat_df["iv_rv_spread"] = np.nan
 
     # Liquidation volume z-score (from proxy file)
     liq_path = Path(f"data_files/{symbol}_liquidation_proxy.csv")
@@ -166,6 +150,25 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
                 win = win_days * 24
                 feat_df[f"{prefix}_zscore_{win_label}"] = _rolling_zscore_arr(vals, win)
 
+        # Exchange supply pressure (SplyExNtv — BTC held on exchanges)
+        if "SplyExNtv" in oc.columns:
+            supply = np.interp(timestamps, oc_ts,
+                              pd.to_numeric(oc["SplyExNtv"], errors="coerce").fillna(0).values)
+            feat_df["exchange_supply_zscore_14"] = _rolling_zscore_arr(supply, 14 * 24)
+            # Supply change rate: (current - 7d ago) / 7d ago
+            supply_s = pd.Series(supply)
+            supply_7d = supply_s.shift(7 * 24)
+            feat_df["exchange_supply_chg_7d"] = ((supply_s - supply_7d) / supply_7d.replace(0, np.nan)).values
+
+        # Hash rate (miner economics)
+        if "HashRate" in oc.columns:
+            hr = np.interp(timestamps, oc_ts,
+                          pd.to_numeric(oc["HashRate"], errors="coerce").fillna(0).values)
+            feat_df["hashrate_zscore_14"] = _rolling_zscore_arr(hr, 14 * 24)
+            hr_s = pd.Series(hr)
+            hr_7d = hr_s.shift(7 * 24)
+            feat_df["hashrate_chg_7d"] = ((hr_s - hr_7d) / hr_7d.replace(0, np.nan)).values
+
         # Net flow = inflow - outflow
         if "FlowInExUSD" in oc.columns and "FlowOutExUSD" in oc.columns:
             flow_in = np.interp(timestamps, oc_ts,
@@ -177,6 +180,36 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("V17 on-chain features failed for %s: %s", symbol, e)
+
+
+def _add_iv_legacy_features(
+    symbol: str, feat_df: pd.DataFrame, timestamps: np.ndarray,
+) -> None:
+    """Add iv_level and iv_term_slope_daily from Deribit IV (legacy) CSV.
+
+    These features are needed by ETH models and BTC Ridge models.
+    The DVOL-based _add_iv_features handles dvol_zscore etc separately.
+    """
+    iv_path = Path(f"data_files/{symbol}_deribit_iv.csv")
+    if not iv_path.exists():
+        return
+    try:
+        iv_df = pd.read_csv(iv_path)
+        iv_df["ts_ms"] = pd.to_datetime(iv_df["timestamp"]).astype(np.int64) // 10**3
+        iv_s = iv_df.sort_values("ts_ms")
+        iv_ts = iv_s["ts_ms"].values.astype(np.float64)
+        iv_vals = iv_s["implied_vol"].values.astype(np.float64)
+        iv_aligned = np.interp(timestamps.astype(np.float64), iv_ts, iv_vals)
+        feat_df["iv_level"] = iv_aligned
+        iv_series = pd.Series(iv_aligned)
+        iv_ma24 = iv_series.rolling(24, min_periods=1).mean().values
+        iv_ma168 = iv_series.rolling(168, min_periods=24).mean().values
+        feat_df["iv_term_slope_daily"] = np.where(
+            iv_ma168 > 0.01, iv_ma24 / iv_ma168 - 1, 0.0)
+        if "vol_20" in feat_df.columns:
+            feat_df["iv_rv_spread"] = iv_aligned - feat_df["vol_20"].values
+    except Exception:
+        pass
 
 
 def _rolling_zscore_arr(arr: np.ndarray, window: int) -> np.ndarray:
@@ -266,7 +299,11 @@ def _add_cross_market_features(feat_df: pd.DataFrame, timestamps: np.ndarray) ->
                 "ethe_ret_1d", "gbtc_ret_1d", "ibit_ret_1d", "bito_ret_1d",
                 "gbtc_premium_dev",
                 "etha_ret_1d", "bitx_ret_1d", "biti_ret_1d",
-                "mara_ret_1d", "riot_ret_1d"]:
+                "mara_ret_1d", "riot_ret_1d",
+                # V12+ trad-fi risk factors
+                "hyg_ret_1d", "hyg_ret_5d", "credit_spread_chg",
+                "iwm_ret_1d", "risk_appetite", "xlk_ret_1d",
+                "vix_chg_1d", "vix_chg_5d", "fxi_ret_1d"]:
         if col not in cm.columns:
             continue
 
@@ -355,6 +392,8 @@ from features.batch_features_data_loaders import (  # noqa: F401, E402
     _load_macro_schedule_arr,
     _load_onchain_schedule,
     _add_iv_features,
+    _add_options_flow_features,
+    _add_defi_flow_features,
     _add_stablecoin_features,
     _add_etf_volume_features,
 )

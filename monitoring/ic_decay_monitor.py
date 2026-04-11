@@ -463,22 +463,40 @@ def _models_needing_retrain(
 
 
 def _run_retrain(symbols: Optional[List[str]] = None) -> None:
-    """Run auto_retrain in a subprocess (called from background thread).
+    """Run alpha.retrain.cli in a subprocess (called from background thread).
 
-    If *symbols* is provided, only retrain those symbols (via --symbols flag).
-    Otherwise falls back to full retrain.
+    If *symbols* is provided, retrain just those (via --symbol comma-list).
+    Otherwise falls back to full retrain.  Fixed to use the correct CLI
+    entry point — ``alpha.auto_retrain`` is a compat import shim without a
+    main() and previously silently no-op'd when invoked as ``python -m``.
     """
     try:
-        cmd = [sys.executable, "-m", "alpha.auto_retrain", "--force", "--sighup"]
+        # Keep comparison_gate ON: if the new model's training Sharpe is
+        # worse than the old, ship-blocking is correct behaviour even when
+        # live IC is RED (new model is unlikely to help).  The daily IC
+        # gate + backup-on-fail path in retrain_symbol already handles
+        # regressions.
+        cmd = [sys.executable, "-m", "alpha.retrain.cli",
+               "--force", "--sighup"]
         if symbols:
-            cmd.extend(["--symbols"] + symbols)
+            cmd.extend(["--symbol", ",".join(symbols)])
         logger.info("Starting IC-triggered auto-retrain subprocess: %s", " ".join(cmd))
-        subprocess.run(
+        result = subprocess.run(
             cmd,
             cwd="/quant_system",
             timeout=1800,
+            capture_output=True,
+            text=True,
         )
-        logger.info("IC-triggered auto-retrain completed.")
+        if result.returncode == 0:
+            logger.info("IC-triggered auto-retrain completed successfully.")
+        else:
+            logger.error(
+                "IC-triggered auto-retrain exited rc=%d. stdout=%s stderr=%s",
+                result.returncode,
+                result.stdout[-800:],
+                result.stderr[-800:],
+            )
     except subprocess.TimeoutExpired:
         logger.error("IC-triggered auto-retrain timed out after 1800s.")
     except Exception as e:
@@ -493,14 +511,24 @@ def _model_to_symbol(model_name: str) -> Optional[str]:
     return None
 
 
-def maybe_trigger_retrain(results: List[Dict[str, Any]]) -> None:
+def maybe_trigger_retrain(
+    results: List[Dict[str, Any]],
+    *,
+    enabled: bool = False,
+) -> None:
     """Trigger retrain only for models that have been RED for 3+ consecutive days.
 
     Safety guards:
     - 48h cooldown between retrain triggers (prevents retrain loops).
     - Only RED models are retrained; GREEN/YELLOW models are untouched.
     - Consecutive RED history persisted to data/runtime/ic_red_history.json.
+    - Disabled by default: set ``enabled=True`` (via ``--auto-retrain`` on
+      the CLI) to arm the closed loop.  Without this flag the monitor only
+      observes and alerts — no subprocess is launched.  This prevents cron
+      runs from silently hot-swapping live models.
     """
+    if not enabled:
+        return
     # Step 1: Update RED history with today's results
     red_history = _update_red_history(results)
 
