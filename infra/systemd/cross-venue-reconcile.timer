@@ -1,0 +1,10 @@
+[Unit]
+Description=Cross-venue reconcile — every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 02,08,14,20:45:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

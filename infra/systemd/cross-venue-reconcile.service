@@ -1,0 +1,13 @@
+[Unit]
+Description=Cross-venue reconciliation (binance vs okx signal + position divergence)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.cross_venue_reconcile
+User=ubuntu
+StandardOutput=append:/quant_system/logs/cross_venue_reconcile.log
+StandardError=append:/quant_system/logs/cross_venue_reconcile.log

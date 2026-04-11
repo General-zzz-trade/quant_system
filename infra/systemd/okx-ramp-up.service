@@ -1,0 +1,13 @@
+[Unit]
+Description=OKX notional cap gradual ramp-up (reads fills, raises cap if gates pass)
+After=network.target okx-alpha.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.okx_ramp_up
+User=ubuntu
+StandardOutput=append:/quant_system/logs/okx_ramp_up.log
+StandardError=append:/quant_system/logs/okx_ramp_up.log
