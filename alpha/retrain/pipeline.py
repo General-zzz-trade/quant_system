@@ -318,10 +318,15 @@ def retrain_symbol(
     t0 = time.time()
 
     try:
+        from alpha.retrain.config import BLACKLIST_FEATURES
         forced = FORCED_FEATURES.get(symbol)
+        blacklist = BLACKLIST_FEATURES.get(symbol)
         max_train_yrs = MAX_TRAIN_YEARS.get(symbol, 0)
         if max_train_yrs > 0:
             logger.info("%s: training window capped to last %.1f years", symbol, max_train_yrs)
+        if blacklist:
+            logger.info("%s: excluding %d blacklisted features: %s",
+                        symbol, len(blacklist), ", ".join(blacklist))
         success = train_symbol_v11(
             symbol,
             horizons=horizons,
@@ -332,6 +337,7 @@ def retrain_symbol(
             tb_upper_pct=tb_upper_pct,
             tb_lower_pct=tb_lower_pct,
             meta_labeling=meta_labeling,
+            blacklist_features=blacklist,
         )
         # Post-train config fixup: restore ensemble method + preserve manual overrides
         if success:

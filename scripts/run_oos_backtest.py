@@ -156,7 +156,8 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
                      live_sizer: bool = False,
                      regime_gated: bool = False,
                      latency_ms: float = 0.0,
-                     restart_every_bars: int = 0) -> Dict[str, Any]:
+                     restart_every_bars: int = 0,
+                     sizer_tier_cap_override: Optional[float] = None) -> Dict[str, Any]:
     """Run one OOS backtest for a trained model.
 
     overrides: optional dict of ``bt_config`` keys to override the
@@ -275,7 +276,14 @@ def run_oos_backtest(model_name: str, symbol: str, timeframe: str,
     if live_sizer:
         runner_key = _runner_key_for(model_name)
         tier_p = _live_tier_params(capital, runner_key)
-        bt_config["sizer_tier_cap"] = tier_p["tier_cap"]
+        # Allow explicit override for hypothetical activation studies
+        # (useful for 4h models whose production tier_cap=0 silences
+        # the backtest entirely; passing e.g. 0.30 shows what they'd
+        # do if allowed to trade at 30% of the normal budget).
+        if sizer_tier_cap_override is not None:
+            bt_config["sizer_tier_cap"] = float(sizer_tier_cap_override)
+        else:
+            bt_config["sizer_tier_cap"] = tier_p["tier_cap"]
         bt_config["sizer_leverage"] = tier_p["leverage"]
         bt_config["sizer_ic_scale"] = tier_p["ic_scale"]
         bt_config["sizer_regime_gated"] = regime_gated
@@ -519,6 +527,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--sizer-tier-cap", type=float, default=None,
+        help=(
+            "Override the auto-detected tier_cap with a fixed value. "
+            "Used to test hypothetical activation of signal-only "
+            "runners (4h models default to 0.0 = no trading); "
+            "pass e.g. 0.3 to simulate them as active traders."
+        ),
+    )
+    parser.add_argument(
         "--restart-every-bars", type=int, default=0,
         help=(
             "Simulate alpha_main process restarts every N bars.  Each "
@@ -572,6 +589,7 @@ def main():
             regime_gated=args.regime_gated,
             latency_ms=args.latency_ms,
             restart_every_bars=args.restart_every_bars,
+            sizer_tier_cap_override=args.sizer_tier_cap,
         )
         elapsed = time.time() - t0
         result["time_s"] = round(elapsed, 1)

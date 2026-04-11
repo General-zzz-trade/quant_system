@@ -168,6 +168,7 @@ def train_single_horizon(
     tb_upper_pct: float = 0.02,
     tb_lower_pct: float = 0.01,
     meta_labeling: bool = False,
+    blacklist_features: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Train LGBM + Ridge for a single horizon.
 
@@ -211,6 +212,23 @@ def train_single_horizon(
 
     if len(y_sel) < 1000:
         return None
+
+    # Blacklist: drop any feature that scripts/feature_ablation.py
+    # identified as net-negative Δ IC on the OOS window.  Applied both
+    # to the greedy-selection pool and the forced_features list (if the
+    # caller forgot to update it).  This ensures a blacklist update
+    # propagates to the next retrain without needing to hand-edit
+    # FORCED_FEATURES.
+    if blacklist_features:
+        bl = set(blacklist_features)
+        if forced_features:
+            forced_features = [f for f in forced_features if f not in bl]
+        # Filter the candidate pool so greedy IC never picks a
+        # blacklisted feature.
+        kept_idx = [i for i, f in enumerate(feature_names) if f not in bl]
+        feature_names = [feature_names[i] for i in kept_idx]
+        X = X[:, kept_idx]
+        X_sel = X_sel[:, kept_idx]
 
     # Start with forced features, then fill remaining slots via greedy IC
     if forced_features:
@@ -547,6 +565,7 @@ def train_symbol(
     tb_upper_pct: float = 0.02,
     tb_lower_pct: float = 0.01,
     meta_labeling: bool = False,
+    blacklist_features: list[str] | None = None,
 ) -> bool:
     """Train V12 models for one symbol."""
     model_dir = Path(f"models_v8/{symbol}_gate_v2")
@@ -589,6 +608,7 @@ def train_symbol(
             tb_upper_pct=tb_upper_pct,
             tb_lower_pct=tb_lower_pct,
             meta_labeling=meta_labeling,
+            blacklist_features=blacklist_features,
         )
         if result is not None:
             horizon_results[h] = result

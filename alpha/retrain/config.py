@@ -23,6 +23,9 @@ FORCED_FEATURES: dict[str, list[str]] = {
         # dropped vix_chg_1d (WEAK: 30d -0.008), added stablecoin_supply_chg_7d
         # (STRONG across all windows). Rationale: ETH 1h h12 60d IC ~0 indicated
         # overfitting; tightened forced list to STRONG-only features.
+        # 2026-04-12: RE-VERIFIED by live-equivalent backtest (Sharpe +5.05
+        # on 12-month OOS). Removing funding_sign_persist per ablation
+        # insight DROPPED Sharpe to +2.26 — reverted.
         "ls_ratio",                 # +0.151/+0.166/+0.166/+0.166 (STRONG)
         "oc_netflow_zscore_7",      # +0.236/+0.279/+0.087/+0.025 (STRONG, on-chain)
         "vix_level",                # +0.086/+0.131/+0.138/+0.039 (STRONG, macro)
@@ -38,12 +41,42 @@ FORCED_FEATURES: dict[str, list[str]] = {
         # Previous attempt with 10 forced hit comparison_gate — too rigid.
         # These 5 are the highest-conviction stable signals across 30/60/90/180d;
         # let greedy IC selection fill remaining slots for diversification.
+        # 2026-04-12: RE-VERIFIED by live-equivalent backtest (Sharpe +8.16
+        # on 12-month OOS). Removing spy_ret_1d per ablation insight
+        # dropped Sharpe to +2.01 — reverted.
         "vix_chg_1d",    # +0.09/+0.17/+0.09/+0.04 (unique contrarian alpha)
         "gld_ret_5d",    # +0.17/+0.04/+0.06/+0.01 (safe-haven divergence)
         "spy_ret_1d",    # -0.07/-0.16/-0.07/-0.06 (equity risk-off)
         "qqq_ret_1d",    # -0.07/-0.17/-0.07/-0.08 (tech risk-off)
         "iwm_ret_1d",    # -0.08/-0.13/-0.07/-0.05 (small-cap risk-off)
     ],
+}
+
+# Per-symbol feature BLACKLIST — greedy IC selection + forced features
+# both filter these out when the list is non-empty.
+#
+# 2026-04-12 learning: populating this from scripts/feature_ablation.py
+# single-feature Δ IC measurements DID NOT improve models — the marginal
+# (one-feature-removed) ablation effect doesn't compose when the greedy
+# IC selector reshuffles the feature pool.  Tested on both BTC and ETH:
+#
+#   BTC: train_v12 Sharpe  2.68 -> 2.01  (dropped -25%)
+#   ETH: train_v12 Sharpe  2.49 -> 1.67  (dropped -33%)
+#   ETH: live-eq Sharpe    5.05 -> 2.26  (dropped -55%)
+#
+# Both were reverted.  The BLACKLIST infrastructure is KEPT (wired
+# through train_v12.py and pipeline.py) in case a genuinely broken
+# feature surfaces (eg. data pipeline bug producing garbage values),
+# but do not populate it from ablation results without multi-feature
+# joint ablation validation.
+#
+# Future improvement: implement proper LOO (leave-one-out) ablation
+# that RETRAINS for each candidate removal and measures final OOS
+# Sharpe rather than IC delta.  Single-pass Ridge-only ablation is
+# too crude for the ensemble.
+BLACKLIST_FEATURES: dict[str, list[str]] = {
+    # Empty — see comment above.  Populate manually if a feature is
+    # KNOWN to be broken / contaminated.
 }
 MODEL_DIR_TEMPLATE = "models_v8/{symbol}_gate_v2"
 MODEL_DIR_OVERRIDES: dict[str, str] = {}

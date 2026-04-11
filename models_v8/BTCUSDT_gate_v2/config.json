@@ -57,9 +57,9 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 1.5,
-  "min_hold": 18,
-  "max_hold": 120,
+  "deadzone": 1.8,
+  "min_hold": 12,
+  "max_hold": 60,
   "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
@@ -108,5 +108,5 @@
     "ridge": 0.5,
     "lgbm": 0.5
   },
-  "_grid_search_note": "2026-04-12: dz 1.0->1.5, mh 12->18 based on 12-month live-eq OOS grid (+76% Sharpe)"
+  "_grid_search_note": "2026-04-12: dz 1.5->1.8, mh 18->12, max_hold 120->60 based on wider 3D grid (+18% Sharpe)"
 }
