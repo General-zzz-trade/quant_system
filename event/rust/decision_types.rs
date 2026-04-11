@@ -32,7 +32,7 @@ pub fn rust_signal_sides() -> Vec<String> {
 
 #[pyfunction]
 pub fn rust_venues() -> Vec<String> {
-    vec!["BINANCE".into(), "BYBIT".into(), "SIM".into()]
+    vec!["BINANCE".into(), "BYBIT".into(), "OKX".into(), "SIM".into()]
 }
 
 #[pyfunction]

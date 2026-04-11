@@ -1,0 +1,29 @@
+[Unit]
+Description=OKX Alpha Strategy H (BTC+ETH 1h+4h, LIVE SWAP) — sibling of binance-alpha
+After=network.target binance-alpha.service
+# Intentionally not Requires: OKX should run independently; binance-alpha
+# failure should NOT cascade to stop OKX.
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+# Safety caps: tiny defaults for the first 24h.  Bump these in .env once
+# ≥5 successful trades have cleared without any qty/price anomaly.
+#   OKX_MAX_ORDER_NOTIONAL=50   (per-order USD cap)
+#   OKX_MAX_DAILY_NOTIONAL=500  (daily cumulative cap)
+# Sync z-score checkpoints so warmup produces signal-capable preds quickly.
+ExecStartPre=/usr/bin/python3 /quant_system/scripts/sync_zscore_from_batch.py
+ExecStart=/usr/bin/python3 -m runner.alpha_main --venue okx --symbols BTCUSDT BTCUSDT_4h ETHUSDT --ws
+User=ubuntu
+TimeoutStopSec=15
+MemoryMax=768M
+CPUQuota=50%
+StandardOutput=append:/quant_system/logs/okx_alpha.log
+StandardError=append:/quant_system/logs/okx_alpha.log
+
+[Install]
+WantedBy=multi-user.target

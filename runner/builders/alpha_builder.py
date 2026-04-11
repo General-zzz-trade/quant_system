@@ -22,6 +22,8 @@ from engine.execution_bridge import ExecutionBridge
 from engine.feature_hook import FeatureComputeHook
 from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
+from execution.safety.limits import OrderLimiter, OrderLimitsConfig
 from strategy.config import SYMBOL_CONFIG, LEVERAGE_LADDER
 
 logger = logging.getLogger(__name__)
@@ -344,7 +346,7 @@ def _build_data_sources(symbol: str, interval: str = "60",
     # ── Fear & Greed Index (daily, ts in epoch-seconds) ──
     fgi_path = DATA_DIR / "fear_greed_index.csv"
     if fgi_path.exists():
-        _fgi_cursor = CsvCursor(fgi_path, "timestamp", "value", ts_unit="s")
+        _fgi_cursor = CsvCursor(fgi_path, "timestamp", "value", ts_unit="ms")
         if _fgi_cursor.loaded:
             sources["fgi_source"] = lambda: _fgi_cursor.get(_bar_ts[0])
 
@@ -499,6 +501,69 @@ def _build_data_sources(symbol: str, interval: str = "60",
 
         sources["cross_market_source"] = _cross_market_at_ts
 
+    # ── Pre-computed cross-market FEATURES (spy_ret_1d, vix_level, etc.) ──
+    # These override Rust push_cross_market() outputs which are 0 (same daily price
+    # pushed every hourly bar → return=0). Batch uses cross_market_daily.csv directly.
+    cm_feat_path = DATA_DIR / "cross_market_daily.csv"
+    if cm_feat_path.exists():
+        _cm_feature_cols = {
+            "spy_ret_1d": "spy_ret_1d",
+            "spy_extreme": "spy_extreme",
+            "tlt_ret_5d": "tlt_ret_5d",
+            "uso_ret_5d": "uso_ret_5d",
+            "xlf_ret_5d": "xlf_ret_5d",
+            "treasury_10y_chg_5d": "treasury_10y_chg_5d",
+            "vix_level": "vix_level",
+            "ethe_ret_1d": "ethe_ret_1d",
+            "gbtc_ret_1d": "gbtc_ret_1d",
+            "coin_ret_1d": "coin_ret_1d",
+            "gld_ret_5d": "gld_ret_5d",
+            # V12+ trad-fi risk factors
+            "hyg_ret_1d": "hyg_ret_1d",
+            "hyg_ret_5d": "hyg_ret_5d",
+            "credit_spread_chg": "credit_spread_chg",
+            "iwm_ret_1d": "iwm_ret_1d",
+            "risk_appetite": "risk_appetite",
+            "xlk_ret_1d": "xlk_ret_1d",
+            "vix_chg_1d": "vix_chg_1d",
+            "vix_chg_5d": "vix_chg_5d",
+            "fxi_ret_1d": "fxi_ret_1d",
+        }
+        _cm_feat_cursor = CsvDictCursor(cm_feat_path, "date", _cm_feature_cols, ts_unit="date")
+        if _cm_feat_cursor.loaded:
+            sources["cross_market_features_source"] = lambda: _cm_feat_cursor.get(_bar_ts[0])
+            logger.info("Loaded cross_market_daily.csv: %d rows, %d features",
+                         len(_cm_feat_cursor._timestamps), len(_cm_feature_cols))
+
+    # ── Stablecoin supply (stablecoin_daily.csv) ──
+    stablecoin_path = DATA_DIR / "stablecoin_daily.csv"
+    if stablecoin_path.exists():
+        _stablecoin_cursor = CsvCursor(stablecoin_path, "date", "total_supply", ts_unit="date")
+        if _stablecoin_cursor.loaded:
+            def _stablecoin_chg_7d():
+                ts = _bar_ts[0]
+                current = _stablecoin_cursor.get(ts)
+                ts_7d = ts - 7 * 86400 * 1000
+                old = _stablecoin_cursor.get(ts_7d)
+                if old > 0 and not math.isnan(current) and not math.isnan(old):
+                    return (current - old) / old
+                return 0.0
+            sources["stablecoin_source"] = _stablecoin_chg_7d
+
+    # ── Counterpart close prices for dominance features ──
+    # BTC runners need ETH close, ETH runners need BTC close (time-synced for warmup)
+    if "BTC" in symbol:
+        counterpart_path = DATA_DIR / "ETHUSDT_1h.csv"
+    else:
+        counterpart_path = DATA_DIR / "BTCUSDT_1h.csv"
+    if counterpart_path.exists():
+        _cp_cursor = CsvCursor(counterpart_path, "open_time", "close", ts_unit="ms")
+        if _cp_cursor.loaded:
+            counterpart_sym = "ETHUSDT" if "BTC" in symbol else "BTCUSDT"
+            sources["counterpart_close_source"] = lambda: (_cp_cursor.get(_bar_ts[0]), counterpart_sym)
+            logger.info("Counterpart close source: %s (%d rows) for %s dominance",
+                        counterpart_path.name, len(_cp_cursor._timestamps), symbol)
+
     # ── Taker data (taker_buy_volume, trades, taker_buy_quote_volume from kline CSV) ──
     # Bybit WS/REST klines do NOT provide taker fields, so we load from local CSV.
     # For 4h bars, aggregate 4 consecutive 1h bars.
@@ -579,6 +644,8 @@ def build_coordinator(
     adapter: Any,
     dry_run: bool = False,
     oi_cache: Optional["BinanceOICache"] = None,
+    circuit_breaker: Any = None,
+    kill_switch: Any = None,
 ) -> tuple[EngineCoordinator, AlphaDecisionModule]:
     """Build a full coordinator pipeline for one runner.
 
@@ -639,6 +706,7 @@ def build_coordinator(
         discretizer=discretizer,
         sizer=sizer,
         leverage=leverage,
+        signal_only=is_4h,  # 4h runners publish to consensus only, no orders
     )
 
     # Fetch exchange balance for state store initialization
@@ -690,12 +758,19 @@ def build_coordinator(
     if not dry_run:
         venue = getattr(adapter, "venue", "bybit")
         if venue == "binance":
-            exec_adapter = BinanceExecutionAdapter(adapter)
+            exec_adapter = BinanceExecutionAdapter(adapter, circuit_breaker=circuit_breaker)
+        elif venue == "okx":
+            exec_adapter = OkxExecutionAdapter(adapter, circuit_breaker=circuit_breaker)
         else:
             exec_adapter = BybitExecutionAdapter(adapter)
+
+        # Composite risk gate: OrderLimiter + KillSwitch drawdown check
+        risk_gate = _build_composite_gate(kill_switch=kill_switch)
+
         execution_bridge = ExecutionBridge(
             adapter=exec_adapter,
             dispatcher_emit=coordinator.emit,
+            risk_gate=risk_gate,
         )
         coordinator.attach_execution_bridge(execution_bridge)
 
@@ -708,3 +783,58 @@ def build_coordinator(
         fast_path,
     )
     return coordinator, alpha_module
+
+
+# ── OrderLimiter factory ──────────────────────────────────────
+
+class _CompositeRiskGate:
+    """Composite risk gate: OrderLimiter + KillSwitch at execution boundary.
+
+    ExecutionBridge calls ``risk_gate.check(event)`` and expects an object
+    with ``.allowed`` and ``.reason`` attributes.
+    """
+
+    def __init__(self, limiter: OrderLimiter, kill_switch: Any = None) -> None:
+        self._limiter = limiter
+        self._kill_switch = kill_switch
+
+    def check(self, event: Any) -> Any:
+        from decimal import Decimal as D
+        _OK = type("R", (), {"allowed": True, "reason": None})()
+
+        # 1. KillSwitch check (RustKillSwitch.allow_order)
+        if self._kill_switch is not None:
+            sym = str(getattr(event, "symbol", ""))
+            try:
+                allowed, reason = self._kill_switch.allow_order(symbol=sym)
+                if not allowed:
+                    return type("R", (), {"allowed": False, "reason": f"kill_switch: {reason}"})()
+            except Exception:
+                pass  # KillSwitch failure = allow (fail-open for safety modules)
+
+        # 2. OrderLimiter check (rate + notional)
+        qty = getattr(event, "qty", D("0"))
+        price = getattr(event, "price", None)
+        result = self._limiter.check_order(qty=qty, price=price)
+        if not result.allowed:
+            return type("R", (), {"allowed": False, "reason": result.detail or result.violated_rule})()
+
+        return _OK
+
+
+def _build_composite_gate(kill_switch: Any = None) -> _CompositeRiskGate:
+    """Build composite risk gate with OrderLimiter + KillSwitch."""
+    from decimal import Decimal as D
+    cfg = OrderLimitsConfig(
+        max_order_notional=D("25000"),    # $25k max per order
+        max_daily_orders=200,             # 200 orders/day max
+        max_daily_notional=D("500000"),   # $500k daily notional cap
+        max_orders_per_second=2.0,        # 2 orders/sec rate limit
+    )
+    limiter = OrderLimiter(cfg)
+    gate = _CompositeRiskGate(limiter, kill_switch=kill_switch)
+    logger.info(
+        "CompositeRiskGate initialized: OrderLimiter(max=$25k, daily=$500k, rate=2/s) + KillSwitch(%s)",
+        "active" if kill_switch is not None else "none",
+    )
+    return gate

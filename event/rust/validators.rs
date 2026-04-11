@@ -187,7 +187,7 @@ pub fn rust_validate_signal_side(side: &str) -> bool {
 
 #[pyfunction]
 pub fn rust_validate_venue(venue: &str) -> bool {
-    venue == "BINANCE" || venue == "BYBIT" || venue == "SIM"
+    venue == "BINANCE" || venue == "BYBIT" || venue == "OKX" || venue == "SIM"
 }
 
 // ============================================================

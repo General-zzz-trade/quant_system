@@ -23,6 +23,7 @@ from typing import Any
 
 from _quant_hotpath import (
     RustKillSwitch,
+    RustCircuitBreaker,
     rust_event_types,
     rust_sides,
     rust_signal_sides,
@@ -106,6 +107,23 @@ def _create_binance_adapter():
     return adapter
 
 
+def _create_okx_adapter():
+    """Create OKX SWAP adapter from environment variables.
+
+    Requires OKX_API_KEY / OKX_API_SECRET / OKX_API_PASSPHRASE. Reads optional
+    OKX_BASE_URL, OKX_SIMULATED, OKX_MAX_ORDER_NOTIONAL, OKX_MAX_DAILY_NOTIONAL.
+    """
+    from execution.adapters.okx.adapter import OkxAdapter
+    from execution.adapters.okx.config import OkxConfig
+
+    config = OkxConfig.from_env()
+    adapter = OkxAdapter(config)
+    if not adapter.connect():
+        raise RuntimeError("Failed to connect to OKX SWAP")
+    logger.info("OKX adapter connected: %s", repr(config))
+    return adapter
+
+
 # ── Main ────────────────────────────────────────────────────
 
 
@@ -125,7 +143,7 @@ def main() -> None:
     parser.add_argument("--ws", action="store_true", help="Use WebSocket for live bars")
     parser.add_argument("--dry-run", action="store_true", help="No execution (signals only)")
     parser.add_argument(
-        "--venue", choices=["bybit", "binance"], default="bybit",
+        "--venue", choices=["bybit", "binance", "okx"], default="bybit",
         help="Exchange venue (default: bybit)",
     )
     args = parser.parse_args()
@@ -148,9 +166,18 @@ def main() -> None:
     if args.venue == "binance":
         adapter = _create_binance_adapter()
         logger.info("Binance adapter connected")
+    elif args.venue == "okx":
+        adapter = _create_okx_adapter()
+        logger.info("OKX adapter connected")
     else:
         adapter = create_adapter()
         logger.info("Bybit adapter connected")
+
+    # Circuit breaker: blocks orders after repeated exchange failures
+    _circuit_breaker = RustCircuitBreaker()
+
+    # Kill switch: blocks ALL orders when daily drawdown exceeds threshold
+    _kill_switch = RustKillSwitch()
 
     # Limit order pre-placement manager (reduces slippage vs market orders)
     _limit_mgr = LimitOrderManager(
@@ -195,6 +222,8 @@ def main() -> None:
             adapter=adapter,
             dry_run=args.dry_run,
             oi_cache=oi_caches.get(symbol),
+            circuit_breaker=_circuit_breaker,
+            kill_switch=_kill_switch,
         )
         coordinators[runner_key] = coord
         modules[runner_key] = module
@@ -307,6 +336,16 @@ def main() -> None:
                     logger.info("Seeded %s close=%.2f for dominance", sym, price)
     except Exception:
         logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
+
+    # Truncate audit log on startup — previous run's entries are stale.
+    # Fresh log per session prevents warmup artifacts from prior runs.
+    try:
+        audit_path = Path("data/runtime/decision_audit.jsonl")
+        if audit_path.exists():
+            audit_path.write_text("")
+            logger.info("Cleared decision_audit.jsonl for fresh session")
+    except Exception:
+        pass
 
     # Disable audit logging during warmup (prevents fake entries in decision_audit.jsonl)
     for alpha_mod in modules.values():
@@ -435,6 +474,9 @@ def main() -> None:
     for runner_key, alpha_mod in modules.items():
         try:
             cfg = SYMBOL_CONFIG[runner_key]
+            # 4h runners are signal-only — they publish to consensus but don't
+            # execute orders. Only 1h runners trade to prevent conflicting
+            # positions on the same exchange symbol.
             if "4h" in runner_key or "15m" in runner_key:
                 continue
             symbol = cfg.get("symbol", runner_key)
@@ -455,6 +497,14 @@ def main() -> None:
             dz = alpha_mod._discretizer.deadzone
 
             if abs(z) > dz and alpha_mod._signal == 0:
+                # IC RED gate: block entries when model IC is negative (noise)
+                if alpha_mod._ic_scale <= 0.4:
+                    logger.info(
+                        "BATCH INSTANT %s blocked by IC RED gate (ic_scale=%.1f)",
+                        symbol, alpha_mod._ic_scale,
+                    )
+                    continue
+
                 # Signal detected — get current price and place order
                 bars = adapter.get_klines(symbol, interval="60", limit=1)
                 if not bars:
@@ -502,20 +552,58 @@ def main() -> None:
                 if float(qty) <= 0:
                     continue
 
-                # Place order
-                resp = adapter.send_market_order(symbol, side, float(qty))
+                # Place order (3x retry via execution adapter + circuit breaker)
+                if not _circuit_breaker.allow_request():
+                    logger.warning("BATCH INSTANT %s blocked by circuit breaker", symbol)
+                    continue
+                from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+                _exec = BinanceExecutionAdapter(adapter)
+                resp = _exec._send_with_retry(symbol, side, float(qty))
                 status = resp.get("status", "")
                 if status not in ("error", "failed"):
+                    # Verify actual fill from exchange position (prevents DIVERGENCE)
+                    actual_qty = qty
+                    try:
+                        positions = adapter.get_positions()
+                        for p in positions:
+                            if p.get("symbol") == symbol:
+                                actual_qty = Decimal(str(abs(float(p.get("positionAmt", 0)))))
+                                break
+                    except Exception:
+                        pass  # fall back to requested qty
                     alpha_mod._signal = new_signal
                     alpha_mod._entry_price = price
                     alpha_mod._trade_peak = price
-                    alpha_mod._current_qty = qty
+                    alpha_mod._current_qty = actual_qty
                     alpha_mod._last_trade_bar = alpha_mod._bars_processed
+                    _circuit_breaker.record_success()
                     logger.info(
                         "BATCH INSTANT %s: z=%+.2f > dz=%.1f → %s %.4f @ $%.2f",
                         symbol, z, dz, direction, float(qty), price,
                     )
+                    # Emit FillEvent so PnL tracker captures this trade
+                    try:
+                        fill_header = EventHeader.new_root(
+                            event_type=EventType.FILL,
+                            version=1,
+                            source=f"batch_instant.{runner_key}",
+                        )
+                        fill_ev = FillEvent(
+                            header=fill_header,
+                            fill_id=fill_header.event_id,
+                            order_id=f"batch_instant_{runner_key}_{hour_key}",
+                            symbol=symbol,
+                            qty=actual_qty,
+                            price=Decimal(str(price)),
+                            side=side,
+                        )
+                        coord = coordinators.get(runner_key)
+                        if coord is not None:
+                            coord.emit(fill_ev, actor="batch_instant")
+                    except Exception:
+                        logger.debug("Failed to emit batch instant FillEvent", exc_info=True)
                 else:
+                    _circuit_breaker.record_failure()
                     logger.warning("BATCH INSTANT %s order failed: %s", symbol, resp)
             else:
                 logger.info(
@@ -912,6 +1000,16 @@ def main() -> None:
                     on_tick=_on_tick,
                     testnet=True,
                 )
+            elif args.venue == "okx":
+                from execution.adapters.okx.ws_kline_client import OkxWsClient
+                ws = OkxWsClient(
+                    symbols=symbols,
+                    interval=interval,
+                    on_bar=_on_bar,
+                    on_tick=_on_tick,
+                    demo=os.environ.get("OKX_SIMULATED", "0").lower()
+                        in ("1", "true", "yes"),
+                )
             else:
                 ws = BybitWsClient(
                     symbols=symbols,
@@ -924,8 +1022,8 @@ def main() -> None:
             logger.info("WS started: interval=%s symbols=%s venue=%s",
                         interval, symbols, args.venue)
 
-    # Daily drawdown kill switch
-    _kill_switch = RustKillSwitch()
+    # Daily drawdown kill switch (reuses _kill_switch created above,
+    # shared with execution bridge CompositeRiskGate)
     _daily_start_equity: float | None = None
     _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "5.0"))
     _SCALE = 100_000_000
