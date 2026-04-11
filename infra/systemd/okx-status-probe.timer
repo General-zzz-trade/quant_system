@@ -1,0 +1,9 @@
+[Unit]
+Description=OKX Status Probe — hourly during first-trade watch window
+
+[Timer]
+OnCalendar=*-*-* *:00:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

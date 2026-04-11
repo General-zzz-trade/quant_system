@@ -1,0 +1,13 @@
+[Unit]
+Description=OKX Status Probe — hourly snapshot of equity, positions, fills
+After=network.target okx-alpha.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.okx_status_probe
+User=ubuntu
+StandardOutput=append:/quant_system/logs/okx_status_probe.log
+StandardError=append:/quant_system/logs/okx_status_probe.log
