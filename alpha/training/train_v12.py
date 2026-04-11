@@ -104,6 +104,54 @@ def _greedy_ic_select(
     return selected
 
 
+def _triple_barrier_labels(
+    closes: np.ndarray,
+    horizon: int,
+    upper_pct: float,
+    lower_pct: float,
+) -> np.ndarray:
+    """López de Prado triple-barrier labels.
+
+    For every bar i, walk forward up to ``horizon`` bars.  The first of
+    three events to fire wins:
+      1. price[i+k] >= price[i] * (1 + upper_pct) → label = +upper_pct
+      2. price[i+k] <= price[i] * (1 - lower_pct) → label = -lower_pct
+      3. neither hits within horizon → label = (price[i+horizon]/price[i] - 1)
+         i.e. the plain forward return as the time-barrier outcome.
+
+    This aligns the training target with how a live strategy actually
+    exits (take-profit / stop-loss / time-out), which reduces the train-
+    to-live mismatch on ATR-stopped trades.
+    """
+    n = len(closes)
+    y = np.full(n, np.nan, dtype=np.float64)
+    max_k = horizon
+    up = 1.0 + upper_pct
+    down = 1.0 - lower_pct
+    for i in range(n - max_k):
+        base = closes[i]
+        if base <= 0:
+            continue
+        upper_px = base * up
+        lower_px = base * down
+        hit = 0  # 0=none, 1=upper, -1=lower
+        for k in range(1, max_k + 1):
+            p = closes[i + k]
+            if p >= upper_px:
+                hit = 1
+                break
+            if p <= lower_px:
+                hit = -1
+                break
+        if hit == 1:
+            y[i] = upper_pct
+        elif hit == -1:
+            y[i] = -lower_pct
+        else:
+            y[i] = (closes[i + max_k] - base) / base
+    return y
+
+
 def train_single_horizon(
     horizon: int,
     X: np.ndarray,
@@ -115,6 +163,9 @@ def train_single_horizon(
     ic_recent_years: float = 0,
     forced_features: list[str] | None = None,
     max_train_years: float = 0,
+    label_mode: str = "forward_return",
+    tb_upper_pct: float = 0.02,
+    tb_lower_pct: float = 0.01,
 ) -> dict[str, Any] | None:
     """Train LGBM + Ridge for a single horizon.
 
@@ -125,13 +176,25 @@ def train_single_horizon(
         (from train_end). Regime-focused training — useful when older
         crypto data is too different from current regime (e.g. ETH 2019-2022
         vs 2023-2026). Defaults to 0 (use all data from WARMUP).
+    label_mode: "forward_return" (legacy) or "triple_barrier".
+        triple_barrier aligns the target with real-world exit logic.
+    tb_upper_pct / tb_lower_pct: triple-barrier profit/stop thresholds
+        as fractions (e.g. 0.02 = 2%). Only used when label_mode is
+        "triple_barrier".
     """
     import lightgbm as lgb
 
-    # Target: forward return
-    y = np.full(n, np.nan)
-    for i in range(n - horizon):
-        y[i] = (closes[i + horizon] - closes[i]) / closes[i]
+    # Target: forward return (or triple-barrier when requested)
+    if label_mode == "triple_barrier":
+        y = _triple_barrier_labels(
+            closes, horizon,
+            upper_pct=tb_upper_pct,
+            lower_pct=tb_lower_pct,
+        )
+    else:
+        y = np.full(n, np.nan)
+        for i in range(n - horizon):
+            y[i] = (closes[i + horizon] - closes[i]) / closes[i]
 
     # Feature selection window
     if ic_recent_years > 0:
@@ -372,6 +435,9 @@ def train_symbol(
     ic_recent_years: float = 0,
     forced_features: list[str] | None = None,
     max_train_years: float = 0,
+    label_mode: str = "forward_return",
+    tb_upper_pct: float = 0.02,
+    tb_lower_pct: float = 0.01,
 ) -> bool:
     """Train V12 models for one symbol."""
     model_dir = Path(f"models_v8/{symbol}_gate_v2")
@@ -410,6 +476,9 @@ def train_symbol(
             h, X, closes, feature_names, train_end, n, max_features,
             ic_recent_years=ic_recent_years, forced_features=forced_features,
             max_train_years=max_train_years,
+            label_mode=label_mode,
+            tb_upper_pct=tb_upper_pct,
+            tb_lower_pct=tb_lower_pct,
         )
         if result is not None:
             horizon_results[h] = result
@@ -635,6 +704,9 @@ def train_symbol(
         "ridge_weight": ridge_weight,
         "lgbm_weight": lgbm_weight,
         "ensemble_weights": {"ridge": ridge_weight, "lgbm": lgbm_weight},
+        "label_mode": label_mode,
+        "tb_upper_pct": tb_upper_pct if label_mode == "triple_barrier" else None,
+        "tb_lower_pct": tb_lower_pct if label_mode == "triple_barrier" else None,
     }
     # If any horizon produced an XGBoost member, record the IC-proportional
     # weights actually used at training time so the inference path picks
