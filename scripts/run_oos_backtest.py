@@ -34,7 +34,6 @@ except ImportError:
 ACTIVE_MODELS = [
     ("BTCUSDT_gate_v2", "BTCUSDT", "1h", "BTCUSDT_1h.csv"),
     ("ETHUSDT_gate_v2", "ETHUSDT", "1h", "ETHUSDT_1h.csv"),
-    ("SOLUSDT_gate_v2", "SOLUSDT", "1h", "SOLUSDT_1h.csv"),
     ("BTCUSDT_4h",      "BTCUSDT", "4h", None),
     ("ETHUSDT_4h",      "ETHUSDT", "4h", None),
 ]

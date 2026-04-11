@@ -1095,9 +1095,22 @@ def main() -> None:
                         interval, symbols, args.venue)
 
     # Daily drawdown kill switch (reuses _kill_switch created above,
-    # shared with execution bridge CompositeRiskGate)
+    # shared with execution bridge CompositeRiskGate).
+    #
+    # 2026-04-12: Tightened default from 5.0% → 3.0% after the D10.5
+    # 12-month live-equivalent backtest revealed -47% MaxDD potential
+    # for BTC/ETH 1h strategies under realistic execution.  At $400
+    # OKX capital that drawdown puts the account at $212 — too brutal
+    # for a 2-symbol setup.  Override via MAX_DAILY_DRAWDOWN_PCT env.
     _daily_start_equity: float | None = None
-    _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "5.0"))
+    _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "3.0"))
+    # Weekly cumulative floor: stop ALL new entries if account drops
+    # 10% from the start of the ISO week (Mon 00:00 UTC).  Reset each
+    # Monday.  Intended as a soft circuit-breaker distinct from the
+    # daily one so a bad week halts before it becomes a disaster.
+    _MAX_WEEKLY_DRAWDOWN_PCT = float(os.environ.get("MAX_WEEKLY_DRAWDOWN_PCT", "10.0"))
+    _weekly_start_equity: float | None = None
+    _weekly_start_iso: str | None = None
     _SCALE = 100_000_000
     _loop_iter = 0
 
@@ -1285,6 +1298,41 @@ def main() -> None:
                                 for coord in coordinators.values():
                                     coord.halt_trading(
                                         reason=f"daily drawdown {dd_pct:.1f}%"
+                                    )
+
+                    # Weekly cumulative drawdown — independent gate.
+                    # Resets each Monday 00:00 UTC.  Fires at -10%
+                    # from week-start equity and halts trading until
+                    # the next reset.  Complements the daily gate:
+                    # daily catches a single-day disaster, weekly
+                    # catches a slow bleed across multiple days.
+                    if equity is not None and equity > 0:
+                        import datetime as _dt
+                        now_utc = _dt.datetime.now(_dt.timezone.utc)
+                        iso_year, iso_week, _ = now_utc.isocalendar()
+                        week_key = f"{iso_year}-W{iso_week:02d}"
+                        if _weekly_start_iso != week_key:
+                            _weekly_start_iso = week_key
+                            _weekly_start_equity = equity
+                            logger.info(
+                                "Weekly drawdown tracker reset: week=%s start_equity=%.2f",
+                                week_key, _weekly_start_equity,
+                            )
+                        elif _weekly_start_equity and _weekly_start_equity > 0:
+                            wdd_pct = (1.0 - equity / _weekly_start_equity) * 100
+                            if wdd_pct > _MAX_WEEKLY_DRAWDOWN_PCT:
+                                logger.critical(
+                                    "WEEKLY DRAWDOWN %.1f%% exceeds limit %.1f%% — killing trading for rest of week",
+                                    wdd_pct, _MAX_WEEKLY_DRAWDOWN_PCT,
+                                )
+                                _kill_switch.arm(
+                                    "global", "weekly_dd", "hard_kill",
+                                    f"weekly drawdown {wdd_pct:.1f}%",
+                                    ttl_seconds=7 * 24 * 3600.0,
+                                )
+                                for coord in coordinators.values():
+                                    coord.halt_trading(
+                                        reason=f"weekly drawdown {wdd_pct:.1f}%"
                                     )
                 except Exception:
                     pass  # never crash the main loop

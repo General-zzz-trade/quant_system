@@ -1,6 +1,6 @@
 {
   "symbol": "BTCUSDT",
-  "version": "v11",
+  "version": "v12",
   "multi_horizon": true,
   "horizons": [
     12,
@@ -10,48 +10,46 @@
     {
       "horizon": 12,
       "lgbm": "lgbm_h12.pkl",
-      "xgb": "xgb_h12.pkl",
+      "ridge": "ridge_h12.pkl",
       "features": [
-        "treasury_10y_chg_5d",
-        "price_acceleration",
-        "oc_addr_zscore_14",
-        "btc_dom_ret_24",
-        "trend_x_vol",
-        "basis_zscore_24",
-        "tf4h_bb_pctb_20",
+        "vix_chg_1d",
+        "gld_ret_5d",
+        "spy_ret_1d",
+        "qqq_ret_1d",
+        "iwm_ret_1d",
+        "ma_cross_10_30",
         "ret_24",
-        "ret_12",
-        "cvd_20",
-        "fgi_normalized",
-        "basis_carry_adj",
-        "fgi_extreme",
-        "stablecoin_supply_chg_7d"
+        "oc_netflow_zscore_7",
+        "oc_flowout_zscore_14",
+        "tf4h_ret_6",
+        "xlk_ret_1d",
+        "ret_skew_24",
+        "etha_ret_1d",
+        "ethe_ret_1d"
       ],
-      "ic": 0.04540438400174775,
-      "ridge": "ridge_h12.pkl"
+      "ic": 0.05135954334479982
     },
     {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
-      "xgb": "xgb_h24.pkl",
+      "ridge": "ridge_h24.pkl",
       "features": [
-        "treasury_10y_chg_5d",
-        "oc_flowin_zscore_7",
-        "basis",
-        "fgi_normalized",
-        "fgi_extreme",
-        "vix_level",
-        "atr_norm_14",
-        "ret_autocorr_24",
-        "btc_dom_dev_20",
-        "dow_cos",
-        "oc_tx_zscore_14",
-        "basis_momentum",
-        "parkinson_vol",
-        "dow_sin"
+        "vix_chg_1d",
+        "gld_ret_5d",
+        "spy_ret_1d",
+        "qqq_ret_1d",
+        "iwm_ret_1d",
+        "oc_netflow_zscore_7",
+        "oc_flowout_zscore_14",
+        "xlk_ret_1d",
+        "oc_flowout_zscore_7",
+        "oc_flowin_zscore_14",
+        "funding_vs_vol",
+        "close_vs_ma20",
+        "credit_spread_chg",
+        "bb_pctb_20"
       ],
-      "ic": 0.03426837961023125,
-      "ridge": "ridge_h24.pkl"
+      "ic": 0.0810442369118802
     }
   ],
   "primary_horizon": 24,
@@ -59,9 +57,9 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 1.8,
-  "min_hold": 6,
-  "max_hold": 96,
+  "deadzone": 1.5,
+  "min_hold": 18,
+  "max_hold": 120,
   "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
@@ -79,19 +77,19 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 2.1121415671992705,
-    "avg_ic": 0.0398363818059895,
+    "sharpe": 2.68,
+    "avg_ic": 0.066202,
     "per_horizon_ic": {
-      "12": 0.04540438400174775,
-      "24": 0.03426837961023125
+      "12": 0.05136,
+      "24": 0.081044
     },
-    "total_return": 0.04862608110205232,
-    "trades": 180,
-    "win_rate": 63.888888888888886,
-    "avg_net_bps": 54.02897900228036,
-    "bootstrap_sharpe_p5": 0.4703956441550804,
-    "bootstrap_sharpe_p50": 1.4010033253451346,
-    "bootstrap_sharpe_p95": 2.4338861673972896
+    "total_return": 1.3469,
+    "trades": 123,
+    "win_rate": 55.3,
+    "avg_net_bps": 109.5,
+    "bootstrap_sharpe_p5": 1.1349,
+    "bootstrap_sharpe_p50": 2.1118,
+    "bootstrap_sharpe_p95": 3.1981
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -99,15 +97,16 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-27 15:06",
-  "data_range": "2019-09-08 \u2192 2026-03-27",
-  "n_bars": 57393,
+  "train_date": "2026-04-10 18:24",
+  "data_range": "2019-09-08 \u2192 2026-04-10",
+  "n_bars": 57735,
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01,
-  "ridge_weight": 0.6,
-  "lgbm_weight": 0.4,
+  "ridge_weight": 0.4,
+  "lgbm_weight": 0.6,
   "ensemble_weights": {
     "ridge": 0.5,
     "lgbm": 0.5
-  }
+  },
+  "_grid_search_note": "2026-04-12: dz 1.0->1.5, mh 12->18 based on 12-month live-eq OOS grid (+76% Sharpe)"
 }

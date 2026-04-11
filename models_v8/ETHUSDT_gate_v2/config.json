@@ -1,57 +1,32 @@
 {
   "symbol": "ETHUSDT",
-  "version": "v11",
+  "version": "v12",
   "multi_horizon": true,
   "horizons": [
-    12,
     24
   ],
   "horizon_models": [
     {
-      "horizon": 12,
-      "lgbm": "lgbm_h12.pkl",
-      "xgb": "xgb_h12.pkl",
-      "ridge": "ridge_h12.pkl",
-      "features": [
-        "spy_ret_1d",
-        "iv_level",
-        "funding_zscore_24",
-        "oc_tx_zscore_7",
-        "oc_addr_zscore_14",
-        "treasury_10y_chg_5d",
-        "oc_flowout_zscore_14",
-        "price_acceleration",
-        "ret_24",
-        "rsi_x_vol",
-        "dom_vs_sui_dev_20",
-        "rsi_x_atr",
-        "fgi_normalized",
-        "fgi_extreme"
-      ],
-      "ic": 0.16376328542712507
-    },
-    {
       "horizon": 24,
       "lgbm": "lgbm_h24.pkl",
-      "xgb": "xgb_h24.pkl",
       "ridge": "ridge_h24.pkl",
       "features": [
-        "spy_ret_1d",
-        "iv_level",
-        "funding_zscore_24",
-        "oc_tx_zscore_7",
-        "oc_flowin_zscore_14",
-        "treasury_10y_chg_5d",
-        "oc_addr_zscore_14",
-        "rsi_x_atr",
-        "rsi_x_vol",
-        "fgi_normalized",
+        "ls_ratio",
+        "oc_netflow_zscore_7",
+        "vix_level",
         "fgi_extreme",
-        "uso_ret_5d",
-        "ret_autocorr_24",
-        "iv_term_slope_daily"
+        "funding_sign_persist",
+        "spy_ret_1d",
+        "qqq_ret_1d",
+        "iwm_ret_1d",
+        "stablecoin_supply_chg_7d",
+        "oc_tx_zscore_7",
+        "oc_tx_zscore_14",
+        "stablecoin_supply_zscore",
+        "dom_vs_axs_ret_24",
+        "dom_vs_axs_dev_20"
       ],
-      "ic": 0.1870843101992566
+      "ic": 0.08650984279906042
     }
   ],
   "primary_horizon": 24,
@@ -59,9 +34,9 @@
   "lgbm_xgb_weight": 0.5,
   "zscore_window": 720,
   "zscore_warmup": 180,
-  "deadzone": 2.5,
-  "min_hold": 9,
-  "max_hold": 60,
+  "deadzone": 1.2,
+  "min_hold": 12,
+  "max_hold": 120,
   "long_only": false,
   "exit": {
     "trailing_stop_pct": 0.0,
@@ -79,19 +54,18 @@
     "skip_hours_utc": []
   },
   "metrics": {
-    "sharpe": 3.916414299188081,
-    "avg_ic": 0.17542379781319084,
+    "sharpe": 2.49,
+    "avg_ic": 0.08651,
     "per_horizon_ic": {
-      "12": 0.16376328542712507,
-      "24": 0.1870843101992566
+      "24": 0.08651
     },
-    "total_return": 0.1381660265087354,
-    "trades": 178,
-    "win_rate": 61.79775280898876,
-    "avg_net_bps": 155.24272641430946,
-    "bootstrap_sharpe_p5": 1.7360277395448576,
-    "bootstrap_sharpe_p50": 2.629116310404172,
-    "bootstrap_sharpe_p95": 3.467218467420775
+    "total_return": 1.5898,
+    "trades": 106,
+    "win_rate": 56.6,
+    "avg_net_bps": 150.0,
+    "bootstrap_sharpe_p5": 1.0839,
+    "bootstrap_sharpe_p50": 2.1535,
+    "bootstrap_sharpe_p95": 3.2379
   },
   "checks": {
     "Sharpe > 1.0": true,
@@ -99,9 +73,9 @@
     "Trades >= 15": true,
     "Bootstrap p5 > 0": true
   },
-  "train_date": "2026-03-22 16:59",
-  "data_range": "2019-11-27 \u2192 2026-03-22",
-  "n_bars": 55369,
+  "train_date": "2026-04-11 13:59",
+  "data_range": "2019-11-27 \u2192 2026-04-11",
+  "n_bars": 55843,
   "ic_ema_span": 720,
   "ic_min_threshold": -0.01,
   "ridge_weight": 0.6,
@@ -109,5 +83,6 @@
   "ensemble_weights": {
     "ridge": 0.5,
     "lgbm": 0.5
-  }
+  },
+  "_grid_search_note": "2026-04-12: dz 1.5->1.2, mh 6->12 based on 12-month live-eq OOS grid (+67% Sharpe)"
 }
