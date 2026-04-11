@@ -5,12 +5,18 @@ object per line). The per-venue split prevents two parallel runners
 (binance + okx) from clobbering each other's session log on startup.
 Every record is also tagged with a `venue` field for downstream queries.
 
+Pytest safety: when running under pytest (detected via sys.modules), the
+logger redirects to /tmp/test_decision_audit_{venue}.jsonl so unit-test
+AlphaDecisionModule instantiations never pollute the production file.
+
 Designed for post-trade analysis and regulatory audit trail.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
+import sys
 import time
 from pathlib import Path
 logger = logging.getLogger(__name__)
@@ -21,9 +27,19 @@ AUDIT_DIR = Path("data/runtime")
 AUDIT_PATH = AUDIT_DIR / "decision_audit.jsonl"
 
 
+def _in_pytest() -> bool:
+    """Detect pytest so test modules don't write to production audit logs."""
+    return "pytest" in sys.modules or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
 def audit_path_for(venue: str) -> Path:
-    """Return the per-venue audit log path."""
+    """Return the per-venue audit log path.
+
+    In pytest, redirects to /tmp to keep production data clean.
+    """
     venue = (venue or "unknown").lower()
+    if _in_pytest():
+        return Path("/tmp") / f"test_decision_audit_{venue}.jsonl"
     return AUDIT_DIR / f"decision_audit_{venue}.jsonl"
 
 

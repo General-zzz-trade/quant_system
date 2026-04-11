@@ -1,0 +1,10 @@
+[Unit]
+Description=Live vs Backtest — daily (23:55 UTC, after daily PnL alert)
+
+[Timer]
+OnCalendar=*-*-* 23:55:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

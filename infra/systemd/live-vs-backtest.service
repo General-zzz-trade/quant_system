@@ -1,0 +1,13 @@
+[Unit]
+Description=Live vs Backtest performance tracker (alpha-decay detection)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.live_vs_backtest --window 7d
+User=ubuntu
+StandardOutput=append:/quant_system/logs/live_vs_backtest.log
+StandardError=append:/quant_system/logs/live_vs_backtest.log
