@@ -39,6 +39,16 @@ ETH_META = InstrumentMeta(
     max_lever=100,
 )
 
+SOL_META = InstrumentMeta(
+    inst_id="SOL-USDT-SWAP",
+    ct_val=Decimal("1"),      # 1 contract = 1 SOL (different from BTC/ETH!)
+    ct_val_ccy="SOL",
+    lot_sz=Decimal("0.01"),
+    min_sz=Decimal("0.01"),
+    tick_sz=Decimal("0.01"),
+    max_lever=50,
+)
+
 
 # ── Symbol mapping ─────────────────────────────────────────────────
 class TestSymbolMap:
@@ -52,6 +62,11 @@ class TestSymbolMap:
         assert to_okx_symbol("BTCUSDT_4h") == "BTC-USDT-SWAP"
         assert to_okx_symbol("ETHUSDT_4h") == "ETH-USDT-SWAP"
 
+    def test_sol_mapping(self):
+        assert to_okx_symbol("SOLUSDT") == "SOL-USDT-SWAP"
+        assert to_okx_symbol("SOLUSDT_4h") == "SOL-USDT-SWAP"
+        assert from_okx_symbol("SOL-USDT-SWAP") == "SOLUSDT"
+
     def test_strips_1h_suffix(self):
         assert to_okx_symbol("BTCUSDT_1h") == "BTC-USDT-SWAP"
 
@@ -59,8 +74,9 @@ class TestSymbolMap:
         assert to_okx_symbol("btcusdt") == "BTC-USDT-SWAP"
 
     def test_unmapped_raises(self):
+        # SOL is now mapped (2026-04-11) — use a truly unsupported symbol
         with pytest.raises(KeyError):
-            to_okx_symbol("SOLUSDT")
+            to_okx_symbol("DOGEUSDT")
 
     def test_from_okx_roundtrip(self):
         assert from_okx_symbol("BTC-USDT-SWAP") == "BTCUSDT"
@@ -124,6 +140,35 @@ class TestEthQuantity:
 
     def test_ten_eth_is_100_contracts(self):
         assert coin_to_contracts(10.0, ETH_META) == Decimal("100")
+
+
+# ── SOL quantity conversion ────────────────────────────────────────
+class TestSolQuantity:
+    """SOL: ctVal=1 (unlike BTC/ETH) so coin qty ≡ contract count 1:1."""
+
+    def test_one_sol_is_one_contract(self):
+        assert coin_to_contracts(1.0, SOL_META) == Decimal("1")
+
+    def test_ten_sol_is_ten_contracts(self):
+        assert coin_to_contracts(10.0, SOL_META) == Decimal("10")
+
+    def test_fractional_sol_rounds_down(self):
+        # 0.567 SOL → 0.56 contracts (lot_sz=0.01)
+        assert coin_to_contracts(0.567, SOL_META) == Decimal("0.56")
+
+    def test_at_min_size(self):
+        # min_sz=0.01 → 0.01 SOL
+        assert coin_to_contracts(0.01, SOL_META) == Decimal("0.01")
+
+    def test_below_min_returns_zero(self):
+        assert coin_to_contracts(0.005, SOL_META) == Decimal("0")
+
+    def test_never_confuses_with_btc_conversion(self):
+        """Guardrail: SOL (ctVal=1) must NOT be treated as 0.01 ctVal."""
+        # If SOL were mistakenly using BTC's ctVal (0.01), 0.5 SOL → 50 contracts.
+        # Correct SOL: 0.5 / 1.0 = 0.5 contracts.
+        assert coin_to_contracts(0.5, SOL_META) == Decimal("0.5")
+        assert coin_to_contracts(0.5, SOL_META) != Decimal("50")
 
 
 # ── Round-trip safety ──────────────────────────────────────────────

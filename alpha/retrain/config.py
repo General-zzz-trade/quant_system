@@ -5,7 +5,7 @@ Extracted from auto_retrain.py to keep it under 500 lines.
 from pathlib import Path
 
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 DEFAULT_HORIZONS = [24]               # h12 dropped: IC collapsed in live (BTC -341%, ETH -91%)
 
 # Per-symbol forced features: always included in IC selection regardless of rank.
@@ -49,6 +49,7 @@ MODEL_DIR_OVERRIDES: dict[str, str] = {}
 # long 2019-2022 tail that has different correlations vs 2023-2026 regime).
 MAX_TRAIN_YEARS: dict[str, float] = {
     "ETHUSDT": 3.0,
+    "SOLUSDT": 3.0,  # post-FTX (2022-11) regime is meaningfully different
 }
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")

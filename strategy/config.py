@@ -42,6 +42,7 @@ MAX_ORDER_NOTIONAL = 5_000.0  # fallback if equity unknown
 PORTFOLIO_NOTIONAL_CAPS_USD: dict[str, float] = {
     "BTCUSDT": 2000.0,
     "ETHUSDT": 1000.0,
+    "SOLUSDT": 800.0,   # smaller cap: higher vol, lower liquidity than majors
 }
 # Stale-file threshold — if portfolio_risk.json is older than this we
 # fall back to "allow order, log warning" rather than blocking every
@@ -58,13 +59,17 @@ LEVERAGE_LADDER = [
 
 
 # Default symbols + position sizes
-# 2026-03-21: Focused on BTC + ETH only (altcoins removed due to poor liquidity)
+# 2026-04-11: SOLUSDT re-added after successful retrain (Sharpe 1.83, WR 58.8%)
 SYMBOL_CONFIG = {
     # BTC 1h: dz=1.0, mh=18, maxh=120 (Sharpe 2.34, retrained 2026-03-23)
     "BTCUSDT": {"size": 0.001, "model_dir": "BTCUSDT_gate_v2", "max_qty": 1190, "step": 0.001,
                  "use_composite_regime": True},
     # ETH 1h: dz=0.9, mh=18, maxh=60, long_only (Sharpe 3.92)
     "ETHUSDT": {"size": 0.01, "model_dir": "ETHUSDT_gate_v2", "max_qty": 8000, "step": 0.01},
+    # SOL 1h: dz=1.0, mh=9, maxh=60 (Sharpe 1.83, retrained 2026-04-11 with v12
+    # pipeline: h24, 3y window, greedy IC, embargo).  OKX SOL-USDT-SWAP:
+    # ctVal=1 SOL/ct, lotSz=0.01, minSz=0.01.  step=0.01 aligned to OKX lot.
+    "SOLUSDT": {"size": 1.0, "model_dir": "SOLUSDT_gate_v2", "max_qty": 500, "step": 0.01},
     # ETH 15m: DISABLED — WF FAIL (Sharpe -1.36)
     "ETHUSDT_15m": {"size": 0.01, "model_dir": "ETHUSDT_15m", "symbol": "ETHUSDT",
                     "interval": "15", "warmup": 800, "step": 0.01},

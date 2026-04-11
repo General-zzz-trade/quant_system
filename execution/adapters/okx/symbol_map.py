@@ -53,9 +53,16 @@ class InstrumentMeta:
 
 
 # Hard-coded mapping internal ↔ OKX.  We only support linear USDT perps.
+# NOTE: ctVal per contract is NOT uniform across symbols —
+#   BTC-USDT-SWAP: ctVal=0.01 BTC  (1 ct = 0.01 BTC)
+#   ETH-USDT-SWAP: ctVal=0.1  ETH  (1 ct = 0.1  ETH)
+#   SOL-USDT-SWAP: ctVal=1    SOL  (1 ct = 1    SOL)
+# Conversion is always via InstrumentMeta.ct_val, so this table only
+# needs the name mapping — the numeric metadata is fetched on connect().
 _SYMBOL_TO_OKX: dict[str, str] = {
     "BTCUSDT": "BTC-USDT-SWAP",
     "ETHUSDT": "ETH-USDT-SWAP",
+    "SOLUSDT": "SOL-USDT-SWAP",
 }
 _OKX_TO_SYMBOL: dict[str, str] = {v: k for k, v in _SYMBOL_TO_OKX.items()}
 
