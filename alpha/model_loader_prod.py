@@ -61,6 +61,25 @@ def load_model(model_dir: Path) -> dict:
     with open(config_path) as f:
         config = json.load(f)
 
+    # Compatibility: convert v8_4h flat format to horizon_models
+    if not config.get("horizon_models") and config.get("models"):
+        features = config.get("features", [])
+        horizon = config.get("horizon", 12)
+        synth_hm = []
+        for mf in config["models"]:
+            synth_hm.append({
+                "horizon": horizon,
+                "lgbm": mf,
+                "features": features,
+                "ic": config.get("metrics", {}).get("ic", 0.01),
+            })
+            break  # use first model as primary lgbm
+        # If xgb is second model, attach as xgb on first horizon
+        if len(config["models"]) > 1:
+            synth_hm[0]["xgb"] = config["models"][1]
+        config["horizon_models"] = synth_hm
+        logger.info("Converted v8_4h flat format to horizon_models for %s", model_dir.name)
+
     # Load ALL horizon models for ensemble (HMAC-verified)
     horizon_models = []
     for hm in config.get("horizon_models", []):
@@ -70,12 +89,26 @@ def load_model(model_dir: Path) -> dict:
         raw = load_verified_pickle(lgbm_path)
         model = raw["model"] if isinstance(raw, dict) else raw
 
-        # Also load XGBoost if available
+        # Also load XGBoost if available.
+        # v12 training (2026-04-11) writes XGB as native JSON for safety.
+        # Older .pkl artifacts are still loaded via the verified-loader path.
         xgb_model = None
-        xgb_path = model_dir / hm.get("xgb", "")
-        if xgb_path.exists() and xgb_path.is_file():
-            xgb_raw = load_verified_pickle(xgb_path)
-            xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
+        xgb_name = hm.get("xgb", "")
+        if xgb_name:
+            xgb_path = model_dir / xgb_name
+            if xgb_path.exists() and xgb_path.is_file():
+                try:
+                    if xgb_name.endswith(".json"):
+                        import xgboost as xgb
+                        _m = xgb.XGBRegressor()
+                        _m.load_model(str(xgb_path))
+                        xgb_model = _m
+                    else:
+                        xgb_raw = load_verified_pickle(xgb_path)
+                        xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
+                except Exception as exc:
+                    logger.warning("XGB load failed for %s: %s", xgb_path, exc)
+                    xgb_model = None
 
         # Also load Ridge if available (walk-forward winner: 15/20 PASS)
         ridge_model = None

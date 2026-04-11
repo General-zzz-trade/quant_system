@@ -215,11 +215,53 @@ def train_single_horizon(
     ridge_model = Ridge(alpha=1.0)
     ridge_model.fit(X_ridge, y_train)
 
+    # XGBoost — third ensemble member for tree-model diversification.
+    # Uses smaller learning rate + more conservative subsampling than LGBM
+    # to produce predictions that aren't just a copy of LGBM's.  Fits the
+    # same train/val split (embargo already applied upstream).
+    xgb_model = None
+    try:
+        import xgboost as xgb
+        X_train_clean = np.nan_to_num(X_train, nan=0.0)
+        xgb_model = xgb.XGBRegressor(
+            n_estimators=300,
+            learning_rate=0.03,      # slower → less overlap with LGBM
+            max_depth=5,
+            subsample=0.7,
+            colsample_bytree=0.7,
+            min_child_weight=5,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            tree_method="hist",
+            verbosity=0,
+            early_stopping_rounds=30,
+        )
+        xgb_model.fit(
+            X_train_clean[:train_end_idx],
+            y_train[:train_end_idx],
+            eval_set=[(X_train_clean[val_start:], y_train[val_start:])],
+            verbose=False,
+        )
+    except Exception as e:
+        import warnings
+        warnings.warn(f"XGBoost training failed for horizon {horizon}: {e}",
+                      stacklevel=2)
+        xgb_model = None
+
     # OOS predictions
     X_test = X[train_end:, :][:, feat_idx]
     X_test_clean = np.nan_to_num(X_test, nan=0.0)
     lgbm_pred = lgbm_model.predict(X_test_clean)
     ridge_pred = ridge_model.predict(X_test_clean)
+    xgb_pred = None
+    if xgb_model is not None:
+        try:
+            xgb_pred = xgb_model.predict(X_test_clean)
+        except Exception as e:
+            import warnings
+            warnings.warn(f"XGBoost predict failed for horizon {horizon}: {e}",
+                          stacklevel=2)
+            xgb_pred = None
 
     # IC on OOS
     y_test = y[train_end:]
@@ -230,8 +272,19 @@ def train_single_horizon(
     from scipy.stats import spearmanr
     ic_lgbm, _ = spearmanr(lgbm_pred[valid_test], y_test[valid_test])
     ic_ridge, _ = spearmanr(ridge_pred[valid_test], y_test[valid_test])
+    ic_xgb = None
+    if xgb_pred is not None:
+        ic_xgb, _ = spearmanr(xgb_pred[valid_test], y_test[valid_test])
+        ic_xgb = float(ic_xgb) if not np.isnan(ic_xgb) else None
 
-    print(f"    h={horizon}: {len(selected)} features, IC_lgbm={ic_lgbm:.4f}, IC_ridge={ic_ridge:.4f}")
+    if ic_xgb is not None:
+        ic_ensemble = float((ic_lgbm + ic_ridge + ic_xgb) / 3)
+        xgb_str = f", IC_xgb={ic_xgb:.4f}"
+    else:
+        ic_ensemble = float((ic_lgbm + ic_ridge) / 2)
+        xgb_str = ""
+    print(f"    h={horizon}: {len(selected)} features, "
+          f"IC_lgbm={ic_lgbm:.4f}, IC_ridge={ic_ridge:.4f}{xgb_str}")
     print(f"    Features: {selected}")
 
     return {
@@ -239,11 +292,14 @@ def train_single_horizon(
         "features": selected,
         "lgbm_model": lgbm_model,
         "ridge_model": ridge_model,
+        "xgb_model": xgb_model,
         "lgbm_pred_oos": lgbm_pred,
         "ridge_pred_oos": ridge_pred,
+        "xgb_pred_oos": xgb_pred,
         "ic_lgbm": float(ic_lgbm),
         "ic_ridge": float(ic_ridge),
-        "ic_ensemble": float((ic_lgbm + ic_ridge) / 2),
+        "ic_xgb": ic_xgb,
+        "ic_ensemble": ic_ensemble,
     }
 
 
@@ -362,10 +418,59 @@ def train_symbol(
         print("  ERROR: No horizons trained successfully")
         return False
 
-    # Ensemble OOS predictions
+    # Ensemble OOS predictions — IC-proportional weighting.
+    # Each member is weighted by its own IC normalised across the ensemble,
+    # so a 0.11 IC Ridge doesn't lose voice to a 0.05 IC XGB.  Members with
+    # IC <= 0 are dropped entirely.  XGB is additionally gated by a
+    # **relative** IC threshold: it must clear 75% of LGBM's IC.  Otherwise
+    # we ship Ridge+LGBM only — diversification that hurts absolute IC
+    # isn't worth the added model risk.
+    _XGB_MIN_RELATIVE_IC = 0.75
     preds_ensemble = {}
+    ensemble_weights_per_h: dict = {}
     for h, r in horizon_results.items():
-        preds_ensemble[h] = r["ridge_pred_oos"] * ridge_weight + r["lgbm_pred_oos"] * lgbm_weight
+        ic_l = float(r.get("ic_lgbm") or 0.0)
+        ic_r = float(r.get("ic_ridge") or 0.0)
+        ic_x = float(r.get("ic_xgb") or 0.0)
+        xgb_pred = r.get("xgb_pred_oos")
+
+        parts = []
+        if ic_r > 0:
+            parts.append(("ridge", ic_r, r["ridge_pred_oos"]))
+        if ic_l > 0:
+            parts.append(("lgbm", ic_l, r["lgbm_pred_oos"]))
+        # Only include XGB if it's pulling its weight
+        include_xgb = (
+            xgb_pred is not None
+            and ic_x > 0
+            and ic_l > 0
+            and ic_x >= _XGB_MIN_RELATIVE_IC * ic_l
+        )
+        if include_xgb:
+            parts.append(("xgb", ic_x, xgb_pred))
+        else:
+            r["xgb_dropped_reason"] = (
+                f"ic_xgb={ic_x:.4f} < {_XGB_MIN_RELATIVE_IC}*ic_lgbm={ic_l:.4f}"
+                if xgb_pred is not None else "no xgb predictions"
+            )
+
+        if not parts:
+            preds_ensemble[h] = (
+                r["ridge_pred_oos"] * ridge_weight
+                + r["lgbm_pred_oos"] * lgbm_weight
+            )
+            ensemble_weights_per_h[h] = {"ridge": ridge_weight, "lgbm": lgbm_weight}
+            continue
+
+        total_ic = sum(ic for _, ic, _ in parts)
+        weights = {name: ic / total_ic for name, ic, _ in parts}
+        blend = np.zeros_like(parts[0][2])
+        for name, _, pred in parts:
+            blend = blend + pred * weights[name]
+        preds_ensemble[h] = blend
+        ensemble_weights_per_h[h] = weights
+        print(f"    h={h}: ensemble weights = "
+              + ", ".join(f"{k}={v:.2f}" for k, v in weights.items()))
 
     # Config sweep
     print("\n  -- Config Sweep --")
@@ -456,13 +561,38 @@ def train_symbol(
             pickle.dump({"model": r["lgbm_model"], "features": r["features"]}, f)  # noqa: S301
         with open(model_dir / ridge_name, "wb") as f:
             pickle.dump({"model": r["ridge_model"], "features": r["features"]}, f)  # noqa: S301
-        horizon_configs.append({
+
+        hc: dict = {
             "horizon": h,
             "lgbm": lgbm_name,
             "ridge": ridge_name,
             "features": r["features"],
             "ic": r["ic_ensemble"],
-        })
+        }
+
+        # Optional XGBoost member — saved as native JSON (not pickle) so the
+        # artifact is language-agnostic and has no pickle-deserialisation
+        # attack surface. Feature list stored alongside in a sidecar.
+        # Skip entirely when the gating logic dropped XGB from the blend.
+        h_weights = ensemble_weights_per_h.get(h, {})
+        xgb_obj = r.get("xgb_model")
+        if xgb_obj is not None and h_weights.get("xgb", 0.0) > 0:
+            xgb_json_name = f"xgb_h{h}.json"
+            xgb_feat_name = f"xgb_h{h}_features.json"
+            try:
+                xgb_obj.save_model(str(model_dir / xgb_json_name))
+                (model_dir / xgb_feat_name).write_text(
+                    json.dumps({"features": r["features"]})
+                )
+                hc["xgb"] = xgb_json_name
+                hc["xgb_features_file"] = xgb_feat_name
+                hc["ic_xgb"] = r.get("ic_xgb")
+                hc["ic_lgbm"] = r.get("ic_lgbm")
+                hc["ic_ridge"] = r.get("ic_ridge")
+            except Exception as exc:
+                print(f"  WARN: XGB save failed for h={h}: {exc}")
+
+        horizon_configs.append(hc)
 
     config_dict = {
         "symbol": symbol,
@@ -506,6 +636,25 @@ def train_symbol(
         "lgbm_weight": lgbm_weight,
         "ensemble_weights": {"ridge": ridge_weight, "lgbm": lgbm_weight},
     }
+    # If any horizon produced an XGBoost member, record the IC-proportional
+    # weights actually used at training time so the inference path picks
+    # the same blend.  Use the primary horizon's weights as the top-level
+    # defaults; per-horizon weights are also embedded in horizon_models.
+    if any(r.get("xgb_model") is not None for r in horizon_results.values()):
+        primary_h = max(horizon_results.keys())
+        primary_weights = ensemble_weights_per_h.get(primary_h, {})
+        config_dict["ensemble_weights"] = primary_weights
+        config_dict["ridge_weight"] = primary_weights.get("ridge", ridge_weight)
+        config_dict["lgbm_weight"] = primary_weights.get("lgbm", lgbm_weight)
+        config_dict["xgb_weight"] = primary_weights.get("xgb", 0.0)
+        # Attach per-horizon blend to horizon_configs so live inference
+        # can recreate the exact same weights if horizons differ.
+        for hc in horizon_configs:
+            w = ensemble_weights_per_h.get(hc["horizon"], {})
+            if w:
+                hc["ridge_weight"] = w.get("ridge", 0.0)
+                hc["lgbm_weight"] = w.get("lgbm", 0.0)
+                hc["xgb_weight"] = w.get("xgb", 0.0)
     with open(model_dir / "config.json", "w") as f:
         json.dump(config_dict, f, indent=2)
 

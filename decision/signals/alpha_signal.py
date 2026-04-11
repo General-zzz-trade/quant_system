@@ -75,6 +75,25 @@ def _rust_or_sklearn_tree(hm: dict, feature_values: list[float]) -> float:
     return float(hm["lgbm"].predict([feature_values])[0])
 
 
+def _sklearn_xgb(hm: dict, feature_values: list[float]) -> float | None:
+    """Predict using sklearn XGBoost if available on this horizon.
+
+    Returns None when no XGB model is attached — callers should gate on
+    that instead of receiving a fake 0.0.  No Rust path: the LGBM-style
+    JSON loader doesn't cover XGB yet, so we always route through sklearn.
+    """
+    xgb_obj = hm.get("xgb")
+    if xgb_obj is None:
+        return None
+    try:
+        import numpy as _np
+        arr = _np.asarray(feature_values, dtype=_np.float32).reshape(1, -1)
+        return float(xgb_obj.predict(arr)[0])
+    except Exception:
+        logger.debug("XGB predict failed", exc_info=True)
+        return None
+
+
 class EnsemblePredictor:
     """Ridge(60%) + LGBM(40%) IC-weighted ensemble predictor.
 
@@ -92,6 +111,11 @@ class EnsemblePredictor:
         self._ridge_only_4h = "4h" in config.get("version", "")
         self._ridge_w = config.get("ridge_weight", 0.6)
         self._lgbm_w = config.get("lgbm_weight", 0.4)
+        # XGB weight defaults to 0 — only used when a horizon actually
+        # loaded an XGB artifact.  When XGB is present on a v12+ model
+        # the config will override this to 0.30 (train_v12 writes the
+        # 30/40/30 weights under `ensemble_weights` + `xgb_weight`).
+        self._xgb_w = config.get("xgb_weight", 0.0)
         # Regime-gated ensemble weights: trust Ridge more in high-vol
         # (fewer samples, linear model is more robust), LGBM more in low-vol
         # (stable regime, tree model captures non-linearities).
@@ -225,10 +249,17 @@ class EnsemblePredictor:
                     pred = ridge_pred
                 else:
                     lgbm_pred = _rust_or_sklearn_tree(hm, x)
+                    # Optional XGBoost member (sklearn path).  Returns None
+                    # when the horizon has no XGB artifact.
+                    xgb_pred = _sklearn_xgb(hm, x)
+
                     # Per-horizon weights: if horizon_model has explicit weights, use them
                     rw = hm.get("ridge_weight", self._ridge_w)
                     lw = hm.get("lgbm_weight", self._lgbm_w)
-                    # Regime-gated dynamic weight shift
+                    xw = hm.get("xgb_weight", self._xgb_w) if xgb_pred is not None else 0.0
+
+                    # Regime-gated dynamic weight shift (Ridge↔LGBM only;
+                    # XGB weight stays fixed since it's diversification).
                     if self._regime_gating:
                         vol_val = feat_dict.get(self._regime_vol_feat)
                         try:
@@ -245,11 +276,15 @@ class EnsemblePredictor:
                                 # low-vol: LGBM up, Ridge down
                                 rw = max(0.0, rw - shift)
                                 lw = min(1.0, lw + shift)
-                            # re-normalize in case of clip
-                            tot = rw + lw
-                            if tot > 0:
-                                rw, lw = rw / tot, lw / tot
+
+                    # Re-normalize all active weights to sum to 1
+                    tot = rw + lw + xw
+                    if tot > 0:
+                        rw, lw, xw = rw / tot, lw / tot, xw / tot
+
                     pred = ridge_pred * rw + lgbm_pred * lw
+                    if xgb_pred is not None:
+                        pred += xgb_pred * xw
             else:
                 pred = _rust_or_sklearn_tree(hm, x)
 
