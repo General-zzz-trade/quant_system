@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from execution.adapters.okx.config import OkxConfig
 from execution.adapters.okx.rest import (
@@ -171,17 +171,19 @@ class OkxAdapter:
                     eq = Decimal(str(d.get("eq") or "0"))
                     avail = Decimal(str(d.get("availBal") or "0"))
                     if eq > 0 or avail > 0:
+                        locked = eq - avail if eq > avail else Decimal("0")
                         balances.append(
-                            CanonicalBalance(
+                            CanonicalBalance.from_free_locked(
+                                venue=self.venue,
                                 asset=ccy,
                                 free=avail,
-                                locked=eq - avail if eq > avail else Decimal("0"),
+                                locked=locked,
                             )
                         )
-            return BalanceSnapshot(balances=tuple(balances))
+            return BalanceSnapshot(venue=self.venue, balances=tuple(balances))
         except Exception as e:
             logger.error("OKX get_balances failed: %s", e)
-            return BalanceSnapshot(balances=())
+            return BalanceSnapshot(venue=self.venue, balances=())
 
     # ------------------------------------------------------------------
     # Positions
@@ -499,15 +501,20 @@ class OkxAdapter:
     # ------------------------------------------------------------------
     # Kline (REST fallback)
     # ------------------------------------------------------------------
-    def get_kline(
+    def get_klines(
         self,
         symbol: str,
-        interval: str,
+        interval: str = "60",
         limit: int = 300,
     ) -> list[dict]:
         """Historical klines via REST for warmup/backfill.
 
-        Returns list of dicts in the shared format:
+        Auto-paginates when `limit` > 300 (OKX per-request max). Uses
+        `/api/v5/market/candles` for the recent window and
+        `/api/v5/market/history-candles` for older bars. The method name
+        matches Binance/Bybit adapters for cross-venue compatibility.
+
+        Returns list of dicts in the shared format (oldest-first):
             {"time": int(sec), "open":..., "high":..., "low":..., "close":...,
              "volume":..., "turnover":..., "confirm": True}
         """
@@ -516,22 +523,70 @@ class OkxAdapter:
         except RuntimeError:
             return []
         okx_bar = _INTERVAL_MAP.get(str(interval), "1H")
-        try:
-            resp = self._client.request_public(
-                method="GET",
-                path="/api/v5/market/candles",
-                params={"instId": meta.inst_id, "bar": okx_bar, "limit": str(limit)},
-            )
-        except Exception as e:
-            logger.warning("OKX get_kline failed: %s", e)
-            return []
+        _PAGE_MAX = 300
 
-        rows = resp.get("data") or []
-        out: list[dict] = []
-        # OKX returns newest-first, reverse to match Binance (oldest-first)
-        for row in reversed(rows):
-            if len(row) < 9:
+        # OKX returns newest-first rows. We accumulate them, then reverse
+        # once at the end so callers see oldest-first order.
+        rows: list[list[str]] = []
+        seen_ts: set[int] = set()
+        remaining = limit
+        after_ts: Optional[int] = None
+
+        # First call hits /market/candles (recent ~1440 bars). If the caller
+        # wants more than that, we switch to /market/history-candles for
+        # older bars automatically.
+        path = "/api/v5/market/candles"
+        while remaining > 0:
+            batch = min(remaining, _PAGE_MAX)
+            params: dict[str, Any] = {
+                "instId": meta.inst_id,
+                "bar": okx_bar,
+                "limit": str(batch),
+            }
+            if after_ts is not None:
+                params["after"] = str(after_ts)
+            try:
+                resp = self._client.request_public(
+                    method="GET",
+                    path=path,
+                    params=params,
+                )
+            except Exception as e:
+                logger.warning("OKX get_klines(%s) failed: %s", path, e)
+                break
+
+            page = resp.get("data") or []
+            if not page:
+                break
+
+            fresh = 0
+            for row in page:
+                if len(row) < 9:
+                    continue
+                ts = int(row[0])
+                if ts in seen_ts:
+                    continue
+                seen_ts.add(ts)
+                rows.append(row)
+                fresh += 1
+
+            if fresh == 0:
+                break
+
+            # OKX /market/candles is newest-first; the last row is oldest.
+            oldest_ts = int(page[-1][0])
+            after_ts = oldest_ts  # next page fetches bars strictly older
+            remaining -= fresh
+
+            # /market/candles only serves the recent ~1440 bars. For deeper
+            # history we switch to /market/history-candles. Triggered once.
+            if path == "/api/v5/market/candles" and remaining > 0 and fresh < batch:
+                path = "/api/v5/market/history-candles"
                 continue
+
+        # Reverse to oldest-first so feature engine accumulates correctly
+        out: list[dict] = []
+        for row in reversed(rows):
             confirm = str(row[8]) == "1"
             out.append({
                 "time":    int(row[0]) // 1000,
