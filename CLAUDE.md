@@ -40,6 +40,8 @@ python3 -m alpha.retrain_15m --dry-run                            # 15m validati
 ```bash
 python3 -m monitoring.watchdog                                     # Health check + auto-restart + Telegram
 python3 -m monitoring.ic_decay_monitor --alert                     # IC decay + Telegram
+python3 -m monitoring.live_ic_killswitch --update --alert          # Live IC kill switch (hourly)
+python3 -m monitoring.live_ic_killswitch --force-pause BTCUSDT     # Manual runner pause
 python3 -m monitoring.data_quality_check                           # Data quality (OHLC + gaps)
 python3 -m monitoring.data_quality_check --symbol BTCUSDT --json   # Single symbol JSON
 python3 -m monitoring.rolling_sharpe                               # Per-symbol rolling Sharpe (GREEN/YELLOW/RED)
@@ -161,6 +163,7 @@ Real-time layer (parallel to bar flow):
 - `features/batch_feature_engine.py` — Batch feature engine (192 features for training)
 - `alpha/retrain/cli.py` — Retrain CLI (correct entry for `--sighup` hot-reload)
 - `monitoring/ic_decay_monitor.py` — IC decay detection (GREEN/YELLOW/RED + auto-retrain trigger)
+- `monitoring/live_ic_killswitch.py` — live-signal IC kill switch: auto-pause runners with 3 consecutive days IC<-0.10, auto-resume on 3 days IC>+0.05. State at `data/runtime/symbol_pause_state.json`. Signal-only runners (4h) are monitored but never paused.
 - `attribution/pnl_tracker.py` — PnL tracking (integrated into alpha_main fill observer)
 - `rust_lib.rs` — Rust module registry + PyO3 exports
 
@@ -239,7 +242,7 @@ Ensemble (per-symbol IC-weighted) → Rolling z-score → Z-clamp (|z|>3.5 → �
 **Deployment**:
 - Production entry: `python3 -m runner.alpha_main --venue okx` (systemd: `okx-alpha.service`)
 - ExecStartPre chain: `pre_live_check.py` → `sync_zscore_from_batch.py` → main
-- Timers: health-watchdog (5min), data-refresh (6h), daily-retrain (daily 2am), daily-check (9am JST), daily-pnl-alert (8am JST), ic-decay (daily 3am), feature-ablation (monthly 1st), feature-auto-update (daily 5am)
+- Timers: health-watchdog (5min), data-refresh (6h), daily-retrain (daily 2am), daily-check (9am JST), daily-pnl-alert (8am JST), ic-decay (daily 3am), feature-ablation (monthly 1st), feature-auto-update (daily 5am), live-ic-killswitch (hourly)
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync via `infra/sync_systemd.sh`
 - CI/CD: `.github/workflows/ci.yml` — lint + rust-test + python-test + security-scan
 - Pre-commit hook: ruff lint + API key check + critical bug scan + core tests (~5s)

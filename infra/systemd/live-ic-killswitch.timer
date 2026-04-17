@@ -1,0 +1,10 @@
+[Unit]
+Description=Run live IC kill-switch hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

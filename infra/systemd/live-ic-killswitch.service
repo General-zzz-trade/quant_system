@@ -1,0 +1,13 @@
+[Unit]
+Description=Live IC kill switch — auto-pause runners with low realized IC
+After=network.target okx-alpha.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.live_ic_killswitch --update --alert
+User=ubuntu
+StandardOutput=append:/quant_system/logs/live_ic_killswitch.log
+StandardError=append:/quant_system/logs/live_ic_killswitch.log

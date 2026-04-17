@@ -46,6 +46,7 @@ from monitoring.rolling_sharpe import RollingSharpeTracker
 from runner.limit_order_manager import LimitOrderManager
 from runner.warmup import warmup as _warmup
 from data.oi_cache import BinanceOICache
+from monitoring.live_ic_killswitch import is_runner_paused as _is_runner_paused
 
 # Z-score buffer checkpoint paths
 _ZSCORE_CHECKPOINT_DIR = Path("data/runtime/zscore_checkpoints")
@@ -914,6 +915,10 @@ def main() -> None:
                                 am._batch_pred_override = batch_pred
                     except Exception:
                         pass
+
+                # Live IC kill switch: skip emit if runner paused by low live IC
+                if _is_runner_paused(runner_key):
+                    continue
 
                 try:
                     coord.emit(event, actor="live")
