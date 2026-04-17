@@ -22,7 +22,16 @@ sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
 from features.dynamic_selector import greedy_ic_select
-from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
+try:
+    from alpha.training.train_v7_alpha import INTERACTION_FEATURES, BLACKLIST
+except ImportError:
+    # train_v7_alpha was removed in the dead-code purge; keep the backtest
+    # functional by defaulting to the v12 blacklist and no interactions.
+    try:
+        from alpha.training.train_v12 import _BLACKLIST as BLACKLIST
+    except Exception:
+        BLACKLIST = frozenset()
+    INTERACTION_FEATURES = ()
 
 # ── Config ──
 SYMBOL = "BTCUSDT"
