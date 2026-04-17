@@ -16,7 +16,7 @@ Environment=LIMIT_OFFSET_BPS=20
 ExecStart=/usr/bin/python3 -m runner.alpha_main --venue binance --symbols BTCUSDT BTCUSDT_4h ETHUSDT --ws
 User=ubuntu
 TimeoutStopSec=15
-MemoryMax=768M
+MemoryMax=1024M
 CPUQuota=50%
 StandardOutput=append:/quant_system/logs/binance_alpha.log
 StandardError=append:/quant_system/logs/binance_alpha.log

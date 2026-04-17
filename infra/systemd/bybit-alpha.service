@@ -18,7 +18,7 @@ StandardOutput=append:/quant_system/logs/bybit_alpha.log
 StandardError=append:/quant_system/logs/bybit_alpha.log
 
 # Resource limits — shares models with OKX, needs warmup memory
-MemoryMax=768M
+MemoryMax=1024M
 CPUQuota=50%
 
 [Install]
