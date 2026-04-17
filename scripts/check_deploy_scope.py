@@ -1,0 +1,1 @@
+/home/ubuntu/dev/scripts/check_deploy_scope.py

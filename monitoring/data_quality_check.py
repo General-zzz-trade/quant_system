@@ -255,6 +255,45 @@ def main() -> int:
                 for warn in file_result["warnings"][:3]:
                     print(f"    WARN:  {warn}")
 
+    # Data freshness check: alert if critical data sources are stale
+    stale_alerts = []
+    _FRESHNESS_THRESHOLDS = {
+        # (file_pattern, max_age_hours, description)
+        "btc_onchain_daily.csv": (72, "BTC on-chain"),
+        "eth_onchain_daily.csv": (72, "ETH on-chain"),
+        "BTCUSDT_deribit_iv.csv": (48, "BTC IV"),
+        "ETHUSDT_deribit_iv.csv": (48, "ETH IV"),
+        "cross_market_daily.csv": (48, "Cross-market ETF"),
+        "stablecoin_daily.csv": (96, "Stablecoin supply"),
+        "fear_greed_index.csv": (48, "Fear & Greed Index"),
+    }
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    for fname, (max_hours, desc) in _FRESHNESS_THRESHOLDS.items():
+        fpath = data_dir / fname
+        if not fpath.exists():
+            stale_alerts.append(f"{desc}: FILE MISSING ({fname})")
+            continue
+        mtime = fpath.stat().st_mtime
+        age_hours = (now_ts - mtime) / 3600
+        if age_hours > max_hours:
+            stale_alerts.append(f"{desc}: {age_hours:.0f}h old (max {max_hours}h)")
+
+    if stale_alerts:
+        total_fail += 1
+        if not args.json:
+            print("\n  DATA FRESHNESS: FAIL")
+            for alert in stale_alerts:
+                print(f"    STALE: {alert}")
+        if args.alert:
+            stale_msg = "Data freshness: " + "; ".join(stale_alerts)
+            try:
+                from monitoring.notify import send_notification
+                send_notification(stale_msg, severity="warning")
+            except ImportError:
+                _send_telegram_alert(stale_msg)
+    elif not args.json:
+        print("\n  DATA FRESHNESS: OK (all sources within thresholds)")
+
     # Summary
     if args.json:
         summary = {

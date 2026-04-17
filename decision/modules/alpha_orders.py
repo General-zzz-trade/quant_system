@@ -45,9 +45,13 @@ def make_close_order(
     current_qty: Decimal,
     min_size: Decimal,
 ) -> list[OrderEvent]:
-    """Create OrderEvent for closing current position."""
-    # Use tracked qty; fallback to min_size to avoid zero-qty rejection
-    qty = current_qty if current_qty > 0 else min_size
+    """Create OrderEvent for closing current position.
+
+    Emits qty=0 so the execution adapter calls reliable_close_position(),
+    which queries the exchange for actual position size. This prevents
+    dust positions from _current_qty drifting vs exchange (partial fills).
+    """
+    qty = Decimal("0")
     header = EventHeader.new_root(
         event_type=EventType.ORDER,
         version=1,

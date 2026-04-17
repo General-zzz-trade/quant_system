@@ -1,0 +1,14 @@
+[Unit]
+Description=Monthly feature ablation analysis — Ridge IC ranking
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/bin/bash -c '/usr/bin/python3 scripts/feature_ablation.py --symbol BTCUSDT --json > data/runtime/feature_ablation_BTCUSDT.json 2>&1 && /usr/bin/python3 scripts/feature_ablation.py --symbol ETHUSDT --json > data/runtime/feature_ablation_ETHUSDT.json 2>&1'
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=-/quant_system/.env
+StandardOutput=append:/quant_system/logs/feature_ablation.log
+StandardError=append:/quant_system/logs/feature_ablation.log
+TimeoutStartSec=600

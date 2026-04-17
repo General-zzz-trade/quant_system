@@ -1,0 +1,13 @@
+[Unit]
+Description=OOS Sharpe Monitor — backtest health check
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.oos_sharpe_monitor --alert
+User=ubuntu
+Environment=PYTHONPATH=/quant_system:/home/ubuntu/dev
+Environment=QUANT_ALLOW_UNSIGNED_MODELS=1
+StandardOutput=append:/quant_system/logs/oos_sharpe_monitor.log
+StandardError=append:/quant_system/logs/oos_sharpe_monitor.log

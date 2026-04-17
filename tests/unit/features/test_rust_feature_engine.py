@@ -130,7 +130,7 @@ def test_feature_engine_basic():
     assert engine.warmed_up
 
     features = engine.get_features()
-    assert len(features) == 105
+    assert len(features) == 141
     assert features["ret_1"] is not None
     assert features["rsi_14"] is not None
     assert features["atr_norm_14"] is not None

@@ -6,8 +6,10 @@ OrderEvents.  Pure decision logic — no venue state, no I/O.
 """
 from __future__ import annotations
 
+import decimal
 import json
 import logging
+import math
 import os
 import time
 from decimal import Decimal
@@ -26,6 +28,8 @@ from _quant_hotpath import (  # type: ignore[import-untyped]
     RustRegimeParams,
     RustRidgePredictor,
 )
+from strategy.regime.composite import CompositeRegimeDetector, CompositeRegimeLabel
+from strategy.regime.param_router import RegimeParamRouter
 
 # Type aliases for Rust-accelerated components used in framework-native path
 RegimeParamsType = RustRegimeParams
@@ -92,14 +96,27 @@ class AlphaDecisionModule:
         self._bars_processed: int = 0
         self._last_trade_bar: int = -9999  # cooldown: bar index of last trade (init allows first trade)
 
-        # Regime filter buffers
-        self._closes: list[float] = []
-        self._ema10: float = 0.0  # EMA(10) for trend filter (updated each bar)
+        # Regime filter buffers — pre-load historical closes for bear regime.
+        self._closes: list[float] = self._load_historical_closes(symbol)
+        self._ema10: float = self._closes[-1] if self._closes else 0.0
         self._rets: list[float] = []
         self._vol_history: list[float] = []
         self._trend_history: list[float] = []
         self._regime_active: bool = True
         self._trend_factor: float = 1.0
+        self._bear_regime: bool = False  # 90-day return < -20%
+        self._bear_short_scale: float = 1.0  # reduced to 0.5 for macro-gated bear shorts
+        self._below_sma: bool = False  # close < SMA(ma_window) → trend gate
+        self._ranging: bool = False  # BB squeeze → mean-reversion regime
+        self._bb_width_history: list[float] = []  # BB width history for percentile
+        self._bb_upper: float = 0.0  # current BB upper band
+        self._bb_lower: float = 0.0  # current BB lower band
+        self._bb_mid: float = 0.0    # current BB mid (SMA20)
+        self._composite_regime = CompositeRegimeDetector()
+        self._regime_router = RegimeParamRouter()
+        self._regime_label: str = "unknown"  # strong_up/weak_up/ranging/weak_down/strong_down
+        self._regime_vol: str = "normal_vol"
+        self._regime_position_scale: float = 1.0  # from ParamRouter, applied to sizing
 
         # Stop-loss
         self._atr_buffer: list[float] = []
@@ -142,9 +159,19 @@ class AlphaDecisionModule:
         self._min_hold_base: int = discretizer.min_hold
         self._max_hold_base: int = discretizer.max_hold
 
+        # Per-symbol exit tuning (from model config.json "exit" section)
+        _exit_cfg = getattr(predictor, "_config", {}).get("exit", {})
+        # z-reversal threshold: -0.3 = aggressive (default), -999 = disabled
+        self._z_reversal_thresh: float = abs(_exit_cfg.get("reversal_threshold", -0.3))
+        # ATR init multiplier: higher = wider initial stop (good for trending assets)
+        self._atr_init_mult_base: float = _exit_cfg.get("atr_init_mult", 0.6)
+
         # Microstructure VPIN scaling (optional, live-only)
         self._vpin_caution_thresh: float = 0.5
         self._vpin_scale_factor: float = 0.7  # reduce size by 30% when VPIN > threshold
+
+        # Dual z-score: shorter window buffer for short signals (480 vs 720)
+        self._short_z_buf: list[float] = []
 
         # Batch prediction override: when set, decide() uses this instead of
         # incremental predictor.predict(). Cleared after each use.
@@ -218,7 +245,7 @@ class AlphaDecisionModule:
                 pass  # never crash the trading loop
 
         # 1. Regime filter
-        regime_ok = self._check_regime(close)
+        regime_ok = self._check_regime(close, features)
 
         # 2. Update ATR
         self._update_atr(snapshot)
@@ -239,6 +266,13 @@ class AlphaDecisionModule:
             regime_ok,
             current_signal=self._signal,
         )
+
+        # 4a. 4h z-score fusion — DISABLED (2026-04-13)
+        # Backtest showed z fusion hurts: BTC Sharpe 4.38→0.23, ETH 9.85→6.92.
+        # The 4h z-score introduces lag and drags 1h signals in wrong direction.
+        # Keeping the consensus z publishing (line ~750) for future experiments,
+        # but NOT blending into 1h z.  The existing binary 4h direction filter
+        # (line ~375) remains active and is sufficient.
 
         # 4b. IC RED gate: block new entries when model IC is RED (negative).
         # The model is producing anti-correlated predictions — trading on them
@@ -280,6 +314,58 @@ class AlphaDecisionModule:
         if new_signal == 0 and self._signal == 0 and sw > 0.02:
             # Signal weight is meaningful — enter with graduated size
             new_signal = 1 if z > 0 else -1
+
+        # 4d. BB band reversal entry (ranging regime only).
+        # In BB squeeze, price touching lower band + RSI extreme = mean reversion.
+        # 2026-04-17: added RSI validity check (must be 1<rsi<99) to skip warmup bars
+        # where RSI is uninitialized and reads 0/-0, which incorrectly triggered entries.
+        # Also skip during early warmup (bars_processed < 50).
+        if (
+            new_signal == 0
+            and self._signal == 0
+            and self._ranging
+            and not self._is_4h
+            and self._bb_lower > 0
+            and self._audit_enabled  # skip warmup (audit only enabled post-warmup)
+        ):
+            rsi = features.get("rsi_14")
+            rsi_val = float(rsi) if rsi is not None else 50.0
+            # Validate RSI: must be in normal range (uninitialized RSI reads as 0)
+            if not (1.0 < rsi_val < 99.0):
+                rsi_val = 50.0  # treat invalid as neutral
+            # BB lower band touch + RSI < 35 → buy
+            if close <= self._bb_lower * 1.002 and rsi_val < 35:
+                new_signal = 1
+                sw = max(sw, 0.4)
+                logger.info(
+                    "%s BB_lower touch entry: close=%.2f <= bb=%.2f, z=%+.2f, rsi=%.0f",
+                    self._runner_key, close, self._bb_lower, z, rsi_val,
+                )
+            # BB upper band touch + RSI > 65 → sell
+            elif close >= self._bb_upper * 0.998 and rsi_val > 65:
+                new_signal = -1
+                sw = max(sw, 0.5)
+                logger.info(
+                    "%s BB_upper touch entry: close=%.2f >= bb=%.2f, z=%+.2f, rsi=%.0f",
+                    self._runner_key, close, self._bb_upper, z, rsi_val,
+                )
+
+        # 4e. Dual z-score: shorter window (480) for shorts.
+        # Main z-score (720 bars) may miss shorter-term momentum shifts.
+        # If main z didn't trigger and we're flat on 1h, check short_z.
+        if new_signal == 0 and self._signal == 0 and not self._is_4h:
+            self._short_z_buf.append(pred)
+            if len(self._short_z_buf) > 480:
+                self._short_z_buf = self._short_z_buf[-480:]
+            if len(self._short_z_buf) >= 120:  # warmup
+                sz_mean = np.mean(self._short_z_buf)
+                sz_std = np.std(self._short_z_buf)
+                if sz_std > 1e-10:
+                    short_z = (pred - sz_mean) / sz_std
+                    short_z = np.clip(short_z, -3.0, 3.0)
+                    if short_z < -self._discretizer.deadzone:
+                        new_signal = -1
+                        z = short_z
 
         # 5. Force exits
         force_exit, exit_reason = self._check_force_exits(close, z)
@@ -376,6 +462,53 @@ class AlphaDecisionModule:
                     pass
                 new_signal = 0
 
+        # 6b2. Bear market short gating.
+        # BTC: hard block (shorts unstable even with macro gate, -21% in 3m).
+        # ETH: macro-conditioned shorts (SPY/VIX/HYG risk-off → allow at 50% size).
+        #   Backtest 2026-04-13: ETH 3m +6.6%→+26.0%, 6m -27.1%→+15.4%,
+        #   12m +27.0%→+62.6%, 18m +81.0%→+132.6%.
+        if (
+            new_signal == -1
+            and self._signal == 0
+            and self._bear_regime
+        ):
+            if "ETH" not in self._symbol:
+                # BTC: hard block all shorts in bear market
+                logger.info(
+                    "%s bear regime: blocked SHORT entry (BTC shorts unstable)",
+                    self._runner_key,
+                )
+                new_signal = 0
+            else:
+                # ETH: allow shorts only when macro risk-off
+                spy_ret = features.get("spy_ret_1d", 0) or 0
+                vix_chg = features.get("vix_chg_1d", 0) or 0
+                hyg_ret = features.get("hyg_ret_1d", 0) or 0
+                # Crypto-native bear indicators
+                btc_trend_down = features.get("ma_cross_10_30", 0) < 0  # BTC MA(10) < MA(30)
+                funding_neg = features.get("funding_cumulative_8", 0) < -0.0005  # negative funding pressure
+                crypto_risk_off = btc_trend_down or funding_neg
+                macro_risk_off = (
+                    spy_ret < -0.005       # SPY down > 0.5%
+                    or vix_chg > 0.01      # VIX up > 1%
+                    or hyg_ret < -0.003    # HYG down > 0.3%
+                    or crypto_risk_off     # crypto-native bear signals
+                )
+                if not macro_risk_off:
+                    logger.info(
+                        "%s bear regime: blocked SHORT (no macro risk-off: "
+                        "spy=%.3f vix=%.3f hyg=%.3f)",
+                        self._runner_key, spy_ret, vix_chg, hyg_ret,
+                    )
+                    new_signal = 0
+                else:
+                    self._bear_short_scale = 0.5
+                    logger.info(
+                        "%s bear SHORT ALLOWED (macro risk-off: "
+                        "spy=%.3f vix=%.3f hyg=%.3f) → 50%% size",
+                        self._runner_key, spy_ret, vix_chg, hyg_ret,
+                    )
+
         # 6c. Multi-trend filter: scale signal_weight by trend alignment.
         # Replaces the old EMA10 hard block which prevented 48% of trades
         # that had HIGHER win rates than those it allowed through.
@@ -464,11 +597,13 @@ class AlphaDecisionModule:
                 regime_active=self._regime_active,
                 z_scale=1.0,
             )
+            # Apply regime position scale (crisis=0.1, high_vol=0.3, etc.)
+            effective_sw = sw * self._regime_position_scale
             try:
-                _rounded = self._sizer._round_to_step(float(full_qty) * sw)
-                target_qty = _rounded if isinstance(_rounded, Decimal) else Decimal(str(float(full_qty) * sw))
+                _rounded = self._sizer._round_to_step(float(full_qty) * effective_sw)
+                target_qty = _rounded if isinstance(_rounded, Decimal) else Decimal(str(float(full_qty) * effective_sw))
             except Exception:
-                target_qty = Decimal(str(float(full_qty) * sw))
+                target_qty = Decimal(str(float(full_qty) * effective_sw))
             add_qty = target_qty - self._current_qty
             try:
                 _rounded = self._sizer._round_to_step(float(add_qty))
@@ -476,6 +611,17 @@ class AlphaDecisionModule:
                     add_qty = _rounded
             except Exception:
                 pass
+            # Cap scale-up to max 50% of current position per bar
+            # to prevent aggressive pyramiding that amplifies drawdown
+            max_add = self._current_qty * Decimal("0.5")
+            if add_qty > max_add and max_add > Decimal("0"):
+                add_qty = max_add
+                try:
+                    _r = self._sizer._round_to_step(float(add_qty))
+                    if isinstance(_r, Decimal):
+                        add_qty = _r
+                except Exception:
+                    pass
             if add_qty > Decimal("0") and float(add_qty) > float(full_qty) * 0.05:
                 events.extend(self._make_open_order(close, self._signal, add_qty))
                 avg_entry = (
@@ -598,16 +744,28 @@ class AlphaDecisionModule:
                     regime_active=self._regime_active,
                     z_scale=1.0,
                 )
+                # Dynamic inverse-vol sizing: smaller in high-vol, larger
+                # in low-vol.  Backtest 2026-04-12: combined with dynamic
+                # deadzone gives Sharpe 2.63→3.23 (+23%), MaxDD unchanged.
+                vf = self._vol_factor()
+                if vf > 0:
+                    vol_scale = 1.0 / vf  # inverse: high vol → smaller pos
+                    vol_scale = np.clip(vol_scale, 0.5, 2.0)
+                    qty = Decimal(str(float(qty) * vol_scale))
                 # Graduated sizing: qty × signal_weight(z)
                 qty = Decimal(str(float(qty) * sw))
+                # Bear market short: half position size
+                if new_signal == -1 and self._bear_short_scale < 1.0:
+                    qty = Decimal(str(float(qty) * self._bear_short_scale))
+                    self._bear_short_scale = 1.0  # reset after use
                 if sw < 0.95:
                     logger.info(
                         "%s GRADUATED entry: z=%+.2f, sw=%.0f%%, qty=%.4f",
                         self._runner_key, z, sw * 100, float(qty),
                     )
-                # 4h consensus boost: if 4h signal agrees, scale up position
-                # ETH 1h+4h同向 → 仓位 ×1.25 (backtest: +25% return improvement)
-                if not self._is_4h and "ETH" in self._symbol:
+                # 4h consensus boost: if 4h signal agrees, scale up position.
+                # Both BTC and ETH benefit from multi-TF alignment.
+                if not self._is_4h:
                     tf4h_key = f"{self._symbol}_4h"
                     tf4h_signal = self._consensus.get(tf4h_key, 0)
                     if tf4h_signal != 0 and tf4h_signal == new_signal:
@@ -635,8 +793,12 @@ class AlphaDecisionModule:
                         qty = _rounded
                 except Exception:
                     pass
-                if qty <= 0:
-                    return events  # skip zero/negative qty (warmup, edge case)
+                try:
+                    qty_f = float(qty)
+                except (ValueError, TypeError, decimal.InvalidOperation):
+                    qty_f = 0.0
+                if not math.isfinite(qty_f) or qty_f <= 0:
+                    return events  # skip zero/negative/NaN qty (warmup, edge case)
                 events.extend(self._make_open_order(close, new_signal, qty))
                 entry_reason = "graduated" if sw < 0.95 else "signal"
                 if self._audit_enabled:
@@ -662,6 +824,7 @@ class AlphaDecisionModule:
 
         # 8. Update consensus
         self._consensus[self._runner_key] = self._signal
+        self._consensus[f"{self._runner_key}_z"] = z
         # Publish IC health for 4h direction filter
         if self._is_4h:
             self._consensus[f"{self._runner_key}_ic_ok"] = self._ic_scale >= 0.5
@@ -674,7 +837,24 @@ class AlphaDecisionModule:
 
         return events
 
-    def _check_regime(self, close: float) -> bool:
+    @staticmethod
+    def _load_historical_closes(symbol: str) -> list[float]:
+        """Pre-load recent closes from CSV for immediate bear regime detection."""
+        base_sym = symbol.replace("_4h", "").replace("_15m", "")
+        from pathlib import Path
+        csv_path = Path(f"data_files/{base_sym}_1h.csv")
+        if not csv_path.exists():
+            return []
+        try:
+            import pandas as pd
+            df = pd.read_csv(csv_path, usecols=["close"])
+            n = 90 * 24 + 200  # 90 days + margin
+            closes = df["close"].iloc[-n:].astype(float).tolist()
+            return closes
+        except Exception:
+            return []
+
+    def _check_regime(self, close: float, features: dict | None = None) -> bool:
         """Adaptive p20/p25 percentile regime filter."""
         self._closes.append(close)
         # Update EMA10 for trend filter (alpha = 2/(10+1) ≈ 0.1818)
@@ -686,7 +866,8 @@ class AlphaDecisionModule:
             log_ret = np.log(self._closes[-1] / self._closes[-2])
             self._rets.append(log_ret)
 
-        max_buf = self._ma_window + 100
+        # Buffer must hold 90*24=2160 bars for bear regime detection.
+        max_buf = max(self._ma_window + 100, 90 * 24 + 100)
         if len(self._closes) > max_buf:
             self._closes = self._closes[-max_buf:]
         if len(self._rets) > max_buf:
@@ -716,11 +897,120 @@ class AlphaDecisionModule:
         else:
             self._regime_active = True
 
-        # Fixed deadzone/hold — backtest shows fixed outperforms vol-adaptive
-        # (vol-adaptive reduced Return by 43% due to widening dz on strong signals)
-        self._discretizer.deadzone = self._deadzone_base
-        self._discretizer.min_hold = self._min_hold_base
-        self._discretizer.max_hold = self._max_hold_base
+        # Bear market detection: 90d<-20% AND 30d<-5% (dual confirmation).
+        # 2026-04-16: added 30d confirmation to avoid false bear signals during
+        # bear-market rallies (60d +14%, 7d +8% but 90d still -29% = recovery).
+        # Validation: when 90d<-20% but 30d>-5%, next 30d forward return avg
+        # +7.3% (64% positive) — confirming not truly bear, shouldn't block shorts.
+        if len(self._closes) >= 90 * 24:
+            ret_90d = close / self._closes[-(90 * 24)] - 1.0
+            ret_30d = close / self._closes[-(30 * 24)] - 1.0
+            self._bear_regime = (ret_90d < -0.20) and (ret_30d < -0.05)
+        elif len(self._closes) >= 30 * 24:
+            ret_30d = close / self._closes[-(30 * 24)] - 1.0
+            self._bear_regime = ret_30d < -0.10  # stricter for shorter window
+
+        # SMA trend gate: close < SMA → widen deadzone 1.5× to suppress entries.
+        # Backtest: BTC monthly-gate Sharpe 4.38→11.43. The live system uses
+        # a softer version: widen dz rather than hard-block, so strong signals
+        # can still trade.  Only affects long entries (shorts already gated by
+        # bear_regime).
+        self._below_sma = close < ma if len(ma_vals) >= self._ma_window else False
+
+        # ── Composite regime detection + ParamRouter ──
+        # Replaces hand-written if/else with unified regime→params mapping.
+        # CompositeRegimeDetector classifies trend (strong_up/weak_up/ranging/
+        # weak_down/strong_down) + volatility (low_vol/normal_vol/high_vol/crisis).
+        # RegimeParamRouter maps (trend, vol) → (dz_scale, min_hold, max_hold, position_scale).
+        regime_params = None
+        # Reset to 1.0 each bar — only reduced when regime detection succeeds.
+        self._regime_position_scale = 1.0
+        if features and not self._is_4h:
+            from datetime import datetime, timezone
+            regime = self._composite_regime.detect(
+                symbol=self._symbol,
+                ts=datetime.now(timezone.utc),
+                features=features,
+            )
+            if regime and regime.meta:
+                composite = regime.meta.get("composite")
+                if isinstance(composite, CompositeRegimeLabel):
+                    self._regime_label = composite.trend
+                    self._regime_vol = composite.vol
+                    regime_params = self._regime_router.route(composite)
+                    self._regime_position_scale = regime_params.position_scale
+                else:
+                    trend_lbl = regime.meta.get("trend_label")
+                    if hasattr(trend_lbl, "value"):
+                        self._regime_label = trend_lbl.value
+                    elif isinstance(trend_lbl, str):
+                        self._regime_label = trend_lbl
+
+        # BB bands for ranging detection + band trading
+        if len(self._closes) >= 20:
+            bb_slice = self._closes[-20:]
+            bb_mean = np.mean(bb_slice)
+            bb_std = np.std(bb_slice)
+            self._bb_mid = bb_mean
+            self._bb_upper = bb_mean + 2 * bb_std
+            self._bb_lower = bb_mean - 2 * bb_std
+            bb_width = (bb_std * 2 / bb_mean) if bb_mean > 0 else 0
+            self._bb_width_history.append(bb_width)
+            if len(self._bb_width_history) > 720:
+                self._bb_width_history = self._bb_width_history[-720:]
+            if len(self._bb_width_history) >= 100:
+                # Hysteresis to prevent flicker: enter ranging at p20, exit at p30
+                bb_pctile_20 = float(np.percentile(self._bb_width_history, 20))
+                bb_pctile_30 = float(np.percentile(self._bb_width_history, 30))
+                if self._ranging:
+                    self._ranging = bb_width < bb_pctile_30  # exit at higher threshold
+                else:
+                    self._ranging = bb_width < bb_pctile_20  # enter at lower threshold
+            else:
+                self._ranging = False
+
+        # ── Dynamic deadzone: base / sqrt(vf) then regime adjustments ──
+        vf = vol_20 / self._vol_median if self._vol_median > 0 and vol_20 > 0 else 1.0
+        vf = np.clip(vf, 0.5, 2.0)
+        dz = np.clip(self._deadzone_base / (vf ** 0.5), 0.6, 2.5)
+
+        if not self._is_4h:
+            # Regime-driven adjustments (ParamRouter + backtest-validated rules)
+            if self._regime_vol == "crisis":
+                # Crisis: max protection — dz×2.5, position_scale already 0.1
+                dz = max(dz, 2.5)
+            elif "down" in self._regime_label:
+                # Downtrend: widen dz to suppress long entries.
+                # BTC: SMA gate ×1.5 (backtest Sharpe 4.38→11.43)
+                # ETH: also widen ×1.3 in strong_down (previously unprotected)
+                if "BTC" in self._symbol and self._below_sma:
+                    dz = dz * 1.5
+                elif "ETH" in self._symbol and self._regime_label == "strong_down":
+                    dz = dz * 1.3
+            elif self._regime_label == "ranging":
+                # Ranging: ETH benefits from tighter dz (backtest dz=0.8 > dz=2.0)
+                if "ETH" in self._symbol:
+                    dz = max(dz * 0.5, 0.6)
+
+        self._discretizer.deadzone = dz
+
+        # ── Dynamic min_hold: base / sqrt(vf) then regime adjustments ──
+        mh = int(np.clip(
+            self._min_hold_base / (vf ** 0.5),
+            4, self._min_hold_base * 2,
+        ))
+        if not self._is_4h:
+            if self._regime_vol == "crisis":
+                mh = max(mh * 2, 48)  # hold longer in crisis (avoid churn)
+            # Ranging min_hold: keep original (do NOT halve).
+            # 2026-04-14: halving caused premature exit at z=+1.34, then price
+            # rallied $37. Ranging dz×0.5 helps ENTRY; min_hold should protect
+            # the position until mean-reversion completes.
+
+        self._discretizer.min_hold = mh
+        self._discretizer.max_hold = (
+            regime_params.max_hold if regime_params else self._max_hold_base
+        )
 
         return self._regime_active
 
@@ -807,7 +1097,10 @@ class AlphaDecisionModule:
         #   vf=2.0 (high-vol): trail=0.30, brkev=0.15, init=1.6
         trail_mult = 0.1 + 0.1 * vf     # 0.15 – 0.30
         brkev_mult = 0.05 + 0.05 * vf   # 0.075 – 0.15
-        init_mult = 0.6 + 0.6 * vf      # 0.9 – 1.8
+        _aim = getattr(self, "_atr_init_mult_base", 0.6) or 0.6
+        if not isinstance(_aim, (int, float)):
+            _aim = 0.6
+        init_mult = _aim + _aim * vf     # default: 0.9 – 1.8; BTC 1.5: 2.25 – 4.5
         floor = 0.001 + 0.002 * vf       # 0.002 – 0.005
 
         if profit_pct >= 1.0 * atr:
@@ -845,6 +1138,16 @@ class AlphaDecisionModule:
         if adverse > ql_threshold:
             return True, f"quick_loss({adverse:.3f}>{ql_threshold:.3f})"
 
+        # BB target exit: in ranging regime, take profit at BB OPPOSITE band.
+        # Only exit at the opposite band (not mid) to avoid truncating trends.
+        # 2026-04-14: ranging_tp at 0.3% removed — truncated +7% move to +0.3%.
+        # bb_target_mid also removed — too aggressive in trending breakouts.
+        if self._ranging and self._bb_upper > 0 and profit_pct > 0.005:
+            if self._signal == 1 and close >= self._bb_upper:
+                return True, f"bb_target_upper(long,close={close:.0f}>=upper={self._bb_upper:.0f})"
+            if self._signal == -1 and close <= self._bb_lower:
+                return True, f"bb_target_lower(short,close={close:.0f}<=lower={self._bb_lower:.0f})"
+
         # Z-fade profit exit: signal weakening while in profit.
         # Low-vol: exit at 0.6×dz (earlier take-profit)
         # High-vol: exit at 0.4×dz (let winners run)
@@ -855,11 +1158,15 @@ class AlphaDecisionModule:
                 f"profit={profit_pct:.3f},vf={vf:.2f})"
             )
 
-        # Z reversal
-        if self._signal == 1 and z < -0.3:
-            return True, f"z_reversal(long,z={z:.2f})"
-        if self._signal == -1 and z > 0.3:
-            return True, f"z_reversal(short,z={z:.2f})"
+        # Z reversal (configurable threshold; set reversal_threshold=-999 to disable)
+        _zrt = getattr(self, "_z_reversal_thresh", 0.3)
+        if not isinstance(_zrt, (int, float)):
+            _zrt = 0.3
+        if _zrt < 100:  # skip if effectively disabled
+            if self._signal == 1 and z < -_zrt:
+                return True, f"z_reversal(long,z={z:.2f})"
+            if self._signal == -1 and z > _zrt:
+                return True, f"z_reversal(short,z={z:.2f})"
 
         # 4h reversal (non-4h runners only)
         if not self._is_4h:
@@ -890,20 +1197,13 @@ class AlphaDecisionModule:
     def _signal_weight(self, z: float) -> float:
         """Map |z| to position fraction [0, 1] via smooth sigmoid.
 
-        Replaces binary deadzone + tier1/tier2 with a continuous curve:
-          |z| < floor (0.4×dz):  → 0%   (noise, no position)
+          |z| < floor (0.7×dz):  → 0%   (noise, no position)
           |z| = dz:              → ~60%  (confirmed signal)
           |z| = 1.5×dz:         → ~95%  (strong signal)
-          |z| > 1.5×dz:         → 100%  (max conviction)
-
-        The sigmoid midpoint is at dz (original deadzone), steepness tuned
-        so the ramp starts at ~0.4×dz and saturates at ~1.5×dz.
         """
         abs_z = abs(z)
         if abs_z < self._soft_dz_floor:
             return 0.0
-        # Sigmoid: 1 / (1 + exp(-k*(x - mid)))
-        # mid = deadzone, k chosen so weight(0.4*dz) ≈ 0.02, weight(1.5*dz) ≈ 0.95
         dz = self._deadzone_base
         if dz <= 0:
             return 1.0 if abs_z > 0.5 else 0.0

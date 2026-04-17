@@ -1,0 +1,9 @@
+[Unit]
+Description=OOS Sharpe Monitor — daily at 4am JST
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Tokyo
+Persistent=true
+
+[Install]
+WantedBy=timers.target

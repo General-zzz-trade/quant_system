@@ -13,14 +13,18 @@ cargo test                   # Rust unit tests
 ruff check --select E,W,F . # Lint (matches CI gate)
 ```
 
-**Active trading**:
+**Active trading (OKX live)**:
 ```bash
-# Strategy H: 4h primary + 1h scaler (framework-native, 4 runners, 2 WS):
-python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
-sudo systemctl restart bybit-alpha.service
+# Strategy H: 4h primary + 1h scaler (framework-native, 3 runners, 1 WS):
+python3 -m runner.alpha_main --venue okx --symbols BTCUSDT BTCUSDT_4h ETHUSDT --ws
+sudo systemctl restart okx-alpha.service
 
 # Model hot-reload (no restart, <200ms):
-sudo kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)
+sudo kill -HUP $(systemctl show -p MainPID okx-alpha.service | cut -d= -f2)
+
+# Bybit (inactive, demo only):
+# python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
+# sudo systemctl restart bybit-alpha.service
 ```
 
 **Data & model management**:
@@ -73,8 +77,9 @@ state/           State management (Rust types, zero Python dataclass)
   store.py           SQLite persistence + Rust to_dict/from_dict
   rust/              19 .rs (types, reducers, store)
 
-execution/       Exchange adapters (Bybit, Hyperliquid, Binance)
-  adapters/bybit/    Production adapter + execution_adapter (3x retry)
+execution/       Exchange adapters (OKX, Bybit, Binance, Hyperliquid)
+  adapters/okx/      **PRODUCTION** adapter (live SWAP) + post-only limit entry + TCA
+  adapters/bybit/    Bybit adapter + execution_adapter (3x retry)
   safety/            CircuitBreaker, KillSwitch, OrderLimiter (Rust delegates)
   rust/              6 .rs (order state machine, WS client)
 
@@ -105,17 +110,21 @@ research/        Research scripts + Rust tools
 
 **Data flow (Strategy H)**:
 ```
-Bybit WS kline → MarketEvent → EngineCoordinator.emit()
+WS kline (OKX/Bybit) → MarketEvent → EngineCoordinator.emit()
   ├─ FeatureComputeHook → RustFeatureEngine → 141 features (+ 13 CSV data sources)
   ├─ StatePipeline → RustStateStore (state update)
   └─ DecisionBridge → AlphaDecisionModule.decide(snapshot)
-      ├─ EnsemblePredictor: Ridge(60%)+LGBM(40%), Rust-native inference preferred
+      ├─ EnsemblePredictor: BTC Ridge(50%)+LGBM(26%)+XGB(24%); ETH Ridge(33%)+LGBM(67%)
       ├─ SignalDiscretizer: z-score → z-clamp → fixed deadzone → min-hold
+      ├─ Graduated entry: sigmoid signal_weight (soft dz floor 0.4×dz → full at 1.5×dz)
       ├─ Force exits: ATR 3-phase stop, quick loss, z-reversal, 4h reversal, alignment exit
       ├─ 4h direction filter: 1h entry blocked when 4h signal opposes
+      ├─ Bear regime: 90d ret < -20% → BTC shorts blocked; ETH macro-gated (SPY/VIX/HYG)
       ├─ Direction alignment: ETH follows BTC (entry + holding)
+      ├─ Dynamic deadzone: dz_base / sqrt(vol_factor), clamp [0.6, 2.5]
+      ├─ Dynamic sizing: inverse vol (1/vf), clamp [0.5, 2.0]
       └─ AdaptivePositionSizer: equity-tier × IC × vol (Rust delegate)
-  └─ OrderEvent → ExecutionBridge → BybitExecutionAdapter (3x retry) → FillEvent
+  └─ OrderEvent → ExecutionBridge → VenueAdapter (OKX limit/Bybit market) → FillEvent
 
 Real-time layer (parallel to bar flow):
   ├─ on_tick: wick detector (>0.8% move + 0.3% bounce → early entry)
@@ -144,8 +153,11 @@ Real-time layer (parallel to bar flow):
 - `runner/builders/alpha_builder.py` — Coordinator builder + CsvCursor data sources + push_cross_market
 - `engine/coordinator.py` — Main event loop orchestrator
 - `engine/feature_hook.py` — Bridges RustFeatureEngine + 13 data sources + feature aliases
+- `execution/adapters/okx/execution_adapter.py` — **PRODUCTION** OkxExecutionAdapter (post-only limit + market fallback)
+- `execution/adapters/okx/adapter.py` — OkxAdapter (REST + WS, USDT SWAP)
 - `execution/adapters/bybit/execution_adapter.py` — BybitExecutionAdapter (3x retry)
 - `strategy/config.py` — SYMBOL_CONFIG, MAX_ORDER_NOTIONAL_PCT, LEVERAGE_LADDER
+- `scripts/pre_live_check.py` — Pre-startup validation (ExecStartPre in okx-alpha.service)
 - `features/batch_feature_engine.py` — Batch feature engine (192 features for training)
 - `alpha/retrain/cli.py` — Retrain CLI (correct entry for `--sighup` hot-reload)
 - `monitoring/ic_decay_monitor.py` — IC decay detection (GREEN/YELLOW/RED + auto-retrain trigger)
@@ -155,12 +167,15 @@ Real-time layer (parallel to bar flow):
 ## Signal Pipeline
 
 ```
-Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3.0)
-  → Fixed deadzone (no vol-adaptive scaling) → Discretize (+1/-1/0)
-  → Fixed min-hold → Trade cooldown (min_hold bars between flat→entry)
+Ensemble (per-symbol IC-weighted) → Rolling z-score → Z-clamp (|z|>3.5 → ±3.0)
+  → Dynamic deadzone (dz_base / sqrt(vol_factor), clamp [0.6, 2.5])
+  → Graduated entry: sigmoid signal_weight → continuous qty fraction [0, 1]
+  → Min-hold (BTC 21 bars, ETH 9 bars) → Trade cooldown
+  → Bear regime gate (BTC: block shorts; ETH: macro-gated shorts at 50% size)
   → 4h direction filter (1h entry blocked when 4h opposes)
   → Direction alignment (ETH follows BTC, entry + holding)
   → Force exits (ATR 3-phase/quick_loss/z_reversal/4h_reversal/alignment_exit)
+  → Dynamic inverse-vol sizing (1/vf, clamp [0.5, 2.0])
   → AdaptivePositionSizer (equity-tier × IC × leverage × z_scale)
   → Regime filter: inactive regime → deadzone × 1.5 (not blocked, just wider)
 ```
@@ -185,6 +200,8 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 - `MAX_ORDER_NOTIONAL_PCT = 250%` of equity (safety cap); dynamic via `get_max_order_notional(equity)`
 - `_round_to_step()` applied in ALL sizing paths — prevents Bybit `Qty invalid` rejections
 - SYMBOL_CONFIG: BTC+ETH 1h/4h active; 15m DISABLED (full-sample Sharpe 0.50, model decayed)
+- Micro tier (<$500): BTC 2x + ETH 6.5x — BTC cap=0.20, ETH cap=0.65
+- AdaptivePositionSizer: cap=0.0 returns qty=0 (min_size floor skipped for disabled symbols)
 - `_NEUTRAL_DEFAULTS`: NaN features → neutral values (ls_ratio→1.0, rsi_14→50.0), not 0.0
 - `reliable_close_position()` replaces bare `close_position()` calls
 - Trade cooldown: `_last_trade_bar` prevents rapid-fire open/close cycles after warmup
@@ -194,8 +211,10 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 - ADX(14): Rust incremental tracker (PyAdxTracker); needs 2×14=28 bars warmup
 - CrossAssetComputer: push benchmark (BTCUSDT) **before** altcoins each bar
 - Ridge model uses own feature list (`ridge_features`) — may differ from LGBM
-- BTC 1h: `deadzone=1.2, min_hold=6, max_hold=120`; ETH 1h: `deadzone=1.2, min_hold=6, long_only=false`
-- Deadzone is FIXED (vol-adaptive disabled — backtest showed fixed outperforms by 43%)
+- BTC 1h: `deadzone=1.5, min_hold=21, max_hold=120`; ETH 1h: `deadzone=2.0, min_hold=9, long_only=false`
+- BTC SMA trend gate: close < SMA(480) → deadzone ×1.5 (suppresses entries in downtrend)
+- Both BTC and ETH use `label_mode=forward_return`; ETH MAX_TRAIN_YEARS=1.5 (regime-focused)
+- Deadzone base is FIXED but dynamically scaled by inverse sqrt(vol_factor), clamp [0.6, 2.5]
 - Regime filter: inactive → deadzone × 1.5 (not 999); strong signals can still trade at 0.6x size
 - CsvCursor: loads full CSV history so each warmup bar gets time-appropriate values (not just latest)
 - push_cross_market(): feeds ETF daily data (SPY/TLT/USO/GLD/COIN) to Rust engine
@@ -203,11 +222,13 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 - Online Ridge: activated in EnsemblePredictor (forgetting_factor=0.99), auto-updates each bar
 
 **Safety & security**:
-- Model signing: HMAC-SHA256 via `QUANT_MODEL_SIGN_KEY`. Live mode **always** requires signatures; demo allows bypass
-- Daily drawdown kill switch: `MAX_DAILY_DRAWDOWN_PCT` (default 5%) arms `RustKillSwitch` in main loop
-- Leverage auto-detection: 3x for live (`api.bybit.com`), 10x for demo — see `strategy/config.py:_IS_LIVE`
+- Model signing: HMAC-SHA256 via `QUANT_MODEL_SIGN_KEY`. Live mode requires signatures; `QUANT_ALLOW_UNSIGNED_MODELS=1` bypasses
+- Daily drawdown kill switch: OKX uses `MAX_DAILY_DRAWDOWN_PCT=8.0`, `MAX_WEEKLY_DRAWDOWN_PCT=15.0`
+- Leverage: OKX live 10x (micro tier pure ETH); Bybit 3x live / 10x demo
 - VPIN entry gate: reduces qty 30% when `vpin > 0.5` (microstructure toxicity)
-- Decision audit: `data/runtime/decision_audit.jsonl` — every signal/entry/exit logged as JSON
+- Bear regime: 90d return < -20% → BTC shorts hard-blocked; ETH macro-gated (SPY<-0.5% OR VIX>1% OR HYG<-0.3% → allow short at 50% size)
+- Decision audit: `data/runtime/decision_audit_okx.jsonl` — every signal/entry/exit logged as JSON
+- Pre-startup check: `scripts/pre_live_check.py` validates env/models/Rust/connectivity (ExecStartPre)
 
 **Startup & recovery**:
 - Parallel warmup: 4 runners warm up concurrently via ThreadPoolExecutor (~4s total)
@@ -216,8 +237,9 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 - WS interval routing: bar dict includes `interval` field from topic (kline.60 vs kline.240)
 
 **Deployment**:
-- Production entry: `python3 -m runner.alpha_main` (systemd: `bybit-alpha.service`)
-- Timers: health-watchdog (5min), data-refresh (6h), daily-retrain (daily 2am via `alpha.retrain.cli`), auto-retrain (3 days), ic-decay (daily 3am)
+- Production entry: `python3 -m runner.alpha_main --venue okx` (systemd: `okx-alpha.service`)
+- ExecStartPre chain: `pre_live_check.py` → `sync_zscore_from_batch.py` → main
+- Timers: health-watchdog (5min), data-refresh (6h), daily-retrain (daily 2am), daily-check (9am JST), daily-pnl-alert (8am JST), ic-decay (daily 3am), feature-ablation (monthly 1st), feature-auto-update (daily 5am)
 - `docs/deploy_truth.md` is deployment truth; `infra/systemd/` must sync via `infra/sync_systemd.sh`
 - CI/CD: `.github/workflows/ci.yml` — lint + rust-test + python-test + security-scan
 - Pre-commit hook: ruff lint + API key check + critical bug scan + core tests (~5s)
@@ -225,22 +247,31 @@ Ridge(60%) + LGBM(40%) ensemble → Rolling z-score → Z-clamp (|z|>3.5 → ±3
 - Log archival: `scripts/archive_logs.py` (weekly, 6 month retention)
 - Backup: `scripts/backup_remote.py` (daily 4am, 30 local + optional S3)
 
-**Walk-forward baselines** (latest retrain 2026-03-27):
-- 1h PASS: BTC (Sharpe 2.11), ETH (Sharpe 4.11)
-- 4h PASS: BTC (Sharpe 5.34), ETH (Sharpe 4.88)
-- 15m BTC DISABLED: full-sample Sharpe 0.50 (WF OOS inflated)
-- 15m ETH FAIL: disabled
-- Kelly optimal: 14x full / 7x half. Demo 10x. Production recommended 3x.
+**Walk-forward baselines** (latest retrain 2026-04-13):
+- 1h: BTC (Sharpe 1.92, IC 0.034, 14 features), ETH (Sharpe 1.38, IC 0.037, 16 features)
+- 4h: BTC GREEN, ETH GREEN (all IC healthy)
+- 15m: DISABLED (BTC Sharpe 0.50, ETH FAIL)
+- OOS backtest (18m, long-only): BTC Sharpe 4.38 +30.0%, ETH Sharpe 9.85 +46.3%
+- OOS backtest (18m, long+short): ETH Sharpe 8.88 +64.8%
+- Micro tier ($391): BTC 2x + ETH 6.5x
 
 ## Environment
 
 ```bash
+# OKX (production):
+export OKX_API_KEY=...
+export OKX_API_SECRET=...
+export OKX_API_PASSPHRASE=...
+export OKX_BASE_URL=https://www.okx.com
+
+# Bybit (inactive):
 export BYBIT_API_KEY=...
 export BYBIT_API_SECRET=...
 export BYBIT_BASE_URL=https://api-demo.bybit.com  # or https://api.bybit.com for live
-# See .env.example for all optional vars (Binance, Polymarket, Telegram)
-# Limit order config (optional):
-export LIMIT_OFFSET_BPS=30       # 0.3% price offset for limit orders
+
+# See .env for all vars (Binance, Telegram, model signing)
+# Limit order config:
+export LIMIT_OFFSET_BPS=20       # 0.2% price offset for limit orders
 export LIMIT_TTL_S=300           # 5 min TTL
 export LIMIT_QTY_SCALE=0.5      # 50% of normal qty
 ```

@@ -18,27 +18,30 @@ def _snap(equity: float, price: float, symbol: str = "BTCUSDT") -> MagicMock:
 
 class TestAdaptivePositionSizer:
     def test_basic_sizing_small_account(self):
+        # ETH cap=0.65 in micro tier
+        sizer = AdaptivePositionSizer(runner_key="ETHUSDT")
+        snap = _snap(equity=400, price=2200.0, symbol="ETHUSDT")
+        qty = sizer.target_qty(snap, "ETHUSDT")
+        # micro tier, ETHUSDT cap=0.65, lev=10 → notional=400*0.65*10=2600
+        # size = 2600/2200 ≈ 1.18
+        assert qty > Decimal("0.5")
+        assert qty < Decimal("10.0")
+
+    def test_btc_enabled_micro_tier(self):
+        # BTC cap=0.20 in micro tier → notional=400*0.20*10=800, qty=800/60000≈0.013
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT")
         snap = _snap(equity=400, price=60000.0, symbol="BTCUSDT")
         qty = sizer.target_qty(snap, "BTCUSDT")
-        # D13 micro tier, BTCUSDT cap=0.20, lev=10 → notional=400*0.20*10=800
-        # size = 800/60000 ≈ 0.01333 → round_to_step(0.001) = 0.013
         assert qty > Decimal("0.01")
-        assert qty < Decimal("1.0")
+        assert qty < Decimal("0.1")
 
     def test_basic_sizing_medium_account(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT")
-        snap_s = _snap(equity=400, price=60000.0, symbol="BTCUSDT")
         snap_m = _snap(equity=5000, price=60000.0, symbol="BTCUSDT")
-        qty_s = sizer.target_qty(snap_s, "BTCUSDT")
         qty_m = sizer.target_qty(snap_m, "BTCUSDT")
-        # D13: micro cap 0.20 (2x effective at 10x lev), medium cap 0.45
-        # (4.5x effective).  Medium has much higher per-dollar allocation
-        # because larger accounts can afford more risk diversification.
-        cap_per_dollar_s = float(qty_s) * 60000.0 / 400.0
-        cap_per_dollar_m = float(qty_m) * 60000.0 / 5000.0
-        assert cap_per_dollar_m > cap_per_dollar_s  # medium > micro now
-        assert cap_per_dollar_s > 0
+        # medium tier, BTCUSDT cap=0.45, lev=10 → notional=5000*0.45*10=22500
+        # size = 22500/60000 = 0.375
+        assert qty_m > Decimal("0.1")
 
     def test_ic_health_scaling(self):
         sizer = AdaptivePositionSizer(runner_key="ETHUSDT")

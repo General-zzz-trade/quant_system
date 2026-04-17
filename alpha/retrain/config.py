@@ -19,36 +19,43 @@ DEFAULT_HORIZONS = [24]               # h12 dropped: IC collapsed in live (BTC -
 # and live availability (computed in feature_hook, not batch-only).
 FORCED_FEATURES: dict[str, list[str]] = {
     "ETHUSDT": [
-        # 9 features — audit 2026-04-11: dropped macd_hist (SIGN_FLIP 180d),
-        # dropped vix_chg_1d (WEAK: 30d -0.008), added stablecoin_supply_chg_7d
-        # (STRONG across all windows). Rationale: ETH 1h h12 60d IC ~0 indicated
-        # overfitting; tightened forced list to STRONG-only features.
-        # 2026-04-12: RE-VERIFIED by live-equivalent backtest (Sharpe +5.05
-        # on 12-month OOS). Removing funding_sign_persist per ablation
-        # insight DROPPED Sharpe to +2.26 — reverted.
-        "ls_ratio",                 # +0.151/+0.166/+0.166/+0.166 (STRONG)
-        "oc_netflow_zscore_7",      # +0.236/+0.279/+0.087/+0.025 (STRONG, on-chain)
-        "vix_level",                # +0.086/+0.131/+0.138/+0.039 (STRONG, macro)
-        "fgi_extreme",              # -0.160/-0.102/-0.063/-0.080 (STRONG, contrarian)
-        "funding_sign_persist",     # +0.131/+0.101/+0.098/+0.033 (STRONG, sentiment)
-        "spy_ret_1d",               # -0.016/-0.131/-0.058/-0.050 (STRONG, risk-off)
-        "qqq_ret_1d",               # -0.015/-0.144/-0.046/-0.058 (STRONG, tech)
-        "iwm_ret_1d",               # -0.024/-0.110/-0.058/-0.052 (STRONG, small-cap)
-        "stablecoin_supply_chg_7d", # +0.110/+0.027/+0.063/+0.040 (STRONG, liquidity)
+        # 2026-04-13 v3: 19 forced — bear market IC audit + trend features:
+        #   ADDED vix_chg_1d (IC=-0.14, replaces weak vix_level IC=0.01)
+        #   ADDED etha_ret_1d (residual IC=-0.078, ETH ETF flow signal)
+        #   REPLACED gld_ret_1d → gold_btc_return_spread_5d (gld_ret sign-flip)
+        "ls_ratio",                     # on-chain long/short
+        "oc_netflow_zscore_7",          # on-chain netflow
+        "fgi_extreme",                  # contrarian sentiment
+        "funding_sign_persist",         # funding direction persistence
+        "spy_ret_1d",                   # risk-off
+        "qqq_ret_1d",                   # tech risk-off
+        "iwm_ret_1d",                   # small-cap
+        "stablecoin_supply_chg_7d",     # liquidity
+        "coin_ret_1d",                  # Coinbase sentiment
+        "funding_cumulative_8",         # funding pressure
+        "fxi_ret_1d",                   # China equity proxy
+        "hyg_ret_1d",                   # HY credit
+        "m2_yoy_change",               # M2 money supply
+        "vix_chg_1d",                   # NEW: VIX change (IC=-0.14, replaces vix_level)
+        "etha_ret_1d",                  # NEW: ETH ETF flow (residual IC=-0.078)
+        "gold_btc_return_spread_5d",    # NEW: gold-BTC divergence (replaces gld_ret_1d)
     ],
     "BTCUSDT": [
-        # Soft forcing: only 5 core macro features (2026-04-10 audit)
-        # Previous attempt with 10 forced hit comparison_gate — too rigid.
-        # These 5 are the highest-conviction stable signals across 30/60/90/180d;
-        # let greedy IC selection fill remaining slots for diversification.
-        # 2026-04-12: RE-VERIFIED by live-equivalent backtest (Sharpe +8.16
-        # on 12-month OOS). Removing spy_ret_1d per ablation insight
-        # dropped Sharpe to +2.01 — reverted.
-        "vix_chg_1d",    # +0.09/+0.17/+0.09/+0.04 (unique contrarian alpha)
-        "gld_ret_5d",    # +0.17/+0.04/+0.06/+0.01 (safe-haven divergence)
-        "spy_ret_1d",    # -0.07/-0.16/-0.07/-0.06 (equity risk-off)
-        "qqq_ret_1d",    # -0.07/-0.17/-0.07/-0.08 (tech risk-off)
-        "iwm_ret_1d",    # -0.08/-0.13/-0.07/-0.05 (small-cap risk-off)
+        # 2026-04-13: 11 forced — DO NOT ADD MORE (overfit proven twice).
+        # gbtc_premium_dev has residual alpha (IC=-0.056) but adding it
+        # degraded OOS backtest (9.62→5.45). The greedy selector picks
+        # it naturally when it helps; forcing it hurts model stability.
+        "vix_chg_1d",               # 0.185 avg |IC| (contrarian)
+        "gld_ret_5d",               # safe-haven
+        "spy_ret_1d",               # 0.221 avg |IC| (risk-off)
+        "qqq_ret_1d",               # 0.216 avg |IC| (tech risk-off)
+        "iwm_ret_1d",               # 0.218 avg |IC| (small-cap)
+        "trend_x_vol",              # momentum × vol interaction
+        "coin_ret_1d",              # 0.301 avg |IC| (Coinbase sentiment)
+        "rsi_x_atr",                # overbought × range
+        "fxi_ret_1d",               # 0.109 avg |IC| (China equity proxy)
+        "hyg_ret_1d",               # 0.164 avg |IC| (HY credit)
+        "gld_ret_1d",               # 1d gold return
     ],
 }
 
@@ -87,7 +94,7 @@ MODEL_DIR_OVERRIDES: dict[str, str] = {}
 # 2026-04-11: ETH set to 3.0 after discovering h12 60d IC ~0 (overfitting on
 # long 2019-2022 tail that has different correlations vs 2023-2026 regime).
 MAX_TRAIN_YEARS: dict[str, float] = {
-    "ETHUSDT": 3.0,
+    "ETHUSDT": 1.5,
 }
 DATA_DIR_TEMPLATE = "data_files/{symbol}_1h.csv"
 RETRAIN_LOG = Path("logs/retrain_history.jsonl")

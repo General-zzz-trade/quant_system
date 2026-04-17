@@ -1,0 +1,10 @@
+[Unit]
+Description=DeFi flows every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 02,08,14,20:30:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

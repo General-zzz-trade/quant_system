@@ -10,7 +10,7 @@
     su ubuntu ubuntu
 }
 
-/quant_system/data/runtime/decision_audit.jsonl {
+/quant_system/data/runtime/decision_audit.jsonl /quant_system/data/runtime/decision_audit_*.jsonl {
     daily
     rotate 30
     compress

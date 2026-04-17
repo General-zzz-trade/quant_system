@@ -13,12 +13,11 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
     const DEFAULT_CAP: f64 = 0.15;
     // Must match Python _TIER_WEIGHTS in decision/sizing/adaptive.py
     match tier {
-        // Micro: equity < 500 — BTC-heavy 2:1 ratio per D13 portfolio
-        // backtest.  10x leverage × (0.20, 0.10) gives joint Sharpe
-        // +6.36 and MaxDD -18.2% on $400 over 12 months.
+        // Micro: equity < 500 — ETH 6.5x + BTC 2x (portfolio backtest 2026-04-13)
+        // 3m combo +98.1% vs pure-ETH +54.0%, complementary signals
         "micro" => match runner_key {
-            "BTCUSDT" => 0.20,
-            "ETHUSDT" => 0.10,
+            "BTCUSDT" => 0.20,    // 2x effective
+            "ETHUSDT" => 0.65,    // 6.5x effective
             "SOLUSDT" => 0.40,
             "BTCUSDT_4h" => 0.0,  // signal_only
             "ETHUSDT_4h" => 0.0,
@@ -122,9 +121,13 @@ pub fn rust_adaptive_target_qty(
     let notional = equity * per_sym_cap * leverage * weight;
     let mut size = notional / price * z_scale;
 
-    // 5. Clamp
-    if size < min_size {
-        size = min_size;
+    // 5. Clamp — respect cap=0.0 (disabled symbol in this tier)
+    if base_cap > 0.0 {
+        if size < min_size {
+            size = min_size;
+        }
+    } else {
+        size = 0.0;
     }
     if max_qty > 0.0 && size > max_qty {
         size = max_qty;
@@ -161,9 +164,9 @@ mod tests {
 
     #[test]
     fn test_tier_cap_known_keys() {
-        // D13: micro tier BTC-heavy 2:1 from portfolio backtest
-        assert_eq!(tier_cap("micro", "BTCUSDT"), 0.20);
-        assert_eq!(tier_cap("micro", "ETHUSDT"), 0.10);
+        // ETH 6.5x + BTC 2x in micro tier
+        assert!((tier_cap("micro", "BTCUSDT") - 0.20).abs() < 1e-9);
+        assert!((tier_cap("micro", "ETHUSDT") - 0.65).abs() < 1e-9);
         assert_eq!(tier_cap("medium", "BTCUSDT"), 0.45);
         assert_eq!(tier_cap("large", "ETHUSDT"), 0.10);
         // 4h is signal_only — no position

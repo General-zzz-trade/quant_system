@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily PnL alert — daily at 23:00 UTC (08:00 JST next day)
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

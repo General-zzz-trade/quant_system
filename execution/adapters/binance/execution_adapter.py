@@ -32,8 +32,8 @@ class BinanceExecutionAdapter:
 
     DEFAULT_TIF: TimeInForce = TimeInForce.GTC
 
-    _MAX_RETRIES: int = 3
-    _RETRY_DELAY: float = 0.5
+    _MAX_RETRIES: int = 2
+    _RETRY_DELAY: float = 0.3
 
     # ------------------------------------------------------------------
     def _send_with_retry(self, symbol: str, side: str, qty: float) -> dict[str, Any]:
@@ -79,12 +79,22 @@ class BinanceExecutionAdapter:
                 )
                 return ()
 
-            # TCA: capture ref price (bar close stamped on OrderEvent) +
-            # send timestamp before dispatching the REST call.
+            # TCA: capture real-time mid-price for accurate slippage
+            # measurement (bar close is stale by the time order is sent).
+            ref_price = 0.0
             try:
-                ref_price = float(getattr(order_event, "price", None) or 0.0)
+                tk = self._adapter.get_ticker(symbol)
+                if tk and hasattr(tk, "bid") and hasattr(tk, "ask"):
+                    bid, ask = float(tk.bid), float(tk.ask)
+                    if bid > 0 and ask > 0:
+                        ref_price = (bid + ask) / 2
+                if ref_price <= 0:
+                    ref_price = float(getattr(order_event, "price", None) or 0.0)
             except Exception:
-                ref_price = 0.0
+                try:
+                    ref_price = float(getattr(order_event, "price", None) or 0.0)
+                except Exception:
+                    ref_price = 0.0
             _send_ts = time.time()
 
             # --- dispatch -------------------------------------------
@@ -143,6 +153,7 @@ class BinanceExecutionAdapter:
             )
 
             # TCA — fail-open, never blocks the return.
+            latency_ms = (time.time() - _send_ts) * 1000.0
             try:
                 self._tca.record_fill(
                     symbol=symbol,
@@ -150,12 +161,21 @@ class BinanceExecutionAdapter:
                     qty=float(fill_qty),
                     ref_price=ref_price,
                     fill_price=float(fill_price),
-                    latency_ms=(time.time() - _send_ts) * 1000.0,
+                    latency_ms=latency_ms,
                     order_id=str(order_event.order_id),
                     fill_id=str(header.event_id),
                 )
             except Exception:
                 logger.debug("TCA record_fill failed", exc_info=True)
+
+            # Warn on excessive slippage or latency
+            if ref_price > 0 and float(fill_price) > 0:
+                slippage_bps = abs(float(fill_price) - ref_price) / ref_price * 10_000
+                if slippage_bps > 100:
+                    logger.warning(
+                        "HIGH SLIPPAGE: %s %s %.0f bps (ref=%.2f fill=%.2f latency=%.0fms)",
+                        symbol, side, slippage_bps, ref_price, float(fill_price), latency_ms,
+                    )
 
             return (fill,)
 

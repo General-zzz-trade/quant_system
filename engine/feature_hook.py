@@ -56,7 +56,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                  unified_predictor: Any = None,
                  microstructure_source: Union[Callable[[], Any], Dict[str, Callable[[], Any]], None] = None,
                  cross_market_source: Optional[Callable[[], Dict[str, float]]] = None,
+                 cross_market_features_source: Optional[Callable[[], Dict[str, float]]] = None,
+                 stablecoin_source: Optional[Callable[[], float]] = None,
                  taker_source: Optional[Callable[[], Dict[str, float]]] = None,
+                 counterpart_close_source: Optional[Callable[[], Any]] = None,
                  _set_bar_ts: Optional[Callable[[int], None]] = None) -> None:
         self._computer = computer
         self._inference = inference_bridge
@@ -78,7 +81,11 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         self._sentiment_source = sentiment_source
         self._microstructure_source = microstructure_source
         self._cross_market_source = cross_market_source
+        self._cross_market_features_source = cross_market_features_source
+        self._stablecoin_source = stablecoin_source
+        self._stablecoin_zscore_buf: list = []
         self._taker_source = taker_source
+        self._counterpart_close_source = counterpart_close_source
         self._last_features: Dict[str, Dict[str, Any]] = {}
         self._bar_count: Dict[str, int] = {}
         self._rust_engines: Dict[str, Any] = {}
@@ -205,6 +212,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                 ts_ms = int(ts * 1000) if ts < 1e12 else int(ts)
             if ts_ms > 0:
                 self._set_bar_ts(ts_ms)
+            else:
+                # Fallback to current time if event ts is missing/invalid
+                import time as _t
+                self._set_bar_ts(int(_t.time() * 1000))
 
         funding_rate = NaN
         # Prefer live WS funding rate over CSV cursor
@@ -434,6 +445,28 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
 
     # _push_dominance provided by DominanceMixin
 
+    def _inject_counterpart_close(self) -> None:
+        """Inject counterpart close price into _last_closes for dominance computation.
+
+        During warmup, BTC and ETH runners process bars independently, so
+        _last_closes may lack the counterpart symbol's close. This uses
+        the CSV-backed counterpart_close_source to fill the gap.
+        """
+        if self._counterpart_close_source is None:
+            return
+        try:
+            result = self._counterpart_close_source()
+            if result is not None:
+                close_val, counterpart_sym = result
+                if close_val is not None and not math.isnan(close_val):
+                    from engine.feature_hook_dominance import base_symbol
+                    base = base_symbol(counterpart_sym)
+                    # Only inject if not already set by a live bar from the other runner
+                    if base not in _last_closes:
+                        _last_closes[base] = close_val
+        except Exception:
+            pass
+
     @staticmethod
     def _fill_derived_features(features: Dict[str, Any]) -> None:
         """Fill interaction/derived features from their components when Rust left them NaN.
@@ -507,6 +540,38 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
         features = engine.get_features()
         out = {k: v for k, v in features.items() if v is not None}
 
+        # Inject pre-computed cross-market features (overrides Rust push_cross_market
+        # which produces 0 for returns because same daily price repeats every hour)
+        if self._cross_market_features_source is not None:
+            try:
+                cm_feats = self._cross_market_features_source()
+                if cm_feats:
+                    for k, v in cm_feats.items():
+                        if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                            out[k] = v
+            except Exception:
+                pass
+
+        # Inject stablecoin supply change + z-score
+        if self._stablecoin_source is not None:
+            try:
+                chg = self._stablecoin_source()
+                if chg is not None and not math.isnan(chg):
+                    out["stablecoin_supply_chg_7d"] = chg
+                    # Compute rolling z-score of supply change (30-bar window)
+                    buf = self._stablecoin_zscore_buf
+                    buf.append(chg)
+                    if len(buf) > 30:
+                        buf.pop(0)
+                    if len(buf) >= 10:
+                        mean = sum(buf) / len(buf)
+                        var = sum((x - mean) ** 2 for x in buf) / len(buf)
+                        std = var ** 0.5
+                        if std > 1e-12:
+                            out["stablecoin_supply_zscore"] = (chg - mean) / std
+            except Exception:
+                pass
+
         # Alias mapping: Rust feature names → model config feature names
         for rust_name, model_name in _RUST_ALIASES.items():
             if rust_name in out and model_name not in out:
@@ -562,6 +627,10 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                 cross_feats = self._cross_asset.get_features(symbol)
                 features.update(cross_feats)
 
+            # Inject counterpart close for dominance (needed during warmup when
+            # the other symbol's runner hasn't pushed its close yet)
+            self._inject_counterpart_close()
+
             # V14 dominance features (BTC/ETH ratio deviation, momentum, return diff)
             self._push_dominance(symbol, close_f, features)
 
@@ -587,6 +656,9 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
                                      high=high, low=low)
             cross_feats = self._cross_asset.get_features(symbol)
             features.update(cross_feats)
+
+        # Inject counterpart close for dominance (needed during warmup)
+        self._inject_counterpart_close()
 
         # V14 dominance features (BTC/ETH ratio deviation, momentum, return diff)
         self._push_dominance(symbol, close_f, features)
@@ -630,6 +702,41 @@ class FeatureComputeHook(NanTrackingMixin, DominanceMixin):
             symbol, close_f, volume, high, low, open_, hour_key,
         )
         prediction, features = result
+
+        # Inject pre-computed cross-market features (spy_ret_1d, vix_level, etc.)
+        # These override Rust push_cross_market() outputs which produce 0 for
+        # returns because the same daily price repeats every hourly bar.
+        if self._cross_market_features_source is not None:
+            try:
+                cm_feats = self._cross_market_features_source()
+                if cm_feats:
+                    for k, v in cm_feats.items():
+                        if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                            features[k] = v
+            except Exception:
+                pass
+
+        # Inject stablecoin supply change + z-score
+        if self._stablecoin_source is not None:
+            try:
+                chg = self._stablecoin_source()
+                if chg is not None and not math.isnan(chg):
+                    features["stablecoin_supply_chg_7d"] = chg
+                    buf = self._stablecoin_zscore_buf
+                    buf.append(chg)
+                    if len(buf) > 30:
+                        buf.pop(0)
+                    if len(buf) >= 10:
+                        mean = sum(buf) / len(buf)
+                        var = sum((x - mean) ** 2 for x in buf) / len(buf)
+                        std = var ** 0.5
+                        if std > 1e-12:
+                            features["stablecoin_supply_zscore"] = (chg - mean) / std
+            except Exception:
+                pass
+
+        # Alias mapping: Rust feature names → model config feature names
+        self._apply_aliases(features)
 
         # Inject ML scores from unified prediction
         if self._bar_count.get(symbol, 0) >= self._warmup_bars:

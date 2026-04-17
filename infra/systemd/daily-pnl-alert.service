@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily PnL summary — Telegram alert with today's trades
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.daily_pnl_alert
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=-/quant_system/.env
+StandardOutput=append:/quant_system/logs/daily_pnl_alert.log
+StandardError=append:/quant_system/logs/daily_pnl_alert.log

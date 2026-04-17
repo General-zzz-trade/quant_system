@@ -79,19 +79,25 @@ class CheckpointManager:
         Returns:
             Dict with checkpoint data, or None if no checkpoint exists.
         """
+        ckpt = None
         try:
             cached = self._rust_store.load_latest("default", runner_key)
             if cached is not None:
-                return json.loads(cached)
+                ckpt = json.loads(cached)
         except Exception:
-            pass
+            ckpt = None
 
-        path = self._dir / f"{runner_key}.json"
-        if not path.exists():
-            return None
+        if ckpt is None:
+            path = self._dir / f"{runner_key}.json"
+            if not path.exists():
+                return None
+            try:
+                ckpt = json.loads(path.read_text())
+            except Exception as e:
+                logger.warning("%s checkpoint restore failed: %s", runner_key, e)
+                return None
 
         try:
-            ckpt = json.loads(path.read_text())
             # Normalize inference data
             if isinstance(ckpt.get("inference"), str):
                 ckpt["inference"] = json.loads(ckpt["inference"])

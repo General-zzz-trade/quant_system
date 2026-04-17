@@ -870,6 +870,21 @@ def train_symbol(
                 hc["ridge_weight"] = w.get("ridge", 0.0)
                 hc["lgbm_weight"] = w.get("lgbm", 0.0)
                 hc["xgb_weight"] = w.get("xgb", 0.0)
+    # Preserve custom fields from the existing config that the training
+    # pipeline doesn't produce (exit tuning, regime overrides, etc.).
+    # These are set manually or by parameter sweeps and must survive retrains.
+    _PRESERVE_KEYS = {"exit", "override_reason"}
+    old_config_path = model_dir / "config.json"
+    if old_config_path.exists():
+        try:
+            with open(old_config_path) as _f:
+                old_cfg = json.load(_f)
+            for key in _PRESERVE_KEYS:
+                if key in old_cfg and key not in config_dict:
+                    config_dict[key] = old_cfg[key]
+        except Exception:
+            pass
+
     with open(model_dir / "config.json", "w") as f:
         json.dump(config_dict, f, indent=2)
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily trading health report — Telegram alert
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.daily_check --telegram
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=-/quant_system/.env
+StandardOutput=append:/quant_system/logs/daily_check.log
+StandardError=append:/quant_system/logs/daily_check.log

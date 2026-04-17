@@ -1,0 +1,13 @@
+[Unit]
+Description=Feature auto-update — detect degraded features and suggest replacements
+After=network.target feature-ic-analysis.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+ExecStart=/usr/bin/python3 -m monitoring.feature_auto_update --alert
+User=ubuntu
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=-/quant_system/.env
+StandardOutput=append:/quant_system/logs/feature_auto_update.log
+StandardError=append:/quant_system/logs/feature_auto_update.log

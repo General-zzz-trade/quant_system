@@ -16,6 +16,9 @@ Environment=PYTHONPATH=/quant_system
 # Change with care: lowering tier_cap without lowering leverage increases
 # risk; raising both simultaneously amplifies drawdown.
 Environment=OKX_LEVERAGE=10
+# 10x leverage kill switches — backtest worst day = -4.3%, set 2x buffer
+Environment=MAX_DAILY_DRAWDOWN_PCT=8.0
+Environment=MAX_WEEKLY_DRAWDOWN_PCT=15.0
 # D15 limit-order tuning: tighten offset from 30 bps → 20 bps.  Lower
 # offset = more aggressive price = higher fill rate at the cost of
 # slightly less favourable prices.  TCA after 30+ fills will tell
@@ -26,6 +29,7 @@ Environment=LIMIT_OFFSET_BPS=20
 #   OKX_MAX_ORDER_NOTIONAL=50   (per-order USD cap)
 #   OKX_MAX_DAILY_NOTIONAL=500  (daily cumulative cap)
 # Sync z-score checkpoints so warmup produces signal-capable preds quickly.
+ExecStartPre=/usr/bin/python3 /quant_system/scripts/pre_live_check.py
 ExecStartPre=/usr/bin/python3 /quant_system/scripts/sync_zscore_from_batch.py
 ExecStart=/usr/bin/python3 -m runner.alpha_main --venue okx --symbols BTCUSDT BTCUSDT_4h ETHUSDT --ws
 User=ubuntu

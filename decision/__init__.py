@@ -1,26 +1,4 @@
-"""Decision layer (institutional-grade).
+"""Decision layer — AlphaDecisionModule is the live entry point.
 
-Design goals:
-- Pure decision (no IO): Snapshot -> DecisionOutput / intents / orders
-- Deterministic and replayable (stable IDs, stable explain schema)
-- Decoupled from execution (emits orders/intents that can be bridged)
+See decision/modules/alpha.py for the production decision pipeline.
 """
-from decision.engine import DecisionEngine
-from decision.types import (
-    Candidate,
-    DecisionExplain,
-    DecisionOutput,
-    OrderSpec,
-    SignalResult,
-    TargetPosition,
-)
-
-__all__ = [
-    "DecisionEngine",
-    "Candidate",
-    "DecisionExplain",
-    "DecisionOutput",
-    "OrderSpec",
-    "SignalResult",
-    "TargetPosition",
-]

@@ -210,6 +210,12 @@ impl BarState {
             if sign != 0 {
                 if sign == self.funding_last_sign {
                     self.funding_sign_count += 1;
+                    // Clamp to 200 to keep within training distribution.
+                    // Unbounded growth (800+) produces out-of-distribution
+                    // model inputs that degrade prediction quality.
+                    if self.funding_sign_count > 200 {
+                        self.funding_sign_count = 200;
+                    }
                 } else {
                     self.funding_sign_count = 1;
                     self.funding_last_sign = sign;
@@ -360,12 +366,20 @@ impl BarState {
         if trades > 0.0 {
             self.trades_ema_20.push(trades);
             self.trades_ema_5.push(trades);
-            let tbr = if volume > 0.0 { taker_buy_volume / volume } else { 0.5 };
-            self.taker_buy_ratio_ema_10.push(tbr);
-            let imbalance = 2.0 * tbr - 1.0;
-            self.cvd_window_10.push(imbalance);
-            self.cvd_window_20.push(imbalance);
-            self.taker_ratio_window_50.push(tbr);
+            // Only compute order-flow features when taker_buy_volume is
+            // actually populated.  When WS klines lack taker data and the
+            // CSV fallback returns 0, treating 0 as "100 % sell" produces
+            // a saturated CVD of -20 which poisons downstream models.
+            // Skip the push so the rolling window retains its last valid
+            // state rather than filling with -1.0 imbalance.
+            if taker_buy_volume > 0.0 && volume > 0.0 {
+                let tbr = taker_buy_volume / volume;
+                self.taker_buy_ratio_ema_10.push(tbr);
+                let imbalance = 2.0 * tbr - 1.0;
+                self.cvd_window_10.push(imbalance);
+                self.cvd_window_20.push(imbalance);
+                self.taker_ratio_window_50.push(tbr);
+            }
             let ats = quote_volume / trades;
             self.avg_trade_size_ema_20.push(ats);
             let vpt = volume / trades;

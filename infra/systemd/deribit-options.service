@@ -1,0 +1,15 @@
+[Unit]
+Description=Deribit Options Snapshot (hourly)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m data.downloads.download_deribit_options --currency BTC --once
+ExecStartPost=/usr/bin/python3 -m data.downloads.download_deribit_options --currency ETH --once
+User=ubuntu
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

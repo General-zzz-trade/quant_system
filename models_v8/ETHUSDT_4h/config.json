@@ -1,66 +1,167 @@
 {
+  "version": "v8_4h",
   "symbol": "ETHUSDT",
-  "interval": "4h",
-  "version": "v11-4h",
-  "multi_horizon": true,
-  "horizons": [
-    6
+  "ensemble": true,
+  "ensemble_weights": [
+    0.5,
+    0.5
   ],
+  "models": [
+    "lgbm_v8.pkl",
+    "xgb_v8.pkl"
+  ],
+  "features": [
+    "vol_ma_ratio_5_20",
+    "fgi_extreme",
+    "cvd_20",
+    "ret_24",
+    "rsi_14",
+    "vwap_dev_20",
+    "vix_chg_1d",
+    "spy_ret_1d",
+    "gld_ret_5d",
+    "qqq_ret_1d",
+    "funding_sign_persist",
+    "close_vs_ma20",
+    "atr_norm_14",
+    "parkinson_vol"
+  ],
+  "fixed_features": [
+    "vol_ma_ratio_5_20",
+    "fgi_extreme",
+    "cvd_20",
+    "ret_24",
+    "rsi_14",
+    "vwap_dev_20",
+    "vix_chg_1d",
+    "spy_ret_1d",
+    "gld_ret_5d",
+    "qqq_ret_1d"
+  ],
+  "candidate_pool": [
+    "funding_sign_persist",
+    "funding_vs_vol",
+    "atr_norm_14",
+    "basis",
+    "parkinson_vol",
+    "ma_cross_10_30",
+    "iwm_ret_1d",
+    "xlk_ret_1d",
+    "oc_netflow_zscore_7",
+    "macd_line",
+    "macd_hist",
+    "close_vs_ma20",
+    "ret_skew_24"
+  ],
+  "n_flexible": 4,
+  "long_only": true,
+  "deadzone": 2.0,
+  "min_hold": 3,
+  "max_hold": 36,
+  "horizon": 12,
+  "horizon_hours": 48,
+  "timeframe": "4h",
+  "target_mode": "clipped",
+  "engine": "rust_feature_engine",
+  "params": {
+    "max_depth": 7,
+    "num_leaves": 24,
+    "learning_rate": 0.04839351132940434,
+    "min_child_samples": 67,
+    "reg_alpha": 0.30788366819557894,
+    "reg_lambda": 1.2031381965285868,
+    "subsample": 0.6871603962021757,
+    "colsample_bytree": 0.7794778359299672
+  },
+  "xgb_params": {
+    "max_depth": 7,
+    "learning_rate": 0.04839351132940434,
+    "objective": "reg:squarederror",
+    "verbosity": 0,
+    "subsample": 0.6871603962021757,
+    "colsample_bytree": 0.7794778359299672
+  },
+  "hpo_trials": 10,
+  "walk_forward": {
+    "avg_ic": 0.055297836132519144,
+    "avg_sharpe": 4.152863152723878,
+    "avg_net_bps": 196.8743473697257,
+    "total_net_pct": 199.1556958928194,
+    "profitable_folds": 15,
+    "total_folds": 23
+  },
+  "metrics": {
+    "sharpe": 3.633197472848527,
+    "total_return": 0.2605697533373057,
+    "ic": 0.08182973800815516,
+    "h2_ic": 0.09285421890848414,
+    "bootstrap_p_positive": 0.9116,
+    "bootstrap_ci_95": [
+      -1.5089972170774109,
+      9.609555865926739
+    ],
+    "n_months": 17,
+    "positive_months": 10,
+    "monthly_returns": [
+      -0.02031299801646641,
+      0.0,
+      0.037947831162812945,
+      -0.009892005430388207,
+      0.06705105972753013,
+      0.011981640444678785,
+      0.0,
+      0.042230001022365106,
+      0.11713196833409639,
+      0.03559740485572607,
+      0.017592161900048472,
+      -0.04219848891323705,
+      0.023148346483875332,
+      -0.011378104717317122,
+      0.006218211477289753,
+      -0.038995627310060677,
+      0.02444835231635218
+    ],
+    "n_active_bars": 206,
+    "n_total_bars": 3239,
+    "trades": 18,
+    "win_rate": 72.22222222222221,
+    "avg_gross_bps": 156.76097407628095,
+    "avg_net_bps": 144.76097407628095
+  },
+  "checks": {
+    "OOS Sharpe > 0.5": "True",
+    "H2 IC > 0": "True",
+    "Bootstrap P(S>0) > 80%": "True",
+    "Positive months >= 9/17": "True"
+  },
+  "passed": true,
   "horizon_models": [
     {
-      "horizon": 6,
-      "lgbm": "lgb_h6.pkl",
-      "xgb": "xgb_h6.pkl",
+      "horizon": 12,
+      "lgbm": "lgbm_v8.pkl",
       "features": [
-        "spy_ret_1d",
-        "iv_level",
-        "funding_zscore_24",
-        "oc_tx_zscore_7",
-        "oc_flowin_zscore_7",
-        "gbtc_vol_zscore_14",
-        "dom_vs_axs_dev_20",
-        "iv_rank_30d",
-        "cvd_10",
-        "fgi_normalized",
+        "vol_ma_ratio_5_20",
         "fgi_extreme",
-        "xlf_ret_5d",
-        "dow_sin",
-        "oc_tx_zscore_14"
+        "cvd_20",
+        "ret_24",
+        "rsi_14",
+        "vwap_dev_20",
+        "vix_chg_1d",
+        "spy_ret_1d",
+        "gld_ret_5d",
+        "qqq_ret_1d",
+        "funding_sign_persist",
+        "close_vs_ma20",
+        "atr_norm_14",
+        "parkinson_vol"
       ],
-      "ic": 0.1099
+      "ic": 0.08182973800815516,
+      "xgb": "xgb_v8.pkl"
     }
   ],
-  "ensemble_method": "ic_weighted",
-  "features": [
-    "spy_ret_1d",
-    "iv_level",
-    "funding_zscore_24",
-    "oc_tx_zscore_7",
-    "oc_flowin_zscore_7",
-    "gbtc_vol_zscore_14",
-    "dom_vs_axs_dev_20",
-    "iv_rank_30d",
-    "cvd_10",
-    "fgi_normalized",
-    "fgi_extreme",
-    "xlf_ret_5d",
-    "dow_sin",
-    "oc_tx_zscore_14"
+  "horizons": [
+    12
   ],
-  "zscore_window": 180,
-  "zscore_warmup": 45,
-  "deadzone": 3.0,
-  "min_hold": 6,
-  "max_hold": 24,
-  "long_only": false,
-  "monthly_gate": false,
-  "metrics": {
-    "sharpe": 4.88,
-    "total_ret": 76.0,
-    "trades": 55,
-    "win_rate": 58.9
-  },
-  "train_date": "2026-03-23 10:53",
-  "train_bars": 13848,
-  "train_days": 2308
+  "multi_horizon": true,
+  "ensemble_method": "ic_weighted"
 }

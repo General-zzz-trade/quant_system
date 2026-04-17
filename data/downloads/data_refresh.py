@@ -272,6 +272,18 @@ def refresh_external_data(dry_run: bool = False) -> List[Dict[str, Any]]:
         ("open_interest", "data.downloads.download_open_interest", []),
         ("dvol_btc", "data.downloads.download_deribit_dvol", ["--currency", "BTC"]),
         ("dvol_eth", "data.downloads.download_deribit_dvol", ["--currency", "ETH"]),
+        ("onchain_btc", "data.downloads.download_onchain", ["--asset", "btc"]),
+        ("onchain_eth", "data.downloads.download_onchain", ["--asset", "eth"]),
+        ("iv_btc", "data.downloads.download_deribit_iv", ["--currency", "BTC"]),
+        ("iv_eth", "data.downloads.download_deribit_iv", ["--currency", "ETH"]),
+        ("ls_ratio", "data.downloads.download_ls_ratio", []),
+        ("spot_btc", "data.downloads.download_spot_klines", ["--batch", "BTCUSDT"]),
+        ("cross_market", "data.downloads.download_cross_market", []),
+        ("stablecoin", "data.downloads.download_stablecoin_supply", []),
+        ("macro", "data.downloads.download_macro", []),
+        ("fred_macro", "data.downloads.download_fred_macro", []),
+        ("liq_btc", "data.downloads.download_liquidations", ["--symbol", "BTCUSDT"]),
+        ("liq_eth", "data.downloads.download_liquidations", ["--symbol", "ETHUSDT"]),
     ]
 
     for source, module, extra_args in scripts:
@@ -286,7 +298,7 @@ def refresh_external_data(dry_run: bool = False) -> List[Dict[str, Any]]:
         try:
             import subprocess
             cmd = [sys.executable, "-m", module] + extra_args
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd="/quant_system")
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd="/quant_system")
             result["success"] = proc.returncode == 0
             if proc.returncode != 0:
                 result["error"] = proc.stderr[:500]

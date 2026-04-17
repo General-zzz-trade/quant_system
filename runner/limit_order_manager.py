@@ -1,6 +1,6 @@
 """LimitOrderManager — pre-places limit orders when signals are forming.
 
-When intra-bar z-score approaches the deadzone threshold (|z| > 0.7 * dz),
+When intra-bar z-score approaches the deadzone threshold (|z| > 0.85 * dz),
 pre-places a limit order at a favorable price offset (default 10bps) rather
 than waiting for bar close and paying market-order slippage (~192bps avg).
 

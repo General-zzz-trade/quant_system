@@ -1,0 +1,10 @@
+[Unit]
+Description=Feature auto-update timer — daily after IC analysis
+
+[Timer]
+# Run 30min after feature-ic-analysis (13:30 JST = 04:30 UTC)
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

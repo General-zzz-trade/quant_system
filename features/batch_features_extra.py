@@ -303,7 +303,12 @@ def _add_cross_market_features(feat_df: pd.DataFrame, timestamps: np.ndarray) ->
                 # V12+ trad-fi risk factors
                 "hyg_ret_1d", "hyg_ret_5d", "credit_spread_chg",
                 "iwm_ret_1d", "risk_appetite", "xlk_ret_1d",
-                "vix_chg_1d", "vix_chg_5d", "fxi_ret_1d"]:
+                "vix_chg_1d", "vix_chg_5d", "fxi_ret_1d",
+                # Gold-BTC divergence
+                "gld_ret_1d", "gold_btc_corr_30d", "gold_btc_return_spread_5d",
+                # Macro liquidity & yield curve
+                "m2_yoy_change", "m2_3m_change", "m2_mom_change",
+                "yield_curve_2s10s", "yield_curve_2s10s_chg_5d", "yield_curve_inverted"]:
         if col not in cm.columns:
             continue
 

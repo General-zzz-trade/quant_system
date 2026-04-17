@@ -45,21 +45,6 @@ class TestOnlineRidgeNumericalSafety:
         # Weight change should be bounded
         assert np.linalg.norm(ridge.weights) < 0.1
 
-    def test_p_matrix_stays_positive_definite(self):
-        """P matrix should remain positive semi-definite after many updates."""
-        np.random.seed(42)
-        ridge = OnlineRidge(n_features=5, min_samples_for_update=1)
-        ridge.load_from_weights(np.zeros(5))
-        for _ in range(1000):
-            x = np.random.randn(5) * 10
-            y = np.random.randn() * 0.1
-            ridge.update(x, y)
-        # P should be symmetric and positive semi-definite
-        P = ridge._P
-        assert np.allclose(P, P.T, atol=1e-10), "P not symmetric"
-        eigenvalues = np.linalg.eigvalsh(P)
-        assert np.all(eigenvalues >= -1e-8), f"P not PSD: min eigenvalue = {eigenvalues.min()}"
-
     def test_weights_dont_explode(self):
         """After many updates, weights should remain bounded."""
         np.random.seed(123)

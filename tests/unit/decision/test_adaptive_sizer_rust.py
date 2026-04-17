@@ -170,21 +170,26 @@ class TestAdaptiveSizerRustDirect:
     """Direct Rust function tests (not parity, just correctness)."""
 
     def test_basic_computation(self):
-        # D13 micro tier, BTCUSDT cap=0.20, lev=10 → notional=400*0.20*10=800
-        # size = 800/60000 ≈ 0.01333 → round_to_step(0.001) = 0.013
-        qty = rust_adaptive_target_qty(
+        # Micro tier BTC cap=0.20 → notional=400*0.20*10=800, qty=800/60000≈0.013
+        qty_btc = rust_adaptive_target_qty(
             "BTCUSDT", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, True, 1.0,
         )
-        assert qty == 0.013
+        assert qty_btc == 0.013
+        # Medium tier BTC cap=0.45 → notional=2000*0.45*10=9000, qty=9000/60000=0.15
+        qty_btc_med = rust_adaptive_target_qty(
+            "BTCUSDT", 2000.0, 60000.0, 0.001, 0.001, 0.0,
+            1.0, 10.0, 1.0, True, 1.0,
+        )
+        assert qty_btc_med == 0.15
 
-    def test_4h_signal_only_returns_min(self):
-        # 4h is signal_only now — cap=0.0 → qty=min_size
+    def test_4h_signal_only_returns_zero(self):
+        # 4h is signal_only now — cap=0.0 → qty=0 (disabled, no min_size override)
         qty = rust_adaptive_target_qty(
             "BTCUSDT_4h", 400.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, True, 1.0,
         )
-        assert qty == 0.001  # min_size floor
+        assert qty == 0.0  # cap=0.0 means no trading
 
     def test_regime_inactive_60pct(self):
         active = rust_adaptive_target_qty(

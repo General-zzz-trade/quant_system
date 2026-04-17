@@ -35,7 +35,7 @@ class BinanceRestConfig:
     api_key: str
     api_secret: str
     recv_window: int = 5000
-    timeout_s: float = 10.0
+    timeout_s: float = 5.0
 
     def __repr__(self) -> str:
         return (

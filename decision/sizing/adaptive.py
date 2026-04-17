@@ -25,15 +25,11 @@ except ImportError:
 # Within each symbol: 4h gets 60% (higher conviction), 1h gets 40%.
 # z_scale/IC/regime further adjust at runtime.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
-    "micro": {  # equity < 500 — BTC-heavy 2:1 ratio (D13 portfolio
-                # backtest finding).  10x leverage × (0.20, 0.10) gives
-                # joint Sharpe +6.36, Return +451%, MaxDD -18.2% on $400
-                # over 12 months.  Individual BTC Sharpe 7.92 > ETH 5.11
-                # justifies the 2:1 allocation; near-zero per-bar
-                # correlation (-0.038) provides real diversification.
-                # Effective leverage = cap × lev: BTC 2.0x, ETH 1.0x.
-        "BTCUSDT": 0.20,   # was 0.65 — BTC-heavy per D13 ratio sweep
-        "ETHUSDT": 0.10,   # was 0.65 — half of BTC
+    "micro": {  # equity < 500 — ETH 6.5x + BTC 2x (2026-04-13 portfolio backtest):
+                # 3m: combo +98.1% vs pure-ETH +54.0%, all windows improved.
+                # BTC active=23% + ETH active=6% = complementary signals.
+        "BTCUSDT": 0.20,   # 2x effective: 0.20 × 10 = 2.0x
+        "ETHUSDT": 0.65,   # 6.5x effective: 0.65 × 10 = 6.5x
         "SOLUSDT": 0.40,   # unchanged (dropped from active roster)
         "BTCUSDT_4h": 0.0,
         "ETHUSDT_4h": 0.0,
@@ -195,8 +191,11 @@ class AdaptivePositionSizer:
         notional = equity * per_sym_cap * leverage * float(weight)
         size = notional / price * z_scale
 
-        # 5. Clamp
-        size = max(size, self.min_size)
+        # 5. Clamp — but respect cap=0.0 (disabled symbol in this tier)
+        if base_cap > 0:
+            size = max(size, self.min_size)
+        else:
+            size = 0.0
         if self.max_qty > 0:
             size = min(size, self.max_qty)
 

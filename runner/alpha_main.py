@@ -140,14 +140,19 @@ def _create_binance_adapter():
     """Create Binance Futures adapter from environment variables."""
     from execution.adapters.binance import BinanceAdapter, BinanceConfig
 
-    api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
-    api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
+    testnet = os.environ.get("BINANCE_TESTNET", "1").lower() in ("1", "true", "yes")
+    if testnet:
+        api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
+        api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
+    else:
+        api_key = os.environ.get("BINANCE_API_KEY", "")
+        api_secret = os.environ.get("BINANCE_API_SECRET", "")
     if not api_key or not api_secret:
+        env_prefix = "BINANCE_TESTNET" if testnet else "BINANCE"
         raise RuntimeError(
-            "BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET "
+            f"{env_prefix}_API_KEY and {env_prefix}_API_SECRET "
             "environment variables are required for --venue binance."
         )
-    testnet = os.environ.get("BINANCE_TESTNET", "1").lower() in ("1", "true", "yes")
     config = BinanceConfig(api_key=api_key, api_secret=api_secret, testnet=testnet)
     adapter = BinanceAdapter(config)
     if not adapter.connect():
@@ -385,15 +390,18 @@ def main() -> None:
     except Exception:
         logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
 
-    # Truncate this venue's audit log on startup — previous run's entries
-    # are stale. Fresh log per session prevents warmup artifacts from prior
-    # runs. Per-venue file prevents clobbering when multiple runners parallel.
+    # Mark session boundary in audit log — append a separator instead of
+    # truncating, so previous entries (today's trades) survive restarts.
     try:
         from monitoring.decision_audit import audit_path_for
+        import json as _json
         audit_path = audit_path_for(args.venue)
-        if audit_path.exists():
-            audit_path.write_text("")
-            logger.info("Cleared %s for fresh session", audit_path.name)
+        with open(audit_path, "a") as _af:
+            _af.write(_json.dumps({
+                "ts": time.time(), "type": "session_start",
+                "venue": args.venue, "pid": os.getpid(),
+            }) + "\n")
+        logger.info("Session marker appended to %s", audit_path.name)
     except Exception:
         pass
 
@@ -463,6 +471,8 @@ def main() -> None:
         alpha_mod._trade_peak = 0.0
         alpha_mod._entry_bar = 0   # no active entry after reset
         alpha_mod._last_trade_bar = alpha_mod._bars_processed  # cooldown from warmup end
+        alpha_mod._consecutive_stops = 0   # warmup stops must not leak into live
+        alpha_mod._stop_pause_until = 0    # clear any warmup-triggered pause
         # Reset Rust-side hold counter via discretizer bridge
         try:
             alpha_mod._discretizer._bridge.reset_hold(alpha_mod._symbol)
@@ -720,6 +730,22 @@ def main() -> None:
                 logger.exception(
                     "Failed to reload model for %s — keeping current", runner_key,
                 )
+        # Resync z-score buffers after model change — prevents z-score
+        # discontinuity when new model produces different prediction scale.
+        # Runs as subprocess to avoid ~400MB in-process memory spike (OOM fix).
+        if reloaded > 0:
+            try:
+                import subprocess as _sp
+                _sp.Popen(
+                    [sys.executable, "-m", "scripts.sync_zscore_from_batch"],
+                    cwd="/quant_system",
+                    stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                )
+                logger.info("Z-score buffers resynced after model reload")
+            except Exception:
+                logger.warning("Z-score resync failed — buffers may be stale",
+                               exc_info=True)
+
         elapsed_ms = (time.monotonic() - t0) * 1000
         logger.info(
             "Hot-reload complete: %d reloaded, %d failed, %.1fms",
@@ -1120,6 +1146,10 @@ def main() -> None:
     _SHARPE_NEG_THRESHOLD = 3  # alert after N consecutive negative checks
     _last_pnl_trade_count: int = 0  # track how many trades we've already fed
 
+    # Reconcile alert dedup: only alert once per (sym, state) per hour
+    _last_recon_alert: dict[str, tuple[str, float]] = {}  # sym -> (state_key, ts)
+    _RECON_ALERT_COOLDOWN_S = 3600  # 1 hour
+
     def _get_equity() -> float | None:
         """Read equity from the first coordinator's state store (Fd8 → float)."""
         for coord in coordinators.values():
@@ -1227,9 +1257,12 @@ def main() -> None:
                                     if abs(z) > dz:
                                         direction = "BUY" if z > 0 else "SELL"
                                         preview_z = f" | PREVIEW z={z:+.2f} → {direction} ***"
-                                    elif abs(z) > dz * 0.5:
+                                    elif abs(z) > dz * 0.85:
                                         preview_z = f" | PREVIEW z={z:+.2f} (approaching dz={dz})"
-                                        # Pre-place limit order (batch preview is reliable)
+                                        # Pre-place limit order when z is close to deadzone.
+                                        # 0.85×dz ensures signal is strong enough to justify
+                                        # entry; lower thresholds (0.5×dz) produced too many
+                                        # low-confidence graduated entries with halved qty.
                                         if current_signal == 0 and not args.dry_run:
                                             try:
                                                 limit_side = "buy" if z > 0 else "sell"
@@ -1441,22 +1474,35 @@ def main() -> None:
                                 am._current_qty = Decimal(str(abs(exchange_qty)))
                                 # Serious (>20%) divergence deserves a Telegram
                                 # alert — prevents silent state drift on real money.
+                                # Dedup: only alert once per state per hour.
                                 if diff_pct > 20:
-                                    try:
-                                        send_alert(
-                                            AlertLevel.WARNING,
-                                            f"Position DIVERGENCE on {sym}",
-                                            details={
-                                                "venue": getattr(adapter, "venue", "?"),
-                                                "symbol": sym,
-                                                "internal_qty": f"{internal_qty:+.4f}",
-                                                "exchange_qty": f"{exchange_qty:+.4f}",
-                                                "diff_pct": f"{diff_pct:.1f}%",
-                                            },
-                                            source="reconcile",
-                                        )
-                                    except Exception:
-                                        pass
+                                    state_key = (
+                                        f"DIV_{sym}_{int(internal_qty*100)}"
+                                        f"_{int(exchange_qty*100)}"
+                                    )
+                                    last = _last_recon_alert.get(sym)
+                                    cooldown_ok = (
+                                        last is None
+                                        or last[0] != state_key
+                                        or (time.time() - last[1]) > _RECON_ALERT_COOLDOWN_S
+                                    )
+                                    if cooldown_ok:
+                                        try:
+                                            send_alert(
+                                                AlertLevel.WARNING,
+                                                f"Position DIVERGENCE on {sym}",
+                                                details={
+                                                    "venue": getattr(adapter, "venue", "?"),
+                                                    "symbol": sym,
+                                                    "internal_qty": f"{internal_qty:+.4f}",
+                                                    "exchange_qty": f"{exchange_qty:+.4f}",
+                                                    "diff_pct": f"{diff_pct:.1f}%",
+                                                },
+                                                source="reconcile",
+                                            )
+                                            _last_recon_alert[sym] = (state_key, time.time())
+                                        except Exception:
+                                            pass
                         # Direction flip: system says LONG but exchange says SHORT
                         # (or vice versa) — critical bug, immediate alert.
                         if (am._signal != 0 and abs(exchange_qty) > 0
@@ -1465,20 +1511,32 @@ def main() -> None:
                                 "RECONCILE %s: DIRECTION FLIP internal=%+d exchange=%+.4f — forcing flat",
                                 sym, am._signal, exchange_qty,
                             )
-                            try:
-                                send_alert(
-                                    AlertLevel.CRITICAL,
-                                    f"DIRECTION FLIP on {sym}",
-                                    details={
-                                        "venue": getattr(adapter, "venue", "?"),
-                                        "symbol": sym,
-                                        "internal_signal": str(am._signal),
-                                        "exchange_qty": f"{exchange_qty:+.4f}",
-                                    },
-                                    source="reconcile",
-                                )
-                            except Exception:
-                                pass
+                            state_key = (
+                                f"FLIP_{sym}_{am._signal}"
+                                f"_{1 if exchange_qty > 0 else -1}"
+                            )
+                            last = _last_recon_alert.get(sym)
+                            cooldown_ok = (
+                                last is None
+                                or last[0] != state_key
+                                or (time.time() - last[1]) > _RECON_ALERT_COOLDOWN_S
+                            )
+                            if cooldown_ok:
+                                try:
+                                    send_alert(
+                                        AlertLevel.CRITICAL,
+                                        f"DIRECTION FLIP on {sym}",
+                                        details={
+                                            "venue": getattr(adapter, "venue", "?"),
+                                            "symbol": sym,
+                                            "internal_signal": str(am._signal),
+                                            "exchange_qty": f"{exchange_qty:+.4f}",
+                                        },
+                                        source="reconcile",
+                                    )
+                                    _last_recon_alert[sym] = (state_key, time.time())
+                                except Exception:
+                                    pass
                 except Exception:
                     logger.warning("Position reconciliation failed", exc_info=True)
 

@@ -40,7 +40,7 @@ def push_bar(state, close: float, volume: float, high: float, low: float, open_:
         sign = 1 if funding_rate > 0 else (-1 if funding_rate < 0 else 0)
         if sign != 0:
             if sign == state._funding_last_sign:
-                state._funding_sign_count += 1
+                state._funding_sign_count = min(state._funding_sign_count + 1, 200)
             else:
                 state._funding_sign_count = 1
                 state._funding_last_sign = sign

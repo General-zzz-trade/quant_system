@@ -227,6 +227,38 @@ def build_daily_summary() -> dict[str, Any]:
     }
 
 
+def _tca_summary() -> dict[str, Any]:
+    """Read TCA logs and compute execution quality metrics."""
+    result: dict[str, Any] = {}
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).timestamp()
+    for venue in KNOWN_VENUES:
+        tca_path = AUDIT_DIR / f"tca_{venue}.jsonl"
+        if not tca_path.exists():
+            continue
+        fills = []
+        try:
+            for line in tca_path.read_text().splitlines():
+                try:
+                    d = json.loads(line)
+                    if d.get("ts", 0) >= cutoff:
+                        fills.append(d)
+                except json.JSONDecodeError:
+                    continue
+        except Exception:
+            continue
+        if not fills:
+            continue
+        slips = [f["slippage_bps"] for f in fills if "slippage_bps" in f]
+        lats = [f["latency_ms"] for f in fills if "latency_ms" in f]
+        result[venue] = {
+            "fills": len(fills),
+            "avg_slip_bps": round(sum(slips) / len(slips), 1) if slips else 0,
+            "max_slip_bps": round(max(slips), 1) if slips else 0,
+            "avg_lat_ms": round(sum(lats) / len(lats), 0) if lats else 0,
+        }
+    return result
+
+
 def send_daily_summary(dry_run: bool = False) -> None:
     summary = build_daily_summary()
 
@@ -260,6 +292,15 @@ def send_daily_summary(dry_run: bool = False) -> None:
             level = AlertLevel.WARNING
         else:
             level = AlertLevel.INFO
+
+    # TCA execution quality
+    tca = _tca_summary()
+    for venue, metrics in tca.items():
+        details[f"tca_{venue}"] = (
+            f"{metrics['fills']} fills, "
+            f"slip={metrics['avg_slip_bps']:.0f}bps avg/{metrics['max_slip_bps']:.0f}bps max, "
+            f"lat={metrics['avg_lat_ms']:.0f}ms"
+        )
 
     if dry_run:
         print(f"[{level.value}] {title}")

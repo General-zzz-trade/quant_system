@@ -530,6 +530,17 @@ def _build_data_sources(symbol: str, interval: str = "60",
             "vix_chg_1d": "vix_chg_1d",
             "vix_chg_5d": "vix_chg_5d",
             "fxi_ret_1d": "fxi_ret_1d",
+            # Gold-BTC divergence features
+            "gld_ret_1d": "gld_ret_1d",
+            "gold_btc_corr_30d": "gold_btc_corr_30d",
+            "gold_btc_return_spread_5d": "gold_btc_return_spread_5d",
+            # FRED macro: M2 money supply + yield curve
+            "m2_yoy_change": "m2_yoy_change",
+            "m2_3m_change": "m2_3m_change",
+            "m2_mom_change": "m2_mom_change",
+            "yield_curve_2s10s": "yield_curve_2s10s",
+            "yield_curve_2s10s_chg_5d": "yield_curve_2s10s_chg_5d",
+            "yield_curve_inverted": "yield_curve_inverted",
         }
         _cm_feat_cursor = CsvDictCursor(cm_feat_path, "date", _cm_feature_cols, ts_unit="date")
         if _cm_feat_cursor.loaded:

@@ -370,6 +370,8 @@ def retrain_symbol(
                     "deadzone",        # D14
                     "min_hold",        # D14
                     "max_hold",        # D14
+                    "exit",            # per-symbol ATR/z-reversal tuning
+                    "label_mode",      # triple_barrier vs forward_return
                 ]
                 new_has_xgb = bool(cfg.get("xgb_weight"))
                 if not new_has_xgb:

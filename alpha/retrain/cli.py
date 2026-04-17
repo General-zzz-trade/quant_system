@@ -47,6 +47,77 @@ def _tb_symbol_set(args) -> set[str]:
     return out
 
 
+def _dual_label_retrain(symbol, horizons, args, trigger):
+    """Try both forward_return and triple_barrier, deploy best by OOS Sharpe."""
+    import tempfile
+
+    model_dir = _model_dir_for(symbol)
+    # Backup original model
+    backup_dir = Path(tempfile.mkdtemp(prefix=f"dual_{symbol}_"))
+    if model_dir.exists():
+        shutil.copytree(model_dir, backup_dir / "original", dirs_exist_ok=True)
+
+    candidates = []
+    for lm in ["forward_return", "triple_barrier"]:
+        logger.info("[DUAL] %s: training with label_mode=%s", symbol, lm)
+        # Restore original before each attempt
+        if (backup_dir / "original").exists():
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            shutil.copytree(backup_dir / "original", model_dir)
+
+        result = retrain_symbol(
+            symbol, horizons=horizons, dry_run=args.dry_run,
+            retrain_trigger=trigger,
+            skip_comparison_gate=True,  # compare ourselves
+            label_mode=lm,
+            tb_upper_pct=float(args.tb_upper),
+            tb_lower_pct=float(args.tb_lower),
+            meta_labeling=bool(args.meta_labeling),
+        )
+        result["label_mode"] = lm
+        if result.get("success"):
+            sharpe = result.get("new_sharpe", 0)
+            ic = result.get("new_avg_ic", 0)
+            logger.info("[DUAL] %s %s: Sharpe=%.2f, IC=%.4f", symbol, lm, sharpe, ic)
+            # Save this candidate's model
+            candidate_dir = backup_dir / lm
+            if model_dir.exists():
+                shutil.copytree(model_dir, candidate_dir, dirs_exist_ok=True)
+            candidates.append((lm, sharpe, ic, result))
+        else:
+            logger.warning("[DUAL] %s %s: FAILED (%s)", symbol, lm,
+                           result.get("error", "unknown"))
+
+    if not candidates:
+        # Both failed — restore original
+        if (backup_dir / "original").exists():
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            shutil.copytree(backup_dir / "original", model_dir)
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        return {"symbol": symbol, "success": False, "error": "dual-label: both modes failed"}
+
+    # Pick winner by Sharpe
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    winner_lm, winner_sharpe, winner_ic, winner_result = candidates[0]
+
+    # Deploy winner
+    winner_dir = backup_dir / winner_lm
+    if winner_dir.exists():
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
+        shutil.copytree(winner_dir, model_dir)
+
+    comparison = " vs ".join(f"{lm}={s:.2f}" for lm, s, _, _ in candidates)
+    logger.info("[DUAL] %s: deploying %s (Sharpe %s)", symbol, winner_lm, comparison)
+    print(f"  [DUAL] {symbol}: {comparison} → deploying {winner_lm}")
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
+    winner_result["dual_comparison"] = comparison
+    return winner_result
+
+
 def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
     """Run 1h retrain loop. Returns results dict."""
     results: Dict[str, dict] = {}
@@ -92,17 +163,23 @@ def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
         tb_enabled = symbol in _tb_symbol_set(args)
         label_mode = "triple_barrier" if tb_enabled else "forward_return"
 
-        result = retrain_symbol(
-            symbol, horizons=horizons, dry_run=args.dry_run,
-            retrain_trigger=trigger,
-            skip_comparison_gate=args.no_comparison_gate,
-            label_mode=label_mode,
-            tb_upper_pct=float(args.tb_upper),
-            tb_lower_pct=float(args.tb_lower),
-            meta_labeling=bool(args.meta_labeling),
-        )
+        if getattr(args, "dual_label", False) and not tb_enabled:
+            # Dual label mode: try both, deploy best OOS Sharpe
+            result = _dual_label_retrain(
+                symbol, horizons, args, trigger,
+            )
+        else:
+            result = retrain_symbol(
+                symbol, horizons=horizons, dry_run=args.dry_run,
+                retrain_trigger=trigger,
+                skip_comparison_gate=args.no_comparison_gate,
+                label_mode=label_mode,
+                tb_upper_pct=float(args.tb_upper),
+                tb_lower_pct=float(args.tb_lower),
+                meta_labeling=bool(args.meta_labeling),
+            )
         result["retrain_mode"] = retrain_mode
-        result["label_mode"] = label_mode
+        result["label_mode"] = result.get("label_mode", label_mode)
 
         if args.daily and result.get("success") and not args.dry_run:
             new_config = load_current_config(symbol)
@@ -268,6 +345,8 @@ def main():
     parser.add_argument("--meta-labeling", action="store_true",
                         help="Enable D5 meta-labeling k-fold classifier "
                              "(secondary gate for low-confidence signals)")
+    parser.add_argument("--dual-label", action="store_true",
+                        help="Try both forward_return and triple_barrier, deploy best OOS Sharpe")
     parser.add_argument("--sighup", action="store_true",
                         help="Alias for --notify-runner")
     args = parser.parse_args()

@@ -89,6 +89,25 @@ def train_symbol(
 
     if passed:
         logger.info("4h %s PASSED: Sharpe=%.2f, IC=%.4f", symbol, sharpe, ic)
+        # Convert v8_4h flat format to horizon_models format for model_loader compat
+        if "horizon_models" not in config and "models" in config:
+            features = config.get("features", [])
+            horizon = config.get("horizon", 12)
+            hm_entry = {
+                "horizon": horizon,
+                "lgbm": config["models"][0],
+                "features": features,
+                "ic": ic,
+            }
+            if len(config["models"]) > 1:
+                hm_entry["xgb"] = config["models"][1]
+            config["horizon_models"] = [hm_entry]
+            config["horizons"] = [horizon]
+            config["multi_horizon"] = True
+            config["ensemble_method"] = "ic_weighted"
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+            logger.info("4h %s: converted v8_4h → horizon_models format", symbol)
     else:
         logger.warning("4h %s FAILED checks: Sharpe=%.2f, IC=%.4f", symbol, sharpe, ic)
 

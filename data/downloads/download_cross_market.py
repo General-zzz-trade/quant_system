@@ -50,6 +50,13 @@ TICKERS = {
     "BITI": "Short Bitcoin ETF",
     "MARA": "Marathon Digital",
     "RIOT": "Riot Platforms",
+    # Trad-fi risk/macro (V12+)
+    "HYG": "High Yield Corporate Bond",
+    "IWM": "Russell 2000 Small Cap",
+    "XLK": "Technology Sector",
+    "FXI": "China Large Cap",
+    # BTC spot for gold-BTC divergence
+    "BTC-USD": "Bitcoin USD",
 }
 
 OUTPUT_PATH = Path("data_files/cross_market_daily.csv")
@@ -71,6 +78,63 @@ def fetch_yahoo(ticker: str, range_str: str = "5y") -> pd.DataFrame:
     df["date"] = df["date"].dt.date
     df = df.drop_duplicates(subset=["date"], keep="last")
     return df.set_index("date")
+
+
+def _merge_fred_macro(out: pd.DataFrame) -> None:
+    """Merge FRED macro data (M2 + yield curve 2s10s) into cross-market features.
+
+    Reads pre-downloaded CSVs from data_files/macro/. If files don't exist,
+    attempts a fresh download via download_fred_macro.
+    """
+    macro_dir = Path("data_files/macro")
+
+    # ── M2 Money Supply ──
+    m2_path = macro_dir / "m2_money_supply.csv"
+    if not m2_path.exists():
+        try:
+            from data.downloads.download_fred_macro import download_m2
+            download_m2()
+        except Exception as e:
+            log.warning("M2 auto-download failed: %s", e)
+
+    if m2_path.exists():
+        try:
+            m2 = pd.read_csv(m2_path, parse_dates=["date"])
+            m2["date"] = m2["date"].dt.date
+            m2 = m2.set_index("date")
+            # Align to out's index (daily dates)
+            for col in ["m2_yoy_change", "m2_3m_change", "m2_mom_change"]:
+                if col in m2.columns:
+                    aligned = m2[col].reindex(out.index).ffill()
+                    out[col] = aligned
+            log.info("M2 features merged: %d rows", len(m2))
+        except Exception as e:
+            log.warning("M2 merge failed: %s", e)
+
+    # ── Yield Curve 2s10s ──
+    yc_path = macro_dir / "yield_curve_2s10s.csv"
+    if not yc_path.exists():
+        try:
+            from data.downloads.download_fred_macro import download_yield_curve_2s10s
+            download_yield_curve_2s10s()
+        except Exception as e:
+            log.warning("Yield curve auto-download failed: %s", e)
+
+    if yc_path.exists():
+        try:
+            yc = pd.read_csv(yc_path, parse_dates=["date"])
+            yc["date"] = yc["date"].dt.date
+            yc = yc.set_index("date")
+            # Level (spread in %)
+            aligned = yc["value"].reindex(out.index).ffill()
+            out["yield_curve_2s10s"] = aligned
+            # 5-day change in spread
+            out["yield_curve_2s10s_chg_5d"] = aligned.diff(5)
+            # Inversion flag: negative spread = inverted yield curve
+            out["yield_curve_inverted"] = (aligned < 0).astype(float)
+            log.info("Yield curve 2s10s features merged: %d rows", len(yc))
+        except Exception as e:
+            log.warning("Yield curve merge failed: %s", e)
 
 
 def build_cross_market_features() -> pd.DataFrame:
@@ -129,6 +193,18 @@ def build_cross_market_features() -> pd.DataFrame:
     # Gold (safe haven)
     if "GLD" in combined:
         out["gld_ret_5d"] = combined["GLD"].pct_change(5)
+        out["gld_ret_1d"] = combined["GLD"].pct_change()
+
+    # Gold-BTC divergence features
+    if "GLD" in combined and "BTC-USD" in combined:
+        gld_ret = combined["GLD"].pct_change()
+        btc_ret = combined["BTC-USD"].pct_change()
+        # 30-day rolling correlation between GLD and BTC daily returns
+        out["gold_btc_corr_30d"] = gld_ret.rolling(30).corr(btc_ret)
+        # 5-day return spread: gold outperforming = positive
+        out["gold_btc_return_spread_5d"] = (
+            combined["GLD"].pct_change(5) - combined["BTC-USD"].pct_change(5)
+        )
 
     # SPY extreme flag: |ret| > 2%
     if "spy_ret_1d" in out:
@@ -163,6 +239,38 @@ def build_cross_market_features() -> pd.DataFrame:
         out["mara_ret_1d"] = combined["MARA"].pct_change()   # miner behavior
     if "RIOT" in combined:
         out["riot_ret_1d"] = combined["RIOT"].pct_change()
+
+    # V12+: Trad-fi risk/macro factors
+    # HYG: high yield corporate bond — risk appetite indicator
+    if "HYG" in combined:
+        out["hyg_ret_1d"] = combined["HYG"].pct_change()
+        out["hyg_ret_5d"] = combined["HYG"].pct_change(5)
+        # Credit spread proxy: TLT (safe) vs HYG (risky) divergence
+        if "TLT" in combined:
+            out["credit_spread_chg"] = combined["TLT"].pct_change(5) - combined["HYG"].pct_change(5)
+
+    # IWM: Russell 2000 — small cap risk appetite
+    if "IWM" in combined:
+        out["iwm_ret_1d"] = combined["IWM"].pct_change()
+        # Risk-on/off: IWM vs SPY (small cap underperform = risk-off)
+        if "SPY" in combined:
+            out["risk_appetite"] = combined["IWM"].pct_change(5) - combined["SPY"].pct_change(5)
+
+    # XLK: Technology sector
+    if "XLK" in combined:
+        out["xlk_ret_1d"] = combined["XLK"].pct_change()
+
+    # VIX change rate (more useful than level)
+    if "^VIX" in combined:
+        out["vix_chg_1d"] = combined["^VIX"].pct_change()
+        out["vix_chg_5d"] = combined["^VIX"].pct_change(5)
+
+    # FXI: China large cap — Asia risk sentiment
+    if "FXI" in combined:
+        out["fxi_ret_1d"] = combined["FXI"].pct_change()
+
+    # ── FRED macro: M2 money supply + yield curve 2s10s ──
+    _merge_fred_macro(out)
 
     return out.dropna(subset=["spy_ret_1d"])
 
@@ -226,8 +334,44 @@ def main():
     features.to_csv(OUTPUT_PATH)
     log.info("Saved %d rows to %s", len(features), OUTPUT_PATH)
 
-    # Also update ETF volume data
-    build_etf_volume()
+    # Download FRED macro data (M2 + yield curve) — saved as individual CSVs
+    try:
+        from data.downloads.download_fred_macro import download_m2, download_yield_curve_2s10s
+        download_m2()
+        download_yield_curve_2s10s()
+    except Exception as e:
+        log.warning("FRED macro download failed (non-critical): %s", e)
+
+    # Also update ETF volume data (optional — some ETFs may lack volume)
+    try:
+        build_etf_volume()
+    except Exception as e:
+        log.warning("ETF volume update failed (non-critical): %s", e)
+
+    # Save individual ETF daily files to data_files/macro/ for alpha_builder
+    # cross_market_source (CsvCursor reads SPY_daily.csv, TLT_daily.csv, etc.)
+    macro_dir = Path("data_files/macro")
+    macro_dir.mkdir(parents=True, exist_ok=True)
+    etf_map = {
+        "SPY": "SPY_daily.csv",
+        "TLT": "TLT_daily.csv",
+        "^VIX": "VIX_daily.csv",
+        "USO": "USO_daily.csv",
+        "GLD": "GLD_daily.csv",
+        "COIN": "COIN_daily.csv",
+        "UUP": "UUP_daily.csv",
+    }
+    for ticker, name in TICKERS.items():
+        fname = etf_map.get(ticker)
+        if fname is None:
+            continue
+        try:
+            df = fetch_yahoo(ticker)
+            if len(df) > 0:
+                df.to_csv(macro_dir / fname)
+                log.info("Saved %s: %d rows", fname, len(df))
+        except Exception as e:
+            log.debug("Failed to save %s: %s", fname, e)
 
     # Summary
     print(f"\nCross-market features: {len(features)} days")

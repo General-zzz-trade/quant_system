@@ -1,0 +1,19 @@
+[Unit]
+Description=Order Book Depth Recorder (BTC+ETH)
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=30
+WorkingDirectory=/quant_system
+Environment=PYTHONPATH=/quant_system
+EnvironmentFile=/quant_system/.env
+ExecStart=/usr/bin/python3 -m data.downloads.record_depth_data --symbol BTCUSDT --bar-interval 3600
+User=ubuntu
+MemoryMax=256M
+StandardOutput=append:/quant_system/logs/depth_recorder.log
+StandardError=append:/quant_system/logs/depth_recorder.log
+
+[Install]
+WantedBy=multi-user.target
