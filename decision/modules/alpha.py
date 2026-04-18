@@ -184,6 +184,11 @@ class AlphaDecisionModule:
         self._audit = DecisionAuditLogger(venue=self._venue)
         self._audit_enabled = True  # disabled during warmup to prevent fake entries
 
+        # Set by runner.alpha_main when a pre-placed limit order fills before
+        # decide() runs in the same bar — stops decide() from racing the limit
+        # fill with a parallel market order. Cleared after each decide().
+        self._suppress_next_entry = False
+
     def set_consensus(self, signals: dict[str, int]) -> None:
         """Update cross-symbol consensus signals."""
         self._consensus.update(signals)
@@ -799,6 +804,12 @@ class AlphaDecisionModule:
                     qty_f = 0.0
                 if not math.isfinite(qty_f) or qty_f <= 0:
                     return events  # skip zero/negative/NaN qty (warmup, edge case)
+                if self._suppress_next_entry:
+                    # Limit order pre-fill already opened the position this bar;
+                    # don't double-enter via market order. The limit_fill audit
+                    # entry written by alpha_main is the authoritative record.
+                    self._suppress_next_entry = False
+                    return events
                 events.extend(self._make_open_order(close, new_signal, qty))
                 entry_reason = "graduated" if sw < 0.95 else "signal"
                 if self._audit_enabled:

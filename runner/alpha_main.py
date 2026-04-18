@@ -791,10 +791,28 @@ def main() -> None:
                         am._current_qty = Decimal(str(fill_info["qty"]))
                         am._last_trade_bar = am._bars_processed
                         am._consensus[rk] = am._signal
+                        # Tell decide() to skip its own entry attempt this bar
+                        # (avoids decide() opening a market order on top of the
+                        # limit fill, which causes audit/exchange divergence).
+                        am._suppress_next_entry = True
                         logger.info(
                             "LIMIT FILL applied %s: signal=%d entry=$%.2f qty=%.4f",
                             rk, am._signal, am._entry_price, fill_info["qty"],
                         )
+                        # Audit log: actual fill qty (decide() may also write
+                        # an "intent" entry below, this one is the truth).
+                        if getattr(am, "_audit_enabled", False):
+                            try:
+                                am._audit.log_entry(
+                                    symbol=ws_symbol,
+                                    side=side,
+                                    qty=float(fill_info["qty"]),
+                                    price=float(fill_info["price"]),
+                                    reason="limit_fill",
+                                    runner_key=rk,
+                                )
+                            except Exception:
+                                pass
                         # Emit FillEvent so coordinator state store tracks the position
                         coord = coordinators.get(rk)
                         if coord is not None:
@@ -1400,7 +1418,11 @@ def main() -> None:
                     ex_map: dict[str, float] = {}
                     for pos in exchange_positions:
                         if not pos.is_flat:
-                            ex_map[pos.symbol] = float(pos.qty) if pos.is_long else -float(pos.qty)
+                            # pos.qty is already signed (positive=long, negative=short).
+                            # An earlier version did `-float(pos.qty)` for shorts,
+                            # which sign-flipped them in the cache and triggered
+                            # spurious DIRECTION FLIP alerts on every short trade.
+                            ex_map[pos.symbol] = float(pos.qty)
                     _exchange_pos_cache.clear()
                     _exchange_pos_cache.update(ex_map)
                     for rk, am in modules.items():
