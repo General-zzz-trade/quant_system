@@ -203,7 +203,7 @@ Ensemble (per-symbol IC-weighted) → Rolling z-score → Z-clamp (|z|>3.5 → �
 - `MAX_ORDER_NOTIONAL_PCT = 250%` of equity (safety cap); dynamic via `get_max_order_notional(equity)`
 - `_round_to_step()` applied in ALL sizing paths — prevents Bybit `Qty invalid` rejections
 - SYMBOL_CONFIG: BTC+ETH 1h/4h active; 15m DISABLED (full-sample Sharpe 0.50, model decayed)
-- Micro tier (<$500): BTC 2x + ETH 1x — BTC cap=0.20, ETH cap=0.10 (D13 portfolio config; symmetric (0.075,0.075) was worse, ETH 6.5x exceeded safe leverage for small accounts)
+- Micro tier (<$500): BTC 2x + ETH 6.5x — BTC cap=0.20, ETH cap=0.65
 - AdaptivePositionSizer: cap=0.0 returns qty=0 (min_size floor skipped for disabled symbols)
 - `_NEUTRAL_DEFAULTS`: NaN features → neutral values (ls_ratio→1.0, rsi_14→50.0), not 0.0
 - `reliable_close_position()` replaces bare `close_position()` calls
@@ -256,7 +256,7 @@ Ensemble (per-symbol IC-weighted) → Rolling z-score → Z-clamp (|z|>3.5 → �
 - 15m: DISABLED (BTC Sharpe 0.50, ETH FAIL)
 - OOS backtest (18m, long-only): BTC Sharpe 4.38 +30.0%, ETH Sharpe 9.85 +46.3%
 - OOS backtest (18m, long+short): ETH Sharpe 8.88 +64.8%
-- Micro tier ($391): BTC 2x + ETH 1x
+- Micro tier ($391): BTC 2x + ETH 6.5x
 
 ## Environment
 

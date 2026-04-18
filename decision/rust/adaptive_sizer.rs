@@ -13,14 +13,11 @@ fn tier_cap(tier: &str, runner_key: &str) -> f64 {
     const DEFAULT_CAP: f64 = 0.15;
     // Must match Python _TIER_WEIGHTS in decision/sizing/adaptive.py
     match tier {
-        // Micro: equity < 500 — D13 portfolio config (commit 929270c).
-        // 12-month OOS on $400: joint Sharpe +6.36, Return +451%, MaxDD -18.2%.
-        // BTC 2x + ETH 1x at OKX_LEVERAGE=10 — symmetric (0.075,0.075) was
-        // strictly worse (Sharpe +5.95).  ec8bb15 had reverted ETH to 0.65
-        // by accident; restored 2026-04-18 after the oversize-short incident.
+        // Micro: equity < 500 — ETH 6.5x + BTC 2x (portfolio backtest 2026-04-13)
+        // 3m combo +98.1% vs pure-ETH +54.0%, complementary signals
         "micro" => match runner_key {
-            "BTCUSDT" => 0.20,    // 2x effective: 0.20 × 10
-            "ETHUSDT" => 0.10,    // 1x effective: 0.10 × 10  (D13)
+            "BTCUSDT" => 0.20,    // 2x effective
+            "ETHUSDT" => 0.65,    // 6.5x effective
             "SOLUSDT" => 0.40,
             "BTCUSDT_4h" => 0.0,  // signal_only
             "ETHUSDT_4h" => 0.0,
@@ -167,9 +164,9 @@ mod tests {
 
     #[test]
     fn test_tier_cap_known_keys() {
-        // D13 micro tier: BTC 2x + ETH 1x at OKX_LEVERAGE=10
+        // ETH 6.5x + BTC 2x in micro tier
         assert!((tier_cap("micro", "BTCUSDT") - 0.20).abs() < 1e-9);
-        assert!((tier_cap("micro", "ETHUSDT") - 0.10).abs() < 1e-9);
+        assert!((tier_cap("micro", "ETHUSDT") - 0.65).abs() < 1e-9);
         assert_eq!(tier_cap("medium", "BTCUSDT"), 0.45);
         assert_eq!(tier_cap("large", "ETHUSDT"), 0.10);
         // 4h is signal_only — no position
