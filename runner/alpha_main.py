@@ -483,25 +483,32 @@ def main() -> None:
 
     # Sync positions from exchange — if exchange has an open position,
     # restore alpha module state so stop-loss/quick_loss work correctly.
+    #
+    # Earlier this loop did `if qty <= 0: continue`, but `pos.qty` is signed
+    # (positive=long, negative=short). That filter silently skipped EVERY
+    # short position, so on restart the runner would start with am._signal=0
+    # while the exchange held a short, and the next strong signal would open
+    # a fresh short on top — turning a 1.59-contract intended short into a
+    # 9.7-contract actual short (2026-04-18 ETH incident).
     try:
         exchange_positions = adapter.get_positions()
         if exchange_positions:
             for pos in exchange_positions:
                 sym = pos.symbol
-                side = pos.side  # "Buy" or "Sell"
-                qty = float(pos.qty)
+                qty_signed = float(pos.qty)
                 entry = float(pos.entry_price)
-                if qty <= 0 or entry <= 0:
+                if abs(qty_signed) < 1e-8 or entry <= 0:
                     continue
+                pos_signal = 1 if qty_signed > 0 else -1
+                qty_abs = abs(qty_signed)
                 # Find matching 1h runner (not 4h — exchange position is shared)
                 for rk, am in modules.items():
                     cfg = SYMBOL_CONFIG[rk]
                     if cfg.get("symbol", rk) == sym and "4h" not in rk and "15m" not in rk:
-                        pos_signal = 1 if side.lower() == "buy" else -1
                         am._signal = pos_signal
                         am._entry_price = entry
                         am._trade_peak = entry
-                        am._current_qty = __import__("decimal").Decimal(str(qty))
+                        am._current_qty = Decimal(str(qty_abs))
                         am._last_trade_bar = am._bars_processed  # treat sync as trade start for max_hold
                         # Critical: set _entry_bar so min-hold guard (alpha.py:497)
                         # protects the synced position from immediate signal_change
@@ -511,9 +518,9 @@ def main() -> None:
                         am._entry_bar = am._bars_processed
                         mh_protect = int(getattr(am._discretizer, "min_hold", 6))
                         logger.info(
-                            "POSITION SYNC %s: %s qty=%.4f entry=%.2f → "
+                            "POSITION SYNC %s: qty=%+.4f entry=%.2f → "
                             "pos_signal=%+d (entry_bar=%d, protected %d bars)",
-                            sym, side, qty, entry, pos_signal,
+                            sym, qty_signed, entry, pos_signal,
                             am._bars_processed, mh_protect,
                         )
                         break
