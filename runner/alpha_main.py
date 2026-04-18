@@ -642,25 +642,74 @@ def main() -> None:
                 if float(qty) <= 0:
                     continue
 
+                # CRITICAL safety check: refuse to fire BATCH INSTANT if the
+                # exchange already holds ANY position for this symbol. The
+                # 2026-04-18 03:45 ETH oversize-short incident happened
+                # because the warmup sync had a bug (skipped shorts), so
+                # alpha._signal was 0 even though the exchange held -0.159
+                # ETH — and BATCH INSTANT then opened another 0.811 ETH on
+                # top, leaving us with -0.97 ETH at 6.5x leverage.
+                #
+                # Even with the warmup-sync bug fixed (commit 926c2c5), we
+                # want a hard guard here: BATCH INSTANT must never add to an
+                # existing position; if there's drift between alpha state and
+                # exchange, the regular reconcile loop (now 60s) handles it.
+                try:
+                    ex_positions = adapter.get_positions()
+                    for p in ex_positions:
+                        if p.symbol == symbol and not p.is_flat:
+                            logger.warning(
+                                "BATCH INSTANT %s: SKIPPED — exchange already holds %+.4f, "
+                                "alpha._signal=%d. Reconcile will sync state shortly.",
+                                symbol, float(p.qty), alpha_mod._signal,
+                            )
+                            raise StopIteration
+                except StopIteration:
+                    continue
+                except Exception:
+                    logger.warning(
+                        "BATCH INSTANT %s: position check failed, proceeding anyway",
+                        symbol, exc_info=True,
+                    )
+
                 # Place order (3x retry via execution adapter + circuit breaker)
                 if not _circuit_breaker.allow_request():
                     logger.warning("BATCH INSTANT %s blocked by circuit breaker", symbol)
                     continue
-                from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-                _exec = BinanceExecutionAdapter(adapter)
-                resp = _exec._send_with_retry(symbol, side, float(qty))
+                # Use the venue's own execution_adapter when available, else
+                # fall through to send_market_order. Old code unconditionally
+                # used BinanceExecutionAdapter which only "worked" because
+                # the wrapper's _send_with_retry transparently forwards to
+                # whichever adapter it wraps.
+                try:
+                    if args.venue == "okx":
+                        from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
+                        _exec = OkxExecutionAdapter(adapter)
+                    else:
+                        from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+                        _exec = BinanceExecutionAdapter(adapter)
+                    resp = _exec._send_with_retry(symbol, side, float(qty))
+                except Exception:
+                    logger.exception("BATCH INSTANT %s: send_with_retry failed", symbol)
+                    _circuit_breaker.record_failure()
+                    continue
                 status = resp.get("status", "")
                 if status not in ("error", "failed"):
-                    # Verify actual fill from exchange position (prevents DIVERGENCE)
+                    # Verify actual fill from exchange position. Old code used
+                    # `p.get("positionAmt")` which works for Binance dict
+                    # responses but NOT for the typed VenuePosition tuple
+                    # returned by OkxAdapter.get_positions() — silently fell
+                    # back to intent qty. Use the typed accessor instead.
                     actual_qty = qty
                     try:
                         positions = adapter.get_positions()
                         for p in positions:
-                            if p.get("symbol") == symbol:
-                                actual_qty = Decimal(str(abs(float(p.get("positionAmt", 0)))))
+                            if p.symbol == symbol and not p.is_flat:
+                                actual_qty = Decimal(str(p.abs_qty))
                                 break
                     except Exception:
-                        pass  # fall back to requested qty
+                        logger.debug("BATCH INSTANT %s: position verify failed",
+                                     symbol, exc_info=True)
                     alpha_mod._signal = new_signal
                     alpha_mod._entry_price = price
                     alpha_mod._trade_peak = price
