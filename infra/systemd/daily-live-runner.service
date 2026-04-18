@@ -1,0 +1,16 @@
+[Unit]
+Description=1D LIVE runner — places real OKX orders for BTC 1D model (Day-4 deploy)
+After=network.target daily-paper-runner.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+# Day 4 go-live: remove `--symbols BTCUSDT` line override and add `--live`.
+# Currently runs DRY-RUN by default for safety. Until --live is added, this
+# unit cannot place orders even if the timer fires.
+ExecStart=/usr/bin/python3 -m runner.daily_live_runner --symbols BTCUSDT
+User=ubuntu
+StandardOutput=append:/quant_system/logs/daily_live_runner.log
+StandardError=append:/quant_system/logs/daily_live_runner.log

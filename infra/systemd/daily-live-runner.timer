@@ -1,0 +1,10 @@
+[Unit]
+Description=Run 1D live runner daily at UTC 00:35 (after paper runner at 00:30)
+
+[Timer]
+OnCalendar=*-*-* 00:35:00 UTC
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
