@@ -190,8 +190,24 @@ class AlphaDecisionModule:
         self._suppress_next_entry = False
 
     def set_consensus(self, signals: dict[str, int]) -> None:
-        """Update cross-symbol consensus signals."""
-        self._consensus.update(signals)
+        """Wire this module to the shared cross-symbol consensus dict.
+
+        IMPORTANT: aliases the dict, doesn't copy items. The runner
+        intends ALL modules to share one consensus dict so writes from
+        any module's decide() propagate to other modules' reads.
+
+        Old behaviour was `self._consensus.update(signals)` which
+        copied items into a private dict. Cross-symbol features that
+        depended on real-time updates — 4h direction filter, BTC→ETH
+        alignment, 4h consensus boost — were silently reading STALE
+        startup state forever. (The 4h IC OK flag in particular was
+        meant to be re-published every 4h bar; with the old behaviour
+        the 1h gate only saw the value present at process startup.)
+
+        Tests that called set_consensus({"X": 1}) still see X=1 because
+        an aliased dict has the same key.
+        """
+        self._consensus = signals
 
     def update_predictor(self, predictor: EnsemblePredictor) -> None:
         """Hot-swap the ensemble predictor (SIGHUP reload)."""
