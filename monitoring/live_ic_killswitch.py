@@ -154,8 +154,30 @@ def _compute_ic_windows(
     }
 
 
-def _decide_action(prev_paused: bool, ic_per_day: dict[str, float]) -> tuple[str, str]:
+def _decide_action(prev_paused: bool, ic_per_day: dict[str, float],
+                   prev_state: dict | None = None) -> tuple[str, str]:
     """Return (action, reason). action ∈ {'PAUSE','RESUME','HOLD'}."""
+    # Portfolio-DD-driven pauses: auto-resume at the next UTC 00:00 boundary
+    # since the alpha_main daily DD baseline resets at that time. Without
+    # this, a DD pause would stick until the next IC-based RESUME (which
+    # may never come if IC is borderline) — leaving runners offline for
+    # days after a single bad day.
+    if prev_paused and prev_state is not None:
+        reason = str(prev_state.get("reason", ""))
+        since = prev_state.get("since", "")
+        if reason.startswith("portfolio_") and since:
+            try:
+                since_dt = datetime.fromisoformat(since)
+                now = datetime.now(timezone.utc)
+                # Auto-resume if we crossed a UTC midnight since pause
+                if (now.date() > since_dt.date()):
+                    return "RESUME", (
+                        f"portfolio pause auto-expired: paused {since_dt.date()}, "
+                        f"now {now.date()}"
+                    )
+            except Exception:
+                pass
+
     if not ic_per_day:
         return "HOLD", "not enough daily IC data"
 
@@ -241,7 +263,9 @@ def run_check(update: bool = False, alert: bool = False) -> dict:
 
         prev = prev_state.get(rk, {"paused": False})
         if active:
-            action, reason = _decide_action(prev.get("paused", False), ic_per_day)
+            action, reason = _decide_action(
+                prev.get("paused", False), ic_per_day, prev_state=prev,
+            )
         else:
             action, reason = "MONITOR_ONLY", "signal-only runner"
 

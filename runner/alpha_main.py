@@ -1229,7 +1229,16 @@ def main() -> None:
     # for BTC/ETH 1h strategies under realistic execution.  At $400
     # OKX capital that drawdown puts the account at $212 — too brutal
     # for a 2-symbol setup.  Override via MAX_DAILY_DRAWDOWN_PCT env.
+    #
+    # 2026-04-18 P3 fix: keyed baseline by UTC date string instead of
+    # "first observation after restart". Prior behaviour: a mid-day
+    # service restart re-baselined to the current (already-drawn-down)
+    # equity, hiding the actual daily drawdown. With the date-keyed
+    # version a restart loads the earliest equity seen on this UTC day
+    # and continues to track from there.
     _daily_start_equity: float | None = None
+    _daily_baseline_date: str | None = None  # "YYYY-MM-DD" (UTC)
+    _portfolio_pause_armed: bool = False  # tracks whether DD pause is active
     _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "3.0"))
     # Weekly cumulative floor: stop ALL new entries if account drops
     # 10% from the start of the ISO week (Mon 00:00 UTC).  Reset each
@@ -1411,17 +1420,25 @@ def main() -> None:
                 try:
                     equity = _get_equity()
                     if equity is not None and equity > 0:
-                        if _daily_start_equity is None:
+                        import datetime as _dt
+                        _today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+                        if _daily_baseline_date != _today:
+                            # New UTC day → reset baseline. This catches the
+                            # "service restarted at noon" case the old code
+                            # missed.
                             _daily_start_equity = equity
+                            _daily_baseline_date = _today
+                            _portfolio_pause_armed = False  # reset pause for new day
                             logger.info(
-                                "Daily drawdown tracker initialized: start_equity=%.2f",
-                                _daily_start_equity,
+                                "Daily drawdown baseline reset: date=%s start_equity=%.2f",
+                                _today, _daily_start_equity,
                             )
-                        elif _daily_start_equity > 0:
+                        elif _daily_start_equity and _daily_start_equity > 0:
                             dd_pct = (1.0 - equity / _daily_start_equity) * 100
-                            if dd_pct > _MAX_DAILY_DRAWDOWN_PCT:
+                            if dd_pct > _MAX_DAILY_DRAWDOWN_PCT and not _portfolio_pause_armed:
                                 logger.critical(
-                                    "DAILY DRAWDOWN %.1f%% exceeds limit %.1f%% — killing trading",
+                                    "DAILY DRAWDOWN %.1f%% exceeds limit %.1f%% — "
+                                    "PORTFOLIO KILL SWITCH ARMED",
                                     dd_pct, _MAX_DAILY_DRAWDOWN_PCT,
                                 )
                                 _kill_switch.arm(
@@ -1433,6 +1450,44 @@ def main() -> None:
                                     coord.halt_trading(
                                         reason=f"daily drawdown {dd_pct:.1f}%"
                                     )
+                                # Persist pause to symbol_pause_state.json so
+                                # the file-based kill switch picks it up too
+                                # (survives alpha_main restart). Pause every
+                                # active runner — the DD is portfolio-level.
+                                try:
+                                    from monitoring.live_ic_killswitch import force_override
+                                    for rk in modules:
+                                        cfg_r = SYMBOL_CONFIG.get(rk, {})
+                                        if "4h" in rk or "15m" in rk:
+                                            continue
+                                        force_override(
+                                            rk, paused=True,
+                                            reason=f"portfolio_daily_dd_{dd_pct:.1f}%",
+                                        )
+                                except Exception:
+                                    logger.warning(
+                                        "Failed to persist portfolio pause to state file",
+                                        exc_info=True,
+                                    )
+                                # Telegram CRITICAL alert
+                                try:
+                                    send_alert(
+                                        AlertLevel.CRITICAL,
+                                        f"PORTFOLIO KILL SWITCH: daily DD {dd_pct:.1f}%",
+                                        details={
+                                            "venue": args.venue,
+                                            "equity_now": f"${equity:.2f}",
+                                            "equity_start": f"${_daily_start_equity:.2f}",
+                                            "dd_pct": f"{dd_pct:.2f}%",
+                                            "limit_pct": f"{_MAX_DAILY_DRAWDOWN_PCT:.1f}%",
+                                            "action": "all 1h/1d runners paused; "
+                                                      "auto-resume next UTC 00:00",
+                                        },
+                                        source="portfolio_kill",
+                                    )
+                                except Exception:
+                                    pass
+                                _portfolio_pause_armed = True
 
                     # Weekly cumulative drawdown — independent gate.
                     # Resets each Monday 00:00 UTC.  Fires at -10%
