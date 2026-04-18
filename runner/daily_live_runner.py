@@ -183,7 +183,20 @@ def run_symbol(symbol: str, model_dir: str, macro: pd.DataFrame, *, live: bool):
         return {"symbol": symbol, "skipped": True, "msg": msg}
 
     current_signal = sym_state["signal"]
-    new_signal, reason = _decide_action(z, dz, current_signal)
+    # Same asymmetric z_decay logic as paper runner — let winners run.
+    profit_pct = 0.0
+    atr_pct = 0.01
+    if current_signal != 0 and sym_state.get("entry_price", 0) > 0:
+        ep = float(sym_state["entry_price"])
+        profit_pct = current_signal * (latest_close - ep) / ep
+        try:
+            closes_arr = df_1d["close"].values.astype(np.float64)
+            log_ret = np.diff(np.log(closes_arr[-30:]))
+            atr_pct = float(np.std(log_ret) * np.sqrt(14)) if len(log_ret) > 14 else 0.01
+        except Exception:
+            atr_pct = 0.01
+    new_signal, reason = _decide_action(z, dz, current_signal,
+                                        profit_pct=profit_pct, atr_pct=atr_pct)
 
     adapter = _make_okx_adapter()
     equity = _get_equity_usdt(adapter)

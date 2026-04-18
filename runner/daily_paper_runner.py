@@ -93,11 +93,23 @@ def _append_audit(record: dict) -> None:
         f.write(json.dumps(record) + "\n")
 
 
-def _decide_action(z, dz, current_signal):
+def _decide_action(z, dz, current_signal, profit_pct=0.0, atr_pct=0.01):
+    """Asymmetric z_decay: looser threshold when winning so trends run.
+
+    Backtest finding (scripts/z_exit_backtest.py, 2026-04-18):
+      WIN_RELAX_DECAY (0.10 when profit > 0.5*ATR, 0.20 otherwise)
+      improved Sharpe by +0.34 (BTC) and +0.55 (ETH) vs static 0.20.
+      Tightening z_reversal for losers added almost nothing (+0.02/+0.03),
+      so we keep z_reversal at -0.3.
+
+    profit_pct and atr_pct default to 0/0.01 for backwards-compat with
+    callers (and tests) that don't pass them yet.
+    """
     if current_signal != 0:
         if current_signal * z < -0.3:
             return 0, "z_reversal"
-        if abs(z) < 0.2:
+        z_decay_th = 0.10 if profit_pct > 0.5 * atr_pct else 0.20
+        if abs(z) < z_decay_th:
             return 0, "z_decay"
         return current_signal, "hold"
     if z > dz:
@@ -144,7 +156,23 @@ def run_symbol(symbol: str, model_dir: str, macro: pd.DataFrame, dry_run: bool =
         return {"symbol": symbol, "skipped": True, "msg": msg}
 
     current_signal = sym_state["signal"]
-    new_signal, reason = _decide_action(z, dz, current_signal)
+    # Compute current trade profit + ATR-at-entry for asymmetric z_decay.
+    # ATR proxy: use realized 14-day vol at the entry bar; fall back to
+    # 1% if unknown (entry happened before this restart).
+    profit_pct = 0.0
+    atr_pct = 0.01
+    if current_signal != 0 and sym_state.get("entry_price", 0) > 0:
+        ep = float(sym_state["entry_price"])
+        profit_pct = current_signal * (latest_close - ep) / ep
+        # 14-day rolling stddev of log returns ≈ ATR%
+        try:
+            closes_arr = df_1d["close"].values.astype(np.float64)
+            log_ret = np.diff(np.log(closes_arr[-30:]))
+            atr_pct = float(np.std(log_ret) * np.sqrt(14)) if len(log_ret) > 14 else 0.01
+        except Exception:
+            atr_pct = 0.01
+    new_signal, reason = _decide_action(z, dz, current_signal,
+                                        profit_pct=profit_pct, atr_pct=atr_pct)
 
     audit_record = {
         "type": "paper_signal",
