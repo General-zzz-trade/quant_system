@@ -18,14 +18,14 @@ def _snap(equity: float, price: float, symbol: str = "BTCUSDT") -> MagicMock:
 
 class TestAdaptivePositionSizer:
     def test_basic_sizing_small_account(self):
-        # ETH cap=0.65 in micro tier
+        # ETH cap=0.10 in micro tier (D13 portfolio config — was 0.65 pre-D13).
         sizer = AdaptivePositionSizer(runner_key="ETHUSDT")
         snap = _snap(equity=400, price=2200.0, symbol="ETHUSDT")
         qty = sizer.target_qty(snap, "ETHUSDT")
-        # micro tier, ETHUSDT cap=0.65, lev=10 → notional=400*0.65*10=2600
-        # size = 2600/2200 ≈ 1.18
-        assert qty > Decimal("0.5")
-        assert qty < Decimal("10.0")
+        # micro tier, ETHUSDT cap=0.10, lev=10 → notional=400*0.10*10=400
+        # size = 400/2200 ≈ 0.18
+        assert qty > Decimal("0.05")
+        assert qty < Decimal("1.0")
 
     def test_btc_enabled_micro_tier(self):
         # BTC cap=0.20 in micro tier → notional=400*0.20*10=800, qty=800/60000≈0.013

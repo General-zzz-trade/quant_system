@@ -25,11 +25,18 @@ except ImportError:
 # Within each symbol: 4h gets 60% (higher conviction), 1h gets 40%.
 # z_scale/IC/regime further adjust at runtime.
 _TIER_WEIGHTS: dict[str, dict[str, float]] = {
-    "micro": {  # equity < 500 — ETH 6.5x + BTC 2x (2026-04-13 portfolio backtest):
-                # 3m: combo +98.1% vs pure-ETH +54.0%, all windows improved.
-                # BTC active=23% + ETH active=6% = complementary signals.
+    "micro": {  # equity < 500 — D13 portfolio config (commit 929270c).
+                # 12-month OOS on $400: joint Sharpe +6.36, Return +451%,
+                # MaxDD -18.2%.  Per-bar ρ(BTC,ETH) -0.038 = real diversification.
+                # The 2:1 BTC:ETH ratio mirrors per-symbol risk-adjusted alpha
+                # (BTC Sharpe 7.92 > ETH 5.11). Symmetric (0.075, 0.075) was
+                # strictly worse (Sharpe +5.95).  Effective leverage with
+                # OKX_LEVERAGE=10:  BTC 2.0x, ETH 1.0x.
+                # NOTE: ec8bb15 (dead-code purge, 2026-04-17) accidentally
+                # reverted ETH 0.10 → 0.65 from a stale stash — that is what
+                # caused the 2026-04-18 oversize-ETH-short incident.
         "BTCUSDT": 0.20,   # 2x effective: 0.20 × 10 = 2.0x
-        "ETHUSDT": 0.65,   # 6.5x effective: 0.65 × 10 = 6.5x
+        "ETHUSDT": 0.10,   # 1x effective: 0.10 × 10 = 1.0x  (D13)
         "SOLUSDT": 0.40,   # unchanged (dropped from active roster)
         "BTCUSDT_4h": 0.0,
         "ETHUSDT_4h": 0.0,
