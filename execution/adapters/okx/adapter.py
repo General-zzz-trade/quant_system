@@ -408,6 +408,64 @@ class OkxAdapter:
             return {"status": "error", "code": row.get("sCode"), "msg": row.get("sMsg", "")}
         return {"status": "submitted", "orderId": row.get("ordId", "")}
 
+    def get_open_orders(self, *, symbol: str = "") -> tuple:
+        """Get pending orders for a symbol (or all if not specified).
+
+        Returns tuple of objects with .order_id, .symbol, .side, .qty,
+        .filled_qty, .price attrs — duck-typed shape that matches what
+        runner.limit_order_manager.check_fill expects.
+
+        Without this, LimitOrderManager.check_fill silently raises
+        AttributeError on every call (the previous behavior — only Bybit
+        implemented get_open_orders), causing pre-placed limit orders to
+        never be detected as filled. The result was decide() opening
+        market orders on top of already-filled limits, producing the
+        oversize positions seen on 2026-04-13 (ETH 0.353→0.817) and
+        2026-04-18 (ETH -1.59 → -9.7 contracts).
+        """
+        params: dict[str, Any] = {"instType": "SWAP"}
+        if symbol:
+            try:
+                params["instId"] = to_okx_symbol(symbol)
+            except KeyError:
+                return ()
+        try:
+            resp = self._client.request_signed(
+                method="GET",
+                path="/api/v5/trade/orders-pending",
+                params=params,
+            )
+        except Exception as e:
+            logger.warning("OKX get_open_orders failed: %s", e)
+            return ()
+
+        out = []
+        for o in resp.get("data") or []:
+            inst_id = o.get("instId", "")
+            try:
+                internal_sym = from_okx_symbol(inst_id)
+            except KeyError:
+                continue
+            # OKX sz/fillSz are in contracts; convert to coin via ctVal
+            meta = self._instruments.get(internal_sym)
+            sz = Decimal(str(o.get("sz") or "0"))
+            fillSz = Decimal(str(o.get("accFillSz") or o.get("fillSz") or "0"))
+            qty_coin = contracts_to_coin(sz, meta) if meta else sz
+            filled_coin = contracts_to_coin(fillSz, meta) if meta else fillSz
+            # Build a lightweight object so check_fill's getattr-based access works
+            from types import SimpleNamespace
+            out.append(SimpleNamespace(
+                order_id=o.get("ordId", ""),
+                client_order_id=o.get("clOrdId", ""),
+                symbol=internal_sym,
+                side=o.get("side", ""),
+                qty=qty_coin,
+                filled_qty=filled_coin,
+                price=Decimal(str(o.get("px") or "0")),
+                state=o.get("state", ""),
+            ))
+        return tuple(out)
+
     def cancel_order(self, symbol: str, order_id: str) -> dict:
         try:
             meta = self._get_meta(symbol)

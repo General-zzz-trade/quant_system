@@ -145,40 +145,74 @@ class LimitOrderManager:
             self.cancel_stale(symbol)
 
     def check_fill(self, symbol: str) -> dict[str, Any] | None:
-        """Check if pending order was filled.
+        """Check if pending order was filled (fully or partially).
 
-        Returns order info dict if filled, None otherwise.
-        Removes from pending if filled or no longer active.
+        Returns dict with `qty` reflecting actual filled quantity (NOT
+        the original intent), or None if not yet filled at all.
+
+        Behavior change vs old version:
+          - PARTIAL fills now return the partial qty (was: returned None,
+            treating "still in open_orders" as "not filled at all")
+          - The returned dict's `qty` is the actual filled coin amount,
+            not the placement intent
+          - Any remaining unfilled portion is cancelled before returning
+            so we don't have a phantom limit hanging around
         """
         if symbol not in self._pending:
             return None
         info = self._pending[symbol]
         try:
             open_orders = self._adapter.get_open_orders(symbol=symbol)
-            # If our order is still in open orders, it hasn't filled yet
+            still_open = None
             for order in open_orders:
                 if getattr(order, "order_id", None) == info["orderId"]:
-                    return None  # still open, not filled
+                    still_open = order
+                    break
 
-            # Order not in open orders: either filled or cancelled
-            # Check recent fills to confirm
+            if still_open is not None:
+                # Order still active: check filled_qty for partial fill
+                filled = float(getattr(still_open, "filled_qty", 0) or 0)
+                if filled > 0:
+                    # Partial fill — cancel remaining, return what filled
+                    try:
+                        self._adapter.cancel_order(symbol, info["orderId"])
+                    except Exception:
+                        logger.debug("LIMIT partial-cancel exception %s", symbol, exc_info=True)
+                    del self._pending[symbol]
+                    logger.info(
+                        "LIMIT PARTIAL %s %s %.4f / %.4f intent — cancelled remainder",
+                        symbol, info["side"], filled, info["qty"],
+                    )
+                    return {**info, "qty": filled, "partial": True}
+                return None  # truly still open, not filled
+
+            # Order not in open orders: filled or cancelled
             fills = self._adapter.get_recent_fills(symbol=symbol)
+            matched_qty = 0.0
+            matched_price = 0.0
             for fill in fills:
-                # Match by approximate time and direction
                 if (
                     getattr(fill, "side", "").lower() == info["side"]
                     and abs(float(getattr(fill, "price", 0)) - info["price"])
-                    < info["price"] * 0.005  # within 0.5% of limit price
+                    < info["price"] * 0.005
                 ):
-                    del self._pending[symbol]
-                    logger.info(
-                        "LIMIT FILLED %s %s %.4f @ $%.2f (limit was $%.2f)",
-                        symbol, info["side"], info["qty"],
-                        float(getattr(fill, "price", 0)), info["price"],
+                    fq = float(getattr(fill, "qty", 0) or 0)
+                    fp = float(getattr(fill, "price", 0) or 0)
+                    matched_qty += fq
+                    matched_price = (
+                        (matched_price * (matched_qty - fq) + fp * fq) / max(matched_qty, 1e-9)
                     )
-                    return info
 
-            # Not in open orders and no matching fill: likely cancelled externally
+            if matched_qty > 0:
+                del self._pending[symbol]
+                logger.info(
+                    "LIMIT FILLED %s %s %.4f @ $%.2f (limit was $%.2f, intent was %.4f)",
+                    symbol, info["side"], matched_qty, matched_price,
+                    info["price"], info["qty"],
+                )
+                return {**info, "qty": matched_qty, "price": matched_price}
+
+            # Not in open orders and no matching fill: cancelled externally
             del self._pending[symbol]
             logger.info("LIMIT EXPIRED/CANCELLED %s orderId=%s", symbol, info["orderId"])
         except Exception:
