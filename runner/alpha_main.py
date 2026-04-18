@@ -378,16 +378,25 @@ def main() -> None:
     if restored_count > 0:
         logger.info("Restored %d/%d z-score checkpoints — signals ready immediately", restored_count, len(modules))
 
-    # Seed cross-symbol close prices so dominance features work during warmup
+    # Seed cross-symbol close prices so dominance features work during warmup.
+    # Adapters return a dict: {"lastPrice": float, ...}. Earlier code did
+    # `getattr(ticker, "last_price", 0)` which silently returned 0 for every
+    # call (dicts don't have attribute access), so seeding never worked on
+    # any venue. Use dict access with the real key name instead.
     try:
         from engine.feature_hook import _last_closes
         for sym in ["BTCUSDT", "ETHUSDT"]:
-            ticker = adapter.get_ticker(sym)
-            if ticker:
-                price = float(getattr(ticker, "last_price", 0) or 0)
-                if price > 0:
-                    _last_closes[sym] = price
-                    logger.info("Seeded %s close=%.2f for dominance", sym, price)
+            try:
+                ticker = adapter.get_ticker(sym)
+            except (AttributeError, NotImplementedError):
+                continue  # adapter may not implement get_ticker
+            if not ticker:
+                continue
+            price = float(ticker.get("lastPrice", 0)) if isinstance(ticker, dict) \
+                else float(getattr(ticker, "last_price", 0) or 0)
+            if price > 0:
+                _last_closes[sym] = price
+                logger.info("Seeded %s close=%.2f for dominance", sym, price)
     except Exception:
         logger.debug("Cross-symbol close seeding failed (non-fatal)", exc_info=True)
 
@@ -780,8 +789,21 @@ def main() -> None:
                     model_info["config"],
                 )
                 alpha_mod.update_predictor(new_predictor)
+                # Match the auto-reload path: discretizer params can change
+                # alongside the model (a retrain may shift dz/min_hold for
+                # the new IC profile). SIGHUP path used to skip this and
+                # leave the discretizer at the OLD thresholds until the
+                # next 30s auto-reload tick caught up.
+                alpha_mod._discretizer.deadzone = model_info["deadzone"]
+                alpha_mod._discretizer.min_hold = model_info["min_hold"]
+                alpha_mod._discretizer.max_hold = model_info["max_hold"]
+                alpha_mod._discretizer._long_only = model_info.get("long_only", False)
                 reloaded += 1
-                logger.info("Reloaded model for %s", runner_key)
+                logger.info(
+                    "Reloaded model for %s (dz=%.1f mh=%d lo=%s)",
+                    runner_key, model_info["deadzone"], model_info["min_hold"],
+                    model_info.get("long_only", False),
+                )
             except Exception:
                 failed += 1
                 logger.exception(
@@ -1505,7 +1527,11 @@ def main() -> None:
                         if _mkt_price <= 0:
                             try:
                                 _tk = adapter.get_ticker(sym)
-                                _mkt_price = float(getattr(_tk, "last_price", 0) or 0)
+                                _mkt_price = (
+                                    float(_tk.get("lastPrice", 0))
+                                    if isinstance(_tk, dict)
+                                    else float(getattr(_tk, "last_price", 0) or 0)
+                                )
                             except Exception:
                                 _mkt_price = 0.0
 

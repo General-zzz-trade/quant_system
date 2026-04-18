@@ -408,6 +408,38 @@ class OkxAdapter:
             return {"status": "error", "code": row.get("sCode"), "msg": row.get("sMsg", "")}
         return {"status": "submitted", "orderId": row.get("ordId", "")}
 
+    def get_ticker(self, symbol: str) -> dict:
+        """Fetch latest ticker. Returns dict matching the Bybit/Binance shape:
+        {"symbol", "lastPrice", "bid1Price", "ask1Price", "volume24h",
+         "turnover24h", "fundingRate"} — keys consumers can dict-access.
+        """
+        try:
+            inst_id = to_okx_symbol(symbol)
+        except KeyError:
+            return {}
+        try:
+            resp = self._client.request_public(
+                method="GET",
+                path="/api/v5/market/ticker",
+                params={"instId": inst_id},
+            )
+        except Exception as e:
+            logger.warning("OKX get_ticker %s failed: %s", symbol, e)
+            return {}
+        data = resp.get("data") or []
+        if not data:
+            return {}
+        t = data[0]
+        return {
+            "symbol": symbol,
+            "lastPrice": float(t.get("last") or 0),
+            "bid1Price": float(t.get("bidPx") or 0),
+            "ask1Price": float(t.get("askPx") or 0),
+            "volume24h": float(t.get("vol24h") or 0),
+            "turnover24h": float(t.get("volCcy24h") or 0),
+            "fundingRate": 0.0,  # OKX has separate /api/v5/public/funding-rate
+        }
+
     def get_open_orders(self, *, symbol: str = "") -> tuple:
         """Get pending orders for a symbol (or all if not specified).
 
