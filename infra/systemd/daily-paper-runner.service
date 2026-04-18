@@ -1,0 +1,13 @@
+[Unit]
+Description=1D paper-trading runner — observes BTC/ETH daily models without live orders
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m runner.daily_paper_runner
+User=ubuntu
+StandardOutput=append:/quant_system/logs/daily_paper_runner.log
+StandardError=append:/quant_system/logs/daily_paper_runner.log

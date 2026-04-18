@@ -1,0 +1,10 @@
+[Unit]
+Description=Run 1D paper runner daily after UTC 00:00 data refresh
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
