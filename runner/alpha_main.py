@@ -1415,11 +1415,16 @@ def main() -> None:
                     except Exception:
                         pass
 
-            # Position reconciliation every 300 iterations (~5 min)
+            # Position reconciliation every 60 iterations (~1 min).
             # Exchange is the single source of truth for position state.
             # This loop detects divergence between module state and exchange,
             # syncing module ← exchange when they disagree.
-            if _loop_iter % 300 == 0 and _loop_iter > 0:
+            #
+            # Tightened from 5 min → 1 min on 2026-04-18 after the audit/fill
+            # reconcile audit found multi-hour drift windows post-incident
+            # (audit_fill_reconcile.py reports). Tighter cadence trades 5
+            # extra REST calls per minute for << 1 minute of drift exposure.
+            if _loop_iter % 60 == 0 and _loop_iter > 0:
                 try:
                     exchange_positions = adapter.get_positions()
                     ex_map: dict[str, float] = {}
@@ -1505,7 +1510,27 @@ def main() -> None:
                                     "RECONCILE %s: qty mismatch internal=%.4f exchange=%.4f (%.1f%%)",
                                     sym, internal_qty, exchange_qty, diff_pct,
                                 )
+                                old_internal_qty = float(am._current_qty)
                                 am._current_qty = Decimal(str(abs(exchange_qty)))
+                                # Audit the drift correction so audit_fill_reconcile.py
+                                # accounts for the silent state change. Without this,
+                                # downstream PnL trackers think the position was
+                                # always at the corrected size.
+                                if getattr(am, "_audit_enabled", False):
+                                    try:
+                                        am._audit.log_entry(
+                                            symbol=sym,
+                                            side="reconcile",
+                                            qty=float(abs(exchange_qty)),
+                                            price=_mkt_price if _mkt_price > 0 else 0.0,
+                                            reason="reconcile_qty_correction",
+                                            runner_key=rk,
+                                            old_internal_qty=old_internal_qty,
+                                            new_qty=float(abs(exchange_qty)),
+                                            diff_pct=round(diff_pct, 2),
+                                        )
+                                    except Exception:
+                                        pass
                                 # Serious (>20%) divergence deserves a Telegram
                                 # alert — prevents silent state drift on real money.
                                 # Dedup: only alert once per state per hour.

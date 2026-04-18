@@ -1,0 +1,13 @@
+[Unit]
+Description=Audit ↔ fill reconciliation — detects state drift
+After=network.target okx-alpha.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m scripts.audit_fill_reconcile --days 7 --alert
+User=ubuntu
+StandardOutput=append:/quant_system/logs/audit_reconcile.log
+StandardError=append:/quant_system/logs/audit_reconcile.log

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run audit/fill reconcile hourly to detect drift early
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
