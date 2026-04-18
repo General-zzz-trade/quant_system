@@ -297,51 +297,69 @@ class OkxExecutionAdapter:
                 )
                 return ()
 
-            # Fetch fill details
+            # Fetch fill details. Old code only updated fill_qty from the
+            # exchange when qty==0 (close path) or split — for plain entries
+            # the FillEvent reported the INTENT qty, not the actual filled
+            # qty. That's the same family of bugs we tracked down all day:
+            # a limit could partially fill (or not fill at all within the
+            # 300ms window) but we'd downstream-broadcast a "fully filled"
+            # event with the placement intent.
+            #
+            # New behavior: always aggregate fills attributable to this
+            # submission (by side + post-_send_ts timestamp) and use that
+            # as fill_qty. Only fall back to intent qty when no matching
+            # fill is observable (rare — and worth a warning so we notice).
             time.sleep(0.3)
             fill_qty = qty
             fill_price = Decimal("0")
             try:
                 fills = self._adapter.get_recent_fills(symbol=symbol)
-                if fills:
-                    if is_split and len(fills) > 1:
-                        # Aggregate split fills: VWAP price, sum qty
-                        n_expect = min(3, len(fills))
-                        agg_qty = Decimal("0")
-                        agg_notional = Decimal("0")
-                        for f in fills[:n_expect]:
-                            fq = Decimal(str(f.qty))
-                            fp = Decimal(str(f.price))
-                            agg_qty += fq
-                            agg_notional += fq * fp
-                        fill_qty = agg_qty if agg_qty > 0 else qty
-                        fill_price = (agg_notional / agg_qty) if agg_qty > 0 else Decimal("0")
-                        logger.info(
-                            "OKX split fill aggregated: %d fills, qty=%s, vwap=%s",
-                            n_expect, fill_qty, fill_price,
-                        )
-                    else:
-                        if qty == 0 and len(fills) > 1:
-                            # close_position may produce multiple partial fills
-                            agg_qty = Decimal("0")
-                            agg_notional = Decimal("0")
-                            for f in fills:
-                                fq = Decimal(str(f.qty))
-                                fp = Decimal(str(f.price))
-                                agg_qty += fq
-                                agg_notional += fq * fp
-                            fill_qty = agg_qty if agg_qty > 0 else Decimal(str(fills[0].qty))
-                            fill_price = (agg_notional / agg_qty) if agg_qty > 0 else Decimal(str(fills[0].price))
+                # Filter to fills that could plausibly be ours: same side,
+                # ts >= when we submitted (minus 1s grace for clock skew)
+                ours = []
+                for f in fills:
+                    f_side = (getattr(f, "side", "") or "").lower()
+                    if f_side != side.lower():
+                        continue
+                    f_ts_ms = getattr(f, "ts_ms", 0) or 0
+                    if f_ts_ms == 0 or f_ts_ms / 1000 >= _send_ts - 1:
+                        ours.append(f)
+                if ours:
+                    agg_qty = Decimal("0")
+                    agg_notional = Decimal("0")
+                    for f in ours:
+                        fq = Decimal(str(f.qty))
+                        fp = Decimal(str(f.price))
+                        agg_qty += fq
+                        agg_notional += fq * fp
+                    if agg_qty > 0:
+                        fill_qty = agg_qty
+                        fill_price = agg_notional / agg_qty
+                        if is_split and len(ours) > 1:
+                            logger.info(
+                                "OKX split fill aggregated: %d fills, qty=%s, vwap=%s",
+                                len(ours), fill_qty, fill_price,
+                            )
+                        elif qty == 0 and len(ours) > 1:
                             logger.info(
                                 "OKX close aggregated: %d fills, qty=%s, vwap=%s",
-                                len(fills), fill_qty, fill_price,
+                                len(ours), fill_qty, fill_price,
                             )
-                        else:
-                            fill_price = Decimal(str(fills[0].price))
-                            if qty == 0:
-                                fill_qty = Decimal(str(fills[0].qty))
+                        elif qty != fill_qty:
+                            # Partial fill or scaling — log so audit/PnL is traceable
+                            logger.info(
+                                "OKX fill differs from intent: intent=%s actual=%s vwap=%s",
+                                qty, fill_qty, fill_price,
+                            )
+                elif qty != 0:
+                    logger.warning(
+                        "OKX no matching fill found for %s %s qty=%s within "
+                        "300ms — emitting FillEvent with INTENT qty (may be "
+                        "an unfilled limit; downstream PnL will overstate)",
+                        symbol, side, qty,
+                    )
             except Exception:
-                pass
+                logger.debug("OKX fill aggregation exception", exc_info=True)
 
             if fill_qty == 0:
                 return ()
