@@ -30,9 +30,9 @@ PROD_CONFIG = {
         "wf_trades": 69, "wf_win_rate": 63.8, "wf_max_dd_pct": 1.57,
         "bootstrap_p_positive": 0.996,
         "positive_months": 26, "total_months": 37,
-        # BTC 1D was already healthy (holdout IC +0.118 unweighted) — adding
-        # recency weights HURT it (+0.118 → +0.058) because BTC didn't have
-        # the Jan-Feb 2026 regime shift that motivated the weighting.
+        # 2026-04-19 reverted: scripts/daily_phase_ab_backtest.py 5-year
+        # walk-forward proved recency weights and multi-horizon BOTH hurt.
+        # The 90-day holdout IC that motivated those changes was misleading.
         "use_recency_weights": False,
     },
     "ETHUSDT": {
@@ -41,12 +41,18 @@ PROD_CONFIG = {
         "wf_trades": 64, "wf_win_rate": 57.8, "wf_max_dd_pct": 0.75,
         "bootstrap_p_positive": 1.000,
         "positive_months": 23, "total_months": 34,
-        # ETH 1D had holdout IC -0.083 (Jan-Feb 2026 regime shift). Recency
-        # weights recover to +0.015 — model adapts to new macro regime.
-        "use_recency_weights": True,
+        # 2026-04-19 reverted from True. 5-year WF Sharpe dropped 4.10 → 2.47
+        # with recency weights — the holdout-IC "improvement" was overfit to
+        # recent regime and didn't generalize.
+        "use_recency_weights": False,
     },
 }
 ENSEMBLE_WEIGHTS = [0.5, 0.5]
+# 2026-04-19 reverted from [1, 3, 7]. 5-year WF showed multi-horizon ensemble
+# destroyed BTC Sharpe (+2.61 → -0.19) and ETH Sharpe (+4.10 → +0.01) because
+# h=3 and h=7 introduced systematic noise that h=1 alone didn't have.
+# Per-horizon code is preserved in train_symbol() in case future retest is
+# warranted with different horizon mixes.
 
 
 def _dump_bundle(obj, path):
@@ -84,7 +90,7 @@ def _recency_weights(dates, anchor_date=None):
 # combine via IC-weighted average. Backtest convention from 4h model is:
 # higher-horizon predictions are smoother (less noise), shorter ones are
 # more reactive. IC-weighted lets the model decide which to trust.
-HORIZONS = [1, 3, 7]
+HORIZONS = [1]  # reverted from [1, 3, 7] after WF backtest — see PROD_CONFIG note
 
 
 def _make_target(closes, horizon):
