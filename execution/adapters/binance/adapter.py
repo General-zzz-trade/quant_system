@@ -118,6 +118,11 @@ class BinanceAdapter:
     # Balance
     # ------------------------------------------------------------------
 
+    def get_account_equity(self) -> float:
+        """USDT-M account equity including unrealized PnL; fail on absent data."""
+        data = self._client.request_signed(method="GET", path="/fapi/v2/account")
+        return float(data["totalMarginBalance"])
+
     def get_balances(self) -> BalanceSnapshot:
         """Get current account balances."""
         try:

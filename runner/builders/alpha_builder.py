@@ -24,6 +24,7 @@ from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
 from execution.safety.limits import OrderLimiter, OrderLimitsConfig
+from shared.entry_risk import CompositeRiskGate as _CompositeRiskGate
 from strategy.config import (
     SYMBOL_CONFIG, LEVERAGE_LADDER, OKX_LEVERAGE, BINANCE_LEVERAGE,
 )
@@ -659,6 +660,7 @@ def build_coordinator(
     oi_cache: Optional["BinanceOICache"] = None,
     circuit_breaker: Any = None,
     kill_switch: Any = None,
+    risk_gate: Any = None,
 ) -> tuple[EngineCoordinator, AlphaDecisionModule]:
     """Build a full coordinator pipeline for one runner.
 
@@ -790,7 +792,7 @@ def build_coordinator(
             exec_adapter = BybitExecutionAdapter(adapter)
 
         # Composite risk gate: OrderLimiter + KillSwitch drawdown check
-        risk_gate = _build_composite_gate(
+        risk_gate = risk_gate or _build_composite_gate(
             kill_switch=kill_switch,
             venue=getattr(adapter, "venue", "binance"),
         )
@@ -799,6 +801,7 @@ def build_coordinator(
             adapter=exec_adapter,
             dispatcher_emit=coordinator.emit,
             risk_gate=risk_gate,
+            max_retries=0,  # a timeout must never trigger an unverified resubmission
         )
         coordinator.attach_execution_bridge(execution_bridge)
 
@@ -815,82 +818,11 @@ def build_coordinator(
 
 # ── OrderLimiter factory ──────────────────────────────────────
 
-class _CompositeRiskGate:
-    """Composite risk gate: KillSwitch + OrderLimiter + PortfolioRiskFile.
-
-    ExecutionBridge calls ``risk_gate.check(event)`` and expects an object
-    with ``.allowed`` and ``.reason`` attributes.
-
-    Order of checks (fail-fast, cheap → expensive):
-      1. KillSwitch  — per-venue daily drawdown cutoff
-      2. OrderLimiter — per-venue rate + notional + daily caps
-      3. PortfolioRiskFileReader — cross-venue total notional cap
-         (fail-open: missing/stale file → allow, log a warning)
-    """
-
-    def __init__(
-        self,
-        limiter: OrderLimiter,
-        kill_switch: Any = None,
-        portfolio_reader: Any = None,
-        venue: str = "binance",
-    ) -> None:
-        self._limiter = limiter
-        self._kill_switch = kill_switch
-        self._portfolio_reader = portfolio_reader
-        self._venue = venue
-
-    def check(self, event: Any) -> Any:
-        from decimal import Decimal as D
-        _OK = type("R", (), {"allowed": True, "reason": None})()
-
-        # 1. KillSwitch check (RustKillSwitch.allow_order)
-        if self._kill_switch is not None:
-            sym = str(getattr(event, "symbol", ""))
-            try:
-                allowed, reason = self._kill_switch.allow_order(symbol=sym)
-                if not allowed:
-                    return type("R", (), {"allowed": False, "reason": f"kill_switch: {reason}"})()
-            except Exception:
-                pass  # KillSwitch failure = allow (fail-open for safety modules)
-
-        # 2. OrderLimiter check (rate + notional)
-        qty = getattr(event, "qty", D("0"))
-        price = getattr(event, "price", None)
-        result = self._limiter.check_order(qty=qty, price=price)
-        if not result.allowed:
-            return type("R", (), {"allowed": False, "reason": result.detail or result.violated_rule})()
-
-        # 3. Cross-venue portfolio cap (fail-open on missing/stale file)
-        if self._portfolio_reader is not None:
-            try:
-                sym = str(getattr(event, "symbol", ""))
-                side = str(getattr(event, "side", "buy")).lower()
-                px = float(price) if price is not None else 0.0
-                qf = float(qty) if qty is not None else 0.0
-                # Only gate new directional exposure — reduce_only / qty=0 skip
-                if qf != 0 and px > 0:
-                    proposed_notional = abs(qf) * px
-                    ok, reason = self._portfolio_reader.check_would_exceed(
-                        symbol=sym,
-                        venue=self._venue,
-                        side=side,
-                        proposed_notional_usd=proposed_notional,
-                    )
-                    if not ok:
-                        return type("R", (), {
-                            "allowed": False,
-                            "reason": f"portfolio_gate: {reason}",
-                        })()
-            except Exception:
-                pass  # fail-open on reader exception
-
-        return _OK
-
-
 def _build_composite_gate(
     kill_switch: Any = None,
     venue: str = "binance",
+    drawdown_guard: Any = None,
+    paused: Any = None,
 ) -> _CompositeRiskGate:
     """Build composite risk gate: OrderLimiter + KillSwitch + PortfolioRiskFile."""
     from decimal import Decimal as D
@@ -912,6 +844,8 @@ def _build_composite_gate(
         kill_switch=kill_switch,
         portfolio_reader=portfolio_reader,
         venue=venue,
+        drawdown_guard=drawdown_guard,
+        paused=paused,
     )
     logger.info(
         "CompositeRiskGate initialized: OrderLimiter(max=$25k, daily=$500k, rate=2/s) "

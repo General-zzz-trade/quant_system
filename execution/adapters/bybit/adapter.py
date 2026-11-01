@@ -135,6 +135,13 @@ class BybitAdapter:
             instruments = [i for i in instruments if i.symbol in symbols]
         return tuple(instruments)
 
+    def get_account_equity(self) -> float:
+        """Unified account equity including unrealized PnL; fail on absent data."""
+        data = self._client.get("/v5/account/wallet-balance", {"accountType": self._config.account_type})
+        if data.get("retCode") != 0:
+            raise RuntimeError("Bybit equity request failed")
+        return float(data["result"]["list"][0]["totalEquity"])
+
     def get_balances(self) -> BalanceSnapshot:
         """Get current account balances."""
         data = self._client.get("/v5/account/wallet-balance",

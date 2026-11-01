@@ -23,18 +23,18 @@ def tmp_snapshot(tmp_path: Path) -> Path:
     return tmp_path / "portfolio_risk.json"
 
 
-# ── Fail-open paths ───────────────────────────────────────────────
-class TestFailOpen:
-    def test_missing_file_allows(self, tmp_snapshot: Path):
+# ── Fail-closed paths ─────────────────────────────────────────────
+class TestFailClosed:
+    def test_missing_file_blocks(self, tmp_snapshot: Path):
         reader = PortfolioRiskFileReader(path=tmp_snapshot)
         ok, reason = reader.check_would_exceed(
             symbol="BTCUSDT", venue="binance", side="buy",
             proposed_notional_usd=100.0,
         )
-        assert ok
-        assert reason == ""
+        assert not ok
+        assert reason == "portfolio_risk_unavailable"
 
-    def test_stale_file_allows_with_warning(self, tmp_snapshot: Path):
+    def test_stale_file_blocks(self, tmp_snapshot: Path):
         _write_snapshot(tmp_snapshot, {"BTCUSDT": {
             "total_long_notional_usd": 10_000,
             "total_short_notional_usd": 0,
@@ -45,10 +45,10 @@ class TestFailOpen:
             symbol="BTCUSDT", venue="binance", side="buy",
             proposed_notional_usd=100.0,
         )
-        assert ok
+        assert not ok
         assert "stale" in reason
 
-    def test_unknown_symbol_allows(self, tmp_snapshot: Path):
+    def test_unknown_symbol_blocks(self, tmp_snapshot: Path):
         _write_snapshot(tmp_snapshot, {"BTCUSDT": {
             "total_long_notional_usd": 0,
             "total_short_notional_usd": 0,
@@ -59,7 +59,7 @@ class TestFailOpen:
             symbol="DOGEUSDT", venue="binance", side="buy",
             proposed_notional_usd=100.0,
         )
-        assert ok
+        assert not ok
 
 
 # ── Cap enforcement ───────────────────────────────────────────────

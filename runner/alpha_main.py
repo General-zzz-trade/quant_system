@@ -10,7 +10,6 @@ Usage::
 """
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import signal  # noqa: F401 — used in run() for SIGINT/SIGTERM/SIGHUP handlers
@@ -37,14 +36,15 @@ from decision.modules.alpha import AlphaDecisionModule
 from decision.signals.alpha_signal import EnsemblePredictor
 from engine.coordinator import EngineCoordinator
 from event.header import EventHeader
-from event.types import EventType, ControlEvent, FillEvent, FundingEvent, MarketEvent
+from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
 from execution.adapters.bybit.ws_client import BybitWsClient
-from runner.builders.alpha_builder import build_coordinator as _build_coordinator
+from runner.builders.alpha_builder import build_coordinator as _build_coordinator, _build_composite_gate
+from shared.drawdown_guard import DrawdownGuard
 from strategy.config import SYMBOL_CONFIG
 from monitoring.notify import send_alert, AlertLevel
 from monitoring.rolling_sharpe import RollingSharpeTracker
-from runner.limit_order_manager import LimitOrderManager
 from runner.warmup import warmup as _warmup
+from runner.alpha_cli import parse_args
 from data.oi_cache import BinanceOICache
 from monitoring.live_ic_killswitch import is_runner_paused as _is_runner_paused
 
@@ -161,7 +161,7 @@ def _create_binance_adapter():
     return adapter
 
 
-def _create_okx_adapter():
+def _create_okx_adapter(*, dry_run: bool = True):
     """Create OKX SWAP adapter from environment variables.
 
     Requires OKX_API_KEY / OKX_API_SECRET / OKX_API_PASSPHRASE. Reads optional
@@ -172,7 +172,7 @@ def _create_okx_adapter():
 
     config = OkxConfig.from_env()
     adapter = OkxAdapter(config)
-    if not adapter.connect():
+    if not adapter.connect(configure_leverage=not dry_run):
         raise RuntimeError("Failed to connect to OKX SWAP")
     logger.info("OKX adapter connected: %s", repr(config))
     return adapter
@@ -188,19 +188,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Framework-native alpha runner")
-    parser.add_argument(
-        "--symbols", nargs="+",
-        default=["BTCUSDT", "BTCUSDT_4h", "ETHUSDT", "ETHUSDT_4h"],
-        help="Runner keys from SYMBOL_CONFIG",
-    )
-    parser.add_argument("--ws", action="store_true", help="Use WebSocket for live bars")
-    parser.add_argument("--dry-run", action="store_true", help="No execution (signals only)")
-    parser.add_argument(
-        "--venue", choices=["bybit", "binance", "okx"], default="bybit",
-        help="Exchange venue (default: bybit)",
-    )
-    args = parser.parse_args()
+    args = parse_args()
 
     # Validate Rust event configuration at startup
     VALID_EVENT_TYPES = set(rust_event_types())
@@ -221,7 +209,7 @@ def main() -> None:
         adapter = _create_binance_adapter()
         logger.info("Binance adapter connected")
     elif args.venue == "okx":
-        adapter = _create_okx_adapter()
+        adapter = _create_okx_adapter(dry_run=args.dry_run)
         logger.info("OKX adapter connected")
     else:
         adapter = create_adapter()
@@ -230,17 +218,40 @@ def main() -> None:
     # Circuit breaker: blocks orders after repeated exchange failures
     _circuit_breaker = RustCircuitBreaker()
 
-    # Kill switch: blocks ALL orders when daily drawdown exceeds threshold
+    # Manual kill switch blocks new exposure at the execution boundary
     _kill_switch = RustKillSwitch()
 
-    # Limit order pre-placement manager (reduces slippage vs market orders)
-    _limit_mgr = LimitOrderManager(
-        adapter=adapter,
-        offset_bps=float(os.environ.get("LIMIT_OFFSET_BPS", "30")),
-        post_only=True,
-        ttl_seconds=float(os.environ.get("LIMIT_TTL_S", "300")),
-        qty_scale=float(os.environ.get("LIMIT_QTY_SCALE", "0.5")),
-    )
+    # Shared across all coordinators in this account, including rate limits.
+    _drawdown = None
+    _risk_gate = None
+    if not args.dry_run:
+        _drawdown = DrawdownGuard(
+            Path(os.environ.get("DRAWDOWN_STATE_PATH", "data/runtime/drawdown.sqlite")),
+            os.environ["RISK_SCOPE"],
+            daily_pct=float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "3.0")),
+            weekly_pct=float(os.environ.get("MAX_WEEKLY_DRAWDOWN_PCT", "10.0")),
+        )
+        _risk_gate = _build_composite_gate(
+            kill_switch=_kill_switch, venue=args.venue, drawdown_guard=_drawdown,
+            paused=lambda sym: any(
+                _is_runner_paused(rk) for rk in args.symbols
+                if SYMBOL_CONFIG.get(rk, {}).get("symbol", rk) == sym
+                and "4h" not in rk and "15m" not in rk
+            ),
+        )
+
+    def _refresh_equity() -> None:
+        if _drawdown is None:
+            return
+        try:
+            allowed, reason = _drawdown.observe(adapter.get_account_equity())
+            if not allowed:
+                logger.warning("New entries paused: %s", reason)
+        except Exception:
+            _drawdown.invalidate("exchange equity unavailable")
+            logger.warning("Equity refresh failed; entries blocked", exc_info=True)
+
+    _refresh_equity()  # before any coordinator can send an order
 
     # Build coordinators
     coordinators: dict[str, EngineCoordinator] = {}
@@ -278,6 +289,7 @@ def main() -> None:
             oi_cache=oi_caches.get(symbol),
             circuit_breaker=_circuit_breaker,
             kill_switch=_kill_switch,
+            risk_gate=_risk_gate,
         )
         coordinators[runner_key] = coord
         modules[runner_key] = module
@@ -567,199 +579,7 @@ def main() -> None:
         except Exception:
             pass
 
-    # Instant signal via BATCH prediction (not incremental features).
-    # Pushes batch prediction into z-score buffer and checks for signal.
-    # If z > deadzone → places order directly. Skips incremental feature pipeline.
-    for runner_key, alpha_mod in modules.items():
-        try:
-            cfg = SYMBOL_CONFIG[runner_key]
-            # 4h runners are signal-only — they publish to consensus but don't
-            # execute orders. Only 1h runners trade to prevent conflicting
-            # positions on the same exchange symbol.
-            if "4h" in runner_key or "15m" in runner_key:
-                continue
-            symbol = cfg.get("symbol", runner_key)
-            model_dir = cfg.get("model_dir", runner_key)
-
-            from runner.batch_predictor import predict_latest
-            batch_pred = predict_latest(symbol, model_dir)
-            if batch_pred is None:
-                continue
-
-            bridge = alpha_mod._discretizer._bridge
-            hour_key = alpha_mod._bars_processed + 1
-            z_val = bridge.zscore_normalize(symbol, batch_pred, hour_key)
-
-            if z_val is None:
-                continue
-            z = max(-5.0, min(5.0, z_val))
-            dz = alpha_mod._discretizer.deadzone
-
-            if abs(z) > dz and alpha_mod._signal == 0:
-                # IC RED gate: block entries when model IC is negative (noise)
-                if alpha_mod._ic_scale <= 0.4:
-                    logger.info(
-                        "BATCH INSTANT %s blocked by IC RED gate (ic_scale=%.1f)",
-                        symbol, alpha_mod._ic_scale,
-                    )
-                    continue
-
-                # Signal detected — get current price and place order
-                bars = adapter.get_klines(symbol, interval="60", limit=1)
-                if not bars:
-                    continue
-                price = float(bars[0].get("close", 0))
-                if price <= 0:
-                    continue
-
-                new_signal = 1 if z > 0 else -1
-                side = "buy" if new_signal == 1 else "sell"
-                direction = "LONG" if new_signal == 1 else "SHORT"
-
-                # Size the position
-                equity = 0.0
-                try:
-                    bal = adapter.get_balances().get("USDT")
-                    if bal:
-                        equity = float(bal.total)
-                except Exception:
-                    pass
-                if equity <= 0:
-                    continue
-
-                # Build minimal snapshot for sizer
-                _acct = type("A", (), {
-                    "balance_f": equity,
-                    "balance": int(equity * 100_000_000),
-                })()
-                _mkt = type("M", (), {
-                    "close_f": price,
-                    "close": int(price * 100_000_000),
-                })()
-                _snap = type("S", (), {
-                    "account": _acct,
-                    "markets": {symbol: _mkt},
-                    "features": {},
-                    "portfolio": None,
-                    "risk": None,
-                })()
-                qty = alpha_mod._sizer.target_qty(
-                    _snap, symbol,
-                    leverage=alpha_mod._leverage,
-                    ic_scale=alpha_mod._ic_scale,
-                )
-                if float(qty) <= 0:
-                    continue
-
-                # CRITICAL safety check: refuse to fire BATCH INSTANT if the
-                # exchange already holds ANY position for this symbol. The
-                # 2026-04-18 03:45 ETH oversize-short incident happened
-                # because the warmup sync had a bug (skipped shorts), so
-                # alpha._signal was 0 even though the exchange held -0.159
-                # ETH — and BATCH INSTANT then opened another 0.811 ETH on
-                # top, leaving us with -0.97 ETH at 6.5x leverage.
-                #
-                # Even with the warmup-sync bug fixed (commit 926c2c5), we
-                # want a hard guard here: BATCH INSTANT must never add to an
-                # existing position; if there's drift between alpha state and
-                # exchange, the regular reconcile loop (now 60s) handles it.
-                try:
-                    ex_positions = adapter.get_positions()
-                    for p in ex_positions:
-                        if p.symbol == symbol and not p.is_flat:
-                            logger.warning(
-                                "BATCH INSTANT %s: SKIPPED — exchange already holds %+.4f, "
-                                "alpha._signal=%d. Reconcile will sync state shortly.",
-                                symbol, float(p.qty), alpha_mod._signal,
-                            )
-                            raise StopIteration
-                except StopIteration:
-                    continue
-                except Exception:
-                    logger.warning(
-                        "BATCH INSTANT %s: position check failed, proceeding anyway",
-                        symbol, exc_info=True,
-                    )
-
-                # Place order (3x retry via execution adapter + circuit breaker)
-                if not _circuit_breaker.allow_request():
-                    logger.warning("BATCH INSTANT %s blocked by circuit breaker", symbol)
-                    continue
-                # Use the venue's own execution_adapter when available, else
-                # fall through to send_market_order. Old code unconditionally
-                # used BinanceExecutionAdapter which only "worked" because
-                # the wrapper's _send_with_retry transparently forwards to
-                # whichever adapter it wraps.
-                try:
-                    if args.venue == "okx":
-                        from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
-                        _exec = OkxExecutionAdapter(adapter)
-                    else:
-                        from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-                        _exec = BinanceExecutionAdapter(adapter)
-                    resp = _exec._send_with_retry(symbol, side, float(qty))
-                except Exception:
-                    logger.exception("BATCH INSTANT %s: send_with_retry failed", symbol)
-                    _circuit_breaker.record_failure()
-                    continue
-                status = resp.get("status", "")
-                if status not in ("error", "failed"):
-                    # Verify actual fill from exchange position. Old code used
-                    # `p.get("positionAmt")` which works for Binance dict
-                    # responses but NOT for the typed VenuePosition tuple
-                    # returned by OkxAdapter.get_positions() — silently fell
-                    # back to intent qty. Use the typed accessor instead.
-                    actual_qty = qty
-                    try:
-                        positions = adapter.get_positions()
-                        for p in positions:
-                            if p.symbol == symbol and not p.is_flat:
-                                actual_qty = Decimal(str(p.abs_qty))
-                                break
-                    except Exception:
-                        logger.debug("BATCH INSTANT %s: position verify failed",
-                                     symbol, exc_info=True)
-                    alpha_mod._signal = new_signal
-                    alpha_mod._entry_price = price
-                    alpha_mod._trade_peak = price
-                    alpha_mod._current_qty = actual_qty
-                    alpha_mod._last_trade_bar = alpha_mod._bars_processed
-                    _circuit_breaker.record_success()
-                    logger.info(
-                        "BATCH INSTANT %s: z=%+.2f > dz=%.1f → %s %.4f @ $%.2f",
-                        symbol, z, dz, direction, float(qty), price,
-                    )
-                    # Emit FillEvent so PnL tracker captures this trade
-                    try:
-                        fill_header = EventHeader.new_root(
-                            event_type=EventType.FILL,
-                            version=1,
-                            source=f"batch_instant.{runner_key}",
-                        )
-                        fill_ev = FillEvent(
-                            header=fill_header,
-                            fill_id=fill_header.event_id,
-                            order_id=f"batch_instant_{runner_key}_{hour_key}",
-                            symbol=symbol,
-                            qty=actual_qty,
-                            price=Decimal(str(price)),
-                            side=side,
-                        )
-                        coord = coordinators.get(runner_key)
-                        if coord is not None:
-                            coord.emit(fill_ev, actor="batch_instant")
-                    except Exception:
-                        logger.debug("Failed to emit batch instant FillEvent", exc_info=True)
-                else:
-                    _circuit_breaker.record_failure()
-                    logger.warning("BATCH INSTANT %s order failed: %s", symbol, resp)
-            else:
-                logger.info(
-                    "Batch instant %s: z=%+.2f (dz=%.1f) → %s",
-                    symbol, z, dz, "FLAT" if abs(z) <= dz else "HOLD",
-                )
-        except Exception:
-            logger.debug("Batch instant failed for %s", runner_key, exc_info=True)
+    # Entries originate only from confirmed bars through ExecutionBridge.
 
     # Graceful shutdown
     shutdown = False
@@ -846,78 +666,6 @@ def main() -> None:
         if not bar.get("confirm", True):
             return
 
-        # Bar closed: cancel any stale pre-placed limit orders for this symbol
-        # and check if any were filled (so we don't double-enter)
-        try:
-            if _limit_mgr.has_pending(ws_symbol):
-                fill_info = _limit_mgr.check_fill(ws_symbol)
-                if fill_info:
-                    # Limit order was filled — update alpha module + state store
-                    for rk, am in modules.items():
-                        cfg = SYMBOL_CONFIG[rk]
-                        if cfg.get("symbol", rk) != ws_symbol:
-                            continue
-                        if "4h" in rk or "15m" in rk:
-                            continue
-                        if am._signal != 0:
-                            continue  # already in a position
-                        # Mark the position as entered via limit fill
-                        side = fill_info["side"]
-                        am._signal = 1 if side == "buy" else -1
-                        am._entry_price = fill_info["price"]
-                        am._trade_peak = fill_info["price"]
-                        am._current_qty = Decimal(str(fill_info["qty"]))
-                        am._last_trade_bar = am._bars_processed
-                        am._consensus[rk] = am._signal
-                        # Tell decide() to skip its own entry attempt this bar
-                        # (avoids decide() opening a market order on top of the
-                        # limit fill, which causes audit/exchange divergence).
-                        am._suppress_next_entry = True
-                        logger.info(
-                            "LIMIT FILL applied %s: signal=%d entry=$%.2f qty=%.4f",
-                            rk, am._signal, am._entry_price, fill_info["qty"],
-                        )
-                        # Audit log: actual fill qty (decide() may also write
-                        # an "intent" entry below, this one is the truth).
-                        if getattr(am, "_audit_enabled", False):
-                            try:
-                                am._audit.log_entry(
-                                    symbol=ws_symbol,
-                                    side=side,
-                                    qty=float(fill_info["qty"]),
-                                    price=float(fill_info["price"]),
-                                    reason="limit_fill",
-                                    runner_key=rk,
-                                )
-                            except Exception:
-                                pass
-                        # Emit FillEvent so coordinator state store tracks the position
-                        coord = coordinators.get(rk)
-                        if coord is not None:
-                            fill_header = EventHeader.new_root(
-                                event_type=EventType.FILL,
-                                version=1,
-                                source=f"limit_fill.{rk}",
-                            )
-                            fill_ev = FillEvent(
-                                header=fill_header,
-                                fill_id=fill_info.get("orderId", fill_header.event_id),
-                                order_id=fill_info.get("orderId", ""),
-                                symbol=ws_symbol,
-                                qty=Decimal(str(fill_info["qty"])),
-                                price=Decimal(str(fill_info["price"])),
-                                side=side,
-                            )
-                            coord.emit(fill_ev, actor="limit_fill")
-                            logger.info(
-                                "LIMIT FillEvent emitted %s → coordinator %s",
-                                ws_symbol, rk,
-                            )
-                else:
-                    # Not filled — cancel stale order
-                    _limit_mgr.cancel_stale(ws_symbol)
-        except Exception:
-            logger.debug("Limit order bar-close check failed for %s", ws_symbol, exc_info=True)
 
         ts_ms = bar.get("time") or bar.get("start") or 0
         ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
@@ -1012,10 +760,7 @@ def main() -> None:
                     except Exception:
                         pass
 
-                # Live IC kill switch: skip emit if runner paused by low live IC
-                if _is_runner_paused(runner_key):
-                    continue
-
+                # Entry pause is checked at execution; bars and exits keep flowing.
                 try:
                     coord.emit(event, actor="live")
                     _emit_fail_count.pop(runner_key, None)
@@ -1043,6 +788,7 @@ def main() -> None:
 
     # WebSocket setup
     ws_clients: list[BybitWsClient] = []
+    _rt_prices: dict[str, float] = {}
     if args.ws:
         # Group symbols by interval for separate WS connections
         interval_symbols: dict[str, list[str]] = {}
@@ -1054,140 +800,9 @@ def main() -> None:
             if symbol not in interval_symbols[interval]:
                 interval_symbols[interval].append(symbol)
 
-        # Real-time price tracker + wick detector
-        _rt_prices: dict[str, float] = {}
-        _rt_highs: dict[str, float] = {}   # rolling 5-min high
-        _rt_lows: dict[str, float] = {}    # rolling 5-min low
-        _rt_history: dict[str, list] = {}  # (ts, price) for 5 min
-        _wick_cooldown: dict[str, float] = {}  # last wick trade ts
-
-        # Wick detector thresholds scale with ATR: low-vol → lower thresholds
-        # so wicks are detected in calm markets (BTC ATR 0.39% → thresh ~0.5%)
-        _WICK_THRESHOLD_BASE = 0.008  # baseline 0.8% (scaled by ATR ratio)
-        _WICK_BOUNCE_BASE = 0.003     # baseline 0.3% bounce
-        _WICK_COOLDOWN_S = 300.0      # 5 min between wick trades
-        _WICK_WINDOW_S = 60.0         # look back 60s for extreme
-
+        # Tick prices are observation only; never manufacture a closed candle.
         def _on_tick(ws_symbol: str, price: float) -> None:
             _rt_prices[ws_symbol] = price
-            now = time.time()
-
-            # Maintain 60s price history
-            hist = _rt_history.setdefault(ws_symbol, [])
-            hist.append((now, price))
-            # Trim to 60s window
-            cutoff = now - _WICK_WINDOW_S
-            while hist and hist[0][0] < cutoff:
-                hist.pop(0)
-
-            if len(hist) < 3:
-                return
-
-            # Find min/max in window
-            prices = [p for _, p in hist]
-            win_high = max(prices)
-            win_low = min(prices)
-            first_price = hist[0][1]
-
-            # Detect wick: price dropped >threshold then bounced >bounce
-            # or price spiked >threshold then dropped >bounce
-            if first_price <= 0:
-                return
-
-            # Check cooldown
-            last_wick = _wick_cooldown.get(ws_symbol, 0)
-            if now - last_wick < _WICK_COOLDOWN_S:
-                return
-
-            # Wick DOWN (buy opportunity): dropped from first, now bouncing
-            # Adaptive thresholds: scale by ATR ratio (low-vol → lower bar)
-            _atr_for_wick = 0.0
-            for rk, am in modules.items():
-                _cfg = SYMBOL_CONFIG.get(rk, {})
-                if _cfg.get("symbol", rk) == ws_symbol and "4h" not in rk:
-                    _atr_for_wick = am._current_atr()
-                    break
-            _atr_ratio = min(max(_atr_for_wick / 0.006, 0.5), 2.0) if _atr_for_wick > 0 else 1.0
-            _wick_thresh = _WICK_THRESHOLD_BASE * _atr_ratio
-            _wick_bounce = _WICK_BOUNCE_BASE * _atr_ratio
-
-            drop = (first_price - win_low) / first_price
-            bounce_from_low = (price - win_low) / win_low if win_low > 0 else 0
-            if drop > _wick_thresh and bounce_from_low > _wick_bounce:
-                # Check: do we have a long signal or no position?
-                for rk, am in modules.items():
-                    cfg = SYMBOL_CONFIG[rk]
-                    if cfg.get("symbol", rk) != ws_symbol:
-                        continue
-                    if "4h" in rk or "15m" in rk:
-                        continue
-                    if am._signal != 0:
-                        continue  # already in position
-                    _wick_cooldown[ws_symbol] = now
-                    logger.info(
-                        "WICK DOWN %s: drop=%.2f%% bounce=%.2f%% "
-                        "($%.0f→$%.0f→$%.0f) — triggering early buy",
-                        ws_symbol, drop * 100, bounce_from_low * 100,
-                        first_price, win_low, price,
-                    )
-                    try:
-                        wh = EventHeader.new_root(
-                            event_type=EventType.MARKET,
-                            version=1, source="wick_buy",
-                        )
-                        we = MarketEvent(
-                            header=wh,
-                            ts=datetime.now(timezone.utc),
-                            symbol=ws_symbol,
-                            open=Decimal(str(first_price)),
-                            high=Decimal(str(win_high)),
-                            low=Decimal(str(win_low)),
-                            close=Decimal(str(price)),
-                            volume=Decimal("0"),
-                        )
-                        coordinators[rk].emit(we, actor="live")
-                    except Exception:
-                        logger.debug("Wick buy failed", exc_info=True)
-                    break
-
-            # Wick UP (sell opportunity): spiked from first, now dropping
-            spike = (win_high - first_price) / first_price
-            drop_from_high = (win_high - price) / win_high if win_high > 0 else 0
-            if spike > _wick_thresh and drop_from_high > _wick_bounce:
-                for rk, am in modules.items():
-                    cfg = SYMBOL_CONFIG[rk]
-                    if cfg.get("symbol", rk) != ws_symbol:
-                        continue
-                    if "4h" in rk or "15m" in rk:
-                        continue
-                    if am._signal != 0:
-                        continue
-                    _wick_cooldown[ws_symbol] = now
-                    logger.info(
-                        "WICK UP %s: spike=%.2f%% drop=%.2f%% "
-                        "($%.0f→$%.0f→$%.0f) — triggering early sell",
-                        ws_symbol, spike * 100, drop_from_high * 100,
-                        first_price, win_high, price,
-                    )
-                    try:
-                        wh = EventHeader.new_root(
-                            event_type=EventType.MARKET,
-                            version=1, source="wick_sell",
-                        )
-                        we = MarketEvent(
-                            header=wh,
-                            ts=datetime.now(timezone.utc),
-                            symbol=ws_symbol,
-                            open=Decimal(str(first_price)),
-                            high=Decimal(str(win_high)),
-                            low=Decimal(str(win_low)),
-                            close=Decimal(str(price)),
-                            volume=Decimal("0"),
-                        )
-                        coordinators[rk].emit(we, actor="live")
-                    except Exception:
-                        logger.debug("Wick sell failed", exc_info=True)
-                    break
 
         for interval, symbols in interval_symbols.items():
             if args.venue == "binance":
@@ -1221,33 +836,6 @@ def main() -> None:
             logger.info("WS started: interval=%s symbols=%s venue=%s",
                         interval, symbols, args.venue)
 
-    # Daily drawdown kill switch (reuses _kill_switch created above,
-    # shared with execution bridge CompositeRiskGate).
-    #
-    # 2026-04-12: Tightened default from 5.0% → 3.0% after the D10.5
-    # 12-month live-equivalent backtest revealed -47% MaxDD potential
-    # for BTC/ETH 1h strategies under realistic execution.  At $400
-    # OKX capital that drawdown puts the account at $212 — too brutal
-    # for a 2-symbol setup.  Override via MAX_DAILY_DRAWDOWN_PCT env.
-    #
-    # 2026-04-18 P3 fix: keyed baseline by UTC date string instead of
-    # "first observation after restart". Prior behaviour: a mid-day
-    # service restart re-baselined to the current (already-drawn-down)
-    # equity, hiding the actual daily drawdown. With the date-keyed
-    # version a restart loads the earliest equity seen on this UTC day
-    # and continues to track from there.
-    _daily_start_equity: float | None = None
-    _daily_baseline_date: str | None = None  # "YYYY-MM-DD" (UTC)
-    _portfolio_pause_armed: bool = False  # tracks whether DD pause is active
-    _MAX_DAILY_DRAWDOWN_PCT = float(os.environ.get("MAX_DAILY_DRAWDOWN_PCT", "3.0"))
-    # Weekly cumulative floor: stop ALL new entries if account drops
-    # 10% from the start of the ISO week (Mon 00:00 UTC).  Reset each
-    # Monday.  Intended as a soft circuit-breaker distinct from the
-    # daily one so a bad week halts before it becomes a disaster.
-    _MAX_WEEKLY_DRAWDOWN_PCT = float(os.environ.get("MAX_WEEKLY_DRAWDOWN_PCT", "10.0"))
-    _weekly_start_equity: float | None = None
-    _weekly_start_iso: str | None = None
-    _SCALE = 100_000_000
     _loop_iter = 0
 
     # Live Sharpe tracker — alerts when Sharpe < 0 for 3 consecutive checks
@@ -1259,16 +847,6 @@ def main() -> None:
     # Reconcile alert dedup: only alert once per (sym, state) per hour
     _last_recon_alert: dict[str, tuple[str, float]] = {}  # sym -> (state_key, ts)
     _RECON_ALERT_COOLDOWN_S = 3600  # 1 hour
-
-    def _get_equity() -> float | None:
-        """Read equity from the first coordinator's state store (Fd8 → float)."""
-        for coord in coordinators.values():
-            try:
-                account = coord._store.get_account()
-                return account.balance / _SCALE
-            except Exception:
-                pass
-        return None
 
     # Auto-reload: watch model config.json files for changes
     _model_mtimes: dict[str, float] = {}
@@ -1369,31 +947,6 @@ def main() -> None:
                                         preview_z = f" | PREVIEW z={z:+.2f} → {direction} ***"
                                     elif abs(z) > dz * 0.85:
                                         preview_z = f" | PREVIEW z={z:+.2f} (approaching dz={dz})"
-                                        # Pre-place limit order when z is close to deadzone.
-                                        # 0.85×dz ensures signal is strong enough to justify
-                                        # entry; lower thresholds (0.5×dz) produced too many
-                                        # low-confidence graduated entries with halved qty.
-                                        if current_signal == 0 and not args.dry_run:
-                                            try:
-                                                limit_side = "buy" if z > 0 else "sell"
-                                                snap = coordinators[runner_key]._state_store
-                                                limit_qty = alpha_mod._sizer.target_qty(
-                                                    snap, sym,
-                                                    leverage=alpha_mod._leverage,
-                                                    ic_scale=alpha_mod._ic_scale,
-                                                )
-                                                if alpha_mod._tier1_size > 0:
-                                                    limit_qty = Decimal(str(
-                                                        float(limit_qty) * alpha_mod._tier1_size
-                                                    ))
-                                                _limit_mgr.maybe_place(
-                                                    symbol=sym, side=limit_side,
-                                                    qty=float(limit_qty),
-                                                    current_price=price,
-                                                    z_score=z, deadzone=dz,
-                                                )
-                                            except Exception:
-                                                logger.debug("Limit pre-place failed %s", sym, exc_info=True)
                                     else:
                                         preview_z = f" | z={z:+.2f}"
                         except Exception:
@@ -1406,125 +959,21 @@ def main() -> None:
                     except Exception:
                         pass
 
-            # Cancel TTL-expired limit orders every 60s
-            if _loop_iter % 60 == 0:
-                try:
-                    expired = _limit_mgr.cancel_expired()
-                    if expired > 0:
-                        logger.info("Cancelled %d TTL-expired limit orders", expired)
-                except Exception:
-                    pass
+            # Reconcile delayed fills through the same dispatcher, including
+            # while entry risk gates are closed. No retry of order placement.
+            if _loop_iter % 5 == 0 and not args.dry_run:
+                for coord in coordinators.values():
+                    bridge = coord._execution_bridge
+                    reconcile = getattr(getattr(bridge, "adapter", None), "reconcile_pending", None)
+                    if reconcile is not None:
+                        try:
+                            for fill in reconcile():
+                                coord.emit(fill, actor="execution_reconcile")
+                        except Exception:
+                            logger.exception("Pending fill reconciliation failed")
 
-            # Check daily drawdown every 60 iterations (~60s)
             if _loop_iter % 60 == 0:
-                try:
-                    equity = _get_equity()
-                    if equity is not None and equity > 0:
-                        import datetime as _dt
-                        _today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
-                        if _daily_baseline_date != _today:
-                            # New UTC day → reset baseline. This catches the
-                            # "service restarted at noon" case the old code
-                            # missed.
-                            _daily_start_equity = equity
-                            _daily_baseline_date = _today
-                            _portfolio_pause_armed = False  # reset pause for new day
-                            logger.info(
-                                "Daily drawdown baseline reset: date=%s start_equity=%.2f",
-                                _today, _daily_start_equity,
-                            )
-                        elif _daily_start_equity and _daily_start_equity > 0:
-                            dd_pct = (1.0 - equity / _daily_start_equity) * 100
-                            if dd_pct > _MAX_DAILY_DRAWDOWN_PCT and not _portfolio_pause_armed:
-                                logger.critical(
-                                    "DAILY DRAWDOWN %.1f%% exceeds limit %.1f%% — "
-                                    "PORTFOLIO KILL SWITCH ARMED",
-                                    dd_pct, _MAX_DAILY_DRAWDOWN_PCT,
-                                )
-                                _kill_switch.arm(
-                                    "global", "daily_dd", "hard_kill",
-                                    f"daily drawdown {dd_pct:.1f}%",
-                                    ttl_seconds=3600.0,
-                                )
-                                for coord in coordinators.values():
-                                    coord.halt_trading(
-                                        reason=f"daily drawdown {dd_pct:.1f}%"
-                                    )
-                                # Persist pause to symbol_pause_state.json so
-                                # the file-based kill switch picks it up too
-                                # (survives alpha_main restart). Pause every
-                                # active runner — the DD is portfolio-level.
-                                try:
-                                    from monitoring.live_ic_killswitch import force_override
-                                    for rk in modules:
-                                        cfg_r = SYMBOL_CONFIG.get(rk, {})
-                                        if "4h" in rk or "15m" in rk:
-                                            continue
-                                        force_override(
-                                            rk, paused=True,
-                                            reason=f"portfolio_daily_dd_{dd_pct:.1f}%",
-                                        )
-                                except Exception:
-                                    logger.warning(
-                                        "Failed to persist portfolio pause to state file",
-                                        exc_info=True,
-                                    )
-                                # Telegram CRITICAL alert
-                                try:
-                                    send_alert(
-                                        AlertLevel.CRITICAL,
-                                        f"PORTFOLIO KILL SWITCH: daily DD {dd_pct:.1f}%",
-                                        details={
-                                            "venue": args.venue,
-                                            "equity_now": f"${equity:.2f}",
-                                            "equity_start": f"${_daily_start_equity:.2f}",
-                                            "dd_pct": f"{dd_pct:.2f}%",
-                                            "limit_pct": f"{_MAX_DAILY_DRAWDOWN_PCT:.1f}%",
-                                            "action": "all 1h/1d runners paused; "
-                                                      "auto-resume next UTC 00:00",
-                                        },
-                                        source="portfolio_kill",
-                                    )
-                                except Exception:
-                                    pass
-                                _portfolio_pause_armed = True
-
-                    # Weekly cumulative drawdown — independent gate.
-                    # Resets each Monday 00:00 UTC.  Fires at -10%
-                    # from week-start equity and halts trading until
-                    # the next reset.  Complements the daily gate:
-                    # daily catches a single-day disaster, weekly
-                    # catches a slow bleed across multiple days.
-                    if equity is not None and equity > 0:
-                        import datetime as _dt
-                        now_utc = _dt.datetime.now(_dt.timezone.utc)
-                        iso_year, iso_week, _ = now_utc.isocalendar()
-                        week_key = f"{iso_year}-W{iso_week:02d}"
-                        if _weekly_start_iso != week_key:
-                            _weekly_start_iso = week_key
-                            _weekly_start_equity = equity
-                            logger.info(
-                                "Weekly drawdown tracker reset: week=%s start_equity=%.2f",
-                                week_key, _weekly_start_equity,
-                            )
-                        elif _weekly_start_equity and _weekly_start_equity > 0:
-                            wdd_pct = (1.0 - equity / _weekly_start_equity) * 100
-                            if wdd_pct > _MAX_WEEKLY_DRAWDOWN_PCT:
-                                logger.critical(
-                                    "WEEKLY DRAWDOWN %.1f%% exceeds limit %.1f%% — killing trading for rest of week",
-                                    wdd_pct, _MAX_WEEKLY_DRAWDOWN_PCT,
-                                )
-                                _kill_switch.arm(
-                                    "global", "weekly_dd", "hard_kill",
-                                    f"weekly drawdown {wdd_pct:.1f}%",
-                                    ttl_seconds=7 * 24 * 3600.0,
-                                )
-                                for coord in coordinators.values():
-                                    coord.halt_trading(
-                                        reason=f"weekly drawdown {wdd_pct:.1f}%"
-                                    )
-                except Exception:
-                    pass  # never crash the main loop
+                _refresh_equity()
 
                 # PnL status (observer-only, never crashes main loop)
                 if pnl_tracker is not None:
@@ -1602,26 +1051,12 @@ def main() -> None:
                                 am._current_qty = Decimal(str(abs(exchange_qty)))
                                 am._last_trade_bar = am._bars_processed
                                 continue
-                            notional = abs(exchange_qty) * _mkt_price
-                            if notional < 100:  # dust threshold $100
-                                logger.warning(
-                                    "RECONCILE %s: dust position detected (exchange=%.4f, notional=$%.2f) — closing",
-                                    sym, exchange_qty, notional,
-                                )
-                                try:
-                                    adapter.close_position(sym)
-                                except Exception:
-                                    pass
-                            else:
-                                logger.warning(
-                                    "RECONCILE %s: exchange position %.4f but system=FLAT — syncing (price=$%.2f)",
-                                    sym, exchange_qty, _mkt_price,
-                                )
-                                am._signal = 1 if exchange_qty > 0 else -1
-                                am._current_qty = Decimal(str(abs(exchange_qty)))
-                                am._entry_price = _mkt_price
-                                am._trade_peak = _mkt_price
-                                am._last_trade_bar = am._bars_processed
+                            logger.warning("RECONCILE %s: syncing exchange position %.4f", sym, exchange_qty)
+                            am._signal = 1 if exchange_qty > 0 else -1
+                            am._current_qty = Decimal(str(abs(exchange_qty)))
+                            am._entry_price = _mkt_price
+                            am._trade_peak = _mkt_price
+                            am._last_trade_bar = am._bars_processed
                         # Detect: system thinks has position but exchange is flat
                         elif am._signal != 0 and abs(exchange_qty) == 0:
                             logger.warning(
@@ -1781,12 +1216,16 @@ def main() -> None:
         pass
     finally:
         logger.info("Shutting down...")
-        # Cancel any pending limit orders
-        try:
-            _limit_mgr.cancel_all_pending()
-            logger.info("All pending limit orders cancelled")
-        except Exception:
-            logger.debug("Failed to cancel pending limit orders", exc_info=True)
+        # Best-effort final reconciliation/cancellation; unresolved journal
+        # reservations survive shutdown and continue to block new exposure.
+        for coord in coordinators.values():
+            reconcile = getattr(getattr(coord._execution_bridge, "adapter", None), "reconcile_pending", None)
+            if reconcile is not None:
+                try:
+                    for fill in reconcile():
+                        coord.emit(fill, actor="execution_reconcile")
+                except Exception:
+                    logger.exception("Shutdown reconciliation incomplete")
         # Z-score checkpoint save DISABLED on shutdown — batch-synced
         # checkpoints preserved. Use sync_zscore_from_batch.py to update.
         logger.info("Z-score checkpoints preserved (batch-synced)")

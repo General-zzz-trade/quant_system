@@ -116,7 +116,8 @@ class ExecutionBridge:
                 return
 
         # Circuit breaker: fast-fail when open
-        if self.circuit_open:
+        reducing = getattr(event, "qty", None) == 0 or getattr(event, "reduce_only", False) is True
+        if self.circuit_open and not reducing:
             raise ExecutionBridgeError(
                 "Circuit breaker open — execution adapter requests are suspended"
             )

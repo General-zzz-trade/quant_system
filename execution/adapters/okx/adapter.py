@@ -21,6 +21,7 @@ are accepted in **coin units** and converted to contracts via
 from __future__ import annotations
 
 import logging
+import math
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -77,7 +78,7 @@ class OkxAdapter:
     # ------------------------------------------------------------------
     # Connection + instrument bootstrap
     # ------------------------------------------------------------------
-    def connect(self) -> bool:
+    def connect(self, *, configure_leverage: bool = False) -> bool:
         """Probe the account + fetch instrument meta for mapped symbols.
 
         Returns True on success.  Fails fast on auth errors so systemd
@@ -139,7 +140,7 @@ class OkxAdapter:
                 import os as _os
                 target_lev = int(float(_os.environ.get("OKX_LEVERAGE", "10")))
                 from execution.adapters.okx.symbol_map import _SYMBOL_TO_OKX
-                for internal_sym in _SYMBOL_TO_OKX.keys():
+                for internal_sym in (_SYMBOL_TO_OKX if configure_leverage else ()):
                     try:
                         self.set_leverage(internal_sym, target_lev)
                         logger.info("OKX set_leverage %s → %dx", internal_sym, target_lev)
@@ -180,6 +181,11 @@ class OkxAdapter:
     # ------------------------------------------------------------------
     # Balance
     # ------------------------------------------------------------------
+    def get_account_equity(self) -> float:
+        """USD account equity including unrealized PnL; failures must propagate."""
+        response = self._client.request_signed(method="GET", path="/api/v5/account/balance")
+        return float(response["data"][0]["totalEq"])
+
     def get_balances(self) -> BalanceSnapshot:
         try:
             resp = self._client.request_signed(
@@ -228,7 +234,7 @@ class OkxAdapter:
             )
         except Exception as e:
             logger.error("OKX get_positions failed: %s", e)
-            return ()
+            raise  # an unavailable position snapshot must never look flat
 
         out: list[VenuePosition] = []
         for p in resp.get("data") or []:
@@ -248,7 +254,7 @@ class OkxAdapter:
                 coin_qty = contracts_to_coin(abs(pos_contracts), meta)
                 coin_qty = coin_qty if pos_contracts >= 0 else -coin_qty
             else:
-                coin_qty = pos_contracts  # fallback (should not happen)
+                raise RuntimeError(f"Missing contract metadata for {internal_sym}")
 
             avg_px = Decimal(str(p.get("avgPx") or "0"))
             out.append(
@@ -271,8 +277,11 @@ class OkxAdapter:
         qty: float,
         *,
         reduce_only: bool = False,
+        client_order_id: str = "",
     ) -> dict:
         """Market order (coin qty → contracts conversion happens here)."""
+        if not math.isfinite(qty) or qty <= 0 or side.lower() not in ("buy", "sell"):
+            return {"status": "error", "msg": "invalid order quantity or side"}
         try:
             meta = self._get_meta(symbol)
         except RuntimeError as e:
@@ -298,6 +307,8 @@ class OkxAdapter:
             px = 0.0
         coin_actual = float(contracts_to_coin(contracts, meta))
         notional = px * coin_actual
+        if not reduce_only and (not math.isfinite(px) or px <= 0):
+            return {"status": "error", "msg": "ticker unavailable for notional check"}
         if (
             not reduce_only
             and self._config.max_order_notional_usd > 0
@@ -323,6 +334,8 @@ class OkxAdapter:
         }
         if reduce_only:
             body["reduceOnly"] = "true"
+        if client_order_id:
+            body["clOrdId"] = client_order_id
 
         logger.info(
             "OKX send_market_order: %s %s coin=%.6f contracts=%s notional≈$%.2f",
@@ -368,7 +381,11 @@ class OkxAdapter:
         tif: str = "GTC",
         reduce_only: bool = False,
         post_only: bool = False,
+        client_order_id: str = "",
     ) -> dict:
+        if (not math.isfinite(qty) or qty <= 0 or not math.isfinite(price) or price <= 0
+                or side.lower() not in ("buy", "sell")):
+            return {"status": "error", "msg": "invalid order quantity, price or side"}
         try:
             meta = self._get_meta(symbol)
         except RuntimeError as e:
@@ -379,6 +396,9 @@ class OkxAdapter:
             return {"status": "error", "msg": "qty below minSz"}
 
         tick_price = round_price_to_tick(float(price), meta)
+        notional = float(contracts_to_coin(contracts, meta)) * float(tick_price)
+        if not reduce_only and (tick_price <= 0 or notional > self._config.max_order_notional_usd > 0):
+            return {"status": "error", "msg": "invalid limit price or notional cap exceeded"}
 
         ord_type = "post_only" if post_only else "limit"
         body = {
@@ -391,6 +411,8 @@ class OkxAdapter:
         }
         if reduce_only:
             body["reduceOnly"] = "true"
+        if client_order_id:
+            body["clOrdId"] = client_order_id
 
         try:
             resp = self._client.request_signed(
@@ -406,7 +428,26 @@ class OkxAdapter:
         row = data[0]
         if row.get("sCode") and row["sCode"] != "0":
             return {"status": "error", "code": row.get("sCode"), "msg": row.get("sMsg", "")}
-        return {"status": "submitted", "orderId": row.get("ordId", "")}
+        return {"status": "submitted", "orderId": row.get("ordId", ""), "clientOrderId": row.get("clOrdId", "")}
+
+    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> Any:
+        """Fetch authoritative state, including terminal orders, in coin units."""
+        from types import SimpleNamespace
+        if not order_id and not client_order_id:
+            raise ValueError("order_id or client_order_id required")
+        meta = self._get_meta(symbol)
+        params = {"instId": meta.inst_id}
+        params["ordId" if order_id else "clOrdId"] = order_id or client_order_id
+        response = self._client.request_signed(method="GET", path="/api/v5/trade/order", params=params)
+        rows = response.get("data") or []
+        if not rows:
+            return None
+        row = rows[0]
+        if row["instId"] != meta.inst_id:
+            raise ValueError("order instrument mismatch")
+        return SimpleNamespace(order_id=str(row["ordId"]), client_order_id=str(row.get("clOrdId") or ""),
+                               state=row["state"],
+                               filled_qty=contracts_to_coin(Decimal(row["accFillSz"]), meta))
 
     def get_ticker(self, symbol: str) -> dict:
         """Fetch latest ticker. Returns dict matching the Bybit/Binance shape:
@@ -563,8 +604,11 @@ class OkxAdapter:
         self,
         symbol: str = "",
         limit: int = 10,
+        order_id: str = "",
     ) -> tuple[CanonicalFill, ...]:
         params: dict[str, Any] = {"instType": "SWAP", "limit": str(limit)}
+        if order_id:
+            params["ordId"] = order_id
         if symbol:
             try:
                 params["instId"] = to_okx_symbol(symbol)

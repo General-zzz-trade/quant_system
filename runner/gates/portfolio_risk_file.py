@@ -15,10 +15,8 @@ Provides a single synchronous check::
     )
 
 Semantics:
-- Returns ``(True, "")`` (allow) when file is missing, stale
-  (>PORTFOLIO_RISK_MAX_STALE_SEC old), or the symbol has no cap.
-  This is a **fail-open** design — a broken monitor script should not
-  block live trading.  The watchdog is expected to alert on stale files.
+- Missing, stale, malformed or incomplete snapshots block new exposure.
+- Reduction orders are exempt at the composite execution gate.
 - Returns ``(True, "")`` when proposed + existing ≤ cap.
 - Returns ``(False, detail)`` only when proposed + existing > cap.
 - The proposed order's venue contribution is ADDED ON TOP of whatever
@@ -30,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Any
@@ -79,30 +78,34 @@ class PortfolioRiskFileReader:
         side: str,
         proposed_notional_usd: float,
     ) -> tuple[bool, str]:
-        """Return (allowed, reason). Fail-open on missing/stale file."""
+        """Return (allowed, reason); unknown exposure must not permit entries."""
+        try:
+            return self._check(symbol=symbol, venue=venue, side=side,
+                               proposed_notional_usd=proposed_notional_usd)
+        except (TypeError, ValueError, AttributeError, KeyError, OverflowError):
+            return False, "portfolio_risk_invalid"
+
+    def _check(self, *, symbol: str, venue: str, side: str,
+               proposed_notional_usd: float) -> tuple[bool, str]:
         snap = self._load()
         if snap is None:
-            return True, ""  # file missing → allow
+            return False, "portfolio_risk_unavailable"
 
-        age = time.time() - snap.get("ts", 0)
-        if age > self._max_stale:
-            logger.warning(
-                "portfolio_risk.json stale %.0fs — falling through (monitor dead?)",
-                age,
-            )
-            return True, f"portfolio_risk_stale({age:.0f}s)"
+        age = time.time() - float(snap["ts"])
+        if not math.isfinite(age) or age < -5 or age > self._max_stale:
+            return False, f"portfolio_risk_stale({age:.0f}s)"
 
         sym_data = (snap.get("symbols") or {}).get(symbol.upper())
         if not sym_data:
-            return True, ""
+            return False, "portfolio_symbol_missing"
 
         cap = float(sym_data.get("max_total_notional_usd") or 0.0)
-        if cap <= 0:
-            return True, ""
+        if not math.isfinite(cap) or cap <= 0:
+            return False, "portfolio_cap_invalid"
 
         side_norm = (side or "").lower()
         if side_norm not in ("buy", "sell"):
-            return True, ""
+            return False, "portfolio_side_invalid"
 
         # Existing totals INCLUDE this venue's contribution already.
         # We subtract this venue's current figure and re-add the proposed
@@ -111,9 +114,15 @@ class PortfolioRiskFileReader:
         # notional is ADDITIONAL to whatever the snapshot shows, then
         # compare the sum to the cap.
         if side_norm == "buy":
-            current = float(sym_data.get("total_long_notional_usd") or 0.0)
+            current = float(sym_data["total_long_notional_usd"])
         else:
-            current = float(sym_data.get("total_short_notional_usd") or 0.0)
+            current = float(sym_data["total_short_notional_usd"])
+
+        if not math.isfinite(current) or current < 0:
+            return False, "portfolio_exposure_invalid"
+        proposed_notional_usd = float(proposed_notional_usd)
+        if not math.isfinite(proposed_notional_usd) or proposed_notional_usd <= 0:
+            return False, "portfolio_proposal_invalid"
 
         post_total = current + float(proposed_notional_usd)
 

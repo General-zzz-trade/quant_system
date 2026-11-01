@@ -15,6 +15,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  local-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Offline fault-injection checks (stdlib only)
+        run: python scripts/check_local_safety.py
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -33,7 +47,9 @@ jobs:
           ruff check --select E,W,F \
             decision/ engine/ event/ state/ execution/ features/ \
             risk/ alpha/ attribution/ runner/ \
-            monitoring/ infra/ strategy/ polymarket/
+            monitoring/ infra/ strategy/ polymarket/ \
+            shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
+            tests/offline/ scripts/check_local_safety.py
 
   rust-test:
     runs-on: ubuntu-latest
@@ -94,6 +110,8 @@ jobs:
             tests/unit/event/ \
             tests/unit/engine/ \
             tests/unit/bybit/ \
+            tests/unit/execution/adapters/okx/ \
+            tests/unit/runner/test_portfolio_risk_file.py \
             tests/unit/infra/test_model_signing.py \
             -x -q --tb=short
 

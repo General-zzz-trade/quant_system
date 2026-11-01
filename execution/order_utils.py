@@ -77,9 +77,9 @@ def reliable_close_position(
             )
     except Exception as exc:
         logger.warning(
-            "reliable_close %s: verification failed (assuming OK): %s", symbol, exc
+            "reliable_close %s: verification unavailable: %s", symbol, exc
         )
-        result["verified"] = True  # assume OK if verification call fails
+        result["verified"] = False
 
     return result
 
