@@ -210,7 +210,8 @@ class TestAlignmentExit:
         _events = list(mod.decide(snap))
 
         # Should have generated close order(s) due to force exit
-        assert mod._signal == 0, "Signal should be reset to 0 after alignment exit"
+        assert mod._signal == 1, "Close request must preserve the position until filled"
+        assert any(getattr(e, "qty", None) == 0 for e in _events)
 
     def test_alignment_exit_reason_in_risk_event(self):
         """alignment_exit produces a RiskEvent with correct rule_id."""

@@ -1,10 +1,14 @@
 name: Deploy
 
+# Deployment is explicit during local development; CI must never restart a service.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [master]
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: Deploy the reviewed master revision to the configured server
+        type: boolean
+        required: true
+        default: false
 
 concurrency:
   group: deploy-production
@@ -13,7 +17,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, quant-server]
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ inputs.confirm_deploy && github.ref == 'refs/heads/master' }}
     timeout-minutes: 10
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

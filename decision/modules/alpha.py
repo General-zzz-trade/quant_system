@@ -21,6 +21,7 @@ from decision.signals.alpha_signal import EnsemblePredictor, SignalDiscretizer
 from decision.sizing.adaptive import AdaptivePositionSizer
 from monitoring.decision_audit import DecisionAuditLogger
 from decision.modules.alpha_orders import make_open_order, make_close_order
+from shared.strategy_position import StrategyPosition
 from event.header import EventHeader
 from event.types import EventType, OrderEvent, RiskEvent, SignalEvent
 from state import PortfolioState, RiskState, RiskLimits
@@ -86,6 +87,13 @@ class AlphaDecisionModule:
         self._leverage = leverage
         self._signal_only = signal_only
         self._venue = (venue or "binance").lower()
+        self._confirmed_position = StrategyPosition()
+        self._pending_orders: set[str] = set()
+        self._pending_reductions: set[str] = set()
+        self._pending_exit_reasons: dict[str, str] = {}
+        self._seen_fills: set[str] = set()
+        self._execution_ready = True
+        self._target_signal = 0
 
         # Pure decision state
         self._signal: int = 0
@@ -590,6 +598,13 @@ class AlphaDecisionModule:
                 )
                 new_signal = 0
 
+        self._target_signal = new_signal
+        if not self._signal_only and self._pending_orders:
+            if self._pending_reductions or not (force_exit and self._signal != 0):
+                return events
+        if not self._signal_only and not self._execution_ready and self._signal == 0:
+            return events
+
         # 7. Trade cooldown: prevent rapid-fire flat→entry cycles
         # After closing a position, wait min_hold bars before opening a new one.
         # This matches the Rust backtest behavior and prevents warmup-induced churn.
@@ -649,8 +664,9 @@ class AlphaDecisionModule:
                     (self._entry_price * float(self._current_qty) + close * float(add_qty))
                     / (float(self._current_qty) + float(add_qty))
                 )
-                self._entry_price = avg_entry
-                self._current_qty += add_qty
+                if self._signal_only:
+                    self._entry_price = avg_entry
+                    self._current_qty += add_qty
                 logger.info(
                     "%s SCALE-UP: z=%+.2f sw=%.0f%%, added %.4f → total %.4f",
                     self._runner_key, z, sw * 100,
@@ -696,13 +712,14 @@ class AlphaDecisionModule:
                 new_signal = self._signal  # keep current position
 
         # Reset entry_tier on exit
-        if new_signal == 0 and self._signal != 0:
+        if self._signal_only and new_signal == 0 and self._signal != 0:
             self._entry_tier = 0
 
         # 8. Emit events on signal change
         if new_signal != self._signal:
             old_signal = self._signal
-            self._last_trade_bar = self._bars_processed
+            if self._signal_only:
+                self._last_trade_bar = self._bars_processed
 
             # Emit SignalEvent for signal transition
             signal_header = EventHeader.new_root(
@@ -725,7 +742,7 @@ class AlphaDecisionModule:
             # Close existing position
             if old_signal != 0:
                 reason = exit_reason if force_exit else "signal_change"
-                if self._audit_enabled:
+                if self._audit_enabled and self._signal_only:
                     try:
                         self._audit.log_exit(
                             symbol=self._symbol,
@@ -736,26 +753,28 @@ class AlphaDecisionModule:
                     except Exception:
                         pass
                 events.extend(self._make_close_order(close, old_signal, reason))
-                self._current_qty = Decimal("0")
-                # Record stop for cooldown (prevents same-direction re-entry)
-                if force_exit:
-                    self._last_stop_bar = self._bars_processed
-                    self._last_stop_direction = old_signal
-                    self._consecutive_stops += 1
-                    # After 3 consecutive stops, pause trading for 12 bars
-                    if self._consecutive_stops >= 3:
-                        self._stop_pause_until = self._bars_processed + 12
-                        logger.warning(
-                            "%s STOP PAUSE: %d consecutive stops → paused until bar %d",
-                            self._runner_key, self._consecutive_stops,
-                            self._stop_pause_until,
-                        )
-                else:
-                    # Normal exit (signal_change) resets counter
-                    self._consecutive_stops = 0
+                if self._signal_only:
+                    self._current_qty = Decimal("0")
+                if self._signal_only:
+                    # Record stop for cooldown (prevents same-direction re-entry)
+                    if force_exit:
+                        self._last_stop_bar = self._bars_processed
+                        self._last_stop_direction = old_signal
+                        self._consecutive_stops += 1
+                        # After 3 consecutive stops, pause trading for 12 bars
+                        if self._consecutive_stops >= 3:
+                            self._stop_pause_until = self._bars_processed + 12
+                            logger.warning(
+                                "%s STOP PAUSE: %d consecutive stops → paused until bar %d",
+                                self._runner_key, self._consecutive_stops,
+                                self._stop_pause_until,
+                            )
+                    else:
+                        # Normal exit (signal_change) resets counter
+                        self._consecutive_stops = 0
 
             # Open new position — size proportional to signal_weight
-            if new_signal != 0:
+            if new_signal != 0 and (old_signal == 0 or self._signal_only):
                 self._refresh_ic_scale()
                 qty = self._sizer.target_qty(
                     snapshot,
@@ -828,7 +847,7 @@ class AlphaDecisionModule:
                     return events
                 events.extend(self._make_open_order(close, new_signal, qty))
                 entry_reason = "graduated" if sw < 0.95 else "signal"
-                if self._audit_enabled:
+                if self._audit_enabled and self._signal_only:
                     try:
                         self._audit.log_entry(
                             symbol=self._symbol,
@@ -838,16 +857,18 @@ class AlphaDecisionModule:
                         )
                     except Exception:
                         pass
-                self._entry_price = close
-                self._trade_peak = close
-                self._current_qty = qty
-                self._entry_bar = self._bars_processed
-            else:
+                if self._signal_only:
+                    self._entry_price = close
+                    self._trade_peak = close
+                    self._current_qty = qty
+                    self._entry_bar = self._bars_processed
+            elif self._signal_only:
                 self._entry_price = 0.0
                 self._trade_peak = 0.0
                 self._entry_bar = 0
 
-            self._signal = new_signal
+            if self._signal_only:
+                self._signal = new_signal
 
         # 8. Update consensus
         self._consensus[self._runner_key] = self._signal
@@ -863,6 +884,63 @@ class AlphaDecisionModule:
             events = [e for e in events if not hasattr(e, "order_id")]
 
         return events
+
+    def sync_confirmed_position(self, position: StrategyPosition, *, exit_reason: str | None = None) -> None:
+        """Hydrate confirmed facts; never import another strategy's account position."""
+        old_signal = self._signal
+        self._confirmed_position = position
+        self._current_qty = abs(position.qty)
+        self._signal = 1 if position.qty > 0 else -1 if position.qty < 0 else 0
+        self._entry_price = float(position.entry_price)
+        if old_signal != self._signal:
+            self._trade_peak = self._entry_price
+            self._entry_bar = self._bars_processed if self._signal else 0
+            self._last_trade_bar = self._bars_processed
+        if old_signal and not self._signal:
+            self._entry_tier = 0
+            if exit_reason and exit_reason != "signal_change":
+                self._last_stop_bar = self._bars_processed
+                self._last_stop_direction = old_signal
+                self._consecutive_stops += 1
+                if self._consecutive_stops >= 3:
+                    self._stop_pause_until = self._bars_processed + 12
+            else:
+                self._consecutive_stops = 0
+        self._consensus[self._runner_key] = self._signal
+
+    def execution_state(self) -> dict[str, Any]:
+        fields = ("_signal", "_entry_price", "_trade_peak", "_entry_bar", "_last_trade_bar",
+                  "_last_stop_bar", "_last_stop_direction", "_consecutive_stops", "_stop_pause_until")
+        return {**{key: getattr(self, key) for key in fields},
+                "_current_qty": str(self._current_qty), "_bars_processed": self._bars_processed}
+
+    def restore_execution_state(self, state: dict[str, Any], *, rebase: bool = False) -> None:
+        delta = self._bars_processed - state["_bars_processed"] if rebase else 0
+        counters = {"_entry_bar", "_last_trade_bar", "_last_stop_bar", "_stop_pause_until"}
+        for key, value in state.items():
+            if key == "_bars_processed":
+                continue
+            if key == "_current_qty":
+                value = Decimal(value)
+            elif key in counters and value != 0:
+                value += delta
+            setattr(self, key, value)
+        self._consensus[self._runner_key] = self._signal
+
+    def on_order_status(self, order_id: str, status: str) -> None:
+        if status in {"filled", "canceled", "mmp_canceled", "rejected", "blocked"}:
+            self._pending_orders.discard(order_id)
+            self._pending_reductions.discard(order_id)
+            self._pending_exit_reasons.pop(order_id, None)
+
+    def on_fill(self, event: Any) -> None:
+        """Non-durable adapter compatibility; OKX uses a transactional consumer."""
+        if self._signal_only or event.order_id not in self._pending_orders or event.fill_id in self._seen_fills:
+            return
+        self._confirmed_position.apply(event)
+        self._seen_fills.add(event.fill_id)
+        self.sync_confirmed_position(self._confirmed_position,
+                                     exit_reason=self._pending_exit_reasons.get(event.order_id))
 
     @staticmethod
     def _load_historical_closes(symbol: str) -> list[float]:
@@ -1324,13 +1402,23 @@ class AlphaDecisionModule:
         self, price: float, signal: int, qty: Decimal,
     ) -> list[OrderEvent]:
         """Create OrderEvent for opening a new position."""
-        return make_open_order(self._symbol, self._runner_key, price, signal, qty)
+        if not self._signal_only and not self._execution_ready:
+            return []
+        orders = make_open_order(self._symbol, self._runner_key, price, signal, qty)
+        if not self._signal_only:
+            self._pending_orders.update(o.order_id for o in orders)
+        return orders
 
     def _make_close_order(
         self, price: float, old_signal: int, reason: str,
     ) -> list[OrderEvent]:
         """Create OrderEvent for closing current position."""
-        return make_close_order(
+        orders = make_close_order(
             self._symbol, self._runner_key, price, old_signal, reason,
             self._current_qty, self._sizer.min_size,
         )
+        if not self._signal_only:
+            self._pending_orders.update(o.order_id for o in orders)
+            self._pending_reductions.update(o.order_id for o in orders)
+            self._pending_exit_reasons.update({o.order_id: reason for o in orders})
+        return orders

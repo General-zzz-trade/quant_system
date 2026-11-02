@@ -49,6 +49,7 @@ jobs:
             risk/ alpha/ attribution/ runner/ \
             monitoring/ infra/ strategy/ polymarket/ \
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
+            shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
             tests/offline/ scripts/check_local_safety.py
 
   rust-test:

@@ -299,6 +299,13 @@ class EngineCoordinator:
             if self._phase == EnginePhase.STOPPED:
                 raise RuntimeError("EngineCoordinator is stopped")
 
+        # Durable exchange facts must survive halt/pause and bypass volatile
+        # dispatcher dedup; receipt + state are committed in one transaction.
+        consumer = getattr(self, "_durable_fill_consumer", None)
+        if consumer is not None and type(event).__name__ == "FillEvent":
+            consumer.consume(event)
+            return
+
         # Trading gate: drop events when halted (safety mechanism)
         if self._trading_gate.is_halted:
             _logger.warning("Trading halted — dropping %s event", type(event).__name__)
@@ -425,8 +432,10 @@ class EngineCoordinator:
         except Exception:
             _logger.debug("Event validation skipped due to unexpected error", exc_info=True)
 
-        # 不要在 lock 内 dispatch（防止 handler 再次 emit 导致死锁/长锁）
-        self._dispatcher.dispatch(event=event, actor=actor)
+        # Serialize market decisions with fill commits. The lock is reentrant:
+        # a decision can synchronously emit an order and receive its fills.
+        with self._lock:
+            self._dispatcher.dispatch(event=event, actor=actor)
 
     # --------------------------------------------------------
     # Runtime attach/detach (Live mode)

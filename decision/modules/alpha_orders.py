@@ -72,5 +72,6 @@ def make_close_order(
             side=side,
             qty=Decimal(str(qty)),
             price=Decimal(str(price)),
+            reason=reason,
         )
     ]

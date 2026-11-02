@@ -76,7 +76,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-q --tb=short"
+addopts = "-q --tb=short --import-mode=importlib"
 markers = [
     "benchmark: performance benchmark tests (deselect with '-m \"not benchmark\"')",
     "slow: longer-running tests",

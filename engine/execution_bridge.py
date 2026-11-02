@@ -77,6 +77,7 @@ class ExecutionBridge:
     adapter: ExecutionAdapter
     dispatcher_emit: Callable[[Any], None]
     risk_gate: Optional[Any] = None
+    on_order_status: Optional[Callable[[str, str], None]] = None
     # Retry parameters
     max_retries: int = 2
     retry_base_delay: float = 0.5
@@ -113,6 +114,8 @@ class ExecutionBridge:
             check = self.risk_gate.check(event)
             if not check.allowed:
                 _log.warning("RiskGate (execution bridge) REJECTED: %s", check.reason)
+                if self.on_order_status:
+                    self.on_order_status(str(event.order_id), "blocked")
                 return
 
         # Circuit breaker: fast-fail when open
@@ -152,10 +155,7 @@ class ExecutionBridge:
             # All attempts exhausted
             raise ExecutionBridgeError("Execution adapter failed") from last_exc
 
-        if not results:
-            return
-
-        for ev in results:
+        for ev in results or ():
             try:
                 # 重新注入 dispatcher：
                 # - FillEvent → PIPELINE
@@ -163,3 +163,16 @@ class ExecutionBridge:
                 self.dispatcher_emit(ev)
             except Exception as e:
                 raise ExecutionBridgeError("Failed to emit execution result") from e
+
+        notify = getattr(self.adapter, "notify_status", None)
+        if callable(notify):
+            notify()
+        elif self.on_order_status and results:
+            # Compatibility adapters can confirm an entry only when all of its
+            # requested quantity is accounted for. An empty response is unknown.
+            from decimal import Decimal
+            requested = Decimal(str(getattr(event, "qty", 0)))
+            filled = sum((Decimal(str(getattr(f, "qty", 0))) for f in results
+                          if getattr(f, "order_id", None) == getattr(event, "order_id", None)), Decimal(0))
+            if requested > 0 and filled == requested:
+                self.on_order_status(str(event.order_id), "filled")

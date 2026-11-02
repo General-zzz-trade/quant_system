@@ -236,6 +236,8 @@ class OkxAdapter:
             logger.error("OKX get_positions failed: %s", e)
             raise  # an unavailable position snapshot must never look flat
 
+        if str(resp.get("code", "0")) != "0" or not isinstance(resp.get("data"), list):
+            raise RuntimeError("Invalid position snapshot response")
         out: list[VenuePosition] = []
         for p in resp.get("data") or []:
             inst_id = p.get("instId", "")
@@ -510,8 +512,10 @@ class OkxAdapter:
             )
         except Exception as e:
             logger.warning("OKX get_open_orders failed: %s", e)
-            return ()
+            raise
 
+        if str(resp.get("code", "0")) != "0" or not isinstance(resp.get("data"), list):
+            raise RuntimeError("Invalid pending-order snapshot response")
         out = []
         for o in resp.get("data") or []:
             inst_id = o.get("instId", "")

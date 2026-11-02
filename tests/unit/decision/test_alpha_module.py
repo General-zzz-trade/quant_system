@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from decision.modules.alpha import AlphaDecisionModule
 from event.types import OrderEvent, RiskEvent, SignalEvent
+from tests.unit.decision.fill_helpers import confirm_orders
 
 
 # ── snapshot helper ─────────────────────────────────────────────
@@ -155,6 +156,7 @@ class TestAlphaDecisionModule:
         orders1 = [e for e in events1 if isinstance(e, OrderEvent)]
         assert len(orders1) == 1
         assert orders1[0].side == "buy"
+        confirm_orders(mod, events1)
 
         # Second bar: -2% drop, signal still +1 from discretizer
         # but force exit should trigger
@@ -172,7 +174,7 @@ class TestAlphaDecisionModule:
         mod, _, disc, _ = _make_module(signal=1, z=1.5)
         # Open long
         snap1 = _make_snapshot(close=90000.0)
-        list(mod.decide(snap1))
+        confirm_orders(mod, list(mod.decide(snap1)))
 
         # Z reverses, but discretizer still returns signal=1
         # Force exit should trigger due to z < -0.3
@@ -202,8 +204,8 @@ class TestAlphaDecisionModule:
         # Verify saturation
         assert mod._signal_weight(5.0) > 0.99
 
-    def test_signal_change_emits_close_then_open(self):
-        """prev=1, new=-1 -> SignalEvent + close + open = 3 events.
+    def test_signal_change_waits_for_close_confirmation(self):
+        """prev=1, new=-1 -> close first; open on a later decision after fills.
 
         We must avoid force-exit triggers: use a close-to-entry price
         and set the discretizer to return signal=-1 directly so the
@@ -213,7 +215,7 @@ class TestAlphaDecisionModule:
         mod, _, disc, _ = _make_module(signal=1, z=1.5)
         # Open long
         snap1 = _make_snapshot(close=90000.0)
-        list(mod.decide(snap1))
+        confirm_orders(mod, list(mod.decide(snap1)))
         assert mod._signal == 1
 
         # Flip to short — patch force exits to not trigger
@@ -222,13 +224,18 @@ class TestAlphaDecisionModule:
             snap2 = _make_snapshot(close=90000.0)
             events = list(mod.decide(snap2))
         orders = [e for e in events if isinstance(e, OrderEvent)]
-        assert len(orders) == 2
+        assert len(orders) == 1
+        assert mod._signal == 1  # close request is not a fill
         # First order: close (sell, qty=0 — delegates to exchange)
         assert orders[0].side == "sell"
         assert orders[0].qty == Decimal("0")
-        # Second order: open short (sell, qty>0)
-        assert orders[1].side == "sell"
-        assert orders[1].qty > 0
+        confirm_orders(mod, orders)
+        assert mod._signal == 0
+        mod._last_trade_bar = -9999
+        with patch.object(mod, "_check_force_exits", return_value=(False, "")):
+            next_orders = [e for e in mod.decide(snap2) if isinstance(e, OrderEvent)]
+        assert len(next_orders) == 1
+        assert next_orders[0].side == "sell" and next_orders[0].qty > 0
         # SignalEvent also emitted
         signals = [e for e in events if isinstance(e, SignalEvent)]
         assert len(signals) == 1
@@ -257,7 +264,9 @@ class TestAlphaDecisionModule:
         """Consensus dict updated with own signal after decide."""
         mod, _, _, _ = _make_module(signal=1, z=1.5, runner_key="BTCUSDT")
         snap = _make_snapshot()
-        list(mod.decide(snap))
+        events = list(mod.decide(snap))
+        assert mod._consensus["BTCUSDT"] == 0
+        confirm_orders(mod, events)
         assert mod._consensus["BTCUSDT"] == 1
 
     def test_set_consensus(self):
@@ -272,7 +281,7 @@ class TestAlphaDecisionModule:
         mod, _, disc, _ = _make_module(signal=1, z=1.5)
         # Open
         snap1 = _make_snapshot(close=90000.0)
-        list(mod.decide(snap1))
+        confirm_orders(mod, list(mod.decide(snap1)))
 
         # Close (signal -> 0)
         disc.discretize.return_value = (0, 0.0)

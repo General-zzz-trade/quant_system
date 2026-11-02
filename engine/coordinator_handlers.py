@@ -69,10 +69,19 @@ def handle_pipeline_event(coord: Any, event: Any) -> None:
     if coord._cfg.on_snapshot is not None and out.snapshot is not None:
         coord._cfg.on_snapshot(out.snapshot)
 
+    if _detect_kind(event) == "FILL" and coord._decision_bridge is not None:
+        for module in coord._decision_bridge.modules:
+            callback = getattr(module, "on_fill", None)
+            if callable(callback):
+                callback(event)
+
     # Decision trigger: only on MARKET event advancement
     if coord._decision_bridge is not None and out.advanced and out.snapshot is not None:
         if _detect_kind(event) == "MARKET":
             coord._decision_bridge.on_pipeline_output(out)
+            consumer = getattr(coord, "_durable_fill_consumer", None)
+            if consumer is not None:
+                consumer.checkpoint_market()
 
 
 def handle_market_tick_fast(coord: Any, event: Any, tp: Any) -> None:

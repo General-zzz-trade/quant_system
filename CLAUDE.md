@@ -1,3 +1,8 @@
+> 当前开发状态（2026-11-02）：以 `docs/local_development.md` 和
+> `docs/execution_recovery.md` 为准。默认 dry-run；OKX 执行要显式启用并先通过恢复对账。
+> CI 不再自动部署，Deploy 只允许手动触发。下文旧的“实盘运行”、启动即交易、预挂单、
+> 市价补单、历史收益描述不是本版本验收结论。
+
 ## Commands
 
 ```bash

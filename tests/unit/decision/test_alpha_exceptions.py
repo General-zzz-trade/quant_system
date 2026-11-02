@@ -4,6 +4,7 @@ Covers: None predictions, NaN/zero/negative equity/price, corrupt IC health,
 empty consensus, force-exit edge cases, division-by-zero guards.
 """
 from __future__ import annotations
+from tests.unit.decision.fill_helpers import confirm_orders
 
 import json
 import os
@@ -202,7 +203,7 @@ class TestAlphaDecideExceptions:
     def test_atr_nan_force_exit_no_crash(self):
         mod, _, disc, _ = _make_module(signal=1, z=1.5)
         snap = _make_snapshot()
-        list(mod.decide(snap))  # enter
+        confirm_orders(mod, list(mod.decide(snap)))  # confirmed entry
 
         mod._atr_buffer = [float("nan")] * 20
         disc.discretize.return_value = (-1, -1.0)
@@ -300,7 +301,7 @@ class TestAlphaDecideExceptions:
     def test_empty_consensus_no_4h_reversal(self):
         mod, _, _, _ = _make_module(signal=1, z=1.5)
         snap = _make_snapshot()
-        list(mod.decide(snap))  # enter position
+        confirm_orders(mod, list(mod.decide(snap)))  # confirmed entry position
 
         # consensus is empty except self
         mod._consensus = {}
@@ -370,10 +371,11 @@ class TestAlphaDecideExceptions:
         events = list(mod.decide(snap))
         open_orders = [e for e in events if isinstance(e, OrderEvent)]
         assert open_orders[0].side == "buy"
+        confirm_orders(mod, events)
 
         # Advance past min_hold (18 bars) so signal_change exit is allowed
         for _ in range(20):
-            list(mod.decide(snap))
+            confirm_orders(mod, list(mod.decide(snap)))
 
         # Flatten signal
         disc.discretize.return_value = (0, 0.0)
@@ -414,7 +416,7 @@ class TestAlphaDecideExceptions:
     def test_force_exit_emits_risk_event(self):
         mod, _, disc, _ = _make_module(signal=1, z=1.5)
         snap = _make_snapshot()
-        list(mod.decide(snap))  # enter
+        confirm_orders(mod, list(mod.decide(snap)))  # confirmed entry
 
         # Set up force exit via z_reversal
         mod._atr_buffer = [0.01] * 20

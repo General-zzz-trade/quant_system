@@ -4,6 +4,7 @@ Verifies EnsemblePredictor -> SignalDiscretizer -> AlphaDecisionModule
 works end-to-end with mocked models and bridge.
 """
 from __future__ import annotations
+from tests.unit.decision.fill_helpers import confirm_orders
 
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -142,7 +143,7 @@ def test_force_exit_through_decide():
     bridge.zscore_normalize.return_value = 1.5
     bridge.apply_constraints.return_value = 1
     snap = _make_snapshot(close=95000.0)
-    list(module.decide(snap))  # open long
+    confirm_orders(module, list(module.decide(snap)))  # confirmed long
     assert module._signal == 1
 
     # Now: price drops hard -> force exit
@@ -152,8 +153,8 @@ def test_force_exit_through_decide():
     snap = _make_snapshot(close=89000.0)
     events = list(module.decide(snap))
 
-    # Signal should have changed from 1 to 0, emitting a close order
-    assert module._signal == 0
+    # Close intent preserves the actual long until exchange confirmation.
+    assert module._signal == 1
     close_orders = [e for e in events if isinstance(e, OrderEvent) and e.side == "sell"]
     assert len(close_orders) >= 1, "Expected sell close order on force exit"
 

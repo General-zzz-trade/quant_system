@@ -782,12 +782,12 @@ def build_coordinator(
     coordinator.attach_decision_bridge(decision_bridge)
 
     # Attach execution bridge (live only)
-    if not dry_run:
+    if not dry_run and not is_4h:
         venue = getattr(adapter, "venue", "bybit")
         if venue == "binance":
             exec_adapter = BinanceExecutionAdapter(adapter, circuit_breaker=circuit_breaker)
         elif venue == "okx":
-            exec_adapter = OkxExecutionAdapter(adapter, circuit_breaker=circuit_breaker)
+            exec_adapter = OkxExecutionAdapter(adapter, circuit_breaker=circuit_breaker, owner=f"alpha.{runner_key}")
         else:
             exec_adapter = BybitExecutionAdapter(adapter)
 
@@ -801,9 +801,16 @@ def build_coordinator(
             adapter=exec_adapter,
             dispatcher_emit=coordinator.emit,
             risk_gate=risk_gate,
+            on_order_status=alpha_module.on_order_status,
             max_retries=0,  # a timeout must never trigger an unverified resubmission
         )
         coordinator.attach_execution_bridge(execution_bridge)
+        if venue == "okx":
+            from engine.durable_fills import DurableFillConsumer
+            exec_adapter._status_callback = alpha_module.on_order_status
+            coordinator._durable_fill_consumer = DurableFillConsumer(coordinator, alpha_module, exec_adapter)
+            alpha_module._execution_ready = False
+
 
     fast_path = ("RustTickProcessor ENABLED" if tick_proc is not None
                   else "Python pipeline (Rust-accelerated, ~200us/bar)")

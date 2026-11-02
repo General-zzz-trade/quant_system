@@ -181,6 +181,7 @@ class OrderEvent(BaseEvent):
     price: Decimal | None
 
     _rust: Any = None
+    reason: str | None = None
 
     def __post_init__(self) -> None:
         if self._rust is None:

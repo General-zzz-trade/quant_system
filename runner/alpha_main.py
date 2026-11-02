@@ -189,6 +189,13 @@ def main() -> None:
     )
 
     args = parse_args()
+    if args.venue == "okx" and not args.dry_run:
+        import atexit
+        from shared.execution_lease import ExecutionLease
+        # Keep one writer for the whole account, including all of its runners.
+        lease = ExecutionLease(Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")),
+                               os.environ["RISK_SCOPE"])
+        atexit.register(lease.close)
 
     # Validate Rust event configuration at startup
     VALID_EVENT_TYPES = set(rust_event_types())
@@ -364,12 +371,26 @@ def main() -> None:
                 except Exception:
                     logger.debug("PnL fill observer error", exc_info=True)
 
-            # Register fill observer on each coordinator's dispatcher
+            def _restore_pnl_position(symbol, position):
+                if position.qty:
+                    _pnl_positions[symbol] = {
+                        "side": 1 if position.qty > 0 else -1,
+                        "qty": float(abs(position.qty)), "entry_price": float(position.entry_price),
+                    }
+                else:
+                    _pnl_positions.pop(symbol, None)
+
+            # Durable execution observers run after the receipt commits.
             from engine.dispatcher import Route
             for coord in coordinators.values():
-                coord.dispatcher.register(
-                    route=Route.PIPELINE, handler=_on_fill_for_pnl,
-                )
+                consumer = getattr(coord, "_durable_fill_consumer", None)
+                if consumer is not None:
+                    consumer.observers.append(_on_fill_for_pnl)
+                    consumer.restore_observers.append(_restore_pnl_position)
+                else:
+                    coord.dispatcher.register(
+                        route=Route.PIPELINE, handler=_on_fill_for_pnl,
+                    )
             logger.info("PnL tracker initialized and attached to %d coordinators", len(coordinators))
         except Exception:
             logger.warning("PnL tracker initialization failed — continuing without PnL tracking", exc_info=True)
@@ -487,6 +508,9 @@ def main() -> None:
 
     # Reset alpha module signal state after warmup so live starts clean
     for runner_key, alpha_mod in modules.items():
+        alpha_mod._pending_orders.clear()
+        alpha_mod._pending_reductions.clear()
+        alpha_mod._pending_exit_reasons.clear()
         alpha_mod._signal = 0
         alpha_mod._current_qty = __import__("decimal").Decimal("0")
         alpha_mod._entry_price = 0.0
@@ -501,6 +525,12 @@ def main() -> None:
         except Exception:
             pass  # bridge may not support reset_hold
     logger.info("Post-warmup reset: all alpha modules signal=0, hold counters reset")
+
+    # Restore committed fill state before consulting the exchange or enabling entries.
+    from runner.execution_recovery import reconcile_execution
+    for rk, coord in coordinators.items():
+        if getattr(coord, "_durable_fill_consumer", None) is not None:
+            reconcile_execution(coord, modules[rk], restore=True)
 
     # Sync positions from exchange — if exchange has an open position,
     # restore alpha module state so stop-loss/quick_loss work correctly.
@@ -524,6 +554,8 @@ def main() -> None:
                 qty_abs = abs(qty_signed)
                 # Find matching 1h runner (not 4h — exchange position is shared)
                 for rk, am in modules.items():
+                    if getattr(coordinators[rk], "_durable_fill_consumer", None) is not None:
+                        continue
                     cfg = SYMBOL_CONFIG[rk]
                     if cfg.get("symbol", rk) == sym and "4h" not in rk and "15m" not in rk:
                         am._signal = pos_signal
@@ -962,15 +994,13 @@ def main() -> None:
             # Reconcile delayed fills through the same dispatcher, including
             # while entry risk gates are closed. No retry of order placement.
             if _loop_iter % 5 == 0 and not args.dry_run:
-                for coord in coordinators.values():
-                    bridge = coord._execution_bridge
-                    reconcile = getattr(getattr(bridge, "adapter", None), "reconcile_pending", None)
-                    if reconcile is not None:
+                for rk, coord in coordinators.items():
+                    if getattr(coord, "_durable_fill_consumer", None) is not None:
                         try:
-                            for fill in reconcile():
-                                coord.emit(fill, actor="execution_reconcile")
+                            reconcile_execution(coord, modules[rk])
                         except Exception:
-                            logger.exception("Pending fill reconciliation failed")
+                            modules[rk]._execution_ready = False
+                            logger.exception("Pending fill reconciliation failed; entries blocked")
 
             if _loop_iter % 60 == 0:
                 _refresh_equity()
@@ -1013,6 +1043,8 @@ def main() -> None:
                     _exchange_pos_cache.clear()
                     _exchange_pos_cache.update(ex_map)
                     for rk, am in modules.items():
+                        if getattr(coordinators[rk], "_durable_fill_consumer", None) is not None:
+                            continue  # durable ledger never heals by inventing fills
                         cfg_r = SYMBOL_CONFIG.get(rk, {})
                         sym = cfg_r.get("symbol", rk)
                         if "4h" in rk or "15m" in rk:
