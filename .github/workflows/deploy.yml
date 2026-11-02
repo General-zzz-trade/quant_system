@@ -10,6 +10,10 @@ on:
         required: true
         default: false
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -28,6 +32,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Require successful CI for this exact master commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request
+
+          sha = os.environ["GITHUB_SHA"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          url = f"https://api.github.com/repos/{repo}/actions/runs?head_sha={sha}&per_page=100"
+          request = urllib.request.Request(url, headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+          })
+          with urllib.request.urlopen(request, timeout=30) as response:
+              runs = json.load(response)["workflow_runs"]
+          passed = any(
+              run["head_sha"] == sha and run["head_branch"] == "master"
+              and run["path"] == ".github/workflows/ci.yml" and run["event"] == "push"
+              and run["status"] == "completed" and run["conclusion"] == "success"
+              for run in runs
+          )
+          if not passed:
+              raise SystemExit("Deployment blocked: this master commit has no successful completed CI run")
+          print("Verified successful CI for", sha)
 
       - name: Detect change type
         id: changes
