@@ -8,6 +8,7 @@ import math
 import os
 import platform
 import subprocess
+from importlib.metadata import version
 from decimal import Decimal as D
 from pathlib import Path
 
@@ -51,12 +52,20 @@ def code_identity():
     native = Path(_quant_hotpath.__file__)
     if native.is_file():
         values["native_extension"] = hashlib.sha256(native.read_bytes()).hexdigest()
+    # Wheels expose a Python package which re-exports the compiled submodule.
+    # Hash the actual shared library as well as __init__.py in that layout.
+    for folder in getattr(_quant_hotpath, "__path__", ()):
+        for compiled in sorted(Path(folder).glob("*")):
+            if compiled.suffix in {".so", ".pyd"}:
+                values[f"native_extension/{compiled.name}"] = hashlib.sha256(compiled.read_bytes()).hexdigest()
     try:
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True,
                                            stderr=subprocess.DEVNULL).strip()
     except (OSError, subprocess.CalledProcessError):
         revision = "unavailable"
-    return {"source_sha256": fingerprint(values), "git_revision": revision, "python": platform.python_version()}
+    return {"source_sha256": fingerprint(values), "git_revision": revision, "python": platform.python_version(),
+            "numpy": version("numpy"), "pandas": version("pandas"),
+            "platform": platform.system(), "machine": platform.machine()}
 
 
 def input_identity(bars, bundle, funding, config, start_ms, mode):

@@ -257,6 +257,23 @@ def test_cli_network_block():
         socket.create_connection(("example.com", 443))
 
 
+def test_code_identity_detects_wheel_native_module_change(tmp_path, monkeypatch):
+    import _quant_hotpath
+    from runner.offline.report import code_identity
+    package = tmp_path / "_quant_hotpath"
+    package.mkdir()
+    init = package / "__init__.py"
+    init.write_text("# simulated wheel package\n")
+    native = package / "_quant_hotpath.so"
+    native.write_bytes(b"native version one")
+    monkeypatch.setattr(_quant_hotpath, "__file__", str(init))
+    monkeypatch.setattr(_quant_hotpath, "__path__", [str(package)], raising=False)
+    first = code_identity()
+    native.write_bytes(b"native version two")
+    assert code_identity()["source_sha256"] != first["source_sha256"]
+    assert first["numpy"] and first["pandas"]
+
+
 def test_study_freezes_model_and_labels_synthetic(tmp_path, experiment):
     from runner.offline.study import run_study
     bars, _, funding, _ = experiment
