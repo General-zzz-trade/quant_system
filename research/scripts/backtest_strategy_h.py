@@ -12,18 +12,25 @@ from pathlib import Path   # noqa: E702
 sys.path.insert(0, "/quant_system")
 from features.batch_feature_engine import compute_features_batch
 from alpha.training.train_multi_horizon import rolling_zscore
+from data.quality.causal_bars import align_closed_signals, load_bars
 
 DATA_DIR, MODEL_DIR = Path("data_files"), Path("models_v8")
 COST = 0.0007
 
 def load_resample(sym, rule):
+    load_bars(DATA_DIR / f"{sym}_1h.csv")  # refuse gaps, duplicates and invalid OHLC before aggregation
     df = pd.read_csv(DATA_DIR / f"{sym}_1h.csv")
     df["datetime"] = pd.to_datetime(df["open_time"], unit="ms")
     if rule == "1h": return df
     agg = {"open_time":"first","open":"first","high":"max","low":"min","close":"last","volume":"sum"}
     for c in ["quote_volume","taker_buy_volume","taker_buy_quote_volume","trades"]:
         if c in df.columns: agg[c]="sum"
-    return df.set_index("datetime").resample(rule).agg(agg).dropna(subset=["close"]).reset_index()
+    grouped = df.set_index("datetime").resample(rule)
+    result = grouped.agg(agg)
+    # A partial last 4h group is not a completed candle.
+    expected = int(pd.Timedelta(rule) / pd.Timedelta(hours=1))
+    result = result[grouped["close"].count() == expected]
+    return result.dropna(subset=["close"]).reset_index()
 
 def add_cm(feat_df, df):
     p = DATA_DIR / "cross_market_daily.csv"
@@ -80,7 +87,8 @@ def gen_sig(pred, close, cfg):
     return sig
 
 def align_to_1h(sig, dt_src, dt_1h):
-    return pd.Series(sig, index=dt_src).reindex(dt_1h, method="ffill").fillna(0).values
+    # Both input indexes label bar OPEN. A 1h decision runs after its close.
+    return align_closed_signals(sig, dt_src, pd.to_datetime(dt_1h) + pd.Timedelta(hours=1))
 
 def entry_bb_scale(close, idx, d, w=12):
     if idx < w: return 1.0
@@ -120,6 +128,7 @@ def bt_h(cl, s4, s1, lev, cap, use_bb=True, init=500.0):
             "avg_sc":round(avg_sc,2),"l_n":len(l_tr),"s_n":len(s_tr),"l_wr":round(l_wr,1),"s_wr":round(s_wr,1)}
 
 def wf_h(cl, s4, s1, lev, cap, use_bb, fold_d=90, min_d=365):
+    """Descriptive slices of fixed predictions; NOT independent walk-forward training."""
     mb,fb=min_d*24,fold_d*24; nf=(len(cl)-mb)//fb
     if nf<3: return None
     sharpes,rets,dds=[],[],[]
@@ -159,7 +168,7 @@ def main():
         for n,r in v.items():
             print(f"  {n:<20} {r['sharpe']:7.2f} {r['cagr']:7.1f} {r['ret']:10.1f} {r['mdd']:7.1f} {r['n']:6d} {r['wr']:5.1f} {r['avg_sc']:5.2f} {r['l_wr']:5.1f} {r['s_wr']:5.1f}")
         # WF
-        print("\n  Walk-Forward (90-day folds):")
+        print("\n  Fixed-model historical slices (90 days; NOT independent OOS):")
         for name,bb in [("H: no BB",False),("H: +BB",True)]:
             wf=wf_h(cl,s4,s1,lev,cap,bb)
             if wf:

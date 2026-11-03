@@ -2,7 +2,7 @@
 
 加密货币永续合约量化交易系统（BTC + ETH）。
 
-**本地改进阶段（2026-11-02）**：主程序默认只生成信号，执行需显式开启。
+**本地改进阶段（2026-11-03）**：主程序默认只生成信号，执行需显式开启。
 OKX 已加入成交驱动持仓、持久化成交消费和重启对账，验收范围见[订单恢复说明](docs/execution_recovery.md)。
 无需资金、VPS、API 密钥或 Rust 即可运行安全检查：
 
@@ -11,6 +11,11 @@ python scripts/check_local_safety.py
 ```
 
 改动说明、配置与部署前待办见[本地开发指南](docs/local_development.md)。
+新增 BTC 1h＋4h 离线回放、成本账本、按时间划分的样本外验证与重启重建。
+安装完整 Python/Rust 环境后可运行 `python -m runner.offline demo --out .cache/offline-demo`；
+此命令仅使用**合成行情**检查工程流程，不代表真实策略收益。输入格式和验收边界见[离线验证指南](docs/offline_validation.md)。
+已保存 [2025 年 BTC 真实数据研究结果](research/results/btcusdt_2025/README.md)：
+新 OHLCV Ridge 基线的最终测试净收益为 **−3.10%**，成本翻倍为 **−5.88%**，不支持据此上线盈利判断。
 下文历史回测收益与“无前视偏差”结论尚未完成独立复核，不能作为本版本实盘上线依据。
 
 - **Python**：编排层、交易所 IO、运维工具、研究

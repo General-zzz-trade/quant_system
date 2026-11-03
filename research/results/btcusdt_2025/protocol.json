@@ -1,0 +1,49 @@
+{
+  "candidate_count": 1,
+  "code": {
+    "git_revision": "cd6208f1130a5f86b72cd08d503723b795cd09e5",
+    "python": "3.12.14",
+    "source_sha256": "c5a6efcdc0372b43a403f34d90f245527c76d9ad1a481f989eff0b0ee1f572e3"
+  },
+  "config": {
+    "daily_loss_pct": 5.0,
+    "deadzone": 1.0,
+    "limit_offset_bps": "2",
+    "maker_bps": "2",
+    "max_exposure": "1",
+    "max_hold": 36,
+    "min_hold": 6,
+    "min_notional": "5",
+    "participation": "0.01",
+    "qty_step": "0.001",
+    "slippage_bps": "3",
+    "starting_balance": "10000",
+    "taker_bps": "5",
+    "ttl_bars": 3,
+    "weekly_loss_pct": 10.0,
+    "zscore_warmup": 45,
+    "zscore_window": 180
+  },
+  "dataset": {
+    "end_ms": 1767225600000,
+    "rows": 8760,
+    "sha256": "968aa803ab7d7983ebea0021422349799b2ab969ce974e9044877161a9020de6",
+    "start_ms": 1735689600000,
+    "synthetic": false,
+    "timestamp_semantics": "UTC open_time milliseconds; available at open_time + 1h"
+  },
+  "funding_sha256": "1f6c98f1e9a88db36d21ab5ee644868499574f697e84990a743bbb32d60bfb5a",
+  "funding_time_policy": "nominal UTC 8h boundary, before opening fills; source jitter may be <=1 second",
+  "holdout_start_ms": 1760918400000,
+  "limitations": [
+    "Reference OHLCV Ridge, not certification of existing live model artifacts",
+    "OHLC execution assumptions cannot prove maker queue fills",
+    "Historical independence cannot be established against undocumented prior experiments",
+    "Baseline exposure differs; compare average gross exposure, not just return",
+    "USDT linear perpetual, <=1x cap, fixed UTC 8h funding; no exchange liquidation certification"
+  ],
+  "model_sha256": "9d81301c92384330a9da690c23c5684a47d1667b096cc687d9627e53178826b9",
+  "schema": 1,
+  "selection": "fixed Ridge alpha=1; no parameter search",
+  "train_end_ms": 1754611200000
+}

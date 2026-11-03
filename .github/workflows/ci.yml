@@ -50,6 +50,7 @@ jobs:
             monitoring/ infra/ strategy/ polymarket/ \
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
             shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
+            data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
             tests/offline/ scripts/check_local_safety.py
 
   rust-test:
@@ -113,8 +114,31 @@ jobs:
             tests/unit/bybit/ \
             tests/unit/execution/adapters/okx/ \
             tests/unit/runner/test_portfolio_risk_file.py \
+            tests/unit/runner/test_offline_research.py \
             tests/unit/infra/test_model_signing.py \
             -x -q --tb=short
+
+      - name: Synthetic offline research acceptance (no network or account keys)
+        run: python3 -m runner.offline demo --out .cache/offline-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-offline-validation
+          path: .cache/offline-ci/
+          retention-days: 14
+
+      - name: Frozen 2025 BTC research sample (historical evaluation, no network)
+        run: >-
+          python3 -m runner.offline study
+          --bars research/datasets/btcusdt_2025/bars.csv
+          --funding research/datasets/btcusdt_2025/funding.csv
+          --out .cache/btc-2025-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btc-2025-research-validation
+          path: .cache/btc-2025-ci/
+          retention-days: 14
 
   security-scan:
     runs-on: ubuntu-latest

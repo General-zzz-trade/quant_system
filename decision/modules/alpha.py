@@ -38,6 +38,18 @@ RidgePredictorType = RustRidgePredictor
 
 logger = logging.getLogger(__name__)
 
+
+class _OfflineAudit:
+    """Replay owns its audit sink; preserve strategy flags without live file I/O."""
+    def log_signal(self, **kwargs):
+        pass
+
+    def log_entry(self, **kwargs):
+        pass
+
+    def log_exit(self, **kwargs):
+        pass
+
 # IC health status → scale multiplier
 _IC_SCALE_MAP: dict[str, float] = {
     "GREEN": 1.2,
@@ -78,6 +90,7 @@ class AlphaDecisionModule:
         leverage: float = 10.0,
         signal_only: bool = False,
         venue: str = "binance",
+        offline: bool = False,
     ) -> None:
         self._symbol = symbol
         self._runner_key = runner_key
@@ -87,6 +100,8 @@ class AlphaDecisionModule:
         self._leverage = leverage
         self._signal_only = signal_only
         self._venue = (venue or "binance").lower()
+        self._offline = offline
+        self._decision_ts = None
         self._confirmed_position = StrategyPosition()
         self._pending_orders: set[str] = set()
         self._pending_reductions: set[str] = set()
@@ -105,7 +120,7 @@ class AlphaDecisionModule:
         self._last_trade_bar: int = -9999  # cooldown: bar index of last trade (init allows first trade)
 
         # Regime filter buffers — pre-load historical closes for bear regime.
-        self._closes: list[float] = self._load_historical_closes(symbol)
+        self._closes: list[float] = [] if offline else self._load_historical_closes(symbol)
         self._ema10: float = self._closes[-1] if self._closes else 0.0
         self._rets: list[float] = []
         self._vol_history: list[float] = []
@@ -189,7 +204,7 @@ class AlphaDecisionModule:
         # Decision audit logger (best-effort, never affects trading).
         # Per-venue file prevents two parallel runners from clobbering
         # each other's session log on startup.
-        self._audit = DecisionAuditLogger(venue=self._venue)
+        self._audit = _OfflineAudit() if offline else DecisionAuditLogger(venue=self._venue)
         self._audit_enabled = True  # disabled during warmup to prevent fake entries
 
         # Set by runner.alpha_main when a pre-placed limit order fills before
@@ -223,6 +238,7 @@ class AlphaDecisionModule:
 
     def decide(self, snapshot: Any) -> Iterable[RiskEvent | SignalEvent | OrderEvent]:
         """Read-only snapshot → opinion events.  No side effects on venue."""
+        self._decision_ts = getattr(snapshot, "ts", None)
         self._bars_processed += 1
         mkt = snapshot.markets[self._symbol]
         # Prefer close_f (float) over close (may be Fd8 i64 on Rust types)
@@ -1034,7 +1050,7 @@ class AlphaDecisionModule:
             from datetime import datetime, timezone
             regime = self._composite_regime.detect(
                 symbol=self._symbol,
-                ts=datetime.now(timezone.utc),
+                ts=self._decision_ts or datetime.now(timezone.utc),
                 features=features,
             )
             if regime and regime.meta:
@@ -1338,6 +1354,8 @@ class AlphaDecisionModule:
         diagnosis — the monitor said 4h was RED but the runner was still
         using it as a direction filter.
         """
+        if self._offline:
+            return  # no present-day monitoring file in historical decisions
         now = time.time()
         if now - self._ic_cache_ts < _IC_REFRESH_SECS:
             return

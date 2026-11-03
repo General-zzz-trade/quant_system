@@ -119,7 +119,7 @@ class CsvCursor:
             return self._fallback
         idx = bisect.bisect_right(self._timestamps, bar_ts_ms) - 1
         if idx < 0:
-            return self._values[0]
+            return math.nan  # first observation is still in the future
         return self._values[idx]
 
     @property
@@ -171,7 +171,7 @@ class CsvDictCursor:
             return dict(self._fallback)
         idx = bisect.bisect_right(self._timestamps, bar_ts_ms) - 1
         if idx < 0:
-            return dict(self._rows[0])
+            return {key: math.nan for key in self._fallback}
         return dict(self._rows[idx])
 
     @property

@@ -1,0 +1,15 @@
+{
+  "accounting_reconciled": true,
+  "average_gross_exposure": 0.010012495990322329,
+  "daily_sharpe": -4.59455770028676,
+  "fees_usdt": "120.715257849802",
+  "fills": 200,
+  "final_equity_usdt": "9689.8861266332034993773",
+  "funding_usdt": "-0.3163947969945006227",
+  "max_drawdown_pct": 3.272869505445049,
+  "net_return_pct": -3.101138733667965,
+  "open_qty": "0.000",
+  "orders": 205,
+  "sharpe_observations": 72,
+  "valuation": "marked equity; open positions not forcibly closed"
+}
