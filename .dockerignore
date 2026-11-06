@@ -1,6 +1,7 @@
 # VCS + IDE
 .git
-.github
+.github/*
+!.github/workflows/
 .claude/
 .mypy_cache
 .pytest_cache
@@ -21,12 +22,21 @@ build/
 !.env.example
 
 # Rust build (compiled inside Docker)
+target/
 rust/target/
+_quant_hotpath/
 
 # Data — mounted as volumes, not baked into image
 data_files/
+data/runtime/
 data/*.csv
 data/*.parquet
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
 output/
 results/
 logs/
@@ -36,8 +46,13 @@ models/
 # Dev/research artifacts
 tasks/
 archive/
-tests/
-scripts/
+scripts/*
+!scripts/__init__.py
+!scripts/run_bybit_alpha.py
+!scripts/check_local_safety.py
+!scripts/check_ci_security.py
+!scripts/check_deploy_scope.py
+!scripts/deploy.sh
 .last_good_deploy
 *.csv
 *.jsonl

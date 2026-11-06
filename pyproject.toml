@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -70,6 +70,36 @@ test = [
     "pytest-timeout>=2.1",
     "hypothesis>=6.92",
 ]
+
+# Python source wheel only. Build/install the native _quant_hotpath wheel
+# separately with maturin; Docker uses these sources plus that native wheel.
+# Explicit discovery is required because this repository has no quant_system/
+# package matching the distribution name. Do not follow legacy scripts/ links.
+[tool.hatch.build.targets.wheel]
+# /data/ is ignored by Git for local datasets, but data/ also contains code.
+ignore-vcs = true
+# packages/only-include bypass include filters in Hatch; constrain by file here.
+include = [
+    "/alpha/**/*.py", "/alpha/**/py.typed",
+    "/attribution/**/*.py", "/attribution/**/py.typed",
+    "/data/**/*.py", "/data/**/py.typed",
+    "/decision/**/*.py", "/decision/**/py.typed",
+    "/engine/**/*.py", "/engine/**/py.typed",
+    "/event/**/*.py", "/event/**/py.typed",
+    "/execution/**/*.py", "/execution/**/py.typed",
+    "/features/**/*.py", "/features/**/py.typed",
+    "/infra/**/*.py", "/infra/**/py.typed",
+    "/monitoring/**/*.py", "/monitoring/**/py.typed",
+    "/polymarket/**/*.py", "/polymarket/**/py.typed",
+    "/research/**/*.py", "/research/**/py.typed",
+    "/risk/**/*.py", "/risk/**/py.typed",
+    "/runner/**/*.py", "/runner/**/py.typed",
+    "/shared/**/*.py", "/shared/**/py.typed",
+    "/state/**/*.py", "/state/**/py.typed",
+    "/strategies/**/*.py", "/strategies/**/py.typed",
+    "/strategy/**/*.py", "/strategy/**/py.typed",
+]
+exclude = ["**/tests/**", "**/archive/**", "**/__pycache__/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

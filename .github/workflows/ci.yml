@@ -40,7 +40,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install linters
-        run: pip install "ruff>=0.4"
+        run: pip install ruff==0.17.4
 
       - name: Ruff check (core modules)
         run: |
@@ -51,7 +51,9 @@ jobs:
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
             shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
             data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
-            tests/offline/ scripts/check_local_safety.py
+            tests/offline/ scripts/check_local_safety.py \
+            scripts/check_ci_security.py scripts/check_deploy_scope.py \
+            scripts/run_bybit_alpha.py tests/unit/runner/test_startup_check.py
 
   rust-test:
     runs-on: ubuntu-latest
@@ -59,14 +61,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.0
 
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
 
       - name: Run Rust tests
-        run: cargo test
+        run: cargo test --locked
+
+  container-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the installed native wheel and runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ci
+          load: true
+          push: false
+          tags: quant-ci:startup-check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Startup check with networking disabled
+        run: >-
+          docker run --rm --network none --entrypoint python
+          quant-ci:startup-check -m runner.alpha_main --check-startup
+      - name: Container startup regression tests
+        run: >-
+          docker run --rm --network none quant-ci:startup-check
+          python -m pytest tests/unit/runner/test_startup_check.py -q --tb=short
+      - name: Container stdlib offline safety checks
+        run: docker run --rm --network none quant-ci:startup-check python scripts/check_local_safety.py
+      - name: Synthetic replay without network, keys or external models
+        run: >-
+          docker run --rm --network none --entrypoint python
+          quant-ci:startup-check -m runner.offline demo --out /tmp/offline-startup
 
   python-test:
     runs-on: ubuntu-latest
@@ -80,7 +113,7 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.0
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -88,21 +121,14 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install maturin
-          pip install \
-            "pytest>=7.4" "pytest-cov>=4.1" \
-            "pandas>=2.1,<3.0" "numpy>=1.26,<3.0" \
-            "scikit-learn>=1.4" "lightgbm>=4.1" \
-            "websocket-client>=1.6" "python-dotenv>=1.0" \
-            "scipy>=1.10" "aiohttp>=3.9"
+          pip install maturin==1.12.6 pytest==9.0.2 pytest-cov==7.0.0
+          pip install --require-hashes -r requirements/container.lock
 
       - name: Build Rust extension
         run: |
-          maturin build --release --features python --out dist/
+          maturin build --locked --release --features python --out dist/
           pip install dist/*.whl --force-reinstall
-          mkdir -p _quant_hotpath
-          cp $(python3 -c "import _quant_hotpath, os; print(os.path.dirname(_quant_hotpath.__file__))")/*.so _quant_hotpath/ 2>/dev/null || true
-          python3 -c "import _quant_hotpath; print(len(dir(_quant_hotpath)), 'exports')"
+          python3 -c "from _quant_hotpath import RustFeatureEngine, RustStateStore, RustInferenceBridge"
 
       - name: Run core unit tests
         run: |
@@ -145,20 +171,9 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Check for hardcoded secrets
-        run: |
-          ! grep -rn 'BYBIT_API_KEY\s*=' --include='*.py' . \
-            | grep -v '.env' | grep -v 'example' | grep -v 'os.environ' \
-            | grep -v '.gitignore' | grep -q . || true
-          ! grep -rn 'BYBIT_API_SECRET\s*=' --include='*.py' . \
-            | grep -v '.env' | grep -v 'example' | grep -v 'os.environ' \
-            | grep -v '.gitignore' | grep -q . || true
-
-      - name: Check for private keys in repo
-        run: |
-          if find . -name '*.pem' -o -name '*.key' -o -name '*.p12' \
-            | grep -v node_modules | grep -v '.gitignore' | head -1 | grep -q .; then
-            echo "FAIL: Private key files found in repo"
-            exit 1
-          fi
+      - name: Check tracked credential assignments and private-key file names
+        run: python3 -B scripts/check_ci_security.py

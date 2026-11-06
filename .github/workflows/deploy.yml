@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true
 
       - name: Require successful CI for this exact master commit
         env:
@@ -61,63 +62,66 @@ jobs:
               raise SystemExit("Deployment blocked: this master commit has no successful completed CI run")
           print("Verified successful CI for", sha)
 
-      - name: Detect change type
+      - name: Resolve previous deployed revision
         id: changes
         run: |
-          PREV=$(cat .last_good_deploy 2>/dev/null || git rev-parse HEAD~1)
-          CHANGED=$(git diff --name-only "$PREV" HEAD || true)
-          if echo "$CHANGED" | grep -qE "^(ext/|Dockerfile|Makefile|pyproject\.toml)"; then
-            echo "needs_rebuild=true" >> "$GITHUB_OUTPUT"
+          STATE="$HOME/.local/state/quant-system/quant-paper-last-good-deploy"
+          if [ -f "$STATE" ]; then
+            PREV=$(cat "$STATE")
           else
-            echo "needs_rebuild=false" >> "$GITHUB_OUTPUT"
+            PREV=$(git rev-parse HEAD~1)
           fi
+          git cat-file -e "$PREV^{commit}"
           echo "prev_commit=$PREV" >> "$GITHUB_OUTPUT"
           echo "Changes since $PREV:"
-          echo "$CHANGED"
+          git diff --name-only "$PREV" HEAD
 
       - name: Guard deploy scope
         id: scope_guard
         run: |
           PREV="${{ steps.changes.outputs.prev_commit }}"
-          CHANGED="$(git diff --name-only "$PREV" HEAD || true)"
+          CHANGED="$(git diff --name-only "$PREV" HEAD)"
           printf '%s\n' "$CHANGED" | python3 -m scripts.check_deploy_scope --guard-changed-files-stdin
 
-      - name: Backup image (if rebuilding)
-        if: steps.changes.outputs.needs_rebuild == 'true'
+      - name: Validate paper deployment prerequisites (no restart)
+        run: bash scripts/deploy.sh --check "$DEPLOY_SERVICES"
+
+      - name: Backup current paper image
+        id: backup
         run: |
           if docker image inspect quant-paper:latest >/dev/null 2>&1; then
             docker tag quant-paper:latest quant-paper:rollback
+            echo "available=true" >> "$GITHUB_OUTPUT"
             echo "Backed up quant-paper:latest -> quant-paper:rollback"
           fi
 
       - name: Docker build
         id: docker_build
-        if: steps.changes.outputs.needs_rebuild == 'true'
-        run: docker compose build --no-cache
+        run: docker compose build --no-cache "$DEPLOY_SERVICES"
 
       - name: Rolling deploy
         id: rolling_deploy
-        run: bash scripts/deploy.sh $DEPLOY_SERVICES
+        run: bash scripts/deploy.sh "$DEPLOY_SERVICES"
 
       - name: Record successful deploy
         if: success()
-        run: git rev-parse HEAD > .last_good_deploy
+        run: |
+          STATE="$HOME/.local/state/quant-system/quant-paper-last-good-deploy"
+          mkdir -p "$(dirname "$STATE")"
+          git rev-parse HEAD > "$STATE.tmp"
+          mv "$STATE.tmp" "$STATE"
 
       - name: Rollback on failure
         if: ${{ failure() && steps.rolling_deploy.conclusion == 'failure' }}
         run: |
           echo "Deploy failed; rolling back"
           PREV="${{ steps.changes.outputs.prev_commit }}"
-          read -r -a SERVICES <<< "${DEPLOY_SERVICES:-quant-paper}"
-          # Restore rollback image if we rebuilt
-          if docker image inspect quant-paper:rollback >/dev/null 2>&1; then
-            docker tag quant-paper:rollback quant-paper:latest
-            echo "Restored quant-paper:rollback -> quant-paper:latest"
+          if [ "${{ steps.backup.outputs.available }}" != true ]; then
+            echo "Rollback FAILED: no image backed up by this deployment" >&2
+            exit 1
           fi
-          # Recreate the deployed compose services so they pick up the restored image.
-          for svc in "${SERVICES[@]}"; do
-            docker compose up -d --no-deps --force-recreate "$svc" || true
-          done
+          docker tag quant-paper:rollback quant-paper:latest
+          bash scripts/deploy.sh "$DEPLOY_SERVICES"
           # Notify
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

@@ -45,7 +45,6 @@ from monitoring.notify import send_alert, AlertLevel
 from monitoring.rolling_sharpe import RollingSharpeTracker
 from runner.warmup import warmup as _warmup
 from runner.alpha_cli import parse_args
-from data.oi_cache import BinanceOICache
 from monitoring.live_ic_killswitch import is_runner_paused as _is_runner_paused
 
 # Z-score buffer checkpoint paths
@@ -189,6 +188,24 @@ def main() -> None:
     )
 
     args = parse_args()
+    if args.check_startup:
+        import json
+        from runner.startup_check import check_startup
+        print(json.dumps(check_startup(), sort_keys=True))
+        return
+
+    # Online input is required. Never silently replace missing OI/LS data.
+    # Resolve it before constructing an adapter or opening any account connection.
+    try:
+        from data.oi_cache import BinanceOICache
+    except ModuleNotFoundError as exc:
+        if exc.name != "data.oi_cache":
+            raise
+        raise RuntimeError(
+            "Online startup blocked: required module data.oi_cache is unavailable; "
+            "--check-startup validates offline engine wiring only"
+        ) from exc
+
     if args.venue == "okx" and not args.dry_run:
         import atexit
         from shared.execution_lease import ExecutionLease
