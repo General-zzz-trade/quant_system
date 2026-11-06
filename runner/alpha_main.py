@@ -206,7 +206,7 @@ def main() -> None:
             "--check-startup validates offline engine wiring only"
         ) from exc
 
-    if args.venue == "okx" and not args.dry_run:
+    if args.venue in {"okx", "bybit"} and not args.dry_run:
         import atexit
         from shared.execution_lease import ExecutionLease
         # Keep one writer for the whole account, including all of its runners.

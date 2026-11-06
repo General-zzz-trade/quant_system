@@ -789,7 +789,7 @@ def build_coordinator(
         elif venue == "okx":
             exec_adapter = OkxExecutionAdapter(adapter, circuit_breaker=circuit_breaker, owner=f"alpha.{runner_key}")
         else:
-            exec_adapter = BybitExecutionAdapter(adapter)
+            exec_adapter = BybitExecutionAdapter(adapter, circuit_breaker=circuit_breaker, owner=f"alpha.{runner_key}")
 
         # Composite risk gate: OrderLimiter + KillSwitch drawdown check
         risk_gate = risk_gate or _build_composite_gate(
@@ -805,7 +805,7 @@ def build_coordinator(
             max_retries=0,  # a timeout must never trigger an unverified resubmission
         )
         coordinator.attach_execution_bridge(execution_bridge)
-        if venue == "okx":
+        if venue in {"okx", "bybit"}:
             from engine.durable_fills import DurableFillConsumer
             exec_adapter._status_callback = alpha_module.on_order_status
             coordinator._durable_fill_consumer = DurableFillConsumer(coordinator, alpha_module, exec_adapter)

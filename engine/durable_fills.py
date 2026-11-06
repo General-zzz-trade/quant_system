@@ -1,4 +1,4 @@
-"""Crash-safe OKX fill consumption for one strategy/coordinator.
+"""Crash-safe fill consumption for one strategy/coordinator.
 
 State mutation is rolled back on transaction failure. On process restart the
 last committed state is restored before any unacknowledged fills are replayed.

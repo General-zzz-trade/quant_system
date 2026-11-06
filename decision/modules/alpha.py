@@ -944,13 +944,13 @@ class AlphaDecisionModule:
         self._consensus[self._runner_key] = self._signal
 
     def on_order_status(self, order_id: str, status: str) -> None:
-        if status in {"filled", "canceled", "mmp_canceled", "rejected", "blocked"}:
+        if status in {"filled", "canceled", "mmp_canceled", "rejected", "expired", "blocked"}:
             self._pending_orders.discard(order_id)
             self._pending_reductions.discard(order_id)
             self._pending_exit_reasons.pop(order_id, None)
 
     def on_fill(self, event: Any) -> None:
-        """Non-durable adapter compatibility; OKX uses a transactional consumer."""
+        """Compatibility callback; durable Bybit/OKX fills use a transactional consumer."""
         if self._signal_only or event.order_id not in self._pending_orders or event.fill_id in self._seen_fills:
             return
         self._confirmed_position.apply(event)

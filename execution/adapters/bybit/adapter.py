@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import threading as _threading
 import time as _time
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Tuple
 
 from execution.adapters.bybit.client import BybitRestClient
@@ -80,6 +81,11 @@ def _make_order_link_id(symbol: str, side: str) -> str:
 
 
 _ORDER_TTL_SECONDS = 30
+_MAX_QUERY_PAGES = 100
+_CONFIRMABLE_ORDER_STATUSES = {
+    "New", "PartiallyFilled", "Filled", "Cancelled", "PartiallyFilledCanceled",
+    "Rejected", "Deactivated", "Untriggered", "Triggered",
+}
 
 
 class BybitAdapter:
@@ -150,13 +156,102 @@ class BybitAdapter:
             return BalanceSnapshot(venue="bybit", balances=(), ts_ms=0)
         return map_balance(data.get("result", {}))
 
-    def get_positions(self, symbol: str = "") -> Tuple[VenuePosition, ...]:
-        """Get open positions."""
+    def _query_pages(
+        self, path: str, params: dict[str, str], *, legacy_empty_on_error: bool = False,
+    ) -> list[dict]:
+        """Read a complete REST snapshot or raise; never return a partial page set."""
+        request_params = dict(params)
+        seen_cursors: set[str] = set()
+        rows: list[dict] = []
+        for page_index in range(_MAX_QUERY_PAGES):
+            data = self._client.get(path, dict(request_params))
+            if not isinstance(data, dict) or data.get("retCode") != 0:
+                if legacy_empty_on_error and page_index == 0 and isinstance(data, dict):
+                    return []
+                raise RuntimeError(f"Bybit query failed: {path}")
+            result = data.get("result")
+            if not isinstance(result, dict) or not isinstance(result.get("list"), list):
+                raise RuntimeError(f"Malformed Bybit query response: {path}")
+            items = result["list"]
+            if any(not isinstance(item, dict) for item in items):
+                raise RuntimeError(f"Malformed Bybit query item: {path}")
+            rows.extend(items)
+            cursor = result.get("nextPageCursor", "")
+            if not isinstance(cursor, str):
+                raise RuntimeError(f"Malformed Bybit pagination cursor: {path}")
+            if not cursor:
+                return rows
+            if cursor in seen_cursors:
+                raise RuntimeError(f"Repeated Bybit pagination cursor: {path}")
+            seen_cursors.add(cursor)
+            request_params["cursor"] = cursor
+        raise RuntimeError(f"Incomplete Bybit pagination: {path}")
+
+    @staticmethod
+    def _query_number(item: dict, name: str, *, positive: bool = False) -> Decimal:
+        try:
+            value = Decimal(str(item[name]))
+        except (KeyError, InvalidOperation, ValueError) as exc:
+            raise RuntimeError(f"Malformed Bybit {name}") from exc
+        if not value.is_finite() or value < 0 or (positive and value == 0):
+            raise RuntimeError(f"Invalid Bybit {name}")
+        return value
+
+    @staticmethod
+    def _query_symbol(item: dict, symbol: Optional[str]) -> None:
+        actual = item.get("symbol")
+        if not isinstance(actual, str) or not actual or (symbol and actual != symbol):
+            raise RuntimeError("Bybit query symbol mismatch or missing symbol")
+
+    def _confirmed_order(self, item: dict, symbol: Optional[str]) -> CanonicalOrder:
+        self._query_symbol(item, symbol)
+        if not isinstance(item.get("orderId"), str) or not item["orderId"]:
+            raise RuntimeError("Bybit order missing orderId")
+        if item.get("orderLinkId") is not None and not isinstance(item["orderLinkId"], str):
+            raise RuntimeError("Bybit order has invalid orderLinkId")
+        if item.get("side") not in ("Buy", "Sell"):
+            raise RuntimeError("Bybit order has invalid side")
+        if item.get("orderStatus") not in _CONFIRMABLE_ORDER_STATUSES:
+            raise RuntimeError("Bybit order has unknown status")
+        if item.get("orderType") not in ("Market", "Limit"):
+            raise RuntimeError("Bybit order has invalid orderType")
+        qty = self._query_number(item, "qty", positive=True)
+        filled_qty = self._query_number(item, "cumExecQty")
+        if filled_qty > qty:
+            raise RuntimeError("Bybit order filled quantity exceeds order quantity")
+        order = map_order(item)
+        for value in (order.price, order.avg_price):
+            if value is not None and (not value.is_finite() or value < 0):
+                raise RuntimeError("Bybit order has invalid price")
+        return order
+
+    def get_positions(
+        self, symbol: str = "", *, strict: bool = False,
+    ) -> Tuple[VenuePosition, ...]:
+        """Get open positions; strict snapshots raise on incomplete account data."""
         params: dict[str, str] = {"category": self._config.category}
         if symbol:
             params["symbol"] = symbol
         else:
             params["settleCoin"] = "USDT"  # required when no symbol specified
+        if strict:
+            items = self._query_pages("/v5/position/list", params)
+            positions = []
+            for item in items:
+                self._query_symbol(item, symbol)
+                size = self._query_number(item, "size")
+                if item.get("side") not in ("Buy", "Sell", "") or (
+                    size and item.get("side") not in ("Buy", "Sell")
+                ):
+                    raise RuntimeError("Bybit position has invalid side")
+                if size:
+                    position = map_position(item)
+                    if any(value is not None and not value.is_finite() for value in (
+                        position.entry_price, position.mark_price, position.unrealized_pnl,
+                    )):
+                        raise RuntimeError("Bybit position has invalid numeric values")
+                    positions.append(position)
+            return tuple(positions)
         data = self._client.get("/v5/position/list", params)
         if data.get("retCode") != 0:
             return ()
@@ -167,30 +262,111 @@ class BybitAdapter:
         )
 
     def get_open_orders(
-        self, *, symbol: Optional[str] = None,
+        self, *, symbol: Optional[str] = None, strict: bool = False,
     ) -> Tuple[CanonicalOrder, ...]:
         """Get active (unfilled) orders."""
         params: dict[str, str] = {"category": self._config.category}
         if symbol:
             params["symbol"] = symbol
+        elif strict:
+            params["settleCoin"] = "USDT"
+        if strict:
+            return tuple(
+                self._confirmed_order(item, symbol)
+                for item in self._query_pages("/v5/order/realtime", params)
+            )
         data = self._client.get("/v5/order/realtime", params)
         if data.get("retCode") != 0:
             return ()
         items = data.get("result", {}).get("list", [])
         return tuple(map_order(o) for o in items)
 
+    def get_order(
+        self, symbol: str, order_id: str = "", client_order_id: str = "",
+    ) -> CanonicalOrder | None:
+        """Confirm one identity via realtime then history; failures stay unknown.
+
+        An empty successful lookup in both endpoints returns None. Callers must
+        not treat that as proof that a timed-out submission was never accepted.
+        """
+        if not symbol or not (order_id or client_order_id):
+            raise ValueError("symbol and an order identity are required")
+        params = {"category": self._config.category, "symbol": symbol}
+        if order_id:
+            params["orderId"] = order_id
+        if client_order_id:
+            params["orderLinkId"] = client_order_id
+        for path in ("/v5/order/realtime", "/v5/order/history"):
+            items = self._query_pages(path, params)
+            if not items:
+                continue
+            if len(items) != 1:
+                raise RuntimeError("Bybit order lookup returned multiple identities")
+            item = items[0]
+            if ((order_id and item.get("orderId") != order_id)
+                    or (client_order_id and item.get("orderLinkId") != client_order_id)):
+                raise RuntimeError("Bybit order lookup identity mismatch")
+            return self._confirmed_order(item, symbol)
+        return None
+
     def get_recent_fills(
         self, *, symbol: Optional[str] = None, since_ms: int = 0,
+        order_id: str = "", limit: int = 100,
     ) -> Tuple[CanonicalFill, ...]:
-        """Get recent execution history."""
-        params: dict[str, str] = {"category": self._config.category}
+        """Read all matching Trade executions, deduplicated by exchange execId.
+
+        ``limit`` controls each REST page, not the maximum number of returned
+        fills. Any failed or incomplete page set raises instead of returning
+        evidence that could incorrectly settle an order. Legacy calls without
+        order_id retain their initial API-error empty result; confirmation must
+        always provide order_id.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("execution page limit must be between 1 and 100")
+        if not isinstance(since_ms, int) or isinstance(since_ms, bool) or since_ms < 0:
+            raise ValueError("since_ms must be a non-negative integer")
+        params: dict[str, str] = {"category": self._config.category, "limit": str(limit)}
         if symbol:
             params["symbol"] = symbol
-        data = self._client.get("/v5/execution/list", params)
-        if data.get("retCode") != 0:
-            return ()
-        items = data.get("result", {}).get("list", [])
-        return tuple(map_fill(f) for f in items)
+        if order_id:
+            params["orderId"] = order_id
+        if since_ms:
+            params["startTime"] = str(since_ms)
+        fills: dict[str, CanonicalFill] = {}
+        for item in self._query_pages(
+            "/v5/execution/list", params, legacy_empty_on_error=not order_id,
+        ):
+            if item.get("execType") != "Trade":
+                continue
+            self._query_symbol(item, symbol)
+            if not isinstance(item.get("orderId"), str) or not item["orderId"]:
+                raise RuntimeError("Bybit execution missing orderId")
+            if order_id and item["orderId"] != order_id:
+                raise RuntimeError("Bybit execution order identity mismatch")
+            exec_id = item.get("execId")
+            if not isinstance(exec_id, str) or not exec_id:
+                raise RuntimeError("Bybit execution missing execId")
+            if item.get("side") not in ("Buy", "Sell"):
+                raise RuntimeError("Bybit execution has invalid side")
+            timestamp = self._query_number(item, "execTime", positive=True)
+            if timestamp != timestamp.to_integral_value():
+                raise RuntimeError("Bybit execution has invalid timestamp")
+            self._query_number(item, "execQty", positive=True)
+            self._query_number(item, "execPrice", positive=True)
+            if timestamp < since_ms:
+                continue
+            if "execFee" not in item or item["execFee"] in (None, ""):
+                raise RuntimeError("Bybit execution missing actual fee")
+            fill = map_fill(item)
+            if not fill.fee.is_finite():
+                raise RuntimeError("Bybit execution has invalid fee")
+            previous = fills.get(exec_id)
+            if previous is not None and (
+                previous.payload_digest != fill.payload_digest or previous.fee_asset != fill.fee_asset
+            ):
+                raise RuntimeError("Bybit execution ID has conflicting payloads")
+            fills[exec_id] = fill
+        return tuple(fills.values())
 
     # ------------------------------------------------------------------
     # Order submission
@@ -236,15 +412,19 @@ class BybitAdapter:
 
     def send_market_order(
         self, symbol: str, side: str, qty: float,
-        *, reduce_only: bool = False,
+        *, reduce_only: bool = False, client_order_id: Optional[str] = None,
     ) -> dict:
         """Send a market order with orderLinkId for deduplication."""
-        # Check for stale pending orders before submitting new ones
-        self._check_order_ttls()
-
-        # Generate unique orderLinkId: prevents duplicate orders on retry/timeout
-        # Bybit rejects duplicate orderLinkId within 3 minutes
-        order_link_id = _make_order_link_id(symbol, side)
+        # Durable identities belong to the caller's persisted lifecycle. Only
+        # legacy submissions participate in this adapter's automatic TTL logic.
+        durable = client_order_id is not None
+        if durable:
+            if not isinstance(client_order_id, str) or not client_order_id or len(client_order_id) > 36:
+                raise ValueError("client_order_id must contain 1 to 36 characters")
+            order_link_id = client_order_id
+        else:
+            self._check_order_ttls()
+            order_link_id = _make_order_link_id(symbol, side)
 
         body = {
             "category": self._config.category,
@@ -260,8 +440,14 @@ class BybitAdapter:
         if data.get("retCode") == 0:
             result = data.get("result", {})
             returned_link_id = result.get("orderLinkId", order_link_id)
-            with self._pending_lock:
-                self._pending_orders[returned_link_id] = _time.time()
+            if durable:
+                if returned_link_id != order_link_id:
+                    raise RuntimeError("Bybit acknowledgement orderLinkId mismatch")
+                if not isinstance(result.get("orderId"), str) or not result["orderId"]:
+                    raise RuntimeError("Bybit acknowledgement missing orderId")
+            else:
+                with self._pending_lock:
+                    self._pending_orders[returned_link_id] = _time.time()
             logger.info(
                 "Bybit %s %s %.4f orderId=%s",
                 side, symbol, qty, result.get("orderId"),

@@ -26,6 +26,7 @@ class ExecutionJournal:
                 "side": "TEXT", "qty": "TEXT", "reducing": "INTEGER",
                 "owner": "TEXT NOT NULL DEFAULT ''", "parent": "TEXT",
                 "status": "TEXT NOT NULL DEFAULT 'unknown'",
+                "order_type": "TEXT",
             }.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE submissions ADD COLUMN {name} {definition}")

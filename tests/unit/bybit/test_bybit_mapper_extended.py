@@ -219,7 +219,7 @@ class TestMapFillExtended:
         assert fill.side == "sell"
         assert fill.qty == Decimal("2.5")
         assert fill.price == Decimal("3500")
-        assert fill.fee == Decimal("1.75")  # abs value
+        assert fill.fee == Decimal("-1.75")  # preserve exchange rebate sign
         assert fill.fee_asset == "USDT"
         assert fill.liquidity == "maker"
         assert fill.fill_id == "bybit:ETHUSDT:e100"
