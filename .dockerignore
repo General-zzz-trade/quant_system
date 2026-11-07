@@ -53,6 +53,10 @@ scripts/*
 !scripts/check_ci_security.py
 !scripts/check_deploy_scope.py
 !scripts/deploy.sh
+!scripts/check_runtime_state.py
+!scripts/check_paper_runtime.py
+!scripts/runtime_state_backup.py
+!scripts/check_runtime_recovery.py
 .last_good_deploy
 *.csv
 *.jsonl

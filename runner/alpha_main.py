@@ -194,6 +194,27 @@ def main() -> None:
         print(json.dumps(check_startup(), sort_keys=True))
         return
 
+    # Opt-in managed state (paper Compose): reject lost/mismatched journals before
+    # any data or account connection. Hold the shared disk lease for this process.
+    managed_state = os.environ.get("RUNTIME_STATE_DIR")
+    if managed_state is not None:
+        import atexit
+        from shared.runtime_state import RuntimeStateLease
+        if not managed_state:
+            raise RuntimeError("RUNTIME_STATE_DIR must not be empty")
+        state_dir = Path(managed_state)
+        if state_dir.absolute() != Path("data/runtime").absolute():
+            raise RuntimeError("Managed state must mount the runner's data/runtime directory")
+        expected_drawdown = state_dir / "drawdown.sqlite"
+        actual_drawdown = Path(os.environ.get("DRAWDOWN_STATE_PATH", "data/runtime/drawdown.sqlite"))
+        if actual_drawdown.absolute() != expected_drawdown.absolute() or actual_drawdown.is_symlink():
+            raise RuntimeError("Drawdown state must use the managed runtime directory")
+        lease = RuntimeStateLease(
+            state_dir, os.environ["RISK_SCOPE"],
+            journal_path=Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")),
+        )
+        atexit.register(lease.close)
+
     # Online input is required. Never silently replace missing OI/LS data.
     # Resolve it before constructing an adapter or opening any account connection.
     try:
@@ -206,7 +227,7 @@ def main() -> None:
             "--check-startup validates offline engine wiring only"
         ) from exc
 
-    if args.venue in {"okx", "bybit"} and not args.dry_run:
+    if managed_state is None and args.venue in {"okx", "bybit"} and not args.dry_run:
         import atexit
         from shared.execution_lease import ExecutionLease
         # Keep one writer for the whole account, including all of its runners.

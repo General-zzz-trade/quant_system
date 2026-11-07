@@ -10,10 +10,20 @@ services:
     env_file: .env
     environment:
       - BYBIT_BASE_URL=https://api-demo.bybit.com
+      - RUNTIME_STATE_DIR=/app/data/runtime
+      - ORDER_JOURNAL_PATH=/app/data/runtime/orders.sqlite
+      - DRAWDOWN_STATE_PATH=/app/data/runtime/drawdown.sqlite
+      - RISK_SCOPE=${QUANT_PAPER_RISK_SCOPE:-}
     volumes:
       - ./data_files:/app/data_files:ro
       - ./models_v8:/app/models_v8:ro
       - ./logs:/app/logs
+      - type: bind
+        # Unconfigured paper state fails preflight/startup without affecting other profiles.
+        source: ${QUANT_PAPER_STATE_DIR:-/var/lib/quant-system/paper-state-not-configured}
+        target: /app/data/runtime
+        bind:
+          create_host_path: false
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import importlib; importlib.import_module('_quant_hotpath'); importlib.import_module('scripts.run_bybit_alpha')"]

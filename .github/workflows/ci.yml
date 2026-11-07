@@ -50,9 +50,12 @@ jobs:
             monitoring/ infra/ strategy/ polymarket/ \
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
             shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
+            shared/runtime_state.py shared/runtime_backup.py \
             data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
             tests/offline/ scripts/check_local_safety.py \
             scripts/check_ci_security.py scripts/check_deploy_scope.py \
+            scripts/check_runtime_state.py scripts/check_paper_runtime.py scripts/runtime_state_backup.py \
+            scripts/check_runtime_recovery.py tests/fixtures/runtime_recovery_worker.py \
             scripts/run_bybit_alpha.py tests/unit/runner/test_startup_check.py \
             tests/unit/bybit/test_order_confirmation.py tests/unit/bybit/test_durable_execution.py \
             tests/unit/execution/test_bybit_execution_adapter.py tests/unit/execution/test_adapter_exceptions.py
@@ -98,6 +101,8 @@ jobs:
           python -m pytest tests/unit/runner/test_startup_check.py -q --tb=short
       - name: Container stdlib offline safety checks
         run: docker run --rm --network none quant-ci:startup-check python scripts/check_local_safety.py
+      - name: Persistent state survives container recreation (offline)
+        run: python3 -m scripts.check_runtime_recovery --image quant-ci:startup-check
       - name: Synthetic replay without network, keys or external models
         run: >-
           docker run --rm --network none --entrypoint python

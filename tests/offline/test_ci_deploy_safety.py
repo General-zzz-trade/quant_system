@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+from shared.runtime_state import initialize_runtime_state
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -107,8 +109,27 @@ class SecurityAndDeployTests(unittest.TestCase):
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
+        shutil.copyfile(ROOT / "scripts/check_paper_runtime.py", scripts / "check_paper_runtime.py")
+        shared = self.root / "shared"
+        shared.mkdir(exist_ok=True)
+        for name in ("runtime_state.py", "execution_lease.py", "execution_journal.py", "drawdown_guard.py"):
+            shutil.copyfile(ROOT / "shared" / name, shared / name)
         (scripts / "run_bybit_alpha.py").write_text("# Never executed by deployment tests\n")
         shutil.copyfile(ROOT / "docker-compose.yml", self.root / "docker-compose.yml")
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        self.state = Path(state.name)
+        initialize_runtime_state(self.state, "paper-test")
+        self.compose = {"services": {"quant-paper": {
+            "command": ["python3", "-m", "scripts.run_bybit_alpha", "--dry-run"],
+            "environment": {"RUNTIME_STATE_DIR": "/app/data/runtime", "RISK_SCOPE": "paper-test",
+                            "ORDER_JOURNAL_PATH": "/app/data/runtime/orders.sqlite",
+                            "DRAWDOWN_STATE_PATH": "/app/data/runtime/drawdown.sqlite"},
+            "volumes": [{"type": "bind", "source": str(self.state), "target": "/app/data/runtime",
+                         "bind": {"create_host_path": False}}],
+        }}}
+        self.compose_path = self.root / "compose.json"
+        self.compose_path.write_text(json.dumps(self.compose))
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         docker = bin_dir / "docker"
@@ -117,6 +138,8 @@ from pathlib import Path
 with Path(os.environ["MOCK_DOCKER_LOG"]).open("a") as out:
     out.write(json.dumps(sys.argv[1:]) + "\\n")
 if sys.argv[1:3] == ["compose", "config"]:
+    if sys.argv[3:] == ["--format", "json"]:
+        print(Path("compose.json").read_text())
     raise SystemExit(int(os.environ.get("MOCK_CONFIG_EXIT", "0")))
 if sys.argv[1:3] == ["compose", "up"]:
     raise SystemExit(int(os.environ.get("MOCK_UP_EXIT", "0")))
@@ -138,7 +161,8 @@ raise SystemExit("unexpected Docker operation in test")
     def test_preflight_never_restarts_and_success_waits_for_health(self):
         self.paper_fixture()
         self.assertEqual(self.deploy("--check", "quant-paper").returncode, 0)
-        self.assertEqual(self.docker_calls(), [["compose", "config", "--quiet"]])
+        self.assertEqual(self.docker_calls(), [["compose", "config", "--quiet"],
+                                               ["compose", "config", "--format", "json"]])
         self.assertEqual(self.deploy("quant-paper").returncode, 0)
         self.assertEqual(self.docker_calls()[-1], ["compose", "up", "-d", "--no-deps", "--no-build",
                                                   "--force-recreate", "--wait", "--wait-timeout", "120", "quant-paper"])
@@ -154,6 +178,50 @@ raise SystemExit("unexpected Docker operation in test")
         entry.symlink_to(external)
         self.assertNotEqual(self.deploy("--check", "quant-paper").returncode, 0)
         self.assertEqual(self.docker_calls(), [])
+
+    def test_missing_state_blocks_before_service_change(self):
+        self.paper_fixture()
+        (self.state / "orders.sqlite").unlink()
+        result = self.deploy("quant-paper")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
+
+    def test_missing_mount_and_wrong_identity_block_service_change(self):
+        self.paper_fixture()
+        service = self.compose["services"]["quant-paper"]
+        original = service["volumes"]
+        service["volumes"] = []
+        self.compose_path.write_text(json.dumps(self.compose))
+        self.assertEqual(self.deploy("quant-paper").returncode, 1)
+        service["volumes"] = original
+        service["environment"]["RISK_SCOPE"] = "wrong-scope"
+        self.compose_path.write_text(json.dumps(self.compose))
+        self.assertEqual(self.deploy("quant-paper").returncode, 1)
+        self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
+
+    def test_unsafe_state_mounts_block_service_change(self):
+        self.paper_fixture()
+        original = json.dumps(self.compose)
+        for defect in ("read_only", "auto_create", "nested", "checkout", "journal_outside", "empty_scope"):
+            with self.subTest(defect=defect):
+                config = json.loads(original)
+                service = config["services"]["quant-paper"]
+                mount = service["volumes"][0]
+                if defect == "read_only":
+                    mount["read_only"] = True
+                elif defect == "auto_create":
+                    mount["bind"]["create_host_path"] = True
+                elif defect == "nested":
+                    service["volumes"].append({"target": "/app/data/runtime/orders.sqlite"})
+                elif defect == "checkout":
+                    mount["source"] = str(self.root / "data/runtime")
+                elif defect == "journal_outside":
+                    service["environment"]["ORDER_JOURNAL_PATH"] = "/tmp/orders.sqlite"
+                else:
+                    service["environment"]["RISK_SCOPE"] = ""
+                self.compose_path.write_text(json.dumps(config))
+                self.assertEqual(self.deploy("quant-paper").returncode, 1)
+        self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
 
     def test_live_and_extra_services_are_rejected(self):
         self.paper_fixture()

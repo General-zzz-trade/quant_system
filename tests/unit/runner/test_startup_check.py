@@ -44,6 +44,7 @@ def test_real_native_market_state_advances():
 def test_entry_check_returns_before_models_cache_or_account_access(monkeypatch, capsys):
     from runner import alpha_main
     monkeypatch.setattr(sys, "argv", ["alpha_main", "--check-startup"])
+    monkeypatch.setenv("RUNTIME_STATE_DIR", "/deliberately-missing-offline-state")
     # A missing online cache must not affect the offline engine check.
     monkeypatch.setitem(sys.modules, "data.oi_cache", None)
     with (
@@ -63,6 +64,67 @@ def test_missing_online_input_fails_before_account_access(monkeypatch):
     with patch.object(alpha_main, "create_adapter", side_effect=AssertionError("account accessed")):
         with pytest.raises(RuntimeError, match="Online startup blocked"):
             alpha_main.main()
+
+
+@pytest.mark.parametrize("defect", ["missing", "wrong_scope", "corrupt", "journal_outside", "drawdown_outside"])
+def test_managed_state_failure_blocks_before_account_or_online_input(monkeypatch, tmp_path, defect):
+    import sqlite3
+    from runner import alpha_main
+    from shared.runtime_state import initialize_runtime_state
+
+    monkeypatch.chdir(tmp_path)
+    state = tmp_path / "data" / "runtime"
+    initialize_runtime_state(state, "paper-test")
+    monkeypatch.setattr(sys, "argv", ["alpha_main", "--dry-run"])
+    monkeypatch.setenv("RUNTIME_STATE_DIR", str(state))
+    monkeypatch.setenv("RISK_SCOPE", "wrong" if defect == "wrong_scope" else "paper-test")
+    monkeypatch.setenv("ORDER_JOURNAL_PATH", str(state / "orders.sqlite"))
+    monkeypatch.setenv("DRAWDOWN_STATE_PATH", str(state / "drawdown.sqlite"))
+    monkeypatch.setitem(sys.modules, "data.oi_cache", None)
+    if defect == "missing":
+        (state / "orders.sqlite").unlink()
+    elif defect == "corrupt":
+        (state / "orders.sqlite").write_bytes(b"not a SQLite database")
+    elif defect == "journal_outside":
+        monkeypatch.setenv("ORDER_JOURNAL_PATH", str(tmp_path / "other.sqlite"))
+    elif defect == "drawdown_outside":
+        monkeypatch.setenv("DRAWDOWN_STATE_PATH", str(tmp_path / "drawdown.sqlite"))
+    with patch.object(alpha_main, "create_adapter", side_effect=AssertionError("account accessed")):
+        with pytest.raises((ValueError, RuntimeError, sqlite3.Error)) as error:
+            alpha_main.main()
+    assert "Online startup blocked" not in str(error.value)
+    if defect == "missing":
+        assert not (state / "orders.sqlite").exists()
+
+
+def test_managed_paper_startup_holds_lease_before_online_inputs(monkeypatch, tmp_path):
+    import atexit
+    from runner import alpha_main
+    from shared.runtime_state import initialize_runtime_state, RuntimeStateLease
+
+    monkeypatch.chdir(tmp_path)
+    state = tmp_path / "data" / "runtime"
+    initialize_runtime_state(state, "paper-test")
+    monkeypatch.setattr(sys, "argv", ["alpha_main", "--dry-run"])
+    monkeypatch.setenv("RUNTIME_STATE_DIR", str(state))
+    monkeypatch.setenv("RISK_SCOPE", "paper-test")
+    monkeypatch.setenv("ORDER_JOURNAL_PATH", str(state / "orders.sqlite"))
+    monkeypatch.setenv("DRAWDOWN_STATE_PATH", str(state / "drawdown.sqlite"))
+    monkeypatch.setitem(sys.modules, "data.oi_cache", None)
+    callbacks = []
+    monkeypatch.setattr(atexit, "register", callbacks.append)
+    try:
+        with patch.object(alpha_main, "create_adapter", side_effect=AssertionError("account accessed")):
+            with pytest.raises(RuntimeError, match="Online startup blocked"):
+                alpha_main.main()
+        assert len(callbacks) == 1
+        with pytest.raises(RuntimeError, match="already has an execution process"):
+            RuntimeStateLease(state, "paper-test")
+    finally:
+        for callback in callbacks:
+            callback()
+    with RuntimeStateLease(state, "paper-test"):
+        pass
 
 
 def test_missing_native_extension_cannot_report_success():

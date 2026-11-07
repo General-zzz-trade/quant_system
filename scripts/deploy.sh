@@ -16,12 +16,13 @@ fi
 # Fail before Docker mutations when the checked-in runtime entry is unavailable.
 python3 - <<'PY'
 from pathlib import Path
-for name in ("docker-compose.yml", "scripts/run_bybit_alpha.py"):
+for name in ("docker-compose.yml", "scripts/run_bybit_alpha.py", "scripts/check_paper_runtime.py"):
     path = Path(name)
     if path.is_symlink() or not path.is_file():
         raise SystemExit(f"Deployment blocked: required runtime file unavailable: {name}")
 PY
 docker compose config --quiet
+docker compose config --format json | python3 -m scripts.check_paper_runtime
 if "$check_only"; then
     echo 'Paper deployment preflight passed; no services changed'
     exit 0
