@@ -1,5 +1,7 @@
 # Execution Contracts
 
+> 历史 framework 契约参考：本文保留旧路径设计，不能作为当前 Alpha 主链或主机部署已验收的证明。当前入口、状态归属和验证范围以 [runtime_truth.md](runtime_truth.md) 及 [engineering-sequence.md](engineering-sequence.md) 为准。
+
 > 更新时间: 2026-03-18
 > 目标: 固定当前执行层关于 order status、late fill、timeout cancel、canonical fill 的制度边界
 > 适用范围: 当前默认 production runtime 的 execution / reconcile / recovery 语义

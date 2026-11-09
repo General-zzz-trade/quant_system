@@ -47,15 +47,20 @@ def _fix_oi(symbol: str) -> None:
         pass
 
 
-def predict_latest(symbol: str, model_dir_name: str) -> float | None:
+def predict_latest(symbol: str, model_dir_name: str, *, as_of_ms: int | None = None) -> float | None:
     """Compute batch prediction for the latest bar of *symbol*."""
+    from runner.data_contract import inspect_batch_inputs
+    inputs = inspect_batch_inputs(symbol, DATA_DIR, as_of_ms=as_of_ms)
+    if not inputs["ready"]:
+        logger.warning("Batch inputs unavailable for %s: %s", symbol, inputs["reason"])
+        return None
     now = time.monotonic()
     cached = _cache.get(symbol)
-    if cached and (now - cached["ts"]) < _CACHE_TTL:
+    identity = (model_dir_name, inputs["as_of_ms"], inputs["signature"])
+    if cached and (now - cached["ts"]) < _CACHE_TTL and cached.get("identity") == identity:
         return cached["pred"]
 
     try:
-        _fix_oi(symbol)
         csv_path = DATA_DIR / f"{symbol}_1h.csv"
         model_path = MODEL_DIR / model_dir_name
         config_path = model_path / "config.json"
@@ -65,7 +70,8 @@ def predict_latest(symbol: str, model_dir_name: str) -> float | None:
         with open(config_path) as f:
             config = json.load(f)
 
-        df = pd.read_csv(csv_path).sort_values("open_time").tail(500).reset_index(drop=True)
+        df = pd.read_csv(csv_path)
+        df = df[df["open_time"] <= inputs["as_of_ms"]].sort_values("open_time").tail(500).reset_index(drop=True)
         from features.batch_feature_engine import compute_features_batch
         feat_df = compute_features_batch(symbol, df)
         if len(feat_df) == 0:
@@ -135,7 +141,10 @@ def predict_latest(symbol: str, model_dir_name: str) -> float | None:
         if not preds:
             return None
         pred = float(np.mean(preds))
-        _cache[symbol] = {"pred": pred, "ts": now}
+        rechecked = inspect_batch_inputs(symbol, DATA_DIR, as_of_ms=inputs["as_of_ms"])
+        if not np.isfinite(pred) or not rechecked["ready"] or rechecked["signature"] != inputs["signature"]:
+            return None
+        _cache[symbol] = {"pred": pred, "ts": now, "identity": identity}
         return pred
     except Exception:
         logger.debug("Batch prediction failed for %s", symbol, exc_info=True)

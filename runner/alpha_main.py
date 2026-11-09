@@ -188,11 +188,19 @@ def main() -> None:
     )
 
     args = parse_args()
+    if args.check_paper_contract:
+        import json
+        from runner.paper_check import check_paper_contract
+        print(json.dumps(check_paper_contract(), sort_keys=True, allow_nan=False))
+        return
     if args.check_startup:
         import json
         from runner.startup_check import check_startup
         print(json.dumps(check_startup(), sort_keys=True))
         return
+
+    if not args.symbols or any(key not in SYMBOL_CONFIG for key in args.symbols):
+        raise RuntimeError("Startup blocked: every requested runner must have a known configuration")
 
     # Opt-in managed state (paper Compose): reject lost/mismatched journals before
     # any data or account connection. Hold the shared disk lease for this process.
@@ -500,10 +508,13 @@ def main() -> None:
         interval = cfg.get("interval", "60")
         is_4h = "4h" in runner_key
         warmup_limit = cfg.get("warmup", 300 if is_4h else 800)
-        _warmup(coord, adapter, symbol, interval, warmup_limit)
+        count = _warmup(coord, adapter, symbol, interval, warmup_limit)
+        if count < warmup_limit:
+            raise RuntimeError(f"Warmup incomplete for {runner_key}: {count}/{warmup_limit} bars")
         return runner_key
 
     t0_warmup = time.monotonic()
+    warmup_failures = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_warmup_one, rk, co): rk for rk, co in coordinators.items()}
         for fut in as_completed(futures):
@@ -511,7 +522,16 @@ def main() -> None:
                 rk = fut.result()
                 logger.debug("Warmup done: %s", rk)
             except Exception:
+                warmup_failures.append(futures[fut])
                 logger.exception("Warmup failed for %s", futures[fut])
+    if warmup_failures:
+        for cache in oi_caches.values():
+            cache.stop()
+        raise RuntimeError("Startup blocked: incomplete warmup for " + ", ".join(warmup_failures))
+    for runner_key, coord in coordinators.items():
+        coord._data_readiness.set_live()
+        if "4h" not in runner_key and "15m" not in runner_key:
+            coord._data_readiness.set_external_status("batch_inputs", False, "awaiting a validated closed bar")
     logger.info("Parallel warmup complete: %d runners in %.1fs",
                 len(coordinators), time.monotonic() - t0_warmup)
 
@@ -822,13 +842,17 @@ def main() -> None:
                     try:
                         from runner.batch_predictor import predict_latest
                         model_dir = cfg.get("model_dir", runner_key)
-                        batch_pred = predict_latest(ws_symbol, model_dir)
+                        batch_pred = predict_latest(ws_symbol, model_dir, as_of_ms=int(ts_ms))
+                        coord._data_readiness.set_external_status(
+                            "batch_inputs", batch_pred is not None,
+                            "batch prediction inputs or model unavailable" if batch_pred is None else "",
+                        )
                         if batch_pred is not None:
                             am = modules.get(runner_key)
                             if am is not None:
                                 am._batch_pred_override = batch_pred
                     except Exception:
-                        pass
+                        coord._data_readiness.set_external_status("batch_inputs", False, "batch validation failed")
 
                 # Entry pause is checked at execution; bars and exits keep flowing.
                 try:

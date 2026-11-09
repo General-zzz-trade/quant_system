@@ -5,6 +5,8 @@ import bisect
 import csv
 import logging
 import math
+import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, TYPE_CHECKING
 
@@ -24,7 +26,7 @@ from execution.adapters.bybit.execution_adapter import BybitExecutionAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from execution.adapters.okx.execution_adapter import OkxExecutionAdapter
 from execution.safety.limits import OrderLimiter, OrderLimitsConfig
-from shared.entry_risk import CompositeRiskGate as _CompositeRiskGate
+from shared.entry_risk import CompositeRiskGate as _CompositeRiskGate, GateResult
 from strategy.config import (
     SYMBOL_CONFIG, LEVERAGE_LADDER, OKX_LEVERAGE, BINANCE_LEVERAGE,
 )
@@ -122,9 +124,141 @@ class CsvCursor:
             return math.nan  # first observation is still in the future
         return self._values[idx]
 
+    def get_fresh(self, bar_ts_ms: int, max_age_ms: int) -> float:
+        """Return a causal, bounded-age value; never use the latest fallback."""
+        if bar_ts_ms <= 0:
+            return math.nan
+        idx = bisect.bisect_right(self._timestamps, bar_ts_ms) - 1
+        if idx < 0 or bar_ts_ms - self._timestamps[idx] > max_age_ms:
+            return math.nan
+        return self._values[idx]
+
     @property
     def loaded(self) -> bool:
         return len(self._timestamps) > 0
+
+
+class DataReadiness:
+    """OI/LS provenance gate; warmup and live input are explicit phases."""
+
+    MAX_EVENT_AGE_MS = 3_900_000
+    MAX_RECEIPT_AGE_MS = 120_000
+
+    def __init__(self, cache: Any, oi_csv: Any, ls_csv: Any, *, interval_ms: int,
+                 required_warmup_bars: int = 1, clock: Any = None) -> None:
+        self.cache, self.oi_csv, self.ls_csv = cache, oi_csv, ls_csv
+        self.interval_ms = interval_ms
+        self.required_warmup_bars = max(1, int(required_warmup_bars))
+        self.clock = clock or time.time
+        self.mode = "warmup"
+        self.bar_ts_ms = 0
+        self.valid_warmup_bars = 0
+        self._last_warmup_ts = 0
+        self.external_conditions: dict[str, dict[str, Any]] = {}
+
+    def _history(self) -> dict[str, float]:
+        result = {}
+        for name, cursor in (("open_interest", self.oi_csv), ("ls_ratio", self.ls_csv)):
+            value = cursor.get_fresh(self.bar_ts_ms, self.MAX_EVENT_AGE_MS) if cursor is not None else math.nan
+            result[name] = value if math.isfinite(value) and value > 0 else math.nan
+        return result
+
+    def set_bar_ts(self, ts_ms: int) -> None:
+        self.bar_ts_ms = int(ts_ms)
+        if self.mode != "warmup" or ts_ms == self._last_warmup_ts:
+            return
+        if ts_ms <= 0 or ts_ms < self._last_warmup_ts:
+            self.valid_warmup_bars = 0
+            return
+        if self._last_warmup_ts and ts_ms - self._last_warmup_ts != self.interval_ms:
+            self.valid_warmup_bars = 0
+        self._last_warmup_ts = ts_ms
+        if all(math.isfinite(value) for value in self._history().values()):
+            self.valid_warmup_bars += 1
+        else:
+            self.valid_warmup_bars = 0
+
+    def set_live(self) -> None:
+        # The caller has finished the real engine warmup. This does not invent
+        # missing OI/LS history or turn an incomplete warmup into a ready state.
+        self.mode = "live"
+
+    def set_external_status(self, name: str, ready: bool, reason: str = "") -> None:
+        self.external_conditions[name] = {"ready": ready is True, "reason": str(reason)}
+
+    def snapshot(self) -> dict[str, Any]:
+        result = {"status": "error", "ready": False, "reason": "",
+                  "mode": self.mode, "bar_ts_ms": self.bar_ts_ms,
+                  "valid_warmup_bars": self.valid_warmup_bars,
+                  "required_warmup_bars": self.required_warmup_bars,
+                  "external_conditions": {name: dict(value) for name, value in self.external_conditions.items()},
+                  "open_interest": None, "ls_ratio": None}
+        if self.mode == "warmup":
+            result.update(status="warming_up", reason="OI/LS historical warmup is still running")
+            return result
+        if self.valid_warmup_bars < self.required_warmup_bars:
+            result.update(reason="OI/LS historical warmup has insufficient consecutive valid bars")
+            return result
+        if self.cache is None:
+            result.update(reason="OI/LS cache unavailable")
+            return result
+        try:
+            now_ms = int(self.clock() * 1000)
+            if not 0 <= now_ms - self.bar_ts_ms <= self.interval_ms + 300_000:
+                result.update(status="stale", reason="Market bar timestamp is missing, future or stale")
+                return result
+            sample = self.cache.get(as_of_ms=self.bar_ts_ms)
+            if sample.get("status") != "ready":
+                result.update(status="stale" if sample.get("status") == "stale" else "error",
+                              reason="OI/LS cache: " + str(sample.get("reason", "not ready")))
+                return result
+            received = int(sample["received_at_ms"])
+            if not 0 <= now_ms - received <= self.MAX_RECEIPT_AGE_MS:
+                result.update(status="stale", reason="OI/LS receipt is future or stale")
+                return result
+            for name, timestamp in (("open_interest", "oi_event_ts_ms"), ("ls_ratio", "ls_event_ts_ms")):
+                value, observed = float(sample[name]), int(sample[timestamp])
+                if not math.isfinite(value) or value <= 0:
+                    raise ValueError("OI/LS values must be finite and positive")
+                if not 0 <= self.bar_ts_ms - observed <= self.MAX_EVENT_AGE_MS:
+                    raise ValueError("OI/LS observation is future or stale for the market bar")
+                result[name], result[timestamp] = value, observed
+            result.update(status="ready", ready=True, reason="", received_at_ms=received)
+            for name, condition in self.external_conditions.items():
+                if not condition["ready"]:
+                    result.update(status="error", ready=False, reason=name + ": " + condition["reason"])
+                    break
+        except Exception as exc:
+            result.update(status="error", ready=False, reason=f"OI/LS readiness failed: {type(exc).__name__}",
+                          open_interest=None, ls_ratio=None)
+        return result
+
+    def value(self, name: str) -> float:
+        value = self._history()[name] if self.mode == "warmup" else self.snapshot()[name]
+        return math.nan if value is None else value
+
+
+class DataSources(dict):
+    """FeatureHook keyword arguments with separate readiness metadata."""
+
+    readiness: DataReadiness | None = None
+
+
+class DataReadinessGate:
+    def __init__(self, readiness: DataReadiness, risk_gate: Any) -> None:
+        self.readiness, self.risk_gate = readiness, risk_gate
+
+    def check(self, event: Any) -> Any:
+        try:
+            qty = Decimal(str(event.qty))
+            reducing = qty == 0 or getattr(event, "reduce_only", False) is True
+            if not reducing:
+                state = self.readiness.snapshot()
+                if not state["ready"]:
+                    return GateResult(False, "data_gate: " + state["reason"])
+            return self.risk_gate.check(event)
+        except Exception as exc:
+            return GateResult(False, f"data gate failed: {type(exc).__name__}")
 
 
 class CsvDictCursor:
@@ -240,7 +374,8 @@ def _load_latest_onchain(path: Path) -> dict:
 
 
 def _build_data_sources(symbol: str, interval: str = "60",
-                        oi_cache: Optional["BinanceOICache"] = None) -> dict:
+                        oi_cache: Optional["BinanceOICache"] = None,
+                        required_warmup_bars: int = 1) -> DataSources:
     """Build all external data source callables for FeatureComputeHook.
 
     Uses CsvCursor objects to load full CSV history so that during warmup
@@ -256,8 +391,10 @@ def _build_data_sources(symbol: str, interval: str = "60",
 
     def _set_bar_ts(ts_ms: int) -> None:
         _bar_ts[0] = ts_ms
+        if sources.readiness is not None:
+            sources.readiness.set_bar_ts(ts_ms)
 
-    sources: dict[str, Any] = {}
+    sources = DataSources()
     sources["_set_bar_ts"] = _set_bar_ts
 
     # ── Funding rate (8h intervals, ts in epoch-ms) ──
@@ -284,31 +421,6 @@ def _build_data_sources(symbol: str, interval: str = "60",
         if not _oi_csv_cursor.loaded:
             _oi_csv_cursor = None
 
-    # Live OI from BinanceOICache (55s refresh) with CSV fallback
-    if oi_cache is not None:
-        def _oi_live(_cache=oi_cache, _csv=_oi_csv_cursor):
-            # During warmup (_bar_ts > 0 and historical), use CSV for correct values
-            ts = _bar_ts[0]
-            if ts > 0 and _csv is not None:
-                import time as _t
-                now_ms = int(_t.time() * 1000)
-                # If bar is more than 5 minutes old, it's a warmup bar — use CSV
-                if now_ms - ts > 300_000:
-                    return _csv.get(ts)
-            # Live bar: prefer cache
-            cached = _cache.get()
-            oi_val = cached.get("open_interest", math.nan)
-            if not math.isnan(oi_val) and oi_val > 0:
-                return oi_val
-            # Fallback to CSV latest
-            if _csv is not None:
-                return _csv.get(ts)
-            return math.nan
-        sources["oi_source"] = _oi_live
-        logger.info("OI source: BinanceOICache (live, 55s) + CSV fallback for %s", symbol)
-    elif _oi_csv_cursor is not None:
-        sources["oi_source"] = lambda: _oi_csv_cursor.get(_bar_ts[0])
-
     # ── Long/short ratio (hourly, ts in epoch-ms) ──
     # CSV cursor as baseline
     _ls_csv_cursor: CsvCursor | None = None
@@ -318,26 +430,13 @@ def _build_data_sources(symbol: str, interval: str = "60",
         if not _ls_csv_cursor.loaded:
             _ls_csv_cursor = None
 
-    # Live LS ratio from BinanceOICache with CSV fallback
-    if oi_cache is not None:
-        def _ls_live(_cache=oi_cache, _csv=_ls_csv_cursor):
-            ts = _bar_ts[0]
-            if ts > 0 and _csv is not None:
-                import time as _t
-                now_ms = int(_t.time() * 1000)
-                if now_ms - ts > 300_000:
-                    return _csv.get(ts)
-            cached = _cache.get()
-            ls_val = cached.get("ls_ratio", math.nan)
-            if not math.isnan(ls_val):
-                return ls_val
-            if _csv is not None:
-                return _csv.get(ts)
-            return math.nan
-        sources["ls_ratio_source"] = _ls_live
-        logger.info("LS ratio source: BinanceOICache (live, 55s) + CSV fallback for %s", symbol)
-    elif _ls_csv_cursor is not None:
-        sources["ls_ratio_source"] = lambda: _ls_csv_cursor.get(_bar_ts[0])
+    readiness = DataReadiness(
+        oi_cache, _oi_csv_cursor, _ls_csv_cursor,
+        interval_ms=int(interval) * 60_000, required_warmup_bars=required_warmup_bars,
+    )
+    sources.readiness = readiness
+    sources["oi_source"] = lambda: readiness.value("open_interest")
+    sources["ls_ratio_source"] = lambda: readiness.value("ls_ratio")
 
     # ── Spot close (hourly, ts in epoch-ms column "open_time") ──
     spot_path = DATA_DIR / f"{symbol}_spot_1h.csv"
@@ -672,7 +771,14 @@ def build_coordinator(
 
     # External data sources (CSV files refreshed by data-refresh timer)
     interval = cfg.get("interval", "60")
-    data_sources = _build_data_sources(symbol, interval=interval, oi_cache=oi_cache)
+    data_sources = _build_data_sources(
+        symbol, interval=interval, oi_cache=oi_cache,
+        required_warmup_bars=cfg.get("warmup", 300 if is_4h else 800),
+    )
+    data_readiness = getattr(data_sources, "readiness", None) or DataReadiness(
+        oi_cache, None, None, interval_ms=int(interval) * 60_000,
+        required_warmup_bars=cfg.get("warmup", 300 if is_4h else 800),
+    )
     n_sources = len(data_sources)
     logger.info("Data sources for %s: %d connected (%s)",
                 runner_key, n_sources, ", ".join(sorted(data_sources.keys())))
@@ -773,6 +879,7 @@ def build_coordinator(
 
     # Assemble coordinator
     coordinator = EngineCoordinator(cfg=coordinator_cfg)
+    coordinator._data_readiness = data_readiness
 
     # Attach decision bridge
     decision_bridge = DecisionBridge(
@@ -800,7 +907,7 @@ def build_coordinator(
         execution_bridge = ExecutionBridge(
             adapter=exec_adapter,
             dispatcher_emit=coordinator.emit,
-            risk_gate=risk_gate,
+            risk_gate=DataReadinessGate(data_readiness, risk_gate),
             on_order_status=alpha_module.on_order_status,
             max_retries=0,  # a timeout must never trigger an unverified resubmission
         )

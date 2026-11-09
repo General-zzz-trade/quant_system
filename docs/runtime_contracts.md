@@ -1,5 +1,7 @@
 # Runtime Contracts
 
+> 历史 framework 契约参考：本文保留旧路径设计，不能作为当前 Alpha 主链或主机部署已验收的证明。当前入口、状态归属和验证范围以 [runtime_truth.md](runtime_truth.md) 及 [engineering-sequence.md](engineering-sequence.md) 为准。
+
 > 更新时间: 2026-03-19
 > 目标: 对比 framework live / backtest / replay 三条路径的当前契约差异，并给出统一基线
 > 适用范围: `runner/live_runner.py`、`runner/backtest_runner.py`、`runner/replay_runner.py` 及其验证路径
