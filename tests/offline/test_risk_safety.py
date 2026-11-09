@@ -157,6 +157,13 @@ class PortfolioAndGateTests(unittest.TestCase):
         self.event.qty = D(0)
         self.assertTrue(self.gate.check(self.event).allowed)
 
+    def test_wallet_reconciliation_blocks_only_entries(self):
+        self.write()
+        self.gate._account_ledger = NS(check=lambda: (False, "wallet_balance_mismatch"))
+        self.assertFalse(self.gate.check(self.event).allowed)
+        self.event.qty = D(0)
+        self.assertTrue(self.gate.check(self.event).allowed)
+
     def test_nan_negative_and_unpriced_entries_block(self):
         self.write()
         for qty in (D("NaN"), D("Infinity"), D(-1)):

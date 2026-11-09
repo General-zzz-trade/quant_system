@@ -653,7 +653,10 @@ class OkxAdapter:
                     side=side,
                     qty=coin_qty,
                     price=Decimal(str(f.get("fillPx") or "0")),
-                    fee=Decimal(str(f.get("fee") or "0")),
+                    # OKX reports charged fees as negative and rebates as
+                    # positive. CanonicalFill uses positive expense / negative
+                    # rebate because the account reducer subtracts this field.
+                    fee=-Decimal(str(f.get("fee") or "0")),
                     fee_asset=f.get("feeCcy"),
                     ts_ms=int(f.get("ts") or 0),
                 )

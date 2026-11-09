@@ -63,6 +63,8 @@ class BybitExecutionAdapter:
                 header=header, fill_id=fact.fill_id, order_id=parent.order_id,
                 symbol=fact.symbol, qty=Decimal(str(fact.qty)),
                 price=Decimal(str(fact.price)), side=fact.side,
+                fee=Decimal(str(getattr(fact, "fee", 0) or 0)),
+                fee_asset=getattr(fact, "fee_asset", None),
             ))
         return tuple(events)
 

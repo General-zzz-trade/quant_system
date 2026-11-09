@@ -19,10 +19,11 @@ def _make_order_event(symbol="BTCUSDT", side="buy", qty=Decimal("0.01")):
     )
 
 
-def _trade(*, price="65000", qty="0.01", side="buy", order_id="exchange-1", trade_id="trade-1"):
+def _trade(*, price="65000", qty="0.01", side="buy", order_id="exchange-1", trade_id="trade-1",
+           fee="0", fee_asset="USDT"):
     return SimpleNamespace(
         symbol="BTCUSDT", order_id=order_id, trade_id=trade_id, side=side,
-        qty=Decimal(qty), price=Decimal(price), fee=Decimal("0"), fee_asset="USDT",
+        qty=Decimal(qty), price=Decimal(price), fee=Decimal(fee), fee_asset=fee_asset,
     )
 
 
@@ -115,6 +116,13 @@ def test_fill_price_and_quantity_come_from_matching_exchange_trade(tmp_path):
     adapter.get_recent_fills.assert_called_once_with(
         symbol="BTCUSDT", order_id="exchange-1", limit=100,
     )
+
+
+def test_fill_event_preserves_signed_exchange_fee_and_currency(tmp_path):
+    adapter = _confirmed_adapter()
+    adapter.get_recent_fills.return_value = (_trade(fee="-0.125", fee_asset="USDT"),)
+    result = _wrap(adapter, tmp_path).send_order(_make_order_event())
+    assert (result[0].fee, result[0].fee_asset) == (Decimal("-0.125"), "USDT")
 
 
 def test_scope_is_required_before_creating_journal(tmp_path, monkeypatch):

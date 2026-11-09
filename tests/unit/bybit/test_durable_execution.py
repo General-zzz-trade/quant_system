@@ -17,11 +17,11 @@ from tests.unit.decision.test_alpha_module import _make_module, _make_snapshot
 
 
 def fill(trade_id="trade-1", *, order_id="exchange-1", qty="0.4", price="100",
-         side="buy", fee="0", symbol="BTCUSDT"):
+         side="buy", fee="0", fee_asset="USDT", symbol="BTCUSDT"):
     return CanonicalFill(
         venue="bybit", symbol=symbol, order_id=order_id, trade_id=trade_id,
         fill_id=f"bybit:{symbol}:{trade_id}", side=side, qty=D(qty), price=D(price),
-        fee=D(fee), fee_asset="USDT",
+        fee=D(fee), fee_asset=fee_asset,
     )
 
 
@@ -192,6 +192,66 @@ def test_partial_delayed_and_duplicate_fills_use_real_quantity_and_signed_fee(tm
     assert reconcile_execution(restarted, restored) == []
     assert execution.journal.checkpoint(execution.owner) == checkpoint
     assert len(exchange.calls) == 1
+
+
+def test_partial_close_projects_existing_realized_pnl_and_signed_fees(tmp_path):
+    exchange = AccountExchange()
+    coord, module, execution = build(exchange, tmp_path / "orders.sqlite")
+    exchange.status = "filled"
+    exchange.filled_qty = exchange.position_qty = D(1)
+    exchange.fills = (fill(qty="1", fee="1"),)
+    coord.emit(module._make_open_order(100, 1, D(1))[0])
+
+    close = module._make_close_order(110, 1, "signal_change")[0]
+    exchange.filled_qty = D("0.4")
+    exchange.position_qty = D("0.6")
+    exchange.fills = (fill("close-1", order_id="exchange-2", side="sell",
+                           qty="0.4", price="110", fee="-0.5"),)
+    observed = []
+    coord._durable_fill_consumer.observers.append(observed.append)
+    coord.emit(close)
+
+    checkpoint = execution.journal.checkpoint(execution.owner)
+    assert D(checkpoint["position"]["realized_pnl"]) == D(4)
+    assert D(checkpoint["position"]["fees"]["USDT"]) == D("0.5")
+    assert observed[0].realized_pnl == D(4)
+    account = coord._store.get_account()
+    assert account.balance == 100_350_000_000
+    assert account.realized_pnl == 400_000_000
+    assert account.fees_paid == 50_000_000
+
+
+def test_non_account_currency_fee_blocks_projection_and_keeps_outbox(tmp_path):
+    exchange = AccountExchange()
+    coord, module, execution = build(exchange, tmp_path / "orders.sqlite")
+    exchange.status = "filled"
+    exchange.filled_qty = D(1)
+    exchange.fills = (fill(qty="1", fee="0.001", fee_asset="BTC"),)
+    event = execution.send_order(module._make_open_order(100, 1, D(1))[0])[0]
+    with pytest.raises(ValueError, match="fee currency"):
+        coord.emit(event)
+    assert module._current_qty == 0
+    assert coord._store.get_position("BTCUSDT").qty == 0
+    assert len(execution.journal.fills(execution.owner)) == 1
+
+
+def test_pipeline_failure_rolls_back_precomputed_position_and_fee(tmp_path):
+    exchange = AccountExchange()
+    coord, module, execution = build(exchange, tmp_path / "orders.sqlite")
+    exchange.status = "filled"
+    exchange.filled_qty = D(1)
+    exchange.fills = (fill(qty="1", fee="0.25"),)
+    event = execution.send_order(module._make_open_order(100, 1, D(1))[0])[0]
+    with patch.object(coord._pipeline, "apply", side_effect=RuntimeError("pipeline crash")):
+        with pytest.raises(RuntimeError, match="pipeline crash"):
+            coord.emit(event)
+    consumer = coord._durable_fill_consumer
+    assert consumer.position.qty == 0
+    assert consumer.position.fees == {}
+    assert coord._store.get_account().balance == 100_000_000_000
+    assert len(execution.journal.fills(execution.owner)) == 1
+    coord.emit(event)
+    assert consumer.position.qty == D(1)
 
 
 def test_crash_after_fill_journal_commit_before_dispatch_replays_once(tmp_path):

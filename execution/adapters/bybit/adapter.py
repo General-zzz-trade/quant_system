@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import threading as _threading
 import time as _time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Optional, Tuple
 
 from execution.adapters.bybit.client import BybitRestClient
@@ -82,6 +82,10 @@ def _make_order_link_id(symbol: str, side: str) -> str:
 
 _ORDER_TTL_SECONDS = 30
 _MAX_QUERY_PAGES = 100
+_MAX_TRANSACTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+_ACCOUNT_TRANSACTION_TYPES = frozenset({
+    "TRADE", "SETTLEMENT", "TRANSFER_IN", "TRANSFER_OUT", "FEE_REFUND",
+})
 _CONFIRMABLE_ORDER_STATUSES = {
     "New", "PartiallyFilled", "Filled", "Cancelled", "PartiallyFilledCanceled",
     "Rejected", "Deactivated", "Untriggered", "Triggered",
@@ -155,6 +159,139 @@ class BybitAdapter:
         if data.get("retCode") != 0:
             return BalanceSnapshot(venue="bybit", balances=(), ts_ms=0)
         return map_balance(data.get("result", {}))
+
+    @staticmethod
+    def _signed_query_number(item: dict, name: str) -> Decimal:
+        try:
+            value = Decimal(str(item[name]))
+        except (KeyError, InvalidOperation, ValueError) as exc:
+            raise RuntimeError(f"Malformed Bybit {name}") from exc
+        if not value.is_finite():
+            raise RuntimeError(f"Invalid Bybit {name}")
+        return value
+
+    def get_wallet_snapshot(self) -> dict[str, Any]:
+        """Return a strict USDT wallet-balance snapshot for cash reconciliation.
+
+        ``walletBalance`` excludes unrealized PnL, unlike account equity. Any
+        unsupported asset, borrowing or bonus makes the snapshot unusable for
+        the single-currency ledger instead of being silently converted.
+        """
+        if self._config.account_type != "UNIFIED":
+            raise RuntimeError("Wallet reconciliation requires a UNIFIED account")
+        data = self._client.get(
+            "/v5/account/wallet-balance", {"accountType": "UNIFIED"},
+        )
+        if not isinstance(data, dict) or data.get("retCode") != 0:
+            raise RuntimeError("Bybit wallet snapshot failed")
+        result = data.get("result")
+        accounts = result.get("list") if isinstance(result, dict) else None
+        if not isinstance(accounts, list) or len(accounts) != 1 or not isinstance(accounts[0], dict):
+            raise RuntimeError("Malformed Bybit wallet snapshot")
+        account = accounts[0]
+        if account.get("accountType") != "UNIFIED" or not isinstance(account.get("coin"), list):
+            raise RuntimeError("Bybit wallet account type or coin list is invalid")
+        coins: dict[str, Decimal] = {}
+        for item in account["coin"]:
+            if not isinstance(item, dict):
+                raise RuntimeError("Malformed Bybit wallet coin")
+            currency = item.get("coin")
+            if not isinstance(currency, str) or not currency or currency in coins:
+                raise RuntimeError("Bybit wallet currency is missing or duplicated")
+            balance = self._signed_query_number(item, "walletBalance")
+            if balance < 0:
+                raise RuntimeError("Bybit wallet balance is negative")
+            for field in ("borrowAmount", "spotBorrow", "accruedInterest", "bonus"):
+                if field in item and self._signed_query_number(item, field) != 0:
+                    raise RuntimeError(f"Bybit wallet {field} is unsupported")
+            if currency != "USDT" and balance != 0:
+                raise RuntimeError("Bybit wallet contains an unsupported nonzero currency")
+            coins[currency] = balance
+        if "USDT" not in coins:
+            raise RuntimeError("Bybit wallet is missing USDT")
+        return {"observed_at": _time.time(), "balances": {"USDT": str(coins["USDT"])}}
+
+    def get_transaction_log(self, *, start_ms: int, end_ms: int) -> tuple[dict[str, str], ...]:
+        """Read and validate a complete bounded account cash-flow window.
+
+        Bybit may deliver transaction records late. This method proves only
+        that the requested pagination completed; callers must overlap windows
+        and compare the resulting cash ledger with a wallet snapshot.
+        """
+        if self._config.account_type != "UNIFIED":
+            raise ValueError("Transaction reconciliation requires a UNIFIED account")
+        if (not isinstance(start_ms, int) or isinstance(start_ms, bool)
+                or not isinstance(end_ms, int) or isinstance(end_ms, bool)
+                or start_ms < 0 or end_ms < start_ms
+                or end_ms - start_ms > _MAX_TRANSACTION_WINDOW_MS):
+            raise ValueError("transaction window must be an ordered interval of at most 7 days")
+        params = {
+            "accountType": "UNIFIED", "startTime": str(start_ms),
+            "endTime": str(end_ms), "limit": "50",
+        }
+        transactions: dict[str, tuple[tuple[Any, ...], dict[str, str]]] = {}
+        for item in self._query_pages("/v5/account/transaction-log", params):
+            identity = item.get("id")
+            currency, kind = item.get("currency"), item.get("type")
+            category = item.get("category", "")
+            if (not isinstance(identity, str) or not identity or identity.strip() != identity
+                    or not isinstance(currency, str) or currency != "USDT"
+                    or kind not in _ACCOUNT_TRANSACTION_TYPES
+                    or not isinstance(category, str)):
+                raise RuntimeError("Bybit transaction identity, currency or type is unsupported")
+            if kind in {"TRADE", "SETTLEMENT"} and category != "linear":
+                raise RuntimeError("Bybit trade transaction category is unsupported")
+            if category not in {"", "linear"}:
+                raise RuntimeError("Bybit transaction category is unsupported")
+            for name in ("transSubType", "extraFees"):
+                if item.get(name, "") != "":
+                    raise RuntimeError("Bybit transaction subtype or extra fees are unsupported")
+            raw_time = item.get("transactionTime")
+            try:
+                transaction_time = int(raw_time)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Malformed Bybit transactionTime") from exc
+            if (isinstance(raw_time, bool) or str(transaction_time) != str(raw_time)
+                    or not start_ms <= transaction_time <= end_ms):
+                raise RuntimeError("Bybit transaction time is outside the requested window")
+            numbers = {
+                name: self._signed_query_number(item, name)
+                for name in ("change", "cashFlow", "funding", "fee", "cashBalance")
+            }
+            bonus = self._signed_query_number(item, "bonusChange") if "bonusChange" in item else Decimal(0)
+            if bonus != 0:
+                raise RuntimeError("Bybit transaction bonus changes are unsupported")
+            for name in ("borrowAmount", "interest", "loanAmount"):
+                if name in item and self._signed_query_number(item, name) != 0:
+                    raise RuntimeError("Bybit transaction borrowing is unsupported")
+            with localcontext() as context:
+                context.prec = 512
+                if numbers["change"] != numbers["cashFlow"] + numbers["funding"] - numbers["fee"]:
+                    raise RuntimeError("Bybit transaction cash-flow equation is inconsistent")
+            normalized = {
+                "id": identity, "currency": currency, "type": kind,
+                "transactionTime": str(raw_time), "change": str(item["change"]),
+                "cashFlow": str(item["cashFlow"]), "funding": str(item["funding"]),
+                "fee": str(item["fee"]), "cashBalance": str(item["cashBalance"]),
+                "category": category, "bonusChange": str(item.get("bonusChange", "0")),
+                "transSubType": "", "extraFees": "",
+                "borrowAmount": "0", "interest": "0", "loanAmount": "0",
+            }
+            for name in ("symbol", "tradeId", "orderId", "orderLinkId", "side"):
+                value = item.get(name, "")
+                if not isinstance(value, str) or "\x00" in value:
+                    raise RuntimeError(f"Bybit transaction {name} is invalid")
+                normalized[name] = value
+            signature = (
+                currency, kind, category, transaction_time,
+                *(numbers[name] for name in ("change", "cashFlow", "funding", "fee", "cashBalance")),
+                bonus, *(normalized[name] for name in ("symbol", "tradeId", "orderId", "orderLinkId", "side")),
+            )
+            previous = transactions.get(identity)
+            if previous is not None and previous[0] != signature:
+                raise RuntimeError("Bybit transaction identity has conflicting facts")
+            transactions.setdefault(identity, (signature, normalized))
+        return tuple(row for _, row in transactions.values())
 
     def _query_pages(
         self, path: str, params: dict[str, str], *, legacy_empty_on_error: bool = False,

@@ -938,6 +938,7 @@ def _build_composite_gate(
     drawdown_guard: Any = None,
     paused: Any = None,
     reservation: Any = None,
+    account_ledger: Any = None,
 ) -> _CompositeRiskGate:
     """Build the live gate; absence of atomic reservations blocks new exposure."""
     from decimal import Decimal as D
@@ -953,6 +954,7 @@ def _build_composite_gate(
         limiter,
         kill_switch=kill_switch,
         reservation=reservation,
+        account_ledger=account_ledger,
         venue=venue,
         drawdown_guard=drawdown_guard,
         paused=paused,

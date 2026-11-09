@@ -52,6 +52,7 @@ jobs:
             shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
             shared/runtime_state.py shared/runtime_backup.py \
             shared/portfolio_reservations.py scripts/portfolio_risk_state.py \
+            shared/account_ledger.py scripts/account_ledger_state.py \
             data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
             data/oi_cache.py tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
             tests/offline/ scripts/check_local_safety.py \

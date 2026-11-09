@@ -55,6 +55,19 @@ def test_fill_request_filters_order_id(adapter):
     assert adapter._client.request_signed.call_args.kwargs["params"]["ordId"] == "o1"
 
 
+def test_fill_fee_sign_is_normalized_to_positive_expense(adapter):
+    adapter._client.request_signed.return_value = {"data": [
+        {"instId": "BTC-USDT-SWAP", "ordId": "o1", "tradeId": "expense", "fillSz": "2",
+         "fillPx": "100", "side": "buy", "fee": "-0.2", "feeCcy": "USDT", "ts": "1000"},
+        {"instId": "BTC-USDT-SWAP", "ordId": "o1", "tradeId": "rebate", "fillSz": "2",
+         "fillPx": "100", "side": "buy", "fee": "0.1", "feeCcy": "USDT", "ts": "1001"},
+    ]}
+    fills = adapter.get_recent_fills("BTCUSDT", order_id="o1", limit=100)
+    assert [(fill.fee, fill.fee_asset) for fill in fills] == [
+        (D("0.2"), "USDT"), (D("-0.1"), "USDT"),
+    ]
+
+
 def test_position_failure_is_not_an_empty_position_snapshot(adapter):
     adapter._client.request_signed.side_effect = TimeoutError
     with pytest.raises(TimeoutError):

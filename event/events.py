@@ -213,6 +213,9 @@ class FillEvent(BaseEvent):
     qty: Decimal
     price: Decimal
     side: Optional[str] = None  # "buy"/"sell" — optional for backward compat
+    fee: Decimal = Decimal("0")
+    fee_asset: str | None = None
+    realized_pnl: Decimal = Decimal("0")
 
     _rust: Any = None
 
@@ -223,6 +226,8 @@ class FillEvent(BaseEvent):
                 side=str(self.side) if self.side else "buy",
                 qty=float(self.qty),
                 price=float(self.price),
+                fee=float(self.fee),
+                realized_pnl=float(self.realized_pnl),
             )
             object.__setattr__(self, "_rust", rust)
 

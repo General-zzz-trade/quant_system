@@ -203,9 +203,12 @@ def main() -> None:
         raise RuntimeError("Startup blocked: every requested runner must have a known configuration")
 
     _portfolio_binding = None
+    _account_ledger = None
     if not args.dry_run:
+        from runner.account_reconciliation import account_ledger_preflight
         from runner.portfolio_risk import execution_risk_preflight
         _portfolio_binding = execution_risk_preflight(args.venue)
+        _account_ledger = account_ledger_preflight()
 
     # Opt-in managed state (paper Compose): reject lost/mismatched journals before
     # any data or account connection. Hold the shared disk lease for this process.
@@ -291,7 +294,7 @@ def main() -> None:
         )
         _risk_gate = _build_composite_gate(
             kill_switch=_kill_switch, venue=args.venue, drawdown_guard=_drawdown,
-            reservation=_portfolio_binding,
+            reservation=_portfolio_binding, account_ledger=_account_ledger,
             paused=lambda sym: any(
                 _is_runner_paused(rk) for rk in args.symbols
                 if SYMBOL_CONFIG.get(rk, {}).get("symbol", rk) == sym
@@ -611,6 +614,17 @@ def main() -> None:
             logger.exception("Portfolio reconciliation failed; new exposure blocked")
 
     _refresh_portfolio()
+
+    def _refresh_wallet() -> None:
+        if _account_ledger is None:
+            return
+        from runner.account_reconciliation import reconcile_bybit_wallet
+        try:
+            reconcile_bybit_wallet(_account_ledger, adapter)
+        except Exception:
+            logger.exception("Wallet reconciliation failed; new exposure blocked")
+
+    _refresh_wallet()
 
     # Sync positions from exchange — if exchange has an open position,
     # restore alpha module state so stop-loss/quick_loss work correctly.
@@ -1089,6 +1103,7 @@ def main() -> None:
             if _loop_iter % 60 == 0:
                 _refresh_equity()
                 _refresh_portfolio()
+                _refresh_wallet()
 
                 # PnL status (observer-only, never crashes main loop)
                 if pnl_tracker is not None:

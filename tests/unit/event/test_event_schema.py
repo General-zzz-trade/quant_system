@@ -176,6 +176,18 @@ class TestFillEvent:
         assert evt.qty == Decimal("0.5")
         assert evt.price == Decimal("42500")
         assert evt.fill_id == "fl-1"
+        assert evt.fee == Decimal("0")
+        assert evt.fee_asset is None
+        assert evt.realized_pnl == Decimal("0")
+
+    def test_fee_and_realized_pnl_reach_rust_event(self) -> None:
+        evt = FillEvent(
+            header=_fill_header(), fill_id="fl-2", order_id="ord-2",
+            symbol="BTCUSDT", qty=Decimal("0.5"), price=Decimal("42500"), side="sell",
+            fee=Decimal("-0.2"), fee_asset="USDT", realized_pnl=Decimal("4.5"),
+        )
+        assert evt.to_rust().fee == "-0.2"
+        assert evt.to_rust().realized_pnl == "4.5"
 
 
 # ---------------------------------------------------------------------------

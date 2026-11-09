@@ -63,6 +63,8 @@ class OkxExecutionAdapter:
                 header=header, fill_id=fill_id, order_id=parent.order_id,
                 symbol=fill.symbol, qty=Decimal(str(fill.qty)),
                 price=Decimal(str(fill.price)), side=fill.side,
+                fee=Decimal(str(getattr(fill, "fee", 0) or 0)),
+                fee_asset=getattr(fill, "fee_asset", None),
             ))
             # Observability uses confirmed fills too. Reference is the decision
             # price, explicitly labelled so it is not confused with arrival mid.

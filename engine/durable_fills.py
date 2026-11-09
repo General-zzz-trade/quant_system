@@ -6,6 +6,8 @@ Observers run after commit and are deliberately not part of the trading ledger.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+from decimal import Decimal
 import logging
 import json
 from types import SimpleNamespace
@@ -78,16 +80,26 @@ class DurableFillConsumer:
             raise RuntimeError("Restore durable consumer before accepting fills")
         with self.coord._lock:
             fact = self.executor.fill_fact(event.fill_id)
-            from decimal import Decimal
+            fact_fee = Decimal(str(fact.get("fee", 0) or 0))
+            event_fee = Decimal(str(getattr(event, "fee", 0) or 0))
+            fact_asset = fact.get("fee_asset")
             if (str(event.order_id) != fact["intent_id"] or event.symbol != fact["symbol"]
                     or event.side != fact["side"] or event.qty != Decimal(fact["qty"])
-                    or event.price != Decimal(fact["price"])):
+                    or event.price != Decimal(fact["price"]) or event_fee != fact_fee
+                    or getattr(event, "fee_asset", None) != fact_asset
+                    or Decimal(str(getattr(event, "realized_pnl", 0) or 0)) != 0):
                 raise ValueError("Event differs from its durable exchange fact")
+            if not fact_fee.is_finite():
+                raise ValueError("Durable exchange fact has an invalid fee")
             before = self.coord._store.export_state()
+            account_currency = str(before["account"].currency)
+            if fact_fee and (not isinstance(fact_asset, str) or fact_asset != account_currency):
+                raise ValueError("Fill fee currency differs from the account projection currency")
             before_position = self.position.to_dict()
             before_strategy = self.module.execution_state()
             old_snapshot = self.coord._last_snapshot
             output = None
+            projected_event = event
 
             def rollback() -> None:
                 self.coord._store.load_exported(
@@ -101,14 +113,18 @@ class DurableFillConsumer:
                 self.coord._last_snapshot = old_snapshot
 
             def apply() -> dict[str, Any]:
-                nonlocal output
+                nonlocal output, projected_event
+                realized_before = self.position.realized_pnl
+                self.position.apply(SimpleNamespace(**fact))
+                realized_delta = self.position.realized_pnl - realized_before
+                projected_event = replace(event, realized_pnl=realized_delta, _rust=None)
                 output = self.coord._pipeline.apply(PipelineInput(
-                    event=event, event_index=before["event_index"], symbol_default=self.module._symbol,
+                    event=projected_event, event_index=before["event_index"],
+                    symbol_default=self.module._symbol,
                     markets=before["markets"], account=before["account"], positions=before["positions"],
                 ))
                 if not output.advanced or output.snapshot is None:
                     raise RuntimeError("Confirmed fill did not advance the state pipeline")
-                self.position.apply(SimpleNamespace(**fact))
                 parent = self.executor._parents[fact["intent_id"]]
                 self.module.sync_confirmed_position(self.position, exit_reason=getattr(parent, "reason", None))
                 return {"engine": _serialize_snapshot(output.snapshot), "position": self.position.to_dict(),
@@ -124,7 +140,7 @@ class DurableFillConsumer:
                 # Auxiliary observers must not affect ledger commit or delivery.
                 try:
                     for observer in self.observers:
-                        observer(event)
+                        observer(projected_event)
                     if self.coord._cfg.on_pipeline_output:
                         self.coord._cfg.on_pipeline_output(output)
                     if self.coord._cfg.on_snapshot:

@@ -15,7 +15,7 @@ class GateResult:
 class CompositeRiskGate:
     def __init__(self, limiter: Any, kill_switch: Any = None, portfolio_reader: Any = None,
                  venue: str = "okx", drawdown_guard: Any = None, paused: Any = None,
-                 reservation: Any = None) -> None:
+                 reservation: Any = None, account_ledger: Any = None) -> None:
         self._limiter = limiter
         self._kill_switch = kill_switch
         self._portfolio_reader = portfolio_reader
@@ -23,6 +23,7 @@ class CompositeRiskGate:
         self._drawdown_guard = drawdown_guard
         self._paused = paused
         self._reservation = reservation
+        self._account_ledger = account_ledger
 
     def check(self, event: Any) -> GateResult:
         try:
@@ -48,6 +49,10 @@ class CompositeRiskGate:
                     return GateResult(False, f"drawdown: {reason}")
             if self._paused is not None and self._paused(str(event.symbol)):
                 return GateResult(False, "runner paused")
+            if self._account_ledger is not None:
+                allowed, reason = self._account_ledger.check()
+                if not allowed:
+                    return GateResult(False, f"wallet: {reason}")
             if self._reservation is not None:
                 # Persist the shared quota claim only after every local gate.
                 # A later crash/timeout deliberately retains the claim.
