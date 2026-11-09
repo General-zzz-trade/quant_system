@@ -937,11 +937,10 @@ def _build_composite_gate(
     venue: str = "binance",
     drawdown_guard: Any = None,
     paused: Any = None,
+    reservation: Any = None,
 ) -> _CompositeRiskGate:
-    """Build composite risk gate: OrderLimiter + KillSwitch + PortfolioRiskFile."""
+    """Build the live gate; absence of atomic reservations blocks new exposure."""
     from decimal import Decimal as D
-    from runner.gates.portfolio_risk_file import PortfolioRiskFileReader
-    from strategy.config import PORTFOLIO_RISK_MAX_STALE_SEC
 
     cfg = OrderLimitsConfig(
         max_order_notional=D("25000"),    # $25k max per order
@@ -950,20 +949,17 @@ def _build_composite_gate(
         max_orders_per_second=2.0,        # 2 orders/sec rate limit
     )
     limiter = OrderLimiter(cfg)
-    portfolio_reader = PortfolioRiskFileReader(
-        max_stale_seconds=float(PORTFOLIO_RISK_MAX_STALE_SEC),
-    )
     gate = _CompositeRiskGate(
         limiter,
         kill_switch=kill_switch,
-        portfolio_reader=portfolio_reader,
+        reservation=reservation,
         venue=venue,
         drawdown_guard=drawdown_guard,
         paused=paused,
     )
     logger.info(
         "CompositeRiskGate initialized: OrderLimiter(max=$25k, daily=$500k, rate=2/s) "
-        "+ KillSwitch(%s) + PortfolioRiskFile(venue=%s)",
+        "+ KillSwitch(%s) + AtomicPortfolioReservation(venue=%s)",
         "active" if kill_switch is not None else "none",
         venue,
     )

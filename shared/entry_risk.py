@@ -14,13 +14,15 @@ class GateResult:
 
 class CompositeRiskGate:
     def __init__(self, limiter: Any, kill_switch: Any = None, portfolio_reader: Any = None,
-                 venue: str = "okx", drawdown_guard: Any = None, paused: Any = None) -> None:
+                 venue: str = "okx", drawdown_guard: Any = None, paused: Any = None,
+                 reservation: Any = None) -> None:
         self._limiter = limiter
         self._kill_switch = kill_switch
         self._portfolio_reader = portfolio_reader
         self._venue = venue
         self._drawdown_guard = drawdown_guard
         self._paused = paused
+        self._reservation = reservation
 
     def check(self, event: Any) -> GateResult:
         try:
@@ -46,6 +48,14 @@ class CompositeRiskGate:
                     return GateResult(False, f"drawdown: {reason}")
             if self._paused is not None and self._paused(str(event.symbol)):
                 return GateResult(False, "runner paused")
+            if self._reservation is not None:
+                # Persist the shared quota claim only after every local gate.
+                # A later crash/timeout deliberately retains the claim.
+                result = self._limiter.check_order(qty=qty, price=price)
+                if not result.allowed:
+                    return GateResult(False, result.detail or result.violated_rule or "order limit")
+                result = self._reservation.reserve(event, quantity=qty, notional=qty * price)
+                return GateResult(result.allowed, result.reason)
             if self._portfolio_reader is None:
                 return GateResult(False, "portfolio risk reader unavailable")
             allowed, reason = self._portfolio_reader.check_would_exceed(

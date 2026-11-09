@@ -202,6 +202,11 @@ def main() -> None:
     if not args.symbols or any(key not in SYMBOL_CONFIG for key in args.symbols):
         raise RuntimeError("Startup blocked: every requested runner must have a known configuration")
 
+    _portfolio_binding = None
+    if not args.dry_run:
+        from runner.portfolio_risk import execution_risk_preflight
+        _portfolio_binding = execution_risk_preflight(args.venue)
+
     # Opt-in managed state (paper Compose): reject lost/mismatched journals before
     # any data or account connection. Hold the shared disk lease for this process.
     managed_state = os.environ.get("RUNTIME_STATE_DIR")
@@ -286,6 +291,7 @@ def main() -> None:
         )
         _risk_gate = _build_composite_gate(
             kill_switch=_kill_switch, venue=args.venue, drawdown_guard=_drawdown,
+            reservation=_portfolio_binding,
             paused=lambda sym: any(
                 _is_runner_paused(rk) for rk in args.symbols
                 if SYMBOL_CONFIG.get(rk, {}).get("symbol", rk) == sym
@@ -589,6 +595,22 @@ def main() -> None:
     for rk, coord in coordinators.items():
         if getattr(coord, "_durable_fill_consumer", None) is not None:
             reconcile_execution(coord, modules[rk], restore=True)
+
+    def _refresh_portfolio() -> None:
+        if _portfolio_binding is None:
+            return
+        store = _portfolio_binding.store
+        # Multi-account groups require the dedicated collector with all accounts.
+        # A partial local observation must never overwrite its complete baseline.
+        if len(store.registrations) != 1:
+            return
+        from runner.portfolio_risk import refresh_portfolio
+        try:
+            refresh_portfolio(store, {os.environ["RISK_SCOPE"]: (adapter, Path(managed_state))})
+        except Exception:
+            logger.exception("Portfolio reconciliation failed; new exposure blocked")
+
+    _refresh_portfolio()
 
     # Sync positions from exchange — if exchange has an open position,
     # restore alpha module state so stop-loss/quick_loss work correctly.
@@ -1066,6 +1088,7 @@ def main() -> None:
 
             if _loop_iter % 60 == 0:
                 _refresh_equity()
+                _refresh_portfolio()
 
                 # PnL status (observer-only, never crashes main loop)
                 if pnl_tracker is not None:
