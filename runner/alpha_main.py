@@ -210,12 +210,14 @@ def main() -> None:
         _portfolio_binding = execution_risk_preflight(args.venue)
         _account_ledger = account_ledger_preflight()
 
-    # Opt-in managed state (paper Compose): reject lost/mismatched journals before
-    # any data or account connection. Hold the shared disk lease for this process.
+    # Managed state is mandatory for execution and opt-in for paper. Reject
+    # lost/mismatched journals before account access and hold the writer lease.
     managed_state = os.environ.get("RUNTIME_STATE_DIR")
+    if not args.dry_run and not managed_state:
+        raise RuntimeError("Execution requires persistent managed runtime state")
     if managed_state is not None:
         import atexit
-        from shared.runtime_state import RuntimeStateLease
+        from shared.runtime_state import RuntimeStateLease, validate_execution_state
         if not managed_state:
             raise RuntimeError("RUNTIME_STATE_DIR must not be empty")
         state_dir = Path(managed_state)
@@ -229,6 +231,12 @@ def main() -> None:
             state_dir, os.environ["RISK_SCOPE"],
             journal_path=Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")),
         )
+        if not args.dry_run:
+            try:
+                validate_execution_state(state_dir, os.environ["RISK_SCOPE"], journal_path=lease.journal_path)
+            except BaseException:
+                lease.close()
+                raise
         atexit.register(lease.close)
 
     # Online input is required. Never silently replace missing OI/LS data.
@@ -242,14 +250,6 @@ def main() -> None:
             "Online startup blocked: required module data.oi_cache is unavailable; "
             "--check-startup validates offline engine wiring only"
         ) from exc
-
-    if managed_state is None and args.venue in {"okx", "bybit"} and not args.dry_run:
-        import atexit
-        from shared.execution_lease import ExecutionLease
-        # Keep one writer for the whole account, including all of its runners.
-        lease = ExecutionLease(Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")),
-                               os.environ["RISK_SCOPE"])
-        atexit.register(lease.close)
 
     # Validate Rust event configuration at startup
     VALID_EVENT_TYPES = set(rust_event_types())

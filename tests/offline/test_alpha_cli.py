@@ -17,7 +17,7 @@ class CliSafetyTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 parse_args(["--enable-execution"])
             self.assertEqual(ctx.exception.code, 2)
-        with patch.dict("os.environ", {"RISK_SCOPE": "okx-demo-a"}):
+        with patch.dict("os.environ", {"RISK_SCOPE": "okx-demo-a", "RUNTIME_STATE_DIR": "/persistent/runtime"}):
             self.assertFalse(parse_args(["--enable-execution"]).dry_run)
 
     def test_conflicting_modes_rejected(self):

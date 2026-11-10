@@ -27,4 +27,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("Offline checks cannot be combined with --enable-execution")
     if not args.dry_run and not os.environ.get("RISK_SCOPE", "").strip():
         parser.error("--enable-execution requires RISK_SCOPE identifying venue, account and demo/live environment")
+    if not args.dry_run and not os.environ.get("RUNTIME_STATE_DIR", "").strip():
+        parser.error("--enable-execution requires an explicitly initialized persistent RUNTIME_STATE_DIR")
     return args

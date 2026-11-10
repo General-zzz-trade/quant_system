@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import time
+from decimal import Decimal
 from unittest.mock import patch
 
 from shared.execution_journal import ExecutionJournal
@@ -106,6 +108,22 @@ class RuntimeBackupTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.backup()
         self.assertFalse(self.snapshot.exists())
+
+    def test_restore_preserves_wallet_facts_but_revokes_snapshot_readiness(self):
+        from shared.account_ledger import AccountLedger
+        identity = json.loads((self.state / "runtime-state.json").read_text())["state_id"]
+        now = time.time()
+        stamp = int(now * 1000)
+        original = AccountLedger.initialize(self.state / "orders.sqlite", scope=self.scope, state_id=identity,
+                                            balance=Decimal(100), start_ms=stamp - 1000, source="fixture")
+        original.ingest_and_reconcile([], start_ms=stamp - 1000, end_ms=stamp, wallet_balance=Decimal(100))
+        self.assertTrue(original.check()[0])
+        self.backup()
+        restore_state(self.snapshot, self.restored, self.scope)
+        restored = AccountLedger(self.restored / "orders.sqlite", scope=self.scope, state_id=identity)
+        self.assertEqual(restored.baseline_balance, Decimal(100))
+        self.assertEqual(restored.check(), (False, "restored_account_requires_reconciliation"))
+        self.assertTrue(original.check()[0])
 
     def test_backup_refuses_wrong_scope_and_missing_journal(self):
         with self.assertRaises(ValueError):

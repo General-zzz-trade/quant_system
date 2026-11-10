@@ -273,6 +273,20 @@ def restore_state(snapshot_dir: Path, destination: Path, scope: str) -> Path:
             if _digest(stage / entry["path"]) != entry["sha256"]:
                 raise ValueError("Snapshot changed while restoring")
         validate_runtime_state(stage, scope)
+        # Snapshot readiness is historical evidence, never startup authority.
+        # Preserve the baseline and every cash-flow fact, but force a new read.
+        db = sqlite3.connect(stage / "orders.sqlite")
+        try:
+            has_wallet = db.execute("SELECT 1 FROM sqlite_master WHERE name='wallet_metadata'").fetchone()
+        finally:
+            db.close()
+        if has_wallet:
+            from shared.account_ledger import AccountLedger
+            identity = json.loads((stage / "runtime-state.json").read_text())
+            AccountLedger(stage / "orders.sqlite", scope=scope, state_id=identity["state_id"]).invalidate(
+                "restored_account_requires_reconciliation"
+            )
+            _sync_file(stage / "orders.sqlite")
         for name in reversed(meta["directories"]):
             _sync_directory(stage / name)
     return target

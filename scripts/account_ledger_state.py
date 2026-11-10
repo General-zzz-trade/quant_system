@@ -59,7 +59,10 @@ def main(argv: list[str] | None = None) -> None:
         }:
             raise ValueError("Reconciliation requires an exact recognized Bybit endpoint")
         adapter = BybitAdapter(BybitConfig(api_key=key, api_secret=secret, base_url=base_url))
-        reconcile_bybit_wallet(ledger, adapter, full=args.full)
+        # Standalone collection is a state writer. Cooperate with migration and
+        # group backups; the runner already holds this lease for its own loop.
+        with RuntimeStateLease(args.state_dir, args.scope, journal_path=journal):
+            reconcile_bybit_wallet(ledger, adapter, full=args.full)
     print(json.dumps(ledger.snapshot(), sort_keys=True, allow_nan=False))
 
 

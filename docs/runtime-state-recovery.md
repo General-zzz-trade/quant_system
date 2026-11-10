@@ -1,5 +1,7 @@
 # 运行状态持久化与离线恢复验收
 
+本文件记录早期 paper 持久化阶段。当前迁移、钱包校验、组合风险库协调备份及执行模式要求见 [state-migration.md](state-migration.md)；文末“后续任务”不代表当前实现状态。
+
 基线：master `a2372f37cf1230cbf208d1499adddba636fede31`。
 该 Bybit 修复已发布，远端 [CI 42259315011](https://github.com/General-zzz-trade/quant_system/actions/runs/42259315011) 全部通过。
 本轮只处理 paper 状态持久化、恢复和备份，不修改策略数学、仓位规则、真实交易配置。

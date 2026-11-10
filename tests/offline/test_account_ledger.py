@@ -222,6 +222,15 @@ class AccountLedgerTests(unittest.TestCase):
             AccountLedger(self.path, scope=self.scope, state_id=self.state_id,
                           clock=lambda: self.now)
 
+    def test_ready_flag_cannot_hide_persisted_balance_mismatch(self):
+        self.reconcile([], balance="100")
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE wallet_reconciliation SET actual_balance='99'")
+        self.assertFalse(self.ledger.check()[0])
+        with self.assertRaisesRegex(ValueError, "balances differ"):
+            AccountLedger(self.path, scope=self.scope, state_id=self.state_id,
+                          clock=lambda: self.now)
+
     def test_foreign_scope_rows_are_rejected(self):
         with sqlite3.connect(self.path) as db:
             db.execute("INSERT INTO wallet_transactions VALUES ('foreign','id',?, '{}')",

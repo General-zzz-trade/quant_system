@@ -33,6 +33,13 @@ _DRAWDOWN_COLUMNS = {
     "drawdown_periods": {"scope", "kind", "period", "baseline", "limit_pct", "tripped"},
     "equity_observations": {"scope", "equity", "observed_at"},
 }
+_WALLET_COLUMNS = {
+    "wallet_metadata": {"scope", "state_id", "currency", "baseline_balance", "baseline_start_ms",
+                        "source", "max_age_seconds", "version"},
+    "wallet_transactions": {"scope", "transaction_id", "transaction_ms", "payload"},
+    "wallet_reconciliation": {"scope", "verified_through_ms", "checked_at", "observed_through_ms",
+                              "ready", "reason", "expected_balance", "actual_balance"},
+}
 
 
 def _scope(scope: str) -> str:
@@ -133,6 +140,7 @@ def validate_runtime_state(
     """
     directory, journal, manifest = _layout(state_dir, scope, journal_path)
     mode = "rw" if require_writable else "ro"
+    has_wallet = False
     for name in DATABASE_NAMES:
         database = directory / name
         if require_writable:
@@ -158,12 +166,69 @@ def validate_runtime_state(
                 for table, column in (("execution_fills", "payload"), ("execution_consumers", "checkpoint")):
                     for row in db.execute(f"SELECT {column} FROM {table}"):
                         _json(row[0])
+                tables = {row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )}
+                wallet_tables = set(_WALLET_COLUMNS) & tables
+                if wallet_tables and wallet_tables != set(_WALLET_COLUMNS):
+                    raise ValueError("Runtime wallet schema is partial; explicit recovery is required")
+                if wallet_tables:
+                    has_wallet = True
+                    for table, required in _WALLET_COLUMNS.items():
+                        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+                        if not required <= columns:
+                            raise ValueError(f"Runtime wallet table {table} has an incomplete schema")
+                        if db.execute(
+                            f"SELECT 1 FROM {table} WHERE scope IS NULL OR scope != ? LIMIT 1", (scope,),
+                        ).fetchone():
+                            raise ValueError("Runtime wallet contains data from a different account scope")
+                    metadata = db.execute(
+                        "SELECT scope,state_id,currency,version FROM wallet_metadata"
+                    ).fetchall()
+                    if metadata != [(scope, manifest["state_id"], "USDT", 1)]:
+                        raise ValueError("Runtime wallet identity differs from runtime state identity")
+                    reconciliation = db.execute(
+                        "SELECT scope FROM wallet_reconciliation"
+                    ).fetchall()
+                    if reconciliation != [(scope,)]:
+                        raise ValueError("Runtime wallet reconciliation state is missing or duplicated")
+                    for row in db.execute("SELECT payload FROM wallet_transactions"):
+                        _json(row[0])
             if require_writable:
                 # Exercise each database's real write path without changing a record.
                 db.execute("BEGIN IMMEDIATE")
                 db.rollback()
         finally:
             db.close()
+    if has_wallet:
+        # Backups and migrations must preserve a semantically valid cash ledger,
+        # including canonical transaction identities, not merely JSON syntax.
+        from shared.account_ledger import AccountLedger
+        AccountLedger(journal, scope=scope, state_id=manifest["state_id"])
+    return journal
+
+
+def validate_execution_state(
+    state_dir: Path, scope: str, *, journal_path: Path | None = None,
+    require_writable: bool = True,
+) -> Path:
+    """Require complete account state before an execution-capable startup.
+
+    Wallet freshness and balance agreement are intentionally not accepted as
+    historical proof here. The runner performs a new account reconciliation
+    before its entry gate can open.
+    """
+    journal = validate_runtime_state(
+        state_dir, scope, journal_path=journal_path, require_writable=require_writable,
+    )
+    mode = "rw" if require_writable else "ro"
+    db = sqlite3.connect(f"{journal.as_uri()}?mode={mode}", uri=True, timeout=1)
+    try:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not set(_WALLET_COLUMNS) <= tables:
+            raise ValueError("Execution state requires an explicitly initialized wallet baseline")
+    finally:
+        db.close()
     return journal
 
 

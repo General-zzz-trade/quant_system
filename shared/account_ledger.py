@@ -259,7 +259,6 @@ class AccountLedger:
         if verified < self.baseline_start_ms or row["ready"] not in (0, 1):
             raise ValueError("Invalid wallet reconciliation state")
         expected = _decimal(row["expected_balance"], "expected balance")
-        del expected
         observed = row["observed_through_ms"]
         checked = row["checked_at"]
         actual = row["actual_balance"]
@@ -277,6 +276,8 @@ class AccountLedger:
         if row["ready"]:
             if reason or checked is None or actual is None or observed != verified:
                 raise ValueError("Ready wallet reconciliation state is incomplete")
+            if _decimal(actual, "actual balance") != expected:
+                raise ValueError("Ready wallet reconciliation balances differ")
         elif not reason:
             raise ValueError("Blocked wallet reconciliation requires a reason")
 
