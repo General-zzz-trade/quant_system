@@ -44,7 +44,7 @@ class SecurityAndDeployTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(ROOT)}
         for key in list(self.env):
             if key.startswith("QUANT_RELEASE_"):
                 self.env.pop(key)
@@ -116,6 +116,9 @@ class SecurityAndDeployTests(unittest.TestCase):
     def paper_fixture(self):
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
+        # A namespace-only fixture loses to the real regular package when CI
+        # exports PYTHONPATH. Keep shell children on these offline test doubles.
+        (scripts / "__init__.py").write_text("")
         shutil.copyfile(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
         shutil.copyfile(ROOT / "scripts/check_paper_runtime.py", scripts / "check_paper_runtime.py")
         # The acceptance algorithm has separate tests. Here a deterministic
@@ -214,6 +217,16 @@ raise SystemExit("unexpected Docker operation in test")
 
     def deploy(self, *args):
         return self.command(["bash", "scripts/deploy.sh", *args])
+
+    def test_release_fixture_stays_local_when_ci_sets_pythonpath(self):
+        self.paper_fixture()
+        self.env["PYTHONPATH"] = str(ROOT)
+        result = self.command([
+            sys.executable, "-c",
+            "import importlib.util; print(importlib.util.find_spec('scripts.check_release_acceptance').origin)",
+        ])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.strip()), self.root / "scripts/check_release_acceptance.py")
 
     def test_preflight_never_restarts_and_success_waits_for_health(self):
         self.paper_fixture()

@@ -80,4 +80,6 @@ python -m runner.alpha_main --check-paper-contract
 
 本地验证：81 项专项测试、Ruff E/W/F、Shell 语法和工作流 YAML 校验通过。真实 Docker 构建上下文打包成功，导出后的 13 个新增/修改 Python 与 Shell 文件和工作树逐字节相同，运维入口完整（`stage5-packaged-context-build.log`）。本地完整容器回归因 rootless Docker 存储空间不足未能启动，明确记为未通过（`stage5-container-disk-failure.log`、`stage5-packaged-container-disk-failure.log`），不能用源码专项测试替代。GitHub 的正式镜像构建、原生测试及容器测试会对最终提交独立执行。
 
+CI 收尾修正：`4f7d256` 的真实镜像构建通过，但测试发现部署夹具在 CI 的 `PYTHONPATH` 下被真实包覆盖，以及旧启动测试替身不支持 `atexit.register` 参数。已保留失败证据，补上夹具包身份和同环境回归，并让启动测试按真实退出顺序检查 `starting → stopped` 与 lease 释放。修正后本地全套离线检查运行 302 项，301 项通过、1 项因缺少 Hatch 构建依赖跳过；完整镜像中的零跳过结果仍以最终 CI 为准。
+
 所有操作保持 master 主干，没有访问真实账户、发通知、执行部署或提交订单。策略公式、仓位规则及 live 配置保持原值。

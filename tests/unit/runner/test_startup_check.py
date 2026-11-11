@@ -99,6 +99,8 @@ def test_managed_state_failure_blocks_before_account_or_online_input(monkeypatch
 
 def test_managed_paper_startup_holds_lease_before_online_inputs(monkeypatch, tmp_path):
     import atexit
+    from functools import partial
+    import json
     from runner import alpha_main
     from shared.runtime_state import initialize_runtime_state, RuntimeStateLease
 
@@ -112,17 +114,19 @@ def test_managed_paper_startup_holds_lease_before_online_inputs(monkeypatch, tmp
     monkeypatch.setenv("DRAWDOWN_STATE_PATH", str(state / "drawdown.sqlite"))
     monkeypatch.setitem(sys.modules, "data.oi_cache", None)
     callbacks = []
-    monkeypatch.setattr(atexit, "register", callbacks.append)
+    monkeypatch.setattr(atexit, "register", lambda callback, *args: callbacks.append(partial(callback, *args)))
     try:
         with patch.object(alpha_main, "create_adapter", side_effect=AssertionError("account accessed")):
             with pytest.raises(RuntimeError, match="Online startup blocked"):
                 alpha_main.main()
-        assert len(callbacks) == 1
+        assert len(callbacks) == 2
+        assert json.loads((state / "runtime-status.json").read_text())["phase"] == "starting"
         with pytest.raises(RuntimeError, match="already has an execution process"):
             RuntimeStateLease(state, "paper-test")
     finally:
-        for callback in callbacks:
+        for callback in reversed(callbacks):
             callback()
+    assert json.loads((state / "runtime-status.json").read_text())["phase"] == "stopped"
     with RuntimeStateLease(state, "paper-test"):
         pass
 
