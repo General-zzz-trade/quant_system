@@ -239,6 +239,40 @@ def main() -> None:
                 raise
         atexit.register(lease.close)
 
+    from runner.runtime_monitor import RuntimeFreshnessGate, RuntimeMonitor
+    from shared.runtime_status import STATUS_NAME, RuntimeStatusWriter, read_json
+    execution_runner_keys = [] if args.dry_run else [key for key in args.symbols if "4h" not in key]
+    status_writer = None
+    if managed_state is not None:
+        from shared.runtime_state import MANIFEST_NAME
+        manifest = read_json(state_dir / MANIFEST_NAME)
+        release = {
+            key: os.environ.get(name, "") for key, name in (
+                ("revision", "QUANT_RELEASE_REVISION"), ("image_id", "QUANT_RELEASE_IMAGE_ID"),
+                ("input_digest", "QUANT_RELEASE_INPUT_DIGEST"),
+            )
+        }
+        status_writer = RuntimeStatusWriter(
+            state_dir / STATUS_NAME, scope=os.environ["RISK_SCOPE"], state_id=manifest["state_id"],
+            mode="paper" if args.dry_run else "execution", runner_keys=list(args.symbols),
+            execution_runner_keys=execution_runner_keys, release=release if any(release.values()) else {},
+        )
+    _runtime_monitor = RuntimeMonitor(
+        status_writer, execution=not args.dry_run, execution_runner_keys=execution_runner_keys,
+    )
+    _runtime_monitor.publish("starting")
+
+    def _publish_shutdown_status(phase: str) -> None:
+        try:
+            _runtime_monitor.publish(phase)
+        except Exception:
+            # Publication withdraws entry permission before touching storage.
+            # A failed status write must not prevent resource cleanup.
+            logger.exception("Runtime shutdown status publication failed")
+
+    if managed_state is not None:
+        atexit.register(_publish_shutdown_status, "stopped")
+
     # Online input is required. Never silently replace missing OI/LS data.
     # Resolve it before constructing an adapter or opening any account connection.
     try:
@@ -301,6 +335,7 @@ def main() -> None:
                 and "4h" not in rk and "15m" not in rk
             ),
         )
+        _risk_gate = RuntimeFreshnessGate(_runtime_monitor, _risk_gate)
 
     def _refresh_equity() -> None:
         if _drawdown is None:
@@ -318,6 +353,10 @@ def main() -> None:
     # Build coordinators
     coordinators: dict[str, EngineCoordinator] = {}
     modules: dict[str, AlphaDecisionModule] = {}
+    _runtime_monitor.bind(
+        coordinators, modules, portfolio=_portfolio_binding.store if _portfolio_binding else None,
+        wallet=_account_ledger,
+    )
 
     # Live OI/LS caches — one per unique symbol (shared across 1h/4h runners)
     oi_caches: dict[str, BinanceOICache] = {}
@@ -988,6 +1027,7 @@ def main() -> None:
 
     # Main loop
     try:
+        _runtime_monitor.publish("running")
         while not shutdown:
             time.sleep(1)
             _loop_iter += 1
@@ -1344,9 +1384,12 @@ def main() -> None:
                             )
                 except Exception:
                     pass  # never crash the main loop
+            if _loop_iter % 5 == 0:
+                _runtime_monitor.publish("running")
     except KeyboardInterrupt:
         pass
     finally:
+        _publish_shutdown_status("stopping")
         logger.info("Shutting down...")
         # Best-effort final reconciliation/cancellation; unresolved journal
         # reservations survive shutdown and continue to block new exposure.
@@ -1409,6 +1452,7 @@ def main() -> None:
             ws.stop()
         for coord in coordinators.values():
             coord.stop()
+        _publish_shutdown_status("stopped")
         logger.info("Shutdown complete")
 
 

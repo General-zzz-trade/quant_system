@@ -39,6 +39,8 @@ RUN --mount=type=secret,id=proxy_ca \
     rm -rf target /root/.cargo /root/.rustup /tmp/rustup.sh /var/lib/apt/lists/*
 
 FROM base AS paper
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=$VCS_REF
 COPY . .
 COPY --from=rust-builder /tmp/wheels/ /tmp/wheels/
 RUN --mount=type=secret,id=proxy_ca \

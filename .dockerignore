@@ -57,6 +57,13 @@ scripts/*
 !scripts/check_paper_runtime.py
 !scripts/runtime_state_backup.py
 !scripts/check_runtime_recovery.py
+!scripts/check_runtime_health.py
+!scripts/check_release_acceptance.py
+!scripts/check_execution_runtime.py
+!scripts/migrate_runtime_state.py
+!scripts/risk_group_backup.py
+!scripts/account_ledger_state.py
+!scripts/portfolio_risk_state.py
 .last_good_deploy
 *.csv
 *.jsonl

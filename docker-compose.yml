@@ -2,10 +2,12 @@ version: "3.8"
 
 services:
   quant-paper:
-    image: quant-paper:latest
+    image: ${QUANT_RELEASE_IMAGE:-quant-paper:latest}
     build:
       context: .
       target: paper
+      args:
+        VCS_REF: ${QUANT_RELEASE_REVISION:-unknown}
     command: ["python3", "-m", "scripts.run_bybit_alpha", "--symbols", "BTCUSDT", "ETHUSDT", "ETHUSDT_15m", "SUIUSDT", "AXSUSDT", "--ws", "--dry-run"]
     env_file: .env
     environment:
@@ -14,6 +16,9 @@ services:
       - ORDER_JOURNAL_PATH=/app/data/runtime/orders.sqlite
       - DRAWDOWN_STATE_PATH=/app/data/runtime/drawdown.sqlite
       - RISK_SCOPE=${QUANT_PAPER_RISK_SCOPE:-}
+      - QUANT_RELEASE_REVISION=${QUANT_RELEASE_REVISION:-}
+      - QUANT_RELEASE_IMAGE_ID=${QUANT_RELEASE_IMAGE_ID:-}
+      - QUANT_RELEASE_INPUT_DIGEST=${QUANT_RELEASE_INPUT_DIGEST:-}
     volumes:
       - ./data_files:/app/data_files:ro
       - ./models_v8:/app/models_v8:ro
@@ -26,7 +31,7 @@ services:
           create_host_path: false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import importlib; importlib.import_module('_quant_hotpath'); importlib.import_module('scripts.run_bybit_alpha')"]
+      test: ["CMD", "python3", "-m", "scripts.check_runtime_health", "--require", "ready"]
       interval: 10s
       timeout: 5s
       retries: 12

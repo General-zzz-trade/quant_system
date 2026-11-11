@@ -54,6 +54,8 @@ jobs:
             shared/portfolio_reservations.py scripts/portfolio_risk_state.py \
             shared/account_ledger.py scripts/account_ledger_state.py \
             shared/runtime_migration.py shared/risk_group_backup.py \
+            shared/runtime_status.py shared/release_acceptance.py \
+            scripts/check_runtime_health.py scripts/check_release_acceptance.py \
             scripts/migrate_runtime_state.py scripts/risk_group_backup.py scripts/check_execution_runtime.py \
             data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
             data/oi_cache.py tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
@@ -94,6 +96,7 @@ jobs:
           load: true
           push: false
           tags: quant-ci:startup-check
+          build-args: VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Startup check with networking disabled

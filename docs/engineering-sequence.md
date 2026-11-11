@@ -66,6 +66,18 @@ python -m runner.alpha_main --check-paper-contract
 
 失败验证：临时移除 WAL 检查后，对同一行的已提交更新逃过检查，回归测试失败且退出 1（`stage4-wal-mutation.log`）。恢复后钱包未重新核对、缺账户快照、文件哈希变化、活动写者等均有自动化拒绝用例。独立代码复查未发现新增阻塞缺陷。
 
-## 后续顺序
+第四项提交 `54aabe4` 的 GitHub CI 曾因 Docker 白名单遗漏两个运维脚本而失败，不能把上述源码挂载验证等同于完整 CI 通过。该失败证据与构建上下文修复纳入第五项。
 
-5. 运行监控与发布验收：待实现；真实部署不在本轮运行。
+## 第 5 项：运行监控与发布验收
+
+**工程实现完成；线上 paper、真实部署与实盘验收未通过。完整容器验证须以本次提交的 GitHub CI 结果为准。**
+
+修改前：仅导入模块的健康检查在没有状态与心跳时仍返回 0（`stage5-health-before.log`）；第四项容器 CI 缺失脚本（`stage4-github-container.log`）。
+
+修改后：主循环同步发布原子状态，运行健康与新增风险均检查新鲜心跳及对账；拒绝 PID 复用后的旧状态。发布绑定 master 精确 SHA、实际成功 CI、本地镜像 ID、完整模型/数据哈希及新进程证据，预检失败不会触发服务回滚。补齐 Docker 运维入口并测试 `--help`。实现文件、命令及已知运行限制见 [runtime-release-acceptance.md](runtime-release-acceptance.md)。
+
+故障注入：在内存中绕过心跳门控或精确 CI 校验，回归测试均失败、退出 1（`stage5-heartbeat-mutation.log`、`stage5-release-mutation.log`）；未将变异写入源码。实际 Compose 的空环境副本验证健康入口存在；现有 paper 命令含未配置的 runner，被预检拒绝（`stage5-compose.log`）。
+
+本地验证：81 项专项测试、Ruff E/W/F、Shell 语法和工作流 YAML 校验通过。真实 Docker 构建上下文打包成功，导出后的 13 个新增/修改 Python 与 Shell 文件和工作树逐字节相同，运维入口完整（`stage5-packaged-context-build.log`）。本地完整容器回归因 rootless Docker 存储空间不足未能启动，明确记为未通过（`stage5-container-disk-failure.log`、`stage5-packaged-container-disk-failure.log`），不能用源码专项测试替代。GitHub 的正式镜像构建、原生测试及容器测试会对最终提交独立执行。
+
+所有操作保持 master 主干，没有访问真实账户、发通知、执行部署或提交订单。策略公式、仓位规则及 live 配置保持原值。

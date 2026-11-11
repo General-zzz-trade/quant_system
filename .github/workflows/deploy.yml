@@ -27,6 +27,10 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       DEPLOY_SERVICES: quant-paper
+      GH_TOKEN: ${{ github.token }}
+      QUANT_RELEASE_REVISION: ${{ github.sha }}
+      QUANT_RELEASE_REPOSITORY: ${{ github.repository }}
+      QUANT_RELEASE_IMAGE: quant-paper:latest
 
     steps:
       - uses: actions/checkout@v4
@@ -108,11 +112,13 @@ jobs:
         run: |
           STATE="$HOME/.local/state/quant-system/quant-paper-last-good-deploy"
           mkdir -p "$(dirname "$STATE")"
+          cp .cache/release/postflight.json "$STATE.release.tmp"
+          mv "$STATE.release.tmp" "$STATE.release.json"
           git rev-parse HEAD > "$STATE.tmp"
           mv "$STATE.tmp" "$STATE"
 
       - name: Rollback on failure
-        if: ${{ failure() && steps.rolling_deploy.conclusion == 'failure' }}
+        if: ${{ failure() && steps.rolling_deploy.conclusion == 'failure' && steps.rolling_deploy.outputs.service_change_started == 'true' }}
         run: |
           echo "Deploy failed; rolling back"
           PREV="${{ steps.changes.outputs.prev_commit }}"
@@ -120,6 +126,13 @@ jobs:
             echo "Rollback FAILED: no image backed up by this deployment" >&2
             exit 1
           fi
+          export QUANT_RELEASE_BASELINE="$HOME/.local/state/quant-system/quant-paper-last-good-deploy.release.json"
+          if [ ! -f "$QUANT_RELEASE_BASELINE" ]; then
+            echo "Rollback FAILED: no previous accepted release evidence" >&2
+            exit 1
+          fi
+          export QUANT_RELEASE_REVISION="$PREV"
+          export QUANT_RELEASE_IMAGE=quant-paper:latest
           docker tag quant-paper:rollback quant-paper:latest
           bash scripts/deploy.sh "$DEPLOY_SERVICES"
           # Notify

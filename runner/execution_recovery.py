@@ -1,6 +1,7 @@
 """Startup/runtime reconciliation for durable execution, with no order resubmission."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 
@@ -9,7 +10,14 @@ def reconcile_execution(coordinator: Any, module: Any, *, restore: bool = False)
     if consumer is None:
         return []
     with coordinator._lock:
-        return _reconcile_locked(coordinator, module, consumer, restore=restore)
+        # Timestamp the start, so a slow account query cannot make old evidence
+        # look recent merely by finishing. Failed attempts never refresh a
+        # successful reconciliation observation.
+        observation = {"ready": False, "checked_at": time.time(), "monotonic_at": time.monotonic()}
+        coordinator._execution_reconciliation = observation
+        issues = _reconcile_locked(coordinator, module, consumer, restore=restore)
+        coordinator._execution_reconciliation = {**observation, "ready": not issues}
+        return issues
 
 
 def _reconcile_locked(coordinator: Any, module: Any, consumer: Any, *, restore: bool) -> list[str]:

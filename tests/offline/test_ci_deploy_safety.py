@@ -14,6 +14,10 @@ from shared.runtime_state import initialize_runtime_state
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REVISION = "a" * 40
+PREVIOUS_REVISION = "b" * 40
+IMAGE_ID = "sha256:" + "c" * 64
+INPUT_DIGEST = "d" * 64
 
 
 def workflow_step(path: Path, title: str) -> str:
@@ -41,6 +45,10 @@ class SecurityAndDeployTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        for key in list(self.env):
+            if key.startswith("QUANT_RELEASE_"):
+                self.env.pop(key)
+        self.env["HOME"] = str(self.root / "home")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
 
     def command(self, args, *, text=None):
@@ -110,6 +118,34 @@ class SecurityAndDeployTests(unittest.TestCase):
         scripts.mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
         shutil.copyfile(ROOT / "scripts/check_paper_runtime.py", scripts / "check_paper_runtime.py")
+        # The acceptance algorithm has separate tests. Here a deterministic
+        # executable verifies shell orchestration and every failure boundary.
+        (scripts / "check_release_acceptance.py").write_text('''import argparse, json, os, sys
+from pathlib import Path
+parser = argparse.ArgumentParser()
+for name in ("revision", "repository", "image", "output"):
+    parser.add_argument("--" + name, required=True)
+parser.add_argument("--preflight")
+parser.add_argument("--runtime-status")
+args = parser.parse_args()
+config = json.load(sys.stdin)
+assert args.image == config["services"]["quant-paper"]["image"]
+stage = "postflight" if args.preflight else "preflight"
+with Path("release-calls.jsonl").open("a") as out:
+    out.write(json.dumps({"stage": stage, "image": args.image, "revision": args.revision}) + "\\n")
+failure = int(os.environ.get("MOCK_RELEASE_" + stage.upper() + "_EXIT", "0"))
+if failure:
+    raise SystemExit(failure)
+release = {"revision": args.revision, "image_id": "sha256:" + "c" * 64, "input_digest": "d" * 64}
+if args.preflight:
+    assert json.loads(Path(args.preflight).read_text())["release"] == release
+    assert json.loads(Path(args.runtime_status).read_text())["synthetic"] is True
+    assert args.image == release["image_id"]
+path = Path(args.output)
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({"release": release, "paper_accepted": stage == "postflight", "stage": stage}))
+''')
+        (scripts / "check_runtime_health.py").write_text("# Invoked only through fake Docker\n")
         shared = self.root / "shared"
         shared.mkdir(exist_ok=True)
         for name in ("runtime_state.py", "execution_lease.py", "execution_journal.py", "drawdown_guard.py"):
@@ -121,6 +157,7 @@ class SecurityAndDeployTests(unittest.TestCase):
         self.state = Path(state.name)
         initialize_runtime_state(self.state, "paper-test")
         self.compose = {"services": {"quant-paper": {
+            "image": "quant-paper:latest",
             "command": ["python3", "-m", "scripts.run_bybit_alpha", "--dry-run"],
             "environment": {"RUNTIME_STATE_DIR": "/app/data/runtime", "RISK_SCOPE": "paper-test",
                             "ORDER_JOURNAL_PATH": "/app/data/runtime/orders.sqlite",
@@ -139,17 +176,37 @@ with Path(os.environ["MOCK_DOCKER_LOG"]).open("a") as out:
     out.write(json.dumps(sys.argv[1:]) + "\\n")
 if sys.argv[1:3] == ["compose", "config"]:
     if sys.argv[3:] == ["--format", "json"]:
-        print(Path("compose.json").read_text())
+        config = json.loads(Path("compose.json").read_text())
+        config["services"]["quant-paper"]["image"] = os.environ.get("QUANT_RELEASE_IMAGE", "quant-paper:latest")
+        print(json.dumps(config))
     raise SystemExit(int(os.environ.get("MOCK_CONFIG_EXIT", "0")))
 if sys.argv[1:3] == ["compose", "up"]:
+    Path("up-environment.json").write_text(json.dumps({key: os.environ.get(key) for key in (
+        "QUANT_RELEASE_IMAGE", "QUANT_RELEASE_REVISION", "QUANT_RELEASE_IMAGE_ID", "QUANT_RELEASE_INPUT_DIGEST"
+    )}))
     raise SystemExit(int(os.environ.get("MOCK_UP_EXIT", "0")))
+if sys.argv[1:5] == ["compose", "exec", "-T", "quant-paper"]:
+    if sys.argv[5:] == ["cat", "/app/data/runtime/runtime-status.json"]:
+        print(json.dumps({"synthetic": True}))
+        raise SystemExit(int(os.environ.get("MOCK_STATUS_EXIT", "0")))
+    if sys.argv[5:8] == ["python3", "-m", "scripts.check_runtime_health"]:
+        raise SystemExit(int(os.environ.get("MOCK_HEALTH_EXIT", "0")))
 if sys.argv[1:2] == ["tag"]:
     raise SystemExit(int(os.environ.get("MOCK_TAG_EXIT", "0")))
 raise SystemExit("unexpected Docker operation in test")
 ''')
         docker.chmod(0o755)
         self.env.update(PATH=str(bin_dir) + os.pathsep + os.environ["PATH"],
-                        MOCK_DOCKER_LOG=str(self.root / "docker.jsonl"), DEPLOY_SERVICES="quant-paper")
+                        MOCK_DOCKER_LOG=str(self.root / "docker.jsonl"), DEPLOY_SERVICES="quant-paper",
+                        GITHUB_OUTPUT=str(self.root / "github-output"),
+                        QUANT_RELEASE_REVISION=REVISION, QUANT_RELEASE_REPOSITORY="fixture/repository")
+        self.previous_report = Path(self.env["HOME"]) / (
+            ".local/state/quant-system/quant-paper-last-good-deploy.release.json"
+        )
+        self.previous_report.parent.mkdir(parents=True)
+        self.previous_report.write_text(json.dumps({"paper_accepted": True, "release": {
+            "revision": PREVIOUS_REVISION, "image_id": IMAGE_ID, "input_digest": INPUT_DIGEST,
+        }}))
 
     def docker_calls(self):
         path = self.root / "docker.jsonl"
@@ -164,8 +221,46 @@ raise SystemExit("unexpected Docker operation in test")
         self.assertEqual(self.docker_calls(), [["compose", "config", "--quiet"],
                                                ["compose", "config", "--format", "json"]])
         self.assertEqual(self.deploy("quant-paper").returncode, 0)
-        self.assertEqual(self.docker_calls()[-1], ["compose", "up", "-d", "--no-deps", "--no-build",
-                                                  "--force-recreate", "--wait", "--wait-timeout", "120", "quant-paper"])
+        calls = self.docker_calls()
+        self.assertIn(["compose", "up", "-d", "--no-deps", "--no-build",
+                       "--force-recreate", "--wait", "--wait-timeout", "120", "quant-paper"], calls)
+        self.assertIn(["compose", "exec", "-T", "quant-paper", "python3", "-m", "scripts.check_runtime_health",
+                       "--require", "ready", "--expected-revision", REVISION, "--expected-image-id", IMAGE_ID,
+                       "--expected-input-digest", INPUT_DIGEST], calls)
+        self.assertEqual(json.loads((self.root / "up-environment.json").read_text()), {
+            "QUANT_RELEASE_IMAGE": IMAGE_ID, "QUANT_RELEASE_IMAGE_ID": IMAGE_ID,
+            "QUANT_RELEASE_REVISION": REVISION, "QUANT_RELEASE_INPUT_DIGEST": INPUT_DIGEST,
+        })
+        report = json.loads((self.root / ".cache/release/postflight.json").read_text())
+        self.assertTrue(report["paper_accepted"])
+        releases = [json.loads(line) for line in (self.root / "release-calls.jsonl").read_text().splitlines()]
+        self.assertEqual([row["stage"] for row in releases], ["preflight", "postflight"])
+        self.assertEqual(releases[-1]["image"], IMAGE_ID)
+
+    def test_release_preflight_failure_blocks_before_restart(self):
+        self.paper_fixture()
+        self.env["MOCK_RELEASE_PREFLIGHT_EXIT"] = "29"
+        self.assertEqual(self.deploy("quant-paper").returncode, 29)
+        self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
+        self.assertFalse((self.root / ".cache/release/postflight.json").exists())
+        self.assertFalse(Path(self.env["GITHUB_OUTPUT"]).exists())
+
+    def test_post_health_and_acceptance_failures_propagate(self):
+        self.paper_fixture()
+        for variable, code in (("MOCK_HEALTH_EXIT", 31), ("MOCK_STATUS_EXIT", 37),
+                               ("MOCK_RELEASE_POSTFLIGHT_EXIT", 41)):
+            with self.subTest(variable=variable):
+                self.env[variable] = str(code)
+                self.assertEqual(self.deploy("quant-paper").returncode, code)
+                self.assertTrue(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
+                self.assertFalse((self.root / ".cache/release/postflight.json").exists())
+                self.env.pop(variable)
+
+    def test_missing_release_revision_blocks_before_restart(self):
+        self.paper_fixture()
+        self.env.pop("QUANT_RELEASE_REVISION")
+        self.assertNotEqual(self.deploy("quant-paper").returncode, 0)
+        self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
 
     def test_missing_entry_blocks_before_docker(self):
         self.paper_fixture()
@@ -238,10 +333,11 @@ raise SystemExit("unexpected Docker operation in test")
         self.env["MOCK_CONFIG_EXIT"] = "0"
         self.env["MOCK_UP_EXIT"] = "23"
         self.assertEqual(self.deploy("quant-paper").returncode, 23)
+        self.assertEqual(Path(self.env["GITHUB_OUTPUT"]).read_text(), "service_change_started=true\n")
 
     def rollback(self, available="true"):
         block = workflow_step(ROOT / ".github/workflows/deploy.yml", "Rollback on failure")
-        block = block.replace("${{ steps.changes.outputs.prev_commit }}", "mock-previous-sha")
+        block = block.replace("${{ steps.changes.outputs.prev_commit }}", PREVIOUS_REVISION)
         block = block.replace("${{ steps.backup.outputs.available }}", available)
         self.env.update(TELEGRAM_BOT_TOKEN="", TELEGRAM_CHAT_ID="")
         return self.command(["bash", "-eo", "pipefail", "-c", block])
@@ -257,9 +353,29 @@ raise SystemExit("unexpected Docker operation in test")
         self.assertEqual(self.rollback(available="").returncode, 1)
         self.assertEqual(len(self.docker_calls()), count)
 
+    def test_rollback_requires_accepted_matching_release_evidence(self):
+        self.paper_fixture()
+        original = self.previous_report.read_text()
+        self.previous_report.unlink()
+        self.assertEqual(self.rollback().returncode, 1)
+        self.assertEqual(self.docker_calls(), [])
+        for defect in ("not_accepted", "input_changed", "image_changed", "revision_changed"):
+            with self.subTest(defect=defect):
+                report = json.loads(original)
+                if defect == "not_accepted":
+                    report["paper_accepted"] = False
+                else:
+                    field = {"input_changed": "input_digest", "image_changed": "image_id",
+                             "revision_changed": "revision"}[defect]
+                    report["release"][field] = "changed"
+                self.previous_report.write_text(json.dumps(report))
+                self.assertEqual(self.rollback().returncode, 1)
+                self.assertFalse(any(call[:2] == ["compose", "up"] for call in self.docker_calls()))
+
     def test_workflow_references_and_paper_only_build(self):
         deploy = ROOT / ".github/workflows/deploy.yml"
-        for name in ["scripts/deploy.sh", "scripts/check_deploy_scope.py", "scripts/check_ci_security.py"]:
+        for name in ["scripts/deploy.sh", "scripts/check_deploy_scope.py", "scripts/check_ci_security.py",
+                     "scripts/check_runtime_health.py", "scripts/check_release_acceptance.py"]:
             self.assertTrue((ROOT / name).is_file())
             self.assertFalse((ROOT / name).is_symlink())
         self.assertEqual(workflow_step(deploy, "Docker build"), 'docker compose build --no-cache "$DEPLOY_SERVICES"')
@@ -267,6 +383,7 @@ raise SystemExit("unexpected Docker operation in test")
         self.assertNotIn("needs_rebuild", deploy.read_text())
         self.assertNotIn("git diff --name-only \"$PREV\" HEAD || true", deploy.read_text())
         self.assertIn("inputs.confirm_deploy && github.ref == 'refs/heads/master'", deploy.read_text())
+        self.assertIn("steps.rolling_deploy.outputs.service_change_started == 'true'", deploy.read_text())
 
     def test_invalid_previous_revision_stops_before_diff(self):
         home = self.root / "home"
