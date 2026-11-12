@@ -375,7 +375,7 @@ def _load_latest_onchain(path: Path) -> dict:
 
 def _build_data_sources(symbol: str, interval: str = "60",
                         oi_cache: Optional["BinanceOICache"] = None,
-                        required_warmup_bars: int = 1) -> DataSources:
+                        required_warmup_bars: int = 1, *, repair_inputs: bool = True) -> DataSources:
     """Build all external data source callables for FeatureComputeHook.
 
     Uses CsvCursor objects to load full CSV history so that during warmup
@@ -406,11 +406,12 @@ def _build_data_sources(symbol: str, interval: str = "60",
             logger.debug("CsvCursor: funding_rate loaded %d rows", len(_funding_cursor._timestamps))
 
     # Fix mixed-format OI CSV before loading
-    try:
-        from scripts.run_full_backtest import _fix_oi_file
-        _fix_oi_file(symbol)
-    except Exception:
-        pass
+    if repair_inputs:
+        try:
+            from scripts.run_full_backtest import _fix_oi_file
+            _fix_oi_file(symbol)
+        except Exception:
+            pass
 
     # ── Open interest (hourly, ts in epoch-ms) ──
     # CSV cursor as baseline (needed for warmup bars with historical timestamps)
@@ -760,6 +761,8 @@ def build_coordinator(
     circuit_breaker: Any = None,
     kill_switch: Any = None,
     risk_gate: Any = None,
+    starting_balance: Decimal | None = None,
+    repair_inputs: bool = True,
 ) -> tuple[EngineCoordinator, AlphaDecisionModule]:
     """Build a full coordinator pipeline for one runner.
 
@@ -768,12 +771,17 @@ def build_coordinator(
     """
     cfg = SYMBOL_CONFIG.get(runner_key, {})
     is_4h = "4h" in runner_key
+    if starting_balance is not None:
+        if (not dry_run or not isinstance(starting_balance, Decimal) or not starting_balance.is_finite()
+                or not 0 < starting_balance <= Decimal("90000000000")):
+            raise ValueError("Explicit synthetic balance is only valid for nonexecuting runs")
 
     # External data sources (CSV files refreshed by data-refresh timer)
     interval = cfg.get("interval", "60")
     data_sources = _build_data_sources(
         symbol, interval=interval, oi_cache=oi_cache,
         required_warmup_bars=cfg.get("warmup", 300 if is_4h else 800),
+        repair_inputs=repair_inputs,
     )
     data_readiness = getattr(data_sources, "readiness", None) or DataReadiness(
         oi_cache, None, None, interval_ms=int(interval) * 60_000,
@@ -843,7 +851,7 @@ def build_coordinator(
     )
 
     # Fetch exchange balance for state store initialization
-    balance = get_initial_balance(adapter)
+    balance = float(starting_balance) if starting_balance is not None else get_initial_balance(adapter)
     logger.info("Initial balance for %s: $%.2f", runner_key, balance)
 
     # RustTickProcessor: PERMANENTLY DISABLED (architecture decision, 2026-03)

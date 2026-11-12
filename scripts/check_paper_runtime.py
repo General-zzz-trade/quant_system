@@ -10,8 +10,41 @@ import sys
 from shared.runtime_state import validate_runtime_state
 
 
-def check_paper_runtime(config: dict, project_root: Path) -> Path:
+SHADOW_COMMAND = ["python3", "-m", "runner.shadow_main", "--manifest", "config/shadow.json", "--dry-run"]
+
+
+def shadow_run_manifest(service: dict, project_root: Path, *, symbol_config: dict | None = None):
+    """Validate the account-free Compose entry and its image-owned run list."""
+    from runner.run_manifest import load_run_manifest
+
+    if service.get("command") != SHADOW_COMMAND:
+        raise ValueError("Shadow deployment requires the exact manifest-based entry without overrides")
+    if service.get("env_file") or service.get("secrets"):
+        raise ValueError("Shadow deployment cannot inject account environment files or secrets")
+    allowed_environment = {
+        "RUNTIME_STATE_DIR", "ORDER_JOURNAL_PATH", "DRAWDOWN_STATE_PATH", "RISK_SCOPE",
+        "QUANT_RELEASE_REVISION", "QUANT_RELEASE_IMAGE_ID", "QUANT_RELEASE_INPUT_DIGEST",
+    }
+    environment = service.get("environment")
+    if not isinstance(environment, dict) or set(environment) - allowed_environment:
+        raise ValueError("Shadow deployment requires an explicit account-free environment")
+    root = project_root.absolute()
+    entry = root / "runner/shadow_main.py"
+    if entry.is_symlink() or not entry.is_file():
+        raise ValueError("Shadow runtime entry is unavailable in the checked-out revision")
+    manifest = load_run_manifest(
+        root / "config/shadow.json", project_root=root, validate_files=False, symbol_config=symbol_config,
+    )
+    if manifest.models_root != root / "models_v8" or manifest.data_root != root / "data_files":
+        raise ValueError("Shadow deployment inputs must use the standard mounted model and data roots")
+    return manifest
+
+
+def check_paper_runtime(config: dict, project_root: Path, *, symbol_config: dict | None = None) -> Path:
     service = config["services"]["quant-paper"]
+    command = service.get("command", [])
+    if isinstance(command, list) and "runner.shadow_main" in command:
+        shadow_run_manifest(service, project_root, symbol_config=symbol_config)
     environment = service["environment"]
     target = "/app/data/runtime"
     if environment.get("RUNTIME_STATE_DIR") != target:
@@ -20,7 +53,7 @@ def check_paper_runtime(config: dict, project_root: Path) -> Path:
         raise ValueError("Paper journal must be inside the persistent runtime directory")
     if environment.get("DRAWDOWN_STATE_PATH") != target + "/drawdown.sqlite":
         raise ValueError("Paper drawdown state must be inside the persistent runtime directory")
-    if "--dry-run" not in service.get("command", []):
+    if "--dry-run" not in command:
         raise ValueError("Paper deployment requires --dry-run")
     volumes = service.get("volumes", [])
     if any(str(v.get("target", "")).startswith(target + "/") for v in volumes):

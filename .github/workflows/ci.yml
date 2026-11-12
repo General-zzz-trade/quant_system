@@ -59,7 +59,7 @@ jobs:
             scripts/migrate_runtime_state.py scripts/risk_group_backup.py scripts/check_execution_runtime.py \
             data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
             data/oi_cache.py tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
-            tests/offline/ scripts/check_local_safety.py \
+            tests/unit/runner/test_shadow_main.py tests/offline/ scripts/check_local_safety.py \
             scripts/check_ci_security.py scripts/check_deploy_scope.py \
             scripts/check_runtime_state.py scripts/check_paper_runtime.py scripts/runtime_state_backup.py \
             scripts/check_runtime_recovery.py tests/fixtures/runtime_recovery_worker.py \
@@ -106,7 +106,7 @@ jobs:
       - name: Container startup regression tests
         run: >-
           docker run --rm --network none quant-ci:startup-check
-          python -m pytest tests/unit/runner/test_startup_check.py -q --tb=short
+          python -m pytest tests/unit/runner/test_startup_check.py tests/unit/runner/test_shadow_main.py -q --tb=short
       - name: Offline paper data-to-signal contract
         run: >-
           docker run --rm --network none --entrypoint python
@@ -163,6 +163,7 @@ jobs:
             tests/unit/runner/test_portfolio_risk_file.py \
             tests/unit/runner/test_offline_research.py \
             tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
+            tests/unit/runner/test_shadow_main.py \
             tests/unit/infra/test_model_signing.py \
             -x -q --tb=short
 

@@ -69,6 +69,33 @@ class RuntimeStatusTests(unittest.TestCase):
         self.assertFalse(result["execution_eligible"])
         self.assertEqual(status["execution_runner_keys"], [])
 
+    def test_shadow_status_identifies_loaded_manifest_without_execution_claims(self):
+        writer = self.writer(mode="shadow", manifest_digest="e" * 64)
+        result = writer.publish("running", data=self.data())
+        self.assertTrue(result["ready"])
+        self.assertFalse(result["execution_eligible"])
+        self.assertEqual(result["manifest_digest"], "e" * 64)
+        status = read_json(self.path)
+        self.assertEqual(status["execution_runner_keys"], [])
+        self.assertIsNone(status["execution"])
+        for mutation in ({"manifest_digest": None}, {"manifest_digest": "short"},
+                         {"execution_runner_keys": ["BTCUSDT"]}, {"execution": self.execution()}):
+            with self.subTest(fields=list(mutation)), self.assertRaises(ValueError):
+                evaluate_status(dict(status, **mutation), now=self.now)
+
+    def test_shadow_readiness_retains_data_freshness_and_input_gates(self):
+        writer = self.writer(mode="shadow", manifest_digest="e" * 64)
+        writer.publish("running", data=self.data())
+        original = read_json(self.path)
+        for change in ({"ready": False}, {"bar_ts_ms": int(self.now * 1000) - 3_900_001},
+                       {"external_conditions": {"batch_inputs": {"ready": False}}}):
+            status = deepcopy(original)
+            status["data"]["BTCUSDT"].update(change)
+            with self.subTest(change=change):
+                result = evaluate_status(status, now=self.now)
+                self.assertFalse(result["ready"])
+                self.assertFalse(result["execution_eligible"])
+
     def test_starting_and_stopped_cannot_pass_readiness(self):
         writer = self.writer()
         result = writer.publish("starting")

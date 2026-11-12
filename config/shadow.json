@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "mode": "shadow",
+  "venue": "bybit",
+  "currency": "USDT",
+  "shadow_balance": "10000",
+  "models_root": "models_v8",
+  "data_root": "data_files",
+  "runners": ["BTCUSDT", "ETHUSDT", "BTCUSDT_4h", "ETHUSDT_4h"],
+  "disabled_runners": ["BTCUSDT_15m", "ETHUSDT_15m"]
+}

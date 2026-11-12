@@ -8,10 +8,8 @@ services:
       target: paper
       args:
         VCS_REF: ${QUANT_RELEASE_REVISION:-unknown}
-    command: ["python3", "-m", "scripts.run_bybit_alpha", "--symbols", "BTCUSDT", "ETHUSDT", "ETHUSDT_15m", "SUIUSDT", "AXSUSDT", "--ws", "--dry-run"]
-    env_file: .env
+    command: ["python3", "-m", "runner.shadow_main", "--manifest", "config/shadow.json", "--dry-run"]
     environment:
-      - BYBIT_BASE_URL=https://api-demo.bybit.com
       - RUNTIME_STATE_DIR=/app/data/runtime
       - ORDER_JOURNAL_PATH=/app/data/runtime/orders.sqlite
       - DRAWDOWN_STATE_PATH=/app/data/runtime/drawdown.sqlite

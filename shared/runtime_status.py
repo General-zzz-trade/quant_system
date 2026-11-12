@@ -193,8 +193,12 @@ def evaluate_status(status: dict, *, now: float | None = None,
     if expected_state_id is not None and state_id != expected_state_id:
         raise ValueError("Runtime status identity differs from configured state")
     mode, phase = status.get("mode"), status.get("phase")
-    if mode not in {"paper", "execution"} or phase not in {"starting", "running", "stopping", "stopped"}:
+    if mode not in {"paper", "shadow", "execution"} or phase not in {"starting", "running", "stopping", "stopped"}:
         raise ValueError("Invalid runtime phase or mode")
+    manifest_digest = status.get("manifest_digest")
+    if mode == "shadow" and (not isinstance(manifest_digest, str)
+                             or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest)):
+        raise ValueError("Shadow runtime requires its actual loaded manifest digest")
     runners = status.get("runner_keys")
     if not isinstance(runners, list) or not runners or len(runners) > 128:
         raise ValueError("Runtime status needs the configured runner set")
@@ -208,7 +212,7 @@ def evaluate_status(status: dict, *, now: float | None = None,
             or len(set(execution_runners)) != len(execution_runners)
             or not set(execution_runners) <= set(runners)
             or (mode == "execution" and not execution_runners)
-            or (mode == "paper" and execution_runners)):
+            or (mode in {"paper", "shadow"} and execution_runners)):
         raise ValueError("Runtime status needs an explicit execution runner set")
     release = _release(status.get("release"))
     if expected_release is not None and release != _release(expected_release):
@@ -242,9 +246,9 @@ def evaluate_status(status: dict, *, now: float | None = None,
     ready = live and phase == "running" and data_ready
     eligible = False
     execution = status.get("execution")
-    if mode == "paper":
+    if mode in {"paper", "shadow"}:
         if execution is not None:
-            raise ValueError("Paper runtime cannot assert execution observations")
+            raise ValueError("Paper or shadow runtime cannot assert execution observations")
     elif execution is None:
         ready = False
         reasons.append("execution_observations_unavailable")
@@ -296,7 +300,7 @@ def evaluate_status(status: dict, *, now: float | None = None,
     return {"version": 1, "live": live, "ready": ready, "execution_eligible": eligible,
             "mode": mode, "phase": phase, "reasons": reasons, "scope": scope,
             "state_id": state_id, "boot_id": status["boot_id"], "heartbeat_at": heartbeat,
-            "release": release}
+            "release": release, "manifest_digest": manifest_digest}
 
 
 class RuntimeStatusWriter:
@@ -305,6 +309,7 @@ class RuntimeStatusWriter:
     def __init__(self, path: Path, *, scope: str, state_id: str, mode: str,
                  runner_keys: list[str], release: dict | None = None,
                  execution_runner_keys: list[str] | None = None,
+                 manifest_digest: str | None = None,
                  clock: Callable[[], float] = time.time) -> None:
         self.path = _path(path)
         if not self.path.parent.is_dir():
@@ -316,6 +321,7 @@ class RuntimeStatusWriter:
         self.identity = {"version": 1, "scope": scope, "state_id": state_id, "mode": mode,
                          "runner_keys": list(runner_keys), "release": _release(release or {}),
                          "execution_runner_keys": list(execution_keys),
+                         "manifest_digest": manifest_digest,
                          "boot_id": uuid.uuid4().hex, "pid": os.getpid(), "started_at": clock(),
                          **_process_identity(os.getpid())}
 

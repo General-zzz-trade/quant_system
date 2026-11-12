@@ -77,6 +77,110 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                                      "oi_event_ts_ms": 7_200_000, "ls_event_ts_ms": 7_200_000,
                                      "external_conditions": {}}}}
 
+    def enable_shadow(self):
+        from scripts.check_paper_runtime import SHADOW_COMMAND
+
+        (self.project / "runner").mkdir()
+        (self.project / "runner/shadow_main.py").write_text("# fixture; never executed\n")
+        (self.project / "config").mkdir()
+        self.manifest_path = self.project / "config/shadow.json"
+        self.manifest = {
+            "version": 1, "mode": "shadow", "venue": "bybit", "currency": "USDT",
+            "shadow_balance": "10000", "models_root": "models_v8", "data_root": "data_files",
+            "runners": ["BTCUSDT"], "disabled_runners": ["BTCUSDT_15m"],
+        }
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.symbol_config["BTCUSDT_15m"] = {"symbol": "BTCUSDT", "model_dir": "disabled", "interval": "15"}
+        self.config["services"]["quant-paper"]["command"] = list(SHADOW_COMMAND)
+
+    def shadow_health(self, receipt):
+        return dict(self.health(receipt), mode="shadow", manifest_digest=receipt["inputs"]["run_manifest"]["digest"])
+
+    def test_shadow_release_binds_manifest_and_never_claims_execution(self):
+        self.enable_shadow()
+        before = self.validate()
+        self.assertEqual(before["runtime_mode"], "shadow")
+        self.assertFalse(before["shadow_accepted"])
+        self.assertEqual(before["inputs"]["runners"], ["BTCUSDT"])
+        self.assertIn("config/shadow.json", {row["path"] for row in before["inputs"]["files"]})
+        result = self.validate(previous_report=before, health=self.shadow_health(before))
+        self.assertTrue(result["shadow_accepted"])
+        self.assertTrue(result["paper_accepted"])
+        self.assertEqual(result["reason"], "shadow_runtime_ready")
+        self.assertFalse(result["execution_eligible"])
+        self.assertFalse(result["live_acceptance"])
+        self.assertFalse(result["artifact_loading_verified"])
+
+    def test_shadow_manifest_and_strategy_changes_invalidate_release(self):
+        self.enable_shadow()
+        before = self.validate()
+        self.manifest["shadow_balance"] = "20000"
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.assertNotEqual(before["inputs"]["sha256"], self.validate()["inputs"]["sha256"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.validate(previous_report=before, health=self.shadow_health(before))
+        self.manifest["shadow_balance"] = "10000"
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.symbol_config["BTCUSDT"]["qty_step"] = "0.01"
+        self.assertNotEqual(before["inputs"]["run_manifest"]["digest"],
+                            self.validate()["inputs"]["run_manifest"]["digest"])
+
+    def test_shadow_active_disabled_partition_cannot_drift(self):
+        self.enable_shadow()
+        for change in ({"disabled_runners": []}, {"runners": ["BTCUSDT", "UNKNOWN"]},
+                       {"disabled_runners": ["BTCUSDT", "BTCUSDT_15m"]}):
+            self.manifest_path.write_text(json.dumps(dict(self.manifest, **change)))
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "partition"):
+                self.validate()
+
+    def test_shadow_rejects_credentials_entry_overrides_and_extra_arguments(self):
+        self.enable_shadow()
+        original = copy.deepcopy(self.config)
+        changes = [
+            {"env_file": [".env"]}, {"secrets": ["exchange_credentials"]},
+            {"environment": dict(original["services"]["quant-paper"]["environment"], BYBIT_API_KEY="fixture")},
+            {"environment": dict(original["services"]["quant-paper"]["environment"], BYBIT_BASE_URL="https://invalid")},
+            {"command": original["services"]["quant-paper"]["command"] + ["--symbols", "BTCUSDT"]},
+            {"command": original["services"]["quant-paper"]["command"][:-1]},
+            {"entrypoint": ["sh", "-c"]}, {"working_dir": "/other"},
+        ]
+        for change in changes:
+            config = copy.deepcopy(original)
+            config["services"]["quant-paper"].update(change)
+            with self.subTest(fields=list(change)), self.assertRaises(ValueError):
+                self.validate(config=config)
+
+    def test_shadow_missing_entry_or_manifest_is_blocked_before_acceptance(self):
+        self.enable_shadow()
+        for path in (self.project / "runner/shadow_main.py", self.manifest_path):
+            content = path.read_bytes()
+            path.unlink()
+            with self.subTest(path=path.name), self.assertRaises((ValueError, OSError)):
+                self.validate()
+            path.write_bytes(content)
+
+    def test_shadow_mounts_must_match_manifest_roots(self):
+        self.enable_shadow()
+        mounts = self.config["services"]["quant-paper"]["volumes"]
+        mounts[1]["source"] = str(self.root / "other-models")
+        with self.assertRaisesRegex(ValueError, "match"):
+            self.validate()
+        mounts[1]["source"] = str(self.models)
+        self.manifest["models_root"] = "different-models"
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        with self.assertRaisesRegex(ValueError, "standard"):
+            self.validate()
+
+    def test_shadow_health_requires_exact_loaded_manifest_mode_and_no_execution(self):
+        self.enable_shadow()
+        before = self.validate()
+        for change in ({"manifest_digest": "f" * 64}, {"manifest_digest": None},
+                       {"mode": "paper"}, {"execution_runner_keys": ["BTCUSDT"]},
+                       {"execution": {"modules": {"BTCUSDT": True}}}):
+            health = dict(self.shadow_health(before), **change)
+            with self.subTest(fields=list(change)), self.assertRaises(ValueError):
+                self.validate(previous_report=before, health=health)
+
     def test_preflight_binds_ci_image_state_and_complete_input_manifest(self):
         result = self.validate()
         self.assertEqual(result["stage"], "preflight")

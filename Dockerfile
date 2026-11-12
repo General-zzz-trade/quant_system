@@ -51,7 +51,7 @@ RUN --mount=type=secret,id=proxy_ca \
     rm -rf /tmp/wheels /var/lib/apt/lists/* && \
     python -c "from _quant_hotpath import RustFeatureEngine, RustStateStore, RustInferenceBridge" && \
     python -m runner.alpha_main --check-startup
-CMD ["python", "-m", "runner.alpha_main", "--symbols", "ETHUSDT", "--ws", "--dry-run"]
+CMD ["python3", "-m", "runner.shadow_main", "--manifest", "config/shadow.json", "--dry-run"]
 
 # Existing live arguments are preserved; this task does not enable execution.
 FROM paper AS live

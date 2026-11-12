@@ -16,7 +16,7 @@ import time
 from typing import Any
 import urllib.request
 
-from scripts.check_paper_runtime import check_paper_runtime
+from scripts.check_paper_runtime import check_paper_runtime, shadow_run_manifest
 from shared.runtime_state import _json
 
 _REVISION = re.compile(r"[0-9a-f]{40}")
@@ -161,31 +161,44 @@ def _runtime_contract(config: dict) -> dict:
     return service
 
 
-def release_input_manifest(config: dict, *, symbol_config: dict | None = None) -> dict:
+def release_input_manifest(config: dict, *, symbol_config: dict | None = None,
+                           project_root: Path | None = None) -> dict:
     """Hash mounted bytes actually selectable by the configured paper runners."""
     if symbol_config is None:
         from strategy.config import SYMBOL_CONFIG
         symbol_config = SYMBOL_CONFIG
     service = _runtime_contract(config)
     command = service.get("command")
-    if (not isinstance(command, list) or command[:3] != ["python3", "-m", "scripts.run_bybit_alpha"]
-            or command.count("--symbols") != 1 or command.count("--dry-run") != 1
-            or any(arg in command for arg in ("--enable-execution", "--check-startup", "--check-paper-contract"))):
-        raise ValueError("Release requires the explicit paper runtime entry and symbols")
-    start = command.index("--symbols") + 1
-    keys = []
-    for value in command[start:]:
-        if not isinstance(value, str):
-            raise ValueError("Invalid paper command argument")
-        if value.startswith("--"):
-            break
-        keys.append(value)
+    manifest = None
+    if isinstance(command, list) and "runner.shadow_main" in command:
+        manifest = shadow_run_manifest(service, project_root or Path.cwd(), symbol_config=symbol_config)
+        keys = list(manifest.runner_keys)
+    else:
+        if (not isinstance(command, list) or command[:3] != ["python3", "-m", "scripts.run_bybit_alpha"]
+                or command.count("--symbols") != 1 or command.count("--dry-run") != 1
+                or any(arg in command for arg in ("--enable-execution", "--check-startup", "--check-paper-contract"))):
+            raise ValueError("Release requires the explicit paper runtime entry and symbols")
+        start = command.index("--symbols") + 1
+        keys = []
+        for value in command[start:]:
+            if not isinstance(value, str):
+                raise ValueError("Invalid paper command argument")
+            if value.startswith("--"):
+                break
+            keys.append(value)
     if not keys or len(set(keys)) != len(keys) or any(key not in symbol_config for key in keys):
         raise ValueError("Paper command contains missing, duplicate or unsupported runner keys")
     models = _mount(service, "/app/models_v8")
     data = _mount(service, "/app/data_files")
+    if manifest is not None and (models != manifest.models_root or data != manifest.data_root):
+        raise ValueError("Shadow mounts must match the validated manifest input roots")
     model_dirs, symbols = set(), set()
     entries = []
+    manifest_binding = None
+    if manifest is not None:
+        entries.append(_file_entry(manifest.manifest_path, "config/shadow.json"))
+        manifest_binding = {"path": "config/shadow.json", "digest": manifest.digest, "mode": manifest.mode,
+                            "shadow_balance": str(manifest.shadow_balance)}
     for key in keys:
         runner = symbol_config[key]
         name = runner["model_dir"]
@@ -219,8 +232,13 @@ def release_input_manifest(config: dict, *, symbol_config: dict | None = None) -
         raise ValueError("Required data input changed during release validation")
     entries.extend(data_entries)
     entries.sort(key=lambda entry: entry["path"])
-    digest = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {"sha256": digest, "files": entries, "runners": keys, "symbols": sorted(symbols)}
+    payload = entries if manifest_binding is None else {"files": entries, "run_manifest": manifest_binding}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    result = {"sha256": digest, "files": entries, "runners": keys, "symbols": sorted(symbols),
+              "mode": "shadow" if manifest is not None else "paper"}
+    if manifest_binding is not None:
+        result["run_manifest"] = manifest_binding
+    return result
 
 
 def validate_release(*, repository: str, revision: str, config: dict, project_root: Path,
@@ -242,16 +260,17 @@ def validate_release(*, repository: str, revision: str, config: dict, project_ro
             or image_inspect.get("Config", {}).get("Labels", {}).get("org.opencontainers.image.revision") != revision):
         raise ValueError("Image must have an immutable local image ID and exact revision label")
     _runtime_contract(config)
-    state = check_paper_runtime(config, project_root)
+    state = check_paper_runtime(config, project_root, symbol_config=symbol_config)
     identity = _json((state / "runtime-state.json").read_text(encoding="utf-8"))
-    inputs = release_input_manifest(config, symbol_config=symbol_config)
+    inputs = release_input_manifest(config, symbol_config=symbol_config, project_root=project_root)
     release = {"revision": revision, "image_id": image_inspect["Id"], "input_digest": inputs["sha256"]}
     result = {"version": 1, "stage": "preflight", "repository": repository, "branch": "master",
               "checked_at": checked_now, "release": release, "ci": ci,
               "inputs": inputs, "runtime": {"scope": identity["scope"], "state_id": identity["state_id"],
                                             "schema_version": identity["version"]},
               "schema_versions_supported": dict(SCHEMA_VERSIONS_SUPPORTED),
-              "paper_accepted": False, "execution_eligible": False, "live_acceptance": False,
+              "paper_accepted": False, "shadow_accepted": False, "runtime_mode": inputs["mode"],
+              "execution_eligible": False, "live_acceptance": False,
               "artifact_loading_verified": False, "reason": "runtime_health_not_yet_checked"}
     if (previous_report is None) != (health is None):
         raise ValueError("Post-release acceptance requires both preflight and runtime status")
@@ -270,10 +289,13 @@ def validate_release(*, repository: str, revision: str, config: dict, project_ro
                 or not 0 < checked_at <= checked_now
                 or health["started_at"] < checked_at or health["heartbeat_at"] < checked_at):
             raise ValueError("Runtime observations must originate after this release preflight")
-        if (health.get("mode") != "paper" or health.get("scope") != identity["scope"]
+        if (health.get("mode") != inputs["mode"] or health.get("scope") != identity["scope"]
                 or health.get("state_id") != identity["state_id"]
                 or health.get("runner_keys") != inputs["runners"] or not evaluation.get("ready")):
             raise ValueError("Runtime has no fresh ready paper evidence for this release")
-        result.update(stage="postflight", paper_accepted=True, reason="paper_runtime_ready",
+        if inputs["mode"] == "shadow" and health.get("manifest_digest") != inputs["run_manifest"]["digest"]:
+            raise ValueError("Shadow runtime loaded a different manifest than the release preflight")
+        result.update(stage="postflight", paper_accepted=True, shadow_accepted=inputs["mode"] == "shadow",
+                      reason=inputs["mode"] + "_runtime_ready",
                       runtime_boot_id=health["boot_id"])
     return result
