@@ -105,4 +105,5 @@ def test_study_reads_only_the_development_window(tmp_path):
     frozen = json.loads((tmp_path / "out_clean" / "final_spec.json").read_text())
     assert frozen["kind"] == "btc_eth_multitimeframe_target" and frozen["trials"] == 1
     assert StrategySpec.from_record(frozen["spec"]) == ov.SPEC
-    assert frozen["passed"] == summary["gate"]["passed"]
+    # The screen never unlocks mainnet: binance_target reads ``passed`` as the mainnet gate.
+    assert frozen["passed"] is False and frozen["screen_passed"] == summary["gate"]["passed"]

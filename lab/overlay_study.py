@@ -179,7 +179,12 @@ def run_study(data_dir: Path, out: Path, *, eval_start: int = EVAL_START, dev_en
         "schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": list(SYMBOLS), "spec": SPEC.record(),
         "study": "lab.overlay_study", "evaluation": window,
         "selection": "none: one predeclared spec", "trials": 1, "gate": GATE,
-        "gate_result": checks, "passed": passed, "code": _code_identity(), "data": _manifest(data_dir),
+        "gate_result": checks, "screen_passed": passed,
+        # ``passed`` is what runner.binance_target reads as the mainnet gate. A development-window
+        # screen can only earn forward paper trading, so it never sets it.
+        "passed": False,
+        "mainnet": "refused: requires an accepted forward paper test, recorded by a person",
+        "code": _code_identity(), "data": _manifest(data_dir),
         "caveat": ("The development window and the 2026-11-13 lab grid were seen before this spec was "
                    "written; this is a screen, not an independent test."),
     }
