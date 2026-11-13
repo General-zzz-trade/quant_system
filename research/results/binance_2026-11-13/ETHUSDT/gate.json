@@ -1,0 +1,7 @@
+{
+  "passed": false,
+  "reasons": [
+    "final-test daily Sharpe 0.6432456682001007 <= 1.0",
+    "net return not positive under 2x costs"
+  ]
+}

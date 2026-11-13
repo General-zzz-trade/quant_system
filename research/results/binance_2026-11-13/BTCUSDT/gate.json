@@ -1,0 +1,9 @@
+{
+  "passed": false,
+  "reasons": [
+    "final-test daily Sharpe -0.18875797433058156 <= 1.0",
+    "net return not positive under 2x costs",
+    "does not beat buy_hold per unit of exposure",
+    "does not beat trend_50 per unit of exposure"
+  ]
+}

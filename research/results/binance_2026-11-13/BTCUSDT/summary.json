@@ -1,0 +1,86 @@
+{
+  "chosen": {
+    "average_gross_exposure": 0.0015282071666712813,
+    "deadzone": 2.0,
+    "fills": 346,
+    "max_drawdown_pct": 0.48183166235372155,
+    "max_hold": 144,
+    "min_hold": 24,
+    "net_return_pct": 0.15618567948006573,
+    "spec": {
+      "alpha": 1.0,
+      "feature_set": "derivatives",
+      "horizon": 24
+    },
+    "validation_sharpe_daily": 0.27564678240351015
+  },
+  "profitability_verified": false,
+  "stages": {
+    "buy_hold": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.8845711038218543,
+      "daily_sharpe": -0.5340289075659839,
+      "fees_usdt": "1.79479656888",
+      "fills": 1,
+      "final_equity_usdt": "7483.9167434561847601226",
+      "funding_usdt": "-254.0958155749352398774",
+      "max_drawdown_pct": 36.732582523539826,
+      "net_return_pct": -25.160832565438152,
+      "open_qty": "0.094",
+      "orders": 1,
+      "sharpe_daily": -0.5340289075659839,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "final_test": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.002199606047908387,
+      "daily_sharpe": -0.18875797433058156,
+      "fees_usdt": "133.362041815898",
+      "fills": 324,
+      "final_equity_usdt": "9984.3413793286795451286",
+      "funding_usdt": "0.1499929245775451286",
+      "max_drawdown_pct": 0.8093808633074361,
+      "net_return_pct": -0.15658620671320456,
+      "open_qty": "0.000",
+      "orders": 330,
+      "sharpe_daily": -0.18875797433058156,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "final_test_cost_x2": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.002787730971808109,
+      "daily_sharpe": -2.7445774480544194,
+      "fees_usdt": "333.847129208388",
+      "fills": 324,
+      "final_equity_usdt": "9690.7085703489088982560",
+      "funding_usdt": "-0.3144798827031017440",
+      "max_drawdown_pct": 3.368124538050423,
+      "net_return_pct": -3.092914296510911,
+      "open_qty": "0.000",
+      "orders": 330,
+      "sharpe_daily": -2.7445774480544194,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "trend_50": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.8159777342416946,
+      "daily_sharpe": -1.2467888744868638,
+      "fees_usdt": "2361.901135321233",
+      "fills": 981,
+      "final_equity_usdt": "5871.1273182013649188749",
+      "funding_usdt": "1.0322162125979188749",
+      "max_drawdown_pct": 48.32475138800887,
+      "net_return_pct": -41.28872681798635,
+      "open_qty": "-0.069",
+      "orders": 1079,
+      "sharpe_daily": -1.2467888744868638,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    }
+  },
+  "symbol": "BTCUSDT",
+  "synthetic": false
+}

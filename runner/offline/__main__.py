@@ -31,7 +31,7 @@ def main(argv=None):
     research.add_argument("--out", required=True, type=Path)
     research.add_argument("--config", type=Path)
     research.add_argument("--data-dir", required=True, type=Path,
-                          help="Directory from data.downloads.binance_public (<SYM>_1h.csv, _funding.csv, _metrics.csv)")
+                          help="data.downloads.binance_public output (<SYM>_1h.csv, _funding.csv, _metrics.csv)")
     research.add_argument("--symbol", required=True)
     research.add_argument("--start", help="First bar date (UTC, YYYY-MM-DD); default: first metrics day")
     for name in ("demo", "study", "replay"):

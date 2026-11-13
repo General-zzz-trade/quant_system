@@ -208,7 +208,8 @@ def _report(out, protocol, summary):
     lines = [f"# {summary['symbol']} 研究结果（预先声明的候选选择 + 一次性最终测试）", "",
              f"数据指纹：`{protocol['dataset']['sha256']}`，候选数：{protocol['candidate_count']}", "",
              "## 验证集候选（只用于选择）", "",
-             "| 特征 | 周期 | alpha | deadzone | 验证夏普(日) | 净收益% | 成交数 |", "|---|---:|---:|---:|---:|---:|---:|"]
+             "| 特征 | 周期 | alpha | deadzone | 验证夏普(日) | 净收益% | 成交数 |",
+             "|---|---:|---:|---:|---:|---:|---:|"]
     for c in protocol["validation_candidates"]:
         s = c["spec"]
         lines.append(f"| {s['feature_set']} | {s['horizon']} | {s['alpha']:g} | {c['deadzone']} | "

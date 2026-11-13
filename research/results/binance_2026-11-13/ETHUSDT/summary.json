@@ -1,0 +1,86 @@
+{
+  "chosen": {
+    "average_gross_exposure": 0.003061557767257355,
+    "deadzone": 2.0,
+    "fills": 580,
+    "max_drawdown_pct": 1.9047370783385889,
+    "max_hold": 36,
+    "min_hold": 6,
+    "net_return_pct": 0.010152148300261173,
+    "spec": {
+      "alpha": 100.0,
+      "feature_set": "ohlcv",
+      "horizon": 4
+    },
+    "validation_sharpe_daily": 0.014134619540584575
+  },
+  "profitability_verified": false,
+  "stages": {
+    "buy_hold": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.8742590265434577,
+      "daily_sharpe": -0.5123264795372241,
+      "fees_usdt": "1.7992045351104",
+      "fills": 1,
+      "final_equity_usdt": "6552.8976391828865697418",
+      "funding_usdt": "-179.2308607300030302582",
+      "max_drawdown_pct": 50.459760677139464,
+      "net_return_pct": -34.47102360817114,
+      "open_qty": "2.838",
+      "orders": 1,
+      "sharpe_daily": -0.5123264795372241,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "final_test": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.00099485445542763,
+      "daily_sharpe": 0.6432456682001007,
+      "fees_usdt": "60.4756680581714",
+      "fills": 374,
+      "final_equity_usdt": "10046.3197255179615812518",
+      "funding_usdt": "0.0217538201329812518",
+      "max_drawdown_pct": 0.2605699377936902,
+      "net_return_pct": 0.4631972551796158,
+      "open_qty": "0.000",
+      "orders": 379,
+      "sharpe_daily": 0.6432456682001007,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "final_test_cost_x2": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.0033493574582837233,
+      "daily_sharpe": -0.5857919374111943,
+      "fees_usdt": "401.6450491459832",
+      "fills": 374,
+      "final_equity_usdt": "9825.0043845349914981198",
+      "funding_usdt": "-0.7832041170253018802",
+      "max_drawdown_pct": 2.827881514763593,
+      "net_return_pct": -1.749956154650085,
+      "open_qty": "0.000",
+      "orders": 379,
+      "sharpe_daily": -0.5857919374111943,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    },
+    "trend_50": {
+      "accounting_reconciled": true,
+      "average_gross_exposure": 0.7881257484849898,
+      "daily_sharpe": -0.2371888103016051,
+      "fees_usdt": "2750.8788822126040",
+      "fills": 923,
+      "final_equity_usdt": "8096.0163845211809022975",
+      "funding_usdt": "-123.8326034602150977025",
+      "max_drawdown_pct": 41.21054378273611,
+      "net_return_pct": -19.03983615478819,
+      "open_qty": "-3.485",
+      "orders": 1322,
+      "sharpe_daily": -0.2371888103016051,
+      "sharpe_observations": 361,
+      "valuation": "marked equity; open positions not forcibly closed"
+    }
+  },
+  "symbol": "ETHUSDT",
+  "synthetic": false
+}

@@ -1,0 +1,56 @@
+{
+  "downloaded_at": "2026-11-13T11:26:51+00:00",
+  "end": "2026-11-13",
+  "files": {
+    "BTCUSDT_1h.csv": {
+      "rows": 60192,
+      "sha256": "83edb54ba9bc6addcbe5ccd6b89c09675e70c6795f8179aea0d4d04498de638b"
+    },
+    "BTCUSDT_funding.csv": {
+      "mark_proxy_rows": 4198,
+      "rows": 7524,
+      "sha256": "843f49ac0d8edac1399ccaaddd5a560a3237526501a51bca18d3378636367dc4"
+    },
+    "BTCUSDT_metrics.csv": {
+      "first_missing": [
+        "2020-01-01",
+        "2020-01-02",
+        "2020-01-03"
+      ],
+      "last_missing": [
+        "2020-08-29",
+        "2020-08-30",
+        "2020-08-31"
+      ],
+      "missing_days": 244,
+      "rows": 726653,
+      "sha256": "6829cd1a42449f43523e040b62a032c42f9ae36ac18719a1bac4cbd841b2bd7c"
+    },
+    "ETHUSDT_1h.csv": {
+      "rows": 60192,
+      "sha256": "ddbf0e3824a9e77f11f26fc5efdbdf6cc2d775e63a848aa90cec9f09f095284d"
+    },
+    "ETHUSDT_funding.csv": {
+      "mark_proxy_rows": 4198,
+      "rows": 7524,
+      "sha256": "6a60629ad06bfeb194e27ad351d2e69d20b0b186fe66544a8e4630ad28497699"
+    },
+    "ETHUSDT_metrics.csv": {
+      "first_missing": [
+        "2020-01-01",
+        "2020-01-02",
+        "2020-01-03"
+      ],
+      "last_missing": [
+        "2021-11-28",
+        "2021-11-29",
+        "2021-11-30"
+      ],
+      "missing_days": 700,
+      "rows": 520564,
+      "sha256": "d5b3cee6f48812a50b91a89748abd0de947971e6d43591af1d6677ec3bbe1d0a"
+    }
+  },
+  "source": "binance-usdm-public",
+  "start": "2020-01-01"
+}
