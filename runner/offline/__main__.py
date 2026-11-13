@@ -34,6 +34,10 @@ def main(argv=None):
                           help="data.downloads.binance_public output (<SYM>_1h.csv, _funding.csv, _metrics.csv)")
     research.add_argument("--symbol", required=True)
     research.add_argument("--start", help="First bar date (UTC, YYYY-MM-DD); default: first metrics day")
+    research.add_argument("--train-end", required=True,
+                          help="UTC open time of the first validation bar, e.g. 2024-11-20T04:00 (fixed date)")
+    research.add_argument("--validation-end", required=True,
+                          help="UTC open time of the first final-test bar, e.g. 2025-11-16T14:00 (fixed date)")
     research.add_argument("--validation-only", action="store_true",
                           help="Stop after candidate selection: no final model and no final-test replay")
     for name in ("demo", "study", "replay"):
@@ -72,7 +76,12 @@ def main(argv=None):
             bars = load_bars(args.data_dir / f"{args.symbol}_1h.csv", start_ms=start_ms, extras=True,
                              as_of_ms=int(datetime.now(timezone.utc).timestamp() * 1000))
             funding = load_funding(args.data_dir / f"{args.symbol}_funding.csv")
+            def utc_ms(text):
+                at = datetime.fromisoformat(text)
+                at = at.replace(tzinfo=timezone.utc) if at.tzinfo is None else at.astimezone(timezone.utc)
+                return int(at.timestamp() * 1000)
             summary = run_research(bars, funding, args.out, symbol=args.symbol, context=context, config=config,
+                                   train_end_ms=utc_ms(args.train_end), validation_end_ms=utc_ms(args.validation_end),
                                    validation_only=args.validation_only)
             print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
             return

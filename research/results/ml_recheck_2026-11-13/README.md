@@ -41,3 +41,13 @@
 - 每个币种的 `protocol.json`：全部候选、选择过程、门槛和结果。
 - 每个币种的 `summary.json`、`gate.json`（`"kind": "validation_only"`）和 `report.md`。
 - 两个币种都没有 `model.json`：本次研究不产出可部署模型。
+
+## 复现
+
+研究代码后来改为按固定日期切分（不再按行数比例）。用下面的日期在同一份数据快照上运行，切分点与本次完全一致（BTC、ETH 各为第 26020 和第 34694 根 K 线）：
+
+```bash
+python3 -m runner.offline research --validation-only --data-dir data_files/binance_public --symbol BTCUSDT \
+    --start 2021-12-02 --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 --out <空目录>
+```
+

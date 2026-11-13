@@ -2,7 +2,11 @@
 
 Protocol (all decided before any final-test result exists):
 
-1. Chronological split: train 60%, validation 20%, final test 20%.
+1. Chronological split at two FIXED timestamps passed by the caller
+   (``train_end_ms``, ``validation_end_ms``): train before the first,
+   validation between them, final test after. Fixed dates, not fractions of
+   the row count, so appending newer data never moves a window. The
+   2026-11-13 runs used 2024-11-20T04:00 and 2025-11-16T14:00 UTC.
 2. Candidates = feature set x label horizon x Ridge alpha x deadzone, listed
    in ``CANDIDATES``. Ridge alpha is chosen per (feature set, horizon) by
    validation IC; deadzone by validation replay Sharpe (daily, net of costs).
@@ -19,6 +23,7 @@ records ``final_test_views`` so repeated looks are visible.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import math
 from dataclasses import replace
@@ -124,9 +129,24 @@ def passes_validation_gate(chosen, stress_metrics, validation_years) -> tuple[bo
     return not reasons, reasons
 
 
-def run_research(bars, funding, out, *, symbol, context=None, config=None, synthetic=False,
-                 validation_only=False):
-    """``validation_only`` stops after candidate selection: no final model, no final-test replay."""
+def split_indices(bars, train_end_ms: int, validation_end_ms: int) -> tuple[int, int]:
+    """Bar indices of two fixed split timestamps; each must be the open time of a bar."""
+    open_times = [b.open_time for b in bars]
+    indices = []
+    for name, at in (("train_end_ms", train_end_ms), ("validation_end_ms", validation_end_ms)):
+        i = bisect.bisect_left(open_times, at)
+        if i >= len(open_times) or open_times[i] != at:
+            raise ValueError(f"{name}={at} is not the open time of a bar in the dataset")
+        indices.append(i)
+    train_end, val_end = indices
+    if not 0 < train_end < val_end < len(bars):
+        raise ValueError("split must satisfy first bar < train_end < validation_end <= last bar")
+    return train_end, val_end
+
+
+def run_research(bars, funding, out, *, symbol, train_end_ms, validation_end_ms, context=None, config=None,
+                 synthetic=False, validation_only=False):
+    """Split at two fixed timestamps. ``validation_only`` stops after candidate selection."""
     config = config or ReplayConfig()
     out = Path(out)
     if out.exists() and any(out.iterdir()):
@@ -134,7 +154,7 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
     n = len(bars)
     if n < 5000:
         raise ValueError("need at least 5000 hourly bars for candidate selection")
-    train_end, val_end = int(n * 0.6), int(n * 0.8)
+    train_end, val_end = split_indices(bars, train_end_ms, validation_end_ms)
     cutoff = bars[train_end].open_time
     candidates, selections, bundles = [], [], {}
     for feature_set in CANDIDATES["feature_set"]:
@@ -170,7 +190,8 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
     protocol = {
         "schema": 2, "symbol": symbol, "dataset": dataset_manifest(bars, synthetic=synthetic),
         "code": code_identity(), "base_config": config.record(),
-        "split": {"train_end_ms": cutoff, "validation_end_ms": holdout_start, "final_test_start_ms": holdout_start},
+        "split": {"train_end_ms": cutoff, "validation_end_ms": holdout_start, "final_test_start_ms": holdout_start,
+                  "rule": "fixed timestamps"},
         "candidate_grid": {k: list(v) for k, v in CANDIDATES.items()},
         "candidate_count": len(candidates), "selection_rule":
             f"alpha by validation IC; deadzone/spec by validation daily Sharpe with >= {MIN_VALIDATION_FILLS} fills",

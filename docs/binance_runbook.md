@@ -44,11 +44,13 @@ OI 和多空比数据大约从 2021-12 才开始有。
 
 ```bash
 python3 -m runner.offline research --data-dir data_files/binance_public --symbol BTCUSDT \
-    --start 2021-12-02 --out .cache/research/BTCUSDT
+    --start 2021-12-02 --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
+    --out .cache/research/BTCUSDT
 ```
 
 流程：
-1. **切分：** 按时间分为训练 60%、验证 20%、最终测试 20%。
+1. **切分：** 用两个固定的 UTC 时间点切分：`--train-end` 之前为训练，`--train-end` 到 `--validation-end` 为验证，之后为最终测试。必须是固定日期而不是行数比例：按比例切分时，数据一追加，验证集就会滑进已经看过的窗口。2026-11-13 的运行用的是 2024-11-20T04:00 和 2025-11-16T14:00，在当时的数据上正好等于 60% 和 80% 的位置。
+   **2025-11-16 之后的数据已被查看多次，不能再作为最终测试。**
 2. **候选：** 特征集（ohlcv / derivatives）× 标签周期（1/4/24 小时）× Ridge alpha（1/10/100）× deadzone（1.0/1.5/2.0）。
 3. **选择：** alpha 按验证集 IC 选；特征集、周期和 deadzone 按验证集回放的日夏普选，且要求成交至少 20 笔。
 4. **冻结：** 写出 `protocol.json`（候选清单、选择结果、数据和代码指纹）和 `model.json`（用训练加验证数据重训），然后才运行最终测试。
