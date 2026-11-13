@@ -39,30 +39,30 @@ def _snap(
 class TestSizerExceptions:
     """Edge cases for AdaptivePositionSizer.target_qty() (Python path)."""
 
-    def test_equity_zero_returns_min_size(self):
+    def test_equity_zero_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=0, price=60000.0)
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
-    def test_equity_negative_returns_min_size(self):
+    def test_equity_negative_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=-1000, price=60000.0)
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
-    def test_price_zero_returns_min_size(self):
+    def test_price_zero_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=5000, price=0.0)
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
-    def test_price_negative_returns_min_size(self):
+    def test_price_negative_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=5000, price=-100.0)
-        # price < 0 is treated as price <= 0
+        # price < 0 is treated as unknown: never size an order
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
     def test_max_qty_zero_means_unlimited(self):
         sizer = AdaptivePositionSizer(
@@ -164,8 +164,8 @@ class TestSizerExceptions:
         # notional * 0 = 0 → min_size
         assert qty == Decimal("0.001")
 
-    def test_market_missing_returns_min(self):
-        """Symbol not in snapshot.markets → price=0 → min_size."""
+    def test_market_missing_returns_zero(self):
+        """Symbol not in snapshot.markets → price=0 → no order."""
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=5000, price=60000.0, symbol="ETHUSDT")
         # BTCUSDT not in snap.markets (only ETHUSDT)
@@ -175,4 +175,4 @@ class TestSizerExceptions:
         snap.markets = {"ETHUSDT": MagicMock()}
         snap.markets["ETHUSDT"].close_f = 3000.0
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")

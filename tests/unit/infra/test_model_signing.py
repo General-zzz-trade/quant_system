@@ -111,3 +111,74 @@ def test_sign_model_dir_skips_without_key(tmp_path, monkeypatch: pytest.MonkeyPa
     (tmp_path / "model.pkl").write_bytes(b"data")
     count = sign_model_dir(tmp_path)
     assert count == 0
+
+
+# ── Hardening added 2026-11-13 ─────────────────────────────────────────
+
+def _clear_venue_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("BYBIT_BASE_URL", "BINANCE_TESTNET", "OKX_API_KEY", "OKX_SIMULATED"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("env", [
+    {"BINANCE_TESTNET": "0"},
+    {"BINANCE_TESTNET": "false"},
+    {"OKX_API_KEY": "k", "OKX_SIMULATED": "0"},
+    {"OKX_API_KEY": "k"},
+])
+def test_real_money_venues_never_allow_unsigned(monkeypatch: pytest.MonkeyPatch, env):
+    _clear_venue_env(monkeypatch)
+    monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert allow_unsigned_models() is False
+
+
+def test_testnet_and_simulated_venues_may_allow_unsigned(monkeypatch: pytest.MonkeyPatch):
+    _clear_venue_env(monkeypatch)
+    monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
+    monkeypatch.setenv("BINANCE_TESTNET", "1")
+    monkeypatch.setenv("OKX_API_KEY", "k")
+    monkeypatch.setenv("OKX_SIMULATED", "1")
+    assert allow_unsigned_models() is True
+
+
+def test_verified_bytes_are_the_bytes_that_get_loaded(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from infra.model_signing import load_verified_json, read_verified_bytes
+
+    _clear_venue_env(monkeypatch)
+    monkeypatch.setenv("QUANT_MODEL_SIGN_KEY", "k" * 32)
+    path = tmp_path / "config.json"
+    path.write_text('{"deadzone": 1.5}')
+    sign_file(path)
+    assert load_verified_json(path) == {"deadzone": 1.5}
+    # Content swapped after signing must be refused, even for JSON.
+    path.write_text('{"deadzone": 0.1}')
+    with pytest.raises(ValueError, match="Signature mismatch"):
+        read_verified_bytes(path)
+
+
+def test_unsigned_json_rejected_when_key_configured(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from infra.model_signing import load_verified_json
+
+    _clear_venue_env(monkeypatch)
+    monkeypatch.setenv("QUANT_MODEL_SIGN_KEY", "k" * 32)
+    path = tmp_path / "config.json"
+    path.write_text("{}")
+    with pytest.raises(ValueError, match="Missing signature"):
+        load_verified_json(path)
+
+
+@pytest.mark.parametrize("name", ["/etc/passwd", "../outside.pkl", "a/../../outside.pkl", ""])
+def test_resolve_artifact_rejects_escape(tmp_path, name):
+    from infra.model_signing import resolve_artifact
+
+    with pytest.raises(ValueError):
+        resolve_artifact(tmp_path / "model", name)
+
+
+def test_resolve_artifact_accepts_nested_name(tmp_path):
+    from infra.model_signing import resolve_artifact
+
+    base = tmp_path / "model"
+    assert resolve_artifact(base, "sub/lgbm.pkl") == (base / "sub" / "lgbm.pkl").resolve()

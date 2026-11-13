@@ -8,13 +8,12 @@ Run before starting the trading service:
     python3 scripts/sync_zscore_from_batch.py
     sudo systemctl restart binance-alpha.service
 
-Note: Uses pickle for loading trusted local ML model artifacts (lightgbm/sklearn).
+Model artifacts are loaded only through HMAC verification (infra.model_signing).
 These models are produced by our own training pipeline and HMAC-signed.
 """
 from __future__ import annotations
 
 import json
-import pickle  # noqa: S403 — trusted local model artifacts, HMAC-signed
 import sys
 from pathlib import Path
 
@@ -24,6 +23,7 @@ import pandas as pd
 sys.path.insert(0, "/quant_system")
 
 from features.batch_feature_engine import compute_features_batch
+from infra.model_signing import load_verified_json, load_verified_pickle, resolve_artifact
 
 DATA_DIR = Path("data_files")
 MODEL_DIR = Path("models_v8")
@@ -56,8 +56,7 @@ def sync_one(symbol: str, model_dir_name: str) -> None:
         print(f"  SKIP {symbol}: no config.json")
         return
 
-    with open(config_path) as f:
-        config = json.load(f)
+    config = load_verified_json(config_path)
 
     df = pd.read_csv(csv_path).sort_values("open_time").reset_index(drop=True)
     feat_df = compute_features_batch(symbol, df)
@@ -85,11 +84,10 @@ def sync_one(symbol: str, model_dir_name: str) -> None:
         """Load models from hm_list and return (n,) prediction array."""
         h_preds = []
         for hm in hm_list:
-            lgbm_path = model_path / hm["lgbm"]
+            lgbm_path = resolve_artifact(model_path, hm["lgbm"])
             if not lgbm_path.exists():
                 continue
-            with open(lgbm_path, "rb") as f:
-                d = pickle.load(f)  # noqa: S301
+            d = load_verified_pickle(lgbm_path)
             lgbm_model = d["model"] if isinstance(d, dict) else d
             X = np.zeros((n, len(hm["features"])))
             for j, fname in enumerate(hm["features"]):
@@ -100,10 +98,9 @@ def sync_one(symbol: str, model_dir_name: str) -> None:
             ridge_path_name = hm.get("ridge")
             ridge_pred = None
             if ridge_path_name:
-                ridge_path = model_path / ridge_path_name
+                ridge_path = resolve_artifact(model_path, ridge_path_name)
                 if ridge_path.exists():
-                    with open(ridge_path, "rb") as f:
-                        rd = pickle.load(f)  # noqa: S301
+                    rd = load_verified_pickle(ridge_path)
                     ridge_model = rd["model"] if isinstance(rd, dict) else rd
                     rf = rd.get("features") or hm.get("ridge_features") or hm["features"]
                     X_r = np.zeros((n, len(rf)))

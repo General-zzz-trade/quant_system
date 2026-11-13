@@ -79,7 +79,7 @@ fn round_to_step(size: f64, step_size: f64) -> f64 {
 ///   5. Clamp [min_size, max_qty]
 ///   6. Round down to step_size
 ///
-/// NaN guards: returns `round_to_step(min_size, step_size)` on NaN equity/price.
+/// Invalid (NaN, infinite or non-positive) equity/price returns 0: never trade blind.
 #[pyfunction]
 #[pyo3(signature = (runner_key, equity, price, step_size, min_size, max_qty, weight, leverage, ic_scale, regime_active, z_scale))]
 pub fn rust_adaptive_target_qty(
@@ -95,14 +95,9 @@ pub fn rust_adaptive_target_qty(
     regime_active: bool,
     z_scale: f64,
 ) -> f64 {
-    // NaN guard
-    if equity.is_nan() || price.is_nan() {
-        return round_to_step(min_size, step_size);
-    }
-
-    // Early exit on invalid equity/price
-    if equity <= 0.0 || price <= 0.0 {
-        return round_to_step(min_size, step_size);
+    // Unknown equity or price must never size an order (fail-closed).
+    if !equity.is_finite() || !price.is_finite() || equity <= 0.0 || price <= 0.0 {
+        return 0.0;
     }
 
     // 1. Tier-based cap
@@ -212,7 +207,7 @@ mod tests {
             "BTCUSDT", 0.0, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.001);
+        assert_eq!(qty, 0.0);
     }
 
     #[test]
@@ -221,7 +216,7 @@ mod tests {
             "BTCUSDT", 5000.0, 0.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.001);
+        assert_eq!(qty, 0.0);
     }
 
     #[test]
@@ -230,7 +225,7 @@ mod tests {
             "BTCUSDT", f64::NAN, 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.001);
+        assert_eq!(qty, 0.0);
     }
 
     #[test]
@@ -239,7 +234,7 @@ mod tests {
             "BTCUSDT", 5000.0, f64::NAN, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, true, 1.0,
         );
-        assert_eq!(qty, 0.001);
+        assert_eq!(qty, 0.0);
     }
 
     #[test]

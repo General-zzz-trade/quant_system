@@ -4,13 +4,19 @@ Prevents loading of tampered model artifacts via HMAC-SHA256 signatures.
 The signing key is read from QUANT_MODEL_SIGN_KEY env var.
 If the env var is not set, signing is skipped with a warning (dev/demo mode only).
 
-In live trading (BYBIT_BASE_URL points to api.bybit.com), unsigned models
-are ALWAYS rejected regardless of QUANT_ALLOW_UNSIGNED_MODELS.
+Any configuration that can reach a real-money account (Bybit mainnet URL,
+Binance with testnet disabled, OKX credentials without simulated trading)
+counts as live: unsigned models are then ALWAYS rejected regardless of
+QUANT_ALLOW_UNSIGNED_MODELS.
+
+Every artifact is read exactly once: the verified bytes are the bytes that get
+deserialized, so a file swapped between check and load cannot be used.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import pickle  # noqa: S403 — HMAC-verified before deserialize
@@ -24,9 +30,20 @@ _SIG_SUFFIX = ".sig"
 _SIGNABLE_SUFFIXES = {".pkl", ".json"}
 
 
+_FALSE = {"0", "false", "no", "off"}
+_TRUE = {"1", "true", "yes", "on"}
+
+
 def _is_live() -> bool:
-    """Return True if running against the live Bybit API."""
-    return os.environ.get("BYBIT_BASE_URL", "").startswith("https://api.bybit.com")
+    """Return True if this process may be configured against a real-money venue."""
+    env = os.environ
+    if env.get("BYBIT_BASE_URL", "").startswith("https://api.bybit.com"):
+        return True
+    if env.get("BINANCE_TESTNET", "1").strip().lower() in _FALSE:
+        return True
+    if env.get("OKX_API_KEY", "").strip() and env.get("OKX_SIMULATED", "0").strip().lower() not in _TRUE:
+        return True
+    return False
 
 
 def _get_key() -> bytes | None:
@@ -39,8 +56,8 @@ def _get_key() -> bytes | None:
 def allow_unsigned_models() -> bool:
     """Whether unsigned model loading is explicitly allowed (demo/dev only).
 
-    In live mode (BYBIT_BASE_URL=https://api.bybit.com), this ALWAYS
-    returns False — unsigned models are never allowed in production.
+    In live mode (see ``_is_live``), this ALWAYS returns False — unsigned
+    models are never allowed in production.
     """
     if _is_live():
         return False
@@ -65,8 +82,11 @@ def sign_file(path: Path) -> None:
     sig_path.write_text(sig)
 
 
-def verify_file(path: Path) -> bool:
+def verify_file(path: Path, data: bytes | None = None) -> bool:
     """Verify the HMAC-SHA256 signature of a model artifact.
+
+    ``data`` is the exact content that the caller will deserialize; when it is
+    omitted the file is read here.
 
     Returns True if:
       - Signature matches, OR
@@ -106,7 +126,8 @@ def verify_file(path: Path) -> bool:
         )
 
     expected_sig = sig_path.read_text().strip()
-    data = path.read_bytes()
+    if data is None:
+        data = path.read_bytes()
     actual_sig = hmac.new(key, data, hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(expected_sig, actual_sig):
@@ -116,12 +137,33 @@ def verify_file(path: Path) -> bool:
     return True
 
 
+def resolve_artifact(model_dir: str | Path, name: str) -> Path:
+    """Resolve a config-supplied artifact name strictly inside ``model_dir``."""
+    if not isinstance(name, str) or not name or Path(name).is_absolute():
+        raise ValueError(f"Invalid model artifact name: {name!r}")
+    base = Path(model_dir).resolve()
+    path = (base / name).resolve()
+    if path != base and base not in path.parents:
+        raise ValueError(f"Model artifact escapes its model directory: {name!r}")
+    return path
+
+
+def read_verified_bytes(path: str | Path) -> bytes:
+    """Read an artifact once and verify exactly those bytes."""
+    p = Path(path)
+    data = p.read_bytes()
+    verify_file(p, data=data)
+    return data
+
+
 def load_verified_pickle(path: str | Path):  # noqa: S301
     """Verify an artifact's HMAC signature, then load it via pickle."""
-    p = Path(path)
-    verify_file(p)
-    with p.open("rb") as f:
-        return pickle.load(f)  # noqa: S301 — HMAC-verified above
+    return pickle.loads(read_verified_bytes(path))  # noqa: S301 — HMAC-verified bytes
+
+
+def load_verified_json(path: str | Path):
+    """Verify a JSON artifact (config or model export), then parse it."""
+    return json.loads(read_verified_bytes(path).decode("utf-8"))
 
 
 def sign_model_dir(model_dir: Path) -> int:

@@ -1,12 +1,13 @@
 """Model loading and adapter creation for the Bybit alpha runner."""
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
 
-from infra.model_signing import load_verified_pickle
+from infra.model_signing import (
+    load_verified_json, load_verified_pickle, read_verified_bytes, resolve_artifact, verify_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ def _try_load_rust_tree(json_path: Path):
     """Try to load a RustTreePredictor from a JSON export. Returns None on failure."""
     if not json_path.exists():
         return None
+    verify_file(json_path)  # unsigned/tampered exports must fail loudly, not fall back
     try:
         from _quant_hotpath import RustTreePredictor
         predictor = RustTreePredictor.load(str(json_path))
@@ -29,6 +31,7 @@ def _try_load_rust_ridge(json_path: Path):
     """Try to load a RustRidgePredictor from a JSON export. Returns None on failure."""
     if not json_path.exists():
         return None
+    verify_file(json_path)
     try:
         from _quant_hotpath import RustRidgePredictor
         predictor = RustRidgePredictor(str(json_path))
@@ -42,9 +45,9 @@ def _try_load_rust_ridge(json_path: Path):
 def load_model(model_dir: Path) -> dict:
     """Load model config + all horizon models for IC-weighted ensemble.
 
-    All model artifacts are HMAC-verified before deserialization.
-    In live mode (BYBIT_BASE_URL=https://api.bybit.com), unsigned or
-    tampered models are rejected with a clear error.
+    Every artifact, including config.json and JSON model exports, is
+    HMAC-verified before parsing, and artifact names must stay inside the
+    model directory. In live mode unsigned or tampered models are rejected.
     """
     # Handle case where model_dir is a directory vs file path
     if model_dir.is_dir():
@@ -58,8 +61,7 @@ def load_model(model_dir: Path) -> dict:
     if not config_path.exists():
         raise FileNotFoundError(f"No config.json in model directory: {model_dir}")
 
-    with open(config_path) as f:
-        config = json.load(f)
+    config = load_verified_json(config_path)
 
     # Compatibility: convert v8_4h flat format to horizon_models
     if not config.get("horizon_models") and config.get("models"):
@@ -83,7 +85,7 @@ def load_model(model_dir: Path) -> dict:
     # Load ALL horizon models for ensemble (HMAC-verified)
     horizon_models = []
     for hm in config.get("horizon_models", []):
-        lgbm_path = model_dir / hm["lgbm"]
+        lgbm_path = resolve_artifact(model_dir, hm["lgbm"])
         if not lgbm_path.exists():
             continue
         raw = load_verified_pickle(lgbm_path)
@@ -95,20 +97,18 @@ def load_model(model_dir: Path) -> dict:
         xgb_model = None
         xgb_name = hm.get("xgb", "")
         if xgb_name:
-            xgb_path = model_dir / xgb_name
+            xgb_path = resolve_artifact(model_dir, xgb_name)
             if xgb_path.exists() and xgb_path.is_file():
-                try:
-                    if xgb_name.endswith(".json"):
-                        import xgboost as xgb
-                        _m = xgb.XGBRegressor()
-                        _m.load_model(str(xgb_path))
-                        xgb_model = _m
-                    else:
-                        xgb_raw = load_verified_pickle(xgb_path)
-                        xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
-                except Exception as exc:
-                    logger.warning("XGB load failed for %s: %s", xgb_path, exc)
-                    xgb_model = None
+                # Signature failures propagate: silently dropping a declared
+                # ensemble member would trade a model nobody validated.
+                if xgb_name.endswith(".json"):
+                    import xgboost as xgb
+                    _m = xgb.XGBRegressor()
+                    _m.load_model(bytearray(read_verified_bytes(xgb_path)))
+                    xgb_model = _m
+                else:
+                    xgb_raw = load_verified_pickle(xgb_path)
+                    xgb_model = xgb_raw["model"] if isinstance(xgb_raw, dict) else xgb_raw
 
         # Meta-labeling secondary classifier — LGBM binary, native JSON.
         # Gates +1/-1 directional signals at inference time: if secondary
@@ -117,20 +117,16 @@ def load_model(model_dir: Path) -> dict:
         meta_model = None
         meta_name = hm.get("meta", "")
         if meta_name:
-            meta_path = model_dir / meta_name
+            meta_path = resolve_artifact(model_dir, meta_name)
             if meta_path.exists() and meta_path.is_file():
-                try:
-                    import lightgbm as lgb_lib
-                    meta_model = lgb_lib.Booster(model_file=str(meta_path))
-                except Exception as exc:
-                    logger.warning("Meta-label load failed for %s: %s", meta_path, exc)
-                    meta_model = None
+                import lightgbm as lgb_lib
+                meta_model = lgb_lib.Booster(model_str=read_verified_bytes(meta_path).decode("utf-8"))
 
         # Also load Ridge if available (walk-forward winner: 15/20 PASS)
         ridge_model = None
         ridge_features = None
         ridge_name = hm.get("ridge", "")
-        ridge_path = model_dir / ridge_name if ridge_name else None
+        ridge_path = resolve_artifact(model_dir, ridge_name) if ridge_name else None
         if ridge_path and ridge_path.is_file():
             ridge_raw = load_verified_pickle(ridge_path)
             ridge_model = ridge_raw["model"] if isinstance(ridge_raw, dict) else ridge_raw
@@ -157,12 +153,12 @@ def load_model(model_dir: Path) -> dict:
             )
 
         # Try loading Rust-native predictors from JSON exports (faster inference)
-        lgbm_json_path = model_dir / hm["lgbm"].replace(".pkl", ".json")
+        lgbm_json_path = resolve_artifact(model_dir, hm["lgbm"].replace(".pkl", ".json"))
         rust_tree = _try_load_rust_tree(lgbm_json_path)
 
         rust_ridge = None
         if ridge_name:
-            ridge_json_path = model_dir / ridge_name.replace(".pkl", ".json")
+            ridge_json_path = resolve_artifact(model_dir, ridge_name.replace(".pkl", ".json"))
             rust_ridge = _try_load_rust_ridge(ridge_json_path)
 
         horizon_models.append({

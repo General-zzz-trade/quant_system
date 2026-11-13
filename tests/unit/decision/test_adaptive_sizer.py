@@ -57,17 +57,17 @@ class TestAdaptivePositionSizer:
         qty_inactive = sizer.target_qty(snap, "BTCUSDT", regime_active=False)
         assert qty_active > qty_inactive
 
-    def test_zero_equity_returns_min(self):
+    def test_zero_equity_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=0, price=60000.0, symbol="BTCUSDT")
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
-    def test_zero_price_returns_min(self):
+    def test_zero_price_returns_zero(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT", min_size=0.001)
         snap = _snap(equity=5000, price=0, symbol="BTCUSDT")
         qty = sizer.target_qty(snap, "BTCUSDT")
-        assert qty == Decimal("0.001")
+        assert qty == Decimal("0")
 
     def test_max_qty_clamp(self):
         sizer = AdaptivePositionSizer(runner_key="BTCUSDT_4h", max_qty=0.01)

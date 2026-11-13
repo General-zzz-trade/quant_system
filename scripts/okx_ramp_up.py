@@ -6,34 +6,31 @@ intentionally tiny ($50) so that the first few fills can be inspected for
 qty-conversion or pricing bugs.  This script reads the real fill history
 and automatically raises the cap as trust is established.
 
-Ramp schedule (conservative, only raises — never lowers)::
+REPORT-ONLY since 2026-11-13: this script never edits ``.env``, never
+restarts services and never removes the per-order cap.  An operator who
+agrees with a recommendation must change the cap by hand and restart.
+
+Ramp schedule (recommendations only)::
 
     Level 0   $50     (initial)  → start here
     Level 1   $150    requires:  ≥ 5 fills in last 3 days, 0 rejects
     Level 2   $300    requires:  ≥ 15 fills total at ≥ L1, cum PnL > -5%
     Level 3   $800    requires:  ≥ 30 fills total,        cum PnL > 0
-    Level 4   unlocked (writes OKX_MAX_ORDER_NOTIONAL=0 = no cap) —
-                         requires ≥ 100 fills + 14-day PnL > +2%
 
 State is persisted in ``data/runtime/okx_ramp_state.json`` so the script
-is idempotent.  Restart the okx-alpha service after updating .env —
-SIGHUP only reloads models, not the notional cap, so the runner must
-re-read env vars via a fresh process start.
+is idempotent.  A cap of 0 (unlimited) is never recommended.
 
 Intended to run hourly (or every 6h) via systemd timer; safe to invoke
 manually::
 
-    python3 -m scripts.okx_ramp_up            # check + maybe promote
-    python3 -m scripts.okx_ramp_up --dry-run  # report only
-    python3 -m scripts.okx_ramp_up --force    # bypass gates (manual)
+    python3 -m scripts.okx_ramp_up            # report a recommendation
+    python3 -m scripts.okx_ramp_up --show     # print persisted state
 """
 from __future__ import annotations
 
 import argparse
 import json
 import logging
-import os
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -48,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────
 STATE_PATH = Path("/quant_system/data/runtime/okx_ramp_state.json")
-ENV_PATH = Path("/quant_system/.env")
 ENV_VAR = "OKX_MAX_ORDER_NOTIONAL"
 
 LOOKBACK_HOURS = 72  # 3 days
@@ -69,7 +65,6 @@ RAMP_SCHEDULE: list[RampLevel] = [
     RampLevel(level=1, cap_usd=150.0, min_fills=5,   recent_window_hours=72,   min_cum_pnl_pct=-1.0, description="5 fills in 3 days, 0 rejects"),
     RampLevel(level=2, cap_usd=300.0, min_fills=15,  recent_window_hours=168,  min_cum_pnl_pct=-0.05, description="15 fills in 1 week, PnL > -5%"),
     RampLevel(level=3, cap_usd=800.0, min_fills=30,  recent_window_hours=168,  min_cum_pnl_pct=0.0,   description="30 fills in 1 week, PnL > 0"),
-    RampLevel(level=4, cap_usd=0.0,   min_fills=100, recent_window_hours=336, min_cum_pnl_pct=0.02,  description="100 fills in 2 weeks, PnL > +2% → cap removed"),
 ]
 
 
@@ -93,64 +88,6 @@ def _save_state(state: dict[str, Any]) -> None:
     tmp = STATE_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2))
     tmp.replace(STATE_PATH)
-
-
-# ── .env atomic writer ────────────────────────────────────────────
-def _update_env_cap(new_cap: float) -> None:
-    """Update OKX_MAX_ORDER_NOTIONAL in /quant_system/.env atomically.
-
-    Preserves every other line.  Chmod 600 after write.
-    """
-    import stat
-    import re
-
-    if not ENV_PATH.exists():
-        raise RuntimeError(f"{ENV_PATH} missing")
-
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
-    out: list[str] = []
-    found = False
-    pattern = re.compile(rf"^\s*{re.escape(ENV_VAR)}\s*=")
-    for line in lines:
-        if pattern.match(line):
-            out.append(f"{ENV_VAR}={int(new_cap)}")
-            found = True
-        else:
-            out.append(line)
-    if not found:
-        out.append(f"{ENV_VAR}={int(new_cap)}")
-
-    tmp = ENV_PATH.with_suffix(".env.tmp")
-    tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
-    os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)  # 0600 before rename
-    tmp.replace(ENV_PATH)
-    os.chmod(ENV_PATH, stat.S_IRUSR | stat.S_IWUSR)
-
-
-def _reload_okx_runner() -> bool:
-    """Restart okx-alpha.service so the new notional cap is picked up.
-
-    SIGHUP only reloads model files — the runner's adapter config
-    (including ``max_order_notional_usd``) is locked to the env vars
-    that systemd injected at process start.  A full restart is
-    required so the new ``OKX_MAX_ORDER_NOTIONAL`` from ``.env``
-    enters the new process environment.
-
-    Cost: ~4s downtime + parallel warmup.  Acceptable since ramp
-    promotions happen at most a few times per week.
-    """
-    try:
-        r = subprocess.run(
-            ["sudo", "-n", "systemctl", "restart", "okx-alpha.service"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode == 0:
-            logger.info("okx-alpha.service restarted (new cap in effect)")
-            return True
-        logger.warning("systemctl restart failed: %s", r.stderr.strip())
-    except Exception as e:
-        logger.warning("systemctl restart exception: %s", e)
-    return False
 
 
 # ── Fill/PnL statistics ───────────────────────────────────────────
@@ -252,9 +189,6 @@ def _should_promote(current: RampLevel, stats: dict[str, Any]) -> tuple[bool, st
 # ── Main ──────────────────────────────────────────────────────────
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true", help="Report only, no .env change")
-    parser.add_argument("--force", action="store_true",
-                        help="Force promote one level (manual override)")
     parser.add_argument("--show", action="store_true", help="Print state + exit")
     args = parser.parse_args()
 
@@ -278,67 +212,17 @@ def main() -> int:
     for k, v in stats.items():
         print(f"  {k}: {v}")
 
-    if args.force:
-        if current_idx + 1 >= len(RAMP_SCHEDULE):
-            print("Already at max level, cannot force.")
-            return 1
-        nxt = RAMP_SCHEDULE[current_idx + 1]
-        print(f"--force: overriding gates, promoting to L{nxt.level}")
-        ok = True
-        reason = "manual force"
-    else:
-        ok, reason = _should_promote(current_level, stats)
-        if current_idx + 1 < len(RAMP_SCHEDULE):
-            nxt = RAMP_SCHEDULE[current_idx + 1]
-        else:
-            nxt = None
-
-    print(f"Decision: {'PROMOTE' if ok else 'HOLD'} — {reason}")
-
-    if not ok or nxt is None:
-        state["last_check_ts"] = time.time()
-        _save_state(state)
-        return 0
-
-    if args.dry_run:
-        print(f"[dry-run] would promote {current_level.cap_usd:.0f} → {nxt.cap_usd:.0f}")
-        return 0
-
-    # Promote
-    _update_env_cap(nxt.cap_usd)
-    state["current_level"] = nxt.level
-    state["current_cap"] = nxt.cap_usd
-    state.setdefault("history", []).append({
-        "ts": time.time(),
-        "from_cap": current_level.cap_usd,
-        "to_cap": nxt.cap_usd,
-        "reason": reason,
-        "stats": stats,
-    })
+    ok, reason = _should_promote(current_level, stats)
+    nxt = RAMP_SCHEDULE[current_idx + 1] if current_idx + 1 < len(RAMP_SCHEDULE) else None
     state["last_check_ts"] = time.time()
     _save_state(state)
-
-    reload_ok = _reload_okx_runner()
-    print(f"PROMOTED to L{nxt.level} (${nxt.cap_usd:.0f})."
-          f" okx-alpha restart {'succeeded' if reload_ok else 'FAILED — manual restart required'}")
-
-    # Telegram alert (best effort)
-    try:
-        from monitoring.notify import send_alert, AlertLevel
-        send_alert(
-            AlertLevel.INFO,
-            f"OKX notional cap raised: ${current_level.cap_usd:.0f} → ${nxt.cap_usd:.0f}",
-            details={
-                "level": f"L{current_level.level} → L{nxt.level}",
-                "reason": reason,
-                "fills": str(stats["fills_count"]),
-                "cum_pnl_pct": f"{stats['cum_pnl_pct']*100:.2f}%",
-            },
-            source="okx_ramp_up",
-        )
-    except Exception:
-        pass
-
+    if ok and nxt is not None:
+        # Recommendation only: changing a live risk limit requires a human.
+        print(f"RECOMMENDATION: an operator may raise {ENV_VAR} from "
+              f"${current_level.cap_usd:.0f} to ${nxt.cap_usd:.0f} ({reason}). "
+              "No file was changed and no service was restarted.")
+    else:
+        print(f"HOLD — {reason}")
     return 0
 
 

@@ -7,6 +7,25 @@ REPO_DIR="/quant_system/infra/systemd"
 SYS_DIR="/etc/systemd/system"
 CHANGED=0
 
+# Units removed from the repository for safety. They ran code outside this
+# repository with 20x-50x leverage. Copying new files never removes an old
+# installed unit, so stop, disable and delete them explicitly.
+RETIRED_UNITS=(
+    bybit-mm.service
+    liq-sniper.service
+    hft-signal.service
+    binary-signal.service
+)
+
+for unit in "${RETIRED_UNITS[@]}"; do
+    if [ -e "$SYS_DIR/$unit" ]; then
+        echo "Retiring $unit"
+        systemctl disable --now "$unit" || true
+        rm -f "$SYS_DIR/$unit"
+        CHANGED=1
+    fi
+done
+
 for f in "$REPO_DIR"/*.service "$REPO_DIR"/*.timer; do
     [ -f "$f" ] || continue
     base=$(basename "$f")

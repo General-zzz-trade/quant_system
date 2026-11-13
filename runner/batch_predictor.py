@@ -7,14 +7,12 @@ causing predictions to diverge ~100x and z-scores to point wrong direction.
 This module loads kline CSV, computes batch features for the latest bar,
 and generates the correct prediction to feed the z-score buffer.
 
-Note: Uses pickle for loading trusted local ML model artifacts (lightgbm/sklearn).
-These models are produced by our own training pipeline and HMAC-signed.
+Every artifact (config.json and pickled models) is HMAC-verified before it is
+parsed; artifact names from config.json must stay inside the model directory.
 """
 from __future__ import annotations
 
-import json
 import logging
-import pickle  # noqa: S403 — trusted local model artifacts, HMAC-signed
 import time
 from pathlib import Path
 from typing import Any
@@ -67,8 +65,8 @@ def predict_latest(symbol: str, model_dir_name: str, *, as_of_ms: int | None = N
         if not csv_path.exists() or not config_path.exists():
             return None
 
-        with open(config_path) as f:
-            config = json.load(f)
+        from infra.model_signing import load_verified_json, load_verified_pickle, resolve_artifact
+        config = load_verified_json(config_path)
 
         df = pd.read_csv(csv_path)
         df = df[df["open_time"] <= inputs["as_of_ms"]].sort_values("open_time").tail(500).reset_index(drop=True)
@@ -101,11 +99,10 @@ def predict_latest(symbol: str, model_dir_name: str, *, as_of_ms: int | None = N
         preds = []
         for hm in horizon_models:
             # LGBM prediction
-            lgbm_path = model_path / hm["lgbm"]
+            lgbm_path = resolve_artifact(model_path, hm["lgbm"])
             if not lgbm_path.exists():
                 continue
-            with open(lgbm_path, "rb") as f:
-                d = pickle.load(f)  # noqa: S301
+            d = load_verified_pickle(lgbm_path)
             lgbm_model = d["model"] if isinstance(d, dict) else d
             X = np.zeros((1, len(hm["features"])))
             for j, fname in enumerate(hm["features"]):
@@ -118,10 +115,9 @@ def predict_latest(symbol: str, model_dir_name: str, *, as_of_ms: int | None = N
             ridge_path_name = hm.get("ridge")
             ridge_pred = None
             if ridge_path_name:
-                ridge_path = model_path / ridge_path_name
+                ridge_path = resolve_artifact(model_path, ridge_path_name)
                 if ridge_path.exists():
-                    with open(ridge_path, "rb") as f:
-                        rd = pickle.load(f)  # noqa: S301
+                    rd = load_verified_pickle(ridge_path)
                     ridge_model = rd["model"] if isinstance(rd, dict) else rd
                     rf = rd.get("features") or hm.get("ridge_features") or hm["features"]
                     X_r = np.zeros((1, len(rf)))

@@ -117,17 +117,17 @@ class TestAdaptiveSizerRustParity:
     def test_zero_equity(self):
         py = _python_target_qty("BTCUSDT", 0.0, 60000.0)
         rs = _rust_target_qty("BTCUSDT", 0.0, 60000.0)
-        assert py == rs == Decimal("0.001")
+        assert py == rs == Decimal("0")
 
     def test_zero_price(self):
         py = _python_target_qty("BTCUSDT", 5000.0, 0.0)
         rs = _rust_target_qty("BTCUSDT", 5000.0, 0.0)
-        assert py == rs == Decimal("0.001")
+        assert py == rs == Decimal("0")
 
     def test_negative_equity(self):
         py = _python_target_qty("BTCUSDT", -100.0, 60000.0)
         rs = _rust_target_qty("BTCUSDT", -100.0, 60000.0)
-        assert py == rs == Decimal("0.001")
+        assert py == rs == Decimal("0")
 
     def test_max_qty_clamp(self):
         py = _python_target_qty("BTCUSDT_4h", 50000.0, 60000.0, max_qty=0.01)
@@ -151,19 +151,19 @@ class TestAdaptiveSizerRustParity:
 class TestAdaptiveSizerRustNaN:
     """NaN guard tests (Rust-only, Python won't see NaN via snapshot)."""
 
-    def test_nan_equity_returns_min(self):
+    def test_nan_equity_returns_zero(self):
         result = rust_adaptive_target_qty(
             "BTCUSDT", float("nan"), 60000.0, 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, True, 1.0,
         )
-        assert result == 0.001
+        assert result == 0.0
 
-    def test_nan_price_returns_min(self):
+    def test_nan_price_returns_zero(self):
         result = rust_adaptive_target_qty(
             "BTCUSDT", 5000.0, float("nan"), 0.001, 0.001, 0.0,
             1.0, 10.0, 1.0, True, 1.0,
         )
-        assert result == 0.001
+        assert result == 0.0
 
 
 class TestAdaptiveSizerRustDirect:

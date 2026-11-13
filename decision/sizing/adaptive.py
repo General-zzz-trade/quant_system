@@ -173,8 +173,9 @@ class AdaptivePositionSizer:
         else:
             logger.debug("sizer_path=python runner=%s (Rust not available)", self.runner_key)
 
-        if equity <= 0 or price <= 0:
-            return self._round_to_step(self.min_size)
+        # Unknown equity or price must never size an order (fail-closed).
+        if not math.isfinite(equity) or not math.isfinite(price) or equity <= 0 or price <= 0:
+            return Decimal("0")
 
         # 1. Tier-based cap
         tier = self._equity_tier(equity)

@@ -1,1 +1,0 @@
-/home/ubuntu/dev/scripts/run_binary_signal.py

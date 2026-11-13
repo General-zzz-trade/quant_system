@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import pickle  # noqa: S403 — trusted local model files produced by our training pipeline
 import subprocess
 import sys
 import threading
@@ -105,21 +104,21 @@ def _load_model_config(model_dir: Path) -> Optional[Dict[str, Any]]:
     if not config_path.exists():
         logger.warning("No config.json in %s", model_dir)
         return None
-    with open(config_path) as f:
-        return json.load(f)
+    from infra.model_signing import load_verified_json
+    return load_verified_json(config_path)
 
 
 def _load_model_pkl(model_dir: Path, filename: str):
     """Load a pickled model file.
 
-    Uses pickle for LightGBM/XGBoost/Ridge models — these are trusted
+    Loaded only after HMAC verification (infra.model_signing); these are
     local artifacts produced by our own training pipeline.
     """
-    path = model_dir / filename
+    from infra.model_signing import load_verified_pickle, resolve_artifact
+    path = resolve_artifact(model_dir, filename)
     if not path.exists():
         return None
-    with open(path, "rb") as f:
-        raw = pickle.load(f)  # noqa: S301 — trusted local artifact
+    raw = load_verified_pickle(path)
     return raw["model"] if isinstance(raw, dict) else raw
 
 

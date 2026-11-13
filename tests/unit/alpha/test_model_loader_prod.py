@@ -16,6 +16,14 @@ import pytest
 from alpha.model_loader_prod import load_model, create_adapter
 
 
+@pytest.fixture(autouse=True)
+def _unsigned_dev_mode(monkeypatch):
+    """These tests stub pickle loading; config.json is verified too, so run in dev mode."""
+    for name in ("QUANT_MODEL_SIGN_KEY", "BYBIT_BASE_URL", "BINANCE_TESTNET", "OKX_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -205,17 +206,21 @@ def _decide_action(prev_paused: bool, ic_per_day: dict[str, float],
 
 
 def _load_state() -> dict:
-    if STATE_PATH.exists():
-        try:
-            return json.loads(STATE_PATH.read_text())
-        except Exception:
-            return {}
-    return {}
+    """Load pause state. A corrupt file raises instead of silently erasing pauses."""
+    if not STATE_PATH.exists():
+        return {}
+    state = json.loads(STATE_PATH.read_text())
+    if not isinstance(state, dict):
+        raise ValueError(f"{STATE_PATH} must contain a JSON object")
+    return state
 
 
 def _save_state(state: dict) -> None:
+    """Atomic replace so a concurrent reader never sees a half-written file."""
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp = STATE_PATH.with_name(STATE_PATH.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
+    os.replace(tmp, STATE_PATH)
 
 
 def _load_history() -> dict:
@@ -233,14 +238,23 @@ def _save_history(hist: dict) -> None:
 
 
 def is_runner_paused(runner_key: str) -> bool:
-    """Used by runner.alpha_main to check state. Returns False if no state."""
+    """Used by runner.alpha_main to gate new entries.
+
+    No state file means nothing was ever paused. An unreadable or malformed
+    file is treated as PAUSED (fail-closed): an operator's pause must never be
+    lost to a read error.
+    """
     try:
         if not STATE_PATH.exists():
             return False
         state = json.loads(STATE_PATH.read_text())
-        return bool(state.get(runner_key, {}).get("paused", False))
+        entry = state.get(runner_key, {}) if isinstance(state, dict) else None
+        if not isinstance(entry, dict):
+            return True
+        return bool(entry.get("paused", False))
     except Exception:
-        return False
+        logger.error("Pause state unreadable; treating %s as paused", runner_key, exc_info=True)
+        return True
 
 
 def run_check(update: bool = False, alert: bool = False) -> dict:
