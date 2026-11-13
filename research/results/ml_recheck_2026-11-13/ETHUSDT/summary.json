@@ -1,0 +1,28 @@
+{
+  "chosen": {
+    "average_gross_exposure": 0.004586667876442465,
+    "deadzone": 1.5,
+    "fills": 480,
+    "max_drawdown_pct": 1.778792747106781,
+    "max_hold": 144,
+    "min_hold": 24,
+    "net_return_pct": 1.1663550262226714,
+    "spec": {
+      "alpha": 1.0,
+      "feature_set": "derivatives",
+      "horizon": 24
+    },
+    "validation_sharpe_daily": 0.6115023152878752
+  },
+  "mode": "validation_only",
+  "profitability_verified": false,
+  "stages": {},
+  "symbol": "ETHUSDT",
+  "synthetic": false,
+  "validation_gate": {
+    "passed": false,
+    "reasons": [
+      "485 fills per year > 150"
+    ]
+  }
+}

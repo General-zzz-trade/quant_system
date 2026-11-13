@@ -1,0 +1,29 @@
+{
+  "chosen": {
+    "average_gross_exposure": 0.009027803871634425,
+    "deadzone": 1.0,
+    "fills": 454,
+    "max_drawdown_pct": 1.2848272414749484,
+    "max_hold": 144,
+    "min_hold": 24,
+    "net_return_pct": 0.7419825148483785,
+    "spec": {
+      "alpha": 1.0,
+      "feature_set": "ohlcv",
+      "horizon": 24
+    },
+    "validation_sharpe_daily": 0.55909937558926
+  },
+  "mode": "validation_only",
+  "profitability_verified": false,
+  "stages": {},
+  "symbol": "BTCUSDT",
+  "synthetic": false,
+  "validation_gate": {
+    "passed": false,
+    "reasons": [
+      "validation Sharpe under 2x costs -1.4441612394109515 <= 0.0",
+      "459 fills per year > 150"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "validation_only",
+  "passed": false,
+  "reasons": [
+    "validation Sharpe under 2x costs -1.4441612394109515 <= 0.0",
+    "459 fills per year > 150"
+  ]
+}
