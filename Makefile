@@ -1,4 +1,4 @@
-.PHONY: all rust clean test test-py test-exec test-rust lint
+.PHONY: all rust clean test test-py test-exec test-all test-rust lint
 
 all: rust
 
@@ -10,13 +10,23 @@ clean:
 
 # ── Test targets (aligned with CI: .github/workflows/ci.yml) ───────────
 
-test: test-py test-exec test-rust lint  ## Core local test gate; CI also runs security, model-check, compose smoke, and a dedicated framework integration step
+test: test-py test-exec test-rust lint  ## Core local gate (same suites as CI); full suite: make test-all
 
-test-py:  ## Python core tests (matches CI 'Run Python tests' step)
-	python3 -m pytest tests/ -x -q --tb=short --ignore=tests/performance
+CORE_TESTS = tests/unit/decision/ tests/unit/state/ tests/unit/event/ tests/unit/engine/ tests/unit/bybit/ \
+	tests/unit/execution/adapters/okx/ tests/unit/runner/test_offline_research.py \
+	tests/unit/runner/test_offline_candidate_research.py tests/unit/runner/test_data_readiness.py \
+	tests/unit/runner/test_paper_check.py tests/unit/runner/test_shadow_main.py tests/unit/infra/ \
+	tests/unit/monitoring/test_pause_state_fail_closed.py tests/unit/data/test_binance_public_download.py \
+	tests/unit/features/test_daily_alignment_causal.py
 
-test-exec:  ## Execution subsystem tests (matches CI 'Run execution tests' step)
-	python3 -m pytest execution/tests/ -x -q --tb=short
+test-py:  ## Python core tests (matches CI 'Run core unit tests')
+	python3 -m pytest $(CORE_TESTS) -x -q --tb=short
+
+test-exec:  ## Execution subsystem tests (adapters, durable execution, Binance runtime)
+	python3 -m pytest tests/unit/execution/ tests/unit/binance/ -x -q --tb=short
+
+test-all:  ## Entire suite; pre-existing legacy failures are listed in docs/known_test_failures.md
+	python3 -m pytest tests/ -q --tb=line --ignore=tests/performance
 
 test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)
 	cargo test

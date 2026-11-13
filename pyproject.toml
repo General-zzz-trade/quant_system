@@ -96,7 +96,6 @@ include = [
     "/runner/**/*.py", "/runner/**/py.typed",
     "/shared/**/*.py", "/shared/**/py.typed",
     "/state/**/*.py", "/state/**/py.typed",
-    "/strategies/**/*.py", "/strategies/**/py.typed",
     "/strategy/**/*.py", "/strategy/**/py.typed",
 ]
 exclude = ["**/tests/**", "**/archive/**", "**/__pycache__/**"]
@@ -115,7 +114,7 @@ markers = [
 [tool.coverage.run]
 source = ["alpha", "core", "data", "decision", "engine", "event",
           "execution", "features", "infra", "monitoring", "policy",
-          "portfolio", "regime", "risk", "runner", "state", "strategies"]
+          "portfolio", "regime", "risk", "runner", "shared", "state"]
 omit = ["*/tests/*", "*/archive/*", "scripts/*", "ext/*"]
 
 [tool.coverage.report]

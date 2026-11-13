@@ -165,7 +165,20 @@ jobs:
             tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
             tests/unit/runner/test_shadow_main.py \
             tests/unit/infra/test_model_signing.py \
+            tests/unit/binance/ \
+            tests/unit/monitoring/test_pause_state_fail_closed.py \
+            tests/unit/runner/test_offline_candidate_research.py \
+            tests/unit/data/test_binance_public_download.py \
+            tests/unit/features/test_daily_alignment_causal.py \
             -x -q --tb=short
+
+      - name: Binance execution coverage gate
+        run: |
+          python3 -m pytest tests/unit/binance/ -q --tb=short \
+            --cov=execution.adapters.binance.adapter --cov=execution.adapters.binance.execution_adapter \
+            --cov=execution.adapters.binance.protective_stops --cov=runner.binance_main \
+            --cov=runner.binance_context --cov=shared.confirmed_execution --cov=shared.exposure_gate \
+            --cov=shared.kill_file --cov=shared.drawdown_guard --cov-report=term --cov-fail-under=75
 
       - name: Synthetic offline research acceptance (no network or account keys)
         run: python3 -m runner.offline demo --out .cache/offline-ci

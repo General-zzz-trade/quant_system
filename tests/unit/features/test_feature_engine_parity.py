@@ -38,7 +38,7 @@ def _skip_if_no_data():
 def python_features():
     """Compute features using Python pipeline."""
     _skip_if_no_data()
-    from scripts.backtest_alpha_v8 import compute_oos_features
+    from research.backtesting.backtest_alpha_v8 import compute_oos_features
     df = pd.read_csv(DATA_PATH).head(N_TEST_BARS)
     return compute_oos_features("BTCUSDT", df)
 
@@ -147,7 +147,7 @@ class TestPerformance:
         except ImportError:
             pytest.skip("C++ not available")
 
-        from scripts.backtest_alpha_v8 import compute_oos_features
+        from research.backtesting.backtest_alpha_v8 import compute_oos_features
 
         df = pd.read_csv(DATA_PATH).head(N_TEST_BARS)
 

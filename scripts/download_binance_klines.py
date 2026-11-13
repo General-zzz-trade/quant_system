@@ -1,1 +1,0 @@
-/home/ubuntu/dev/scripts/download_binance_klines.py

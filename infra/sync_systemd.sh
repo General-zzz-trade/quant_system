@@ -15,6 +15,13 @@ RETIRED_UNITS=(
     liq-sniper.service
     hft-signal.service
     binary-signal.service
+    # Pointed at modules that do not exist in this repository:
+    quant-runner.service
+    depth-recorder.service
+    defi-flows.service
+    defi-flows.timer
+    deribit-options.service
+    deribit-options.timer
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do

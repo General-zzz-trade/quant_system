@@ -1,1 +1,0 @@
-/home/ubuntu/dev/scripts/backtest_alpha_v8.py
