@@ -20,7 +20,7 @@ from alpha.retrain.pipeline import (
     _daily_retrain_needed, _daily_ic_gate,
     load_current_config, _model_dir_for,
     retrain_symbol, log_retrain_event,
-    cleanup_old_backups, send_sighup_to_runner, send_alert,
+    cleanup_old_backups, send_alert,
     download_15m_data, retrain_15m_symbols, retrain_4h_symbols,
     calibrate_ensemble_weights, save_experiment_metadata,  # noqa: F401
 )
@@ -207,8 +207,8 @@ def _retrain_1h_symbols(symbols, horizons, args, retrain_mode):
     return results
 
 
-def _run_parity_check_and_sighup(results, results_4h, succeeded, args):
-    """Run parity check and send SIGHUP if all pass."""
+def _run_parity_check(results, results_4h, succeeded, args):
+    """Run the parity check; restore backups if it fails. Never signals a runner."""
     parity_ok = True
     if succeeded and not args.dry_run:
         logger.info("Running pre-deploy parity check...")
@@ -255,12 +255,11 @@ def _run_parity_check_and_sighup(results, results_4h, succeeded, args):
         except Exception as e:
             logger.warning("Pre-deploy parity check error: %s", e)
 
-    if args.notify_runner and succeeded and not args.dry_run and parity_ok:
-        sighup_ok = send_sighup_to_runner()
-        if sighup_ok:
-            print("  -> SIGHUP sent to runner for model hot-reload")
-        else:
-            print("  -> WARNING: SIGHUP failed -- manual model reload required")
+    if succeeded and not args.dry_run and parity_ok:
+        # Retraining never reaches a running process: a person reviews the
+        # new model and restarts the runner by hand.
+        print("  -> New model files written; running services are NOT notified. "
+              "Review, then restart by hand to deploy.")
 
     return parity_ok
 
@@ -313,7 +312,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-age-days", type=int, default=90)
-    parser.add_argument("--notify-runner", action="store_true")
     parser.add_argument("--alert", action="store_true")
     parser.add_argument("--include-15m", action="store_true")
     parser.add_argument("--only-15m", action="store_true")
@@ -347,13 +345,7 @@ def main():
                              "(secondary gate for low-confidence signals)")
     parser.add_argument("--dual-label", action="store_true",
                         help="Try both forward_return and triple_barrier, deploy best OOS Sharpe")
-    parser.add_argument("--sighup", action="store_true",
-                        help="Alias for --notify-runner")
     args = parser.parse_args()
-
-    # --sighup is an alias for --notify-runner
-    if args.sighup:
-        args.notify_runner = True
 
     symbols = ([s.strip().upper() for s in args.symbol.split(",")]
                if args.symbol else SYMBOLS)
@@ -437,7 +429,7 @@ def main():
                 else:
                     print(f"  {symbol} ({label}): FAILED ({result.get('error', 'unknown')})")
 
-    _run_parity_check_and_sighup(results, results_4h, succeeded, args)
+    _run_parity_check(results, results_4h, succeeded, args)
 
     if succeeded and not args.dry_run:
         _refresh_ic_health(results, results_4h, succeeded)

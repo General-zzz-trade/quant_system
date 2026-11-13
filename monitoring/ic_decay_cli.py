@@ -124,7 +124,7 @@ def send_alerts(results: List[Dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    from monitoring.ic_decay_monitor import run_monitor, save_results, maybe_trigger_retrain
+    from monitoring.ic_decay_monitor import report_retrain_candidates, run_monitor, save_results
 
     parser = argparse.ArgumentParser(
         description="IC Decay Monitor — detect model alpha decay",
@@ -136,15 +136,6 @@ def main() -> None:
     parser.add_argument(
         "--json", action="store_true",
         help="JSON output only (no table)",
-    )
-    parser.add_argument(
-        "--auto-retrain", action="store_true",
-        help=(
-            "Close the loop: on a 3+ consecutive RED streak, launch "
-            "alpha.retrain.cli in the background (48h cooldown, targeted "
-            "by symbol).  Off by default — observation-only without "
-            "this flag.  Intended for a dedicated systemd timer."
-        ),
     )
     args = parser.parse_args()
 
@@ -167,7 +158,7 @@ def main() -> None:
     if args.alert:
         send_alerts(results)
 
-    maybe_trigger_retrain(results, enabled=args.auto_retrain)
+    report_retrain_candidates(results)
 
     statuses = [r.get("overall_status") for r in results if "overall_status" in r]
     if "RED" in statuses:

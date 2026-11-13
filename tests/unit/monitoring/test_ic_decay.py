@@ -246,43 +246,6 @@ class TestRedHistory:
         finally:
             mod.RED_HISTORY_PATH = orig
 
-    def test_cooldown_prevents_retrain(self, tmp_path):
-        """48h cooldown should prevent re-triggering."""
-        import monitoring.ic_decay_monitor as mod
-        from datetime import datetime, timezone
-
-        orig_hist = mod.RED_HISTORY_PATH
-        orig_last = mod.LAST_IC_RETRAIN_PATH
-        try:
-            mod.RED_HISTORY_PATH = tmp_path / "red_hist.json"
-            mod.LAST_IC_RETRAIN_PATH = tmp_path / "last_retrain.txt"
-
-            # Write a recent timestamp (1 hour ago)
-            recent_ts = datetime.now(timezone.utc).timestamp() - 3600
-            mod.LAST_IC_RETRAIN_PATH.write_text(str(recent_ts))
-
-            assert mod._should_retrain() is False
-        finally:
-            mod.RED_HISTORY_PATH = orig_hist
-            mod.LAST_IC_RETRAIN_PATH = orig_last
-
-    def test_cooldown_expired_allows_retrain(self, tmp_path):
-        """Expired cooldown (>48h) should allow retrain."""
-        import monitoring.ic_decay_monitor as mod
-        from datetime import datetime, timezone
-
-        orig_last = mod.LAST_IC_RETRAIN_PATH
-        try:
-            mod.LAST_IC_RETRAIN_PATH = tmp_path / "last_retrain.txt"
-
-            # Write an old timestamp (72 hours ago)
-            old_ts = datetime.now(timezone.utc).timestamp() - 72 * 3600
-            mod.LAST_IC_RETRAIN_PATH.write_text(str(old_ts))
-
-            assert mod._should_retrain() is True
-        finally:
-            mod.LAST_IC_RETRAIN_PATH = orig_last
-
     def test_model_to_symbol_mapping(self):
         """_model_to_symbol should map known model dirs to symbols."""
         from monitoring.ic_decay_monitor import _model_to_symbol

@@ -12,7 +12,7 @@ Actions:
   4. Compute IC for candidate features on recent 3-month data
   5. Select best stable replacement (consistent sign, |IC| > 0.05)
   6. Update alpha/retrain/config.py FORCED_FEATURES
-  7. Trigger retrain via --sighup on next daily-retrain cycle
+  7. Retrain by hand, review, then restart the runner by hand
 
 Safety:
   - Never removes more than 2 features per model per cycle
@@ -238,7 +238,7 @@ def main() -> None:
                 })
                 print("\n  ⚠️ Config update requires manual edit of "
                       "alpha/retrain/config.py FORCED_FEATURES")
-                print("  Then run: python3 -m alpha.retrain.cli --force --sighup")
+                print("  Then run: python3 -m alpha.retrain.cli --force   (then review and restart by hand)")
 
     if args.alert:
         try:

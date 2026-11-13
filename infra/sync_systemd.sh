@@ -22,6 +22,16 @@ RETIRED_UNITS=(
     defi-flows.timer
     deribit-options.service
     deribit-options.timer
+    # Retrained models and hot-swapped them into a running runner (SIGHUP)
+    # with no human review; retraining is manual now:
+    daily-retrain.service
+    daily-retrain.timer
+    auto-retrain.service
+    auto-retrain.timer
+    # runner.alpha_main refuses --venue binance and exits; with
+    # Restart=always this unit only restart-looped. Binance runs through
+    # runner.binance_main / runner.binance_target:
+    binance-alpha.service
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do
