@@ -167,8 +167,8 @@ service_files = [
     f"infra/systemd/{'okx' if venue == 'okx' else 'bybit'}-alpha.service",
     "infra/systemd/health-watchdog.service",
     "infra/systemd/health-watchdog.timer",
-    "infra/systemd/data-refresh.service",
-    "infra/systemd/daily-retrain.service",
+    # data-refresh and daily-retrain were retired on purpose (2026-11-13);
+    # requiring them would stop okx-alpha.service at ExecStartPre.
 ]
 for sf in service_files:
     results.append(check(f"{sf} exists", Path(sf).exists()))

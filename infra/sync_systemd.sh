@@ -32,6 +32,10 @@ RETIRED_UNITS=(
     # Restart=always this unit only restart-looped. Binance runs through
     # runner.binance_main / runner.binance_target:
     binance-alpha.service
+    # Refreshed legacy CSVs (and z-score buffers) for the closed hourly ML
+    # path, 4x a day; nothing current reads them:
+    data-refresh.service
+    data-refresh.timer
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do
