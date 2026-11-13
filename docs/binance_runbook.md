@@ -26,8 +26,11 @@ python3 scripts/check_local_safety.py             # 离线故障注入检查
 ## 2. 数据（公开接口，无需账户）
 
 ```bash
-python3 -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01 --out data_files/binance_public
+python3 -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01
+# 写入新目录 data_files/binance_public_<结束日期>/
 ```
+
+每次下载都写入一个新的快照目录；目录非空时直接拒绝，绝不覆盖。研究记录的是输入文件的 SHA-256，覆盖之后就无法复现。`data_files/binance_public` 是 2026-11-13 的快照，2026-11-13 的各项研究都引用它，不要再往里下载。
 
 产物：
 - `<SYM>_1h.csv`：只含已收盘 K 线，带 taker、trades 字段；
@@ -86,9 +89,9 @@ python3 -m runner.binance_main --models-dir models_binance --symbols BTCUSDT ETH
 与同期离线回放逐笔对比（先刷新数据）：
 
 ```bash
-python3 -m data.downloads.binance_public --start <近期日期> --out data_files/binance_public
+python3 -m data.downloads.binance_public --start <近期日期> --out data_files/binance_public_compare_<日期>
 python3 -m scripts.compare_paper_replay --events data/runtime/binance/binance_events.jsonl \
-    --models-dir models_binance --data-dir data_files/binance_public --symbol BTCUSDT
+    --models-dir models_binance --data-dir data_files/binance_public_compare_<日期> --symbol BTCUSDT
 ```
 
 退出码 0 表示一致。如果不一致，说明线上输入（K 线、资金费、持仓数据）与研究数据有偏差，必须先查清原因。
