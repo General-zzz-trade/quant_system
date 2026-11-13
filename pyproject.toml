@@ -93,6 +93,7 @@ include = [
     "/polymarket/**/*.py", "/polymarket/**/py.typed",
     "/research/**/*.py", "/research/**/py.typed",
     "/risk/**/*.py", "/risk/**/py.typed",
+    "/lab/**/*.py", "/lab/**/py.typed",
     "/runner/**/*.py", "/runner/**/py.typed",
     "/shared/**/*.py", "/shared/**/py.typed",
     "/state/**/*.py", "/state/**/py.typed",
@@ -114,7 +115,7 @@ markers = [
 [tool.coverage.run]
 source = ["alpha", "core", "data", "decision", "engine", "event",
           "execution", "features", "infra", "monitoring", "policy",
-          "portfolio", "regime", "risk", "runner", "shared", "state"]
+          "lab", "portfolio", "regime", "risk", "runner", "shared", "state"]
 omit = ["*/tests/*", "*/archive/*", "scripts/*", "ext/*"]
 
 [tool.coverage.report]
