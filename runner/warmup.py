@@ -14,6 +14,36 @@ from event.types import EventType, MarketEvent
 
 logger = logging.getLogger(__name__)
 
+HOUR_MS = 3_600_000
+
+
+def bar_open_ms(bar: dict) -> int:
+    """Open time in ms. Adapters put ms in ``start`` and SECONDS in ``time``.
+
+    A ``time`` above 1e11 is already milliseconds (1e11 s is year 5138; 1e11 ms
+    is 1973), so both conventions are recognized without ambiguity.
+    """
+    if bar.get("start"):
+        return int(bar["start"])
+    if bar.get("time"):
+        value = int(bar["time"])
+        return value if value > 100_000_000_000 else value * 1000
+    raise ValueError("bar has no open time")
+
+
+def closed_chronological(bars: list[dict], interval: str, *, now_ms: int | None = None) -> list[dict]:
+    """Oldest-first, de-duplicated, closed bars only — regardless of adapter ordering."""
+    import time as _time
+    step = int(interval) * 60_000 if str(interval).isdigit() else HOUR_MS
+    now_ms = int(_time.time() * 1000) if now_ms is None else now_ms
+    unique = {}
+    for bar in bars:
+        start = bar_open_ms(bar)
+        if bar.get("confirm") is False or start + step > now_ms:
+            continue  # an unclosed bar must never enter warmup
+        unique[start] = bar
+    return [unique[t] for t in sorted(unique)]
+
 
 def validate_warmup_bars(
     bars: list[dict],
@@ -35,8 +65,7 @@ def validate_warmup_bars(
     # Convert adapter dicts to Bar objects
     store_bars: list[StoreBar] = []
     for raw in bars:
-        ts_ms = raw.get("time") or raw.get("start") or 0
-        ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        ts = datetime.fromtimestamp(bar_open_ms(raw) / 1000, tz=timezone.utc)
         try:
             store_bars.append(StoreBar(
                 ts=ts,
@@ -48,7 +77,7 @@ def validate_warmup_bars(
                 symbol=symbol,
             ))
         except (KeyError, ValueError) as exc:
-            logger.warning("Warmup bar conversion failed at ts=%s: %s", ts_ms, exc)
+            logger.warning("Warmup bar conversion failed at ts=%s: %s", ts, exc)
 
     if not store_bars:
         return
@@ -104,10 +133,11 @@ def warmup(
     Returns the number of bars processed.
     """
     logger.info("Warmup: fetching %d bars for %s interval=%s", limit, symbol, interval)
-    bars = adapter.get_klines(symbol, interval=interval, limit=limit)
+    # One extra row: some venues include the still-open bar, which is dropped.
+    bars = adapter.get_klines(symbol, interval=interval, limit=limit + 1)
 
-    # Bybit returns newest first -- reverse for chronological order
-    bars = list(reversed(bars))
+    # Adapters differ (Bybit newest-first, OKX/Binance oldest-first): normalize.
+    bars = closed_chronological(bars, interval)[-limit:]
 
     # Data quality validation (log-only, never blocks warmup)
     try:
@@ -123,8 +153,7 @@ def warmup(
 
     count = 0
     for bar in bars:
-        ts_ms = bar.get("time") or bar.get("start") or 0
-        ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        ts = datetime.fromtimestamp(bar_open_ms(bar) / 1000, tz=timezone.utc)
 
         header = EventHeader.new_root(
             event_type=EventType.MARKET,

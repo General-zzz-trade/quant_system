@@ -199,6 +199,9 @@ def main() -> None:
         print(json.dumps(check_startup(), sort_keys=True))
         return
 
+    if args.venue == "binance":
+        raise SystemExit("Binance uses the research-aligned runtime: python -m runner.binance_main --help")
+
     if not args.symbols or any(key not in SYMBOL_CONFIG for key in args.symbols):
         raise RuntimeError("Startup blocked: every requested runner must have a known configuration")
 
@@ -832,8 +835,9 @@ def main() -> None:
             return
 
 
-        ts_ms = bar.get("time") or bar.get("start") or 0
-        ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        from runner.warmup import bar_open_ms
+        ts_ms = bar_open_ms(bar)  # "time" is seconds, "start" is ms
+        ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
 
         header = EventHeader.new_root(
             event_type=EventType.MARKET,
