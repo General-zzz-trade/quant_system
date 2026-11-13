@@ -18,7 +18,8 @@
 //   - Tick-by-tick: sub-second decision on every aggTrade (Phase 6)
 //
 // Usage:
-//   quant_trader --config config.yaml [--dry-run]
+//   quant_trader --config config.yaml              # dry run (default)
+//   quant_trader --config config.yaml --live       # orders; also needs trading.mode: live
 
 mod config;
 
@@ -51,9 +52,32 @@ struct Cli {
     #[arg(short, long)]
     config: PathBuf,
 
-    /// Dry-run mode: process ticks but don't submit orders
+    /// Send real orders. Without this flag nothing is ever submitted.
+    /// Live trading additionally requires `trading.mode: live` in the config.
+    #[arg(long, default_value_t = false)]
+    live: bool,
+
+    /// Force dry run (already the default; kept for existing command lines).
     #[arg(long, default_value_t = false)]
     dry_run: bool,
+}
+
+/// Hard ceiling on total notional / equity, the same 3x cap as
+/// `shared/exposure_gate.py`. Configuration may lower it, never raise it.
+const MAX_TOTAL_LEVERAGE: f64 = 3.0;
+
+/// Orders are sent only with `--live`, without `--dry-run`, and with
+/// `trading.mode: live`. Every other combination is a dry run.
+fn orders_enabled(live_flag: bool, dry_run_flag: bool, mode: &str) -> bool {
+    live_flag && !dry_run_flag && mode == "live"
+}
+
+/// The configured leverage limit, capped at `MAX_TOTAL_LEVERAGE`.
+fn effective_max_leverage(configured: f64) -> Result<f64, String> {
+    if !configured.is_finite() || configured <= 0.0 {
+        return Err(format!("risk.max_leverage must be a positive number, got {}", configured));
+    }
+    Ok(configured.min(MAX_TOTAL_LEVERAGE))
 }
 
 const WS_FAPI_MAINNET: &str = "wss://fstream.binance.com/stream";
@@ -74,3 +98,32 @@ include!("runner.inc.rs");
 
 // ── Utility functions: user data, order response, parsing, logging ──
 include!("utils.inc.rs");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn orders_need_live_flag_and_live_mode() {
+        assert!(!orders_enabled(false, false, "live"));
+        assert!(!orders_enabled(true, false, "paper"));
+        assert!(!orders_enabled(true, true, "live"));
+        assert!(orders_enabled(true, false, "live"));
+    }
+
+    #[test]
+    fn leverage_is_capped_and_validated() {
+        assert_eq!(effective_max_leverage(5.0), Ok(3.0));
+        assert_eq!(effective_max_leverage(1.5), Ok(1.5));
+        assert!(effective_max_leverage(0.0).is_err());
+        assert!(effective_max_leverage(f64::NAN).is_err());
+    }
+
+    #[test]
+    fn cli_defaults_to_dry_run() {
+        let cli = Cli::try_parse_from(["quant_trader", "--config", "c.yaml"]).unwrap();
+        assert!(!cli.live);
+        assert!(!orders_enabled(cli.live, cli.dry_run, "live"));
+    }
+}
+
