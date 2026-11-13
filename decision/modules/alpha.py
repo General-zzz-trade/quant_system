@@ -451,9 +451,11 @@ class AlphaDecisionModule:
             and self._signal == 0
             and "ETH" in self._symbol
         ):
-            btc_keys = [k for k in self._consensus if "BTC" in k]
-            if btc_keys:
-                btc_dir = self._consensus.get(btc_keys[0], 0)
+            # Same key as the alignment exit below: the BTC runner's direction,
+            # never its "_z"/"_ic_ok" companions or the 4h runner.
+            btc_key = self._symbol.replace("ETH", "BTC")
+            if btc_key in self._consensus:
+                btc_dir = self._consensus.get(btc_key, 0)
                 if btc_dir != 0 and btc_dir != new_signal:
                     logger.info(
                         "%s direction alignment: blocked %+d (BTC=%+d)",
@@ -853,7 +855,8 @@ class AlphaDecisionModule:
                     qty_f = float(qty)
                 except (ValueError, TypeError, decimal.InvalidOperation):
                     qty_f = 0.0
-                if not math.isfinite(qty_f) or qty_f <= 0:
+                sized = math.isfinite(qty_f) and qty_f > 0
+                if not sized and not self._signal_only:
                     return events  # skip zero/negative/NaN qty (warmup, edge case)
                 if self._suppress_next_entry:
                     # Limit order pre-fill already opened the position this bar;
@@ -861,22 +864,26 @@ class AlphaDecisionModule:
                     # entry written by alpha_main is the authoritative record.
                     self._suppress_next_entry = False
                     return events
-                events.extend(self._make_open_order(close, new_signal, qty))
-                entry_reason = "graduated" if sw < 0.95 else "signal"
-                if self._audit_enabled and self._signal_only:
-                    try:
-                        self._audit.log_entry(
-                            symbol=self._symbol,
-                            side="buy" if new_signal == 1 else "sell",
-                            qty=float(qty), price=close,
-                            reason=entry_reason, z_score=z, ic_scale=self._ic_scale,
-                        )
-                    except Exception:
-                        pass
+                if sized:
+                    events.extend(self._make_open_order(close, new_signal, qty))
+                    entry_reason = "graduated" if sw < 0.95 else "signal"
+                    if self._audit_enabled and self._signal_only:
+                        try:
+                            self._audit.log_entry(
+                                symbol=self._symbol,
+                                side="buy" if new_signal == 1 else "sell",
+                                qty=float(qty), price=close,
+                                reason=entry_reason, z_score=z, ic_scale=self._ic_scale,
+                            )
+                        except Exception:
+                            pass
                 if self._signal_only:
+                    # A signal-only runner never places orders (its sizer cap is
+                    # 0 by design), so a zero size must not stop it publishing
+                    # its direction to the consensus.
                     self._entry_price = close
                     self._trade_peak = close
-                    self._current_qty = qty
+                    self._current_qty = qty if sized else Decimal("0")
                     self._entry_bar = self._bars_processed
             elif self._signal_only:
                 self._entry_price = 0.0
@@ -1289,12 +1296,14 @@ class AlphaDecisionModule:
             if self._signal == -1 and z > _zrt:
                 return True, f"z_reversal(short,z={z:.2f})"
 
-        # 4h reversal (non-4h runners only)
+        # 4h reversal (non-4h runners only). Read exactly the 4h runner's
+        # direction key: the consensus also holds "<key>_z" (a float z-score)
+        # and "<key>_ic_ok" (a bool), which are not directions.
         if not self._is_4h:
-            for k, v in self._consensus.items():
-                if "4h" in k and self._symbol.replace("_4h", "").replace("_15m", "") in k:
-                    if v != 0 and v != self._signal:
-                        return True, f"4h_reversal({k}={v})"
+            tf4h_key = f"{self._symbol.replace('_4h', '').replace('_15m', '')}_4h"
+            tf4h_signal = self._consensus.get(tf4h_key, 0)
+            if tf4h_signal != 0 and tf4h_signal != self._signal:
+                return True, f"4h_reversal({tf4h_key}={tf4h_signal})"
 
         # Direction alignment exit (ETH follows BTC)
         if "ETH" in self._symbol and not self._is_4h:

@@ -163,8 +163,9 @@ def test_direction_alignment_integration():
     """ETH short blocked when BTC consensus is long."""
     module, bridge = _make_module(symbol="ETHUSDT", runner_key="ETHUSDT")
 
-    # BTC consensus is long
-    module.set_consensus({"BTCUSDT_4h": 1})
+    # BTC consensus is long (BTC's direction key, the same one the alignment
+    # exit reads; "BTCUSDT_4h" is the 4h runner, not the BTC direction)
+    module.set_consensus({"BTCUSDT": 1})
 
     # Discretizer wants to go short
     bridge.zscore_normalize.return_value = -2.0
