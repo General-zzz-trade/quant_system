@@ -405,6 +405,25 @@ class BinanceAdapter:
             raise RuntimeError("funding history unavailable")
         return int(data[-1]["fundingTime"]), float(data[-1]["fundingRate"])
 
+    def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]:
+        """Settled funding events (time ms, rate), oldest first, up to ``limit`` (paginated)."""
+        rows: dict[int, float] = {}
+        end = None
+        while len(rows) < limit:
+            params: dict[str, Any] = {"symbol": symbol, "limit": min(1000, limit - len(rows))}
+            if end is not None:
+                params["endTime"] = end
+            data = self._client.request_public(method="GET", path="/fapi/v1/fundingRate", params=params)
+            if not isinstance(data, list) or not data:
+                break
+            for row in data:
+                rows[int(row["fundingTime"])] = float(row["fundingRate"])
+            oldest = min(int(r["fundingTime"]) for r in data)
+            if len(data) < params["limit"] or (end is not None and oldest - 1 >= end):
+                break
+            end = oldest - 1
+        return sorted(rows.items())[-limit:]
+
     def get_positioning(self, symbol: str, *, limit: int = 3) -> list[dict]:
         """Recent 5-minute OI and long/short snapshots, aligned by timestamp."""
         def series(path: str, key: str) -> dict[int, float]:

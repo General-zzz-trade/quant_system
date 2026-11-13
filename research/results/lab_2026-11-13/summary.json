@@ -1,0 +1,247 @@
+{
+  "walk_forward": {
+    "folds": [
+      {
+        "oos_year": 2022,
+        "chosen": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "in_sample_sharpe": 0.9581198341699205,
+        "oos": {
+          "days": 365,
+          "sharpe": -1.917957499480093,
+          "total_return": -0.10689957651991622,
+          "max_drawdown": 0.10932103681825145
+        },
+        "oos_cost_x2": {
+          "days": 365,
+          "sharpe": -2.0274773055666966,
+          "total_return": -0.11293189177582619,
+          "max_drawdown": 0.11481208505678153
+        }
+      },
+      {
+        "oos_year": 2023,
+        "chosen": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "sign",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": true,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "in_sample_sharpe": 0.749560246142486,
+        "oos": {
+          "days": 365,
+          "sharpe": -0.38516189660931327,
+          "total_return": -0.09182208228739164,
+          "max_drawdown": 0.2712764231833595
+        },
+        "oos_cost_x2": {
+          "days": 365,
+          "sharpe": -0.5455964833007528,
+          "total_return": -0.12031380894696486,
+          "max_drawdown": 0.2834235471090032
+        }
+      },
+      {
+        "oos_year": 2024,
+        "chosen": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "in_sample_sharpe": 0.5923787219594153,
+        "oos": {
+          "days": 366,
+          "sharpe": 1.2555515754439137,
+          "total_return": 0.2877949613168733,
+          "max_drawdown": 0.11729982149736812
+        },
+        "oos_cost_x2": {
+          "days": 366,
+          "sharpe": 1.140443154433978,
+          "total_return": 0.25636282761654683,
+          "max_drawdown": 0.12594244243789182
+        }
+      },
+      {
+        "oos_year": 2025,
+        "chosen": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "in_sample_sharpe": 0.8568386946678478,
+        "oos": {
+          "days": 319,
+          "sharpe": 0.22069566193291992,
+          "total_return": 0.019843821236969816,
+          "max_drawdown": 0.14652606055990416
+        },
+        "oos_cost_x2": {
+          "days": 319,
+          "sharpe": 0.13098718039499246,
+          "total_return": 0.007090787568008627,
+          "max_drawdown": 0.15047780016122322
+        }
+      }
+    ],
+    "oos": {
+      "days": 1415,
+      "sharpe": 0.1804597762773968,
+      "total_return": 0.0652501982902911,
+      "max_drawdown": 0.32148446671882347
+    },
+    "oos_cost_x2": {
+      "days": 1415,
+      "sharpe": 0.06639382931617942,
+      "total_return": -0.012656112111018802,
+      "max_drawdown": 0.3433394767455374
+    }
+  },
+  "development": {
+    "portfolio": {
+      "days": 1769,
+      "sharpe": 0.7483448421099859,
+      "cagr": 0.11935019626474985,
+      "max_drawdown": 0.18723382186725407,
+      "total_return": 0.7270993075921917,
+      "vol": 0.16984705433568575
+    },
+    "per_symbol": {
+      "BTCUSDT": {
+        "days": 1769,
+        "sharpe": 0.5532611168444197,
+        "cagr": 0.08761499979805376,
+        "max_drawdown": 0.2147920618526973,
+        "total_return": 0.5023798467878338,
+        "vol": 0.18125107120003375
+      },
+      "ETHUSDT": {
+        "days": 1769,
+        "sharpe": 0.8004777987282022,
+        "cagr": 0.14765193970378654,
+        "max_drawdown": 0.20952797174712834,
+        "total_return": 0.9492817489350569,
+        "vol": 0.1957282319185323
+      }
+    },
+    "fills_per_year": {
+      "BTCUSDT": 66.60734463276836,
+      "ETHUSDT": 57.53389830508475
+    },
+    "exposure": 0.20541556435943592,
+    "yearly": {
+      "2021": 0.1241896681099055,
+      "2022": -0.10689957651991588,
+      "2023": 0.1940248491736125,
+      "2024": 0.3430503594992229,
+      "2025": 0.01984382123697004
+    },
+    "benchmark_50_50_buy_hold": {
+      "days": 1770,
+      "sharpe": 0.6577265702532619,
+      "total_return": 1.84326446461636,
+      "max_drawdown": 0.7629287495296222
+    },
+    "correlation_to_benchmark": 0.6181929986371536,
+    "deflated_sharpe_probability": 0.7084481473163508,
+    "trials": 39
+  },
+  "secondary_holdout": {
+    "strategy": {
+      "days": 361,
+      "sharpe": -0.4235362138968434,
+      "total_return": -0.0454004905260712,
+      "max_drawdown": 0.07385524784663386
+    },
+    "benchmark_50_50_buy_hold": {
+      "days": 361,
+      "sharpe": -0.4140282950115427,
+      "total_return": -0.28466636962095715,
+      "max_drawdown": 0.4652244799935178
+    },
+    "note": "viewed once after freezing; not used for selection or gating"
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "walk_forward_sharpe": {
+        "value": 0.1804597762773968,
+        "ok": false
+      },
+      "walk_forward_cost_x2_sharpe": {
+        "value": 0.06639382931617942,
+        "ok": false
+      },
+      "walk_forward_max_drawdown": {
+        "value": 0.32148446671882347,
+        "ok": true
+      },
+      "deflated_sharpe_probability": {
+        "value": 0.7084481473163508,
+        "ok": false
+      },
+      "fills_per_symbol_year": {
+        "value": 66.60734463276836,
+        "ok": true
+      },
+      "positive_oos_years": {
+        "value": 2,
+        "ok": false
+      }
+    }
+  }
+}

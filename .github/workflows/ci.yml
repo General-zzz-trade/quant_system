@@ -170,6 +170,7 @@ jobs:
             tests/unit/runner/test_offline_candidate_research.py \
             tests/unit/data/test_binance_public_download.py \
             tests/unit/features/test_daily_alignment_causal.py \
+            tests/unit/lab/ \
             -x -q --tb=short
 
       - name: Binance execution coverage gate

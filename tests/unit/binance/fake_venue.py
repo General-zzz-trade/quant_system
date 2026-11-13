@@ -111,7 +111,8 @@ class FakeBinance:
                      int(b.get("trades", 0)), str(b.get("taker_buy_volume", 0)),
                      str(b.get("taker_buy_quote_volume", 0)), "0"] for b in rows]
         if path == "/fapi/v1/fundingRate":
-            rows = [f for f in self.funding if f[0] <= self.now_ms()]
+            end = int(p.get("endTime", 10**15))
+            rows = [f for f in self.funding if f[0] <= self.now_ms() and f[0] + 7 <= end]
             return [{"fundingTime": t + 7, "fundingRate": str(r)} for t, r in rows[-int(p.get("limit", 1)):]]
         if path.startswith("/futures/data/"):
             key = {"openInterestHist": ("sumOpenInterest", "open_interest"),

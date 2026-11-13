@@ -1,0 +1,24 @@
+[Unit]
+Description=Binance BTC/ETH target-position runtime (PAPER by default; see docs/btc_eth_strategy.md)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/quant_system
+# Paper trading with the research broker model. The spec must be published
+# (signed) with scripts/publish_strategy_spec.py. Execution requires a human to
+# add --enable-execution; mainnet additionally requires the spec's gate to pass.
+ExecStart=/usr/bin/python3 -m runner.binance_target --spec models_binance/strategy/final_spec.json --dry-run
+Restart=on-failure
+RestartSec=60
+StandardOutput=append:/quant_system/logs/binance_target.log
+StandardError=append:/quant_system/logs/binance_target.log
+MemoryMax=1024M
+
+[Install]
+WantedBy=multi-user.target

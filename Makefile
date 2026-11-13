@@ -17,7 +17,7 @@ CORE_TESTS = tests/unit/decision/ tests/unit/state/ tests/unit/event/ tests/unit
 	tests/unit/runner/test_offline_candidate_research.py tests/unit/runner/test_data_readiness.py \
 	tests/unit/runner/test_paper_check.py tests/unit/runner/test_shadow_main.py tests/unit/infra/ \
 	tests/unit/monitoring/test_pause_state_fail_closed.py tests/unit/data/test_binance_public_download.py \
-	tests/unit/features/test_daily_alignment_causal.py
+	tests/unit/features/test_daily_alignment_causal.py tests/unit/lab/
 
 test-py:  ## Python core tests (matches CI 'Run core unit tests')
 	python3 -m pytest $(CORE_TESTS) -x -q --tb=short

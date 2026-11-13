@@ -51,7 +51,8 @@ class BinanceExecutionAdapter:
     def __init__(self, adapter: Any, circuit_breaker: Any = None, *,
                  journal_path: Path | None = None, scope: str | None = None,
                  owner: str = "", wait_seconds: float = 0.5, clock: Any = time.time,
-                 limit_offset_bps: Decimal = Decimal("2"), ttl_bars: int = 3) -> None:
+                 limit_offset_bps: Decimal = Decimal("2"), ttl_bars: int = 3,
+                 entry_mode: str = "maker") -> None:
         self._adapter, self._cb, self.owner = adapter, circuit_breaker, owner
         self._scope = scope or os.environ.get("RISK_SCOPE", "")
         if not self._scope or self._scope != self._scope.strip():
@@ -64,11 +65,15 @@ class BinanceExecutionAdapter:
             raise ValueError("limit_offset_bps must be in [0, 100)")
         if ttl_bars < 1:
             raise ValueError("ttl_bars must be positive")
+        if entry_mode not in ("maker", "market"):
+            raise ValueError("entry_mode must be maker or market")
+        self._entry_mode = entry_mode
         self._orders = ConfirmedExecutor(
             adapter, journal_path or Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")),
-            self._scope, owner=owner, wait_seconds=wait_seconds, entry_order_type="limit",
+            self._scope, owner=owner, wait_seconds=wait_seconds,
+            entry_order_type="limit" if entry_mode == "maker" else "market",
             not_found_grace_seconds=NOT_FOUND_GRACE_SECONDS, clock=clock,
-            entry_ttl_seconds=ttl_bars * HOUR_SECONDS,
+            entry_ttl_seconds=ttl_bars * HOUR_SECONDS if entry_mode == "maker" else None,
         )
         self._parents: dict[str, Any] = {}
         self._submitted_at: dict[str, float] = {}
@@ -148,7 +153,7 @@ class BinanceExecutionAdapter:
             side = str(event.side).lower()
             consumer_revision = None
             limit_price = None
-            if not reducing:
+            if not reducing and self._entry_mode == "maker":
                 reference = Decimal(str(event.price or 0))
                 if not reference.is_finite() or reference <= 0:
                     raise ValueError("Entry requires a positive reference price")

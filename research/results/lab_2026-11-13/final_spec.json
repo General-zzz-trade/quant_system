@@ -1,0 +1,597 @@
+{
+  "schema": 1,
+  "kind": "btc_eth_multitimeframe_target",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "spec": {
+    "lookbacks": [
+      10,
+      30,
+      90
+    ],
+    "signal": "sign",
+    "long_only": true,
+    "vol_lookback": 30,
+    "target_vol": 0.3,
+    "max_weight": 0.9,
+    "funding_filter": false,
+    "vol_spike_cut": false,
+    "confirm_4h": false,
+    "band": 0.1,
+    "execution": "market",
+    "ttl_bars": 1
+  },
+  "evaluation": {
+    "eval_start_ms": 1610236800000,
+    "dev_end_ms": 1763251200000,
+    "holdout_end_ms": 1794441600000
+  },
+  "selection": {
+    "stage_a": [
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.6391197985600672
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.7483448421099859
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "scaled",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.5970200095385904
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "scaled",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.7223683155624805
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            20,
+            60,
+            120
+          ],
+          "signal": "sign",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.5020296286385486
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            20,
+            60,
+            120
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.684205763037668
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            20,
+            60,
+            120
+          ],
+          "signal": "scaled",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.31526601227004164
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            20,
+            60,
+            120
+          ],
+          "signal": "scaled",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.604910708037443
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "sign",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.39592028562187515
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.6850857264518159
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "scaled",
+          "long_only": false,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.35337611477825237
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            30,
+            90,
+            180
+          ],
+          "signal": "scaled",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.5727798271234047
+      }
+    ],
+    "stage_b": [
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": true,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.42639167585913684
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": true,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.6577181272620788
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": true,
+          "confirm_4h": true,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.412058498111329
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": true,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.7044905741156675
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": true,
+          "vol_spike_cut": false,
+          "confirm_4h": true,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.41518851417658176
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": true,
+          "vol_spike_cut": true,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.6168046147908117
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": true,
+          "vol_spike_cut": true,
+          "confirm_4h": true,
+          "band": 0.1,
+          "execution": "market",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.3831826003400482
+      }
+    ],
+    "stage_c": [
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "maker",
+          "ttl_bars": 1
+        },
+        "sharpe": 0.7788944005443009
+      },
+      {
+        "spec": {
+          "lookbacks": [
+            10,
+            30,
+            90
+          ],
+          "signal": "sign",
+          "long_only": true,
+          "vol_lookback": 30,
+          "target_vol": 0.3,
+          "max_weight": 0.9,
+          "funding_filter": false,
+          "vol_spike_cut": false,
+          "confirm_4h": false,
+          "band": 0.1,
+          "execution": "maker",
+          "ttl_bars": 4
+        },
+        "sharpe": 0.7844655563581826
+      }
+    ],
+    "chosen": {
+      "spec": {
+        "lookbacks": [
+          10,
+          30,
+          90
+        ],
+        "signal": "sign",
+        "long_only": true,
+        "vol_lookback": 30,
+        "target_vol": 0.3,
+        "max_weight": 0.9,
+        "funding_filter": false,
+        "vol_spike_cut": false,
+        "confirm_4h": false,
+        "band": 0.1,
+        "execution": "market",
+        "ttl_bars": 1
+      },
+      "sharpe": 0.7483448421099859
+    }
+  },
+  "trials": 39,
+  "gate": {
+    "walk_forward_sharpe_min": 0.8,
+    "walk_forward_cost_x2_sharpe_min": 0.4,
+    "walk_forward_max_drawdown_max": 0.35,
+    "deflated_sharpe_probability_min": 0.9,
+    "fills_per_symbol_year_max": 150,
+    "positive_oos_years_min": 3
+  },
+  "gate_result": {
+    "walk_forward_sharpe": {
+      "value": 0.1804597762773968,
+      "ok": false
+    },
+    "walk_forward_cost_x2_sharpe": {
+      "value": 0.06639382931617942,
+      "ok": false
+    },
+    "walk_forward_max_drawdown": {
+      "value": 0.32148446671882347,
+      "ok": true
+    },
+    "deflated_sharpe_probability": {
+      "value": 0.7084481473163508,
+      "ok": false
+    },
+    "fills_per_symbol_year": {
+      "value": 66.60734463276836,
+      "ok": true
+    },
+    "positive_oos_years": {
+      "value": 2,
+      "ok": false
+    }
+  },
+  "passed": false,
+  "code": {
+    "git_revision": "6d27c6ca012d634cdd33cd9abb2299932f2e621a",
+    "lab_or_offline_dirty": false
+  },
+  "data": {
+    "downloaded_at": "2026-11-13T11:26:51+00:00",
+    "end": "2026-11-13",
+    "files": {
+      "BTCUSDT_1h.csv": {
+        "rows": 60192,
+        "sha256": "83edb54ba9bc6addcbe5ccd6b89c09675e70c6795f8179aea0d4d04498de638b"
+      },
+      "BTCUSDT_funding.csv": {
+        "mark_proxy_rows": 4198,
+        "rows": 7524,
+        "sha256": "843f49ac0d8edac1399ccaaddd5a560a3237526501a51bca18d3378636367dc4"
+      },
+      "BTCUSDT_metrics.csv": {
+        "first_missing": [
+          "2020-01-01",
+          "2020-01-02",
+          "2020-01-03"
+        ],
+        "last_missing": [
+          "2020-08-29",
+          "2020-08-30",
+          "2020-08-31"
+        ],
+        "missing_days": 244,
+        "rows": 726653,
+        "sha256": "6829cd1a42449f43523e040b62a032c42f9ae36ac18719a1bac4cbd841b2bd7c"
+      },
+      "ETHUSDT_1h.csv": {
+        "rows": 60192,
+        "sha256": "ddbf0e3824a9e77f11f26fc5efdbdf6cc2d775e63a848aa90cec9f09f095284d"
+      },
+      "ETHUSDT_funding.csv": {
+        "mark_proxy_rows": 4198,
+        "rows": 7524,
+        "sha256": "6a60629ad06bfeb194e27ad351d2e69d20b0b186fe66544a8e4630ad28497699"
+      },
+      "ETHUSDT_metrics.csv": {
+        "first_missing": [
+          "2020-01-01",
+          "2020-01-02",
+          "2020-01-03"
+        ],
+        "last_missing": [
+          "2021-11-28",
+          "2021-11-29",
+          "2021-11-30"
+        ],
+        "missing_days": 700,
+        "rows": 520564,
+        "sha256": "d5b3cee6f48812a50b91a89748abd0de947971e6d43591af1d6677ec3bbe1d0a"
+      }
+    },
+    "source": "binance-usdm-public",
+    "start": "2020-01-01"
+  }
+}
