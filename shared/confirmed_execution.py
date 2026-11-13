@@ -3,6 +3,15 @@
 No automatic resubmission, market fallback, split orders, or invented fills.
 Orders and fills are restored by owner. Legacy rows lacking recovery metadata
 remain blocked; deleting the journal is NOT a recovery procedure.
+
+Optional absence resolution (``not_found_grace_seconds``): a venue that
+rejects any request older than its receive window can never accept an order
+later than that window. Once the grace period (which must exceed the window)
+has passed and the venue still reports no such order, the intent is settled
+as ``not_found`` so later orders, including exits, are not blocked forever.
+A definitive venue rejection (``status == "rejected"``) confirmed absent by a
+lookup is settled as ``rejected`` immediately. Venues that do not opt in keep
+the original never-resolve behaviour.
 """
 from __future__ import annotations
 
@@ -22,6 +31,7 @@ from shared.execution_journal import ExecutionJournal
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"filled", "canceled", "mmp_canceled", "rejected", "expired"})
+ABSENT = frozenset({"not_found", "rejected"})  # settled without any exchange order
 
 
 @dataclass
@@ -34,11 +44,16 @@ class PendingOrder:
     is_limit: bool = True
     seen: set[str] = field(default_factory=set)
     confirmed_qty: Decimal = Decimal("0")
+    created_at: float | None = None
+    rejected: bool = False
+    reducing: bool = False
 
 
 class ConfirmedExecutor:
     def __init__(self, adapter: Any, journal_path: Path, scope: str, *,
-                 wait_seconds: float = 3.0, owner: str = "", entry_order_type: str = "limit") -> None:
+                 wait_seconds: float = 3.0, owner: str = "", entry_order_type: str = "limit",
+                 not_found_grace_seconds: float | None = None, clock: Any = time.time,
+                 entry_ttl_seconds: float | None = None) -> None:
         if not scope:
             raise ValueError("execution scope is required")
         self.adapter, self.path, self.scope = adapter, Path(journal_path), scope
@@ -48,6 +63,16 @@ class ConfirmedExecutor:
         if entry_order_type not in {"limit", "market"}:
             raise ValueError("entry_order_type must be limit or market")
         self.entry_order_type = entry_order_type
+        if not_found_grace_seconds is not None and (
+                not math.isfinite(not_found_grace_seconds) or not_found_grace_seconds < 10):
+            raise ValueError("not_found_grace_seconds must be at least 10 seconds")
+        self.not_found_grace = not_found_grace_seconds
+        if entry_ttl_seconds is not None and (not math.isfinite(entry_ttl_seconds) or entry_ttl_seconds <= 0):
+            raise ValueError("entry_ttl_seconds must be positive")
+        # None: cancel a limit entry right after the first observation (legacy).
+        # Set: a resting post-only entry is canceled only once it expires.
+        self.entry_ttl = entry_ttl_seconds
+        self.clock = clock
         self.pending: dict[str, PendingOrder] = {}
         self._lock = threading.RLock()
         self.owner = owner
@@ -64,7 +89,9 @@ class ConfirmedExecutor:
                 continue
             order_type = row["order_type"] or ("market" if row["reducing"] else "limit")
             pending = PendingOrder(row["intent_id"], row["symbol"], row["side"], row["client_id"],
-                                   row["order_id"], is_limit=order_type == "limit")
+                                   row["order_id"], is_limit=order_type == "limit",
+                                   created_at=row.get("created_at"), rejected=row["status"] == "rejected_unconfirmed",
+                                   reducing=bool(row["reducing"]))
             with self._connect() as db:
                 fills = db.execute("SELECT payload FROM execution_fills WHERE scope=? AND intent_id=?",
                                    (self.scope, pending.intent_id)).fetchall()
@@ -118,19 +145,23 @@ class ConfirmedExecutor:
                 (self.scope, symbol),
             ).fetchone():
                 return None
+            created_at = float(self.clock())
             db.execute("""INSERT INTO submissions
-                (scope,intent_id,symbol,client_id,order_id,settled,side,qty,reducing,owner,parent,status,order_type)
-                VALUES (?, ?, ?, ?, '', 0, ?, ?, ?, ?, ?, 'reserved', ?)""",
+                (scope,intent_id,symbol,client_id,order_id,settled,side,qty,reducing,owner,parent,status,order_type,
+                 created_at)
+                VALUES (?, ?, ?, ?, '', 0, ?, ?, ?, ?, ?, 'reserved', ?, ?)""",
                 (self.scope, intent_id, symbol, client_id, side, str(qty), int(reducing), self.owner,
                  json.dumps(parent) if parent is not None else None,
-                 "market" if reducing else self.entry_order_type))
+                 "market" if reducing else self.entry_order_type, created_at))
         pending = PendingOrder(intent_id, symbol, side, client_id,
-                               is_limit=not reducing and self.entry_order_type == "limit")
+                               is_limit=not reducing and self.entry_order_type == "limit",
+                               created_at=created_at, reducing=reducing)
         self.pending[intent_id] = pending
         return pending
 
     def submit(self, *, intent_id: str, symbol: str, side: str, qty: Decimal,
-               reduce_only: bool = False, parent: dict[str, Any] | None = None) -> tuple[Any, ...]:
+               reduce_only: bool = False, parent: dict[str, Any] | None = None,
+               limit_price: Decimal | None = None) -> tuple[Any, ...]:
         qty = Decimal(str(qty))
         side = side.lower()
         if not intent_id or not symbol or side not in ("buy", "sell") or not qty.is_finite() or qty <= 0:
@@ -139,8 +170,11 @@ class ConfirmedExecutor:
             # Fetch quote before reservation: a failed quote cannot have sent an order.
             price = None
             if not reduce_only and self.entry_order_type == "limit":
-                ticker = self.adapter.get_ticker(symbol)
-                price = Decimal(str(ticker.get("bid1Price" if side == "buy" else "ask1Price", 0)))
+                if limit_price is not None:
+                    price = Decimal(str(limit_price))
+                else:
+                    ticker = self.adapter.get_ticker(symbol)
+                    price = Decimal(str(ticker.get("bid1Price" if side == "buy" else "ask1Price", 0)))
                 if not price.is_finite() or price <= 0:
                     raise ValueError("entry quote unavailable")
             pending = self._reserve(intent_id, symbol, side, reduce_only, qty, parent)
@@ -158,8 +192,15 @@ class ConfirmedExecutor:
                     )
                 pending.order_id = str(response.get("orderId") or "")
                 self._save_order_id(pending)
-                self._set_status(pending, "submitted" if response.get("status") == "submitted" else "unknown")
-                if response.get("status") != "submitted":
+                if response.get("status") == "submitted":
+                    self._set_status(pending, "submitted")
+                elif response.get("status") == "rejected" and self.not_found_grace is not None:
+                    # Definitive venue rejection; settle only after a lookup confirms absence.
+                    pending.rejected = True
+                    self._set_status(pending, "rejected_unconfirmed")
+                    logger.error("Venue rejected %s: %s %s", intent_id, response.get("code"), response.get("msg"))
+                else:
+                    self._set_status(pending, "unknown")
                     logger.error("Submission not confirmed for %s; reconciliation required", intent_id)
             except Exception:
                 # Even a timeout can follow a successful exchange placement.
@@ -167,7 +208,7 @@ class ConfirmedExecutor:
                 self._set_status(pending, "unknown")
             if self.wait_seconds > 0:
                 time.sleep(self.wait_seconds)
-            return self._observe(pending, cancel_limit=True)
+            return self._observe(pending, cancel_limit=self._expired(pending))
 
     def _save_order_id(self, pending: PendingOrder) -> None:
         with self._connect() as db:
@@ -185,7 +226,15 @@ class ConfirmedExecutor:
             state = self.adapter.get_order(pending.symbol, order_id=pending.order_id,
                                            client_order_id=pending.client_id)
             if state is None:
-                self._set_status(pending, "unknown")
+                if self._absence_is_final(pending):
+                    status = "rejected" if pending.rejected else "not_found"
+                    with self._connect() as db:
+                        db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
+                                   (status, self.scope, pending.intent_id))
+                    self.pending.pop(pending.intent_id, None)
+                    logger.warning("Order %s settled as %s: venue has no such order", pending.intent_id, status)
+                    return ()
+                self._set_status(pending, "rejected_unconfirmed" if pending.rejected else "unknown")
                 return ()  # absence from a response is not proof of rejection/cancellation
             if (str(state.client_order_id) != pending.client_id or not state.order_id
                     or (pending.order_id and str(state.order_id) != pending.order_id)
@@ -257,14 +306,36 @@ class ConfirmedExecutor:
             self._set_status(pending, "unknown")
         return tuple(facts)
 
+    def _absence_is_final(self, pending: PendingOrder) -> bool:
+        """Absence is final only for opted-in venues, after a confirmed rejection
+        or once the receive-window grace period has fully elapsed."""
+        if self.not_found_grace is None or pending.order_id or pending.confirmed_qty or pending.seen:
+            return False
+        if pending.rejected:
+            return True
+        return pending.created_at is not None and self.clock() - pending.created_at >= self.not_found_grace
+
     @staticmethod
     def _state(order: Any) -> str:
         return str(getattr(order, "state", getattr(order, "status", "unknown")))
+
+    def _expired(self, pending: PendingOrder) -> bool:
+        if self.entry_ttl is None:
+            return True
+        return pending.created_at is None or self.clock() - pending.created_at >= self.entry_ttl
 
     def poll(self) -> tuple[tuple[str, Any], ...]:
         with self._lock:
             return tuple((pending.intent_id, fill)
                          for pending in list(self.pending.values())
+                         for fill in self._observe(pending, cancel_limit=self._expired(pending)))
+
+    def cancel_entries(self, symbol: str) -> tuple[tuple[str, Any], ...]:
+        """Cancel resting entry remainders for ``symbol`` (before a reduction)."""
+        with self._lock:
+            return tuple((pending.intent_id, fill)
+                         for pending in list(self.pending.values())
+                         if pending.symbol == symbol and pending.is_limit and not pending.reducing
                          for fill in self._observe(pending, cancel_limit=True))
 
     def unresolved(self) -> list[dict[str, Any]]:

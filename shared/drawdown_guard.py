@@ -13,8 +13,10 @@ class DrawdownGuard:
     """Latch a breach until its UTC period ends; a restart never resets equity.
 
     Scope must identify an account AND environment (for example okx-demo-main).
-    The first observed equity in a period is its baseline, not an invented
-    midnight equity. Deposits/withdrawals require separate reconciliation.
+    The ``baseline`` column is the period's HIGH-WATER MARK: it starts at the
+    first observed equity of the period (not an invented midnight equity) and
+    rises with every higher observation, so a gain that is given back counts as
+    drawdown. Deposits/withdrawals require separate reconciliation.
     """
 
     def __init__(self, path: Path, scope: str, *, daily_pct: float = 3.0,
@@ -80,16 +82,31 @@ class DrawdownGuard:
                         raise ValueError("invalid persisted equity baseline")
                     # Restarting with a looser config cannot un-trip or weaken this period.
                     limit = min(limit, self.limits[kind])
-                    breached = equity <= baseline * (1 - limit / 100)
-                    db.execute("""UPDATE drawdown_periods SET limit_pct=?, tripped=MAX(tripped, ?)
+                    peak = max(baseline, equity)
+                    breached = equity <= peak * (1 - limit / 100)
+                    db.execute("""UPDATE drawdown_periods SET baseline=?, limit_pct=?, tripped=MAX(tripped, ?)
                         WHERE scope=? AND kind=? AND period=?""",
-                               (limit, int(breached), self.scope, kind, period))
+                               (peak, limit, int(breached), self.scope, kind, period))
                 db.execute("INSERT OR REPLACE INTO equity_observations VALUES (?, ?, ?)",
                            (self.scope, equity, now))
             self._error = ""
         except Exception as exc:
             self.invalidate(f"equity refresh failed: {type(exc).__name__}: {exc}")
         return self.check(now=now)
+
+    def latched(self, *, now: float | None = None) -> bool:
+        """True when a drawdown limit has tripped in the current day or week."""
+        now = time.time() if now is None else now
+        try:
+            with self._connect() as db:
+                for kind, period in self._periods(now).items():
+                    row = db.execute("SELECT tripped FROM drawdown_periods WHERE scope=? AND kind=? AND period=?",
+                                     (self.scope, kind, period)).fetchone()
+                    if row is not None and row[0]:
+                        return True
+            return False
+        except Exception:
+            return True  # unknown state is treated as tripped
 
     def check(self, *, now: float | None = None) -> tuple[bool, str]:
         if self._error:

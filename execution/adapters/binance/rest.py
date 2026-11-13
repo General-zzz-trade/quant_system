@@ -25,8 +25,31 @@ class BinanceRetryableError(BinanceRestError):
 
 
 class BinanceNonRetryableError(BinanceRestError):
-    """参数/权限/逻辑错误等不可重试"""
-    pass
+    """参数/权限/逻辑错误等不可重试 (request definitively rejected)."""
+
+    def __init__(self, message: str, *, http_status: int = 0, code: int | None = None) -> None:
+        super().__init__(message)
+        self.http_status, self.code = http_status, code
+
+
+class BinanceRateLimitError(BinanceRetryableError):
+    """HTTP 418/429: the request was rejected before processing."""
+
+
+def _error_code(raw: str) -> int | None:
+    try:
+        value = json.loads(raw).get("code")
+        return int(value) if value is not None else None
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _raise_http(e: HTTPError, raw: str) -> None:
+    if e.code in (418, 429):
+        raise BinanceRateLimitError(f"HTTP {e.code}: {raw}") from e
+    if 500 <= e.code <= 599:
+        raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
+    raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}", http_status=e.code, code=_error_code(raw)) from e
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,9 +156,7 @@ class BinanceRestClient:
         except HTTPError as e:
             self._sync_rate_limit_headers(e)
             raw = e.read().decode("utf-8", errors="replace")
-            if e.code in (418, 429) or 500 <= e.code <= 599:
-                raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
-            raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
+            _raise_http(e, raw)
         except URLError as e:
             raise BinanceRetryableError(f"Network error: {e}") from e
 
@@ -159,9 +180,7 @@ class BinanceRestClient:
         except HTTPError as e:
             self._sync_rate_limit_headers(e)
             raw = e.read().decode("utf-8", errors="replace")
-            if e.code in (418, 429) or 500 <= e.code <= 599:
-                raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
-            raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
+            _raise_http(e, raw)
         except URLError as e:
             raise BinanceRetryableError(f"Network error: {e}") from e
 
@@ -226,9 +245,7 @@ class BinanceRestClient:
             raise BinanceRetryableError(f"Invalid JSON response: {e}") from e
         except HTTPError as e:
             raw = e.read().decode("utf-8", errors="replace")
-            if e.code in (418, 429) or 500 <= e.code <= 599:
-                raise BinanceRetryableError(f"HTTP {e.code}: {raw}") from e
-            raise BinanceNonRetryableError(f"HTTP {e.code}: {raw}") from e
+            _raise_http(e, raw)
         except URLError as e:
             raise BinanceRetryableError(f"Network error: {e}") from e
 

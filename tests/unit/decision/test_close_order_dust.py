@@ -59,30 +59,9 @@ class TestCloseOrderDustPrevention:
         assert orders[0].qty == Decimal("0")
 
 
-class TestExecutionAdapterCloseDispatch:
-    """Execution adapter should call reliable_close_position when qty=0."""
-
-    def test_zero_qty_triggers_reliable_close(self):
-        """When order qty=0, adapter should use reliable_close_position."""
-        from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-
-        mock_adapter = MagicMock()
-        mock_adapter.close_position.return_value = {"status": "closed"}
-        mock_adapter.get_positions.return_value = []
-
-        exec_adapter = BinanceExecutionAdapter(mock_adapter)
-
-        # Create order event with qty=0
-        order = MagicMock()
-        order.symbol = "BTCUSDT"
-        order.side = "sell"
-        order.qty = Decimal("0")
-        order.time_in_force = "GTC"
-
-        exec_adapter.send_order(order)
-
-        # Should have called close_position (via reliable_close_position)
-        mock_adapter.close_position.assert_called_once_with("BTCUSDT")
+# qty=0 close dispatch for Binance is covered against a fake venue in
+# tests/unit/binance/test_binance_execution.py (reduce-only, sized from the
+# venue position, capped at the strategy's confirmed quantity).
 
 
 class TestBatchPredOverride:

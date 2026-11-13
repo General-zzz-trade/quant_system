@@ -1,29 +1,36 @@
 # execution/adapters/binance/adapter.py
-"""Binance Futures venue adapter -- USDT-M perpetual futures via REST API.
+"""Binance USDⓈ-M perpetual venue adapter (REST), built for confirmed execution.
 
-Implements the same interface as BybitAdapter for Binance USDT-M Futures.
-Supports testnet (testnet.binancefuture.com) and production (fapi.binance.com).
+Contract highlights (the execution layer relies on every one of them):
 
-Usage:
-    from execution.adapters.binance import BinanceAdapter, BinanceConfig
-
-    config = BinanceConfig(api_key="...", api_secret="...", testnet=True)
-    adapter = BinanceAdapter(config)
-    adapter.connect()
-
-    print(adapter.get_balances())
-    print(adapter.get_positions())
-    adapter.send_market_order("BTCUSDT", "buy", 0.001)
+- Snapshots never fail open: ``get_positions``/``get_open_orders`` raise on any
+  error instead of returning an empty tuple that would look flat.
+- Every order carries a deterministic client id (``newClientOrderId``) so an
+  ambiguous submission can be looked up instead of resent.
+- ``send_market_order`` returns ``submitted``, ``rejected`` (the venue refused
+  the request; nothing was placed) or ``error`` (outcome unknown: timeout/5xx).
+- ``get_order`` returns ``None`` only for the venue's "order does not exist".
+- Quantities/prices are floored to exchange filters; orders below the minimum
+  quantity/notional are rejected locally.
+- One-way position mode only. Hedge mode is reported as an execution blocker.
+- Protective stops use the Algo service (``POST /fapi/v1/algoOrder``,
+  ``algoType=CONDITIONAL``, ``STOP_MARKET`` + ``closePosition``); conditional
+  types on ``/fapi/v1/order`` are rejected by Binance since late 2025.
+- ``get_klines`` returns only CLOSED bars, oldest first, with ``start`` in ms.
 """
 from __future__ import annotations
 
 import logging
 import time
-from decimal import Decimal
+from dataclasses import dataclass
+from decimal import Decimal, ROUND_DOWN
+from types import SimpleNamespace
 from typing import Any, Optional, Tuple
 
 from execution.adapters.binance.config import BinanceConfig
-from execution.adapters.binance.rest import BinanceRestClient, BinanceRestConfig
+from execution.adapters.binance.rest import (
+    BinanceNonRetryableError, BinanceRateLimitError, BinanceRestClient, BinanceRestConfig,
+)
 from execution.adapters.binance.rate_limit_policy import make_rate_limit_policy
 from execution.models.balances import BalanceSnapshot, CanonicalBalance
 from execution.models.fills import CanonicalFill
@@ -31,492 +38,390 @@ from execution.models.positions import VenuePosition
 
 logger = logging.getLogger(__name__)
 
-# Binance Futures interval mapping (our internal -> Binance API)
+# Hard ceiling: no code path may configure more exchange leverage than this.
+MAX_LEVERAGE = 3
+
 _INTERVAL_MAP = {
-    "1": "1m",
-    "5": "5m",
-    "15": "15m",
-    "60": "1h",
-    "240": "4h",
-    "D": "1d",
-    "1m": "1m",
-    "5m": "5m",
-    "15m": "15m",
-    "1h": "1h",
-    "4h": "4h",
-    "1d": "1d",
+    "1": "1m", "5": "5m", "15": "15m", "60": "1h", "240": "4h", "D": "1d",
+    "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d",
 }
+_INTERVAL_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000,
+                "4h": 14_400_000, "1d": 86_400_000}
+_ORDER_STATES = {"NEW": "new", "PARTIALLY_FILLED": "partially_filled", "FILLED": "filled",
+                 "CANCELED": "canceled", "EXPIRED": "expired", "EXPIRED_IN_MATCH": "expired",
+                 "REJECTED": "rejected"}
+_ORDER_DOES_NOT_EXIST = -2013
+_ALGO_DOES_NOT_EXIST = (-2013, -2011)
+
+
+@dataclass(frozen=True, slots=True)
+class SymbolFilters:
+    step_size: Decimal
+    min_qty: Decimal
+    tick_size: Decimal
+    min_notional: Decimal
+
+    def floor_qty(self, qty: Decimal) -> Decimal:
+        return (qty / self.step_size).to_integral_value(rounding=ROUND_DOWN) * self.step_size
+
+    def floor_price(self, price: Decimal) -> Decimal:
+        return (price / self.tick_size).to_integral_value(rounding=ROUND_DOWN) * self.tick_size
+
+
+def _fmt(value: Decimal) -> str:
+    text = format(value.normalize(), "f")
+    return text if text else "0"
 
 
 class BinanceAdapter:
-    """Binance Futures venue adapter implementing the same interface as BybitAdapter."""
+    """Binance USDⓈ-M futures REST adapter (one-way mode, USDT margin)."""
 
     venue: str = "binance"
 
-    def __init__(self, config: BinanceConfig) -> None:
+    def __init__(self, config: BinanceConfig, *, client: Any = None) -> None:
         self._config = config
-        rest_cfg = BinanceRestConfig(
-            base_url=config.base_url,
-            api_key=config.api_key,
-            api_secret=config.api_secret,
-        )
-        self._rate_policy = make_rate_limit_policy()
-        self._client = BinanceRestClient(rest_cfg, rate_policy=self._rate_policy)
+        rest_cfg = BinanceRestConfig(base_url=config.base_url, api_key=config.api_key,
+                                     api_secret=config.api_secret)
+        self._client = client or BinanceRestClient(rest_cfg, rate_policy=make_rate_limit_policy())
         self._connected = False
         self._hedge_mode = False
+        self._filters: dict[str, SymbolFilters] = {}
 
     # ------------------------------------------------------------------
-    # Connection
+    # Connection and account configuration
     # ------------------------------------------------------------------
-
-    def connect(self) -> bool:
-        """Test connection by fetching account balance and position mode."""
+    def connect(self, *, symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
+                configure_leverage: bool = False, leverage: int = MAX_LEVERAGE) -> bool:
+        """Load filters, detect position mode, verify auth; optionally set leverage."""
         try:
-            # Detect Hedge Mode
-            try:
-                pm = self._client.request_signed(
-                    method="GET", path="/fapi/v1/positionSide/dual",
-                )
-                self._hedge_mode = pm.get("dualSidePosition", False)
-                if self._hedge_mode:
-                    logger.info("Binance Hedge Mode detected — using positionSide")
-            except Exception:
-                pass
-
-            data = self._client.request_signed(
-                method="GET",
-                path="/fapi/v2/account",
-            )
-            # Binance returns a dict with "assets" and "positions" on success.
-            # On error it returns {"code": ..., "msg": ...}
-            if "code" in data and data["code"] != 200:
-                logger.error(
-                    "Binance connection failed: code=%s msg=%s",
-                    data.get("code"), data.get("msg"),
-                )
-                return False
+            info = self._client.request_public(method="GET", path="/fapi/v1/exchangeInfo")
+            by_symbol = {s["symbol"]: s for s in info.get("symbols", [])}
+            for symbol in symbols:
+                self._filters[symbol] = self._parse_filters(by_symbol[symbol])
+            mode = self._client.request_signed(method="GET", path="/fapi/v1/positionSide/dual")
+            self._hedge_mode = bool(mode.get("dualSidePosition", False))
+            self._client.request_signed(method="GET", path="/fapi/v2/account")
+            if configure_leverage:
+                for symbol in symbols:
+                    self.set_leverage(symbol, leverage)
             self._connected = True
-            # Count non-zero balances
-            assets = data.get("assets", [])
-            nonzero = [
-                a for a in assets
-                if float(a.get("walletBalance", "0")) > 0
-            ]
-            logger.info(
-                "Binance connected: %s, %d assets with balance",
-                self._config.base_url, len(nonzero),
-            )
+            logger.info("Binance connected: %s symbols=%s hedge_mode=%s",
+                        self._config.base_url, list(symbols), self._hedge_mode)
             return True
-        except Exception as e:
-            logger.error("Binance connection failed: %s", e)
+        except Exception as exc:
+            logger.error("Binance connection failed: %s", exc)
             return False
+
+    @staticmethod
+    def _parse_filters(symbol_info: dict) -> SymbolFilters:
+        filters = {f["filterType"]: f for f in symbol_info.get("filters", [])}
+        lot = filters.get("MARKET_LOT_SIZE") or filters["LOT_SIZE"]
+        step = Decimal(str(lot["stepSize"]))
+        if step <= 0:
+            step = Decimal(str(filters["LOT_SIZE"]["stepSize"]))
+        notional = filters.get("MIN_NOTIONAL", {})
+        return SymbolFilters(
+            step_size=step,
+            min_qty=Decimal(str(lot["minQty"])),
+            tick_size=Decimal(str(filters["PRICE_FILTER"]["tickSize"])),
+            min_notional=Decimal(str(notional.get("notional", notional.get("minNotional", "0")))),
+        )
+
+    def execution_blockers(self) -> list[str]:
+        issues = []
+        if not self._connected:
+            issues.append("adapter not connected")
+        if self._hedge_mode:
+            issues.append("hedge (dual-side) position mode is not supported; switch the account to one-way mode")
+        return issues
+
+    def filters(self, symbol: str) -> SymbolFilters:
+        try:
+            return self._filters[symbol]
+        except KeyError:
+            raise RuntimeError(f"No exchange filters loaded for {symbol}") from None
+
+    def set_leverage(self, symbol: str, leverage: int) -> dict:
+        if not 1 <= int(leverage) <= MAX_LEVERAGE:
+            raise ValueError(f"leverage must be between 1 and {MAX_LEVERAGE}")
+        return self._client.request_signed(method="POST", path="/fapi/v1/leverage",
+                                           params={"symbol": symbol, "leverage": int(leverage)})
 
     def is_connected(self) -> bool:
         return self._connected
 
     # ------------------------------------------------------------------
-    # Balance
+    # Account
     # ------------------------------------------------------------------
-
     def get_account_equity(self) -> float:
         """USDT-M account equity including unrealized PnL; fail on absent data."""
         data = self._client.request_signed(method="GET", path="/fapi/v2/account")
         return float(data["totalMarginBalance"])
 
     def get_balances(self) -> BalanceSnapshot:
-        """Get current account balances."""
         try:
-            data = self._client.request_signed(
-                method="GET",
-                path="/fapi/v2/account",
-            )
-            if "code" in data and data["code"] != 200:
-                return BalanceSnapshot(venue="binance", balances=(), ts_ms=0)
-            assets = data.get("assets", [])
+            data = self._client.request_signed(method="GET", path="/fapi/v2/account")
             ts_ms = int(time.time() * 1000)
             balances = []
-            for a in assets:
+            for a in data.get("assets", []):
                 wallet = Decimal(str(a.get("walletBalance", "0")))
                 if wallet == 0:
                     continue
                 available = Decimal(str(a.get("availableBalance", "0")))
-                locked = wallet - available
-                if locked < 0:
-                    locked = Decimal("0")
-                balances.append(
-                    CanonicalBalance.from_free_locked(
-                        venue="binance",
-                        asset=a.get("asset", ""),
-                        free=available,
-                        locked=locked,
-                        ts_ms=ts_ms,
-                    )
-                )
-            return BalanceSnapshot(
-                venue="binance",
-                balances=tuple(balances),
-                ts_ms=ts_ms,
-            )
-        except Exception as e:
-            logger.error("get_balances failed: %s", e)
+                balances.append(CanonicalBalance.from_free_locked(
+                    venue="binance", asset=a.get("asset", ""), free=available,
+                    locked=max(wallet - available, Decimal("0")), ts_ms=ts_ms))
+            return BalanceSnapshot(venue="binance", balances=tuple(balances), ts_ms=ts_ms)
+        except Exception as exc:
+            logger.error("get_balances failed: %s", exc)
             return BalanceSnapshot(venue="binance", balances=(), ts_ms=0)
 
-    # ------------------------------------------------------------------
-    # Positions
-    # ------------------------------------------------------------------
+    def get_positions(self, symbol: str = "", *, strict: bool = True) -> Tuple[VenuePosition, ...]:
+        """Non-flat positions. Errors propagate: an unknown snapshot is never 'flat'."""
+        params: dict[str, Any] = {"symbol": symbol} if symbol else {}
+        data = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params=params)
+        if not isinstance(data, list):
+            raise RuntimeError("Invalid Binance position snapshot")
+        positions = []
+        for p in data:
+            amt = Decimal(str(p.get("positionAmt", "0")))
+            if not amt.is_finite():
+                raise RuntimeError("Invalid Binance position quantity")
+            if amt == 0:
+                continue
+            if p.get("positionSide", "BOTH") != "BOTH":
+                raise RuntimeError("Hedge-mode position present; one-way mode required")
+            positions.append(VenuePosition(
+                venue="binance", symbol=p.get("symbol", ""), qty=amt,
+                entry_price=Decimal(str(p.get("entryPrice", "0"))),
+                mark_price=Decimal(str(p.get("markPrice", "0"))),
+                liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
+                unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
+                leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(),
+                ts_ms=int(time.time() * 1000)))
+        return tuple(positions)
 
-    def get_positions(self, symbol: str = "") -> Tuple[VenuePosition, ...]:
-        """Get open positions."""
-        try:
-            params: dict[str, Any] = {}
-            if symbol:
-                params["symbol"] = symbol
-            data = self._client.request_signed(
-                method="GET",
-                path="/fapi/v2/positionRisk",
-                params=params,
-            )
-            # Error response
-            if isinstance(data, dict) and "code" in data:
-                logger.error("get_positions error: %s", data.get("msg"))
-                return ()
-            # data is a list of position dicts
-            if not isinstance(data, list):
-                return ()
-            positions = []
-            for p in data:
-                amt = float(p.get("positionAmt", "0"))
-                if amt == 0:
-                    continue
-                positions.append(VenuePosition(
-                    venue="binance",
-                    symbol=p.get("symbol", ""),
-                    qty=Decimal(str(amt)),
-                    entry_price=Decimal(str(p.get("entryPrice", "0"))),
-                    mark_price=Decimal(str(p.get("markPrice", "0"))),
-                    liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
-                    unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
-                    leverage=int(p.get("leverage", "1")),
-                    margin_type=p.get("marginType", "").lower(),
-                    ts_ms=int(time.time() * 1000),
-                ))
-            return tuple(positions)
-        except Exception as e:
-            logger.error("get_positions failed: %s", e)
-            return ()
+    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple:
+        params: dict[str, Any] = {"symbol": symbol} if symbol else {}
+        data = self._client.request_signed(method="GET", path="/fapi/v1/openOrders", params=params)
+        if not isinstance(data, list):
+            raise RuntimeError("Invalid Binance open-order snapshot")
+        return tuple(SimpleNamespace(order_id=str(o["orderId"]), client_order_id=str(o.get("clientOrderId", "")),
+                                     symbol=o["symbol"], side=o["side"].lower(), type=o.get("type", ""))
+                     for o in data)
 
     # ------------------------------------------------------------------
-    # Order submission
+    # Orders
     # ------------------------------------------------------------------
-
-    def send_market_order(
-        self, symbol: str, side: str, qty: float,
-        *, reduce_only: bool = False,
-    ) -> dict:
-        """Send a market order. Supports both One-way and Hedge Mode."""
-        buy = side.lower() == "buy"
-        logger.info(
-            "send_market_order: %s %s qty=%s reduce_only=%s hedge=%s",
-            symbol, side, qty, reduce_only, self._hedge_mode,
-        )
-        params: dict[str, Any] = {
-            "symbol": symbol,
-            "side": "BUY" if buy else "SELL",
-            "type": "MARKET",
-            "quantity": str(qty),
-        }
-        # Hedge Mode: positionSide required
+    def send_market_order(self, symbol: str, side: str, qty: float, *, reduce_only: bool = False,
+                          client_order_id: str = "") -> dict:
+        """Place a market order; see module docstring for the result contract."""
+        side = side.lower()
+        if side not in ("buy", "sell") or not client_order_id:
+            return {"status": "rejected", "msg": "side and client_order_id are required"}
+        filters = self.filters(symbol)
+        quantity = filters.floor_qty(Decimal(str(qty)))
+        if not quantity.is_finite() or quantity < filters.min_qty or quantity <= 0:
+            return {"status": "rejected", "msg": f"quantity {qty} below minimum {filters.min_qty}"}
         if self._hedge_mode:
-            if reduce_only:
-                params["positionSide"] = "SHORT" if buy else "LONG"
-            else:
-                params["positionSide"] = "LONG" if buy else "SHORT"
-        elif reduce_only:
+            return {"status": "rejected", "msg": "hedge mode is not supported"}
+        params: dict[str, Any] = {"symbol": symbol, "side": side.upper(), "type": "MARKET",
+                                  "quantity": _fmt(quantity), "newClientOrderId": client_order_id,
+                                  "newOrderRespType": "ACK"}
+        if reduce_only:
             params["reduceOnly"] = True
         try:
-            data = self._client.request_signed(
-                method="POST",
-                path="/fapi/v1/order",
-                params=params,
-            )
-            if "code" in data and data["code"] != 200:
-                return {
-                    "status": "error",
-                    "code": data.get("code"),
-                    "msg": data.get("msg"),
-                }
-            order_id = str(data.get("orderId", ""))
-            logger.info(
-                "Binance %s %s %.4f orderId=%s",
-                side, symbol, qty, order_id,
-            )
-            return {
-                "orderId": order_id,
-                "clientOrderId": data.get("clientOrderId", ""),
-                "status": "submitted",
-            }
-        except Exception as e:
-            logger.error("send_market_order failed: %s", e)
-            return {"status": "error", "msg": str(e)}
+            data = self._client.request_signed(method="POST", path="/fapi/v1/order", params=params)
+        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
+            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
+        except Exception as exc:  # timeout, 5xx, network: the order may exist
+            logger.error("Binance order outcome unknown for %s: %s", client_order_id, exc)
+            return {"status": "error", "msg": str(exc)}
+        return {"status": "submitted", "orderId": str(data.get("orderId", "")),
+                "clientOrderId": str(data.get("clientOrderId", ""))}
 
-    def send_limit_order(
-        self, symbol: str, side: str, qty: float, price: float,
-        *, tif: str = "GTC", reduce_only: bool = False, post_only: bool = False,
-    ) -> dict:
-        """Send a limit order. Supports Hedge Mode."""
-        buy = side.lower() == "buy"
-        time_in_force = "GTX" if post_only else tif.upper()
-        params: dict[str, Any] = {
-            "symbol": symbol,
-            "side": "BUY" if buy else "SELL",
-            "type": "LIMIT",
-            "quantity": str(qty),
-            "price": str(price),
-            "timeInForce": time_in_force,
-        }
+    def send_limit_order(self, symbol: str, side: str, qty: float, price: float, *, post_only: bool = True,
+                         reduce_only: bool = False, client_order_id: str = "") -> dict:
+        """Post-only (GTX) limit order; a crossing order is rejected by Binance (-5022)."""
+        side = side.lower()
+        if side not in ("buy", "sell") or not client_order_id:
+            return {"status": "rejected", "msg": "side and client_order_id are required"}
+        filters = self.filters(symbol)
+        quantity = filters.floor_qty(Decimal(str(qty)))
+        limit = filters.floor_price(Decimal(str(price)))
+        if quantity < filters.min_qty or quantity <= 0 or limit <= 0:
+            return {"status": "rejected", "msg": "quantity or price below exchange minimum"}
+        if not reduce_only and quantity * limit < filters.min_notional:
+            return {"status": "rejected", "msg": f"notional below exchange minimum {filters.min_notional}"}
         if self._hedge_mode:
-            if reduce_only:
-                params["positionSide"] = "SHORT" if buy else "LONG"
-            else:
-                params["positionSide"] = "LONG" if buy else "SHORT"
-        elif reduce_only:
+            return {"status": "rejected", "msg": "hedge mode is not supported"}
+        params: dict[str, Any] = {"symbol": symbol, "side": side.upper(), "type": "LIMIT",
+                                  "timeInForce": "GTX" if post_only else "GTC", "quantity": _fmt(quantity),
+                                  "price": _fmt(limit), "newClientOrderId": client_order_id,
+                                  "newOrderRespType": "ACK"}
+        if reduce_only:
             params["reduceOnly"] = True
         try:
-            data = self._client.request_signed(
-                method="POST",
-                path="/fapi/v1/order",
-                params=params,
-            )
-            if "code" in data and data["code"] != 200:
-                return {
-                    "status": "error",
-                    "code": data.get("code"),
-                    "msg": data.get("msg"),
-                }
-            return {
-                "orderId": str(data.get("orderId", "")),
-                "status": "submitted",
-            }
-        except Exception as e:
-            logger.error("send_limit_order failed: %s", e)
-            return {"status": "error", "msg": str(e)}
+            data = self._client.request_signed(method="POST", path="/fapi/v1/order", params=params)
+        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
+            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
+        except Exception as exc:
+            logger.error("Binance order outcome unknown for %s: %s", client_order_id, exc)
+            return {"status": "error", "msg": str(exc)}
+        return {"status": "submitted", "orderId": str(data.get("orderId", "")),
+                "clientOrderId": str(data.get("clientOrderId", ""))}
+
+    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> Any:
+        if not order_id and not client_order_id:
+            raise ValueError("order_id or client_order_id required")
+        params: dict[str, Any] = {"symbol": symbol}
+        if order_id:
+            params["orderId"] = order_id
+        else:
+            params["origClientOrderId"] = client_order_id
+        try:
+            row = self._client.request_signed(method="GET", path="/fapi/v1/order", params=params)
+        except BinanceNonRetryableError as exc:
+            if exc.code == _ORDER_DOES_NOT_EXIST:
+                return None
+            raise
+        if row.get("symbol") != symbol:
+            raise ValueError("order symbol mismatch")
+        return SimpleNamespace(order_id=str(row["orderId"]), client_order_id=str(row.get("clientOrderId", "")),
+                               symbol=row["symbol"], side=row["side"].lower(),
+                               state=_ORDER_STATES.get(row["status"], row["status"].lower()),
+                               filled_qty=Decimal(str(row.get("executedQty", "0"))),
+                               avg_price=Decimal(str(row.get("avgPrice", "0"))))
 
     def cancel_order(self, symbol: str, order_id: str) -> dict:
-        """Cancel an order."""
-        try:
-            data = self._client.request_signed(
-                method="DELETE",
-                path="/fapi/v1/order",
-                params={"symbol": symbol, "orderId": order_id},
-            )
-            if "code" in data and data["code"] != 200:
-                return {
-                    "status": "error",
-                    "code": data.get("code"),
-                    "msg": data.get("msg"),
-                }
-            return {"status": "canceled"}
-        except Exception as e:
-            logger.error("cancel_order failed: %s", e)
-            return {"status": "error", "msg": str(e)}
+        self._client.request_signed(method="DELETE", path="/fapi/v1/order",
+                                    params={"symbol": symbol, "orderId": order_id})
+        return {"status": "cancel_requested"}
 
-    def cancel_all(self, symbol: str = "") -> dict:
-        """Cancel all open orders for a symbol."""
+    def get_recent_fills(self, *, symbol: Optional[str] = None, order_id: str = "",
+                         since_ms: int = 0, limit: int = 100) -> Tuple[CanonicalFill, ...]:
+        """Trade history; errors propagate (missing history keeps orders unresolved)."""
         if not symbol:
-            logger.warning("Binance cancel_all requires a symbol")
-            return {"status": "error", "msg": "symbol required"}
+            raise ValueError("symbol is required for Binance trade history")
+        params: dict[str, Any] = {"symbol": symbol, "limit": min(int(limit), 1000)}
+        if order_id:
+            params["orderId"] = order_id
+        if since_ms:
+            params["startTime"] = since_ms
+        data = self._client.request_signed(method="GET", path="/fapi/v1/userTrades", params=params)
+        if not isinstance(data, list):
+            raise RuntimeError("Invalid Binance trade history")
+        return tuple(CanonicalFill(
+            venue="binance", symbol=f.get("symbol", ""), order_id=str(f.get("orderId", "")),
+            trade_id=str(f.get("id", "")), fill_id=str(f.get("id", "")),
+            side="buy" if f.get("side", "").upper() == "BUY" else "sell",
+            qty=Decimal(str(f.get("qty", "0"))), price=Decimal(str(f.get("price", "0"))),
+            fee=Decimal(str(f.get("commission", "0"))), fee_asset=f.get("commissionAsset"),
+            liquidity="maker" if f.get("maker") else "taker", ts_ms=int(f.get("time", 0)),
+        ) for f in data)
+
+    # ------------------------------------------------------------------
+    # Protective stops (Algo service)
+    # ------------------------------------------------------------------
+    def place_stop_market(self, symbol: str, side: str, trigger_price: Decimal, *, client_algo_id: str) -> dict:
+        """Close-all STOP_MARKET on mark price; returns submitted/rejected/error like orders."""
+        price = self.filters(symbol).floor_price(Decimal(str(trigger_price)))
+        if price <= 0:
+            return {"status": "rejected", "msg": "invalid trigger price"}
+        params = {"algoType": "CONDITIONAL", "symbol": symbol, "side": side.upper(), "type": "STOP_MARKET",
+                  "triggerPrice": _fmt(price), "closePosition": "true", "workingType": "MARK_PRICE",
+                  "priceProtect": "true", "clientAlgoId": client_algo_id}
         try:
-            data = self._client.request_signed(
-                method="DELETE",
-                path="/fapi/v1/allOpenOrders",
-                params={"symbol": symbol},
-            )
-            if isinstance(data, dict) and "code" in data and data["code"] != 200:
-                return {"status": "error", "code": data.get("code")}
-            return {"status": "canceled"}
-        except Exception as e:
-            logger.error("cancel_all failed: %s", e)
-            return {"status": "error", "msg": str(e)}
+            data = self._client.request_signed(method="POST", path="/fapi/v1/algoOrder", params=params)
+        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
+            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
+        except Exception as exc:
+            return {"status": "error", "msg": str(exc)}
+        return {"status": "submitted", "algoId": str(data.get("algoId", ""))}
 
-    def close_position(self, symbol: str) -> dict:
-        """Close an open position with a market order."""
-        positions = self.get_positions(symbol=symbol)
-        for pos in positions:
-            if pos.symbol == symbol and not pos.is_flat:
-                side = "sell" if pos.is_long else "buy"
-                qty = float(pos.abs_qty)
-                return self.send_market_order(
-                    symbol, side, qty, reduce_only=True,
-                )
-        return {"status": "no_position"}
-
-    # ------------------------------------------------------------------
-    # Fills / trades
-    # ------------------------------------------------------------------
-
-    def get_recent_fills(
-        self, *, symbol: Optional[str] = None, since_ms: int = 0,
-    ) -> Tuple[CanonicalFill, ...]:
-        """Get recent trade history (fills)."""
+    def get_algo_order(self, *, client_algo_id: str) -> Any:
         try:
-            params: dict[str, Any] = {}
-            if symbol:
-                params["symbol"] = symbol
-            if since_ms:
-                params["startTime"] = since_ms
-            params["limit"] = 50
-            data = self._client.request_signed(
-                method="GET",
-                path="/fapi/v1/userTrades",
-                params=params,
-            )
-            if isinstance(data, dict) and "code" in data:
-                return ()
-            if not isinstance(data, list):
-                return ()
-            fills = []
-            for f in data:
-                fills.append(CanonicalFill(
-                    venue="binance",
-                    symbol=f.get("symbol", ""),
-                    order_id=str(f.get("orderId", "")),
-                    trade_id=str(f.get("id", "")),
-                    fill_id=str(f.get("id", "")),
-                    side="buy" if f.get("side", "").upper() == "BUY" else "sell",
-                    qty=Decimal(str(f.get("qty", "0"))),
-                    price=Decimal(str(f.get("price", "0"))),
-                    fee=Decimal(str(f.get("commission", "0"))),
-                    fee_asset=f.get("commissionAsset"),
-                    liquidity="maker" if f.get("maker") else "taker",
-                    ts_ms=int(f.get("time", 0)),
-                ))
-            return tuple(fills)
-        except Exception as e:
-            logger.error("get_recent_fills failed: %s", e)
-            return ()
+            row = self._client.request_signed(method="GET", path="/fapi/v1/algoOrder",
+                                              params={"clientAlgoId": client_algo_id})
+        except BinanceNonRetryableError as exc:
+            if exc.code in _ALGO_DOES_NOT_EXIST:
+                return None
+            raise
+        return SimpleNamespace(algo_id=str(row.get("algoId", "")), client_algo_id=str(row.get("clientAlgoId", "")),
+                               symbol=row.get("symbol", ""), side=str(row.get("side", "")).lower(),
+                               status=str(row.get("algoStatus", "")).upper(),
+                               trigger_price=Decimal(str(row.get("triggerPrice", "0") or "0")),
+                               actual_order_id=str(row.get("actualOrderId", "") or ""))
+
+    def cancel_algo_order(self, *, client_algo_id: str) -> dict:
+        self._client.request_signed(method="DELETE", path="/fapi/v1/algoOrder",
+                                    params={"clientAlgoId": client_algo_id})
+        return {"status": "cancel_requested"}
 
     # ------------------------------------------------------------------
-    # Market data
+    # Market data (public)
     # ------------------------------------------------------------------
-
     def get_ticker(self, symbol: str) -> dict:
-        """Get latest ticker (last price, bid, ask, volume)."""
-        try:
-            # Use bookTicker for bid/ask
-            book = self._client.request_public(
-                method="GET",
-                path="/fapi/v1/ticker/bookTicker",
-                params={"symbol": symbol},
-            )
-            # Use 24hr ticker for price/volume
-            price_data = self._client.request_public(
-                method="GET",
-                path="/fapi/v1/ticker/24hr",
-                params={"symbol": symbol},
-            )
-            last_price = float(price_data.get("lastPrice", 0))
-            bid = float(book.get("bidPrice", 0))
-            ask = float(book.get("askPrice", 0))
-            return {
-                "symbol": symbol,
-                "lastPrice": last_price,
-                "bid1Price": bid,
-                "ask1Price": ask,
-                "volume24h": float(price_data.get("volume", 0)),
-                "turnover24h": float(price_data.get("quoteVolume", 0)),
-                "fundingRate": float(price_data.get("lastFundingRate", 0)),
-            }
-        except Exception as e:
-            logger.error("get_ticker failed: %s", e)
-            return {}
+        book = self._client.request_public(method="GET", path="/fapi/v1/ticker/bookTicker",
+                                           params={"symbol": symbol})
+        price = self._client.request_public(method="GET", path="/fapi/v1/ticker/price", params={"symbol": symbol})
+        return {"symbol": symbol, "lastPrice": float(price["price"]), "bid1Price": float(book["bidPrice"]),
+                "ask1Price": float(book["askPrice"])}
 
-    def get_klines(
-        self, symbol: str, interval: str = "60", limit: int = 200,
-    ) -> list[dict]:
-        """Get historical klines.
-
-        interval: "1"=1m, "5"=5m, "60"=1h, "240"=4h, "D"=1d
-        (also accepts Binance native: "1m", "1h", etc.)
-
-        Paginates automatically when limit > 1000 (Binance API max per request).
-        """
-        _API_MAX = 1000
+    def get_klines(self, symbol: str, interval: str = "60", limit: int = 200,
+                   *, now_ms: int | None = None) -> list[dict]:
+        """CLOSED klines only, oldest first; ``start`` is the open time in ms."""
         bn_interval = _INTERVAL_MAP.get(interval, interval)
-        all_bars: list[dict] = []
-        end_ts: int | None = None
-
-        remaining = limit
-        while remaining > 0:
-            batch = min(remaining, _API_MAX)
-            params: dict[str, Any] = {
-                "symbol": symbol,
-                "interval": bn_interval,
-                "limit": batch,
-            }
-            if end_ts is not None:
-                params["endTime"] = end_ts
-
-            try:
-                data = self._client.request_public(
-                    method="GET",
-                    path="/fapi/v1/klines",
-                    params=params,
-                )
-            except Exception as e:
-                logger.error("get_klines failed: %s", e)
-                break
-
-            if isinstance(data, dict) and "code" in data:
-                break
+        step = _INTERVAL_MS[bn_interval]
+        now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+        last_open = now_ms // step * step - step  # most recent fully closed bar
+        rows: dict[int, list] = {}
+        end = last_open + step - 1
+        while len(rows) < limit:
+            batch = min(1500, limit - len(rows))
+            data = self._client.request_public(method="GET", path="/fapi/v1/klines", params={
+                "symbol": symbol, "interval": bn_interval, "limit": batch, "endTime": end})
             if not isinstance(data, list) or not data:
                 break
-
-            # Binance kline: [open_time, o, h, l, c, vol, close_time, ...]
-            bars = [
-                {
-                    "time": int(k[0]) // 1000,
-                    "start": int(k[0]),
-                    "open": float(k[1]),
-                    "high": float(k[2]),
-                    "low": float(k[3]),
-                    "close": float(k[4]),
-                    "volume": float(k[5]),
-                }
-                for k in data
-            ]
-            all_bars.extend(bars)
-            remaining -= len(bars)
-
-            if len(data) < batch:
+            for k in data:
+                open_time = int(k[0])
+                if open_time <= last_open and int(k[6]) < now_ms:
+                    rows[open_time] = k
+            oldest = int(data[0][0])
+            if len(data) < batch or oldest - 1 >= end:
                 break
+            end = oldest - 1
+        bars = [{"start": t, "time": t // 1000, "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
+                 "close": float(k[4]), "volume": float(k[5]), "quote_volume": float(k[7]), "trades": int(k[8]),
+                 "taker_buy_volume": float(k[9]), "taker_buy_quote_volume": float(k[10]), "confirm": True}
+                for t, k in sorted(rows.items())]
+        return bars[-limit:]
 
-            # Binance returns oldest first; oldest item is first.
-            # Next page ends before the oldest we already have.
-            oldest_ts = int(data[0][0])
-            end_ts = oldest_ts - 1
+    def get_last_funding(self, symbol: str) -> tuple[int, float]:
+        """Most recent SETTLED funding event (time ms, rate)."""
+        data = self._client.request_public(method="GET", path="/fapi/v1/fundingRate",
+                                           params={"symbol": symbol, "limit": 1})
+        if not isinstance(data, list) or not data:
+            raise RuntimeError("funding history unavailable")
+        return int(data[-1]["fundingTime"]), float(data[-1]["fundingRate"])
 
-        # Deduplicate by start timestamp
-        seen: set[int] = set()
-        unique: list[dict] = []
-        for b in all_bars:
-            ts = b.get("start", b["time"] * 1000)
-            if ts not in seen:
-                seen.add(ts)
-                unique.append(b)
-
-        return unique
-
-    # ------------------------------------------------------------------
-    # Account info
-    # ------------------------------------------------------------------
+    def get_positioning(self, symbol: str, *, limit: int = 3) -> list[dict]:
+        """Recent 5-minute OI and long/short snapshots, aligned by timestamp."""
+        def series(path: str, key: str) -> dict[int, float]:
+            data = self._client.request_public(method="GET", path=path,
+                                               params={"symbol": symbol, "period": "5m", "limit": limit})
+            if not isinstance(data, list):
+                raise RuntimeError(f"invalid response from {path}")
+            return {int(row["timestamp"]): float(row[key]) for row in data}
+        oi = series("/futures/data/openInterestHist", "sumOpenInterest")
+        ls = series("/futures/data/globalLongShortAccountRatio", "longShortRatio")
+        top = series("/futures/data/topLongShortPositionRatio", "longShortRatio")
+        return [{"timestamp": t, "open_interest": oi[t], "ls_ratio": ls.get(t), "top_trader_ls_ratio": top.get(t)}
+                for t in sorted(oi)]
 
     def get_account_info(self) -> dict:
-        """Get detailed account information."""
         bal = self.get_balances()
-        result: dict[str, Any] = {
-            "venue": "binance",
-            "is_demo": self._config.is_demo,
-        }
+        result: dict[str, Any] = {"venue": "binance", "is_demo": self._config.is_demo}
         for b in bal.balances:
             result[f"{b.asset}_free"] = float(b.free)
             result[f"{b.asset}_locked"] = float(b.locked)

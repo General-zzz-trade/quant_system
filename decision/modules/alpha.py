@@ -944,7 +944,7 @@ class AlphaDecisionModule:
         self._consensus[self._runner_key] = self._signal
 
     def on_order_status(self, order_id: str, status: str) -> None:
-        if status in {"filled", "canceled", "mmp_canceled", "rejected", "expired", "blocked"}:
+        if status in {"filled", "canceled", "mmp_canceled", "rejected", "expired", "blocked", "not_found"}:
             self._pending_orders.discard(order_id)
             self._pending_reductions.discard(order_id)
             self._pending_exit_reasons.pop(order_id, None)

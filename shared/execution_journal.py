@@ -27,6 +27,8 @@ class ExecutionJournal:
                 "owner": "TEXT NOT NULL DEFAULT ''", "parent": "TEXT",
                 "status": "TEXT NOT NULL DEFAULT 'unknown'",
                 "order_type": "TEXT",
+                # Wall-clock reservation time; NULL for legacy rows (never auto-resolved).
+                "created_at": "REAL",
             }.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE submissions ADD COLUMN {name} {definition}")
