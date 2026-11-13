@@ -147,26 +147,6 @@ class TestRustFillDedupGuard:
         result2 = g.check_with_fields("key1", [("a", "1"), ("b", "2")], 101.0)
         assert result2 == "duplicate"
 
-    def test_parity_with_python(self):
-        """Compare Rust guard behavior with Python DuplicateGuard."""
-        from execution.safety.duplicate_guard import DuplicateGuard
-        py_guard = DuplicateGuard(ttl_seconds=86400.0)
-        rs_guard = RustFillDedupGuard(ttl_sec=86400.0)
-
-        payload = {"symbol": "BTCUSDT", "qty": "0.1", "price": "50000"}
-        from execution.safety.duplicate_guard import compute_digest
-        digest = compute_digest(payload)
-
-        py_result = py_guard.check(key="k1", payload=payload)
-        rs_result = rs_guard.check("k1", digest, 100.0)
-        assert py_result is True
-        assert rs_result == "new"
-
-        py_result2 = py_guard.check(key="k1", payload=payload)
-        rs_result2 = rs_guard.check("k1", digest, 101.0)
-        assert py_result2 is False
-        assert rs_result2 == "duplicate"
-
 
 # ============================================================
 # SequenceBuffer

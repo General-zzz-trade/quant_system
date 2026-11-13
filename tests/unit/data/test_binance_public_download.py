@@ -92,3 +92,30 @@ def test_metrics_checksum_is_verified():
     routes = [(bp.VISION, lambda url: b"0" * 64 if url.endswith(".CHECKSUM") else payload)]
     with pytest.raises(ValueError, match="checksum"):
         bp.fetch_metrics_day("BTCUSDT", date(2024, 1, 1), fetch=_fake(routes))
+
+
+def test_snapshot_directory_is_never_overwritten(tmp_path):
+    snapshot = tmp_path / "binance_public"
+    snapshot.mkdir()
+    (snapshot / "manifest.json").write_text("{}")
+
+    def no_network(url):
+        raise AssertionError("must refuse before fetching anything")
+
+    with pytest.raises(FileExistsError, match="immutable"):
+        bp.download(["BTCUSDT"], date(2026, 1, 1), date(2026, 1, 2), snapshot, metrics=False, fetch=no_network)
+    assert (snapshot / "manifest.json").read_text() == "{}"
+
+
+def test_cli_defaults_to_a_new_dated_snapshot(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bp, "download", lambda symbols, start, end, out, **kw: calls.append(out) or {"files": {}})
+    bp.main(["--start", "2026-11-01", "--end", "2026-11-13"])
+    assert calls == [bp.Path("data_files/binance_public_2026-11-13")]
+    occupied = tmp_path / "data_files" / "binance_public_2026-11-13"
+    occupied.mkdir(parents=True)
+    (occupied / "BTCUSDT_1h.csv").write_text("x")
+    with pytest.raises(SystemExit):
+        bp.main(["--start", "2026-11-01", "--end", "2026-11-13"])
+    assert len(calls) == 1

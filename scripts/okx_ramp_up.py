@@ -61,10 +61,14 @@ class RampLevel:
 
 
 RAMP_SCHEDULE: list[RampLevel] = [
-    RampLevel(level=0, cap_usd=50.0,  min_fills=0,   recent_window_hours=0,    min_cum_pnl_pct=-1.0, description="initial (tiny cap for bug inspection)"),
-    RampLevel(level=1, cap_usd=150.0, min_fills=5,   recent_window_hours=72,   min_cum_pnl_pct=-1.0, description="5 fills in 3 days, 0 rejects"),
-    RampLevel(level=2, cap_usd=300.0, min_fills=15,  recent_window_hours=168,  min_cum_pnl_pct=-0.05, description="15 fills in 1 week, PnL > -5%"),
-    RampLevel(level=3, cap_usd=800.0, min_fills=30,  recent_window_hours=168,  min_cum_pnl_pct=0.0,   description="30 fills in 1 week, PnL > 0"),
+    RampLevel(level=0, cap_usd=50.0, min_fills=0, recent_window_hours=0, min_cum_pnl_pct=-1.0,
+              description="initial (tiny cap for bug inspection)"),
+    RampLevel(level=1, cap_usd=150.0, min_fills=5, recent_window_hours=72, min_cum_pnl_pct=-1.0,
+              description="5 fills in 3 days, 0 rejects"),
+    RampLevel(level=2, cap_usd=300.0, min_fills=15, recent_window_hours=168, min_cum_pnl_pct=-0.05,
+              description="15 fills in 1 week, PnL > -5%"),
+    RampLevel(level=3, cap_usd=800.0, min_fills=30, recent_window_hours=168, min_cum_pnl_pct=0.0,
+              description="30 fills in 1 week, PnL > 0"),
 ]
 
 

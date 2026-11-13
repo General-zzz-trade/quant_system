@@ -55,7 +55,7 @@ def test_market_events_advance_state():
     assert view["event_index"] == 5
     assert view["last_snapshot"] is not None
     snap = view["last_snapshot"]
-    assert snap.markets["BTCUSDT"].close == 40400.0
+    assert snap.markets["BTCUSDT"].close_f == 40400.0
 
 
 def test_fill_updates_position():
@@ -97,5 +97,5 @@ def test_multi_symbol_state_isolation():
     coord.emit(_market_event("ETHUSDT", 2500.0, 1), actor="test")
 
     view = coord.get_state_view()
-    assert view["markets"]["BTCUSDT"].close == 40000.0
-    assert view["markets"]["ETHUSDT"].close == 2500.0
+    assert view["markets"]["BTCUSDT"].close_f == 40000.0
+    assert view["markets"]["ETHUSDT"].close_f == 2500.0

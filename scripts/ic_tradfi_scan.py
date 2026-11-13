@@ -95,7 +95,8 @@ def main():
         results.sort(key=lambda r: -r.get("avg_abs_IC", 0))
 
         # Print table
-        header = f"{'Feature':<22} {'IC_30d':>8} {'IC_60d':>8} {'IC_90d':>8} {'IC_180d':>8} {'Avg|IC|':>8} {'Stable':>6}"
+        header = (f"{'Feature':<22} {'IC_30d':>8} {'IC_60d':>8} {'IC_90d':>8} {'IC_180d':>8} "
+                  f"{'Avg|IC|':>8} {'Stable':>6}")
         print(header)
         print("-" * len(header))
         for r in results:
@@ -112,7 +113,7 @@ def main():
         print()
         strong = [r for r in results if r.get("avg_abs_IC", 0) >= 0.05 and r.get("sign_stable")]
         if strong:
-            print(f"  STRONG candidates (|IC| >= 0.05, sign-stable):")
+            print("  STRONG candidates (|IC| >= 0.05, sign-stable):")
             for r in strong:
                 print(f"    {r['feature']}: avg|IC| = {r['avg_abs_IC']:.4f}")
         else:
@@ -120,7 +121,7 @@ def main():
 
         moderate = [r for r in results if r.get("avg_abs_IC", 0) >= 0.03 and not r.get("sign_stable")]
         if moderate:
-            print(f"  MODERATE candidates (|IC| >= 0.03, sign NOT stable):")
+            print("  MODERATE candidates (|IC| >= 0.03, sign NOT stable):")
             for r in moderate:
                 print(f"    {r['feature']}: avg|IC| = {r['avg_abs_IC']:.4f}")
 

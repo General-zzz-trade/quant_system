@@ -11,10 +11,16 @@ history) use the open of the 1h bar that starts at the settlement time as the
 mark proxy, flagged in ``mark_source``. Every output file gets a SHA-256 in
 ``manifest.json`` so a study can prove which inputs it used.
 
+Snapshots are immutable: each download goes to a NEW directory (default
+``data_files/binance_public_<end>``), and an existing non-empty directory is
+refused, because recorded studies reference their inputs by these hashes.
+``data_files/binance_public`` is the 2026-11-13 snapshot used by the
+2026-11-13 studies; never download into it again.
+
 Usage::
 
-    python -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT \
-        --start 2020-01-01 --out data_files/binance_public
+    python -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01
+    # -> data_files/binance_public_<today>/
 """
 from __future__ import annotations
 
@@ -175,6 +181,10 @@ def _write_csv(path: Path, header: tuple, rows: Iterable[tuple]) -> str:
 
 def download(symbols: list[str], start: date, end: date, out: Path, *, metrics: bool = True,
              fetch: Fetch = http_get) -> dict:
+    out = Path(out)
+    if out.exists() and any(out.iterdir()):
+        raise FileExistsError(f"{out} is not empty: snapshots are immutable, download into a new directory "
+                              "(delete a directory only if no study references its manifest)")
     start_ms, end_ms = _ms(start), _ms(end)
     manifest: dict = {"source": "binance-usdm-public", "start": start.isoformat(), "end": end.isoformat(),
                       "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "files": {}}
@@ -215,13 +225,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--start", type=date.fromisoformat, default=date(2020, 1, 1))
     parser.add_argument("--end", type=date.fromisoformat,
                         default=datetime.now(timezone.utc).date())
-    parser.add_argument("--out", type=Path, default=Path("data_files/binance_public"))
+    parser.add_argument("--out", type=Path,
+                        help="New, empty snapshot directory (default: data_files/binance_public_<end>)")
     parser.add_argument("--no-metrics", action="store_true", help="Skip OI/long-short metrics archives")
     args = parser.parse_args(argv)
     if args.start >= args.end:
         parser.error("--start must be before --end")
+    out = args.out or Path(f"data_files/binance_public_{args.end.isoformat()}")
+    if out.exists() and any(out.iterdir()):
+        parser.error(f"{out} is not empty; snapshots are immutable, choose a new --out directory")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    manifest = download(args.symbols, args.start, args.end, args.out, metrics=not args.no_metrics)
+    manifest = download(args.symbols, args.start, args.end, out, metrics=not args.no_metrics)
+    print(f"snapshot: {out}")
     print(json.dumps(manifest["files"], indent=2))
 
 

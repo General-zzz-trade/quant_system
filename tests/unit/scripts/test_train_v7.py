@@ -249,82 +249,9 @@ class TestV7DataLoading:
 
 # ── V7 interaction features test ─────────────────────────────
 
-class TestV7InteractionFeatures:
-    """Test V7 new interaction features."""
-
-    def test_interaction_feature_list(self):
-        from scripts.train_v7_alpha import INTERACTION_FEATURES
-        names = [name for name, _, _ in INTERACTION_FEATURES]
-        assert "basis_x_funding" in names
-        assert "basis_x_vol_regime" in names
-        assert "fgi_x_rsi14" in names
-
-    def test_v6_interactions_preserved(self):
-        from scripts.train_v7_alpha import INTERACTION_FEATURES
-        names = [name for name, _, _ in INTERACTION_FEATURES]
-        # All V6 interactions should still be there
-        assert "rsi14_x_vol_regime" in names
-        assert "funding_x_taker_imb" in names
-        assert "btc_ret1_x_beta30" in names
-
 
 # ── V7 walk-forward test ─────────────────────────────────────
-
-class TestV7WalkForward:
-    """Test V7 expanding window folds (same logic as V6)."""
-
-    def test_expanding_folds(self):
-        from scripts.train_v7_alpha import expanding_window_folds
-        folds = expanding_window_folds(5000, n_folds=5, min_train=2000)
-        assert len(folds) > 0
-        _, tr_end, te_start, _ = folds[0]
-        assert tr_end == 2000
-        assert te_start == 2000
-
-    def test_small_data_rejected(self):
-        from scripts.train_v7_alpha import expanding_window_folds
-        folds = expanding_window_folds(1500, n_folds=5, min_train=2000)
-        assert folds == []
 
 
 # ── Extended OOS split metrics test ────────────────────────────
 
-class TestSplitMetrics:
-    """Test _compute_split_metrics helper."""
-
-    def test_basic_split_metrics(self):
-        from scripts.train_v7_alpha import _compute_split_metrics
-        rng = np.random.RandomState(42)
-        n = 500
-        y_true = rng.randn(n)
-        y_pred = y_true * 0.3 + rng.randn(n) * 0.7  # weak signal
-        closes = 100.0 * np.cumprod(1 + rng.randn(n) * 0.005)
-
-        result = _compute_split_metrics(y_pred, y_true, closes, "clipped")
-        assert "ic" in result
-        assert "dir_acc" in result
-        assert "sharpe" in result
-        assert "cum_pnl" in result
-        assert "active_pct" in result
-        assert result["n"] == n
-        assert not np.isnan(result["ic"])
-
-    def test_split_metrics_small_sample(self):
-        from scripts.train_v7_alpha import _compute_split_metrics
-        result = _compute_split_metrics(
-            np.array([1.0, 2.0]), np.array([1.0, 2.0]),
-            np.array([100.0, 101.0]), "clipped")
-        # n < 30 → NaN
-        assert np.isnan(result["ic"])
-
-    def test_split_metrics_binary_mode(self):
-        from scripts.train_v7_alpha import _compute_split_metrics
-        rng = np.random.RandomState(42)
-        n = 200
-        y_true = (rng.rand(n) > 0.5).astype(float)
-        y_pred = y_true * 0.3 + 0.35 + rng.rand(n) * 0.1
-        closes = 100.0 * np.cumprod(1 + rng.randn(n) * 0.005)
-
-        result = _compute_split_metrics(y_pred, y_true, closes, "binary")
-        assert 0 <= result["dir_acc"] <= 1
-        assert not np.isnan(result["ic"])

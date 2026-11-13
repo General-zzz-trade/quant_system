@@ -19,9 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
-import sys
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -54,11 +51,7 @@ IC_WINDOWS_DAYS = [30, 60, 90]
 THRESHOLD_GREEN = 0.50   # >= 50% of training IC
 THRESHOLD_YELLOW = 0.25  # >= 25% of training IC
 
-# Auto-retrain on RED
-RETRAIN_COOLDOWN_SECONDS = 48 * 3600  # 48 hours between auto-retrains (prevent loops)
-LAST_IC_RETRAIN_PATH = Path("data/runtime/last_ic_retrain.txt")
-
-# Consecutive RED tracking — only trigger retrain after N consecutive RED days
+# Consecutive RED tracking — report a retrain candidate after N consecutive RED days
 RED_HISTORY_PATH = Path("data/runtime/ic_red_history.json")
 CONSECUTIVE_RED_DAYS_THRESHOLD = 3  # require 3 consecutive RED days before retrain
 
@@ -354,20 +347,8 @@ from monitoring.ic_decay_cli import print_table, send_alerts  # noqa: F401, E402
 
 
 # ---------------------------------------------------------------------------
-# Auto-retrain trigger
+# Retrain candidates (report only; nothing here starts a retrain)
 # ---------------------------------------------------------------------------
-
-def _should_retrain() -> bool:
-    """Check if enough time has passed since last IC-triggered retrain."""
-    if not LAST_IC_RETRAIN_PATH.exists():
-        return True
-    try:
-        ts = float(LAST_IC_RETRAIN_PATH.read_text().strip())
-        elapsed = datetime.now(timezone.utc).timestamp() - ts
-        return elapsed > RETRAIN_COOLDOWN_SECONDS
-    except (ValueError, OSError):
-        return True
-
 
 def _load_red_history() -> Dict[str, List[str]]:
     """Load consecutive RED history: {model_name: [date_str, ...]}."""
@@ -454,47 +435,6 @@ def _models_needing_retrain(
     return candidates
 
 
-def _run_retrain(symbols: Optional[List[str]] = None) -> None:
-    """Run alpha.retrain.cli in a subprocess (called from background thread).
-
-    If *symbols* is provided, retrain just those (via --symbol comma-list).
-    Otherwise falls back to full retrain.  Fixed to use the correct CLI
-    entry point — ``alpha.auto_retrain`` is a compat import shim without a
-    main() and previously silently no-op'd when invoked as ``python -m``.
-    """
-    try:
-        # Keep comparison_gate ON: if the new model's training Sharpe is
-        # worse than the old, ship-blocking is correct behaviour even when
-        # live IC is RED (new model is unlikely to help).  The daily IC
-        # gate + backup-on-fail path in retrain_symbol already handles
-        # regressions.
-        cmd = [sys.executable, "-m", "alpha.retrain.cli",
-               "--force", "--sighup"]
-        if symbols:
-            cmd.extend(["--symbol", ",".join(symbols)])
-        logger.info("Starting IC-triggered auto-retrain subprocess: %s", " ".join(cmd))
-        result = subprocess.run(
-            cmd,
-            cwd="/quant_system",
-            timeout=1800,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            logger.info("IC-triggered auto-retrain completed successfully.")
-        else:
-            logger.error(
-                "IC-triggered auto-retrain exited rc=%d. stdout=%s stderr=%s",
-                result.returncode,
-                result.stdout[-800:],
-                result.stderr[-800:],
-            )
-    except subprocess.TimeoutExpired:
-        logger.error("IC-triggered auto-retrain timed out after 1800s.")
-    except Exception as e:
-        logger.error("IC-triggered auto-retrain failed: %s", e)
-
-
 def _model_to_symbol(model_name: str) -> Optional[str]:
     """Map model directory name to symbol for targeted retrain."""
     for dir_name, symbol, _interval in ACTIVE_MODELS:
@@ -503,70 +443,25 @@ def _model_to_symbol(model_name: str) -> Optional[str]:
     return None
 
 
-def maybe_trigger_retrain(
-    results: List[Dict[str, Any]],
-    *,
-    enabled: bool = False,
-) -> None:
-    """Trigger retrain only for models that have been RED for 3+ consecutive days.
+def report_retrain_candidates(results: List[Dict[str, Any]]) -> List[str]:
+    """Record today's RED models and report those RED for 3+ consecutive days.
 
-    Safety guards:
-    - 48h cooldown between retrain triggers (prevents retrain loops).
-    - Only RED models are retrained; GREEN/YELLOW models are untouched.
-    - Consecutive RED history persisted to data/runtime/ic_red_history.json.
-    - Disabled by default: set ``enabled=True`` (via ``--auto-retrain`` on
-      the CLI) to arm the closed loop.  Without this flag the monitor only
-      observes and alerts — no subprocess is launched.  This prevents cron
-      runs from silently hot-swapping live models.
+    Report only: this never launches a retrain or touches a running process.
+    A person decides whether to retrain, reviews the new model, and restarts
+    the runner by hand. Returns the symbols that reached the threshold.
     """
-    if not enabled:
-        return
-    # Step 1: Update RED history with today's results
     red_history = _update_red_history(results)
-
-    # Step 2: Identify models that crossed the consecutive-RED threshold
-    retrain_models = _models_needing_retrain(results, red_history)
-    if not retrain_models:
-        # Log if RED but not yet at threshold
-        red_today = [r["model"] for r in results if r.get("overall_status") == "RED"]
-        for model in red_today:
-            days = len(red_history.get(model, []))
-            logger.info(
-                "IC RED for %s (%d/%d consecutive days) — waiting for threshold.",
-                model, days, CONSECUTIVE_RED_DAYS_THRESHOLD,
-            )
-        return
-
-    # Step 3: Check cooldown
-    if not _should_retrain():
-        logger.info(
-            "IC RED threshold met for %s but retrain cooldown not elapsed (48h) — skipping.",
-            ", ".join(retrain_models),
-        )
-        return
-
-    # Step 4: Map model names to symbols for targeted retrain
-    symbols_to_retrain = []
-    for model in retrain_models:
-        sym = _model_to_symbol(model)
-        if sym and sym not in symbols_to_retrain:
-            symbols_to_retrain.append(sym)
+    symbols: List[str] = []
+    for model in _models_needing_retrain(results, red_history):
+        symbol = _model_to_symbol(model)
+        if symbol and symbol not in symbols:
+            symbols.append(symbol)
         logger.warning(
-            "IC RED for %d consecutive days on %s — triggering auto-retrain",
+            "IC RED for %d consecutive days on %s — retrain candidate "
+            "(manual: review, retrain, then restart by hand)",
             len(red_history.get(model, [])), model,
         )
-
-    # Step 5: Write cooldown timestamp
-    LAST_IC_RETRAIN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LAST_IC_RETRAIN_PATH.write_text(str(datetime.now(timezone.utc).timestamp()))
-
-    # Step 6: Launch targeted retrain in background thread
-    t = threading.Thread(
-        target=_run_retrain,
-        args=(symbols_to_retrain if symbols_to_retrain else None,),
-        daemon=True,
-    )
-    t.start()
+    return symbols
 
 
 # ---------------------------------------------------------------------------

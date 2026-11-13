@@ -40,8 +40,6 @@ def run_single(symbol: str, dz: float, oos_bars: int, window_name: str) -> dict 
     with open(tmp_config, "w") as f:
         json.dump(cfg, f)
 
-    out_dir = tmp_dir / "results"
-
     try:
         result = subprocess.run(
             [
@@ -137,7 +135,8 @@ def main():
 
         for win_name, oos_bars in OOS_WINDOWS.items():
             print(f"\n  Window: {win_name} ({oos_bars} bars)")
-            print(f"  {'dz':>5} | {'Sharpe':>8} | {'MaxDD':>8} | {'Trades':>6} | {'WinRate':>7} | {'AnnRet':>8} | {'PF':>6}")
+            print(f"  {'dz':>5} | {'Sharpe':>8} | {'MaxDD':>8} | {'Trades':>6} | "
+                  f"{'WinRate':>7} | {'AnnRet':>8} | {'PF':>6}")
             print(f"  {'-'*5}-+-{'-'*8}-+-{'-'*8}-+-{'-'*6}-+-{'-'*7}-+-{'-'*8}-+-{'-'*6}")
 
             for dz in DZ_VALUES:
@@ -151,7 +150,8 @@ def main():
                     ann_ret = r.get("annual_return", 0)
                     pf = r.get("profit_factor", 0)
                     marker = " ◀" if dz in (1.5, 2.0) else ""
-                    print(f"  {dz:5.1f} | {sharpe:8.2f} | {max_dd:7.1f}% | {trades:6d} | {win_rate:6.1f}% | {ann_ret:7.1f}% | {pf:6.2f}{marker}")
+                    print(f"  {dz:5.1f} | {sharpe:8.2f} | {max_dd:7.1f}% | {trades:6d} | "
+                          f"{win_rate:6.1f}% | {ann_ret:7.1f}% | {pf:6.2f}{marker}")
                 else:
                     err = r.get("error", "unknown") if r else "failed"
                     print(f"  {dz:5.1f} | ERROR: {err[:40]}")

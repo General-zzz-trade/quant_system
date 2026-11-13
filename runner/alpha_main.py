@@ -33,7 +33,6 @@ from _quant_hotpath import (
 
 from alpha.model_loader_prod import create_adapter, load_model
 from decision.modules.alpha import AlphaDecisionModule
-from decision.signals.alpha_signal import EnsemblePredictor
 from engine.coordinator import EngineCoordinator
 from event.header import EventHeader
 from event.types import EventType, ControlEvent, FundingEvent, MarketEvent
@@ -760,64 +759,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # SIGHUP: hot-reload models without restart
+    # SIGHUP never swaps a model into this process. A handler is still
+    # installed because the default SIGHUP action terminates the process,
+    # and a supervisor restart would then load new model files unattended.
     def _handle_sighup(signum: int, frame: Any) -> None:
-        """Hot-reload models from disk for all runners."""
-        logger.info("SIGHUP received — reloading models...")
-        t0 = time.monotonic()
-        reloaded = 0
-        failed = 0
-        for runner_key, alpha_mod in modules.items():
-            try:
-                cfg = SYMBOL_CONFIG[runner_key]
-                model_dir = MODEL_BASE / cfg["model_dir"]
-                model_info = load_model(model_dir)
-                new_predictor = EnsemblePredictor(
-                    model_info["horizon_models"],
-                    model_info["config"],
-                )
-                alpha_mod.update_predictor(new_predictor)
-                # Match the auto-reload path: discretizer params can change
-                # alongside the model (a retrain may shift dz/min_hold for
-                # the new IC profile). SIGHUP path used to skip this and
-                # leave the discretizer at the OLD thresholds until the
-                # next 30s auto-reload tick caught up.
-                alpha_mod._discretizer.deadzone = model_info["deadzone"]
-                alpha_mod._discretizer.min_hold = model_info["min_hold"]
-                alpha_mod._discretizer.max_hold = model_info["max_hold"]
-                alpha_mod._discretizer._long_only = model_info.get("long_only", False)
-                reloaded += 1
-                logger.info(
-                    "Reloaded model for %s (dz=%.1f mh=%d lo=%s)",
-                    runner_key, model_info["deadzone"], model_info["min_hold"],
-                    model_info.get("long_only", False),
-                )
-            except Exception:
-                failed += 1
-                logger.exception(
-                    "Failed to reload model for %s — keeping current", runner_key,
-                )
-        # Resync z-score buffers after model change — prevents z-score
-        # discontinuity when new model produces different prediction scale.
-        # Runs as subprocess to avoid ~400MB in-process memory spike (OOM fix).
-        if reloaded > 0:
-            try:
-                import subprocess as _sp
-                _sp.Popen(
-                    [sys.executable, "-m", "scripts.sync_zscore_from_batch"],
-                    cwd="/quant_system",
-                    stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                )
-                logger.info("Z-score buffers resynced after model reload")
-            except Exception:
-                logger.warning("Z-score resync failed — buffers may be stale",
-                               exc_info=True)
-
-        elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.info(
-            "Hot-reload complete: %d reloaded, %d failed, %.1fms",
-            reloaded, failed, elapsed_ms,
-        )
+        logger.warning("SIGHUP ignored: models are loaded only at startup; "
+                       "restart the service by hand to change models")
 
     signal.signal(signal.SIGHUP, _handle_sighup)
 
@@ -1021,13 +968,9 @@ def main() -> None:
     _last_recon_alert: dict[str, tuple[str, float]] = {}  # sym -> (state_key, ts)
     _RECON_ALERT_COOLDOWN_S = 3600  # 1 hour
 
-    # Auto-reload: watch model config.json files for changes
-    _model_mtimes: dict[str, float] = {}
-    for rk in modules:
-        cfg = SYMBOL_CONFIG[rk]
-        cfg_path = MODEL_BASE / cfg["model_dir"] / "config.json"
-        if cfg_path.exists():
-            _model_mtimes[rk] = cfg_path.stat().st_mtime
+    # Models are loaded once at startup. There is deliberately no file-watch
+    # reload: a changed model reaches a running process only through a
+    # restart started by a person.
 
     # Main loop
     try:
@@ -1035,39 +978,6 @@ def main() -> None:
         while not shutdown:
             time.sleep(1)
             _loop_iter += 1
-
-            # Auto-reload: check model files every 30s for changes
-            if _loop_iter % 30 == 0:
-                for rk, alpha_mod in modules.items():
-                    try:
-                        cfg = SYMBOL_CONFIG[rk]
-                        cfg_path = MODEL_BASE / cfg["model_dir"] / "config.json"
-                        if not cfg_path.exists():
-                            continue
-                        mtime = cfg_path.stat().st_mtime
-                        old_mtime = _model_mtimes.get(rk, 0)
-                        if mtime > old_mtime and old_mtime > 0:
-                            # Config changed — auto-reload this model
-                            model_dir = MODEL_BASE / cfg["model_dir"]
-                            model_info = load_model(model_dir)
-                            new_predictor = EnsemblePredictor(
-                                model_info["horizon_models"],
-                                model_info["config"],
-                            )
-                            alpha_mod.update_predictor(new_predictor)
-                            alpha_mod._discretizer.deadzone = model_info["deadzone"]
-                            alpha_mod._discretizer.min_hold = model_info["min_hold"]
-                            alpha_mod._discretizer.max_hold = model_info["max_hold"]
-                            alpha_mod._discretizer._long_only = model_info.get("long_only", False)
-                            logger.info(
-                                "AUTO-RELOAD %s: config.json changed, model reloaded "
-                                "(dz=%.1f mh=%d lo=%s)",
-                                rk, model_info["deadzone"], model_info["min_hold"],
-                                model_info.get("long_only", False),
-                            )
-                        _model_mtimes[rk] = mtime
-                    except Exception:
-                        logger.debug("Auto-reload check failed for %s", rk, exc_info=True)
 
             # Z-score checkpoint save DISABLED — batch-synced checkpoints
             # must not be overwritten by incremental predictions.

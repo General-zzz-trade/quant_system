@@ -19,12 +19,11 @@ Safety design (intentionally conservative for first-week deployment):
      `runner_key="BTCUSDT_1d"` etc., so all monitoring tools (live IC
      kill switch, daily PnL, decision audit) pick it up automatically.
 
-How to flip live on Day 4:
-  1. Edit /etc/systemd/system/daily-live-runner.service (sudo) and remove
-     the `--dry-run` flag from ExecStart.
-  2. sudo systemctl daemon-reload && sudo systemctl enable --now daily-live-runner.timer
-
-Until then, this script is harmless even if cron-fires it.
+LIVE ORDERS ARE DISABLED (2026-11-13). This path sends OKX market orders
+directly from ``_execute``, with no entry risk gate, no 3x account cap, no
+durable intent journal and no exchange-side stop, and OKX is outside the
+current Binance-only scope. ``--live`` is refused and ``_execute`` raises
+for anything but a dry run. The runner still computes and audits decisions.
 """
 from __future__ import annotations
 
@@ -129,14 +128,10 @@ def _compute_size_qty(equity: float, price: float) -> float:
 
 
 def _execute(symbol: str, side: str, qty_coin: float, adapter, *, dry_run: bool) -> dict:
-    """Place a market order via OkxAdapter. side='buy'|'sell', qty in coin units."""
-    if dry_run:
-        return {"status": "dry_run", "would_send": {"symbol": symbol, "side": side, "qty": qty_coin}}
-    try:
-        return adapter.send_market_order(symbol, side, qty_coin)
-    except Exception as e:
-        logger.exception("send_market_order failed")
-        return {"status": "error", "msg": str(e)}
+    """Describe the order that would be sent; live sending is disabled (see module docstring)."""
+    if not dry_run:
+        raise RuntimeError("daily_live_runner: live orders are disabled; this path has no risk gate")
+    return {"status": "dry_run", "would_send": {"symbol": symbol, "side": side, "qty": qty_coin}}
 
 
 def run_symbol(symbol: str, model_dir: str, macro: pd.DataFrame, *, live: bool):
@@ -300,15 +295,16 @@ def run_symbol(symbol: str, model_dir: str, macro: pd.DataFrame, *, live: bool):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="1D LIVE runner — places real OKX orders")
+    parser = argparse.ArgumentParser(description="1D runner (dry run only; live orders are disabled)")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT"],
                         help="Symbols to trade. Default: BTCUSDT only "
                              "(ETH disabled until holdout IC recovers)")
     parser.add_argument("--live", action="store_true",
-                        help="REQUIRED to actually place orders. Without "
-                             "this flag the runner does everything except "
-                             "send the order (dry-run).")
+                        help="Refused: live orders are disabled for this runner.")
     args = parser.parse_args()
+    if args.live:
+        parser.error("--live is disabled: this runner sends OKX market orders with no entry "
+                     "risk gate, no 3x cap and no exchange-side stop")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 

@@ -176,4 +176,4 @@ class TestReplayPathContract:
         # Market state should reflect last bar
         market = result.final_state.get("market")
         assert market is not None
-        assert float(getattr(market, "close", getattr(market, "close_f", 0))) == 104.0
+        assert market.close_f == 104.0  # .close is the raw Fd8 integer

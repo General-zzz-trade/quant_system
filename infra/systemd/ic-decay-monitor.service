@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=oneshot
 WorkingDirectory=/quant_system
-ExecStart=/usr/bin/python3 -m monitoring.ic_decay_monitor --alert --auto-retrain
+ExecStart=/usr/bin/python3 -m monitoring.ic_decay_monitor --alert
 User=ubuntu
 Environment=PYTHONPATH=/quant_system
 StandardOutput=append:/quant_system/logs/ic_decay_monitor.log

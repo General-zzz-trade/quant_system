@@ -168,7 +168,8 @@ def walk_forward_v2_v3(X, closes, dates, recency: bool):
 
 def _summarize(trades, label):
     if not trades:
-        print(f"  [{label:18s}] no trades"); return None
+        print(f"  [{label:18s}] no trades")
+        return None
     nets = np.array([t.net_pnl for t in trades])
     wins = sum(1 for t in trades if t.net_pnl > 0)
     wr = wins / len(trades) * 100
@@ -176,7 +177,8 @@ def _summarize(trades, label):
     total = float(np.sum(nets) / 10000 * 100)
     eq, peak, mdd = 10000.0, 10000.0, 0.0
     for t in trades:
-        eq += t.net_pnl; peak = max(peak, eq)
+        eq += t.net_pnl
+        peak = max(peak, eq)
         mdd = max(mdd, (peak - eq) / peak)
     holds = np.array([t.hold_days for t in trades])
     tpy = 365 / max(np.mean(holds), 0.5)
@@ -222,7 +224,8 @@ def run_symbol(symbol):
             preds = walk_forward_v0_v1(X, closes, dates, recency)
         valid = ~np.isnan(preds)
         if valid.sum() < 30:
-            print(f"  [{label:18s}] insufficient predictions"); continue
+            print(f"  [{label:18s}] insufficient predictions")
+            continue
         oos_p = preds[valid]
         oos_c = closes[valid]
         trades = run_backtest(oos_p, oos_c, dz, COST_TAKER_RT,

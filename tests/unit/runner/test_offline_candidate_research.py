@@ -66,10 +66,13 @@ def test_research_selects_on_validation_and_freezes_protocol(tmp_path, monkeypat
     monkeypatch.setattr(research, "MIN_VALIDATION_FILLS", 1)
     monkeypatch.setattr(research, "WARMUP_BARS", 600)
     bars = synthetic_bars(5200)
-    summary = research.run_research(bars, synthetic_funding(bars), tmp_path, symbol="BTCUSDT", synthetic=True)
+    split = {"train_end_ms": bars[3120].open_time, "validation_end_ms": bars[4160].open_time}
+    summary = research.run_research(bars, synthetic_funding(bars), tmp_path, symbol="BTCUSDT", synthetic=True,
+                                    **split)
     protocol = json.loads((tmp_path / "protocol.json").read_text())
     assert protocol["candidate_count"] == 1
-    assert protocol["split"]["final_test_start_ms"] == bars[int(5200 * 0.8)].open_time
+    assert protocol["split"]["final_test_start_ms"] == bars[4160].open_time
+    assert protocol["split"]["train_end_ms"] == bars[3120].open_time
     if summary["chosen"] is None:
         assert not summary["stages"] and "NO_CANDIDATE" in protocol["outcome"]
     else:
@@ -80,7 +83,7 @@ def test_research_selects_on_validation_and_freezes_protocol(tmp_path, monkeypat
     gate = json.loads((tmp_path / "gate.json").read_text())
     assert gate["passed"] is False  # synthetic data must never pass the live gate trivially
     with pytest.raises(ValueError, match="empty output"):
-        research.run_research(bars, synthetic_funding(bars), tmp_path, symbol="BTCUSDT", synthetic=True)
+        research.run_research(bars, synthetic_funding(bars), tmp_path, symbol="BTCUSDT", synthetic=True, **split)
 
 
 def test_gate_requires_every_condition():
@@ -92,3 +95,60 @@ def test_gate_requires_every_condition():
     summary["stages"]["final_test_cost_x2"]["net_return_pct"] = -1.0
     ok, reasons = research.passes_gate(summary)
     assert not ok and any("2x costs" in r for r in reasons)
+
+
+def test_validation_only_never_reads_past_the_validation_window(tmp_path, monkeypatch):
+    from dataclasses import replace
+    monkeypatch.setattr(research, "CANDIDATES", {"feature_set": ("ohlcv",), "horizon": (1,),
+                                                "alpha": (1.0,), "deadzone": (1.0,)})
+    monkeypatch.setattr(research, "MIN_VALIDATION_FILLS", 1)
+    monkeypatch.setattr(research, "WARMUP_BARS", 600)
+    bars = synthetic_bars(5200)
+    val_end = 4160
+    split = {"train_end_ms": bars[3120].open_time, "validation_end_ms": bars[val_end].open_time}
+    # Later data both changed AND appended (as a data refresh would): with fixed split
+    # dates neither the windows nor any validation result may move.
+    changed = [replace(b, open=b.open * 2, high=b.high * 2, low=b.low * 2, close=b.close * 2)
+               if i >= val_end else b for i, b in enumerate(synthetic_bars(6000))]
+    outputs = []
+    for name, series in (("clean", bars), ("changed", changed)):
+        out = tmp_path / name
+        summary = research.run_research(series, synthetic_funding(series), out, symbol="BTCUSDT",
+                                        synthetic=True, validation_only=True, **split)
+        protocol = json.loads((out / "protocol.json").read_text())
+        assert protocol["mode"] == "validation_only" and protocol["final_test_views"] == 0
+        assert "final_model_sha256" not in protocol and not (out / "model.json").exists()
+        assert not summary["stages"] and not list(out.glob("final_test*"))
+        gate = json.loads((out / "gate.json").read_text())
+        assert gate["kind"] == "validation_only" and gate["passed"] == summary["validation_gate"]["passed"]
+        outputs.append((protocol["split"], protocol["validation_candidates"], protocol["validation_gate_result"],
+                        summary["chosen"]))
+    # Every bar after the validation window was doubled; nothing in the result changed.
+    assert outputs[0] == outputs[1]
+
+
+def test_validation_gate_requires_every_condition():
+    chosen = {"validation_sharpe_daily": 0.8, "fills": 100}
+    stress = {"daily_sharpe": 0.3}
+    assert research.passes_validation_gate(chosen, stress, 1.0) == (True, [])
+    for bad_chosen, bad_stress, years, text in [({**chosen, "validation_sharpe_daily": 0.5}, stress, 1.0, "Sharpe"),
+                                                (chosen, {"daily_sharpe": 0.0}, 1.0, "2x costs"),
+                                                (chosen, {"daily_sharpe": None}, 1.0, "2x costs"),
+                                                ({**chosen, "fills": 151}, stress, 1.0, "fills per year")]:
+        ok, reasons = research.passes_validation_gate(bad_chosen, bad_stress, years)
+        assert not ok and len(reasons) == 1 and text in reasons[0]
+    assert research.passes_validation_gate(None, None, 1.0)[0] is False
+    assert research.VALIDATION_GATE == {"validation_sharpe_min_exclusive": 0.5,
+                                        "validation_cost_x2_sharpe_min_exclusive": 0.0,
+                                        "validation_fills_per_year_max": 150}
+
+
+def test_split_dates_must_be_bar_open_times_in_order():
+    bars = synthetic_bars(5200)
+    assert research.split_indices(bars, bars[3120].open_time, bars[4160].open_time) == (3120, 4160)
+    with pytest.raises(ValueError, match="not the open time"):
+        research.split_indices(bars, bars[3120].open_time + 1, bars[4160].open_time)
+    with pytest.raises(ValueError, match="not the open time"):
+        research.split_indices(bars, bars[3120].open_time, bars[-1].open_time + HOUR)
+    with pytest.raises(ValueError, match="split must satisfy"):
+        research.split_indices(bars, bars[4160].open_time, bars[3120].open_time)

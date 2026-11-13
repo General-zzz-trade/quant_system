@@ -95,3 +95,9 @@ RISK_SCOPE=binance-testnet-main python3 -m runner.binance_target --spec ... --en
 3. **测试网演练：** 与纸面运行并行，按 `docs/binance_runbook.md` 第 7 节逐项演练。
 
 实盘仍然需要满足：门槛通过，纸面运行与回放一致，测试网演练完成，并由你手动开启。
+
+## 2026-11-13 独立审计补记（最终测试再次查看）
+
+- 审计时重跑了 `python -m lab.study`（输出写在仓库外），`summary.json`、`candidates.json` 与本目录逐位一致，`final_spec.json` 仅 `code.git_revision` 不同。保留期（2025-11-16 至 2026-11-12）因此又被查看一次；没有据此修改任何参数。
+- `lab` 不使用 `AlphaDecisionModule`，不受 4h 共识键缺陷影响。
+- 指标注意：`lab/metrics.summarize` 的开发期序列从第一个完整 UTC 日开始，漏掉了模拟头两天（约 −5.2%）。自 10,000 USDT 真实起点算，开发期收益为 +63.7%、日夏普 0.68（本目录记为 +72.7%、0.75）。保留期和滚动样本外数字不受影响。

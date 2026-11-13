@@ -1,0 +1,7 @@
+{
+  "kind": "validation_only",
+  "passed": false,
+  "reasons": [
+    "485 fills per year > 150"
+  ]
+}

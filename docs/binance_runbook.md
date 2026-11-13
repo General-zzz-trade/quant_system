@@ -26,8 +26,11 @@ python3 scripts/check_local_safety.py             # 离线故障注入检查
 ## 2. 数据（公开接口，无需账户）
 
 ```bash
-python3 -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01 --out data_files/binance_public
+python3 -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01
+# 写入新目录 data_files/binance_public_<结束日期>/
 ```
+
+每次下载都写入一个新的快照目录；目录非空时直接拒绝，绝不覆盖。研究记录的是输入文件的 SHA-256，覆盖之后就无法复现。`data_files/binance_public` 是 2026-11-13 的快照，2026-11-13 的各项研究都引用它，不要再往里下载。
 
 产物：
 - `<SYM>_1h.csv`：只含已收盘 K 线，带 taker、trades 字段；
@@ -41,11 +44,13 @@ OI 和多空比数据大约从 2021-12 才开始有。
 
 ```bash
 python3 -m runner.offline research --data-dir data_files/binance_public --symbol BTCUSDT \
-    --start 2021-12-02 --out .cache/research/BTCUSDT
+    --start 2021-12-02 --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
+    --out .cache/research/BTCUSDT
 ```
 
 流程：
-1. **切分：** 按时间分为训练 60%、验证 20%、最终测试 20%。
+1. **切分：** 用两个固定的 UTC 时间点切分：`--train-end` 之前为训练，`--train-end` 到 `--validation-end` 为验证，之后为最终测试。必须是固定日期而不是行数比例：按比例切分时，数据一追加，验证集就会滑进已经看过的窗口。2026-11-13 的运行用的是 2024-11-20T04:00 和 2025-11-16T14:00，在当时的数据上正好等于 60% 和 80% 的位置。
+   **2025-11-16 之后的数据已被查看多次，不能再作为最终测试。**
 2. **候选：** 特征集（ohlcv / derivatives）× 标签周期（1/4/24 小时）× Ridge alpha（1/10/100）× deadzone（1.0/1.5/2.0）。
 3. **选择：** alpha 按验证集 IC 选；特征集、周期和 deadzone 按验证集回放的日夏普选，且要求成交至少 20 笔。
 4. **冻结：** 写出 `protocol.json`（候选清单、选择结果、数据和代码指纹）和 `model.json`（用训练加验证数据重训），然后才运行最终测试。
@@ -86,9 +91,9 @@ python3 -m runner.binance_main --models-dir models_binance --symbols BTCUSDT ETH
 与同期离线回放逐笔对比（先刷新数据）：
 
 ```bash
-python3 -m data.downloads.binance_public --start <近期日期> --out data_files/binance_public
+python3 -m data.downloads.binance_public --start <近期日期> --out data_files/binance_public_compare_<日期>
 python3 -m scripts.compare_paper_replay --events data/runtime/binance/binance_events.jsonl \
-    --models-dir models_binance --data-dir data_files/binance_public --symbol BTCUSDT
+    --models-dir models_binance --data-dir data_files/binance_public_compare_<日期> --symbol BTCUSDT
 ```
 
 退出码 0 表示一致。如果不一致，说明线上输入（K 线、资金费、持仓数据）与研究数据有偏差，必须先查清原因。

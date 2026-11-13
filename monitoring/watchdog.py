@@ -7,16 +7,15 @@ Checks:
 3. Account health (balance, positions, kill latch)
 4. Polymarket collector alive
 
-Actions on failure:
+Actions on failure (observation only; it never restarts a service, since a
+restart of a trading process must be a person's decision):
 - Log WARNING/ERROR with details
-- Restart stale services (if configured)
 - Write health status to data/runtime/health_status.json
 - Exit with code 1 on critical failure (for systemd OnFailure= alerting)
 
 Usage:
-    python3 -m scripts.ops.health_watchdog              # Check all
-    python3 -m scripts.ops.health_watchdog --restart     # Auto-restart stale services
-    python3 -m scripts.ops.health_watchdog --json        # JSON output
+    python3 -m monitoring.watchdog          # Check all
+    python3 -m monitoring.watchdog --json   # JSON output
 """
 from __future__ import annotations
 
@@ -319,18 +318,6 @@ def check_account() -> dict[str, Any]:
     return result
 
 
-def restart_service(unit: str) -> bool:
-    """Restart a systemd service."""
-    try:
-        subprocess.run(["sudo", "systemctl", "restart", unit],
-                       capture_output=True, timeout=30)
-        log.warning("RESTARTED %s", unit)
-        return True
-    except Exception as e:
-        log.error("Failed to restart %s: %s", unit, e)
-        return False
-
-
 def _status_changed(current: str) -> bool:
     """Check if overall status changed since last run (avoid alert spam)."""
     try:
@@ -343,7 +330,7 @@ def _status_changed(current: str) -> bool:
     return True  # first run or corrupt file → alert
 
 
-def run_watchdog(auto_restart: bool = False, json_output: bool = False) -> int:
+def run_watchdog(json_output: bool = False) -> int:
     """Run all health checks. Returns 0=healthy, 1=warning, 2=critical."""
     now = datetime.now(timezone.utc).isoformat()
     report = {"timestamp": now, "checks": {}, "overall": "healthy", "problems": []}
@@ -356,10 +343,8 @@ def run_watchdog(auto_restart: bool = False, json_output: bool = False) -> int:
             active_services.append(result)
         report["checks"][f"service_{name}"] = result
 
-        if result.get("status") == "stale" and auto_restart:
-            log.warning("Service %s is stale, restarting...", name)
-            restart_service(cfg["unit"])
-            result["action"] = "restarted"
+        if result.get("status") == "stale":
+            log.warning("Service %s is stale; restart it by hand after investigating", name)
 
     # 2. Check data
     data_results = check_data_freshness()
@@ -484,14 +469,13 @@ def run_watchdog(auto_restart: bool = False, json_output: bool = False) -> int:
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Health watchdog")
-    parser.add_argument("--restart", action="store_true", help="Auto-restart stale services")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)-5s %(name)s %(message)s")
 
-    sys.exit(run_watchdog(auto_restart=args.restart, json_output=args.json))
+    sys.exit(run_watchdog(json_output=args.json))
 
 
 if __name__ == "__main__":

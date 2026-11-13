@@ -1,5 +1,5 @@
 # quant_trader example config
-# Usage: quant_trader --config config.yaml [--dry-run]
+# Usage: quant_trader --config config.yaml   (dry run; add --live and set mode: live to send orders)
 
 trading:
   symbols: ["BTCUSDT"]
@@ -30,7 +30,7 @@ position_sizing:
     SOLUSDT: 0.1
 
 risk:
-  max_leverage: 5.0
+  max_leverage: 3.0   # hard cap is 3.0
   max_drawdown_pct: 0.30
   max_position_notional: 5000.0
   max_daily_orders: 100

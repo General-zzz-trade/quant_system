@@ -18,17 +18,30 @@ async fn main() {
 
     init_logging(&config.logging);
 
+    let dry_run = !orders_enabled(cli.live, cli.dry_run, &config.trading.mode);
+    let max_leverage = match effective_max_leverage(config.risk.max_leverage) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("{}", e);
+            std::process::exit(1);
+        }
+    };
+    if max_leverage < config.risk.max_leverage {
+        warn!(configured = config.risk.max_leverage, capped = max_leverage,
+              "risk.max_leverage above the hard cap; using the cap");
+    }
+
     let tick_by_tick = config.micro_alpha.tick_by_tick;
 
     info!(
         symbols = ?config.trading.symbols,
         mode = %config.trading.mode,
         testnet = config.trading.testnet,
-        dry_run = cli.dry_run,
+        dry_run = dry_run,
         interval = %config.trading.interval,
         tick_by_tick = tick_by_tick,
         fraction = config.position_sizing.fraction,
-        max_leverage = config.risk.max_leverage,
+        max_leverage = max_leverage,
         max_drawdown = format!("{:.0}%", config.risk.max_drawdown_pct * 100.0),
         min_order_interval_ms = config.micro_alpha.min_order_interval_ms,
         micro_threshold = config.micro_alpha.micro_threshold,
@@ -370,7 +383,7 @@ async fn main() {
     // Risk params
     let risk = RiskParams {
         fraction: config.position_sizing.fraction,
-        max_leverage: config.risk.max_leverage,
+        max_leverage,
         max_drawdown_pct: config.risk.max_drawdown_pct,
         max_position_notional: config.risk.max_position_notional,
         circuit_breaker_threshold: 5,
@@ -386,7 +399,7 @@ async fn main() {
 
     // Spawn order WS (if not dry-run)
     // Also handles: userDataStream.start on connect, keepalive every 30 min
-    if !cli.dry_run {
+    if !dry_run {
         let order_url = order_ws_url.to_string();
         let running_clone = running.clone();
         let resp_tx_clone = resp_tx.clone();
@@ -836,7 +849,7 @@ async fn main() {
                                         &order_tx,
                                         &pending_orders,
                                         &order_failure_count,
-                                        cli.dry_run,
+                                        dry_run,
                                         micro_sig.as_ref(),
                                     );
                                 }
@@ -885,7 +898,7 @@ async fn main() {
                                     &order_tx,
                                     &pending_orders,
                                     &order_failure_count,
-                                    cli.dry_run,
+                                    dry_run,
                                     micro_sig.as_ref(),
                                 );
                                 if submitted {
@@ -1107,7 +1120,7 @@ async fn main() {
                             &order_tx,
                             &pending_orders,
                             &order_failure_count,
-                            cli.dry_run,
+                            dry_run,
                             micro_sig.as_ref(),
                         );
                     }

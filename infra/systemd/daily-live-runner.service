@@ -1,5 +1,5 @@
 [Unit]
-Description=1D LIVE runner — places real OKX orders for BTC 1D model (Day-4 deploy)
+Description=1D runner for the BTC 1D model (dry run only; live orders disabled in code)
 After=network.target daily-paper-runner.service
 
 [Service]

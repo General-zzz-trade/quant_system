@@ -207,6 +207,27 @@ def test_replay_determinism_and_future_prefix_invariance(experiment):
     assert metrics(first)["daily_sharpe"] is None
 
 
+def test_exits_ignore_consensus_companion_keys_and_respect_min_hold(experiment):
+    """Regression: the 4h runner's "_z" float used to force-close every 1h
+    position at the next bar ("4h_reversal(BTCUSDT_4h_z=...)", 0-hour holds)."""
+    bars, model, funding, start = experiment
+    result = run_replay(bars, model, funding, start_ms=start, stop_after=900)
+    orders = {row["id"]: row for row in result["orders"]}
+    exits = [row["reason"] or "" for row in result["orders"] if row["reduce_only"]]
+    assert exits
+    assert not [r for r in exits if "_z=" in r or "_ic_ok=" in r]
+    holds, opened = [], None
+    for fill in result["fills"]:
+        row = orders[fill["order"]]
+        if not row["reduce_only"] and opened is None:
+            opened = fill["at"]
+        elif row["reduce_only"] and opened is not None:
+            holds.append(((fill["at"] - opened) // HOUR, row["reason"]))
+            opened = None
+    signal_exits = [hours for hours, reason in holds if reason == "signal_change"]
+    assert signal_exits and min(signal_exits) >= ReplayConfig().min_hold
+
+
 def test_missing_funding_fails(experiment):
     bars, model, _, start = experiment
     with pytest.raises(ValueError, match="funding"):
@@ -233,8 +254,10 @@ def test_checkpoint_fresh_process_matches_continuous_and_rejects_changes(tmp_pat
     path = save_inputs(tmp_path, bars, model, funding)
     assert load_bars(path) == bars
     checkpoint = tmp_path / "checkpoint.json"
+    # Stop at a bar with an open position AND a pending order (found by scanning
+    # the continuous replay), so the resume must carry both across processes.
     partial = checkpoint_replay(bars, model, funding, start_ms=start, config=ReplayConfig(),
-                                checkpoint=checkpoint, stop_after=747)
+                                checkpoint=checkpoint, stop_after=753)
     assert partial["pending_orders"] > 0 and D(partial["final"]["qty"]) != 0
     cmd = [sys.executable, "-m", "runner.offline", "replay", "--bars", str(path),
            "--funding", str(tmp_path / "funding.csv"),

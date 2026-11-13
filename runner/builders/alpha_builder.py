@@ -318,7 +318,7 @@ class CsvDictCursor:
         return len(self._timestamps) > 0
 
 
-# ── Static data source loaders (from CSV files refreshed by data-refresh timer) ──
+# ── Static data source loaders (legacy CSV files; their refresh timer was retired 2026-11-13) ──
 
 def _load_latest_csv_value(path: Path, ts_col: str = "timestamp", val_col: str = None) -> float:
     """Load the latest value from a 2-column CSV (timestamp, value)."""
@@ -781,7 +781,7 @@ def build_coordinator(
                 or not 0 < starting_balance <= Decimal("90000000000")):
             raise ValueError("Explicit synthetic balance is only valid for nonexecuting runs")
 
-    # External data sources (CSV files refreshed by data-refresh timer)
+    # External data sources (legacy CSV files; no longer refreshed automatically)
     interval = cfg.get("interval", "60")
     data_sources = _build_data_sources(
         symbol, interval=interval, oi_cache=oi_cache,

@@ -65,7 +65,8 @@ pub struct TradingConfig {
     pub symbols: Vec<String>,
     #[serde(default = "default_exchange")]
     pub exchange: String,
-    #[serde(default)]
+    /// Testnet unless the config says `testnet: false` explicitly.
+    #[serde(default = "default_testnet")]
     pub testnet: bool,
     #[serde(default = "default_mode")]
     pub mode: String,
@@ -192,6 +193,7 @@ impl Default for LoggingConfig {
 
 // Defaults
 fn default_exchange() -> String { "binance".to_string() }
+fn default_testnet() -> bool { true }
 fn default_mode() -> String { "paper".to_string() }
 fn default_balance() -> f64 { 10000.0 }
 fn default_currency() -> String { "USDT".to_string() }
@@ -202,7 +204,7 @@ fn default_monthly_gate_window() -> usize { 480 }
 fn default_vol_feature() -> String { "atr_norm_14".to_string() }
 fn default_interval() -> String { "1m".to_string() }
 fn default_fraction() -> f64 { 0.02 }
-fn default_max_leverage() -> f64 { 5.0 }
+fn default_max_leverage() -> f64 { 3.0 }
 fn default_max_drawdown() -> f64 { 0.30 }
 fn default_log_level() -> String { "info".to_string() }
 fn default_min_order_interval_ms() -> u64 { 200 }
