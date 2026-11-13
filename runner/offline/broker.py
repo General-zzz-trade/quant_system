@@ -31,6 +31,7 @@ class ReplayConfig:
     ttl_bars: int = 3
     daily_loss_pct: float = 5.0
     weekly_loss_pct: float = 10.0
+    entry_mode: str = "maker"   # maker: post-only limit with TTL; market: next open + slippage + taker fee
     deadzone: float = 1.0
     zscore_window: int = 180
     zscore_warmup: int = 45
@@ -49,6 +50,8 @@ class ReplayConfig:
             raise ValueError("participation/exposure must be in (0, 1]; leveraged liquidation is unsupported")
         if any(D(getattr(self, k)) >= 10000 for k in ("maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps")):
             raise ValueError("cost/offset bps must be below 10000")
+        if self.entry_mode not in ("maker", "market"):
+            raise ValueError("entry_mode must be maker or market")
         if self.ttl_bars < 1 or not 2 <= self.zscore_warmup <= self.zscore_window:
             raise ValueError("invalid expiry or zscore window")
         if not 0 < self.deadzone < 10 or not 1 <= self.min_hold <= self.max_hold:
@@ -144,6 +147,19 @@ class BarBroker:
                 qty = min(remaining, abs(self.position.qty))
                 price = bar.open * (1 + sign * D(self.config.slippage_bps) / 10000)
                 fee_bps = D(self.config.taker_bps)
+            elif self.config.entry_mode == "market":
+                qty = min(remaining, budget)
+                price = bar.open * (1 + sign * D(self.config.slippage_bps) / 10000)
+                fee_bps = D(self.config.taker_bps)
+                proposed = self.position.qty + sign * qty
+                worst_mark = bar.low if sign > 0 else bar.high
+                worst_equity = self.equity + self.position.qty * (worst_mark - bar.open)
+                worst_equity += sign * qty * (worst_mark - price) - qty * price * fee_bps / 10000
+                if qty > 0 and abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure):
+                    row["rejection"] = "fill exceeds exposure cap"
+                    self._finish(row, "rejected")
+                    continue
+                row["age"] += 1
             else:
                 limit = D(row["limit"])
                 if row["age"] == 0 and ((sign > 0 and limit >= bar.open) or (sign < 0 and limit <= bar.open)):
