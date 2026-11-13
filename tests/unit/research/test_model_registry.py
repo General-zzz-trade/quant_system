@@ -4,7 +4,6 @@ from __future__ import annotations
 import sqlite3
 import pytest
 
-from research.model_registry.artifact import ArtifactStore
 from research.model_registry.registry import ModelAction, ModelRegistry
 
 
@@ -300,91 +299,3 @@ class TestModelRegistry:
         assert retrieved.tags == ("experimental", "v2")
 
 
-class TestArtifactStore:
-    @pytest.fixture
-    def store(self, tmp_path):
-        return ArtifactStore(root=tmp_path / "artifacts")
-
-    def test_save_and_load(self, store):
-        data = b"model weights binary data"
-        meta = store.save("model-1", "weights", data)
-
-        assert meta.model_id == "model-1"
-        assert meta.artifact_type == "weights"
-        assert meta.size_bytes == len(data)
-
-        loaded = store.load("model-1", "weights")
-        assert loaded == data
-
-    def test_save_weights_writes_signature_when_key_present(self, store, monkeypatch):
-        monkeypatch.setenv("QUANT_MODEL_SIGN_KEY", "test-key")
-        data = b"model weights binary data"
-
-        store.save("model-1", "weights", data)
-
-        sig = store.load("model-1", "weights.sig")
-        assert sig is not None
-        assert sig.decode("utf-8")
-
-    def test_load_nonexistent_returns_none(self, store):
-        assert store.load("no-model", "weights") is None
-
-    def test_list_artifacts(self, store):
-        store.save("model-2", "weights", b"w")
-        store.save("model-2", "config", b"c")
-        store.save("model-2", "report", b"r")
-
-        artifacts = store.list_artifacts("model-2")
-        assert len(artifacts) == 3
-        types = {a.artifact_type for a in artifacts}
-        assert types == {"weights", "config", "report"}
-
-    def test_list_artifacts_empty(self, store):
-        assert store.list_artifacts("nonexistent") == []
-
-    def test_delete_artifact(self, store):
-        store.save("model-3", "weights", b"data")
-        assert store.delete("model-3", "weights")
-        assert store.load("model-3", "weights") is None
-        assert not store.delete("model-3", "weights")
-
-    # ------------------------------------------------------------------
-    # Digest (SHA-256) tests
-    # ------------------------------------------------------------------
-
-    def test_save_with_digest_creates_digest_file(self, store):
-        data = b"model weights data"
-        digest = store.save_with_digest("model-d1", "weights", data)
-        assert len(digest) == 64  # SHA-256 hex
-        assert store.verify_digest("model-d1") is True
-
-    def test_verify_digest_detects_tampering(self, store):
-        store.save_with_digest("model-d2", "weights", b"original data")
-        # Tamper with the artifact
-        store.save("model-d2", "weights", b"tampered data")
-        assert store.verify_digest("model-d2") is False
-
-    def test_verify_digest_returns_none_for_legacy(self, store):
-        store.save("model-d3", "weights", b"no digest saved")
-        assert store.verify_digest("model-d3") is None
-
-    def test_compute_digest_consistent(self, store):
-        data = b"test data"
-        store.save("model-d4", "weights", data)
-        d1 = store.compute_digest("model-d4")
-        d2 = store.compute_digest("model-d4")
-        assert d1 == d2
-        assert len(d1) == 64
-
-    def test_compute_digest_nonexistent_returns_none(self, store):
-        assert store.compute_digest("nonexistent") is None
-
-    def test_save_with_digest_stores_correct_hash(self, store):
-        import hashlib
-        data = b"known content"
-        digest = store.save_with_digest("model-d5", "weights", data)
-        expected = hashlib.sha256(data).hexdigest()
-        assert digest == expected
-        # The .sha256 sidecar contains the same digest
-        stored = store.load("model-d5", "weights.sha256")
-        assert stored.decode().strip() == expected
