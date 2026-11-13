@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,13 +20,20 @@ class Bar:
     close: Decimal
     volume: Decimal
     interval_ms: int = HOUR
+    # Optional kline microstructure fields (trades, taker volumes, quote volume).
+    # Excluded from equality; included in record() only when present so older
+    # dataset fingerprints stay stable.
+    extras: dict | None = field(default=None, compare=False)
 
     @property
     def available_at(self) -> int:
         return self.open_time + self.interval_ms
 
     def record(self) -> dict:
-        return {k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(self).items()}
+        out = {k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(self).items() if k != "extras"}
+        if self.extras:
+            out["extras"] = {k: str(v) for k, v in sorted(self.extras.items())}
+        return out
 
 
 def validate_bars(bars: list[Bar], interval_ms: int = HOUR) -> None:
@@ -48,11 +55,22 @@ def validate_bars(bars: list[Bar], interval_ms: int = HOUR) -> None:
         previous = bar.open_time
 
 
-def load_bars(path: Path, *, as_of_ms: int | None = None) -> list[Bar]:
-    """CSV timestamps are UTC epoch milliseconds. Never sort/fill broken input."""
+EXTRA_COLUMNS = ("quote_volume", "trades", "taker_buy_volume", "taker_buy_quote_volume")
+
+
+def load_bars(path: Path, *, as_of_ms: int | None = None, start_ms: int | None = None,
+              extras: bool = False) -> list[Bar]:
+    """CSV timestamps are UTC epoch milliseconds. Never sort/fill broken input.
+
+    ``extras=True`` also loads kline microstructure columns when the file has them.
+    """
     with path.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
-    bars = [Bar(int(r["open_time"]), *(Decimal(r[k]) for k in ("open", "high", "low", "close", "volume")))
+    if start_ms is not None:
+        rows = [r for r in rows if int(r["open_time"]) >= start_ms]
+    use_extras = extras and bool(rows) and all(c in rows[0] for c in EXTRA_COLUMNS)
+    bars = [Bar(int(r["open_time"]), *(Decimal(r[k]) for k in ("open", "high", "low", "close", "volume")),
+                extras={c: Decimal(r[c]) for c in EXTRA_COLUMNS} if use_extras else None)
             for r in rows]
     validate_bars(bars)
     if as_of_ms is not None and bars[-1].available_at > as_of_ms:
@@ -73,8 +91,11 @@ def aggregate_closed(bars: list[Bar], hours: int = 4) -> list[Bar]:
     for start, group in groups.items():
         if len(group) != hours or group[0].open_time != start:
             continue
+        extras = None
+        if all(b.extras for b in group):
+            extras = {k: sum((Decimal(b.extras[k]) for b in group), Decimal(0)) for k in group[0].extras}
         output.append(Bar(start, group[0].open, max(b.high for b in group), min(b.low for b in group),
-                          group[-1].close, sum((b.volume for b in group), Decimal(0)), interval))
+                          group[-1].close, sum((b.volume for b in group), Decimal(0)), interval, extras))
     return output
 
 

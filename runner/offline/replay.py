@@ -29,14 +29,15 @@ from .models import FrozenPredictor, compute_bar, validate_bundle
 
 
 class FeatureHook:
-    def __init__(self):
+    def __init__(self, symbol="BTCUSDT", context=None):
         self.computer = EnrichedFeatureComputer()
         self.features = {}
         self.bar = None
+        self.symbol, self.context = symbol, context
 
     def on_event(self, event):
         if event.event_type == EventType.MARKET:
-            self.features = compute_bar(self.computer, self.bar)
+            self.features = compute_bar(self.computer, self.bar, self.symbol, self.context)
         return self.features
 
 
@@ -86,8 +87,9 @@ class RecordingGate:
 
 class Baseline:
     """Single-position buy/hold or 50-bar trend, sharing broker/risk/cost rules."""
-    def __init__(self, broker, mode, start_ms):
+    def __init__(self, broker, mode, start_ms, symbol="BTCUSDT"):
         self.broker, self.mode, self.start_ms = broker, mode, start_ms
+        self.symbol = symbol
         self.closes = []
 
     def decide(self, snapshot):
@@ -99,28 +101,29 @@ class Baseline:
             1 if price > sum(self.closes[-50:]) / len(self.closes[-50:]) else -1)
         qty = self.broker.position.qty
         if qty * direction < 0:
-            return make_close_order("BTCUSDT", "baseline", float(price), 1 if qty > 0 else -1,
+            return make_close_order(self.symbol, "baseline", float(price), 1 if qty > 0 else -1,
                                     "baseline_flip", qty, D(self.broker.config.qty_step))
         if qty == 0:
             size = self.broker.round_qty(max(D(0), self.broker.equity) * D("0.9") *
                                          D(self.broker.config.max_exposure) / price)
             if size:
-                return make_open_order("BTCUSDT", "baseline", float(price), direction, size)
+                return make_open_order(self.symbol, "baseline", float(price), direction, size)
         return []
 
 
-def market_event(bar, interval):
+def market_event(bar, interval, symbol="BTCUSDT"):
     ts = datetime.fromtimestamp(bar.available_at / 1000, timezone.utc)
     header = EventHeader(f"offline-{interval}-{bar.open_time}", EventType.MARKET, 1,
                          bar.available_at * 1_000_000, "offline")
-    return MarketEvent(header=header, ts=ts, symbol="BTCUSDT", open=bar.open, high=bar.high,
+    return MarketEvent(header=header, ts=ts, symbol=symbol, open=bar.open, high=bar.high,
                        low=bar.low, close=bar.close, volume=bar.volume)
 
 
-def run_replay(bars, bundle, funding, *, start_ms, config=None, mode="strategy", stop_after=None, synthetic=False):
+def run_replay(bars, bundle, funding, *, start_ms, config=None, mode="strategy", stop_after=None, synthetic=False,
+               symbol="BTCUSDT", context=None):
     validate_bars(bars)
     config = config or ReplayConfig()
-    validate_bundle(bundle, start_ms)
+    validate_bundle(bundle, start_ms, symbol=symbol)
     if mode not in {"strategy", "buy_hold", "trend"}:
         raise ValueError("invalid replay mode")
     if not bars[0].open_time <= start_ms < bars[-1].available_at:
@@ -144,17 +147,17 @@ def run_replay(bars, bundle, funding, *, start_ms, config=None, mode="strategy",
                                  drawdown_guard=risk, venue="offline")
         gate = RecordingGate(gate, broker)
         for interval in ("4h", "1h"):
-            hooks[interval] = FeatureHook()
-            key = "BTCUSDT_4h" if interval == "4h" else "BTCUSDT"
-            module = AlphaDecisionModule(symbol="BTCUSDT", runner_key=key,
+            hooks[interval] = FeatureHook(symbol, context)
+            key = f"{symbol}_4h" if interval == "4h" else symbol
+            module = AlphaDecisionModule(symbol=symbol, runner_key=key,
                 predictor=FrozenPredictor(bundle["models"][interval]),
                 discretizer=SignalDiscretizer(RustInferenceBridge(config.zscore_window, config.zscore_warmup),
-                    symbol="BTCUSDT", deadzone=config.deadzone, min_hold=config.min_hold, max_hold=config.max_hold),
+                    symbol=symbol, deadzone=config.deadzone, min_hold=config.min_hold, max_hold=config.max_hold),
                 sizer=AdaptivePositionSizer(key, step_size=float(config.qty_step), min_size=float(config.qty_step)),
                 leverage=1.0, signal_only=interval == "4h", venue="offline", offline=True)
             module.set_consensus(consensus)
             modules[interval] = module
-            coord = EngineCoordinator(cfg=CoordinatorConfig(symbol_default="BTCUSDT", symbols=("BTCUSDT",),
+            coord = EngineCoordinator(cfg=CoordinatorConfig(symbol_default=symbol, symbols=(symbol,),
                 starting_balance=float(config.starting_balance), feature_hook=hooks[interval]))
             coords[interval] = coord
 
@@ -169,7 +172,7 @@ def run_replay(bars, bundle, funding, *, start_ms, config=None, mode="strategy",
 
             decision = SnapshotModule(module, broker, start_ms, end_ms)
             if interval == "1h" and mode != "strategy":
-                decision = Baseline(broker, mode, start_ms)
+                decision = Baseline(broker, mode, start_ms, symbol)
             coord.attach_decision_bridge(DecisionBridge(emit, [decision]))
             if interval == "1h":
                 def status(oid, state):
@@ -192,14 +195,14 @@ def run_replay(bars, bundle, funding, *, start_ms, config=None, mode="strategy",
                 # At a common close, publish the completed 4h signal before the 1h decision.
                 if bar.available_at in four:
                     hooks["4h"].bar = four[bar.available_at]
-                    coords["4h"].emit(market_event(four[bar.available_at], "4h"))
+                    coords["4h"].emit(market_event(four[bar.available_at], "4h", symbol))
                 hooks["1h"].bar = bar
-                coords["1h"].emit(market_event(bar, "1h"))
+                coords["1h"].emit(market_event(bar, "1h", symbol))
                 if bar.available_at > start_ms:
                     curve.append(broker.snapshot())
                 if mode == "strategy" and modules["1h"]._confirmed_position.qty != broker.position.qty:
                     raise RuntimeError("strategy/broker confirmed positions diverged")
-                engine_qty = D(coords["1h"]._store.get_position("BTCUSDT").qty) / D(100_000_000)
+                engine_qty = D(coords["1h"]._store.get_position(symbol).qty) / D(100_000_000)
                 if abs(engine_qty - broker.position.qty) > D("0.00000001"):
                     raise RuntimeError("engine/broker confirmed positions diverged")
         finally:
