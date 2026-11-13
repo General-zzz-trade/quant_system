@@ -1,43 +1,25 @@
-# 已知的原有测试失败（2026-11-13 基线 ca44fb1 上同样失败）
+# 已知测试失败：无（2026-11-13 清理后）
 
-`make test`（核心门禁，与 CI 相同）应全部通过。`make test-all` 运行全量套件，下列用例在改动前的基线提交上就已失败，
-原因多为测试引用已重构/删除的旧代码路径（旧 AlphaRunner、旧调度器、仓库外脚本）。它们不覆盖币安运行时。
-修复或删除这些用例前，不要把它们当作新回归。
+`make test`（核心门禁）和 `make test-all`（全量套件）都应全部通过。出现任何失败都按回归处理，不要再往本文件里登记"已知失败"。
 
-- `tests/integration/engine_state/test_event_to_state_flow.py::test_market_events_advance_state`
-- `tests/integration/engine_state/test_event_to_state_flow.py::test_multi_symbol_state_isolation`
-- `tests/integration/test_convergence_parity.py::TestAdaptiveStopParity::test_gate_exists_and_is_callable`
-- `tests/integration/test_convergence_parity.py::TestAdaptiveStopParity::test_new_position_long`
-- `tests/integration/test_convergence_parity.py::TestAdaptiveStopParity::test_stop_triggers_on_large_drop`
-- `tests/integration/test_convergence_parity.py::TestConsensusScaleParity::test_consensus_scale_matches_alpha_runner`
-- `tests/integration/test_convergence_parity.py::TestConsensusScaleParity::test_self_key_excluded`
-- `tests/integration/test_convergence_parity.py::TestConsensusScaleParity::test_short_side_contrarian`
-- `tests/integration/test_convergence_parity.py::TestEquityLeverageParity::test_bracket_boundary_at_zero`
-- `tests/integration/test_convergence_parity.py::TestEquityLeverageParity::test_leverage_brackets_match_alpha_runner`
-- `tests/integration/test_convergence_parity.py::TestZScaleParity::test_negative_z_mirrors_positive`
-- `tests/integration/test_convergence_parity.py::TestZScaleParity::test_z_scale_thresholds_match`
-- `tests/integration/test_dominance_rust_parity.py::TestDominanceRustParity::test_push_dominance_independent_from_push_bar`
-- `tests/integration/test_live_flow_e2e.py::test_non_triggering_market_no_orders`
+## 2026-11-13 清理记录
+
+此前全量套件有 35 个失败和 1 个收集错误，处理方式如下。
+
+**删除（被测代码已不在仓库中）：**
+- `tests/integration/test_convergence_parity.py` 中的 `TestEquityLeverageParity`、`TestZScaleParity`、`TestConsensusScaleParity`、`TestAdaptiveStopParity`：导入已删除的 `strategy.gates`。
+- `tests/regression/test_known_bug_cases.py` 中 7 个函数：导入已删除的 `alpha.inference.bridge`、`execution.adapters.onchain_poller`、`shared.signal_postprocess`，或读取不存在的 `scripts/train_v7_alpha.py`。
+- `tests/unit/scripts/test_train_v7.py` 中的 `TestSplitMetrics`、`TestV7InteractionFeatures`、`TestV7WalkForward`：导入不存在的 `scripts.train_v7_alpha`。
+- `tests/unit/test_rust_parity_v2.py::TestRustFillDedupGuard::test_parity_with_python`：对照的 Python 实现 `execution.safety.duplicate_guard` 已删除。该类其余 8 个测试保留。
+- `tests/unit/test_scheduler_compat.py`（整个文件）：被测的 `data.scheduler.data_scheduler`、`freshness_monitor` 不存在。注意 `data/scheduler/__init__.py` 仍导入这两个模块，整个包无法导入；仓库内没有任何代码导入它，是否删除待定。
+
+**修正测试（测试过时，不是代码缺陷）：** 状态快照的 `.close`、`.last_price` 是 Fd8 定点整数（价格 × 1e8），浮点价格在 `close_f`、`last_price_f`。下列测试按旧接口把 `.close` 当价格用，改为读 `*_f`：
+- `tests/integration/engine_state/test_event_to_state_flow.py`（2 个）
 - `tests/integration/test_runtime_contracts.py::TestReplayPathContract::test_replay_preserves_event_semantics`
-- `tests/regression/test_known_bug_cases.py::test_bridge_enrich_deterministic`
-- `tests/regression/test_known_bug_cases.py::test_bridge_warmup_optimistic`
-- `tests/regression/test_known_bug_cases.py::test_checkpoint_restore_preserves_state`
-- `tests/regression/test_known_bug_cases.py::test_dd_breaker_sign_convention`
-- `tests/regression/test_known_bug_cases.py::test_monthly_gate_hourly_resolution`
-- `tests/regression/test_known_bug_cases.py::test_poller_age_seconds`
-- `tests/regression/test_known_bug_cases.py::test_pred_to_signal_canonical_import`
-- `tests/replay/test_replay_causal_chain.py::test_replay_produces_orders`
-- `tests/replay/test_replay_vs_live_equivalence.py::test_replay_vs_live_state_equivalence`
-- `tests/unit/scripts/test_train_v7.py::TestSplitMetrics::test_basic_split_metrics`
-- `tests/unit/scripts/test_train_v7.py::TestSplitMetrics::test_split_metrics_binary_mode`
-- `tests/unit/scripts/test_train_v7.py::TestSplitMetrics::test_split_metrics_small_sample`
-- `tests/unit/scripts/test_train_v7.py::TestV7InteractionFeatures::test_interaction_feature_list`
-- `tests/unit/scripts/test_train_v7.py::TestV7InteractionFeatures::test_v6_interactions_preserved`
-- `tests/unit/scripts/test_train_v7.py::TestV7WalkForward::test_expanding_folds`
-- `tests/unit/scripts/test_train_v7.py::TestV7WalkForward::test_small_data_rejected`
-- `tests/unit/test_rust_parity_v2.py::TestRustFillDedupGuard::test_parity_with_python`
-- `tests/unit/test_scheduler_compat.py::test_data_scheduler_builds_expected_job_set`
-- `tests/unit/test_scheduler_compat.py::test_data_scheduler_start_stop_is_idempotent`
-- `tests/unit/test_scheduler_compat.py::test_freshness_monitor_start_stop_is_idempotent`
+- `tests/replay/test_replay_vs_live_equivalence.py`
+- `tests/integration/test_live_flow_e2e.py` 中的模拟决策模块（原来拿约 4×10¹² 的整数和 40100 比较，所以每根 K 线都下单）
+- `tests/replay/test_replay_causal_chain.py` 中的模拟决策模块（原因同上，第 0 根就买入，之后从不卖出）
 
-另有 `tests/offline/test_execution_recovery.py` 在 pytest 的 importlib 模式下无法导入同目录模块；它由 `python scripts/check_local_safety.py`（unittest）运行并通过。
+另外，`tests/integration/test_dominance_rust_parity.py` 原本比较全部特征，包括按设计就不同的 dominance 特征（无 dominance 输入时为 None）。现在只比较非 dominance 特征，这才是测试声明的意图。
+
+**收集错误：** `tests/offline/test_execution_recovery.py` 在 pytest 的 importlib 模式下导入不到同目录的 `test_execution_safety`。现在导入前把本目录加入 `sys.path`，pytest 和 `scripts/check_local_safety.py`（unittest）下都能运行。

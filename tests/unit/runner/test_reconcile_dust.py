@@ -35,7 +35,6 @@ class TestDustNotionalUsesMarketPrice:
 
     def test_real_position_not_classified_as_dust(self):
         """0.086 BTC at ~$66k should NOT be dust ($5,700 >> $100 threshold)."""
-        am = _make_module(signal=0, entry_price=0.0)
         exchange_qty = 0.086
         market_price = 66800.0
 

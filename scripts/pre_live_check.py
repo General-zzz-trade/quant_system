@@ -8,6 +8,7 @@ Supports: Bybit, OKX (auto-detected from environment).
 """
 
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -119,7 +120,6 @@ except ImportError as e:
 
 # ── 6. Connectivity (with timeout) ───────────────────────────────────
 print("\n[Connectivity]")
-import signal
 
 def _timeout_handler(signum, frame):
     raise TimeoutError("connectivity check timed out")

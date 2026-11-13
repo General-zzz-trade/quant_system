@@ -25,7 +25,7 @@ test-py:  ## Python core tests (matches CI 'Run core unit tests')
 test-exec:  ## Execution subsystem tests (adapters, durable execution, Binance runtime)
 	python3 -m pytest tests/unit/execution/ tests/unit/binance/ -x -q --tb=short
 
-test-all:  ## Entire suite; pre-existing legacy failures are listed in docs/known_test_failures.md
+test-all:  ## Entire suite; must pass (see docs/known_test_failures.md for the 2026-11-13 cleanup)
 	python3 -m pytest tests/ -q --tb=line --ignore=tests/performance
 
 test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)

@@ -15,7 +15,13 @@ from types import SimpleNamespace as NS
 from shared.confirmed_execution import ConfirmedExecutor
 from shared.execution_journal import ExecutionJournal
 from shared.strategy_position import StrategyPosition
-from test_execution_safety import Exchange, fill
+
+# The sibling helper module is importable by name under unittest discovery
+# (scripts/check_local_safety.py) but not under pytest's importlib mode.
+_HERE = str(Path(__file__).resolve().parent)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from test_execution_safety import Exchange, fill  # noqa: E402
 
 
 class RecoveryTests(unittest.TestCase):

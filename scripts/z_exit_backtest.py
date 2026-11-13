@@ -33,16 +33,20 @@ sys.path.insert(0, "/quant_system")
 
 from scripts.max_hold_backtest import (  # noqa: E402
     BARS_PER_DAY, COST_BPS, DZ, MIN_HOLD, MAX_HOLD_BASE, NOTIONAL,
-    TRAIN_DAYS, TEST_DAYS, _atr, _build_features, _vol_factor,
-    _walk_forward_predict,
+    TRAIN_DAYS, TEST_DAYS, _atr, _build_features, _walk_forward_predict,
 )
 
 
 @dataclass
 class Trade:
-    entry_bar: int; exit_bar: int; direction: int
-    entry_price: float; exit_price: float
-    z_entry: float; bars_held: int; net_pnl: float
+    entry_bar: int
+    exit_bar: int
+    direction: int
+    entry_price: float
+    exit_price: float
+    z_entry: float
+    bars_held: int
+    net_pnl: float
     exit_reason: str
 
 
@@ -93,12 +97,15 @@ def _backtest(strategy, preds, closes, atr_pct, dz, min_hold, max_hold):
             exit_now = False
             reason = ""
             if held >= max_hold:
-                exit_now = True; reason = "max_hold"
+                exit_now = True
+                reason = "max_hold"
             elif held >= min_hold:
                 if pos * z[i] < reversal_th:
-                    exit_now = True; reason = "z_reversal"
+                    exit_now = True
+                    reason = "z_reversal"
                 elif abs(z[i]) < decay_th:
-                    exit_now = True; reason = "z_decay"
+                    exit_now = True
+                    reason = "z_decay"
             if exit_now:
                 pnl_pct = pos * (closes[i] - ep) / ep
                 gross = pnl_pct * NOTIONAL
@@ -109,11 +116,15 @@ def _backtest(strategy, preds, closes, atr_pct, dz, min_hold, max_hold):
 
         if pos == 0 and not np.isnan(z[i]):
             if z[i] > dz:
-                pos = 1; ep = closes[i]; eb = i
+                pos = 1
+                ep = closes[i]
+                eb = i
                 z_entry = z[i]
                 atr_entry = atr_pct[i] if i < len(atr_pct) else 0.01
             elif z[i] < -dz:
-                pos = -1; ep = closes[i]; eb = i
+                pos = -1
+                ep = closes[i]
+                eb = i
                 z_entry = z[i]
                 atr_entry = atr_pct[i] if i < len(atr_pct) else 0.01
 
@@ -122,7 +133,8 @@ def _backtest(strategy, preds, closes, atr_pct, dz, min_hold, max_hold):
 
 def _summarize(trades, label):
     if not trades:
-        print(f"  [{label:18s}] no trades"); return None
+        print(f"  [{label:18s}] no trades")
+        return None
     nets = np.array([t.net_pnl for t in trades])
     holds = np.array([t.bars_held for t in trades])
     wins = sum(1 for t in trades if t.net_pnl > 0)
@@ -165,8 +177,10 @@ def run_symbol(symbol):
     n_total = len(closes)
     oos_bars = min(BARS_PER_DAY * 540, n_total - BARS_PER_DAY * TRAIN_DAYS)
     start_idx = max(0, n_total - oos_bars - BARS_PER_DAY * TRAIN_DAYS)
-    closes = closes[start_idx:]; highs = highs[start_idx:]
-    lows = lows[start_idx:]; vols = vols[start_idx:]
+    closes = closes[start_idx:]
+    highs = highs[start_idx:]
+    lows = lows[start_idx:]
+    vols = vols[start_idx:]
 
     print(f"\n{symbol} 1h backtest (z_exit policy sweep)")
     print(f"  Bars: {len(closes):,}")
@@ -177,8 +191,10 @@ def run_symbol(symbol):
                                   test_bars=BARS_PER_DAY * TEST_DAYS)
 
     valid = ~np.isnan(preds)
-    closes_oos = closes[valid]; preds_oos = preds[valid]
-    highs_oos = highs[valid]; lows_oos = lows[valid]
+    closes_oos = closes[valid]
+    preds_oos = preds[valid]
+    highs_oos = highs[valid]
+    lows_oos = lows[valid]
     atr_pct = _atr(highs_oos, lows_oos, closes_oos)
 
     print(f"  Valid preds: {valid.sum():,}\n")

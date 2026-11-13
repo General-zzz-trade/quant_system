@@ -50,7 +50,7 @@ class ThresholdDecisionModule:
         if mkt is None:
             return []
 
-        close = Decimal(str(getattr(mkt, "close", 0)))
+        close = Decimal(str(getattr(mkt, "close_f", 0)))  # .close is the raw Fd8 integer
         events = []
 
         if close > self._buy_threshold and self._position == 0:

@@ -1,5 +1,4 @@
 """Test that signal_only=True suppresses OrderEvents while preserving others."""
-import pytest
 from unittest.mock import MagicMock
 from decimal import Decimal
 

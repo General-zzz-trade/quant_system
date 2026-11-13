@@ -209,12 +209,15 @@ def _backtest(strategy, preds, closes, vf, atr_pct, dz, min_hold, base_max):
             exit_now = False
             reason = ""
             if held >= mh:
-                exit_now = True; reason = "max_hold"
+                exit_now = True
+                reason = "max_hold"
             elif held >= min_hold:
                 if pos * z[i] < -0.3:
-                    exit_now = True; reason = "z_reversal"
+                    exit_now = True
+                    reason = "z_reversal"
                 elif abs(z[i]) < 0.2:
-                    exit_now = True; reason = "z_decay"
+                    exit_now = True
+                    reason = "z_decay"
             if exit_now:
                 pnl_pct = pos * (closes[i] - ep) / ep
                 gross = pnl_pct * NOTIONAL
@@ -225,11 +228,15 @@ def _backtest(strategy, preds, closes, vf, atr_pct, dz, min_hold, base_max):
 
         if pos == 0 and not np.isnan(z[i]):
             if z[i] > dz:
-                pos = 1; ep = closes[i]; eb = i
+                pos = 1
+                ep = closes[i]
+                eb = i
                 z_entry = z[i]
                 atr_entry = atr_pct[i] if i < len(atr_pct) else 0.01
             elif z[i] < -dz:
-                pos = -1; ep = closes[i]; eb = i
+                pos = -1
+                ep = closes[i]
+                eb = i
                 z_entry = z[i]
                 atr_entry = atr_pct[i] if i < len(atr_pct) else 0.01
 
@@ -238,7 +245,8 @@ def _backtest(strategy, preds, closes, vf, atr_pct, dz, min_hold, base_max):
 
 def _summarize(trades, label):
     if not trades:
-        print(f"  [{label:14s}] no trades"); return None
+        print(f"  [{label:14s}] no trades")
+        return None
     nets = np.array([t.net_pnl for t in trades])
     holds = np.array([t.bars_held for t in trades])
     wins = sum(1 for t in trades if t.net_pnl > 0)

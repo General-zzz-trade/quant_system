@@ -114,8 +114,11 @@ class TestDominanceRustParity:
         feats_with = engine_with_dom.get_features()
         feats_without = engine_without_dom.get_features()
 
-        # All standard features should be identical
+        # All standard features should be identical. Dominance outputs differ
+        # by design (None without dominance input), so they are not compared.
         for name, val_without in feats_without.items():
+            if name.startswith(("btc_dom", "dom_vs")):
+                continue
             val_with = feats_with.get(name)
             if val_without is None and val_with is None:
                 continue

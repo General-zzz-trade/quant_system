@@ -28,7 +28,7 @@ class MockDecisionModule:
         # Deduplicate: one order per bar
         if snapshot.bar_index in self._ordered_bars:
             return []
-        close = snapshot.markets[snapshot.symbol].close
+        close = snapshot.markets[snapshot.symbol].close_f  # .close is the raw Fd8 integer
         if close > 40100:
             self._ordered_bars.add(snapshot.bar_index)
             return [SimpleNamespace(

@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -234,7 +233,8 @@ def reconcile() -> dict[str, Any]:
                 })
 
     # ── Check 3: position sign mismatch ──
-    bin_pos = report["positions"]["binance"].get("positions", {}) if "error" not in report["positions"]["binance"] else {}
+    binance_report = report["positions"]["binance"]
+    bin_pos = binance_report.get("positions", {}) if "error" not in binance_report else {}
     okx_pos = report["positions"]["okx"].get("positions", {}) if "error" not in report["positions"]["okx"] else {}
     for sym in set(bin_pos) & set(okx_pos):
         q_bin = bin_pos[sym]["qty"]

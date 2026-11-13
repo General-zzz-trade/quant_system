@@ -164,8 +164,8 @@ def test_replay_vs_live_state_equivalence() -> None:
     replay = _run_replay(events)
 
     assert live["view"]["event_index"] == replay["view"]["event_index"] == 2
-    assert live["view"]["market"].close == replay["view"]["market"].close == Decimal("101")
-    assert live["view"]["market"].last_price == replay["view"]["market"].last_price == Decimal("101")
+    assert live["view"]["market"].close_f == replay["view"]["market"].close_f == 101.0
+    assert live["view"]["market"].last_price_f == replay["view"]["market"].last_price_f == 101.0
 
 
 def test_replay_vs_live_order_equivalence() -> None:
