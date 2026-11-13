@@ -41,6 +41,16 @@ CANDIDATES = {
 }
 MIN_VALIDATION_FILLS = 20
 WARMUP_BARS = 3000  # replay warmup before each evaluation window (features, z-score, regimes)
+HOURS_PER_YEAR = 365 * 24
+
+# Predeclared 2026-11-13 (research/protocols/2026-11-13-overlay-and-ml-recheck.md), before any
+# validation-only run on real data. The chosen candidate is the best of the grid ON the validation
+# window, so these thresholds are deliberately strict; passing only earns a forward paper test.
+VALIDATION_GATE = {
+    "validation_sharpe_min_exclusive": 0.5,          # daily Sharpe of the chosen candidate, costs x1
+    "validation_cost_x2_sharpe_min_exclusive": 0.0,  # same candidate, maker/taker/slippage doubled
+    "validation_fills_per_year_max": 150,
+}
 
 
 def hold_for(horizon: int) -> tuple[int, int]:
@@ -90,7 +100,33 @@ def select_alpha(bars, train_end, val_end, *, symbol, context, feature_set, hori
     return best, scores
 
 
-def run_research(bars, funding, out, *, symbol, context=None, config=None, synthetic=False):
+def _stress(config):
+    return replace(config, maker_bps=str(Decimal(config.maker_bps) * 2),
+                   taker_bps=str(Decimal(config.taker_bps) * 2),
+                   slippage_bps=str(Decimal(config.slippage_bps) * 2))
+
+
+def passes_validation_gate(chosen, stress_metrics, validation_years) -> tuple[bool, list[str]]:
+    """Predeclared go/no-go for a validation-only re-evaluation (see ``VALIDATION_GATE``)."""
+    if chosen is None:
+        return False, ["no validation candidate met the eligibility rule"]
+    reasons = []
+    sharpe = chosen["validation_sharpe_daily"]
+    if not (math.isfinite(sharpe) and sharpe > VALIDATION_GATE["validation_sharpe_min_exclusive"]):
+        reasons.append(f"validation daily Sharpe {sharpe} <= {VALIDATION_GATE['validation_sharpe_min_exclusive']}")
+    stress = _sharpe(stress_metrics) if stress_metrics else float("nan")
+    if not (math.isfinite(stress) and stress > VALIDATION_GATE["validation_cost_x2_sharpe_min_exclusive"]):
+        reasons.append(f"validation Sharpe under 2x costs {stress} <= "
+                       f"{VALIDATION_GATE['validation_cost_x2_sharpe_min_exclusive']}")
+    per_year = chosen["fills"] / validation_years
+    if per_year > VALIDATION_GATE["validation_fills_per_year_max"]:
+        reasons.append(f"{per_year:.0f} fills per year > {VALIDATION_GATE['validation_fills_per_year_max']}")
+    return not reasons, reasons
+
+
+def run_research(bars, funding, out, *, symbol, context=None, config=None, synthetic=False,
+                 validation_only=False):
+    """``validation_only`` stops after candidate selection: no final model, no final-test replay."""
     config = config or ReplayConfig()
     out = Path(out)
     if out.exists() and any(out.iterdir()):
@@ -100,7 +136,7 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
         raise ValueError("need at least 5000 hourly bars for candidate selection")
     train_end, val_end = int(n * 0.6), int(n * 0.8)
     cutoff = bars[train_end].open_time
-    candidates, selections = [], []
+    candidates, selections, bundles = [], [], {}
     for feature_set in CANDIDATES["feature_set"]:
         if feature_set == "derivatives" and context is None:
             continue
@@ -110,6 +146,7 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
                                                    feature_set=feature_set, horizon=horizon)
                 spec = normalize_spec({"feature_set": feature_set, "horizon": horizon, "alpha": alpha})
                 bundle = train_bundle(bars[:train_end], cutoff, symbol=symbol, context=context, spec=spec)
+                bundles[(feature_set, horizon)] = bundle
             except ValueError as exc:
                 selections.append({"feature_set": feature_set, "horizon": horizon, "error": str(exc)})
                 continue
@@ -149,6 +186,10 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
     }
     summary = {"symbol": symbol, "synthetic": synthetic, "profitability_verified": False, "stages": {},
                "chosen": chosen}
+    if validation_only:
+        return _finish_validation_only(bars, funding, out, protocol, summary, bundles, chosen, config,
+                                       train_end=train_end, val_end=val_end, symbol=symbol, context=context,
+                                       synthetic=synthetic)
     if chosen is None:
         protocol["outcome"] = "NO_CANDIDATE: no validation candidate met the eligibility rule; final test not run"
         write_json(out / "protocol.json", protocol)
@@ -176,6 +217,40 @@ def run_research(bars, funding, out, *, symbol, context=None, config=None, synth
         summary["stages"][name] = {**m, "sharpe_daily": _sharpe(m)}
     write_json(out / "summary.json", summary)
     _report(out, protocol, summary)
+    return summary
+
+
+def _finish_validation_only(bars, funding, out, protocol, summary, bundles, chosen, config, *, train_end, val_end,
+                            symbol, context, synthetic):
+    """Validation-window stress test of the chosen candidate and the predeclared gate; nothing later."""
+    stress = None
+    if chosen is not None:
+        spec = chosen["spec"]
+        cfg = replace(config, deadzone=chosen["deadzone"], min_hold=chosen["min_hold"], max_hold=chosen["max_hold"])
+        window, start_ms = _window(bars, train_end, val_end)
+        stress = metrics(run_replay(window, bundles[(spec["feature_set"], spec["horizon"])], funding,
+                                    start_ms=start_ms, config=_stress(cfg), synthetic=synthetic, symbol=symbol,
+                                    context=context))
+    validation_years = (val_end - train_end) / HOURS_PER_YEAR
+    ok, reasons = passes_validation_gate(chosen, stress, validation_years)
+    protocol.update(mode="validation_only", final_test_views=0, validation_gate=VALIDATION_GATE,
+                    validation_gate_result={"passed": ok, "reasons": reasons,
+                                            "chosen_cost_x2": None if stress is None else {
+                                                "validation_sharpe_daily": stress.get("daily_sharpe"),
+                                                "net_return_pct": stress["net_return_pct"],
+                                                "fills": stress["fills"]}},
+                    outcome=("PASSED validation gate: next test is forward paper" if ok else
+                             "FAILED validation gate: " + "; ".join(reasons)))
+    protocol.pop("final_model_sha256", None)
+    summary.update(mode="validation_only", validation_gate={"passed": ok, "reasons": reasons})
+    write_json(out / "protocol.json", protocol)
+    write_json(out / "summary.json", summary)
+    write_json(out / "gate.json", {"kind": "validation_only", "passed": ok, "reasons": reasons})
+    lines = [f"# {summary['symbol']} 仅验证集重评（不运行最终测试）", "",
+             f"候选数：{protocol['candidate_count']}；验证门槛：通过" if ok else
+             f"候选数：{protocol['candidate_count']}；验证门槛：未通过", ""]
+    lines += [f"- {r}" for r in reasons]
+    (Path(out) / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return summary
 
 
@@ -229,4 +304,5 @@ def _report(out, protocol, summary):
                                                     indent=2) + "\n", encoding="utf-8")
 
 
-__all__ = ["CANDIDATES", "run_research", "passes_gate", "hold_for", "aggregate_closed", "FEATURE_SETS"]
+__all__ = ["CANDIDATES", "VALIDATION_GATE", "run_research", "passes_gate", "passes_validation_gate", "hold_for",
+           "aggregate_closed", "FEATURE_SETS"]

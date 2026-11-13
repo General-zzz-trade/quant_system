@@ -34,6 +34,8 @@ def main(argv=None):
                           help="data.downloads.binance_public output (<SYM>_1h.csv, _funding.csv, _metrics.csv)")
     research.add_argument("--symbol", required=True)
     research.add_argument("--start", help="First bar date (UTC, YYYY-MM-DD); default: first metrics day")
+    research.add_argument("--validation-only", action="store_true",
+                          help="Stop after candidate selection: no final model and no final-test replay")
     for name in ("demo", "study", "replay"):
         p = sub.add_parser(name)
         p.add_argument("--out", required=True, type=Path)
@@ -70,7 +72,8 @@ def main(argv=None):
             bars = load_bars(args.data_dir / f"{args.symbol}_1h.csv", start_ms=start_ms, extras=True,
                              as_of_ms=int(datetime.now(timezone.utc).timestamp() * 1000))
             funding = load_funding(args.data_dir / f"{args.symbol}_funding.csv")
-            summary = run_research(bars, funding, args.out, symbol=args.symbol, context=context, config=config)
+            summary = run_research(bars, funding, args.out, symbol=args.symbol, context=context, config=config,
+                                   validation_only=args.validation_only)
             print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
             return
         if args.command == "demo":

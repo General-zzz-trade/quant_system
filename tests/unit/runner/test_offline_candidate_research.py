@@ -92,3 +92,45 @@ def test_gate_requires_every_condition():
     summary["stages"]["final_test_cost_x2"]["net_return_pct"] = -1.0
     ok, reasons = research.passes_gate(summary)
     assert not ok and any("2x costs" in r for r in reasons)
+
+
+def test_validation_only_never_reads_past_the_validation_window(tmp_path, monkeypatch):
+    from dataclasses import replace
+    monkeypatch.setattr(research, "CANDIDATES", {"feature_set": ("ohlcv",), "horizon": (1,),
+                                                "alpha": (1.0,), "deadzone": (1.0,)})
+    monkeypatch.setattr(research, "MIN_VALIDATION_FILLS", 1)
+    monkeypatch.setattr(research, "WARMUP_BARS", 600)
+    bars = synthetic_bars(5200)
+    val_end = int(len(bars) * 0.8)
+    changed = [replace(b, open=b.open * 2, high=b.high * 2, low=b.low * 2, close=b.close * 2)
+               if i >= val_end else b for i, b in enumerate(bars)]
+    outputs = []
+    for name, series in (("clean", bars), ("changed", changed)):
+        out = tmp_path / name
+        summary = research.run_research(series, synthetic_funding(series), out, symbol="BTCUSDT",
+                                        synthetic=True, validation_only=True)
+        protocol = json.loads((out / "protocol.json").read_text())
+        assert protocol["mode"] == "validation_only" and protocol["final_test_views"] == 0
+        assert "final_model_sha256" not in protocol and not (out / "model.json").exists()
+        assert not summary["stages"] and not list(out.glob("final_test*"))
+        gate = json.loads((out / "gate.json").read_text())
+        assert gate["kind"] == "validation_only" and gate["passed"] == summary["validation_gate"]["passed"]
+        outputs.append((protocol["validation_candidates"], protocol["validation_gate_result"], summary["chosen"]))
+    # Every bar after the validation window was doubled; nothing in the result changed.
+    assert outputs[0] == outputs[1]
+
+
+def test_validation_gate_requires_every_condition():
+    chosen = {"validation_sharpe_daily": 0.8, "fills": 100}
+    stress = {"daily_sharpe": 0.3}
+    assert research.passes_validation_gate(chosen, stress, 1.0) == (True, [])
+    for bad_chosen, bad_stress, years, text in [({**chosen, "validation_sharpe_daily": 0.5}, stress, 1.0, "Sharpe"),
+                                                (chosen, {"daily_sharpe": 0.0}, 1.0, "2x costs"),
+                                                (chosen, {"daily_sharpe": None}, 1.0, "2x costs"),
+                                                ({**chosen, "fills": 151}, stress, 1.0, "fills per year")]:
+        ok, reasons = research.passes_validation_gate(bad_chosen, bad_stress, years)
+        assert not ok and len(reasons) == 1 and text in reasons[0]
+    assert research.passes_validation_gate(None, None, 1.0)[0] is False
+    assert research.VALIDATION_GATE == {"validation_sharpe_min_exclusive": 0.5,
+                                        "validation_cost_x2_sharpe_min_exclusive": 0.0,
+                                        "validation_fills_per_year_max": 150}
