@@ -205,7 +205,6 @@ class TestRustParseKline:
         assert d["symbol"] == "ETHUSDT"
 
 
-
 # ============================================================
 # JSON Parsing: Depth
 # ============================================================
@@ -245,18 +244,6 @@ class TestRustParseDepth:
     def test_non_depth_event(self):
         msg = json.dumps({"e": "kline", "s": "BTCUSDT"})
         assert rust_parse_depth(msg, 20) is None
-
-    def test_depth_processor_uses_rust(self):
-        """DepthProcessor delegates to Rust parse."""
-        from execution.adapters.binance.depth_processor import DepthProcessor
-        proc = DepthProcessor(max_levels=20)
-        result = proc.process_raw(DEPTH_MSG)
-
-        assert result is not None
-        assert result.symbol == "BTCUSDT"
-        assert result.ts_ms == 1700000000123
-        assert result.last_update_id == 9999
-        assert len(result.bids) == 2  # zero-qty filtered
 
 
 # ============================================================

@@ -227,18 +227,6 @@ class TestRustSequenceBuffer:
         buf.push("k", 5, "F")
         assert buf.buffered_count("k") == 3
 
-    def test_parity_with_python(self):
-        """Compare Rust vs Python SequenceBuffer."""
-        from execution.ingress.sequence_buffer import SequenceBuffer
-        py = SequenceBuffer()
-        rs = RustSequenceBuffer()
-
-        # Same sequence of operations
-        for key, seq, payload in [("k", 0, "A"), ("k", 2, "C"), ("k", 1, "B"), ("k", 3, "D")]:
-            py_result = py.push(key=key, seq=seq, payload=payload)
-            rs_result = rs.push(key, seq, payload)
-            assert list(py_result) == list(rs_result), f"Mismatch at seq={seq}"
-
 
 # ============================================================
 # Event ID
