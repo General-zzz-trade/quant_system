@@ -163,3 +163,28 @@ def test_mainnet_execution_requires_passed_gate(world, monkeypatch):
         binance_main.BinanceRuntime(symbols=["BTCUSDT"], models_dir=world["models"], state_dir=world["tmp"] / "m",
                                     mode="execution", market=adapter, account=adapter, data_dir=world["data_dir"],
                                     clock=lambda: world["clock"]["now"], testnet=False)
+
+
+def test_compare_script_confirms_paper_equals_replay(world, monkeypatch):
+    import sys
+    from scripts import compare_paper_replay
+
+    monkeypatch.setattr(compare_paper_replay, "WARMUP_BARS", WARMUP)
+    state = world["tmp"] / "paper2"
+    runtime = binance_main.BinanceRuntime(
+        symbols=["BTCUSDT"], models_dir=world["models"], state_dir=state, mode="paper",
+        market=_adapter(world["fake"]), data_dir=world["data_dir"], clock=lambda: world["clock"]["now"])
+    runtime.warmup()
+    for i in range(WARMUP, WARMUP + LIVE):
+        _advance(world, runtime, i)
+    with (world["data_dir"] / "BTCUSDT_1h.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["open_time", "open", "high", "low", "close", "volume", "quote_volume", "trades",
+                    "taker_buy_volume", "taker_buy_quote_volume"])
+        for r in world["rows"]:
+            w.writerow([r["start"], r["open"], r["high"], r["low"], r["close"], r["volume"], r["quote_volume"],
+                        r["trades"], r["taker_buy_volume"], r["taker_buy_quote_volume"]])
+    monkeypatch.setattr(sys, "argv", ["x", "--events", str(state / "binance_events.jsonl"),
+                                      "--models-dir", str(world["models"]), "--data-dir", str(world["data_dir"]),
+                                      "--symbol", "BTCUSDT"])
+    assert compare_paper_replay.main() == 0

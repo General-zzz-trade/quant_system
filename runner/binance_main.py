@@ -167,6 +167,7 @@ class SymbolSession:
         self.cursor: int | None = None      # open time of the last processed 1h bar
         self.recent: list = []               # last closed 1h bars for 4h aggregation
         self.exit_retry: dict | None = None
+        self._paper_fills_logged = 0
         self.consensus: dict = {}
         self.hooks, self.modules, self.coords = {}, {}, {}
         equity_fn = (lambda: self.broker.equity) if mode == "paper" else equity.current
@@ -295,6 +296,14 @@ class SymbolSession:
         self.hooks["1h"].bar = bar
         self.coords["1h"].emit(market_event(bar, "1h", self.symbol), actor="live" if live else "warmup")
         self.cursor = bar.open_time
+        if live and self.broker is not None:
+            # Persist virtual fills/equity so a paper run can be compared with an
+            # offline replay of the same period (scripts/compare_paper_replay.py).
+            for fill in self.broker.fills[self._paper_fills_logged:]:
+                self.journal.write("paper_fill", symbol=self.symbol, **fill)
+            self._paper_fills_logged = len(self.broker.fills)
+            self.journal.write("paper_equity", symbol=self.symbol, bar_open=bar.open_time,
+                               equity=str(self.broker.equity), qty=str(self.broker.position.qty))
 
     # -- actions ------------------------------------------------------------
     def close_position(self, reason: str) -> bool:
