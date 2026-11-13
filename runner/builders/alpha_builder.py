@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_BASE = Path("models_v8")
 DATA_DIR = Path("data_files")
+_DAY_MS = 86_400_000
 
 
 # ── CSV cursor: loads full history so each bar gets its own time-appropriate value ──
@@ -75,7 +76,9 @@ class CsvCursor:
                         continue
                     ts_ms = self._parse_ts(ts_raw, ts_unit)
                     if ts_ms is not None:
-                        rows.append((ts_ms, val))
+                        # A date-stamped daily row summarizes that whole UTC day:
+                        # usable only from the next day (matches batch features).
+                        rows.append((ts_ms + _DAY_MS if ts_unit == "date" else ts_ms, val))
                 rows.sort(key=lambda r: r[0])
                 self._timestamps = [r[0] for r in rows]
                 self._values = [r[1] for r in rows]
@@ -283,6 +286,8 @@ class CsvDictCursor:
                     ts_ms = CsvCursor._parse_ts(ts_raw, ts_unit)
                     if ts_ms is None:
                         continue
+                    if ts_unit == "date":
+                        ts_ms += _DAY_MS  # daily aggregate: available from the next UTC day
                     vals: dict[str, float] = {}
                     for out_key, csv_col in val_cols.items():
                         try:

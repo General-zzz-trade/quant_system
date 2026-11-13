@@ -16,6 +16,28 @@ import pandas as pd  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
+_HOUR_MS = 3_600_000
+_DAY_MS = 86_400_000
+
+
+def _causal_align(bar_open_ms: np.ndarray, available_ms: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """Latest observation already available at each bar's CLOSE (open + 1h).
+
+    Replaces ``np.interp``, which blended in the NEXT observation (look-ahead)
+    and extrapolated the first value backwards. Bars before the first
+    available observation get NaN.
+    """
+    available = np.asarray(available_ms, dtype=np.float64)
+    vals = np.asarray(values, dtype=np.float64)
+    order = np.argsort(available, kind="stable")
+    available, vals = available[order], vals[order]
+    idx = np.searchsorted(available, np.asarray(bar_open_ms, dtype=np.float64) + _HOUR_MS, side="right") - 1
+    out = np.full(len(bar_open_ms), np.nan)
+    ok = idx >= 0
+    out[ok] = vals[idx[ok]]
+    return out
+
+
 def _add_v15_features(feat_df: pd.DataFrame) -> None:
     """Add V15 interaction and statistical features to batch DataFrame.
 
@@ -131,10 +153,12 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
 
     try:
         oc = pd.read_csv(oc_path)
-        oc_ts = pd.to_numeric(oc["timestamp"], errors="coerce").values
-        oc = oc.sort_values("timestamp")
+        oc["timestamp"] = pd.to_numeric(oc["timestamp"], errors="coerce")
+        oc = oc.dropna(subset=["timestamp"]).sort_values("timestamp")
+        # A row stamped day D (00:00 UTC) aggregates all of day D: usable from D+1 00:00.
+        oc_ts = oc["timestamp"].values.astype(np.float64) + _DAY_MS
 
-        # Interpolate daily on-chain → hourly kline
+        # Daily on-chain → hourly kline, causally (no interpolation)
         for col, prefix in [
             ("TxTfrCnt", "oc_tx"),
             ("AdrActCnt", "oc_addr"),
@@ -143,8 +167,8 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
         ]:
             if col not in oc.columns:
                 continue
-            vals = np.interp(timestamps, oc_ts,
-                            pd.to_numeric(oc[col], errors="coerce").fillna(0).values)
+            vals = _causal_align(timestamps, oc_ts,
+                            pd.to_numeric(oc[col], errors="coerce").values)
             # Z-scores at 7d and 14d
             for win_days, win_label in [(7, "7"), (14, "14")]:
                 win = win_days * 24
@@ -152,8 +176,8 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
 
         # Exchange supply pressure (SplyExNtv — BTC held on exchanges)
         if "SplyExNtv" in oc.columns:
-            supply = np.interp(timestamps, oc_ts,
-                              pd.to_numeric(oc["SplyExNtv"], errors="coerce").fillna(0).values)
+            supply = _causal_align(timestamps, oc_ts,
+                            pd.to_numeric(oc["SplyExNtv"], errors="coerce").values)
             feat_df["exchange_supply_zscore_14"] = _rolling_zscore_arr(supply, 14 * 24)
             # Supply change rate: (current - 7d ago) / 7d ago
             supply_s = pd.Series(supply)
@@ -162,8 +186,8 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
 
         # Hash rate (miner economics)
         if "HashRate" in oc.columns:
-            hr = np.interp(timestamps, oc_ts,
-                          pd.to_numeric(oc["HashRate"], errors="coerce").fillna(0).values)
+            hr = _causal_align(timestamps, oc_ts,
+                            pd.to_numeric(oc["HashRate"], errors="coerce").values)
             feat_df["hashrate_zscore_14"] = _rolling_zscore_arr(hr, 14 * 24)
             hr_s = pd.Series(hr)
             hr_7d = hr_s.shift(7 * 24)
@@ -171,10 +195,10 @@ def _add_v17_onchain_features(symbol: str, feat_df: pd.DataFrame, timestamps: np
 
         # Net flow = inflow - outflow
         if "FlowInExUSD" in oc.columns and "FlowOutExUSD" in oc.columns:
-            flow_in = np.interp(timestamps, oc_ts,
-                               pd.to_numeric(oc["FlowInExUSD"], errors="coerce").fillna(0).values)
-            flow_out = np.interp(timestamps, oc_ts,
-                                pd.to_numeric(oc["FlowOutExUSD"], errors="coerce").fillna(0).values)
+            flow_in = _causal_align(timestamps, oc_ts,
+                            pd.to_numeric(oc["FlowInExUSD"], errors="coerce").values)
+            flow_out = _causal_align(timestamps, oc_ts,
+                            pd.to_numeric(oc["FlowOutExUSD"], errors="coerce").values)
             net = flow_in - flow_out
             feat_df["oc_netflow_zscore_7"] = _rolling_zscore_arr(net, 7 * 24)
     except Exception as e:
@@ -195,11 +219,12 @@ def _add_iv_legacy_features(
         return
     try:
         iv_df = pd.read_csv(iv_path)
-        iv_df["ts_ms"] = pd.to_datetime(iv_df["timestamp"]).astype(np.int64) // 10**3
+        # ns -> ms (the old // 10**3 produced microseconds, so iv_level was constant)
+        iv_df["ts_ms"] = pd.to_datetime(iv_df["timestamp"], utc=True).astype(np.int64) // 10**6
         iv_s = iv_df.sort_values("ts_ms")
         iv_ts = iv_s["ts_ms"].values.astype(np.float64)
         iv_vals = iv_s["implied_vol"].values.astype(np.float64)
-        iv_aligned = np.interp(timestamps.astype(np.float64), iv_ts, iv_vals)
+        iv_aligned = _causal_align(timestamps, iv_ts, iv_vals)
         feat_df["iv_level"] = iv_aligned
         iv_series = pd.Series(iv_aligned)
         iv_ma24 = iv_series.rolling(24, min_periods=1).mean().values

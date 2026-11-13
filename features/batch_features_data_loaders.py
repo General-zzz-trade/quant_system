@@ -16,6 +16,27 @@ import pandas as pd  # type: ignore[import-untyped]
 logger = logging.getLogger(__name__)
 
 
+_HOUR_MS = 3_600_000
+_DAY_MS = 86_400_000
+
+
+def _daily_available(bar_open_ms: np.ndarray, day_ms: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """Daily rows stamped D 00:00 summarize day D and are usable from D+1 00:00.
+
+    Each bar gets the latest row whose availability time is at or before its
+    CLOSE (open + 1h); bars before the first available row get NaN.
+    """
+    available = np.asarray(day_ms, dtype=np.float64) + _DAY_MS
+    vals = np.asarray(values, dtype=np.float64)
+    order = np.argsort(available, kind="stable")
+    available, vals = available[order], vals[order]
+    idx = np.searchsorted(available, np.asarray(bar_open_ms, dtype=np.float64) + _HOUR_MS, side="right") - 1
+    out = np.full(len(bar_open_ms), np.nan)
+    ok = idx >= 0
+    out[ok] = vals[idx[ok]]
+    return out
+
+
 def _load_liq_schedule(symbol: str) -> np.ndarray:
     """Load liquidation schedule timestamps for a symbol.
 
@@ -382,14 +403,7 @@ def _add_defi_flow_features(
                 tvl_ts = t_df["ts_ms"].values.astype(np.float64)
 
                 def _daily_ffill(col_vals: np.ndarray) -> np.ndarray:
-                    out = np.full(len(timestamps), np.nan)
-                    j = 0
-                    for i, ts in enumerate(timestamps):
-                        while j < len(tvl_ts) - 1 and tvl_ts[j + 1] <= ts:
-                            j += 1
-                        if j < len(tvl_ts) and tvl_ts[j] <= ts:
-                            out[i] = col_vals[j]
-                    return out
+                    return _daily_available(timestamps, tvl_ts, col_vals)
 
                 chg1 = t_df.get("l2_tvl_chg_1d",
                                 pd.Series(np.nan, index=t_df.index)).values.astype(np.float64)
@@ -437,14 +451,7 @@ def _add_defi_flow_features(
                                     (nf - roll_mean) / roll_std,
                                     np.nan)
 
-                    out = np.full(len(timestamps), np.nan)
-                    j = 0
-                    for i, ts in enumerate(timestamps):
-                        while j < len(oc_ts) - 1 and oc_ts[j + 1] <= ts:
-                            j += 1
-                        if j < len(oc_ts) and oc_ts[j] <= ts:
-                            out[i] = nf_z[j]
-                    feat_df["exchange_netflow_z14"] = out
+                    feat_df["exchange_netflow_z14"] = _daily_available(timestamps, oc_ts, nf_z)
             except Exception as e:
                 logger.warning("Exchange netflow feature failed for %s: %s", symbol, e)
 
@@ -488,15 +495,8 @@ def _add_stablecoin_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> N
         zscore = np.where(rolling_std > 0, (supply - rolling_mean) / rolling_std, np.nan)
 
         # Align to bar timestamps (daily -> hourly via forward fill)
-        chg_aligned = np.full(len(timestamps), np.nan)
-        zscore_aligned = np.full(len(timestamps), np.nan)
-        j = 0
-        for i, ts in enumerate(timestamps):
-            while j < len(sc_dates) - 1 and sc_dates[j + 1] <= ts:
-                j += 1
-            if j < len(sc_dates):
-                chg_aligned[i] = chg_7d[j]
-                zscore_aligned[i] = zscore[j]
+        chg_aligned = _daily_available(timestamps, sc_dates, chg_7d)
+        zscore_aligned = _daily_available(timestamps, sc_dates, zscore)
 
         feat_df["stablecoin_supply_chg_7d"] = chg_aligned
         feat_df["stablecoin_supply_zscore"] = zscore_aligned
@@ -546,15 +546,8 @@ def _add_etf_volume_features(feat_df: pd.DataFrame, timestamps: np.ndarray) -> N
                 chg_5d[i] = (volume[i] - volume[i - 5]) / volume[i - 5]
 
         # Align to bar timestamps
-        zscore_aligned = np.full(len(timestamps), np.nan)
-        chg_aligned = np.full(len(timestamps), np.nan)
-        j = 0
-        for i, ts in enumerate(timestamps):
-            while j < len(etf_dates) - 1 and etf_dates[j + 1] <= ts:
-                j += 1
-            if j < len(etf_dates):
-                zscore_aligned[i] = zscore[j]
-                chg_aligned[i] = chg_5d[j]
+        zscore_aligned = _daily_available(timestamps, etf_dates, zscore)
+        chg_aligned = _daily_available(timestamps, etf_dates, chg_5d)
 
         feat_df["etf_volume_zscore"] = zscore_aligned
         feat_df["etf_volume_chg_5d"] = chg_aligned
