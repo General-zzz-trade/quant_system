@@ -6,11 +6,13 @@ that cannot answer raises; it never returns an empty result that could be mistak
 """
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from decimal import Decimal
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 Clock = Callable[[], float]          # wall-clock seconds since the epoch
 Sleeper = Callable[[float], None]
+Lock = AbstractContextManager[object]   # re-entrant; supplied by the composition root (threading.RLock)
 
 
 @runtime_checkable
@@ -193,6 +195,6 @@ class Notifier(Protocol):
     def alert(self, level: str, title: str, detail: str = "") -> None: ...
 
 
-__all__ = ["Clock", "Sleeper", "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
+__all__ = ["Clock", "Sleeper", "Lock", "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
            "WalletCheck", "ExposureReader", "EventLog", "Notifier"]

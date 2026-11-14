@@ -19,11 +19,11 @@ def _order_transitions_stay_in_the_table():
 
     The executor only logs such a change in production (observation mode); here it must never happen.
     """
-    from shared import confirmed_execution
-    confirmed_execution.TRANSITION_VIOLATIONS.clear()
+    from trading.application.execution import lifecycle
+    lifecycle.TRANSITION_VIOLATIONS.clear()
     yield
-    violations = list(confirmed_execution.TRANSITION_VIOLATIONS)
-    confirmed_execution.TRANSITION_VIOLATIONS.clear()
+    violations = list(lifecycle.TRANSITION_VIOLATIONS)
+    lifecycle.TRANSITION_VIOLATIONS.clear()
     assert violations == [], f"order status transitions outside the table: {violations}"
 
 

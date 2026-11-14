@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from shared import confirmed_execution
 from shared.confirmed_execution import ConfirmedExecutor
+from trading.application.execution import lifecycle
 from trading.domain.orders import TRANSITIONS
 
 SCOPE = "binance-testnet-ut"
@@ -111,14 +111,14 @@ SCENARIOS = {
 @pytest.fixture
 def recorded(monkeypatch):
     seen: list[tuple[str | None, str]] = []
-    original = confirmed_execution.check_transition
+    original = lifecycle.check_transition
 
     def record(current, new):
         if current != new:
             seen.append((current, new))
         original(current, new)
 
-    monkeypatch.setattr(confirmed_execution, "check_transition", record)
+    monkeypatch.setattr(lifecycle, "check_transition", record)
     return seen
 
 

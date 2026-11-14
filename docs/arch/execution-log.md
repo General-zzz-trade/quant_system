@@ -411,3 +411,60 @@ Contracts: 5 kept, 0 broken.
 3176 = 3158 + 6 + 12。
 
 **遗留**：审计 M2（观察模式没有告警、何时改为拒绝）等第 12 步有告警出口后再处理。
+
+## 第 9a 步：下单生命周期迁入 `trading/application/execution/lifecycle.py`
+
+第 9 步拆成两个 PR：9a 只搬执行器（`ConfirmedExecutor`），9b 再搬 Binance 执行适配器里的减仓定量、对账和止损管理。
+
+**前置测试（计划 0.6 第 9 步一行，先在旧代码上跑通）**
+
+- `tests/unit/trading/test_domain_position.py`（14 个）：持仓记账的空头开仓与加仓、部分平仓、平到零、多翻空、空翻多、手续费按币种分开记（含负手续费）、8 种无效成交逐条被拒且不改状态、存储格式往返。
+- 【实际运行结果】在旧代码上 14 个全过；对 `trading/domain/position.py` 逐个注入 6 个缺陷（翻转后不重置开仓价、平到零不清开仓价、空头盈亏符号写反、按整笔数量记已实现盈亏、手续费币种合并、不检查手续费是否有限），每个都至少有一个测试失败。生产代码已还原。
+- 计划里第 9 步的其他前置测试（减仓不超过自有仓位、对账不一致或有外部挂单时阻断入场、`TargetFillConsumer` 拒绝与落库不符的事件、止损结果不明与撤销中状态）对应的代码在 9b 才搬，在 9b 开始时先补。
+
+**改了什么**
+
+- `trading/application/execution/lifecycle.py`：执行器原样搬来，类名改为 `OrderLifecycle`。与原文件相比只有 29 行不同：
+  - 日志（`OrderJournal` 端口）、时钟（`Clock`）、下单后的等待（`Sleeper`）、锁由构造参数传入，模块本身不再 import `time`、`threading`、`pathlib`、`shared`。
+  - 参数校验抽成静态方法 `check_settings`，校验内容和报错文字不变。
+  - `_state` 的参数类型从 `Any` 改为 `object`（应用层参数不得是 `Any` 的架构规则）；成交载荷加了类型标注，限价单分支加了一行 `assert price is not None`（该分支里价格前面一定已赋值），都是给严格 mypy 看的，运行行为不变。
+- `trading/application/ports.py`：新增 `Lock` 类型（可重入的上下文管理器，由组装根提供）。
+- `shared/confirmed_execution.py` 改为兼容薄壳：`ConfirmedExecutor(adapter, journal_path, scope, ...)` 的签名不变，先校验参数（与搬家前一样，参数不合法时不会建出日志文件，已实测），再构造 SQLite 日志、`time.time`、`time.sleep`（每次调用时再查找，与原来一样，所以 `patch("shared.confirmed_execution.time.sleep")` 仍然有效）和 `threading.RLock()`。`.path`、`._connect()`（OKX 用）、`PendingOrder`、`TRANSITION_VIOLATIONS` 照旧可用。Binance、Bybit、OKX 三个执行适配器一行未改。
+- 架构规则扩大范围：禁止字面量状态集合的规则加上 `lifecycle.py`；"币安下单路径上不得出现 SQL"的规则加上整个 `trading/application`。`core-no-io` 契约原本就覆盖 `trading.application`，计划里"对 `lifecycle` 生效"的要求由它自动满足（不得 import `time`、`sqlite3`、`threading`）。
+- CI 覆盖率门禁加上 `trading.application.execution`，否则搬走的代码不再被计量。【实际运行结果】本地 82.14%（门槛 75%），其中 `lifecycle.py` 82%。
+
+**新增测试（计划第 9 步验收要求的假时钟测试）**
+
+`tests/unit/trading/test_order_lifecycle.py`（9 个）直接构造 `OrderLifecycle`，注入记录型的时钟、等待函数和锁，不再真的等待：
+
+- 市价单的调用顺序恰好是"加锁 → 下单 → 等待 3 秒 → 查订单 → 查成交 → 解锁"，预留时间来自注入的时钟。
+- 等待时间为 0 时不调用等待函数。
+- 挂单的有效期用注入的时钟计算：差 0.1 秒不撤，到点才撤，撤后再查一次，结算为 `canceled`。
+- 6 种不合法参数被拒。
+- 【实际运行结果】对 `lifecycle.py` 注入 5 个缺陷（不等待、等待挪到下单前、轮询时忽略有效期、有效期比较差一、轮询不加锁），每个都至少有一个测试失败。
+
+**已有测试的改动（不是断言）**
+
+- `tests/conftest.py` 的自动夹具改为从 `trading.application.execution.lifecycle` 读 `TRANSITION_VIOLATIONS`（与薄壳里的是同一个列表对象）。
+- `tests/characterization/test_order_transitions.py` 打补丁的位置从 `shared.confirmed_execution.check_transition` 改为 `trading.application.execution.lifecycle.check_transition`。代码搬家后，补丁必须打在真正调用它的模块上。薄壳故意不再导出 `check_transition`，以后谁再往旧位置打补丁会直接报错，而不是悄悄失效。
+- 两处断言一行未改。
+
+**行为上唯一可见的差别**：执行器的日志记录器名字从 `shared.confirmed_execution` 变成 `trading.application.execution.lifecycle`。【实际运行结果】仓库里没有任何配置或测试按这个名字过滤日志（`grep -rn confirmed_execution` 只在 CI 文件列表里出现）。
+
+**行数**：手写约 293 行（`lifecycle.py` 与原文件的差异 29、薄壳 43、新测试 205、其余 16）；纯移动约 280 行。
+
+**通用验收（原始输出尾部）**
+
+```
+3199 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 441.15s (0:07:21)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 32 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+3199 = 3176 + 14 + 9。第 1 步的特征化测试、第 5、6 步的订单测试、`tests/unit/binance/` 全部不改断言通过。
