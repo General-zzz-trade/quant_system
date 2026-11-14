@@ -279,3 +279,28 @@ def test_a_stop_stuck_in_canceling_is_canceled_again_and_never_counts_as_the_sto
     statuses = {r["client_algo_id"]: r["status"] for r in executor.journal.stop_rows(OWNER, "BTCUSDT",
                                                                                       live_only=False)}
     assert statuses[old] == "inactive" and stops.has_active_stop()
+
+
+# --- the adapter takes its scope and journal from the caller and refuses what it cannot parse ---------------
+
+def test_the_scope_and_the_journal_path_are_never_taken_from_the_environment(env, tmp_path, monkeypatch):
+    _, adapter, _, _, _, _ = env
+    monkeypatch.setenv("RISK_SCOPE", "binance-testnet-env")
+    monkeypatch.setenv("ORDER_JOURNAL_PATH", str(tmp_path / "from-env.sqlite"))
+    with pytest.raises(ValueError, match="RISK_SCOPE"):
+        BinanceExecutionAdapter(adapter, journal_path=tmp_path / "orders2.sqlite", owner=OWNER)
+    with pytest.raises(ValueError, match="journal path"):
+        BinanceExecutionAdapter(adapter, scope="binance-testnet-ut", owner=OWNER)
+    assert not (tmp_path / "from-env.sqlite").exists() and not (tmp_path / "orders2.sqlite").exists()
+
+
+def test_an_order_whose_quantity_cannot_be_parsed_sends_nothing_even_with_a_position_to_close(env):
+    fake, _, executor, _, consumer, statuses = env
+    _buy(executor, consumer)
+    good = _order(2, "sell", "0.05")
+    broken = SimpleNamespace(header=good.header, order_id=good.order_id, symbol="BTCUSDT", side="sell",
+                             qty="not-a-number", price=D("100"), reduce_only=False, reason="rebalance")
+    sent = len(fake.sent)
+    assert executor.send_order(broken) == ()
+    assert len(fake.sent) == sent and fake.positions["BTCUSDT"] == D("0.1")     # not read as "close everything"
+    assert executor._ready is False and (good.order_id, "blocked") in statuses
