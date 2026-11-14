@@ -1,0 +1,234 @@
+{
+  "window": {
+    "eval_start_ms": 1610236800000,
+    "dev_end_ms": 1763251200000,
+    "holdout": "not computed; the final test is forward paper trading"
+  },
+  "spec": {
+    "entry_bars": 20,
+    "exit_bars": 10,
+    "atr_bars": 14,
+    "stop_atr": 1.5,
+    "vol_bars": 42,
+    "bar_hours": 4,
+    "size_headroom": 0.99
+  },
+  "sizing": {
+    "target_vol": 1.0,
+    "max_trade_loss": 0.06,
+    "min_open": 1.0,
+    "max_exposure": 3.0,
+    "isolated_leverage": 10.0,
+    "maintenance_margin_rate": 0.005,
+    "max_stop_to_liquidation": 0.5
+  },
+  "broker": {
+    "starting_balance": "167",
+    "maker_bps": "2",
+    "taker_bps": "5",
+    "slippage_bps": "3",
+    "limit_offset_bps": "2",
+    "participation": "0.01",
+    "max_exposure": "3.0",
+    "qty_step": "0.001",
+    "min_notional": "20",
+    "ttl_bars": 1,
+    "daily_loss_pct": 5.0,
+    "weekly_loss_pct": 10.0,
+    "entry_mode": "market",
+    "deadzone": 1.0,
+    "zscore_window": 180,
+    "zscore_warmup": 45,
+    "min_hold": 6,
+    "max_hold": 36,
+    "isolated_leverage": "10.0",
+    "maintenance_margin_rate": "0.005",
+    "stop_slippage_bps": "10"
+  },
+  "strategy": {
+    "days": 1771,
+    "total_return": 1.495640813726185,
+    "cagr": 0.20742046152560523,
+    "max_drawdown": 0.8169433732196603,
+    "sharpe": 0.6263778735056891,
+    "vol": 0.8201159153452299,
+    "calmar": 0.25389821170608096,
+    "max_drawdown_hourly": 0.8224544924272115,
+    "final_equity": 416.77201589227286,
+    "round_trips": 289,
+    "round_trips_per_year": 59.56239412761152,
+    "mean_net_per_round_trip": 0.0036142625603852404,
+    "median_net_per_round_trip": -0.021773544139010434,
+    "win_rate": 0.2629757785467128,
+    "liquidations": 0,
+    "exit_kinds": {
+      "signal_exit": 126,
+      "protective_stop": 163
+    },
+    "net_by_side": {
+      "long": 107.0597871168831,
+      "short": 142.71222877538975
+    },
+    "fees": 100.48828008041161,
+    "funding": -66.49920642853,
+    "entries": 289,
+    "entry_exposure": {
+      "median": 1.7007866026631826,
+      "p10": 1.1046958399673523,
+      "p90": 2.7069315775977274,
+      "capped_by_trade_loss": 0.11072664359861592
+    },
+    "refused_entries": {
+      "stop beyond half the liquidation distance": 92
+    },
+    "broker_rejections": {},
+    "open_at_end": false
+  },
+  "strategy_cost_x2": {
+    "days": 1771,
+    "total_return": -0.11276542247123444,
+    "cagr": -0.024357259708167267,
+    "max_drawdown": 0.8913476583965304,
+    "sharpe": 0.37054515103713886,
+    "vol": 0.826313388814942,
+    "calmar": -0.027326329383064972,
+    "max_drawdown_hourly": 0.8946234132578083,
+    "final_equity": 148.16817444730384,
+    "round_trips": 289,
+    "round_trips_per_year": 59.56239412761152,
+    "mean_net_per_round_trip": 0.001619009717509389,
+    "median_net_per_round_trip": -0.023595196894101073,
+    "win_rate": 0.25951557093425603,
+    "liquidations": 0,
+    "exit_kinds": {
+      "signal_exit": 126,
+      "protective_stop": 163
+    },
+    "net_by_side": {
+      "long": -40.89010718031867,
+      "short": 22.058281627622524
+    },
+    "fees": 126.044950443426,
+    "funding": -51.4889914066988,
+    "entries": 289,
+    "entry_exposure": {
+      "median": 1.7007866026631826,
+      "p10": 1.1046958399673523,
+      "p90": 2.7069315775977274,
+      "capped_by_trade_loss": 0.11072664359861592
+    },
+    "refused_entries": {
+      "stop beyond half the liquidation distance": 92
+    },
+    "broker_rejections": {},
+    "open_at_end": false
+  },
+  "yearly": {
+    "strategy": {
+      "2021": 0.03618287180046509,
+      "2022": -0.0911769199716167,
+      "2023": -0.4134489543650972,
+      "2024": 2.3376830473039334,
+      "2025": 0.35367814253992846
+    },
+    "control": {
+      "2021": -0.648972377664158,
+      "2022": 0.8624434045882503,
+      "2023": 0.4014919382288862,
+      "2024": 0.06679084308062966,
+      "2025": 2.02876969165223
+    },
+    "eth_hold_1x": {
+      "2021": 1.8719803743866992,
+      "2022": -0.674620921540144,
+      "2023": 0.9094139286012879,
+      "2024": 0.46094095496639453,
+      "2025": -0.05095652121789751
+    }
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "cost_x2_total_return": {
+        "value": -0.11276542247123444,
+        "reference": 0.0,
+        "ok": false
+      },
+      "daily_sharpe": {
+        "value": 0.6263778735056891,
+        "reference": 0.5,
+        "ok": true
+      },
+      "max_drawdown_hourly": {
+        "value": 0.8224544924272115,
+        "reference": 0.6,
+        "ok": false
+      },
+      "liquidations": {
+        "value": 0,
+        "reference": 0,
+        "ok": true
+      },
+      "round_trips_per_year": {
+        "value": 59.56239412761152,
+        "reference": 150,
+        "ok": true
+      },
+      "mean_net_per_round_trip": {
+        "value": 0.0036142625603852404,
+        "reference": 0.003,
+        "ok": true
+      }
+    }
+  },
+  "report_only": {
+    "control_daily_trend": {
+      "days": 1771,
+      "total_return": 1.9604689514418872,
+      "cagr": 0.25068106899201315,
+      "max_drawdown": 0.8523108722341206,
+      "sharpe": 0.7484171353990832,
+      "vol": 0.9545428649559325,
+      "calmar": 0.294119290459026,
+      "max_drawdown_hourly": 0.8617448441858981,
+      "final_equity": 494.3983148907952,
+      "round_trips": 162,
+      "round_trips_per_year": 33.38791643139469,
+      "mean_net_per_round_trip": 0.005651575790904503,
+      "median_net_per_round_trip": -0.02351238973813432,
+      "win_rate": 0.25308641975308643,
+      "liquidations": 0,
+      "exit_kinds": {
+        "protective_stop": 101,
+        "signal_exit": 61
+      },
+      "net_by_side": {
+        "long": 229.97283229693443,
+        "short": -25.26451079224774
+      },
+      "fees": 43.94948032409025,
+      "funding": -111.1487455676147,
+      "entries": 163,
+      "entry_exposure": {
+        "median": 1.7081835559393852,
+        "p10": 1.040004070072218,
+        "p90": 2.782550606035286,
+        "capped_by_trade_loss": 0.13496932515337423
+      },
+      "refused_entries": {
+        "stop beyond half the liquidation distance": 100
+      },
+      "broker_rejections": {},
+      "open_at_end": true
+    },
+    "eth_hold_1x_no_costs": {
+      "days": 1771,
+      "total_return": 1.473944498265571,
+      "cagr": 0.20524955707439663,
+      "max_drawdown": 0.7935130756288558,
+      "sharpe": 0.6314329130505785,
+      "vol": 0.7881052531893469,
+      "calmar": 0.25865932569761024
+    }
+  }
+}

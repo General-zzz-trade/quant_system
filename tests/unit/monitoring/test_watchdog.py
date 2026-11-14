@@ -148,8 +148,81 @@ class TestCheckDataFreshness:
 # Alert triggering
 # ---------------------------------------------------------------------------
 
+class TestBinanceTargetStatusFile:
+    """binance-target is judged by its status file, not by journal lines."""
+
+    CFG = {"unit": "binance-target.service", "journal_match": "binance_target",
+           "max_silent_s": 600, "max_bar_lag_s": 3 * 3600}
+
+    def _check(self, tmp_path: Path, status: dict | None, age_s: float = 0):
+        from monitoring.watchdog import check_service
+        path = tmp_path / "target_status.json"
+        if status is not None:
+            path.write_text(json.dumps(status))
+            os.utime(path, (time.time() - age_s, time.time() - age_s))
+        active = MagicMock(stdout="active\n")
+        with patch("monitoring.watchdog.subprocess") as sp:
+            sp.run.return_value = active
+            result = check_service("binance-target", {**self.CFG, "status_file": str(path)})
+            assert sp.run.call_count == 1          # no journal fallback
+        return result
+
+    def test_fresh_status_and_recent_bar_is_healthy(self, tmp_path: Path):
+        bar_ms = int((time.time() - 2 * 3600) * 1000)
+        result = self._check(tmp_path, {"symbols": {"ETHUSDT": {"last_bar_open": bar_ms}}})
+        assert result["status"] == "healthy" and result["problems"] == []
+
+    def test_old_status_file_is_stale(self, tmp_path: Path):
+        bar_ms = int((time.time() - 2 * 3600) * 1000)
+        result = self._check(tmp_path, {"symbols": {"ETHUSDT": {"last_bar_open": bar_ms}}}, age_s=900)
+        assert result["status"] == "stale" and result["problems"][0].startswith("status_stale_")
+
+    def test_bar_lag_is_stale(self, tmp_path: Path):
+        bar_ms = int((time.time() - 4 * 3600) * 1000)
+        result = self._check(tmp_path, {"symbols": {"ETHUSDT": {"last_bar_open": bar_ms}}})
+        assert result["status"] == "stale" and result["problems"][0].startswith("ETHUSDT_bar_lag_")
+
+    def test_missing_or_empty_status_is_stale(self, tmp_path: Path):
+        assert self._check(tmp_path, None)["problems"] == ["status_file_missing"]
+        assert self._check(tmp_path, {"symbols": {}})["problems"] == ["no_symbols_in_status"]
+
+    def test_retired_units_are_not_monitored(self):
+        from monitoring.watchdog import SERVICES
+        units = {cfg["unit"] for cfg in SERVICES.values()}
+        assert "binance-target.service" in units
+        assert not units & {"hft-signal.service", "binary-signal.service", "binance-alpha.service",
+                            "bybit-mm.service", "binance-runtime.service"}
+
+
 class TestAlertTriggering:
     """Tests for alert logic in run_watchdog."""
+
+    def test_new_failing_check_alerts_while_overall_stays_warning(self, tmp_path: Path):
+        from monitoring import watchdog
+        status_file = tmp_path / "health_status.json"
+        status_file.write_text(json.dumps({"overall": "warning", "problems": ["account: low_equity_300"]}))
+        with patch.object(watchdog, "STATUS_FILE", str(status_file)):
+            assert watchdog._status_changed("warning", ["account: low_equity_250"]) is False
+            assert watchdog._status_changed(
+                "warning", ["account: low_equity_250", "service_binance-target: status_stale_900s"]) is True
+
+    def test_run_watchdog_alerts_on_a_change(self, tmp_path: Path):
+        """The previous status is read before this run overwrites it."""
+        from monitoring import watchdog
+        status_file = tmp_path / "health_status.json"
+        status_file.write_text(json.dumps({"overall": "healthy", "problems": []}))
+        sent = []
+        with patch.object(watchdog, "STATUS_FILE", str(status_file)), \
+                patch.object(watchdog, "HISTORY_FILE", str(tmp_path / "history.jsonl")), \
+                patch.object(watchdog, "SERVICES", {}), \
+                patch.object(watchdog, "check_polymarket_collector", lambda: {"problems": []}), \
+                patch.object(watchdog, "check_account", lambda: {"problems": ["low_equity_90"]}), \
+                patch.object(watchdog, "check_disk_space", lambda: {"problems": []}), \
+                patch("monitoring.notify.send_alert", lambda *a, **k: sent.append(a)):
+            assert watchdog.run_watchdog(json_output=True) == 1
+            assert len(sent) == 1
+            watchdog.run_watchdog(json_output=True)
+            assert len(sent) == 1                  # unchanged: no repeat alert
 
     def test_status_changed_returns_true_on_first_run(self):
         """First run (no status file) should trigger alert."""

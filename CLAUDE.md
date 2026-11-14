@@ -13,6 +13,9 @@
     (`research/results/ml_recheck_2026-11-13/`).
   - The legacy LGBM models in `models_v8/`: the training method selected parameters on its test
     window, and the binaries are not in the repo.
+  - ETH 4h breakout at 10x isolated / 1-3x exposure (`lab/breakout_study.py`): failed its
+    pre-registered development screen 2026-11-14 (cost x2 return -11%, max drawdown 82%;
+    `research/results/breakout_2026-11-14/`). Not to be re-tuned on that window.
 - **Data windows:**
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.

@@ -197,13 +197,7 @@ Raw prediction (Ridge 60% + LightGBM 40% ensemble, T-1 cross-market features)
 
 ## 8. 运维自动化
 
-| 定时器 | 频率 | 用途 |
-|--------|------|------|
-| health-watchdog | 每 5 分钟 | 服务健康 + 数据新鲜度 + 自动重启 + Telegram |
-| data-refresh | 每 6 小时 | K 线 + 资金费率 + OI 同步 |
-| daily-retrain | 每天 2am UTC | 4h 模型轻量重训 + SIGHUP 热加载 |
-| auto-retrain | 每周日 2am UTC | 1h 模型走步验证重训 |
-| ic-decay-monitor | 每天 3am UTC | IC 衰减检测 + 自动重训触发 |
+已部署的 unit 和定时器见 [`docs/deploy_truth.md`](docs/deploy_truth.md)（按 `infra/systemd/` 核对，2026-11-14）。自动重训、data-refresh 和 models_v8 分析定时器都已退役。
 
 ---
 

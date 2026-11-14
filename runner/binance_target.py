@@ -243,6 +243,8 @@ class TargetRuntime:
         self.drawdown = execution["drawdown"] if execution else None
 
     def _execution_context(self, testnet: bool, stop_pct: D) -> dict:
+        from runner.binance_main import check_stop_inside_liquidation
+        check_stop_inside_liquidation(stop_pct)
         from execution.safety.limits import OrderLimiter, OrderLimitsConfig
         from shared.drawdown_guard import DrawdownGuard
         from shared.entry_risk import CompositeRiskGate

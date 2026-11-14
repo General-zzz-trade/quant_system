@@ -35,6 +35,8 @@ class FakeBinance:
         self.position_error = False
         self.hedge = False
         self.leverage: dict[str, int] = {}
+        self.margin_type: dict[str, str] = {}   # positionRisk spelling: "cross" | "isolated"
+        self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
 
     # -- helpers ---------------------------------------------------------
@@ -136,12 +138,22 @@ class FakeBinance:
         if path == "/fapi/v1/leverage":
             self.leverage[p["symbol"]] = int(p["leverage"])
             return {"leverage": int(p["leverage"])}
+        if path == "/fapi/v1/marginType":
+            wanted = {"ISOLATED": "isolated", "CROSSED": "cross"}[p["marginType"]]
+            if self.margin_type.get(p["symbol"], "cross") == wanted:
+                self._error(-4046, "No need to change margin type.")
+            if self.margin_change_refused:
+                self._error(-4048, "Margin type cannot be changed if there exists position.")
+            self.margin_type[p["symbol"]] = wanted
+            return {"code": 200, "msg": "success"}
         if path == "/fapi/v2/positionRisk":
             if self.position_error:
                 raise BinanceRetryableError("HTTP 503: unavailable")
-            return [{"symbol": s, "positionAmt": str(q), "entryPrice": str(self.entry.get(s, 0)),
-                     "markPrice": str(self.mark(s)), "positionSide": "BOTH", "leverage": "3"}
-                    for s, q in self.positions.items() if not p.get("symbol") or p["symbol"] == s]
+            symbols = [p["symbol"]] if p.get("symbol") else list(self.positions)
+            return [{"symbol": s, "positionAmt": str(self.positions.get(s, D(0))),
+                     "entryPrice": str(self.entry.get(s, 0)), "markPrice": str(self.mark(s)),
+                     "positionSide": "BOTH", "leverage": str(self.leverage.get(s, 3)),
+                     "marginType": self.margin_type.get(s, "cross")} for s in symbols]
         if path == "/fapi/v1/openOrders":
             return [o for o in self.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED")
                     and (not p.get("symbol") or o["symbol"] == p["symbol"])]

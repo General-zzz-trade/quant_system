@@ -2,9 +2,10 @@
 """Automated health watchdog — runs every 5 minutes via systemd timer.
 
 Checks:
-1. Active trading services (systemd state + fresh logs)
-2. Data freshness (klines, funding, OI)
-3. Account health (balance, positions, kill latch)
+1. Active trading services (systemd state + fresh logs, or for binance-target
+   its status file and the age of the last processed bar)
+2. Data freshness (none listed; see DATA_FILES)
+3. Bybit account health when Bybit keys are configured
 4. Polymarket collector alive
 
 Actions on failure (observation only; it never restarts a service, since a
@@ -36,17 +37,16 @@ log = logging.getLogger("health_watchdog")
 STATUS_FILE = "data/runtime/health_status.json"
 HISTORY_FILE = "data/runtime/health_history.jsonl"
 
-# Services to monitor
+# Services to monitor (units in infra/systemd; retired units are not listed)
 SERVICES = {
-    "hft-signal": {
-        "unit": "hft-signal.service",
-        "journal_match": "hft_signal",
-        "max_silent_s": 120,  # 2 min without log = stale
-    },
-    "binary-signal": {
-        "unit": "binary-signal.service",
-        "journal_match": "binary_signal",
-        "max_silent_s": 120,
+    "binance-target": {
+        "unit": "binance-target.service",
+        "journal_match": "binance_target",
+        # rewritten every poll (5 s) by runner.binance_target
+        "status_file": "data/runtime/binance_target/target_status.json",
+        "max_silent_s": 600,
+        # a closed 1h bar is processed about 2h after its open (+ funding wait)
+        "max_bar_lag_s": 3 * 3600,
     },
     "bybit-alpha": {
         "unit": "bybit-alpha.service",
@@ -54,32 +54,51 @@ SERVICES = {
         "max_silent_s": 18000,  # 5 hours (4h bars close every 4h + margin)
         "log_file": "logs/bybit_alpha.log",
     },
-    "binance-alpha": {
-        "unit": "binance-alpha.service",
-        "journal_match": "binance_alpha",
-        "max_silent_s": 18000,  # 5h — tolerates 4h bar cadence
-        "log_file": "logs/binance_alpha.log",
-    },
     "okx-alpha": {
         "unit": "okx-alpha.service",
         "journal_match": "okx_alpha",
         "max_silent_s": 18000,  # 5h — tolerates 4h bar cadence
         "log_file": "logs/okx_alpha.log",
     },
-    "bybit-mm": {
-        "unit": "bybit-mm.service",
-        "journal_match": "bybit_mm",
-        "max_silent_s": 120,
-    },
 }
 
-# Data files to check freshness
-DATA_FILES = {
-    "BTC_1h": ("data_files/BTCUSDT_1h.csv", 48 * 3600),      # 48h max stale
-    "ETH_1h": ("data_files/ETHUSDT_1h.csv", 48 * 3600),
-    "BTC_funding": ("data_files/BTCUSDT_funding.csv", 48 * 3600),
-    "BTC_oi": ("data_files/BTCUSDT_oi_1h.csv", 48 * 3600),
-}
+# Data files to check freshness. Empty: the legacy CSVs were refreshed by the
+# retired data-refresh unit, nothing current reads them, and research uses
+# immutable snapshots (data_files/binance_public*).
+DATA_FILES: dict[str, tuple[str, int]] = {}
+
+
+def _check_status_file(cfg: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """Freshness of a runtime's status file and of the last bar it processed."""
+    path = cfg["status_file"]
+    try:
+        age_s = time.time() - os.path.getmtime(path)
+        status = json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        result["problems"].append("status_file_missing")
+        result["status"] = "stale"
+        return result
+    except Exception as e:
+        result["problems"].append(f"status_file error: {type(e).__name__}: {e}")
+        result["status"] = "error"
+        return result
+    result["last_status_age_s"] = int(age_s)
+    if age_s > cfg["max_silent_s"]:
+        result["problems"].append(f"status_stale_{int(age_s)}s")
+    lags = {}
+    for symbol, s in (status.get("symbols") or {}).items():
+        last_open_ms = s.get("last_bar_open")
+        if not isinstance(last_open_ms, (int, float)):
+            result["problems"].append(f"{symbol}_no_bar")
+            continue
+        lags[symbol] = int(time.time() - last_open_ms / 1000)
+        if lags[symbol] > cfg["max_bar_lag_s"]:
+            result["problems"].append(f"{symbol}_bar_lag_{lags[symbol]}s")
+    if not lags:
+        result["problems"].append("no_symbols_in_status")
+    result["bar_lag_s"] = lags
+    result["status"] = "stale" if result["problems"] else "healthy"
+    return result
 
 
 def check_service(name: str, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -104,6 +123,9 @@ def check_service(name: str, cfg: dict[str, Any]) -> dict[str, Any]:
     if state != "active":
         result["status"] = "inactive"
         return result
+
+    if cfg.get("status_file"):
+        return _check_status_file(cfg, result)
 
     # Check recent log activity — prefer log_file over journal (stdout→file services)
     log_file = cfg.get("log_file")
@@ -286,8 +308,9 @@ def check_account() -> dict[str, Any]:
         url = env.get("BYBIT_BASE_URL", os.environ.get("BYBIT_BASE_URL", "https://api-demo.bybit.com"))
 
         if not key or not secret:
-            result["status"] = "no_credentials"
-            result["problems"].append("missing_api_keys")
+            # Bybit runs dry-run only; an account without keys is not configured,
+            # not unhealthy (a permanent problem here would mask every other alert)
+            result["status"] = "not_configured"
             return result
 
         cfg = BybitConfig(api_key=key, api_secret=secret, base_url=url)
@@ -318,13 +341,22 @@ def check_account() -> dict[str, Any]:
     return result
 
 
-def _status_changed(current: str) -> bool:
-    """Check if overall status changed since last run (avoid alert spam)."""
+def _failing_checks(problems: list[str]) -> list[str]:
+    return sorted({p.split(":", 1)[0] for p in problems})
+
+
+def _status_changed(current: str, problems: list[str] | None = None) -> bool:
+    """Whether to alert: the overall status or the set of failing checks changed
+    since the last run (a new failing check alerts even while overall stays 'warning')."""
     try:
         if os.path.exists(STATUS_FILE):
             with open(STATUS_FILE) as f:
                 prev = json.load(f)
-            return prev.get("overall") != current
+            if prev.get("overall") != current:
+                return True
+            if problems is None:
+                return False
+            return _failing_checks(prev.get("problems") or []) != _failing_checks(problems)
     except Exception as exc:
         log.debug("Status file read failed: %s", exc)
     return True  # first run or corrupt file → alert
@@ -378,6 +410,9 @@ def run_watchdog(json_output: bool = False) -> int:
     else:
         report["overall"] = "healthy"
 
+    # Compare with the previous run before overwriting its status file
+    changed = _status_changed(report["overall"], all_problems)
+
     # Save status
     os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
     with open(STATUS_FILE, "w") as f:
@@ -393,8 +428,7 @@ def run_watchdog(json_output: bool = False) -> int:
         try:
             from monitoring.notify import send_alert, AlertLevel
             level = AlertLevel.CRITICAL if report["overall"] == "critical" else AlertLevel.WARNING
-            # Deduplicate: only alert if status changed from last check
-            changed = _status_changed(report["overall"])
+            # Deduplicate: only alert if the status or the failing checks changed
             if changed:
                 details = {}
                 for i, p in enumerate(all_problems[:5]):
