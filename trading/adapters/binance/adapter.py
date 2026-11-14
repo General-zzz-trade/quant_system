@@ -23,7 +23,6 @@ import logging
 import time
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
-from types import SimpleNamespace
 from typing import Any, Optional, Tuple
 
 from trading.adapters.binance.config import BinanceConfig
@@ -31,7 +30,9 @@ from trading.adapters.binance.rest import (
     BinanceNonRetryableError, BinanceRateLimitError, BinanceRestClient, BinanceRestConfig,
 )
 from trading.adapters.binance.rate_limit import make_rate_limit_policy
-from trading.domain.venue import BalanceSnapshot, CanonicalBalance, CanonicalFill, VenuePosition
+from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, BalanceSnapshot, CanonicalBalance,
+                                  CanonicalFill, OpenOrder, Placement, StopOrder, StopPlacement, Ticker, VenueOrder,
+                                  VenuePosition)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ _ORDER_STATES = {"NEW": "new", "PARTIALLY_FILLED": "partially_filled", "FILLED":
                  "REJECTED": "rejected"}
 _ORDER_DOES_NOT_EXIST = -2013
 _ALGO_DOES_NOT_EXIST = (-2013, -2011)
+# Algo-order statuses. Anything not listed (CANCELED, EXPIRED, REJECTED, a new word) means the stop is gone.
+ACTIVE = frozenset({"NEW", "TRIGGERING"})
+TRIGGERED = frozenset({"TRIGGERED", "FINISHED"})
+_IMMEDIATE_TRIGGER = -2021         # "Order would immediately trigger": price is already beyond the stop
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,20 +244,20 @@ class BinanceAdapter:
                 ts_ms=int(time.time() * 1000)))
         return tuple(positions)
 
-    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[Any, ...]:
+    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         params: dict[str, Any] = {"symbol": symbol} if symbol else {}
         data = self._client.request_signed(method="GET", path="/fapi/v1/openOrders", params=params)
         if not isinstance(data, list):
             raise RuntimeError("Invalid Binance open-order snapshot")
-        return tuple(SimpleNamespace(order_id=str(o["orderId"]), client_order_id=str(o.get("clientOrderId", "")),
-                                     symbol=o["symbol"], side=o["side"].lower(), type=o.get("type", ""))
+        return tuple(OpenOrder(order_id=str(o["orderId"]), client_order_id=str(o.get("clientOrderId", "")),
+                               symbol=o["symbol"], side=o["side"].lower(), type=o.get("type", ""))
                      for o in data)
 
     # ------------------------------------------------------------------
     # Orders
     # ------------------------------------------------------------------
     def send_market_order(self, symbol: str, side: str, qty: float, *, reduce_only: bool = False,
-                          client_order_id: str = "") -> dict[str, Any]:
+                          client_order_id: str = "") -> Placement:
         """Place a market order; see module docstring for the result contract."""
         side = side.lower()
         if side not in ("buy", "sell") or not client_order_id:
@@ -279,7 +284,7 @@ class BinanceAdapter:
                 "clientOrderId": str(data.get("clientOrderId", ""))}
 
     def send_limit_order(self, symbol: str, side: str, qty: float, price: float, *, post_only: bool = True,
-                         reduce_only: bool = False, client_order_id: str = "") -> dict[str, Any]:
+                         reduce_only: bool = False, client_order_id: str = "") -> Placement:
         """Post-only (GTX) limit order; a crossing order is rejected by Binance (-5022)."""
         side = side.lower()
         if side not in ("buy", "sell") or not client_order_id:
@@ -309,7 +314,7 @@ class BinanceAdapter:
         return {"status": "submitted", "orderId": str(data.get("orderId", "")),
                 "clientOrderId": str(data.get("clientOrderId", ""))}
 
-    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> Any:
+    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> VenueOrder | None:
         if not order_id and not client_order_id:
             raise ValueError("order_id or client_order_id required")
         params: dict[str, Any] = {"symbol": symbol}
@@ -325,11 +330,11 @@ class BinanceAdapter:
             raise
         if row.get("symbol") != symbol:
             raise ValueError("order symbol mismatch")
-        return SimpleNamespace(order_id=str(row["orderId"]), client_order_id=str(row.get("clientOrderId", "")),
-                               symbol=row["symbol"], side=row["side"].lower(),
-                               state=_ORDER_STATES.get(row["status"], row["status"].lower()),
-                               filled_qty=Decimal(str(row.get("executedQty", "0"))),
-                               avg_price=Decimal(str(row.get("avgPrice", "0"))))
+        return VenueOrder(order_id=str(row["orderId"]), client_order_id=str(row.get("clientOrderId", "")),
+                          symbol=row["symbol"], side=row["side"].lower(),
+                          state=_ORDER_STATES.get(row["status"], row["status"].lower()),
+                          filled_qty=Decimal(str(row.get("executedQty", "0"))),
+                          avg_price=Decimal(str(row.get("avgPrice", "0"))))
 
     def cancel_order(self, symbol: str, order_id: str) -> dict[str, Any]:
         self._client.request_signed(method="DELETE", path="/fapi/v1/order",
@@ -362,8 +367,9 @@ class BinanceAdapter:
     # Protective stops (Algo service)
     # ------------------------------------------------------------------
     def place_stop_market(self, symbol: str, side: str, trigger_price: Decimal, *,
-                          client_algo_id: str) -> dict[str, Any]:
-        """Close-all STOP_MARKET on mark price; returns submitted/rejected/error like orders."""
+                          client_algo_id: str) -> StopPlacement:
+        """Close-all STOP_MARKET on mark price; returns submitted/rejected/error like orders. A rejection
+        carries ``breached``: True when the exchange refused because price is already beyond the trigger."""
         price = self.filters(symbol).floor_price(Decimal(str(trigger_price)))
         if price <= 0:
             return {"status": "rejected", "msg": "invalid trigger price"}
@@ -373,12 +379,13 @@ class BinanceAdapter:
         try:
             data = self._client.request_signed(method="POST", path="/fapi/v1/algoOrder", params=params)
         except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
-            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
+            code = getattr(exc, "code", None)
+            return {"status": "rejected", "code": code, "msg": str(exc), "breached": code == _IMMEDIATE_TRIGGER}
         except Exception as exc:
             return {"status": "error", "msg": str(exc)}
         return {"status": "submitted", "algoId": str(data.get("algoId", ""))}
 
-    def get_algo_order(self, *, client_algo_id: str) -> Any:
+    def get_algo_order(self, *, client_algo_id: str) -> StopOrder | None:
         try:
             row = self._client.request_signed(method="GET", path="/fapi/v1/algoOrder",
                                               params={"clientAlgoId": client_algo_id})
@@ -386,11 +393,12 @@ class BinanceAdapter:
             if exc.code in _ALGO_DOES_NOT_EXIST:
                 return None
             raise
-        return SimpleNamespace(algo_id=str(row.get("algoId", "")), client_algo_id=str(row.get("clientAlgoId", "")),
-                               symbol=row.get("symbol", ""), side=str(row.get("side", "")).lower(),
-                               status=str(row.get("algoStatus", "")).upper(),
-                               trigger_price=Decimal(str(row.get("triggerPrice", "0") or "0")),
-                               actual_order_id=str(row.get("actualOrderId", "") or ""))
+        status = str(row.get("algoStatus", "")).upper()
+        state = STOP_ACTIVE if status in ACTIVE else STOP_TRIGGERED if status in TRIGGERED else STOP_GONE
+        return StopOrder(algo_id=str(row.get("algoId", "")), client_algo_id=str(row.get("clientAlgoId", "")),
+                         symbol=row.get("symbol", ""), side=str(row.get("side", "")).lower(), status=status,
+                         state=state, trigger_price=Decimal(str(row.get("triggerPrice", "0") or "0")),
+                         actual_order_id=str(row.get("actualOrderId", "") or ""))
 
     def cancel_algo_order(self, *, client_algo_id: str) -> dict[str, Any]:
         self._client.request_signed(method="DELETE", path="/fapi/v1/algoOrder",
@@ -400,7 +408,7 @@ class BinanceAdapter:
     # ------------------------------------------------------------------
     # Market data (public)
     # ------------------------------------------------------------------
-    def get_ticker(self, symbol: str) -> dict[str, Any]:
+    def get_ticker(self, symbol: str) -> Ticker:
         book = self._client.request_public(method="GET", path="/fapi/v1/ticker/bookTicker",
                                            params={"symbol": symbol})
         price = self._client.request_public(method="GET", path="/fapi/v1/ticker/price", params={"symbol": symbol})

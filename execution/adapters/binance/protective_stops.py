@@ -9,7 +9,8 @@ import time
 from decimal import Decimal
 from typing import Any
 
-from trading.application.execution.stops import ACTIVE, MAX_STOP_PCT, MIN_STOP_PCT, TRIGGERED
+from trading.adapters.binance.adapter import ACTIVE, TRIGGERED   # the exchange's status words (step 10b)
+from trading.application.execution.stops import MAX_STOP_PCT, MIN_STOP_PCT
 from trading.application.execution.stops import ProtectiveStopManager as _ProtectiveStopManager
 
 

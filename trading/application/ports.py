@@ -3,6 +3,11 @@
 Method names and signatures follow the code that already implements them (see docs/arch/target.md
 section 3), so the existing Binance adapter and the test venues conform without changes. A port method
 that cannot answer raises; it never returns an empty result that could be mistaken for "nothing there".
+
+What the exchange returns is typed (migration step 10b): records the application only reads are described
+by the ``...View`` protocols below (the Binance adapter returns the frozen records of
+``trading.domain.venue``; the frozen venues and the test venues return objects with the same attributes),
+and placement results are the typed dictionaries of ``trading.domain.venue``.
 """
 from __future__ import annotations
 
@@ -10,9 +15,82 @@ from contextlib import AbstractContextManager
 from decimal import Decimal
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
+from trading.domain.venue import Placement, StopPlacement, Ticker
+
 Clock = Callable[[], float]          # wall-clock seconds since the epoch
 Sleeper = Callable[[float], None]
 Lock = AbstractContextManager[object]   # re-entrant; supplied by the composition root (threading.RLock)
+
+
+class PositionView(Protocol):
+    """A position in the exchange's snapshot; ``qty`` is signed."""
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def qty(self) -> Decimal: ...
+
+    @property
+    def mark_price(self) -> Decimal | None: ...
+
+
+class OpenOrderView(Protocol):
+    @property
+    def order_id(self) -> str: ...
+
+
+class OrderView(Protocol):
+    """An order looked up at the exchange. Its symbol, side and state are read where present."""
+
+    @property
+    def order_id(self) -> str: ...
+
+    @property
+    def client_order_id(self) -> str: ...
+
+    @property
+    def filled_qty(self) -> Decimal: ...
+
+
+class FillView(Protocol):
+    """One exchange trade. ``trade_id``, ``fee`` and ``fee_asset`` are read where present."""
+
+    @property
+    def order_id(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def side(self) -> str: ...
+
+    @property
+    def qty(self) -> Decimal: ...
+
+    @property
+    def price(self) -> Decimal: ...
+
+
+class LotFilters(Protocol):
+    @property
+    def step_size(self) -> Decimal: ...
+
+    @property
+    def min_qty(self) -> Decimal: ...
+
+    @property
+    def min_notional(self) -> Decimal: ...
+
+
+class StopView(Protocol):
+    """A protective stop at the exchange: ``state`` is one of the three states of trading.domain.venue."""
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def actual_order_id(self) -> str: ...
 
 
 @runtime_checkable
@@ -31,15 +109,15 @@ class ExchangeAccount(Protocol):
 
     def get_account_equity(self) -> float: ...
 
-    def get_positions(self, symbol: str = "", *, strict: bool = True) -> tuple[Any, ...]: ...
+    def get_positions(self, symbol: str = "", *, strict: bool = True) -> tuple[PositionView, ...]: ...
 
-    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[Any, ...]: ...
+    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrderView, ...]: ...
 
-    def filters(self, symbol: str) -> Any: ...
+    def filters(self, symbol: str) -> LotFilters: ...
 
     def execution_blockers(self) -> list[str]: ...
 
-    def get_ticker(self, symbol: str) -> dict[str, Any]: ...
+    def get_ticker(self, symbol: str) -> Ticker: ...
 
 
 @runtime_checkable
@@ -47,31 +125,31 @@ class OrderGateway(Protocol):
     """Placement and lookup of ordinary orders. Results of placement are submitted / rejected / error."""
 
     def send_market_order(self, symbol: str, side: str, qty: float, *, reduce_only: bool = False,
-                          client_order_id: str = "") -> dict[str, Any]: ...
+                          client_order_id: str = "") -> Placement: ...
 
     def send_limit_order(self, symbol: str, side: str, qty: float, price: float, *, post_only: bool = True,
-                         reduce_only: bool = False, client_order_id: str = "") -> dict[str, Any]: ...
+                         reduce_only: bool = False, client_order_id: str = "") -> Placement: ...
 
-    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> Any: ...
+    def get_order(self, symbol: str, *, order_id: str = "", client_order_id: str = "") -> OrderView | None: ...
 
-    def cancel_order(self, symbol: str, order_id: str) -> Any: ...
+    def cancel_order(self, symbol: str, order_id: str) -> object: ...   # an acknowledgement; never read
 
     def get_recent_fills(self, *, symbol: Optional[str] = None, order_id: str = "",
-                         since_ms: int = 0, limit: int = 100) -> tuple[Any, ...]: ...
+                         since_ms: int = 0, limit: int = 100) -> tuple[FillView, ...]: ...
 
-    def get_ticker(self, symbol: str) -> dict[str, Any]: ...  # reference quote for a limit entry without a price
+    def get_ticker(self, symbol: str) -> Ticker: ...  # reference quote for a limit entry without a price
 
 
 @runtime_checkable
 class StopOrderGateway(Protocol):
-    """Exchange-side protective stops (STOP_MARKET closePosition)."""
+    """Exchange-side protective stops that close the whole position."""
 
     def place_stop_market(self, symbol: str, side: str, trigger_price: Decimal, *,
-                          client_algo_id: str) -> dict[str, Any]: ...
+                          client_algo_id: str) -> StopPlacement: ...
 
-    def get_algo_order(self, *, client_algo_id: str) -> Any: ...
+    def get_algo_order(self, *, client_algo_id: str) -> StopView | None: ...
 
-    def cancel_algo_order(self, *, client_algo_id: str) -> dict[str, Any]: ...
+    def cancel_algo_order(self, *, client_algo_id: str) -> object: ...   # an acknowledgement; never read
 
 
 @runtime_checkable

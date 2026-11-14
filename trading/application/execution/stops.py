@@ -1,25 +1,27 @@
 """Exchange-side catastrophic stop for each confirmed strategy position (moved from protective_stops.py).
 
 The strategy's own exits run on hourly closes. This manager keeps one
-Binance-side ``STOP_MARKET closePosition`` algo order per open position so a
+exchange-side close-all stop order per open position so a
 large intrabar move, a crashed process or a lost connection still closes the
 position at roughly ``stop_pct`` from the confirmed entry price.
 
 Each ``sync()`` (called every few seconds from the runtime's single thread):
 
 - flat position          -> cancel any active stop;
-- position, no stop      -> place one (deterministic ``clientAlgoId``);
+- position, no stop      -> place one (deterministic client id);
 - position changed       -> replace the stop for the new position revision;
 - stop triggered         -> adopt the resulting exchange order into the
                             durable journal so its fills reach the strategy
                             ledger exactly once;
-- stop canceled/expired  -> place a new one (next attempt id);
-- "would immediately trigger" -> report ``stop_breached`` so the runtime
-                            closes the position with a market order.
+- stop gone (canceled, expired, ...) -> place a new one (next attempt id);
+- placement refused because price is already beyond the trigger -> report
+                            ``stop_breached`` so the runtime closes the
+                            position with a market order.
 
 State lives in the order journal database (table ``protective_stops``). The venue, the executor that
-adopts triggered stops and the clock are injected (migration step 9b);
-``execution.adapters.binance.protective_stops`` supplies ``time.time`` for the legacy callers.
+adopts triggered stops and the clock are injected (migration step 9b). The venue reports a stop in one of
+three states (``trading.domain.venue``) and flags a breached placement itself: no exchange status word
+or error code is known here (step 10b).
 """
 from __future__ import annotations
 
@@ -28,18 +30,26 @@ import logging
 from decimal import Decimal
 from typing import Any, Protocol
 
-from trading.application.ports import Clock, OrderGateway, OrderJournal, StopOrderGateway
+from trading.application.ports import Clock, OrderJournal, OrderView, StopOrderGateway
+from trading.domain.venue import STOP_ACTIVE, STOP_TRIGGERED
 
 logger = logging.getLogger(__name__)
 
-ACTIVE = frozenset({"NEW", "TRIGGERING"})
-TRIGGERED = frozenset({"TRIGGERED", "FINISHED"})
 MIN_STOP_PCT, MAX_STOP_PCT = Decimal("0.005"), Decimal("0.15")
-_IMMEDIATE_TRIGGER = -2021
 
 
-class StopVenue(StopOrderGateway, OrderGateway, Protocol):
+class TriggeredOrder(OrderView, Protocol):
+    """The order a triggered stop became; its side is needed to adopt it."""
+
+    @property
+    def side(self) -> str: ...
+
+
+class StopVenue(StopOrderGateway, Protocol):
     """Places and looks up stops, and looks up the order a triggered stop became."""
+
+    def get_order(self, symbol: str, *, order_id: str = "",
+                  client_order_id: str = "") -> TriggeredOrder | None: ...
 
 
 class StopOwner(Protocol):
@@ -72,7 +82,7 @@ class ProtectiveStopManager:
     # ------------------------------------------------------------------
     def _client_id(self, revision: str, attempt: int) -> str:
         digest = hashlib.sha256(f"{self.executor.scope}:{self.executor.owner}:{revision}:{attempt}".encode())
-        return "qsstop" + digest.hexdigest()[:28]  # 34 chars, Binance limit is 36
+        return "qsstop" + digest.hexdigest()[:28]  # 34 chars; the venue accepts at most 36
 
     def _rows(self, *, live_only: bool = True) -> list[dict[str, Any]]:
         return self.journal.stop_rows(self.executor.owner, self.symbol, live_only=live_only)
@@ -95,8 +105,8 @@ class ProtectiveStopManager:
         current = None
         for row in self._rows():
             state = self.adapter.get_algo_order(client_algo_id=row["client_algo_id"])
-            status = state.status if state is not None else None
-            if status in TRIGGERED:
+            status = state.state if state is not None else None
+            if state is not None and status == STOP_TRIGGERED:
                 if state.actual_order_id:
                     self._adopt(row, state.actual_order_id)
                 self._set(row["client_algo_id"], "triggered")
@@ -105,7 +115,7 @@ class ProtectiveStopManager:
             if status is None and row["status"] == "unknown" and self.clock() - row["created_at"] < 90:
                 current = row  # ambiguous placement; keep looking it up before replacing
                 continue
-            if status not in ACTIVE:
+            if status != STOP_ACTIVE:
                 self._set(row["client_algo_id"], "inactive")
                 continue
             if row["status"] == "canceling":
@@ -137,7 +147,7 @@ class ProtectiveStopManager:
             logger.info("%s protective stop %s %s @ %s", self.symbol, side, client_algo_id, trigger)
         elif result.get("status") == "rejected":
             self._set(client_algo_id, "rejected")
-            if result.get("code") == _IMMEDIATE_TRIGGER:
+            if result.get("breached") is True:
                 issues.append(f"{self.symbol}: stop_breached (price already beyond {trigger})")
             else:
                 issues.append(f"{self.symbol}: protective stop rejected: {result.get('msg')}")

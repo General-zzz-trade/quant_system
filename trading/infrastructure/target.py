@@ -22,9 +22,8 @@ from trading.application.execution.executor import OwnerExecutor
 from trading.application.execution.fills import TargetFillConsumer
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
-from trading.application.execution.stops import ProtectiveStopManager
-from trading.application.ports import (EventLog, ExchangeAccount, KillSwitch, OrderGateway, OrderLimits,
-                                       StopOrderGateway)
+from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
+from trading.application.ports import EventLog, ExchangeAccount, KillSwitch, OrderGateway, OrderLimits
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.readiness import EntryReadinessGate
@@ -43,8 +42,11 @@ HOUR_SECONDS = 3600.0
 ORDERS_FILE, DRAWDOWN_FILE = "orders.sqlite", "drawdown.sqlite"
 
 
-class Account(ExchangeAccount, OrderGateway, StopOrderGateway, Protocol):
+class Account(ExchangeAccount, OrderGateway, StopVenue, Protocol):
     """The connected exchange account: snapshot, orders and stop orders."""
+
+    def get_order(self, symbol: str, *, order_id: str = "",
+                  client_order_id: str = "") -> TriggeredOrder | None: ...
 
 
 @dataclass(frozen=True)
