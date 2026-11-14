@@ -60,14 +60,14 @@ class TestBinanceRestClient:
     def test_request_signed_get(self):
         client = self._make_client()
         resp = self._mock_urlopen({"orderId": 123})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_signed(method="GET", path="/fapi/v1/order", params={"symbol": "BTCUSDT"})
         assert result == {"orderId": 123}
 
     def test_request_signed_post(self):
         client = self._make_client()
         resp = self._mock_urlopen({"orderId": 456})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_signed(method="POST", path="/fapi/v1/order", params={"symbol": "BTCUSDT"})
         assert result == {"orderId": 456}
 
@@ -82,14 +82,14 @@ class TestBinanceRestClient:
     def test_request_public_get(self):
         client = self._make_client()
         resp = self._mock_urlopen({"price": "50000"})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_public(method="GET", path="/fapi/v1/ticker/price", params={"symbol": "BTCUSDT"})
         assert result == {"price": "50000"}
 
     def test_request_public_post(self):
         client = self._make_client()
         resp = self._mock_urlopen({"result": "ok"})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_public(method="POST", path="/fapi/v1/something", params={"x": "1"})
         assert result == {"result": "ok"}
 
@@ -98,7 +98,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 429, "Too Many Requests", {}, BytesIO(b"rate limit"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceRetryableError, match="HTTP 429"):
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
@@ -107,7 +107,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 500, "Internal Server Error", {}, BytesIO(b"server error"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceRetryableError, match="HTTP 500"):
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
@@ -116,7 +116,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 400, "Bad Request", {}, BytesIO(b"bad params"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceNonRetryableError, match="HTTP 400"):
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
@@ -124,7 +124,7 @@ class TestBinanceRestClient:
         from execution.adapters.binance.rest import BinanceRetryableError
         from urllib.error import URLError
         client = self._make_client()
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=URLError("timeout")):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=URLError("timeout")):
             with pytest.raises(BinanceRetryableError, match="Network error"):
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
@@ -136,7 +136,7 @@ class TestBinanceRestClient:
         mock_resp.getheader.return_value = None
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        with patch("execution.adapters.binance.rest.urlopen", return_value=mock_resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=mock_resp):
             with pytest.raises(BinanceRetryableError, match="Invalid JSON"):
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
@@ -147,7 +147,7 @@ class TestBinanceRestClient:
         mock_resp.getheader.return_value = None
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        with patch("execution.adapters.binance.rest.urlopen", return_value=mock_resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=mock_resp):
             result = client.request_signed(method="GET", path="/fapi/v1/order")
         assert result == {}
 
@@ -169,14 +169,14 @@ class TestBinanceRestClient:
     def test_request_api_key_get(self):
         client = self._make_client()
         resp = self._mock_urlopen({"listenKey": "abc123"})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_api_key(method="GET", path="/fapi/v1/listenKey", params={"x": "1"})
         assert result == {"listenKey": "abc123"}
 
     def test_request_api_key_post(self):
         client = self._make_client()
         resp = self._mock_urlopen({"listenKey": "newkey"})
-        with patch("execution.adapters.binance.rest.urlopen", return_value=resp):
+        with patch("trading.adapters.binance.rest.urlopen", return_value=resp):
             result = client.request_api_key(method="POST", path="/fapi/v1/listenKey")
         assert result == {"listenKey": "newkey"}
 
@@ -185,7 +185,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 429, "Rate limit", {}, BytesIO(b"rate"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceRetryableError):
                 client.request_api_key(method="POST", path="/fapi/v1/listenKey")
 
@@ -194,7 +194,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 401, "Unauthorized", {}, BytesIO(b"unauth"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceNonRetryableError):
                 client.request_api_key(method="POST", path="/fapi/v1/listenKey")
 
@@ -203,7 +203,7 @@ class TestBinanceRestClient:
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 418, "I'm a teapot", {}, BytesIO(b"teapot"))
-        with patch("execution.adapters.binance.rest.urlopen", side_effect=err):
+        with patch("trading.adapters.binance.rest.urlopen", side_effect=err):
             with pytest.raises(BinanceRetryableError):
                 client.request_public(method="GET", path="/fapi/v1/ping")
 

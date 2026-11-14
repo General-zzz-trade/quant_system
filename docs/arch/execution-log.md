@@ -351,3 +351,36 @@ Contracts: 4 kept, 0 broken.
 ```
 
 3150 = 3142 + 8。`tests/unit/lab/`（含纸面等于研究、截尾窗口等于全历史）与原来的因果测试都一行未改，全部通过。`core-no-io` 契约从这一步起第一次约束真实代码（策略函数用 numpy/pandas，不读文件、不取时钟），仍然 4 条全部保持。
+
+## 第 8 步：Binance 适配器迁入 `trading/adapters`
+
+**改了什么**
+
+- `trading/adapters/binance/`：`rest.py`、`urls.py`、`adapter.py` 从 `execution/adapters/binance/` 搬来，与原文件只差导入路径和类型标注（逐文件 diff 核对；为通过严格 mypy，补了泛型参数、一个 `NoReturn` 和两处把 `json.loads` 的结果先赋给带类型的变量，运行行为不变）。`config.py` 搬来时去掉了读环境变量的 `from_env`。
+- 一个适配器类同时实现行情、账户、下单、止损四个端口，不拆类。
+- REST 限流从 Rust 的 `RustRateLimitPolicy` 换成纯 Python 实现 `trading/adapters/binance/rate_limit.py`（容量、补充速度、端点权重、算术完全照搬，时钟可注入）。先写对拍测试：5 个随机种子各 3,000 次请求（含随机的权重同步），Python 与 Rust 每一次的放行 / 拒绝结果都相同。
+- 交易所返回的数据对象（`CanonicalFill`、`VenuePosition`、`CanonicalBalance`、`BalanceSnapshot`）原样搬到 `trading/domain/venue.py`；`execution/models/` 里对应的模块改为重导出，所以旧代码里的 `isinstance` 判断看到的仍是同一个类。
+- 读 API 密钥的逻辑搬到 `trading/infrastructure/settings.py`（`trading` 里唯一读环境变量的地方）。旧路径 `execution.adapters.binance.config.BinanceConfig` 保留 `from_env`，内部调用新函数，运行时和脚本照常可用。
+- `execution/adapters/binance/` 下的 `rest.py`、`urls.py`、`adapter.py`、`config.py` 改为兼容薄壳。`ws_kline_client.py`（死代码）和旧的 Rust 限流包装没有搬。
+- `.importlinter` 新增第 5 条契约：`trading.adapters.binance` 与 `trading.adapters.sqlite` 互不依赖。
+- 架构测试新增：在一个干净的子进程里 import `trading.adapters.binance.adapter` 和 `trading.infrastructure.settings`，`sys.modules` 里没有任何遗留顶层包、`tests` 或 Rust 扩展。
+
+**已有测试的改动（不是断言）**：`tests/unit/test_coverage_wave3.py` 里 15 处 `patch("execution.adapters.binance.rest.urlopen")` 改为 `patch("trading.adapters.binance.rest.urlopen")`。代码搬家后，打补丁的位置必须跟着搬，否则补丁打在薄壳上、不影响真正发请求的模块。断言一行未改。`tests/contract/test_ports.py` 的导入改为新路径，断言未改。
+
+**通用验收（原始输出尾部）**
+
+```
+3158 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 432.75s (0:07:12)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 30 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+3158 = 3150 + 7（限流）+ 1（隔离）。`tests/unit/binance/`、`tests/unit/execution/test_binance_urls.py`、第 1 步的特征化测试一行未改，全部通过。
+
+**遗留**：自己写的两个限流测试第一次跑失败，原因是我对浮点补充量（`0.1 秒 × 10` 略小于 1）和"首次请求才开始计时"的预期写错了；以 Rust 对拍为准修正了测试里的期望值，实现没改。

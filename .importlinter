@@ -76,3 +76,11 @@ source_modules =
 forbidden_modules =
     logging
     sys
+
+[importlinter:contract:adapters-independent]
+name = adapters do not import each other
+type = independence
+modules =
+    trading.adapters.binance
+    trading.adapters.sqlite
+
