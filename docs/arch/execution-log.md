@@ -573,3 +573,64 @@ Contracts: 5 kept, 0 broken.
 ```
 
 测试数量与第 9b 步相同（3222），没有新增或修改测试。
+
+## 第 9d 步：执行决策迁入 `trading/application/execution/service.py`，适配器只做事件格式转换
+
+这是第 9 步的最后一份。做完之后，Binance 执行适配器里不再有任何下单决策。
+
+**改了什么**
+
+- `trading/application/execution/service.py`：新的 `ExecutionService`，接收 `OrderIntent`（第 7 步的领域类型，不依赖 Rust）。原来 `BinanceExecutionAdapter` 里的决策原样搬来：
+  - 重复的意图不再下单；
+  - 入场需要对账干净并且熔断器放行，否则标记 `blocked`；
+  - 挂单入场价 = 参考价 ×（1 ∓ 偏移）；
+  - 减仓先撤残留入场单，再按自有仓位定量，并把检查点版本写进随订单保存的记录；
+  - 任何失败都阻断入场、计入熔断器、不重试；
+  - 收编交易所订单（触发的止损）、读成交事实、通知状态、轮询、对账。
+- 时钟、单调时钟、锁、熔断器、成交成本日志（`EventLog` 端口）都由构造参数注入。应用层不再 import `monitoring`，也不读环境变量。
+- `send()` 返回"是否已进入下单生命周期"和成交事实。随订单保存的记录由调用方提供的函数生成，只有通过全部检查的意图才会调用它，与原来生成记录的位置相同。
+- `execution/adapters/binance/execution_adapter.py` 改为只做格式转换：把旧的订单事件转成 `OrderIntent` 和带事件头的记录，把成交事实转成 `FillEvent`。
+  - 构造函数签名、`_ready`、`_status_callback`、`journal`、`scope` 和各个方法都保留，运行时、`ProtectiveStopManager` 和测试一行未改。
+  - 成交成本日志通过一个小的端口实现写入同一个 `tca_binance.jsonl`。
+- **去掉读环境变量（计划第 9 步已批准的改动）**：适配器不再从 `RISK_SCOPE`、`ORDER_JOURNAL_PATH` 取默认值，缺少作用域或日志路径时直接报错。`runner/binance_target.py` 和 `runner/binance_main.py` 本来就显式传入这两个值，不受影响。`runner/builders/alpha_builder.py` 改为自己读环境变量后显式传入，行为不变。
+- 新增架构规则：`shared/confirmed_execution.py` 和 `execution/adapters/binance/` 下的模块不得读环境变量。
+
+**没有做的（如实说明）**
+
+- 运行时（`runner/binance_target.py`）仍然构造旧的 `TargetOrderEvent`，由适配器转成 `OrderIntent`。运行时本身改用 `OrderIntent` 要等第 10 步把会话迁入应用层时一起做，否则要同时改入场门和会话。
+- 适配器里保留了一份与 `ExecutionService` 重复的参数校验，用来保持原来的报错文字和"参数不合法时不建日志文件"。第 15 步删薄壳时一起删。
+
+**证据**
+
+- 新增 `tests/unit/trading/test_execution_service.py`（21 个）：直接用 `OrderIntent` 驱动 `ExecutionService`，协作者全部注入，不经过旧事件类型。
+- `tests/characterization/test_execution_boundaries.py` 新增 2 个：环境变量里即使设置了作用域和日志路径，适配器也不使用；数量无法解析的订单在有持仓可平的情况下也不会发出任何订单（不会被当成"数量为 0 的全平"）。
+- 已有测试没有改动。第 1 步的特征化测试、第 9b 步的边界测试、`tests/unit/binance/`、`tests/unit/lab/test_target_runtime*.py` 全部通过。
+- 【实际运行结果】新旧对比，在 master 和本步代码上分别运行：
+  - 同一组订单（市价入场加平仓；挂单入场、部分成交、平仓时撤单）写出的成交成本记录，除时间和延迟外逐字段相同；
+  - 4 个探针的 6 个场景输出相同。
+- 【实际运行结果】对 `service.py` 和适配器注入 27 个缺陷，全部被测出。
+- 对比时发现一个探针自身的问题：`probe_fill_truncation.py` 打印"最后一行订单"，而日志返回行的顺序取决于随机生成的订单号，在 master 上连跑 6 次就有 3 种输出。已改为按创建时间排序，改后 master 和本步各跑 4 次，8 次输出相同。这是探针的缺陷，不是产品行为的差别。
+
+**可见的差别**
+
+- 执行失败和入场被阻断的日志，记录器名字从 `execution.adapters.binance.execution_adapter` 变成 `trading.application.execution.service`，失败日志的文字从 "Binance order unresolved or blocked; no placement retry" 变成 "Order unresolved or blocked; no placement retry"。【实际运行结果】仓库里没有测试或配置按这些名字或文字过滤。
+- 成交成本日志文件原来每批成交打开一次，现在每笔成交打开一次，写出的内容相同。
+- 缺少字段的畸形订单事件（正常流程不会产生），失败的先后顺序可能不同，结果同样是不下单并阻断入场。
+
+**行数**：分两次提交。第一次是实现（`service.py` 198 行，其中决策逻辑是从适配器搬来改写的；适配器净改约 90 行；规则、构建器、探针约 20 行）。第二次是测试（新测试 308 行，边界测试 25 行）。每次提交都少于 400 行手写。
+
+**通用验收（原始输出尾部）**
+
+```
+3279 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 467.12s (0:07:47)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 36 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+3279 = 3254（研究代码合入后）+ 1（已登记规格的完整性测试）+ 1（环境变量规则）+ 21 + 2。

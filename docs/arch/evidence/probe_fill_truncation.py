@@ -42,8 +42,12 @@ consumer = TargetFillConsumer(ex)
 def drain():
     for ev in ex.reconcile_pending():
         consumer.consume(ev)
+def ordered(**kw):
+    # The journal returns rows in intent-id order and intent ids are random: sort by creation time, then
+    # entries before reductions, then size (the two entries share one fake-clock time).
+    return sorted(ex.journal.orders(OWNER, **kw), key=lambda r: (r["created_at"], r["reducing"], D(r["qty"])))
 def rows():
-    return [(r["status"], r["settled"], r["reducing"], r["qty"]) for r in ex.journal.orders(OWNER)]
+    return [(r["status"], r["settled"], r["reducing"], r["qty"]) for r in ordered()]
 
 ex.send_order(make_open_order("BTCUSDT", "BTCUSDT", 100.0, 1, D("0.05"))[0]); drain()      # 50 trades: settles
 print("T0 entry 0.05 (50 trades):", rows(), "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])
@@ -61,5 +65,5 @@ for _ in range(3):
 print("T2 close-all (qty=0) sent:", len(fake.posts) - posts, "POST; row:", rows()[-1], "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])
 posts = len(fake.posts)
 ex.send_order(make_close_order("BTCUSDT", "BTCUSDT", 100.0, 1, "kill_switch_retry", D("0"), D("0.001"))[0]); drain()
-print("T3 another close attempt:", len(fake.posts) - posts, "POST; unresolved rows:", [(r["status"], r["reducing"]) for r in ex.journal.orders(OWNER, unresolved=True)],
+print("T3 another close attempt:", len(fake.posts) - posts, "POST; unresolved rows:", [(r["status"], r["reducing"]) for r in ordered(unresolved=True)],
       "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])

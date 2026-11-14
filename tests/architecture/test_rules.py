@@ -47,6 +47,14 @@ def test_only_infrastructure_reads_the_environment():
     assert offenders == []
 
 
+def test_the_binance_execution_path_takes_its_scope_and_journal_from_the_caller():
+    """Migration step 9d: no module between the runtime and the venue reads the environment."""
+    paths = [ROOT / "shared/confirmed_execution.py", *sorted((ROOT / "execution/adapters/binance").glob("*.py"))]
+    offenders = [f"{p.relative_to(ROOT)}:{line}" for p in paths
+                 for line in _env_reads(ast.parse(p.read_text(encoding="utf-8")))]
+    assert offenders == []
+
+
 def test_env_rule_detects_reads():
     tree = ast.parse("import os\nfrom os import environ\nx = os.environ.get('A')\ny = os.getenv('B')\n"
                      "import os as o\nz = o.environ\nw = o.getenvb(b'C')\nv = getattr(o, 'environ')\n")
