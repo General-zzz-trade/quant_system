@@ -39,9 +39,24 @@ class LotRules(Protocol):
     def min_notional(self) -> Decimal: ...
 
 
+class RoutedOrder(Protocol):
+    """What the session reads of the order it built: its durable intent id."""
+
+    @property
+    def order_id(self) -> str: ...
+
+
 class OrderFactory(Protocol):
     def __call__(self, *, order_id: str, source: str, symbol: str, side: str, qty: Decimal, price: Decimal,
                  reduce_only: bool, reason: str) -> Any: ...
+
+
+@dataclass
+class Deferred:
+    """Entries of one bar that only the orders-per-second limit refused; asked again on later cycles."""
+    bar: Bar
+    reason: str
+    items: list[tuple[int, Intent]]
 
 
 @dataclass
@@ -76,6 +91,7 @@ class TargetSession:
         self.equity: Any = execution.equity if execution else None
         self._logged = 0
         self.pending: dict[str, bool] = {}   # working order id -> reduce_only
+        self.deferred: Deferred | None = None
 
     # -- data ---------------------------------------------------------------
     def funding_series(self, upto: int | None = None) -> Any:
@@ -130,24 +146,69 @@ class TargetSession:
                 self.journal.write("fill", symbol=self.symbol, order_id=event.order_id, side=event.side,
                                    qty=str(event.qty), price=str(event.price))
 
+    def _order(self, k: int, intent: Intent, bar: Bar, reason: str) -> Any:
+        return self._make_order(order_id=f"{self.symbol}:{bar.available_at}:{reason}:{k}",
+                                source=f"target.{self.symbol}", symbol=self.symbol, side=intent.side,
+                                qty=intent.qty, price=bar.close, reduce_only=intent.reduce_only, reason=reason)
+
+    def _blocked(self, order_id: str, reason: str, **extra: Any) -> None:
+        self.journal.write("blocked", symbol=self.symbol, order_id=order_id, reason=reason, **extra)
+
+    def _send(self, order: RoutedOrder, intent: Intent) -> None:
+        self.pending[order.order_id] = intent.reduce_only
+        self.executor.send_order(order)
+        self.executor.notify_status()
+        self.consume_fills()
+
     def submit(self, intents: list[Intent], bar: Bar, reason: str) -> None:
         for k, intent in enumerate(intents):
-            order = self._make_order(order_id=f"{self.symbol}:{bar.available_at}:{reason}:{k}",
-                                     source=f"target.{self.symbol}", symbol=self.symbol, side=intent.side,
-                                     qty=intent.qty, price=bar.close, reduce_only=intent.reduce_only, reason=reason)
+            order = self._order(k, intent, bar, reason)
             self.journal.write("intent", symbol=self.symbol, order_id=order.order_id, side=intent.side,
                                qty=str(intent.qty), reduce_only=intent.reduce_only, reason=reason)
             if self.sleeve is not None:
                 self.sleeve.broker.send_order(order)
                 continue
             check = self.gate.check(order)
-            if not check.allowed:
-                self.journal.write("blocked", symbol=self.symbol, order_id=order.order_id, reason=check.reason)
+            if check.allowed:
+                self._send(order, intent)
+            elif check.retry and not intent.reduce_only:
+                # Only the orders-per-second limit refused it (the other symbol has just traded): keep the
+                # entry and ask again on a later cycle of the same bar (decision 2026-11-14, defect R23).
+                if self.deferred is None or self.deferred.bar is not bar or self.deferred.reason != reason:
+                    self.deferred = Deferred(bar, reason, [])
+                self.deferred.items.append((k, intent))
+                self._blocked(order.order_id, check.reason, retry=True)
+            else:
+                self._blocked(order.order_id, check.reason)
+
+    def retry_deferred(self, now_ms: int) -> None:
+        """Ask again for the entries the rate limit refused; drop them once the bar is too old to enter."""
+        deferred = self.deferred
+        if deferred is None:
+            return
+        self.deferred = None
+        late = now_ms - deferred.bar.available_at > MAX_ENTRY_DELAY_MS
+        waiting: list[tuple[int, Intent]] = []
+        for k, intent in deferred.items:
+            order = self._order(k, intent, deferred.bar, deferred.reason)
+            if late:
+                self._blocked(order.order_id, "inputs: bar processed too late")
                 continue
-            self.pending[order.order_id] = intent.reduce_only
-            self.executor.send_order(order)
-            self.executor.notify_status()
-            self.consume_fills()
+            check = self.gate.check(order)
+            if check.allowed:
+                self._send(order, intent)
+            elif check.retry:
+                waiting.append((k, intent))
+            else:
+                self._blocked(order.order_id, check.reason)
+        if waiting:
+            self.deferred = Deferred(deferred.bar, deferred.reason, waiting)
+
+    def drop_deferred(self, why: str) -> None:
+        if self.deferred is not None:
+            for k, intent in self.deferred.items:
+                self._blocked(self._order(k, intent, self.deferred.bar, self.deferred.reason).order_id, why)
+            self.deferred = None
 
     # -- the hourly step ----------------------------------------------------
     def process_bar(self, bar: Bar, *, live: bool, now_ms: int) -> None:
@@ -179,6 +240,7 @@ class TargetSession:
                                equity=str(self.sleeve.broker.equity), qty=str(self.sleeve.broker.position.qty),
                                target=target)
             return
+        self.drop_deferred("superseded by a newer bar")
         if not ready:
             return
         intents = plan(target, equity=self.sleeve_equity(), price=bar.close, current_qty=self.position_qty(),
@@ -188,10 +250,11 @@ class TargetSession:
         self.submit(intents, bar, "rebalance")
 
     def flatten(self, reason: str) -> None:
+        self.drop_deferred(f"{reason}: deferred entry dropped")
         qty = self.position_qty()
         if qty == 0 or self.pending or not self.bars:
             return
         self.submit([Intent("sell" if qty > 0 else "buy", abs(qty), True)], self.bars[-1], reason)
 
 
-__all__ = ["BROKER_STATE", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
+__all__ = ["BROKER_STATE", "Deferred", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
