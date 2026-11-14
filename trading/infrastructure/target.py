@@ -20,10 +20,11 @@ from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.equity import EquitySource
 from trading.application.execution.executor import OwnerExecutor
 from trading.application.execution.fills import TargetFillConsumer
+from trading.application.execution.flatten import Flattener
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
-from trading.application.ports import EventLog, ExchangeAccount, KillSwitch, OrderGateway, OrderLimits
+from trading.application.ports import Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway, OrderLimits
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.readiness import EntryReadinessGate
@@ -93,7 +94,7 @@ def paper_sessions(spec: StrategySpec, symbols: Sequence[str], *, journal: Event
 
 
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
-                       equity: EquitySource, inputs: ExecutionInputs) -> ExecutionWiring:
+                       equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time) -> ExecutionWiring:
     leverage, margin = exchange_settings()
     check_stop_inside_liquidation(float(inputs.stop_pct), leverage, margin)   # before anything is created
     account, scope, limits = inputs.account, inputs.scope, inputs.limits
@@ -125,7 +126,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=time.time)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
-                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity))
+                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity,
+                                                         Flattener(symbol, executor, account, journal, clock)))
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
         sessions[symbol] = session

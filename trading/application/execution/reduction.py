@@ -20,8 +20,10 @@ class Reduction:
 
 
 def size_reduction(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str, side: str,
-                   qty: Decimal) -> Reduction:
-    """``qty == 0`` closes the whole owned position, whatever ``side`` says."""
+                   qty: Decimal, cap_to_owner: bool = True) -> Reduction:
+    """``qty == 0`` closes the whole owned position, whatever ``side`` says. With ``cap_to_owner`` false the
+    venue position alone sets the size (an emergency flatten, ADR-0005 3b); the checkpoint revision is still
+    recorded, so the order journal refuses the reduction if the checkpoint changes before it is reserved."""
     positions = [p for p in account.get_positions(symbol=symbol, strict=True)
                  if p.symbol == symbol and Decimal(str(p.qty)) != 0]
     if len(positions) != 1:
@@ -33,7 +35,10 @@ def size_reduction(account: ExchangeAccount, journal: OrderJournal, *, owner: st
         raise ValueError("Reduction side does not reduce venue position")
     qty = min(qty, abs(actual))
     consumer_revision = None
-    if owner:
+    if owner and not cap_to_owner:
+        checkpoint = journal.checkpoint(owner)
+        consumer_revision = checkpoint["revision"] if checkpoint else None
+    elif owner:
         checkpoint = journal.checkpoint(owner)
         owned = Decimal(checkpoint["position"]["qty"]) if checkpoint else Decimal(0)
         if not checkpoint or not owned.is_finite() or owned * actual <= 0:

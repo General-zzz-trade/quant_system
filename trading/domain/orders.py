@@ -88,6 +88,10 @@ class OrderIntent:
     price: Decimal       # reference price at decision time
     reduce_only: bool
     reason: str
+    # Close the symbol's whole position at the venue, not only what this strategy owns: the flatten of a kill
+    # switch or a latched drawdown on an account dedicated to this runtime (ADR-0005 3b). Needs
+    # ``reduce_only`` and ``qty == 0``.
+    close_venue_position: bool = False
 
 
 @dataclass(frozen=True)

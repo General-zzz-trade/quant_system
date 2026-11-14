@@ -1,6 +1,7 @@
 """Exit paths of runner.binance_target in execution mode, against the in-memory fake venue."""
 from __future__ import annotations
 
+import json
 from decimal import Decimal as D
 
 import pytest
@@ -48,28 +49,38 @@ def test_kill_flatten_closes_the_position_when_the_venue_accepts(tmp_path):
     assert runtime.sessions["BTCUSDT"].position_qty() == 0
 
 
-@pytest.mark.known_defect("R1")
-def test_current_rejected_flatten_is_not_retried_within_the_same_bar(tmp_path):
+def _kill_intents(tmp_path, symbol="BTCUSDT"):
+    path = tmp_path / "exec/target_events.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    return [r["order_id"] for r in rows if r["kind"] == "intent" and r["symbol"] == symbol
+            and r["reason"] == "kill_switch"]
+
+
+def test_a_rejected_flatten_is_retried_thirty_seconds_later_within_the_same_bar(tmp_path):
+    """R1, fixed in migration step 11 (ADR-0005 1b). Until then this test pinned the defect: one attempt in six
+    cycles of the same bar, and the retry only on the next bar, because the order id was fixed per bar."""
     world, runtime = _execution(tmp_path, execution="market")
     btc = world["fakes"]["BTCUSDT"]
     i = _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
     _advance(world, runtime, i)
-    i += 1
     position = btc.positions["BTCUSDT"]
     runtime.kill.write(active=True, reason="test", flatten=True)
     posts = len(btc.posts)
     btc.fault, btc.fault_code = "reject", -1008          # the venue rejects the first reduce-only order
-    for _ in range(6):
-        _tick(world, runtime)
-    assert len(btc.posts) - posts == 1                  # one attempt in six cycles of the same bar
+    for _ in range(5):
+        _tick(world, runtime)                            # 6 s to 30 s: the first attempt, rejected and settled
+    assert len(btc.posts) - posts == 1
     assert btc.positions["BTCUSDT"] == position
-    _advance(world, runtime, i)                          # next bar: new order id, flatten succeeds
+    _tick(world, runtime)                                # 30 s after the first attempt: a new attempt, a new id
     assert len(btc.posts) - posts == 2
     assert btc.positions["BTCUSDT"] == 0
+    first, second = _kill_intents(tmp_path)
+    assert (first.rsplit(":", 1)[1], second.rsplit(":", 1)) == ("0", [first.rsplit(":", 1)[0], "1"])
 
 
-@pytest.mark.known_defect("R2")
-def test_current_kill_flatten_waits_for_a_resting_entry_which_keeps_filling(tmp_path):
+def test_kill_flatten_cancels_a_resting_entry_first_then_closes_the_position(tmp_path):
+    """R2, fixed in migration step 11 (ADR-0005 2b, invariant K2). Until then this test pinned the defect: no
+    flatten while the entry was pending, and the entry stayed open and kept filling under the kill switch."""
     world, runtime = _execution(tmp_path, execution="maker", ttl_bars=3)
     btc = world["fakes"]["BTCUSDT"]
     _until(world, runtime, lambda: bool(btc.orders))
@@ -78,15 +89,13 @@ def test_current_kill_flatten_waits_for_a_resting_entry_which_keeps_filling(tmp_
     _tick(world, runtime)
     runtime.kill.write(active=True, reason="test", flatten=True)
     posts = len(btc.posts)
+    _tick(world, runtime)
+    assert btc.orders[order_id]["status"] == "CANCELED"                       # the entry is canceled first
+    assert btc.positions["BTCUSDT"] == 0                                      # then the filled part is closed
+    assert [p.get("reduceOnly") in (True, "true") for p in btc.posts[posts:]] == [True]
     for _ in range(3):
         _tick(world, runtime)
-    assert len(btc.posts) == posts                      # no flatten order while the entry is pending
-    assert btc.orders[order_id]["status"] == "PARTIALLY_FILLED"   # and the entry is not canceled
-    before = abs(btc.positions["BTCUSDT"])
-    btc.fill_limit(order_id, D("0.002"))
-    _tick(world, runtime)
-    assert abs(btc.positions["BTCUSDT"]) > before       # exposure grows under an active kill switch
-    assert len(btc.posts) == posts
+    assert len(btc.posts) == posts + 1 and btc.positions["BTCUSDT"] == 0     # and nothing else goes out
 
 
 @pytest.mark.known_defect("R13")

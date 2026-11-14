@@ -108,12 +108,12 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
-- Stops and flattening follow the consumed ledger, not the venue position.
-- Kill and drawdown flattening wait while an entry order is working.
+- Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
+  position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement is only logged.
 - One failed REST call exits the process (`binance_main`; since migration step 1b `binance_target` backs off on market-data failures instead).
 - `binance_target` only:
-  - A failed flatten is not retried until the next bar, because the order id is deterministic per bar.
+  - Flatten alerts (10 failed attempts in a row) are event-log rows and a status field only; no notifier yet.
   - There is no paper-vs-replay compare tool.
 - `binance_main` only:
   - After 5 failed exits, the runtime rewrites an operator's `flatten: true` kill file to `false`.

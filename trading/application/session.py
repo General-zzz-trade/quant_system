@@ -67,6 +67,7 @@ class ExecutionParts:
     stops: Any
     gate: Any
     equity: EquitySource
+    flattener: Any = None       # trading.application.execution.flatten.Flattener
 
 
 class TargetSession:
@@ -89,6 +90,7 @@ class TargetSession:
         self.stops: Any = execution.stops if execution else None
         self.gate: Any = execution.gate if execution else None
         self.equity: Any = execution.equity if execution else None
+        self.flattener: Any = execution.flattener if execution else None
         self._logged = 0
         self.pending: dict[str, bool] = {}   # working order id -> reduce_only
         self.deferred: Deferred | None = None
@@ -157,6 +159,9 @@ class TargetSession:
     def _send(self, order: RoutedOrder, intent: Intent) -> None:
         self.pending[order.order_id] = intent.reduce_only
         self.executor.send_order(order)
+        refusal = self.executor.take_refusal(order.order_id)
+        if refusal is not None:                  # ADR-0005 7b: say why the order journal refused it
+            self._blocked(order.order_id, f"journal: {refusal}")
         self.executor.notify_status()
         self.consume_fills()
 
@@ -250,11 +255,12 @@ class TargetSession:
         self.submit(intents, bar, "rebalance")
 
     def flatten(self, reason: str) -> None:
+        """Exit for a kill switch, a latched drawdown or a breached stop; called every cycle while it holds.
+        Resting entries are canceled first and failed attempts are retried (step 11, ``Flattener``)."""
         self.drop_deferred(f"{reason}: deferred entry dropped")
-        qty = self.position_qty()
-        if qty == 0 or self.pending or not self.bars:
+        if self.flattener is None or not self.bars:
             return
-        self.submit([Intent("sell" if qty > 0 else "buy", abs(qty), True)], self.bars[-1], reason)
+        self.flattener.flatten(reason, bar=self.bars[-1], ledger=self.position_qty, consume=self.consume_fills)
 
 
 __all__ = ["BROKER_STATE", "Deferred", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
