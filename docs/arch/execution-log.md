@@ -206,3 +206,32 @@ Contracts: 4 kept, 0 broken.
 **遗留**
 
 - 观察模式何时改为"生产也拒绝表外转移"，留到第 6 步之后的审计根据日志决定。
+
+## 第 6 步：订单库单一所有者
+
+**改了什么**
+
+- 新增 `trading/adapters/sqlite/order_journal.py`（`SqliteOrderJournal`）：接管原 `shared/execution_journal.py` 的全部内容（`orders`、`fills`、`checkpoint` 三个方法逐字相同，`consume` 只有参数类型标注不同，已用 diff 核对），并新增方法承接散落在别处的 SQL：意图预留（原来在 `shared/confirmed_execution.py` 的一个 `BEGIN IMMEDIATE` 事务里，规则和顺序原样搬过来，返回被拒原因）、存订单号、改状态 / 结算、按意图取成交、取单笔成交、写入成交、止损订单收编、止损表的建表与读写。
+- `shared/confirmed_execution.py`、`execution/adapters/binance/execution_adapter.py`、`execution/adapters/binance/protective_stops.py` 改为调用这些方法；三个文件里不再有任何 `.execute(`。执行器新增 `track()`，收编止损时不再直接改它的内部字典。
+- `shared/execution_journal.py` 改为薄壳。冻结的 Bybit / OKX 适配器、ML 运行时和测试仍可用原来的 `connect()` 直接访问。
+- `OrderJournal` 端口补上这些方法；端口契约测试自动覆盖。
+- 新增 `tests/contract/test_order_journal_compat.py`：用重构前（`e3cd2d6`）的建表语句造一个带未结订单、未投递成交和有效止损的库，新代码能原样读出、恢复未决订单（已确认数量和已见成交号都对），并且这张未结订单仍然挡住新的入场。
+- 架构测试新增：Binance 下单路径上（执行器和 `execution/adapters/binance/`）不得出现 `.execute(`。
+
+表结构不变；新旧代码读写同一个库文件。
+
+**通用验收（原始输出尾部）**
+
+```
+3132 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 379.30s (0:06:19)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 17 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+3132 = 3130 + 1（兼容性）+ 1（架构规则）。订单相关的全部已有测试（含子进程强杀的崩溃恢复测试）与第 1、5 步的特征化测试一行未改，全部通过；全量测试在严格的状态转移检查下通过。
