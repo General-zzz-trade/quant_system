@@ -1,7 +1,7 @@
 # 迁移执行记录（阶段 4）
 
-- 分支：`arch-migration`（从 `arch-diagnosis` 拉出）。每一步一个提交，未推送。
-- 批准（2026-11-14）：第一批、第二批全部按建议批准；交易账户专用于本运行时；连续执行全部步骤。
+- 分支：第 1–6 步在 `arch-migration` 上完成，2026-11-14 经 PR #7（合并提交 `e1bad0a`，CI 8 项全绿）合入 `master`，旧分支已删除。此后每一步用临时分支加 PR，合并后立即删除分支。
+- 批准（2026-11-14）：技术负责人回复"全部执行"，批准了当时摘要里列出的两批建议（第一批：ADR-0001–0004 的结构决策、ADR-0008 子决策 1、行数口径；第二批：ADR-0005 子决策 1–7、ADR-0007 子决策 1、3、4），并确认交易账户专用于本运行时、连续执行全部步骤。各 ADR 的状态行逐条写明了批准范围和仍未回答的事项。
 - 每一步的"通用验收"是：全量 pytest、`ruff check --select E,W,F .`、`scripts/check_local_safety.py`，第 2 步之后加 `lint-imports`。下面贴的是原始输出的尾部。
 - 基线（HEAD `e3cd2d6`）：`2920 passed, 34 skipped, 24 deselected`；ruff 通过；本地安全检查 `Ran 347 tests ... OK (skipped=1)`。
 
@@ -268,6 +268,50 @@ Contracts: 4 kept, 0 broken.
 
 ```
 3141 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 419.89s (0:06:59)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 17 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+## 第 6 步之后的自检审计（独立审计员，审计对象 `0347153`）与处理
+
+结论：没有致命问题。第 4、6 步逐行核对与基线等价（入场门 `check()` 逐字相同；预留事务的规则顺序、事务边界、`created_at` 取值时点都一致；结算与改状态的 SQL 条件一致）；第 5 步的观察模式在生产中不改变控制流；没有放宽任何已有断言。审计期间第 4–6 步已经通过 PR #7 合入 `master`，这次审计没能在合并前放行，这一点如实记录。
+
+| 编号 | 级别 | 问题 | 处理 |
+|---|---|---|---|
+| H1 | 高 | `0347153` 上 `tests/unit/trading` 不在 CI 和 `make test` 里 | 合并前的 `5877ece` 已补上；`master` 合并后的 CI（`e1bad0a`）全绿 |
+| H2 | 高 | 第 6 步搬走的几处 SQL 细节（结算条件、"已结不能再改"的 `settled=0` 条件、收编行与止损行的初始状态、有效止损的状态集合、`created_at` 时点、结算后移出 pending）注入后测试都发现不了 | 第 9 步之前直接对 `SqliteOrderJournal` 补测试 |
+| M1 | 中 | 转移表 30 种转移里只有 12 种有测试证据；`test_domain_orders` 的 110 个用例由表本身推出，不固定表的内容 | 第 9 步之前补齐证据或收窄表；目标文档 O2 改为"部分" |
+| M2 | 中 | "根据生产日志决定何时改为拒绝"的条件不会满足 | 写进 ADR-0004 实施记录 |
+| M3 | 中 | 严格检查看不到子进程、unittest 方式的运行、模块级 fixture 和插入语句 | 记录；第 1 条的表述"任何测试只要产生表外转移就失败"更正为"在 pytest 进程内的函数级测试中" |
+| M4 | 中 | 规则仍有绕过写法：只引用不调用 `datetime.now`、`sys.modules`、`threading`、带类型标注的 `MAX_TOTAL_LEVERAGE`、`typing.Any` 别名、`logging.FileHandler`、`getattr(os, "environ")`、`executemany`/`executescript`、门禁里的 `-k`/`-m`/`continue-on-error`、单引号字面量；`sqlite3` 规则没实现 | 全部补上。把这些写法放进 `trading/` 试跑：`lint-imports` 报 `2 kept, 2 broken`，架构测试 4 个失败；删掉后恢复 |
+| M5 | 中 | "单一写入者"说过头：ML 运行时与冻结适配器仍经 `connect()` 写 | 代码注释、ADR-0004、目标文档 O3 如实改写 |
+| M6 | 中 | CI 覆盖率门禁还统计已成薄壳的 `shared.*`，搬走的逻辑不在统计内 | 改为统计 `trading.application.risk`、`trading.adapters.sqlite`、`trading.domain.risk`、`trading.domain.orders`；本地实跑 `Total coverage: 80.73%`（门槛 75%） |
+| M7 | 中 | 上次修补让执行模式在行情恢复后连最新一根 K 线的减仓也不下，超出 ADR-0007 的批准文字 | 技术负责人 2026-11-14 选择"只用最新一根决策，允许减仓"。已改：较早错过的 K 线只补窗口，最新一根照常决策，减仓立即下，开仓仍被"处理过晚"挡住。测试改为断言"只有最新一根 K 线产生意图、只发减仓单"；把行为改回"每根都交易"后该测试失败。已写入 ADR-0007 |
+| M8 | 中 | ADR-0004 的实现与方案 B 文字不同，没有记录 | 写入 ADR-0004 实施记录 |
+| L1 | 低 | 入场门的特征化测试用手工构造而非 `for_execution`，检查顺序与 `reduce_only` 的严格判断没被测 | 第 10 步（入场门迁入运行时组装）时补 |
+| L2 | 低 | 薄壳丢了 `ABSENT`、私有 `_periods` 和类名 | 记录；仓库内无使用者 |
+| L3 | 低 | 执行器从适配器导入拒绝原因常量，第 9 步会违反分层 | 第 9 步时移到 domain |
+| L4 | 低 | `update_status` 的 SELECT 与 UPDATE 不在同一写事务 | 记录；只影响观察记录 |
+| L5 | 低 | 计划、目标文档、执行记录、ADR-0007 有过时或不一致的表述 | 已修正 |
+
+### 本次修补的改动
+
+- `runner/binance_target.py`：行情恢复后只用最新一根 K 线决策（M7）。
+- `tests/unit/lab/test_target_runtime_resilience.py`：上一条对应的测试按批准的新规则改断言。**这是本项目第一次修改已有测试的断言**，原因是技术负责人批准的行为变更；原断言"恢复周期内没有任何下单"改为"只有最新一根 K 线产生意图，且只发减仓单"。
+- `.importlinter`、`tests/architecture/test_rules.py`：M4。
+- `.github/workflows/ci.yml`：M6。
+- 文档：L5、M5、M7、M8。
+
+**通用验收（原始输出尾部）**
+
+```
+3142 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 418.18s (0:06:58)
 $ ruff check --select E,W,F .
 All checks passed!
 $ python3 scripts/check_local_safety.py

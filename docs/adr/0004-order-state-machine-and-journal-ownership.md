@@ -64,3 +64,14 @@ B。其余 4 套实现按 ADR-0008 删除。
 
 1. 是否同意以在用实现为准，删除另外 4 套。
 2. 是否需要一个人工处置工具（把卡死的订单标为已结算，需要操作员给出理由并留痕）。现在只能手改 SQLite。
+
+## 实施记录（2026-11-14，第 5、6 步，第 6 步后审计 M8、M5）
+
+与方案 B 的文字有三处不同，如实记录：
+
+- 端口没有 `transition(intent_id, to)`。适配器提供 `update_status(intent_id, status, settle=...)`，返回写入前的状态；转移表的检查在执行器 `shared/confirmed_execution.py` 里做（第 9 步执行器迁入 `trading/application` 后归位）。
+- 非法转移在生产中不抛错，只记 ERROR 日志（观察模式）；测试中任何非法转移都会让测试失败。审计指出，纸面模式不经过执行器，所以"等生产日志再决定何时改为拒绝"这个条件实际上不会满足。第 9 步之前要么补齐转移表的测试证据，要么把表收窄到有证据的转移，再决定是否改为拒绝。
+- "`sqlite3` 只允许在 `trading.adapters.sqlite` 被 import"用 AST 测试实现（`tests/architecture/test_rules.py`），不是 import-linter 契约。
+
+单一写入者只在 Binance 目标仓位运行时的路径上成立。ML 运行时的 `engine/durable_fills.py` 和冻结的 Bybit/OKX 适配器仍通过 `connect()` 直接写这几张表；它们随 ADR-0008 子决策 3 的去留一起处理。
+
