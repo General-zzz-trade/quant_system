@@ -2,6 +2,19 @@
 
 No exchange client is imported. OHLC cannot determine queue position: maker
 orders require strict price penetration, have a volume cap and expire.
+
+Optional isolated-margin mode (``isolated_leverage`` > 0, off by default):
+gross exposure up to ``MAX_TOTAL_LEVERAGE`` x equity, a protective stop per
+position (``set_stop``), and liquidation at the isolated-margin price. Within a
+bar the order of events is unknown, so the model is deliberately adverse:
+- an open beyond the liquidation price liquidates (loss = posted margin);
+- a stop crossed intrabar fills at the stop, or at the open when the open has
+  already gapped through it, minus ``stop_slippage_bps``;
+- a stop fill that would land beyond the liquidation price liquidates instead;
+- without a stop, a bar that touches the liquidation price liquidates.
+Liquidation realizes exactly the posted isolated margin (the exchange's
+clearance fee is taken out of that margin). With every option off the broker
+behaves, and records its configuration, exactly as before.
 """
 from __future__ import annotations
 
@@ -10,6 +23,7 @@ from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
 
 from data.quality.causal_bars import Bar
+from shared.exposure_gate import MAX_TOTAL_LEVERAGE
 from event.header import EventHeader
 from event.types import EventType, FillEvent
 from shared.strategy_position import StrategyPosition
@@ -37,6 +51,10 @@ class ReplayConfig:
     zscore_warmup: int = 45
     min_hold: int = 6
     max_hold: int = 36
+    # Isolated-margin mode; "0" keeps the original unleveraged accounting (max_exposure <= 1).
+    isolated_leverage: str = "0"
+    maintenance_margin_rate: str = "0.005"
+    stop_slippage_bps: str = "10"
 
     def __post_init__(self):
         for key in ("starting_balance", "maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps",
@@ -46,8 +64,23 @@ class ReplayConfig:
                 raise ValueError(f"invalid {key}")
         if any(D(getattr(self, k)) <= 0 for k in ("starting_balance", "qty_step", "min_notional")):
             raise ValueError("balance, step and notional must be positive")
-        if not 0 < D(self.participation) <= 1 or not 0 < D(self.max_exposure) <= 1:
-            raise ValueError("participation/exposure must be in (0, 1]; leveraged liquidation is unsupported")
+        leverage, mmr = D(str(self.isolated_leverage)), D(str(self.maintenance_margin_rate))
+        if not leverage.is_finite() or leverage < 0 or not mmr.is_finite() or mmr < 0:
+            raise ValueError("invalid isolated leverage or maintenance margin rate")
+        if not 0 < D(self.participation) <= 1:
+            raise ValueError("participation must be in (0, 1]")
+        if leverage == 0:
+            if not 0 < D(self.max_exposure) <= 1:
+                raise ValueError("exposure must be in (0, 1] unless isolated_leverage models liquidation")
+        else:
+            if not 1 <= leverage <= 20:
+                raise ValueError("isolated_leverage must be in [1, 20]")
+            if not 0 < D(self.max_exposure) <= min(MAX_TOTAL_LEVERAGE, leverage):
+                raise ValueError(f"max_exposure must be in (0, min({MAX_TOTAL_LEVERAGE}, isolated_leverage)]")
+            if not 0 < mmr < 1 / leverage:
+                raise ValueError("maintenance_margin_rate must be in (0, 1/isolated_leverage)")
+        if not D(str(self.stop_slippage_bps)).is_finite() or not 0 <= D(str(self.stop_slippage_bps)) < 10000:
+            raise ValueError("stop_slippage_bps must be in [0, 10000)")
         if any(D(getattr(self, k)) >= 10000 for k in ("maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps")):
             raise ValueError("cost/offset bps must be below 10000")
         if self.entry_mode not in ("maker", "market"):
@@ -58,7 +91,12 @@ class ReplayConfig:
             raise ValueError("invalid signal constraints")
 
     def record(self):
-        return asdict(self)
+        """Without isolated mode the new fields are omitted, so earlier records stay identical."""
+        out = asdict(self)
+        if D(str(self.isolated_leverage)) == 0:
+            for key in ("isolated_leverage", "maintenance_margin_rate", "stop_slippage_bps"):
+                out.pop(key)
+        return out
 
 
 class BarBroker:
@@ -75,6 +113,10 @@ class BarBroker:
         self.pending: list[dict] = []
         self.emit = lambda event: None
         self.status = lambda oid, status: None
+        self.leverage = D(str(config.isolated_leverage))
+        self.margin = D(0)           # isolated margin posted for the open position
+        self.stop_price = None       # protective stop for the open position (isolated mode only)
+        self.liquidations: list[dict] = []
 
     @property
     def cash(self):
@@ -184,7 +226,9 @@ class BarBroker:
             if qty > 0:
                 fee = qty * price * fee_bps / 10000
                 fact = SimpleNamespace(side=row["side"], qty=qty, price=price, fee=fee, fee_asset="USDT")
+                before = self.position.qty
                 self.position.apply(fact)
+                self._update_margin(before, price)
                 self.fees += fee
                 fill_id = f"offline-fill-{len(self.fills) + 1}"
                 self.fills.append({"id": fill_id, "order": row["id"], "at": self.now, "side": row["side"],
@@ -201,7 +245,87 @@ class BarBroker:
                 self._finish(row, "filled")
             elif row["age"] >= self.config.ttl_bars:
                 self._finish(row, "canceled")
+        if self.leverage > 0:
+            self._protect(bar)
         self.now, self.mark = bar.available_at, bar.close
+
+    # -- isolated-margin mode -----------------------------------------------------------------
+    def set_stop(self, price) -> None:
+        """Protective stop for the current position (isolated mode only; cleared when flat)."""
+        if self.leverage <= 0:
+            raise ValueError("protective stops are modelled only in isolated-margin mode")
+        price = D(str(price))
+        if not price.is_finite() or price <= 0:
+            raise ValueError("invalid stop price")
+        self.stop_price = price
+
+    def clear_stop(self) -> None:
+        self.stop_price = None
+
+    def liquidation_price(self):
+        """Isolated-margin liquidation price of the open position (None when flat or not isolated)."""
+        qty = self.position.qty
+        if self.leverage <= 0 or qty == 0:
+            return None
+        mmr, entry = D(self.config.maintenance_margin_rate), self.position.entry_price
+        return entry * (1 - 1 / self.leverage + mmr) if qty > 0 else entry * (1 + 1 / self.leverage - mmr)
+
+    def _update_margin(self, before, price) -> None:
+        if self.leverage <= 0:
+            return
+        after = self.position.qty
+        if after == 0:
+            self.margin = D(0)
+        elif before == 0 or (before > 0) != (after > 0):
+            self.margin = abs(after) * D(str(price)) / self.leverage
+        elif abs(after) > abs(before):
+            self.margin += (abs(after) - abs(before)) * D(str(price)) / self.leverage
+        else:
+            self.margin = self.margin * abs(after) / abs(before)
+
+    def _record_exit(self, kind, side, qty, price, fee) -> None:
+        fill_id = f"offline-fill-{len(self.fills) + 1}"
+        self.fills.append({"id": fill_id, "order": kind, "at": self.now, "side": side,
+                           "qty": str(qty), "price": str(price), "fee": str(fee)})
+
+    def _protect(self, bar) -> None:
+        qty = self.position.qty
+        if qty == 0:
+            self.stop_price = None
+            return
+        long = qty > 0
+        liq = self.liquidation_price()
+        beyond = (lambda p: p <= liq) if long else (lambda p: p >= liq)
+        self.now = bar.available_at
+        if beyond(bar.open):
+            return self._liquidate(bar)
+        if self.stop_price is not None:
+            stop = self.stop_price
+            if (bar.low <= stop) if long else (bar.high >= stop):
+                base = min(bar.open, stop) if long else max(bar.open, stop)
+                slip = D(self.config.stop_slippage_bps) / 10000
+                price = base * (1 - slip) if long else base * (1 + slip)
+                if beyond(price):
+                    return self._liquidate(bar)
+                side = "sell" if long else "buy"
+                fee = abs(qty) * price * D(self.config.taker_bps) / 10000
+                self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset="USDT"))
+                self.fees += fee
+                self.margin, self.stop_price = D(0), None
+                self._record_exit("protective_stop", side, abs(qty), price, fee)
+                return
+        if (bar.low <= liq) if long else (bar.high >= liq):
+            self._liquidate(bar)
+
+    def _liquidate(self, bar) -> None:
+        """Close at the price that realizes exactly the posted isolated margin as the loss."""
+        qty, margin = self.position.qty, self.margin
+        side = "sell" if qty > 0 else "buy"
+        price = self.position.entry_price - margin / qty   # qty * (price - entry) == -margin
+        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=D(0), fee_asset="USDT"))
+        self.liquidations.append({"at": self.now, "qty": str(qty), "margin_lost": str(margin)})
+        self._record_exit("liquidation", side, abs(qty), price, D(0))
+        self.margin, self.stop_price = D(0), None
 
     def _finish(self, row, status):
         self.status_update(row["internal_id"], status)
