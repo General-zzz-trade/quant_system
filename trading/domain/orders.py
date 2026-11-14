@@ -16,6 +16,8 @@ Writing the current status again is a no-op, not a transition.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 
 
@@ -64,3 +66,18 @@ def check_transition(current: str | None, new: str) -> None:
         return
     if target not in TRANSITIONS.get(source, frozenset()):
         raise IllegalTransition(f"order status {current!r} -> {new!r} is not allowed")
+
+
+@dataclass(frozen=True)
+class OrderIntent:
+    """An order the strategy wants placed; ``order_id`` is the durable intent id (no exchange types)."""
+
+    order_id: str
+    source: str
+    symbol: str
+    side: str            # buy | sell
+    qty: Decimal
+    price: Decimal       # reference price at decision time
+    reduce_only: bool
+    reason: str
+
