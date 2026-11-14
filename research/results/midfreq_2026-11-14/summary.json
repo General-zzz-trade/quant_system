@@ -1,0 +1,787 @@
+{
+  "window": {
+    "start_ms": 1672531200000,
+    "limit_ms": 1763251200000
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "DOGEUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "MATICUSDT",
+    "CHZUSDT",
+    "MASKUSDT",
+    "APTUSDT",
+    "LTCUSDT",
+    "LINKUSDT",
+    "ETCUSDT",
+    "ADAUSDT",
+    "APEUSDT"
+  ],
+  "selected": "xs_mom_4h",
+  "conclusion": "not_feasible",
+  "gate": {
+    "passed": false,
+    "checks": {
+      "taker_total_return": {
+        "value": -0.7750106906571109,
+        "reference": 0.0,
+        "ok": false
+      },
+      "deflated_sharpe_probability": {
+        "value": 2.809463900657183e-09,
+        "reference": 0.95,
+        "ok": false
+      },
+      "taker_x2_total_return": {
+        "value": -0.8505761552413273,
+        "reference": 0.0,
+        "ok": false
+      },
+      "max_drawdown_daily": {
+        "value": 0.8030426481075896,
+        "reference": 0.3,
+        "ok": false
+      },
+      "no_wipeout": {
+        "value": false,
+        "reference": false,
+        "ok": true
+      }
+    }
+  },
+  "deflated_sharpe": {
+    "family": "midfreq_usdm",
+    "n_trials": 7,
+    "n_with_sharpe": 7,
+    "sharpe_std": 1.5204473688618265,
+    "best_sharpe": -1.5261072629655865,
+    "probability": 2.809463900657183e-09
+  },
+  "candidates": {
+    "xs_rev_15m": {
+      "decisions": 100799,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.8502170500165366,
+          "cagr": -0.4831375073122073,
+          "max_drawdown": 0.8502170500165366,
+          "sharpe": -2.9164755005640615,
+          "vol": 0.21752087153801244,
+          "calmar": -0.5682519626050905,
+          "turnover_per_year": 2663.813001151794,
+          "skipped_legs": 594019,
+          "opened_legs": 8254,
+          "wiped": false,
+          "average_legs": 0.10689590174505699
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8501648989714817,
+          "cagr": -0.4830749569394833,
+          "max_drawdown": 0.8501648989714817,
+          "sharpe": -2.1537690376174043,
+          "vol": 0.2852472179810089,
+          "calmar": -0.568213246070146,
+          "turnover_per_year": 1406.3080475667896,
+          "skipped_legs": 599242,
+          "opened_legs": 4317,
+          "wiped": false,
+          "average_legs": 0.0550799115070586
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": -0.8500201744269322,
+          "cagr": -0.4829014475487543,
+          "max_drawdown": 0.8500201744269323,
+          "sharpe": -4.514088257193232,
+          "vol": 0.14362835008409103,
+          "calmar": -0.5681058662805473,
+          "turnover_per_year": 8359.870070747216,
+          "skipped_legs": 568112,
+          "opened_legs": 27895,
+          "wiped": false,
+          "average_legs": 0.36391234040020237
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 22.44357163898035,
+          "cagr": 1.9939625295448202,
+          "max_drawdown": 0.2796761691835831,
+          "sharpe": 3.536047758563076,
+          "vol": 0.3257820248785975,
+          "calmar": 7.12954033718889,
+          "turnover_per_year": 53227.615873967065,
+          "skipped_legs": 13804,
+          "opened_legs": 457171,
+          "wiped": false,
+          "average_legs": 5.86305419696624
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9970026948331552,
+          "cagr": -0.8673022313195669,
+          "max_drawdown": 0.9970026948331552,
+          "sharpe": -4.739620728615658,
+          "vol": 0.4063586683769012,
+          "calmar": -0.8699096159060099,
+          "turnover_per_year": 40121.86279900542,
+          "skipped_legs": 571875,
+          "opened_legs": 25338,
+          "wiped": false,
+          "average_legs": 0.32658062083949246
+        }
+      },
+      "blocks": [],
+      "mean_ic": null
+    },
+    "xs_rev_1h": {
+      "decisions": 25199,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.8500438691966223,
+          "cagr": -0.4829298475864935,
+          "max_drawdown": 0.8500438691966223,
+          "sharpe": -5.037751893751635,
+          "vol": 0.12912155448067508,
+          "calmar": -0.5681234405500873,
+          "turnover_per_year": 2699.549993481063,
+          "skipped_legs": 139106,
+          "opened_legs": 9249,
+          "wiped": false,
+          "average_legs": 0.4797015754593436
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8501600557342904,
+          "cagr": -0.4830691486435911,
+          "max_drawdown": 0.8501600557342904,
+          "sharpe": -4.08975614874721,
+          "vol": 0.15804880340730715,
+          "calmar": -0.5682096510948873,
+          "turnover_per_year": 1393.8804288934994,
+          "skipped_legs": 145066,
+          "opened_legs": 4737,
+          "wiped": false,
+          "average_legs": 0.24318425334338664
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": -0.850141875205087,
+          "cagr": -0.48304734657267046,
+          "max_drawdown": 0.851308104807423,
+          "sharpe": -3.6566574231710534,
+          "vol": 0.17589829149213151,
+          "calmar": -0.5674177701878477,
+          "turnover_per_year": 7079.100883184728,
+          "skipped_legs": 109091,
+          "opened_legs": 32436,
+          "wiped": false,
+          "average_legs": 1.6708202706456605
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 1.6665630601435777,
+          "cagr": 0.40627086570633897,
+          "max_drawdown": 0.201324267752102,
+          "sharpe": 1.339221806933645,
+          "vol": 0.28551998316733057,
+          "calmar": 2.0179925164640125,
+          "turnover_per_year": 12537.639912540195,
+          "skipped_legs": 9353,
+          "opened_legs": 109678,
+          "wiped": false,
+          "average_legs": 5.628834477558633
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9970015772428636,
+          "cagr": -0.8672850337913668,
+          "max_drawdown": 0.9970015772428636,
+          "sharpe": -8.55680773826996,
+          "vol": 0.23209565963499265,
+          "calmar": -0.8698933417836523,
+          "turnover_per_year": 12800.584263138391,
+          "skipped_legs": 117215,
+          "opened_legs": 26472,
+          "wiped": false,
+          "average_legs": 1.3484265248620977
+        }
+      },
+      "blocks": [],
+      "mean_ic": null
+    },
+    "xs_mom_4h": {
+      "decisions": 6299,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.7750106906571109,
+          "cagr": -0.40461329776286636,
+          "max_drawdown": 0.8030426481075896,
+          "sharpe": -1.5261072629655865,
+          "vol": 0.30868653789691486,
+          "calmar": -0.5038503231632316,
+          "turnover_per_year": 1171.7439474812054,
+          "skipped_legs": 8227,
+          "opened_legs": 9854,
+          "wiped": false,
+          "average_legs": 4.693919669788856
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8505761552413273,
+          "cagr": -0.48356860717074,
+          "max_drawdown": 0.861189192566598,
+          "sharpe": -3.162125562188725,
+          "vol": 0.2023182286788178,
+          "calmar": -0.5615126285195973,
+          "turnover_per_year": 881.967404305777,
+          "skipped_legs": 23534,
+          "opened_legs": 4718,
+          "wiped": false,
+          "average_legs": 2.2638514049849183
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": 0.04362934159214937,
+          "cagr": 0.014955591431772719,
+          "max_drawdown": 0.509819403557133,
+          "sharpe": 0.20305352921860884,
+          "vol": 0.31746828501272895,
+          "calmar": 0.029335076945726173,
+          "turnover_per_year": 1362.0053377427835,
+          "skipped_legs": 2398,
+          "opened_legs": 11966,
+          "wiped": false,
+          "average_legs": 5.619304651531989
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 1.3190843979853013,
+          "cagr": 0.3396489024807239,
+          "max_drawdown": 0.418440288739863,
+          "sharpe": 1.0833697011286336,
+          "vol": 0.3150799645133968,
+          "calmar": 0.8117021989053201,
+          "turnover_per_year": 1386.4981643419733,
+          "skipped_legs": 2031,
+          "opened_legs": 12102,
+          "wiped": false,
+          "average_legs": 5.677567867915542
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.8701777045249263,
+          "cagr": -0.5082058906540865,
+          "max_drawdown": 0.8919327947751947,
+          "sharpe": -2.0806724645275407,
+          "vol": 0.3169504140002921,
+          "calmar": -0.5697804740795254,
+          "turnover_per_year": 1473.0733190447768,
+          "skipped_legs": 0,
+          "opened_legs": 12792,
+          "wiped": false,
+          "average_legs": 6.0
+        }
+      },
+      "blocks": [],
+      "mean_ic": null
+    },
+    "flow_1h": {
+      "decisions": 25199,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.8501256571164177,
+          "cagr": -0.483027899314471,
+          "max_drawdown": 0.8501256571164177,
+          "sharpe": -4.891395120868149,
+          "vol": 0.13291822384849095,
+          "calmar": -0.5681841211014341,
+          "turnover_per_year": 2426.8827213712198,
+          "skipped_legs": 139784,
+          "opened_legs": 8800,
+          "wiped": false,
+          "average_legs": 0.45255764117623715
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8506393115335229,
+          "cagr": -0.48364449511772667,
+          "max_drawdown": 0.8506393115335229,
+          "sharpe": -4.024901720951101,
+          "vol": 0.16075527957638816,
+          "calmar": -0.5685658875156121,
+          "turnover_per_year": 1295.8374470567276,
+          "skipped_legs": 145789,
+          "opened_legs": 4233,
+          "wiped": false,
+          "average_legs": 0.2142545339100758
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": -0.8503531395143661,
+          "cagr": -0.4833008010656862,
+          "max_drawdown": 0.8505659117452549,
+          "sharpe": -5.100789916862526,
+          "vol": 0.1277134995171758,
+          "calmar": -0.5682108751266711,
+          "turnover_per_year": 5287.776749492429,
+          "skipped_legs": 120716,
+          "opened_legs": 23481,
+          "wiped": false,
+          "average_legs": 1.2092543354895036
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": -0.5505251680559375,
+          "cagr": -0.24268985536827792,
+          "max_drawdown": 0.5703894996094739,
+          "sharpe": -1.1541738529423928,
+          "vol": 0.21986887742816863,
+          "calmar": -0.4254809310733092,
+          "turnover_per_year": 11507.661837699321,
+          "skipped_legs": 22171,
+          "opened_legs": 99212,
+          "wiped": false,
+          "average_legs": 5.119925393864836
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9970000011334111,
+          "cagr": -0.8672607876560177,
+          "max_drawdown": 0.9970000011334113,
+          "sharpe": -9.016227422425121,
+          "vol": 0.22059527934967157,
+          "calmar": -0.8698703978636878,
+          "turnover_per_year": 12561.376702600899,
+          "skipped_legs": 120917,
+          "opened_legs": 23348,
+          "wiped": false,
+          "average_legs": 1.2012778284852574
+        }
+      },
+      "blocks": [],
+      "mean_ic": null
+    },
+    "ridge_15m": {
+      "decisions": 100799,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.8500834821223998,
+          "cagr": -0.48297733332039394,
+          "max_drawdown": 0.8500834821223998,
+          "sharpe": -3.5890224134976463,
+          "vol": 0.17899870482908353,
+          "calmar": -0.5681528267253781,
+          "turnover_per_year": 2832.938662978728,
+          "skipped_legs": 588567,
+          "opened_legs": 8916,
+          "wiped": false,
+          "average_legs": 0.16074564231788013
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8500026196287751,
+          "cagr": -0.4828804086354965,
+          "max_drawdown": 0.8500026196287752,
+          "sharpe": -2.531740835556069,
+          "vol": 0.2472700147267624,
+          "calmar": -0.5680928475801482,
+          "turnover_per_year": 1433.691757404712,
+          "skipped_legs": 597068,
+          "opened_legs": 4336,
+          "wiped": false,
+          "average_legs": 0.07640948818936696
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": -0.8527738130189703,
+          "cagr": -0.4862216963538176,
+          "max_drawdown": 0.8527738130189703,
+          "sharpe": -5.394538063526708,
+          "vol": 0.1219431318396832,
+          "calmar": -0.5701649006229527,
+          "turnover_per_year": 10395.301438449033,
+          "skipped_legs": 529681,
+          "opened_legs": 40698,
+          "wiped": false,
+          "average_legs": 0.7449379458129545
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 33.11340578799834,
+          "cagr": 2.4109390297241977,
+          "max_drawdown": 0.1648086027348249,
+          "sharpe": 4.648462863274131,
+          "vol": 0.27240703038381936,
+          "calmar": 14.628720768923515,
+          "turnover_per_year": 45159.100561567255,
+          "skipped_legs": 3884,
+          "opened_legs": 378912,
+          "wiped": false,
+          "average_legs": 5.961229774104901
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9970006964974566,
+          "cagr": -0.8672714837886849,
+          "max_drawdown": 0.9970006964974566,
+          "sharpe": -5.83971275807285,
+          "vol": 0.3348300475150312,
+          "calmar": -0.8698805194775482,
+          "turnover_per_year": 32054.805061603278,
+          "skipped_legs": 555316,
+          "opened_legs": 27244,
+          "wiped": false,
+          "average_legs": 0.49061994662645464
+        }
+      },
+      "blocks": [
+        {
+          "test_start": 1672531200000,
+          "train_rows": 129274,
+          "ic": 0.04635497007659976
+        },
+        {
+          "test_start": 1680393600000,
+          "train_rows": 260314,
+          "ic": 0.052916758299970196
+        },
+        {
+          "test_start": 1688256000000,
+          "train_rows": 391354,
+          "ic": 0.048686721766130155
+        },
+        {
+          "test_start": 1696118400000,
+          "train_rows": 522394,
+          "ic": 0.03835910328267862
+        },
+        {
+          "test_start": 1703980800000,
+          "train_rows": 653428,
+          "ic": 0.03713572187017374
+        },
+        {
+          "test_start": 1711843200000,
+          "train_rows": 784468,
+          "ic": 0.02967803425596514
+        },
+        {
+          "test_start": 1719705600000,
+          "train_rows": 915508,
+          "ic": 0.029771015445305252
+        },
+        {
+          "test_start": 1727568000000,
+          "train_rows": 1044186,
+          "ic": 0.03016270035533774
+        },
+        {
+          "test_start": 1735430400000,
+          "train_rows": 1166434,
+          "ic": 0.02301263120374835
+        },
+        {
+          "test_start": 1743292800000,
+          "train_rows": 1288738,
+          "ic": 0.02298839563170898
+        },
+        {
+          "test_start": 1751155200000,
+          "train_rows": 1411042,
+          "ic": 0.02853227882647619
+        },
+        {
+          "test_start": 1759017600000,
+          "train_rows": 1533346,
+          "ic": 0.013544042271383195
+        }
+      ],
+      "mean_ic": 0.033428531107123106
+    },
+    "ridge_1h": {
+      "decisions": 25199,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.8500942589137229,
+          "cagr": -0.4829902533443715,
+          "max_drawdown": 0.8500942589137229,
+          "sharpe": -4.918229106784058,
+          "vol": 0.13220767729726313,
+          "calmar": -0.5681608224969683,
+          "turnover_per_year": 2625.693273976604,
+          "skipped_legs": 136811,
+          "opened_legs": 9604,
+          "wiped": false,
+          "average_legs": 0.5705385134330727
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8504586080524654,
+          "cagr": -0.48342741938328315,
+          "max_drawdown": 0.8504586080524654,
+          "sharpe": -4.229105777032358,
+          "vol": 0.15319744528621504,
+          "calmar": -0.5684314495802718,
+          "turnover_per_year": 1361.7021048828299,
+          "skipped_legs": 144134,
+          "opened_legs": 4637,
+          "wiped": false,
+          "average_legs": 0.27993174332314774
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": -0.8500044378403625,
+          "cagr": -0.48288258763444647,
+          "max_drawdown": 0.8551292975729824,
+          "sharpe": -3.829802672789955,
+          "vol": 0.168327665528313,
+          "calmar": -0.5646895609879792,
+          "turnover_per_year": 7099.819201104395,
+          "skipped_legs": 98982,
+          "opened_legs": 36855,
+          "wiped": false,
+          "average_legs": 2.071748878923767
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 4.137839001684414,
+          "cagr": 0.7663665727542572,
+          "max_drawdown": 0.22769297678070433,
+          "sharpe": 2.3409582693896622,
+          "vol": 0.25728121310652935,
+          "calmar": 3.3657892465096113,
+          "turnover_per_year": 11649.480889645325,
+          "skipped_legs": 3213,
+          "opened_legs": 102859,
+          "wiped": false,
+          "average_legs": 5.872256835588714
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9970026734502291,
+          "cagr": -0.867301902238916,
+          "max_drawdown": 0.9970026734502291,
+          "sharpe": -9.566572689788096,
+          "vol": 0.20822667526603564,
+          "calmar": -0.8699093044931662,
+          "turnover_per_year": 11102.904550186973,
+          "skipped_legs": 112222,
+          "opened_legs": 27273,
+          "wiped": false,
+          "average_legs": 1.5463312036191912
+        }
+      },
+      "blocks": [
+        {
+          "test_start": 1672531200000,
+          "train_rows": 32296,
+          "ic": 0.048042151031602476
+        },
+        {
+          "test_start": 1680393600000,
+          "train_rows": 65056,
+          "ic": 0.04230684969390202
+        },
+        {
+          "test_start": 1688256000000,
+          "train_rows": 97816,
+          "ic": 0.040375427322989994
+        },
+        {
+          "test_start": 1696118400000,
+          "train_rows": 130576,
+          "ic": 0.028084811495454665
+        },
+        {
+          "test_start": 1703980800000,
+          "train_rows": 163335,
+          "ic": 0.021741095867703224
+        },
+        {
+          "test_start": 1711843200000,
+          "train_rows": 196095,
+          "ic": 0.003569486557122638
+        },
+        {
+          "test_start": 1719705600000,
+          "train_rows": 228855,
+          "ic": 0.014965118638862174
+        },
+        {
+          "test_start": 1727568000000,
+          "train_rows": 261026,
+          "ic": 0.034622212869735186
+        },
+        {
+          "test_start": 1735430400000,
+          "train_rows": 291588,
+          "ic": 0.016381067183779168
+        },
+        {
+          "test_start": 1743292800000,
+          "train_rows": 322164,
+          "ic": -0.001415494145295376
+        },
+        {
+          "test_start": 1751155200000,
+          "train_rows": 352740,
+          "ic": 0.012718844941205567
+        },
+        {
+          "test_start": 1759017600000,
+          "train_rows": 383316,
+          "ic": 0.014301305263425355
+        }
+      ],
+      "mean_ic": 0.02297440639337393
+    },
+    "ridge_4h": {
+      "decisions": 6299,
+      "runs": {
+        "taker": {
+          "days": 1050,
+          "total_return": -0.7772006336186718,
+          "cagr": -0.4066342578177594,
+          "max_drawdown": 0.7899549424186615,
+          "sharpe": -1.6794682585386014,
+          "vol": 0.28652327226172636,
+          "calmar": -0.5147562677090648,
+          "turnover_per_year": 1456.3531997645584,
+          "skipped_legs": 10395,
+          "opened_legs": 12485,
+          "wiped": false,
+          "average_legs": 4.349738053659311
+        },
+        "taker_x2": {
+          "days": 1050,
+          "total_return": -0.8503314889687396,
+          "cagr": -0.48327481610314715,
+          "max_drawdown": 0.8511815915311618,
+          "sharpe": -3.4381148388649385,
+          "vol": 0.18678227646238846,
+          "calmar": -0.5677693466488161,
+          "turnover_per_year": 1005.3427549096575,
+          "skipped_legs": 25473,
+          "opened_legs": 5293,
+          "wiped": false,
+          "average_legs": 1.956024765835847
+        },
+        "maker": {
+          "days": 1050,
+          "total_return": 0.5130210806481532,
+          "cagr": 0.15482862506588924,
+          "max_drawdown": 0.5319820662512907,
+          "sharpe": 0.6328459122273126,
+          "vol": 0.29463523130315494,
+          "calmar": 0.29104106113372874,
+          "turnover_per_year": 1863.5238745201138,
+          "skipped_legs": 2636,
+          "opened_legs": 16215,
+          "wiped": false,
+          "average_legs": 5.581520876329576
+        },
+        "zero": {
+          "days": 1050,
+          "total_return": 3.562503693128951,
+          "cagr": 0.694929344151137,
+          "max_drawdown": 0.38870173222395055,
+          "sharpe": 1.9534464298561192,
+          "vol": 0.2915740186556968,
+          "calmar": 1.7878215776788806,
+          "turnover_per_year": 1989.6615832979019,
+          "skipped_legs": 938,
+          "opened_legs": 17029,
+          "wiped": false,
+          "average_legs": 5.851087474202254
+        },
+        "taker_10k": {
+          "days": 1050,
+          "total_return": -0.9070279875652353,
+          "cagr": -0.5620953213661647,
+          "max_drawdown": 0.9201003619550457,
+          "sharpe": -2.637231818047086,
+          "vol": 0.29641851201521163,
+          "calmar": -0.6109065321654852,
+          "turnover_per_year": 1950.2627059399972,
+          "skipped_legs": 0,
+          "opened_legs": 17453,
+          "wiped": false,
+          "average_legs": 6.0
+        }
+      },
+      "blocks": [
+        {
+          "test_start": 1672531200000,
+          "train_rows": 8052,
+          "ic": 0.002489750662715102
+        },
+        {
+          "test_start": 1680393600000,
+          "train_rows": 16242,
+          "ic": -0.0012307451780020258
+        },
+        {
+          "test_start": 1688256000000,
+          "train_rows": 24432,
+          "ic": -0.014880423381381005
+        },
+        {
+          "test_start": 1696118400000,
+          "train_rows": 32622,
+          "ic": -0.0026559209076574292
+        },
+        {
+          "test_start": 1703980800000,
+          "train_rows": 40811,
+          "ic": 0.005710708028814212
+        },
+        {
+          "test_start": 1711843200000,
+          "train_rows": 49001,
+          "ic": -0.007153679150891667
+        },
+        {
+          "test_start": 1719705600000,
+          "train_rows": 57191,
+          "ic": 0.006275376186914374
+        },
+        {
+          "test_start": 1727568000000,
+          "train_rows": 65235,
+          "ic": 0.019953933075555222
+        },
+        {
+          "test_start": 1735430400000,
+          "train_rows": 72879,
+          "ic": -0.007306755162278299
+        },
+        {
+          "test_start": 1743292800000,
+          "train_rows": 80523,
+          "ic": -0.05269582838078788
+        },
+        {
+          "test_start": 1751155200000,
+          "train_rows": 88167,
+          "ic": -0.023203484863408137
+        },
+        {
+          "test_start": 1759017600000,
+          "train_rows": 95811,
+          "ic": 0.01895149764563656
+        }
+      ],
+      "mean_ic": -0.004645464285397582
+    }
+  }
+}

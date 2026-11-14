@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import urllib.error
+import urllib.parse
 import zipfile
 from datetime import date
 
@@ -31,7 +32,8 @@ class Source:
         self.daily, self.bars_per_month, self.corrupt, self.requests = daily, bars_per_month, corrupt, []
 
     def _body(self, url: str) -> bytes:
-        name = url.rsplit("/", 1)[1]
+        url.encode("ascii")                                      # urllib refuses a URL that is not ASCII
+        name = urllib.parse.unquote(url.rsplit("/", 1)[1])
         symbol, label, month = name[:-4].split("-", 2)
         if label == "1d":
             volumes = self.daily[symbol].get(month)
@@ -77,6 +79,14 @@ def test_the_universe_is_ranked_on_2022_q4_volume_and_keeps_delisted_symbols():
     assert [(u["symbol"], u["rank"], u["ranking_quote_volume"]) for u in universe] == [
         ("AAAUSDT", 1, 200.0), ("GONEUSDT", 2, 80.0), ("BBBUSDT", 3, 20.0)]
     assert not any(ba.eligible(s) for s in ("USDCUSDT", "BTCUSDT_230331", "BTCDOMUSDT", "ETHBUSD"))
+
+
+def test_a_listed_symbol_that_is_not_ascii_is_requested_with_an_escaped_url():
+    daily = {**DAILY, "\u5e01\u5b89USDT": {"2022-12": [10_000]}, "\u6211USDT": FULL}
+    source = Source(daily)
+    universe = ba.rank_universe(ba.list_symbols(fetch=source), 4, fetch=source, workers=2)
+    assert [u["symbol"] for u in universe] == ["AAAUSDT", "GONEUSDT", "BBBUSDT", "\u6211USDT"]
+    assert any("%E6%88%91USDT" in url for url in source.requests)
 
 
 def test_a_snapshot_holds_bars_before_the_end_only_and_records_what_is_missing(tmp_path):

@@ -28,6 +28,9 @@
   - ETH/BTC relative value, 10 candidates incl. Ridge/LightGBM (`lab/pair_study.py`): failed
     2026-11-14 (deflated Sharpe probability 0.35, below the static short pair;
     `research/results/pair_2026-11-14/`). Per-leg 10x isolated is infeasible for pairs.
+  - Mid-frequency on USDT perpetuals (`lab/midfreq_study.py`): 15 symbols, 15 min to 4 h holds, 7 candidates,
+    failed 2026-11-14. Every candidate loses 78-85% at taker costs; gross edge per unit traded is 0.004-0.035%
+    against a 0.02% maker fee (`research/results/midfreq_2026-11-14/`). No engine work for it.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
     data; gates use the deflated Sharpe over the whole family. The directional family holds 79 trials.

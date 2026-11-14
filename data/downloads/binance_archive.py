@@ -25,6 +25,7 @@ import io
 import json
 import re
 import urllib.error
+import urllib.parse
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
@@ -53,7 +54,7 @@ def list_symbols(*, fetch: Fetch = http_get) -> list[str]:
     names: list[str] = []
     marker = ""
     while True:
-        body = fetch(LISTING + (f"&marker={marker}" if marker else "")).decode()
+        body = fetch(LISTING + (f"&marker={urllib.parse.quote(marker)}" if marker else "")).decode()
         found = re.findall(r"<Prefix>data/futures/um/monthly/klines/([^/<]+)/</Prefix>", body)
         names += found
         if "<IsTruncated>true</IsTruncated>" not in body or not found:
@@ -66,9 +67,9 @@ def fetch_archive(kind: str, symbol: str, month: str, *, fetch: Fetch = http_get
 
     ``kind`` is ``klines/5m``, ``klines/1d`` or ``fundingRate``. The zip must match its published checksum.
     """
-    label = kind.split("/")[-1]
-    url = f"{ARCHIVE}/{kind.split('/')[0]}/{symbol}/" + (f"{label}/" if "/" in kind else "") + \
-        f"{symbol}-{label}-{month}.zip"
+    label, name = kind.split("/")[-1], urllib.parse.quote(symbol)      # some listed symbols are not ASCII
+    url = f"{ARCHIVE}/{kind.split('/')[0]}/{name}/" + (f"{label}/" if "/" in kind else "") + \
+        f"{name}-{label}-{month}.zip"
     try:
         raw = fetch(url)
     except urllib.error.HTTPError as exc:
