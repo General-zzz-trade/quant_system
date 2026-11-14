@@ -166,3 +166,59 @@ def test_the_entry_gate_as_the_runtime_assembles_it(tmp_path):
     runtime.kill.write(active=False, reason="", flatten=False)
     assert gate.check(_order(False)).reason.startswith("drawdown")
     assert gate.check(_order(True)).allowed
+
+
+# --- gaps found by the step-10 mutation run: written before the second half of step 10 ----------------------
+
+def test_an_unpublished_funding_settlement_cannot_open_a_position(tmp_path):
+    reference, runtime = _start(tmp_path / "a")
+    first_entry = _until_position(reference, runtime) - 1
+    world, runtime = _start(tmp_path / "b")
+    for i in range(world["warm"], first_entry):
+        _advance(world, runtime, i)
+    btc, session = world["fakes"]["BTCUSDT"], runtime.sessions["BTCUSDT"]
+    close = world["rows"]["BTCUSDT"][first_entry]["start"] + HOUR
+    settlement = close // (8 * HOUR) * (8 * HOUR)
+    world["funding"][:] = [row for row in world["funding"] if row[0] < settlement]     # the venue has not published it
+    session.funding.pop(settlement, None)
+    world["clock"]["now"] = (close + 3 * 60_000) / 1000          # past the two-minute wait, well inside ten minutes
+    runtime.cycle()
+    assert btc.posts == [] and session.entry_ready is False
+    assert session.entry_reason == "funding settlement at or before this close not published yet"
+    blocked = [r for r in _events(tmp_path / "b", "blocked") if r["symbol"] == "BTCUSDT"]
+    assert blocked and blocked[-1]["reason"] == "inputs: " + session.entry_reason
+
+
+def test_the_target_sees_only_funding_settled_by_the_bar_it_decides_on(tmp_path, monkeypatch):
+    from trading.application import session as session_module
+    world, runtime = _start(tmp_path)
+    session = runtime.sessions["BTCUSDT"]
+    known_at = session.bars[-1].available_at
+    session.funding[known_at + 8 * HOUR] = 0.5                    # a settlement from the future of this bar
+    seen = {}
+
+    def spy(frame, funding, spec):
+        seen["last"] = int(funding.index.max())
+        return 0.0, True
+
+    monkeypatch.setattr(session_module, "latest_target", spy)
+    session._target()
+    assert seen["last"] <= known_at
+
+
+def test_a_failed_equity_refresh_blocks_entries_until_equity_is_known_again(tmp_path):
+    world, runtime = _start(tmp_path)
+    session = runtime.sessions["BTCUSDT"]
+    session.entry_ready, session.entry_reason = True, ""
+    real = world["adapter"].get_account_equity      # (no allowed check yet: the limiter passes one order a second)
+
+    def unavailable():
+        raise TimeoutError("venue unreachable")
+
+    world["adapter"].get_account_equity = unavailable
+    runtime.refresh_equity()
+    assert session.gate.check(_order(False)).reason.startswith("drawdown")
+    assert session.gate.check(_order(True)).allowed                # reductions are never held back by it
+    world["adapter"].get_account_equity = real
+    runtime.refresh_equity()
+    assert session.gate.check(_order(False)).allowed

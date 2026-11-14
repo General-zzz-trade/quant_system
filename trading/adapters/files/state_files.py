@@ -1,22 +1,15 @@
 """Paper state and runtime status as files: atomic JSON writes that survive a crash or a power loss."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
-
-def _encode(value: Any) -> Any:
-    if isinstance(value, Decimal):
-        return {"__decimal__": str(value)}
-    raise TypeError(f"cannot persist {type(value).__name__}")
-
-
-def _decode(obj: dict[str, Any]) -> Any:
-    return Decimal(obj["__decimal__"]) if obj.keys() == {"__decimal__"} else obj
+from trading.adapters.codec import decode as _decode
+from trading.adapters.codec import encode as _encode
 
 
 class JsonPaperStore:
@@ -43,6 +36,10 @@ class JsonPaperStore:
             os.fsync(directory)              # the rename itself survives a power loss
         finally:
             os.close(directory)
+
+    def digest(self) -> str | None:
+        """SHA-256 of the file as it is on disk, or None when there is no file."""
+        return hashlib.sha256(self.path.read_bytes()).hexdigest() if self.path.exists() else None
 
     def archive(self) -> str | None:
         if not self.path.exists():
