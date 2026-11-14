@@ -273,3 +273,19 @@ def test_paper_snapshot_covers_every_mutable_broker_attribute(tmp_path):
     rebuilt_from_config = {"config", "emit", "status", "leverage"}
     handled_separately = {"position", "pending"}
     assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately
+
+
+def test_every_paper_cycle_persists_the_bars_it_processed(tmp_path):
+    """Step-10 mutation gap: nothing failed when the per-cycle save was removed."""
+    world = _world(tmp_path, _spec())
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    saved = json.loads((state / PAPER_STATE).read_text())["symbols"]["BTCUSDT"]["cursor"]
+    assert saved == runtime.sessions["BTCUSDT"].cursor            # warm-up already saved once
+    for i in range(world["warm"], world["warm"] + 3):
+        _advance(world, runtime, i)
+        on_disk = json.loads((state / PAPER_STATE).read_text())["symbols"]
+        assert {s: v["cursor"] for s, v in on_disk.items()} == {s: x.cursor for s, x in runtime.sessions.items()}
+        assert on_disk["BTCUSDT"]["cursor"] == saved + HOUR
+        saved = on_disk["BTCUSDT"]["cursor"]

@@ -761,7 +761,7 @@ Contracts: 5 kept, 0 broken.
 
 - 【测试日志】模拟盘与研究逐笔一致的三个参数组合、断线恢复、全部特征化测试、Binance 执行测试通过。
 - 【实际运行结果】两个运行时探针场景（急停平仓被拒后的重试、有挂单时的急停）输出与搬家前逐字相同。
-- 【实际运行结果】注入缺陷自检：对搬过去的会话和主循环注入 15 个缺陷，运行中，结果在本 PR 的后续提交里补上。
+- 【实际运行结果】注入缺陷自检：对搬过去的会话和主循环注入 15 个缺陷：11 个被测出（其中 1 个第一次配错了测试，换成全部运行时测试后被测出），4 个存活。存活的 4 个都是真缺口，已在第 10 步下半先补测试（见下一节）。
 - 本地：ruff、`mypy trading/`（47 个文件）、lint-imports（5 条契约）、离线安全检查、架构测试全部通过。全量测试见 PR 的 CI。
 
 **第 10 步还没做的（下一个 PR）**
@@ -779,6 +779,33 @@ Contracts: 5 kept, 0 broken.
 - 删除前核对【实际运行结果】：仓库里没有任何代码、测试、CI、Makefile 或 systemd 单元引用这些文件；唯一出现它们名字的地方是 `features/dynamic_selector.py` 的一行文档字符串。
 - 保留：`research/model_registry/`（`alpha/retrain/pipeline.py` 引用它，且有测试）、`research/datasets/`（CI 的离线验收在用）、`research/protocols/`、`research/results/`、`research/trials.jsonl`、`research/forward_looks.jsonl`、`research/rust/`（属于 Rust 库）。
 - 本地：ruff 通过；`research.model_registry.registry` 和 `features.dynamic_selector` 仍可导入；架构测试和 `tests/unit/research` 通过。全量测试由 CI 运行。
+
+## 第 10 步（下半，第一部分）：补测试缺口；模拟盘状态改存 SQLite
+
+**先补的测试（针对上半自检存活的 4 个缺陷）**
+
+- 资金费结算还没发布时不入场，原因记为"资金费未发布"。计划 0.6 要求过这一条，上半只测了"K 线过晚"那一半。
+- 计算目标时只看到当根 K 线收盘前已结算的资金费。
+- 权益刷新失败时入场被阻断，减仓不受影响；权益恢复后入场恢复。
+- 模拟盘每个周期都把处理过的 K 线落盘。
+
+【实际运行结果】补完后，这 4 个缺陷逐个注入都会被对应的测试抓到。
+
+**模拟盘状态改存 SQLite（ADR-0007 子决策 3b）**
+
+- `trading/adapters/sqlite/paper_store.py`：一份当前文档、一个版本号、一张归档表。
+- `trading/infrastructure/paper_store.py`：先写数据库，再写一份内容相同的 `paper_state.json`，并记下该文件的摘要。
+  - 已有的 JSON 文件在第一次启动时导入，原文件保留。
+  - JSON 文件如果在上次保存之后被外部改过（回滚到旧版本运行过，或人工修改），以文件为准重新导入。
+  - 只是比数据库落后一次保存的 JSON 不会覆盖数据库。两次写之间崩溃的两种情况都有测试。
+- JSON 里十进制数的编码搬到 `trading/adapters/codec.py`，文件适配器和 SQLite 适配器互不依赖。
+- 运行时入口改用这个组合存储。
+
+**已有测试的改动**：没有。模拟盘与研究逐笔一致、重启续跑、断线恢复、"状态属于另一份规格时拒绝"、"手工改过的状态被拒绝直到重置"全部不改通过。
+
+**本地**：ruff、`mypy trading/`（50 个文件）、lint-imports（5 条契约）、架构测试通过。全量测试见 PR 的 CI。
+
+**第 10 步还剩**：运行时改用新的执行服务和 `OrderIntent`；导入隔离测试和 `no-legacy` 契约；实盘路径与研究的对比测试。
 
 ## 瘦身批次 B：删除 18 个没有任何引用的一次性脚本和旧下载器（2026-11-14，ADR-0008 子决策 2b）
 

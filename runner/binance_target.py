@@ -31,11 +31,13 @@ from lab.simulate import SYMBOL_RULES, Sleeve, SymbolRules, broker_config
 from lab.strategy import StrategySpec
 from runner.binance_main import EntryReadinessGate, EquitySource, EventJournal
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
+from trading.adapters.sqlite.paper_store import SqlitePaperStore
 from trading.application import runtime as _runtime
 from trading.application.execution.fills import TargetFillConsumer
 from trading.application.runtime import POLL_SECONDS
 from trading.application.session import BROKER_STATE as _BROKER_STATE
 from trading.application.session import MAX_ENTRY_DELAY_MS, ExecutionParts, TargetSession
+from trading.infrastructure.paper_store import MirroredPaperStore
 from trading.infrastructure.settings import execution_scope
 
 logger = logging.getLogger("binance_target")
@@ -116,7 +118,9 @@ class TargetRuntime(_runtime.TargetRuntime):
             status_sink=JsonStatusFile(self.state_dir / "target_status.json"),
             market_errors=(BinanceRestError, OSError), account=account,
             kill=execution["kill"] if execution else None, drawdown=execution["drawdown"] if execution else None,
-            paper_store=JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock) if mode == "paper" else None,
+            paper_store=MirroredPaperStore(
+                SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
+                JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
             reset_paper=reset_paper, spec_passed=self.frozen.get("passed"))
 
     def _execution_context(self, testnet: bool, stop_pct: D) -> dict:
