@@ -770,3 +770,12 @@ Contracts: 5 kept, 0 broken.
 - 运行时改用新的执行服务和 `OrderIntent`。现在组装处仍然构造旧的执行适配器和旧的订单事件，所以加载运行时仍会带入旧包。
 - "加载运行时后没有旧包"的隔离测试，以及对整条运行时生效的 `no-legacy` 契约。这两条要等上一条做完。
 - 实盘路径与研究的对比测试。
+
+## 瘦身批次 A：删除 `research/` 下不可达的历史研究代码（2026-11-14，ADR-0008 子决策 2b）
+
+技术负责人批准把删除提前，与主线穿插（`roadmap.md` 第 6 节）。
+
+- 删除 46 个文件，14,533 行：`research/backtesting/`、`research/scripts/`、`research/` 下的 `alpha_factor.py`、`factor_backtest.py`、`factor_factory.py`、`orthogonalize.py`，以及只为它们服务的 `scripts/dz_sweep_4h.py`、`scripts/trend_bypass_backtest.py`。
+- 删除前核对【实际运行结果】：仓库里没有任何代码、测试、CI、Makefile 或 systemd 单元引用这些文件；唯一出现它们名字的地方是 `features/dynamic_selector.py` 的一行文档字符串。
+- 保留：`research/model_registry/`（`alpha/retrain/pipeline.py` 引用它，且有测试）、`research/datasets/`（CI 的离线验收在用）、`research/protocols/`、`research/results/`、`research/trials.jsonl`、`research/forward_looks.jsonl`、`research/rust/`（属于 Rust 库）。
+- 本地：ruff 通过；`research.model_registry.registry` 和 `features.dynamic_selector` 仍可导入；架构测试和 `tests/unit/research` 通过。全量测试由 CI 运行。
