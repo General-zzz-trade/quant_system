@@ -167,4 +167,5 @@ def test_a_confirmed_fill_is_a_frozen_record_with_decimal_amounts(tmp_path):
                                  trade_id="t1", side="buy", qty=D("1"), price=D("100"), fee="0", fee_asset="USDT")
     with pytest.raises(dataclasses.FrozenInstanceError):
         fact.qty = D("2")
-    assert orders.journal.fill(fact.fill_id)["qty"] == "1"                  # the journal keeps strings
+    stored = orders.journal.fill(fact.fill_id)
+    assert isinstance(stored["qty"], str) and D(stored["qty"]) == 1          # the journal keeps strings
