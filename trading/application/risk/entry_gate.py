@@ -3,6 +3,9 @@
 Order of checks for an entry: quantity, side and symbol, price, kill switch, drawdown, pause, wallet,
 then either the shared quota reservation (frozen Bybit runtime) or the exposure cap followed by the
 order limits. Any exception refuses the entry. ``qty == 0`` or ``reduce_only`` is a reduction.
+
+A refusal by the orders-per-second limit alone is marked ``retry``: every other check has passed and the
+limit clears by itself, so the caller may ask again for the same entry a moment later.
 """
 from __future__ import annotations
 
@@ -14,10 +17,14 @@ from trading.application.ports import (DrawdownGuard, EntryReservation, Exposure
                                        OrderRequest, WalletCheck)
 
 
+RATE_LIMIT_RULE = "max_orders_per_second"      # the only refusal that passes by itself within seconds
+
+
 @dataclass(frozen=True)
 class GateResult:
     allowed: bool
     reason: str = ""
+    retry: bool = False        # refused only by the orders-per-second limit: the same entry may be asked again
 
 
 class CompositeRiskGate:
@@ -92,6 +99,7 @@ class CompositeRiskGate:
             if not allowed:
                 return GateResult(False, f"portfolio_gate: {reason}")
             result = self._limiter.check_order(qty=qty, price=price)
-            return GateResult(result.allowed, result.detail or result.violated_rule or "")
+            return GateResult(result.allowed, result.detail or result.violated_rule or "",
+                              retry=not result.allowed and result.violated_rule == RATE_LIMIT_RULE)
         except Exception as exc:
             return GateResult(False, f"risk check failed: {type(exc).__name__}")

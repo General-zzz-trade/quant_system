@@ -199,6 +199,9 @@ class TargetRuntime:
     def cycle(self) -> None:
         if self.mode == "execution" and self.clock() - self._last_equity >= EQUITY_SECONDS:
             self.refresh_equity()
+        if self.mode == "execution":
+            for session in self.sessions.values():       # entries the rate limit refused on an earlier cycle
+                session.retry_deferred(int(self.clock() * 1000))
         self.poll()
         if self.mode == "paper":
             self.save_paper_state()
