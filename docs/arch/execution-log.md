@@ -779,3 +779,13 @@ Contracts: 5 kept, 0 broken.
 - 删除前核对【实际运行结果】：仓库里没有任何代码、测试、CI、Makefile 或 systemd 单元引用这些文件；唯一出现它们名字的地方是 `features/dynamic_selector.py` 的一行文档字符串。
 - 保留：`research/model_registry/`（`alpha/retrain/pipeline.py` 引用它，且有测试）、`research/datasets/`（CI 的离线验收在用）、`research/protocols/`、`research/results/`、`research/trials.jsonl`、`research/forward_looks.jsonl`、`research/rust/`（属于 Rust 库）。
 - 本地：ruff 通过；`research.model_registry.registry` 和 `features.dynamic_selector` 仍可导入；架构测试和 `tests/unit/research` 通过。全量测试由 CI 运行。
+
+## 瘦身批次 B：删除 18 个没有任何引用的一次性脚本和旧下载器（2026-11-14，ADR-0008 子决策 2b）
+
+- 标准比"不可达"更严：文件的模块名、路径在全部代码、测试、CI、Makefile、systemd 单元、配置里都没有出现（文档除外）。按这个标准 `scripts/`、`monitoring/`、`data/downloads/` 里共有 24 个文件。
+- 删除其中 18 个，5,000 多行：
+  - `scripts/` 8 个一次性分析和回测脚本；
+  - `monitoring/` 7 个分析脚本；
+  - `data/downloads/` 3 个旧下载器。
+- **没有删的 6 个**：`scripts/` 下的 `publish_research_model.py`、`restore_backup.py`、`setup_okx_credentials.py`、`daily_check.py`、`polymarket_health.py`、`dashboard.py`。它们是可能由人手工运行的运维工具，代码判断不了是否还在用；其中发布规格的脚本是上线流程需要的。留给技术负责人确认。
+- 本地：ruff 和架构测试通过。全量测试由 CI 运行。
