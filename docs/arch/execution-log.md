@@ -356,7 +356,7 @@ Contracts: 4 kept, 0 broken.
 
 **改了什么**
 
-- `trading/adapters/binance/`：`rest.py`、`urls.py`、`adapter.py` 从 `execution/adapters/binance/` 搬来，与原文件只差导入路径和类型标注（逐文件 diff 核对；为通过严格 mypy，补了泛型参数、一个 `NoReturn` 和两处把 `json.loads` 的结果先赋给带类型的变量，运行行为不变）。`config.py` 搬来时去掉了读环境变量的 `from_env`。
+- `trading/adapters/binance/`：`rest.py`、`urls.py`、`adapter.py` 从 `execution/adapters/binance/` 搬来，与原文件只差导入路径和类型标注（逐文件 diff 核对；为通过严格 mypy，补了泛型参数、一个 `NoReturn` 和三处把 `json.loads` 的结果先赋给带类型的变量（原写两处，第 9 步后审计 F8 更正），运行行为不变）。`config.py` 搬来时去掉了读环境变量的 `from_env`。
 - 一个适配器类同时实现行情、账户、下单、止损四个端口，不拆类。
 - REST 限流从 Rust 的 `RustRateLimitPolicy` 换成纯 Python 实现 `trading/adapters/binance/rate_limit.py`（容量、补充速度、端点权重、算术完全照搬，时钟可注入）。先写对拍测试：5 个随机种子各 3,000 次请求（含随机的权重同步），Python 与 Rust 每一次的放行 / 拒绝结果都相同。
 - 交易所返回的数据对象（`CanonicalFill`、`VenuePosition`、`CanonicalBalance`、`BalanceSnapshot`）原样搬到 `trading/domain/venue.py`；`execution/models/` 里对应的模块改为重导出，所以旧代码里的 `isinstance` 判断看到的仍是同一个类。
@@ -679,3 +679,42 @@ Contracts: 5 kept, 0 broken.
 - 删除前核对【实际运行结果】：仓库里没有任何代码 import 它们，没有测试覆盖它们，没有启动配置引用它们；对应的 4 个 systemd 单元已在 `infra/sync_systemd.sh` 的 `RETIRED_UNITS` 里。只有几份旧文档还提到其中一个脚本的旧路径，那些文档属于 `doc-vs-code.md` 里待清理的范围，本次不动。
 - 本地：ruff 通过；架构测试和 `tests/unit/trading` 通过。全量测试由 CI 运行。
 - 同一个 PR 的第二次提交把今天追加批准的三项写进了迁移计划（第 10b 步、第 10 步的对比测试、本次删除）。
+
+## 第 9 步之后的自检审计（独立审计员，审计对象 `91f800f`）与处理
+
+审计中途因用量额度用尽中断过一次，恢复后把范围收紧到第 9 步的四份改动；第 7、8 步只做了逐文件比对。审计员做了 16 个变异实验，9 个存活。
+
+**结论：第 9d 步不是"行为不变"，我在记录里写错了。** 第 7、8、9a、9b、9c 步逐文件比对一致，没有发现行为差异；风控参数、3 倍上限、急停文件、状态转移表、策略函数都没有改动；测试里没有断言被改弱。
+
+| 编号 | 级别 | 问题 | 处理 |
+|---|---|---|---|
+| F1 | 高 | 第 9d 步的适配器薄壳在订单被拒或入场被阻断时，把失败处理多执行一遍：`blocked` 回调重复、熔断器多记一次失败、多一条错误日志；熔断器断开时就绪标志被误置为未就绪。记录里没有提，测试也测不出 | 已修：没有进入下单流程时薄壳直接返回。【实际运行结果】复现脚本在修复前后和第 9d 步之前的代码上各跑一次，修复后三种情况的回调次数、熔断器计数、就绪标志、错误日志条数与第 9d 步之前完全相同 |
+| F2 | 高 | `service.py` 和薄壳上 4 个变异全部存活，其中一个关系到急停平仓（预留被拒后不回调 `blocked`，运行时的待决集合不会清空，平仓会一直等） | 已补 6 个测试：被拒入场的回调、熔断器计数和错误日志逐项精确断言（不再用"包含"）；重复意图在阻断期间不产生任何动作；被订单库拒绝的入场回调 `blocked` 且不计成功；成交写进成本日志文件 |
+| F3 | 中 | 覆盖率门禁没有跟着第 8 步和第 9c 步搬家，量的是薄壳 | 已改：门禁加上 `trading.adapters.binance` 和 `trading.application.reconcile`，并让它同时运行应用层和特征化测试。【实际运行结果】83.68%（门槛 75%） |
+| F4 | 中 | 架构规则是黑名单，换一个没列出的模块或经 numpy / pandas 读文件、读时钟、取随机数就能绕过 | 已改：domain 和 application 的 import 改为允许清单；新增一条规则拒绝经 numpy / pandas 的文件、时钟和随机数访问。两条规则都用审计员绕过旧规则的那几行做了自检 |
+| F5 | 中 | 第 9d 步按 PR 计手写约 636 行，超过 400；测试提交排在实现提交之后 | 属实。第 9d 步是在技术负责人当天批准"一个步骤一个 PR、每次提交少于 400 行"之后做的，两次提交各自少于 400 行。测试排在实现之后是我的顺序错误：F1 正是先写测试就能发现的问题 |
+| F6 | 中 | 重启后丢失"已被交易所拒绝"的标记不会被测出；已生效的止损在 90 秒内从交易所消失时的处理没有测试 | 已补 2 个测试 |
+| F7 | 中 | 三个薄壳的接线没有测试，其中一个涉及测试网与主网密钥的选择 | 已补 4 个测试：执行器薄壳确实等待；两个薄壳的默认时钟是墙上时钟；`from_env` 按环境取对应的密钥，缺失时不回退到另一个环境 |
+| F8 | 低 | 第 8 步记录把三处写成两处 | 已更正 |
+| F9 | 低 | `service.py` 用 `getattr` 取 `execution_blockers`；薄壳给服务的时钟写死为 `time.time` | 记录。前者是为了与旧代码一样容忍没有这个方法的交易所对象；两处都在第 10 步组装时统一 |
+| F10 | 低 | mypy 跳过 numpy / pandas，策略代码里的表达式类型都是 `Any` | 记录：严格类型检查对 `trading/domain/strategy` 基本不起作用，那部分靠因果性的性质测试约束 |
+| F11 | 低 | "3 倍上限只定义一次"的测试按变量名匹配 | 记录 |
+
+**对第 9d 步记录的更正**："可见的差别"一节漏了 F1。从 `19d84b1` 到本次修复之间，被拒或被阻断的订单会多触发一次失败处理。这段代码没有部署过，没有实际影响，但"行为不变"的说法是错的；我做的 27 个注入缺陷和新旧对比都没有覆盖"订单没有进入下单流程"这类路径，探针也不打印回调次数。
+
+**审计员存活的 9 个变异的去向**：S1–S4、L2、P1、P2、C1、C2 现在各有测试约束（上表 F2、F6、F7）。
+
+**本地验证**
+
+```
+$ python3 -m pytest tests/unit/trading tests/unit/binance tests/characterization tests/architecture -q
+全部通过
+$ ruff check --select E,W,F .
+All checks passed!
+$ mypy trading/
+Success: no issues found in 36 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+全量测试由 CI 的 4 个分片运行（见 PR）。
