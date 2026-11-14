@@ -1,8 +1,10 @@
 """SQLite order journal: intents, exchange fills, consumer checkpoints and protective stops.
 
-This class is the only writer of these tables (migration step 6). A fill row is also its outbox row,
-so it cannot be lost between committing the exchange fact and publishing it. Reservation rules that
-must be atomic with the insert run inside one ``BEGIN IMMEDIATE`` transaction here.
+On the Binance target-runtime path this class is the only writer of these tables (migration step 6); the
+ML runtime's DurableFillConsumer and the frozen Bybit/OKX adapters still write through ``connect()``.
+A fill row is also its outbox row, so it cannot be lost between committing the exchange fact and
+publishing it. Reservation rules that must be atomic with the insert run inside one ``BEGIN IMMEDIATE``
+transaction here.
 """
 from __future__ import annotations
 
