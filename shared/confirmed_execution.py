@@ -24,10 +24,13 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from types import SimpleNamespace
 
 from shared.execution_journal import ExecutionJournal
+
+if TYPE_CHECKING:
+    from trading.application.ports import Clock, OrderGateway
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"filled", "canceled", "mmp_canceled", "rejected", "expired"})
@@ -50,9 +53,9 @@ class PendingOrder:
 
 
 class ConfirmedExecutor:
-    def __init__(self, adapter: Any, journal_path: Path, scope: str, *,
+    def __init__(self, adapter: OrderGateway, journal_path: Path, scope: str, *,
                  wait_seconds: float = 3.0, owner: str = "", entry_order_type: str = "limit",
-                 not_found_grace_seconds: float | None = None, clock: Any = time.time,
+                 not_found_grace_seconds: float | None = None, clock: Clock = time.time,
                  entry_ttl_seconds: float | None = None) -> None:
         if not scope:
             raise ValueError("execution scope is required")

@@ -103,3 +103,34 @@ Contracts: 4 kept, 0 broken.
 
 - import-linter 是开发工具，本机装在独立目录里（`/opt/lint-pkgs`，用包装命令 `lint-imports-isolated` 调用），不影响系统 Python。本地运行：`make test LINT_IMPORTS=lint-imports-isolated`。
 - CI 的改动要等推送后才能看到实际运行结果，本地只验证了它们调用的命令。
+
+## 第 3 步：端口定义与契约测试
+
+**改了什么**
+
+- 新增 `trading/application/ports.py`（140 行）：`MarketData`、`ExchangeAccount`、`OrderGateway`、`StopOrderGateway`、`OrderJournal`、`KillSwitch`、`DrawdownGuard`、`OrderLimits`、`ExposureReader`、`EventLog`、`Notifier`，以及 `Clock`、`Sleeper` 两个可调用类型。方法名和签名沿用现有实现，所以现有类不用改就符合端口。`OrderJournal` 暂不含裸 SQL 的 `connect()`，第 6 步收口。
+- 新增 `tests/contract/test_ports.py`（16 个测试）：现有的 Binance 适配器、订单日志、kill 文件、回撤闩锁、下单限额器、敞口门、事件日志逐一满足对应端口（方法齐全、端口声明的每个参数名都被接受）；交易所整体不可用时，9 个读方法都抛异常而不是返回空；敞口门在账户读不到时拒绝入场。另有一个测试证明签名检查能发现缺参数。
+- `shared/entry_risk.py`、`shared/exposure_gate.py`、`shared/confirmed_execution.py` 的协作者参数从 `Any` 改为端口类型（只在类型检查时导入，运行时行为不变）。旧包引用新包是允许的方向。
+- `tests/architecture/test_rules.py` 新增：`trading/application` 里函数参数不得标注为 `Any`。
+- `pyproject.toml` 为 `trading` 加了严格的 mypy 配置（未标注函数、裸泛型都报错）；CI lint 任务和 `make lint-arch` 运行 `mypy trading/`。
+
+**通用验收（原始输出尾部）**
+
+```
+2965 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 376.30s (0:06:16)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 6 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+2965 = 2947 + 16（端口契约）+ 2（架构规则）。
+
+**遗留**
+
+- `BinanceAdapter.get_balances` 出错时返回空快照，不在任何端口里，暂不处理。
+- 测试用的 `FakeBinance` 是 HTTP 层的假交易所，契约测试检查的是"真实适配器 + 假 HTTP"。审查发现的假交易所与真实 Binance 的差异（成交查询忽略 `limit`、撤销已成交订单不报错等）在第 5、6 步补测试时一并处理。

@@ -62,3 +62,24 @@ def test_money_path_tests_are_gated_in_ci_and_make():
 def test_ci_runs_the_import_contracts():
     text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "lint-imports" in text and (ROOT / ".importlinter").is_file()
+
+
+def _any_parameters(tree: ast.AST) -> list[str]:
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            params = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+            found += [f"{node.name}({a.arg})" for a in params
+                      if a.annotation is not None and ast.unparse(a.annotation) in {"Any", "typing.Any"}]
+    return found
+
+
+def test_application_parameters_are_typed_by_ports_not_any():
+    offenders = [f"{path.relative_to(ROOT)}: {name}"
+                 for path, tree in _modules(TRADING / "application") for name in _any_parameters(tree)]
+    assert offenders == []
+
+
+def test_any_rule_detects_untyped_collaborators():
+    tree = ast.parse("from typing import Any\nclass G:\n    def __init__(self, limiter: Any, n: int, **kw: Any): ...\n")
+    assert _any_parameters(tree) == ["__init__(limiter)"]

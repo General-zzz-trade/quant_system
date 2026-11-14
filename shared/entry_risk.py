@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from trading.application.ports import DrawdownGuard, ExposureReader, KillSwitch, OrderLimits
 
 
 @dataclass(frozen=True)
@@ -13,8 +16,10 @@ class GateResult:
 
 
 class CompositeRiskGate:
-    def __init__(self, limiter: Any, kill_switch: Any = None, portfolio_reader: Any = None,
-                 venue: str = "okx", drawdown_guard: Any = None, paused: Any = None,
+    def __init__(self, limiter: OrderLimits, kill_switch: KillSwitch | None = None,
+                 portfolio_reader: ExposureReader | None = None,
+                 venue: str = "okx", drawdown_guard: DrawdownGuard | None = None,
+                 paused: Callable[[str], bool] | None = None,
                  reservation: Any = None, account_ledger: Any = None) -> None:
         self._limiter = limiter
         self._kill_switch = kill_switch

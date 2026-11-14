@@ -35,8 +35,10 @@ test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)
 lint:  ## Lint (matches CI 'Ruff check' step)
 	ruff check --select E,W,F .
 
-# import-linter is a dev tool only: pip install import-linter==2.16
+# import-linter and mypy are dev tools only: pip install import-linter==2.16 mypy==1.18.2
 LINT_IMPORTS ?= lint-imports
+MYPY ?= mypy
 
-lint-arch:  ## Architecture contracts in .importlinter (matches CI step)
+lint-arch:  ## Architecture contracts in .importlinter and strict types for trading/ (matches CI steps)
 	$(LINT_IMPORTS)
+	$(MYPY) trading/

@@ -11,14 +11,17 @@ Gross exposure = sum(|position qty| x mark) over all symbols
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from trading.application.ports import ExchangeAccount, OrderJournal
 
 MAX_TOTAL_LEVERAGE = Decimal("3")
 
 
 class AccountExposureGate:
-    def __init__(self, adapter: Any, journal: Any = None, *, max_leverage: Decimal = MAX_TOTAL_LEVERAGE,
-                 prices: Any = None) -> None:
+    def __init__(self, adapter: ExchangeAccount, journal: OrderJournal | None = None, *,
+                 max_leverage: Decimal = MAX_TOTAL_LEVERAGE, prices: Any = None) -> None:
         max_leverage = Decimal(str(max_leverage))
         if not max_leverage.is_finite() or not 0 < max_leverage <= MAX_TOTAL_LEVERAGE:
             raise ValueError(f"max_leverage must be in (0, {MAX_TOTAL_LEVERAGE}]")
