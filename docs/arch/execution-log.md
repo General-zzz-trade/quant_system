@@ -814,7 +814,7 @@ Contracts: 5 kept, 0 broken.
   - `scripts/` 8 个一次性分析和回测脚本；
   - `monitoring/` 7 个分析脚本；
   - `data/downloads/` 3 个旧下载器。
-- **没有删的 6 个**：`scripts/` 下的 `publish_research_model.py`、`restore_backup.py`、`setup_okx_credentials.py`、`daily_check.py`、`polymarket_health.py`、`dashboard.py`。它们是可能由人手工运行的运维工具，代码判断不了是否还在用；其中发布规格的脚本是上线流程需要的。留给技术负责人确认。
+- **没有删的 6 个**：`scripts/` 下的 `publish_research_model.py`、`restore_backup.py`、`setup_okx_credentials.py`、`daily_check.py`、`polymarket_health.py`、`dashboard.py`。它们是可能由人手工运行的运维工具，代码判断不了是否还在用。留给技术负责人确认。（更正，2026-11-14：这里原先写"其中发布规格的脚本是上线流程需要的"，说错了。上线流程用的是 `publish_strategy_spec.py`，它有引用、不在这 6 个里；`publish_research_model.py` 是已关闭的 ML 线的发布脚本。这 6 个已在批次 D 删除。）
 - 本地：ruff 和架构测试通过。全量测试由 CI 运行。
 
 ## 瘦身批次 C：删除独立的 Rust 交易程序 `rust_bin/`（2026-11-14，ADR-0008 子决策 4b）
@@ -822,6 +822,23 @@ Contracts: 5 kept, 0 broken.
 - 删除 `rust_bin/` 全部 14 个文件，3,161 行：`quant_trader` 的源码和 9 份配置。它自带行情、决策和下单，没有任何服务、脚本或 CI 步骤启动它。
 - `Cargo.toml` 去掉对应的 `[[bin]]` 段；`Dockerfile` 去掉复制该目录的一行。依赖列表没有动：其中一部分仍被 Python 扩展用到，要不要精简另行处理。
 - 【实际运行结果】`cargo metadata --locked --offline` 通过，说明清单和锁文件仍然一致。完整的 `cargo test` 和镜像构建由 CI 的 `rust-test`、`container-startup` 两项检查验证。
+
+## 瘦身批次 D：删除 6 个运维脚本、旧的数据刷新脚本和它的 9 个下载器（2026-11-14，技术负责人逐项批准）
+
+- 技术负责人 2026-11-14 答复："1 删除，2 删除"。对应两组文件，共 16 个，3,385 行（另有 1 个误提交的 `.pyc`）：
+  - `scripts/` 下 6 个：`publish_research_model.py`、`restore_backup.py`、`setup_okx_credentials.py`、`daily_check.py`、`polymarket_health.py`、`dashboard.py`。
+  - `data/downloads/data_refresh.py` 和它调用的 9 个 `download_*.py`。对应的定时任务此前已退役。
+- 删除前用 `git grep` 搜索全部已跟踪文件：这 16 个文件只在文档里被提到，没有代码、测试、CI、服务单元引用。
+- 提到它们的 4 处文档已改：`README.md`、`docs/binance_runbook.md`、`docs/operations.md`、`docs/add_new_symbol.md`；`data/downloads/__init__.py` 的说明改成现在实际存在的两个下载器。
+- 顺带删除一个误提交的编译产物 `data/loaders/__pycache__/__init__.cpython-312.pyc`（它的源码早已不在）。
+
+**引用扫描的一个漏洞与复查**
+
+- 之前各批删除用的是命令行里的 `grep -r`。这个环境里的 `grep` 是一层包装，递归搜索时会跳过被 `.gitignore` 忽略的路径；而仓库里有 101 个文件"被忽略但已跟踪"，其中 `data/` 下有 21 个 Python 文件。所以此前"没有任何引用"的结论对这些路径没有覆盖到。
+- 发现经过：准备本批时，9 个下载器被判成"没有引用"，实际上 `data_refresh.py` 导入了它们。提交前发现，当时撤销；后来技术负责人批准整组删除。
+- 【实际运行结果】复查：用不经包装的 `grep` 在这 101 个文件里搜索今天删除的全部 68 个 Python 文件的模块名、路径和文件名，没有任何引用（只有 `__init__` 这个通用词的误匹配）。批次 A、B、C 和 4 个直接下单脚本的删除不受影响。每次删除后 CI 的全量测试也都通过。
+- 之后的引用检查一律用 `git grep`（搜索全部已跟踪文件）。
+- 本地：ruff 和架构测试通过。全量测试由 CI 运行。
 
 ## 第 10 步（下半，第二部分）：运行时改用新的执行服务；导入隔离；实盘路径与研究的对比测试
 

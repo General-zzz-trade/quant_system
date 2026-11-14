@@ -83,8 +83,8 @@ python3 -m monitoring.data_quality_check               # 数据质量检查
 python3 -m alpha.auto_retrain --include-4h --sighup    # 重训 + 热加载
 python3 -m alpha.auto_retrain --daily --include-4h     # 每日轻量重训
 
-# 数据更新
-python3 -m data.downloads.data_refresh                 # 全量数据同步（K线+资金费率+OI）
+# 数据更新（研究用的不可变快照；旧的 data_refresh 和各个 download_* 脚本已于 2026-11-14 删除）
+python3 -m data.downloads.binance_public --start 2020-01-01   # 写入新的 data_files/binance_public_<日期>/
 
 # 测试
 pytest tests/unit/ -x -q                               # 单元测试

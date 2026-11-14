@@ -1,10 +1,5 @@
-"""Ingestion — batch data download scripts.
+"""Data downloads for research (run as modules).
 
-CLI entry points (run as modules):
-  python3 -m data.downloads.data_refresh        # Full incremental sync
-  python3 -m data.downloads.data_refresh_cli     # CLI wrapper
-
-Individual downloaders cover klines (Bybit/Binance, multiple timeframes),
-funding rates, open interest, on-chain metrics, options (Deribit), macro
-indicators (FRED), and sentiment (fear & greed).
+  python3 -m data.downloads.binance_public     # immutable dated snapshot of Binance public data
+  python3 -m data.downloads.binance_archive    # mid-frequency snapshot from the public archive
 """

@@ -111,29 +111,8 @@ python3 -m monitoring.ic_decay_monitor
 
 ## 4. Data Pipeline
 
-```bash
-# Cross-market data (also updates ETF volume)
-python3 -m scripts.data.download_cross_market
-
-# Stablecoin supply
-python3 -m scripts.data.download_stablecoin_supply
-
-# On-chain data
-python3 -m scripts.data.download_onchain
-
-# Deribit implied volatility
-python3 -m scripts.data.download_deribit_iv --all
-
-# Deribit options put/call ratio
-python3 -m scripts.data.download_deribit_pcr --all
-
-# Standard data (handled by data-refresh.timer, but can run manually)
-python3 -m scripts.data.download_15m_klines
-python3 -m scripts.data.download_5m_klines --symbols ETHUSDT
-python3 -m scripts.data.download_funding_rates --symbols ETHUSDT SOLUSDT
-python3 -m scripts.data.download_oi_data --symbols ETHUSDT BTCUSDT
-python3 -m scripts.data.download_multi_exchange_funding --symbols ETHUSDT
-```
+本节列出的下载脚本和 `data-refresh.timer` 都已删除或退役（2026-11-14）。研究数据现在只通过
+`python3 -m data.downloads.binance_public` 下载成不可变的带日期快照，见 `CLAUDE.md`。
 
 ---
 
