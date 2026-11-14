@@ -40,9 +40,15 @@ def _world(tmp_path, spec: StrategySpec, *, passed=False):
             return fakes[sym].request_public(method=method, path=path, params=params)
 
         def request_signed(self, *, method, path, params=None):
-            sym = (params or {}).get("symbol") or (params or {}).get("clientAlgoId", "")
-            return fakes["ETHUSDT" if "ETH" in str(sym) else "BTCUSDT"].request_signed(
-                method=method, path=path, params=params)
+            p = params or {}
+            if p.get("symbol"):
+                return fakes[p["symbol"]].request_signed(method=method, path=path, params=params)
+            if p.get("clientAlgoId"):  # algo-order lookups carry no symbol: the venue holding the id answers
+                owner = next((f for f in fakes.values() if p["clientAlgoId"] in f.algo), fakes["BTCUSDT"])
+                return owner.request_signed(method=method, path=path, params=params)
+            if path in ("/fapi/v2/positionRisk", "/fapi/v1/openOrders"):  # account-wide reads span both
+                return [row for f in fakes.values() for row in f.request_signed(method=method, path=path, params=p)]
+            return fakes["BTCUSDT"].request_signed(method=method, path=path, params=params)
 
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=Router())
     assert adapter.connect(symbols=("BTCUSDT", "ETHUSDT"))
@@ -102,6 +108,8 @@ def test_execution_lifecycle_restart_and_flatten(tmp_path, monkeypatch):
         i += 1
     position = btc.positions.get("BTCUSDT", D(0))
     assert position != 0, "a market entry should have filled"
+    for fake in world["fakes"].values():  # one exchange-side stop per venue at most, never a pile
+        assert len([a for a in fake.algo.values() if a["algoStatus"] == "NEW"]) <= 1
     _advance(world, runtime, i)
     i += 1
     session = runtime.sessions["BTCUSDT"]
@@ -118,6 +126,8 @@ def test_execution_lifecycle_restart_and_flatten(tmp_path, monkeypatch):
     _advance(world, runtime, i)
     _advance(world, runtime, i + 1)
     assert btc.positions["BTCUSDT"] == 0
+    assert all(f.positions.get(s, D(0)) == 0 for s, f in world["fakes"].items())
+    assert not [a for f in world["fakes"].values() for a in f.algo.values() if a["algoStatus"] == "NEW"]
     assert runtime.sessions["BTCUSDT"].position_qty() == 0
     assert not any(a["algoStatus"] == "NEW" for a in btc.algo.values())
 

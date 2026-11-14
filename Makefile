@@ -1,4 +1,4 @@
-.PHONY: all rust clean test test-py test-exec test-all test-rust lint
+.PHONY: all rust clean test test-py test-exec test-all test-rust lint lint-arch
 
 all: rust
 
@@ -10,14 +10,15 @@ clean:
 
 # ── Test targets (aligned with CI: .github/workflows/ci.yml) ───────────
 
-test: test-py test-exec test-rust lint  ## Core local gate (same suites as CI); full suite: make test-all
+test: test-py test-exec test-rust lint lint-arch  ## Core local gate (same suites as CI); full suite: make test-all
 
 CORE_TESTS = tests/unit/decision/ tests/unit/state/ tests/unit/event/ tests/unit/engine/ tests/unit/bybit/ \
 	tests/unit/execution/adapters/okx/ tests/unit/runner/test_offline_research.py \
 	tests/unit/runner/test_offline_candidate_research.py tests/unit/runner/test_data_readiness.py \
 	tests/unit/runner/test_paper_check.py tests/unit/runner/test_shadow_main.py tests/unit/infra/ \
 	tests/unit/monitoring/test_pause_state_fail_closed.py tests/unit/data/test_binance_public_download.py \
-	tests/unit/features/test_daily_alignment_causal.py tests/unit/lab/
+	tests/unit/features/test_daily_alignment_causal.py tests/unit/lab/ tests/unit/binance/ \
+	tests/architecture/ tests/characterization/ tests/offline/ tests/contract/
 
 test-py:  ## Python core tests (matches CI 'Run core unit tests')
 	python3 -m pytest $(CORE_TESTS) -x -q --tb=short
@@ -33,3 +34,9 @@ test-rust:  ## Rust unit tests (matches CI 'Run Rust tests' step)
 
 lint:  ## Lint (matches CI 'Ruff check' step)
 	ruff check --select E,W,F .
+
+# import-linter is a dev tool only: pip install import-linter==2.16
+LINT_IMPORTS ?= lint-imports
+
+lint-arch:  ## Architecture contracts in .importlinter (matches CI step)
+	$(LINT_IMPORTS)

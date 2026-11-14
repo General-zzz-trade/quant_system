@@ -40,12 +40,17 @@ jobs:
           python-version: "3.12"
 
       - name: Install linters
-        run: pip install ruff==0.17.4
+        run: pip install ruff==0.17.4 import-linter==2.16
+
+      - name: Architecture contracts (.importlinter)
+        run: lint-imports
 
       - name: Ruff check (core modules)
         run: |
           ruff check --select E,W,F \
-            decision/ engine/ event/ state/ execution/ features/ \
+            decision/ engine/ event/ state/ execution/ features/ trading/ \
+            tests/architecture/ tests/characterization/ tests/unit/lab/ \
+            shared/kill_file.py shared/exposure_gate.py \
             risk/ alpha/ attribution/ runner/ \
             monitoring/ infra/ strategy/ polymarket/ \
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
@@ -182,6 +187,10 @@ jobs:
             tests/unit/data/test_binance_public_download.py \
             tests/unit/features/test_daily_alignment_causal.py \
             tests/unit/lab/ \
+            tests/architecture/ \
+            tests/characterization/ \
+            tests/offline/ \
+            tests/contract/ \
             -x -q --tb=short
 
       - name: Binance execution coverage gate

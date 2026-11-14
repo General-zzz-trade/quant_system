@@ -1,0 +1,62 @@
+[importlinter]
+root_package = trading
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = trading depends inward only
+type = layers
+layers =
+    trading.infrastructure
+    trading.adapters
+    trading.application
+    trading.domain
+
+[importlinter:contract:no-legacy]
+name = trading does not import the legacy packages
+type = forbidden
+source_modules =
+    trading
+forbidden_modules =
+    alpha
+    attribution
+    data
+    decision
+    engine
+    event
+    execution
+    features
+    infra
+    lab
+    monitoring
+    polymarket
+    research
+    risk
+    runner
+    scripts
+    shared
+    state
+    strategy
+
+[importlinter:contract:core-no-io]
+name = domain and application do no I/O and do not read the clock
+type = forbidden
+source_modules =
+    trading.domain
+    trading.application
+forbidden_modules =
+    _quant_hotpath
+    http
+    os
+    socket
+    sqlite3
+    subprocess
+    time
+    urllib
+
+[importlinter:contract:domain-no-logging]
+name = domain has no logging
+type = forbidden
+source_modules =
+    trading.domain
+forbidden_modules =
+    logging

@@ -73,3 +73,33 @@ OK (skipped=1)
 - 预热阶段的行情失败仍然让进程退出（启动失败由 systemd 重启）。
 - 连续失败没有主动告警，只有事件日志和状态文件里的 `market_failures` 计数。告警出口在第 12 步加。
 - 部署影响：主机上第一次用新代码启动时没有 `paper_state.json`，从零开始，与现在相同；之后的重启都会续上。
+
+## 第 2 步：门禁与架构规则骨架
+
+**改了什么**
+
+- 新建空包 `trading/`，四个子包 `domain`、`application`、`adapters`、`infrastructure`，每个只有一行说明。
+- `.importlinter`：4 条契约——依赖只能向内；`trading` 不 import 任何遗留顶层包（19 个）；`domain`、`application` 不 import `os`、`time`、`sqlite3`、`urllib`、`http`、`socket`、`subprocess`、`_quant_hotpath`；`domain` 不 import `logging`。"适配器之间互不依赖"一条等第 8 步有了适配器再加。
+- 【实际运行结果】契约不是摆设：临时放进一个同时违反 4 条规则的文件，`lint-imports` 输出 `Contracts: 0 kept, 4 broken`，并逐条列出违规的 import；删掉后恢复 `4 kept`。
+- `tests/architecture/test_rules.py`：只有 `trading/infrastructure` 能读环境变量；CI 和 `make test` 的 pytest 清单必须包含 `tests/architecture`、`tests/characterization`、`tests/offline`、`tests/contract`、`tests/unit/lab`、`tests/unit/binance`；CI 必须运行 `lint-imports`。
+- CI：核心测试步骤加入上面 4 个目录（`tests/offline` 以前只以 unittest 方式跑，`tests/contract` 以前不在 CI）；lint 任务安装 `import-linter==2.16` 并运行；ruff 清单补上 `trading/`、两个新测试目录、`tests/unit/lab/`、`shared/kill_file.py`、`shared/exposure_gate.py`。
+- `Makefile`：`CORE_TESTS` 同步；新增 `lint-arch` 目标并纳入 `make test`。`pyproject.toml` 打包清单加入 `trading/`。
+- 修正测试夹具 `tests/unit/lab/test_target_runtime.py` 的路由：不带 `symbol` 的止损查询发到持有该止损的品种，账户级持仓与挂单查询合并两个品种。并新增断言：每个品种任何时候最多一张有效止损；kill 平仓后两个品种都没有持仓和残留止损。这是让测试更严，已有断言未改。
+
+**通用验收（原始输出尾部）**
+
+```
+2947 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 380.14s (0:06:20)
+exit=0
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+**遗留**
+
+- import-linter 是开发工具，本机装在独立目录里（`/opt/lint-pkgs`，用包装命令 `lint-imports-isolated` 调用），不影响系统 Python。本地运行：`make test LINT_IMPORTS=lint-imports-isolated`。
+- CI 的改动要等推送后才能看到实际运行结果，本地只验证了它们调用的命令。
