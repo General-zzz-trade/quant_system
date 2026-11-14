@@ -194,6 +194,7 @@ jobs:
             tests/characterization/ \
             tests/offline/ \
             tests/contract/ \
+            tests/unit/trading/ \
             -x -q --tb=short
 
       - name: Binance execution coverage gate

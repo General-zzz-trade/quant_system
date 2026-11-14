@@ -10,7 +10,7 @@ TRADING = ROOT / "trading"
 
 # Test directories that guard the money path; CI and `make test` must run all of them under pytest.
 REQUIRED_GATED = ("tests/architecture/", "tests/characterization/", "tests/offline/", "tests/contract/",
-                  "tests/unit/lab/", "tests/unit/binance/")
+                  "tests/unit/lab/", "tests/unit/binance/", "tests/unit/trading/")
 
 
 def _modules(base: Path):
