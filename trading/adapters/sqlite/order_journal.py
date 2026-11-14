@@ -15,13 +15,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-# Why a reservation was refused (empty string: reserved).
-DUPLICATE = "duplicate intent"
-ENTRY_UNRESOLVED = "unresolved submission for the symbol"
-REDUCTION_OVERLAP = "another reduction is unresolved"
-UNCONSUMED_OWN_FILL = "an own fill is not consumed yet"
-STALE_CHECKPOINT = "position checkpoint changed since the reduction was sized"
-UNCONSUMED_FILL = "a fill of the symbol is not consumed yet"
+from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLAP, STALE_CHECKPOINT,
+                                   UNCONSUMED_FILL, UNCONSUMED_OWN_FILL)
 
 
 class SqliteOrderJournal:

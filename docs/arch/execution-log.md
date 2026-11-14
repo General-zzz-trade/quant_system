@@ -384,3 +384,30 @@ Contracts: 5 kept, 0 broken.
 3158 = 3150 + 7（限流）+ 1（隔离）。`tests/unit/binance/`、`tests/unit/execution/test_binance_urls.py`、第 1 步的特征化测试一行未改，全部通过。
 
 **遗留**：自己写的两个限流测试第一次跑失败，原因是我对浮点补充量（`0.1 秒 × 10` 略小于 1）和"首次请求才开始计时"的预期写错了；以 Rust 对拍为准修正了测试里的期望值，实现没改。
+
+## 第 9 步准备：补齐第 6 步后审计要求的证据
+
+**改了什么**
+
+- `tests/contract/test_order_journal_sql.py`（6 个）：直接对 `SqliteOrderJournal` 固定审计指出的 SQL 细节——已结算的行不会被改状态；结算返回原状态，重复结算不报原状态；预留只在成功时读一次时钟，被拒绝时不读；收编的交易所订单是"未结、减仓、市价、submitted"；新止损行初始是 `unknown`，"有效止损"包括 `canceling`；订单结算后从执行器的待决集合里移除。
+- 【实际运行结果】对审计列出的 7 个存活缺陷逐个注入：6 个现在会被测出（H、I、J、K、F、T）。G（重复结算的 UPDATE 加 `AND settled=0`）仍然测不出来：单进程下结算只对仍在待决集合里的订单发生，两种写法行为相同，所以不固定它。
+- `tests/characterization/test_order_transitions.py`（12 个）：转移表按字面量固定；9 个场景通过真实的执行器产生转移，每个场景断言恰好产生哪些转移（包括审计点名的 `rejected_unconfirmed -> unknown`、`unknown -> rejected_unconfirmed`、重启后的 `reserved -> not_found`、`reserved -> filled`）；表里其余 16 种允许的转移各自写明保留的理由。表多出或少掉任何一条转移，这个测试都会失败（已试：往表里加一条 `submitted -> reserved`，测试失败）。
+- 预留被拒的原因常量从 SQLite 适配器移到 `trading/domain/orders.py`（审计 L3），执行器改从 domain 导入。第 9 步把执行器迁入 `trading/application` 时不会违反分层。
+
+**通用验收（原始输出尾部）**
+
+```
+3176 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 441.21s (0:07:21)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 30 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+3176 = 3158 + 6 + 12。
+
+**遗留**：审计 M2（观察模式没有告警、何时改为拒绝）等第 12 步有告警出口后再处理。

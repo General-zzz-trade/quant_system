@@ -39,6 +39,14 @@ UNSETTLED = frozenset({S.RESERVED, S.SUBMITTED, S.UNKNOWN, S.REJECTED_UNCONFIRME
 VENUE_TERMINAL = frozenset({S.FILLED, S.CANCELED, S.MMP_CANCELED, S.REJECTED, S.EXPIRED})
 ABSENT = frozenset({S.NOT_FOUND, S.REJECTED})         # settled without any exchange order
 SETTLED = VENUE_TERMINAL | ABSENT
+# Why a reservation was refused (an empty string means the intent was reserved).
+DUPLICATE = "duplicate intent"
+ENTRY_UNRESOLVED = "unresolved submission for the symbol"
+REDUCTION_OVERLAP = "another reduction is unresolved"
+UNCONSUMED_OWN_FILL = "an own fill is not consumed yet"
+STALE_CHECKPOINT = "position checkpoint changed since the reduction was sized"
+UNCONSUMED_FILL = "a fill of the symbol is not consumed yet"
+
 # Status a runtime may see in a status callback for an intent that was never stored.
 BLOCKED = "blocked"
 
