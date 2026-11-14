@@ -27,8 +27,7 @@ from typing import TYPE_CHECKING, Any
 from types import SimpleNamespace
 
 from shared.execution_journal import ExecutionJournal
-from trading.adapters.sqlite.order_journal import ENTRY_UNRESOLVED
-from trading.domain.orders import VENUE_TERMINAL, IllegalTransition, check_transition
+from trading.domain.orders import ENTRY_UNRESOLVED, VENUE_TERMINAL, IllegalTransition, check_transition
 
 if TYPE_CHECKING:
     from trading.application.ports import Clock, OrderGateway
