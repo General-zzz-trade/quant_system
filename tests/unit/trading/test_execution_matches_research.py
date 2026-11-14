@@ -3,11 +3,17 @@
 Both are fed the same bars and funding. Before each bar the account equity is set to the research
 sleeve's equity, and the exchange fills every market order in full at once. Then, bar by bar, the orders
 the execution path sends must equal the orders research sends, and the confirmed position must equal the
-research position. A difference can then only come from the decision path: bar handling, the funding
-cut-off, the target, the rebalance plan, the lot rules, the gates, the executor and the fill consumer.
+research position. A difference can then only come from the decision path: bar handling, the target,
+the rebalance plan, the lot rules, the gates, the executor and the fill consumer.
 
 Not compared, because research and the exchange differ there by design: fill price, fees and funding
 cash (they enter through equity, which is forced equal), and the risk limits, which must not bind here.
+
+Scope (audit after step 10b): one symbol, market entries, and a target that is ready on every bar. With
+two symbols the account-wide limit of one order per second can refuse the second symbol's entry on the same
+bar (known defect R23, pinned in tests/characterization/test_runtime_decisions.py); maker entries are compared
+with research only through the paper tests. The funding cut-off cannot change the target in this spec
+(no funding filter); it is tested in test_runtime_decisions.py.
 
 Since 2026-11-14 execution uses the exchange's own minimum order size while research keeps its constant
 (100 USDT for BTC). Every order in this run is above both, so the comparison is exact; the difference
