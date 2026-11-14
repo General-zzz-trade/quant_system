@@ -35,3 +35,12 @@ def exchange_settings(env: Mapping[str, str] | None = None) -> tuple[int, str | 
     if margin is not None and margin not in MARGIN_TYPES:
         raise RuntimeError(f"BINANCE_MARGIN_TYPE must be one of {sorted(MARGIN_TYPES)}")
     return leverage, margin
+
+
+def execution_scope(*, testnet: bool, env: Mapping[str, str] | None = None) -> str:
+    """RISK_SCOPE for an execution run: it must name binance, and say testnet exactly on the testnet."""
+    env = os.environ if env is None else env
+    scope = env.get("RISK_SCOPE", "").strip()
+    if not scope or "binance" not in scope or (("testnet" in scope) != testnet):
+        raise RuntimeError("RISK_SCOPE must name binance and contain 'testnet' exactly when BINANCE_TESTNET=1")
+    return scope

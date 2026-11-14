@@ -18,7 +18,6 @@ execution requires the frozen spec's research gate to have passed.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import signal
@@ -37,6 +36,7 @@ from trading.application.execution.fills import TargetFillConsumer
 from trading.application.runtime import POLL_SECONDS
 from trading.application.session import BROKER_STATE as _BROKER_STATE
 from trading.application.session import MAX_ENTRY_DELAY_MS, ExecutionParts, TargetSession
+from trading.infrastructure.settings import execution_scope
 
 logger = logging.getLogger("binance_target")
 
@@ -50,6 +50,20 @@ def load_spec(path: Path) -> dict:
         raise ValueError("not a frozen BTC/ETH target-strategy spec")
     StrategySpec.from_record(spec["spec"])  # validates parameters
     return spec
+
+
+def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D) -> dict:
+    """Every start-up check that needs no exchange: the spec's signature and kind, the research gate for
+    mainnet, the risk scope and the stop distance. Run before any account is connected (invariant L6):
+    connecting sets leverage and margin type on the exchange."""
+    frozen = load_spec(spec_path)
+    if execution:
+        if not testnet and frozen.get("passed") is not True:
+            raise RuntimeError("research gate not passed; mainnet execution refused")
+        execution_scope(testnet=testnet)
+        from runner.binance_main import check_stop_inside_liquidation
+        check_stop_inside_liquidation(stop_pct)
+    return frozen
 
 
 class TargetRuntime(_runtime.TargetRuntime):
@@ -114,9 +128,7 @@ class TargetRuntime(_runtime.TargetRuntime):
         from shared.execution_journal import ExecutionJournal
         from shared.exposure_gate import MAX_TOTAL_LEVERAGE, AccountExposureGate
         from shared.kill_file import KillFile
-        scope = os.environ.get("RISK_SCOPE", "").strip()
-        if not scope or "binance" not in scope or (("testnet" in scope) != testnet):
-            raise RuntimeError("RISK_SCOPE must name binance and contain 'testnet' exactly when BINANCE_TESTNET=1")
+        scope = execution_scope(testnet=testnet)
         journal_path = self.state_dir / "orders.sqlite"
         kill = KillFile(self.state_dir / "kill_switch.json")
         drawdown = DrawdownGuard(self.state_dir / "drawdown.sqlite", scope,
@@ -152,11 +164,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     testnet = os.environ.get("BINANCE_TESTNET", "1").strip().lower() not in ("0", "false", "no", "off")
-    args.state_dir.mkdir(parents=True, exist_ok=True)
     scope = os.environ.get("RISK_SCOPE", "paper") if args.execution else "paper-target"
+    frozen = preflight(args.spec, execution=args.execution, testnet=testnet, stop_pct=args.stop_pct)
+    args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / "orders.sqlite", scope)
-    symbols = json.loads(args.spec.read_text())["symbols"]
-    market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=symbols)
+    market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"])
     runtime = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
                             mode="execution" if args.execution else "paper", market=market, account=account,
                             testnet=testnet, stop_pct=args.stop_pct, reset_paper=args.reset_paper_state)
