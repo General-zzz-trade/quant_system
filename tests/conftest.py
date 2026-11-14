@@ -13,6 +13,20 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 
+@pytest.fixture(autouse=True)
+def _order_transitions_stay_in_the_table():
+    """Migration step 5: an order status change outside trading.domain.orders.TRANSITIONS fails the test.
+
+    The executor only logs such a change in production (observation mode); here it must never happen.
+    """
+    from shared import confirmed_execution
+    confirmed_execution.TRANSITION_VIOLATIONS.clear()
+    yield
+    violations = list(confirmed_execution.TRANSITION_VIOLATIONS)
+    confirmed_execution.TRANSITION_VIOLATIONS.clear()
+    assert violations == [], f"order status transitions outside the table: {violations}"
+
+
 # ── Market event factory ─────────────────────────────────────
 
 @pytest.fixture

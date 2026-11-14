@@ -18,20 +18,34 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-import json
 import threading
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from types import SimpleNamespace
 
 from shared.execution_journal import ExecutionJournal
+from trading.adapters.sqlite.order_journal import ENTRY_UNRESOLVED
+from trading.domain.orders import VENUE_TERMINAL, IllegalTransition, check_transition
+
+if TYPE_CHECKING:
+    from trading.application.ports import Clock, OrderGateway
 
 logger = logging.getLogger(__name__)
-TERMINAL = frozenset({"filled", "canceled", "mmp_canceled", "rejected", "expired"})
-ABSENT = frozenset({"not_found", "rejected"})  # settled without any exchange order
+TERMINAL = frozenset(status.value for status in VENUE_TERMINAL)
+# Transitions outside trading.domain.orders.TRANSITIONS are logged and recorded here, never acted on
+# (observation mode, migration step 5). The test suite fails any test that records one.
+TRANSITION_VIOLATIONS: list[str] = []
+
+
+def _record_transition(current: str | None, new: str, intent_id: str) -> None:
+    try:
+        check_transition(current, new)
+    except IllegalTransition as exc:
+        TRANSITION_VIOLATIONS.append(f"{intent_id}: {exc}")
+        logger.error("Order %s: %s", intent_id, exc)
 
 
 @dataclass
@@ -50,9 +64,9 @@ class PendingOrder:
 
 
 class ConfirmedExecutor:
-    def __init__(self, adapter: Any, journal_path: Path, scope: str, *,
+    def __init__(self, adapter: OrderGateway, journal_path: Path, scope: str, *,
                  wait_seconds: float = 3.0, owner: str = "", entry_order_type: str = "limit",
-                 not_found_grace_seconds: float | None = None, clock: Any = time.time,
+                 not_found_grace_seconds: float | None = None, clock: Clock = time.time,
                  entry_ttl_seconds: float | None = None) -> None:
         if not scope:
             raise ValueError("execution scope is required")
@@ -79,7 +93,7 @@ class ConfirmedExecutor:
         self.journal = ExecutionJournal(self.path, scope)
         self._restore_pending()
 
-    def _connect(self):
+    def _connect(self):  # raw access kept for the frozen OKX adapter only
         return self.journal.connect()
 
     def _restore_pending(self) -> None:
@@ -92,11 +106,7 @@ class ConfirmedExecutor:
                                    row["order_id"], is_limit=order_type == "limit",
                                    created_at=row.get("created_at"), rejected=row["status"] == "rejected_unconfirmed",
                                    reducing=bool(row["reducing"]))
-            with self._connect() as db:
-                fills = db.execute("SELECT payload FROM execution_fills WHERE scope=? AND intent_id=?",
-                                   (self.scope, pending.intent_id)).fetchall()
-            for row_fill in fills:
-                fact = json.loads(row_fill[0])
+            for fact in self.journal.intent_fills(pending.intent_id):
                 pending.seen.add(fact["trade_id"])
                 pending.confirmed_qty += Decimal(fact["qty"])
             self.pending[pending.intent_id] = pending
@@ -104,55 +114,14 @@ class ConfirmedExecutor:
     def _reserve(self, intent_id: str, symbol: str, side: str, reducing: bool,
                  qty: Decimal, parent: dict[str, Any] | None) -> PendingOrder | None:
         client_id = "qs" + hashlib.sha256(f"{self.scope}:{intent_id}".encode()).hexdigest()[:30]
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            if db.execute("SELECT 1 FROM submissions WHERE scope=? AND intent_id=?",
-                          (self.scope, intent_id)).fetchone():
-                return None
-            if db.execute(
-                "SELECT 1 FROM submissions WHERE scope=? AND symbol=? AND settled=0",
-                (self.scope, symbol),
-            ).fetchone() and not reducing:
+        refusal, created_at = self.journal.reserve(
+            intent_id=intent_id, symbol=symbol, client_id=client_id, side=side, qty=str(qty), reducing=reducing,
+            owner=self.owner, parent=parent, order_type="market" if reducing else self.entry_order_type,
+            clock=self.clock)
+        if refusal:
+            if refusal == ENTRY_UNRESOLVED:
                 logger.error("Entry blocked: unresolved submission for %s (scope=%s)", symbol, self.scope)
-                return None
-            # Reductions may proceed while an entry is ambiguous, but may not
-            # overlap another unresolved reduction for the same account/symbol.
-            if reducing and db.execute(
-                "SELECT 1 FROM submissions WHERE scope=? AND symbol=? AND settled=0 AND reducing=1",
-                (self.scope, symbol),
-            ).fetchone():
-                return None
-            if reducing and self.owner:
-                # An unconsumed trade makes the owner's checkpoint stale. Never
-                # size another reduction from it, even if that order is terminal.
-                if db.execute(
-                    "SELECT 1 FROM execution_fills f JOIN submissions s "
-                    "ON f.scope=s.scope AND f.intent_id=s.intent_id "
-                    "WHERE f.scope=? AND f.owner=? AND s.symbol=? AND f.delivered=0",
-                    (self.scope, self.owner, symbol),
-                ).fetchone():
-                    return None
-                if parent is not None and "consumer_revision" in parent:
-                    row = db.execute("SELECT checkpoint FROM execution_consumers WHERE scope=? AND owner=?",
-                                     (self.scope, self.owner)).fetchone()
-                    current = json.loads(row[0]).get("revision") if row else None
-                    if current != parent["consumer_revision"]:
-                        return None
-            if not reducing and db.execute(
-                "SELECT 1 FROM execution_fills f JOIN submissions s "
-                "ON f.scope=s.scope AND f.intent_id=s.intent_id "
-                "WHERE f.scope=? AND s.symbol=? AND f.delivered=0 AND s.parent IS NOT NULL",
-                (self.scope, symbol),
-            ).fetchone():
-                return None
-            created_at = float(self.clock())
-            db.execute("""INSERT INTO submissions
-                (scope,intent_id,symbol,client_id,order_id,settled,side,qty,reducing,owner,parent,status,order_type,
-                 created_at)
-                VALUES (?, ?, ?, ?, '', 0, ?, ?, ?, ?, ?, 'reserved', ?, ?)""",
-                (self.scope, intent_id, symbol, client_id, side, str(qty), int(reducing), self.owner,
-                 json.dumps(parent) if parent is not None else None,
-                 "market" if reducing else self.entry_order_type, created_at))
+            return None
         pending = PendingOrder(intent_id, symbol, side, client_id,
                                is_limit=not reducing and self.entry_order_type == "limit",
                                created_at=created_at, reducing=reducing)
@@ -210,15 +179,24 @@ class ConfirmedExecutor:
                 time.sleep(self.wait_seconds)
             return self._observe(pending, cancel_limit=self._expired(pending))
 
+    def track(self, pending: PendingOrder) -> None:
+        """Follow a venue-originated order (an adopted stop) that the journal already holds."""
+        with self._lock:
+            self.pending[pending.intent_id] = pending
+
     def _save_order_id(self, pending: PendingOrder) -> None:
-        with self._connect() as db:
-            db.execute("UPDATE submissions SET order_id=? WHERE scope=? AND intent_id=?",
-                       (pending.order_id, self.scope, pending.intent_id))
+        self.journal.set_order_id(pending.intent_id, pending.order_id)
 
     def _set_status(self, pending: PendingOrder, status: str) -> None:
-        with self._connect() as db:
-            db.execute("UPDATE submissions SET status=? WHERE scope=? AND intent_id=? AND settled=0",
-                       (status, self.scope, pending.intent_id))
+        previous = self.journal.update_status(pending.intent_id, status, settle=False)
+        if previous is not None:
+            _record_transition(previous, status, pending.intent_id)
+
+    def _settle(self, pending: PendingOrder, status: str) -> None:
+        previous = self.journal.update_status(pending.intent_id, status, settle=True)
+        if previous is not None:
+            _record_transition(previous, status, pending.intent_id)
+        self.pending.pop(pending.intent_id, None)
 
     def _observe(self, pending: PendingOrder, *, cancel_limit: bool) -> tuple[Any, ...]:
         facts: list[Any] = []
@@ -228,10 +206,7 @@ class ConfirmedExecutor:
             if state is None:
                 if self._absence_is_final(pending):
                     status = "rejected" if pending.rejected else "not_found"
-                    with self._connect() as db:
-                        db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
-                                   (status, self.scope, pending.intent_id))
-                    self.pending.pop(pending.intent_id, None)
+                    self._settle(pending, status)
                     logger.warning("Order %s settled as %s: venue has no such order", pending.intent_id, status)
                     return ()
                 self._set_status(pending, "rejected_unconfirmed" if pending.rejected else "unknown")
@@ -265,10 +240,7 @@ class ConfirmedExecutor:
                     raise ValueError("invalid exchange fill fact")
                 if trade_id in pending.seen:
                     fill_id = f"{self.scope}:{pending.symbol}:{pending.order_id}:{trade_id}"
-                    with self._connect() as db:
-                        row = db.execute("SELECT payload FROM execution_fills WHERE scope=? AND fill_id=?",
-                                         (self.scope, fill_id)).fetchone()
-                    stored = json.loads(row[0]) if row else None
+                    stored = self.journal.fill(fill_id)
                     if (stored is None or Decimal(stored["qty"]) != qty or Decimal(stored["price"]) != price
                             or Decimal(stored["fee"]) != fee
                             or stored["fee_asset"] != getattr(fill, "fee_asset", None)):
@@ -282,11 +254,8 @@ class ConfirmedExecutor:
                     "fee_asset": getattr(fill, "fee_asset", None),
                 }
                 # Insertion is both the durable dedup record and the outbox.
-                with self._connect() as db:
-                    inserted = db.execute("INSERT OR IGNORE INTO execution_fills "
-                        "(scope,fill_id,intent_id,owner,payload) VALUES (?,?,?,?,?)",
-                        (self.scope, payload["fill_id"], pending.intent_id, self.owner,
-                         json.dumps(payload, allow_nan=False))).rowcount
+                inserted = self.journal.insert_fill(fill_id=payload["fill_id"], intent_id=pending.intent_id,
+                                                    owner=self.owner, payload=payload)
                 pending.seen.add(trade_id)
                 pending.confirmed_qty += qty
                 if inserted:
@@ -297,10 +266,7 @@ class ConfirmedExecutor:
                 # If history is truncated/lagging, keep the entry lock instead of
                 # fabricating the missing quantity from the order's average price.
                 if filled_qty.is_finite() and filled_qty >= 0 and pending.confirmed_qty == filled_qty:
-                    with self._connect() as db:
-                        db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
-                                   (self._state(state), self.scope, pending.intent_id))
-                    self.pending.pop(pending.intent_id, None)
+                    self._settle(pending, self._state(state))
         except Exception:
             logger.warning("Order %s remains unresolved", pending.intent_id, exc_info=True)
             self._set_status(pending, "unknown")

@@ -36,6 +36,8 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from typing import Any
 
+from trading.domain.orders import SETTLED
+
 logger = logging.getLogger("binance_main")
 
 HOUR = 3_600_000
@@ -49,7 +51,7 @@ MAX_ENTRY_DELAY_MS = 10 * 60_000   # entries only from bars processed within 10 
 FUNDING_WAIT_MS = 2 * 60_000       # wait this long for a settlement published at the close
 EXIT_RETRY_SECONDS = 30.0
 EXIT_RETRY_LIMIT = 5
-TERMINAL_UNFILLED = {"blocked", "not_found", "rejected", "canceled", "expired", "mmp_canceled"}
+TERMINAL_UNFILLED = frozenset({"blocked", *(s.value for s in SETTLED if s.value != "filled")})
 
 
 # ----------------------------------------------------------------------------
@@ -391,8 +393,9 @@ class BinanceRuntime:
         exposure = AccountExposureGate(self.account, ExecutionJournal(journal_path, scope),
                                        max_leverage=min(MAX_TOTAL_LEVERAGE,
                                                         D(os.environ.get("BINANCE_MAX_LEVERAGE", "3"))))
-        gate = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown, portfolio_reader=exposure,
-                                 venue="binance")
+        gate = CompositeRiskGate.for_execution(limiter, kill_switch=kill, drawdown_guard=drawdown,
+                                               portfolio_reader=exposure,
+                                               venue="binance")
         return {"account": self.account, "scope": scope, "journal_path": journal_path, "gate": gate,
                 "kill": kill, "drawdown": drawdown, "stop_pct": stop_pct, "leverage": exposure.max_leverage}
 

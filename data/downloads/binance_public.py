@@ -5,6 +5,7 @@ Sources (public, unauthenticated):
 - funding:     GET https://fapi.binance.com/fapi/v1/fundingRate
 - OI / ratios: https://data.binance.vision/data/futures/um/daily/metrics/<SYM>/<SYM>-metrics-<day>.zip
                (5-minute snapshots, verified against the published .CHECKSUM)
+- premium:     GET https://fapi.binance.com/fapi/v1/premiumIndexKlines (1h; perp vs index basis)
 
 Only CLOSED bars are written. Funding rows whose markPrice is empty (older
 history) use the open of the 1h bar that starts at the settlement time as the
@@ -21,6 +22,8 @@ Usage::
 
     python -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01
     # -> data_files/binance_public_<today>/
+    python -m data.downloads.binance_public --only-premium --end 2025-11-16
+    # -> data_files/binance_premium_2025-11-16/ (premium index klines only)
 """
 from __future__ import annotations
 
@@ -52,6 +55,7 @@ FUNDING_COLUMNS = ("funding_time", "rate", "mark_price", "mark_source", "observe
 METRIC_COLUMNS = ("timestamp", "sum_open_interest", "sum_open_interest_value",
                   "count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio",
                   "count_long_short_ratio", "sum_taker_long_short_vol_ratio")
+PREMIUM_COLUMNS = ("open_time", "open", "high", "low", "close")
 
 Fetch = Callable[[str], bytes]
 
@@ -81,16 +85,16 @@ def _ms(day: date) -> int:
     return int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp() * 1000)
 
 
-def fetch_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get,
-                 now_ms: int | None = None) -> list[tuple]:
-    """Closed 1h klines with open_time in [start_ms, end_ms)."""
+def _closed_hourly(path: str, symbol: str, start_ms: int, end_ms: int, row, *, fetch: Fetch,
+                   now_ms: int | None) -> list[tuple]:
+    """Paginate an hourly kline-shaped endpoint; keep closed bars with open_time in [start_ms, end_ms)."""
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     rows: dict[int, tuple] = {}
     cursor = start_ms
     while cursor < end_ms:
         query = urllib.parse.urlencode({"symbol": symbol, "interval": "1h", "limit": 1500,
                                         "startTime": cursor, "endTime": end_ms - 1})
-        batch = json.loads(fetch(f"{FAPI}/fapi/v1/klines?{query}"))
+        batch = json.loads(fetch(f"{FAPI}{path}?{query}"))
         if not batch:
             break
         for k in batch:
@@ -99,12 +103,27 @@ def fetch_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http
                 raise ValueError(f"unexpected kline boundaries at {open_time}")
             if close_time >= now_ms or not start_ms <= open_time < end_ms:
                 continue  # never store a bar that has not closed
-            rows[open_time] = (open_time, k[1], k[2], k[3], k[4], k[5], k[7], int(k[8]), k[9], k[10])
+            rows[open_time] = row(open_time, k)
         last_open = int(batch[-1][0])
         if last_open + HOUR_MS <= cursor:
             raise ValueError("kline pagination did not advance")
         cursor = last_open + HOUR_MS
     return [rows[t] for t in sorted(rows)]
+
+
+def fetch_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get,
+                 now_ms: int | None = None) -> list[tuple]:
+    """Closed 1h klines with open_time in [start_ms, end_ms)."""
+    return _closed_hourly("/fapi/v1/klines", symbol, start_ms, end_ms,
+                          lambda t, k: (t, k[1], k[2], k[3], k[4], k[5], k[7], int(k[8]), k[9], k[10]),
+                          fetch=fetch, now_ms=now_ms)
+
+
+def fetch_premium_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get,
+                         now_ms: int | None = None) -> list[tuple]:
+    """Closed 1h premium-index klines ((perp - index) / index) with open_time in [start_ms, end_ms)."""
+    return _closed_hourly("/fapi/v1/premiumIndexKlines", symbol, start_ms, end_ms,
+                          lambda t, k: (t, k[1], k[2], k[3], k[4]), fetch=fetch, now_ms=now_ms)
 
 
 def fetch_funding(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get) -> list[dict]:
@@ -180,7 +199,8 @@ def _write_csv(path: Path, header: tuple, rows: Iterable[tuple]) -> str:
 
 
 def download(symbols: list[str], start: date, end: date, out: Path, *, metrics: bool = True,
-             fetch: Fetch = http_get) -> dict:
+             premium: bool = True, market: bool = True, fetch: Fetch = http_get) -> dict:
+    """``market``: 1h klines + funding; ``metrics``: OI/ratio archives; ``premium``: premium-index klines."""
     out = Path(out)
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"{out} is not empty: snapshots are immutable, download into a new directory "
@@ -189,16 +209,22 @@ def download(symbols: list[str], start: date, end: date, out: Path, *, metrics: 
     manifest: dict = {"source": "binance-usdm-public", "start": start.isoformat(), "end": end.isoformat(),
                       "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "files": {}}
     for symbol in symbols:
-        logger.info("%s: klines", symbol)
-        klines = fetch_klines(symbol, start_ms, end_ms, fetch=fetch)
-        manifest["files"][f"{symbol}_1h.csv"] = {
-            "rows": len(klines), "sha256": _write_csv(out / f"{symbol}_1h.csv", KLINE_COLUMNS, klines)}
-        logger.info("%s: funding", symbol)
-        opens = {row[0]: row[1] for row in klines}
-        funding = normalize_funding(fetch_funding(symbol, start_ms, end_ms, fetch=fetch), opens)
-        manifest["files"][f"{symbol}_funding.csv"] = {
-            "rows": len(funding), "sha256": _write_csv(out / f"{symbol}_funding.csv", FUNDING_COLUMNS, funding),
-            "mark_proxy_rows": sum(1 for row in funding if row[3] != "exchange")}
+        if premium:
+            logger.info("%s: premium index", symbol)
+            rows = fetch_premium_klines(symbol, start_ms, end_ms, fetch=fetch)
+            manifest["files"][f"{symbol}_premium_1h.csv"] = {
+                "rows": len(rows), "sha256": _write_csv(out / f"{symbol}_premium_1h.csv", PREMIUM_COLUMNS, rows)}
+        if market:
+            logger.info("%s: klines", symbol)
+            klines = fetch_klines(symbol, start_ms, end_ms, fetch=fetch)
+            manifest["files"][f"{symbol}_1h.csv"] = {
+                "rows": len(klines), "sha256": _write_csv(out / f"{symbol}_1h.csv", KLINE_COLUMNS, klines)}
+            logger.info("%s: funding", symbol)
+            opens = {row[0]: row[1] for row in klines}
+            funding = normalize_funding(fetch_funding(symbol, start_ms, end_ms, fetch=fetch), opens)
+            manifest["files"][f"{symbol}_funding.csv"] = {
+                "rows": len(funding), "sha256": _write_csv(out / f"{symbol}_funding.csv", FUNDING_COLUMNS, funding),
+                "mark_proxy_rows": sum(1 for row in funding if row[3] != "exchange")}
         if not metrics:
             continue
         rows, missing, day = [], [], start
@@ -228,14 +254,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", type=Path,
                         help="New, empty snapshot directory (default: data_files/binance_public_<end>)")
     parser.add_argument("--no-metrics", action="store_true", help="Skip OI/long-short metrics archives")
+    parser.add_argument("--no-premium", action="store_true", help="Skip premium-index klines")
+    parser.add_argument("--only-premium", action="store_true",
+                        help="Premium-index klines only (default dir: data_files/binance_premium_<end>)")
     args = parser.parse_args(argv)
     if args.start >= args.end:
         parser.error("--start must be before --end")
-    out = args.out or Path(f"data_files/binance_public_{args.end.isoformat()}")
+    if args.only_premium and args.no_premium:
+        parser.error("--only-premium and --no-premium conflict")
+    prefix = "binance_premium" if args.only_premium else "binance_public"
+    out = args.out or Path(f"data_files/{prefix}_{args.end.isoformat()}")
     if out.exists() and any(out.iterdir()):
         parser.error(f"{out} is not empty; snapshots are immutable, choose a new --out directory")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    manifest = download(args.symbols, args.start, args.end, out, metrics=not args.no_metrics)
+    manifest = download(args.symbols, args.start, args.end, out, metrics=not (args.no_metrics or args.only_premium),
+                        premium=not args.no_premium, market=not args.only_premium)
     print(f"snapshot: {out}")
     print(json.dumps(manifest["files"], indent=2))
 

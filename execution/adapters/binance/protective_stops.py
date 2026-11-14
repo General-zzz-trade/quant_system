@@ -45,12 +45,7 @@ class ProtectiveStopManager:
         self.adapter, self.executor, self.symbol = adapter, executor, symbol
         self.stop_pct, self.clock = stop_pct, clock
         self.journal = executor.journal
-        with self.journal.connect() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS protective_stops (
-                scope TEXT NOT NULL, owner TEXT NOT NULL, client_algo_id TEXT NOT NULL,
-                symbol TEXT NOT NULL, revision TEXT NOT NULL, attempt INTEGER NOT NULL,
-                side TEXT NOT NULL, trigger_price TEXT NOT NULL, status TEXT NOT NULL,
-                created_at REAL NOT NULL, PRIMARY KEY(scope, client_algo_id))""")
+        self.journal.ensure_stop_table()
 
     # ------------------------------------------------------------------
     def _client_id(self, revision: str, attempt: int) -> str:
@@ -58,17 +53,10 @@ class ProtectiveStopManager:
         return "qsstop" + digest.hexdigest()[:28]  # 34 chars, Binance limit is 36
 
     def _rows(self, *, live_only: bool = True) -> list[dict]:
-        query = "SELECT * FROM protective_stops WHERE scope=? AND owner=? AND symbol=?"
-        if live_only:
-            query += " AND status IN ('active','unknown','canceling')"
-        with self.journal.connect() as db:
-            return [dict(r) for r in db.execute(query + " ORDER BY created_at", (
-                self.executor.scope, self.executor.owner, self.symbol))]
+        return self.journal.stop_rows(self.executor.owner, self.symbol, live_only=live_only)
 
     def _set(self, client_algo_id: str, status: str) -> None:
-        with self.journal.connect() as db:
-            db.execute("UPDATE protective_stops SET status=? WHERE scope=? AND client_algo_id=?",
-                       (status, self.executor.scope, client_algo_id))
+        self.journal.set_stop_status(client_algo_id, status)
 
     def _position(self) -> tuple[Decimal, Decimal, str]:
         checkpoint = self.journal.checkpoint(self.executor.owner)
@@ -118,10 +106,9 @@ class ProtectiveStopManager:
         attempts = [r["attempt"] for r in self._rows(live_only=False) if r["revision"] == revision]
         attempt = (max(attempts) + 1) if attempts else 0
         client_algo_id = self._client_id(revision, attempt)
-        with self.journal.connect() as db:
-            db.execute("INSERT INTO protective_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
-                       (self.executor.scope, self.executor.owner, client_algo_id, self.symbol, revision,
-                        attempt, side, str(trigger), "unknown", float(self.clock())))
+        self.journal.add_stop(owner=self.executor.owner, client_algo_id=client_algo_id, symbol=self.symbol,
+                              revision=revision, attempt=attempt, side=side, trigger_price=str(trigger),
+                              created_at=float(self.clock()))
         result = self.adapter.place_stop_market(self.symbol, side, trigger, client_algo_id=client_algo_id)
         if result.get("status") == "submitted":
             self._set(client_algo_id, "active")

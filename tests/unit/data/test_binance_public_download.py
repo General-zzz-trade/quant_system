@@ -119,3 +119,41 @@ def test_cli_defaults_to_a_new_dated_snapshot(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         bp.main(["--start", "2026-11-01", "--end", "2026-11-13"])
     assert len(calls) == 1
+
+
+def _premium(open_time):
+    return [open_time, "0.0001", "0.0003", "-0.0002", "0.00012", "0", open_time + H - 1, "0", 720, "0", "0", "0"]
+
+
+def test_premium_klines_keep_closed_bars_and_prices():
+    def premium(url):
+        q = _query(url)
+        start = int(q["startTime"])
+        return json.dumps([_premium(t) for t in range(start, min(start + 3 * H, int(q["endTime"]) + 1), H)]).encode()
+
+    rows = bp.fetch_premium_klines("ETHUSDT", T0, T0 + 4 * H, now_ms=T0 + 3 * H + 5,
+                                   fetch=_fake([(bp.FAPI + "/fapi/v1/premiumIndexKlines", premium)]))
+    assert rows == [(T0 + i * H, "0.0001", "0.0003", "-0.0002", "0.00012") for i in range(3)]
+
+
+def test_premium_only_download_writes_only_premium(tmp_path):
+    def premium(url):
+        q = _query(url)
+        start = int(q["startTime"])
+        return json.dumps([_premium(t) for t in range(start, int(q["endTime"]) + 1, H)][:1500]).encode()
+
+    out = tmp_path / "binance_premium"
+    manifest = bp.download(["ETHUSDT"], date(2024, 1, 1), date(2024, 1, 2), out, metrics=False, market=False,
+                           fetch=_fake([(bp.FAPI + "/fapi/v1/premiumIndexKlines", premium)]))
+    assert sorted(manifest["files"]) == ["ETHUSDT_premium_1h.csv"]
+    assert manifest["files"]["ETHUSDT_premium_1h.csv"]["rows"] == 24
+    assert sorted(p.name for p in out.iterdir()) == ["ETHUSDT_premium_1h.csv", "manifest.json"]
+
+
+def test_cli_only_premium_defaults_to_a_premium_snapshot(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bp, "download", lambda symbols, start, end, out, **kw: calls.append((out, kw)) or {"files": {}})
+    bp.main(["--only-premium", "--end", "2025-11-16"])
+    assert calls == [(bp.Path("data_files/binance_premium_2025-11-16"),
+                      {"metrics": False, "premium": True, "market": False})]

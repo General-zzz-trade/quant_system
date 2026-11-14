@@ -94,6 +94,7 @@ include = [
     "/research/**/*.py", "/research/**/py.typed",
     "/risk/**/*.py", "/risk/**/py.typed",
     "/lab/**/*.py", "/lab/**/py.typed",
+    "/trading/**/*.py", "/trading/**/py.typed",
     "/runner/**/*.py", "/runner/**/py.typed",
     "/shared/**/*.py", "/shared/**/py.typed",
     "/state/**/*.py", "/state/**/py.typed",
@@ -143,6 +144,13 @@ disallow_untyped_defs = false  # gradual adoption — new code must have full an
 module = ["core.*", "regime.*", "state.*", "decision.*", "engine.*", "event.*", "features.*", "execution.*", "alpha.*", "attribution.*"]
 disallow_untyped_defs = true
 warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = ["trading", "trading.*"]
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_return_any = true
+no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 module = ["runner.backtest.*"]

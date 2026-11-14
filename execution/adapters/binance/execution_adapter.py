@@ -222,26 +222,19 @@ class BinanceExecutionAdapter:
             parent_header["event_type"] = header.event_type.value
             parent = {"header": parent_header, "order_id": intent_id, "symbol": symbol, "side": side,
                       "price": "0", "reason": reason}
-            with self.journal.connect() as db:
-                db.execute("BEGIN IMMEDIATE")
-                db.execute("""INSERT INTO submissions
-                    (scope,intent_id,symbol,client_id,order_id,settled,side,qty,reducing,owner,parent,status,
-                     order_type,created_at) VALUES (?,?,?,?,?,0,?,?,1,?,?,'submitted','market',?)""",
-                    (self._scope, intent_id, symbol, client_order_id, order_id, side, "0", self.owner,
-                     json.dumps(parent), time.time()))
+            self.journal.adopt(intent_id=intent_id, symbol=symbol, client_id=client_order_id, order_id=order_id,
+                               side=side, owner=self.owner, parent=parent, created_at=time.time())
             self._parents[intent_id] = SimpleNamespace(header=header, **{
                 k: v for k, v in parent.items() if k != "header"})
-            self._orders.pending[intent_id] = PendingOrder(intent_id, symbol, side, client_order_id, order_id,
-                                                           is_limit=False, created_at=time.time())
+            self._orders.track(PendingOrder(intent_id, symbol, side, client_order_id, order_id,
+                                            is_limit=False, created_at=time.time()))
             return True
 
     def fill_fact(self, fill_id: str) -> dict[str, Any]:
-        with self.journal.connect() as db:
-            row = db.execute("SELECT payload FROM execution_fills WHERE scope=? AND fill_id=? AND owner=?",
-                             (self._scope, fill_id, self.owner)).fetchone()
-        if row is None:
+        fact = self.journal.fill(fill_id, owner=self.owner)
+        if fact is None:
             raise ValueError("Unknown fill for this strategy")
-        return json.loads(row[0])
+        return fact
 
     def notify_status(self) -> None:
         for row in self.journal.orders(self.owner):
