@@ -94,6 +94,55 @@ def test_domain_and_application_do_no_io_without_imports_either():
     assert offenders == []
 
 
+ALLOWED_IMPORTS = {
+    "domain": {"__future__", "collections", "dataclasses", "datetime", "decimal", "enum", "math", "numpy", "pandas",
+               "trading", "typing"},
+    "application": {"__future__", "collections", "contextlib", "dataclasses", "decimal", "enum", "hashlib", "json",
+                    "logging", "math", "trading", "types", "typing"},
+}
+LIBRARY_IO = re.compile(r"\.read_(csv|json|parquet|pickle|excel|table|sql|feather|hdf)\(|"
+                        r"\.to_(csv|json|parquet|pickle|excel|sql|feather|hdf)\(|"
+                        r"Timestamp\(\s*[\"']now|Timestamp\.(now|today|utcnow)|\.random\b|\b(loadtxt|savetxt|genfromtxt|"
+                        r"fromfile|tofile|memmap)\(|np\.(load|save|savez)\(")
+
+
+def _top_level_imports(tree: ast.AST) -> set[str]:
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def test_domain_and_application_import_only_from_an_allow_list():
+    """Step-9 audit F4: a deny-list misses every module nobody thought of (smtplib, uuid, secrets, ...)."""
+    offenders = [f"{path.relative_to(ROOT)}: {name}"
+                 for layer, allowed in ALLOWED_IMPORTS.items() for path, tree in _modules(TRADING / layer)
+                 for name in sorted(_top_level_imports(tree) - allowed)]
+    assert offenders == []
+
+
+def test_domain_and_application_do_no_io_through_numpy_or_pandas():
+    offenders = [f"{path.relative_to(ROOT)}:{n}" for layer in ("domain", "application")
+                 for path, _ in _modules(TRADING / layer)
+                 for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if LIBRARY_IO.search(line)]
+    assert offenders == []
+
+
+def test_the_allow_list_and_library_rule_detect_what_the_audit_slipped_past_them():
+    tree = ast.parse("import smtplib, uuid\nfrom secrets import token_hex\nimport numpy as np\n")
+    assert _top_level_imports(tree) - ALLOWED_IMPORTS["application"] == {"smtplib", "uuid", "secrets", "numpy"}
+    assert _top_level_imports(tree) - ALLOWED_IMPORTS["domain"] == {"smtplib", "uuid", "secrets"}
+    for line in ('frame = pd.read_csv(path)', 'now = pd.Timestamp("now")', 'x = np.random.default_rng().random()',
+                 'frame.to_csv(path)', 'stamp = pd.Timestamp.now()', 'np.save(path, x)'):
+        assert LIBRARY_IO.search(line), line
+    for line in ('index = pd.Index(times, dtype="int64")', 'vol = returns.rolling(30).std()', 'out = frame.to_numpy()',
+                 'record = spec.to_dict()'):
+        assert not LIBRARY_IO.search(line), line
+
+
 def test_io_rule_detects_import_free_io():
     tree = ast.parse("open('f')\n__import__('sqlite3')\np.write_text('x')\nclock = datetime.now\n"
                      "s = sys.modules.get('x')\ng = getattr(__builtins__, 'open')\nlogging.FileHandler('f')\n")

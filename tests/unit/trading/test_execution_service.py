@@ -306,3 +306,25 @@ def test_invalid_settings_are_refused(tmp_path, kw):
     with pytest.raises(ValueError):
         ExecutionService(venue, orders, owner=OWNER, lock=threading.RLock(), clock=lambda: 0.0,
                          monotonic=lambda: 0.0, **settings)
+
+
+# --- step-9 audit F2 ---------------------------------------------------------------------------------
+
+def test_an_entry_the_journal_refuses_is_reported_blocked_and_counts_no_success(env):
+    breaker = Breaker()
+    service, venue, statuses, _ = env(entry_mode="maker", breaker=breaker)
+    service.ready = True
+    first = service.send(_intent(1), _parent(_intent(1)))        # rests at the venue: no fill yet
+    assert first == SendResult(True, ()) and breaker.successes == 0 and statuses == []
+    second = service.send(_intent(2), _parent(_intent(2)))       # refused: an entry is still unresolved
+    assert second == SendResult(True, ()) and statuses == [("i2", "blocked")]
+    assert len(venue.calls) == 1 and breaker.successes == 0 and breaker.failures == 0
+
+
+def test_a_repeated_intent_is_silent_even_when_entries_are_blocked(env):
+    service, venue, statuses, _ = env()
+    service.ready = True
+    service.send(_intent(1), _parent(_intent(1)))
+    service.ready = False
+    assert service.send(_intent(1), _parent(_intent(1))) == SendResult(False, ())
+    assert statuses == [] and len(venue.calls) == 1

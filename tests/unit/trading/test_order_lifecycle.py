@@ -121,3 +121,45 @@ def test_invalid_settings_are_refused_before_anything_is_built(scope, bad):
                 "entry_ttl_seconds": None, **bad}
     with pytest.raises(ValueError):
         OrderLifecycle.check_settings(scope, **settings)
+
+
+class _RejectingVenue:
+    """Rejects the placement; the first lookup fails, later ones say the order does not exist."""
+
+    def __init__(self):
+        self.lookups = 0
+
+    def send_market_order(self, symbol, side, qty, *, reduce_only=False, client_order_id=""):
+        return {"status": "rejected", "code": -2010}
+
+    def get_order(self, symbol, *, order_id="", client_order_id=""):
+        self.lookups += 1
+        if self.lookups == 1:
+            raise TimeoutError("venue unreachable")
+        return None
+
+
+def test_a_confirmed_rejection_is_still_settled_as_rejected_after_a_restart(tmp_path):
+    """Step-9 audit F6: the rejected flag survives a restart, so the order does not wait out the grace."""
+    venue, clock = _RejectingVenue(), {"t": 1000.0}
+
+    def build():
+        return OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE,
+                              clock=lambda: clock["t"], sleeper=lambda s: None, lock=Lock([]), wait_seconds=0,
+                              owner="o", entry_order_type="market", not_found_grace_seconds=90)
+
+    first = build()
+    first.submit(intent_id="i1", symbol="BTCUSDT", side="buy", qty=D("1"))
+    assert first.journal.orders("o")[0]["status"] == "unknown"           # the failed lookup hid the rejection
+    first.poll()
+    assert first.journal.orders("o")[0]["status"] == "rejected"
+    # the same sequence, but the process restarts between the rejection and its confirmation
+    venue.lookups = 0
+    second = build()
+    second.submit(intent_id="i2", symbol="BTCUSDT", side="buy", qty=D("1"))
+    second._set_status(second.pending["i2"], "rejected_unconfirmed")
+    restarted = build()
+    assert restarted.pending["i2"].rejected is True
+    restarted.poll()                                                      # one second later, far inside the grace
+    row = next(r for r in restarted.journal.orders("o") if r["intent_id"] == "i2")
+    assert (row["status"], row["settled"]) == ("rejected", 1)
