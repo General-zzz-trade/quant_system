@@ -86,3 +86,22 @@ def deflated_sharpe_probability(daily_returns: pd.Series, trial_sharpes: list[fl
     g3, g4 = float(skew(r)), float(kurtosis(r, fisher=False))
     denom = math.sqrt(max(1e-12, 1 - g3 * sr + (g4 - 1) / 4 * sr ** 2))
     return float(norm.cdf((sr - sr0) * math.sqrt(n - 1) / denom))
+
+
+def deflated_sharpe_probability_k(daily_returns: pd.Series, sharpe_std_annual: float, n_trials: int) -> float:
+    """Same test as ``deflated_sharpe_probability``, but from the number of trials and the
+    standard deviation of their annualized Sharpes (for trial sets where only some Sharpes
+    were recorded). ``n_trials < 2`` means no selection: the benchmark Sharpe is 0."""
+    r = daily_returns.dropna()
+    n = len(r)
+    if n < 30 or r.std() <= 0 or not math.isfinite(sharpe_std_annual) or sharpe_std_annual < 0:
+        return float("nan")
+    sr = r.mean() / r.std()
+    sr0 = 0.0
+    if n_trials >= 2:
+        gamma = 0.5772156649
+        sr0 = sharpe_std_annual / math.sqrt(365) * ((1 - gamma) * norm.ppf(1 - 1 / n_trials)
+                                                     + gamma * norm.ppf(1 - 1 / (n_trials * math.e)))
+    g3, g4 = float(skew(r)), float(kurtosis(r, fisher=False))
+    denom = math.sqrt(max(1e-12, 1 - g3 * sr + (g4 - 1) / 4 * sr ** 2))
+    return float(norm.cdf((sr - sr0) * math.sqrt(n - 1) / denom))
