@@ -189,12 +189,31 @@ class EventLog(Protocol):
 
 
 @runtime_checkable
+class PaperStore(Protocol):
+    """Durable state of the paper sleeves; one document for all symbols."""
+
+    def load(self) -> dict[str, Any] | None: ...          # the saved document, or None when there is none
+
+    def save(self, document: dict[str, Any]) -> None: ...  # atomic: a crash leaves the old or the new document
+
+    def archive(self) -> str | None: ...                   # set the saved document aside; its new name, or None
+
+
+@runtime_checkable
+class StatusSink(Protocol):
+    """Where the runtime publishes its status snapshot each cycle (observability only)."""
+
+    def write(self, status: dict[str, Any]) -> None: ...
+
+
+@runtime_checkable
 class Notifier(Protocol):
     """Operator alerts. Delivery failures must never break the trading loop."""
 
     def alert(self, level: str, title: str, detail: str = "") -> None: ...
 
 
-__all__ = ["Clock", "Sleeper", "Lock", "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
+__all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
+           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
            "WalletCheck", "ExposureReader", "EventLog", "Notifier"]

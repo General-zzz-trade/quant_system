@@ -89,13 +89,20 @@ def test_a_stop_that_would_trigger_at_once_flattens_the_position(tmp_path):
 def test_resting_entries_never_stack(tmp_path):
     world, runtime = _start(tmp_path, execution="maker", ttl_bars=4)
     resting_cycles = 0
+
+    def resting(fake):
+        return [o for o in fake.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED") and o["type"] == "LIMIT"]
+
     for i in range(world["warm"], world["warm"] + 120):
+        before = {s: bool(resting(f)) for s, f in world["fakes"].items()}
+        seen = len(_events(tmp_path, "intent")) if (tmp_path / "exec/target_events.jsonl").exists() else 0
         _advance(world, runtime, i)
-        for fake in world["fakes"].values():
-            open_entries = [o for o in fake.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED")
-                            and o["type"] == "LIMIT"]
-            assert len(open_entries) <= 1
-            resting_cycles += len(open_entries)
+        for symbol, fake in world["fakes"].items():
+            assert len(resting(fake)) <= 1
+            resting_cycles += len(resting(fake))
+            if before[symbol]:      # an entry was already working: the plan itself must not ask for another
+                assert not [r for r in _events(tmp_path, "intent")[seen:]
+                            if r["symbol"] == symbol and r["reduce_only"] is False]
     assert resting_cycles >= 4                                    # entries did rest across several bars
 
 

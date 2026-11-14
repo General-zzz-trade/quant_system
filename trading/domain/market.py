@@ -66,3 +66,9 @@ def funding_series(funding: Mapping[int, tuple[Decimal, Decimal]]) -> pd.Series:
     """Settled funding rates indexed by settlement time (ms)."""
     times = sorted(funding)
     return pd.Series([float(funding[t][0]) for t in times], index=pd.Index(times, dtype=np.int64), dtype=float)
+
+
+def funding_window(funding: Mapping[int, float], upto: int | None, count: int) -> pd.Series:
+    """The last ``count`` settled rates known at ``upto`` (all when None), indexed by settlement time."""
+    times = sorted(t for t in funding if upto is None or t <= upto)[-count:]
+    return pd.Series([funding[t] for t in times], index=pd.Index(times, dtype="int64"), dtype=float)
