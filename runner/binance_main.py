@@ -41,6 +41,9 @@ from trading.application.equity import EquitySource as _EquitySource
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.domain.bars import bar_from_kline
 from trading.domain.orders import SETTLED
+from trading.domain.risk.liquidation import check_stop_inside_liquidation as _check_stop
+from trading.infrastructure.bootstrap import build_adapters  # moved in migration step 10
+from trading.infrastructure.settings import exchange_settings
 
 logger = logging.getLogger("binance_main")
 
@@ -487,55 +490,16 @@ class BinanceRuntime:
 # ----------------------------------------------------------------------------
 # Exchange leverage / margin settings (human config only)
 # ----------------------------------------------------------------------------
-def exchange_settings(env=None) -> tuple[int, str | None]:
-    """(exchange leverage setting, margin type or None) from BINANCE_EXCHANGE_LEVERAGE / BINANCE_MARGIN_TYPE.
-
-    Defaults: leverage 3, margin type left as it is. These change margin per position and
-    the liquidation distance only; actual exposure stays capped at 3x equity."""
-    from execution.adapters.binance.adapter import DEFAULT_LEVERAGE, MARGIN_TYPES, MAX_LEVERAGE
-    env = os.environ if env is None else env
-    raw = env.get("BINANCE_EXCHANGE_LEVERAGE", "").strip()
-    leverage = int(raw) if raw else DEFAULT_LEVERAGE
-    if not 1 <= leverage <= MAX_LEVERAGE:
-        raise RuntimeError(f"BINANCE_EXCHANGE_LEVERAGE must be in [1, {MAX_LEVERAGE}]")
-    margin = env.get("BINANCE_MARGIN_TYPE", "").strip().upper() or None
-    if margin is not None and margin not in MARGIN_TYPES:
-        raise RuntimeError(f"BINANCE_MARGIN_TYPE must be one of {sorted(MARGIN_TYPES)}")
-    return leverage, margin
-
-
 def check_stop_inside_liquidation(stop_pct, env=None, *, maintenance_margin_rate: float = 0.005,
                                   fraction: float = 0.5) -> None:
     """With isolated margin, refuse a protective stop farther than ``fraction`` of the liquidation distance."""
-    from lab.sizing import liquidation_distance
     leverage, margin = exchange_settings(env)
-    if margin != "ISOLATED":
-        return
-    limit = fraction * liquidation_distance(leverage, maintenance_margin_rate)
-    if float(stop_pct) > limit:
-        raise RuntimeError(f"protective stop {float(stop_pct):.2%} is not inside {fraction:.0%} of the "
-                           f"{leverage}x isolated liquidation distance; use --stop-pct <= {limit:.4f}")
+    _check_stop(stop_pct, leverage, margin, maintenance_margin_rate=maintenance_margin_rate, fraction=fraction)
 
 
 # ----------------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------------
-def build_adapters(*, execution: bool, testnet: bool, symbols: list[str]):
-    from execution.adapters.binance import BinanceAdapter, BinanceConfig
-    market = BinanceAdapter(BinanceConfig(testnet=False))  # public mainnet data only (no keys)
-    account = None
-    if execution:
-        leverage, margin = exchange_settings()
-        account = BinanceAdapter(BinanceConfig.from_env(testnet=testnet))
-        if not account.connect(symbols=tuple(symbols), configure_leverage=True, leverage=leverage,
-                               margin_type=margin):
-            raise RuntimeError("Binance account connection failed")
-        blockers = account.execution_blockers()
-        if blockers:
-            raise RuntimeError("Execution blocked: " + "; ".join(blockers))
-    return market, account
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT"])

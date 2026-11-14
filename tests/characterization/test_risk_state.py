@@ -111,7 +111,8 @@ def test_current_mainnet_gate_refuses_only_after_account_leverage_was_set(tmp_pa
         def __init__(self, config, client=None):
             super().__init__(config, client=fake)
 
-    monkeypatch.setattr(binance, "BinanceAdapter", Adapter)
+    from trading.infrastructure import bootstrap
+    monkeypatch.setattr(bootstrap, "BinanceAdapter", Adapter)       # where build_adapters looks it up (step 10)
     monkeypatch.delenv("QUANT_ALLOW_UNSIGNED_MODELS")
     for name, value in (("BINANCE_TESTNET", "0"), ("RISK_SCOPE", "binance-main-ut"), ("BINANCE_API_KEY", "k"),
                         ("BINANCE_API_SECRET", "s"), ("QUANT_MODEL_SIGN_KEY", "test-key")):
