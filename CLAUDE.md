@@ -110,7 +110,7 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
 **Open exit-side gaps — fix before any testnet or live execution:**
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
-- A failed stop placement is only logged.
+- A failed stop placement blocks entries (step 12) but reaches a person only through the event log and status.
 - One failed REST call exits the process (`binance_main`; since migration step 1b `binance_target` backs off on market-data failures instead).
 - `binance_target` only:
   - Flatten alerts (10 failed attempts in a row) are event-log rows and a status field only; no notifier yet.
