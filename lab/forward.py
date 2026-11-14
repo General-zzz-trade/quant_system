@@ -3,6 +3,9 @@
     python -m lab.forward --study overlay_2026-11-13 --spec research/results/overlay_2026-11-13/final_spec.json \
         --data-dir data_files/binance_public_<date after end> --end 2027-05-13 --out research/results/forward_...
 
+The three candidates of research/protocols/2026-11-14-forward-candidates.md also need ``--premium-dir``;
+their replay and registered conditions are in lab/candidates_forward.py.
+
 Rules enforced here:
 - ``FORWARD_START`` is 2026-11-13 00:00 UTC. Development studies stop at
   ``lab.study.DEV_END`` (2025-11-16); 2025-11-16..2026-11-13 has been viewed
@@ -96,11 +99,25 @@ def evaluate_target_spec(spec_path: Path, data_dir: Path, end_ms: int) -> dict:
     }
 
 
+def evaluate(spec_path: Path, data_dir: Path, end_ms: int, *, premium_dir: Path | None = None) -> dict:
+    """Replay any registered spec kind over [FORWARD_START, end)."""
+    frozen = json.loads(Path(spec_path).read_text())
+    if frozen.get("kind") == "btc_eth_multitimeframe_target":
+        return evaluate_target_spec(spec_path, data_dir, end_ms)
+    from lab.candidates_forward import FORWARD, evaluate_forward
+    if frozen.get("kind") not in FORWARD:
+        raise ValueError(f"unsupported spec kind {frozen.get('kind')!r}")
+    if frozen.get("registered") is not True:
+        raise PermissionError("this candidate did not pass its development floor and has no forward test")
+    return evaluate_forward(frozen, data_dir, premium_dir, FORWARD_START, end_ms)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--study", required=True)
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--premium-dir", type=Path, help="premium-index snapshot (candidate specs only)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD, exclusive")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -108,15 +125,16 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("use an empty output directory; each look is evaluated once")
     digest = spec_digest(args.spec)
     look = registered_look(args.study, digest, args.end)
-    result = evaluate_target_spec(args.spec, args.data_dir, day_ms(args.end))
+    result = evaluate(args.spec, args.data_dir, day_ms(args.end), premium_dir=args.premium_dir)
     result.update(look=look, spec_sha256=digest, data=_manifest(args.data_dir))
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "summary.json").write_text(json.dumps(result, indent=2, default=float) + "\n")
-    print(json.dumps({k: result[k] for k in ("window", "strategy", "matched_benchmark")}, indent=2, default=float))
+    shown = ("window", "strategy", "matched_benchmark", "checks", "verdict")
+    print(json.dumps({k: result[k] for k in shown if k in result}, indent=2, default=float))
 
 
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["FORWARD_START", "LOOKS", "registered_look", "evaluate_target_spec", "spec_digest"]
+__all__ = ["FORWARD_START", "LOOKS", "registered_look", "evaluate_target_spec", "evaluate", "spec_digest"]
