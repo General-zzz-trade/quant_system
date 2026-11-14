@@ -216,6 +216,7 @@ lint-imports                                                 # 第 2 步之后
 
 ### 第 9 步：下单生命周期、对账与止损迁入 `trading/application`
 
+- **执行时拆分（2026-11-14）**：为守住每个改动 400 行，本步分 4 个 PR 执行：9a 下单生命周期；9b 止损管理器和其余前置测试；9c 减仓定量与对账；9d TCA 改走 `EventLog`、删除读环境变量的代码、订单事件改用 `OrderIntent`。各自的记录见 `execution-log.md`。
 - **改动范围**：
   - `shared/confirmed_execution.py` → `trading/application/execution/lifecycle.py`。`time.sleep` 和 `time.time` 换成 `Sleeper`、`Clock` 端口。
   - `execution/adapters/binance/execution_adapter.py` 里的减仓定量、意图去重、对账 → `trading/application/execution/` 和 `trading/application/reconcile.py`。写 TCA 日志改为经 `EventLog` 端口，不再 import `monitoring`。读 `RISK_SCOPE`、`ORDER_JOURNAL_PATH` 的代码删除，改为由组装根传入。

@@ -468,3 +468,53 @@ Contracts: 5 kept, 0 broken.
 ```
 
 3199 = 3176 + 14 + 9。第 1 步的特征化测试、第 5、6 步的订单测试、`tests/unit/binance/` 全部不改断言通过。
+
+## 第 9b 步：止损管理器迁入 `trading/application/execution/stops.py`，并补齐第 9 步其余前置测试
+
+第 9 步原计划的其余内容再拆两份：9c 把 Binance 执行适配器里的减仓定量和对账搬进应用层；9d 处理 TCA 日志改走 `EventLog` 端口、删除读 `RISK_SCOPE` / `ORDER_JOURNAL_PATH` 环境变量的代码、订单事件改用 `OrderIntent`。拆分原因：本步的前置测试已经约 250 行，再加代码会超过每个改动 400 行的上限。
+
+**前置测试（先在旧代码上跑通）**
+
+`tests/characterization/test_execution_boundaries.py`（23 个），覆盖计划 0.6 第 9 步一行剩下的四项：
+
+- 减仓数量：交易所持仓大于本策略确认的仓位时，只平自己那部分（数量 0 的全平和数量过大的减仓两种写法）；交易所持仓更小时，按交易所持仓封顶；本策略没有确认仓位、方向相反、"减仓"实际会加仓、交易所没有持仓、同一品种有两个持仓，这几种情况都不发单，并标记 `blocked`。
+- 对账：账本与交易所持仓不一致、有不是本系统下的挂单、对账本身失败、有结果不明的订单、有未交付的成交，每一种都阻断入场（不只是检查 `_ready` 标志，而是确认之后的入场单确实没发出去）；不一致消除后，下一次对账通过，入场恢复。
+- 成交消费者：事件的订单号、品种、方向、数量、价格任何一项与落库的交易所事实不符都拒绝，持仓和检查点不变；伪造的成交号被拒；同一成交只记一次。
+- 止损：下单回应丢失但交易所已接受时，下一轮查到并标为 `active`，不重复下单；根本没到交易所时，90 秒查询宽限内不重下，到点才把旧记录标为 `inactive` 并以下一个尝试号重下；撤销被确认但实际没生效时，旧止损保持 `canceling`，每一轮都再撤一次，不会被当成当前止损，撤销生效后标为 `inactive`。
+- 假交易所会把只减仓单的数量就地截断，所以测试里另记一份"实际发出的参数"，否则"不按交易所持仓封顶"的缺陷看不出来。
+
+【实际运行结果】在旧代码上 23 个全过；对将要搬动的代码逐个注入 20 个缺陷（减仓的三道上限、方向与唯一持仓检查、对账五类不一致、对账结果不阻断入场、入场不看就绪状态、消费者三项比对、止损的查询宽限及其差一、查到后不标 `active`、`canceling` 被当成当前止损、失效记录不标 `inactive`），20 个全部被测出。生产代码已还原。
+
+**改了什么**
+
+- `trading/application/execution/stops.py`：止损管理器原样搬来，与原文件只差 44 行（其中 20 行是两个新的端口类型）：
+  - 时钟改为必须注入，模块不再 import `time`。
+  - 交易所参数的类型从 `Any` 改为 `StopVenue`（止损端口加订单查询端口），执行器参数改为 `StopOwner`（日志、作用域、属主、收编交易所订单这四样）。现有的 `BinanceExecutionAdapter` 不用改就符合。
+  - 私有方法 `_adopt` 改为直接接收触发后产生的订单号，而不是整个查询结果（应用层参数不得是 `Any`）；传的值和以前用到的那一个字段相同。
+- `execution/adapters/binance/protective_stops.py` 改为兼容薄壳：子类只补上 `clock=time.time` 的默认值，并重导出 `ACTIVE`、`TRIGGERED`、`MIN_STOP_PCT`、`MAX_STOP_PCT`。`runner/binance_target.py`、`runner/binance_main.py`、测试和探针都不用改。
+- 架构规则不用改：`core-no-io` 契约、"应用层参数不得是 `Any`"、"应用层不得出现 SQL" 都已经覆盖 `trading/application` 下的新文件；覆盖率门禁里的 `trading.application.execution` 也自动包含了它。
+
+**已有测试的改动**：没有。
+
+【实际运行结果】搬家后对 `trading/application/execution/stops.py` 重新注入止损相关的 5 个缺陷，5 个全部被测出；两个止损探针（`docs/arch/evidence/probe_stop_*.py`）输出与搬家前相同。
+- CI 覆盖率门禁本地 82.37%（门槛 75%），其中 `stops.py` 90%。
+
+**遗留**：`stops.py` 里仍有 Binance 自己的词汇——条件单状态 `NEW` / `TRIGGERING` / `TRIGGERED` / `FINISHED` 和"会立即触发"的错误码 `-2021`。按目标架构，这些应该由 Binance 适配器翻译成领域里的止损状态，应用层不该认识它们。本步只做搬移，不改这部分；我计划把翻译放到第 12 步（止损失败处置）一起做，因为那一步本来就要改止损状态的处理；翻译本身不改行为。
+
+**行数**：手写约 330 行（新测试 281、`stops.py` 与原文件的差异 44 行里新增约 26、薄壳 22）；纯移动约 113 行。
+
+**通用验收（原始输出尾部）**
+
+```
+3222 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 462.71s (0:07:42)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 33 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+3222 = 3199 + 23。第 1 步的特征化测试（含止损与成交相关的已知缺陷测试）、`tests/unit/binance/`、`tests/unit/lab/test_target_runtime.py` 全部不改断言通过。
