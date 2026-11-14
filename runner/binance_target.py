@@ -98,7 +98,7 @@ class TargetRuntime(_runtime.TargetRuntime):
             sessions, drawdown = wiring.sessions, wiring.drawdown
         else:
             sessions = target.paper_sessions(
-                spec, symbols, journal=journal, rules=target.lot_rules(account, symbols, SYMBOL_RULES),
+                spec, symbols, journal=journal, rules=SYMBOL_RULES,     # paper equals research
                 make_order=make_order, sleeve=lambda symbol, lot: Sleeve(symbol, spec, lot, broker_config(spec, lot)))
         super().__init__(
             spec=spec, mode=mode, market=market, sessions=sessions, journal=journal, equity=self.equity, clock=clock,
@@ -123,7 +123,7 @@ class TargetRuntime(_runtime.TargetRuntime):
                                         limiter=limiter, kill=kill,
                                         tca_log=_TcaLog(self.state_dir / "tca_binance.jsonl"))
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
-                                         lot_floor=SYMBOL_RULES, equity=self.equity, inputs=inputs), kill
+                                         equity=self.equity, inputs=inputs), kill
 
 
 def main(argv: list[str] | None = None) -> None:

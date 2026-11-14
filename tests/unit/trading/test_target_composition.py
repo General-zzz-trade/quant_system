@@ -114,15 +114,37 @@ def test_a_failed_reconciliation_blocks_entries_until_the_next_clean_pass(tmp_pa
     assert session.executor.ready is True
 
 
-def test_lot_rules_take_the_exchange_filters_but_never_a_minimum_below_the_research_floor():
-    floor = {"BTCUSDT": Lot(D("0.001"), D("0.001"), D("100")), "ETHUSDT": Lot(D("0.001"), D("0.001"), D("20"))}
+class _Filters:
+    """An account whose exchange minimum (5) is below the research constant for BTC (100)."""
 
-    class Account:
-        def filters(self, symbol):
-            return SimpleNamespace(step_size=D("0.01"), min_qty=D("0.02"),
-                                   min_notional=D("5") if symbol == "BTCUSDT" else D("50"))
+    def filters(self, symbol):
+        return SimpleNamespace(step_size=D("0.001"), min_qty=D("0.001"),
+                               min_notional=D("5") if symbol == "BTCUSDT" else D("50"))
 
-    assert target.lot_rules(None, ["BTCUSDT", "ETHUSDT"], floor) == floor
-    assert target.lot_rules(Account(), ["BTCUSDT", "ETHUSDT"], floor) == {
-        "BTCUSDT": Lot(D("0.01"), D("0.02"), D("100")),      # the exchange minimum (5) is below the floor
-        "ETHUSDT": Lot(D("0.01"), D("0.02"), D("50"))}       # the exchange minimum (50) is above it
+
+def test_execution_lot_rules_are_the_exchange_s_own_filters():
+    """Decision of 2026-11-14: execution follows the exchange; the research constants are not a floor."""
+    assert target.exchange_lot_rules(_Filters(), ["BTCUSDT", "ETHUSDT"]) == {
+        "BTCUSDT": Lot(D("0.001"), D("0.001"), D("5")), "ETHUSDT": Lot(D("0.001"), D("0.001"), D("50"))}
+
+
+def test_an_execution_session_trades_with_the_exchange_minimum(tmp_path):
+    _, runtime = _start(tmp_path)
+    rules = runtime.sessions["BTCUSDT"].rules
+    assert (rules.step, rules.min_qty, rules.min_notional) == (D("0.001"), D("0.001"), D("5"))   # the fake venue's
+
+
+def test_execution_sends_a_small_order_that_research_and_paper_skip():
+    """The stated consequence of that decision: between the exchange minimum and the research constant,
+    execution trades and research does not. It matters only for small accounts."""
+    from lab.simulate import SYMBOL_RULES
+    from trading.domain.rebalance import Intent, plan
+    exchange, research = target.exchange_lot_rules(_Filters(), ["BTCUSDT"])["BTCUSDT"], SYMBOL_RULES["BTCUSDT"]
+    assert research.min_notional == D("100")
+    sizing = dict(equity=D("300"), price=D("60000"), current_qty=D(0), entry_pending=False, band=0.05)
+
+    def orders(rules):
+        return plan(0.25, step=rules.step, min_qty=rules.min_qty, min_notional=rules.min_notional, **sizing)
+
+    assert orders(exchange) == [Intent("buy", D("0.001"), False)]        # 60 USDT: above the exchange minimum
+    assert orders(research) == []                                         # below the research constant

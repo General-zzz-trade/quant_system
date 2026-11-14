@@ -8,6 +8,10 @@ cut-off, the target, the rebalance plan, the lot rules, the gates, the executor 
 
 Not compared, because research and the exchange differ there by design: fill price, fees and funding
 cash (they enter through equity, which is forced equal), and the risk limits, which must not bind here.
+
+Since 2026-11-14 execution uses the exchange's own minimum order size while research keeps its constant
+(100 USDT for BTC). Every order in this run is above both, so the comparison is exact; the difference
+below the research constant is pinned in test_target_composition.py.
 """
 from __future__ import annotations
 
