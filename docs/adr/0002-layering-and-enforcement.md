@@ -1,6 +1,6 @@
 # ADR-0002：分层方式与强制手段
 
-- 状态：提议，待批准
+- 状态：**已批准**（2026-11-14）：import-linter 为主、AST 测试为辅；组装根在 `infrastructure`。实施中的调整：`application` 允许使用 `logging`（见 `target.md` 2.1）。
 - 日期：2026-11-14
 
 ## 背景

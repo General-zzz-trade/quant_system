@@ -32,7 +32,7 @@
 | 层 | 放什么 | 允许依赖 | 禁止 |
 |---|---|---|---|
 | `trading/domain` | 策略函数、再平衡、订单与状态转移表、持仓投影、风控规则。全部是纯计算 | 标准库的纯计算模块、numpy、pandas | 任何 I/O：`sqlite3`、`urllib`、`socket`、`subprocess`、`time`、`logging`、`os`；Rust 扩展 `_quant_hotpath` |
-| `trading/application` | 用例（每小时决策、下单生命周期、止损维护、急停平仓、对账）和端口定义 | `domain` | 同上。时间只能经 `Clock` 端口取得 |
+| `trading/application` | 用例（每小时决策、下单生命周期、止损维护、急停平仓、对账）和端口定义 | `domain`；`logging` | 同上，但允许 `logging`（2026-11-14 实施时调整）。时间只能经 `Clock` 端口取得 |
 | `trading/adapters` | 端口的实现：Binance REST、SQLite、文件、模拟交易所、通知、系统时钟 | `application` 的端口、`domain` | 读环境变量；适配器之间互相 import |
 | `trading/infrastructure` | 配置加载（唯一读环境变量的地方）、组装根、命令行入口、进程租约、日志设置 | 以上全部 | — |
 
@@ -78,7 +78,7 @@ trading/
 
 ### 2.3 规则的自动化检查
 
-用 import-linter 在 CI 里检查（草案，落地时以实际运行输出为准）：
+用 import-linter 在 CI 里检查。下面是最初的草案；实际生效的契约见仓库根目录 `.importlinter`（2026-11-14 第 3 步审计后加严：`no-legacy` 同时禁止 `_quant_hotpath` 和 `tests`；`core-no-io` 还禁止 `pathlib`、`io`、`shutil`、`random`、`tempfile`、`glob`、`importlib`；另有 `domain` 不得 import `logging`；"适配器互不依赖"在第 8 步加入）：
 
 ```ini
 [importlinter]
@@ -115,7 +115,7 @@ modules = trading.adapters.binance, trading.adapters.sqlite, trading.adapters.fi
     trading.adapters.simulated, trading.adapters.notify, trading.adapters.system
 ```
 
-import-linter 查不了的两条规则用 AST 测试补：
+import-linter 查不了的规则用 AST 测试补（`tests/architecture/test_rules.py`）。除下面两条外，还检查 `domain`、`application` 中不经 import 就能做的 I/O（`open()`、`__import__()`、`Path.write_text()`、`datetime.now()` 等）：
 
 - `os.environ` / `os.getenv` 只出现在 `trading/infrastructure/`。
 - `trading/domain` 不 import `logging` 和 `os`。
@@ -359,7 +359,7 @@ flowchart LR
 |---|---|---|---|
 | P1 | 纸面运行的成交与研究模拟逐笔相同 | 现有 `test_paper_runtime_reproduces_lab_simulation` 迁入 | ✓ |
 | P2 | 纸面与执行运行同一份 `session` 代码，只换适配器 | 分层契约 + 同一套端口契约测试分别跑在模拟交易所和假 Binance 上 | ✗ 两条代码路径 |
-| P3 | 纸面状态跨重启连续 | 重启测试 | ✗（R10） |
+| P3 | 纸面状态跨重启连续 | 重启测试 | ✓（第 1b 步：`tests/unit/lab/test_target_runtime_resilience.py`） |
 | P4 | 研究与实盘共用的参数（限价偏移、最小名义额）只有一个来源 | 架构测试：常量只定义一次 | ✗ 两处硬编码 |
 
 ### 7.6 结构

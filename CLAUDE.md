@@ -90,10 +90,9 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
 - Stops and flattening follow the consumed ledger, not the venue position.
 - Kill and drawdown flattening wait while an entry order is working.
 - A failed stop placement is only logged.
-- One failed REST call exits the process.
+- One failed REST call exits the process (`binance_main`; since migration step 1b `binance_target` backs off on market-data failures instead).
 - `binance_target` only:
   - A failed flatten is not retried until the next bar, because the order id is deterministic per bar.
-  - Paper sleeve state is in memory and is lost on restart.
   - There is no paper-vs-replay compare tool.
 - `binance_main` only:
   - After 5 failed exits, the runtime rewrites an operator's `flatten: true` kill file to `false`.

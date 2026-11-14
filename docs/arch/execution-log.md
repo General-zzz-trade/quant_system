@@ -235,3 +235,45 @@ Contracts: 4 kept, 0 broken.
 ```
 
 3132 = 3130 + 1（兼容性）+ 1（架构规则）。订单相关的全部已有测试（含子进程强杀的崩溃恢复测试）与第 1、5 步的特征化测试一行未改，全部通过；全量测试在严格的状态转移检查下通过。
+
+## 第 3 步之后的自检审计（独立审计员，审计对象 `e2bd2a4`）与处理
+
+审计员在只读导出的副本上复现、注入缺陷做了验证。结论：没有致命问题；3 倍上限、kill-switch、无前视、订单状态机、纸面等于研究都没有被破坏；没有删除或放宽任何已有断言。发现的问题和处理如下。
+
+| 编号 | 级别 | 问题 | 处理 |
+|---|---|---|---|
+| H1 | 高 | 第 1b 步的批准没有写进设计文档；ADR-0007 要求 SQLite，实现是 JSON；计划第 10、14 步和不变量表已过时 | 每份 ADR 写明实际批准范围和未答事项；ADR-0007 记下 JSON 偏差，第 10 步改存 SQLite 并迁入；计划加入第 1b 步，修订第 10、14、15 步、遗留清单和不变量表；`CLAUDE.md` 两行过时描述已改 |
+| H2 | 高 | 第 4、5 步在审计结束前就提交了，审计没起到放行作用 | 属实。我当时让审计与后续步骤并行。计划 0.5 节加了约定：从第 6 步之后的审计起，审计处理完之前不开始下一步代码改动。第 4–6 步由下一次审计覆盖 |
+| M1 | 中 | 执行模式下行情恢复后的补算会按几小时前的 K 线发减仓单 | 已修：执行模式只交易新鲜的 K 线（收盘后 10 分钟内），错过的 K 线只用来补齐窗口，与重启时的预热一致；纸面仍然逐根补算以等于研究。新增测试，注入原行为后测试变红 |
+| M2 | 中 | 被拒的 kill 平仓在整个行情故障期间都不会重试；日志说"X1 已解决"说过头了 | 更正：第 1b 步只保证了"交易所接受时，行情故障期间仍能平仓"。平仓被拒后的重试属于 R1，第 11 步的验收加入这个场景 |
+| M3 | 中 | 第 1b 步测试缺口：重启时有挂单、非行情异常仍退出、资金费截断、资金费请求数随缺口放大 | 已补 6 个测试（见下）；其中两个用注入原缺陷的方式确认会变红 |
+| M4 | 中 | 架构规则可绕过：不经 import 的 I/O、动态导入、别名读环境变量、`Optional[Any]` 等写法、`--ignore` 绕过门禁清单、`echo` 替代 `lint-imports` | 已加严：`.importlinter` 增加禁止项；AST 规则识别上述全部写法；门禁清单按命令的独立参数核对并拒绝 `--ignore`；CI 必须有一行恰好是 `run: lint-imports` 和 `run: mypy trading/`。把审计员给出的绕过写法放进 `trading/` 试跑：`lint-imports` 报 `2 kept, 2 broken`，架构测试 2 个失败；删掉后恢复 |
+| M5 | 中 | 纸面存档直接绑定 `BarBroker` 的内部属性 | 新增测试：`BarBroker` 实例的属性集合必须等于"已保存 + 由配置重建 + 单独处理"三组之和，新增或改名属性会让测试失败 |
+| L1 | 低 | 崩溃在"已写事件"和"已保存状态"之间时，重启补算会重复写纸面事件 | 记录：事件里都带 K 线时间，核对前向纸面记录时按 (品种, K 线时间) 去重 |
+| L2 | 低 | 第一次在 `trading` 里 import numpy 时 mypy 会因 3.11 设定报错 | 第 7 步处理 |
+| L3 | 低 | 端口清单与计划不完全一致；契约测试的异常类型过宽；CI ruff 清单缺 `tests/contract/` | 异常类型收窄为 `BinanceRestError`；CI 补上 `tests/contract/`、`tests/unit/trading/`。端口差异：`SpecSource`、`StatusSink`、`PaperStore`、`LimitStore` 在用到它们的第 10、13 步再加；`DrawdownGuard`、`OrderLimits`、`ExposureReader` 是第 4 步需要而新增的 |
+| L4 | 低 | 日志个别表述过度 | 更正：第 2 步的"每个品种任何时候最多一张有效止损"实际只在一个时点断言；第 1b 步的"挂单 4 小时配置"并没有覆盖"重启时正有挂单"，现已补测试 |
+| L5 | 低 | 存档目录没有 fsync；归档文件名同一秒会冲突；`--reset-paper-state` 若留在 systemd 里每次重启都会重置；拒绝启动时没有告警 | 前两项已修；第三项写入运行手册约束（不得写进 unit 文件）；告警在第 12、14 步 |
+| L6 | 低 | 预热补算没有"等待资金费发布"的窗口，只影响 `funding_filter=True` | 记录，当前候选 spec 不受影响 |
+
+### 第 1b 步审计后补丁（代码）
+
+- `runner/binance_target.py`：执行模式补算只交易新鲜 K 线；归档文件名精确到毫秒且不覆盖已有文件；保存后对目录 fsync。
+- `tests/unit/lab/test_target_runtime_resilience.py` 新增 6 个测试：重启时正有挂单、停机 40 小时加行情故障 40 小时（跨越 5 次资金费结算）、执行模式补算不交易过期 K 线、非行情异常仍然退出进程、目标只看到已结算的资金费、存档覆盖全部可变属性。
+- 【实际运行结果】把"只交易新鲜 K 线"改回原行为，`test_execution_catch_up_after_an_outage_does_not_trade_stale_bars` 失败；把资金费请求数改回固定 3 笔，`test_paper_survives_a_downtime_and_an_outage_longer_than_a_day` 失败。
+- `tests/contract/test_ports.py`：交易所不可用时要求抛 `BinanceRestError`，不再接受任意异常。
+- `.importlinter`、`tests/architecture/test_rules.py`、`.github/workflows/ci.yml`：见上表 M4、L3。
+
+**通用验收（原始输出尾部）**
+
+```
+3141 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 419.89s (0:06:59)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 17 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
