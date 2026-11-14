@@ -47,7 +47,7 @@
 
 ```bash
 make test                          # core gate: core + execution pytest, cargo test, ruff (must be all green)
-make test-all                      # entire pytest suite (must be all green)
+make test-all                      # entire pytest suite (must be all green); CI runs it as 4 shards (python-test-all)
 make rust                          # build the Rust crate (maturin, --features python) and pip install it
 ruff check --select E,W,F .        # lint, whole repo
 python scripts/check_local_safety.py               # stdlib-only offline fault-injection suite
@@ -125,6 +125,9 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
   - `data_files/binance_public` is the 2026-11-13 snapshot that every 2026-11-13 study references.
 - **Delivery:**
   - Work on a branch and commit per step. Push or merge only when the user asks.
+  - One PR per migration step, made of small commits (each under 400 handwritten lines, one thing).
+  - Locally run the tests related to the change plus ruff, `mypy trading/`, `lint-imports` and
+    `tests/architecture`. The whole suite runs in CI (`python-test-all`, four shards from `scripts/ci_shard.py`).
   - GitHub keeps only `master`. Changes reach it through a PR with all CI checks green, then the merged
     branch is deleted.
 

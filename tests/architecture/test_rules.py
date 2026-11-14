@@ -5,6 +5,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 TRADING = ROOT / "trading"
 
@@ -136,6 +138,46 @@ def test_gate_check_rejects_ignored_directories():
     assert not _gated(["pytest", "-k", "not offline", "tests/offline/"], "tests/offline/")
     assert not _gated(["continue-on-error:", "true", "pytest", "tests/offline/"], "tests/offline/")
     assert _gated(["python3", "-m", "pytest", "tests/offline/", "-x", "-q"], "tests/offline/")
+
+
+def _shard_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ci_shard", ROOT / "scripts/ci_shard.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_ci_shards_together_are_the_whole_suite():
+    """CI runs the whole suite as shards: every test file is in exactly one shard, and every shard runs."""
+    shard = _shard_module()
+    every = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").rglob("test_*.py")
+                   if p.relative_to(ROOT / "tests").parts[0] != "performance")
+    text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    job = text.split("\n  python-test-all:", 1)[1].split("\n  security-scan:", 1)[0]
+    indices = [int(x) for x in re.search(r"shard:\s*\[([0-9, ]+)\]", job).group(1).split(",")]
+    count = int(re.search(r"scripts/ci_shard\.py \$\{\{ matrix\.shard \}\} (\d+)\)", job).group(1))
+    assert indices == list(range(count)) and count >= 2          # each shard index runs exactly once
+    dealt = shard.shards(count)
+    assert sorted(f for files in dealt for f in files) == every     # nothing dropped, nothing twice
+    assert all(files for files in dealt) and len(every) > 200
+    run = _tokens(job.split("name: Run one shard of the whole suite", 1)[1])
+    arguments = run[run.index("pytest") + 1:]                      # `python3 -m pytest` itself is fine
+    assert not any(t.startswith(SELECTING) for t in arguments) and "continue-on-error" not in job
+    assert "fail-fast: false" in job                                 # one failing shard does not hide another
+
+
+def test_the_shard_split_does_not_depend_on_anything_but_the_files(tmp_path):
+    shard = _shard_module()
+    for name, size in (("tests/unit/a/test_a.py", 500), ("tests/unit/b/test_b.py", 300), ("tests/test_c.py", 200),
+                       ("tests/performance/test_slow.py", 900), ("tests/unit/a/helper.py", 100)):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x" * size)
+    assert shard.shards(2, tmp_path) == [["tests/unit/a/test_a.py"], ["tests/test_c.py", "tests/unit/b/test_b.py"]]
+    assert shard.shards(1, tmp_path) == [["tests/test_c.py", "tests/unit/a/test_a.py", "tests/unit/b/test_b.py"]]
+    with pytest.raises(ValueError):
+        shard.shards(0, tmp_path)
 
 
 def test_ci_runs_the_import_contracts_and_the_type_check():
