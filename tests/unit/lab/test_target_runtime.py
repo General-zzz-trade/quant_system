@@ -25,9 +25,9 @@ def _dev_signing(monkeypatch):
     monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
 
 
-def _world(tmp_path, spec: StrategySpec, *, passed=False):
+def _world(tmp_path, spec: StrategySpec, *, passed=False, bases=(("BTCUSDT", 30000.0), ("ETHUSDT", 2000.0))):
     warm = spec.window_hours() + 48
-    rows = {s: make_bars(warm + LIVE, base=b) for s, b in (("BTCUSDT", 30000.0), ("ETHUSDT", 2000.0))}
+    rows = {s: make_bars(warm + LIVE, base=b) for s, b in bases}
     start = rows["BTCUSDT"][0]["start"]
     end = start + (warm + LIVE + 9) * HOUR  # settlements published through the last processed close
     funding = [(t, 0.0001 if (t // HOUR) % 3 else -0.0002) for t in range(start, end, 8 * HOUR)]

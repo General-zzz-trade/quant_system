@@ -4,6 +4,7 @@ from __future__ import annotations
 import inspect
 import json
 from decimal import Decimal as D
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,7 @@ from execution.adapters.binance import execution_adapter as legacy
 from tests.characterization.test_runtime_decisions import _start, _until_position
 from trading.application.execution.executor import OwnerExecutor
 from trading.domain.orders import OrderIntent
+from trading.domain.rebalance import Lot
 from trading.infrastructure import target
 from trading.infrastructure.settings import RiskLimits, risk_limits
 
@@ -110,3 +112,17 @@ def test_a_failed_reconciliation_blocks_entries_until_the_next_clean_pass(tmp_pa
     session.stops.sync = sync
     runtime.reconcile()
     assert session.executor.ready is True
+
+
+def test_lot_rules_take_the_exchange_filters_but_never_a_minimum_below_the_research_floor():
+    floor = {"BTCUSDT": Lot(D("0.001"), D("0.001"), D("100")), "ETHUSDT": Lot(D("0.001"), D("0.001"), D("20"))}
+
+    class Account:
+        def filters(self, symbol):
+            return SimpleNamespace(step_size=D("0.01"), min_qty=D("0.02"),
+                                   min_notional=D("5") if symbol == "BTCUSDT" else D("50"))
+
+    assert target.lot_rules(None, ["BTCUSDT", "ETHUSDT"], floor) == floor
+    assert target.lot_rules(Account(), ["BTCUSDT", "ETHUSDT"], floor) == {
+        "BTCUSDT": Lot(D("0.01"), D("0.02"), D("100")),      # the exchange minimum (5) is below the floor
+        "ETHUSDT": Lot(D("0.01"), D("0.02"), D("50"))}       # the exchange minimum (50) is above it

@@ -41,7 +41,9 @@ def _events(tmp_path):
 
 def test_the_execution_path_sends_the_orders_research_sends_bar_by_bar(tmp_path):
     spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
-    world = _world(tmp_path, spec)
+    # Bars around 1,000 move about 1% per swing: enough for an order sized at the wrong price to differ by
+    # a lot step, and small enough that the default drawdown limits never latch.
+    world = _world(tmp_path, spec, bases=(("BTCUSDT", 1000.0), ("ETHUSDT", 2000.0)))
     world["spec_path"].write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target",
                                               "symbols": ["BTCUSDT"], "spec": spec.record(), "passed": False}))
     venue = world["fakes"]["BTCUSDT"]
@@ -68,7 +70,9 @@ def test_the_execution_path_sends_the_orders_research_sends_bar_by_bar(tmp_path)
         target, ready = target_at.get(bar.available_at, (0.0, False))
         expected = [(o.side, o.qty, o.reduce_only) for o in research.decide(bar, target, ready)]
         _advance(world, runtime, i)
-        assert session.last_target == (target, ready), f"target differs at bar {i}"
+        # Live computes the target on a trailing window, research on the whole history: the two can differ
+        # in the last bits of a float (seen at 5e-17 on more volatile bars), never by more.
+        assert session.last_target == (pytest.approx(target, rel=1e-12, abs=1e-15), ready), f"target at bar {i}"
         sent = [(r["side"], D(r["qty"]), r["reduce_only"]) for r in _events(tmp_path)
                 if r["kind"] == "intent" and r["order_id"].startswith(f"BTCUSDT:{bar.available_at}:")]
         assert sent == expected, f"orders differ at bar {i}"
