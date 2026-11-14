@@ -88,6 +88,8 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
   it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter` are legacy shells over it, still used
   by `binance_main` and the frozen venues.
 - Only exchange trade records become fills.
+- Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
+  translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
 - `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position.
 
 **Risk gates:**
