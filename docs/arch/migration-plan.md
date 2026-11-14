@@ -268,6 +268,7 @@ lint-imports                                                 # 第 2 步之后
 - **验收**：
   - `tests/unit/lab/test_target_runtime.py` 不改断言通过（纸面等于研究；执行生命周期、重启、平仓）。
   - `python3 -m runner.binance_target --help` 正常；用 `--max-cycles` 对假交易所跑通一轮。
+- **执行结果（2026-11-14）**：已完成，分 4 个 PR。与本节不同的一处：入口没有搬到 `trading/infrastructure/cli/target.py`，仍在 `runner/binance_target.py`。原因是入口要调用验签加载器和研究用的模拟撮合，而 `trading` 按契约不能导入旧包。入口能从旧包拿什么由一份只能缩短的清单限定（`tests/architecture/test_rules.py`）。详见 `execution-log.md`。
   - 第 1 步里固定 R11 的特征化测试在本步改断言：闸门不过时账户 POST 次数为 0（不变量 L6）。这是本步唯一改动的断言。
   - 新增：`import runner.binance_target` 之后，`sys.modules` 里没有 `runner.binance_main`、`engine.*`、`decision.*`、`features.*`。
 - **新增 CI 规则**：`no-legacy` 契约对整条候选运行时生效；上面的导入隔离测试。

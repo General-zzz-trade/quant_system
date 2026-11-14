@@ -327,14 +327,50 @@ def test_sqlite_is_imported_only_by_the_sqlite_adapters():
     assert importers == []
 
 
-def test_the_binance_adapter_loads_no_legacy_package_and_no_rust():
+def _legacy_loaded_by(modules: str) -> str:
     import subprocess
     import sys
     legacy = ["alpha", "attribution", "data", "decision", "engine", "event", "execution", "features", "infra",
               "lab", "monitoring", "polymarket", "research", "risk", "runner", "scripts", "shared", "state",
               "strategy", "tests", "_quant_hotpath"]
-    code = ("import sys, trading.adapters.binance.adapter, trading.infrastructure.settings; "
+    code = (f"import sys, {modules}; "
             f"print(sorted({{m.split('.')[0] for m in sys.modules}} & set({legacy!r})))")
     out = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "[]"
+    return out.stdout.strip()
+
+
+def test_the_binance_adapter_loads_no_legacy_package_and_no_rust():
+    assert _legacy_loaded_by("trading.adapters.binance.adapter, trading.infrastructure.settings") == "[]"
+
+
+def test_the_target_runtime_and_its_composition_load_no_legacy_package_and_no_rust():
+    """Lazy imports are invisible to import-linter; this loads the modules for real (migration step 10)."""
+    assert _legacy_loaded_by("trading.infrastructure.target, trading.infrastructure.bootstrap, "
+                             "trading.infrastructure.paper_store, trading.application.runtime") == "[]"
+
+
+# What the target entry point still takes from the legacy packages, and the step that removes each.
+TARGET_ENTRY_LEGACY = {
+    "infra.model_signing": "signed artifacts load only through it (project rule); stays",
+    "lab.orders": "order events of the research paper broker; stays with the paper sleeve",
+    "lab.simulate": "the research paper sleeve and its lot rules; stays (paper equals research by design)",
+    "execution.adapters.binance.execution_adapter": "transaction-cost log; step 15",
+    "execution.safety.limits": "order limiter (Rust); step 13 persists the daily limits",
+    "shared.kill_file": "kill file; step 13",
+    "shared.execution_lease": "single-writer lease; step 13",
+}
+
+
+def test_the_target_entry_point_takes_only_listed_parts_from_the_legacy_packages():
+    tree = ast.parse((ROOT / "runner/binance_target.py").read_text())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {a.name for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported.add(node.module or "")
+    legacy = {name for name in imported if name.split(".")[0] not in ("trading", "__future__")
+              and (ROOT / name.split(".")[0]).is_dir()}
+    assert legacy == set(TARGET_ENTRY_LEGACY)
+

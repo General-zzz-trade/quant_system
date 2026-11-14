@@ -25,6 +25,15 @@ class Intent:
     reduce_only: bool
 
 
+@dataclass(frozen=True)
+class Lot:
+    """Trading minimums of one symbol."""
+
+    step: Decimal
+    min_qty: Decimal
+    min_notional: Decimal
+
+
 def floor_step(qty: Decimal, step: Decimal) -> Decimal:
     return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
 

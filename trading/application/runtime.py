@@ -95,7 +95,7 @@ class TargetRuntime:
                 session.executor.notify_status()
                 issues = session.executor.reconcile_account(symbol) + session.stops.sync()
             except Exception as exc:
-                session.executor._ready = False
+                session.executor.block_entries()
                 issues = [f"reconciliation failed: {type(exc).__name__}: {exc}"]
                 logger.exception("%s reconciliation failed; entries blocked", symbol)
             for issue in issues:

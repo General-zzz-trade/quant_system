@@ -29,9 +29,14 @@ BROKER_STATE = ("fees", "funding", "mark", "now", "orders", "fills", "funding_lo
 
 
 class LotRules(Protocol):
-    step: Decimal
-    min_qty: Decimal
-    min_notional: Decimal
+    @property
+    def step(self) -> Decimal: ...
+
+    @property
+    def min_qty(self) -> Decimal: ...
+
+    @property
+    def min_notional(self) -> Decimal: ...
 
 
 class OrderFactory(Protocol):

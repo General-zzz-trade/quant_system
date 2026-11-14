@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
+from decimal import Decimal
 
 from trading.adapters.binance.adapter import DEFAULT_LEVERAGE, MARGIN_TYPES, MAX_LEVERAGE
 from trading.adapters.binance.config import BinanceConfig
@@ -44,3 +46,26 @@ def execution_scope(*, testnet: bool, env: Mapping[str, str] | None = None) -> s
     if not scope or "binance" not in scope or (("testnet" in scope) != testnet):
         raise RuntimeError("RISK_SCOPE must name binance and contain 'testnet' exactly when BINANCE_TESTNET=1")
     return scope
+
+
+@dataclass(frozen=True)
+class RiskLimits:
+    """Limits a person sets in the environment; nothing in the code raises them."""
+
+    daily_drawdown_pct: float
+    weekly_drawdown_pct: float
+    max_order_notional: Decimal
+    max_daily_notional: Decimal
+    max_daily_orders: int
+    max_leverage: Decimal
+
+
+def risk_limits(env: Mapping[str, str] | None = None) -> RiskLimits:
+    """Drawdown, order and exposure limits of the target runtime, with the defaults it has always had."""
+    env = os.environ if env is None else env
+    return RiskLimits(daily_drawdown_pct=float(env.get("MAX_DAILY_DRAWDOWN_PCT", "5")),
+                      weekly_drawdown_pct=float(env.get("MAX_WEEKLY_DRAWDOWN_PCT", "12")),
+                      max_order_notional=Decimal(env.get("BINANCE_MAX_ORDER_NOTIONAL", "5000")),
+                      max_daily_notional=Decimal(env.get("BINANCE_MAX_DAILY_NOTIONAL", "50000")),
+                      max_daily_orders=int(env.get("BINANCE_MAX_DAILY_ORDERS", "50")),
+                      max_leverage=Decimal(env.get("BINANCE_MAX_LEVERAGE", "3")))

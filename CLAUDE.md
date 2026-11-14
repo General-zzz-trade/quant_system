@@ -67,10 +67,13 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
 ## Architecture (as actually wired)
 
 **Runtimes:**
-- `runner/binance_target.py`: runtime for the overlay strategy.
-  - Each closed 1h bar: `lab.strategy.latest_target` → `lab.rebalance.plan` → orders.
-  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`). Execution mode uses
-    `BinanceExecutionAdapter` behind the risk gates.
+- `runner/binance_target.py`: entry point of the overlay strategy. It loads the signed spec and passes in
+  the parts that are still legacy (paper sleeve, order limiter, kill file, lease, TCA log).
+  - The loop is `trading/application/runtime.py`; one symbol's hourly step is `trading/application/session.py`;
+    `trading/infrastructure/target.py` wires the sessions.
+  - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
+  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`). Execution mode sends
+    `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`, behind the risk gates.
   - Market data comes from Binance REST; it reads no local data files.
 - `runner/binance_main.py`: ML runtime (`AlphaDecisionModule` with a frozen Ridge bundle). The ML line
   is closed.
@@ -81,7 +84,9 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
 - `runner/shadow_main.py`: signal observation only, no account access.
 
 **Binance execution:**
-- `ConfirmedExecutor` keeps durable SQLite intents and never resends; it queries instead.
+- `OrderLifecycle` (`trading/application/execution/lifecycle.py`) keeps durable SQLite intents and never resends;
+  it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter` are legacy shells over it, still used
+  by `binance_main` and the frozen venues.
 - Only exchange trade records become fills.
 - `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position.
 
