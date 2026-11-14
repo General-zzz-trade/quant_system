@@ -12,10 +12,6 @@ name = "_quant_hotpath"
 path = "rust_lib.rs"
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "quant_trader"
-path = "rust_bin/main.rs"
-
 [dependencies]
 pyo3 = { version = "0.23", features = ["multiple-pymethods"] }
 serde = { version = "1", features = ["derive"] }
