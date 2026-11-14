@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 from trading.application.execution.service import ExecutionService
 from trading.application.ports import OrderJournal
@@ -29,7 +29,17 @@ class Fill:
     price: Decimal
 
 
-def _fill(intent_id: str, fact: Any) -> Fill:
+class FillFact(Protocol):
+    """An exchange trade as the order lifecycle reports it."""
+
+    fill_id: str
+    symbol: str
+    side: str
+    qty: Decimal
+    price: Decimal
+
+
+def _fill(intent_id: str, fact: FillFact) -> Fill:
     return Fill(fill_id=fact.fill_id, order_id=intent_id, symbol=fact.symbol, side=fact.side,
                 qty=Decimal(str(fact.qty)), price=Decimal(str(fact.price)))
 
