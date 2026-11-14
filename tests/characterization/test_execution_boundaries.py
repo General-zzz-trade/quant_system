@@ -240,7 +240,7 @@ def test_a_stop_never_placed_is_retried_only_after_the_lookup_grace(env):
     assert stops.sync() == [] and fake.algo == {}             # still inside the 90 s lookup grace
     clock["now"] += 1
     assert stops.sync() == []
-    assert _rows(executor) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1
+    assert sorted(_rows(executor)) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1
 
 
 def test_a_stop_stuck_in_canceling_is_canceled_again_and_never_counts_as_the_stop(env):
@@ -304,3 +304,80 @@ def test_an_order_whose_quantity_cannot_be_parsed_sends_nothing_even_with_a_posi
     assert executor.send_order(broken) == ()
     assert len(fake.sent) == sent and fake.positions["BTCUSDT"] == D("0.1")     # not read as "close everything"
     assert executor._ready is False and (good.order_id, "blocked") in statuses
+
+
+# --- step-9 audit F1/F2: a refused order is handled exactly once, and fills reach the cost log --------------
+
+class _Breaker:
+    def __init__(self):
+        self.allow, self.successes, self.failures = True, 0, 0
+
+    def allow_request(self):
+        return self.allow
+
+    def record_success(self):
+        self.successes += 1
+
+    def record_failure(self):
+        self.failures += 1
+
+
+def _with_breaker(tmp_path):
+    fake = Venue(make_bars(10), clock=lambda: 1_800_000_000.0)
+    fake.price["BTCUSDT"] = D("100")
+    adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
+    assert adapter.connect(symbols=("BTCUSDT",))
+    breaker, statuses = _Breaker(), []
+    executor = BinanceExecutionAdapter(adapter, breaker, scope="binance-testnet-ut", owner=OWNER, entry_mode="market",
+                                       journal_path=tmp_path / "orders.sqlite", wait_seconds=0)
+    executor._status_callback = lambda oid, status: statuses.append((oid, status))
+    return fake, executor, breaker, statuses
+
+
+@pytest.mark.parametrize("ready,allow,source,failures,ready_after,errors", [
+    (False, True, OWNER, 0, False, 0),               # not reconciled yet: blocked, not a failure
+    (True, False, OWNER, 0, True, 0),                # breaker open: blocked, and entries stay enabled
+    (True, True, "target.ETHUSDT", 1, False, 1),     # another strategy's order: one failure, one error log
+])
+def test_a_refused_entry_is_reported_and_counted_exactly_once(tmp_path, caplog, ready, allow, source, failures,
+                                                              ready_after, errors):
+    fake, executor, breaker, statuses = _with_breaker(tmp_path)
+    executor._ready, breaker.allow = ready, allow
+    order = make_order(order_id="BTCUSDT:1:rebalance:0", source=source, symbol="BTCUSDT", side="buy", qty=D("0.1"),
+                       price=D("100"), reduce_only=False, reason="rebalance")
+    with caplog.at_level("ERROR"):
+        assert executor.send_order(order) == ()
+    assert statuses == [("BTCUSDT:1:rebalance:0", "blocked")]
+    assert (breaker.failures, breaker.successes, executor._ready) == (failures, 0, ready_after)
+    assert len([r for r in caplog.records if r.levelname == "ERROR"]) == errors and fake.sent == []
+
+
+def test_a_repeated_intent_changes_nothing_even_while_entries_are_blocked(tmp_path, caplog):
+    fake, executor, breaker, statuses = _with_breaker(tmp_path)
+    executor._ready = True
+    order = _order(1, "buy", "0.1")
+    assert len(executor.send_order(order)) == 1
+    executor._ready, before = False, (list(statuses), breaker.failures, len(fake.sent))
+    with caplog.at_level("ERROR"):
+        assert executor.send_order(order) == ()
+    assert (statuses, breaker.failures, len(fake.sent)) == before and not caplog.records
+
+
+def test_fills_are_written_to_the_cost_log_next_to_the_journal(tmp_path):
+    import json
+    _, executor, breaker, _ = _with_breaker(tmp_path)
+    executor._ready = True
+    (event,) = executor.send_order(_order(1, "buy", "0.1"))
+    (row,) = [json.loads(line) for line in (tmp_path / "tca_binance.jsonl").read_text().splitlines()]
+    assert (row["fill_id"], row["side"], row["qty"], row["ref_price"], row["fill_price"]) == (
+        event.fill_id, "buy", 0.1, 100.0, 100.0)
+    assert breaker.successes == 1
+
+
+def test_an_active_stop_that_vanishes_from_the_venue_is_replaced_at_once(env):
+    fake, _, executor, _, _, _ = env
+    stops = _stops(env)
+    assert stops.sync() == [] and _rows(executor) == [(0, "active")]
+    fake.algo.clear()                                            # the venue no longer knows the stop
+    assert stops.sync() == []                                    # no 90 s lookup grace for a stop that was active
+    assert sorted(_rows(executor)) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1

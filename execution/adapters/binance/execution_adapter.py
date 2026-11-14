@@ -174,10 +174,11 @@ class BinanceExecutionAdapter:
             return stored
 
         result = self._service.send(intent, parent)
+        if not result.submitted:
+            return ()        # refused, blocked or repeated: the service already did all there is to do
         try:
-            if result.submitted:
-                self._parents[intent_id] = SimpleNamespace(header=event.header, **{
-                    k: v for k, v in stored.items() if k != "header"})
+            self._parents[intent_id] = SimpleNamespace(header=event.header, **{
+                k: v for k, v in stored.items() if k != "header"})
             return self._events(intent_id, result.facts)
         except Exception:
             self._service.fail(intent_id)
