@@ -28,13 +28,24 @@ from typing import TYPE_CHECKING, Any
 from types import SimpleNamespace
 
 from shared.execution_journal import ExecutionJournal
+from trading.domain.orders import VENUE_TERMINAL, IllegalTransition, check_transition
 
 if TYPE_CHECKING:
     from trading.application.ports import Clock, OrderGateway
 
 logger = logging.getLogger(__name__)
-TERMINAL = frozenset({"filled", "canceled", "mmp_canceled", "rejected", "expired"})
-ABSENT = frozenset({"not_found", "rejected"})  # settled without any exchange order
+TERMINAL = frozenset(status.value for status in VENUE_TERMINAL)
+# Transitions outside trading.domain.orders.TRANSITIONS are logged and recorded here, never acted on
+# (observation mode, migration step 5). The test suite fails any test that records one.
+TRANSITION_VIOLATIONS: list[str] = []
+
+
+def _record_transition(current: str | None, new: str, intent_id: str) -> None:
+    try:
+        check_transition(current, new)
+    except IllegalTransition as exc:
+        TRANSITION_VIOLATIONS.append(f"{intent_id}: {exc}")
+        logger.error("Order %s: %s", intent_id, exc)
 
 
 @dataclass
@@ -220,8 +231,22 @@ class ConfirmedExecutor:
 
     def _set_status(self, pending: PendingOrder, status: str) -> None:
         with self._connect() as db:
+            row = db.execute("SELECT status, settled FROM submissions WHERE scope=? AND intent_id=?",
+                             (self.scope, pending.intent_id)).fetchone()
+            if row is not None and not row[1]:
+                _record_transition(row[0], status, pending.intent_id)
             db.execute("UPDATE submissions SET status=? WHERE scope=? AND intent_id=? AND settled=0",
                        (status, self.scope, pending.intent_id))
+
+    def _settle(self, pending: PendingOrder, status: str) -> None:
+        with self._connect() as db:
+            row = db.execute("SELECT status, settled FROM submissions WHERE scope=? AND intent_id=?",
+                             (self.scope, pending.intent_id)).fetchone()
+            if row is not None and not row[1]:
+                _record_transition(row[0], status, pending.intent_id)
+            db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
+                       (status, self.scope, pending.intent_id))
+        self.pending.pop(pending.intent_id, None)
 
     def _observe(self, pending: PendingOrder, *, cancel_limit: bool) -> tuple[Any, ...]:
         facts: list[Any] = []
@@ -231,10 +256,7 @@ class ConfirmedExecutor:
             if state is None:
                 if self._absence_is_final(pending):
                     status = "rejected" if pending.rejected else "not_found"
-                    with self._connect() as db:
-                        db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
-                                   (status, self.scope, pending.intent_id))
-                    self.pending.pop(pending.intent_id, None)
+                    self._settle(pending, status)
                     logger.warning("Order %s settled as %s: venue has no such order", pending.intent_id, status)
                     return ()
                 self._set_status(pending, "rejected_unconfirmed" if pending.rejected else "unknown")
@@ -300,10 +322,7 @@ class ConfirmedExecutor:
                 # If history is truncated/lagging, keep the entry lock instead of
                 # fabricating the missing quantity from the order's average price.
                 if filled_qty.is_finite() and filled_qty >= 0 and pending.confirmed_qty == filled_qty:
-                    with self._connect() as db:
-                        db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
-                                   (self._state(state), self.scope, pending.intent_id))
-                    self.pending.pop(pending.intent_id, None)
+                    self._settle(pending, self._state(state))
         except Exception:
             logger.warning("Order %s remains unresolved", pending.intent_id, exc_info=True)
             self._set_status(pending, "unknown")

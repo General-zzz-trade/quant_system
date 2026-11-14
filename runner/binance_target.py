@@ -165,7 +165,8 @@ class TargetSession:
 
     # -- execution callbacks ------------------------------------------------
     def _on_status(self, order_id: str, status: str) -> None:
-        if status in {"filled", "canceled", "mmp_canceled", "rejected", "expired", "blocked", "not_found"}:
+        from trading.domain.orders import BLOCKED, SETTLED
+        if status == BLOCKED or status in SETTLED:
             self.pending.pop(order_id, None)
 
     def position_qty(self) -> D:

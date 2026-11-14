@@ -171,3 +171,38 @@ Contracts: 4 kept, 0 broken.
 **遗留**
 
 - R6（状态库缺失时闩锁消失）、R12（回撤阈值没有硬上限）照旧，分别在第 13 步和"15 步之后"处理；对应的特征化测试未改。
+
+## 第 5 步：订单状态机显式化
+
+**先补的测试**（`tests/characterization/test_order_facts.py`，13 个，改代码前对旧代码全部通过）：只有"属于本订单、字段齐全有效"的交易所成交才会入账。查单返回的订单身份不符（client id、订单号、品种、方向任一不同）时不入账、订单保持未结；成交记录的 trade_id 为空、价格为 0、数量为 NaN 或 0、手续费为 NaN、方向相反时，同样不入账；别的订单或别的品种的成交被忽略。对应变异实验里存活的 M3、M4。
+
+**改了什么**
+
+- 新增 `trading/domain/orders.py`：`OrderStatus` 枚举（取值就是数据库里现有的字符串，已有数据不用迁移）、未结 / 已结集合、合法转移表 `TRANSITIONS`、`check_transition()`。转移表是按现有代码归纳的，文件头部逐条写明。
+- `shared/confirmed_execution.py`：所有改状态的地方（`_set_status` 和新抽出的 `_settle`，后者合并了原来两处重复的结算 SQL）在写入前读出当前状态并对照转移表。**观察模式**：表外的转移在生产里只记 ERROR 日志并记入 `TRANSITION_VIOLATIONS`，照常继续，不影响下单。终态集合改为从 domain 导入。
+- `tests/conftest.py` 新增一个对所有测试生效的检查：任何测试只要产生了表外转移就失败。
+- `runner/binance_target.py`、`runner/binance_main.py` 的终态字面量集合改为从 domain 推导；已用脚本核对推导结果与原字面量完全相同。
+- 新增 `tests/unit/trading/test_domain_orders.py`（116 个）：11×10 个"原状态→新状态"组合逐一判定允许或拒绝；已结状态永远不能再变；未结状态都能结算；未知字符串被拒绝；枚举值等于数据库字符串。
+- 架构测试新增：Binance 下单路径的三个文件里不再出现终态集合的字面量。
+
+**证据：检查真的会失败**【实际运行结果】临时从转移表里删掉 `reserved -> unknown` 一条，跑 `tests/unit/binance/test_binance_execution.py`，超时类测试立即失败，报 `order status transitions outside the table: [... 'reserved' -> 'unknown' is not allowed]`；恢复后 8 个全部通过。全量测试在严格检查下全部通过，说明全部现有测试里出现过的转移都在表内。
+
+**通用验收（原始输出尾部）**
+
+```
+3130 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 605.21s (0:10:05)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 16 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+3130 = 3000 + 13 + 116 + 1。
+
+**遗留**
+
+- 观察模式何时改为"生产也拒绝表外转移"，留到第 6 步之后的审计根据日志决定。

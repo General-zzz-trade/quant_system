@@ -91,3 +91,8 @@ def test_the_hard_leverage_cap_is_defined_once():
     defined = [str(p.relative_to(ROOT)) for p in sources
                if pattern.search(p.read_text(encoding="utf-8", errors="replace"))]
     assert defined == ["trading/domain/risk/exposure.py"]
+
+
+def test_binance_order_paths_use_the_status_table_not_literal_sets():
+    paths = ("shared/confirmed_execution.py", "runner/binance_target.py", "runner/binance_main.py")
+    assert [p for p in paths if '"mmp_canceled"' in (ROOT / p).read_text(encoding="utf-8")] == []
