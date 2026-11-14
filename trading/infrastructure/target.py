@@ -71,16 +71,15 @@ def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
         raise RuntimeError("research gate not passed; mainnet execution refused")
 
 
-def lot_rules(account: ExchangeAccount | None, symbols: Sequence[str],
-              floor: Mapping[str, LotRules]) -> dict[str, LotRules]:
-    """Lot step and minimums per symbol: the exchange's filters when an account is connected, with the
-    minimum notional never below the research floor, so an order research would skip is skipped here."""
+def exchange_lot_rules(account: ExchangeAccount, symbols: Sequence[str]) -> dict[str, LotRules]:
+    """Lot step and minimums per symbol exactly as the exchange publishes them (decision of 2026-11-14).
+
+    Research and paper keep their own constants, which are higher for BTC; an order between the two
+    minimums is therefore sent here and skipped there. That only happens on small accounts."""
     rules: dict[str, LotRules] = {}
     for symbol in symbols:
-        rules[symbol] = floor[symbol]
-        if account is not None:
-            f = account.filters(symbol)
-            rules[symbol] = Lot(f.step_size, f.min_qty, max(f.min_notional, floor[symbol].min_notional))
+        f = account.filters(symbol)
+        rules[symbol] = Lot(f.step_size, f.min_qty, f.min_notional)
     return rules
 
 
@@ -94,12 +93,11 @@ def paper_sessions(spec: StrategySpec, symbols: Sequence[str], *, journal: Event
 
 
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
-                       lot_floor: Mapping[str, LotRules], equity: EquitySource,
-                       inputs: ExecutionInputs) -> ExecutionWiring:
+                       equity: EquitySource, inputs: ExecutionInputs) -> ExecutionWiring:
     leverage, margin = exchange_settings()
     check_stop_inside_liquidation(float(inputs.stop_pct), leverage, margin)   # before anything is created
     account, scope, limits = inputs.account, inputs.scope, inputs.limits
-    rules = lot_rules(account, symbols, lot_floor)
+    rules = exchange_lot_rules(account, symbols)
     orders_path = Path(state_dir) / ORDERS_FILE
     drawdown = SqliteDrawdownGuard(Path(state_dir) / DRAWDOWN_FILE, scope, daily_pct=limits.daily_drawdown_pct,
                                    weekly_pct=limits.weekly_drawdown_pct)
@@ -134,5 +132,5 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     return ExecutionWiring(sessions, drawdown)
 
 
-__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "execution_sessions", "lot_rules", "paper_sessions",
-           "refuse_unverified_mainnet"]
+__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
+           "paper_sessions", "refuse_unverified_mainnet"]
