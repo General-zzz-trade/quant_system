@@ -4,36 +4,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
+
+from trading.domain.bars import Bar  # moved in migration step 10; same class
 
 HOUR = 3_600_000
 
 
-@dataclass(frozen=True)
-class Bar:
-    open_time: int
-    open: Decimal
-    high: Decimal
-    low: Decimal
-    close: Decimal
-    volume: Decimal
-    interval_ms: int = HOUR
-    # Optional kline microstructure fields (trades, taker volumes, quote volume).
-    # Excluded from equality; included in record() only when present so older
-    # dataset fingerprints stay stable.
-    extras: dict | None = field(default=None, compare=False)
-
-    @property
-    def available_at(self) -> int:
-        return self.open_time + self.interval_ms
-
-    def record(self) -> dict:
-        out = {k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(self).items() if k != "extras"}
-        if self.extras:
-            out["extras"] = {k: str(v) for k, v in sorted(self.extras.items())}
-        return out
 
 
 def validate_bars(bars: list[Bar], interval_ms: int = HOUR) -> None:

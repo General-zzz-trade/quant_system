@@ -17,11 +17,7 @@ import math
 from dataclasses import asdict, dataclass
 
 from shared.exposure_gate import MAX_TOTAL_LEVERAGE
-
-
-def liquidation_distance(isolated_leverage: float, maintenance_margin_rate: float) -> float:
-    """Adverse price move (fraction) that liquidates an isolated position."""
-    return 1.0 / isolated_leverage - maintenance_margin_rate
+from trading.domain.risk.liquidation import liquidation_distance  # moved in migration step 10
 
 
 @dataclass(frozen=True)

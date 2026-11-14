@@ -58,3 +58,30 @@ def test_from_env_refuses_to_fall_back_to_the_other_environment(monkeypatch):
     monkeypatch.delenv("BINANCE_TESTNET_API_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="not set"):
         BinanceConfig.from_env(testnet=True)
+
+
+def test_the_parts_moved_in_step_10_are_the_same_objects_at_their_old_addresses():
+    from data.quality import causal_bars
+    from runner import binance_main
+    from trading.adapters.files.event_log import JsonlEventLog
+    from trading.application.equity import EquitySource
+    from trading.application.risk.readiness import EntryReadinessGate
+    from trading.domain import bars
+    assert causal_bars.Bar is bars.Bar and binance_main.bar_from_kline is bars.bar_from_kline
+    assert binance_main.EventJournal is JsonlEventLog and binance_main.EntryReadinessGate is EntryReadinessGate
+    assert issubclass(binance_main.EquitySource, EquitySource)
+    assert inspect.signature(binance_main.EquitySource.__init__).parameters["clock"].default is time.time
+
+
+def test_a_kline_row_becomes_a_closed_hourly_bar():
+    from trading.domain.bars import Bar, bar_from_kline
+    row = {"start": 7_200_000, "open": "1", "high": "3", "low": "0.5", "close": "2", "volume": "10"}
+    bar = bar_from_kline(row)
+    assert bar == Bar(7_200_000, D("1"), D("3"), D("0.5"), D("2"), D("10")) and bar.available_at == 10_800_000
+    assert bar.extras is None and "extras" not in bar.record()
+    full = bar_from_kline({**row, "quote_volume": "20", "trades": 3, "taker_buy_volume": "4",
+                           "taker_buy_quote_volume": "8"})
+    assert full.extras == {"quote_volume": D("20"), "trades": D("3"), "taker_buy_volume": D("4"),
+                           "taker_buy_quote_volume": D("8")} and full == bar
+    with pytest.raises(ValueError, match="hour-aligned"):
+        bar_from_kline({**row, "start": 7_200_001})
