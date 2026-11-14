@@ -670,3 +670,12 @@ Contracts: 5 kept, 0 broken.
 - 分片不够均匀（3 分到 5 分），文件大小只是运行时间的粗略替代；现在最慢的不是分片，先不调。
 
 **另外做的**：注入缺陷自检工具改为在独立的工作区副本里并行运行，不再改动真实工作区。
+
+## 提前执行：删除 4 个直接下单的研究脚本（2026-11-14，ADR-0008 子决策 5b）
+
+技术负责人批准不等第 7–9 步的审计，单独删除。
+
+- 删除 `research/strategies/` 下的 `run_hft_signal.py`、`run_liquidation_sniper.py`、`run_binary_signal.py`、`run_bybit_mm.py`，共约 2,600 行。目录里没有其他文件，随之消失。
+- 删除前核对【实际运行结果】：仓库里没有任何代码 import 它们，没有测试覆盖它们，没有启动配置引用它们；对应的 4 个 systemd 单元已在 `infra/sync_systemd.sh` 的 `RETIRED_UNITS` 里。只有几份旧文档还提到其中一个脚本的旧路径，那些文档属于 `doc-vs-code.md` 里待清理的范围，本次不动。
+- 本地：ruff 通过；架构测试和 `tests/unit/trading` 通过。全量测试由 CI 运行。
+- 同一个 PR 的第二次提交把今天追加批准的三项写进了迁移计划（第 10b 步、第 10 步的对比测试、本次删除）。
