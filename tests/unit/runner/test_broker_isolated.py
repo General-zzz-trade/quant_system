@@ -126,6 +126,20 @@ def test_partial_reduction_releases_margin_proportionally():
     assert broker.position.qty == 1 and broker.margin == D(10)
 
 
+def test_isolated_cap_uses_reference_price_like_the_live_gate():
+    """A 3x entry sized at the decision price fills even if the fill bar ranges widely."""
+    broker = BarBroker(config())
+    broker.now = HOUR
+    broker.send_order(NS(order_id="full", symbol="ETHUSDT", qty=D(3), side="buy", price=D(100)))
+    broker.process_bar(bar(1, 100, 103, 97.5, 100))
+    assert broker.position.qty == 3 and not broker.liquidations
+    over = BarBroker(config())
+    over.now = HOUR
+    over.send_order(NS(order_id="over", symbol="ETHUSDT", qty=D("3.1"), side="buy", price=D(100)))
+    over.process_bar(bar(1, 100, 100.5, 99.5, 100))
+    assert over.position.qty == 0 and over.orders[0]["rejection"] == "fill exceeds exposure cap"
+
+
 def test_exposure_cap_allows_up_to_three_times_equity():
     allowed = opened(qty="2.5")
     assert allowed.position.qty == D("2.5")

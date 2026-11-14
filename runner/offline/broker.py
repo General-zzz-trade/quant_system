@@ -193,11 +193,7 @@ class BarBroker:
                 qty = min(remaining, budget)
                 price = bar.open * (1 + sign * D(self.config.slippage_bps) / 10000)
                 fee_bps = D(self.config.taker_bps)
-                proposed = self.position.qty + sign * qty
-                worst_mark = bar.low if sign > 0 else bar.high
-                worst_equity = self.equity + self.position.qty * (worst_mark - bar.open)
-                worst_equity += sign * qty * (worst_mark - price) - qty * price * fee_bps / 10000
-                if qty > 0 and abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure):
+                if qty > 0 and self._exceeds_cap(row, bar, qty, sign, price, fee_bps):
                     row["rejection"] = "fill exceeds exposure cap"
                     self._finish(row, "rejected")
                     continue
@@ -212,16 +208,10 @@ class BarBroker:
                 row["age"] += 1
                 qty = min(remaining, budget) if touched else D(0)
                 price, fee_bps = limit, D(self.config.maker_bps)
-                if qty > 0:
-                    # Adverse bar extremes also bound exposure (OHLC ordering is unknown).
-                    worst_mark = bar.low if sign > 0 else bar.high
-                    proposed = self.position.qty + sign * qty
-                    worst_equity = self.equity + self.position.qty * (worst_mark - bar.open)
-                    worst_equity += sign * qty * (worst_mark - price) - qty * price * fee_bps / 10000
-                    if abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure):
-                        row["rejection"] = "fill exceeds exposure cap"
-                        self._finish(row, "rejected")
-                        continue
+                if qty > 0 and self._exceeds_cap(row, bar, qty, sign, price, fee_bps):
+                    row["rejection"] = "fill exceeds exposure cap"
+                    self._finish(row, "rejected")
+                    continue
                 self.now = bar.available_at
             if qty > 0:
                 fee = qty * price * fee_bps / 10000
@@ -248,6 +238,22 @@ class BarBroker:
         if self.leverage > 0:
             self._protect(bar)
         self.now, self.mark = bar.available_at, bar.close
+
+    def _exceeds_cap(self, row, bar, qty, sign, price, fee_bps) -> bool:
+        """Whether an entry fill would breach ``max_exposure``.
+
+        Unlevered mode (the default): adverse bar extremes also bound exposure, since the
+        OHLC ordering is unknown. Isolated-margin mode follows the live AccountExposureGate
+        instead (notional at the order's reference price against current equity); adverse
+        moves after the fill are what the protective stop and liquidation model handle.
+        """
+        proposed = self.position.qty + sign * qty
+        if self.leverage > 0:
+            return abs(proposed) * D(row["reference"]) > max(D(0), self.equity) * D(self.config.max_exposure)
+        worst_mark = bar.low if sign > 0 else bar.high
+        worst_equity = self.equity + self.position.qty * (worst_mark - bar.open)
+        worst_equity += sign * qty * (worst_mark - price) - qty * price * fee_bps / 10000
+        return abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure)
 
     # -- isolated-margin mode -----------------------------------------------------------------
     def set_stop(self, price) -> None:
