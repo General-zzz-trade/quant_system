@@ -24,11 +24,11 @@ import logging
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 from trading.application.ports import Clock, Lock, OrderGateway, OrderJournal, Sleeper
-from trading.domain.orders import ENTRY_UNRESOLVED, VENUE_TERMINAL, IllegalTransition, check_transition
+from trading.domain.orders import (ENTRY_UNRESOLVED, VENUE_TERMINAL, ConfirmedFill, IllegalTransition,
+                                   check_transition)
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset(status.value for status in VENUE_TERMINAL)
@@ -130,7 +130,7 @@ class OrderLifecycle:
 
     def submit(self, *, intent_id: str, symbol: str, side: str, qty: Decimal,
                reduce_only: bool = False, parent: dict[str, Any] | None = None,
-               limit_price: Decimal | None = None) -> tuple[Any, ...]:
+               limit_price: Decimal | None = None) -> tuple[ConfirmedFill, ...]:
         qty = Decimal(str(qty))
         side = side.lower()
         if not intent_id or not symbol or side not in ("buy", "sell") or not qty.is_finite() or qty <= 0:
@@ -199,8 +199,8 @@ class OrderLifecycle:
             _record_transition(previous, status, pending.intent_id)
         self.pending.pop(pending.intent_id, None)
 
-    def _observe(self, pending: PendingOrder, *, cancel_limit: bool) -> tuple[Any, ...]:
-        facts: list[Any] = []
+    def _observe(self, pending: PendingOrder, *, cancel_limit: bool) -> tuple[ConfirmedFill, ...]:
+        facts: list[ConfirmedFill] = []
         try:
             state = self.adapter.get_order(pending.symbol, order_id=pending.order_id,
                                            client_order_id=pending.client_id)
@@ -260,7 +260,7 @@ class OrderLifecycle:
                 pending.seen.add(trade_id)
                 pending.confirmed_qty += qty
                 if inserted:
-                    facts.append(SimpleNamespace(**{**payload, "qty": qty, "price": price}))
+                    facts.append(ConfirmedFill(**{**payload, "qty": qty, "price": price}))
             if (state is not None and str(state.order_id) == pending.order_id
                     and str(state.client_order_id) == pending.client_id and self._state(state) in TERMINAL):
                 filled_qty = Decimal(str(state.filled_qty))
@@ -291,13 +291,13 @@ class OrderLifecycle:
             return True
         return pending.created_at is None or self.clock() - pending.created_at >= self.entry_ttl
 
-    def poll(self) -> tuple[tuple[str, Any], ...]:
+    def poll(self) -> tuple[tuple[str, ConfirmedFill], ...]:
         with self._lock:
             return tuple((pending.intent_id, fill)
                          for pending in list(self.pending.values())
                          for fill in self._observe(pending, cancel_limit=self._expired(pending)))
 
-    def cancel_entries(self, symbol: str) -> tuple[tuple[str, Any], ...]:
+    def cancel_entries(self, symbol: str) -> tuple[tuple[str, ConfirmedFill], ...]:
         """Cancel resting entry remainders for ``symbol`` (before a reduction)."""
         with self._lock:
             return tuple((pending.intent_id, fill)

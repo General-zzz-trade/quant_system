@@ -24,7 +24,7 @@ from trading.application.execution.lifecycle import OrderLifecycle, PendingOrder
 from trading.application.execution.reduction import size_reduction
 from trading.application.ports import Clock, EventLog, ExchangeAccount, Lock, OrderGateway, OrderJournal
 from trading.application.reconcile import reconcile_account
-from trading.domain.orders import BLOCKED, OrderIntent
+from trading.domain.orders import BLOCKED, ConfirmedFill, OrderIntent
 
 logger = logging.getLogger(__name__)
 MAX_OFFSET = Decimal("0.01")
@@ -46,7 +46,7 @@ class CircuitBreaker(Protocol):
 @dataclass(frozen=True)
 class SendResult:
     submitted: bool               # the intent passed every check and reached the order lifecycle
-    facts: tuple[Any, ...]        # exchange fill facts confirmed during this call
+    facts: tuple[ConfirmedFill, ...]   # exchange fills confirmed during this call
 
 
 class ExecutionService:
@@ -75,7 +75,7 @@ class ExecutionService:
     def _journaled(self, intent_id: str, owner: str | None = None) -> bool:
         return any(row["intent_id"] == intent_id for row in self.journal.orders(owner))
 
-    def _log_fills(self, intent_id: str, facts: tuple[Any, ...]) -> None:
+    def _log_fills(self, intent_id: str, facts: tuple[ConfirmedFill, ...]) -> None:
         """Transaction-cost records; the fill is already durable, so a logging failure is ignored."""
         if not facts or self._event_log is None:
             return

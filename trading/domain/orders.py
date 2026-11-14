@@ -89,3 +89,18 @@ class OrderIntent:
     reduce_only: bool
     reason: str
 
+
+@dataclass(frozen=True)
+class ConfirmedFill:
+    """One exchange trade of an order intent, as recorded in the order journal (the durable fill fact)."""
+
+    fill_id: str
+    intent_id: str
+    symbol: str
+    order_id: str
+    trade_id: str
+    side: str
+    qty: Decimal
+    price: Decimal
+    fee: str             # as stored: a decimal string
+    fee_asset: str | None
