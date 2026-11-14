@@ -810,7 +810,7 @@ Contracts: 5 kept, 0 broken.
 ## 瘦身批次 B：删除 18 个没有任何引用的一次性脚本和旧下载器（2026-11-14，ADR-0008 子决策 2b）
 
 - 标准比"不可达"更严：文件的模块名、路径在全部代码、测试、CI、Makefile、systemd 单元、配置里都没有出现（文档除外）。按这个标准 `scripts/`、`monitoring/`、`data/downloads/` 里共有 24 个文件。
-- 删除其中 18 个，5,000 多行：
+- 删除其中 18 个，4,753 行：
   - `scripts/` 8 个一次性分析和回测脚本；
   - `monitoring/` 7 个分析脚本；
   - `data/downloads/` 3 个旧下载器。
