@@ -46,25 +46,33 @@ source_modules =
     trading.domain
     trading.application
 forbidden_modules =
+    asyncio
+    concurrent
+    ctypes
     glob
     http
     importlib
     io
     os
     pathlib
+    multiprocessing
     random
+    selectors
     shutil
+    signal
     socket
     sqlite3
     subprocess
     tempfile
+    threading
     time
     urllib
 
 [importlinter:contract:domain-no-logging]
-name = domain has no logging
+name = domain has no logging and no interpreter access
 type = forbidden
 source_modules =
     trading.domain
 forbidden_modules =
     logging
+    sys

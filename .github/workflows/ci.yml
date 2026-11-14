@@ -202,8 +202,9 @@ jobs:
           python3 -m pytest tests/unit/binance/ -q --tb=short \
             --cov=execution.adapters.binance.adapter --cov=execution.adapters.binance.execution_adapter \
             --cov=execution.adapters.binance.protective_stops --cov=runner.binance_main \
-            --cov=runner.binance_context --cov=shared.confirmed_execution --cov=shared.exposure_gate \
-            --cov=shared.kill_file --cov=shared.drawdown_guard --cov-report=term --cov-fail-under=75
+            --cov=runner.binance_context --cov=shared.confirmed_execution --cov=shared.kill_file \
+            --cov=trading.application.risk --cov=trading.adapters.sqlite --cov=trading.domain.risk \
+            --cov=trading.domain.orders --cov-report=term --cov-fail-under=75
 
       - name: Synthetic offline research acceptance (no network or account keys)
         run: python3 -m runner.offline demo --out .cache/offline-ci

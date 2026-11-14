@@ -210,7 +210,7 @@ def test_paper_survives_a_downtime_and_an_outage_longer_than_a_day(tmp_path, hou
     _assert_matches_lab(world, runtime, spec)
 
 
-def test_execution_catch_up_after_an_outage_does_not_trade_stale_bars(tmp_path):
+def test_execution_catch_up_decides_on_the_newest_bar_and_only_reduces(tmp_path):
     world = _world(tmp_path, _spec())
     btc = world["fakes"]["BTCUSDT"]
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
@@ -231,9 +231,13 @@ def test_execution_catch_up_after_an_outage_does_not_trade_stale_bars(tmp_path):
     posts = {s: len(f.posts) for s, f in world["fakes"].items()}
     events = (tmp_path / "exec" / "target_events.jsonl").read_text().count('"intent"')
     world["clock"]["now"] = (world["rows"]["BTCUSDT"][i - 1]["start"] + HOUR + 15 * 60_000) / 1000
-    runtime.cycle()                           # recovery 15 min after the last close: every missed bar is stale
-    assert {s: len(f.posts) for s, f in world["fakes"].items()} == posts
-    assert (tmp_path / "exec" / "target_events.jsonl").read_text().count('"intent"') == events
+    runtime.cycle()                           # recovery 15 min after the last close: every missed bar is late
+    newest = world["rows"]["BTCUSDT"][i - 1]["start"] + HOUR
+    lines = (tmp_path / "exec" / "target_events.jsonl").read_text().splitlines()
+    intents = [json.loads(line) for line in lines if '"intent"' in line][events:]
+    assert all(f":{newest}:" in row["order_id"] for row in intents)      # only the newest bar decides
+    new_posts = [p for s, f in world["fakes"].items() for p in f.posts[posts[s]:]]
+    assert all(p.get("reduceOnly") in (True, "true") for p in new_posts)  # a late bar may only reduce
     assert all(s.cursor == world["rows"][sym][i - 1]["start"] for sym, s in runtime.sessions.items())
 
 

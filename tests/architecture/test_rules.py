@@ -22,10 +22,13 @@ ENV_NAMES = {"environ", "environb", "getenv", "getenvb", "putenv", "unsetenv"}
 
 
 def _env_reads(tree: ast.AST) -> list[int]:
-    """Any use of an environment accessor, whatever the module alias (``import os as o; o.environ``)."""
+    """Any use of an environment accessor: any alias (``o.environ``) or ``getattr(os, "environ")``."""
     lines = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in ENV_NAMES:
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" \
+                and any(isinstance(a, ast.Constant) and a.value in ENV_NAMES for a in node.args):
             lines.append(node.lineno)
         elif isinstance(node, ast.ImportFrom) and node.module == "os" \
                 and any(alias.name in ENV_NAMES for alias in node.names):
@@ -46,13 +49,14 @@ def test_only_infrastructure_reads_the_environment():
 
 def test_env_rule_detects_reads():
     tree = ast.parse("import os\nfrom os import environ\nx = os.environ.get('A')\ny = os.getenv('B')\n"
-                     "import os as o\nz = o.environ\nw = o.getenvb(b'C')\n")
-    assert _env_reads(tree) == [2, 3, 4, 6, 7]
+                     "import os as o\nz = o.environ\nw = o.getenvb(b'C')\nv = getattr(o, 'environ')\n")
+    assert _env_reads(tree) == [2, 3, 4, 6, 7, 8]
 
 
 IO_CALLS = {"open", "__import__", "exec", "eval", "compile", "input", "breakpoint"}
-IO_METHODS = {"read_text", "write_text", "read_bytes", "write_bytes", "open", "now", "utcnow", "today",
-              "touch", "unlink", "mkdir", "rename", "replace"}
+IO_METHODS = {"read_text", "write_text", "read_bytes", "write_bytes", "open", "touch", "unlink", "mkdir", "rename",
+              "replace", "FileHandler", "RotatingFileHandler", "TimedRotatingFileHandler", "basicConfig"}
+CLOCK_ATTRS = {"now", "utcnow", "today", "monotonic", "perf_counter", "time_ns"}   # flagged even when not called
 
 
 def _io_uses(tree: ast.AST) -> list[str]:
@@ -63,6 +67,13 @@ def _io_uses(tree: ast.AST) -> list[str]:
             found.append(f"{node.func.id}()@{node.lineno}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in IO_METHODS:
             found.append(f".{node.func.attr}()@{node.lineno}")
+        elif isinstance(node, ast.Attribute) and node.attr in CLOCK_ATTRS:
+            found.append(f".{node.attr}@{node.lineno}")
+        elif isinstance(node, ast.Attribute) and node.attr == "modules" and isinstance(node.value, ast.Name) \
+                and node.value.id == "sys":
+            found.append(f"sys.modules@{node.lineno}")
+        elif isinstance(node, ast.Name) and node.id == "__builtins__":
+            found.append(f"__builtins__@{node.lineno}")
     return found
 
 
@@ -74,17 +85,24 @@ def test_domain_and_application_do_no_io_without_imports_either():
 
 
 def test_io_rule_detects_import_free_io():
-    tree = ast.parse("open('f')\n__import__('sqlite3')\np.write_text('x')\ndatetime.now()\n")
-    assert _io_uses(tree) == ["open()@1", "__import__()@2", ".write_text()@3", ".now()@4"]
+    tree = ast.parse("open('f')\n__import__('sqlite3')\np.write_text('x')\nclock = datetime.now\n"
+                     "s = sys.modules.get('x')\ng = getattr(__builtins__, 'open')\nlogging.FileHandler('f')\n")
+    assert sorted(_io_uses(tree)) == sorted(["open()@1", "__import__()@2", ".write_text()@3", ".now@4",
+                                             "sys.modules@5", "__builtins__@6", ".FileHandler()@7"])
 
 
 def _tokens(block: str) -> list[str]:
     return [t for line in block.splitlines() for t in line.replace("\\", " ").split()]
 
 
+SELECTING = ("--ignore", "--deselect", "-k", "-m", "--co", "--collect-only")
+
+
 def _gated(tokens: list[str], directory: str) -> bool:
-    ignored = any(t.startswith("--ignore") or t.startswith("--deselect") for t in tokens)
-    return directory in tokens and not ignored
+    """The directory is passed as its own argument and nothing in the command narrows what runs."""
+    args = tokens[tokens.index("pytest") + 1:] if "pytest" in tokens else tokens   # `python3 -m pytest` is fine
+    narrowed = any(t.startswith(SELECTING) for t in args) or "continue-on-error:" in tokens
+    return directory in args and not narrowed
 
 
 def _ci_core_test_paths() -> str:
@@ -107,6 +125,9 @@ def test_money_path_tests_are_gated_in_ci_and_make():
 def test_gate_check_rejects_ignored_directories():
     assert not _gated(["pytest", "--ignore=tests/offline/", "tests/offline/"], "tests/offline/")
     assert not _gated(["pytest", "tests/offline/x.py"], "tests/offline/")
+    assert not _gated(["pytest", "-k", "not offline", "tests/offline/"], "tests/offline/")
+    assert not _gated(["continue-on-error:", "true", "pytest", "tests/offline/"], "tests/offline/")
+    assert _gated(["python3", "-m", "pytest", "tests/offline/", "-x", "-q"], "tests/offline/")
 
 
 def test_ci_runs_the_import_contracts_and_the_type_check():
@@ -115,7 +136,16 @@ def test_ci_runs_the_import_contracts_and_the_type_check():
     assert re.search(r"^\s*run:\s*mypy trading/\s*$", text, re.M)
 
 
-def _is_any(node: ast.AST) -> bool:
+def _any_names(tree: ast.AST) -> set[str]:
+    """``Any`` plus every local alias of it (``from typing import Any as A``)."""
+    names = {"Any"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in {"typing", "typing_extensions"}:
+            names |= {a.asname for a in node.names if a.name == "Any" and a.asname}
+    return names
+
+
+def _is_any(node: ast.AST, names: frozenset[str] = frozenset({"Any"})) -> bool:
     """Any at the top of an annotation: Any, t.Any, "Any", Optional[Any], Union[..., Any], Any | None.
 
     Any nested inside a container (``dict[str, Any]`` for a JSON payload) is not a collaborator type.
@@ -126,23 +156,25 @@ def _is_any(node: ast.AST) -> bool:
         except SyntaxError:
             return False
     if isinstance(node, ast.Name):
-        return node.id == "Any"
+        return node.id in names
     if isinstance(node, ast.Attribute):
         return node.attr == "Any"
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return _is_any(node.left) or _is_any(node.right)
+        return _is_any(node.left, names) or _is_any(node.right, names)
     if isinstance(node, ast.Subscript) and ast.unparse(node.value).split(".")[-1] in {"Optional", "Union"}:
         members = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
-        return any(_is_any(m) for m in members)
+        return any(_is_any(m, names) for m in members)
     return False
 
 
 def _any_parameters(tree: ast.AST) -> list[str]:
+    names = frozenset(_any_names(tree))
     found = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             params = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-            found += [f"{node.name}({a.arg})" for a in params if a.annotation is not None and _is_any(a.annotation)]
+            found += [f"{node.name}({a.arg})" for a in params
+                      if a.annotation is not None and _is_any(a.annotation, names)]
     return found
 
 
@@ -153,13 +185,13 @@ def test_application_parameters_are_typed_by_ports_not_any():
 
 
 def test_any_rule_detects_untyped_collaborators():
-    tree = ast.parse("class G:\n    def __init__(self, a: Any, b: 'Any', c: Optional[Any], d: t.Any, e: Any | None,"
-                     " n: int, p: dict[str, Any], **kw: Any): ...\n")
-    assert _any_parameters(tree) == ["__init__(a)", "__init__(b)", "__init__(c)", "__init__(d)", "__init__(e)"]
+    tree = ast.parse("from typing import Any as A\nclass G:\n    def __init__(self, a: Any, b: 'Any', c: Optional[Any],"
+                     " d: t.Any, e: Any | None, f: A, n: int, p: dict[str, Any], **kw: Any): ...\n")
+    assert _any_parameters(tree) == [f"__init__({x})" for x in "abcdef"]
 
 
 def test_the_hard_leverage_cap_is_defined_once():
-    pattern = re.compile(r"^\s*MAX_TOTAL_LEVERAGE\s*=", re.M)
+    pattern = re.compile(r"^\s*MAX_TOTAL_LEVERAGE\s*(:[^=\n]*)?=", re.M)   # also annotated assignments
     sources = [p for p in ROOT.rglob("*.py") if not {".git", ".claude", "target"} & set(p.relative_to(ROOT).parts)]
     defined = [str(p.relative_to(ROOT)) for p in sources
                if pattern.search(p.read_text(encoding="utf-8", errors="replace"))]
@@ -168,9 +200,27 @@ def test_the_hard_leverage_cap_is_defined_once():
 
 def test_binance_order_paths_use_the_status_table_not_literal_sets():
     paths = ("shared/confirmed_execution.py", "runner/binance_target.py", "runner/binance_main.py")
-    assert [p for p in paths if '"mmp_canceled"' in (ROOT / p).read_text(encoding="utf-8")] == []
+    literal = re.compile(r"""["']mmp_canceled["']""")
+    assert [p for p in paths if literal.search((ROOT / p).read_text(encoding="utf-8"))] == []
+
+
+SQL = re.compile(r"\.execute(many|script)?\(|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|SELECT\s+.+\s+FROM|"
+                 r"CREATE\s+TABLE)\b", re.I)
 
 
 def test_only_the_sqlite_adapter_writes_order_tables_on_the_binance_path():
     paths = [ROOT / "shared/confirmed_execution.py", *sorted((ROOT / "execution/adapters/binance").glob("*.py"))]
-    assert [str(p.relative_to(ROOT)) for p in paths if ".execute(" in p.read_text(encoding="utf-8")] == []
+    assert [str(p.relative_to(ROOT)) for p in paths if SQL.search(p.read_text(encoding="utf-8"))] == []
+
+
+def test_sqlite_is_imported_only_by_the_sqlite_adapters():
+    importers = []
+    for path, tree in _modules(TRADING):
+        if path.relative_to(TRADING).parts[:2] == ("adapters", "sqlite"):
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+            if any(n == "sqlite3" or n.startswith("sqlite3.") for n in names):
+                importers.append(str(path.relative_to(ROOT)))
+    assert importers == []

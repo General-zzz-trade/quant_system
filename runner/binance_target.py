@@ -407,14 +407,14 @@ class TargetRuntime:
             settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
             if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
                 continue
-            for row in self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms):
-                bar = bar_from_kline(row)
-                if bar.open_time > session.cursor:
-                    # Execution trades only a fresh bar: bars missed during an outage just extend the window,
-                    # exactly as a restart's warmup would. Paper replays every bar, as research does.
-                    fresh = now_ms - bar.available_at <= MAX_ENTRY_DELAY_MS
-                    session.process_bar(bar, live=self.mode == "paper" or fresh, now_ms=now_ms)
-                    processed += 1
+            rows = self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms)
+            new = [bar for bar in map(bar_from_kline, rows) if bar.open_time > session.cursor]
+            for k, bar in enumerate(new):
+                # Execution decides on the newest bar only: older bars missed during an outage just extend
+                # the window. A late newest bar may still reduce; entries are refused as "processed too late"
+                # (approved 2026-11-14, ADR-0007). Paper replays every bar, as research does.
+                session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
+                processed += 1
         return processed
 
     def _paper_path(self) -> Path:
