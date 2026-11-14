@@ -47,6 +47,21 @@ RECONCILE_SECONDS = 5.0
 EQUITY_SECONDS = 60.0
 MAX_ENTRY_DELAY_MS = 10 * 60_000
 FUNDING_WAIT_MS = 2 * 60_000
+MARKET_BACKOFF_MAX = 300.0
+PAPER_STATE = "paper_state.json"
+# BarBroker attributes that change while trading (config and callbacks are rebuilt from the spec).
+_BROKER_STATE = ("fees", "funding", "mark", "now", "orders", "fills", "funding_log", "margin", "stop_price",
+                 "liquidations")
+
+
+def _encode(value: Any) -> Any:
+    if isinstance(value, D):
+        return {"__decimal__": str(value)}
+    raise TypeError(f"cannot persist {type(value).__name__}")
+
+
+def _decode(obj: dict) -> Any:
+    return D(obj["__decimal__"]) if obj.keys() == {"__decimal__"} else obj
 
 
 def load_spec(path: Path) -> dict:
@@ -119,12 +134,34 @@ class TargetSession:
         self.pending: dict[str, bool] = {}   # working order id -> reduce_only
 
     # -- data ---------------------------------------------------------------
-    def funding_series(self) -> pd.Series:
-        times = sorted(self.funding)[-self.spec.funding_window():]
+    def funding_series(self, upto: int | None = None) -> pd.Series:
+        """Settlements known at ``upto`` (all when None); a catch-up must not see later ones."""
+        times = sorted(t for t in self.funding if upto is None or t <= upto)[-self.spec.funding_window():]
         return pd.Series([self.funding[t] for t in times], index=pd.Index(times, dtype="int64"), dtype=float)
 
     def _target(self) -> tuple[float, bool]:
-        return latest_target(frame_from_bars(list(self.bars)), self.funding_series(), self.spec)
+        return latest_target(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at),
+                             self.spec)
+
+    # -- paper persistence --------------------------------------------------
+    def paper_snapshot(self) -> dict:
+        b = self.sleeve.broker
+        return {"cursor": self.cursor, "config": b.config.record(), "orders_sent": self.sleeve.orders,
+                "position": b.position.to_dict(), "pending": [row["id"] for row in b.pending],
+                "broker": {key: getattr(b, key) for key in _BROKER_STATE}}
+
+    def restore_paper(self, snap: dict) -> None:
+        from shared.strategy_position import StrategyPosition
+        b = self.sleeve.broker
+        if snap["config"] != b.config.record():
+            raise RuntimeError(f"{self.symbol}: saved paper state used another broker configuration")
+        for key in _BROKER_STATE:
+            setattr(b, key, snap["broker"][key])
+        b.position = StrategyPosition.from_dict(snap["position"])
+        by_id = {row["id"]: row for row in b.orders}
+        b.pending = [by_id[i] for i in snap["pending"]]   # pending rows are the same objects as order rows
+        self.sleeve.orders = snap["orders_sent"]
+        self._logged = len(b.fills)
 
     # -- execution callbacks ------------------------------------------------
     def _on_status(self, order_id: str, status: str) -> None:
@@ -214,7 +251,7 @@ class TargetSession:
 
 class TargetRuntime:
     def __init__(self, *, spec_path: Path, state_dir: Path, mode: str, market: Any, account: Any = None,
-                 clock=time.time, testnet: bool = True, stop_pct: D = D("0.08")) -> None:
+                 clock=time.time, testnet: bool = True, stop_pct: D = D("0.08"), reset_paper: bool = False) -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.frozen = load_spec(spec_path)
@@ -227,6 +264,8 @@ class TargetRuntime:
         self.journal = EventJournal(self.state_dir / "target_events.jsonl")
         self.equity = EquitySource(clock)
         self._last_equity = self._last_reconcile = 0.0
+        self._market_failures, self._market_retry_at = 0, 0.0
+        self.reset_paper, self._saved_cursors = reset_paper, None
         execution = self._execution_context(testnet, stop_pct) if mode == "execution" else None
         symbols = self.frozen["symbols"]
         allocation = D(1) / D(len(symbols))
@@ -272,16 +311,31 @@ class TargetRuntime:
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
+        """Load history; a paper run resumes from its saved state and replays the bars it missed."""
         now_ms = int(self.clock() * 1000)
+        saved = self._load_paper_state() if self.mode == "paper" else {}
         for symbol, session in self.sessions.items():
-            for at, rate in self.market.get_funding_history(symbol, limit=self.spec.funding_window() + 30):
+            snap = saved.get(symbol)
+            resume = snap["cursor"] if snap else None
+            gap = 0 if resume is None else max(0, (now_ms // HOUR * HOUR - HOUR - resume) // HOUR)
+            limit = self.spec.funding_window() + 30 + gap // 8 + 1
+            for at, rate in self.market.get_funding_history(symbol, limit=limit):
                 session.funding[round(at / HOUR) * HOUR] = rate
-            rows = self.market.get_klines(symbol, "60", session.bars.maxlen, now_ms=now_ms)
+            rows = self.market.get_klines(symbol, "60", session.bars.maxlen + gap, now_ms=now_ms)
+            if snap is not None:
+                if not any(row["start"] == resume for row in rows):
+                    raise RuntimeError(f"{symbol}: saved paper state at {resume} cannot be resumed from the available "
+                                       "market data; start a new paper record with --reset-paper-state")
+                session.restore_paper(snap)
             for row in rows:
-                session.process_bar(bar_from_kline(row), live=False, now_ms=now_ms)
+                bar = bar_from_kline(row)
+                session.process_bar(bar, live=resume is not None and bar.open_time > resume, now_ms=now_ms)
             if len(session.bars) < self.spec.window_hours():
                 raise RuntimeError(f"{symbol}: incomplete warmup ({len(session.bars)}/{self.spec.window_hours()})")
-            self.journal.write("warmup", symbol=symbol, bars=len(session.bars), last_open=session.cursor)
+            self.journal.write("warmup", symbol=symbol, bars=len(session.bars), last_open=session.cursor,
+                               resumed_from=resume)
+        if self.mode == "paper":
+            self.save_paper_state()
         if self.mode == "execution":
             self.refresh_equity()
             self.reconcile()
@@ -319,18 +373,38 @@ class TargetRuntime:
                 session.flatten("kill_switch" if kill.active else "drawdown_latched")
 
     def poll(self) -> int:
+        """Process newly closed bars. A market-data failure is logged and retried with backoff instead of
+        ending the process, so reconciliation, stops and risk actions keep running in the same cycle."""
+        if self.clock() < self._market_retry_at:
+            return 0
+        from execution.adapters.binance.rest import BinanceRestError
+        try:
+            processed = self._poll_market()
+        except (BinanceRestError, OSError) as exc:
+            self._market_failures += 1
+            delay = min(POLL_SECONDS * 2 ** (self._market_failures - 1), MARKET_BACKOFF_MAX)
+            self._market_retry_at = self.clock() + delay
+            self.journal.write("issue", issue=f"market data unavailable: {type(exc).__name__}: {exc}",
+                               failures=self._market_failures, retry_in=delay)
+            logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s",
+                           self._market_failures, delay, exc)
+            return 0
+        self._market_failures = 0
+        return processed
+
+    def _poll_market(self) -> int:
         processed = 0
         now_ms = int(self.clock() * 1000)
         for symbol, session in self.sessions.items():
             close = session.cursor + 2 * HOUR
             if now_ms < close:
                 continue
-            for at, rate in self.market.get_funding_history(symbol, limit=3):
+            missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
+            for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) // 8):
                 session.funding[round(at / HOUR) * HOUR] = rate
             settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
             if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
                 continue
-            missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
             for row in self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms):
                 bar = bar_from_kline(row)
                 if bar.open_time > session.cursor:
@@ -338,8 +412,43 @@ class TargetRuntime:
                     processed += 1
         return processed
 
+    def _paper_path(self) -> Path:
+        return self.state_dir / PAPER_STATE
+
+    def _load_paper_state(self) -> dict:
+        path = self._paper_path()
+        if self.reset_paper and path.exists():
+            archived = path.with_name(f"paper_state.{int(self.clock())}.json")
+            os.replace(path, archived)
+            self.journal.write("paper_reset", archived=archived.name)
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(), object_hook=_decode)
+        if (data.get("schema") != 1 or data.get("spec") != self.spec.record()
+                or set(data["symbols"]) != set(self.sessions)):
+            raise RuntimeError("saved paper state belongs to another spec or symbol set; "
+                               "start a new paper record with --reset-paper-state")
+        return data["symbols"]
+
+    def save_paper_state(self) -> None:
+        """Atomically persist every paper sleeve after the bars it has processed."""
+        cursors = {symbol: s.cursor for symbol, s in self.sessions.items()}
+        if cursors == self._saved_cursors:
+            return
+        data = {"schema": 1, "spec": self.spec.record(),
+                "symbols": {symbol: s.paper_snapshot() for symbol, s in self.sessions.items()}}
+        path = self._paper_path()
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w", encoding="utf-8") as stream:
+            json.dump(data, stream, default=_encode)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+        self._saved_cursors = cursors
+
     def status(self) -> dict:
-        out = {"mode": self.mode, "at": self.clock(), "spec_passed_gate": self.frozen.get("passed"), "symbols": {}}
+        out = {"mode": self.mode, "at": self.clock(), "spec_passed_gate": self.frozen.get("passed"),
+               "market_failures": self._market_failures, "symbols": {}}
         if self.kill is not None:
             out["kill"] = self.kill.state().__dict__
             out["drawdown_latched"] = self.drawdown.latched()
@@ -356,6 +465,8 @@ class TargetRuntime:
         if self.mode == "execution" and self.clock() - self._last_equity >= EQUITY_SECONDS:
             self.refresh_equity()
         self.poll()
+        if self.mode == "paper":
+            self.save_paper_state()
         if self.mode == "execution":
             if self.clock() - self._last_reconcile >= RECONCILE_SECONDS:
                 self.reconcile()
@@ -377,6 +488,8 @@ def main(argv: list[str] | None = None) -> None:
     mode.add_argument("--enable-execution", dest="execution", action="store_true")
     parser.set_defaults(execution=False)
     parser.add_argument("--max-cycles", type=int)
+    parser.add_argument("--reset-paper-state", action="store_true",
+                        help="Archive the saved paper state and start a new paper record")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     testnet = os.environ.get("BINANCE_TESTNET", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -387,7 +500,7 @@ def main(argv: list[str] | None = None) -> None:
     market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=symbols)
     runtime = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
                             mode="execution" if args.execution else "paper", market=market, account=account,
-                            testnet=testnet, stop_pct=args.stop_pct)
+                            testnet=testnet, stop_pct=args.stop_pct, reset_paper=args.reset_paper_state)
     stop = {"flag": False}
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.update(flag=True))
