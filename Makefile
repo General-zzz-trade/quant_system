@@ -10,7 +10,7 @@ clean:
 
 # ── Test targets (aligned with CI: .github/workflows/ci.yml) ───────────
 
-test: test-py test-exec test-rust lint lint-arch  ## Core local gate (same suites as CI); full suite: make test-all
+test: test-py test-exec test-rust lint lint-arch  ## Core local gate; CI also runs the whole suite (make test-all) as shards
 
 CORE_TESTS = tests/unit/decision/ tests/unit/state/ tests/unit/event/ tests/unit/engine/ tests/unit/bybit/ \
 	tests/unit/execution/adapters/okx/ tests/unit/runner/test_offline_research.py \
