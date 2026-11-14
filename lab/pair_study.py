@@ -42,7 +42,7 @@ from scipy.stats import spearmanr
 from lab import trials
 from lab.data import DAY, HOUR
 from lab.metrics import daily_equity
-from lab.overlay_study import stats, yearly_returns
+from lab.overlay_study import stats
 from lab.pair import D_FEATURES, P_FEATURES, build, labels, load_inputs
 from lab.study import DEV_END, _manifest
 from lab.validation import walk_forward
@@ -230,6 +230,17 @@ def simulate_pair(bars: pd.DataFrame, funding: dict, sides: dict[int, int], *, s
 
 
 # -- statistics and gate -------------------------------------------------------------------------
+def yearly(daily: pd.Series) -> dict[int, float]:
+    """Calendar-year returns; a year that starts from zero equity (after a wipeout) is not defined."""
+    years = pd.to_datetime(daily.index.to_numpy() * DAY, unit="ms", utc=True).year
+    out, previous = {}, float(daily.iloc[0])
+    for year in sorted(set(years)):
+        last = float(daily[years == year].iloc[-1])
+        out[int(year)] = last / previous - 1 if previous > 0 else float("nan")
+        previous = last
+    return out
+
+
 def describe(run: PairRun, start: int, capital: float) -> dict:
     first_day = start // DAY
     daily = daily_equity([run.curve])
@@ -242,7 +253,7 @@ def describe(run: PairRun, start: int, capital: float) -> dict:
                 "round_trips": run.round_trips, "round_trips_per_year": run.round_trips / years,
                 "positions": run.positions, "fees": run.fees, "funding": run.funding, "wiped": run.wiped,
                 "isolated_10x_breaches": run.isolated_breaches, "worst_leg_move": run.worst_leg_move,
-                "yearly": yearly_returns(daily)})
+                "yearly": yearly(daily)})
     out["_daily_returns"] = daily.pct_change().dropna()
     return out
 

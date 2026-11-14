@@ -162,3 +162,10 @@ def test_ml_candidates_trade_out_of_sample(study):
     ml = [c for cid, c in summary["candidates"].items() if not cid.startswith("rule")]
     assert all(c["decisions"] > 5 for c in ml)
     assert all(b["train_rows"] >= ps.MIN_TRAIN_ROWS for c in ml for b in c["blocks"])
+
+
+def test_wiped_curve_reports_without_dividing_by_zero():
+    days = [(T0 // DAY) + i for i in (-1, 0, 400, 800)]
+    curve = pd.Series([167.0, 100.0, 0.0, 0.0], index=days)
+    out = ps.yearly(curve)
+    assert out[2021] == pytest.approx(100 / 167 - 1) and out[2022] == -1.0 and math.isnan(out[2023])
