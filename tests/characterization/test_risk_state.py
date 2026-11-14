@@ -78,10 +78,15 @@ def test_current_kill_cli_default_path_differs_from_the_target_runtime_path(tmp_
         seen["state_dir"] = Path(journal_path).parent
         raise Stop
 
+    from lab.strategy import StrategySpec
     monkeypatch.setattr("shared.execution_lease.ExecutionLease", capture)
     monkeypatch.chdir(tmp_path)
+    # Since step 10 the spec is verified before anything else, so the run needs a real (unsigned, dev-mode) one.
+    Path("spec.json").write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target",
+                                             "symbols": ["BTCUSDT", "ETHUSDT"], "spec": StrategySpec().record(),
+                                             "passed": False}))
     with pytest.raises(Stop):
-        target.main(["--spec", "unused.json"])
+        target.main(["--spec", "spec.json"])
     assert seen["state_dir"] == Path("data/runtime/binance_target")       # runtime reads <state_dir>/kill_switch.json
     assert DEFAULT_PATH == Path("data/runtime/binance/kill_switch.json")  # the CLI writes here by default
     assert not DEFAULT_PATH.is_absolute()
@@ -97,8 +102,9 @@ def test_current_lease_allows_the_same_scope_in_two_state_dirs(tmp_path):
     second.close()
 
 
-@pytest.mark.known_defect("R11")
-def test_current_mainnet_gate_refuses_only_after_account_leverage_was_set(tmp_path, monkeypatch):
+def test_the_mainnet_gate_refuses_before_any_account_setting_is_written(tmp_path, monkeypatch):
+    """R11, fixed in migration step 10 (invariant L6): every local start-up check runs before the account is
+    connected. Until then this test pinned the defect: leverage was set first, then the gate refused."""
     import execution.adapters.binance as binance
     from infra.model_signing import sign_file
     from lab.strategy import StrategySpec
@@ -111,7 +117,8 @@ def test_current_mainnet_gate_refuses_only_after_account_leverage_was_set(tmp_pa
         def __init__(self, config, client=None):
             super().__init__(config, client=fake)
 
-    monkeypatch.setattr(binance, "BinanceAdapter", Adapter)
+    from trading.infrastructure import bootstrap
+    monkeypatch.setattr(bootstrap, "BinanceAdapter", Adapter)       # where build_adapters looks it up (step 10)
     monkeypatch.delenv("QUANT_ALLOW_UNSIGNED_MODELS")
     for name, value in (("BINANCE_TESTNET", "0"), ("RISK_SCOPE", "binance-main-ut"), ("BINANCE_API_KEY", "k"),
                         ("BINANCE_API_SECRET", "s"), ("QUANT_MODEL_SIGN_KEY", "test-key")):
@@ -124,4 +131,5 @@ def test_current_mainnet_gate_refuses_only_after_account_leverage_was_set(tmp_pa
     monkeypatch.chdir(tmp_path)
     with pytest.raises(RuntimeError, match="research gate not passed"):
         main(["--spec", str(spec_path), "--enable-execution", "--state-dir", str(tmp_path / "state")])
-    assert fake.leverage == {"BTCUSDT": 3, "ETHUSDT": 3}                  # account was written before refusal
+    assert fake.leverage == {} and fake.margin_type == {} and fake.posts == []   # nothing was written
+    assert not (tmp_path / "state").exists()                               # not even the state directory
