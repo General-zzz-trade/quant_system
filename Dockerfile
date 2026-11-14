@@ -19,7 +19,6 @@ COPY strategy/regime/rust/ /strategy/regime/rust/
 COPY alpha/rust/ /alpha/rust/
 COPY engine/rust/ /engine/rust/
 COPY research/rust/ /research/rust/
-COPY rust_bin/ /rust_bin/
 
 FROM base AS rust-builder
 ARG RUST_VERSION=1.93.0
