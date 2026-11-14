@@ -79,6 +79,14 @@ class OwnerExecutor:
         return self._service.adopt(intent_id=intent_id, symbol=symbol, side=side, order_id=order_id,
                                    client_order_id=client_order_id, parent=parent)
 
+    def cancel_entries(self, symbol: str) -> tuple[Fill, ...]:
+        """Cancel resting entries for ``symbol``; returns fills confirmed while doing so."""
+        return tuple(_fill(fact.intent_id, fact) for fact in self._service.cancel_entries(symbol))
+
+    def take_refusal(self, intent_id: str) -> str | None:
+        """Why the order journal refused to reserve ``intent_id`` (read once), or None."""
+        return self._service.take_refusal(intent_id)
+
     def fill_fact(self, fill_id: str) -> dict[str, Any]:
         return self._service.fill_fact(fill_id)
 

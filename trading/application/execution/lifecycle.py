@@ -91,6 +91,7 @@ class OrderLifecycle:
         self.entry_ttl = entry_ttl_seconds
         self.clock, self.sleeper = clock, sleeper
         self.pending: dict[str, PendingOrder] = {}
+        self.refusals: dict[str, str] = {}     # intent id -> why the order journal refused to reserve it
         self._lock = lock
         self.owner = owner
         self.journal = journal
@@ -121,6 +122,9 @@ class OrderLifecycle:
         if refusal:
             if refusal == ENTRY_UNRESOLVED:
                 logger.error("Entry blocked: unresolved submission for %s (scope=%s)", symbol, self.scope)
+            else:
+                logger.warning("Order %s not reserved: %s", intent_id, refusal)
+            self.refusals[intent_id] = refusal
             return None
         pending = PendingOrder(intent_id, symbol, side, client_id,
                                is_limit=not reducing and self.entry_order_type == "limit",

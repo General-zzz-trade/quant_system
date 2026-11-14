@@ -108,6 +108,8 @@ class ExecutionService:
             if not qty.is_finite() or qty < 0:
                 raise ValueError("Invalid order quantity")
             reducing = qty == 0 or intent.reduce_only is True
+            if intent.close_venue_position and (intent.reduce_only is not True or qty != 0):
+                raise ValueError("Closing the venue position needs a reduce-only intent without a quantity")
             if not reducing and (not self.ready or (self._breaker is not None and not self._breaker.allow_request())):
                 self.status_callback(intent_id, BLOCKED)
                 return SendResult(False, ())
@@ -124,7 +126,7 @@ class ExecutionService:
                 for cancelled_intent, fact in self._orders.cancel_entries(intent.symbol):
                     self._log_fills(cancelled_intent, (fact,))
                 sized = size_reduction(self._venue, self.journal, owner=self.owner, symbol=intent.symbol, side=side,
-                                       qty=qty)
+                                       qty=qty, cap_to_owner=not intent.close_venue_position)
                 qty, side, consumer_revision = sized.qty, sized.side, sized.consumer_revision
             record = parent()
             if reducing and self.owner:
@@ -143,6 +145,20 @@ class ExecutionService:
         except Exception:
             self.fail(intent_id)
             return SendResult(submitted, ())
+
+    def cancel_entries(self, symbol: str) -> tuple[ConfirmedFill, ...]:
+        """Cancel this owner's resting entries for ``symbol``; returns fills confirmed while doing so. A
+        cancellation whose outcome is unknown leaves the entry working; the next call asks again."""
+        with self._lock:
+            facts = []
+            for intent_id, fact in self._orders.cancel_entries(symbol):
+                self._log_fills(intent_id, (fact,))
+                facts.append(fact)
+            return tuple(facts)
+
+    def take_refusal(self, intent_id: str) -> str | None:
+        """Why the order journal refused to reserve ``intent_id``, once; None if it did not."""
+        return self._orders.refusals.pop(intent_id, None)
 
     def fail(self, intent_id: str) -> None:
         """Failure handling while an exception is being handled: block entries, never retry the placement."""
