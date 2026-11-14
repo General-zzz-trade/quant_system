@@ -148,3 +148,24 @@ def test_forward_evaluation_ignores_data_from_the_end_on(tmp_path):
         results.append(forward.evaluate_target_spec(spec_path, d, end))
     assert json.dumps(results[0], default=float) == json.dumps(results[1], default=float)
     assert results[0]["window"]["days"] == 15 and math.isfinite(results[0]["strategy"]["total_return"])
+
+
+def test_every_registered_look_points_at_an_unchanged_spec_and_was_registered_before_its_end():
+    """The committed look registry: a frozen spec that is edited or missing fails here, not months later."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    looks = forward.load_looks(root / "research/forward_looks.jsonl")
+    assert len(looks) >= 8
+    for look in looks:
+        spec = root / look["spec"]
+        assert spec.is_file(), look["spec"]
+        assert forward.spec_digest(spec) == look["spec_sha256"], look["spec"]
+        assert forward.day_ms(look["registered"]) < forward.day_ms(look["end"])
+        assert forward.day_ms(look["end"]) > forward.FORWARD_START
+        frozen = json.loads(spec.read_text())
+        assert frozen.get("passed") is False                   # no spec in the registry may open mainnet
+        if frozen.get("kind") != "btc_eth_multitimeframe_target":
+            assert frozen.get("registered") is True            # a candidate closed by its floor has no look
+    studies = {look["study"] for look in looks}
+    assert {f"forward_candidates_2026-11-14:{name}" for name in
+            ("pair_ridge_pd_7d", "dir_ridge_7d", "flush_reversal_72h")} <= studies
