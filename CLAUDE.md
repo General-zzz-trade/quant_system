@@ -16,6 +16,16 @@
   - ETH 4h breakout at 10x isolated / 1-3x exposure (`lab/breakout_study.py`): failed its
     pre-registered development screen 2026-11-14 (cost x2 return -11%, max drawdown 82%;
     `research/results/breakout_2026-11-14/`). Not to be re-tuned on that window.
+  - ETH/BTC relative value, 10 candidates incl. Ridge/LightGBM (`lab/pair_study.py`): failed
+    2026-11-14 (deflated Sharpe probability 0.35, below the static short pair;
+    `research/results/pair_2026-11-14/`). Per-leg 10x isolated is infeasible for pairs.
+- **Research discipline in code:**
+  - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
+    data; gates use the deflated Sharpe over the whole family.
+  - `lab/validation.py`: purged walk-forward splits.
+  - `lab/forward.py`: data from 2026-11-13 on is read only at looks registered in
+    `research/forward_looks.jsonl` before their end date
+    (`research/protocols/2026-11-14-forward-tests.md`).
 - **Data windows:**
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.

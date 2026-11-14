@@ -1,0 +1,1224 @@
+{
+  "window": {
+    "oos_start_ms": 1677628800000,
+    "limit_ms": 1763251200000,
+    "holdout": "not computed"
+  },
+  "selected": "ridge_PD_7d",
+  "selected_spec": {
+    "id": "ridge_PD_7d",
+    "kind": "ml",
+    "model": "ridge",
+    "features": "PD",
+    "horizon": 7
+  },
+  "strategy": {
+    "days": 991,
+    "total_return": 0.6884260203143768,
+    "cagr": 0.2127883273389437,
+    "max_drawdown": 0.448452086968907,
+    "sharpe": 0.7044368723092104,
+    "vol": 0.3734220980263765,
+    "calmar": 0.4744951211559356,
+    "max_drawdown_hourly": 0.45272911881331496,
+    "final_equity": 281.9671453925009,
+    "round_trips": 53,
+    "round_trips_per_year": 19.520686175580224,
+    "positions": 54,
+    "fees": 20.181896345407505,
+    "funding": 2.6331927449058314,
+    "wiped": false,
+    "isolated_10x_breaches": 33.0,
+    "worst_leg_move": 0.5524635579762414,
+    "yearly": {
+      "2023": 0.09664657977675906,
+      "2024": 0.2929316340023318,
+      "2025": 0.19080263380089724
+    }
+  },
+  "strategy_cost_x2": {
+    "days": 991,
+    "total_return": 0.7762852469678587,
+    "cagr": 0.23566069305102322,
+    "max_drawdown": 0.405234523398037,
+    "sharpe": 0.7644327299790715,
+    "vol": 0.36303134499661077,
+    "calmar": 0.5815415011409286,
+    "max_drawdown_hourly": 0.41528723859771094,
+    "final_equity": 296.6396362436324,
+    "round_trips": 53,
+    "round_trips_per_year": 19.520686175580224,
+    "positions": 54,
+    "fees": 38.496889068554,
+    "funding": 2.4740183781851575,
+    "wiped": false,
+    "isolated_10x_breaches": 33.0,
+    "worst_leg_move": 0.5529295766548418,
+    "yearly": {
+      "2023": 0.0378547198893906,
+      "2024": 0.23034314367459285,
+      "2025": 0.3910729018721435
+    }
+  },
+  "deflated_sharpe": {
+    "family": "eth_btc_relative",
+    "n_trials": 10,
+    "n_with_sharpe": 10,
+    "sharpe_std": 0.5928229832051509,
+    "best_sharpe": 0.7044368723092104,
+    "probability": 0.35417275063870435
+  },
+  "static_pairs": {
+    "static_long_pair": {
+      "days": 563,
+      "total_return": -1.0,
+      "cagr": -1.0,
+      "max_drawdown": 1.0,
+      "sharpe": 0.23544786964208983,
+      "vol": 2.9575599131059658,
+      "calmar": -1.0,
+      "max_drawdown_hourly": 1.0,
+      "final_equity": 0.0,
+      "round_trips": 0,
+      "round_trips_per_year": 0.0,
+      "positions": 1,
+      "fees": 0.161190234765,
+      "funding": 8.535584527925751,
+      "wiped": true,
+      "isolated_10x_breaches": 1.0,
+      "worst_leg_move": 2.195180701492946,
+      "yearly": {
+        "2023": -0.38736851911428116,
+        "2024": -1.0,
+        "2025": NaN
+      }
+    },
+    "static_short_pair": {
+      "days": 991,
+      "total_return": 1.8816831253098059,
+      "cagr": 0.476707641504841,
+      "max_drawdown": 0.3334647978721912,
+      "sharpe": 1.2175131200601794,
+      "vol": 0.37947386855108894,
+      "calmar": 1.4295591155248455,
+      "max_drawdown_hourly": 0.3638872933442738,
+      "final_equity": 481.2410819267376,
+      "round_trips": 0,
+      "round_trips_per_year": 0.0,
+      "positions": 1,
+      "fees": 0.16119066523500003,
+      "funding": -36.33321313802804,
+      "wiped": false,
+      "isolated_10x_breaches": 1.0,
+      "worst_leg_move": 2.0903377810125052,
+      "yearly": {
+        "2023": 0.384279839832844,
+        "2024": 1.0314249242247189,
+        "2025": 0.02475855511277425
+      }
+    }
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "deflated_sharpe_probability": {
+        "value": 0.35417275063870435,
+        "reference": 0.95,
+        "ok": false
+      },
+      "sharpe_vs_best_static_pair": {
+        "value": 0.7044368723092104,
+        "reference": 1.2175131200601794,
+        "ok": false
+      },
+      "cost_x2_total_return": {
+        "value": 0.7762852469678587,
+        "reference": 0.0,
+        "ok": true
+      },
+      "max_drawdown_hourly": {
+        "value": 0.45272911881331496,
+        "reference": 0.6,
+        "ok": true
+      },
+      "round_trips_per_year": {
+        "value": 19.520686175580224,
+        "reference": 150,
+        "ok": true
+      },
+      "no_wipeout": {
+        "value": false,
+        "reference": false,
+        "ok": true
+      }
+    }
+  },
+  "candidates": {
+    "ridge_P_3d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.41341114779676136,
+        "cagr": -0.17837451049092934,
+        "max_drawdown": 0.43101885342747764,
+        "sharpe": -0.7760112852271601,
+        "vol": 0.2217100513287008,
+        "calmar": -0.41384387033766323,
+        "max_drawdown_hourly": 0.43754222463707326,
+        "final_equity": 97.96033831794085,
+        "round_trips": 34,
+        "round_trips_per_year": 12.522704339051463,
+        "positions": 34,
+        "fees": 8.686350596895,
+        "funding": -0.1622056751649317,
+        "wiped": false,
+        "isolated_10x_breaches": 16.0,
+        "worst_leg_move": 0.42607391436099706,
+        "yearly": {
+          "2023": -0.08934880593481309,
+          "2024": -0.28873778803540595,
+          "2025": -0.0943674826612173
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.17055105678286642,
+        "cagr": -0.0665543708483527,
+        "max_drawdown": 0.6628137387909692,
+        "sharpe": 0.04500410017627954,
+        "vol": 0.42300863440274555,
+        "calmar": -0.10041187584577493,
+        "max_drawdown_hourly": 0.6724427802794319,
+        "final_equity": 8294.489432171336,
+        "round_trips": 69,
+        "round_trips_per_year": 25.41372351160444,
+        "positions": 70,
+        "fees": 961.0630877995346,
+        "funding": -86.18643134516186,
+        "wiped": false,
+        "isolated_10x_breaches": 30.0,
+        "worst_leg_move": 0.4289503976559107,
+        "yearly": {
+          "2023": -0.08829427902096054,
+          "2024": -0.5626561171945441,
+          "2025": 1.0802327135944423
+        }
+      },
+      "decisions": 331,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 1121,
+          "predicted": 91,
+          "ic": -0.22234432234432236
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 1212,
+          "predicted": 91,
+          "ic": -0.07717789456919892
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 1303,
+          "predicted": 91,
+          "ic": 0.00379041248606466
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 1394,
+          "predicted": 91,
+          "ic": -0.33925784360566974
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 1485,
+          "predicted": 91,
+          "ic": -0.1638795986622074
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 1576,
+          "predicted": 91,
+          "ic": -0.03183627966236662
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 1667,
+          "predicted": 91,
+          "ic": -0.07345118649466477
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 1758,
+          "predicted": 91,
+          "ic": 0.027806975633062593
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 1849,
+          "predicted": 91,
+          "ic": 0.21807612677177896
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1940,
+          "predicted": 91,
+          "ic": 0.017566491479534957
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 2031,
+          "predicted": 81,
+          "ic": -0.22573028237585202
+        }
+      ],
+      "mean_ic": -0.07876703648580369
+    },
+    "ridge_P_7d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.4166574000536797,
+        "cagr": -0.18005216414753322,
+        "max_drawdown": 0.4684224630167658,
+        "sharpe": -0.6047766225556367,
+        "vol": 0.2687767561558946,
+        "calmar": -0.3843798672419533,
+        "max_drawdown_hourly": 0.4932475429126798,
+        "final_equity": 97.41821419103549,
+        "round_trips": 17,
+        "round_trips_per_year": 6.261352169525732,
+        "positions": 17,
+        "fees": 4.4521452026105,
+        "funding": -0.47428906335437715,
+        "wiped": false,
+        "isolated_10x_breaches": 9.0,
+        "worst_leg_move": 1.1789536536639853,
+        "yearly": {
+          "2023": -0.05350522067904018,
+          "2024": -0.31976599444857723,
+          "2025": -0.09396050114290078
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.10865821166901135,
+        "cagr": -0.041481360139251855,
+        "max_drawdown": 0.7285194186027883,
+        "sharpe": 0.13210117575267022,
+        "vol": 0.4562030040528313,
+        "calmar": -0.056939264870671615,
+        "max_drawdown_hourly": 0.7370953052922327,
+        "final_equity": 8913.417883309887,
+        "round_trips": 35,
+        "round_trips_per_year": 12.891019172552978,
+        "positions": 36,
+        "fees": 467.78308204100244,
+        "funding": -111.14313814015787,
+        "wiped": false,
+        "isolated_10x_breaches": 23.0,
+        "worst_leg_move": 1.1789536536639853,
+        "yearly": {
+          "2023": -0.0628603469772333,
+          "2024": -0.6470105652839493,
+          "2025": 1.6945003636956653
+        }
+      },
+      "decisions": 142,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 1117,
+          "predicted": 91,
+          "ic": -0.21089345437171522
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 1208,
+          "predicted": 91,
+          "ic": -0.03540372670807453
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 1299,
+          "predicted": 91,
+          "ic": 0.14175824175824175
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 1390,
+          "predicted": 91,
+          "ic": -0.43546743111960506
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 1481,
+          "predicted": 91,
+          "ic": -0.060774008600095554
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 1572,
+          "predicted": 91,
+          "ic": -0.08487020226150663
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 1663,
+          "predicted": 91,
+          "ic": -0.09090619525402134
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 1754,
+          "predicted": 91,
+          "ic": 0.18904284121675427
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 1845,
+          "predicted": 91,
+          "ic": 0.4804586717630196
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1936,
+          "predicted": 91,
+          "ic": 0.07125338429686257
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 2027,
+          "predicted": 81,
+          "ic": -0.29604551920341393
+        }
+      ],
+      "mean_ic": -0.03016794531668673
+    },
+    "ridge_PD_3d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.3669189686576837,
+        "cagr": -0.15496535321719873,
+        "max_drawdown": 0.5410476535689368,
+        "sharpe": -0.34246813183843183,
+        "vol": 0.33068720574386784,
+        "calmar": -0.2864171985498761,
+        "max_drawdown_hourly": 0.56255338936122,
+        "final_equity": 105.72453223416682,
+        "round_trips": 83,
+        "round_trips_per_year": 30.570131180625634,
+        "positions": 84,
+        "fees": 23.081674713392506,
+        "funding": 0.5473594845582228,
+        "wiped": false,
+        "isolated_10x_breaches": 34.0,
+        "worst_leg_move": 0.6686351600671939,
+        "yearly": {
+          "2023": -0.14272526812970687,
+          "2024": 0.3799110989587211,
+          "2025": -0.4648344237597496
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.6958858059120936,
+        "cagr": -0.35494797224107644,
+        "max_drawdown": 0.7688364578335979,
+        "sharpe": -0.7741803937054053,
+        "vol": 0.4390731828791463,
+        "calmar": -0.4616690176754068,
+        "max_drawdown_hourly": 0.7747836150040075,
+        "final_equity": 3041.141940879065,
+        "round_trips": 89,
+        "round_trips_per_year": 32.78002018163471,
+        "positions": 90,
+        "fees": 1609.2541514133889,
+        "funding": 78.35344119234406,
+        "wiped": false,
+        "isolated_10x_breaches": 37.0,
+        "worst_leg_move": 0.6686351600671939,
+        "yearly": {
+          "2023": -0.17573873242095184,
+          "2024": 0.36210561971775923,
+          "2025": -0.7291299341464177
+        }
+      },
+      "decisions": 318,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 291,
+          "predicted": 91,
+          "ic": -0.0011785316133142221
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 382,
+          "predicted": 91,
+          "ic": 0.19299251473164517
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 473,
+          "predicted": 91,
+          "ic": 0.10379041248606466
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 564,
+          "predicted": 80,
+          "ic": -0.3590717299578059
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 647,
+          "predicted": 72,
+          "ic": -0.03392501125474308
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 716,
+          "predicted": 85,
+          "ic": 0.09433261676763728
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 801,
+          "predicted": 91,
+          "ic": 0.1079471253384297
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 892,
+          "predicted": 91,
+          "ic": 0.1158464723682115
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 983,
+          "predicted": 91,
+          "ic": -0.04505494505494506
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1074,
+          "predicted": 91,
+          "ic": -0.0956043956043956
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 1165,
+          "predicted": 81,
+          "ic": -0.07770204479065237
+        }
+      ],
+      "mean_ic": 0.0002156803105574645
+    },
+    "ridge_PD_7d": {
+      "base": {
+        "days": 991,
+        "total_return": 0.6884260203143768,
+        "cagr": 0.2127883273389437,
+        "max_drawdown": 0.448452086968907,
+        "sharpe": 0.7044368723092104,
+        "vol": 0.3734220980263765,
+        "calmar": 0.4744951211559356,
+        "max_drawdown_hourly": 0.45272911881331496,
+        "final_equity": 281.9671453925009,
+        "round_trips": 53,
+        "round_trips_per_year": 19.520686175580224,
+        "positions": 54,
+        "fees": 20.181896345407505,
+        "funding": 2.6331927449058314,
+        "wiped": false,
+        "isolated_10x_breaches": 33.0,
+        "worst_leg_move": 0.5524635579762414,
+        "yearly": {
+          "2023": 0.09664657977675906,
+          "2024": 0.2929316340023318,
+          "2025": 0.19080263380089724
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": 1.1289422374004574,
+        "cagr": 0.320892955986366,
+        "max_drawdown": 0.4760490389420334,
+        "sharpe": 0.870528560486482,
+        "vol": 0.4225877971698141,
+        "calmar": 0.6740754202540044,
+        "max_drawdown_hourly": 0.48214549442217025,
+        "final_equity": 21289.422374004575,
+        "round_trips": 53,
+        "round_trips_per_year": 19.520686175580224,
+        "positions": 54,
+        "fees": 1551.9565845548912,
+        "funding": 200.14498352829096,
+        "wiped": false,
+        "isolated_10x_breaches": 33.0,
+        "worst_leg_move": 0.5524635579762414,
+        "yearly": {
+          "2023": 0.10314412300482201,
+          "2024": 0.3846630588516746,
+          "2025": 0.3937584607322222
+        }
+      },
+      "decisions": 138,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 287,
+          "predicted": 91,
+          "ic": -0.1401815575728619
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 378,
+          "predicted": 91,
+          "ic": 0.37953495779582735
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 469,
+          "predicted": 91,
+          "ic": 0.1422360248447205
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 560,
+          "predicted": 80,
+          "ic": 0.022644163150492266
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 647,
+          "predicted": 72,
+          "ic": 0.10573027204321822
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 712,
+          "predicted": 85,
+          "ic": 0.41172562048075045
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 797,
+          "predicted": 91,
+          "ic": 0.3554069119286511
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 888,
+          "predicted": 91,
+          "ic": 0.14744386048733876
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 979,
+          "predicted": 91,
+          "ic": 0.2821468386685778
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1070,
+          "predicted": 91,
+          "ic": 0.13677337155598027
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 1161,
+          "predicted": 81,
+          "ic": -0.2118918918918919
+        }
+      ],
+      "mean_ic": 0.148324415590073
+    },
+    "lgbm_P_3d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.41369008397124174,
+        "cagr": -0.17851843322080985,
+        "max_drawdown": 0.46036936083948843,
+        "sharpe": -0.8350795863270801,
+        "vol": 0.20928657780299012,
+        "calmar": -0.3877721855669969,
+        "max_drawdown_hourly": 0.471862681150685,
+        "final_equity": 97.91375597680263,
+        "round_trips": 38,
+        "round_trips_per_year": 13.995963673057519,
+        "positions": 38,
+        "fees": 9.793281526928995,
+        "funding": -0.10413837826914549,
+        "wiped": false,
+        "isolated_10x_breaches": 15.0,
+        "worst_leg_move": 0.4056147073369812,
+        "yearly": {
+          "2023": -0.15395693852135173,
+          "2024": -0.20647673369723885,
+          "2025": -0.1266765810888284
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.5313709722528714,
+        "cagr": -0.24358260688918087,
+        "max_drawdown": 0.5641436906818926,
+        "sharpe": -0.4822647299077957,
+        "vol": 0.40728075711498996,
+        "calmar": -0.4317740513853081,
+        "max_drawdown_hourly": 0.5699791720895584,
+        "final_equity": 4686.290277471285,
+        "round_trips": 115,
+        "round_trips_per_year": 42.356205852674066,
+        "positions": 116,
+        "fees": 1701.0517690068239,
+        "funding": -54.14050765002175,
+        "wiped": false,
+        "isolated_10x_breaches": 47.0,
+        "worst_leg_move": 0.4056147073369812,
+        "yearly": {
+          "2023": -0.17277261168925873,
+          "2024": -0.17925766853630853,
+          "2025": -0.3097642527450022
+        }
+      },
+      "decisions": 331,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 1121,
+          "predicted": 91,
+          "ic": -0.2314222009874184
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 1212,
+          "predicted": 91,
+          "ic": 0.01611721611721612
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 1303,
+          "predicted": 91,
+          "ic": 0.062398471094123276
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 1394,
+          "predicted": 91,
+          "ic": -0.16910336040770824
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 1485,
+          "predicted": 91,
+          "ic": -0.08668577799012582
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 1576,
+          "predicted": 91,
+          "ic": 0.15863991081382386
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 1667,
+          "predicted": 91,
+          "ic": 0.0029622551361681796
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 1758,
+          "predicted": 91,
+          "ic": 0.29657588788023576
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 1849,
+          "predicted": 91,
+          "ic": 0.05207835642618252
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1940,
+          "predicted": 91,
+          "ic": -0.07259117693900304
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 2031,
+          "predicted": 81,
+          "ic": -0.1631937682570594
+        }
+      ],
+      "mean_ic": -0.012202198828505923
+    },
+    "lgbm_P_7d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.39412998804170996,
+        "cagr": -0.16852896263987538,
+        "max_drawdown": 0.41231645848173115,
+        "sharpe": -0.8431249491472311,
+        "vol": 0.19632232701267638,
+        "calmar": -0.4087369280878283,
+        "max_drawdown_hourly": 0.42147220936349794,
+        "final_equity": 101.18029199703443,
+        "round_trips": 9,
+        "round_trips_per_year": 3.3148335015136228,
+        "positions": 9,
+        "fees": 2.449476371217,
+        "funding": 0.37422858625157146,
+        "wiped": false,
+        "isolated_10x_breaches": 6.0,
+        "worst_leg_move": 0.7090789631437807,
+        "yearly": {
+          "2023": -0.2816412880912861,
+          "2024": -0.15659126573621696,
+          "2025": 0.0
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": 0.12936933751568325,
+        "cagr": 0.045828035442114556,
+        "max_drawdown": 0.39229095508245265,
+        "sharpe": 0.3174898188935642,
+        "vol": 0.4379414751026305,
+        "calmar": 0.11682154494865249,
+        "max_drawdown_hourly": 0.4020283316421619,
+        "final_equity": 11293.693375156832,
+        "round_trips": 45,
+        "round_trips_per_year": 16.574167507568113,
+        "positions": 46,
+        "fees": 745.6250899989197,
+        "funding": -114.50284770831178,
+        "wiped": false,
+        "isolated_10x_breaches": 25.0,
+        "worst_leg_move": 0.7155319185247924,
+        "yearly": {
+          "2023": -0.28373604876197356,
+          "2024": 0.12274212444203259,
+          "2025": 0.4043743246525915
+        }
+      },
+      "decisions": 142,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 1117,
+          "predicted": 91,
+          "ic": -0.32290302159445944
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 1208,
+          "predicted": 91,
+          "ic": 0.10320114667940754
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 1299,
+          "predicted": 91,
+          "ic": 0.21841057493231408
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 1390,
+          "predicted": 91,
+          "ic": -0.23792005096352925
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 1481,
+          "predicted": 91,
+          "ic": -0.026931039974518234
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 1572,
+          "predicted": 91,
+          "ic": -0.016865742952699474
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 1663,
+          "predicted": 91,
+          "ic": 0.06717630195891065
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 1754,
+          "predicted": 91,
+          "ic": 0.23197961458831026
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 1845,
+          "predicted": 91,
+          "ic": 0.23946488294314383
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1936,
+          "predicted": 91,
+          "ic": 0.0964325529542921
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 2027,
+          "predicted": 81,
+          "ic": -0.0795448079658606
+        }
+      ],
+      "mean_ic": 0.024772764600482857
+    },
+    "lgbm_PD_3d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.5866727203065711,
+        "cagr": -0.2777701829383764,
+        "max_drawdown": 0.5922506111960073,
+        "sharpe": -1.0050971968117848,
+        "vol": 0.2832407693555883,
+        "calmar": -0.4690078451374488,
+        "max_drawdown_hourly": 0.596946868500267,
+        "final_equity": 69.02565570880262,
+        "round_trips": 79,
+        "round_trips_per_year": 29.096871846619578,
+        "positions": 79,
+        "fees": 19.783295088993498,
+        "funding": 0.5722118307949354,
+        "wiped": false,
+        "isolated_10x_breaches": 30.0,
+        "worst_leg_move": 0.8085002033472858,
+        "yearly": {
+          "2023": -0.16030178206943513,
+          "2024": -0.06390817074785038,
+          "2025": -0.47416149592279255
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.6454490508132713,
+        "cagr": -0.3174413609531239,
+        "max_drawdown": 0.7006161435466834,
+        "sharpe": -0.6948426763875926,
+        "vol": 0.4210866234902831,
+        "calmar": -0.4530888474053156,
+        "max_drawdown_hourly": 0.708309056158623,
+        "final_equity": 3545.509491867286,
+        "round_trips": 117,
+        "round_trips_per_year": 43.092835519677095,
+        "positions": 118,
+        "fees": 1953.9391150465724,
+        "funding": 99.92668952374197,
+        "wiped": false,
+        "isolated_10x_breaches": 45.0,
+        "worst_leg_move": 0.8085002033472858,
+        "yearly": {
+          "2023": -0.1878073478497353,
+          "2024": 0.2562192918652302,
+          "2025": -0.6525005371375994
+        }
+      },
+      "decisions": 318,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 291,
+          "predicted": 91,
+          "ic": -0.029463290332855552
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 382,
+          "predicted": 91,
+          "ic": 0.09254658385093166
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 473,
+          "predicted": 91,
+          "ic": 0.044704570791527315
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 564,
+          "predicted": 80,
+          "ic": -0.20253164556962025
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 647,
+          "predicted": 72,
+          "ic": -0.0461766029969773
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 716,
+          "predicted": 85,
+          "ic": 0.09616963064295486
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 801,
+          "predicted": 91,
+          "ic": -0.034894091415830546
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 892,
+          "predicted": 91,
+          "ic": 0.2591973244147157
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 983,
+          "predicted": 91,
+          "ic": -0.044545309762701074
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1074,
+          "predicted": 91,
+          "ic": -0.14037267080745341
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 1165,
+          "predicted": 81,
+          "ic": -0.10017039922103214
+        }
+      ],
+      "mean_ic": -0.009594172764212792
+    },
+    "lgbm_PD_7d": {
+      "base": {
+        "days": 991,
+        "total_return": 0.03311285443256473,
+        "cagr": 0.012070652990217035,
+        "max_drawdown": 0.3529846828510766,
+        "sharpe": 0.19094245140320315,
+        "vol": 0.3014037443494474,
+        "calmar": 0.03419596820100439,
+        "max_drawdown_hourly": 0.3591381682788334,
+        "final_equity": 172.52984669023832,
+        "round_trips": 40,
+        "round_trips_per_year": 14.732593340060546,
+        "positions": 41,
+        "fees": 12.334029564130502,
+        "funding": 0.7886171013675694,
+        "wiped": false,
+        "isolated_10x_breaches": 27.0,
+        "worst_leg_move": 0.48710109930138584,
+        "yearly": {
+          "2023": 0.2552481301576177,
+          "2024": -0.11597682264163867,
+          "2025": -0.06898960371915963
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": 0.19801887035218324,
+        "cagr": 0.06880709829109577,
+        "max_drawdown": 0.47683543856703,
+        "sharpe": 0.3662299370620733,
+        "vol": 0.4065494762150371,
+        "calmar": 0.14429946418804898,
+        "max_drawdown_hourly": 0.48162594388773117,
+        "final_equity": 11980.188703521833,
+        "round_trips": 45,
+        "round_trips_per_year": 16.574167507568113,
+        "positions": 46,
+        "fees": 1045.232357728164,
+        "funding": 72.74892273984833,
+        "wiped": false,
+        "isolated_10x_breaches": 30.0,
+        "worst_leg_move": 0.48710109930138584,
+        "yearly": {
+          "2023": 0.2781531652546323,
+          "2024": -0.12791205904287806,
+          "2025": 0.07478223090998637
+        }
+      },
+      "decisions": 138,
+      "blocks": [
+        {
+          "test_start": 1677628800000,
+          "train_rows": 287,
+          "predicted": 91,
+          "ic": -0.028459945851250203
+        },
+        {
+          "test_start": 1685491200000,
+          "train_rows": 378,
+          "predicted": 91,
+          "ic": 0.1033604077082338
+        },
+        {
+          "test_start": 1693353600000,
+          "train_rows": 469,
+          "predicted": 91,
+          "ic": 0.14073897117375378
+        },
+        {
+          "test_start": 1701216000000,
+          "train_rows": 560,
+          "predicted": 80,
+          "ic": 0.14826535396155652
+        },
+        {
+          "test_start": 1709078400000,
+          "train_rows": 647,
+          "predicted": 72,
+          "ic": 0.2568332368641071
+        },
+        {
+          "test_start": 1716940800000,
+          "train_rows": 712,
+          "predicted": 85,
+          "ic": 0.2833105335157318
+        },
+        {
+          "test_start": 1724803200000,
+          "train_rows": 797,
+          "predicted": 91,
+          "ic": 0.1254180602006689
+        },
+        {
+          "test_start": 1732665600000,
+          "train_rows": 888,
+          "predicted": 91,
+          "ic": 0.21390348781653132
+        },
+        {
+          "test_start": 1740528000000,
+          "train_rows": 979,
+          "predicted": 91,
+          "ic": 0.04602643733078516
+        },
+        {
+          "test_start": 1748390400000,
+          "train_rows": 1070,
+          "predicted": 91,
+          "ic": 0.15894250676859373
+        },
+        {
+          "test_start": 1756252800000,
+          "train_rows": 1161,
+          "predicted": 81,
+          "ic": -0.1688193456614509
+        }
+      ],
+      "mean_ic": 0.11631997307520554
+    },
+    "rule_mom30_7d": {
+      "base": {
+        "days": 991,
+        "total_return": 0.24741993495409131,
+        "cagr": 0.08483301651397612,
+        "max_drawdown": 0.4396751162500933,
+        "sharpe": 0.4260273630021995,
+        "vol": 0.2891615279404982,
+        "calmar": 0.1929447753093262,
+        "max_drawdown_hourly": 0.4418832220349508,
+        "final_equity": 208.31912913733325,
+        "round_trips": 23,
+        "round_trips_per_year": 8.471241170534814,
+        "positions": 24,
+        "fees": 6.394893960991999,
+        "funding": 0.39424288832473375,
+        "wiped": false,
+        "isolated_10x_breaches": 16.0,
+        "worst_leg_move": 0.5314408702290829,
+        "yearly": {
+          "2023": -0.06161794369871543,
+          "2024": -0.11992945041810865,
+          "2025": 0.5104818023607804
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": 0.4993167648198624,
+        "cagr": 0.1608714949554113,
+        "max_drawdown": 0.5523672704849997,
+        "sharpe": 0.5973378260006235,
+        "vol": 0.3552486348388749,
+        "calmar": 0.29124009250975347,
+        "max_drawdown_hourly": 0.5576169869934751,
+        "final_equity": 14993.167648198623,
+        "round_trips": 27,
+        "round_trips_per_year": 9.94450050454087,
+        "positions": 28,
+        "fees": 490.1364002099982,
+        "funding": -22.786433651423813,
+        "wiped": false,
+        "isolated_10x_breaches": 20.0,
+        "worst_leg_move": 0.37497215346631785,
+        "yearly": {
+          "2023": -0.06497717035881923,
+          "2024": -0.14644239640164625,
+          "2025": 0.8786174276571703
+        }
+      },
+      "decisions": 142,
+      "blocks": [],
+      "mean_ic": null
+    },
+    "rule_rev30_7d": {
+      "base": {
+        "days": 991,
+        "total_return": -0.48836960920324823,
+        "cagr": -0.21872432912759632,
+        "max_drawdown": 0.741757125714484,
+        "sharpe": -0.39720574084197097,
+        "vol": 0.4085785038897924,
+        "calmar": -0.29487324293233325,
+        "max_drawdown_hourly": 0.762663356924502,
+        "final_equity": 85.44227526305754,
+        "round_trips": 31,
+        "round_trips_per_year": 11.417759838546923,
+        "positions": 31,
+        "fees": 10.8462024584585,
+        "funding": -0.8474165054847117,
+        "wiped": false,
+        "isolated_10x_breaches": 18.0,
+        "worst_leg_move": 0.8971746987624943,
+        "yearly": {
+          "2023": 0.026112191316128408,
+          "2024": 0.01729179453488716,
+          "2025": -0.509864742130508
+        }
+      },
+      "capital_10k": {
+        "days": 991,
+        "total_return": -0.7343558671619289,
+        "cagr": -0.3862927774091067,
+        "max_drawdown": 0.8961064924833938,
+        "sharpe": -0.34394919578356625,
+        "vol": 0.6964040154859595,
+        "calmar": -0.4310790967919087,
+        "max_drawdown_hourly": 0.9189792837270383,
+        "final_equity": 2656.4413283807107,
+        "round_trips": 32,
+        "round_trips_per_year": 11.786074672048438,
+        "positions": 33,
+        "fees": 770.25565288925,
+        "funding": -35.50894170612368,
+        "wiped": false,
+        "isolated_10x_breaches": 20.0,
+        "worst_leg_move": 0.8971746987624943,
+        "yearly": {
+          "2023": 0.03715304091663718,
+          "2024": -0.011278326347923917,
+          "2025": -0.7409501597071411
+        }
+      },
+      "decisions": 142,
+      "blocks": [],
+      "mean_ic": null
+    }
+  }
+}

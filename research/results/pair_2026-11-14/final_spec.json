@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "kind": "eth_btc_pair",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "study": "lab.pair_study",
+  "selected": {
+    "id": "ridge_PD_7d",
+    "kind": "ml",
+    "model": "ridge",
+    "features": "PD",
+    "horizon": 7
+  },
+  "candidates": [
+    {
+      "id": "ridge_P_3d",
+      "kind": "ml",
+      "model": "ridge",
+      "features": "P",
+      "horizon": 3
+    },
+    {
+      "id": "ridge_P_7d",
+      "kind": "ml",
+      "model": "ridge",
+      "features": "P",
+      "horizon": 7
+    },
+    {
+      "id": "ridge_PD_3d",
+      "kind": "ml",
+      "model": "ridge",
+      "features": "PD",
+      "horizon": 3
+    },
+    {
+      "id": "ridge_PD_7d",
+      "kind": "ml",
+      "model": "ridge",
+      "features": "PD",
+      "horizon": 7
+    },
+    {
+      "id": "lgbm_P_3d",
+      "kind": "ml",
+      "model": "lgbm",
+      "features": "P",
+      "horizon": 3
+    },
+    {
+      "id": "lgbm_P_7d",
+      "kind": "ml",
+      "model": "lgbm",
+      "features": "P",
+      "horizon": 7
+    },
+    {
+      "id": "lgbm_PD_3d",
+      "kind": "ml",
+      "model": "lgbm",
+      "features": "PD",
+      "horizon": 3
+    },
+    {
+      "id": "lgbm_PD_7d",
+      "kind": "ml",
+      "model": "lgbm",
+      "features": "PD",
+      "horizon": 7
+    },
+    {
+      "id": "rule_mom30_7d",
+      "kind": "rule",
+      "rule": "mom",
+      "horizon": 7
+    },
+    {
+      "id": "rule_rev30_7d",
+      "kind": "rule",
+      "rule": "rev",
+      "horizon": 7
+    }
+  ],
+  "lgbm_params": {
+    "n_estimators": 300,
+    "learning_rate": 0.02,
+    "num_leaves": 4,
+    "max_depth": 2,
+    "min_child_samples": 50,
+    "subsample": 0.7,
+    "subsample_freq": 1,
+    "colsample_bytree": 0.7,
+    "reg_lambda": 10.0,
+    "random_state": 7,
+    "n_jobs": 1,
+    "deterministic": true,
+    "force_row_wise": true,
+    "verbose": -1
+  },
+  "evaluation": {
+    "oos_start_ms": 1677628800000,
+    "limit_ms": 1763251200000,
+    "holdout": "not computed"
+  },
+  "trials": 10,
+  "gate": {
+    "deflated_sharpe_probability_min": 0.95,
+    "sharpe_must_exceed_best_static_pair": true,
+    "cost_x2_total_return_min_exclusive": 0.0,
+    "max_drawdown_hourly_max": 0.6,
+    "round_trips_per_year_max": 150,
+    "wipeout_allowed": false
+  },
+  "gate_result": {
+    "deflated_sharpe_probability": {
+      "value": 0.35417275063870435,
+      "reference": 0.95,
+      "ok": false
+    },
+    "sharpe_vs_best_static_pair": {
+      "value": 0.7044368723092104,
+      "reference": 1.2175131200601794,
+      "ok": false
+    },
+    "cost_x2_total_return": {
+      "value": 0.7762852469678587,
+      "reference": 0.0,
+      "ok": true
+    },
+    "max_drawdown_hourly": {
+      "value": 0.45272911881331496,
+      "reference": 0.6,
+      "ok": true
+    },
+    "round_trips_per_year": {
+      "value": 19.520686175580224,
+      "reference": 150,
+      "ok": true
+    },
+    "no_wipeout": {
+      "value": false,
+      "reference": false,
+      "ok": true
+    }
+  },
+  "screen_passed": false,
+  "passed": false,
+  "mainnet": "refused: requires an accepted forward test, recorded by a person",
+  "code": {
+    "git_revision": "7896d8bafe05fafa8b5c7e56bc730e4ab7648373",
+    "lab_or_offline_dirty": false
+  },
+  "data": {
+    "market": {
+      "downloaded_at": "2026-11-13T11:26:51+00:00",
+      "end": "2026-11-13",
+      "files": {
+        "BTCUSDT_1h.csv": {
+          "rows": 60192,
+          "sha256": "83edb54ba9bc6addcbe5ccd6b89c09675e70c6795f8179aea0d4d04498de638b"
+        },
+        "BTCUSDT_funding.csv": {
+          "mark_proxy_rows": 4198,
+          "rows": 7524,
+          "sha256": "843f49ac0d8edac1399ccaaddd5a560a3237526501a51bca18d3378636367dc4"
+        },
+        "BTCUSDT_metrics.csv": {
+          "first_missing": [
+            "2020-01-01",
+            "2020-01-02",
+            "2020-01-03"
+          ],
+          "last_missing": [
+            "2020-08-29",
+            "2020-08-30",
+            "2020-08-31"
+          ],
+          "missing_days": 244,
+          "rows": 726653,
+          "sha256": "6829cd1a42449f43523e040b62a032c42f9ae36ac18719a1bac4cbd841b2bd7c"
+        },
+        "ETHUSDT_1h.csv": {
+          "rows": 60192,
+          "sha256": "ddbf0e3824a9e77f11f26fc5efdbdf6cc2d775e63a848aa90cec9f09f095284d"
+        },
+        "ETHUSDT_funding.csv": {
+          "mark_proxy_rows": 4198,
+          "rows": 7524,
+          "sha256": "6a60629ad06bfeb194e27ad351d2e69d20b0b186fe66544a8e4630ad28497699"
+        },
+        "ETHUSDT_metrics.csv": {
+          "first_missing": [
+            "2020-01-01",
+            "2020-01-02",
+            "2020-01-03"
+          ],
+          "last_missing": [
+            "2021-11-28",
+            "2021-11-29",
+            "2021-11-30"
+          ],
+          "missing_days": 700,
+          "rows": 520564,
+          "sha256": "d5b3cee6f48812a50b91a89748abd0de947971e6d43591af1d6677ec3bbe1d0a"
+        }
+      },
+      "source": "binance-usdm-public",
+      "start": "2020-01-01"
+    },
+    "premium": {
+      "downloaded_at": "2026-11-14T02:02:10+00:00",
+      "end": "2025-11-16",
+      "files": {
+        "BTCUSDT_premium_1h.csv": {
+          "rows": 51503,
+          "sha256": "82ca3a859aab838a308a7e426d7d75ee10db51492d559c281bb675521061d478"
+        },
+        "ETHUSDT_premium_1h.csv": {
+          "rows": 51503,
+          "sha256": "83e23bcac1031fbb885c49d5a61be7d2346a304ce298b489083e860305c3ced8"
+        }
+      },
+      "source": "binance-usdm-public",
+      "start": "2020-01-01"
+    }
+  },
+  "caveat": "The registrant knew that ETH/BTC fell over 2022-2025; the gate therefore requires beating both static pair positions. The development window was used heavily for directional studies."
+}
