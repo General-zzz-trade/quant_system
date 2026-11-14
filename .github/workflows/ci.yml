@@ -142,7 +142,6 @@ jobs:
   python-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [rust-test]
     steps:
       - uses: actions/checkout@v4
 
@@ -227,6 +226,42 @@ jobs:
           name: btc-2025-research-validation
           path: .cache/btc-2025-ci/
           retention-days: 14
+
+  # The whole suite (everything `make test-all` runs), split into shards that run at the same time.
+  # scripts/ci_shard.py deals every test file to exactly one shard; tests/architecture checks that.
+  python-test-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: dtolnay/rust-toolchain@1.93.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Python dependencies
+        run: |
+          pip install maturin==1.12.6 pytest==9.0.2 pytest-cov==7.0.0
+          pip install --require-hashes -r requirements/container.lock
+
+      - name: Build Rust extension
+        run: |
+          maturin build --locked --release --features python --out dist/
+          pip install dist/*.whl --force-reinstall
+
+      - name: Run one shard of the whole suite
+        run: python3 -m pytest $(python3 scripts/ci_shard.py ${{ matrix.shard }} 4) -q --tb=short
 
   security-scan:
     runs-on: ubuntu-latest
