@@ -60,7 +60,8 @@ sudo systemctl restart bybit-alpha.service
 
 ```bash
 # 1. 下载 OHLCV 数据
-python3 -m data.downloads.data_refresh --symbol XXXUSDT
+# data_refresh 已于 2026-11-14 删除；用 binance_public 下载新的带日期快照
+python3 -m data.downloads.binance_public --start 2020-01-01
 
 # 2. 下载补充数据 (funding, OI, ls_ratio)
 #    检查 data/downloads/ 中对应的下载脚本

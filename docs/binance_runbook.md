@@ -66,9 +66,8 @@ python3 -m runner.offline research --data-dir data_files/binance_public --symbol
 
 ## 4. 发布模型（签名）
 
-```bash
-QUANT_MODEL_SIGN_KEY=... python3 -m scripts.publish_research_model --study .cache/research/BTCUSDT --out models_binance
-```
+发布脚本 `scripts/publish_research_model.py` 已于 2026-11-14 删除（小时级 ML 线已关闭，没有可发布的模型）。需要时从 git 历史取回。
+目标仓位策略的规格用 `scripts/publish_strategy_spec.py` 发布，不受影响。
 
 - 运行时只接受 `models_binance/<SYM>/` 下的 `model.json`、`protocol.json` 和 `gate.json`。
 - 三个文件都要验签；`protocol` 必须描述的正是这个模型。
