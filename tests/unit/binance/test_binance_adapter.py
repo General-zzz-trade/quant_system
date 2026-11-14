@@ -81,3 +81,32 @@ def test_protective_stop_uses_algo_service(venue):
     assert adapter.get_algo_order(client_algo_id="missing") is None
     bad = adapter.place_stop_market("BTCUSDT", "sell", D("1000"), client_algo_id="qsstop2")
     assert bad["status"] == "rejected" and bad["code"] == -2021
+
+
+def test_isolated_ten_x_is_set_and_verified():
+    fake = FakeBinance(make_bars(5))
+    adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
+    assert adapter.connect(symbols=("BTCUSDT", "ETHUSDT"), configure_leverage=True, leverage=10,
+                           margin_type="ISOLATED")
+    assert fake.leverage == {"BTCUSDT": 10, "ETHUSDT": 10}
+    assert fake.margin_type == {"BTCUSDT": "isolated", "ETHUSDT": "isolated"}
+    assert adapter.execution_blockers() == []
+    # Already isolated: Binance answers -4046 "no need to change"; that is not an error.
+    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True, leverage=10, margin_type="ISOLATED")
+    assert adapter.execution_blockers() == []
+
+
+def test_refused_margin_change_blocks_execution():
+    fake = FakeBinance(make_bars(5))
+    fake.margin_change_refused = True          # e.g. a position or order is open on the symbol
+    adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
+    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True, leverage=10, margin_type="ISOLATED")
+    assert any("margin type cross != required ISOLATED" in i for i in adapter.execution_blockers())
+
+
+def test_default_connect_keeps_three_x_and_leaves_margin_type_alone():
+    fake = FakeBinance(make_bars(5))
+    adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
+    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True)
+    assert fake.leverage == {"BTCUSDT": 3} and fake.margin_type == {}
+    assert adapter.execution_blockers() == []
