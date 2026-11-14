@@ -196,6 +196,35 @@ jobs:
             tests/unit/trading/ \
             -x -q --tb=short
 
+  # Coverage gate and the two offline research acceptance runs, beside python-test instead of after it.
+  python-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: dtolnay/rust-toolchain@1.93.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Python dependencies
+        run: |
+          pip install maturin==1.12.6 pytest==9.0.2 pytest-cov==7.0.0
+          pip install --require-hashes -r requirements/container.lock
+
+      - name: Build Rust extension
+        run: |
+          maturin build --locked --release --features python --out dist/
+          pip install dist/*.whl --force-reinstall
+          python3 -c "from _quant_hotpath import RustFeatureEngine, RustStateStore, RustInferenceBridge"
+
       - name: Binance execution coverage gate
         run: |
           python3 -m pytest tests/unit/binance/ -q --tb=short \
