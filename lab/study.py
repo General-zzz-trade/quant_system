@@ -192,7 +192,7 @@ def run_study(data_dir: Path, out: Path) -> dict:
     passed = all(ok for _, ok in gate_checks.values())
     try:
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "lab", "runner/offline"],
+        dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "lab", "runner/offline", "trading"],
                                              text=True).strip())
     except Exception:
         revision, dirty = "unavailable", True

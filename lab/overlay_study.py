@@ -128,7 +128,7 @@ def gate_checks(strategy: dict, benchmark: dict, cost_x2: dict, fills_per_year: 
 def _code_identity() -> dict:
     try:
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "lab", "runner/offline"],
+        dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "lab", "runner/offline", "trading"],
                                              text=True).strip())
     except Exception:
         revision, dirty = "unavailable", True

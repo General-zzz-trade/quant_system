@@ -321,3 +321,33 @@ Success: no issues found in 17 source files
 $ lint-imports
 Contracts: 4 kept, 0 broken.
 ```
+
+## 第 7 步：领域层——策略、再平衡、持仓、时间语义
+
+**先补的测试**（`tests/unit/trading/test_strategy_causality.py`，8 个）：替换审计指出的弱因果测试。3 套 spec（只做多趋势；资金费、波动突变、4h 确认三层全开；scaled 信号加两层）× 2 个随机种子，每个种子在一天的 24 个小时相位上各取一个切点；把切点之后的 K 线换成随机生成的另一段行情、切点之后的资金费换成随机值，切点及之前的目标和就绪标志必须**逐位**不变；只用切点及之前的数据单独计算，结果也必须逐位相同。另有功效检查（改动在日线边界收盘的那根 K 线，目标确实会变，说明测试不是空转）和变异自检（把聚合 K 线的可见时间提前 1 小时，测试必须报出违规）。在改代码之前就对旧代码全部通过。
+
+**改了什么**
+
+- `trading/domain/market.py`：`frame_from_bars`、`aggregate`、`funding_series` 和 `HOUR`/`DAY`，从 `lab/data.py` 搬来。`frame_from_bars` 的参数从具体的 `Bar` 类改为只描述字段的 `BarLike` 协议，这样 domain 不依赖遗留的 `data` 包。
+- `trading/domain/strategy/overlay.py`：`lab/strategy.py` 整体搬来；与原文件的差异只有导入路径和 3 处类型标注（已用 diff 核对）。
+- `trading/domain/rebalance.py`、`trading/domain/position.py`：逐字搬来。
+- `trading/domain/orders.py` 新增纯 Python 的 `OrderIntent`，第 9 步用它替换依赖 Rust 事件类型的订单对象。
+- `lab/strategy.py`、`lab/rebalance.py`、`shared/strategy_position.py` 改为重导出薄壳；`lab/data.py` 只保留读文件的 `load_symbol`，其余从 domain 导入。
+- 4 个研究 study（`lab/study.py`、`overlay_study.py`、`pair_study.py`、`breakout_study.py`）的"代码是否有未提交改动"检查加上 `trading/`。否则以后在 `trading/domain` 里改了策略却不提交，研究结果的代码指纹不会记成"有改动"。
+- `pyproject.toml`：mypy 对 numpy、pandas 不做分析（它们的类型存根需要比 3.11 更新的语法，审计 L2）。
+
+**通用验收（原始输出尾部）**
+
+```
+3150 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 430.78s (0:07:10)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 22 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+3150 = 3142 + 8。`tests/unit/lab/`（含纸面等于研究、截尾窗口等于全历史）与原来的因果测试都一行未改，全部通过。`core-no-io` 契约从这一步起第一次约束真实代码（策略函数用 numpy/pandas，不读文件、不取时钟），仍然 4 条全部保持。
