@@ -5,6 +5,7 @@ import bisect
 import csv
 import logging
 import math
+import os
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -905,7 +906,9 @@ def build_coordinator(
     if not dry_run and not is_4h:
         venue = getattr(adapter, "venue", "bybit")
         if venue == "binance":
-            exec_adapter = BinanceExecutionAdapter(adapter, circuit_breaker=circuit_breaker)
+            exec_adapter = BinanceExecutionAdapter(
+                adapter, circuit_breaker=circuit_breaker, scope=os.environ.get("RISK_SCOPE", ""),
+                journal_path=Path(os.environ.get("ORDER_JOURNAL_PATH", "data/runtime/orders.sqlite")))
         elif venue == "okx":
             exec_adapter = OkxExecutionAdapter(adapter, circuit_breaker=circuit_breaker, owner=f"alpha.{runner_key}")
         else:
