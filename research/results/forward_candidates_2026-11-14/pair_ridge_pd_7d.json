@@ -1,0 +1,194 @@
+{
+  "schema": 1,
+  "study": "forward_candidates_2026-11-14",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "passed": false,
+  "mainnet": "refused: requires an accepted forward test, recorded by a person",
+  "fit_limit_ms": 1763251200000,
+  "code": {
+    "git_revision": "35ff55a473fc45045053bab471f52479f38d6e0d",
+    "lab_or_offline_dirty": false
+  },
+  "data": {
+    "market": {
+      "downloaded_at": "2026-11-13T11:26:51+00:00",
+      "end": "2026-11-13",
+      "files": {
+        "BTCUSDT_1h.csv": {
+          "rows": 60192,
+          "sha256": "83edb54ba9bc6addcbe5ccd6b89c09675e70c6795f8179aea0d4d04498de638b"
+        },
+        "BTCUSDT_funding.csv": {
+          "mark_proxy_rows": 4198,
+          "rows": 7524,
+          "sha256": "843f49ac0d8edac1399ccaaddd5a560a3237526501a51bca18d3378636367dc4"
+        },
+        "BTCUSDT_metrics.csv": {
+          "first_missing": [
+            "2020-01-01",
+            "2020-01-02",
+            "2020-01-03"
+          ],
+          "last_missing": [
+            "2020-08-29",
+            "2020-08-30",
+            "2020-08-31"
+          ],
+          "missing_days": 244,
+          "rows": 726653,
+          "sha256": "6829cd1a42449f43523e040b62a032c42f9ae36ac18719a1bac4cbd841b2bd7c"
+        },
+        "ETHUSDT_1h.csv": {
+          "rows": 60192,
+          "sha256": "ddbf0e3824a9e77f11f26fc5efdbdf6cc2d775e63a848aa90cec9f09f095284d"
+        },
+        "ETHUSDT_funding.csv": {
+          "mark_proxy_rows": 4198,
+          "rows": 7524,
+          "sha256": "6a60629ad06bfeb194e27ad351d2e69d20b0b186fe66544a8e4630ad28497699"
+        },
+        "ETHUSDT_metrics.csv": {
+          "first_missing": [
+            "2020-01-01",
+            "2020-01-02",
+            "2020-01-03"
+          ],
+          "last_missing": [
+            "2021-11-28",
+            "2021-11-29",
+            "2021-11-30"
+          ],
+          "missing_days": 700,
+          "rows": 520564,
+          "sha256": "d5b3cee6f48812a50b91a89748abd0de947971e6d43591af1d6677ec3bbe1d0a"
+        }
+      },
+      "source": "binance-usdm-public",
+      "start": "2020-01-01"
+    },
+    "premium": {
+      "downloaded_at": "2026-11-14T02:02:10+00:00",
+      "end": "2025-11-16",
+      "files": {
+        "BTCUSDT_premium_1h.csv": {
+          "rows": 51503,
+          "sha256": "82ca3a859aab838a308a7e426d7d75ee10db51492d559c281bb675521061d478"
+        },
+        "ETHUSDT_premium_1h.csv": {
+          "rows": 51503,
+          "sha256": "83e23bcac1031fbb885c49d5a61be7d2346a304ce298b489083e860305c3ced8"
+        }
+      },
+      "source": "binance-usdm-public",
+      "start": "2020-01-01"
+    }
+  },
+  "forward_gate": {
+    "cost_x2_return_above": 0.0,
+    "ic_above": 0.0,
+    "pair_drawdown_hourly_max": 0.6,
+    "pair_round_trips_max": 150,
+    "drawdown_daily_max": 0.25,
+    "fills_per_symbol_year_max": 150,
+    "flush_events_min": 10,
+    "flush_winning_share_min": 0.5
+  },
+  "kind": "eth_btc_pair_frozen",
+  "candidate": "pair_ridge_pd_7d",
+  "features": [
+    "mom_1",
+    "mom_3",
+    "mom_7",
+    "mom_14",
+    "mom_30",
+    "dev_30",
+    "vol_ratio",
+    "rel_vol",
+    "btc_mom_7",
+    "btc_mom_30",
+    "corr_30",
+    "funding_3d",
+    "funding_z",
+    "premium_1d",
+    "premium_7d",
+    "oi_chg_1d",
+    "oi_chg_7d",
+    "taker_1d",
+    "global_ls_z"
+  ],
+  "horizon_days": 7,
+  "model": {
+    "mean": [
+      -0.05953825593726855,
+      -0.10690128155407966,
+      -0.16167579626773507,
+      -0.2087668675045149,
+      -0.2923995574077621,
+      -0.3638185120419611,
+      0.9385791798401674,
+      1.418812949748701,
+      0.09184761966394572,
+      0.2020439641370259,
+      0.8297985755896929,
+      -0.046681916510235705,
+      -0.03368931691965927,
+      0.08997436310003418,
+      0.09057172259894182,
+      0.0008863638886280506,
+      0.006939365491273789,
+      0.001072821569412513,
+      0.029376457996860676
+    ],
+    "std": [
+      1.0301548059377315,
+      1.0370799637915002,
+      1.0329418576990002,
+      1.0227605334235168,
+      0.9914114056874724,
+      1.3237628439560436,
+      0.3689135893287483,
+      0.4018417855246546,
+      1.0187436512216361,
+      0.9653845408133096,
+      0.10112361494899769,
+      0.6659763035877058,
+      1.0817020354005322,
+      1.2601249712470597,
+      0.8404076666818334,
+      0.04777260688552345,
+      0.09100552284423644,
+      0.03255500368611372,
+      1.166697806030279
+    ],
+    "coef": [
+      0.0002986026752949924,
+      0.00864679147596395,
+      -0.014063074413925509,
+      -0.03220519834293796,
+      -0.004860830555454986,
+      -0.01591960787955009,
+      -0.0968619206097593,
+      0.0807209165009837,
+      0.021646084422369403,
+      0.08358161267287416,
+      -0.005349281907783677,
+      -0.008913267824779194,
+      -0.012460211538607125,
+      -0.006360573217583272,
+      -0.034716170802763034,
+      0.01531666341662052,
+      -0.0072164777389867735,
+      -0.0039036863080320183,
+      -0.06627115851767654
+    ],
+    "intercept": -0.08125043908344817,
+    "rows": 1243,
+    "alpha": 1243.0
+  },
+  "capital": 10000.0,
+  "registered": true,
+  "source": "research/results/pair_2026-11-14 (ridge_PD_7d); no development performance recomputed"
+}

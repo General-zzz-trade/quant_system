@@ -4,10 +4,19 @@
 
 - **Not approved for live trading. No strategy has a verified edge.** Older Sharpe/return figures in docs,
   configs, `models_v8/` or commit messages are unverified claims, not results.
-- **The only candidate:** the risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
-  - It passed a pre-registered development-window screen, which earns forward paper trading only
-    (`research/results/overlay_2026-11-13/`).
-  - Its `final_spec.json` keeps `"passed": false`, so `runner.binance_target` refuses mainnet.
+- **Forward-test candidates (none has a verified edge):**
+  - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
+    - It passed a pre-registered development-window screen, which earns forward paper trading only
+      (`research/results/overlay_2026-11-13/`). Paper trading is not deployed (owner's decision 2026-11-14).
+    - Its `final_spec.json` keeps `"passed": false`, so `runner.binance_target` refuses mainnet.
+  - Three candidates frozen 2026-11-14 (`lab/candidates_study.py`,
+    `research/results/forward_candidates_2026-11-14/`): the ETH/BTC pair lead, a weekly directional Ridge and a
+    liquidation-flush reversal.
+    - They only met a "not losing" floor on development data. That is not evidence of an edge: the directional
+      model's walk-forward IC is negative.
+  - All four are judged at the looks in `research/forward_looks.jsonl` (2027-02-13 report only, 2027-05-13
+    decision). For the three new ones a pass only extends the test to 12 months
+    (`research/protocols/2026-11-14-forward-candidates.md`).
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
     (`research/results/ml_recheck_2026-11-13/`).
@@ -21,7 +30,7 @@
     `research/results/pair_2026-11-14/`). Per-leg 10x isolated is infeasible for pairs.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
-    data; gates use the deflated Sharpe over the whole family.
+    data; gates use the deflated Sharpe over the whole family. The directional family holds 79 trials.
   - `lab/validation.py`: purged walk-forward splits.
   - `lab/forward.py`: data from 2026-11-13 on is read only at looks registered in
     `research/forward_looks.jsonl` before their end date
