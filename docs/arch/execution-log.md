@@ -518,3 +518,58 @@ Contracts: 5 kept, 0 broken.
 ```
 
 3222 = 3199 + 23。第 1 步的特征化测试（含止损与成交相关的已知缺陷测试）、`tests/unit/binance/`、`tests/unit/lab/test_target_runtime.py` 全部不改断言通过。
+
+## 第 9c 步：减仓定量与账户对账迁入 `trading/application`
+
+**前置测试**：第 9b 步已补（`tests/characterization/test_execution_boundaries.py`），本步不新增。
+
+**改了什么**
+
+- `trading/application/execution/reduction.py`：`size_reduction(account, journal, *, owner, symbol, side, qty)`，从 `BinanceExecutionAdapter._send_order` 原样搬出：
+  - 要求交易所上该品种恰好一个非零持仓；
+  - 数量 0 表示全平，方向按交易所持仓定；
+  - 方向必须是减仓方向；
+  - 数量不超过交易所持仓，也不超过本策略确认的仓位；
+  - 返回数量、方向和据以定量的检查点版本。
+  
+  唯一的写法差别：原来 `checkpoint` 为空时靠"自有仓位为 0"间接报错，现在在同一个条件里直接判断 `not checkpoint`，报错文字和时机相同。这样写是为了让严格 mypy 知道后面取 `revision` 时检查点一定存在。
+- `trading/application/reconcile.py`：`reconcile_account(account, journal, *, owner, symbol)`，对账的五类检查原样搬出：
+  - 多个持仓；
+  - 交易所数量与账本不符；
+  - 有结果不明的订单；
+  - 有非本系统挂单；
+  - 有未交付成交。
+  
+  对账出异常时记为"对账失败"。原来经执行器的 `unresolved()` 读结果不明的订单，现在直接读 `journal.orders(unresolved=True)`；前者内部就是这一句。
+- `execution/adapters/binance/execution_adapter.py` 里这两段换成调用上面两个函数，删 40 行、加 6 行。以下几处留在原处，行为不变：
+  - 先撤掉残留入场单；
+  - 读适配器自身的 `execution_blockers()`，并放在问题列表最前面，与原来顺序相同；
+  - 设置 `_ready`；
+  - 写错误日志。
+- 两个新模块只依赖 `ExchangeAccount`、`OrderJournal` 端口。导入契约、严格 mypy、"应用层参数不得是 `Any`"规则都已覆盖它们。
+
+**已有测试的改动**：没有。
+
+【实际运行结果】对两个新模块重新注入 15 个缺陷，15 个全部被 `test_execution_boundaries.py` 测出：
+- 第 9b 步针对减仓与对账的 12 个；
+- 新加 3 个：不看属主、不记录检查点版本、对账失败不记问题。
+
+其中"不记录检查点版本"会让减仓单在日志预留时被判为基于过期检查点而拒绝，所以减仓单根本发不出去，测试因此失败。
+
+**行数**：手写约 15 行（适配器里的 6 行调用、`reduction.py` 的数据类和函数签名、两个模块的说明）；纯移动约 70 行。
+
+**通用验收（原始输出尾部）**
+
+```
+3222 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 447.74s (0:07:27)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 35 source files
+$ lint-imports
+Contracts: 5 kept, 0 broken.
+```
+
+测试数量与第 9b 步相同（3222），没有新增或修改测试。
