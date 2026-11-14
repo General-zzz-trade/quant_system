@@ -199,7 +199,8 @@ def test_the_hard_leverage_cap_is_defined_once():
 
 
 def test_binance_order_paths_use_the_status_table_not_literal_sets():
-    paths = ("shared/confirmed_execution.py", "runner/binance_target.py", "runner/binance_main.py")
+    paths = ("shared/confirmed_execution.py", "trading/application/execution/lifecycle.py", "runner/binance_target.py",
+             "runner/binance_main.py")
     literal = re.compile(r"""["']mmp_canceled["']""")
     assert [p for p in paths if literal.search((ROOT / p).read_text(encoding="utf-8"))] == []
 
@@ -209,7 +210,8 @@ SQL = re.compile(r"\.execute(many|script)?\(|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET
 
 
 def test_only_the_sqlite_adapter_writes_order_tables_on_the_binance_path():
-    paths = [ROOT / "shared/confirmed_execution.py", *sorted((ROOT / "execution/adapters/binance").glob("*.py"))]
+    paths = [ROOT / "shared/confirmed_execution.py", *sorted((ROOT / "trading/application").rglob("*.py")),
+             *sorted((ROOT / "execution/adapters/binance").glob("*.py"))]
     assert [str(p.relative_to(ROOT)) for p in paths if SQL.search(p.read_text(encoding="utf-8"))] == []
 
 
