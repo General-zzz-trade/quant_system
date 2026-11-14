@@ -391,8 +391,9 @@ class BinanceRuntime:
         exposure = AccountExposureGate(self.account, ExecutionJournal(journal_path, scope),
                                        max_leverage=min(MAX_TOTAL_LEVERAGE,
                                                         D(os.environ.get("BINANCE_MAX_LEVERAGE", "3"))))
-        gate = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown, portfolio_reader=exposure,
-                                 venue="binance")
+        gate = CompositeRiskGate.for_execution(limiter, kill_switch=kill, drawdown_guard=drawdown,
+                                               portfolio_reader=exposure,
+                                               venue="binance")
         return {"account": self.account, "scope": scope, "journal_path": journal_path, "gate": gate,
                 "kill": kill, "drawdown": drawdown, "stop_pct": stop_pct, "leverage": exposure.max_leverage}
 

@@ -134,3 +134,40 @@ Contracts: 4 kept, 0 broken.
 
 - `BinanceAdapter.get_balances` 出错时返回空快照，不在任何端口里，暂不处理。
 - 测试用的 `FakeBinance` 是 HTTP 层的假交易所，契约测试检查的是"真实适配器 + 假 HTTP"。审查发现的假交易所与真实 Binance 的差异（成交查询忽略 `limit`、撤销已成交订单不报错等）在第 5、6 步补测试时一并处理。
+
+## 第 4 步：风控规则与存储分离
+
+**先补的测试**（`tests/characterization/test_risk_gates.py`，13 个，在改代码之前对旧代码全部通过）：按 `binance_target` 实际的组装方式（就绪门 → 组合门 → kill → 回撤 → 敞口 → 限额器）逐个触发，断言拒绝原因的前缀；减仓在 kill 激活时仍放行；敞口计入未结的入场意图；回撤库损坏时 `latched()` 读作已闩锁；重启后更宽的配置不能放松当前周期；kill 文件的 `active` 不是布尔值或文件损坏时按激活处理。这些对应变异实验里存活的 M12、M14、M15、M16 和入场门组合。
+
+**改了什么**
+
+- `trading/domain/risk/`：`exposure.py`（3 倍常量、配置只能调低的校验、超限判定）、`drawdown.py`（UTC 日 / ISO 周的周期键、高水位与"存储的限额只能收紧"的计算）、`kill.py`（`KillState`）。都是纯计算，没有存储和时钟。
+- `trading/application/risk/`：`entry_gate.py`（组合门，`check()` 的函数体与原来逐字相同，已用 diff 核对）、`exposure_gate.py`（敞口门，通过 `ExchangeAccount`、`OrderJournal` 端口取数）。新增 `CompositeRiskGate.for_execution(...)`：kill、回撤、敞口三个组件任何一个缺失就在构造时抛错。原构造函数签名不变。
+- `trading/adapters/sqlite/drawdown_store.py`：回撤闩锁的 SQLite 实现，表结构不变，计算调用 domain。时钟改为可注入，默认仍是 `time.time`。
+- `shared/entry_risk.py`、`shared/exposure_gate.py`、`shared/drawdown_guard.py` 改为只做重导出的薄壳，所有旧的导入路径照常可用；`shared/kill_file.py` 的 `KillState` 改为从 domain 导入。
+- `runner/binance_target.py`、`runner/binance_main.py` 的执行模式改用 `CompositeRiskGate.for_execution`（两处都本来就传齐了组件，行为不变）。
+- 端口新增 `OrderRequest`、`EntryReservation`、`WalletCheck`（后两者只给冻结的 Bybit 运行时用）。
+- 新增 `tests/unit/trading/test_domain_risk.py`（21 个）：3 倍上限的边界值（恰好 3 倍放行，多 0.01 拒绝）、权益未知时拒绝、配置只能调低、周期键、高水位与限额收紧、损坏的存储值被拒绝、`for_execution` 缺组件抛错。
+- 架构测试新增：全仓库 `MAX_TOTAL_LEVERAGE =` 只定义一次，位置是 `trading/domain/risk/exposure.py`。
+
+没有改任何阈值和默认值（日 / 周回撤 5% / 12%、单笔 5,000、每日 50 单、3 倍上限都不变）。`OrderLimiter` 没动。
+
+**通用验收（原始输出尾部）**
+
+```
+3000 passed, 34 skipped, 24 deselected, 9 warnings, 313 subtests passed in 510.63s (0:08:30)
+$ ruff check --select E,W,F .
+All checks passed!
+$ python3 scripts/check_local_safety.py
+OK (skipped=1)
+$ mypy trading/
+Success: no issues found in 15 source files
+$ lint-imports
+Contracts: 4 kept, 0 broken.
+```
+
+3000 = 2965 + 13 + 21 + 1。`tests/offline/test_risk_safety.py`（21 个）、`tests/unit/binance/test_binance_risk.py` 和第 1 步的特征化测试一行未改，全部通过。`scripts/check_local_safety.py` 在只有标准库的环境里运行，`trading` 的这些模块只依赖标准库，所以它仍然通过。
+
+**遗留**
+
+- R6（状态库缺失时闩锁消失）、R12（回撤阈值没有硬上限）照旧，分别在第 13 步和"15 步之后"处理；对应的特征化测试未改。

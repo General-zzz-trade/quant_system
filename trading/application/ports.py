@@ -115,6 +115,36 @@ class OrderLimits(Protocol):
     def check_order(self, *, qty: Decimal, price: Optional[Decimal] = None) -> Any: ...
 
 
+class OrderRequest(Protocol):
+    """What a gate needs to know about an order; ``reduce_only`` is read with getattr (default False)."""
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def side(self) -> str: ...
+
+    @property
+    def qty(self) -> Decimal: ...
+
+    @property
+    def price(self) -> Decimal | None: ...
+
+
+@runtime_checkable
+class EntryReservation(Protocol):
+    """Shared portfolio quota claimed by an entry (used by the frozen Bybit runtime only)."""
+
+    def reserve(self, event: OrderRequest, *, quantity: Decimal, notional: Decimal) -> Any: ...
+
+
+@runtime_checkable
+class WalletCheck(Protocol):
+    """Wallet reconciliation status (used by the frozen Bybit runtime only)."""
+
+    def check(self) -> tuple[bool, str]: ...
+
+
 @runtime_checkable
 class ExposureReader(Protocol):
     """Account gross exposure against the hard leverage cap."""
@@ -138,4 +168,5 @@ class Notifier(Protocol):
 
 
 __all__ = ["Clock", "Sleeper", "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
-           "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "ExposureReader", "EventLog", "Notifier"]
+           "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
+           "WalletCheck", "ExposureReader", "EventLog", "Notifier"]

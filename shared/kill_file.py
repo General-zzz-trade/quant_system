@@ -19,17 +19,11 @@ import argparse
 import json
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
+from trading.domain.risk.kill import KillState
+
 DEFAULT_PATH = Path("data/runtime/binance/kill_switch.json")  # runner.binance_main state dir
-
-
-@dataclass(frozen=True)
-class KillState:
-    active: bool
-    flatten: bool
-    reason: str
 
 
 class KillFile:

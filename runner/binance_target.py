@@ -304,8 +304,9 @@ class TargetRuntime:
             max_daily_orders=int(os.environ.get("BINANCE_MAX_DAILY_ORDERS", "50")), max_orders_per_second=1.0))
         cap = min(MAX_TOTAL_LEVERAGE, D(os.environ.get("BINANCE_MAX_LEVERAGE", "3")))
         exposure = AccountExposureGate(self.account, ExecutionJournal(journal_path, scope), max_leverage=cap)
-        gate = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown, portfolio_reader=exposure,
-                                 venue="binance")
+        gate = CompositeRiskGate.for_execution(limiter, kill_switch=kill, drawdown_guard=drawdown,
+                                               portfolio_reader=exposure,
+                                               venue="binance")
         return {"account": self.account, "scope": scope, "journal_path": journal_path, "gate": gate, "kill": kill,
                 "drawdown": drawdown, "stop_pct": stop_pct, "equity": self.equity}
 

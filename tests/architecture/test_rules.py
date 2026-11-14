@@ -83,3 +83,11 @@ def test_application_parameters_are_typed_by_ports_not_any():
 def test_any_rule_detects_untyped_collaborators():
     tree = ast.parse("from typing import Any\nclass G:\n    def __init__(self, limiter: Any, n: int, **kw: Any): ...\n")
     assert _any_parameters(tree) == ["__init__(limiter)"]
+
+
+def test_the_hard_leverage_cap_is_defined_once():
+    pattern = re.compile(r"^\s*MAX_TOTAL_LEVERAGE\s*=", re.M)
+    sources = [p for p in ROOT.rglob("*.py") if not {".git", ".claude", "target"} & set(p.relative_to(ROOT).parts)]
+    defined = [str(p.relative_to(ROOT)) for p in sources
+               if pattern.search(p.read_text(encoding="utf-8", errors="replace"))]
+    assert defined == ["trading/domain/risk/exposure.py"]
