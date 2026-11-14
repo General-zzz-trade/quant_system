@@ -193,7 +193,8 @@ class TargetRuntime:
                 "last_bar_open": s.cursor, "target": s.last_target[0], "target_ready": s.last_target[1],
                 "entry_ready": s.entry_ready, "entry_reason": s.entry_reason, "position": str(s.position_qty()),
                 "sleeve_equity": str(s.sleeve_equity()),
-                "protective_stop": s.stops.has_active_stop() if s.stops else None}
+                "protective_stop": s.stops.has_active_stop() if s.stops else None,
+                "flatten_failures": s.flattener.failures if s.flattener else None}
         return out
 
     def cycle(self) -> None:

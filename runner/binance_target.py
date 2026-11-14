@@ -123,7 +123,7 @@ class TargetRuntime(_runtime.TargetRuntime):
                                         limiter=limiter, kill=kill,
                                         tca_log=_TcaLog(self.state_dir / "tca_binance.jsonl"))
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
-                                         equity=self.equity, inputs=inputs), kill
+                                         equity=self.equity, inputs=inputs, clock=self.clock), kill
 
 
 def main(argv: list[str] | None = None) -> None:
