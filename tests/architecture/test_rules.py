@@ -374,3 +374,78 @@ def test_the_target_entry_point_takes_only_listed_parts_from_the_legacy_packages
               and (ROOT / name.split(".")[0]).is_dir()}
     assert legacy == set(TARGET_ENTRY_LEGACY)
 
+
+
+# Exchange status words and the range of Binance error codes (-1000 .. -5999).
+EXCHANGE_WORDS = {"NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED",
+                  "TRIGGERING", "TRIGGERED", "FINISHED", "GTX", "GTC", "STOP_MARKET", "MARK_PRICE", "CONDITIONAL"}
+
+
+def _exchange_vocabulary(tree: ast.AST) -> list[str]:
+    docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                  if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                  and node.body and isinstance(node.body[0], ast.Expr)
+                  and isinstance(node.body[0].value, ast.Constant)}
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and id(node) not in docstrings:
+            if isinstance(node.value, str) and node.value in EXCHANGE_WORDS:
+                found.append(f"{node.value!r}@{node.lineno}")
+        if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant)
+                and isinstance(node.operand.value, int) and 1000 <= node.operand.value <= 5999):
+            found.append(f"-{node.operand.value}@{node.lineno}")
+    return found
+
+
+def test_domain_and_application_hold_no_exchange_status_word_and_no_exchange_error_code():
+    """Step 10b: the adapter translates them; a new exchange word can then break only the adapter."""
+    offenders = [f"{path.relative_to(ROOT)}: {word}" for layer in ("domain", "application")
+                 for path, tree in _modules(TRADING / layer) for word in _exchange_vocabulary(tree)]
+    assert offenders == []
+
+
+def test_the_vocabulary_rule_detects_status_words_and_error_codes():
+    tree = ast.parse('"""NEW in a docstring is fine."""\nA = {"NEW", "TRIGGERING"}\nB = -2021\nC = -5\nD = "new"\n')
+    assert sorted(_exchange_vocabulary(tree)) == ["'NEW'@2", "'TRIGGERING'@2", "-2021@3"]
+
+
+VENUE_PORTS = ("MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway")
+
+
+def _untyped_returns(tree: ast.AST, classes: tuple[str, ...]) -> list[str]:
+    """Port methods whose result is ``Any``, a tuple of ``Any`` or ``Any | None``."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name in classes:
+            for method in node.body:
+                if not isinstance(method, ast.FunctionDef) or method.returns is None:
+                    continue
+                text = ast.unparse(method.returns)
+                if text in ("Any", "Any | None", "Optional[Any]", "tuple[Any, ...]", "dict[str, Any]"):
+                    found.append(f"{node.name}.{method.name} -> {text}")
+    return found
+
+
+def test_the_exchange_ports_return_typed_results():
+    tree = ast.parse((TRADING / "application/ports.py").read_text())
+    assert _untyped_returns(tree, VENUE_PORTS) == []
+    declared = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+    assert set(VENUE_PORTS) <= declared
+
+
+def test_the_typed_result_rule_detects_any():
+    tree = ast.parse("class P:\n    def a(self) -> Any: ...\n    def b(self) -> tuple[Any, ...]: ...\n"
+                     "    def c(self) -> dict[str, Any]: ...\n    def d(self) -> str: ...\n")
+    assert _untyped_returns(tree, ("P",)) == ["P.a -> Any", "P.b -> tuple[Any, ...]", "P.c -> dict[str, Any]"]
+
+
+def test_importing_the_target_entry_point_loads_no_part_of_the_closed_ml_runtime():
+    """Plan step 10: the overlay's entry point must not pull in runner.binance_main or the ML packages."""
+    import subprocess
+    import sys
+    code = ("import sys, runner.binance_target; "
+            "print(sorted(m for m in sys.modules if m == 'runner.binance_main' "
+            "or m.split('.')[0] in ('engine', 'decision', 'features', 'alpha')))")
+    out = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"

@@ -4,6 +4,7 @@ from __future__ import annotations
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
 from trading.infrastructure.settings import binance_config_from_env, exchange_settings
+from trading.infrastructure.target import Account
 
 
 def build_adapters(*, execution: bool, testnet: bool,
@@ -24,4 +25,10 @@ def build_adapters(*, execution: bool, testnet: bool,
     return market, account
 
 
-__all__ = ["build_adapters"]
+def as_account(adapter: BinanceAdapter) -> Account:
+    """The adapter as the typed account the sessions are wired with. The type checker proves here that the
+    Binance adapter implements every exchange port with the declared result types."""
+    return adapter
+
+
+__all__ = ["as_account", "build_adapters"]

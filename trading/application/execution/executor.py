@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any
 
 from trading.application.execution.service import ExecutionService
 from trading.application.ports import OrderJournal
-from trading.domain.orders import OrderIntent
+from trading.domain.orders import ConfirmedFill, OrderIntent
 
 
 @dataclass(frozen=True)
@@ -29,19 +29,9 @@ class Fill:
     price: Decimal
 
 
-class FillFact(Protocol):
-    """An exchange trade as the order lifecycle reports it."""
-
-    fill_id: str
-    symbol: str
-    side: str
-    qty: Decimal
-    price: Decimal
-
-
-def _fill(intent_id: str, fact: FillFact) -> Fill:
+def _fill(intent_id: str, fact: ConfirmedFill) -> Fill:
     return Fill(fill_id=fact.fill_id, order_id=intent_id, symbol=fact.symbol, side=fact.side,
-                qty=Decimal(str(fact.qty)), price=Decimal(str(fact.price)))
+                qty=fact.qty, price=fact.price)
 
 
 class OwnerExecutor:

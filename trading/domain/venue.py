@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +116,78 @@ class VenuePosition:
         elif self.qty < 0:
             return "sell"
         return "flat"
+
+
+@dataclass(frozen=True, slots=True)
+class VenueOrder:
+    """An order as the exchange reports it. ``state`` is one of the order lifecycle's words."""
+
+    order_id: str
+    client_order_id: str
+    symbol: str
+    side: str                      # "buy" / "sell"
+    state: str                     # new | partially_filled | filled | canceled | expired | rejected
+    filled_qty: Decimal
+    avg_price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class OpenOrder:
+    """A working order in the exchange's open-order snapshot."""
+
+    order_id: str
+    client_order_id: str
+    symbol: str
+    side: str
+    type: str
+
+
+class Placement(TypedDict, total=False):
+    """What placing an order returned. ``status`` is always present; anything but ``submitted`` or
+    ``rejected`` means the outcome is unknown and must be looked up, never resent."""
+
+    status: str                    # submitted | rejected | error
+    orderId: str
+    clientOrderId: str
+    code: int | None               # the exchange's refusal code, for logs only
+    msg: str
+
+
+class StopPlacement(TypedDict, total=False):
+    """What placing a protective stop returned."""
+
+    status: str                    # submitted | rejected | error
+    algoId: str
+    code: int | None               # for logs only
+    msg: str
+    breached: bool                 # refused because price is already beyond the trigger
+
+
+class Ticker(TypedDict, total=False):
+    symbol: str
+    lastPrice: float
+    bid1Price: float
+    ask1Price: float
+
+
+# The three states of an exchange-side protective stop that the application acts on.
+STOP_ACTIVE = "active"             # working at the exchange
+STOP_TRIGGERED = "triggered"       # fired; ``actual_order_id`` names the order it became, once known
+STOP_GONE = "gone"                 # canceled, expired, rejected or in a state this code does not know
+
+
+@dataclass(frozen=True, slots=True)
+class StopOrder:
+    """A protective stop as the exchange reports it."""
+
+    algo_id: str
+    client_algo_id: str
+    symbol: str
+    side: str
+    status: str                    # the exchange's own word, for logs only
+    state: str                     # STOP_ACTIVE | STOP_TRIGGERED | STOP_GONE
+    trigger_price: Decimal
+    actual_order_id: str
 
 
 @dataclass(frozen=True, slots=True)
