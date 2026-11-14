@@ -1,149 +1,77 @@
 # Deployment Truth
 
-> 更新时间: 2026-03-22
-> 上位真相源: [`runtime_truth.md`](/quant_system/docs/runtime_truth.md)
+> Rewritten 2026-11-14 from `infra/systemd/`, `infra/sync_systemd.sh` and `docker-compose.yml`.
+> The earlier version (2026-03-22) listed retired timers and unverified Sharpe figures.
+> When this file and those files disagree, the files win; fix this one.
 
----
+Status: nothing is approved for live trading (see `CLAUDE.md`). Every unit below either runs in
+paper/dry-run or only observes.
 
-## 1. 当前活跃服务
+## 1. Units in the repository (`infra/systemd/`)
 
-### bybit-alpha.service — ACTIVE
+| Unit | Kind / schedule | Runs | Note |
+|---|---|---|---|
+| `binance-target` | service | `runner.binance_target --spec models_binance/strategy/final_spec.json --dry-run` | product runtime, paper |
+| `health-watchdog` | timer, every 5 min | `monitoring.watchdog` | observes and alerts; never restarts |
+| `audit-reconcile` | timer, hourly | `scripts.audit_fill_reconcile --days 7 --alert` | |
+| `daily-pnl-alert` | timer, 23:00 UTC | `monitoring.daily_pnl_alert` | |
+| `portfolio-risk-monitor` | timer, every 60 s | `scripts.portfolio_risk_monitor` | |
+| `prometheus-exporter` | service | `monitoring.prometheus_exporter --port 9102 --bind 127.0.0.1` | |
+| `log-archive` | timer, Sun 05:00 | `scripts/archive_logs.py` | |
+| `quant-backup` | timer, 04:00 UTC | `scripts/backup_remote.py` | |
+| `bybit-alpha` | service | `runner.alpha_main --venue bybit ...` | frozen venue, dry-run |
+| `okx-alpha` | service | `runner.alpha_main --venue okx ...` | frozen venue, dry-run |
+| `okx-ramp-up` | timer, 6-hourly | `scripts.okx_ramp_up` | report-only |
+| `okx-status-probe` | timer, hourly | `monitoring.okx_status_probe` | |
+| `cross-venue-reconcile` | timer, 6-hourly | `scripts.cross_venue_reconcile` | |
+| `daily-live-runner` | timer, 00:35 UTC | `runner.daily_live_runner --symbols BTCUSDT` | OKX, `--live` refused in code |
+| `live-ic-killswitch` | timer, hourly | `monitoring.live_ic_killswitch --update --alert` | |
+| `polymarket-collector` | service | `polymarket.collector` | frozen venue |
+| `polymarket-maker` | service | `scripts/run_polymarket_maker.py` | frozen venue |
 
-```
-ExecStart: python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
-```
+All units use `WorkingDirectory=/quant_system`; all but `daily-pnl-alert`, `log-archive`,
+`polymarket-collector` and `quant-backup` load `EnvironmentFile=/quant_system/.env`.
 
-- **4 runners**: BTC+ETH × 1h/4h (Strategy H)
-- **2 WS connections**: kline.60, kline.240
-- **Demo account**: $35,285 USDT on api-demo.bybit.com
-- **Backtest Sharpe**: 2.25 (T-1 corrected, no look-ahead bias)
-- **SIGHUP hot-reload**: <200ms model swap without restart
-- **Per-runner checkpoints**: instant recovery on restart
+## 2. Retired units
 
-### 模型版本 (all trained 2026-03-22)
+`RETIRED_UNITS` in `infra/sync_systemd.sh` lists every removed unit with the reason. Retired on
+2026-11-14: `binance-runtime` (closed ML runtime) and the models_v8 analysis timers
+(`feature-ablation`, `feature-auto-update`, `feature-ic-analysis`, `ic-decay-monitor`,
+`oos-sharpe-monitor`, `daily-paper-runner`, `daily-check`, `live-vs-backtest`).
 
-| Model | Version | Sharpe | Deadzone | Direction |
-|-------|---------|--------|----------|-----------|
-| BTCUSDT_gate_v2 | v11 | 2.43 | 1.0 | long_only |
-| ETHUSDT_gate_v2 | v11 | 3.92 | 0.9 | long_only |
-| BTCUSDT_4h | v11-4h | 5.21 | 0.8 | bidir |
-| ETHUSDT_4h | v11-4h | 3.63 | 0.5 | bidir |
-
-### 数据源 (7)
-
-cross_market_daily, etf_volume_daily, stablecoin_daily, fear_greed_index, DVOL, funding, on-chain
-
-All features use T-1 shift (no look-ahead bias).
-
----
-
-## 2. Timers
-
-| Timer | Schedule | Notes |
-|-------|----------|-------|
-| health-watchdog.timer | every 5min | 5h tolerance for 4h bars |
-| data-refresh.timer | every 6h | kline + funding + OI sync |
-| auto-retrain.timer | Sunday 2am UTC | 1h models |
-| daily-retrain.timer | daily 2am UTC | 4h models + SIGHUP hot-reload |
-| ic-decay-monitor.timer | daily 3am UTC | IC decay tracking |
+## 3. Syncing a host
 
 ```bash
-sudo systemctl list-timers --all | grep -E "health|retrain|refresh|decay"
+sudo bash infra/sync_systemd.sh     # disables + removes retired units, copies changed ones, daemon-reload
 ```
 
----
-
-## 3. Inactive 服务
-
-| Service | Reason |
-|---------|--------|
-| hft-signal.service | Sharpe -5 |
-| bybit-mm.service | spread < fee |
-
----
-
-## 4. Systemd 工件
-
-### 4.1 活跃
-
-- `infra/systemd/bybit-alpha.service`
-- `infra/systemd/health-watchdog.service` + `.timer`
-- `infra/systemd/data-refresh.service` + `.timer`
-- `infra/systemd/auto-retrain.service` + `.timer`
-- `infra/systemd/daily-retrain.service` + `.timer`
-- `infra/systemd/ic-decay-monitor.service` + `.timer`
-
-### 4.2 同步规则
-
-`infra/systemd/*.service` 是仓库真相源。修改后必须同步:
+The script never restarts a service. Restart what changed by hand, after reading the diff:
 
 ```bash
-sudo cp infra/systemd/bybit-alpha.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl restart bybit-alpha.service
+sudo systemctl restart binance-target.service
 ```
 
-凭据通过 `EnvironmentFile=/quant_system/.env` 注入。
+## 4. Compose (`docker-compose.yml`)
 
----
-
-## 5. Compose 路径 (非主机交易默认)
-
-| Compose 服务 | 命令 | 定位 |
+| Service | Command | Note |
 |---|---|---|
-| `quant-paper` | `runner.alpha_main ... --dry-run` | CI smoke / paper |
-| `quant-live` | `runner.alpha_main ...` | containerized live |
-| `quant-framework` | `runner.live_runner --config ...` | framework candidate |
+| `quant-paper` | `runner.shadow_main --manifest config/shadow.json --dry-run` | signal observation only |
+| `quant-live` | `scripts.run_bybit_alpha ...` | profile `live`; frozen venue |
+| `quant-framework` | `runner.live_runner ...` | profile `framework`; **broken**: `runner/live_runner.py` does not exist |
 
-Deploy workflow (`scripts/deploy.sh`) 只管 compose 路径，不会同步 host systemd 服务。
+CI never deploys; deploys are manual.
 
----
-
-## 6. 验证命令
+## 5. Checks
 
 ```bash
-# 服务状态
-sudo systemctl status bybit-alpha.service --no-pager -l
-journalctl -u bybit-alpha.service -f
-tail -f /quant_system/logs/bybit_alpha.log
-
-# Timers
-sudo systemctl list-timers --all | grep -E "health|retrain|refresh|decay"
-
-# Compose
-docker compose config >/dev/null
+systemctl list-units 'binance-target*' 'health-watchdog*' --no-pager
+cat /quant_system/data/runtime/binance_target/target_status.json
+cat /quant_system/data/runtime/health_status.json
+tail -f /quant_system/logs/binance_target.log
+sudo systemctl list-timers --all --no-pager
 ```
 
----
+## 6. Logs
 
-## 7. 常用操作
-
-```bash
-# 重启 alpha 服务
-sudo systemctl restart bybit-alpha.service
-
-# 手动触发 retrain
-sudo systemctl start auto-retrain.service
-sudo systemctl start daily-retrain.service
-
-# Compose
-docker compose up -d quant-paper
-docker compose --profile live up -d quant-live
-```
-
----
-
-## 8. 日志管理
-
-```bash
-# 部署 logrotate
-sudo bash infra/deploy_logrotate.sh
-
-# 手动触发轮转
-sudo logrotate -f /etc/logrotate.d/quant-system
-
-# 检查日志大小
-du -sh /quant_system/logs/*.log | sort -h
-```
-
-配置: `infra/logrotate.d/quant-system` — daily rotation, 14 天保留, 50MB maxsize, copytruncate。
+`sudo bash infra/deploy_logrotate.sh` installs `infra/logrotate.d/quant-system` (daily rotation,
+14 days kept, 50 MB max size, copytruncate).

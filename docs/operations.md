@@ -1,5 +1,7 @@
 # Operations Manual (2026-03-22)
 
+> **Outdated (2026-11-14):** written for the retired Bybit ML setup (automatic retraining, data-refresh, IC-decay timers). For the current state read `CLAUDE.md` and [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md).
+
 Current operator guide. When this conflicts with other docs, priority:
 
 1. [`docs/runtime_truth.md`](/quant_system/docs/runtime_truth.md)
@@ -13,17 +15,7 @@ Current operator guide. When this conflicts with other docs, priority:
 
 ### Automated (no action needed)
 
-| Timer/Cron | Schedule | What |
-|---|---|---|
-| `health-watchdog.timer` | every 5 min | Service health + data freshness + Telegram alerts + auto-restart stale |
-| `ic-decay-monitor.timer` | daily 3am UTC | IC decay check per symbol; RED = retrain needed |
-| `data-refresh.timer` | every 6h | Kline + funding + OI sync from Binance |
-| `daily-retrain.timer` | daily 2am UTC | 4h models retrain + SIGHUP hot-reload |
-| `auto-retrain.timer` | Sunday 2am UTC | 1h walk-forward retrain with IC/Sharpe gates |
-| cron: `demo_tracker` | hourly | Track record update from logs |
-| cron: `weekly_report` | Sunday 3am | Weekly performance report |
-| cron: `auto_bug_scan` | Sunday 1am | Static bug scan (30 patterns) |
-| cron: OI download | every 6h | Binance OI history (28d retention, must accumulate) |
+Units and timers: see [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md) (checked against `infra/systemd/` on 2026-11-14). The retrain, data-refresh and IC-decay timers below are retired.
 
 ### Manual checks
 

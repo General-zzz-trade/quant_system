@@ -350,7 +350,7 @@ def run_check(update: bool = False, alert: bool = False) -> dict:
 
     if alert and state_changes:
         try:
-            from monitoring.telegram_alert import send_alert, AlertLevel
+            from monitoring.notify import send_alert, AlertLevel
             for c in state_changes:
                 level = AlertLevel.CRITICAL if c.startswith("PAUSE") else AlertLevel.INFO
                 title = c.split(":", 1)[0]

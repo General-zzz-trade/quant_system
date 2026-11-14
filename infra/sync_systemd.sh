@@ -36,6 +36,27 @@ RETIRED_UNITS=(
     # path, 4x a day; nothing current reads them:
     data-refresh.service
     data-refresh.timer
+    # ML runtime (runner.binance_main); the hourly ML line is closed and the
+    # product runtime is binance-target:
+    binance-runtime.service
+    # Read models_v8 configs or legacy CSVs for the closed ML line (models_v8
+    # binaries are not in the repo); results fed nothing current:
+    feature-ablation.service
+    feature-ablation.timer
+    feature-auto-update.service
+    feature-auto-update.timer
+    feature-ic-analysis.service
+    feature-ic-analysis.timer
+    ic-decay-monitor.service
+    ic-decay-monitor.timer
+    oos-sharpe-monitor.service
+    oos-sharpe-monitor.timer
+    daily-paper-runner.service
+    daily-paper-runner.timer
+    daily-check.service
+    daily-check.timer
+    live-vs-backtest.service
+    live-vs-backtest.timer
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do
