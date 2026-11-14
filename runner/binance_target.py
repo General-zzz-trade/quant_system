@@ -410,7 +410,10 @@ class TargetRuntime:
             for row in self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms):
                 bar = bar_from_kline(row)
                 if bar.open_time > session.cursor:
-                    session.process_bar(bar, live=True, now_ms=now_ms)
+                    # Execution trades only a fresh bar: bars missed during an outage just extend the window,
+                    # exactly as a restart's warmup would. Paper replays every bar, as research does.
+                    fresh = now_ms - bar.available_at <= MAX_ENTRY_DELAY_MS
+                    session.process_bar(bar, live=self.mode == "paper" or fresh, now_ms=now_ms)
                     processed += 1
         return processed
 
@@ -420,7 +423,11 @@ class TargetRuntime:
     def _load_paper_state(self) -> dict:
         path = self._paper_path()
         if self.reset_paper and path.exists():
-            archived = path.with_name(f"paper_state.{int(self.clock())}.json")
+            stamp, n = int(self.clock() * 1000), 0
+            archived = path.with_name(f"paper_state.{stamp}.json")
+            while archived.exists():
+                n += 1
+                archived = path.with_name(f"paper_state.{stamp}.{n}.json")
             os.replace(path, archived)
             self.journal.write("paper_reset", archived=archived.name)
         if not path.exists():
@@ -446,6 +453,11 @@ class TargetRuntime:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(tmp, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)              # the rename itself survives a power loss
+        finally:
+            os.close(directory)
         self._saved_cursors = cursors
 
     def status(self) -> dict:

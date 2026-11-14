@@ -18,28 +18,73 @@ def _modules(base: Path):
         yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
+ENV_NAMES = {"environ", "environb", "getenv", "getenvb", "putenv", "unsetenv"}
+
+
 def _env_reads(tree: ast.AST) -> list[int]:
+    """Any use of an environment accessor, whatever the module alias (``import os as o; o.environ``)."""
     lines = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in {"environ", "getenv", "putenv", "environb"} \
-                and isinstance(node.value, ast.Name) and node.value.id == "os":
+        if isinstance(node, ast.Attribute) and node.attr in ENV_NAMES:
             lines.append(node.lineno)
         elif isinstance(node, ast.ImportFrom) and node.module == "os" \
-                and any(alias.name in {"environ", "getenv", "environb"} for alias in node.names):
+                and any(alias.name in ENV_NAMES for alias in node.names):
             lines.append(node.lineno)
     return sorted(lines)
 
 
+def _in_infrastructure(path: Path) -> bool:
+    return path.relative_to(TRADING).parts[0] == "infrastructure"
+
+
 def test_only_infrastructure_reads_the_environment():
     offenders = [f"{path.relative_to(ROOT)}:{line}"
-                 for path, tree in _modules(TRADING) if "infrastructure" not in path.relative_to(TRADING).parts
+                 for path, tree in _modules(TRADING) if not _in_infrastructure(path)
                  for line in _env_reads(tree)]
     assert offenders == []
 
 
 def test_env_rule_detects_reads():
-    tree = ast.parse("import os\nfrom os import environ\nx = os.environ.get('A')\ny = os.getenv('B')\n")
-    assert _env_reads(tree) == [2, 3, 4]
+    tree = ast.parse("import os\nfrom os import environ\nx = os.environ.get('A')\ny = os.getenv('B')\n"
+                     "import os as o\nz = o.environ\nw = o.getenvb(b'C')\n")
+    assert _env_reads(tree) == [2, 3, 4, 6, 7]
+
+
+IO_CALLS = {"open", "__import__", "exec", "eval", "compile", "input", "breakpoint"}
+IO_METHODS = {"read_text", "write_text", "read_bytes", "write_bytes", "open", "now", "utcnow", "today",
+              "touch", "unlink", "mkdir", "rename", "replace"}
+
+
+def _io_uses(tree: ast.AST) -> list[str]:
+    """I/O, clock reads and dynamic imports that need no forbidden import (``open``, ``Path.write_text``)."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in IO_CALLS:
+            found.append(f"{node.func.id}()@{node.lineno}")
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in IO_METHODS:
+            found.append(f".{node.func.attr}()@{node.lineno}")
+    return found
+
+
+def test_domain_and_application_do_no_io_without_imports_either():
+    offenders = [f"{path.relative_to(ROOT)}: {use}"
+                 for layer in ("domain", "application") for path, tree in _modules(TRADING / layer)
+                 for use in _io_uses(tree)]
+    assert offenders == []
+
+
+def test_io_rule_detects_import_free_io():
+    tree = ast.parse("open('f')\n__import__('sqlite3')\np.write_text('x')\ndatetime.now()\n")
+    assert _io_uses(tree) == ["open()@1", "__import__()@2", ".write_text()@3", ".now()@4"]
+
+
+def _tokens(block: str) -> list[str]:
+    return [t for line in block.splitlines() for t in line.replace("\\", " ").split()]
+
+
+def _gated(tokens: list[str], directory: str) -> bool:
+    ignored = any(t.startswith("--ignore") or t.startswith("--deselect") for t in tokens)
+    return directory in tokens and not ignored
 
 
 def _ci_core_test_paths() -> str:
@@ -54,14 +99,42 @@ def _make_core_tests() -> str:
 
 
 def test_money_path_tests_are_gated_in_ci_and_make():
-    ci, make = _ci_core_test_paths(), _make_core_tests()
-    assert [d for d in REQUIRED_GATED if d not in ci] == []
-    assert [d for d in REQUIRED_GATED if d not in make] == []
+    ci, make = _tokens(_ci_core_test_paths()), _tokens(_make_core_tests())
+    assert [d for d in REQUIRED_GATED if not _gated(ci, d)] == []
+    assert [d for d in REQUIRED_GATED if not _gated(make, d)] == []
 
 
-def test_ci_runs_the_import_contracts():
+def test_gate_check_rejects_ignored_directories():
+    assert not _gated(["pytest", "--ignore=tests/offline/", "tests/offline/"], "tests/offline/")
+    assert not _gated(["pytest", "tests/offline/x.py"], "tests/offline/")
+
+
+def test_ci_runs_the_import_contracts_and_the_type_check():
     text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "lint-imports" in text and (ROOT / ".importlinter").is_file()
+    assert re.search(r"^\s*run:\s*lint-imports\s*$", text, re.M) and (ROOT / ".importlinter").is_file()
+    assert re.search(r"^\s*run:\s*mypy trading/\s*$", text, re.M)
+
+
+def _is_any(node: ast.AST) -> bool:
+    """Any at the top of an annotation: Any, t.Any, "Any", Optional[Any], Union[..., Any], Any | None.
+
+    Any nested inside a container (``dict[str, Any]`` for a JSON payload) is not a collaborator type.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            node = ast.parse(node.value, mode="eval").body
+        except SyntaxError:
+            return False
+    if isinstance(node, ast.Name):
+        return node.id == "Any"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "Any"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _is_any(node.left) or _is_any(node.right)
+    if isinstance(node, ast.Subscript) and ast.unparse(node.value).split(".")[-1] in {"Optional", "Union"}:
+        members = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        return any(_is_any(m) for m in members)
+    return False
 
 
 def _any_parameters(tree: ast.AST) -> list[str]:
@@ -69,8 +142,7 @@ def _any_parameters(tree: ast.AST) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             params = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-            found += [f"{node.name}({a.arg})" for a in params
-                      if a.annotation is not None and ast.unparse(a.annotation) in {"Any", "typing.Any"}]
+            found += [f"{node.name}({a.arg})" for a in params if a.annotation is not None and _is_any(a.annotation)]
     return found
 
 
@@ -81,8 +153,9 @@ def test_application_parameters_are_typed_by_ports_not_any():
 
 
 def test_any_rule_detects_untyped_collaborators():
-    tree = ast.parse("from typing import Any\nclass G:\n    def __init__(self, limiter: Any, n: int, **kw: Any): ...\n")
-    assert _any_parameters(tree) == ["__init__(limiter)"]
+    tree = ast.parse("class G:\n    def __init__(self, a: Any, b: 'Any', c: Optional[Any], d: t.Any, e: Any | None,"
+                     " n: int, p: dict[str, Any], **kw: Any): ...\n")
+    assert _any_parameters(tree) == ["__init__(a)", "__init__(b)", "__init__(c)", "__init__(d)", "__init__(e)"]
 
 
 def test_the_hard_leverage_cap_is_defined_once():

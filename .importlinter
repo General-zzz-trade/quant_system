@@ -12,11 +12,13 @@ layers =
     trading.domain
 
 [importlinter:contract:no-legacy]
-name = trading does not import the legacy packages
+name = trading does not import the legacy packages, the Rust extension or tests
 type = forbidden
 source_modules =
     trading
 forbidden_modules =
+    _quant_hotpath
+    tests
     alpha
     attribution
     data
@@ -44,12 +46,18 @@ source_modules =
     trading.domain
     trading.application
 forbidden_modules =
-    _quant_hotpath
+    glob
     http
+    importlib
+    io
     os
+    pathlib
+    random
+    shutil
     socket
     sqlite3
     subprocess
+    tempfile
     time
     urllib
 

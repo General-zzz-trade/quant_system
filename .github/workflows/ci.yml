@@ -52,7 +52,7 @@ jobs:
         run: |
           ruff check --select E,W,F \
             decision/ engine/ event/ state/ execution/ features/ trading/ \
-            tests/architecture/ tests/characterization/ tests/unit/lab/ \
+            tests/architecture/ tests/characterization/ tests/unit/lab/ tests/contract/ tests/unit/trading/ \
             shared/kill_file.py shared/exposure_gate.py \
             risk/ alpha/ attribution/ runner/ \
             monitoring/ infra/ strategy/ polymarket/ \

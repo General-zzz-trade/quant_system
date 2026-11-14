@@ -12,7 +12,7 @@ import pytest
 
 from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.rest import BinanceRetryableError
+from execution.adapters.binance.rest import BinanceRestError, BinanceRetryableError
 from execution.safety.limits import OrderLimiter
 from runner.binance_main import EventJournal
 from shared.drawdown_guard import DrawdownGuard
@@ -100,7 +100,7 @@ class _Down:
     lambda a: a.get_ticker("BTCUSDT"),
 ])
 def test_reads_raise_when_the_venue_is_down(call):
-    with pytest.raises(Exception):
+    with pytest.raises(BinanceRestError):
         call(_adapter(_Down()))
 
 

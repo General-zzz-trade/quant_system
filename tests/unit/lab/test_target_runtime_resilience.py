@@ -166,3 +166,106 @@ def test_paper_state_older_than_the_available_history_is_refused(tmp_path):
     (state / PAPER_STATE).write_text(json.dumps(saved))
     with pytest.raises(RuntimeError, match="cannot be resumed"):
         _paper(world, state).warmup()
+
+
+# -- added after the step-3 audit -------------------------------------------------------------------
+def test_paper_restart_while_orders_are_pending_reproduces_lab_simulation(tmp_path):
+    spec = _spec("maker", 4)
+    world = _world(tmp_path, spec)
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    i = world["warm"]
+    while not any(s.sleeve.broker.pending for s in runtime.sessions.values()):
+        assert i < world["warm"] + LIVE - 20, "no pending order ever rested"
+        _advance(world, runtime, i)
+        i += 1
+    runtime = _paper(world, state)           # restart exactly while an order is resting
+    runtime.warmup()
+    assert any(s.sleeve.broker.pending for s in runtime.sessions.values())
+    for j in range(i, world["warm"] + LIVE):
+        _advance(world, runtime, j)
+    _assert_matches_lab(world, runtime, spec)
+
+
+@pytest.mark.parametrize("hours", [40])
+def test_paper_survives_a_downtime_and_an_outage_longer_than_a_day(tmp_path, hours):
+    spec = _spec()
+    world = _world(tmp_path, spec)
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    stop = world["warm"] + 60
+    for i in range(world["warm"], stop):
+        _advance(world, runtime, i)
+    resume = stop + hours                     # down for 40 h: five funding settlements happen meanwhile
+    world["clock"]["now"] = (world["rows"]["BTCUSDT"][resume - 1]["start"] + HOUR + 5_000) / 1000
+    runtime = _paper(world, state)
+    runtime.warmup()
+    on = {"value": False}
+    _outage(world, on)
+    for i in range(resume, world["warm"] + LIVE):
+        on["value"] = resume + 100 <= i < resume + 100 + hours    # and later a 40 h market-data outage
+        _advance(world, runtime, i)
+    _assert_matches_lab(world, runtime, spec)
+
+
+def test_execution_catch_up_after_an_outage_does_not_trade_stale_bars(tmp_path):
+    world = _world(tmp_path, _spec())
+    btc = world["fakes"]["BTCUSDT"]
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
+                            market=world["adapter"], account=world["adapter"],
+                            clock=lambda: world["clock"]["now"], testnet=True)
+    runtime.warmup()
+    i = world["warm"]
+    while btc.positions.get("BTCUSDT", D(0)) == 0:
+        assert i < world["warm"] + LIVE - 10
+        _advance(world, runtime, i)
+        i += 1
+    on = {"value": True}
+    _outage(world, on)
+    for _ in range(6):                        # six bars close during the outage
+        _advance(world, runtime, i)
+        i += 1
+    on["value"] = False
+    posts = {s: len(f.posts) for s, f in world["fakes"].items()}
+    events = (tmp_path / "exec" / "target_events.jsonl").read_text().count('"intent"')
+    world["clock"]["now"] = (world["rows"]["BTCUSDT"][i - 1]["start"] + HOUR + 15 * 60_000) / 1000
+    runtime.cycle()                           # recovery 15 min after the last close: every missed bar is stale
+    assert {s: len(f.posts) for s, f in world["fakes"].items()} == posts
+    assert (tmp_path / "exec" / "target_events.jsonl").read_text().count('"intent"') == events
+    assert all(s.cursor == world["rows"][sym][i - 1]["start"] for sym, s in runtime.sessions.items())
+
+
+def test_errors_other_than_market_data_failures_still_end_the_process(tmp_path):
+    world = _world(tmp_path, _spec())
+    runtime = _paper(world, tmp_path / "paper")
+    runtime.warmup()
+
+    def broken(*, method, path, params=None):
+        raise RuntimeError("programming error")
+
+    world["fakes"]["BTCUSDT"].request_public = broken
+    with pytest.raises(RuntimeError, match="programming error"):
+        _advance(world, runtime, world["warm"])
+
+
+def test_targets_only_see_funding_settled_by_the_bar(tmp_path):
+    world = _world(tmp_path, _spec())
+    session = _paper(world, tmp_path / "paper").sessions["BTCUSDT"]
+    session.funding = {0: 0.1, 8 * HOUR: 0.2, 16 * HOUR: 0.3}
+    assert list(session.funding_series(8 * HOUR).index) == [0, 8 * HOUR]
+    assert list(session.funding_series().index) == [0, 8 * HOUR, 16 * HOUR]
+
+
+def test_paper_snapshot_covers_every_mutable_broker_attribute(tmp_path):
+    from runner.binance_target import _BROKER_STATE
+    world = _world(tmp_path, _spec("maker", 4))
+    runtime = _paper(world, tmp_path / "paper")
+    runtime.warmup()
+    for i in range(world["warm"], world["warm"] + 50):
+        _advance(world, runtime, i)
+    broker = runtime.sessions["BTCUSDT"].sleeve.broker
+    rebuilt_from_config = {"config", "emit", "status", "leverage"}
+    handled_separately = {"position", "pending"}
+    assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately
