@@ -102,7 +102,21 @@ class TargetRuntime:
                 self.journal.write("issue", symbol=symbol, issue=issue)
             if any("stop_breached" in i for i in issues):
                 session.flatten("stop_breached")
+            self._require_stop(symbol, session)
         self._last_reconcile = self.clock()
+
+    def _require_stop(self, symbol: str, session: TargetSession) -> None:
+        """ADR-0005 4b: a confirmed position without an active exchange stop blocks entries. Checked after a
+        breached stop's flatten, so a position that flatten closed blocks nothing."""
+        try:
+            unprotected = session.stops.unprotected()
+        except Exception:
+            logger.exception("%s stop check failed; entries blocked", symbol)
+            unprotected = True
+        if unprotected:
+            session.executor.block_entries()
+            self.journal.write("issue", symbol=symbol,
+                               issue=f"{symbol}: position without an active protective stop; entries blocked")
 
     def risk_actions(self) -> None:
         kill = self.kill.state()

@@ -232,3 +232,18 @@ def test_a_stop_refused_or_lost_for_any_other_reason_is_never_reported_as_breach
     assert result.get("breached", False) is False
     assert result["status"] == ("rejected" if isinstance(error, BinanceRateLimitError) else "error")
 
+
+
+def test_a_stop_check_that_fails_blocks_entries(tmp_path):
+    world, runtime = _start(tmp_path)
+    _until_position(world, runtime)
+    session = runtime.sessions["BTCUSDT"]
+
+    def broken():
+        raise OSError("journal unreadable")
+
+    session.stops.unprotected = broken
+    runtime.reconcile()
+    assert session.executor.ready is False
+    assert "BTCUSDT: position without an active protective stop; entries blocked" in [
+        r["issue"] for r in _events(tmp_path, "issue")]
