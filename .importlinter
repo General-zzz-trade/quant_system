@@ -82,5 +82,6 @@ name = adapters do not import each other
 type = independence
 modules =
     trading.adapters.binance
+    trading.adapters.files
     trading.adapters.sqlite
 

@@ -36,6 +36,10 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from typing import Any
 
+from trading.adapters.files.event_log import JsonlEventLog as EventJournal  # moved in migration step 10
+from trading.application.equity import EquitySource as _EquitySource
+from trading.application.risk.readiness import EntryReadinessGate
+from trading.domain.bars import bar_from_kline
 from trading.domain.orders import SETTLED
 
 logger = logging.getLogger("binance_main")
@@ -46,7 +50,6 @@ WARMUP_BARS = 3000           # same bounded warmup as the research replays
 POLL_SECONDS = 5.0
 RECONCILE_SECONDS = 5.0
 EQUITY_SECONDS = 60.0
-EQUITY_MAX_AGE = 120.0
 MAX_ENTRY_DELAY_MS = 10 * 60_000   # entries only from bars processed within 10 min of close
 FUNDING_WAIT_MS = 2 * 60_000       # wait this long for a settlement published at the close
 EXIT_RETRY_SECONDS = 30.0
@@ -77,35 +80,11 @@ def load_model_dir(model_dir: Path, symbol: str, now_ms: int) -> tuple[dict, dic
 # ----------------------------------------------------------------------------
 # Small gates and helpers
 # ----------------------------------------------------------------------------
-class EquitySource:
+class EquitySource(_EquitySource):
+    """Compatibility shell (migration step 10): the wall clock stays the default."""
+
     def __init__(self, clock=time.time) -> None:
-        self.value, self.at, self.clock = D(0), 0.0, clock
-
-    def update(self, equity: D) -> None:
-        self.value, self.at = D(str(equity)), self.clock()
-
-    def current(self) -> D:
-        if self.value <= 0 or self.clock() - self.at > EQUITY_MAX_AGE:
-            return D(0)  # stale equity sizes to zero
-        return self.value
-
-
-class EntryReadinessGate:
-    """Blocks new exposure unless the bar that produced it had complete, fresh inputs."""
-
-    def __init__(self, session: "SymbolSession", inner: Any) -> None:
-        self.session, self.inner = session, inner
-
-    def check(self, event: Any) -> Any:
-        from shared.entry_risk import GateResult
-        try:
-            qty = D(str(event.qty))
-            reducing = qty == 0 or getattr(event, "reduce_only", False) is True
-            if not reducing and not self.session.entry_ready:
-                return GateResult(False, "inputs: " + self.session.entry_reason)
-            return self.inner.check(event)
-        except Exception as exc:
-            return GateResult(False, f"entry gate failed: {type(exc).__name__}")
+        super().__init__(clock)
 
 
 class DecisionAdapter:
@@ -120,30 +99,6 @@ class DecisionAdapter:
 
     def on_fill(self, event: Any) -> None:
         self.module.on_fill(event)
-
-
-class EventJournal:
-    """Append-only JSONL of signals, intents, fills and issues (observability only)."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-    def write(self, kind: str, **fields: Any) -> None:
-        row = {"ts": time.time(), "kind": kind, **fields}
-        with self.path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(row, default=str, ensure_ascii=False) + "\n")
-
-
-def bar_from_kline(row: dict):
-    from data.quality.causal_bars import Bar
-    start = int(row["start"])
-    if start % HOUR:
-        raise ValueError(f"kline open time {start} is not hour-aligned")
-    extras = None
-    if all(k in row for k in ("quote_volume", "trades", "taker_buy_volume", "taker_buy_quote_volume")):
-        extras = {k: D(str(row[k])) for k in ("quote_volume", "trades", "taker_buy_volume", "taker_buy_quote_volume")}
-    return Bar(start, *(D(str(row[k])) for k in ("open", "high", "low", "close", "volume")), extras=extras)
 
 
 # ----------------------------------------------------------------------------
