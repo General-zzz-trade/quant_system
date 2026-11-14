@@ -38,6 +38,8 @@ from event.header import EventHeader
 from event.types import EventType, FillEvent
 from monitoring.tca import TCALogger
 from shared.confirmed_execution import ConfirmedExecutor, PendingOrder
+from trading.application.execution.reduction import size_reduction
+from trading.application.reconcile import reconcile_account
 
 logger = logging.getLogger(__name__)
 
@@ -162,23 +164,9 @@ class BinanceExecutionAdapter:
                 # Never leave an entry remainder able to re-open after an exit.
                 for cancelled_intent, fact in self._orders.cancel_entries(event.symbol):
                     self._record_fills(cancelled_intent, (fact,))
-                positions = [p for p in self._adapter.get_positions(symbol=event.symbol, strict=True)
-                             if p.symbol == event.symbol and Decimal(str(p.qty)) != 0]
-                if len(positions) != 1:
-                    raise ValueError("Reduction requires one unambiguous venue position")
-                actual = Decimal(str(positions[0].qty))
-                if qty == 0:
-                    qty, side = abs(actual), "sell" if actual > 0 else "buy"
-                if side != ("sell" if actual > 0 else "buy"):
-                    raise ValueError("Reduction side does not reduce venue position")
-                qty = min(qty, abs(actual))
-                if self.owner:
-                    checkpoint = self.journal.checkpoint(self.owner)
-                    owned = Decimal(checkpoint["position"]["qty"]) if checkpoint else Decimal(0)
-                    if not owned.is_finite() or owned * actual <= 0:
-                        raise ValueError("No confirmed position owned by this strategy")
-                    qty = min(qty, abs(owned))
-                    consumer_revision = checkpoint["revision"]
+                sized = size_reduction(self._adapter, self.journal, owner=self.owner, symbol=event.symbol,
+                                       side=side, qty=qty)
+                qty, side, consumer_revision = sized.qty, sized.side, sized.consumer_revision
             header = asdict(event.header)
             header["event_type"] = event.header.event_type.value
             parent = {"header": header, "order_id": intent_id, "symbol": event.symbol,
@@ -251,29 +239,7 @@ class BinanceExecutionAdapter:
         """Read-only verification; any mismatch blocks entries and never fabricates fills."""
         self._ready = False
         issues = list(getattr(self._adapter, "execution_blockers", lambda: [])())
-        try:
-            positions = self._adapter.get_positions(symbol=symbol, strict=True)
-            nonflat = [p for p in positions if p.symbol == symbol and Decimal(str(p.qty)) != 0]
-            if len(nonflat) > 1:
-                issues.append(f"{symbol}: multiple positions require explicit reconciliation")
-            actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))
-            expected = Decimal(0)
-            for owner in {r["owner"] for r in self.journal.orders() if r["symbol"] == symbol}:
-                checkpoint = self.journal.checkpoint(owner)
-                if checkpoint:
-                    expected += Decimal(checkpoint["position"]["qty"])
-            if not actual.is_finite() or not expected.is_finite() or actual != expected:
-                issues.append(f"{symbol}: venue qty={actual}, ledger qty={expected}")
-            if any(row["symbol"] == symbol for row in self._orders.unresolved()):
-                issues.append(f"{symbol}: unresolved orders or legacy journal records")
-            known = {row["order_id"] for row in self.journal.orders() if row["symbol"] == symbol}
-            for order in self._adapter.get_open_orders(symbol=symbol, strict=True):
-                if order.order_id not in known:
-                    issues.append(f"{symbol}: unowned open order {order.order_id}")
-            if self.journal.fills(self.owner):
-                issues.append(f"{symbol}: undelivered fills")
-        except Exception as exc:
-            issues.append(f"{symbol}: reconciliation failed ({type(exc).__name__})")
+        issues += reconcile_account(self._adapter, self.journal, owner=self.owner, symbol=symbol)
         self._ready = not issues
         if issues:
             logger.error("Entry blocked: %s", "; ".join(issues))
