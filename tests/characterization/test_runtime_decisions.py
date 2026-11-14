@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from decimal import Decimal as D
 
+import pytest
+
 from lab.orders import make_order
 from lab.rebalance import plan
 from lab.strategy import StrategySpec
@@ -222,3 +224,26 @@ def test_a_failed_equity_refresh_blocks_entries_until_equity_is_known_again(tmp_
     world["adapter"].get_account_equity = real
     runtime.refresh_equity()
     assert session.gate.check(_order(False)).allowed
+
+
+# --- found by the audit after step 10b ----------------------------------------------------------------------
+
+@pytest.mark.known_defect("R23")
+def test_current_second_entry_within_a_second_is_refused_by_the_account_wide_rate_limit(tmp_path):
+    """Both symbols decide on the same hourly close and share one limiter of one order per second (real
+    clock). When the first symbol's entry is checked, the second symbol's entry in the same second is
+    refused, and nothing retries it before the next bar. Research has no such limit, so with two symbols
+    the execution path can open the second position an hour later than research does."""
+    world, runtime = _start(tmp_path)
+    for session in runtime.sessions.values():
+        session.entry_ready, session.entry_reason = True, ""
+    first = runtime.sessions["BTCUSDT"].gate.check(_order(False))
+    second = runtime.sessions["ETHUSDT"].gate.check(
+        make_order(order_id="ETHUSDT:1:test:0", source="target.ETHUSDT", symbol="ETHUSDT", side="buy",
+                   qty=D("0.1"), price=D("2000"), reduce_only=False, reason="test"))
+    assert first.allowed
+    assert second.allowed is False and second.reason.startswith("max_orders_per_second")
+    reduction = make_order(order_id="ETHUSDT:1:test:1", source="target.ETHUSDT", symbol="ETHUSDT", side="sell",
+                           qty=D("0.1"), price=D("2000"), reduce_only=True, reason="test")
+    assert runtime.sessions["ETHUSDT"].gate.check(reduction).allowed          # reductions are never rate limited
+

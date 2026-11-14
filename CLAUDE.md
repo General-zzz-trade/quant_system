@@ -72,8 +72,10 @@ python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files
   - The loop is `trading/application/runtime.py`; one symbol's hourly step is `trading/application/session.py`;
     `trading/infrastructure/target.py` wires the sessions.
   - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
-  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`). Execution mode sends
-    `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`, behind the risk gates.
+  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`); its state is stored in
+    `paper_state.sqlite` with a JSON mirror (deleting the JSON does not reset it; use `--reset-paper-state`).
+  - Execution mode sends `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`,
+    behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
 - `runner/binance_main.py`: ML runtime (`AlphaDecisionModule` with a frozen Ridge bundle). The ML line
   is closed.
