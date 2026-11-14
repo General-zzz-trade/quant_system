@@ -236,7 +236,7 @@ class SqliteOrderJournal:
     def stop_rows(self, owner: str, symbol: str, *, live_only: bool) -> list[dict[str, Any]]:
         query = "SELECT * FROM protective_stops WHERE scope=? AND owner=? AND symbol=?"
         if live_only:
-            query += " AND status IN ('active','unknown','canceling')"
+            query += " AND status IN ('active','unknown','canceling','awaiting_order')"
         with self.connect() as db:
             return [dict(r) for r in db.execute(query + " ORDER BY created_at", (self.scope, owner, symbol))]
 

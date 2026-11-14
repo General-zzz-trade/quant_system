@@ -63,10 +63,17 @@ def _with_position(tmp_path):
     return fake, executor, consumer, stops
 
 
-@pytest.mark.known_defect("R3")
-def test_current_rejected_stop_leaves_entries_enabled(tmp_path):
-    fake, executor, consumer, stops = _with_position(tmp_path)
-    original = fake.request_signed
+def test_a_position_without_a_working_stop_blocks_entries_until_one_is_in_place(tmp_path):
+    """R3, fixed in migration step 12 (ADR-0005 4b, invariant K5). Until then this test pinned the defect: the
+    stop was refused at every cycle and entries stayed enabled. The position itself is never touched."""
+    from tests.characterization.test_runtime_decisions import _events, _start, _until_position
+    from tests.characterization.test_exit_paths import _tick
+    world, runtime = _start(tmp_path)
+    _until_position(world, runtime)
+    btc, session = world["fakes"]["BTCUSDT"], runtime.sessions["BTCUSDT"]
+    position = btc.positions["BTCUSDT"]
+    assert session.stops.has_active_stop() and session.executor.ready
+    original = btc.request_signed
 
     def refuse_algo_orders(*, method, path, params=None):
         if path == "/fapi/v1/algoOrder" and method == "POST":
@@ -74,29 +81,46 @@ def test_current_rejected_stop_leaves_entries_enabled(tmp_path):
                                            http_status=400, code=-4120)
         return original(method=method, path=path, params=params)
 
-    fake.request_signed = refuse_algo_orders
+    btc.request_signed = refuse_algo_orders
+    for stop in btc.algo.values():
+        stop["algoStatus"] = "CANCELED"                  # the venue dropped the stop; a new one is refused
     for _ in range(3):
-        issues = executor.reconcile_account("BTCUSDT") + stops.sync()   # as runner/binance_target.py:304
-        assert any("protective stop rejected" in issue for issue in issues)
-        assert executor._ready is True                  # entries stay enabled without a stop
-        assert stops.has_active_stop() is False
-    assert fake.positions["BTCUSDT"] == D("0.1")
+        _tick(world, runtime)
+        assert session.executor.ready is False           # entries are blocked without a stop
+        assert session.stops.has_active_stop() is False
+    issues = [r["issue"] for r in _events(tmp_path, "issue") if r.get("symbol") == "BTCUSDT"]
+    assert any("protective stop rejected" in issue for issue in issues)
+    assert "BTCUSDT: position without an active protective stop; entries blocked" in issues
+    assert btc.positions["BTCUSDT"] == position          # the position itself is left alone
+    btc.request_signed = original
+    _tick(world, runtime)
+    assert session.stops.has_active_stop() and session.executor.ready is True
 
 
-@pytest.mark.known_defect("R8")
-def test_current_stop_triggered_without_order_id_is_never_adopted(tmp_path):
+def test_a_triggered_stop_is_followed_until_the_order_it_became_is_known(tmp_path):
+    """R8, fixed in migration step 12. Until then this test pinned the defect: a stop reported triggered before
+    its order id was known was marked final at once, its fill never reached the ledger, and the ledger kept a
+    position the venue no longer had."""
     fake, executor, consumer, stops = _with_position(tmp_path)
     stops.sync()
     (client_id,) = [k for k, v in fake.algo.items() if v["algoStatus"] == "NEW"]
     fake.algo[client_id]["algoStatus"] = "TRIGGERED"      # status first, actualOrderId still empty
-    stops.sync()
+    issues = stops.sync()
+    assert issues == ["BTCUSDT: protective stop triggered; the order it became is not known yet"]
+    assert stops.unprotected() is True and stops.has_active_stop() is False      # entries get blocked
+    fake.algo.pop(client_id)                              # a lookup that finds nothing does not end the wait
+    assert stops.sync() == ["BTCUSDT: protective stop triggered; the order it became is not known yet"]
+    fake.algo[client_id] = {"algoId": 1, "clientAlgoId": client_id, "symbol": "BTCUSDT", "side": "SELL",
+                            "algoStatus": "NEW", "triggerPrice": "96", "actualOrderId": "", "closePosition": "true"}
     fake.trigger_stop(client_id, D("95.9"))              # then the venue closes the position
-    stops.sync()
-    assert not [r for r in executor.journal.orders(OWNER) if r["intent_id"].startswith("stop-")]
-    assert executor.reconcile_pending() == ()
-    assert fake.positions["BTCUSDT"] == 0
-    assert executor.journal.checkpoint(OWNER)["position"]["qty"] == "0.1"
-    assert executor.reconcile_account("BTCUSDT") == ["BTCUSDT: venue qty=0, ledger qty=0.1"]
+    assert stops.sync() == ["BTCUSDT: protective stop triggered"]
+    assert len(fake.algo) == 1                            # no second stop was placed while waiting
+    assert [r["intent_id"] for r in executor.journal.orders(OWNER) if r["intent_id"].startswith("stop-")] == [
+        f"stop-{client_id}"]
+    _drain(executor, consumer)
+    assert fake.positions["BTCUSDT"] == 0 and consumer.position.qty == 0
+    assert executor.reconcile_account("BTCUSDT") == []
+    assert stops.unprotected() is False
 
 
 def test_triggered_stop_with_order_id_reaches_the_ledger(tmp_path):
@@ -107,6 +131,19 @@ def test_triggered_stop_with_order_id_reaches_the_ledger(tmp_path):
     stops.sync()
     _drain(executor, consumer)
     assert consumer.position.qty == 0
+
+
+def test_no_new_stop_is_placed_in_the_pass_that_adopts_a_triggered_one(tmp_path):
+    """Found while fixing R8 (step 12): the ledger still shows the position until the adopted fill is consumed,
+    and a stop placed for it then would sit at the venue and could close a later position at a stale price."""
+    fake, executor, consumer, stops = _with_position(tmp_path)
+    stops.sync()
+    (client_id,) = [k for k, v in fake.algo.items() if v["algoStatus"] == "NEW"]
+    fake.trigger_stop(client_id, D("95.9"))
+    assert stops.sync() == ["BTCUSDT: protective stop triggered"]
+    assert list(fake.algo) == [client_id]
+    _drain(executor, consumer)
+    assert stops.sync() == [] and list(fake.algo) == [client_id] and consumer.position.qty == 0
 
 
 @pytest.mark.known_defect("R9")
