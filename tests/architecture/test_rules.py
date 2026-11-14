@@ -224,3 +224,16 @@ def test_sqlite_is_imported_only_by_the_sqlite_adapters():
             if any(n == "sqlite3" or n.startswith("sqlite3.") for n in names):
                 importers.append(str(path.relative_to(ROOT)))
     assert importers == []
+
+
+def test_the_binance_adapter_loads_no_legacy_package_and_no_rust():
+    import subprocess
+    import sys
+    legacy = ["alpha", "attribution", "data", "decision", "engine", "event", "execution", "features", "infra",
+              "lab", "monitoring", "polymarket", "research", "risk", "runner", "scripts", "shared", "state",
+              "strategy", "tests", "_quant_hotpath"]
+    code = ("import sys, trading.adapters.binance.adapter, trading.infrastructure.settings; "
+            f"print(sorted({{m.split('.')[0] for m in sys.modules}} & set({legacy!r})))")
+    out = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"

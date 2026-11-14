@@ -10,9 +10,9 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.rest import BinanceRestError, BinanceRetryableError
+from trading.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.rest import BinanceRestError, BinanceRetryableError
 from execution.safety.limits import OrderLimiter
 from runner.binance_main import EventJournal
 from shared.drawdown_guard import DrawdownGuard
