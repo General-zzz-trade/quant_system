@@ -62,7 +62,7 @@ trading/
     risk/entry_gate.py       入场组合门
     reconcile.py             账本与交易所核对
   adapters/
-    binance/             rest、market_data、account、order_gateway、stop_gateway
+    binance/             rest、adapter（一个类实现行情、账户、下单、止损四个端口）
     sqlite/              order_journal、drawdown_store、limit_store、paper_store
     files/               kill_file、event_log、status_file、signed_spec
     simulated/           bar_broker（研究撮合模型，纸面与研究共用）
@@ -124,14 +124,14 @@ import-linter 查不了的两条规则用 AST 测试补：
 
 ## 3. 端口
 
-端口的方法集合来自现有代码的实际调用点（`current-state.md` 2.2 的 V8–V10，以及订单生命周期追踪）。全部用 `typing.Protocol` 定义在 `trading/application/ports.py`。
+端口的方法集合来自现有代码的实际调用点（`current-state.md` 2.2 的 V8–V10，以及订单生命周期追踪）。全部用 `typing.Protocol` 定义在 `trading/application/ports.py`。方法名沿用现有命名，这样现有的适配器和测试用假交易所不改代码就符合端口。
 
 | 端口 | 方法 | 现在的直接调用点 | 目标适配器 |
 |---|---|---|---|
-| `MarketData` | `closed_klines(symbol, interval, limit, now_ms)`、`funding_history(symbol, limit)` | `runner/binance_target.py:277,279,328,334` | `adapters.binance.market_data`；研究用 CSV 快照 |
-| `ExchangeAccount` | `equity()`、`positions(symbol=None)`、`open_orders(symbol)`、`filters(symbol)`、`blockers()`、`mark_price(symbol)` | `shared/exposure_gate.py:26,30,34`；`execution_adapter.py:165,260-277`；`runner/binance_target.py:236,291` | `adapters.binance.account`；`adapters.simulated` |
-| `OrderGateway` | `send_market(...)`、`send_limit(...)`、`get_order(...)`、`cancel_order(...)`、`trades(symbol, order_id)` | `shared/confirmed_execution.py:176,185,189,226,249,254` | `adapters.binance.order_gateway`；`adapters.simulated` |
-| `StopOrderGateway` | `place_stop(...)`、`get_stop(...)`、`cancel_stop(...)` | `protective_stops.py:87,103,106,125` | `adapters.binance.stop_gateway` |
+| `MarketData` | `get_klines(symbol, interval, limit, now_ms)`、`get_funding_history(symbol, limit)` | `runner/binance_target.py:277,279,328,334` | `adapters.binance.market_data`；研究用 CSV 快照 |
+| `ExchangeAccount` | `get_account_equity()`、`get_positions(symbol, strict)`、`get_open_orders(symbol, strict)`、`filters(symbol)`、`execution_blockers()`、`get_ticker(symbol)` | `shared/exposure_gate.py:26,30,34`；`execution_adapter.py:165,260-277`；`runner/binance_target.py:236,291` | `adapters.binance.account`；`adapters.simulated` |
+| `OrderGateway` | `send_market_order(...)`、`send_limit_order(...)`、`get_order(...)`、`cancel_order(...)`、`get_recent_fills(symbol, order_id, limit)` | `shared/confirmed_execution.py:176,185,189,226,249,254` | `adapters.binance.order_gateway`；`adapters.simulated` |
+| `StopOrderGateway` | `place_stop_market(...)`、`get_algo_order(...)`、`cancel_algo_order(...)` | `protective_stops.py:87,103,106,125` | `adapters.binance.stop_gateway` |
 | `OrderJournal` | `reserve(intent)`、`transition(intent_id, to)`、`record_fill(...)`、`settle(...)`、`unresolved(...)`、`undelivered(owner)`、`consume(owner, fill_id, apply)`、`checkpoint(owner)`、`adopt(...)`、止损行的读写 | 7 个以上文件直接写 SQL（V8） | `adapters.sqlite.order_journal`，三张订单表和止损表的唯一写入者 |
 | `DrawdownStore` | `load(scope, period)`、`save(...)`、`observe(...)` | `shared/drawdown_guard.py:45` | `adapters.sqlite.drawdown_store` |
 | `LimitStore` | `load_day(scope, day)`、`add(...)` | 现在在 Rust 进程内存里 | `adapters.sqlite.limit_store` |
@@ -296,7 +296,7 @@ flowchart LR
 | `shared/execution_journal.py` | `adapters/sqlite/order_journal.py` | 移动并扩展为唯一写入者 |
 | `execution/adapters/binance/execution_adapter.py` | 减仓定量与对账 → `application`；其余并入 `lifecycle` | 拆分 |
 | `execution/adapters/binance/protective_stops.py` | `application/execution/stops.py` | 移动；SQL 移入适配器 |
-| `execution/adapters/binance/adapter.py`、`rest.py` | `adapters/binance/*`，按端口拆成 4 个类 | 移动并拆分 |
+| `execution/adapters/binance/adapter.py`、`rest.py` | `adapters/binance/*`。先由一个类实现四个端口，按端口拆成多个类留作后续 | 移动 |
 | `shared/kill_file.py` | `adapters/files/kill_file.py` + `infrastructure/cli/kill.py` | 拆分 |
 | `infra/model_signing.py` 的验签 | `adapters/files/signed_spec.py` | 移动在用部分 |
 | `runner/offline/broker.py` 的 `BarBroker` | `adapters/simulated/bar_broker.py` | 移动 |
