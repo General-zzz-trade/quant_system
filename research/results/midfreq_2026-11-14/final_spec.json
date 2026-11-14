@@ -1,0 +1,355 @@
+{
+  "schema": 1,
+  "kind": "midfreq_feasibility",
+  "study": "midfreq_2026-11-14",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "DOGEUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "MATICUSDT",
+    "CHZUSDT",
+    "MASKUSDT",
+    "APTUSDT",
+    "LTCUSDT",
+    "LINKUSDT",
+    "ETCUSDT",
+    "ADAUSDT",
+    "APEUSDT"
+  ],
+  "selected": {
+    "id": "xs_mom_4h",
+    "kind": "rule",
+    "horizon_bars": 48
+  },
+  "candidates": [
+    {
+      "id": "xs_rev_15m",
+      "kind": "rule",
+      "horizon_bars": 3
+    },
+    {
+      "id": "xs_rev_1h",
+      "kind": "rule",
+      "horizon_bars": 12
+    },
+    {
+      "id": "xs_mom_4h",
+      "kind": "rule",
+      "horizon_bars": 48
+    },
+    {
+      "id": "flow_1h",
+      "kind": "rule",
+      "horizon_bars": 12
+    },
+    {
+      "id": "ridge_15m",
+      "kind": "ridge",
+      "horizon_bars": 3
+    },
+    {
+      "id": "ridge_1h",
+      "kind": "ridge",
+      "horizon_bars": 12
+    },
+    {
+      "id": "ridge_4h",
+      "kind": "ridge",
+      "horizon_bars": 48
+    }
+  ],
+  "costs": {
+    "taker": [
+      0.0005,
+      0.0002
+    ],
+    "taker_x2": [
+      0.001,
+      0.0004
+    ],
+    "maker": [
+      0.0002,
+      0.0
+    ],
+    "zero": [
+      0.0,
+      0.0
+    ]
+  },
+  "gate": {
+    "taker_total_return_above": 0.0,
+    "deflated_sharpe_probability_min": 0.95,
+    "taker_x2_total_return_above": 0.0,
+    "max_drawdown_daily_max": 0.3,
+    "wipeout_allowed": false
+  },
+  "gate_result": {
+    "taker_total_return": {
+      "value": -0.7750106906571109,
+      "reference": 0.0,
+      "ok": false
+    },
+    "deflated_sharpe_probability": {
+      "value": 2.809463900657183e-09,
+      "reference": 0.95,
+      "ok": false
+    },
+    "taker_x2_total_return": {
+      "value": -0.8505761552413273,
+      "reference": 0.0,
+      "ok": false
+    },
+    "max_drawdown_daily": {
+      "value": 0.8030426481075896,
+      "reference": 0.3,
+      "ok": false
+    },
+    "no_wipeout": {
+      "value": false,
+      "reference": false,
+      "ok": true
+    }
+  },
+  "conclusion": "not_feasible",
+  "passed": false,
+  "mainnet": "refused: a feasibility result is not a tradable strategy",
+  "code": {
+    "git_revision": "a7a5f49a860d5bf1df4eb20f25c6ce3e5d0d98fc",
+    "lab_or_offline_dirty": false
+  },
+  "data": {
+    "bar": "5m",
+    "downloaded_at": "2026-11-14T14:35:39+00:00",
+    "end": "2025-11-16",
+    "files": {
+      "ADAUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "2e6ac566642e7ec49d5f5ef037d5a9a0ecb42826f59436328598a893c9cda008"
+      },
+      "ADAUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "bcf350192237bf4e3ac7ef96fa538d6c68b1c7d719ce1a916baa9604e5e19639"
+      },
+      "APEUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "65aacb4b58490701c29def10fc6afbdd5064601ff9622c5957b6e12a58db2863"
+      },
+      "APEUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "008330cd104c783bfb4cb7bdd3af0870fb40c1b83e844b5c6b3df5da70980727"
+      },
+      "APTUSDT_5m.csv.gz": {
+        "rows": 323688,
+        "sha256": "1f182ffa5bb31b89348a7f6f9d2da03d69022db88a52e716a218becf18fd72db"
+      },
+      "APTUSDT_funding.csv.gz": {
+        "rows": 3373,
+        "sha256": "7f3f58949b795a20574f01b76d949e9cc2b4c0cfb80237eb36a3e6f65cc57a56"
+      },
+      "BNBUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "b49144ae0c726b4e21ba9a06c8f5a9ae312555789f9bddca29d7fde3c0a69e40"
+      },
+      "BNBUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "674c924491d6be7c9c71c9accf8d0ce33ef87be872a03cb2a4c876e58e093be1"
+      },
+      "BTCUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "17ab95b7d38a968915bd4e51bbfd737f23192723d9591c794d20dd4f30863fe2"
+      },
+      "BTCUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "d0fcdbb24e329bf0349e5606e02ae9c7be647bc2f8d5345e9a24262fe5d44c0c"
+      },
+      "CHZUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "b46b7315b773ec37499cd1d46527ada3580735787bfc756bc8100e8a59f2f246"
+      },
+      "CHZUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "bf4d25970affe252df572784d968216e0a0c2d33ca727926642e87e7c4da3df5"
+      },
+      "DOGEUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "7957b918cdd7e40da31c31d7286eb634dfc91bffcc9af536336d353bce420b8d"
+      },
+      "DOGEUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "83d876eca31885d125ba92778deb58bcbfedc7015fd4c66178a33c690a0fa73d"
+      },
+      "ETCUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "b1e2324b376383f39252800fc5d559aa3b62fe601cb5477dd8303a0d68dc98e2"
+      },
+      "ETCUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "97d1a5a8ec031d43bd9d06a295af0501b9ef37614edde55c361ab694f12a8eec"
+      },
+      "ETHUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "e840679b21f4c9eabbb0112d613472e5029d33263f939be764bfeeb46b30bf70"
+      },
+      "ETHUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "b981cb96fb0be340018aeba4deee77360c3f04464b4015d46331cc738ac722b9"
+      },
+      "LINKUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "d3f0939c8930aa7ea705952956f2d778247a6a6d607e92e7dd3e1863d726af5f"
+      },
+      "LINKUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "c45ad7d6370494d76523b0bd147f5bef66f511f17f42d86fbf3f713ab335f1e8"
+      },
+      "LTCUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "48269ce25af59079327ae86d0aa9ebda05b83bdc4b164e34984aa0228cd0cf69"
+      },
+      "LTCUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "446f1b2dc23ca77aa34d83f36b967ac55e056563d867a8d18af68bab299e8e71"
+      },
+      "MASKUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "74d0f5ba6d72fb795e362dbb47b4bd4cbfdda33cff73e39d5d3102dd9ff75db0"
+      },
+      "MASKUSDT_funding.csv.gz": {
+        "rows": 4662,
+        "sha256": "2525ad93b9653f73268852e59e669ecfa4815c31c09f62403ace35eadf8d6413"
+      },
+      "MATICUSDT_5m.csv.gz": {
+        "rows": 204885,
+        "sha256": "4fa871fd00ea1f99f9f32a84ab72e4c5d093a538d84a3787846c9b5f1334a26b"
+      },
+      "MATICUSDT_funding.csv.gz": {
+        "rows": 2193,
+        "sha256": "590bf2d48336917806b3fdf6e71f227b0b87d78c2c08168cf1e2c1414f4748ca"
+      },
+      "SOLUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "bea64ef8105216ac5742941fe6fcd32ff3e046a67e0de686c56b6033ba65a67a"
+      },
+      "SOLUSDT_funding.csv.gz": {
+        "rows": 3501,
+        "sha256": "4314dd6550a902d066dc796594dc105a8c089e4a37e47058989cbd7a5a512a77"
+      },
+      "XRPUSDT_5m.csv.gz": {
+        "rows": 328896,
+        "sha256": "c142f6a3a2875ab7638d326604c4b5c4ad2c47e7a0c970df3c0e347e6d64e7a8"
+      },
+      "XRPUSDT_funding.csv.gz": {
+        "rows": 3426,
+        "sha256": "d17789d14670b25305d8245a44dfae5ebc81ff3b87b6dd2e16b19252267d9570"
+      },
+      "exchange_info.json": {
+        "sha256": "469672ccc898b7d8f8cf5c63cb9f22216faa9be29bf6d4487f7ef40a2121cd39"
+      }
+    },
+    "missing_months": {
+      "MATICUSDT": [
+        "2024-10",
+        "2024-11",
+        "2024-12",
+        "2025-01",
+        "2025-02",
+        "2025-03",
+        "2025-04",
+        "2025-05",
+        "2025-06",
+        "2025-07",
+        "2025-08",
+        "2025-09",
+        "2025-10",
+        "2025-11"
+      ]
+    },
+    "ranking_months": [
+      "2022-10",
+      "2022-11",
+      "2022-12"
+    ],
+    "source": "data.binance.vision USD-M monthly archives",
+    "start": "2022-10-01",
+    "universe": [
+      {
+        "rank": 1,
+        "ranking_quote_volume": 818648554226.4773,
+        "symbol": "BTCUSDT"
+      },
+      {
+        "rank": 2,
+        "ranking_quote_volume": 674968407472.1129,
+        "symbol": "ETHUSDT"
+      },
+      {
+        "rank": 3,
+        "ranking_quote_volume": 130215651918.64536,
+        "symbol": "DOGEUSDT"
+      },
+      {
+        "rank": 4,
+        "ranking_quote_volume": 74582457646.80754,
+        "symbol": "XRPUSDT"
+      },
+      {
+        "rank": 5,
+        "ranking_quote_volume": 66883083890.683,
+        "symbol": "SOLUSDT"
+      },
+      {
+        "rank": 6,
+        "ranking_quote_volume": 55586310634.549866,
+        "symbol": "BNBUSDT"
+      },
+      {
+        "rank": 7,
+        "ranking_quote_volume": 46858163605.672005,
+        "symbol": "MATICUSDT"
+      },
+      {
+        "rank": 8,
+        "ranking_quote_volume": 36077913268.96038,
+        "symbol": "CHZUSDT"
+      },
+      {
+        "rank": 9,
+        "ranking_quote_volume": 35208281592.958,
+        "symbol": "MASKUSDT"
+      },
+      {
+        "rank": 10,
+        "ranking_quote_volume": 32915809059.296467,
+        "symbol": "APTUSDT"
+      },
+      {
+        "rank": 11,
+        "ranking_quote_volume": 31545986091.17487,
+        "symbol": "LTCUSDT"
+      },
+      {
+        "rank": 12,
+        "ranking_quote_volume": 26863388069.439278,
+        "symbol": "LINKUSDT"
+      },
+      {
+        "rank": 13,
+        "ranking_quote_volume": 25059052273.33767,
+        "symbol": "ETCUSDT"
+      },
+      {
+        "rank": 14,
+        "ranking_quote_volume": 22087063160.833897,
+        "symbol": "ADAUSDT"
+      },
+      {
+        "rank": 15,
+        "ranking_quote_volume": 19502742531.04,
+        "symbol": "APEUSDT"
+      }
+    ]
+  }
+}
