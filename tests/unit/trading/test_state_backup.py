@@ -105,7 +105,7 @@ def test_a_snapshot_that_fails_its_check_is_not_kept_and_fails(state, tmp_path, 
     code, out = _run(state, tmp_path / "backups")
     assert code != 0 and "lost its tables" in out
     assert len(calls) == 2 and calls[1] != state / schema.STATE_DB     # the snapshot itself was checked
-    assert list((tmp_path / "backups").glob("state-*")) == []
+    assert list((tmp_path / "backups").iterdir()) == []                # not even the temporary file
 
 
 def test_a_backup_directory_inside_the_state_directory_is_refused(state):
