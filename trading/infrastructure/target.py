@@ -104,7 +104,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     rules = exchange_lot_rules(account, symbols)
     orders_path = Path(state_dir) / ORDERS_FILE
     drawdown = SqliteDrawdownGuard(Path(state_dir) / DRAWDOWN_FILE, scope, daily_pct=limits.daily_drawdown_pct,
-                                   weekly_pct=limits.weekly_drawdown_pct)
+                                   weekly_pct=limits.weekly_drawdown_pct, clock=clock)
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
     pauses = SqliteEntryPauses(Path(state_dir) / PAUSES_FILE, clock=clock)
@@ -121,14 +121,15 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
         owner = f"target.{symbol}"
-        lifecycle = OrderLifecycle(account, SqliteOrderJournal(orders_path, scope), scope, clock=time.time,
+        # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time.
+        lifecycle = OrderLifecycle(account, SqliteOrderJournal(orders_path, scope), scope, clock=clock,
                                    sleeper=lambda seconds: time.sleep(seconds), lock=threading.RLock(),
                                    owner=owner, **settings)
         service = ExecutionService(account, lifecycle, owner=owner, entry_mode=spec.execution,
-                                   limit_offset=LIMIT_OFFSET, lock=threading.RLock(), clock=time.time,
+                                   limit_offset=LIMIT_OFFSET, lock=threading.RLock(), clock=clock,
                                    monotonic=time.monotonic, event_log=inputs.tca_log)
         executor = OwnerExecutor(service, scope=scope)
-        stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=time.time)
+        stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=clock)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity,

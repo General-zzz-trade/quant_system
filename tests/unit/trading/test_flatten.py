@@ -112,7 +112,9 @@ def test_an_attempt_whose_outcome_is_unknown_is_never_followed_by_another(tmp_pa
     position = btc.positions["BTCUSDT"]
     btc.fault = "error_5xx"                          # the first reduce-only order: outcome unknown, not placed
     runtime.kill.write(active=True, reason="test", flatten=True)
-    for _ in range(4):
+    # 62 s: past the 30 s retry interval, inside the 90 s "not found" grace. Since step 13a the grace runs on
+    # the simulated clock; this test ran 124 s before and passed only because the grace read the real clock.
+    for _ in range(2):
         _tick(world, runtime, 31)
     (attempt,) = _attempts(tmp_path)
     assert btc.positions["BTCUSDT"] == position
