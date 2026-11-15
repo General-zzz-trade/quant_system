@@ -18,13 +18,12 @@ import pytest
 from tests.characterization.test_exit_paths import _tick
 from tests.characterization.test_runtime_decisions import _start, _until_position
 from tests.unit.lab.test_target_runtime import _advance
-from trading.adapters.sqlite.check import database_tables
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.infrastructure import state_dir as managed
-from tests.support.state_db import state_db
+from tests.support.state_db import database_tables, state_db
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as _Guard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
