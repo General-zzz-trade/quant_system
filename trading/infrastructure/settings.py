@@ -12,14 +12,21 @@ from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.telegram import TelegramNotifier
 
 
-def binance_config_from_env(*, testnet: bool) -> BinanceConfig:
+def testnet_from_env(env: Mapping[str, str] | None = None) -> bool:
+    """BINANCE_TESTNET: on unless set to 0, false, no or off."""
+    env = os.environ if env is None else env
+    return env.get("BINANCE_TESTNET", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def binance_config_from_env(*, testnet: bool, env: Mapping[str, str] | None = None) -> BinanceConfig:
     """API credentials for the chosen environment; missing credentials are a start-up error."""
+    env = os.environ if env is None else env
     if testnet:
-        key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
-        secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
+        key = env.get("BINANCE_TESTNET_API_KEY", "")
+        secret = env.get("BINANCE_TESTNET_API_SECRET", "")
     else:
-        key = os.environ.get("BINANCE_API_KEY", "")
-        secret = os.environ.get("BINANCE_API_SECRET", "")
+        key = env.get("BINANCE_API_KEY", "")
+        secret = env.get("BINANCE_API_SECRET", "")
     if not key or not secret:
         raise RuntimeError("Binance API key/secret not set in environment")
     return BinanceConfig(api_key=key, api_secret=secret, testnet=testnet)

@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLAP, STALE_CHECKPOINT,
+from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLAP, SETTLED, STALE_CHECKPOINT,
                                    UNCONSUMED_FILL, UNCONSUMED_OWN_FILL)
 
 
@@ -46,6 +46,10 @@ class SqliteOrderJournal:
             db.execute("""CREATE TABLE IF NOT EXISTS execution_consumers (
                 scope TEXT NOT NULL, owner TEXT NOT NULL, checkpoint TEXT NOT NULL,
                 PRIMARY KEY(scope, owner))""")
+            # What a person did by hand (migration step 12b); rows are never changed or deleted.
+            db.execute("""CREATE TABLE IF NOT EXISTS manual_actions (
+                scope TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL,
+                before TEXT, after TEXT NOT NULL, venue TEXT NOT NULL, reason TEXT NOT NULL)""")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -251,3 +255,49 @@ class SqliteOrderJournal:
         with self.connect() as db:
             db.execute("UPDATE protective_stops SET status=? WHERE scope=? AND client_algo_id=?",
                        (status, self.scope, client_algo_id))
+
+    # -- manual actions: called only by trading.infrastructure.manual, for a person, never by the runtime ----
+    def settle_manually(self, intent_id: str, status: str, *, venue: dict[str, Any], reason: str,
+                        at: float) -> str | None:
+        """Settle an unsettled order as ``status``; returns its previous status, None if it was not open."""
+        if status not in SETTLED or not reason.strip():
+            raise ValueError("a manual settlement needs a settled status and a reason")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT status, settled FROM submissions WHERE scope=? AND intent_id=?",
+                             (self.scope, intent_id)).fetchone()
+            if row is None or row["settled"]:
+                return None
+            db.execute("UPDATE submissions SET settled=1, status=? WHERE scope=? AND intent_id=?",
+                       (status, self.scope, intent_id))
+            db.execute("INSERT INTO manual_actions VALUES (?, ?, 'settle_order', ?, ?, ?, ?, ?)",
+                       (self.scope, at, intent_id, row["status"], status, json.dumps(venue), reason.strip()))
+            return str(row["status"])
+
+    def set_position_manually(self, owner: str, position: dict[str, Any], *, venue: dict[str, Any], reason: str,
+                              at: float) -> dict[str, Any]:
+        """Replace the owner's ledger position (not a fill) and give the checkpoint a new revision. Refused
+        while the owner has fills that are not consumed yet: they would apply on top of the new position."""
+        if not reason.strip():
+            raise ValueError("a manual position needs a reason")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM execution_fills WHERE scope=? AND owner=? AND delivered=0",
+                          (self.scope, owner)).fetchone():
+                raise ValueError("the owner has fills that are not consumed yet")
+            row = db.execute("SELECT checkpoint FROM execution_consumers WHERE scope=? AND owner=?",
+                             (self.scope, owner)).fetchone()
+            before = json.loads(row[0]) if row else None
+            checkpoint = {"position": position, "revision": f"manual-{int(at * 1000)}",
+                          "strategy": (before or {}).get("strategy", {})}
+            db.execute("INSERT OR REPLACE INTO execution_consumers VALUES (?, ?, ?)",
+                       (self.scope, owner, json.dumps(checkpoint, allow_nan=False)))
+            db.execute("INSERT INTO manual_actions VALUES (?, ?, 'set_position', ?, ?, ?, ?, ?)",
+                       (self.scope, at, owner, json.dumps(before["position"]) if before else None,
+                        json.dumps(position), json.dumps(venue), reason.strip()))
+            return checkpoint
+
+    def manual_actions(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return [dict(r) for r in db.execute("SELECT * FROM manual_actions WHERE scope=? ORDER BY at, rowid",
+                                                (self.scope,))]

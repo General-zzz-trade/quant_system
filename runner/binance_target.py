@@ -30,6 +30,7 @@ from lab.orders import make_order
 from lab.simulate import SYMBOL_RULES, Sleeve, broker_config
 from trading.adapters.binance.rest import BinanceRestError
 from trading.adapters.files.event_log import JsonlEventLog
+from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
 from trading.adapters.sqlite.paper_store import SqlitePaperStore
 from trading.application import runtime as _runtime
@@ -138,7 +139,6 @@ class TargetRuntime(_runtime.TargetRuntime):
 
 
 def main(argv: list[str] | None = None) -> None:
-    from shared.execution_lease import ExecutionLease
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--state-dir", type=Path, default=Path("data/runtime/binance_target"))
