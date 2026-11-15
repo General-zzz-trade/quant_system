@@ -9,17 +9,24 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 ORDER_ENDPOINTS = frozenset({"/fapi/v1/order", "/fapi/v1/batchOrders", "/fapi/v1/allOpenOrders"})
-_WEIGHT_1 = frozenset({"/fapi/v1/ticker/price", "/fapi/v1/ticker/bookTicker", "/fapi/v1/exchangeInfo",
-                       "/fapi/v1/openOrders"})
+_WEIGHT_1 = frozenset({"/fapi/v1/ticker/price", "/fapi/v1/ticker/bookTicker", "/fapi/v1/exchangeInfo"})
+# ADR-0011 point 7: account-wide lists weigh 40 (open orders without a symbol, as Binance publishes; the
+# conditional-order list as well until verified); open orders of one symbol weigh 1.
+_WEIGHT_40 = frozenset({"/fapi/v1/openAlgoOrders"})
 _WEIGHT_5 = frozenset({"/fapi/v2/account", "/fapi/v2/balance", "/fapi/v2/positionRisk", "/fapi/v1/allOrders",
                        "/fapi/v1/userTrades", "/fapi/v1/klines", "/fapi/v1/depth"})
 
 
-def endpoint_weight(path: str) -> float:
+def endpoint_weight(path: str, params: dict[str, Any] | None = None) -> float:
     if path in ORDER_ENDPOINTS:
         return 0.0
+    if path == "/fapi/v1/openOrders":
+        return 1.0 if (params or {}).get("symbol") else 40.0
+    if path in _WEIGHT_40:
+        return 40.0
     if path in _WEIGHT_5:
         return 5.0
     if path == "/fapi/v1/income":
@@ -54,12 +61,12 @@ class BinanceRateLimitPolicy:
         self._clock = clock
         self._lock = threading.Lock()
 
-    def check(self, path: str) -> bool:
+    def check(self, path: str, params: dict[str, Any] | None = None) -> bool:
         with self._lock:
             now = self._clock()
             if path in ORDER_ENDPOINTS:
                 return self._orders.try_consume(1.0, now)
-            return self._weight.try_consume(endpoint_weight(path), now)
+            return self._weight.try_consume(endpoint_weight(path, params), now)
 
     def sync_used_weight(self, used_weight: int) -> None:
         with self._lock:

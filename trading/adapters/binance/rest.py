@@ -109,7 +109,7 @@ class BinanceRestClient:
         p.setdefault("recvWindow", self._cfg.recv_window)
         p.setdefault("timestamp", _now_ms())
 
-        if self._rate_policy is not None and not self._rate_policy.check(path):
+        if self._rate_policy is not None and not self._rate_policy.check(path, p):
             raise BinanceRetryableError(f"Rate limited (local): {path}")
 
         qs = _encode_params(p)

@@ -15,7 +15,9 @@ class IssueKind(Enum):
     STOP_MISSING = "stop_missing"            # a confirmed position without an active exchange stop
     STOP_UNCERTAIN = "stop_uncertain"        # a stop's outcome is not known yet
     LEDGER_MISMATCH = "ledger_mismatch"      # the venue position differs from the ledger
-    FOREIGN_HOLDING = "foreign_holding"      # an open order the journal does not know
+    FOREIGN_HOLDING = "foreign_holding"      # a position, open order or stop the strategy does not own (ADR-0011)
+    ACCOUNT_UNREADABLE = "account_unreadable"    # the whole-account check could not read the account or journal
+    ACCOUNT_SETTINGS = "account_settings"    # a symbol's leverage or margin mode differs from the configuration
     UNRESOLVED_ORDER = "unresolved_order"    # a journal order whose outcome is not settled
     UNDELIVERED_FILL = "undelivered_fill"    # a confirmed fill the ledger has not consumed
     RECONCILE_FAILED = "reconcile_failed"    # reconciliation itself failed
@@ -33,6 +35,7 @@ class IssueKind(Enum):
 class Effect(Enum):
     BLOCK_SYMBOL_ENTRIES = "block_symbol_entries"
     BLOCK_ALL_ENTRIES = "block_all_entries"
+    CANCEL_RESTING_ENTRIES = "cancel_resting_entries"    # the blocked symbols' resting entries are cancelled
     FLATTEN_SYMBOL = "flatten_symbol"
     PAUSE_SYMBOL = "pause_symbol"            # written from the durable stop rows, so a restart cannot lose it
     ALERT_ONLY = "alert_only"                # no trading effect; a lasting issue is sent to a person
@@ -46,7 +49,9 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.STOP_MISSING: _BLOCK,
     IssueKind.STOP_UNCERTAIN: _BLOCK,
     IssueKind.LEDGER_MISMATCH: _BLOCK,
-    IssueKind.FOREIGN_HOLDING: _BLOCK,
+    IssueKind.FOREIGN_HOLDING: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
+    IssueKind.ACCOUNT_UNREADABLE: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
+    IssueKind.ACCOUNT_SETTINGS: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
     IssueKind.UNRESOLVED_ORDER: _BLOCK,
     IssueKind.UNDELIVERED_FILL: _BLOCK,
     IssueKind.RECONCILE_FAILED: _BLOCK,
