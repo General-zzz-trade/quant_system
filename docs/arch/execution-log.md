@@ -2476,3 +2476,68 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
     - 原来：`assert connectors == ["check.py", "connection.py", "paper_store.py", "schema.py"]`
     - 现在：`assert connectors == ["connection.py", "paper_store.py", "schema.py"]`
   - 本地漏掉的原因：引用扫描只查了模块路径写法，没查 `check.py` 这种文件名写法，相关的测试文件也没跑。
+
+## S12：研究工具——公用的防未来函数检查和两条架构规则（2026-11-15，设计第 10 节，轻流程）
+
+**改了什么**
+- 新增 `lab/causality.py`：公用的防未来函数检查。
+  - 规则：把时刻 t 之后才知道的输入全部改掉，或者全部删掉；t 及以前就知道的输出必须不变。每个切点各做一次"改掉"和一次"删掉"。
+  - "改掉"之后逐位比较。"删掉"之后数组变短，OpenBLAS 对矩阵乘积的个别行舍入不同【实际运行结果】：Ridge 和冻结模型的预测有 1–3 行最多相差 1.5 个最后一位（按该列最大值计），只出现在 3 个预测用例里。所以"删掉"之后浮点数允许差 4 个最后一位，其余仍逐位比较。技术负责人要求的"改掉之后逐位不变"没有放宽。
+  - "什么时候知道"只在这一处定义：
+    - 有 `available_at` 列的表按这一列；
+    - Binance 指标按 `timestamp` 加 5 分钟（`lab.pair` 的规定）；
+    - 其他表和序列按索引，索引必须是毫秒时间戳；
+    - 以毫秒为键的字典按键（资金费率、决策）；
+    - K 线列表按 `available_at`。
+    - 看不出时间的输出直接拒绝，不按"全部"比较。
+  - 防止空检查：某个切点之前没有输出、之后没有输入，或者所有改动都传不到输出，都报错，不算通过。
+  - 放在 `lab/` 而不是 `tests/support/`：新研究在跑真实数据之前要直接调用它，研究代码不应该导入测试目录。
+  - 两种用法：研究用 `violations(函数, 输入, 切点)`；测试对同一份输入查很多函数时，先用 `variants` 生成一次改过的输入，再逐个 `check`。
+- 登记表（`tests/unit/lab/test_lookahead.py`），新特征不能绕过检查：
+  - `lab/`、`trading/domain/strategy/` 下的每个模块，加上 `trading/domain/market.py`，要么列为特征模块，要么写明为什么不是；
+  - 特征模块里每个公开函数，要么有检查用例，要么写明不查的理由（标签、拟合、模拟、报告、研究入口、标量）；
+  - 新加一个特征函数或者一个模块而不登记，两条登记测试就失败。
+  - 35 个用例。每个用例 3 个切点：午夜、非整点、4 小时收盘。覆盖：
+    - 叠加策略的 `compute_targets`（冻结规格、全部过滤层两种）和它的三个特征函数；K 线聚合和资金费率序列；
+    - 风险研究的 `daily_frame`（简单、EWMA）、组合上限和小时目标；
+    - 三个前向候选的特征、预测、决策和目标（`lab.candidates`、`lab.pair`、`lab.pair_study`、`lab.candidates_study`），走的是前向回放的同一条路径；两个前推验证的预测；
+    - 突破线的特征。
+  - 不查：已关闭的中频线 `lab/midfreq.py`。它是 5 分钟截面数据，这个检查没有建模；代码只用来复现已记录的结果。
+- 架构测试一：研究不得自写成交（`tests/architecture/test_research_fills.py`）。
+  - 规则：`lab/` 里的 `*` 或 `*=`，任何一侧都不得出现名字含 fee、taker、maker、slip、commission、bps、cost、spread、impact（不分大小写）的变量或属性。
+  - 手续费、滑点和成交只由共用的保守撮合器（`runner/offline/broker.py`）计算，经 `lab.simulate` 或 `BarBroker` 调用；`lab/simulate.py` 设定费率，不受此限。
+  - K 线循环和向量化的自写成本模型都能抓到。
+  - 例外必须和实际违规完全一致，多一个、少一个都失败：
+    - `lab/pair_study.py::simulate_pair`：已关闭的 ETH/BTC 配对线的两腿模型。`lab/candidates_forward.py` 在已登记的两次检视（2027-02-13、2027-05-13）用它回放冻结的前向候选 `pair_ridge_pd_7d`，所以不能改，这次也没有改。
+    - `lab/midfreq.py::simulate`：已关闭的中频线，15 个品种、5 分钟的截面模型；共用撮合器只模拟单品种的小时线。代码只用来复现已记录的结果。
+  - 今天除这两个例外没有别的违规【实际运行结果】。
+- 架构测试二：生产代码不得引入 LLM 或 AI 服务（`tests/architecture/test_no_ai_sdk.py`）。
+  - 范围：`trading`、`runner`、`lab`、`data`、`infra`、`monitoring`、`scripts`。
+  - 不得导入（含 `importlib.import_module` 和 `__import__`）：anthropic、openai、cohere、mistralai、ollama、groq、together、replicate、litellm、vertexai、langgraph、langsmith、llama_cpp、transformers、huggingface_hub、sentence_transformers、dspy、instructor、autogen、crewai、semantic_kernel、haystack，任何 `langchain*`、`llama_index*`，以及 `google.generativeai`、`google.genai`、`google.ai.generativelanguage`。
+  - 不得出现 AI 服务的接口域名（OpenAI、Anthropic、Google、Mistral、Cohere、Groq、OpenRouter、Together、Replicate、Hugging Face、DeepSeek、本机 Ollama），防止绕过 SDK 直接发 HTTP。
+  - 不禁：研究已经在用的数值和机器学习库（numpy、scipy、scikit-learn、LightGBM），以及不调用托管模型的本地库。
+  - 今天没有违规【实际运行结果】。
+
+**新测试**（48 条）
+- `tests/unit/lab/test_lookahead.py`（43 条）：
+  - 登记表 2 条，35 个用例；
+  - 检查本身 6 条：4 个注入的未来函数都被抓住（下一根收盘价、全样本标准化、不等 5 分钟就用持仓量、按数据末尾判断"就绪"，最后一个只有"删掉"能发现）；切点上恰好已知的值不会被改；4 种空检查被拒绝。
+- `tests/architecture/test_research_fills.py`（3 条）：现有代码只有两个例外；反例（K 线循环、向量化、类方法、模块级）被抓住；调用共用撮合器并读取它的费用不算违规。
+- `tests/architecture/test_no_ai_sdk.py`（2 条）：生产代码没有违规；9 种写法的反例都被抓住，numpy、scikit-learn、LightGBM、`google.protobuf` 和 Telegram 域名不算违规。
+
+**已有测试的改动**：没有。生产代码只新增了 `lab/causality.py`，其他文件没有改。
+
+**自检**【实际运行结果】：每条新测试都单独跑过，并在注入违规时失败，恢复后通过。
+- 注入 3 个未来函数：`daily_vol` 改用居中窗口、叠加策略用下一天的收盘价、配对特征的持仓量提前 1 小时取。12 个用例失败，包括 `compute_targets` 冻结规格、`symbol_features`、`build`、`b_walk_forward`、`b_targets`。
+- 新增一个没登记的公开函数、新增一个没登记的模块：两条登记测试分别失败。
+- 在风险研究的组合模拟里加一行乘以费率；在 `lab/forward.py` 导入 openai：两条架构测试分别失败。
+- 把检查本身改坏：不比较输出、把切点上恰好已知的值也改掉、去掉防空检查、规则里去掉 slip 和 bps、去掉域名检查、去掉 SDK 名单、规则管得过宽。对应的反例测试都失败。
+
+**本地**【实际运行结果】
+- 新测试 48 条通过；`test_lookahead.py` 单独约 34 秒。
+- `tests/architecture` 和 `tests/unit/lab` 共 221 条通过。
+- 全仓库 ruff、导入契约（5 条）、`mypy trading/`（没有改 `trading/`）通过。
+
+**留给技术负责人**
+- 中频线的模拟器列为例外，没有删除。设计第 10 节只对配对研究写了"列为例外或删除"。
+- 成交规则抓不到"完全不算成本"的自写收益曲线，这类写法仍靠审查【推测】。
