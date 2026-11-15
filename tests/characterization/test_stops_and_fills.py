@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
-import pytest
-
 from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
@@ -146,22 +144,19 @@ def test_no_new_stop_is_placed_in_the_pass_that_adopts_a_triggered_one(tmp_path)
     assert stops.sync() == [] and list(fake.algo) == [client_id] and consumer.position.qty == 0
 
 
-@pytest.mark.known_defect("R9")
-def test_current_order_with_more_than_100_trades_never_settles_and_blocks_reductions(tmp_path):
+def test_an_order_with_more_than_100_trades_settles_and_reductions_go_through(tmp_path):
+    """R9, fixed in migration step 14b: the adapter reads an order's whole trade history page by page. Until
+    then this test pinned the defect: only 100 trades were ever read, the 150-trade order never settled, and
+    it blocked the next reduction before placement."""
     fake, adapter, executor, clock, consumer = _executor(tmp_path, SlicedVenue)
-    executor.send_order(_order(1, "buy", "0.05"))         # 50 trades: settles
+    executor.send_order(_order(1, "buy", "0.05"))         # 50 trades
     _drain(executor, consumer)
     assert executor.reconcile_account("BTCUSDT") == []
-    executor.send_order(_order(2, "buy", "0.15"))         # 150 trades: only 100 are ever read
-    for _ in range(3):
-        clock["now"] += 3600
-        _drain(executor, consumer)
-    assert consumer.position.qty == D("0.15") and fake.positions["BTCUSDT"] == D("0.2")
-    executor.send_order(_order(3, "sell", "0.2", reduce_only=True, reason="kill_switch"))
+    executor.send_order(_order(2, "buy", "0.15"))         # 150 trades: all of them are read now
     _drain(executor, consumer)
-    assert [(r["status"], r["reducing"]) for r in executor.journal.orders(OWNER, unresolved=True)] == [
-        ("submitted", 0), ("submitted", 1)]
-    posts = len(fake.posts)
-    executor.send_order(_order(4, "sell", "0.05", reduce_only=True, reason="kill_switch"))
-    assert len(fake.posts) == posts                     # the next reduction is refused before placement
-    assert fake.positions["BTCUSDT"] == D("0.05")
+    assert consumer.position.qty == D("0.2") and fake.positions["BTCUSDT"] == D("0.2")
+    assert executor.journal.orders(OWNER, unresolved=True) == []
+    executor.send_order(_order(3, "sell", "0.2", reduce_only=True, reason="kill_switch"))   # 200 trades
+    _drain(executor, consumer)
+    assert fake.positions["BTCUSDT"] == 0 and consumer.position.qty == 0
+    assert executor.reconcile_account("BTCUSDT") == []
