@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from lab.strategy import StrategySpec
+
 from shared.drawdown_guard import DrawdownGuard
 from shared.execution_lease import ExecutionLease
-from shared.kill_file import DEFAULT_PATH, KillFile
+from shared.kill_file import KillFile
 
 T0 = 1_794_700_000.0
 
@@ -28,17 +30,30 @@ def test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope(tmp_path
     assert restarted.latched(now=T0 + 120)
 
 
-@pytest.mark.known_defect("R6")
-def test_current_drawdown_latch_is_lost_when_the_file_is_missing_or_the_scope_changes(tmp_path):
-    path = tmp_path / "drawdown.sqlite"
-    _tripped_guard(path, "binance-testnet-ut")
-    renamed = DrawdownGuard(path, "binance-testnet-renamed", daily_pct=5, weekly_pct=12)
-    assert not renamed.latched(now=T0 + 120)
-    assert renamed.observe(940.0, now=T0 + 130) == (True, "")
-    path.unlink()
-    recreated = DrawdownGuard(path, "binance-testnet-ut", daily_pct=5, weekly_pct=12)
-    assert not recreated.latched(now=T0 + 140)
-    assert recreated.observe(940.0, now=T0 + 150) == (True, "")
+def test_execution_refuses_to_start_when_a_store_is_missing_or_the_scope_changed(tmp_path, monkeypatch):
+    """R6, fixed in migration step 13c (ADR-0007 1c): execution starts only from a state directory a person
+    initialized, for the same scope, with every store present. Until then this test pinned the defect: a
+    renamed scope or a deleted drawdown file silently started a fresh, unlatched drawdown store. (The store
+    class itself still creates what is missing; the refusal is at start-up, before it is ever built.)"""
+    import io
+
+    from lab.strategy import StrategySpec
+    from runner.binance_target import preflight
+    from trading.infrastructure import state_dir as managed
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": ["BTCUSDT"],
+                                "spec": StrategySpec().record(), "passed": False}))
+    state = tmp_path / "state"
+    assert managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(),
+                        env={"RISK_SCOPE": "binance-testnet-ut", "BINANCE_TESTNET": "1"}) == 0
+    monkeypatch.setenv("RISK_SCOPE", "binance-testnet-renamed")
+    with pytest.raises(RuntimeError, match="belongs to scope binance-testnet-ut"):
+        preflight(spec, execution=True, testnet=True, stop_pct=D("0.08"), state_dir=state)
+    monkeypatch.setenv("RISK_SCOPE", "binance-testnet-ut")
+    (state / "drawdown.sqlite").unlink()
+    with pytest.raises(RuntimeError, match="drawdown.sqlite is missing"):
+        preflight(spec, execution=True, testnet=True, stop_pct=D("0.08"), state_dir=state)
+    assert not (state / "drawdown.sqlite").exists()
 
 
 def test_a_drawdown_limit_above_the_hard_ceiling_refuses_to_start():
@@ -79,30 +94,32 @@ def test_kill_file_semantics(tmp_path):
     assert state.active and not state.flatten                            # unreadable: active, no flatten
 
 
-@pytest.mark.known_defect("R5")
-def test_current_kill_cli_default_path_differs_from_the_target_runtime_path(tmp_path, monkeypatch):
-    import runner.binance_target as target
-    seen = {}
+def test_the_kill_command_writes_exactly_where_the_runtime_reads(tmp_path):
+    """R5, fixed in migration step 13c (ADR-0005 5b): one function gives the kill file's path from the state
+    directory, the command requires the state directory, and in an initialized directory a missing kill file
+    reads as active. Until then this test pinned the defect: the command's default path was another runtime's
+    directory, and a missing file read as inactive."""
+    import io
 
-    class Stop(Exception):
-        pass
-
-    def capture(journal_path, scope):
-        seen["state_dir"] = Path(journal_path).parent
-        raise Stop
-
-    from lab.strategy import StrategySpec
-    monkeypatch.setattr(target, "ExecutionLease", capture)       # imported by the entry point since step 12b
-    monkeypatch.chdir(tmp_path)
-    # Since step 10 the spec is verified before anything else, so the run needs a real (unsigned, dev-mode) one.
-    Path("spec.json").write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target",
-                                             "symbols": ["BTCUSDT", "ETHUSDT"], "spec": StrategySpec().record(),
-                                             "passed": False}))
-    with pytest.raises(Stop):
-        target.main(["--spec", "spec.json"])
-    assert seen["state_dir"] == Path("data/runtime/binance_target")       # runtime reads <state_dir>/kill_switch.json
-    assert DEFAULT_PATH == Path("data/runtime/binance/kill_switch.json")  # the CLI writes here by default
-    assert not DEFAULT_PATH.is_absolute()
+    from runner.binance_target import TargetRuntime
+    from tests.unit.lab.test_target_runtime import _world
+    from trading.infrastructure import kill as kill_cli
+    from trading.infrastructure import state_dir as managed
+    from trading.infrastructure.state_dir import kill_file_path
+    state = tmp_path / "state"
+    managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(),
+                 env={"RISK_SCOPE": "binance-testnet-ut", "BINANCE_TESTNET": "1"})
+    with pytest.raises(SystemExit):
+        kill_cli.main(["activate"], stdout=io.StringIO())                     # no default path any more
+    world = _world(tmp_path, StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05))
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=state, mode="execution",
+                            market=world["adapter"], account=world["adapter"], clock=lambda: world["clock"]["now"],
+                            testnet=True)
+    assert runtime.kill.path == kill_file_path(state)
+    kill_cli.main(["--state-dir", str(state), "activate", "--reason", "test"], stdout=io.StringIO())
+    assert runtime.kill.state().active is True
+    kill_file_path(state).unlink()
+    assert runtime.kill.state().active is True
 
 
 @pytest.mark.known_defect("R20")

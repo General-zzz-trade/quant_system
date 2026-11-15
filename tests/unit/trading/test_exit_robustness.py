@@ -170,6 +170,10 @@ def test_the_runtime_takes_its_lease_with_the_same_scope_the_tools_use(tmp_path,
     monkeypatch.setattr(target, "ExecutionLease", capture)
     monkeypatch.setenv("RISK_SCOPE", " binance-testnet-ut ")
     monkeypatch.setenv("BINANCE_TESTNET", "1")
+    import io
+
+    from trading.infrastructure import state_dir as managed          # execution needs a managed directory (13c)
+    managed.main(["--state-dir", str(tmp_path / "state"), "init"], stdout=io.StringIO())
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": ["BTCUSDT"],
                                 "spec": StrategySpec().record(), "passed": False}))
