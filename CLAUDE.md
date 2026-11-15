@@ -101,6 +101,10 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
 - `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position.
 
+**Configuration (ADR-0017, S4):** `trading/infrastructure/config.py` is the only module in trading/ and runner/
+that reads the environment. The entry point reads it once into a frozen `RuntimeConfig` (credentials apart in
+`Secrets`), records it at start-up without secrets (`config` event, `config_digest` in the status) and passes it.
+
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
 - Problems found in a cycle are typed issues (ADR-0014). What each kind does to trading (block a symbol's or

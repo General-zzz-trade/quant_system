@@ -2682,3 +2682,47 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
 - 补充 1 个（R6）："状态刷新失败时不阻断入场"，属于等价变异。状态刷新要读的急停、回撤状态，入场闸门自己也会读，读不出来时同样拒绝。那一层阻断只是多一层保险。
 
 **本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/unit/lab`、`tests/unit/runner` 全部通过；ruff、`mypy trading/`（81 个文件）、导入契约都通过。
+
+## S4：配置在启动时只读一次（2026-11-15，ADR-0017，资金路径完整流程）
+
+**改了什么**
+- 新增 `trading/infrastructure/config.py`：
+  - 原来在 `settings.py` 里的环境变量解析函数原样搬到这里，`settings.py` 只做转发。
+  - 新增 `RuntimeConfig`（冻结）、`Secrets`（凭据和 Telegram 令牌，打印时只显示"已隐藏"）、`load_config`、`with_credentials`、`account_identity`、`make_notifier`。
+  - 它是 `trading/` 和 `runner/` 里唯一读取环境变量的模块。
+- **入口**（`runner/binance_target.py`）在启动时读一次配置，再把它传给启动预检、适配器构造、启动时的账户检查和运行时。
+  - 凭据仍在所有本地检查之后、连接账户之前才读（`with_credentials`）。
+    - 第一版一开始就读凭据，2 条已有测试因此失败：本地检查的报错被"没有凭据"抢先了。
+    - 改回原来的顺序后，断言没有改。
+  - 账户身份 = `sha256(网络:API Key)`，在读凭据时派生。
+- **组装和工具**：
+  - `refuse_foreign_holdings` 收到配置里的杠杆和保证金模式；
+  - `ExecutionInputs` 新增杠杆和保证金字段；
+  - `build_adapters` 收到凭据；
+  - 手工工具和状态目录命令不再自己读 `os.environ`。
+- **记录**：启动时写一条 `config` 事件（新的事件种类）和一行进程日志，不含任何密钥；状态文件里有 `config_digest`。
+- **模拟盘不读任何账户配置**（S10 的决定）。
+- **顺手修了一处已有隐患**：`BinanceConfig` 自动生成的打印格式会明文带出 API Key 和私钥，改为打印时隐藏这两项。这是检查变异时发现的。
+- **"入口变薄"推迟到 S10 第 3 部分**，那一步要大改入口里模拟盘的组装；安装脚本和重写 `.env.example` 在 S8。都已写进 ADR-0017。
+
+**先写的测试**（单独提交 `b63f09f`，在旧代码上全部失败）
+- `tests/unit/trading/test_runtime_config.py`：
+  - 执行模式的配置包含全部值和账户身份；
+  - 模拟盘不读任何账户配置；
+  - 记录和摘要里不含任何密钥；
+  - 同一组环境变量得到同一个摘要，换了私钥摘要不变，改了限额摘要就变；
+  - 缺失或非法的配置会拒绝启动，并说出是哪一项（5 例）；
+  - 运行时启动后，把 `os.environ` 换成一读就报错的对象，再跑 3 轮也不出错，`config` 事件和状态里的摘要都对。
+- `tests/architecture/test_config_rules.py`：只有 `config.py` 读环境变量，配反例。
+- 后来补充 3 条：凭据最后读并带来账户身份；模拟盘配置没有限额，启动检查用的是配置里的杠杆和保证金模式；`BinanceConfig` 打印时不显示 Key 和私钥。
+
+**已有测试的改动**
+- `test_event_kinds.py` 的枚举固定值加了 `CONFIG`。这是已有断言的改动，依据是 ADR-0017 第 2 条"启动时写进事件日志"。
+  - 原来：`"SYMBOL_STATE": "symbol_state"}`
+  - 现在：`"SYMBOL_STATE": "symbol_state", "CONFIG": "config"}`
+- `test_runtime_wiring_limits.py`：两处调用 `build_adapters` 时显式传入凭据，只改测试设置。
+
+**变异自检**【实际运行结果】：11 个缺陷，抓住 10 个。
+- 存活 1 个是等价变异："去掉 `Secrets` 的自定义打印"。它本来就设置了不自动生成打印格式，去掉后用的是 Python 默认的对象打印，同样不显示字段值。
+
+**本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/unit/lab`、`tests/unit/runner`、`tests/unit/tooling`、`tests/unit/infra` 全部通过；ruff、`mypy trading/`（82 个文件）、导入契约都通过。
