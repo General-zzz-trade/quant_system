@@ -135,7 +135,7 @@ def test_current_lease_allows_the_same_scope_in_two_state_dirs(tmp_path):
 def test_the_mainnet_gate_refuses_before_any_account_setting_is_written(tmp_path, monkeypatch):
     """R11, fixed in migration step 10 (invariant L6): every local start-up check runs before the account is
     connected. Until then this test pinned the defect: leverage was set first, then the gate refused."""
-    import execution.adapters.binance as binance
+    from trading.adapters.binance import adapter as binance
     from infra.model_signing import sign_file
     from lab.strategy import StrategySpec
     from runner.binance_target import main

@@ -10,15 +10,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.safety.limits import OrderLimiter, OrderLimitsConfig
 from lab.orders import make_order
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
-from shared.exposure_gate import AccountExposureGate
+from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 

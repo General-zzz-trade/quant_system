@@ -14,7 +14,7 @@ from types import SimpleNamespace as NS
 
 from shared.confirmed_execution import ConfirmedExecutor
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
-from shared.strategy_position import StrategyPosition
+from trading.domain.position import StrategyPosition
 
 # The sibling helper module is importable by name under unittest discovery
 # (scripts/check_local_safety.py) but not under pytest's importlib mode.
@@ -125,7 +125,7 @@ class RecoveryTests(unittest.TestCase):
 import os, sys
 from pathlib import Path
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
-from shared.strategy_position import StrategyPosition
+from trading.domain.position import StrategyPosition
 from types import SimpleNamespace
 j=ExecutionJournal(Path(sys.argv[1]), 'demo')
 owner='alpha.BTCUSDT'

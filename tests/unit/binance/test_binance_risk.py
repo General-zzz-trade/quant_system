@@ -6,12 +6,13 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from trading.application.execution.stops import ProtectiveStopManager
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
-from shared.exposure_gate import MAX_TOTAL_LEVERAGE, AccountExposureGate
+from trading.application.risk.exposure_gate import AccountExposureGate
+from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 

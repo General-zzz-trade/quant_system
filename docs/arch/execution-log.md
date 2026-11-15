@@ -1680,3 +1680,28 @@ Contracts: 5 kept, 0 broken.
 **本地**：特征测试、`tests/unit/{binance,lab,trading}`、契约测试、`tests/offline`、架构测试共 798 条通过；ruff、`mypy trading/`、导入契约都通过。
 
 **ADR-0006 还剩**：研究撮合器搬进 `trading/`；模拟盘改走执行路径（方案 B 的主体，需要证明换路径后模拟成交与研究逐笔相同）。
+
+## M4 第二部分：删除简单转发的兼容薄壳；执行适配器薄壳不再依赖 Rust（2026-11-15）
+
+**删除**：4 个只做转发的薄壳，导入它们的代码、测试和取证脚本改为直接从 `trading/` 导入同一个对象。
+- `execution/adapters/binance/adapter.py`、`config.py`；
+- `shared/strategy_position.py`、`shared/exposure_gate.py`。
+- `execution/adapters/binance/__init__.py` 不再导出任何东西。
+
+**保留，作为只供测试的旧接口**
+- `BinanceExecutionAdapter`（执行适配器薄壳）和 `ConfirmedExecutor`。约 40 条资金路径测试通过它们去测订单生命周期。
+- 执行适配器薄壳原来用 Rust 事件类型。改为两个普通数据类，字段与原来相同：一个事件头、一个成交事件。存进订单库的父记录格式不变，事件类型仍存成 "order"/"fill"。
+- 以后把这些测试迁到新的执行接口后，再整个删除。
+
+**结果**【实际运行结果】
+- 加载目标运行时入口带进的旧包从 4 个降到 3 个：`data`、`lab`、`runner`。
+- 在测试之外，已经没有代码使用 `event`、`engine`、`state` 和 Rust 扩展，只剩 `infra.logging.setup` 在函数内经 `infra.effects` 引用 `engine.clock`。这为删除 Rust 扫清了障碍。
+
+**已有测试的改动**（只改设置和导入，断言不变）
+- 约 15 个文件把导入改到 `trading/` 的同一个对象。
+- `test_legacy_shells.py` 的两条配置测试，改为直接调用 `binance_config_from_env`。被删的配置薄壳的 `from_env` 就是调用它。
+- `test_binance_execution.py` 的订单辅助函数改为直接构造 `OrderIntent`。薄壳会补上事件头。
+- `test_risk_state.py` 的主网门禁测试，从 `trading` 的适配器模块取 `BinanceAdapter`。
+- 架构测试：入口加载的旧包清单更新为上面 3 个。
+
+**本地**：特征测试、`tests/unit/{binance,trading,lab,tooling}`、契约测试、`tests/offline`、架构测试共 840 条通过；ruff、`mypy trading/`、导入契约都通过。

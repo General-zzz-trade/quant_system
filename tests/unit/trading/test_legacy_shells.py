@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
+from trading.infrastructure.settings import binance_config_from_env
 from shared.confirmed_execution import ConfirmedExecutor
 
 
@@ -46,7 +46,7 @@ def test_from_env_takes_the_keys_of_the_chosen_environment(monkeypatch, testnet,
     monkeypatch.setenv("BINANCE_TESTNET_API_SECRET", "test-secret")
     monkeypatch.setenv("BINANCE_API_KEY", "main-key")
     monkeypatch.setenv("BINANCE_API_SECRET", "main-secret")
-    config = BinanceConfig.from_env(testnet=testnet)
+    config = binance_config_from_env(testnet=testnet)   # the config shell's from_env (deleted) called it
     assert (config.api_key, config.api_secret, config.testnet) == (key, key.replace("key", "secret"), testnet)
 
 
@@ -56,7 +56,7 @@ def test_from_env_refuses_to_fall_back_to_the_other_environment(monkeypatch):
     monkeypatch.delenv("BINANCE_TESTNET_API_KEY", raising=False)
     monkeypatch.delenv("BINANCE_TESTNET_API_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="not set"):
-        BinanceConfig.from_env(testnet=True)
+        binance_config_from_env(testnet=True)
 
 
 def test_the_parts_moved_in_step_10_are_the_same_objects_at_their_old_addresses():

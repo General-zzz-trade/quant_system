@@ -5,11 +5,10 @@ from decimal import Decimal as D
 
 import pytest
 
-from event.header import EventHeader
-from event.types import EventType, OrderEvent
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import NOT_FOUND_GRACE_SECONDS, BinanceExecutionAdapter
+from trading.domain.orders import OrderIntent
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 
 OWNER = "alpha.BTCUSDT"
@@ -31,11 +30,12 @@ def env(tmp_path):
     return fake, adapter, executor, clock, statuses
 
 
-def _order(side, qty, price, **extra):
-    """The order event the deleted decision.modules.alpha_orders built (M4): same header and fields."""
-    header = EventHeader.new_root(event_type=EventType.ORDER, version=1, source="alpha.BTCUSDT")
-    return OrderEvent(header=header, order_id=header.event_id, intent_id=header.event_id, symbol="BTCUSDT",
-                      side=side, qty=qty, price=D(str(price)), **extra)
+def _order(side, qty, price, reason="rebalance"):
+    """An order as the paper path sends it since ADR-0006: an OrderIntent with a fresh id per order (the deleted
+    decision.modules.alpha_orders gave every order a new event id too)."""
+    _order.n = getattr(_order, "n", 0) + 1
+    return OrderIntent(order_id=f"alpha.BTCUSDT:{_order.n}", source="alpha.BTCUSDT", symbol="BTCUSDT", side=side,
+                       qty=qty, price=D(str(price)), reduce_only=False, reason=reason)
 
 
 def _entry(qty="0.1", side=1, price=100.0):
