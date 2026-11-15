@@ -25,6 +25,7 @@ credentials and sends no request.
 """
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
@@ -34,12 +35,17 @@ from typing import Any, Protocol
 from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig, Row
 from trading.domain.bars import Bar
 from trading.domain.orders import OrderIntent
+from trading.domain.position import StrategyPosition
 from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, CanonicalFill, OpenOrder, Placement,
                                   StopOrder, StopPlacement, Ticker, VenueOrder, VenuePosition)
 
 VENUE = "simulated"
 STOP_MARKET = "STOP_MARKET"         # the type of the order a triggered stop became
 LIMIT_TOLERANCE = Decimal("1e-9")   # relative; the lifecycle sends the limit price as a float
+# What a broker changes while trading besides its position and resting orders (its configuration is rebuilt from
+# the spec). The isolated-margin fields stay at their defaults here: such brokers are refused.
+BROKER_STATE = ("fees", "funding", "mark", "now", "orders", "fills", "funding_log", "margin", "stop_price",
+                "liquidations")
 # The broker's order-row status, as the order lifecycle's venue-order state.
 STATES = {"created": "new", "pending": "new", "filled": "filled", "canceled": "canceled", "rejected": "rejected"}
 
@@ -316,6 +322,42 @@ class SimulatedExchange:
                          side=stop["side"], status=stop["state"], state=stop["state"], trigger_price=stop["trigger"],
                          actual_order_id=stop["actual_order_id"])
 
+    # -- saved state --------------------------------------------------------------------------------------------
+    def snapshot(self) -> dict[str, Any]:
+        """Everything the exchange and its brokers change while trading, as one document of Decimals, strings,
+        numbers, lists and dicts (the paper stores' codec round-trips it). A copy: later trading leaves it alone."""
+        brokers = {symbol: {"config": b.config.record(), "position": b.position.to_dict(),
+                            "pending": [row["id"] for row in b.pending],
+                            "broker": {key: getattr(b, key) for key in BROKER_STATE}}
+                   for symbol, b in self._brokers.items()}
+        return copy.deepcopy({"brokers": brokers, "orders": self._orders, "stops": self._stops,
+                              "next_id": self._next_id})
+
+    def restore(self, state: Mapping[str, Any]) -> None:
+        """Load a snapshot taken over brokers of the same configurations. All or nothing: a snapshot that does not
+        fit raises and leaves the exchange as it was."""
+        state = copy.deepcopy(dict(state))
+        saved = state["brokers"]
+        if set(saved) != set(self._brokers):
+            raise RuntimeError(f"saved simulated exchange trades {sorted(saved)}, not {sorted(self._brokers)}")
+        loaded = {}
+        for symbol, broker in self._brokers.items():
+            snap = saved[symbol]
+            if snap["config"] != broker.config.record():
+                raise RuntimeError(f"{symbol}: saved paper state used another broker configuration")
+            values = {key: snap["broker"][key] for key in BROKER_STATE}
+            by_id = {row["id"]: row for row in values["orders"]}
+            pending = [by_id[i] for i in snap["pending"]]     # the same objects as their order rows, as in the broker
+            loaded[symbol] = (values, StrategyPosition.from_dict(snap["position"]), pending)
+        orders, stops, next_id = dict(state["orders"]), dict(state["stops"]), int(state["next_id"])
+        for symbol, (values, position, pending) in loaded.items():
+            broker = self._brokers[symbol]
+            for key, value in values.items():
+                setattr(broker, key, value)
+            broker.position, broker.pending = position, pending
+        self._orders, self._stops, self._next_id = orders, stops, next_id
+        self._by_client = {record["client_id"]: order_id for order_id, record in orders.items()}
+
     # -- helpers ----------------------------------------------------------------------------------------------
     def _broker(self, symbol: str) -> BarBroker:
         try:
@@ -352,4 +394,5 @@ class SimulatedExchange:
                              liquidity="maker" if record["type"] == "LIMIT" else "taker", ts_ms=int(f["at"]))
 
 
-__all__ = ["LIMIT_TOLERANCE", "STOP_MARKET", "BarStopModel", "SimFilters", "SimulatedExchange", "StopModel", "VENUE"]
+__all__ = ["BROKER_STATE", "LIMIT_TOLERANCE", "STOP_MARKET", "BarStopModel", "SimFilters", "SimulatedExchange",
+           "StopModel", "VENUE"]
