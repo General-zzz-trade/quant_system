@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from trading.domain.market import aggregate
+from trading.domain.market import group_closes
 
 SETTLEMENTS_PER_YEAR = 3 * 365
 
@@ -84,7 +84,7 @@ def _asof(times: np.ndarray, source_times: np.ndarray, values: np.ndarray) -> np
 
 
 def daily_weights(hourly: pd.DataFrame, spec: StrategySpec) -> pd.DataFrame:
-    daily = aggregate(hourly, 24)
+    daily = group_closes(hourly, 24)                # only the closes are used (speed work, 2026-11-15)
     close = daily["close"]
     logret = np.log(close).diff()
     vol_d = logret.rolling(spec.vol_lookback, min_periods=spec.vol_lookback).std()
@@ -104,7 +104,7 @@ def daily_weights(hourly: pd.DataFrame, spec: StrategySpec) -> pd.DataFrame:
 
 
 def four_hour_features(hourly: pd.DataFrame) -> pd.DataFrame:
-    bars = aggregate(hourly, 4)
+    bars = group_closes(hourly, 4)
     logret = np.log(bars["close"]).diff()
     vol_24h = logret.rolling(6, min_periods=6).std() * math.sqrt(6 * 365.0)
     momentum = np.sign(bars["close"] / bars["close"].shift(6) - 1.0)
