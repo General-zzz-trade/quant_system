@@ -1453,7 +1453,6 @@ Contracts: 5 kept, 0 broken.
 
 **第 14 步到此完成。** 剩下的已知缺陷只有 R20（同一账户可以在两个目录各起一个运行时；ADR-0007 写明后续单独处理）。
 
-
 ## 瘦身批次 E（第一部分）：删除 Polymarket 和 4 个只出报告的 OKX 工具（2026-11-15，ADR-0008 子决策 3b）
 
 技术负责人 2026-11-15 决定冻结线整体删除，排在 M4。路线图第 6 节第 1 项已批准"与运行时无关的批次提前穿插"，所以先删冻结线里与 ML 运行时、Bybit/OKX 运行器都不相连的部分；第 12b 步之后的独立审计还在进行，这段时间只做删除和文档。
@@ -1986,3 +1985,59 @@ Contracts: 5 kept, 0 broken.
 - 模块说明和 ADR-0010 的措辞。没有改生产代码的行为。
 
 **变异自检**【实际运行结果】：审计员存活的 8 个变异体（Z1–Z7、Z9）全部被新测试抓住。Z10 是等价变异。
+
+## 死代码与旧文件清理（2026-11-15，删除批次，技术负责人"全部删除"）
+
+**依据**：技术负责人看过逐项清单后决定全部删除（路线图第 6 节第 18 项）。清点时又发现几处随之变得无人使用的代码，按 ADR-0008 2b（不可达代码）一起删除，列在下面"清点时补充的"一项里。
+
+**方法**
+- 导入图：以运行时入口、`trading/`、`lab/`、数据下载、`scripts/`、模型签名、看门狗和成交分析日志为根，计算哪些模块不可达。
+- 断开各包初始化文件里的转出导入后，再算一遍。
+- 再用 `git grep` 按模块名、路径和类名扫描所有被跟踪的文件，确认没有其他引用。
+
+**删除的内容**（数字取自删除前的文件）
+- **生产代码 19 个文件、1,709 行**：
+  - `data/store.py`，`data/quality/` 下的 `gaps.py`、`validators.py`、`live_validator.py`；
+  - `infra/` 下的 `config/`、`logging/`、`metrics/`、`runtime/` 和 `threading_utils.py`；
+  - `monitoring/` 下的 `health.py`、`alerts/`、`metrics/`。
+  - 它们只被各自包的初始化文件转出，只有测试在用；但因为初始化文件会把它们全部导入，启动运行时就会顺带加载其中 4 个。
+- **测试 7 个文件、1,196 行**：只测上面这些模块，没有测保留的代码。已逐个核对导入：其中的 `Bar` 是旧 `data.store` 自己的类，不是运行时用的那个。
+- **其他 34 个文件、9,643 行**：
+  - `tasks/`：17 份 Rust、高频、旧审计时期的计划；
+  - `deploy/`：系统调优单元，不在保留的 3 个单元里；
+  - `infra/grafana`、`infra/prometheus`：它们的导出器在 11-15 已删除；
+  - `results/walkforward`：8 份没有经过验证的机器学习回测结果；
+  - 一个空的 `reports/weekly`。
+- **没有调用的函数和方法**（删掉约 110 行）：
+  - `dataset_manifest`；`is_verification_enforced`、`load_verified_pickle`（删后不再有任何加载 pickle 的路径）；
+  - `BarBroker.order_records`；
+  - 适配器的 `get_last_funding`、`get_positioning`、`get_account_info`；
+  - `BinanceConfig.is_testnet`；`database_readable`；
+  - `CanonicalFill.to_record` 和 `VenuePosition` 的 4 个便利属性。
+- **清点时补充的**：
+  - `monitoring/alerts`、`monitoring/metrics`：只有 `health.py` 用；
+  - `infra/threading_utils.py`：没有任何引用；
+  - `causal_bars.fingerprint`：只有 `dataset_manifest` 用；
+  - `BinanceConfig.is_demo`：只有 `get_account_info` 用。
+- **本机残留**：18 个只剩缓存文件的目录（旧的顶层包和删掉的子包），不在 git 里，已清掉。
+
+**保留的及原因**
+- `model_signing` 仍把 Bybit、OKX 的主网设置当作"实盘"，从而拒绝未签名的模型。去掉这些条件会放宽这道检查，删除批次不做这种事。
+- 只有测试在调用、但不在批准清单里的函数（例如 `aggregate_closed`、`align_closed_signals`，它们的测试是 M4 审计后刚补回的），保留。
+- `as_account`：留着让类型检查证明适配器实现了全部接口。
+- 依赖：`pyproject.toml` 和依赖清单里的 `prometheus-client` 已经没有代码使用，可以去掉。按规则删除批次不改依赖清单，这里只记录。
+- 历史诊断文档（`docs/arch/current-state.md`、`doc-vs-code.md`）和 `CHANGELOG.md` 里提到这些路径的地方不改，它们是当时的记录。
+
+**随之改动**
+- `data/`、`data/quality/`、`infra/`、`monitoring/` 四个包的初始化文件只留说明文字，写明现在包里有什么。
+- `monitoring/tca.py` 的说明文字去掉 Bybit/OKX 和已删除的两个下游。
+- `README.md` 的目录表；路线图第 18 项。
+- 已有测试没有改动。
+
+**结果**【实际运行结果】
+- 运行时入口加载的旧模块：`data` 下从 5 个降到 1 个（只剩 `causal_bars`）。
+- `infra` 和 `monitoring` 的初始化文件不再带进任何子模块。
+
+**本地**【实际运行结果】
+- 架构测试，`tests/unit/` 下的 `data`、`infra`、`monitoring`、`runner`、`binance`、`tooling`，以及旧接口、丢失状态文件、状态目录、研究模拟指纹、运行时、启动检查这几个测试文件，全部通过。
+- 分片清单能生成；ruff、`mypy trading/`（69 个文件）、导入契约（5 条）都通过。
