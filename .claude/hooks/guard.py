@@ -7,6 +7,10 @@
   - force-pushes, or pushes to ``master`` (changes reach master only through a PR merge).
 ``post`` (PostToolUse): run ``ruff check --select E,W,F`` on an edited Python file and report failures.
 
+The one sanctioned reader of the env file is ``python3 -m scripts.account_check`` (tech lead, 2026-11-15): it
+takes only the two mainnet key names, in its own process, never prints them, and sends only allowlisted GET
+requests. Any other way of reading the env file stays refused.
+
 Exit code 2 blocks the call (pre) or shows the message to Claude (post). These are guards against
 mistakes, not a sandbox: text inside a heredoc is not inspected, so a commit message may mention
 the env file. If this script itself fails it lets the call through and says so, so a bug here
