@@ -12,7 +12,7 @@ from decimal import Decimal as D
 from pathlib import Path
 from types import SimpleNamespace as NS
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
 from trading.domain.position import StrategyPosition
 

@@ -7,7 +7,7 @@ import pytest
 
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.execution_adapter import NOT_FOUND_GRACE_SECONDS, BinanceExecutionAdapter
+from tests.support.legacy_execution_adapter import NOT_FOUND_GRACE_SECONDS, BinanceExecutionAdapter
 from trading.domain.orders import OrderIntent
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 

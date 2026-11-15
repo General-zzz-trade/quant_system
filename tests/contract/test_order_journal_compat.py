@@ -5,7 +5,7 @@ import json
 import sqlite3
 from decimal import Decimal as D
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 
 # Tables exactly as shared/execution_journal.py and protective_stops.py created them at e3cd2d6.

@@ -86,8 +86,8 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Binance execution:**
 - `OrderLifecycle` (`trading/application/execution/lifecycle.py`) keeps durable SQLite intents and never resends;
-  it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter` are legacy shells over it; the target
-  entry point still imports the adapter shell until the shells go at the end of M4.
+  it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter`, the old interfaces over it, are test
+  support now (`tests/support/`): some characterization tests still drive the lifecycle through them.
 - Only exchange trade records become fills.
 - Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.

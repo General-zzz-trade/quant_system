@@ -5,7 +5,7 @@ from decimal import Decimal as D
 
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+from tests.support.legacy_execution_adapter import BinanceExecutionAdapter
 from trading.application.execution.stops import ProtectiveStopManager
 from trading.adapters.binance.rest import BinanceNonRetryableError
 from lab.orders import make_order

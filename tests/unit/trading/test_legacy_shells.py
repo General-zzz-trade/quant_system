@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from trading.infrastructure.settings import binance_config_from_env
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 
 
 class _Venue:
@@ -30,7 +30,7 @@ class _Venue:
 def test_the_executor_shell_really_waits_between_placement_and_lookup(tmp_path):
     executor = ConfirmedExecutor(_Venue(), tmp_path / "orders.sqlite", "binance-testnet-ut", wait_seconds=0.5,
                                  owner="o", entry_order_type="market")
-    with patch("shared.confirmed_execution.time.sleep") as sleep:
+    with patch("tests.support.confirmed_executor.time.sleep") as sleep:
         assert len(executor.submit(intent_id="i1", symbol="BTCUSDT", side="buy", qty=D("1"))) == 1
     sleep.assert_called_once_with(0.5)
 

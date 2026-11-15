@@ -12,7 +12,7 @@ import tempfile
 from types import SimpleNamespace as NS
 import unittest
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 
 
 class MarketExchange:
@@ -162,7 +162,7 @@ class MarketExecutionTests(unittest.TestCase):
 import json, os, sys
 from decimal import Decimal
 from pathlib import Path
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 class Exchange:
     def send_market_order(self, symbol, side, qty, **kwargs):
         Path(sys.argv[2]).write_text(json.dumps(kwargs))

@@ -40,7 +40,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from monitoring.tca import TCALogger
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.application.execution.service import ExecutionService
 from trading.domain.orders import OrderIntent
 

@@ -1739,3 +1739,27 @@ Contracts: 5 kept, 0 broken.
 - 整个测试集共 79 个文件、1,029 条，本机（2 核）6 分 26 秒跑完：1,028 条通过，1 条跳过（需要 hatchling）。
 - 本机还装着旧扩展，所以另外用 `git grep` 确认：没有测试导入它，只剩旧包名单里的一个名字。
 - ruff、`mypy trading/`、导入契约、CI 安全检查都通过。
+
+## M4 第四部分：两个旧执行接口移入测试辅助目录；生产代码不再有 execution/ 和 shared/（2026-11-15）
+
+- `BinanceExecutionAdapter`（原在 `execution/adapters/binance/execution_adapter.py`）和 `ConfirmedExecutor`（原在 `shared/confirmed_execution.py`），自 M4 第二部分起只有测试在用。
+  - 约 115 条资金路径测试（14 个文件）通过它们去测订单生命周期。
+  - 现在原样移到 `tests/support/legacy_execution_adapter.py` 和 `tests/support/confirmed_executor.py`，测试只改导入路径。这是纯移动：代码没有改，断言一条都没动。
+  - 以后可以按需把这些测试逐步迁到 `OwnerExecutor`、`OrderLifecycle`。
+- 删除：`execution/`、`shared/` 两个包剩下的包初始化文件，以及 `execution/tests/fixtures/` 下 6 个没有任何引用的数据文件。
+- 随之改动：
+  - 打包清单去掉这两个包；
+  - CI 覆盖率清单去掉这两个移走的模块，现在只统计 `trading/` 的模块，门槛仍是 75%；
+  - 架构测试的状态表扫描去掉移走的文件；
+  - `CLAUDE.md` 相应更新。
+- 取证脚本：`docs/arch/evidence/` 下的 4 个探针原来引用了 M4 删除的旧模块，导入已改到新位置。
+  - 其中两个原来用的 ML 订单工厂，改用 `lab.orders.make_order`。
+  - 【实际运行结果】4 个探针都能运行（其中两个需要传入一个临时目录作为参数）。
+- **已有测试的改动**
+  - 架构测试中"运行时到交易所之间不读环境变量""这条路径上只有 SQLite 适配器写订单表"两条规则，原来扫描的文件已经移走。现在改为扫描生产代码中的这条路径：`trading/application/` 和 `trading/adapters/binance/`。规则本身不变。
+  - 状态表扫描去掉移走的文件。
+  - 其余测试只改导入路径。
+- **本地**【实际运行结果】
+  - 整个测试集 1,028 条通过，1 条跳过。
+  - 按 CI 的命令跑覆盖率门槛：87.64%，门槛 75%。
+  - ruff、导入契约都通过。
