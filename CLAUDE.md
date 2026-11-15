@@ -115,6 +115,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
+- With `state.sqlite` lost while running, a decided reduction raises out of the cycle and ends the process.
+  That cycle's reconcile and risk actions are skipped too; only the exchange-side stop remains. This is fixed in S3
+  (ADR-0014); a strict-xfail test in `tests/characterization/test_state_database.py` marks it.
 - `binance_target` only:
   - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
     process log (status `alerts: "log only"`).

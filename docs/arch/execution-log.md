@@ -2101,6 +2101,7 @@ Contracts: 5 kept, 0 broken.
   - 存储读不出时，对应字段写"unreadable"，不再抛异常。
   - 这个问题在改动前就有：订单库被删后，旧代码会新建一个空文件，随后报"没有这张表"，异常穿出主循环。
   - 新测试第一次就暴露了它。现在一轮照常结束，对账照常阻断入场。
+  - **更正（独立审计第 1 条）**：上一句只在这一轮没有决定下单时成立；决定平仓时异常仍会结束进程，见下一节。
 
 **先写的测试**（`tests/characterization/test_state_database.py`，25 条）
 - 单独提交在实现之前，标记为"严格预期失败"。【实际运行结果】在旧代码上 25 条全部失败。
@@ -2147,3 +2148,74 @@ Contracts: 5 kept, 0 broken.
   - 第一次跑有 2 条失败：一条是漏改的准备步骤（`test_binance_risk` 用的文件名是 `dd.sqlite`），一条是上面删除的旧库补列测试。处理后这两个文件单独跑过，全部通过。
 - `tests/unit/data`、`tests/unit/infra`、`tests/unit/runner` 通过。
 - ruff、`mypy trading/`（71 个文件）、导入契约（5 条）都通过。
+
+## S2 的独立审计与处理（2026-11-15）
+
+- **范围**：`c74f1b9..e423495`（PR #68），由独立审计员在自己的克隆里只读核查，自写探针测试和 14 个变异。
+- **结论**：核心安全成立：没有登记就不会有任何请求到达交易所，数据库也从不会被重建。共 7 条发现：中等 1 条，低 5 条，提示 1 条。
+- **技术负责人决定**（2026-11-15，AskUserQuestion）：第 1 条"放到 S3 做，S2 先合并（推荐）"。
+
+**第 1 条（中等）：数据库丢失后的一笔平仓会结束运行时进程。接受，部分在 S2 修，其余在 S3 修。**
+- **更正 S2 一节的说法**：
+  - "现在一轮照常结束"只在这一轮没有决定下单时成立（S2 的测试走了 5 根不下单的 K 线）。
+  - 一旦策略决定平仓，异常会穿出主循环。`runner/binance_target.py` 的主循环没有兜住它，进程就此退出。
+  - 重启会被启动检查拒绝，因为 `state.sqlite` 已经不在了。
+  - 改动前的五文件布局也是这样（审计员在 `1956925` 上复现）。
+- **调用链**【实际运行结果】：`session._send` → `ExecutionService._send`。读订单库失败后进入失败处理 `fail()`，`fail()` 又读一次订单库，第二个异常冒出 `send()`。
+- **S2 里修的**：失败处理不再因为订单库读不出而抛异常，改为把这笔订单报为"已阻断"（`trading/application/execution/service.py` 的 `fail`）。
+- **仍然存在的**【实际运行结果】：
+  - 发单之后的记账（`notify_status` 读订单库）还会冒出同样的异常。
+  - 这个异常离开 `poll()` 之后，这一轮的对账和急停/回撤动作（`risk_actions`）也会被跳过。这一点是修复时发现的。
+  - 彻底的修法是在每个品种处理一根 K 线时兜住异常，阻断入场、告警，下一根 K 线再试。这正是已批准的 ADR-0014 "无法分类的异常一律转成阻断入场的问题"，排在 S3。
+- **现在剩下的保护**：
+  - 交易所侧的 `closePosition` 止损单不依赖本地数据库，仍然挂在交易所上。
+  - 现在没有任何程序在执行模式下运行。
+  - 这个缺口已经写进 `CLAUDE.md` 的"测试网或实盘运行前必须修好"清单和设计第 10 节 S3 的验收。
+- **新增测试**：
+  - `tests/unit/trading/test_execution_service.py::test_a_lost_journal_fails_the_send_without_raising_and_reports_it_blocked`：在旧代码上失败（`OperationalError`），修复后通过。
+  - `tests/characterization/test_state_database.py::test_a_reduction_after_the_database_was_deleted_is_retried_and_alerted_and_the_cycle_goes_on`：用审计员的场景，持仓中删库、策略要平仓、走 3 根 K 线。
+    - 断言：没有发出任何请求，数据库没有被重建，每根 K 线都重新尝试平仓，并且有告警。
+    - 标记为"严格预期失败"，只认 `OperationalError`。S3 修好后它会变成通过，严格标记会迫使人去掉这个标记。
+
+**第 2 条（低）：`test_target_composition` 改过的断言抓不住检查顺序。接受，已加强。**
+- 新增一条断言，原有断言不变：强平距离检查必须在读账户、建任何存储之前就拒绝。
+- 做法：用替身记录 `exchange_lot_rules`、`SqliteDrawdownGuard`、`SqliteOrderJournal` 是否被调用（测试设置改动）。
+- 审计员的变异 T1（把检查挪到函数末尾）在加强前存活，现在被抓住【实际运行结果】。
+
+**第 3 条（低）：`init` 有几处没有测试。接受，新增 3 个测试用例。**
+- `test_init_with_a_drawdown_limit_above_the_ceiling_refuses_before_anything_exists`：日、周两种上限各一例，断言拒绝并且目录不存在。
+- `test_the_schema_refuses_an_existing_empty_file_and_leaves_it_empty`：0 字节的残留文件被拒绝，文件仍是 0 字节。
+- 审计员存活的 M1（去掉"文件已存在"拒绝）、M2（去掉上限检查）、M3（上限检查挪到建库之后）现在都被抓住【实际运行结果】。
+- M10（把 `with db:` 换成显式提交）是等价变异，不处理。
+
+**第 4 条（低）：S2 一节的测试改动清单不全。接受，在此补全。**
+- `test_manual_tools` 不只是改了设置，还有一条断言因为文件改名改了文字：`not (tmp_path / "empty/orders.sqlite").exists()` 改为 `not (tmp_path / "empty/state.sqlite").exists()`，意思不变。
+- `test_lost_state_files`：
+  - "清空成 0 字节"的测试按库文件参数化，从 4 例变成 1 例，因为只剩一个库；
+  - "缺一张表"的参数化改用 `STORE_TABLES`，仍是同样的 10 张表。
+- `test_state_database` 在 `1956925` 之后，除了已记录的两处写法修正，还多了一条断言：状态输出里的 `protective_stop` 以 "unreadable" 开头。
+- 审计员确认这些都没有削弱资金路径的断言。M3 审计第 2 条的变异 P1 仍被抓住。
+
+**第 5 条（低，监控）：数据库丢失后看门狗仍报健康。接受，作为已知缺口，在 S7 修。**
+- 看门狗只看最后一根 K 线和状态文件的新旧（`monitoring/watchdog.py:58-88`），状态文件一直在更新。
+- 现在发现这类问题只靠运行时自己的告警。没配 Telegram 时，告警只进进程日志。
+- S7（ADR-0016：告警和心跳必须配置）会解决告警出口的问题。
+
+**第 6 条（低）：文档过时、提示有误导。接受。**
+- 旧布局的拒绝提示原来让人对同一个目录跑 `init`，而那样只会得到"已初始化，没有改动"。现在改为 `--state-dir <new directory> init`。
+  - 新测试 `test_the_old_layout_hint_names_a_new_directory_not_the_old_one` 在旧代码上失败，修复后通过。
+- 已更新：`docs/arch/target.md` 容器图里的数据库，`doc-vs-code.md` 中关于容器图和 `ensure_stop_table` 的两行。
+- `docs/arch/current-state.md:318` 不改：那是 2026-11-14 在 `e3cd2d6` 上的诊断快照，当时确实是 `orders.sqlite`。
+- `trading/adapters/sqlite/check.py` 已经没有生产代码使用，只剩 `tests/unit/trading/test_lost_state_files.py` 在用。放进下一个删除批次。
+
+**第 7 条（提示）：不处理，记录在案。**
+- `schema.create` 不检查 WAL 是否真的开启，`problems()` 也不检查日志模式。
+  - 本机文件系统支持 WAL，审计员实测为 wal。
+  - 完全同步写入下，两种日志模式都能保证持久，所以不影响正确性。
+- `problems()` 以只读方式打开数据库后会留下 `-shm`/`-wal` 文件，文档字符串已经写明。
+
+**变异自检**【实际运行结果】
+- `fail()` 的修复：4 个变异全部被抓住：去掉保护、把"读不出"当成已登记、不报阻断、不阻断入场。
+- 审计员存活的 T1、M1、M2、M3 现在全部被抓住。
+
+**已有测试的改动**：没有改任何已有断言。`test_target_composition` 那条测试加了替身，并新增一条断言。
