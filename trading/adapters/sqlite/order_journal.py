@@ -106,8 +106,12 @@ class SqliteOrderJournal:
     # -- intents ----------------------------------------------------------
     def reserve(self, *, intent_id: str, symbol: str, client_id: str, side: str, qty: str, reducing: bool,
                 owner: str, parent: dict[str, Any] | None, order_type: str,
-                clock: Callable[[], float]) -> tuple[str, float]:
-        """Atomically check the reservation rules and insert a ``reserved`` row: (refusal or "", created_at)."""
+                clock: Callable[[], float], venue_close: bool = False) -> tuple[str, float]:
+        """Atomically check the reservation rules and insert a ``reserved`` row: (refusal or "", created_at).
+
+        ``venue_close`` (a kill switch or drawdown close sized from the venue, ADR-0005 3b and 7b) does not
+        depend on the ledger, so the two ledger rules - an unconsumed own fill, a changed checkpoint - do not
+        apply to it. The rule against overlapping reductions still does."""
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM submissions WHERE scope=? AND intent_id=?",
@@ -123,7 +127,7 @@ class SqliteOrderJournal:
                 (self.scope, symbol),
             ).fetchone():
                 return REDUCTION_OVERLAP, 0.0
-            if reducing and owner:
+            if reducing and owner and not venue_close:
                 # An unconsumed trade makes the owner's checkpoint stale. Never
                 # size another reduction from it, even if that order is terminal.
                 if db.execute(

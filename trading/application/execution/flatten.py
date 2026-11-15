@@ -60,7 +60,7 @@ class Flattener:
             self.executor.cancel_entries(self.symbol)
             consume()
         except Exception as exc:              # the flatten still goes ahead; the journal refuses it if it must
-            self._issue(f"flatten: entry cancellation or fill consumption failed ({type(exc).__name__})")
+            self._issue(f"flatten: entry cancellation or fill consumption failed ({type(exc).__name__}: {exc})")
         if self._reduction_unresolved():
             return                            # never a second reduction while one is unresolved
         self._count_last(bar)
@@ -124,7 +124,10 @@ class Flattener:
             self.events.write("blocked", symbol=self.symbol, order_id=intent_id, reason=f"journal: {refusal}")
         elif not any(r["intent_id"] == intent_id for r in self._rows()):
             self.events.write("blocked", symbol=self.symbol, order_id=intent_id, reason="not placed; see the log")
-        consume()
+        try:
+            consume()
+        except Exception as exc:              # the order is out; its fill is consumed on a later call
+            self._issue(f"flatten: fill consumption failed ({type(exc).__name__}: {exc})")
 
     def _issue(self, issue: str) -> None:
         self.events.write("issue", symbol=self.symbol, issue=issue)

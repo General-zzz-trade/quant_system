@@ -254,6 +254,14 @@ class TargetSession:
                        min_notional=self.rules.min_notional)
         self.submit(intents, bar, "rebalance")
 
+    def cancel_entries(self) -> None:
+        """Cancel resting entries without closing anything (a kill switch without flatten, a paused symbol)."""
+        if self.executor is None:
+            return
+        self.drop_deferred("entries blocked: deferred entry dropped")
+        self.executor.cancel_entries(self.symbol)
+        self.consume_fills()
+
     def flatten(self, reason: str) -> None:
         """Exit for a kill switch, a latched drawdown or a breached stop; called every cycle while it holds.
         Resting entries are canceled first and failed attempts are retried (step 11, ``Flattener``)."""

@@ -55,6 +55,7 @@ class TargetRuntime:
         self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
             if notifier is not None else None
         self._unsaved_pauses: dict[str, str] = {}   # symbol -> cause of a pause that could not be written yet
+        self._exit_errors: dict[str, str] = {}      # symbol -> the last exit failure, until an exit succeeds
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
@@ -111,13 +112,14 @@ class TargetRuntime:
             for issue in issues:
                 self.journal.write("issue", symbol=symbol, issue=issue)
             if any("stop_breached" in i for i in issues):
-                session.flatten("stop_breached")
+                self._exit(symbol, session, "stop_breached")
             stops = session.stops
             if getattr(stops, "breached", False) is True:        # decided 2026-11-14 / 2026-11-15
                 self._unsaved_pauses.setdefault(symbol, "protective stop breached; position flattened")
             elif getattr(stops, "triggered", False) is True:
                 self._unsaved_pauses.setdefault(symbol, "protective stop triggered")
-            more = [self._save_pause(symbol, session), self._require_stop(symbol, session)]
+            more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
+                    self._exit_errors.get(symbol)]
             if self.issue_alerts is not None:
                 self.issue_alerts.observe(symbol, issues + [issue for issue in more if issue])
         self._last_reconcile = self.clock()
@@ -174,9 +176,28 @@ class TargetRuntime:
 
     def risk_actions(self) -> None:
         kill = self.kill.state()
-        if (kill.active and kill.flatten) or self.drawdown.latched():
-            for session in self.sessions.values():
-                session.flatten("kill_switch" if kill.active else "drawdown_latched")
+        close = (kill.active and kill.flatten) or self.drawdown.latched()
+        for symbol, session in self.sessions.items():
+            if close:
+                self._exit(symbol, session, "kill_switch" if kill.active else "drawdown_latched")
+            elif kill.active or self._pause_status(symbol) is not None:
+                # New exposure is blocked, so a resting entry must not fill either (audit after step 12b).
+                self._exit(symbol, session, None)
+
+    def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
+        """Flatten (or, without a reason, only cancel resting entries). A failure is reported, never raised:
+        one symbol's broken exit must not stop the other symbol's, nor the next cycle."""
+        try:
+            if reason is None:
+                session.cancel_entries()
+            else:
+                session.flatten(reason)
+            self._exit_errors.pop(symbol, None)
+        except Exception as exc:
+            issue = f"{symbol}: {'flatten' if reason else 'entry cancellation'} failed: {type(exc).__name__}: {exc}"
+            self._exit_errors[symbol] = issue
+            self.journal.write("issue", symbol=symbol, issue=issue)
+            logger.exception("%s exit failed", symbol)
 
     def poll(self) -> int:
         """Process newly closed bars. A market-data failure is logged and retried with backoff instead of

@@ -129,13 +129,14 @@ class ExecutionService:
                                        qty=qty, cap_to_owner=not intent.close_venue_position)
                 qty, side, consumer_revision = sized.qty, sized.side, sized.consumer_revision
             record = parent()
-            if reducing and self.owner:
+            if reducing and self.owner and not intent.close_venue_position:
                 record["consumer_revision"] = consumer_revision
             self._reference[intent_id] = str(record.get("price") or 0)
             self._submitted_at[intent_id] = self._monotonic()
             submitted = True
             facts = self._orders.submit(intent_id=intent_id, symbol=intent.symbol, side=side, qty=qty,
-                                        reduce_only=reducing, parent=record, limit_price=limit_price)
+                                        reduce_only=reducing, parent=record, limit_price=limit_price,
+                                        **({"venue_close": True} if intent.close_venue_position else {}))
             if not self._journaled(intent_id, self.owner):
                 self.status_callback(intent_id, BLOCKED)
             self._log_fills(intent_id, facts)
