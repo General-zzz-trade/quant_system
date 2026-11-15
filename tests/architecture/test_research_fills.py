@@ -2,9 +2,10 @@
 
 Rule: no module in lab/ multiplies by a trading-cost rate, that is, no ``*`` or ``*=`` either side of which
 mentions a name or attribute containing fee, taker, maker, slip, commission, bps, cost, spread or impact (any
-case). Fees, slippage and fills are charged only by the shared conservative broker (runner/offline/broker.py),
-reached through lab.simulate (``simulate``, ``Sleeve``) or ``BarBroker`` itself; lab/simulate.py sets the
-broker's rates. The rule catches a bar loop and a vectorized cost model alike.
+case). Fees, slippage and fills are charged only by the shared conservative broker
+(trading/adapters/simulated/bar_broker.py since S10), reached through lab.simulate (``simulate``, ``Sleeve``) or
+``BarBroker`` itself; its ``broker_config`` sets the broker's rates. The rule catches a bar loop and a vectorized
+cost model alike.
 
 The exceptions are the two fill models written before the shared broker could serve them. Each stays exactly as
 it is; the list must match the offenders, so a new one fails and a removed one must leave the list.

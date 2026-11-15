@@ -14,31 +14,10 @@ import pandas as pd
 
 from lab.orders import make_order
 from lab.rebalance import plan
-from runner.offline.broker import BarBroker, ReplayConfig
+# The research lot constants and broker settings live with the broker (S10); research imports them from here.
+from trading.adapters.simulated.bar_broker import SYMBOL_RULES, BarBroker, ReplayConfig, SymbolRules, broker_config
 
 HOUR = 3_600_000
-
-
-@dataclass(frozen=True)
-class SymbolRules:
-    step: D
-    min_qty: D
-    min_notional: D
-
-
-SYMBOL_RULES = {
-    "BTCUSDT": SymbolRules(D("0.001"), D("0.001"), D("100")),
-    "ETHUSDT": SymbolRules(D("0.001"), D("0.001"), D("20")),
-}
-
-
-def broker_config(spec, rules: SymbolRules, *, starting_balance: str = "5000",
-                  cost_multiplier: int = 1) -> ReplayConfig:
-    m = D(cost_multiplier)
-    return ReplayConfig(starting_balance=starting_balance, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
-                        slippage_bps=str(D(3) * m), limit_offset_bps="2", participation="0.01", max_exposure="1",
-                        qty_step=str(rules.step), min_notional=str(rules.min_notional), ttl_bars=spec.ttl_bars,
-                        entry_mode=spec.execution)
 
 
 @dataclass

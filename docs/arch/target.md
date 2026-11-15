@@ -331,7 +331,7 @@ flowchart LR
 | P1 模拟盘与研究逐笔相同 | 【测试日志】`test_target_runtime.py::test_paper_runtime_reproduces_lab_simulation` 等 | 有（S10 面临的主要风险） |
 | P2 模拟盘与执行用同一份会话代码 | 没有 | **没有**（S10） |
 | P3 模拟盘状态跨重启连续 | 【测试日志】`test_target_runtime_resilience.py` | 有 |
-| P4 研究与实盘共用的参数只有一个来源 | 限价偏移写了三份【代码 `lab/simulate.py:39`、`runner/offline/broker.py:38`、`trading/infrastructure/target.py:48`】 | **没有**（S10） |
+| P4 研究与实盘共用的参数只有一个来源 | 限价偏移只在 `trading/domain/orders.py` 的 `LIMIT_OFFSET_BPS` 定义一次【测试日志】`tests/architecture/test_shared_parameters.py` | 有（S10 第 1 部分；原来写了四份） |
 | S1 依赖只能向内，核心层不做 I/O | `.importlinter` 5 条契约，加 `tests/architecture/test_rules.py` | 有 |
 | S2 资金相关测试都在 CI 门禁里 | 【测试日志】`test_rules.py::test_money_path_tests_are_gated_in_ci_and_make`、`::test_the_ci_shards_together_are_the_whole_suite` | 有 |
 | T1 测试从不联网 | `tests/conftest.py` 屏蔽本机以外的连接和域名解析；`tests/unit/tooling/test_network_guard.py` | 有（S1） |

@@ -76,6 +76,11 @@ def check_transition(current: str | None, new: str) -> None:
         raise IllegalTransition(f"order status {current!r} -> {new!r} is not allowed")
 
 
+# How far inside its reference price (the last close) a maker entry rests, in basis points: buy below it, sell
+# above it. The one definition research, paper and execution read (ADR-0013 item 5).
+LIMIT_OFFSET_BPS = Decimal("2")
+
+
 @dataclass(frozen=True)
 class OrderIntent:
     """An order the strategy wants placed; ``order_id`` is the durable intent id (no exchange types)."""

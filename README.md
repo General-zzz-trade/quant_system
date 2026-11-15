@@ -21,7 +21,7 @@ Binance USDT-M 永续合约（BTCUSDT、ETHUSDT）的目标仓位交易系统，
 | 目录 | 内容 |
 |---|---|
 | `trading/` | 新架构：领域、应用、适配器、组装。严格类型检查，导入关系由 `.importlinter` 约束 |
-| `runner/binance_target.py` | 运行时入口；`runner/offline/broker.py` 是研究撮合器（ADR-0006 时搬进 `trading/`） |
+| `runner/binance_target.py` | 运行时入口；研究撮合器在 `trading/adapters/simulated/bar_broker.py`（S10 从 `runner/offline/broker.py` 搬入） |
 | `lab/` | 研究：固定日期窗口的研究、前向检验回放、试验登记 |
 | `data/` | 公开数据下载（不可变的日期快照）、K 线质量检查 |
 | `infra/` | 模型和规格的签名校验、服务单元、日志轮转、单元同步脚本 |

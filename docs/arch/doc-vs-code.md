@@ -191,4 +191,4 @@
 | `CLAUDE.md` "Open exit-side gaps" 第二条 | 列为缺口 | "止损挂不上时阻断入场、2 分钟后告警"是第 12 步已经实现的行为，不是缺口 | 更新：移到架构说明里；缺口只留止损口径、告警出口、对比工具（设计第 2 节 G1、G4、G6） |
 | `docs/adr/0005-exit-path-semantics.md` 状态行 | 3b 的前提：交易账户专用于本运行时 | 技术负责人 2026-11-15 决定继续共用主账户（路线图第 16 项）。启动时由 ADR-0010 检查；运行中由 ADR-0011检查 | 保留 ADR-0005 原文；在 ADR-0011 里说明前提如何持续成立 |
 | `.env.example` | 列出 Bybit、OKX、Hyperliquid 的变量；注释里写着 Bybit 主网地址 | 这些交易所的代码已在 2026-11-15 删除；运行时需要的 `RISK_SCOPE`、`BINANCE_TESTNET` 等变量没有列出（`trading/infrastructure/settings.py`） | 更新：由 ADR-0017 的安装步骤重写 |
-| `docs/adr/0006-one-session-for-paper-and-live.md` 后果一节 | 限价偏移和最小名义额在两处各硬编码一次 | 限价偏移有三处：`lab/simulate.py:39`、`runner/offline/broker.py:38`、`trading/infrastructure/target.py:48` | 由 ADR-0013 第 5 条收敛 |
+| `docs/adr/0006-one-session-for-paper-and-live.md` 后果一节 | 限价偏移和最小名义额在两处各硬编码一次 | 限价偏移有四处：`lab/simulate.py:39`、`runner/offline/broker.py:38`、`trading/infrastructure/target.py:48`、`lab/breakout_study.py:73` | **已解决（S10 第 1 部分，2026-11-15）**：只在 `trading/domain/orders.py` 的 `LIMIT_OFFSET_BPS` 定义一次 |
