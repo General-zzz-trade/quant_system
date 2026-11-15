@@ -18,6 +18,7 @@ from tests.unit.binance.fake_venue import FakeBinance, make_bars
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.files.lease import ExecutionLease
+from tests.support.state_db import state_db
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.reconcile import reconcile_account
@@ -34,7 +35,7 @@ def venue(tmp_path):
     fake.price["BTCUSDT"] = D("100")
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
     assert adapter.connect(symbols=("BTCUSDT",))
-    journal = SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE)
+    journal = SqliteOrderJournal(state_db(tmp_path / "state.sqlite"), SCOPE)      # what the tool opens (ADR-0009)
     return fake, adapter, journal
 
 
@@ -184,7 +185,7 @@ def test_a_ledger_is_never_aligned_while_orders_are_open_or_fills_are_unconsumed
 # -- guards common to both ------------------------------------------------------------------------------------
 def test_nothing_runs_while_the_runtime_holds_the_lease(tmp_path, venue):
     fake, adapter, journal = venue
-    with ExecutionLease(tmp_path / "orders.sqlite", SCOPE):
+    with ExecutionLease(tmp_path / "state.sqlite", SCOPE):
         code, out = _run(tmp_path, adapter, "orders")
     assert code == 3 and "stop the runtime" in out
 
@@ -200,7 +201,7 @@ def test_a_missing_state_directory_or_journal_is_refused_and_never_created(tmp_p
     fake, adapter, journal = venue
     assert _run(tmp_path / "nowhere", adapter, "orders")[0] == 2 and not (tmp_path / "nowhere").exists()
     (tmp_path / "empty").mkdir()
-    assert _run(tmp_path / "empty", adapter, "orders")[0] == 2 and not (tmp_path / "empty/orders.sqlite").exists()
+    assert _run(tmp_path / "empty", adapter, "orders")[0] == 2 and not (tmp_path / "empty/state.sqlite").exists()
 
 
 def test_only_the_manual_command_calls_the_manual_journal_operations():
@@ -218,7 +219,6 @@ def test_only_the_manual_command_calls_the_manual_journal_operations():
 
 # -- audit after step 12b: finding 3 and the auditor's surviving mutants MA6, MA7, MA11 -----------------------
 def _stop_row(journal, client_algo_id, status, revision="f0"):
-    journal.ensure_stop_table()
     journal.add_stop(owner=OWNER, client_algo_id=client_algo_id, symbol="BTCUSDT", revision=revision, attempt=0,
                      side="buy", trigger_price="104", created_at=1.0)
     journal.set_stop_status(client_algo_id, status)

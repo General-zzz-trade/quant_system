@@ -7,12 +7,13 @@ from types import SimpleNamespace
 from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.domain.orders import DUPLICATE, ENTRY_UNRESOLVED
+from tests.support.state_db import state_db
 
 SCOPE = "binance-testnet-ut"
 
 
 def _journal(tmp_path) -> SqliteOrderJournal:
-    return SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE)
+    return SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
 
 
 def _reserve(journal, intent_id="i1", *, reducing=False, clock=lambda: 5.0):
@@ -71,7 +72,6 @@ def test_an_adopted_venue_order_is_an_open_market_reduction(tmp_path):
 
 def test_a_new_stop_row_starts_unknown_and_live_rows_include_canceling(tmp_path):
     journal = _journal(tmp_path)
-    journal.ensure_stop_table()
     for n, status in enumerate(["active", "unknown", "canceling", "triggered", "inactive", "rejected"]):
         journal.add_stop(owner="o", client_algo_id=f"s{n}", symbol="BTCUSDT", revision="r", attempt=n, side="sell",
                          trigger_price="96", created_at=float(n))

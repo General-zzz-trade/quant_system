@@ -7,10 +7,11 @@ then refuses orders (ADR-0007 2b), instead of a re-created store counting the da
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 from decimal import Decimal
+from contextlib import AbstractContextManager
 from pathlib import Path
+
+from trading.adapters.sqlite.connection import connect
 
 
 class SqliteLimitStore:
@@ -20,23 +21,11 @@ class SqliteLimitStore:
         if not scope.strip():
             raise ValueError("risk scope is required")
         self.path, self.scope = Path(path), scope
-        db = sqlite3.connect(self.path, timeout=10)          # never creates the directory
-        try:
-            with db:
-                db.execute("""CREATE TABLE IF NOT EXISTS order_limits (
-                    scope TEXT NOT NULL, day TEXT NOT NULL, orders INTEGER NOT NULL, notional TEXT NOT NULL,
-                    PRIMARY KEY(scope, day))""")
-        finally:
-            db.close()
 
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=10)
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        """The state database as ``state_dir init`` created it; never creates a file or a table (ADR-0009). An
+        unreadable count is treated as used up by the limiter (ADR-0007 2b)."""
+        return connect(self.path)
 
     def load(self, day: str) -> tuple[int, Decimal]:
         with self._connect() as db:

@@ -53,8 +53,8 @@ def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols
     try:
         stop_rows = [row for symbol in symbols for row in journal.stop_rows(owner_of(symbol), symbol, live_only=False)]
     except Exception as exc:
-        # A new state directory has no stop table until the runtime first runs (until ADR-0009). Unread records
-        # only add refusals: every conditional order counts as foreign and no stop counts as fired.
+        # Unread records (a damaged database; ADR-0009 init creates the stop table) only add refusals: every
+        # conditional order counts as foreign and no stop counts as fired.
         if stops:
             findings.append(f"strategy stop records could not be read ({type(exc).__name__}: {exc})")
     open_stops = {(stop.symbol, stop.client_algo_id) for stop in stops}

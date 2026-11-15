@@ -32,6 +32,7 @@ from lab.strategy import StrategySpec, compute_targets
 from runner.binance_target import TargetRuntime
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world
 from trading.domain.bars import bar_from_kline
+from tests.support.state_db import state_dir_db
 
 BALANCE = "2000"        # small enough that the default order limits never bind
 
@@ -58,6 +59,7 @@ def test_the_execution_path_sends_the_orders_research_sends_bar_by_bar(tmp_path)
                                               "symbols": ["BTCUSDT"], "spec": spec.record(), "passed": False}))
     venue = world["fakes"]["BTCUSDT"]
     venue.equity = D(BALANCE)
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"],
                             clock=lambda: world["clock"]["now"], testnet=True)

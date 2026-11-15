@@ -14,6 +14,7 @@ from trading.domain.bars import bar_from_kline
 from runner.binance_target import PAPER_STATE, TargetRuntime
 from tests.unit.binance.fake_venue import HOUR
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world
+from tests.support.state_db import state_dir_db
 
 MARKET_PATHS = ("/fapi/v1/klines", "/fapi/v1/fundingRate")
 
@@ -121,6 +122,7 @@ def test_market_failure_backs_off_before_retrying(tmp_path):
 def test_kill_flatten_runs_while_market_data_is_unavailable(tmp_path):
     world = _world(tmp_path, _spec())
     btc = world["fakes"]["BTCUSDT"]
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"],
                             clock=lambda: world["clock"]["now"], testnet=True)
@@ -213,6 +215,7 @@ def test_paper_survives_a_downtime_and_an_outage_longer_than_a_day(tmp_path, hou
 def test_execution_catch_up_decides_on_the_newest_bar_and_only_reduces(tmp_path):
     world = _world(tmp_path, _spec())
     btc = world["fakes"]["BTCUSDT"]
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"],
                             clock=lambda: world["clock"]["now"], testnet=True)

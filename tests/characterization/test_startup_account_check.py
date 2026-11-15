@@ -88,7 +88,7 @@ def _started(world):
 
 
 def _journal(world):
-    return SqliteOrderJournal(world["state"] / "orders.sqlite", SCOPE)
+    return SqliteOrderJournal(world["state"] / "state.sqlite", SCOPE)
 
 
 # -- refusals ----------------------------------------------------------------------------------------------------
@@ -162,14 +162,13 @@ def test_the_configured_settings_are_checked_not_set(world, monkeypatch):
 
 def test_the_strategy_s_own_position_order_and_stop_do_not_refuse_the_start(world):
     journal = _journal(world)
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
                    (SCOPE, "target.BTCUSDT", json.dumps({"position": {"qty": "0.1"}})))
         db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner) "
                    "VALUES (?, 'i1', 'BTCUSDT', 'cid-1', '501', 1, 'target.BTCUSDT')", (SCOPE,))
         db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner) "
                    "VALUES (?, 'i2', 'BTCUSDT', 'cid-2', '', 0, 'target.BTCUSDT')", (SCOPE,))
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="SELL", trigger_price="90", created_at=T0)
     fake = world["fake"]
@@ -186,7 +185,7 @@ def test_the_strategy_s_own_position_order_and_stop_do_not_refuse_the_start(worl
 def test_a_difference_on_a_symbol_with_an_unsettled_strategy_order_is_left_to_recovery(world):
     """After a crash between a fill and its booking the venue is ahead of the ledger; the order recovery at start
     settles it, and reconciliation blocks entries until then. Refusing here would block that recovery."""
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:     # a real intent has a side and a quantity
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:     # a real intent has a side and a quantity
         db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty) "
                    "VALUES (?, 'i3', 'BTCUSDT', 'cid-3', '', 0, 'target.BTCUSDT', 'buy', '0.1')", (SCOPE,))
     world["fake"].positions["BTCUSDT"] = D("0.1")
@@ -194,7 +193,7 @@ def test_a_difference_on_a_symbol_with_an_unsettled_strategy_order_is_left_to_re
 
 
 def test_a_settled_journal_does_not_excuse_a_difference(world):
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner) "
                    "VALUES (?, 'i4', 'BTCUSDT', 'cid-4', '600', 1, 'target.BTCUSDT')", (SCOPE,))
     world["fake"].positions["BTCUSDT"] = D("0.1")
@@ -213,7 +212,7 @@ def test_no_production_code_sets_leverage_or_margin_type():
 # -- added after the mutation self-check (survivors N11, N12, N16) -----------------------------------------------
 def test_the_strategy_owner_of_a_symbol_counts_even_without_order_rows(world):
     """A booked position belongs to the strategy whether or not its order rows are still in the journal."""
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
                    (SCOPE, "target.ETHUSDT", json.dumps({"position": {"qty": "-0.5"}})))
     world["fake"].positions["ETHUSDT"] = D("-0.5")
@@ -221,7 +220,7 @@ def test_the_strategy_owner_of_a_symbol_counts_even_without_order_rows(world):
 
 
 def test_a_ledger_position_the_venue_does_not_have_refuses_the_start(world):
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
                    (SCOPE, "target.BTCUSDT", json.dumps({"position": {"qty": "0.1"}})))
     _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
@@ -243,14 +242,14 @@ def test_an_unexpected_conditional_order_snapshot_refuses_the_start(world):
 
 # -- independent audit of ADR-0010 (findings 1-5): in-flight strategy activity is accounted for exactly -----------
 def _row(world, intent, symbol, *, side=None, qty=None, settled=0, client_id="", order_id="", reducing=0):
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty, "
                    "reducing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                    (SCOPE, intent, symbol, client_id, order_id, settled, f"target.{symbol}", side, qty, reducing))
 
 
 def _checkpoint(world, symbol, qty):
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
         db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
                    (SCOPE, f"target.{symbol}", json.dumps({"position": {"qty": qty}})))
 
@@ -270,7 +269,6 @@ def test_finding_1_a_stop_that_fired_while_stopped_is_left_to_the_stop_sync(worl
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
     _checkpoint(world, "BTCUSDT", "0.1")
     journal = _journal(world)
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="sell", trigger_price="92", created_at=T0)
     journal.set_stop_status("stop-1", "active")
@@ -283,7 +281,6 @@ def test_a_flat_venue_without_a_fired_stop_still_refuses(world):
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
     _checkpoint(world, "BTCUSDT", "0.1")
     journal = _journal(world)
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="sell", trigger_price="92", created_at=T0)
     journal.set_stop_status("stop-1", "active")
@@ -450,7 +447,6 @@ def test_a_reduction_never_crosses_zero(world):
 
 def test_a_stop_id_of_another_symbol_does_not_make_a_conditional_order_known(world):
     journal = _journal(world)
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="sell", trigger_price="92", created_at=T0)
     journal.set_stop_status("stop-1", "canceled")
@@ -470,7 +466,6 @@ def test_a_stop_whose_state_cannot_be_read_refuses_the_start(world):
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
     _checkpoint(world, "BTCUSDT", "0.1")
     journal = _journal(world)
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="sell", trigger_price="92", created_at=T0)
     journal.set_stop_status("stop-1", "active")               # not among the open conditional orders: look it up
@@ -496,7 +491,6 @@ def _strategy_long(world, qty="0.1"):
 def _stop_row(world, status, venue_status=None):
     """A strategy stop on BTCUSDT in journal ``status``; at the venue absent, or with ``venue_status``."""
     journal = _journal(world)
-    journal.ensure_stop_table()
     journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
                      side="sell", trigger_price="92", created_at=T0)
     journal.set_stop_status("stop-1", status)

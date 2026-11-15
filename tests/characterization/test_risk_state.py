@@ -12,6 +12,7 @@ from lab.strategy import StrategySpec
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.kill_switch import KillFile
+from tests.support.state_db import state_db
 
 T0 = 1_794_700_000.0
 
@@ -25,7 +26,7 @@ def _tripped_guard(path: Path, scope: str) -> DrawdownGuard:
 
 
 def test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope(tmp_path):
-    _tripped_guard(tmp_path / "drawdown.sqlite", "binance-testnet-ut")
+    _tripped_guard(state_db(tmp_path / "drawdown.sqlite"), "binance-testnet-ut")
     restarted = DrawdownGuard(tmp_path / "drawdown.sqlite", "binance-testnet-ut", daily_pct=5, weekly_pct=12)
     assert restarted.latched(now=T0 + 120)
 
@@ -33,8 +34,8 @@ def test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope(tmp_path
 def test_execution_refuses_to_start_when_a_store_is_missing_or_the_scope_changed(tmp_path, monkeypatch):
     """R6, fixed in migration step 13c (ADR-0007 1c): execution starts only from a state directory a person
     initialized, for the same scope, with every store present. Until then this test pinned the defect: a
-    renamed scope or a deleted drawdown file silently started a fresh, unlatched drawdown store. (The store
-    class itself still creates what is missing; the refusal is at start-up, before it is ever built.)"""
+    renamed scope or a deleted drawdown file silently started a fresh, unlatched drawdown store. Since ADR-0009
+    the stores never create anything either; the refusal is at start-up, before any is built."""
     import io
 
     from lab.strategy import StrategySpec
@@ -50,10 +51,10 @@ def test_execution_refuses_to_start_when_a_store_is_missing_or_the_scope_changed
     with pytest.raises(RuntimeError, match="belongs to scope binance-testnet-ut"):
         preflight(spec, execution=True, testnet=True, stop_pct=D("0.08"), state_dir=state)
     monkeypatch.setenv("RISK_SCOPE", "binance-testnet-ut")
-    (state / "drawdown.sqlite").unlink()
-    with pytest.raises(RuntimeError, match="drawdown.sqlite is missing"):
+    (state / "state.sqlite").unlink()                       # the one state database (ADR-0009)
+    with pytest.raises(RuntimeError, match="state.sqlite is missing"):
         preflight(spec, execution=True, testnet=True, stop_pct=D("0.08"), state_dir=state)
-    assert not (state / "drawdown.sqlite").exists()
+    assert not (state / "state.sqlite").exists()
 
 
 def test_a_drawdown_limit_above_the_hard_ceiling_refuses_to_start():
@@ -76,7 +77,7 @@ def test_the_daily_order_count_survives_a_restart(tmp_path):
     config = Config(max_daily_orders=2, max_orders_per_second=1000.0)
 
     def limiter():
-        return StoredLimiter(config, store=SqliteLimitStore(tmp_path / "order_limits.sqlite", "s"),
+        return StoredLimiter(config, store=SqliteLimitStore(state_db(tmp_path / "order_limits.sqlite"), "s"),
                              clock=lambda: 1_800_000_000.0, monotonic=lambda: 0.0)
 
     first = limiter()

@@ -32,10 +32,11 @@ from typing import Any, TextIO
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+from trading.adapters.sqlite.schema import STATE_DB
 from trading.domain.venue import STOP_TRIGGERED
 from trading.infrastructure.settings import binance_config_from_env, execution_scope, testnet_from_env
 
-JOURNAL = "orders.sqlite"
+JOURNAL = STATE_DB      # the one state database (ADR-0009)
 WORKING = frozenset({"new", "partially_filled"})
 SETTLES_AS = {"filled": "filled", "canceled": "canceled", "expired": "expired", "rejected": "rejected"}
 
@@ -120,7 +121,6 @@ def _unseen_trigger(journal: SqliteOrderJournal, account: Any, owner: str, symbo
     """Why a protective stop of the symbol may still change the ledger, or None. A stop that fired while the
     runtime was stopped is adopted at the next start and its fill lands on the ledger: aligning the ledger
     first would count that fill twice (audit after step 12b, finding 3)."""
-    journal.ensure_stop_table()
     for row in journal.stop_rows(owner, symbol, live_only=True):
         if row["status"] == "awaiting_order":
             return f"protective stop {row['client_algo_id']} has fired and its order is not known yet"

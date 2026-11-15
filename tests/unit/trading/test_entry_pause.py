@@ -19,7 +19,8 @@ from tests.characterization.test_runtime_decisions import _events, _order, _runt
 from tests.unit.lab.test_target_runtime import _advance
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.infrastructure import entry_pause as cli
-from trading.infrastructure.target import PAUSES_FILE
+from tests.support.state_db import state_db
+from trading.adapters.sqlite.schema import STATE_DB as PAUSES_FILE
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +42,7 @@ def _release(state_dir, symbol, typed, reason="checked the venue and the ledger"
 # -- the store ------------------------------------------------------------------------------------------------
 def test_a_pause_is_kept_until_released_and_its_history_stays(tmp_path):
     clock = {"t": 100.0}
-    pauses = SqliteEntryPauses(tmp_path / PAUSES_FILE, clock=lambda: clock["t"])
+    pauses = SqliteEntryPauses(state_db(tmp_path / PAUSES_FILE), clock=lambda: clock["t"])
     assert pauses.reason("BTCUSDT") is None
     assert pauses.pause("BTCUSDT", "protective stop triggered") is True
     assert pauses.pause("BTCUSDT", "protective stop breached") is False          # the first cause is kept
@@ -66,7 +67,7 @@ def test_an_unreadable_store_raises_instead_of_reporting_no_pause(tmp_path):
 
 # -- the command a person runs ---------------------------------------------------------------------------------
 def test_releasing_needs_the_symbol_typed_back_and_a_reason(tmp_path):
-    pauses = SqliteEntryPauses(tmp_path / PAUSES_FILE)
+    pauses = SqliteEntryPauses(state_db(tmp_path / PAUSES_FILE))
     pauses.pause("BTCUSDT", "protective stop breached; position flattened")
     code, out = _release(tmp_path, "BTCUSDT", typed="yes")
     assert code == 1 and "not released" in out and pauses.reason("BTCUSDT") is not None
@@ -80,7 +81,7 @@ def test_releasing_needs_the_symbol_typed_back_and_a_reason(tmp_path):
 
 
 def test_status_lists_the_active_pauses(tmp_path):
-    SqliteEntryPauses(tmp_path / PAUSES_FILE).pause("ETHUSDT", "protective stop triggered")
+    SqliteEntryPauses(state_db(tmp_path / PAUSES_FILE)).pause("ETHUSDT", "protective stop triggered")
     out = io.StringIO()
     assert cli.main(["--state-dir", str(tmp_path), "status"], stdout=out) == 0
     assert [(r["symbol"], r["cause"]) for r in json.loads(out.getvalue())] == [("ETHUSDT", "protective stop triggered")]

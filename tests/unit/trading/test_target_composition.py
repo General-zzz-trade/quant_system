@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import sqlite3
 from decimal import Decimal as D
 from types import SimpleNamespace
 
@@ -82,7 +83,10 @@ def test_a_stop_outside_the_liquidation_distance_is_refused_before_any_state_fil
     monkeypatch.setenv("BINANCE_MARGIN_TYPE", "ISOLATED")
     with pytest.raises(RuntimeError, match="liquidation distance"):
         _start(tmp_path)
-    assert not (tmp_path / "exec/orders.sqlite").exists() and not (tmp_path / "exec/drawdown.sqlite").exists()
+    exec_dir = tmp_path / "exec"                 # only the database the test prepared, untouched (ADR-0009)
+    assert sorted(p.name for p in exec_dir.iterdir() if p.suffix == ".sqlite") == ["state.sqlite"]
+    with sqlite3.connect(exec_dir / "state.sqlite") as db:
+        assert db.execute("SELECT count(*) FROM drawdown_periods").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("execution,ttl,order_type,expires", [("market", 1, "market", None),

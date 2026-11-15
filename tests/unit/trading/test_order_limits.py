@@ -19,6 +19,7 @@ from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.infrastructure.settings import RiskLimits, risk_limits
+from tests.support.state_db import state_db
 
 SCOPE = "binance-testnet-ut"
 
@@ -31,7 +32,7 @@ def _limiter(tmp_path, config, clock=None, monotonic=None):
     clock = clock or {"t": _ts("2026-11-15T12:00:00")}
     mono = monotonic or {"t": 100.0}
     tmp_path.mkdir(parents=True, exist_ok=True)       # the store never creates the state directory
-    store = SqliteLimitStore(tmp_path / "order_limits.sqlite", SCOPE)
+    store = SqliteLimitStore(state_db(tmp_path / "order_limits.sqlite"), SCOPE)
     return OrderLimiter(config, store=store, clock=lambda: clock["t"], monotonic=lambda: mono["t"]), clock, mono
 
 
@@ -110,8 +111,8 @@ def test_a_count_that_cannot_be_read_or_saved_refuses_the_order(tmp_path):
 
 def test_counts_are_kept_per_scope(tmp_path):
     config = OrderLimitsConfig(max_daily_orders=1)
-    store_a = SqliteLimitStore(tmp_path / "order_limits.sqlite", "scope-a")
-    store_b = SqliteLimitStore(tmp_path / "order_limits.sqlite", "scope-b")
+    store_a = SqliteLimitStore(state_db(tmp_path / "order_limits.sqlite"), "scope-a")
+    store_b = SqliteLimitStore(state_db(tmp_path / "order_limits.sqlite"), "scope-b")
     a = OrderLimiter(config, store=store_a, clock=lambda: 0.0, monotonic=lambda: 0.0)
     b = OrderLimiter(config, store=store_b, clock=lambda: 0.0, monotonic=lambda: 10.0)
     assert a.check_order(qty=D("1"), price=D("1")).allowed and b.check_order(qty=D("1"), price=D("1")).allowed
@@ -153,5 +154,5 @@ def test_the_runtime_counts_its_orders_in_its_state_directory_under_its_scope(tm
     world, runtime = _start(tmp_path)
     _until_position(world, runtime)
     day = periods(world["clock"]["now"])["day"]
-    orders, notional = SqliteLimitStore(tmp_path / "exec" / "order_limits.sqlite", SCOPE).load(day)
+    orders, notional = SqliteLimitStore(tmp_path / "exec" / "state.sqlite", SCOPE).load(day)
     assert orders >= 1 and notional > 0

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.execution.lifecycle import TERMINAL, TRANSITION_VIOLATIONS, OrderLifecycle, PendingOrder
+from tests.support.state_db import state_db
 
 if TYPE_CHECKING:
     from trading.application.ports import Clock, OrderGateway
@@ -28,7 +29,7 @@ class ConfirmedExecutor(OrderLifecycle):
         self.check_settings(scope, wait_seconds=wait_seconds, entry_order_type=entry_order_type,
                             not_found_grace_seconds=not_found_grace_seconds, entry_ttl_seconds=entry_ttl_seconds)
         self.path = Path(journal_path)
-        super().__init__(adapter, SqliteOrderJournal(self.path, scope), scope, clock=clock,
+        super().__init__(adapter, SqliteOrderJournal(state_db(self.path), scope), scope, clock=clock,
                          sleeper=lambda seconds: time.sleep(seconds),   # looked up per call, as before
                          lock=threading.RLock(), wait_seconds=wait_seconds, owner=owner,
                          entry_order_type=entry_order_type, not_found_grace_seconds=not_found_grace_seconds,

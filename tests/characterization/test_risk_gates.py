@@ -25,6 +25,7 @@ from trading.adapters.sqlite.order_journal import SqliteOrderJournal as Executio
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
+from tests.support.state_db import state_db
 
 T0 = 1_794_700_000.0
 SCOPE = "binance-testnet-ut"
@@ -40,13 +41,13 @@ def _gates(tmp_path, *, limits=None):
     fake.price["BTCUSDT"] = D("100")
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
     assert adapter.connect(symbols=("BTCUSDT",))
-    journal = ExecutionJournal(tmp_path / "orders.sqlite", SCOPE)
+    journal = ExecutionJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
     kill = KillFile(tmp_path / "kill_switch.json", missing_is_active=False)
-    drawdown = DrawdownGuard(tmp_path / "drawdown.sqlite", SCOPE, daily_pct=5, weekly_pct=12)
+    drawdown = DrawdownGuard(state_db(tmp_path / "drawdown.sqlite"), SCOPE, daily_pct=5, weekly_pct=12)
     drawdown.observe(10_000.0)
     # The Python limiter the target runtime uses (the Rust one went 2026-11-15; same rules and wording).
     limiter = OrderLimiter(limits or OrderLimitsConfig(max_order_notional=D("5000"), max_orders_per_second=1000.0),
-                           store=SqliteLimitStore(tmp_path / "order_limits.sqlite", SCOPE), clock=time.time,
+                           store=SqliteLimitStore(state_db(tmp_path / "order_limits.sqlite"), SCOPE), clock=time.time,
                            monotonic=time.monotonic)
     inner = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown,
                               portfolio_reader=AccountExposureGate(adapter, journal), venue="binance")
@@ -100,7 +101,7 @@ def test_exposure_counts_unresolved_entry_intents(tmp_path):
 
 
 def test_drawdown_latch_reads_as_latched_when_the_store_is_unreadable(tmp_path):
-    guard = DrawdownGuard(tmp_path / "drawdown.sqlite", SCOPE)
+    guard = DrawdownGuard(state_db(tmp_path / "drawdown.sqlite"), SCOPE)
     guard.observe(1000.0, now=T0)
     assert guard.latched(now=T0) is False
     (tmp_path / "drawdown.sqlite").write_bytes(b"not a database" * 100)
@@ -109,7 +110,7 @@ def test_drawdown_latch_reads_as_latched_when_the_store_is_unreadable(tmp_path):
 
 
 def test_a_wider_limit_after_restart_cannot_relax_the_current_period(tmp_path):
-    path = tmp_path / "drawdown.sqlite"
+    path = state_db(tmp_path / "drawdown.sqlite")
     DrawdownGuard(path, SCOPE, daily_pct=3, weekly_pct=10).observe(1000.0, now=T0)
     wider = DrawdownGuard(path, SCOPE, daily_pct=20, weekly_pct=30)
     allowed, reason = wider.observe(965.0, now=T0 + 60)        # 3.5 % below the period peak

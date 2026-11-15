@@ -14,6 +14,7 @@ from trading.adapters.notify.telegram import TelegramNotifier
 from trading.application.alerts import ALERT_AFTER_SECONDS, REPEAT_SECONDS, IssueAlerts, NotifyingEventLog
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure.settings import notifier_from_env
+from tests.support.state_db import state_dir_db
 
 TOKEN = "123456:secret-token"
 
@@ -174,6 +175,7 @@ def test_a_notifier_that_fails_never_stops_the_issue_tracking():
 def _runtime(tmp_path, notifier, **spec):
     from runner.binance_target import TargetRuntime
     world = _world(tmp_path, StrategySpec(**MARKET, **spec))
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"], clock=lambda: world["clock"]["now"],
                             testnet=True, notifier=notifier)

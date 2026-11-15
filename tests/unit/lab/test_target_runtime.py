@@ -14,6 +14,7 @@ from lab.strategy import StrategySpec, compute_targets
 from trading.domain.bars import bar_from_kline
 from runner.binance_target import TargetRuntime
 from tests.unit.binance.fake_venue import HOUR, FakeBinance, make_bars
+from tests.support.state_db import state_dir_db
 
 LIVE = 360
 
@@ -94,6 +95,8 @@ def test_execution_lifecycle_restart_and_flatten(tmp_path, monkeypatch):
     spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
     world = _world(tmp_path, spec)
     btc = world["fakes"]["BTCUSDT"]
+
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
 
     def build():
         return TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",

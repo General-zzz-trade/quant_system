@@ -3,11 +3,12 @@
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target init
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target check
 
-A person initializes the directory once: a manifest naming the account scope, every store, and an inactive
-kill file. Execution mode then starts only if the manifest exists, names the same scope, every store has its
-tables and the kill file is readable; no store, kill file or manifest is created on the way (reading a WAL
-database may leave SQLite's -shm/-wal files next to it). Changing the directory or the scope is
-changing the account identity: initialize a new directory. Paper mode does not use this.
+A person initializes the directory once: a manifest naming the account scope, the one state database
+``state.sqlite`` with every table at its version (ADR-0009), and an inactive kill file. Execution mode then
+starts only if the manifest exists, names the same scope, the database has the right version and every table,
+the old five-file layout is absent and the kill file is readable; no database, kill file or manifest is created
+on the way (reading a WAL database may leave SQLite's -shm/-wal files next to it). Changing the directory or
+the scope is changing the account identity: initialize a new directory. Paper mode does not use this.
 """
 from __future__ import annotations
 
@@ -22,20 +23,15 @@ from pathlib import Path
 from typing import TextIO
 
 from trading.adapters.files.kill_switch import KillFile
-from trading.adapters.sqlite.check import database_tables
-from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
-from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
-from trading.adapters.sqlite.limit_store import SqliteLimitStore
-from trading.adapters.sqlite.order_journal import SqliteOrderJournal
-from trading.infrastructure.entry_pause import PAUSES_FILE
+from trading.adapters.sqlite import schema
+from trading.adapters.sqlite.schema import STATE_DB
 from trading.infrastructure.settings import execution_scope, risk_limits, testnet_from_env
-from trading.infrastructure.target import DRAWDOWN_FILE, LIMITS_FILE, ORDERS_FILE
 
 MANIFEST = "manifest.json"
 KILL_FILE = "kill_switch.json"
-STORES = (ORDERS_FILE, DRAWDOWN_FILE, LIMITS_FILE, PAUSES_FILE)
-TABLES = {ORDERS_FILE: SqliteOrderJournal.TABLES, DRAWDOWN_FILE: SqliteDrawdownGuard.TABLES,
-          LIMITS_FILE: SqliteLimitStore.TABLES, PAUSES_FILE: SqliteEntryPauses.TABLES}
+STORES = (STATE_DB,)
+# The five-file layout before ADR-0009. Its presence refuses a start: initialize a new directory (ADR-0009 5).
+OLD_LAYOUT = ("orders.sqlite", "drawdown.sqlite", "order_limits.sqlite", "entry_pauses.sqlite")
 
 
 def kill_file_path(state_dir: Path) -> Path:
@@ -59,18 +55,12 @@ def verify(state_dir: Path, scope: str) -> None:
         raise RuntimeError(f"state directory {state_dir}: manifest unreadable ({type(exc).__name__})") from None
     if manifest.get("scope") != scope:
         raise RuntimeError(f"state directory {state_dir} belongs to scope {manifest.get('scope')}, not {scope}")
-    problems = []
-    for name in STORES:
-        path = state_dir / name
-        if not path.is_file():
-            problems.append(f"{name} is missing")
-            continue
-        tables = database_tables(path)
-        if tables is None:
-            problems.append(f"{name} is unreadable")
-        elif missing := [t for t in TABLES[name] if t not in tables]:
-            # emptied (0 bytes) or replaced: its state - a drawdown latch, today's counts - is gone (audit after M3)
-            problems.append(f"{name} has lost its tables ({', '.join(missing)}); it was emptied or replaced")
+    if old := [name for name in OLD_LAYOUT if (state_dir / name).exists()]:
+        raise RuntimeError(f"state directory {state_dir} has the old state layout ({', '.join(old)}); "
+                           f"initialize a new directory{hint}")
+    # Emptied (0 bytes), replaced or of another version: its state - a drawdown latch, today's counts, the
+    # orders - is gone or unknown (audit after M3; ADR-0009).
+    problems = schema.problems(state_dir / STATE_DB)
     kill = kill_file_path(state_dir)
     if not kill.is_file():
         problems.append(f"{KILL_FILE} is missing")
@@ -81,20 +71,17 @@ def verify(state_dir: Path, scope: str) -> None:
 
 
 def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, str]) -> bool:
-    """Create the stores, an inactive kill file and, last, the manifest. False if already initialized."""
+    """Create the state database, an inactive kill file and, last, the manifest. False if already initialized."""
     state_dir = Path(state_dir)
     if is_managed(state_dir):
         return False
+    risk_limits(env)                                  # the drawdown ceiling is checked before anything exists
     state_dir.mkdir(parents=True, exist_ok=True)
-    limits = risk_limits(env)
-    SqliteOrderJournal(state_dir / ORDERS_FILE, scope)
-    SqliteDrawdownGuard(state_dir / DRAWDOWN_FILE, scope, daily_pct=limits.daily_drawdown_pct,
-                        weekly_pct=limits.weekly_drawdown_pct)
-    SqliteLimitStore(state_dir / LIMITS_FILE, scope).load("initialized")
-    SqliteEntryPauses(state_dir / PAUSES_FILE).reason("initialized")
+    schema.create(state_dir / STATE_DB)               # refuses a database left by an interrupted init
     if not kill_file_path(state_dir).exists():
         KillFile(kill_file_path(state_dir), missing_is_active=True).write(active=False, reason="initialized")
-    manifest = {"schema": 1, "scope": scope, "testnet": testnet, "stores": list(STORES), "kill_file": KILL_FILE,
+    manifest = {"schema": 1, "scope": scope, "testnet": testnet, "stores": list(STORES),
+                "state_db_version": schema.VERSION, "kill_file": KILL_FILE,
                 "created_at": datetime.fromtimestamp(time.time(), timezone.utc).isoformat(timespec="seconds")}
     tmp = state_dir / f"{MANIFEST}.tmp"
     tmp.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -125,4 +112,5 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["KILL_FILE", "MANIFEST", "STORES", "initialize", "is_managed", "kill_file_path", "main", "verify"]
+__all__ = ["KILL_FILE", "MANIFEST", "OLD_LAYOUT", "STORES", "initialize", "is_managed", "kill_file_path", "main",
+           "verify"]

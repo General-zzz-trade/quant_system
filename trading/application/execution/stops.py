@@ -95,7 +95,6 @@ class ProtectiveStopManager:
         self.adapter, self.executor, self.symbol = adapter, executor, symbol
         self.stop_pct, self.clock = stop_pct, clock
         self.journal = executor.journal
-        self.journal.ensure_stop_table()
 
     # ------------------------------------------------------------------
     def _client_id(self, revision: str, attempt: int) -> str:

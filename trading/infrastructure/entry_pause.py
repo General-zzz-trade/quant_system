@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import TextIO
 
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
+from trading.adapters.sqlite.schema import STATE_DB
 
-PAUSES_FILE = "entry_pauses.sqlite"
 
 
 def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: Te
     if not args.state_dir.is_dir():
         print(f"no state directory at {args.state_dir}", file=stdout)
         return 2
-    pauses = SqliteEntryPauses(args.state_dir / PAUSES_FILE)
+    pauses = SqliteEntryPauses(args.state_dir / STATE_DB)
     if args.command == "status":
         print(json.dumps(pauses.active(), indent=2), file=stdout)
         return 0
@@ -58,4 +58,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["PAUSES_FILE", "main"]
+__all__ = ["main"]

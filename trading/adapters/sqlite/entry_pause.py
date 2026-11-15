@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
+
+from trading.adapters.sqlite.connection import connect
 
 
 class SqliteEntryPauses:
@@ -24,20 +26,9 @@ class SqliteEntryPauses:
     def __init__(self, path: Path, *, clock: Callable[[], float] = time.time) -> None:
         self.path, self.clock = Path(path), clock
 
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=10)
-        db.row_factory = sqlite3.Row
-        try:
-            with db:
-                db.execute("""CREATE TABLE IF NOT EXISTS entry_pauses (
-                    symbol TEXT NOT NULL, paused_at REAL NOT NULL, cause TEXT NOT NULL,
-                    released_at REAL, release_reason TEXT)""")
-                db.execute("""CREATE TABLE IF NOT EXISTS pause_triggers (
-                    symbol TEXT NOT NULL, trigger TEXT NOT NULL, PRIMARY KEY(symbol, trigger))""")
-                yield db
-        finally:
-            db.close()
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        """The state database as ``state_dir init`` created it; never creates a file or a table (ADR-0009)."""
+        return connect(self.path)
 
     def pause(self, symbol: str, cause: str, triggers: Iterable[str] = ()) -> bool:
         """Pause ``symbol``'s entries for ``triggers``; False if they already are (the first cause is kept).

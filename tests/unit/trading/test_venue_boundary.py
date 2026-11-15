@@ -14,6 +14,7 @@ from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.execution.stops import ProtectiveStopManager
 from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, OpenOrder, StopOrder, VenueOrder,
                                   VenuePosition)
+from tests.support.state_db import state_db
 
 
 @pytest.fixture
@@ -81,7 +82,8 @@ class _Owner:
     """The stop manager's view of an executor, over a real journal."""
 
     def __init__(self, tmp_path):
-        self.journal, self.scope, self.owner, self.adopted = SqliteOrderJournal(tmp_path / "o.sqlite", SCOPE), \
+        journal = SqliteOrderJournal(state_db(tmp_path / "o.sqlite"), SCOPE)
+        self.journal, self.scope, self.owner, self.adopted = journal, \
             SCOPE, OWNER, []
 
     def adopt_exchange_order(self, **kw):
@@ -162,7 +164,7 @@ def test_a_confirmed_fill_is_a_frozen_record_with_decimal_amounts(tmp_path):
     from tests.unit.trading.test_execution_service import Venue
     from trading.application.execution.lifecycle import OrderLifecycle
     from trading.domain.orders import ConfirmedFill
-    orders = OrderLifecycle(Venue(), SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE,
+    orders = OrderLifecycle(Venue(), SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE), SCOPE,
                             clock=lambda: 1000.0, sleeper=lambda s: None, lock=threading.RLock(), wait_seconds=0,
                             owner=OWNER, entry_order_type="market", not_found_grace_seconds=90)
     (fact,) = orders.submit(intent_id="i1", symbol="BTCUSDT", side="buy", qty=D("1"))

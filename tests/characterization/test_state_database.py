@@ -23,8 +23,6 @@ SCOPE = "binance-testnet-ut"
 TABLES = {"submissions", "execution_fills", "execution_consumers", "manual_actions", "protective_stops",
           "drawdown_periods", "equity_observations", "order_limits", "entry_pauses", "pause_triggers"}
 OLD_FILES = ("orders.sqlite", "drawdown.sqlite", "order_limits.sqlite", "entry_pauses.sqlite")
-# Written before the change: every test fails on the code before ADR-0009 (removed with the implementation).
-pytestmark = pytest.mark.xfail(strict=True, reason="ADR-0009 not implemented yet")
 
 
 @pytest.fixture(autouse=True)
@@ -154,7 +152,8 @@ def test_a_database_deleted_while_running_is_not_re_created_and_sends_no_unregis
     from trading.domain.strategy.overlay import StrategySpec
     state = tmp_path / "state"
     db_path = _init(state)
-    world = _world(tmp_path, StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05))
+    world = _world(tmp_path, StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05,
+                                          execution="market"))          # the fake fills market orders
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=state, mode="execution", market=world["adapter"],
                             account=world["adapter"], clock=lambda: world["clock"]["now"], testnet=True)
     runtime.warmup()
@@ -170,4 +169,5 @@ def test_a_database_deleted_while_running_is_not_re_created_and_sends_no_unregis
         _advance(world, runtime, i + k)
     assert [len(f.posts) for f in world["fakes"].values()] == posts      # nothing sent without a journal row
     assert not db_path.exists()
-    assert runtime.status()["symbols"]["BTCUSDT"]["entry_ready"] is False
+    assert all(not s.executor.ready for s in runtime.sessions.values())   # entries blocked by reconciliation
+    assert runtime.status()["symbols"]["BTCUSDT"]["protective_stop"].startswith("unreadable")

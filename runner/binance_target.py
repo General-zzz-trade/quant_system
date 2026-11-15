@@ -33,6 +33,7 @@ from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
 from trading.adapters.sqlite.paper_store import SqlitePaperStore
+from trading.adapters.sqlite.schema import STATE_DB
 from trading.application import runtime as _runtime
 from trading.application.equity import EquitySource
 from trading.application.execution.fills import TargetFillConsumer
@@ -177,7 +178,7 @@ def main(argv: list[str] | None = None) -> None:
     # The same validated, stripped scope the journal and the manual tools use (audit after step 12b, finding 7).
     scope = execution_scope(testnet=testnet) if args.execution else "paper-target"
     args.state_dir.mkdir(parents=True, exist_ok=True)
-    lease = ExecutionLease(args.state_dir / "orders.sqlite", scope)
+    lease = ExecutionLease(args.state_dir / STATE_DB, scope)
     market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"])
     if args.execution:       # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
         target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"])
