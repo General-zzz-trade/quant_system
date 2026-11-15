@@ -99,3 +99,14 @@ def test_account_wide_order_lists_weigh_what_binance_publishes():
     assert endpoint_weight("/fapi/v1/openOrders", {"symbol": "BTCUSDT"}) == 1.0
     assert endpoint_weight("/fapi/v1/openOrders", {}) == 40.0
     assert endpoint_weight("/fapi/v1/openAlgoOrders", {}) == 40.0
+
+
+def test_a_check_that_raises_counts_as_an_unreadable_account(tmp_path, monkeypatch):
+    world, runtime = _execution(tmp_path, execution="market")
+
+    def broken():
+        raise RuntimeError("the check itself failed")
+    monkeypatch.setattr(runtime.exits, "_account_check", broken)
+    _tick(world, runtime, seconds=61)
+    assert not any(_ready(runtime).values())
+    assert any("the check itself failed" in r["issue"] for r in _issues(tmp_path, "account_unreadable"))
