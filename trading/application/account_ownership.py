@@ -5,7 +5,8 @@ the leverage and margin mode of the strategy's symbols) with the order journal a
 returns every finding. The caller refuses to start on any finding. Nothing here places, cancels or changes
 anything.
 
-What the strategy owns is accounted for exactly (independent audit of ADR-0010, findings 1, 2 and 4):
+What the strategy's own activity can explain is bounded (independent audit of ADR-0010, findings 1, 2 and 4).
+A foreign position inside those bounds passes this check; reconciliation then blocks the symbol's entries:
 - the booked position, plus fills that are stored but not yet consumed (a crash between the two);
 - each unsettled strategy order lets the venue be ahead of the ledger by at most its unfilled quantity, in its own
   direction; a reducing order only towards zero, and a close-all reduction (quantity 0) or a protective stop that
