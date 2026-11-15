@@ -50,7 +50,7 @@ until the runtime goes).
   its assertions; log every such change.
 - Remove leftover untracked `__pycache__`-only directories of deleted packages.
 - Docs: remove or correct lines that point at deleted code (`README.md`, `docs/deploy_truth.md`,
-  `docs/operations.md`, `docs/wiring_truth.md`, `CLAUDE.md`). Never read `docs/_archive/`.
+  `docs/binance_runbook.md`, `CLAUDE.md`); delete a doc whose whole subject is gone. Never read `docs/_archive/`.
 
 ## 4. Check
 

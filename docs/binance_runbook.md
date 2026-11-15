@@ -1,175 +1,128 @@
-# 币安 USDⓈ-M 运行手册（2026-11-13）
+# 币安 USDⓈ-M 运行手册（2026-11-15 重写）
 
-本手册覆盖从数据、研究、纸面运行到测试网执行的完整流程。**本手册不构成实盘批准。**
-主网执行在代码层面要求研究门槛通过（`gate.json` 中 `passed=true`），并由人手动开启。
+本手册只覆盖目标仓位运行时 `runner/binance_target.py`。**本手册不构成实盘批准。** 命令和环境变量都以代码为准；与代码不一致时，以代码为准并改正本文。
 
-## 0. 范围与硬约束
+## 0. 现状与硬约束
 
-- 只做币安 USDⓈ-M 永续（BTCUSDT、ETHUSDT）。OKX/Bybit 代码冻结，仅做过安全修复。
-- 杠杆硬上限 3 倍：
-  - 账户总名义敞口不超过 3 倍权益，由 `shared/exposure_gate.py` 的代码常量保证；
-  - 交易所杠杆设置不超过 3，由 `execution/adapters/binance/adapter.py` 的 `MAX_LEVERAGE` 保证；
-  - 配置只能调低，不能调高。
-- 默认 dry-run（纸面交易）；默认测试网（`BINANCE_TESTNET=1`）。
-- 任何脚本都不会自动放宽风险限额，也不会自动重启实盘服务。
+- 只做币安 USDⓈ-M 永续的 BTCUSDT、ETHUSDT。其他交易所的代码已删除。
+- 默认是模拟盘（`--dry-run`），默认用测试网（`BINANCE_TESTNET` 不设或为 `1`）。
+- 主网执行要求签名规格里的 `passed` 为真。现在的规格是 `passed: false`，所以主网一定被拒绝。
+- 敞口上限 3 倍权益（`AccountExposureGate`），由代码常量保证，配置只能调低。
+- 回撤限额：默认日 5%、周 12%；硬上限日 10%、周 25%，超过上限拒绝启动。
+- 任何代码路径都不会自动提高限额、解除暂停、写急停文件或重启实盘服务。
 
-## 1. 环境
+## 1. 环境变量
 
-```bash
-pip install --break-system-packages --ignore-installed --require-hashes -r requirements/container.lock
-pip install --break-system-packages pytest maturin xgboost
-maturin build --release --features python && pip install --break-system-packages --force-reinstall --no-deps target/wheels/*.whl
-python3 -m pytest tests/unit/binance/ -q          # 币安执行/运行时测试
-python3 scripts/check_local_safety.py             # 离线故障注入检查
-```
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `RISK_SCOPE` | 账户身份。执行模式必填；状态目录、租约、限额计数都按它区分 | 无 |
+| `BINANCE_TESTNET` | `1` 测试网；`0` 主网（主网还要过规格门槛） | `1` |
+| `BINANCE_TESTNET_API_KEY` / `_SECRET` | 测试网凭据（不会退回去用主网凭据） | 无 |
+| `BINANCE_API_KEY` / `_SECRET` | 主网凭据 | 无 |
+| `MAX_DAILY_DRAWDOWN_PCT` / `MAX_WEEKLY_DRAWDOWN_PCT` | 回撤限额（百分比） | 5 / 12 |
+| `BINANCE_MAX_ORDER_NOTIONAL` / `BINANCE_MAX_DAILY_NOTIONAL` / `BINANCE_MAX_DAILY_ORDERS` | 单笔、当日名义额和当日笔数上限 | 5000 / 50000 / 50 |
+| `BINANCE_MAX_LEVERAGE` | 账户敞口上限（倍），不能超过 3 | 3 |
+| `BINANCE_EXCHANGE_LEVERAGE` / `BINANCE_MARGIN_TYPE` | 交易所杠杆与保证金模式（逐仓时止损必须在强平距离的一半以内） | 3 / 不改 |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 告警出口。两个都设才发 Telegram；都不设只写日志；只设一个拒绝启动 | 无 |
+| `QUANT_MODEL_SIGN_KEY` | 规格签名密钥。实盘环境下不允许加载未签名的规格 | 无 |
 
-## 2. 数据（公开接口，无需账户）
+凭据只放在主机的环境变量文件里，不提交、不打印。
 
-```bash
-python3 -m data.downloads.binance_public --symbols BTCUSDT ETHUSDT --start 2020-01-01
-# 写入新目录 data_files/binance_public_<结束日期>/
-```
-
-每次下载都写入一个新的快照目录；目录非空时直接拒绝，绝不覆盖。研究记录的是输入文件的 SHA-256，覆盖之后就无法复现。`data_files/binance_public` 是 2026-11-13 的快照，2026-11-13 的各项研究都引用它，不要再往里下载。
-
-产物：
-- `<SYM>_1h.csv`：只含已收盘 K 线，带 taker、trades 字段；
-- `<SYM>_funding.csv`：已结算资金费，时间对齐到名义整点；`markPrice` 为空时用该小时 K 线开盘价代替，并在 `mark_source` 中标记；
-- `<SYM>_metrics.csv`：5 分钟 OI 和多空比快照，按官方 CHECKSUM 校验；
-- `manifest.json`：所有文件的 SHA-256。
-
-OI 和多空比数据大约从 2021-12 才开始有。
-
-## 3. 研究（只用验证集选参，最终测试只看一次）
+## 2. 发布策略规格
 
 ```bash
-python3 -m runner.offline research --data-dir data_files/binance_public --symbol BTCUSDT \
-    --start 2021-12-02 --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
-    --out .cache/research/BTCUSDT
+QUANT_MODEL_SIGN_KEY=... python3 -m scripts.publish_strategy_spec \
+    --study research/results/overlay_2026-11-13 --out models_binance/strategy
 ```
 
-流程：
-1. **切分：** 用两个固定的 UTC 时间点切分：`--train-end` 之前为训练，`--train-end` 到 `--validation-end` 为验证，之后为最终测试。必须是固定日期而不是行数比例：按比例切分时，数据一追加，验证集就会滑进已经看过的窗口。2026-11-13 的运行用的是 2024-11-20T04:00 和 2025-11-16T14:00，在当时的数据上正好等于 60% 和 80% 的位置。
-   **2025-11-16 之后的数据已被查看多次，不能再作为最终测试。**
-2. **候选：** 特征集（ohlcv / derivatives）× 标签周期（1/4/24 小时）× Ridge alpha（1/10/100）× deadzone（1.0/1.5/2.0）。
-3. **选择：** alpha 按验证集 IC 选；特征集、周期和 deadzone 按验证集回放的日夏普选，且要求成交至少 20 笔。
-4. **冻结：** 写出 `protocol.json`（候选清单、选择结果、数据和代码指纹）和 `model.json`（用训练加验证数据重训），然后才运行最终测试。
-5. **最终测试：** 包括成本翻倍压力测试、买入持有基准、50 小时趋势基准。
+规格里的门槛结果会原样复制：门槛未通过时主网保持拒绝，模拟盘和测试网可以运行。
 
-上线门槛预先声明在 `runner/offline/research.py` 的 `passes_gate`，结果写入 `gate.json`。四个条件全部满足才算通过：
-- 最终测试日夏普 > 1；
-- 成本翻倍后净收益仍为正；
-- 成交不少于 100 笔；
-- 按单位敞口计，收益同时跑赢买入持有和趋势基准。
-
-**纪律：** 看过最终测试后，再修改任何东西并重跑，该测试即失效，必须换用新的、之后的数据。`protocol.json` 的 `final_test_views` 记录查看次数。
-
-## 4. 发布模型（签名）
-
-发布脚本 `scripts/publish_research_model.py` 已于 2026-11-14 删除（小时级 ML 线已关闭，没有可发布的模型）。需要时从 git 历史取回。
-目标仓位策略的规格用 `scripts/publish_strategy_spec.py` 发布，不受影响。
-
-- 运行时只接受 `models_binance/<SYM>/` 下的 `model.json`、`protocol.json` 和 `gate.json`。
-- 三个文件都要验签；`protocol` 必须描述的正是这个模型。
-- 门槛未通过的模型仍可用于纸面运行和测试网，但主网执行会被拒绝。
-
-## 5. 纸面运行（默认）
+## 3. 模拟盘（systemd，默认）
 
 ```bash
-python3 -m runner.binance_main --models-dir models_binance --symbols BTCUSDT ETHUSDT
+sudo systemctl start binance-target.service      # 单元里写的是 --dry-run
+cat /quant_system/data/runtime/binance_target/target_status.json
+tail -f /quant_system/logs/binance_target.log
 ```
 
-- **决策路径：** 和离线回放完全相同，包括冻结模型、增量特征、决策模块，以及同一收盘时刻先 4h 后 1h。
-- **成交模型：** 和研究相同，即下一根开盘撮合；挂单必须严格穿透才算成交；计手续费、滑点和资金费。
-- **测试保证：** 同一段 K 线下，纸面运行的成交与离线回放逐笔相同（`tests/unit/binance/test_binance_runtime.py`）。
-- **行情来源：** 始终用主网公开接口。每 5 秒从上次处理的位置继续拉取已收盘 K 线，断线不会漏 K 线，单线程运行。
-- **输出：**
-  - `data/runtime/binance/binance_status.json`：每个周期刷新的状态；
-  - `data/runtime/binance/binance_events.jsonl`：信号、意图、纸面成交和权益、问题记录。
+- 状态目录默认是 `data/runtime/binance_target/`，里面有：
+  - `target_status.json`：每个周期重写；
+  - `target_events.jsonl`：意图、阻断、问题、告警；
+  - `paper_state.sqlite`：模拟账户，旁边有一份 JSON 镜像。
+- 删除 JSON 镜像**不会**重置模拟账户。要重新开始，用 `--reset-paper-state`；旧记录会归档。
+- 模拟盘逐根补放错过的 K 线，结果与研究模拟相同（`tests/unit/lab/test_target_runtime.py`）。
 
-与同期离线回放逐笔对比（先刷新数据）：
+## 4. 测试网执行（M5）
 
-```bash
-python3 -m data.downloads.binance_public --start <近期日期> --out data_files/binance_public_compare_<日期>
-python3 -m scripts.compare_paper_replay --events data/runtime/binance/binance_events.jsonl \
-    --models-dir models_binance --data-dir data_files/binance_public_compare_<日期> --symbol BTCUSDT
-```
+1. **初始化状态目录**，每个账户身份一次，由人来做：
+   ```bash
+   RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> init
+   RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> check
+   ```
+   - `init` 创建清单、各个库和一个未激活的急停文件；已初始化的目录不会被覆盖。
+   - 换目录或换 `RISK_SCOPE` 就是换账户身份，要重新初始化一个新目录。
+2. **启动**（手动在前台运行，不经 systemd）：
+   ```bash
+   python -m runner.binance_target --spec models_binance/strategy/final_spec.json \
+       --state-dir <dir> --enable-execution [--stop-pct 0.08]
+   ```
+   - 在连接账户之前，启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录。
+   - 状态目录要有清单，账户身份要一致，每个库的表要齐，急停文件要能读。任何一项不满足就拒绝启动，并且不创建库、急停文件或清单。
+3. **自动重启**：执行模式下要不要自动重启，项目规则规定由人决定。现有单元是模拟盘用的，不能直接改成执行模式；执行模式的单元是 M5 的待定事项。
 
-退出码 0 表示一致。如果不一致，说明线上输入（K 线、资金费、持仓数据）与研究数据有偏差，必须先查清原因。
+## 5. 风险操作（都由人执行）
 
-## 6. 测试网执行
-
-需要的环境变量：
-
-| 变量 | 说明 |
+| 目的 | 命令 |
 |---|---|
-| `BINANCE_TESTNET=1` | 默认值 |
-| `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET` | 测试网密钥 |
-| `RISK_SCOPE` | 必须含 `binance`；测试网必须含 `testnet`，主网必须不含，例如 `binance-testnet-main` |
-| `MAX_DAILY_DRAWDOWN_PCT` / `MAX_WEEKLY_DRAWDOWN_PCT` | 默认 3 / 8，从周期内权益峰值算起 |
-| `BINANCE_MAX_ORDER_NOTIONAL` / `BINANCE_MAX_DAILY_NOTIONAL` / `BINANCE_MAX_DAILY_ORDERS` | 默认 1000 / 10000 / 50 |
-| `BINANCE_MAX_LEVERAGE` | 只能调低，不能超过 3 |
+| 急停（阻断新敞口） | `python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..."` |
+| 急停并平仓 | 同上，加 `--flatten`：撤掉挂单，按交易所持仓整仓平掉 |
+| 解除 / 查看急停 | `... kill --state-dir <dir> clear` / `status` |
+| 查看入场暂停 | `python -m trading.infrastructure.entry_pause --state-dir <dir> status` |
+| 解除某品种的暂停 | `... entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."`（要键入确认） |
+| 查看未结订单与交易所视图 | `python -m trading.infrastructure.manual --state-dir <dir> orders` |
+| 手工结算一张卡住的订单 | `... manual --state-dir <dir> settle --intent <id> --reason "..."`（运行时必须已停止） |
+| 账本对齐到交易所持仓 | `... manual --state-dir <dir> position --symbol BTCUSDT --reason "..."`（运行时必须已停止） |
+
+- 在初始化过的目录里，急停文件**丢失时按"激活"处理**。运行时从不写急停文件。
+- 止损在交易所侧触发或被击穿后，该品种暂停入场，直到人解除，同时告警。暂停记录丢失时，会根据订单库里的止损记录重新暂停，不会因为丢了文件而放行。
+- 手工工具要求运行时已经停止（持有同一把租约）、写明理由、键入确认，并留下审计记录。它们从不凭空生成成交。
+
+## 6. 告警
+
+- `alert` 类事件立即发出。持续的问题（例如没有止损、平仓失败、行情不可用）超过 2 分钟后发出，每 30 分钟重复，恢复时发"已解决"。
+- 没有配置 Telegram 时，状态里显示 `alerts: "log only"`，告警只写进程日志。主网是否必须配置告警出口，是 M5 开始前要问的事。
+
+## 7. 主机维护
 
 ```bash
-python3 -m runner.binance_main --models-dir models_binance --enable-execution
+sudo bash infra/sync_systemd.sh     # 停用并删除退役单元，复制有变化的单元，重载 systemd；从不重启服务
+sudo systemctl restart binance-target.service      # 看过改动后由人重启
+sudo bash infra/deploy_logrotate.sh                 # 日志轮转（每天，保留 14 天）
 ```
 
-账户要求：单向持仓模式（双向持仓会拒绝启动）；同一状态目录同时只允许一个执行进程（文件锁）。
+- 2026-11-15 退役了一批单元（见 `docs/deploy_truth.md`）。主机上要运行一次同步脚本才会停掉它们。
+- 如果主机上还在跑旧的 Docker 容器（影子进程、Bybit），在旧的检出目录里执行 `docker compose down`。
+- 看门狗（`health-watchdog`）每 5 分钟检查 binance-target 的状态文件和最新 K 线的延迟，只告警、从不重启。
 
-### 下单与恢复
+## 8. 出问题时
 
-- **入场：** 一笔 GTX 只做 maker 挂单，价格为决策价减 2bp（卖单为加 2bp），最长挂 3 小时，允许部分成交；到期或出场前撤掉剩余部分。这和研究的成交模型一致。
-- **出场：** reduce-only 市价单，数量取交易所仓位和本策略已确认仓位中较小的一个。
-- **下单前：** 先把订单意图写入 SQLite，客户单号是确定的。超时只查单，不重发，也没有拆单和市价补单。
-- **查无此单：** 交易所明确拒单且查单确认不存在，立即结算。状态未知的订单，超过 90 秒（大于币安最大 recvWindow 60 秒）仍查不到时按“未下单”结算，后续平仓不会被永久卡死。
-- **仓位来源：** 只认交易所成交记录。成交、策略状态和回执在同一个事务里提交。重启后从日志恢复，不会重复入账。
-- **对账：** 每 5 秒核对一次仓位、挂单和未完成订单。只要不一致就禁止开仓，但不会凭空补造成交。
+| 现象 | 运行时的行为 | 人要做的 |
+|---|---|---|
+| 行情接口失败 | 退避重试（5/10/20/40 秒…最长 300 秒），连续 5 次后告警；平仓、止损、急停照常执行 | 看日志；网络恢复后自动继续 |
+| 交易所说"不可重试"（如品种下线） | 立即告警，阻断入场，按 300 秒重试 | 查原因 |
+| 启动时行情不可用 | 不退出；先对账、维护止损、执行急停和回撤平仓，再重试预热 | 同上 |
+| 有持仓但没有有效止损 | 阻断入场，2 分钟后告警 | 查止损下单失败的原因 |
+| 止损被击穿 | 按账本平仓，暂停该品种入场，告警 | 核对后用 `entry_pause release` 解除 |
+| 回撤到达限额 | 锁定到下一个 UTC 日或周，按交易所持仓整仓平掉 | 不用自动解除；查原因 |
+| 状态文件损坏或丢失（启动时） | 拒绝启动并说明缺什么 | 从备份恢复，或初始化新目录（等于换账户身份） |
+| 限额计数读不出 | 拒单（按"已用完"处理） | 查状态目录 |
 
-### 风控
+## 9. 主网
 
-- **交易所端止损：** 每个已确认仓位都在币安挂一笔 `STOP_MARKET closePosition` 条件单（Algo 接口），默认距入场价 4%（`--stop-pct`，允许范围 0.5%–15%）。
-  - 仓位变化时换新止损单，空仓时撤掉；
-  - 止损触发后，产生的订单会被纳入日志，成交只入账一次；
-  - 如果价格已经越过止损位，立即市价平仓。
-- **开仓门禁：** 按顺序依次检查：
-  - 本根 K 线输入新鲜且完整；
-  - kill switch 未激活；
-  - 回撤未触发；
-  - 总敞口不超过 3 倍；
-  - 单笔名义、日累计名义和订单数在限额内。
+主网目前一定被拒绝。在考虑主网之前，必须全部满足：
+- 前向检验按登记的条件判定为"继续合格"；
+- 退出侧缺口已经修好（见 `CLAUDE.md`）；
+- 纸面运行日志与回放核对一致；
+- 账户所有人本人决定。
 
-  平仓单不经过这些开仓门禁。
-- **回撤：** 触发后锁定到当天或当周结束，期间禁止开仓并主动平仓。
-- **平仓重试：** 平仓单以未成交终态结束时，每 30 秒重试一次；5 次都失败后自动激活 kill switch（只拦开仓）。
-
-### kill switch
-
-```bash
-python3 -m shared.kill_file activate --reason "手动停止" --flatten   # 拦开仓并平仓
-python3 -m shared.kill_file activate --reason "暂停开仓"             # 只拦开仓
-python3 -m shared.kill_file clear
-python3 -m shared.kill_file status
-```
-
-文件损坏或不可读时，按“已激活、不平仓”处理，也就是拦截开仓。
-
-## 7. 主网前检查清单
-
-1. **研究门槛：** 对应模型的 `gate.json` 显示 `passed=true`，而且最终测试只看过一次。
-2. **纸面运行：** 连续运行 2–4 周，每周跑一次 `compare_paper_replay`，结果全部一致。
-3. **测试网故障演练（逐项记录结果）：**
-   - 运行中断网、杀进程后重启：仓位和挂单恢复，没有重复下单；
-   - 交易所拒单、超时、限流：开仓锁住，平仓在 90 秒宽限期后可以继续；
-   - 手动触发止损单：成交入账，策略仓位归零；
-   - kill switch 平仓、回撤触发后平仓；
-   - 手动在交易所下单或改仓位：对账报错，开仓被禁止。
-4. **账户设置：** 主网账户为单向持仓模式；杠杆和保证金模式已人工确认；API 密钥不开提现权限，并绑定 IP 白名单。
-5. **开启方式：** 由人设置 `BINANCE_TESTNET=0`、主网 `RISK_SCOPE`，并加上 `--enable-execution`。资金规模从小额开始，限额只能人工调整。
-
-## 8. 已知限制
-
-- 研究模型是基于 Binance 原生数据的 Ridge 参考模型，不是旧的 LGBM/XGB 集成模型。旧模型需要服务器上的 `data_files/` 和 `.pkl` 文件，才能用同一流程重新检验。
-- 回放敞口上限是 1 倍，实盘上限是 3 倍，两者收益规模不可直接比较；夏普在不同杠杆下基本可比。
-- OHLC 数据无法证明挂单在队列中的位置，实盘挂单成交率可能高于或低于回放。
-- `OrderLimiter` 的日计数保存在内存里，进程重启后会清零。回撤和敞口门禁不受影响，它们持久化或每次实时查询。
-- 只支持单向持仓模式、USDT 保证金。入出金不会自动从回撤基线中扣除。
+`final_spec.json` 的 `passed` 不由代码修改。

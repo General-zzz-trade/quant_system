@@ -1,196 +1,61 @@
 # Quant System
 
-加密货币永续合约量化交易系统（BTC + ETH）。
+Binance USDT-M 永续合约（BTCUSDT、ETHUSDT）的目标仓位交易系统，纯 Python。
 
-> **2026-11-15 起部分失效**：ML 运行时与离线回放、Bybit、OKX、Polymarket、Docker 部署路径和 Rust 扩展已删除（项目现在是纯 Python）（最后一版见 git 标签 `archive/ml-line-2026-11-15`）。下文凡涉及它们的内容都已失效；现状以 `CLAUDE.md` 和 `docs/deploy_truth.md` 为准。
+## 现状（2026-11-15）
 
-**本地改进阶段（2026-11-03）**：主程序默认只生成信号，执行需显式开启。
-OKX 已加入成交驱动持仓、持久化成交消费和重启对账，验收范围见[订单恢复说明](docs/execution_recovery.md)。
-无需资金、VPS、API 密钥或 Rust 即可运行安全检查：
+- **没有获准实盘，也没有任何策略被证明有优势。** 文档、配置或提交说明里出现的旧夏普、旧收益数字都没有经过验证，不能当作结果。
+- **前向检验**：4 个候选在前向检验中，查看日期是 2027-02-13（只报告）和 2027-05-13（判定）。
+  - 4 个候选是：风险管理型多头，以及 ETH/BTC 配对、周级方向、爆仓后反转。
+  - 规则见 `research/protocols/`，登记见 `research/forward_looks.jsonl`。
+- **产品运行时**：`runner/binance_target.py`。
+  - 默认是模拟盘，默认用测试网。
+  - 执行模式要求一个由人初始化过的状态目录，并通过全部风控闸门。
+  - 主网要求签名规格里的 `passed` 为真，目前是假，所以主网会被拒绝。
+- **架构改造**：M1–M4 已完成，见 `docs/arch/roadmap.md`。
+  - 旧的 ML 运行时、Bybit、OKX、Polymarket、Docker 部署路径和 Rust 扩展已于 2026-11-15 删除；最后一版见 git 标签 `archive/ml-line-2026-11-15`。
+  - 下一步是 M5：测试网连续运行和运行手册。
 
-```bash
-python scripts/check_local_safety.py
-```
+## 目录
 
-改动说明、配置与部署前待办见[本地开发指南](docs/local_development.md)。
-新增 BTC 1h＋4h 离线回放、成本账本、按时间划分的样本外验证与重启重建。
-安装完整 Python/Rust 环境后可运行 `python -m runner.offline demo --out .cache/offline-demo`；
-此命令仅使用**合成行情**检查工程流程，不代表真实策略收益。输入格式和验收边界见[离线验证指南](docs/offline_validation.md)。
-已保存 [2025 年 BTC 真实数据研究结果](research/results/btcusdt_2025/README.md)：
-新 OHLCV Ridge 基线的最终测试净收益为 **−3.10%**，成本翻倍为 **−5.88%**，不支持据此上线盈利判断。
-下文历史回测收益与“无前视偏差”结论尚未完成独立复核，不能作为本版本实盘上线依据。
+| 目录 | 内容 |
+|---|---|
+| `trading/` | 新架构：领域、应用、适配器、组装。严格类型检查，导入关系由 `.importlinter` 约束 |
+| `runner/binance_target.py` | 运行时入口；`runner/offline/broker.py` 是研究撮合器（ADR-0006 时搬进 `trading/`） |
+| `lab/` | 研究：固定日期窗口的研究、前向检验回放、试验登记 |
+| `data/` | 公开数据下载（不可变的日期快照）、K 线质量检查 |
+| `infra/` | 模型和规格的签名校验、配置、日志 |
+| `monitoring/` | 看门狗（只看 binance-target）、成交分析日志 |
+| `research/` | 预先登记的协议、结果、试验登记表、前向查看登记 |
+| `infra/systemd/` | 3 个服务单元：`binance-target`、`health-watchdog`、`log-archive` |
+| `docs/arch/`、`docs/adr/` | 架构现状、迁移计划、执行记录、架构决策 |
+| `tests/` | 测试；`tests/support/` 是测试用的旧执行接口 |
 
-- **Python**：编排层、交易所 IO、运维工具、研究
-- **Rust**：事件类型、状态管理、特征计算、信号约束、风控、执行安全
-
-## 当前状态（2026-03-24）
-
-**Strategy H**：4h 主导方向 + 1h 仓位调节（框架原生，EngineCoordinator 驱动）
-- 回测：**Sharpe 2.25**，$500 → $215万 / 6.5年 @ 10x 杠杆（T-1 修正，无前视偏差）
-- 实盘：Bybit Demo 4 个 runner（BTC+ETH × 1h/4h），2 条 WS（kline.60/240）
-- 模型：Ridge(60%) + LightGBM(40%) 集成，185 个特征，7 个数据源
-- 架构：AlphaDecisionModule → EngineCoordinator → ExecutionBridge → Bybit
-
-| Runner | 角色 | Sharpe |
-|--------|------|--------|
-| BTC/ETH 4h | 主力方向 | 3.62 / 4.57 |
-| BTC/ETH 1h | 仓位调节（4h gate） | 2.43 / 3.92 |
-
-## 系统架构
-
-```
-Bybit WS kline → MarketEvent → EngineCoordinator.emit()
-  │
-  ├─ FeatureComputeHook → RustFeatureEngine → 120+ 特征
-  ├─ StatePipeline → RustStateStore（Rust 堆上状态）
-  └─ DecisionBridge → AlphaDecisionModule.decide(snapshot)
-      ├─ EnsemblePredictor: Ridge(60%)+LGBM(40%)
-      ├─ SignalDiscretizer: z-score → deadzone → min-hold
-      ├─ RegimeFilter: 自适应 p20/p25 百分位
-      ├─ Force exits: ATR 止损, 快速止损, z 反转, 4h 反转
-      ├─ Direction alignment: ETH 跟随 BTC
-      └─ AdaptivePositionSizer: 资金分层 × IC × vol
-  │
-  └─ OrderEvent → ExecutionBridge → BybitExecutionAdapter
-      └─ FillEvent → StatePipeline（状态更新）
-```
-
-## 快速开始
+## 常用命令
 
 ```bash
-# 安装
-make rust
-pip install -e ".[live,data,ml,config,monitoring,dev,test]" --break-system-packages
-cp .env.example .env  # 填入 BYBIT_API_KEY, BYBIT_API_SECRET
-
-# 启动 Strategy H（4 个 runner，框架原生）
-python3 -m runner.alpha_main --symbols BTCUSDT BTCUSDT_4h ETHUSDT ETHUSDT_4h --ws
-
-# 或通过 systemd
-sudo systemctl start bybit-alpha.service
-
-# 模型热加载（无需重启，<200ms）
-sudo kill -HUP $(systemctl show -p MainPID bybit-alpha.service | cut -d= -f2)
+make test                                        # 本地核心检查：资金路径测试、ruff、导入契约、mypy
+make test-all                                    # 整个测试集（CI 分 4 片并行运行）
+python scripts/check_local_safety.py             # 只用标准库的离线故障注入检查
+python -m data.downloads.binance_public --start 2020-01-01      # 下载到新的日期快照目录
+python -m trading.infrastructure.state_dir --state-dir <dir> init   # 执行模式前初始化状态目录（需要 RISK_SCOPE）
+python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]
+python -m trading.infrastructure.entry_pause --state-dir <dir> status
 ```
 
-## 核心命令
+完整命令和规则见 `CLAUDE.md`。
 
-```bash
-# 监控
-python3 -m monitoring.watchdog                        # 服务+数据健康检查
-python3 -m monitoring.ic_decay_monitor --alert         # IC 衰减检测 + Telegram
-python3 -m monitoring.data_quality_check               # 数据质量检查
+## 安全默认值
 
-# 模型训练
-python3 -m alpha.auto_retrain --include-4h --sighup    # 重训 + 热加载
-python3 -m alpha.auto_retrain --daily --include-4h     # 每日轻量重训
+- 默认模拟盘、默认测试网。CI 从不部署，部署由人手动进行。
+- 任何代码路径都不会自动提高风险限额、解除暂停、重启服务或替换模型。
+- 状态读不出时阻断新敞口；权益或价格未知时下单量为零。
+- 模型和策略规格只能经 `infra/model_signing.py` 加载。
 
-# 数据更新（研究用的不可变快照；旧的 data_refresh 和各个 download_* 脚本已于 2026-11-14 删除）
-python3 -m data.downloads.binance_public --start 2020-01-01   # 写入新的 data_files/binance_public_<日期>/
+## 文档
 
-# 测试
-pytest tests/unit/ -x -q                               # 单元测试
-cargo test                                             # Rust 测试
-ruff check --select E,W,F .                            # 代码检查
-```
-
-## 自动化运维
-
-已部署的 unit 和定时器见 [`docs/deploy_truth.md`](docs/deploy_truth.md)（按 `infra/systemd/` 核对，2026-11-14）。自动重训、data-refresh 和 models_v8 分析定时器都已退役。
-
-## 风控体系
-
-| 机制 | 说明 |
-|------|------|
-| **ATR 三阶段追踪止损** | 初始(1.2×ATR) → 保本(0.5×ATR) → 追踪(0.2×ATR) |
-| **快速止损** | -1% 逆向移动 → 立即平仓 |
-| **波动率自适应 deadzone** | deadzone × (实现波动率 / 中位波动率)，范围 [0.5x, 2.0x] |
-| **4h 反转止损** | 4h 模型信号反转 → 1h 立即平仓 |
-| **方向对齐** | ETH 新开仓必须与 BTC 共识方向一致 |
-| **IC 健康仓位缩放** | GREEN=1.2x, YELLOW=0.8x, RED=0.4x |
-| **资金分层** | <$500 集中(35%), $500-10K 均衡(25%), >$10K 分散(18%) |
-
-## 项目结构
-
-```
-decision/           决策引擎 (AlphaDecisionModule, 信号, 仓位)
-  modules/alpha.py  框架原生决策模块 (~300 行)
-  signals/          EnsemblePredictor + SignalDiscretizer
-  sizing/           AdaptivePositionSizer
-  rust/             11 个 .rs (约束管线, 推理桥, ML 预测)
-
-engine/             事件引擎 (Coordinator, Pipeline, Bridge)
-  coordinator.py    事件编排中心
-  pipeline.py       状态转换管线 (→ RustStateStore)
-  feature_hook.py   特征计算桥接 (→ RustFeatureEngine)
-  rust/             9 个 .rs (tick_processor ~80μs 热路径)
-
-event/              事件类型 (Rust PyO3 驱动)
-  events.py         8 个事件类 (薄 Python 包装)
-  rust/             9 个 .rs (EventHeader, 事件类, 验证器)
-
-state/              状态管理 (Rust 类型, 零 Python dataclass)
-  snapshot.py       StateSnapshot 容器
-  store.py          SQLite 持久化
-  rust/             19 个 .rs (类型, reducer, store)
-
-execution/          交易所适配 (Bybit, Hyperliquid, Binance)
-  adapters/         3 个交易所
-  safety/           电路断路器, Kill Switch, 去重 (Rust 委托)
-  rust/             6 个 .rs (订单状态机, WS 客户端)
-
-features/           特征工程 (185+ 特征, V1-V24)
-  enriched_computer 增量特征计算 (Rust 追踪器)
-  batch_feature_engine 批量计算
-  rust/             15 个 .rs (FeatureEngine, 指标, 增量追踪器)
-
-risk/               风控 (StagedRisk, AdaptiveStop, GateChain)
-  rust/             6 个 .rs (gate_chain, 风险引擎, 自适应止损)
-
-runner/             运行时 (alpha_main 入口, 回测, 恢复)
-  alpha_main.py     生产入口 (EngineCoordinator + WS)
-  strategy_config   SYMBOL_CONFIG (BTC+ETH × 1h/4h)
-
-alpha/              ML 模型 (加载, 在线 Ridge, 重训练)
-monitoring/         运维 (健康检查, IC 衰减, 数据质量)
-portfolio/          组合管理 (分配器, 组合器, 对冲)
-attribution/        PnL 归因 (Rust 驱动)
-data/               数据下载 + 质量检查
-regime/             市场状态检测 (CompositeRegime)
-infra/              基础设施 (日志, 配置, systemd, 异常)
-research/           研究脚本 + Rust 工具
-```
-
-## Rust 集成
-
-- **102 个 .rs 文件**，分布在各模块的 `rust/` 子目录
-- **198 个 PyO3 导出**，100% 被 Python 生产代码调用
-- **编译入口**: 项目根 `Cargo.toml` + `rust_lib.rs`
-- **热路径**: RustTickProcessor (~80μs/tick), RustFeatureEngine, RustStateStore
-- **构建**: `make rust` 或 `maturin develop --release --features python`
-
-## Alpha 研究结论
-
-| 方向 | 结果 | 说明 |
-|------|------|------|
-| 4h alpha | **Sharpe 3.62-4.57** | 最强时间框架，T-1 修正 |
-| 1h alpha | Sharpe 2.43-3.92 | Strategy H 中的调节器 |
-| 15m alpha | 失败 | 过拟合，已禁用 |
-| 5m/1m HFT | 失败 (Sharpe -5 到 -25) | 成本 > 信号 |
-| 做市 | 失败 | 逆向选择 > 价差 |
-| 神经网络 | 失败 | Ridge > MLP > LGBM (4h OOS) |
-| 跨交易所套利 | 失败 | 价差 < 费用 |
-
-## 文档索引
-
-| 文档 | 内容 |
-|------|------|
-| [`CLAUDE.md`](CLAUDE.md) | 开发上下文（命令、架构、关键文件） |
-| [`docs/wiring_truth.md`](docs/wiring_truth.md) | 模块接线状态 |
-| [`docs/deploy_truth.md`](docs/deploy_truth.md) | 部署真相 |
-| [`docs/operations.md`](docs/operations.md) | 运维手册 |
-| [`docs/production_runbook.md`](docs/production_runbook.md) | 生产操作手册 |
-
-## 许可证
-
-Proprietary
+- `CLAUDE.md`：项目规则、现状、架构、注意事项（以它为准）
+- `docs/binance_runbook.md`：运行手册
+- `docs/deploy_truth.md`：仓库里的服务单元和退役单元
+- `docs/btc_eth_strategy.md`：策略、研究与纸面路径
+- `docs/arch/execution-log.md`：每一步改动、审计和更正的记录
