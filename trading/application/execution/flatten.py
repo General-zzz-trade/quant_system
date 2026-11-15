@@ -4,10 +4,10 @@ ADR-0005, approved 2026-11-14:
 
 - 2b: every call first cancels the symbol's resting entries and consumes the fills that brings. A
   cancellation whose outcome is unknown does not stop the flatten; the next call cancels again.
-- 3b: a kill switch or a latched drawdown closes the symbol's whole venue position (the account is dedicated
-  to this runtime). A breached stop closes what the strategy owns, like every other reduction. The ledger is
-  never corrected here: if it differed from the venue, reconciliation keeps reporting it and entries stay
-  blocked until a person resolves it.
+- 3b: a kill switch or a latched drawdown closes the symbol's whole venue position; since ADR-0012 point 6 a
+  breached stop does too. The ledger is never corrected here: a fill beyond it is booked as a foreign fill
+  (ADR-0012 point 5), and if the ledger otherwise differs from the venue, reconciliation keeps reporting it and
+  entries stay blocked until a person resolves it.
 - 1b: every attempt is a new intent with its own id; nothing is ever resent. The next attempt goes out only
   when no reduction of the symbol is unresolved and RETRY_SECONDS have passed since the last one. After
   MAX_FAILURES attempts in a row without a fill the automatic retries stop, an alert is written, and one
@@ -29,7 +29,9 @@ from trading.domain.issues import IssueKind
 
 logger = logging.getLogger(__name__)
 
-EMERGENCY = frozenset({"kill_switch", "drawdown_latched"})   # these close the whole venue position (3b)
+# These close the whole venue position: the kill switch and a latched drawdown (ADR-0005 3b), and since ADR-0012
+# point 6 a breached stop. A fill beyond the ledger is booked as a foreign fill (TargetFillConsumer).
+EMERGENCY = frozenset({"kill_switch", "drawdown_latched", "stop_breached"})
 RETRY_SECONDS = 30.0
 MAX_FAILURES = 10
 

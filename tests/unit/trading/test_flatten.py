@@ -22,6 +22,7 @@ from trading.application.execution.service import ExecutionService
 from trading.domain.orders import REDUCTION_OVERLAP, OrderIntent
 from trading.domain.rebalance import Intent
 from tests.support.state_db import state_db
+from trading.domain.symbol_state import SymbolState
 
 
 @pytest.fixture(autouse=True)
@@ -186,7 +187,9 @@ def test_a_kill_switch_cancels_a_resting_entry_even_before_anything_has_filled(t
 
 # -- 3b: what a kill switch closes -----------------------------------------------------------------------------
 @pytest.mark.parametrize("strategy_position", [True, False])
-def test_a_kill_switch_closes_the_whole_venue_position_and_the_mismatch_stays_reported(tmp_path, strategy_position):
+def test_a_kill_switch_closes_the_whole_venue_position_and_books_the_excess_as_foreign(tmp_path, strategy_position):
+    # Until S5b the excess went into the ledger as a false opposite position that reconciliation kept reporting.
+    # ADR-0012 point 5, extended by the tech lead on 2026-11-15 to every reduction: it is a foreign fill now.
     if strategy_position:
         world, runtime, i, btc, session = _with_position(tmp_path)
     else:
@@ -199,20 +202,23 @@ def test_a_kill_switch_closes_the_whole_venue_position_and_the_mismatch_stays_re
     runtime.kill.write(active=True, reason="test", flatten=True)
     _tick(world, runtime)
     assert btc.positions["BTCUSDT"] == 0
-    assert session.position_qty() == -extra                                   # the ledger is not corrected ...
+    assert session.position_qty() == 0                                        # the ledger closes only its part
     _tick(world, runtime)
-    issues = [r["issue"] for r in _events(tmp_path, "issue") if r["symbol"] == "BTCUSDT"]
-    assert f"BTCUSDT: venue qty=0, ledger qty={-extra}" in issues             # ... it stays reported
-    assert session.executor.ready is False                                    # and entries stay blocked
+    (foreign,) = session.executor.journal.fills("foreign:BTCUSDT")
+    assert D(foreign["qty"]) == abs(extra)                                    # the rest is a foreign fill
+    assert any(r.get("issue_kind") == "foreign_fill" for r in _events(tmp_path, "issue"))
+    assert session.state is SymbolState.HALTED                                # and entries stay blocked
 
 
-def test_a_breached_stop_closes_only_what_the_strategy_owns(tmp_path):
+def test_a_breached_stop_closes_the_whole_venue_position(tmp_path):
+    # Until S5b a breached stop closed only what the strategy owned; ADR-0012 point 6 makes it close the venue
+    # position, and the excess is a foreign fill (point 5).
     world, runtime, i, btc, session = _with_position(tmp_path)
     owned = session.position_qty()
     extra = D("0.005") if owned > 0 else D("-0.005")
     btc.positions["BTCUSDT"] += extra
     session.flatten("stop_breached")
-    assert btc.positions["BTCUSDT"] == extra and session.position_qty() == 0
+    assert btc.positions["BTCUSDT"] == 0 and session.position_qty() == 0
 
 
 # -- 7b: a refusal by the order journal is visible ---------------------------------------------------------
