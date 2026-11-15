@@ -285,6 +285,15 @@ class StatusSink(Protocol):
 
 
 @runtime_checkable
+class EntryPauses(Protocol):
+    """Entries paused per symbol after a protective stop. The runtime only sets pauses; a person releases them
+    outside the runtime. A store that cannot be read raises; it never reads as "not paused"."""
+
+    def pause(self, symbol: str, cause: str) -> bool: ...   # False if the symbol was already paused
+
+    def reason(self, symbol: str) -> str | None: ...
+
+
 class Notifier(Protocol):
     """Operator alerts. Delivery failures must never break the trading loop."""
 

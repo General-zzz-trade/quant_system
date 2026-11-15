@@ -44,7 +44,8 @@ class CompositeRiskGate:
 
     @classmethod
     def for_execution(cls, limiter: OrderLimits, *, kill_switch: KillSwitch, drawdown_guard: DrawdownGuard,
-                      portfolio_reader: ExposureReader, venue: str) -> CompositeRiskGate:
+                      portfolio_reader: ExposureReader, venue: str,
+                      paused: Callable[[str], bool] | None = None) -> CompositeRiskGate:
         """The gate of a live account: limits, kill switch, drawdown and exposure are all required."""
         missing = [name for name, part in (("limiter", limiter), ("kill_switch", kill_switch),
                                            ("drawdown_guard", drawdown_guard),
@@ -52,7 +53,7 @@ class CompositeRiskGate:
         if missing:
             raise ValueError(f"execution risk gate is missing: {', '.join(missing)}")
         return cls(limiter, kill_switch=kill_switch, drawdown_guard=drawdown_guard,
-                   portfolio_reader=portfolio_reader, venue=venue)
+                   portfolio_reader=portfolio_reader, venue=venue, paused=paused)
 
     def check(self, event: OrderRequest) -> GateResult:
         try:

@@ -59,6 +59,8 @@ python -m runner.offline research --validation-only --symbol BTCUSDT --start 202
     --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
     --data-dir data_files/binance_public --out <empty dir>
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
+python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
+python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
 ```
 
 - **Rust builds** need the `python` feature: `maturin build --release --features python`.

@@ -10,8 +10,8 @@ from decimal import Decimal
 from typing import Any
 
 from trading.application.equity import EquitySource
-from trading.application.ports import (Clock, DrawdownGuard, EventLog, ExchangeAccount, KillSwitch, MarketData,
-                                       PaperStore, StatusSink)
+from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
+                                       MarketData, PaperStore, StatusSink)
 from trading.application.session import FUNDING_INTERVAL, TargetSession
 from trading.domain.bars import HOUR, bar_from_kline
 from trading.domain.strategy.overlay import StrategySpec
@@ -24,6 +24,8 @@ EQUITY_SECONDS = 60.0
 FUNDING_WAIT_MS = 2 * 60_000
 MARKET_BACKOFF_MAX = 300.0
 PAPER_SCHEMA = 1
+RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
+                  "--reason <why>"
 
 
 class TargetRuntime:
@@ -32,7 +34,7 @@ class TargetRuntime:
                  market_errors: tuple[type[BaseException], ...], account: ExchangeAccount | None = None,
                  kill: KillSwitch | None = None, drawdown: DrawdownGuard | None = None,
                  paper_store: PaperStore | None = None, reset_paper: bool = False,
-                 spec_passed: object = None) -> None:
+                 spec_passed: object = None, pauses: EntryPauses | None = None) -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.spec, self.mode, self.market, self.account, self.clock = spec, mode, market, account, clock
@@ -45,6 +47,8 @@ class TargetRuntime:
         self._market_failures, self._market_retry_at = 0, 0.0
         self.reset_paper = reset_paper
         self._saved_cursors: dict[str, int | None] | None = None
+        self.pauses = pauses
+        self._unsaved_pauses: dict[str, str] = {}   # symbol -> cause of a pause that could not be written yet
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
@@ -102,8 +106,42 @@ class TargetRuntime:
                 self.journal.write("issue", symbol=symbol, issue=issue)
             if any("stop_breached" in i for i in issues):
                 session.flatten("stop_breached")
+            stops = session.stops
+            if getattr(stops, "breached", False) is True:        # decided 2026-11-14 / 2026-11-15
+                self._unsaved_pauses.setdefault(symbol, "protective stop breached; position flattened")
+            elif getattr(stops, "triggered", False) is True:
+                self._unsaved_pauses.setdefault(symbol, "protective stop triggered")
+            self._save_pause(symbol, session)
             self._require_stop(symbol, session)
         self._last_reconcile = self.clock()
+
+    def _save_pause(self, symbol: str, session: TargetSession) -> None:
+        """Pause the symbol's entries after its stop triggered or was breached. A pause that cannot be written
+        blocks entries and is written on a later reconciliation."""
+        cause = self._unsaved_pauses.get(symbol)
+        if cause is None or self.pauses is None:
+            return
+        try:
+            new = self.pauses.pause(symbol, cause)
+        except Exception as exc:
+            session.executor.block_entries()
+            self.journal.write("issue", symbol=symbol,
+                               issue=f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked")
+            logger.exception("%s entry pause not saved", symbol)
+            return
+        del self._unsaved_pauses[symbol]
+        if new:
+            self.journal.write("alert", symbol=symbol, reason=f"entries paused: {cause}; a person releases them "
+                               f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
+            logger.error("%s entries paused: %s", symbol, cause)
+
+    def _pause_status(self, symbol: str) -> str | None:
+        if self.pauses is None:
+            return None
+        try:
+            return self.pauses.reason(symbol)
+        except Exception:
+            return "unreadable"
 
     def _require_stop(self, symbol: str, session: TargetSession) -> None:
         """ADR-0005 4b: a confirmed position without an active exchange stop blocks entries. Checked after a
@@ -208,7 +246,8 @@ class TargetRuntime:
                 "entry_ready": s.entry_ready, "entry_reason": s.entry_reason, "position": str(s.position_qty()),
                 "sleeve_equity": str(s.sleeve_equity()),
                 "protective_stop": s.stops.has_active_stop() if s.stops else None,
-                "flatten_failures": s.flattener.failures if s.flattener else None}
+                "flatten_failures": s.flattener.failures if s.flattener else None,
+                "entry_pause": self._pause_status(symbol)}
         return out
 
     def cycle(self) -> None:
