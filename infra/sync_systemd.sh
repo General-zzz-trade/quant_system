@@ -72,6 +72,23 @@ RETIRED_UNITS=(
     okx-ramp-up.timer
     okx-status-probe.service
     okx-status-probe.timer
+    # The frozen lines themselves, deleted 2026-11-15 (ADR-0008 3b, M4): the Bybit and OKX
+    # runners (runner.alpha_main), the OKX daily runner, the live-IC kill switch, and the tools
+    # that only served them (daily PnL from the ML audit log, cross-venue portfolio risk, the
+    # Prometheus exporter of z-scores and OKX state, the backup of the old runtime's paths):
+    bybit-alpha.service
+    okx-alpha.service
+    daily-live-runner.service
+    daily-live-runner.timer
+    live-ic-killswitch.service
+    live-ic-killswitch.timer
+    daily-pnl-alert.service
+    daily-pnl-alert.timer
+    portfolio-risk-monitor.service
+    portfolio-risk-monitor.timer
+    prometheus-exporter.service
+    quant-backup.service
+    quant-backup.timer
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do

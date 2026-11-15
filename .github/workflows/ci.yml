@@ -48,32 +48,8 @@ jobs:
       - name: Type check the trading package (strict section in pyproject.toml)
         run: mypy trading/
 
-      - name: Ruff check (core modules)
-        run: |
-          ruff check --select E,W,F \
-            decision/ engine/ event/ state/ execution/ features/ trading/ \
-            tests/architecture/ tests/characterization/ tests/unit/lab/ tests/contract/ tests/unit/trading/ \
-            shared/kill_file.py shared/exposure_gate.py \
-            risk/ alpha/ attribution/ runner/ \
-            monitoring/ infra/ strategy/ \
-            shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
-            shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
-            shared/runtime_state.py shared/runtime_backup.py \
-            shared/portfolio_reservations.py scripts/portfolio_risk_state.py \
-            shared/account_ledger.py scripts/account_ledger_state.py \
-            shared/runtime_migration.py shared/risk_group_backup.py \
-            shared/runtime_status.py shared/release_acceptance.py \
-            scripts/check_runtime_health.py scripts/check_release_acceptance.py \
-            scripts/migrate_runtime_state.py scripts/risk_group_backup.py scripts/check_execution_runtime.py \
-            data/quality/causal_bars.py tests/unit/runner/test_offline_research.py \
-            data/oi_cache.py tests/unit/runner/test_data_readiness.py tests/unit/runner/test_paper_check.py \
-            tests/unit/runner/test_shadow_main.py tests/offline/ scripts/check_local_safety.py \
-            scripts/check_ci_security.py scripts/check_deploy_scope.py \
-            scripts/check_runtime_state.py scripts/check_paper_runtime.py scripts/runtime_state_backup.py \
-            scripts/check_runtime_recovery.py tests/fixtures/runtime_recovery_worker.py \
-            scripts/run_bybit_alpha.py tests/unit/runner/test_startup_check.py \
-            tests/unit/bybit/test_order_confirmation.py tests/unit/bybit/test_durable_execution.py \
-            tests/unit/execution/test_bybit_execution_adapter.py tests/unit/execution/test_adapter_exceptions.py
+      - name: Ruff check (whole repository)
+        run: ruff check --select E,W,F .
 
   rust-test:
     runs-on: ubuntu-latest
@@ -101,46 +77,7 @@ jobs:
           export LD_LIBRARY_PATH="${pythonLocation}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           cargo test --locked
 
-  container-startup:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build the installed native wheel and runtime
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: ci
-          load: true
-          push: false
-          tags: quant-ci:startup-check
-          build-args: VCS_REF=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Startup check with networking disabled
-        run: >-
-          docker run --rm --network none --entrypoint python
-          quant-ci:startup-check -m runner.alpha_main --check-startup
-      - name: Container startup regression tests
-        run: >-
-          docker run --rm --network none quant-ci:startup-check
-          python -m pytest tests/unit/runner/test_startup_check.py tests/unit/runner/test_shadow_main.py -q --tb=short
-      - name: Offline paper data-to-signal contract
-        run: >-
-          docker run --rm --network none --entrypoint python
-          quant-ci:startup-check -m runner.alpha_main --check-paper-contract
-      - name: Container stdlib offline safety checks
-        run: docker run --rm --network none quant-ci:startup-check python scripts/check_local_safety.py
-      - name: Persistent state survives container recreation (offline)
-        run: python3 -m scripts.check_runtime_recovery --image quant-ci:startup-check
-      - name: Synthetic replay without network, keys or external models
-        run: >-
-          docker run --rm --network none --entrypoint python
-          quant-ci:startup-check -m runner.offline demo --out /tmp/offline-startup
-
-  # Coverage gate and the two offline research acceptance runs: the only tests the shards below do not run.
-  # (The former python-test job re-ran a list the shards already cover; removed 2026-11-15.)
+  # The coverage gate of the Binance execution path: the only test run the shards below do not do.
   python-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -173,33 +110,10 @@ jobs:
         run: |
           python3 -m pytest tests/unit/binance/ tests/unit/trading/ tests/characterization/ -q --tb=short \
             --cov=execution.adapters.binance.adapter --cov=execution.adapters.binance.execution_adapter \
-            --cov=execution.adapters.binance.protective_stops --cov=runner.binance_main \
-            --cov=runner.binance_context --cov=shared.confirmed_execution --cov=shared.kill_file \
+            --cov=shared.confirmed_execution \
             --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite \
             --cov=trading.application.reconcile --cov=trading.adapters.binance \
             --cov=trading.domain.risk --cov=trading.domain.orders --cov-report=term --cov-fail-under=75
-
-      - name: Synthetic offline research acceptance (no network or account keys)
-        run: python3 -m runner.offline demo --out .cache/offline-ci
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: synthetic-offline-validation
-          path: .cache/offline-ci/
-          retention-days: 14
-
-      - name: Frozen 2025 BTC research sample (historical evaluation, no network)
-        run: >-
-          python3 -m runner.offline study
-          --bars research/datasets/btcusdt_2025/bars.csv
-          --funding research/datasets/btcusdt_2025/funding.csv
-          --out .cache/btc-2025-ci
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: btc-2025-research-validation
-          path: .cache/btc-2025-ci/
-          retention-days: 14
 
   # The whole suite (everything `make test-all` runs), split into shards that run at the same time.
   # scripts/ci_shard.py deals every test file to exactly one shard; tests/architecture checks that.
