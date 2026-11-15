@@ -355,12 +355,20 @@ def test_the_target_runtime_and_its_composition_load_no_legacy_package_and_no_ru
                              "trading.infrastructure.paper_store, trading.application.runtime") == "[]"
 
 
+def test_the_target_entry_point_loads_no_rust_and_no_old_event_types():
+    """ADR-0006 (2026-11-15): paper orders are the execution OrderIntent and the research broker emits plain fills,
+    so loading the entry point no longer loads the native extension or the event package (it loaded 6 legacy
+    packages before, `_quant_hotpath` and `event` among them)."""
+    assert _legacy_loaded_by("runner.binance_target") == "['data', 'lab', 'runner', 'shared']"
+
+
 # What the target entry point still takes from the legacy packages, and the step that removes each.
 TARGET_ENTRY_LEGACY = {
     "infra.model_signing": "signed artifacts load only through it (project rule); stays",
-    "lab.orders": "order events of the research paper broker; stays with the paper sleeve",
+    "lab.orders": "the paper order factory (builds the execution OrderIntent since ADR-0006); stays with the sleeve",
     "lab.simulate": "the research paper sleeve and its lot rules; stays (paper equals research by design)",
-    "execution.adapters.binance.execution_adapter": "transaction-cost log; step 15",
+    "monitoring.tca": "the transaction-cost log writer (was reached through the execution adapter shell until "
+                      "2026-11-15); moves into trading with the remaining shells",
 }
 
 

@@ -298,7 +298,7 @@ def test_an_order_whose_quantity_cannot_be_parsed_sends_nothing_even_with_a_posi
     fake, _, executor, _, consumer, statuses = env
     _buy(executor, consumer)
     good = _order(2, "sell", "0.05")
-    broken = SimpleNamespace(header=good.header, order_id=good.order_id, symbol="BTCUSDT", side="sell",
+    broken = SimpleNamespace(source=good.source, order_id=good.order_id, symbol="BTCUSDT", side="sell",
                              qty="not-a-number", price=D("100"), reduce_only=False, reason="rebalance")
     sent = len(fake.sent)
     assert executor.send_order(broken) == ()
