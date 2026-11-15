@@ -102,3 +102,15 @@ def test_funding_jitter_is_explicit_and_bounded(tmp_path):
     path.write_text("funding_time,rate,mark_price,observed_funding_time\n0,0.0001,100,1001\n")
     with pytest.raises(ValueError, match="tolerance"):
         load_funding(path)
+
+
+def test_a_paper_order_keeps_its_reason_and_reduce_only_flag():
+    """The paper session's order factory passes every field to the broker's order record (M4 audit finding 2,
+    mutant M12b: a dropped reason left paper records unexplained)."""
+    from lab.orders import make_order
+    broker = BarBroker(broker_config())
+    broker.send_order(order())
+    broker.send_order(make_order(order_id="exit", source="target.BTCUSDT", symbol="BTCUSDT", side="sell",
+                                 qty=D("0.5"), price=D(100), reduce_only=True, reason="kill_switch"))
+    row = broker.orders[-1]
+    assert (row["reason"], row["reduce_only"], row["side"]) == ("kill_switch", True, "sell")
