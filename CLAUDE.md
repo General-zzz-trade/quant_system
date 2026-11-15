@@ -96,12 +96,14 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
+- State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
+  `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
   in an initialized state directory a missing file means active.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
-  in `order_limits.sqlite`; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
+  in the state database; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
   weekly at start-up.
 
 **Research:**

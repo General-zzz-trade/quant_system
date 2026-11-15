@@ -59,7 +59,8 @@ tail -f /quant_system/logs/binance_target.log
    RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> init
    RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> check
    ```
-   - `init` 创建清单、各个库和一个未激活的急停文件；已初始化的目录不会被覆盖。
+   - `init` 创建清单、唯一的状态数据库 `state.sqlite`（带版本号、全部表）和一个未激活的急停文件；已初始化的目录不会被覆盖。
+   - 运行时的各存储只打开这个数据库，从不新建文件或表。数据库丢失或被清空时启动会被拒绝；运行中丢失时入场被阻断，平仓单因为无法登记而不会发出（交易所侧止损仍在），从备份恢复见 ADR-0016。
    - 换目录或换 `RISK_SCOPE` 就是换账户身份，要重新初始化一个新目录。
 2. **启动**（手动在前台运行，不经 systemd）：
    ```bash
@@ -67,7 +68,7 @@ tail -f /quant_system/logs/binance_target.log
        --state-dir <dir> --enable-execution [--stop-pct 0.08]
    ```
    - 在连接账户之前，启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录。
-   - 状态目录要有清单，账户身份要一致，每个库的表要齐，急停文件要能读。任何一项不满足就拒绝启动，并且不创建库、急停文件或清单。
+   - 状态目录要有清单，账户身份要一致；唯一的状态数据库 `state.sqlite` 的版本号要对、表要齐（ADR-0009）；不能有旧的五文件布局；急停文件要能读。任何一项不满足就拒绝启动，并且不创建数据库、急停文件或清单。
    - 连接账户之后、运行时建好之前，只读检查整个账户（ADR-0010）。下面任何一项成立就拒绝启动，并逐项列出：
      - 任何品种上有不属于策略账本的持仓；
      - 有不属于策略的普通挂单或条件单；
