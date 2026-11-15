@@ -118,3 +118,23 @@ def test_a_breach_with_an_unreadable_venue_sends_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(session.flattener.account, "get_positions", unreadable)
     session.flatten("stop_breached", now_ms=int(world["clock"]["now"] * 1000))
     assert len(btc.posts) == posts
+
+
+def test_an_answer_without_the_symbol_s_row_is_unknown_and_never_flat(tmp_path):
+    # ADR-0012 point 3 (audit M2): the ledger went to 0, but the venue's answer has no row for the symbol. That is
+    # unknown, not "both flat", so the stop in place is not cancelled.
+    from tests.characterization.test_stops_and_fills import _order
+    fake, executor, consumer, stops = _placed(tmp_path)
+    before = set(_active(fake))
+    for event in executor.send_order(_order(2, "sell", "0.1", reduce_only=True)):
+        consumer.consume(event)
+    assert consumer.position.qty == 0
+    original = fake.request_signed
+
+    def no_row(*, method, path, params=None):
+        if path == "/fapi/v2/positionRisk":
+            return []
+        return original(method=method, path=path, params=params)
+    fake.request_signed = no_row
+    stops.sync()
+    assert set(_active(fake)) == before
