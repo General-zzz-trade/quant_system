@@ -81,9 +81,6 @@ def _order_transitions_stay_in_the_table():
 def _host_lock_directory(tmp_path_factory, monkeypatch):
     """S6 (ADR-0016 point 5): every test gets its own existing host lock directory instead of the host's fixed
     /var/lib/quant/locks; a test about a missing or unusable directory sets its own."""
-    try:
-        from trading.adapters.files import host_lock
-    except ImportError:                     # tests-first commit only: the module comes with the implementation
-        return
+    from trading.adapters.files import host_lock
     locks = tmp_path_factory.mktemp("locks")
     monkeypatch.setattr(host_lock, "LOCK_DIR", locks)
