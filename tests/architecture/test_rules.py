@@ -358,7 +358,6 @@ TARGET_ENTRY_LEGACY = {
     "execution.adapters.binance.execution_adapter": "transaction-cost log; step 15",
     "execution.safety.limits": "order limiter (Rust); step 13 persists the daily limits",
     "shared.kill_file": "kill file; step 13",
-    "shared.execution_lease": "single-writer lease; step 13",
 }
 
 

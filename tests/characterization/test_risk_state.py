@@ -79,7 +79,7 @@ def test_current_kill_cli_default_path_differs_from_the_target_runtime_path(tmp_
         raise Stop
 
     from lab.strategy import StrategySpec
-    monkeypatch.setattr("shared.execution_lease.ExecutionLease", capture)
+    monkeypatch.setattr(target, "ExecutionLease", capture)       # imported by the entry point since step 12b
     monkeypatch.chdir(tmp_path)
     # Since step 10 the spec is verified before anything else, so the run needs a real (unsigned, dev-mode) one.
     Path("spec.json").write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target",
