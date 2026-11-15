@@ -71,8 +71,7 @@ test = [
     "hypothesis>=6.92",
 ]
 
-# Python source wheel only. Build/install the native _quant_hotpath wheel
-# separately with maturin; Docker uses these sources plus that native wheel.
+# Python source wheel (there is no native extension since 2026-11-15).
 # Explicit discovery is required because this repository has no quant_system/
 # package matching the distribution name. Do not follow legacy scripts/ links.
 [tool.hatch.build.targets.wheel]
@@ -81,8 +80,6 @@ ignore-vcs = true
 # packages/only-include bypass include filters in Hatch; constrain by file here.
 include = [
     "/data/**/*.py", "/data/**/py.typed",
-    "/engine/**/*.py", "/engine/**/py.typed",
-    "/event/**/*.py", "/event/**/py.typed",
     "/execution/**/*.py", "/execution/**/py.typed",
     "/infra/**/*.py", "/infra/**/py.typed",
     "/monitoring/**/*.py", "/monitoring/**/py.typed",
@@ -90,7 +87,6 @@ include = [
     "/trading/**/*.py", "/trading/**/py.typed",
     "/runner/**/*.py", "/runner/**/py.typed",
     "/shared/**/*.py", "/shared/**/py.typed",
-    "/state/**/*.py", "/state/**/py.typed",
 ]
 exclude = ["**/tests/**", "**/archive/**", "**/__pycache__/**"]
 
@@ -150,12 +146,3 @@ disallow_untyped_defs = true
 disallow_any_generics = true
 warn_return_any = true
 no_implicit_optional = true
-
-[[tool.mypy.overrides]]
-module = ["runner.backtest.*"]
-disallow_untyped_defs = true
-warn_return_any = true
-
-[[tool.mypy.overrides]]
-module = ["_quant_hotpath", "_quant_hotpath.*"]
-ignore_missing_imports = true

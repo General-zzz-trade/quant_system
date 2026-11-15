@@ -49,9 +49,8 @@
 ## Commands
 
 ```bash
-make test                          # core gate: core + execution pytest, cargo test, ruff (must be all green)
+make test                          # core gate: money-path and execution pytest, ruff, import contracts, mypy
 make test-all                      # entire pytest suite (must be all green); CI runs it as 4 shards (python-test-all)
-make rust                          # build the Rust crate (maturin, --features python) and pip install it
 ruff check --select E,W,F .        # lint, whole repo
 python scripts/check_local_safety.py               # stdlib-only offline fault-injection suite
 python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
@@ -66,8 +65,8 @@ python -m trading.infrastructure.manual --state-dir <dir> settle --intent <id> -
 python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCUSDT --reason "..."  # ledger := venue
 ```
 
-- **Rust builds** need the `python` feature: `maturin build --release --features python`.
-- **Shadowing:** a `_quant_hotpath/` directory at the project root shadows the installed package.
+- **No native code:** the Rust extension `_quant_hotpath` was deleted on 2026-11-15 (its last version is in the
+  tag `archive/ml-line-2026-11-15` and in git history); the repository is pure Python.
 
 ## Architecture (as actually wired)
 

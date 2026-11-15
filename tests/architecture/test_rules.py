@@ -215,7 +215,7 @@ def test_the_ci_shards_together_are_the_whole_suite():
     assert indices == list(range(count)) and count >= 2          # each shard index runs exactly once
     dealt = shard.shards(count)
     assert sorted(f for files in dealt for f in files) == every     # nothing dropped, nothing twice
-    assert all(files for files in dealt) and len(every) > 100       # 123 files after the M4 deletion
+    assert all(files for files in dealt) and len(every) > 50        # 79 files after the Rust deletion
     run = _tokens(job.split("name: Run one shard of the whole suite", 1)[1])
     arguments = run[run.index("pytest") + 1:]                      # `python3 -m pytest` itself is fine
     assert not any(t.startswith(SELECTING) for t in arguments) and "continue-on-error" not in job

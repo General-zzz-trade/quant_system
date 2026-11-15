@@ -1705,3 +1705,37 @@ Contracts: 5 kept, 0 broken.
 - 架构测试：入口加载的旧包清单更新为上面 3 个。
 
 **本地**：特征测试、`tests/unit/{binance,trading,lab,tooling}`、契约测试、`tests/offline`、架构测试共 840 条通过；ruff、`mypy trading/`、导入契约都通过。
+
+## M4 第三部分：删除 Rust 扩展（2026-11-15）
+
+依据：ADR-0008 的 Rust 扩展清理随冻结线一起处理。ADR-0006 第一部分和兼容薄壳的改动完成后，测试之外已经没有代码使用 Rust 扩展。删除后项目是纯 Python。按分级流程属于"删除"类。
+
+**删除前先录下 Rust 的判定**（两条对比测试原来是实时和 Rust 比较）
+- 限额器：3 个种子各 80 笔订单。
+- 限流策略：5 组随机流量，每组约 2,940 次检查。
+- 录制结果放在 `tests/fixtures/`。测试改为与录制结果比较，断言含义不变：每个判定都相同。
+
+**删除的内容**（237 个文件）
+- Rust 源码和 Cargo 文件：133 个，35,177 行。
+- 只为 Rust 服务的 Python 代码：`engine/`、`event/`、`state/`、`execution/safety/`（Rust 限额器的包装）、`infra/effects.py`，以及各 Rust 目录里的包标记。共 25 个文件，2,750 行。
+- 测试：只测 Rust、引擎、事件、状态的 50 个文件，7,858 行。
+- 其他：`models_v8/`（只被 Rust 测试使用）和没有引用的 `infra/config/examples/`，共 29 个文件。
+
+**随之改动**
+- **CI**：去掉 `rust-test` 任务；另外两个任务去掉 Rust 工具链、缓存和编译步骤。检查从 11 项变为 10 项。
+- **Makefile**：去掉 `rust`、`test-rust` 目标；核心测试清单去掉已删除的目录。
+- **`pyproject.toml`**：打包清单去掉 3 个包；去掉指向已删除模块的两段 mypy 配置。
+- **`infra/logging/setup.py`**：去掉没有调用方的 effects 日志桥。
+- **`tests/conftest.py`**：去掉 7 个已无测试使用的事件、引擎、快照夹具。
+- **文档**：`CLAUDE.md`（命令、"纯 Python"的说明）；`README.md`、`docs/wiring_truth.md` 的失效说明。
+
+**已有测试的改动**
+- 两条对比测试改为与录制的 Rust 判定比较（见上）。
+- `test_risk_gates.py`、`test_ports.py` 的限额器从 Rust 版换成目标运行时用的 Python 版。规则和措辞相同，只改了设置。
+- `test_package_layout.py` 删去"Python 包与原生扩展分开构建"一条，原生扩展已不存在。
+- 分片测试的"测试文件数"下限从 100 降到 50，现在剩 79 个。
+
+**本地**【实际运行结果】
+- 整个测试集共 79 个文件、1,029 条，本机（2 核）6 分 26 秒跑完：1,028 条通过，1 条跳过（需要 hatchling）。
+- 本机还装着旧扩展，所以另外用 `git grep` 确认：没有测试导入它，只剩旧包名单里的一个名字。
+- ruff、`mypy trading/`、导入契约、CI 安全检查都通过。

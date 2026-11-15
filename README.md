@@ -2,7 +2,7 @@
 
 加密货币永续合约量化交易系统（BTC + ETH）。
 
-> **2026-11-15 起部分失效**：ML 运行时与离线回放、Bybit、OKX、Polymarket 和 Docker 部署路径已删除（最后一版见 git 标签 `archive/ml-line-2026-11-15`）。下文凡涉及它们的内容都已失效；现状以 `CLAUDE.md` 和 `docs/deploy_truth.md` 为准。
+> **2026-11-15 起部分失效**：ML 运行时与离线回放、Bybit、OKX、Polymarket、Docker 部署路径和 Rust 扩展已删除（项目现在是纯 Python）（最后一版见 git 标签 `archive/ml-line-2026-11-15`）。下文凡涉及它们的内容都已失效；现状以 `CLAUDE.md` 和 `docs/deploy_truth.md` 为准。
 
 **本地改进阶段（2026-11-03）**：主程序默认只生成信号，执行需显式开启。
 OKX 已加入成交驱动持仓、持久化成交消费和重启对账，验收范围见[订单恢复说明](docs/execution_recovery.md)。
