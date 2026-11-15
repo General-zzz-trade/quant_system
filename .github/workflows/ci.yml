@@ -12,7 +12,6 @@ concurrency:
 
 env:
   PYTHONPATH: ${{ github.workspace }}
-  CARGO_TERM_COLOR: always
 
 jobs:
   local-safety:
@@ -51,32 +50,6 @@ jobs:
       - name: Ruff check (whole repository)
         run: ruff check --select E,W,F .
 
-  rust-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      # The crate links libpython3.12 (PyO3). Newer runner images no longer ship
-      # that shared library, so provide it explicitly.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: dtolnay/rust-toolchain@1.93.0
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Run Rust tests
-        env:
-          PYO3_PYTHON: python
-        run: |
-          export RUSTFLAGS="-L ${pythonLocation}/lib"
-          export LD_LIBRARY_PATH="${pythonLocation}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          cargo test --locked
-
   # The coverage gate of the Binance execution path: the only test run the shards below do not do.
   python-acceptance:
     runs-on: ubuntu-latest
@@ -89,22 +62,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - uses: dtolnay/rust-toolchain@1.93.0
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
       - name: Install Python dependencies
         run: |
-          pip install maturin==1.12.6 pytest==9.0.2 pytest-cov==7.0.0
+          pip install pytest==9.0.2 pytest-cov==7.0.0
           pip install --require-hashes -r requirements/container.lock
-
-      - name: Build Rust extension
-        run: |
-          maturin build --locked --release --features python --out dist/
-          pip install dist/*.whl --force-reinstall
-          python3 -c "from _quant_hotpath import RustFeatureEngine, RustStateStore, RustInferenceBridge"
 
       - name: Binance execution coverage gate
         run: |
@@ -132,21 +93,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - uses: dtolnay/rust-toolchain@1.93.0
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
       - name: Install Python dependencies
         run: |
-          pip install maturin==1.12.6 pytest==9.0.2 pytest-cov==7.0.0
+          pip install pytest==9.0.2 pytest-cov==7.0.0
           pip install --require-hashes -r requirements/container.lock
-
-      - name: Build Rust extension
-        run: |
-          maturin build --locked --release --features python --out dist/
-          pip install dist/*.whl --force-reinstall
 
       - name: Run one shard of the whole suite
         run: python3 -m pytest $(python3 scripts/ci_shard.py ${{ matrix.shard }} 4) -q --tb=short

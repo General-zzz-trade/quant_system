@@ -40,13 +40,6 @@ class PackageLayoutTests(unittest.TestCase):
                 self.assertTrue((ROOT / package / "__init__.py").is_file())
                 self.assertFalse(any(path.is_symlink() for path in (ROOT / package).rglob("*.py")))
 
-    def test_python_backend_remains_separate_from_native_extension(self):
-        self.assertEqual(self.project["build-system"]["build-backend"], "hatchling.build")
-        cargo = tomllib.loads((ROOT / "Cargo.toml").read_text())
-        self.assertEqual(cargo["lib"]["name"], "_quant_hotpath")
-        self.assertIn("cdylib", cargo["lib"]["crate-type"])
-        self.assertFalse(any(pattern.startswith("/_quant_hotpath/") for pattern in self.wheel["include"]))
-
     @unittest.skipUnless(importlib.util.find_spec("hatchling"), "install hatchling to validate built wheel contents")
     def test_built_wheel_contains_code_only_and_all_runtime_packages(self):
         with tempfile.TemporaryDirectory() as scratch:

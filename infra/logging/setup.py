@@ -1,17 +1,13 @@
-"""Logging setup — bridges stdlib logging with core.effects.LogEffect.
+"""Logging setup for the stdlib logger: ``setup_logging()`` and ``get_logger()``.
 
-Provides ``setup_logging()`` for standalone use and ``get_effects_logger()``
-for wiring into the Effects system.
+(The effects-logger bridge went with infra/effects.py and the engine package, 2026-11-15.)
 """
 from __future__ import annotations
 
 import logging
 import logging.handlers
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from infra.effects import StdLogger
+from typing import Optional
 
 
 def setup_logging(
@@ -52,11 +48,3 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
         log.setLevel(level)
     return log
 
-
-def get_effects_logger() -> "StdLogger":
-    """Get a LogEffect backed by the stdlib quant_system logger.
-
-    Returns an ``infra.effects.StdLogger`` instance.
-    """
-    from infra.effects import StdLogger
-    return StdLogger()

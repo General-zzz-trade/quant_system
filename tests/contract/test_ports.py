@@ -5,6 +5,8 @@ port declares; and a failing venue makes reads raise instead of returning an emp
 """
 from __future__ import annotations
 
+import time
+
 import inspect
 from decimal import Decimal as D
 
@@ -13,7 +15,9 @@ import pytest
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.rest import BinanceRestError, BinanceRetryableError
-from execution.safety.limits import OrderLimiter
+from trading.adapters.sqlite.limit_store import SqliteLimitStore
+from trading.application.risk.order_limiter import OrderLimiter
+from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.adapters.files.event_log import JsonlEventLog as EventJournal
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
@@ -59,7 +63,8 @@ def test_state_and_risk_components_implement_their_ports(tmp_path):
         (ExecutionJournal(tmp_path / "orders.sqlite", "s"), ports.OrderJournal),
         (KillFile(tmp_path / "kill.json", missing_is_active=False), ports.KillSwitch),
         (DrawdownGuard(tmp_path / "dd.sqlite", "s"), ports.DrawdownGuard),
-        (OrderLimiter(), ports.OrderLimits),
+        (OrderLimiter(OrderLimitsConfig(), store=SqliteLimitStore(tmp_path / "limits.sqlite", "s"),
+                      clock=time.time, monotonic=time.monotonic), ports.OrderLimits),
         (AccountExposureGate(_adapter()), ports.ExposureReader),
         (EventJournal(tmp_path / "events.jsonl"), ports.EventLog),
     ]

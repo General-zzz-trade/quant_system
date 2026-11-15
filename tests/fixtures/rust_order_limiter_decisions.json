@@ -1,0 +1,1697 @@
+{
+ "limits": {
+  "max_order_qty": "2",
+  "max_order_notional": "500",
+  "max_position_notional": "900",
+  "max_daily_orders": "25",
+  "max_daily_notional": "4000"
+ },
+ "seeds": {
+  "1": [
+   {
+    "qty": "0.412",
+    "price": "346.6",
+    "position": "686.63",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.773",
+    "price": "223.4",
+    "position": "404.09",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.958",
+    "price": "326.05",
+    "position": "84.38",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.095",
+    "price": "342.52",
+    "position": "389.06",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.289",
+    "price": "50.74",
+    "position": "400.4",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.167",
+    "price": "130.07",
+    "position": "849.8",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.705",
+    "price": "60.71",
+    "position": "22.88",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.629",
+    "price": "378.7",
+    "position": "342.7",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.658",
+    "price": "197.74",
+    "position": "26.11",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.673",
+    "price": "203.26",
+    "position": "445.74",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.707",
+    "price": "130.8",
+    "position": "196.68",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.384",
+    "price": "151.42",
+    "position": "19.32",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.514",
+    "price": "244.76",
+    "position": "577.42",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.566",
+    "price": "397.39",
+    "position": "773.09",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.371",
+    "price": "166.44",
+    "position": "648.61",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.136",
+    "price": "377.75",
+    "position": "379.47",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.492",
+    "price": "284.61",
+    "position": "272.73",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.767",
+    "price": "358.87",
+    "position": "760.73",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.521",
+    "price": "256.15",
+    "position": "31.04",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.736",
+    "price": "329.09",
+    "position": "372.47",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.527",
+    "price": "242.08",
+    "position": "632.03",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.027",
+    "price": "181.15",
+    "position": "394.63",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.53",
+    "price": "322.45",
+    "position": "468.32",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.186",
+    "price": "221.39",
+    "position": "26.59",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.14",
+    "price": "296.18",
+    "position": "883.89",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.784",
+    "price": "187.76",
+    "position": "153.14",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.512",
+    "price": "393.73",
+    "position": "692.7",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.623",
+    "price": "351.1",
+    "position": "208.73",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.546",
+    "price": "383.36",
+    "position": "519.44",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.383",
+    "price": "144.25",
+    "position": "492.65",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.872",
+    "price": "52.0",
+    "position": "704.51",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.463",
+    "price": "360.16",
+    "position": "665.71",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.429",
+    "price": "231.54",
+    "position": "504.66",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.284",
+    "price": "69.64",
+    "position": "782.14",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.714",
+    "price": "119.94",
+    "position": "453.74",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.46",
+    "price": "174.88",
+    "position": "311.12",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.62",
+    "price": "268.22",
+    "position": "550.59",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.38",
+    "price": "59.79",
+    "position": "206.41",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.54",
+    "price": "254.56",
+    "position": "774.05",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.397",
+    "price": "328.98",
+    "position": "733.98",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.773",
+    "price": "344.61",
+    "position": "605.13",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.259",
+    "price": "55.84",
+    "position": "13.09",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.269",
+    "price": "137.35",
+    "position": "98.43",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.878",
+    "price": "170.55",
+    "position": "62.49",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.487",
+    "price": "234.58",
+    "position": "151.16",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.826",
+    "price": "299.06",
+    "position": "408.78",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.973",
+    "price": "215.82",
+    "position": "21.25",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.166",
+    "price": "197.32",
+    "position": "169.05",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.335",
+    "price": "364.94",
+    "position": "458.59",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.635",
+    "price": "261.98",
+    "position": "734.52",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.072",
+    "price": "56.25",
+    "position": "131.67",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.159",
+    "price": "106.08",
+    "position": "633.44",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.038",
+    "price": "240.65",
+    "position": "198.32",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.927",
+    "price": "329.23",
+    "position": "464.42",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.677",
+    "price": "276.98",
+    "position": "355.01",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.732",
+    "price": "162.44",
+    "position": "567.22",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.186",
+    "price": "154.51",
+    "position": "870.15",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.628",
+    "price": "157.24",
+    "position": "771.8",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.938",
+    "price": "378.75",
+    "position": "668.71",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.254",
+    "price": "138.33",
+    "position": "7.62",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.637",
+    "price": "63.27",
+    "position": "736.65",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.887",
+    "price": "249.6",
+    "position": "154.19",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.605",
+    "price": "390.82",
+    "position": "632.92",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.532",
+    "price": "182.29",
+    "position": "311.89",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.625",
+    "price": "285.95",
+    "position": "389.22",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.59",
+    "price": "86.55",
+    "position": "598.7",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.895",
+    "price": "224.93",
+    "position": "292.49",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   },
+   {
+    "qty": "2.616",
+    "price": "364.89",
+    "position": "16.27",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.611",
+    "price": "164.71",
+    "position": "887.36",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.35",
+    "price": "168.68",
+    "position": "191.51",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.027",
+    "price": "343.2",
+    "position": "838.04",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.038",
+    "price": "358.84",
+    "position": "617.71",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.459",
+    "price": "394.93",
+    "position": "210.94",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "2.179",
+    "price": "79.64",
+    "position": "152.56",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.734",
+    "price": "124.54",
+    "position": "682.45",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.805",
+    "price": "344.4",
+    "position": "330.93",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.027",
+    "price": "151.93",
+    "position": "779.81",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.816",
+    "price": "384.01",
+    "position": "797.65",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.415",
+    "price": "242.91",
+    "position": "93.74",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   },
+   {
+    "qty": "0.127",
+    "price": "75.62",
+    "position": "778.69",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   }
+  ],
+  "2": [
+   {
+    "qty": "2.869",
+    "price": "381.74",
+    "position": "50.84",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.264",
+    "price": "342.42",
+    "position": "661.64",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.012",
+    "price": "157.85",
+    "position": "544.74",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.824",
+    "price": "253.42",
+    "position": "142.39",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.298",
+    "price": "187.74",
+    "position": "649.99",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.985",
+    "price": "382.29",
+    "position": "489.22",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.34",
+    "price": "143.88",
+    "position": "32.3",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.092",
+    "price": "212.71",
+    "position": "286.3",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.146",
+    "price": "362.13",
+    "position": "472.65",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.686",
+    "price": "132.64",
+    "position": "21.45",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.982",
+    "price": "97.84",
+    "position": "458.69",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.996",
+    "price": "286.07",
+    "position": "163.48",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.682",
+    "price": "328.87",
+    "position": "660.23",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.721",
+    "price": "317.01",
+    "position": "709.98",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.068",
+    "price": "393.34",
+    "position": "864.75",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.492",
+    "price": "313.9",
+    "position": "642.92",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.39",
+    "price": "235.62",
+    "position": "440.52",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.775",
+    "price": "225.29",
+    "position": "747.54",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.068",
+    "price": "359.0",
+    "position": "808.83",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.388",
+    "price": "248.7",
+    "position": "827.38",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.174",
+    "price": "220.31",
+    "position": "199.41",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.981",
+    "price": "294.85",
+    "position": "149.3",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.725",
+    "price": "143.85",
+    "position": "819.33",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.936",
+    "price": "385.08",
+    "position": "634.88",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.518",
+    "price": "231.21",
+    "position": "585.62",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.768",
+    "price": "159.15",
+    "position": "186.83",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.541",
+    "price": "376.95",
+    "position": "560.32",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.235",
+    "price": "337.14",
+    "position": "652.63",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.724",
+    "price": "116.99",
+    "position": "669.56",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.186",
+    "price": "278.52",
+    "position": "245.52",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.688",
+    "price": "356.42",
+    "position": "95.53",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.572",
+    "price": "348.88",
+    "position": "220.1",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.639",
+    "price": "358.2",
+    "position": "380.2",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.154",
+    "price": "61.16",
+    "position": "325.76",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.524",
+    "price": "285.47",
+    "position": "74.53",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.864",
+    "price": "58.87",
+    "position": "655.75",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.073",
+    "price": "139.49",
+    "position": "731.21",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.48",
+    "price": "114.31",
+    "position": "621.65",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.163",
+    "price": "65.11",
+    "position": "890.01",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.463",
+    "price": "62.69",
+    "position": "309.44",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.85",
+    "price": "309.86",
+    "position": "101.69",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.018",
+    "price": "60.78",
+    "position": "403.34",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.3",
+    "price": "308.98",
+    "position": "810.92",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.269",
+    "price": "351.86",
+    "position": "634.11",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.424",
+    "price": "128.93",
+    "position": "594.08",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.956",
+    "price": "85.72",
+    "position": "402.59",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.626",
+    "price": "94.64",
+    "position": "525.88",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.185",
+    "price": "230.18",
+    "position": "129.3",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.88",
+    "price": "140.68",
+    "position": "544.86",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.265",
+    "price": "56.31",
+    "position": "501.6",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.43",
+    "price": "69.87",
+    "position": "30.17",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.492",
+    "price": "83.56",
+    "position": "570.93",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.53",
+    "price": "394.21",
+    "position": "839.78",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "2.984",
+    "price": "131.37",
+    "position": "399.78",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.76",
+    "price": "256.93",
+    "position": "561.12",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.403",
+    "price": "298.32",
+    "position": "230.69",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.275",
+    "price": "234.17",
+    "position": "4.34",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.116",
+    "price": "193.05",
+    "position": "99.95",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.174",
+    "price": "134.3",
+    "position": "89.7",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.553",
+    "price": "131.03",
+    "position": "195.4",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.567",
+    "price": "212.54",
+    "position": "278.44",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.929",
+    "price": "124.36",
+    "position": "815.0",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.89",
+    "price": "305.13",
+    "position": "389.93",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.539",
+    "price": "253.38",
+    "position": "46.06",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.26",
+    "price": "233.77",
+    "position": "162.92",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.29",
+    "price": "330.93",
+    "position": "329.2",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.562",
+    "price": "372.51",
+    "position": "548.85",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.876",
+    "price": "394.23",
+    "position": "334.63",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.067",
+    "price": "289.86",
+    "position": "90.94",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.925",
+    "price": "344.21",
+    "position": "604.64",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.057",
+    "price": "208.0",
+    "position": "369.2",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.463",
+    "price": "122.89",
+    "position": "529.28",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.231",
+    "price": "149.53",
+    "position": "335.24",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.806",
+    "price": "76.79",
+    "position": "678.73",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.585",
+    "price": "250.04",
+    "position": "352.21",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.395",
+    "price": "313.75",
+    "position": "355.14",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.374",
+    "price": "92.62",
+    "position": "72.38",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.552",
+    "price": "274.35",
+    "position": "862.74",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.081",
+    "price": "58.63",
+    "position": "592.58",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.334",
+    "price": "303.23",
+    "position": "447.66",
+    "allowed": false,
+    "rule": "max_order_qty"
+   }
+  ],
+  "3": [
+   {
+    "qty": "0.722",
+    "price": "240.48",
+    "position": "332.59",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.816",
+    "price": "269.0",
+    "position": "58.91",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.049",
+    "price": "343.11",
+    "position": "233.16",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.711",
+    "price": "398.48",
+    "position": "422.77",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.511",
+    "price": "216.72",
+    "position": "574.52",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.46",
+    "price": "272.2",
+    "position": "780.37",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.574",
+    "price": "309.44",
+    "position": "603.6",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.201",
+    "price": "315.38",
+    "position": "531.4",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.911",
+    "price": "60.85",
+    "position": "778.11",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.424",
+    "price": "301.59",
+    "position": "790.05",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.145",
+    "price": "372.38",
+    "position": "355.07",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.405",
+    "price": "205.62",
+    "position": "841.09",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.638",
+    "price": "84.11",
+    "position": "122.24",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.659",
+    "price": "387.92",
+    "position": "392.11",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.884",
+    "price": "155.36",
+    "position": "456.01",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.164",
+    "price": "172.82",
+    "position": "525.98",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.757",
+    "price": "366.47",
+    "position": "613.1",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "2.788",
+    "price": "349.74",
+    "position": "890.9",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.017",
+    "price": "107.08",
+    "position": "773.71",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.894",
+    "price": "366.64",
+    "position": "511.63",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.144",
+    "price": "123.89",
+    "position": "747.62",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.725",
+    "price": "149.74",
+    "position": "57.05",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.563",
+    "price": "396.43",
+    "position": "79.58",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.404",
+    "price": "193.66",
+    "position": "135.54",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.889",
+    "price": "319.08",
+    "position": "784.62",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.142",
+    "price": "265.09",
+    "position": "40.4",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.158",
+    "price": "165.83",
+    "position": "791.93",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.942",
+    "price": "226.9",
+    "position": "897.66",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.936",
+    "price": "76.94",
+    "position": "539.19",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.104",
+    "price": "119.08",
+    "position": "366.73",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.835",
+    "price": "104.67",
+    "position": "38.15",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.605",
+    "price": "159.84",
+    "position": "861.83",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.691",
+    "price": "182.23",
+    "position": "413.91",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.565",
+    "price": "275.36",
+    "position": "535.49",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.682",
+    "price": "267.04",
+    "position": "845.62",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.526",
+    "price": "200.92",
+    "position": "647.56",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.721",
+    "price": "155.38",
+    "position": "879.04",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.568",
+    "price": "241.95",
+    "position": "10.3",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.251",
+    "price": "252.99",
+    "position": "18.03",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "1.851",
+    "price": "271.26",
+    "position": "54.01",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "1.886",
+    "price": "213.19",
+    "position": "610.67",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.064",
+    "price": "297.43",
+    "position": "663.49",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.076",
+    "price": "71.2",
+    "position": "607.74",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.89",
+    "price": "137.89",
+    "position": "410.22",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.782",
+    "price": "162.01",
+    "position": "327.2",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.945",
+    "price": "179.2",
+    "position": "535.46",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.908",
+    "price": "182.01",
+    "position": "694.27",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.09",
+    "price": "249.24",
+    "position": "660.92",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.937",
+    "price": "127.89",
+    "position": "722.62",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.724",
+    "price": "115.59",
+    "position": "391.28",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.097",
+    "price": "85.64",
+    "position": "289.45",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.008",
+    "price": "341.74",
+    "position": "394.15",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.568",
+    "price": "109.25",
+    "position": "302.7",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.954",
+    "price": "359.71",
+    "position": "405.54",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.683",
+    "price": "92.32",
+    "position": "476.14",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.581",
+    "price": "332.37",
+    "position": "753.79",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.559",
+    "price": "147.51",
+    "position": "725.7",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.929",
+    "price": "332.19",
+    "position": "310.41",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.398",
+    "price": "152.18",
+    "position": "713.68",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.821",
+    "price": "171.22",
+    "position": "374.8",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "1.265",
+    "price": "193.33",
+    "position": "827.63",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "0.476",
+    "price": "51.63",
+    "position": "848.0",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "2.641",
+    "price": "395.42",
+    "position": "390.48",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.851",
+    "price": "374.58",
+    "position": "199.66",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.239",
+    "price": "342.84",
+    "position": "596.03",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.562",
+    "price": "151.16",
+    "position": "306.62",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.69",
+    "price": "73.82",
+    "position": "529.22",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "0.868",
+    "price": "333.57",
+    "position": "40.52",
+    "allowed": false,
+    "rule": "max_daily_notional"
+   },
+   {
+    "qty": "2.712",
+    "price": "292.8",
+    "position": "830.55",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "2.691",
+    "price": "364.89",
+    "position": "518.68",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "0.049",
+    "price": "310.85",
+    "position": "154.47",
+    "allowed": true,
+    "rule": null
+   },
+   {
+    "qty": "0.907",
+    "price": "282.01",
+    "position": "471.94",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   },
+   {
+    "qty": "1.247",
+    "price": "378.66",
+    "position": "550.34",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.031",
+    "price": "138.37",
+    "position": "774.64",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "1.437",
+    "price": "323.81",
+    "position": "316.31",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   },
+   {
+    "qty": "0.6",
+    "price": "237.12",
+    "position": "734.31",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   },
+   {
+    "qty": "0.522",
+    "price": "327.09",
+    "position": "828.67",
+    "allowed": false,
+    "rule": "max_position_notional"
+   },
+   {
+    "qty": "2.42",
+    "price": "338.22",
+    "position": "6.75",
+    "allowed": false,
+    "rule": "max_order_qty"
+   },
+   {
+    "qty": "1.89",
+    "price": "351.89",
+    "position": "44.89",
+    "allowed": false,
+    "rule": "max_order_notional"
+   },
+   {
+    "qty": "0.821",
+    "price": "144.01",
+    "position": "474.01",
+    "allowed": false,
+    "rule": "max_daily_orders"
+   }
+  ]
+ }
+}

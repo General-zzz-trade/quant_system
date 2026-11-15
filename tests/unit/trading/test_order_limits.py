@@ -7,15 +7,14 @@ or saved refuses the order ("treated as used up").
 """
 from __future__ import annotations
 
-import random
+import json
 import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal as D
+from pathlib import Path
 
 import pytest
 
-from execution.safety.limits import OrderLimiter as RustBackedLimiter
-from execution.safety.limits import OrderLimitsConfig as RustConfig
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.domain.risk.order_limits import OrderLimitsConfig
@@ -36,20 +35,21 @@ def _limiter(tmp_path, config, clock=None, monotonic=None):
     return OrderLimiter(config, store=store, clock=lambda: clock["t"], monotonic=lambda: mono["t"]), clock, mono
 
 
-@pytest.mark.parametrize("seed", [1, 2, 3])
+RUST_DECISIONS = Path(__file__).resolve().parents[2] / "fixtures" / "rust_order_limiter_decisions.json"
+
+
+@pytest.mark.parametrize("seed", ["1", "2", "3"])
 def test_every_rule_but_the_day_decides_as_the_rust_limiter_did(tmp_path, seed):
-    limits = dict(max_order_qty=D("2"), max_order_notional=D("500"), max_position_notional=D("900"),
-                  max_daily_orders=25, max_daily_notional=D("4000"))
-    rust = RustBackedLimiter(RustConfig(**limits))
-    python, _, _ = _limiter(tmp_path / str(seed), OrderLimitsConfig(**limits))
-    rng = random.Random(seed)
+    """The Rust limiter's decisions were recorded on 2026-11-15, before the Rust extension was deleted: the same
+    80 random orders per seed this test compared live until then (fixture written by that comparison's code)."""
+    recorded = json.loads(RUST_DECISIONS.read_text())
+    limits = {k: int(v) if k == "max_daily_orders" else D(v) for k, v in recorded["limits"].items()}
+    python, _, _ = _limiter(tmp_path / seed, OrderLimitsConfig(**limits))
     decisions = []
-    for _ in range(80):
-        qty, price = D(str(round(rng.uniform(0.01, 3), 3))), D(str(round(rng.uniform(50, 400), 2)))
-        position = D(str(round(rng.uniform(0, 899), 2)))
-        a = rust.check_order(qty=qty, price=price, current_position_notional=position)
-        b = python.check_order(qty=qty, price=price, current_position_notional=position)
-        assert (a.allowed, a.violated_rule) == (b.allowed, b.violated_rule)
+    for row in recorded["seeds"][seed]:
+        b = python.check_order(qty=D(row["qty"]), price=D(row["price"]),
+                               current_position_notional=D(row["position"]))
+        assert (row["allowed"], row["rule"]) == (b.allowed, b.violated_rule)
         decisions.append(b.violated_rule)
     assert {"max_order_qty", "max_order_notional", "max_position_notional", None} <= set(decisions)
     assert "max_daily_orders" in decisions or "max_daily_notional" in decisions

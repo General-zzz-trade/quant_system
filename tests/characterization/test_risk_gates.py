@@ -4,6 +4,8 @@ Each test kills a defect that survived the 2026-11-14 mutation run (docs/arch/cu
 """
 from __future__ import annotations
 
+import time
+
 import sqlite3
 from decimal import Decimal as D
 from types import SimpleNamespace
@@ -12,7 +14,9 @@ import pytest
 
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.safety.limits import OrderLimiter, OrderLimitsConfig
+from trading.adapters.sqlite.limit_store import SqliteLimitStore
+from trading.application.risk.order_limiter import OrderLimiter
+from trading.domain.risk.order_limits import OrderLimitsConfig
 from lab.orders import make_order
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
@@ -40,7 +44,10 @@ def _gates(tmp_path, *, limits=None):
     kill = KillFile(tmp_path / "kill_switch.json", missing_is_active=False)
     drawdown = DrawdownGuard(tmp_path / "drawdown.sqlite", SCOPE, daily_pct=5, weekly_pct=12)
     drawdown.observe(10_000.0)
-    limiter = OrderLimiter(limits or OrderLimitsConfig(max_order_notional=D("5000"), max_orders_per_second=1000.0))
+    # The Python limiter the target runtime uses (the Rust one went 2026-11-15; same rules and wording).
+    limiter = OrderLimiter(limits or OrderLimitsConfig(max_order_notional=D("5000"), max_orders_per_second=1000.0),
+                           store=SqliteLimitStore(tmp_path / "order_limits.sqlite", SCOPE), clock=time.time,
+                           monotonic=time.monotonic)
     inner = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown,
                               portfolio_reader=AccountExposureGate(adapter, journal), venue="binance")
     session = SimpleNamespace(entry_ready=True, entry_reason="")

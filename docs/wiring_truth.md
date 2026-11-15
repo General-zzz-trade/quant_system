@@ -1,6 +1,6 @@
 # Wiring Truth — Module Integration Status
 
-> **2026-11-15 起部分失效**：ML 运行时与离线回放、Bybit、OKX、Polymarket 和 Docker 部署路径已删除（最后一版见 git 标签 `archive/ml-line-2026-11-15`）。下文凡涉及它们的内容都已失效；现状以 `CLAUDE.md` 和 `docs/deploy_truth.md` 为准。
+> **2026-11-15 起部分失效**：ML 运行时与离线回放、Bybit、OKX、Polymarket、Docker 部署路径和 Rust 扩展已删除（项目现在是纯 Python）（最后一版见 git 标签 `archive/ml-line-2026-11-15`）。下文凡涉及它们的内容都已失效；现状以 `CLAUDE.md` 和 `docs/deploy_truth.md` 为准。
 
 > 更新时间: 2026-03-24
 > 目标: 记录每个功能模块是否已接入生产路径
