@@ -42,7 +42,7 @@ class ExitSupervisor:
                  account_check: Callable[[], list[Issue]] | None = None) -> None:
         self.sessions, self.spec, self.journal, self.clock = sessions, spec, journal, clock
         self.account, self.equity, self.pauses = account, equity, pauses
-        self.kill: Any = kill               # present in execution mode, the only mode that runs the exit side
+        self.kill: Any = kill               # both modes run the exit side (S10: paper takes the execution path)
         self.drawdown: Any = drawdown
         self._market_refused, self._decision_error, self._cycle_errors = market_refused, decision_error, cycle_errors
         self._warmed = warmed                       # the whole warm-up succeeded (S3 audit finding 6)
@@ -65,6 +65,13 @@ class ExitSupervisor:
             self.reconcile()
         self.update_states()
         self.risk_actions()
+        self.update_states()
+
+    def settle(self) -> None:
+        """``ModePolicy.settle_new_bar_before_decision`` (paper): after the venue matched a new bar and before the
+        sessions decide on it - consume its fills, settle the orders it filled or expired, reconcile, protect and
+        pause every symbol, and set the states - so a decision sees what research sees after the bar."""
+        self.reconcile()
         self.update_states()
 
     def check_account_if_due(self) -> None:
