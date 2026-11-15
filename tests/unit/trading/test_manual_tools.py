@@ -214,3 +214,83 @@ def test_only_the_manual_command_calls_the_manual_journal_operations():
         if any(isinstance(n, ast.Attribute) and n.attr in names for n in ast.walk(tree)):
             callers.append(rel)
     assert callers == ["trading/infrastructure/manual.py"]
+
+
+# -- audit after step 12b: finding 3 and the auditor's surviving mutants MA6, MA7, MA11 -----------------------
+def _stop_row(journal, client_algo_id, status, revision="f0"):
+    journal.ensure_stop_table()
+    journal.add_stop(owner=OWNER, client_algo_id=client_algo_id, symbol="BTCUSDT", revision=revision, attempt=0,
+                     side="buy", trigger_price="104", created_at=1.0)
+    journal.set_stop_status(client_algo_id, status)
+
+
+def test_a_ledger_is_never_aligned_while_a_stop_has_fired_and_the_runtime_has_not_seen_it(tmp_path, venue):
+    fake, adapter, journal = venue
+    _own(journal, qty="-0.1")
+    _stop_row(journal, "qsstop1", "active")
+    fake.algo["qsstop1"] = {"algoId": 1, "clientAlgoId": "qsstop1", "symbol": "BTCUSDT", "side": "BUY",
+                            "algoStatus": "FINISHED", "triggerPrice": "104", "actualOrderId": "77",
+                            "closePosition": "true"}                      # fired while the runtime was stopped
+    code, out = _run(tmp_path, adapter, "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 1 and "start the runtime once" in out and journal.manual_actions() == []
+    fake.algo["qsstop1"]["algoStatus"] = "NEW"                            # a working stop is no reason to refuse
+    code, _ = _run(tmp_path, adapter, "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 0 and journal.checkpoint(OWNER)["position"]["qty"] == "0"
+
+
+def test_a_ledger_is_never_aligned_while_a_stop_waits_for_its_order_or_cannot_be_looked_up(tmp_path, venue):
+    fake, adapter, journal = venue
+    _own(journal, qty="-0.1")
+    _stop_row(journal, "qsstop1", "awaiting_order")
+    code, out = _run(tmp_path, adapter, "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 1 and "start the runtime once" in out
+    journal.set_stop_status("qsstop1", "active")                          # unknown to the venue: cannot check
+    original = fake.request_signed
+
+    def down(*, method, path, params=None):
+        if path == "/fapi/v1/algoOrder":
+            from execution.adapters.binance.rest import BinanceRetryableError
+            raise BinanceRetryableError("HTTP 503")
+        return original(method=method, path=path, params=params)
+
+    fake.request_signed = down
+    code, out = _run(tmp_path, adapter, "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 1 and "could not be checked" in out and journal.manual_actions() == []
+
+
+def test_a_failed_venue_lookup_never_settles_an_order(tmp_path, venue):
+    fake, adapter, journal = venue
+    fake.fault = "error_5xx"
+    _lifecycle(adapter, journal).submit(intent_id="BTCUSDT:1:rebalance:0", symbol="BTCUSDT", side="buy", qty=D("1"))
+
+    def down(symbol, **kw):
+        raise OSError("venue down")
+
+    adapter.get_order = down
+    code, out = _run(tmp_path, adapter, "settle", "--intent", "BTCUSDT:1:rebalance:0", "--reason", "r",
+                     typed="BTCUSDT:1:rebalance:0")
+    assert code == 1 and "could not be asked" in out and journal.orders(unresolved=True)
+
+
+def test_several_venue_positions_are_never_aligned_and_a_failed_lookup_is_listed(tmp_path, venue):
+    fake, adapter, journal = venue
+    _own(journal)
+
+    class Hedged:
+        def get_positions(self, symbol="", *, strict=True):
+            from trading.domain.venue import VenuePosition
+            return (VenuePosition("binance", "BTCUSDT", D("0.1")), VenuePosition("binance", "BTCUSDT", D("-0.1")))
+
+        def get_order(self, symbol, **kw):
+            raise OSError("venue down")
+
+        def get_algo_order(self, *, client_algo_id):
+            return None
+
+    code, out = _run(tmp_path, Hedged(), "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 1 and "more than one venue position" in out
+    fake.fault = "error_5xx"
+    _lifecycle(adapter, journal).submit(intent_id="BTCUSDT:2:rebalance:0", symbol="BTCUSDT", side="buy", qty=D("1"))
+    code, out = _run(tmp_path, Hedged(), "orders")
+    (listed,) = json.loads(out)
+    assert code == 0 and listed["venue"] == {"state": "lookup failed: OSError"}

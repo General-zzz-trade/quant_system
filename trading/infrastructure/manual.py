@@ -32,6 +32,7 @@ from typing import Any, TextIO
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+from trading.domain.venue import STOP_TRIGGERED
 from trading.infrastructure.settings import binance_config_from_env, execution_scope, testnet_from_env
 
 JOURNAL = "orders.sqlite"
@@ -115,10 +116,32 @@ def _settle(journal: SqliteOrderJournal, account: Any, intent_id: str, reason: s
     return 0
 
 
+def _unseen_trigger(journal: SqliteOrderJournal, account: Any, owner: str, symbol: str) -> str | None:
+    """Why a protective stop of the symbol may still change the ledger, or None. A stop that fired while the
+    runtime was stopped is adopted at the next start and its fill lands on the ledger: aligning the ledger
+    first would count that fill twice (audit after step 12b, finding 3)."""
+    journal.ensure_stop_table()
+    for row in journal.stop_rows(owner, symbol, live_only=True):
+        if row["status"] == "awaiting_order":
+            return f"protective stop {row['client_algo_id']} has fired and its order is not known yet"
+        try:
+            state = account.get_algo_order(client_algo_id=row["client_algo_id"])
+        except Exception as exc:
+            return f"protective stop {row['client_algo_id']} could not be checked ({type(exc).__name__})"
+        if state is not None and state.state == STOP_TRIGGERED:
+            return f"protective stop {row['client_algo_id']} has fired and the runtime has not seen it"
+    return None
+
+
 def _position(journal: SqliteOrderJournal, account: Any, symbol: str, owner: str, reason: str, stdin: TextIO,
               stdout: TextIO) -> int:
     if any(r["symbol"] == symbol for r in journal.orders(unresolved=True)):
         print(f"{symbol} has open orders; settle the open orders first (orders, settle)", file=stdout)
+        return 1
+    unseen = _unseen_trigger(journal, account, owner, symbol)
+    if unseen is not None:
+        print(f"{unseen}; start the runtime once so it takes the stop's fill into the ledger, stop it, then "
+              "check again; nothing changed", file=stdout)
         return 1
     positions = [p for p in account.get_positions(symbol, strict=True)
                  if p.symbol == symbol and Decimal(str(p.qty)) != 0]
