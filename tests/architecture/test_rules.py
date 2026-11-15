@@ -164,10 +164,10 @@ def _gated(tokens: list[str], directory: str) -> bool:
     return directory in args and not narrowed
 
 
-def _ci_core_test_paths() -> str:
+def _ci_shard_count() -> int:
     text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    block = text.split("name: Run core unit tests", 1)[1]
-    return block.split("- name:", 1)[0]
+    job = text.split("\n  python-test-all:", 1)[1].split("\n  security-scan:", 1)[0]
+    return int(re.search(r"scripts/ci_shard\.py \$\{\{ matrix\.shard \}\} (\d+)\)", job).group(1))
 
 
 def _make_core_tests() -> str:
@@ -176,8 +176,14 @@ def _make_core_tests() -> str:
 
 
 def test_money_path_tests_are_gated_in_ci_and_make():
-    ci, make = _tokens(_ci_core_test_paths()), _tokens(_make_core_tests())
-    assert [d for d in REQUIRED_GATED if not _gated(ci, d)] == []
+    """CI runs every test file of the money-path directories through the shards (which run unnarrowed, see the
+    next tests); `make test` names the directories. The CI half used to read a separate core job that only
+    repeated tests the shards run; that job was removed on 2026-11-15 (tech lead: CI dedupe)."""
+    sharded = {f for files in _shard_module().shards(_ci_shard_count()) for f in files}
+    for directory in REQUIRED_GATED:
+        files = {str(p.relative_to(ROOT)) for p in (ROOT / directory).rglob("test_*.py")}
+        assert files and files <= sharded, directory
+    make = _tokens(_make_core_tests())
     assert [d for d in REQUIRED_GATED if not _gated(make, d)] == []
 
 
