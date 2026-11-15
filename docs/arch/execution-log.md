@@ -2061,3 +2061,19 @@ Contracts: 5 kept, 0 broken.
   - ADR-0009 的实施步骤和验收更正：数据库被删时平仓发不出去，这一点今天就是如此；
   - 路线图第 19 项。
 - **下一步**：按设计第 10 节从 S1 开始。
+
+## S1：不变量表与两条新检查（2026-11-15，设计第 10 节，轻流程）
+
+- **测试不联网（T1）**：
+  - `tests/conftest.py` 在测试会话开始时替换套接字的连接方法和域名解析。连接本机以外的地址、解析本机以外的域名，都直接抛错，回环地址照常。
+  - `tests/unit/tooling/test_network_guard.py`（4 条）：外部的 IPv4、IPv6 连接被拒；域名解析和 HTTP 请求被拒；本机回环正常。
+- **规格只经签名加载（T2）**：`tests/architecture/test_artifact_loading.py`（3 条）：
+  - 生产代码（`trading`、`runner`、`lab`、`data`、`infra`、`monitoring`、`scripts`）不导入 pickle 一类的反序列化库；
+  - 运行时的规格只由 `load_spec` 经 `load_verified_json` 读取，`spec_path` 参数不流向别处；
+  - 两条规则各配一个反例，证明它们能抓到违规。
+- **不变量表**：`docs/arch/target.md` 第 7 节换成设计第 7 节核对过的完整表，T1、T2 标为已有检查。
+- **自检**【实际运行结果】：注入 3 个违规都被抓住：
+  - 运行时直接读规格文件；
+  - 研究包导入 pickle；
+  - 关掉网络屏蔽。
+- **本地**：新测试单独跑过，ruff 通过。网络屏蔽对整个测试集的影响由 CI 全量测试验证。

@@ -307,67 +307,43 @@ flowchart LR
 
 ## 7. 不变量清单与自动化检查
 
-"现状"一列：✓ 表示已有测试且成立；✗ 表示不成立或没有检查。
+2026-11-15 按 `design-2026-11-m5.md` 第 7 节更新（原表停在 2026-11-14，L5、L6、K2–K5、S1、S2 已修复却仍标 ✗）。表中 T1–T10 是这次设计新增的不变量；"没有"的项由设计第 10 节的对应步骤补上。S1 步骤之后，T1（测试不联网）和 T2（规格只经签名加载）已有检查：`tests/conftest.py` 的网络屏蔽与 `tests/unit/tooling/test_network_guard.py`，以及 `tests/architecture/test_artifact_loading.py`。
 
-### 7.1 风控上限
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| L1 | 总名义敞口加拟下单名义不超过 `min(配置, 3) × 权益`；3 是 `domain` 里的常量，配置只能调低 | 单元测试（参数化边界值）；架构测试：常量只定义一次 | ✓ |
-| L2 | 每张入场单在到达交易所之前都经过入场门 | 分层契约（应用层拿不到具体适配器）；用记录型假网关的测试：没有通过记录就没有发单调用 | ✗ 靠调用方自觉（R14） |
-| L3 | 执行模式下入场门的四个组件缺一不可 | 构造期断言 + 单元测试 | ✓（第 4 步：`CompositeRiskGate.for_execution`，`tests/unit/trading/test_domain_risk.py`） |
-| L4 | 权益、持仓、状态库任何一项未知或不可读时，入场被拒 | 现有 `tests/offline/test_risk_safety.py` 迁入 | ✓ |
-| L5 | 回撤闩锁和日限额计数跨重启保持；状态库缺失或账户身份不符时执行模式拒绝启动 | 重启测试；缺库测试 | ✗（R6、R12） |
-| L6 | 在 spec 验签、研究闸门和 scope 校验全部通过之前，不对账户做任何写操作 | 记录型假账户测试：闸门不过时 POST 次数为 0 | ✗（R11） |
-| L7 | 没有自动调高上限的代码路径 | 配置对象不可变（frozen dataclass）；架构测试：`settings` 之外不读环境变量 | 部分 |
-
-### 7.2 Kill-switch
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| K1 | kill 激活后不再有新的入场单 | 现有测试迁入 | ✓ |
-| K2 | kill（平仓）或回撤闩锁激活后：先撤销全部入场挂单，再提交 reduce-only 单，直到交易所持仓为 0 或重试耗尽并告警 | 由探针改写的场景测试（场景 a、e） | ✗（R1、R2） |
-| K3 | 命令行与运行时解析出同一个 kill 文件路径 | 单元测试：两者调用同一个解析函数 | ✗（R5） |
-| K4 | 运行时从不改写操作员写入的 kill 文件 | 架构测试：`KillSwitch` 端口没有写方法；写方法只在 `cli/kill.py` | ✗（R17） |
-| K5 | 有持仓却没有有效的交易所侧止损时，入场被拒并告警 | 场景测试（探针 C 段） | ✗（R3） |
-| K6 | kill 文件损坏或不可读时按激活处理 | 现有测试迁入 | ✓ |
-
-### 7.3 无前视偏差
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| F1 | 时刻 T 的目标权重只依赖 `available_at ≤ T` 的数据 | 性质测试：改动 T 之后的任意 K 线，T 及之前的目标不变 | 部分（有截尾一致性测试） |
-| F2 | 截尾窗口算出的值等于全历史算出的值 | 现有 `tests/unit/lab/test_lab_engine.py` 迁入 | ✓ |
-| F3 | 行情适配器只返回已收盘 K 线 | 现有 `test_klines_closed_only_and_ascending` 迁入 | ✓ |
-| F4 | 聚合只保留完整且对齐 UTC 的分组 | 单元测试 | ✓ |
-| F5 | 前向窗口的数据只在登记过的查看中读取 | 现有 `lab/forward.py` 的拒绝逻辑测试；数据加载函数加日期上界参数（范围外，见 ADR-0008 的后续项） | 部分（R21） |
-
-### 7.4 订单状态机
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| O1 | 同一意图至多向交易所提交一次 | 现有 `tests/offline/test_execution_safety.py`、`test_market_execution.py` 迁入 | ✓ |
-| O2 | 状态只能沿转移表变化，非法转移抛错 | 单元测试：枚举全部状态对 | 部分（第 5 步：转移表已定义；生产中只记录不拒绝；表内 30 种转移里只有 12 种有测试证据，第 9 步之前补齐或收窄） |
-| O3 | 订单表和止损表只有一个写入者 | 契约：`sqlite3` 只允许在 `trading.adapters.sqlite` 被 import | 部分（第 6 步：Binance 下单路径上无 SQL，`trading/` 内只有 sqlite 适配器 import `sqlite3`；但 ML 运行时的 `engine/durable_fills.py` 和冻结的 Bybit/OKX 适配器仍经 `connect()` 直接写） |
-| O4 | 只有交易所成交记录才成为成交；每笔成交恰好入账一次 | 现有测试迁入 | ✓ |
-| O5 | 五个崩溃点重启后不重复下单、不丢已入库成交 | 现有子进程崩溃测试迁入；补 `TargetRuntime` 带未决订单重启的测试 | 部分 |
-| O6 | 减仓被拒绝预留时写日志并告警 | 场景测试 | ✗（R7） |
-
-### 7.5 回测 / 实盘一致性
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| P1 | 纸面运行的成交与研究模拟逐笔相同 | 现有 `test_paper_runtime_reproduces_lab_simulation` 迁入 | ✓ |
-| P2 | 纸面与执行运行同一份 `session` 代码，只换适配器 | 分层契约 + 同一套端口契约测试分别跑在模拟交易所和假 Binance 上 | ✗ 两条代码路径 |
-| P3 | 纸面状态跨重启连续 | 重启测试 | ✓（第 1b 步：`tests/unit/lab/test_target_runtime_resilience.py`） |
-| P4 | 研究与实盘共用的参数（限价偏移、最小名义额）只有一个来源 | 架构测试：常量只定义一次 | ✗ 两处硬编码 |
-
-### 7.6 结构
-
-| ID | 不变量 | 检查方式 | 现状 |
-|---|---|---|---|
-| S1 | 依赖只能向内；不依赖遗留包；核心层不做 I/O | import-linter 四条契约 | ✗ |
-| S2 | 资金相关测试全部在 CI 门禁里 | CI 配置；一个测试断言门禁清单覆盖 `tests/architecture`、`tests/characterization`、迁入的安全测试 | ✗（R22） |
+| 不变量 | 现在的自动检查 | 状态 |
+|---|---|---|
+| L1 3 倍上限只定义一次 | 【测试日志】`tests/architecture/test_rules.py::test_the_hard_leverage_cap_is_defined_once` | 有 |
+| L2 每张入场单都经过入场门 | 【测试日志】`tests/characterization/test_runtime_decisions.py::test_the_entry_gate_as_the_runtime_assembles_it`；但模拟盘路径绕过入场门【代码 `session.py:173-175`】 | 部分（S10 之后成立） |
+| L3 执行模式入场门的四个组件缺一不可 | 【测试日志】`tests/unit/trading/test_domain_risk.py` | 有 |
+| L4 权益、持仓、状态库任何一项未知时拒绝入场 | 【测试日志】`tests/unit/trading/test_unknown_equity.py`、`tests/unit/trading/test_lost_state_files.py` | 有 |
+| L5 回撤锁定和当日计数在重启后保持 | 【测试日志】`test_risk_state.py::test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope`、`::test_the_daily_order_count_survives_a_restart` | 有 |
+| L6 检查通过之前不写账户 | 【测试日志】`test_risk_state.py::test_the_mainnet_gate_refuses_before_any_account_setting_is_written` 等 3 条；ADR-0010 之后，连接账户本身也是只读的 | 有 |
+| L7 没有自动提高上限的路径 | 回撤上限有硬顶，并有测试；还没有"配置对象不可变、启动后不再读配置"的架构测试 | 部分（S4） |
+| K1 急停激活后没有新的入场 | 【测试日志】`tests/unit/trading/test_exit_robustness.py`、`test_exit_paths.py` | 有 |
+| K2–K5 急停先撤后平；命令和运行时用同一个文件；运行时只读；没有止损就阻断 | 【测试日志】`test_exit_paths.py::test_kill_flatten_cancels_a_resting_entry_first_then_closes_the_position`、`test_state_dir.py::test_the_runtime_reads_the_kill_file_the_command_writes`、`::test_only_the_kill_command_writes_a_kill_file`、`test_stops_and_fills.py::test_a_position_without_a_working_stop_blocks_entries_until_one_is_in_place` | 有。K4 只能发现带 `active=` 参数的写调用，发现不了复制文件（审计 M1），S8 补 |
+| K6 急停文件损坏或不可读按激活处理 | 【测试日志】`test_state_dir.py::test_in_a_managed_directory_a_kill_file_that_disappears_reads_as_active` | 有 |
+| F1–F4 无前视 | 【测试日志】`tests/unit/trading/test_strategy_causality.py`、`tests/unit/lab/test_lab_engine.py::test_targets_are_causal`、`tests/unit/binance/test_binance_adapter.py::test_klines_closed_only_and_ascending`、`tests/unit/data/test_causal_bars.py` | 有 |
+| F5 前向窗口只在登记的查看里读取 | `lab/forward.py` 的拒绝逻辑有测试；数据加载函数没有日期上限 | 部分 |
+| O1 同一意图至多提交一次；O4 只有交易所成交才入账、恰好一次 | 【测试日志】`tests/offline/test_execution_safety.py`、`tests/characterization/test_order_facts.py` | 有 |
+| O2 状态只能按转移表变化 | 【测试日志】`test_order_transitions.py` 固定了转移表；生产中只记录、不拒绝（ADR-0004，M5 之后再定） | 部分 |
+| O3 订单表只有一个写入者 | 【测试日志】`tests/architecture/test_rules.py::test_sqlite_is_imported_only_by_the_sqlite_adapters` | 有 |
+| O5 崩溃重启不重复下单、不丢成交 | 【测试日志】`tests/offline/test_execution_recovery.py`、`test_target_runtime_resilience.py::test_paper_restart_while_orders_are_pending_reproduces_lab_simulation`、`test_startup_account_check.py` 的恢复类测试 | 有 |
+| O6 减仓被拒绝时记日志 | 【测试日志】`test_flatten.py::test_a_reduction_refused_by_the_order_journal_is_logged_with_its_reason` | 有 |
+| P1 模拟盘与研究逐笔相同 | 【测试日志】`test_target_runtime.py::test_paper_runtime_reproduces_lab_simulation` 等 | 有（S10 面临的主要风险） |
+| P2 模拟盘与执行用同一份会话代码 | 没有 | **没有**（S10） |
+| P3 模拟盘状态跨重启连续 | 【测试日志】`test_target_runtime_resilience.py` | 有 |
+| P4 研究与实盘共用的参数只有一个来源 | 限价偏移写了三份【代码 `lab/simulate.py:39`、`runner/offline/broker.py:38`、`trading/infrastructure/target.py:48`】 | **没有**（S10） |
+| S1 依赖只能向内，核心层不做 I/O | `.importlinter` 5 条契约，加 `tests/architecture/test_rules.py` | 有 |
+| S2 资金相关测试都在 CI 门禁里 | 【测试日志】`test_rules.py::test_money_path_tests_are_gated_in_ci_and_make`、`::test_the_ci_shards_together_are_the_whole_suite` | 有 |
+| T1 测试从不联网 | `tests/conftest.py` 屏蔽本机以外的连接和域名解析；`tests/unit/tooling/test_network_guard.py` | 有（S1） |
+| T2 策略规格和模型只经签名校验加载 | `tests/architecture/test_artifact_loading.py`：生产代码不用 pickle 一类的反序列化；运行时的规格只经 `load_verified_json` 读取 | 有（S1） |
+| T3 主网执行单元不自动重启 | 没有 | **没有**（S8） |
+| T4 运行中出现外来持仓就阻断入场，而且阻断持续到外来持仓消失 | 没有（G5 还没实现） | **没有**（S5） |
+| T5 执行模式没有告警出口、启动告警没送达、没有心跳地址时不能启动 | 没有 | **没有**（S7） |
+| T6 启动之后不再读配置；配置日志里不含密钥和心跳地址 | 只有"只有组装层读环境变量"这一条 | **没有**（S4） |
+| T7 一个账户身份同时只有一个执行进程；运行时在跑时，手工工具和恢复命令拒绝执行 | 已知缺陷测试固定了现状（R20）；手工工具按状态目录的租约拒绝 | **不成立**（S6） |
+| T8 恢复只收紧、不放宽风险状态 | 没有 | **没有**（S8） |
+| T9 心跳失败不影响平仓和对账 | 没有 | **没有**（S7） |
+| T10 模拟盘不构造带凭据的适配器、不发签名请求 | 没有 | **没有**（S10） |
 
 ## 8. 关键决策
 
