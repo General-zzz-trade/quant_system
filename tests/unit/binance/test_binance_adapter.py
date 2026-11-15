@@ -5,8 +5,8 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import MAX_LEVERAGE, BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import MAX_LEVERAGE, BinanceAdapter
 from tests.unit.binance.fake_venue import HOUR, FakeBinance, make_bars
 
 

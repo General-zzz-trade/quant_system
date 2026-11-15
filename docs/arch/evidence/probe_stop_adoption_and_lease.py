@@ -8,8 +8,8 @@ from decimal import Decimal as D
 from pathlib import Path
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3]))
 logging.disable(logging.CRITICAL)
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from execution.adapters.binance.protective_stops import ProtectiveStopManager
 from shared.execution_lease import ExecutionLease

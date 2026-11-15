@@ -30,7 +30,7 @@ nothing here reads the environment.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
@@ -39,8 +39,6 @@ import time
 from types import SimpleNamespace
 from typing import Any
 
-from event.header import EventHeader
-from event.types import EventType, FillEvent
 from monitoring.tca import TCALogger
 from shared.confirmed_execution import ConfirmedExecutor
 from trading.application.execution.service import ExecutionService
@@ -48,6 +46,43 @@ from trading.domain.orders import OrderIntent
 
 NOT_FOUND_GRACE_SECONDS = 90.0  # > Binance max recvWindow (60s) + clock skew margin
 HOUR_SECONDS = 3600.0
+
+
+@dataclass(frozen=True)
+class _Header:
+    """The event header this shell records in its journal parents: the fields of the old ``event.header``
+    (no Rust behind it since ADR-0006, 2026-11-15). ``event_type`` is stored as before: "order" or "fill"."""
+
+    event_id: str
+    event_type: str
+    version: int
+    ts_ns: int
+    source: str
+    parent_event_id: str | None = None
+    root_event_id: str | None = None
+    run_id: str | None = None
+    seq: int | None = None
+    correlation_id: str | None = None
+
+
+def _order_header(event_id: str, source: str) -> _Header:
+    return _Header(event_id=event_id, event_type="order", version=1, ts_ns=time.time_ns(), source=source,
+                   root_event_id=event_id)
+
+
+@dataclass(frozen=True)
+class FillEvent:
+    """A confirmed fill as this shell returns it (the field names of the old ``event.types.FillEvent``)."""
+
+    header: _Header
+    fill_id: str
+    order_id: str
+    symbol: str
+    qty: Decimal
+    price: Decimal
+    side: str
+    fee: Decimal = Decimal(0)
+    fee_asset: str | None = None
 
 
 class _TcaLog:
@@ -109,8 +144,7 @@ class BinanceExecutionAdapter:
             if row["parent"]:
                 data = json.loads(row["parent"])
                 header = data.pop("header")
-                header["event_type"] = EventType(header["event_type"])
-                self._parents[row["intent_id"]] = SimpleNamespace(header=EventHeader(**header), **data)
+                self._parents[row["intent_id"]] = SimpleNamespace(header=_Header(**header), **data)
 
     @property
     def journal(self):
@@ -140,9 +174,9 @@ class BinanceExecutionAdapter:
         parent = self._parents[intent_id]
         events = []
         for fact in facts:
-            header = EventHeader.from_parent(parent=parent.header, event_type=EventType.FILL,
-                                             version=1, source="binance")
-            header = replace(header, event_id=fact.fill_id)
+            header = _Header(event_id=fact.fill_id, event_type="fill", version=1, ts_ns=time.time_ns(),
+                             source="binance", parent_event_id=parent.header.event_id,
+                             root_event_id=parent.header.root_event_id or parent.header.event_id)
             events.append(FillEvent(
                 header=header, fill_id=fact.fill_id, order_id=parent.order_id,
                 symbol=fact.symbol, qty=Decimal(str(fact.qty)),
@@ -160,9 +194,7 @@ class BinanceExecutionAdapter:
         if getattr(event, "header", None) is None:
             # Paper orders are the plain OrderIntent since ADR-0006 (2026-11-15). Give them the header
             # lab.orders.make_order used to build, so this shell records them exactly as before.
-            header = replace(EventHeader.new_root(event_type=EventType.ORDER, version=1,
-                                                  source=str(getattr(event, "source", "") or "")),
-                             event_id=str(getattr(event, "order_id", "") or ""))
+            header = _order_header(str(getattr(event, "order_id", "") or ""), str(getattr(event, "source", "") or ""))
             event = SimpleNamespace(header=header, **{name: getattr(event, name, None) for name in (
                 "order_id", "symbol", "side", "qty", "price", "reduce_only", "reason")})
         intent_id = str(getattr(event, "order_id", "") or "")
@@ -175,7 +207,7 @@ class BinanceExecutionAdapter:
 
         def parent() -> dict[str, Any]:
             header = asdict(event.header)
-            header["event_type"] = event.header.event_type.value
+            header["event_type"] = getattr(event.header.event_type, "value", event.header.event_type)
             stored.update({"header": header, "order_id": intent_id, "symbol": event.symbol,
                            "side": event.side, "price": str(event.price or 0),
                            "reason": getattr(event, "reason", None)})
@@ -200,10 +232,8 @@ class BinanceExecutionAdapter:
         and consumed like any other confirmed fill.
         """
         with self._lock:
-            header = EventHeader.new_root(event_type=EventType.ORDER, version=1, source=self.owner or "binance")
-            header = replace(header, event_id=intent_id)
+            header = _order_header(intent_id, self.owner or "binance")
             parent_header = asdict(header)
-            parent_header["event_type"] = header.event_type.value
             parent = {"header": parent_header, "order_id": intent_id, "symbol": symbol, "side": side,
                       "price": "0", "reason": reason}
             if not self._service.adopt(intent_id=intent_id, symbol=symbol, side=side, order_id=order_id,

@@ -8,8 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3]))
 logging.disable(logging.CRITICAL)
 from decision.modules.alpha_orders import make_close_order, make_open_order
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from runner.binance_target import TargetFillConsumer
 from tests.unit.binance.fake_venue import FakeBinance, make_bars

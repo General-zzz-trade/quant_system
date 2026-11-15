@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
 from trading.application.execution.stops import ProtectiveStopManager
 from trading.adapters.binance.rest import BinanceNonRetryableError

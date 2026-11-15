@@ -23,8 +23,8 @@ from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
 
 from data.quality.causal_bars import Bar
-from shared.exposure_gate import MAX_TOTAL_LEVERAGE
-from shared.strategy_position import StrategyPosition
+from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
+from trading.domain.position import StrategyPosition
 
 D = Decimal
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 
-from shared.exposure_gate import MAX_TOTAL_LEVERAGE
+from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import liquidation_distance  # moved in migration step 10
 
 

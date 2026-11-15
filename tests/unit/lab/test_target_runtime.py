@@ -6,8 +6,8 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.adapter import BinanceAdapter
 from lab.data import frame_from_bars, funding_series
 from lab.simulate import simulate
 from lab.strategy import StrategySpec, compute_targets
