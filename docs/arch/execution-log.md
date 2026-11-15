@@ -1453,3 +1453,34 @@ Contracts: 5 kept, 0 broken.
 
 **第 14 步到此完成。** 剩下的已知缺陷只有 R20（同一账户可以在两个目录各起一个运行时；ADR-0007 写明后续单独处理）。
 
+
+## 瘦身批次 E（第一部分）：删除 Polymarket 和 4 个只出报告的 OKX 工具（2026-11-15，ADR-0008 子决策 3b）
+
+技术负责人 2026-11-15 决定冻结线整体删除，排在 M4。路线图第 6 节第 1 项已批准"与运行时无关的批次提前穿插"，所以先删冻结线里与 ML 运行时、Bybit/OKX 运行器都不相连的部分；第 12b 步之后的独立审计还在进行，这段时间只做删除和文档。
+
+**怎么判定可以先删**
+
+- 【实际运行结果】用 AST 对全部 748 个已跟踪的 Python 文件建导入图（包括函数内的延迟导入），按"从哪些入口能到达"给文件分组。只被交易所入口到达、ML 运行时到不了的有 34 个文件。
+- 其中 `scripts/run_bybit_alpha.py` 被 Dockerfile、部署脚本和发布验收引用，`scripts/portfolio_risk_monitor.py` 写的文件被 ML 运行时的门禁读取，这两个留到与 ML 运行时一起删。
+- 删除前用 `git grep` 搜索全部已跟踪文件（文档除外）的模块名和路径，逐项处理了下面列出的引用。
+
+**删除的内容**（57 个文件：生产代码 32 个 4,242 行，测试 11 个 865 行，其他 14 个 1,550 行）
+
+- Polymarket：`polymarket/`、`execution/adapters/polymarket/`、做市和启动脚本、`config/polymarket.yaml`、采集和做市两个服务单元、`tests/unit/polymarket/` 和一个集成测试、两份该接入的设计文档。
+- OKX 的 4 个报告工具：成交核对 `audit_fill_reconcile`、跨交易所核对 `cross_venue_reconcile`、限额建议 `okx_ramp_up`、状态探针 `okx_status_probe`，以及它们的 4 个服务单元和 4 个定时器。
+  - 它们只写报告，没有运行时读它们的输出；Prometheus 导出器展示限额建议，文件不存在时跳过。这 4 个工具没有测试。
+
+**随之改动的地方**
+
+- 6 个服务单元和 4 个定时器加入 `infra/sync_systemd.sh` 的退役名单。主机上要由人运行一次 `sudo bash infra/sync_systemd.sh` 才会停掉。
+- 看门狗去掉 Polymarket 采集器的检查，否则采集器退役后它会一直报警。
+- 导入契约 `.importlinter` 的旧包名单、`pyproject.toml` 的打包路径、CI 的 ruff 路径、两处文档字符串、`.env.example` 去掉 Polymarket。
+- `.gitignore` 里的 `.env.polymarket` 保留：主机上如果还有这个密钥文件，删掉这条规则可能导致误提交。
+- 锁文件里的 `py_clob_client` 没有动。改依赖锁文件另行处理。
+- 文档：`CLAUDE.md` 的交易所一句、`README.md`、`docs/deploy_truth.md`（单元表和退役记录）、`docs/operations.md`、`docs/wiring_truth.md`、`research.md` 中指向已删除内容的行。
+
+**已有测试的改动**：`tests/unit/monitoring/test_watchdog.py` 的一个测试去掉对 Polymarket 检查的打桩（只是设置，被打桩的函数已删除），断言不变。架构测试里旧包名单仍含 `polymarket`，它只用来取交集，不影响结果，没有改。
+
+**本地**：ruff 通过；看门狗测试和架构测试通过；导入契约 5 条保持；`bash -n infra/sync_systemd.sh` 通过。全量测试由 CI 运行。
+
+**冻结线还剩**：ML 运行时（`runner/binance_main.py`、`runner/alpha_main.py` 及其组装、`decision/`、`features/`、`alpha/`、`engine/` 等）、Bybit 和 OKX 的适配器与运行器。它们和容器镜像、CI 的启动检查、兼容薄壳交织在一起，按路线图在 M4 处理。

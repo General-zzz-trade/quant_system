@@ -215,7 +215,6 @@ class TestAlertTriggering:
         with patch.object(watchdog, "STATUS_FILE", str(status_file)), \
                 patch.object(watchdog, "HISTORY_FILE", str(tmp_path / "history.jsonl")), \
                 patch.object(watchdog, "SERVICES", {}), \
-                patch.object(watchdog, "check_polymarket_collector", lambda: {"problems": []}), \
                 patch.object(watchdog, "check_account", lambda: {"problems": ["low_equity_90"]}), \
                 patch.object(watchdog, "check_disk_space", lambda: {"problems": []}), \
                 patch("monitoring.notify.send_alert", lambda *a, **k: sent.append(a)):

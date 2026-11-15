@@ -90,7 +90,6 @@ include = [
     "/features/**/*.py", "/features/**/py.typed",
     "/infra/**/*.py", "/infra/**/py.typed",
     "/monitoring/**/*.py", "/monitoring/**/py.typed",
-    "/polymarket/**/*.py", "/polymarket/**/py.typed",
     "/research/**/*.py", "/research/**/py.typed",
     "/risk/**/*.py", "/risk/**/py.typed",
     "/lab/**/*.py", "/lab/**/py.typed",

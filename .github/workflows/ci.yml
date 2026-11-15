@@ -55,7 +55,7 @@ jobs:
             tests/architecture/ tests/characterization/ tests/unit/lab/ tests/contract/ tests/unit/trading/ \
             shared/kill_file.py shared/exposure_gate.py \
             risk/ alpha/ attribution/ runner/ \
-            monitoring/ infra/ strategy/ polymarket/ \
+            monitoring/ infra/ strategy/ \
             shared/confirmed_execution.py shared/drawdown_guard.py shared/entry_risk.py \
             shared/execution_journal.py shared/strategy_position.py shared/execution_lease.py \
             shared/runtime_state.py shared/runtime_backup.py \

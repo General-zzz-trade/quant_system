@@ -1,6 +1,6 @@
 """Execution layer — 4 logical domains.
 
-Domain 1: adapters/       Exchange connectivity (Bybit, Binance, Hyperliquid, Polymarket)
+Domain 1: adapters/       Exchange connectivity (Bybit, Binance, Hyperliquid)
 Domain 2: safety/         Pre-execution safety guards (circuit breaker, kill switch, limits, dedup)
 Domain 3: core plumbing   bridge/ + models/ + state_machine/ + store/ + ingress/
 Domain 4: ops             reconcile/ + observability/ + latency/ + sim/

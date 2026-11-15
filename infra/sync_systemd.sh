@@ -57,6 +57,21 @@ RETIRED_UNITS=(
     daily-check.timer
     live-vs-backtest.service
     live-vs-backtest.timer
+    # Polymarket collector and maker; the Polymarket code was deleted
+    # (frozen lines removed, ADR-0008 3b):
+    polymarket-collector.service
+    polymarket-maker.service
+    # Report-only OKX tools (fill audit, cross-venue check, notional-cap
+    # recommendation, status probe); their code was deleted with the
+    # frozen lines (ADR-0008 3b). Nothing read their output but a display:
+    audit-reconcile.service
+    audit-reconcile.timer
+    cross-venue-reconcile.service
+    cross-venue-reconcile.timer
+    okx-ramp-up.service
+    okx-ramp-up.timer
+    okx-status-probe.service
+    okx-status-probe.timer
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do

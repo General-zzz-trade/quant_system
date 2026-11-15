@@ -30,7 +30,6 @@ forbidden_modules =
     infra
     lab
     monitoring
-    polymarket
     research
     risk
     runner

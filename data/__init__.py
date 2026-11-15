@@ -11,7 +11,6 @@ Data-only directories (no Python code):
   runtime/     — runtime artifacts (decision_audit, health, checkpoints)
   onchain/     — on-chain CSV datasets
   options/     — options SQLite DBs
-  polymarket/  — Polymarket collector DBs and CSVs
   ticks/       — tick-level SQLite DBs
 """
 from data.store import Bar, TimeSeriesStore

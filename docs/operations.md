@@ -43,8 +43,6 @@ python3 -m scripts.ops.health_watchdog --json
 | Service | Entry | Status |
 |---|---|---|
 | `bybit-alpha.service` | `python3 -m scripts.ops.run_bybit_alpha --symbols BTCUSDT ETHUSDT ETHUSDT_15m --ws` | BTC+ETH Alpha (BTC Sharpe 4.37, ETH 4.67) |
-| polymarket collector | `python3 -m polymarket.collector --mode intra --db data/polymarket/collector.db` | Background process (PID in `data/polymarket/collector.pid`) |
-| polymarket dryrun | `python3 -m scripts.run_polymarket_dryrun --bet-size 10 --rsi-low 30 --rsi-high 70` | RSI taker validation |
 
 ### Common operations
 

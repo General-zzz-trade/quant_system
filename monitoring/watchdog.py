@@ -6,7 +6,6 @@ Checks:
    its status file and the age of the last processed bar)
 2. Data freshness (none listed; see DATA_FILES)
 3. Bybit account health when Bybit keys are configured
-4. Polymarket collector alive
 
 Actions on failure (observation only; it never restarts a service, since a
 restart of a trading process must be a person's decision):
@@ -224,41 +223,6 @@ def check_data_freshness() -> list[dict[str, Any]]:
     return results
 
 
-def check_polymarket_collector() -> dict[str, Any]:
-    """Check if Polymarket collector is alive."""
-    result = {"name": "polymarket-collector", "status": "unknown", "problems": []}
-    pid_file = "data/polymarket/collector.pid"
-
-    if not os.path.exists(pid_file):
-        result["status"] = "not_running"
-        result["problems"].append("no_pid_file")
-        return result
-
-    try:
-        with open(pid_file) as f:
-            pid = int(f.read().strip())
-        # Check if process is alive
-        os.kill(pid, 0)
-        result["pid"] = pid
-        result["status"] = "running"
-
-        # Check DB freshness
-        db_path = "data/polymarket/collector.db"
-        if os.path.exists(db_path):
-            age_s = time.time() - os.path.getmtime(db_path)
-            result["db_age_s"] = int(age_s)
-            if age_s > 600:  # 10 min
-                result["status"] = "stale"
-                result["problems"].append(f"db_stale_{int(age_s)}s")
-    except ProcessLookupError:
-        result["status"] = "dead"
-        result["problems"].append(f"pid_{pid}_not_running")
-    except Exception as e:
-        result["problems"].append(str(e))
-
-    return result
-
-
 def check_disk_space() -> dict[str, Any]:
     """Check root filesystem usage.
 
@@ -383,15 +347,11 @@ def run_watchdog(json_output: bool = False) -> int:
     for dr in data_results:
         report["checks"][f"data_{dr['name']}"] = dr
 
-    # 3. Check Polymarket collector
-    poly = check_polymarket_collector()
-    report["checks"]["polymarket_collector"] = poly
-
-    # 4. Check account
+    # 3. Check account
     account = check_account()
     report["checks"]["account"] = account
 
-    # 5. Check disk space
+    # 4. Check disk space
     disk = check_disk_space()
     report["checks"]["disk"] = disk
 
@@ -477,10 +437,6 @@ def run_watchdog(json_output: bool = False) -> int:
                 print(f"  [!!] {d['name']:20s} {d['status']} ({d.get('age_hours', '?')}h old)")
         else:
             print(f"  [OK] All {len(data_results)} data files fresh")
-
-        # Polymarket
-        poly_status = poly.get("status", "?")
-        print(f"\n  [{'OK' if poly_status == 'running' else '!!'}] Polymarket collector: {poly_status}")
 
         # Account
         eq = account.get("equity", "?")
