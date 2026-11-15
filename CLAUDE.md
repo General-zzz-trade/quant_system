@@ -54,6 +54,7 @@ make test-all                      # entire pytest suite (must be all green); CI
 make rust                          # build the Rust crate (maturin, --features python) and pip install it
 ruff check --select E,W,F .        # lint, whole repo
 python scripts/check_local_safety.py               # stdlib-only offline fault-injection suite
+python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m runner.offline research --validation-only --symbol BTCUSDT --start 2021-12-02 \
     --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
