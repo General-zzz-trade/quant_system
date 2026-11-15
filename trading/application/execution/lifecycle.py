@@ -113,12 +113,12 @@ class OrderLifecycle:
             self.pending[pending.intent_id] = pending
 
     def _reserve(self, intent_id: str, symbol: str, side: str, reducing: bool,
-                 qty: Decimal, parent: dict[str, Any] | None) -> PendingOrder | None:
+                 qty: Decimal, parent: dict[str, Any] | None, venue_close: bool = False) -> PendingOrder | None:
         client_id = "qs" + hashlib.sha256(f"{self.scope}:{intent_id}".encode()).hexdigest()[:30]
         refusal, created_at = self.journal.reserve(
             intent_id=intent_id, symbol=symbol, client_id=client_id, side=side, qty=str(qty), reducing=reducing,
             owner=self.owner, parent=parent, order_type="market" if reducing else self.entry_order_type,
-            clock=self.clock)
+            clock=self.clock, **({"venue_close": True} if venue_close else {}))
         if refusal:
             if refusal == ENTRY_UNRESOLVED:
                 logger.error("Entry blocked: unresolved submission for %s (scope=%s)", symbol, self.scope)
@@ -134,7 +134,7 @@ class OrderLifecycle:
 
     def submit(self, *, intent_id: str, symbol: str, side: str, qty: Decimal,
                reduce_only: bool = False, parent: dict[str, Any] | None = None,
-               limit_price: Decimal | None = None) -> tuple[ConfirmedFill, ...]:
+               limit_price: Decimal | None = None, venue_close: bool = False) -> tuple[ConfirmedFill, ...]:
         qty = Decimal(str(qty))
         side = side.lower()
         if not intent_id or not symbol or side not in ("buy", "sell") or not qty.is_finite() or qty <= 0:
@@ -150,7 +150,7 @@ class OrderLifecycle:
                     price = Decimal(str(ticker.get("bid1Price" if side == "buy" else "ask1Price", 0)))
                 if not price.is_finite() or price <= 0:
                     raise ValueError("entry quote unavailable")
-            pending = self._reserve(intent_id, symbol, side, reduce_only, qty, parent)
+            pending = self._reserve(intent_id, symbol, side, reduce_only, qty, parent, venue_close)
             if pending is None:
                 return ()
             try:

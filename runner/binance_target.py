@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import signal
 import time
 from decimal import Decimal as D
@@ -45,7 +44,8 @@ from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.paper_store import MirroredPaperStore
-from trading.infrastructure.settings import exchange_settings, execution_scope, notifier_from_env, risk_limits
+from trading.infrastructure.settings import (exchange_settings, execution_scope, notifier_from_env, risk_limits,
+                                             testnet_from_env)
 
 logger = logging.getLogger("binance_target")
 
@@ -152,9 +152,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="Archive the saved paper state and start a new paper record")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    testnet = os.environ.get("BINANCE_TESTNET", "1").strip().lower() not in ("0", "false", "no", "off")
-    scope = os.environ.get("RISK_SCOPE", "paper") if args.execution else "paper-target"
+    testnet = testnet_from_env()
     frozen = preflight(args.spec, execution=args.execution, testnet=testnet, stop_pct=args.stop_pct)
+    # The same validated, stripped scope the journal and the manual tools use (audit after step 12b, finding 7).
+    scope = execution_scope(testnet=testnet) if args.execution else "paper-target"
     args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / "orders.sqlite", scope)
     market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"])

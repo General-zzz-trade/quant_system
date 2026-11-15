@@ -75,7 +75,7 @@ def notifier_from_env(env: Mapping[str, str] | None = None) -> TelegramNotifier 
     env = os.environ if env is None else env
     token, chat_id = env.get("TELEGRAM_BOT_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
     if token and chat_id:
-        return TelegramNotifier(token, chat_id)
+        return TelegramNotifier(token, chat_id, background=True)
     if token or chat_id:
         raise RuntimeError("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither")
     return LogNotifier()
