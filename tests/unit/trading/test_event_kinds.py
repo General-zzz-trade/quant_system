@@ -84,7 +84,7 @@ def test_stop_status_changes_are_events(tmp_path):
     journal.set_stop_status("s1", "active")
     journal.set_stop_status("s1", "triggered")
     assert [(k, f["client_algo_id"], f["status"]) for k, f in events.rows] == [
-        (EventKind.STOP, "s1", "reserved"), (EventKind.STOP, "s1", "active"), (EventKind.STOP, "s1", "triggered")]
+        (EventKind.STOP, "s1", "unknown"), (EventKind.STOP, "s1", "active"), (EventKind.STOP, "s1", "triggered")]
 
 
 def test_a_failing_event_log_never_fails_the_order_path(tmp_path):
@@ -103,3 +103,13 @@ def test_settling_without_a_new_status_is_still_an_event(tmp_path):
     journal.update_status("i1", "filled", settle=True)                   # only the settled flag changes
     assert [(f["status"], f["previous"], f["settled"]) for k, f in events.rows if "previous" in f] == [
         ("filled", "reserved", False), ("filled", "filled", True)]
+
+
+def test_adopting_a_venue_order_is_an_event(tmp_path):
+    # S3 audit finding 7: a stop that became an exchange order is adopted into the journal; that is a change too.
+    events = Events()
+    journal = _journal(tmp_path, events)
+    journal.adopt(intent_id="stop-fill-1", symbol="BTCUSDT", client_id="c-adopt", order_id="888", side="sell",
+                  owner="target.BTCUSDT", parent={"price": "0"}, created_at=1000.0)
+    assert [(k, f["order_id"], f["status"], f["venue_order_id"]) for k, f in events.rows] == [
+        (EventKind.ORDER, "stop-fill-1", "adopted", "888")]
