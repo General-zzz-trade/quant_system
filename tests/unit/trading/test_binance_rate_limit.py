@@ -31,7 +31,11 @@ def test_matches_the_rust_policy_on_random_traffic(seed):
         if rng.random() < 0.02:
             python.sync_used_weight(rng.randrange(0, 2400))
             continue
-        decisions.append("1" if python.check(rng.choice(PATHS)) else "0")
+        path = rng.choice(PATHS)
+        # Open orders of one symbol: the Rust policy weighed every open-order list 1; since ADR-0011 an
+        # account-wide list weighs 40 (tests/characterization/test_runtime_account_check.py), a per-symbol one 1.
+        params = {"symbol": "BTCUSDT"} if path == "/fapi/v1/openOrders" else None
+        decisions.append("1" if python.check(path, params) else "0")
     assert "".join(decisions) == recorded
     assert set(recorded) == {"0", "1"}                       # the traffic exercised both outcomes
 
