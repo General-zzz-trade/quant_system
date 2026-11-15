@@ -108,6 +108,8 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
   `tests/architecture/test_issue_rules.py` forbids text searches in `trading/application`.
 - Events are written with an `EventKind` (`trading/domain/events.py`); the JSONL log refuses anything else. Every
   order and stop status change is an `order`/`stop` event (`RecordedOrderJournal`); the journal stays the state.
+- The event log is guarded (`trading/application/event_guard.py`): a failed write never stops trading (exits,
+  stops and reconciliation go on) but blocks every entry until a write succeeds (`EVENT_LOG_FAILED`).
 - Every symbol has a state (`trading/domain/symbol_state.py`: warming, ready, blocked, paused, flattening, halted),
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
@@ -132,6 +134,8 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
+- At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
+  the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).
 - `binance_target` only:
   - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
     process log (status `alerts: "log only"`).
