@@ -42,7 +42,7 @@ from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
-from trading.infrastructure.settings import RiskLimits, exchange_settings
+from trading.infrastructure.config import RiskLimits
 
 ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
@@ -64,6 +64,8 @@ class ExecutionInputs:
     stop_pct: Decimal
     limits: RiskLimits
     kill: KillSwitch
+    leverage: int                       # the exchange settings the configuration expects (RuntimeConfig)
+    margin: str | None
     tca_log: EventLog | None = None
 
 
@@ -79,10 +81,11 @@ def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
         raise RuntimeError("research gate not passed; mainnet execution refused")
 
 
-def refuse_foreign_holdings(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str]) -> None:
+def refuse_foreign_holdings(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str],
+                            leverage: int, margin: str | None) -> None:
     """ADR-0010: execution starts only if the account holds nothing outside the strategy ledger and the leverage
-    and margin mode of the strategy's symbols are as configured. Read-only; run before the runtime is built."""
-    leverage, margin = exchange_settings()
+    and margin mode of the strategy's symbols are as configured (RuntimeConfig, ADR-0017). Read-only; run before
+    the runtime is built."""
     findings = foreign_holdings(account, SqliteOrderJournal(Path(state_dir) / STATE_DB, scope),
                                 symbols=tuple(symbols), leverage=leverage,
                                 margin=MARGIN_TYPES[margin] if margin else MARGIN_TYPES["CROSSED"])
@@ -115,8 +118,7 @@ def paper_sessions(spec: StrategySpec, symbols: Sequence[str], *, journal: Event
 
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time) -> ExecutionWiring:
-    leverage, margin = exchange_settings()
-    check_stop_inside_liquidation(float(inputs.stop_pct), leverage, margin)   # before anything is created
+    check_stop_inside_liquidation(float(inputs.stop_pct), inputs.leverage, inputs.margin)   # before anything exists
     account, scope, limits = inputs.account, inputs.scope, inputs.limits
     rules = exchange_lot_rules(account, symbols)
     orders_path = Path(state_dir) / STATE_DB         # one database for every store (ADR-0009)

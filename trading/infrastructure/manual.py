@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from collections.abc import Mapping
@@ -34,14 +33,14 @@ from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB
 from trading.domain.venue import STOP_TRIGGERED
-from trading.infrastructure.settings import binance_config_from_env, execution_scope, testnet_from_env
+from trading.infrastructure.config import binance_config_from_env, execution_scope, testnet_from_env
 
 JOURNAL = STATE_DB      # the one state database (ADR-0009)
 WORKING = frozenset({"new", "partially_filled"})
 SETTLES_AS = {"filled": "filled", "canceled": "canceled", "expired": "expired", "rejected": "rejected"}
 
 
-def _connect(testnet: bool, symbols: list[str], env: Mapping[str, str]) -> Any:
+def _connect(testnet: bool, symbols: list[str], env: Mapping[str, str] | None) -> Any:
     account = BinanceAdapter(binance_config_from_env(testnet=testnet, env=env))
     if not account.connect(symbols=tuple(symbols)):
         raise RuntimeError("Binance account connection failed")
@@ -188,7 +187,6 @@ def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: Te
     position.add_argument("--owner", help="default target.<symbol>")
     position.add_argument("--reason", required=True)
     args = parser.parse_args(argv)
-    env = os.environ if env is None else env
     path = args.state_dir / JOURNAL
     if not args.state_dir.is_dir() or not path.is_file():
         print(f"no order journal at {path}", file=stdout)

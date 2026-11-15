@@ -19,6 +19,7 @@ class EventKind(Enum):
     ORDER = "order"
     STOP = "stop"
     SYMBOL_STATE = "symbol_state"      # every change of a symbol's state (ADR-0014 point 3)
+    CONFIG = "config"                  # the configuration this run uses, without secrets (ADR-0017)
 
 
 __all__ = ["EventKind"]
