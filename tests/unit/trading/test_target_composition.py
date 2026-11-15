@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from execution.adapters.binance import execution_adapter as legacy
+from tests.support import legacy_execution_adapter as legacy
 from tests.characterization.test_runtime_decisions import _start, _until_position
 from trading.application.execution.executor import OwnerExecutor
 from trading.domain.orders import OrderIntent

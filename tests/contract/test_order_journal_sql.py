@@ -4,7 +4,7 @@ from __future__ import annotations
 from decimal import Decimal as D
 from types import SimpleNamespace
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.domain.orders import DUPLICATE, ENTRY_UNRESOLVED
 

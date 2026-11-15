@@ -13,7 +13,7 @@ import pytest
 
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+from tests.support.legacy_execution_adapter import BinanceExecutionAdapter
 from trading.application.execution.stops import ProtectiveStopManager
 from lab.orders import make_order
 from runner.binance_target import TargetFillConsumer

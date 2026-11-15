@@ -130,7 +130,7 @@ def test_the_executor_names_its_owner_scope_and_journal(env):
 
 def test_orders_journaled_by_the_legacy_adapter_are_collected_by_the_new_executor(env, tmp_path):
     """The stored record of the legacy adapter carries an event header; the new executor ignores it."""
-    from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+    from tests.support.legacy_execution_adapter import BinanceExecutionAdapter
     from lab.orders import make_order
     venue, log = Venue(), Log()
     legacy = BinanceExecutionAdapter(venue, owner=OWNER, scope=SCOPE, journal_path=tmp_path / "orders.sqlite",

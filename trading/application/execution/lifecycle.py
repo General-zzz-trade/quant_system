@@ -14,7 +14,7 @@ lookup is settled as ``rejected`` immediately. Venues that do not opt in keep
 the original never-resolve behaviour.
 
 The journal, the clock, the sleep between placement and lookup and the lock are injected; this module
-does no I/O and reads no clock of its own (migration step 9). ``shared.confirmed_execution`` builds the
+does no I/O and reads no clock of its own (migration step 9). ``tests.support.confirmed_executor`` builds the
 SQLite journal, ``time.time``, ``time.sleep`` and a ``threading.RLock`` for the legacy callers.
 """
 from __future__ import annotations

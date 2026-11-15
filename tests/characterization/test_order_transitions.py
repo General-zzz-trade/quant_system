@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 from trading.application.execution import lifecycle
 from trading.domain.orders import TRANSITIONS
 

@@ -7,10 +7,10 @@ from decimal import Decimal as D
 from pathlib import Path
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3]))
 logging.disable(logging.CRITICAL)
-from decision.modules.alpha_orders import make_close_order, make_open_order
+from lab.orders import make_order          # the ML order factory this probe used was deleted in M4
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
+from tests.support.legacy_execution_adapter import BinanceExecutionAdapter
 from runner.binance_target import TargetFillConsumer
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 
@@ -49,21 +49,21 @@ def ordered(**kw):
 def rows():
     return [(r["status"], r["settled"], r["reducing"], r["qty"]) for r in ordered()]
 
-ex.send_order(make_open_order("BTCUSDT", "BTCUSDT", 100.0, 1, D("0.05"))[0]); drain()      # 50 trades: settles
+ex.send_order(make_order(order_id="probe:1", source="alpha.BTCUSDT", symbol="BTCUSDT", side="buy", qty=D("0.05"), price=D("100"), reduce_only=False, reason="rebalance")); drain()      # 50 trades: settles
 print("T0 entry 0.05 (50 trades):", rows(), "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])
 ex.reconcile_account("BTCUSDT")
-ex.send_order(make_open_order("BTCUSDT", "BTCUSDT", 100.0, 1, D("0.15"))[0]); drain()      # 150 trades
+ex.send_order(make_order(order_id="probe:2", source="alpha.BTCUSDT", symbol="BTCUSDT", side="buy", qty=D("0.15"), price=D("100"), reduce_only=False, reason="rebalance")); drain()      # 150 trades
 for _ in range(3):
     clock["now"] += 3600; drain()
 print("T1 entry 0.15 (150 trades), 3h later:", rows()[-1], "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])
 print("T1 userTrades limits requested:", sorted(set(fake.limits)))
 print("T1 reconcile_account:", ex.reconcile_account("BTCUSDT"))
 posts = len(fake.posts)
-ex.send_order(make_close_order("BTCUSDT", "BTCUSDT", 100.0, 1, "kill_switch", D("0"), D("0.001"))[0]); drain()
+ex.send_order(make_order(order_id="probe:3", source="alpha.BTCUSDT", symbol="BTCUSDT", side="sell", qty=D("0"), price=D("100"), reduce_only=False, reason="kill_switch")); drain()
 for _ in range(3):
     clock["now"] += 3600; drain()
 print("T2 close-all (qty=0) sent:", len(fake.posts) - posts, "POST; row:", rows()[-1], "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])
 posts = len(fake.posts)
-ex.send_order(make_close_order("BTCUSDT", "BTCUSDT", 100.0, 1, "kill_switch_retry", D("0"), D("0.001"))[0]); drain()
+ex.send_order(make_order(order_id="probe:4", source="alpha.BTCUSDT", symbol="BTCUSDT", side="sell", qty=D("0"), price=D("100"), reduce_only=False, reason="kill_switch_retry")); drain()
 print("T3 another close attempt:", len(fake.posts) - posts, "POST; unresolved rows:", [(r["status"], r["reducing"]) for r in ordered(unresolved=True)],
       "ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"])

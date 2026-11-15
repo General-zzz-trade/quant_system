@@ -10,9 +10,9 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3]
 logging.disable(logging.CRITICAL)
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.adapter import BinanceAdapter
-from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-from execution.adapters.binance.protective_stops import ProtectiveStopManager
-from shared.execution_lease import ExecutionLease
+from tests.support.legacy_execution_adapter import BinanceExecutionAdapter
+from trading.application.execution.stops import ProtectiveStopManager
+from trading.adapters.files.lease import ExecutionLease
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 
 OWNER = "alpha.BTCUSDT"
@@ -25,11 +25,11 @@ ex = BinanceExecutionAdapter(adapter, scope="binance-testnet-ut", owner=OWNER, j
                              wait_seconds=0, clock=lambda: clock["now"], entry_mode="market")
 stops = ProtectiveStopManager(adapter, ex, "BTCUSDT", stop_pct=D("0.04"), clock=lambda: clock["now"])
 ex2 = None
-from decision.modules.alpha_orders import make_open_order
+from lab.orders import make_order          # the ML order factory this probe used was deleted in M4
 from runner.binance_target import TargetFillConsumer
 ex._ready = True
 consumer = TargetFillConsumer(ex)
-ex.send_order(make_open_order("BTCUSDT", "BTCUSDT", 100.0, 1, D("0.1"))[0])   # real market entry through the journal
+ex.send_order(make_order(order_id="probe:1", source="alpha.BTCUSDT", symbol="BTCUSDT", side="buy", qty=D("0.1"), price=D("100"), reduce_only=False, reason="rebalance"))   # real market entry through the journal
 for ev in ex.reconcile_pending():
     consumer.consume(ev)
 print("S- entry: ledger", consumer.position.qty, "venue", fake.positions["BTCUSDT"], "unsettled:", [r["intent_id"] for r in ex.journal.orders(OWNER, unresolved=True)])

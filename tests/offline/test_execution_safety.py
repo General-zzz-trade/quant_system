@@ -9,7 +9,7 @@ from decimal import Decimal as D
 from pathlib import Path
 from types import SimpleNamespace as NS
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 
 
 def fill(trade_id="trade-1", *, order_id="exchange-1", qty="0.4", price="100", side="buy"):

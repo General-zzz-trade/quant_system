@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from shared.confirmed_execution import ConfirmedExecutor
+from tests.support.confirmed_executor import ConfirmedExecutor
 
 
 class Venue:
