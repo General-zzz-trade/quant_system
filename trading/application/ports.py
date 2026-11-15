@@ -16,6 +16,7 @@ from decimal import Decimal
 from collections.abc import Iterable
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
+from trading.domain.bars import Bar
 from trading.domain.venue import Placement, StopPlacement, Ticker
 from trading.domain.events import EventKind
 
@@ -152,6 +153,13 @@ class StopOrderGateway(Protocol):
     def get_algo_order(self, *, client_algo_id: str) -> StopView | None: ...
 
     def cancel_algo_order(self, *, client_algo_id: str) -> object: ...   # an acknowledgement; never read
+
+
+@runtime_checkable
+class BarListener(Protocol):
+    """Matches resting orders on each closed bar: the simulated exchange (ADR-0013). Execution mode has none."""
+
+    def on_closed_bar(self, symbol: str, bar: Bar, funding_rate: Decimal | None) -> None: ...
 
 
 @runtime_checkable
@@ -350,7 +358,7 @@ class Notifier(Protocol):
 
 
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
-           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
+           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway", "BarListener",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
            "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView", "AccountStopView",
            "AccountSnapshot"]
