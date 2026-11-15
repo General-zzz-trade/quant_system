@@ -5,7 +5,8 @@ from decimal import Decimal as D
 
 import pytest
 
-from decision.modules.alpha_orders import make_close_order, make_open_order
+from event.header import EventHeader
+from event.types import EventType, OrderEvent
 from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import NOT_FOUND_GRACE_SECONDS, BinanceExecutionAdapter
@@ -30,12 +31,19 @@ def env(tmp_path):
     return fake, adapter, executor, clock, statuses
 
 
+def _order(side, qty, price, **extra):
+    """The order event the deleted decision.modules.alpha_orders built (M4): same header and fields."""
+    header = EventHeader.new_root(event_type=EventType.ORDER, version=1, source="alpha.BTCUSDT")
+    return OrderEvent(header=header, order_id=header.event_id, intent_id=header.event_id, symbol="BTCUSDT",
+                      side=side, qty=qty, price=D(str(price)), **extra)
+
+
 def _entry(qty="0.1", side=1, price=100.0):
-    return make_open_order("BTCUSDT", "BTCUSDT", price, side, D(qty))[0]
+    return _order("buy" if side == 1 else "sell", D(qty), price)
 
 
 def _close(side=1):
-    return make_close_order("BTCUSDT", "BTCUSDT", 100.0, side, "atr_stop", D("0.05"), D("0.001"))[0]
+    return _order("sell" if side == 1 else "buy", D("0"), 100.0, reason="atr_stop")
 
 
 def _unresolved(executor):

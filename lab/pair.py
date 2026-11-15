@@ -33,7 +33,7 @@ import pandas as pd
 
 from lab.data import DAY, HOUR, aggregate, frame_from_bars
 from data.quality.causal_bars import load_bars
-from runner.offline.report import load_funding
+from lab.data import load_funding
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 P_FEATURES = ("mom_1", "mom_3", "mom_7", "mom_14", "mom_30", "dev_30", "vol_ratio", "rel_vol",

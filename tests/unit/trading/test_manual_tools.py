@@ -249,7 +249,7 @@ def test_a_ledger_is_never_aligned_while_a_stop_waits_for_its_order_or_cannot_be
 
     def down(*, method, path, params=None):
         if path == "/fapi/v1/algoOrder":
-            from execution.adapters.binance.rest import BinanceRetryableError
+            from trading.adapters.binance.rest import BinanceRetryableError
             raise BinanceRetryableError("HTTP 503")
         return original(method=method, path=path, params=params)
 

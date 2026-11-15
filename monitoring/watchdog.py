@@ -5,7 +5,7 @@ Checks:
 1. Active trading services (systemd state + fresh logs, or for binance-target
    its status file and the age of the last processed bar)
 2. Data freshness (none listed; see DATA_FILES)
-3. Bybit account health when Bybit keys are configured
+3. Disk space
 
 Actions on failure (observation only; it never restarts a service, since a
 restart of a trading process must be a person's decision):
@@ -46,18 +46,6 @@ SERVICES = {
         "max_silent_s": 600,
         # a closed 1h bar is processed about 2h after its open (+ funding wait)
         "max_bar_lag_s": 3 * 3600,
-    },
-    "bybit-alpha": {
-        "unit": "bybit-alpha.service",
-        "journal_match": "bybit_alpha",
-        "max_silent_s": 18000,  # 5 hours (4h bars close every 4h + margin)
-        "log_file": "logs/bybit_alpha.log",
-    },
-    "okx-alpha": {
-        "unit": "okx-alpha.service",
-        "journal_match": "okx_alpha",
-        "max_silent_s": 18000,  # 5h — tolerates 4h bar cadence
-        "log_file": "logs/okx_alpha.log",
     },
 }
 
@@ -250,61 +238,6 @@ def check_disk_space() -> dict[str, Any]:
     return result
 
 
-def check_account() -> dict[str, Any]:
-    """Check Bybit account health."""
-    result = {"status": "unknown", "problems": []}
-    try:
-        from execution.adapters.bybit.client import BybitRestClient
-        from execution.adapters.bybit.config import BybitConfig
-
-        # Load env
-        env = {}
-        env_path = Path(".env")
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip('"').strip("'")
-
-        key = env.get("BYBIT_API_KEY", os.environ.get("BYBIT_API_KEY", ""))
-        secret = env.get("BYBIT_API_SECRET", os.environ.get("BYBIT_API_SECRET", ""))
-        url = env.get("BYBIT_BASE_URL", os.environ.get("BYBIT_BASE_URL", "https://api-demo.bybit.com"))
-
-        if not key or not secret:
-            # Bybit runs dry-run only; an account without keys is not configured,
-            # not unhealthy (a permanent problem here would mask every other alert)
-            result["status"] = "not_configured"
-            return result
-
-        cfg = BybitConfig(api_key=key, api_secret=secret, base_url=url)
-        client = BybitRestClient(cfg)
-
-        r = client.get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
-        equity = float(r["result"]["list"][0]["totalEquity"])
-        result["equity"] = round(equity, 2)
-        result["base_url"] = url
-
-        # Check positions
-        r2 = client.get("/v5/position/list", {"category": "linear", "settleCoin": "USDT"})
-        positions = [p for p in r2["result"]["list"] if float(p.get("size", 0)) > 0]
-        result["open_positions"] = len(positions)
-
-        # Alert thresholds
-        if equity < 400:
-            result["problems"].append(f"low_equity_{equity:.0f}")
-        if equity < 100:
-            result["problems"].append("critical_equity")
-
-        result["status"] = "ok" if not result["problems"] else "warning"
-
-    except Exception as e:
-        result["status"] = "error"
-        result["problems"].append(str(e)[:200])
-
-    return result
-
-
 def _failing_checks(problems: list[str]) -> list[str]:
     return sorted({p.split(":", 1)[0] for p in problems})
 
@@ -347,11 +280,7 @@ def run_watchdog(json_output: bool = False) -> int:
     for dr in data_results:
         report["checks"][f"data_{dr['name']}"] = dr
 
-    # 3. Check account
-    account = check_account()
-    report["checks"]["account"] = account
-
-    # 4. Check disk space
+    # 3. Check disk space
     disk = check_disk_space()
     report["checks"]["disk"] = disk
 
@@ -395,10 +324,6 @@ def run_watchdog(json_output: bool = False) -> int:
                     details[f"issue_{i+1}"] = p
                 if len(all_problems) > 5:
                     details["more"] = f"+{len(all_problems)-5} more"
-                # Add key metrics
-                eq = account.get("equity")
-                if eq:
-                    details["equity"] = f"${eq:,.0f}"
                 send_alert(level, f"Health: {report['overall'].upper()} ({len(all_problems)} issues)",
                            details=details, source="health_watchdog")
         except Exception as exc:
@@ -437,11 +362,6 @@ def run_watchdog(json_output: bool = False) -> int:
                 print(f"  [!!] {d['name']:20s} {d['status']} ({d.get('age_hours', '?')}h old)")
         else:
             print(f"  [OK] All {len(data_results)} data files fresh")
-
-        # Account
-        eq = account.get("equity", "?")
-        pos = account.get("open_positions", "?")
-        print(f"  [{'OK' if account.get('status') == 'ok' else '!!'}] Account: ${eq} equity, {pos} positions")
 
         if all_problems:
             print(f"\nProblems ({len(all_problems)}):")

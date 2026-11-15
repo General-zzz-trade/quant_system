@@ -6,11 +6,11 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance.rest import BinanceRetryableError
+from trading.adapters.binance.rest import BinanceRetryableError
 from lab.data import frame_from_bars, funding_series
 from lab.simulate import simulate
 from lab.strategy import StrategySpec, compute_targets
-from runner.binance_main import bar_from_kline
+from trading.domain.bars import bar_from_kline
 from runner.binance_target import PAPER_STATE, TargetRuntime
 from tests.unit.binance.fake_venue import HOUR
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world

@@ -6,9 +6,10 @@ import subprocess
 import pytest
 
 
+# The runtime the repository runs (the Bybit runner listed here before was deleted in M4, 2026-11-15).
 ACTIVE_RUNTIME_ARTIFACTS = (
-    "runner/alpha_main.py",
-    "infra/systemd/bybit-alpha.service",
+    "runner/binance_target.py",
+    "infra/systemd/binance-target.service",
 )
 
 

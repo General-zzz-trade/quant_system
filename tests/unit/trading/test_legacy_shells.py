@@ -10,7 +10,6 @@ from unittest.mock import patch
 import pytest
 
 from execution.adapters.binance import BinanceConfig
-from execution.adapters.binance.protective_stops import ProtectiveStopManager
 from shared.confirmed_execution import ConfirmedExecutor
 
 
@@ -37,7 +36,7 @@ def test_the_executor_shell_really_waits_between_placement_and_lookup(tmp_path):
 
 
 def test_the_shells_default_to_the_wall_clock():
-    for shell in (ConfirmedExecutor, ProtectiveStopManager):
+    for shell in (ConfirmedExecutor,):              # the stop-manager shell was deleted in M4
         assert inspect.signature(shell.__init__).parameters["clock"].default is time.time
 
 
@@ -62,15 +61,8 @@ def test_from_env_refuses_to_fall_back_to_the_other_environment(monkeypatch):
 
 def test_the_parts_moved_in_step_10_are_the_same_objects_at_their_old_addresses():
     from data.quality import causal_bars
-    from runner import binance_main
-    from trading.adapters.files.event_log import JsonlEventLog
-    from trading.application.equity import EquitySource
-    from trading.application.risk.readiness import EntryReadinessGate
     from trading.domain import bars
-    assert causal_bars.Bar is bars.Bar and binance_main.bar_from_kline is bars.bar_from_kline
-    assert binance_main.EventJournal is JsonlEventLog and binance_main.EntryReadinessGate is EntryReadinessGate
-    assert issubclass(binance_main.EquitySource, EquitySource)
-    assert inspect.signature(binance_main.EquitySource.__init__).parameters["clock"].default is time.time
+    assert causal_bars.Bar is bars.Bar          # the runner.binance_main addresses went with it in M4
 
 
 def test_a_kline_row_becomes_a_closed_hourly_bar():

@@ -11,7 +11,7 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.adapters.binance.rest import BinanceNonRetryableError, BinanceRetryableError
+from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRetryableError
 from tests.characterization.test_exit_paths import _tick
 from tests.characterization.test_runtime_decisions import _events, _runtime, _start, _until_position
 from tests.characterization.test_stops_and_fills import OWNER, _with_position

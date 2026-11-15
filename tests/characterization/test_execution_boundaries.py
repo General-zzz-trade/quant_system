@@ -14,7 +14,7 @@ import pytest
 from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-from execution.adapters.binance.protective_stops import ProtectiveStopManager
+from trading.application.execution.stops import ProtectiveStopManager
 from lab.orders import make_order
 from runner.binance_target import TargetFillConsumer
 from tests.unit.binance.fake_venue import FakeBinance, make_bars

@@ -12,15 +12,10 @@ clean:
 
 test: test-py test-exec test-rust lint lint-arch  ## Core local gate; CI also runs the whole suite (make test-all) as shards
 
-CORE_TESTS = tests/unit/decision/ tests/unit/state/ tests/unit/event/ tests/unit/engine/ tests/unit/bybit/ \
-	tests/unit/execution/adapters/okx/ tests/unit/runner/test_offline_research.py \
-	tests/unit/runner/test_offline_candidate_research.py tests/unit/runner/test_data_readiness.py \
-	tests/unit/runner/test_paper_check.py tests/unit/runner/test_shadow_main.py tests/unit/infra/ \
-	tests/unit/monitoring/test_pause_state_fail_closed.py tests/unit/data/test_binance_public_download.py \
-	tests/unit/features/test_daily_alignment_causal.py tests/unit/lab/ tests/unit/binance/ \
-	tests/architecture/ tests/characterization/ tests/offline/ tests/contract/ tests/unit/trading/
-
-test-py:  ## Python core tests (matches CI 'Run core unit tests')
+CORE_TESTS = tests/unit/state/ tests/unit/event/ tests/unit/engine/ tests/unit/infra/ \
+	tests/unit/data/test_binance_public_download.py tests/unit/lab/ tests/unit/binance/ tests/architecture/ \
+	tests/characterization/ tests/offline/ tests/contract/ tests/unit/trading/
+test-py:  ## Money-path and core tests (CI runs them within the whole-suite shards)
 	python3 -m pytest $(CORE_TESTS) -x -q --tb=short
 
 test-exec:  ## Execution subsystem tests (adapters, durable execution, Binance runtime)

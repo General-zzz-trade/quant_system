@@ -1,14 +1,6 @@
-"""execution.adapters — Exchange connectivity adapters.
+"""execution.adapters — exchange connectivity adapters.
 
-Each sub-package wraps a specific venue API into the ExecutionAdapter protocol:
-  okx/      OKX SWAP (PRODUCTION)
-  binance/  Binance USDT-M futures (testnet demo)
-  bybit/    Bybit V5 REST + WS
-  common/   Shared utilities
+  binance/  Binance USDT-M futures: compatibility shells over ``trading.adapters.binance`` (until M4 ends)
+
+The Bybit, OKX and Polymarket adapters were deleted with the frozen lines (ADR-0008 3b, 2026-11-15).
 """
-from execution.adapters.bybit import BybitAdapter, BybitConfig
-
-__all__ = [
-    "BybitAdapter",
-    "BybitConfig",
-]

@@ -11,7 +11,7 @@ from execution.adapters.binance.adapter import BinanceAdapter
 from lab.data import frame_from_bars, funding_series
 from lab.simulate import simulate
 from lab.strategy import StrategySpec, compute_targets
-from runner.binance_main import bar_from_kline
+from trading.domain.bars import bar_from_kline
 from runner.binance_target import TargetRuntime
 from tests.unit.binance.fake_venue import HOUR, FakeBinance, make_bars
 

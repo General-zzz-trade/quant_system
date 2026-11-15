@@ -9,9 +9,9 @@ import pytest
 
 from lab.strategy import StrategySpec
 
-from shared.drawdown_guard import DrawdownGuard
-from shared.execution_lease import ExecutionLease
-from shared.kill_file import KillFile
+from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
+from trading.adapters.files.lease import ExecutionLease
+from trading.adapters.files.kill_switch import KillFile
 
 T0 = 1_794_700_000.0
 
@@ -85,7 +85,7 @@ def test_the_daily_order_count_survives_a_restart(tmp_path):
 
 
 def test_kill_file_semantics(tmp_path):
-    kill = KillFile(tmp_path / "kill_switch.json")
+    kill = KillFile(tmp_path / "kill_switch.json", missing_is_active=False)
     assert kill.allow_order(symbol="BTCUSDT") == (True, "")              # missing file: inactive
     kill.write(active=True, reason="test", flatten=True)
     assert kill.state().active and kill.state().flatten

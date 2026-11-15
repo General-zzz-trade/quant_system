@@ -303,17 +303,6 @@ class TestRustMakeIdempotencyKey:
         assert k1 == k2
         assert len(k1) == 64
 
-    def test_parity(self):
-        # Compare with Python implementation
-        from execution.bridge.request_ids import _sanitize
-        venue, action, key = "binance", "submit", "order-1"
-        v = _sanitize(venue).lower()
-        a = _sanitize(action).lower()
-        k = _sanitize(key)
-        base = f"{v}|{a}|{k}"
-        py = hashlib.sha256(base.encode("utf-8")).hexdigest()
-        rs = rust_make_idempotency_key(venue, action, key)
-        assert rs == py
 
 
 class TestRustClientOrderId:

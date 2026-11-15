@@ -1,6 +1,6 @@
 # Operations Manual (2026-03-22)
 
-> **Outdated (2026-11-14):** written for the retired Bybit ML setup (automatic retraining, data-refresh, IC-decay timers). For the current state read `CLAUDE.md` and [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md).
+> **Outdated (2026-11-14):** written for the retired Bybit ML setup (automatic retraining, data-refresh, IC-decay timers). For the current state read `CLAUDE.md` and [`docs/deploy_truth.md`](/quant_system/docs/deploy_truth.md). Since 2026-11-15 the Bybit, OKX and ML code it describes is deleted (tag `archive/ml-line-2026-11-15`).
 
 Current operator guide. When this conflicts with other docs, priority:
 

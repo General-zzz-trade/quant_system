@@ -80,24 +80,17 @@ test = [
 ignore-vcs = true
 # packages/only-include bypass include filters in Hatch; constrain by file here.
 include = [
-    "/alpha/**/*.py", "/alpha/**/py.typed",
-    "/attribution/**/*.py", "/attribution/**/py.typed",
     "/data/**/*.py", "/data/**/py.typed",
-    "/decision/**/*.py", "/decision/**/py.typed",
     "/engine/**/*.py", "/engine/**/py.typed",
     "/event/**/*.py", "/event/**/py.typed",
     "/execution/**/*.py", "/execution/**/py.typed",
-    "/features/**/*.py", "/features/**/py.typed",
     "/infra/**/*.py", "/infra/**/py.typed",
     "/monitoring/**/*.py", "/monitoring/**/py.typed",
-    "/research/**/*.py", "/research/**/py.typed",
-    "/risk/**/*.py", "/risk/**/py.typed",
     "/lab/**/*.py", "/lab/**/py.typed",
     "/trading/**/*.py", "/trading/**/py.typed",
     "/runner/**/*.py", "/runner/**/py.typed",
     "/shared/**/*.py", "/shared/**/py.typed",
     "/state/**/*.py", "/state/**/py.typed",
-    "/strategy/**/*.py", "/strategy/**/py.typed",
 ]
 exclude = ["**/tests/**", "**/archive/**", "**/__pycache__/**"]
 
