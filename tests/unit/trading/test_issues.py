@@ -104,3 +104,10 @@ def test_alerts_follow_the_kind_not_the_wording():
         text = f"BTCUSDT: venue qty={qty}, ledger qty=0"
         alerts.observe("BTCUSDT", [Issue(IssueKind.LEDGER_MISMATCH, "BTCUSDT", text)])
     assert sent == [("warning", "[p] BTCUSDT", "BTCUSDT: venue qty=0.3, ledger qty=0 (for 2 min)")]
+
+
+def test_a_kind_missing_from_the_table_blocks_every_entry(monkeypatch):
+    # ADR-0014 "state unknown": an unregistered kind fails the table test above, and in production blocks all.
+    from trading.domain import issues as table
+    monkeypatch.delitem(table.EFFECTS, IssueKind.LEDGER_MISMATCH)
+    assert Issue(IssueKind.LEDGER_MISMATCH, "BTCUSDT", "x").effects == frozenset({E.BLOCK_ALL_ENTRIES})
