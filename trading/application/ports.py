@@ -297,6 +297,8 @@ class EntryPauses(Protocol):
 class Notifier(Protocol):
     """Operator alerts. Delivery failures must never break the trading loop."""
 
+    channel: str                                  # where alerts go, for the status file
+
     def alert(self, level: str, title: str, detail: str = "") -> None: ...
 
 

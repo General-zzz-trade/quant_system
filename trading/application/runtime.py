@@ -9,9 +9,11 @@ import logging
 from decimal import Decimal
 from typing import Any
 
+from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
 from trading.application.equity import EquitySource
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
-                                       MarketData, PaperStore, StatusSink)
+                                       MarketData, Notifier, PaperStore, StatusSink)
+from trading.application.reconcile import UNRESOLVED_ORDERS
 from trading.application.session import FUNDING_INTERVAL, TargetSession
 from trading.domain.bars import HOUR, bar_from_kline
 from trading.domain.strategy.overlay import StrategySpec
@@ -34,7 +36,8 @@ class TargetRuntime:
                  market_errors: tuple[type[BaseException], ...], account: ExchangeAccount | None = None,
                  kill: KillSwitch | None = None, drawdown: DrawdownGuard | None = None,
                  paper_store: PaperStore | None = None, reset_paper: bool = False,
-                 spec_passed: object = None, pauses: EntryPauses | None = None) -> None:
+                 spec_passed: object = None, pauses: EntryPauses | None = None,
+                 notifier: Notifier | None = None, alert_prefix: str = "") -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.spec, self.mode, self.market, self.account, self.clock = spec, mode, market, account, clock
@@ -48,6 +51,9 @@ class TargetRuntime:
         self.reset_paper = reset_paper
         self._saved_cursors: dict[str, int | None] | None = None
         self.pauses = pauses
+        self.notifier = notifier
+        self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
+            if notifier is not None else None
         self._unsaved_pauses: dict[str, str] = {}   # symbol -> cause of a pause that could not be written yet
 
     # -- lifecycle ------------------------------------------------------------
@@ -111,29 +117,37 @@ class TargetRuntime:
                 self._unsaved_pauses.setdefault(symbol, "protective stop breached; position flattened")
             elif getattr(stops, "triggered", False) is True:
                 self._unsaved_pauses.setdefault(symbol, "protective stop triggered")
-            self._save_pause(symbol, session)
-            self._require_stop(symbol, session)
+            more = [self._save_pause(symbol, session), self._require_stop(symbol, session)]
+            if self.issue_alerts is not None:
+                self.issue_alerts.observe(symbol, issues + [issue for issue in more if issue])
         self._last_reconcile = self.clock()
 
-    def _save_pause(self, symbol: str, session: TargetSession) -> None:
+    def _alert_wait(self, issue: str) -> float:
+        """A maker entry rests at the venue by design: an unresolved order is news only after its lifetime."""
+        if issue.endswith(UNRESOLVED_ORDERS) and self.spec.execution == "maker":
+            return self.spec.ttl_bars * 3600.0 + 600.0
+        return ALERT_AFTER_SECONDS
+
+    def _save_pause(self, symbol: str, session: TargetSession) -> str | None:
         """Pause the symbol's entries after its stop triggered or was breached. A pause that cannot be written
         blocks entries and is written on a later reconciliation."""
         cause = self._unsaved_pauses.get(symbol)
         if cause is None or self.pauses is None:
-            return
+            return None
         try:
             new = self.pauses.pause(symbol, cause)
         except Exception as exc:
             session.executor.block_entries()
-            self.journal.write("issue", symbol=symbol,
-                               issue=f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked")
+            issue = f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked"
+            self.journal.write("issue", symbol=symbol, issue=issue)
             logger.exception("%s entry pause not saved", symbol)
-            return
+            return issue
         del self._unsaved_pauses[symbol]
         if new:
             self.journal.write("alert", symbol=symbol, reason=f"entries paused: {cause}; a person releases them "
                                f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
             logger.error("%s entries paused: %s", symbol, cause)
+        return None
 
     def _pause_status(self, symbol: str) -> str | None:
         if self.pauses is None:
@@ -143,7 +157,7 @@ class TargetRuntime:
         except Exception:
             return "unreadable"
 
-    def _require_stop(self, symbol: str, session: TargetSession) -> None:
+    def _require_stop(self, symbol: str, session: TargetSession) -> str | None:
         """ADR-0005 4b: a confirmed position without an active exchange stop blocks entries. Checked after a
         breached stop's flatten, so a position that flatten closed blocks nothing."""
         try:
@@ -151,10 +165,12 @@ class TargetRuntime:
         except Exception:
             logger.exception("%s stop check failed; entries blocked", symbol)
             unprotected = True
-        if unprotected:
-            session.executor.block_entries()
-            self.journal.write("issue", symbol=symbol,
-                               issue=f"{symbol}: position without an active protective stop; entries blocked")
+        if not unprotected:
+            return None
+        session.executor.block_entries()
+        issue = f"{symbol}: position without an active protective stop; entries blocked"
+        self.journal.write("issue", symbol=symbol, issue=issue)
+        return issue
 
     def risk_actions(self) -> None:
         kill = self.kill.state()
@@ -235,6 +251,7 @@ class TargetRuntime:
     # -- status and the cycle ------------------------------------------------------
     def status(self) -> dict[str, Any]:
         out: dict[str, Any] = {"mode": self.mode, "at": self.clock(), "spec_passed_gate": self._spec_passed,
+                               "alerts": getattr(self.notifier, "channel", None),
                                "market_failures": self._market_failures, "symbols": {}}
         if self.kill is not None:
             out["kill"] = self.kill.state().__dict__
