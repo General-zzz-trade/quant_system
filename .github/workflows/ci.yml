@@ -69,9 +69,11 @@ jobs:
 
       - name: Binance execution coverage gate
         run: |
-          python3 -m pytest tests/unit/binance/ tests/unit/trading/ tests/characterization/ -q --tb=short \
+          python3 -m pytest tests/unit/binance/ tests/unit/trading/ tests/characterization/ \
+            tests/unit/lab/test_target_runtime.py tests/unit/lab/test_target_runtime_resilience.py -q --tb=short \
             --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite \
-            --cov=trading.application.reconcile --cov=trading.adapters.binance \
+            --cov=trading.application.reconcile --cov=trading.adapters.binance --cov=trading.adapters.files \
+            --cov=trading.application.runtime --cov=trading.application.session --cov=trading.infrastructure \
             --cov=trading.domain.risk --cov=trading.domain.orders --cov-report=term --cov-fail-under=75
 
   # The whole suite (everything `make test-all` runs), split into shards that run at the same time.
