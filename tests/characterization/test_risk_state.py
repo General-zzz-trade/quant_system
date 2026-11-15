@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from execution.safety.limits import OrderLimiter, OrderLimitsConfig
 from shared.drawdown_guard import DrawdownGuard
 from shared.execution_lease import ExecutionLease
 from shared.kill_file import DEFAULT_PATH, KillFile
@@ -42,18 +41,32 @@ def test_current_drawdown_latch_is_lost_when_the_file_is_missing_or_the_scope_ch
     assert recreated.observe(940.0, now=T0 + 150) == (True, "")
 
 
-@pytest.mark.known_defect("R12")
-def test_current_drawdown_limit_has_no_hard_ceiling(tmp_path):
-    assert DrawdownGuard(tmp_path / "d.sqlite", "s", daily_pct=99.9, weekly_pct=99.9).limits == {
-        "day": 99.9, "week": 99.9}
+def test_a_drawdown_limit_above_the_hard_ceiling_refuses_to_start():
+    """R12 (first half), fixed in migration step 13b (tech lead, 2026-11-15): daily at most 10 %, weekly at
+    most 25 %, checked where the target runtime reads them. Until then this test pinned the defect: the
+    drawdown guard accepted 99.9 % for both."""
+    from trading.infrastructure.settings import risk_limits
+    with pytest.raises(RuntimeError, match="drawdown"):
+        risk_limits({"MAX_DAILY_DRAWDOWN_PCT": "99.9", "MAX_WEEKLY_DRAWDOWN_PCT": "99.9"})
+    assert (risk_limits({"MAX_DAILY_DRAWDOWN_PCT": "10", "MAX_WEEKLY_DRAWDOWN_PCT": "25"}).weekly_drawdown_pct
+            == 25.0)
 
 
-@pytest.mark.known_defect("R12")
-def test_current_daily_order_count_restarts_from_zero_in_a_new_limiter():
-    config = OrderLimitsConfig(max_daily_orders=2, max_orders_per_second=1000.0)
-    limiter = OrderLimiter(config)
-    assert [limiter.check_order(qty=D("0.001"), price=D("100")).allowed for _ in range(3)] == [True, True, False]
-    assert OrderLimiter(config).check_order(qty=D("0.001"), price=D("100")).allowed   # after a restart
+def test_the_daily_order_count_survives_a_restart(tmp_path):
+    """R12 (second half), fixed in migration step 13b (ADR-0007 2b): the count is stored per UTC day. Until
+    then this test pinned the defect: a new limiter started again from zero."""
+    from trading.adapters.sqlite.limit_store import SqliteLimitStore
+    from trading.application.risk.order_limiter import OrderLimiter as StoredLimiter
+    from trading.domain.risk.order_limits import OrderLimitsConfig as Config
+    config = Config(max_daily_orders=2, max_orders_per_second=1000.0)
+
+    def limiter():
+        return StoredLimiter(config, store=SqliteLimitStore(tmp_path / "order_limits.sqlite", "s"),
+                             clock=lambda: 1_800_000_000.0, monotonic=lambda: 0.0)
+
+    first = limiter()
+    assert [first.check_order(qty=D("0.001"), price=D("100")).allowed for _ in range(3)] == [True, True, False]
+    assert limiter().check_order(qty=D("0.001"), price=D("100")).allowed is False   # after a restart
 
 
 def test_kill_file_semantics(tmp_path):
