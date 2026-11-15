@@ -361,8 +361,8 @@ def test_the_target_entry_point_loads_no_rust_and_no_old_event_types():
     """ADR-0006 (2026-11-15): paper orders are the execution OrderIntent and the research broker emits plain fills,
     so loading the entry point no longer loads the native extension or the event package (it loaded 6 legacy
     packages before, `_quant_hotpath` and `event` among them). Since the shells of shared/ went (2026-11-15) it
-    loads 3."""
-    assert _legacy_loaded_by("runner.binance_target") == "['data', 'lab', 'runner']"
+    loaded 3; since the research broker moved into trading (S10) it no longer loads `data` and loads 2."""
+    assert _legacy_loaded_by("runner.binance_target") == "['lab', 'runner']"
 
 
 # What the target entry point still takes from the legacy packages, and the step that removes each.
