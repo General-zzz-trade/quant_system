@@ -112,6 +112,9 @@ class _StopVenue:
         return VenueOrder(order_id=order_id, client_order_id="autoclose", symbol=symbol, side="sell",
                           state="filled", filled_qty=D("1"), avg_price=D("95"))
 
+    def get_positions(self, symbol="", *, strict=True):      # the venue holds the ledger's long 1 (step 12b audit)
+        return (VenuePosition(venue="fake", symbol=symbol, qty=D("1")),)
+
 
 def _manager(tmp_path, venue):
     tmp_path.mkdir(parents=True, exist_ok=True)

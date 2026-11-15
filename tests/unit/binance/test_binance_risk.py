@@ -47,16 +47,21 @@ def _live_stops(fake):
 def test_stop_follows_position_lifecycle(env):
     fake, _, executor, stops, _ = env
     assert stops.sync() == [] and not fake.algo  # flat: nothing placed
+    # Since the step-12b audit a stop is placed only for a position the venue holds: the venue follows the
+    # ledger here (setup only; no assertion changed).
+    fake.positions["BTCUSDT"] = D("0.1")
     _checkpoint(executor, "0.1")
     stops.sync()
     (stop,) = _live_stops(fake).values()
     assert stop["side"] == "SELL" and D(stop["triggerPrice"]) == D("96")
     stops.sync()
     assert len(_live_stops(fake)) == 1  # idempotent
+    fake.positions["BTCUSDT"] = D("0.2")
     _checkpoint(executor, "0.2", entry="101", revision="r2")  # added to the position
     stops.sync()
     (stop2,) = _live_stops(fake).values()
     assert stop2["clientAlgoId"] != stop["clientAlgoId"] and D(stop2["triggerPrice"]) == D("96.9")
+    fake.positions["BTCUSDT"] = D("0")
     _checkpoint(executor, "0", entry="0", revision="r3")
     stops.sync()
     assert not _live_stops(fake)  # flat again: stale stop canceled
@@ -64,6 +69,7 @@ def test_stop_follows_position_lifecycle(env):
 
 def test_short_stop_and_breach_reporting(env):
     fake, _, executor, stops, _ = env
+    fake.positions["BTCUSDT"] = D("-0.1")    # the venue follows the ledger (setup only, see above)
     _checkpoint(executor, "-0.1")
     stops.sync()
     (stop,) = _live_stops(fake).values()
