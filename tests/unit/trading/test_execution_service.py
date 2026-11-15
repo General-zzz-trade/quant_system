@@ -343,3 +343,22 @@ def test_a_repeated_intent_is_silent_even_when_entries_are_blocked(env):
     service.ready = False
     assert service.send(_intent(1), _parent(_intent(1))) == SendResult(False, ())
     assert statuses == [] and len(venue.calls) == 1
+
+
+@pytest.mark.parametrize("kind", ["ledger_mismatch", "foreign_holding", "unresolved_order", "undelivered_fill",
+                                  "reconcile_failed", "venue_blocked"])
+def test_each_reconciliation_problem_alone_blocks_entries_until_a_clean_pass(env, monkeypatch, kind):
+    # ADR-0014 (S3a): written out, not derived from the table, so a changed table row fails here.
+    from trading.application.execution import service as module
+    from trading.application.issues import Issue
+    from trading.domain.issues import IssueKind
+    service, venue, _, _ = env()
+    service.ready = True
+    found = [Issue(IssueKind(kind), "BTCUSDT", f"BTCUSDT: {kind}")]
+    if kind == "venue_blocked":
+        venue.blockers = ["adapter not connected"]
+        found = []
+    monkeypatch.setattr(module, "reconcile_account", lambda *a, **k: list(found))
+    assert service.reconcile("BTCUSDT") and service.ready is False
+    venue.blockers, found = [], []
+    assert service.reconcile("BTCUSDT") == [] and service.ready is True
