@@ -175,3 +175,20 @@
 | 场所仅限 Binance；OKX、Bybit、Polymarket 代码冻结 | 代码里没有对应的硬开关。`runner.alpha_main` 拒绝 Binance 而放行 Bybit 执行（R18） | 更新，或加开关 |
 
 其余关于退出侧缺口、`binance_main` 的两个问题、`OrderLimiter` 重启清零、`daily_reconcile_report` 循环 import 的陈述，均与代码一致。
+
+## 4. 设计评审时发现的不一致（2026-11-15，M5 设计）
+
+基线：master `a2b57fb`。代码为准；文档的修改留给对应的实施步骤（`design-2026-11-m5.md` 第 10 节），本节只记录。
+
+| 文档位置 | 文档说法 | 代码实际 | 建议 |
+|---|---|---|---|
+| `docs/arch/target.md:317-370`（第 7 节"现状"一列） | L2、L5、L6、K2、K3、K4、K5、S1、S2 标为 ✗ | 已有测试：L5 `tests/characterization/test_risk_state.py::test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope`；L6 同文件 `::test_the_mainnet_gate_refuses_before_any_account_setting_is_written`；K2 `tests/characterization/test_exit_paths.py::test_kill_flatten_cancels_a_resting_entry_first_then_closes_the_position`；K3、K4 `tests/unit/trading/test_state_dir.py`；K5 `tests/characterization/test_stops_and_fills.py::test_a_position_without_a_working_stop_blocks_entries_until_one_is_in_place`；S1 `.importlinter` 5 条契约；S2 `tests/architecture/test_rules.py::test_money_path_tests_are_gated_in_ci_and_make` | 更新：按 `design-2026-11-m5.md` 第 7 节重写这张表（实施步骤 S1） |
+| `docs/arch/target.md` 第 2.2 节包结构 | `adapters/simulated/`、`adapters/system/`、`infrastructure/cli/target.py`、`infrastructure/lease.py`、`domain/risk/limits.py` | 前三者不存在；租约在 `trading/adapters/files/lease.py`；限额规则在 `trading/domain/risk/order_limits.py`；另有文档没列的 `domain/risk/liquidation.py`、`application/account_ownership.py`、`application/alerts.py`、`infrastructure/{entry_pause,kill,manual,state_dir,paper_store}.py` | 更新：按现状重写，标出 ADR-0013 计划新增的模块 |
+| `docs/arch/target.md` 第 3 节约束、第 2.1 节表格 | 所有配置由 `infrastructure.settings` 读一次，以不可变对象传入 | 配置读取函数被调用 18 次【实际运行结果】，没有一次性读出的配置对象 | 由 ADR-0017落实，之后更新 |
+| `docs/arch/target.md` 第 4 节说明、第 9 节 | `runner.binance_target` 迁移后是转发到 `trading.infrastructure.cli.target` 的薄壳 | `runner/binance_target.py` 209 行，包含预检、事件日志、成交分析日志、运行时类和主循环 | 由 ADR-0013、0017 的"入口变薄"落实 |
+| `docs/arch/target.md:163`（容器图） | 状态目录里是 `orders.sqlite`、`drawdown.sqlite`、`paper.sqlite`；另有"遗留运行时（冻结）" | 执行模式状态目录有 `orders`、`drawdown`、`order_limits`、`entry_pauses` 四个库加模拟盘库（`trading/infrastructure/state_dir.py` 的 `STORES`）；遗留运行时已于 2026-11-15 删除 | 更新：用 `design-2026-11-m5.md` 第 3.2 节的容器图替换 |
+| `docs/adr/0009-one-state-database-per-account.md` 背景表 | `orders.sqlite` 有 5 张表，含 `protective_stops` | 订单库声明的表是 4 张（`trading/adapters/sqlite/order_journal.py` 的 `TABLES`），止损表由止损管理器在运行时创建（`trading/application/execution/stops.py` 构造函数调用 `ensure_stop_table`） | 保留：ADR-0009 实施时由初始化统一建表，已记在执行记录"M4 之后的独立审计"一节的待办里 |
+| `CLAUDE.md` "Open exit-side gaps" 第二条 | 列为缺口 | "止损挂不上时阻断入场、2 分钟后告警"是第 12 步已经实现的行为，不是缺口 | 更新：移到架构说明里；缺口只留止损口径、告警出口、对比工具（设计第 2 节 G1、G4、G6） |
+| `docs/adr/0005-exit-path-semantics.md` 状态行 | 3b 的前提：交易账户专用于本运行时 | 技术负责人 2026-11-15 决定继续共用主账户（路线图第 16 项）。启动时由 ADR-0010 检查；运行中由 ADR-0011检查 | 保留 ADR-0005 原文；在 ADR-0011 里说明前提如何持续成立 |
+| `.env.example` | 列出 Bybit、OKX、Hyperliquid 的变量；注释里写着 Bybit 主网地址 | 这些交易所的代码已在 2026-11-15 删除；运行时需要的 `RISK_SCOPE`、`BINANCE_TESTNET` 等变量没有列出（`trading/infrastructure/settings.py`） | 更新：由 ADR-0017 的安装步骤重写 |
+| `docs/adr/0006-one-session-for-paper-and-live.md` 后果一节 | 限价偏移和最小名义额在两处各硬编码一次 | 限价偏移有三处：`lab/simulate.py:39`、`runner/offline/broker.py:38`、`trading/infrastructure/target.py:48` | 由 ADR-0013 第 5 条收敛 |
