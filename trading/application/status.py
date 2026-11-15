@@ -15,18 +15,21 @@ class StatusReporter:
     def __init__(self, sessions: dict[str, TargetSession], *, mode: str, clock: Clock, spec_passed: object,
                  notifier: Notifier | None, kill: KillSwitch | None, drawdown: DrawdownGuard | None,
                  equity: EquitySource,
-                 market_failures: Callable[[], int], pause_status: Callable[[str], str | None]) -> None:
+                 market_failures: Callable[[], int], pause_status: Callable[[str], str | None],
+                 config_digest: str | None = None) -> None:
         self.sessions, self.mode, self.clock, self.spec_passed, self.notifier = sessions, mode, clock, spec_passed, \
             notifier
         self.kill: Any = kill
         self.drawdown: Any = drawdown
         self.equity = equity
         self._market_failures, self._pause_status = market_failures, pause_status
+        self.config_digest = config_digest          # ADR-0017: which configuration this run uses
 
     def status(self) -> dict[str, Any]:
         out: dict[str, Any] = {"mode": self.mode, "at": self.clock(), "spec_passed_gate": self.spec_passed,
                                "alerts": getattr(self.notifier, "channel", None),
-                               "market_failures": self._market_failures(), "symbols": {}}
+                               "market_failures": self._market_failures(), "config_digest": self.config_digest,
+                               "symbols": {}}
         if self.kill is not None:
             out["kill"] = readable(lambda: self.kill.state().__dict__)
             out["drawdown_latched"] = readable(self.drawdown.latched)

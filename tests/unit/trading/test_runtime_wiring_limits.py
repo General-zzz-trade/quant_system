@@ -19,6 +19,7 @@ from trading.domain.risk.order_limits import OrderLimitsConfig   # the Python li
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import bootstrap
 from tests.support.state_db import state_dir_db
+from trading.infrastructure.config import binance_config_from_env
 
 
 @pytest.fixture(autouse=True)
@@ -199,12 +200,14 @@ def test_the_account_is_connected_read_only_and_blockers_stop_the_start(monkeypa
                         ("BINANCE_EXCHANGE_LEVERAGE", "5"), ("BINANCE_MARGIN_TYPE", "ISOLATED")):
         monkeypatch.setenv(name, value)
     _RecordingAdapter.instances, _RecordingAdapter.pending_blockers = [], []
-    market, account = bootstrap.build_adapters(execution=True, testnet=True, symbols=["BTCUSDT", "ETHUSDT"])
+    credentials = binance_config_from_env(testnet=True)        # S4: the configuration hands them in (ADR-0017)
+    market, account = bootstrap.build_adapters(execution=True, testnet=True, symbols=["BTCUSDT", "ETHUSDT"],
+                                               credentials=credentials)
     assert account.connected_with == {"symbols": ("BTCUSDT", "ETHUSDT")}
     assert market.connected_with is None and market.config.testnet is False    # public data: mainnet, no keys
     _RecordingAdapter.pending_blockers = ["hedge mode is enabled"]
     with pytest.raises(RuntimeError, match="Execution blocked: hedge mode is enabled"):
-        bootstrap.build_adapters(execution=True, testnet=True, symbols=["BTCUSDT"])
+        bootstrap.build_adapters(execution=True, testnet=True, symbols=["BTCUSDT"], credentials=credentials)
     assert bootstrap.build_adapters(execution=False, testnet=True, symbols=["BTCUSDT"])[1] is None
 
 

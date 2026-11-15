@@ -25,7 +25,7 @@ from typing import TextIO
 from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.sqlite import schema
 from trading.adapters.sqlite.schema import STATE_DB
-from trading.infrastructure.settings import execution_scope, risk_limits, testnet_from_env
+from trading.infrastructure.config import execution_scope, risk_limits, testnet_from_env
 
 MANIFEST = "manifest.json"
 KILL_FILE = "kill_switch.json"
@@ -71,7 +71,7 @@ def verify(state_dir: Path, scope: str) -> None:
         raise RuntimeError(f"state directory {state_dir} is not usable: {'; '.join(problems)}")
 
 
-def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, str]) -> bool:
+def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, str] | None) -> bool:
     """Create the state database, an inactive kill file and, last, the manifest. False if already initialized."""
     state_dir = Path(state_dir)
     if is_managed(state_dir):
@@ -95,7 +95,6 @@ def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Map
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("command", choices=["init", "check"])
     args = parser.parse_args(argv)
-    env = os.environ if env is None else env
     testnet = testnet_from_env(env)
     scope = execution_scope(testnet=testnet, env=env)          # raises before anything is created
     if args.command == "check":

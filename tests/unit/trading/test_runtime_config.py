@@ -99,3 +99,29 @@ def test_nothing_reads_the_environment_after_the_start_and_the_config_is_recorde
     assert config["digest"] == runtime.config.digest() and config["scope"] == SCOPE
     status = json.loads((tmp_path / "exec/target_status.json").read_text())
     assert status["config_digest"] == runtime.config.digest()
+
+
+def test_the_credentials_come_last_and_bring_the_identity():
+    from trading.infrastructure.config import with_credentials
+    config, secrets = load_config(_env(), execution=True, stop_pct=D("0.08"))
+    assert config.identity is None and secrets.binance is None          # the local checks need no credentials
+    config, secrets = with_credentials(config, secrets, _env())
+    assert config.identity == hashlib.sha256(f"testnet:{SECRETS['BINANCE_TESTNET_API_KEY']}".encode()).hexdigest()
+    assert secrets.binance is not None and secrets.binance.api_secret == SECRETS["BINANCE_TESTNET_API_SECRET"]
+    with pytest.raises(RuntimeError, match="API key"):
+        with_credentials(config, secrets, _env(BINANCE_TESTNET_API_KEY=None))
+
+
+def test_paper_config_carries_no_limits_and_the_start_up_check_uses_the_configured_settings(tmp_path, monkeypatch):
+    config, _ = load_config({}, execution=False, stop_pct=D("0.08"))
+    assert (config.limits, config.leverage, config.margin) == (None, None, None)
+    from trading.infrastructure import target
+    seen = {}
+
+    def foreign_holdings(account, journal, *, symbols, leverage, margin):
+        seen.update(leverage=leverage, margin=margin)
+        return []
+    monkeypatch.setattr(target, "foreign_holdings", foreign_holdings)
+    target.refuse_foreign_holdings(object(), state_dir=tmp_path, scope=SCOPE, symbols=["BTCUSDT"], leverage=5,
+                                   margin="ISOLATED")
+    assert seen == {"leverage": 5, "margin": "isolated"}
