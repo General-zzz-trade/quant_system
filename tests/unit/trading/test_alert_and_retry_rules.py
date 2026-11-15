@@ -21,6 +21,7 @@ from tests.unit.trading.test_market_failures import _due, _market
 from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRetryableError
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.application.runtime import MARKET_BACKOFF_MAX, POLL_SECONDS
+from tests.support.state_db import state_db
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +106,7 @@ def test_a_stop_that_triggered_and_awaits_its_order_already_pauses(tmp_path):
 
 # -- P01 --------------------------------------------------------------------------------------------------------------
 def test_a_trigger_that_arrives_during_a_pause_is_recorded_so_a_release_holds(tmp_path):
-    pauses = SqliteEntryPauses(tmp_path / "pauses.sqlite")
+    pauses = SqliteEntryPauses(state_db(tmp_path / "pauses.sqlite"))
     assert pauses.pause("BTCUSDT", "protective stop triggered", triggers=["stop-a"]) is True
     assert pauses.pause("BTCUSDT", "protective stop triggered", triggers=["stop-b"]) is False   # already paused
     assert pauses.covered("BTCUSDT") == {"stop-a", "stop-b"}

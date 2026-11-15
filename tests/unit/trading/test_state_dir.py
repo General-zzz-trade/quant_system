@@ -75,8 +75,8 @@ def test_init_needs_a_binance_scope(tmp_path):
 # -- the start-up check (R6) -----------------------------------------------------------------------------------
 @pytest.mark.parametrize("damage,reason", [
     (lambda d: (d / MANIFEST).unlink(), "no manifest"),
-    (lambda d: (d / "drawdown.sqlite").unlink(), "drawdown.sqlite is missing"),
-    (lambda d: (d / "orders.sqlite").write_bytes(b"not a database" * 100), "orders.sqlite is unreadable"),
+    (lambda d: (d / "state.sqlite").unlink(), "state.sqlite is missing"),
+    (lambda d: (d / "state.sqlite").write_bytes(b"not a database" * 100), "state.sqlite is unreadable"),
     (lambda d: (d / "kill_switch.json").unlink(), "kill_switch.json is missing"),
     (lambda d: (d / "kill_switch.json").write_text("{broken"), "kill_switch.json is unreadable"),
 ])

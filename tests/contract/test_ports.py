@@ -25,6 +25,7 @@ from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 from trading.application import ports
+from tests.support.state_db import state_db
 
 
 def missing_members(impl, protocol) -> list[str]:
@@ -60,10 +61,10 @@ def test_binance_adapter_implements_the_exchange_ports(protocol):
 
 def test_state_and_risk_components_implement_their_ports(tmp_path):
     cases = [
-        (ExecutionJournal(tmp_path / "orders.sqlite", "s"), ports.OrderJournal),
+        (ExecutionJournal(state_db(tmp_path / "orders.sqlite"), "s"), ports.OrderJournal),
         (KillFile(tmp_path / "kill.json", missing_is_active=False), ports.KillSwitch),
         (DrawdownGuard(tmp_path / "dd.sqlite", "s"), ports.DrawdownGuard),
-        (OrderLimiter(OrderLimitsConfig(), store=SqliteLimitStore(tmp_path / "limits.sqlite", "s"),
+        (OrderLimiter(OrderLimitsConfig(), store=SqliteLimitStore(state_db(tmp_path / "limits.sqlite"), "s"),
                       clock=time.time, monotonic=time.monotonic), ports.OrderLimits),
         (AccountExposureGate(_adapter()), ports.ExposureReader),
         (EventJournal(tmp_path / "events.jsonl"), ports.EventLog),

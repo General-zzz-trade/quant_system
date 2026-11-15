@@ -14,6 +14,7 @@ from trading.application.execution.fills import TargetFillConsumer
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.domain.orders import BLOCKED, OrderIntent
+from tests.support.state_db import state_db
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def env(tmp_path):
     def build(*, entry_mode="market", venue=None, log=None):
         venue = venue or Venue()
         clocks = {"wall": 1000.0, "mono": 10.0}
-        orders = OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE,
+        orders = OrderLifecycle(venue, SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE), SCOPE,
                                 clock=lambda: clocks["wall"], sleeper=lambda s: None, lock=threading.RLock(),
                                 wait_seconds=0.5, owner=OWNER,
                                 entry_order_type="limit" if entry_mode == "maker" else "market",

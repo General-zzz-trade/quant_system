@@ -18,6 +18,7 @@ from tests.unit.lab.test_target_runtime import _advance
 from trading.adapters.notify.telegram import TelegramNotifier
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.domain.orders import REDUCTION_OVERLAP, STALE_CHECKPOINT, UNCONSUMED_OWN_FILL
+from tests.support.state_db import state_db
 
 OWNER, SCOPE = "target.BTCUSDT", "binance-testnet-ut"
 
@@ -104,7 +105,7 @@ def test_an_emergency_close_sends_nothing_when_the_venue_position_cannot_be_read
 
 
 def test_the_journal_lets_a_venue_close_past_the_ledger_rules_but_never_past_another_reduction(tmp_path):
-    journal = SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE)
+    journal = SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
     common = dict(symbol="BTCUSDT", side="sell", qty="0", reducing=True, owner=OWNER, order_type="market",
                   clock=lambda: 1.0)
     journal.reserve(intent_id="e0", client_id="c0", parent=None, **{**common, "side": "buy", "qty": "1",

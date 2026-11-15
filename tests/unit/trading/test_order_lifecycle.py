@@ -13,6 +13,7 @@ import pytest
 
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.execution.lifecycle import OrderLifecycle
+from tests.support.state_db import state_db
 
 SCOPE = "binance-testnet-ut"
 
@@ -71,7 +72,8 @@ class Lock:
 
 def _lifecycle(tmp_path, events, clock, *, wait_seconds=3.0, state="filled", **kw):
     lock = Lock(events)
-    lifecycle = OrderLifecycle(Venue(events, state=state), SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE),
+    journal = SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
+    lifecycle = OrderLifecycle(Venue(events, state=state), journal,
                                SCOPE, clock=lambda: clock["t"], sleeper=lambda s: events.append(("sleep", s)),
                                lock=lock, wait_seconds=wait_seconds, owner="o", **kw)
     return lifecycle, lock
@@ -144,7 +146,7 @@ def test_a_confirmed_rejection_is_still_settled_as_rejected_after_a_restart(tmp_
     venue, clock = _RejectingVenue(), {"t": 1000.0}
 
     def build():
-        return OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE,
+        return OrderLifecycle(venue, SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE), SCOPE,
                               clock=lambda: clock["t"], sleeper=lambda s: None, lock=Lock([]), wait_seconds=0,
                               owner="o", entry_order_type="market", not_found_grace_seconds=90)
 

@@ -12,6 +12,7 @@ from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService, SendResult
 from trading.domain.orders import OrderIntent
+from tests.support.state_db import state_db
 
 SCOPE, OWNER = "binance-testnet-ut", "target.BTCUSDT"
 
@@ -97,7 +98,7 @@ def env(tmp_path):
     def build(*, entry_mode="market", breaker=None, log=None, venue=None, owner=OWNER):
         venue = venue or Venue()
         clocks = {"wall": 1000.0, "mono": 10.0}
-        orders = OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE,
+        orders = OrderLifecycle(venue, SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE), SCOPE,
                                 clock=lambda: clocks["wall"], sleeper=lambda s: clocks.update(mono=clocks["mono"] + s),
                                 lock=threading.RLock(), wait_seconds=0.5, owner=owner,
                                 entry_order_type="limit" if entry_mode == "maker" else "market",
@@ -219,6 +220,19 @@ def test_a_failure_blocks_entries_and_counts_on_the_breaker(env):
     assert venue.calls == []
 
 
+def test_a_lost_journal_fails_the_send_without_raising_and_reports_it_blocked(env, tmp_path):
+    # Audit 2026-11-15 of S2, finding 1: the failure handler read the lost journal again, and that error escaped.
+    breaker = Breaker()
+    service, venue, statuses, _ = env(breaker=breaker)
+    service.ready = True
+    for suffix in ("", "-wal", "-shm"):
+        (tmp_path / f"orders.sqlite{suffix}").unlink(missing_ok=True)
+    reduction = _intent(1, side="sell", reduce_only=True)
+    assert service.send(reduction, _parent(reduction)) == SendResult(False, ())
+    assert service.ready is False and breaker.failures == 1 and statuses == [("i1", "blocked")]
+    assert venue.calls == [] and not (tmp_path / "orders.sqlite").exists()
+
+
 def test_a_parent_that_cannot_be_built_fails_before_anything_is_sent(env):
     service, venue, _, _ = env()
     service.ready = True
@@ -300,7 +314,8 @@ def test_the_reference_price_survives_a_restart(env):
                                 {"limit_offset": D("NaN")}, {"entry_mode": "stop"}])
 def test_invalid_settings_are_refused(tmp_path, kw):
     venue = Venue()
-    orders = OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE, clock=lambda: 0.0,
+    journal = SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
+    orders = OrderLifecycle(venue, journal, SCOPE, clock=lambda: 0.0,
                             sleeper=lambda s: None, lock=threading.RLock(), owner=OWNER)
     settings = {"entry_mode": "maker", "limit_offset": D("0.0002"), **kw}
     with pytest.raises(ValueError):

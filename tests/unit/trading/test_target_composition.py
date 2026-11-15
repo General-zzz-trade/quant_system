@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import sqlite3
 from decimal import Decimal as D
 from types import SimpleNamespace
 
@@ -80,9 +81,16 @@ def test_mainnet_needs_a_passed_research_gate():
 def test_a_stop_outside_the_liquidation_distance_is_refused_before_any_state_file_exists(tmp_path, monkeypatch):
     monkeypatch.setenv("BINANCE_EXCHANGE_LEVERAGE", "10")
     monkeypatch.setenv("BINANCE_MARGIN_TYPE", "ISOLATED")
+    built = []                                   # S2 audit finding 2: building a store no longer writes a file
+    for name in ("exchange_lot_rules", "SqliteDrawdownGuard", "SqliteOrderJournal"):
+        monkeypatch.setattr(target, name, lambda *a, _name=name, **k: built.append(_name))
     with pytest.raises(RuntimeError, match="liquidation distance"):
         _start(tmp_path)
-    assert not (tmp_path / "exec/orders.sqlite").exists() and not (tmp_path / "exec/drawdown.sqlite").exists()
+    assert built == []                           # refused before the account is read or any store is built
+    exec_dir = tmp_path / "exec"                 # only the database the test prepared, untouched (ADR-0009)
+    assert sorted(p.name for p in exec_dir.iterdir() if p.suffix == ".sqlite") == ["state.sqlite"]
+    with sqlite3.connect(exec_dir / "state.sqlite") as db:
+        assert db.execute("SELECT count(*) FROM drawdown_periods").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("execution,ttl,order_type,expires", [("market", 1, "market", None),

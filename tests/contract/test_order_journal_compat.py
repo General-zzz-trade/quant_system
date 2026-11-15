@@ -46,7 +46,6 @@ def test_baseline_journal_restores_open_orders_fills_and_stops(tmp_path):
         db.execute("INSERT INTO protective_stops VALUES (?, 'o', 'qsstop1', 'BTCUSDT', 'r1', 0, 'sell', '96',"
                    " 'active', 2.0)", (SCOPE,))
     journal = SqliteOrderJournal(path, SCOPE)
-    journal.ensure_stop_table()
     assert [r["status"] for r in journal.stop_rows("o", "BTCUSDT", live_only=True)] == ["active"]
     assert journal.fills("o") == [payload]
     executor = ConfirmedExecutor(_Silent(), path, SCOPE, owner="o", wait_seconds=0)

@@ -100,12 +100,14 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
+- State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
+  `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
   in an initialized state directory a missing file means active.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
-  in `order_limits.sqlite`; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
+  in the state database; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
   weekly at start-up.
 
 **Research:**
@@ -117,6 +119,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
+- With `state.sqlite` lost while running, a decided reduction raises out of the cycle and ends the process.
+  That cycle's reconcile and risk actions are skipped too; only the exchange-side stop remains. This is fixed in S3
+  (ADR-0014); a strict-xfail test in `tests/characterization/test_state_database.py` marks it.
 - `binance_target` only:
   - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
     process log (status `alerts: "log only"`).

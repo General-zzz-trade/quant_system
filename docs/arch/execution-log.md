@@ -2077,3 +2077,145 @@ Contracts: 5 kept, 0 broken.
   - 研究包导入 pickle；
   - 关掉网络屏蔽。
 - **本地**：新测试单独跑过，ruff 通过。网络屏蔽对整个测试集的影响由 CI 全量测试验证。
+
+## S2：每个账户一个带版本号的状态数据库（2026-11-15，ADR-0009，资金路径完整流程）
+
+**改动**
+- 新增 `trading/adapters/sqlite/schema.py`：
+  - 唯一的 `state.sqlite`，版本号 1；
+  - 10 张表的建表语句，列与改动前各存储用的完全相同，订单表补加过的列一次写全；
+  - `create`：只建一次，文件已存在时拒绝；设 WAL，写版本号；
+  - `problems`：只读核对，查文件是否缺失、能否读、版本号、是否缺表。
+- 新增 `trading/adapters/sqlite/connection.py`：唯一的连接设置。
+  - 只打开已有文件（`mode=rw`，文件不存在就报错，从不新建）；
+  - 完全同步写入，忙等待 10 秒（由连接参数设定）。
+- 4 个存储（订单库、回撤、限额、暂停）都改用这个连接，删掉了各自的建表语句和订单库补加列的代码。
+  - 订单库删掉了"运行时建止损表"的方法，端口里一起删；它声明的表里加上了止损表。
+  - 模拟盘的存储不变（ADR-0009 第 1 条）。
+- `state_dir`：
+  - `init` 只建 `state.sqlite`，清单里记下数据库版本；
+  - 启动检查核对版本号和全部表；
+  - 遇到旧的五文件布局就拒绝启动，并提示初始化一个新目录。
+- 组装、执行租约、手工工具、暂停命令都改用 `state.sqlite`。
+- **运行时的状态输出**：
+  - 存储读不出时，对应字段写"unreadable"，不再抛异常。
+  - 这个问题在改动前就有：订单库被删后，旧代码会新建一个空文件，随后报"没有这张表"，异常穿出主循环。
+  - 新测试第一次就暴露了它。现在一轮照常结束，对账照常阻断入场。
+  - **更正（独立审计第 1 条）**：上一句只在这一轮没有决定下单时成立；决定平仓时异常仍会结束进程，见下一节。
+
+**先写的测试**（`tests/characterization/test_state_database.py`，25 条）
+- 单独提交在实现之前，标记为"严格预期失败"。【实际运行结果】在旧代码上 25 条全部失败。
+- 内容：
+  - 初始化只建一个版本号为 1、10 张表齐全、WAL 模式的数据库；
+  - 版本号不对、缺任何一张表、出现旧布局、文件缺失，都拒绝启动，并且不创建任何东西；
+  - 4 个存储都不建文件、不建表；
+  - 只有建表模块建表，只有连接模块连接数据库；
+  - 连接是完全同步、带忙等待；
+  - 运行中数据库被删：不会被重建，不发出任何没有登记的订单，入场被阻断。
+- 实现过程中修了这个文件里的两处测试写法：
+  - 运行中删库的测试原来用默认的限价单，假交易所不会自己成交限价单，改为市价单；
+  - 它原来用 `entry_ready` 判断"入场被阻断"，这个字段只表示"这根 K 线够不够新"，改为看执行器的就绪标志。
+  - 这两处都是测试自己写错了，与被测行为无关。
+
+**已有测试的改动**
+- **删除 1 条**：`tests/offline/test_execution_recovery.py::test_legacy_schema_is_migrated_without_unlocking_or_guessing_side`。它测的是"打开改造前的旧订单库时自动补列"，ADR-0009 第 5 条明确不迁移旧布局（遇到就拒绝启动），这个能力随之删除。
+- **只改设置**：直接构造存储、或在没初始化的目录里构造执行模式运行时的测试，先用新的辅助函数 `tests/support/state_db.py` 按正式建表语句建好数据库。
+  - 涉及文件：`test_risk_gates`、`test_risk_state`、`test_binance_risk`、`test_ports`、`test_order_journal_sql`、`test_execution_service`、`test_exit_robustness`、`test_flatten`、`test_order_lifecycle`、`test_owner_executor`、`test_venue_boundary`、`test_alert_and_retry_rules`、`test_order_limits`、`test_entry_pause`、`test_exit_paths`、`test_alerts`、`test_execution_matches_research`、`test_runtime_wiring_limits`、`test_target_runtime`、`test_target_runtime_resilience`、`test_runtime_decisions`、`test_manual_tools`、`test_startup_account_check`。
+  - `tests/support/confirmed_executor.py` 在构造时建好数据库。
+  - 4 个文件里删掉了对已删除方法 `ensure_stop_table` 的调用：`test_order_journal_compat`、`test_order_journal_sql`、`test_manual_tools`、`test_startup_account_check`。
+- **因文件改名而改的断言文字**（意思不变）：
+  - `test_state_dir`：两种损坏情形从 `drawdown.sqlite`、`orders.sqlite` 改为 `state.sqlite`；
+  - `test_risk_state`：缺失的库从 `drawdown.sqlite` 改为 `state.sqlite`，文档字符串里"存储类仍会创建缺失的文件"一句改为现状；
+  - `test_lost_state_files`：
+    - "每个库声明的表恰好等于初始化建的表"改为"4 个存储声明的表互不重复，合起来恰好等于建表模块的表"；
+    - "被换成别的数据库"的报错从 `drawdown.sqlite` 改为 `state.sqlite`；
+  - `test_target_composition`：原来断言"拒绝启动之前没有任何状态文件"。现在数据库由测试事先建好，改为断言"只有事先建好的那一个数据库，而且没有写入任何回撤记录"。
+- **因布局改变而调整的情形**：`test_lost_state_files` 和 `test_stop_durability` 原来删除"暂停库文件"。合并后暂停只是两张表，对应的情形改为"暂停记录丢失"（清空两张暂停表），断言不变。
+
+**变异自检**【实际运行结果】
+- 注入 12 个缺陷，基线通过，11 个被抓住：
+  - 不查版本号、不查表、只查第一张表；
+  - 读不出、文件缺失时放行；
+  - 接受旧布局；
+  - 连接时允许新建文件；
+  - 同步写入降级；
+  - 不设 WAL、不写版本号；
+  - 状态输出遇到读不出就抛异常。
+- 存活 1 个：去掉 `PRAGMA busy_timeout`。它是等价变异：连接参数 `timeout` 已经设定了同一个忙等待。这一行已经删掉，作为单独的提交。
+
+**本地**【实际运行结果】
+- 资金路径、运行时、架构、契约、离线和工具测试（`tests/unit/trading`、`tests/characterization`、`tests/unit/lab`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/architecture`、`tests/unit/tooling`）：
+  - 第一次跑有 2 条失败：一条是漏改的准备步骤（`test_binance_risk` 用的文件名是 `dd.sqlite`），一条是上面删除的旧库补列测试。处理后这两个文件单独跑过，全部通过。
+- `tests/unit/data`、`tests/unit/infra`、`tests/unit/runner` 通过。
+- ruff、`mypy trading/`（71 个文件）、导入契约（5 条）都通过。
+
+## S2 的独立审计与处理（2026-11-15）
+
+- **范围**：`c74f1b9..e423495`（PR #68），由独立审计员在自己的克隆里只读核查，自写探针测试和 14 个变异。
+- **结论**：核心安全成立：没有登记就不会有任何请求到达交易所，数据库也从不会被重建。共 7 条发现：中等 1 条，低 5 条，提示 1 条。
+- **技术负责人决定**（2026-11-15，AskUserQuestion）：第 1 条"放到 S3 做，S2 先合并（推荐）"。
+
+**第 1 条（中等）：数据库丢失后的一笔平仓会结束运行时进程。接受，部分在 S2 修，其余在 S3 修。**
+- **更正 S2 一节的说法**：
+  - "现在一轮照常结束"只在这一轮没有决定下单时成立（S2 的测试走了 5 根不下单的 K 线）。
+  - 一旦策略决定平仓，异常会穿出主循环。`runner/binance_target.py` 的主循环没有兜住它，进程就此退出。
+  - 重启会被启动检查拒绝，因为 `state.sqlite` 已经不在了。
+  - 改动前的五文件布局也是这样（审计员在 `1956925` 上复现）。
+- **调用链**【实际运行结果】：`session._send` → `ExecutionService._send`。读订单库失败后进入失败处理 `fail()`，`fail()` 又读一次订单库，第二个异常冒出 `send()`。
+- **S2 里修的**：失败处理不再因为订单库读不出而抛异常，改为把这笔订单报为"已阻断"（`trading/application/execution/service.py` 的 `fail`）。
+- **仍然存在的**【实际运行结果】：
+  - 发单之后的记账（`notify_status` 读订单库）还会冒出同样的异常。
+  - 这个异常离开 `poll()` 之后，这一轮的对账和急停/回撤动作（`risk_actions`）也会被跳过。这一点是修复时发现的。
+  - 彻底的修法是在每个品种处理一根 K 线时兜住异常，阻断入场、告警，下一根 K 线再试。这正是已批准的 ADR-0014 "无法分类的异常一律转成阻断入场的问题"，排在 S3。
+- **现在剩下的保护**：
+  - 交易所侧的 `closePosition` 止损单不依赖本地数据库，仍然挂在交易所上。
+  - 现在没有任何程序在执行模式下运行。
+  - 这个缺口已经写进 `CLAUDE.md` 的"测试网或实盘运行前必须修好"清单和设计第 10 节 S3 的验收。
+- **新增测试**：
+  - `tests/unit/trading/test_execution_service.py::test_a_lost_journal_fails_the_send_without_raising_and_reports_it_blocked`：在旧代码上失败（`OperationalError`），修复后通过。
+  - `tests/characterization/test_state_database.py::test_a_reduction_after_the_database_was_deleted_is_retried_and_alerted_and_the_cycle_goes_on`：用审计员的场景，持仓中删库、策略要平仓、走 3 根 K 线。
+    - 断言：没有发出任何请求，数据库没有被重建，每根 K 线都重新尝试平仓，并且有告警。
+    - 标记为"严格预期失败"，只认 `OperationalError`。S3 修好后它会变成通过，严格标记会迫使人去掉这个标记。
+
+**第 2 条（低）：`test_target_composition` 改过的断言抓不住检查顺序。接受，已加强。**
+- 新增一条断言，原有断言不变：强平距离检查必须在读账户、建任何存储之前就拒绝。
+- 做法：用替身记录 `exchange_lot_rules`、`SqliteDrawdownGuard`、`SqliteOrderJournal` 是否被调用（测试设置改动）。
+- 审计员的变异 T1（把检查挪到函数末尾）在加强前存活，现在被抓住【实际运行结果】。
+
+**第 3 条（低）：`init` 有几处没有测试。接受，新增 3 个测试用例。**
+- `test_init_with_a_drawdown_limit_above_the_ceiling_refuses_before_anything_exists`：日、周两种上限各一例，断言拒绝并且目录不存在。
+- `test_the_schema_refuses_an_existing_empty_file_and_leaves_it_empty`：0 字节的残留文件被拒绝，文件仍是 0 字节。
+- 审计员存活的 M1（去掉"文件已存在"拒绝）、M2（去掉上限检查）、M3（上限检查挪到建库之后）现在都被抓住【实际运行结果】。
+- M10（把 `with db:` 换成显式提交）是等价变异，不处理。
+
+**第 4 条（低）：S2 一节的测试改动清单不全。接受，在此补全。**
+- `test_manual_tools` 不只是改了设置，还有一条断言因为文件改名改了文字：`not (tmp_path / "empty/orders.sqlite").exists()` 改为 `not (tmp_path / "empty/state.sqlite").exists()`，意思不变。
+- `test_lost_state_files`：
+  - "清空成 0 字节"的测试按库文件参数化，从 4 例变成 1 例，因为只剩一个库；
+  - "缺一张表"的参数化改用 `STORE_TABLES`，仍是同样的 10 张表。
+- `test_state_database` 在 `1956925` 之后，除了已记录的两处写法修正，还多了一条断言：状态输出里的 `protective_stop` 以 "unreadable" 开头。
+- 审计员确认这些都没有削弱资金路径的断言。M3 审计第 2 条的变异 P1 仍被抓住。
+
+**第 5 条（低，监控）：数据库丢失后看门狗仍报健康。接受，作为已知缺口，在 S7 修。**
+- 看门狗只看最后一根 K 线和状态文件的新旧（`monitoring/watchdog.py:58-88`），状态文件一直在更新。
+- 现在发现这类问题只靠运行时自己的告警。没配 Telegram 时，告警只进进程日志。
+- S7（ADR-0016：告警和心跳必须配置）会解决告警出口的问题。
+
+**第 6 条（低）：文档过时、提示有误导。接受。**
+- 旧布局的拒绝提示原来让人对同一个目录跑 `init`，而那样只会得到"已初始化，没有改动"。现在改为 `--state-dir <new directory> init`。
+  - 新测试 `test_the_old_layout_hint_names_a_new_directory_not_the_old_one` 在旧代码上失败，修复后通过。
+- 已更新：`docs/arch/target.md` 容器图里的数据库，`doc-vs-code.md` 中关于容器图和 `ensure_stop_table` 的两行。
+- `docs/arch/current-state.md:318` 不改：那是 2026-11-14 在 `e3cd2d6` 上的诊断快照，当时确实是 `orders.sqlite`。
+- `trading/adapters/sqlite/check.py` 已经没有生产代码使用，只剩 `tests/unit/trading/test_lost_state_files.py` 在用。放进下一个删除批次。
+
+**第 7 条（提示）：不处理，记录在案。**
+- `schema.create` 不检查 WAL 是否真的开启，`problems()` 也不检查日志模式。
+  - 本机文件系统支持 WAL，审计员实测为 wal。
+  - 完全同步写入下，两种日志模式都能保证持久，所以不影响正确性。
+- `problems()` 以只读方式打开数据库后会留下 `-shm`/`-wal` 文件，文档字符串已经写明。
+
+**变异自检**【实际运行结果】
+- `fail()` 的修复：4 个变异全部被抓住：去掉保护、把"读不出"当成已登记、不报阻断、不阻断入场。
+- 审计员存活的 T1、M1、M2、M3 现在全部被抓住。
+
+**已有测试的改动**：没有改任何已有断言。`test_target_composition` 那条测试加了替身，并新增一条断言。

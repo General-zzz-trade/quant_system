@@ -21,6 +21,7 @@ from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.domain.orders import REDUCTION_OVERLAP, OrderIntent
 from trading.domain.rebalance import Intent
+from tests.support.state_db import state_db
 
 
 @pytest.fixture(autouse=True)
@@ -228,7 +229,8 @@ def test_a_reduction_refused_by_the_order_journal_is_logged_with_its_reason(tmp_
 
 # -- the service: closing the venue position -------------------------------------------------------------------
 def _executor(tmp_path, venue):
-    orders = OrderLifecycle(venue, SqliteOrderJournal(tmp_path / "orders.sqlite", SCOPE), SCOPE, clock=lambda: 1.0,
+    journal = SqliteOrderJournal(state_db(tmp_path / "orders.sqlite"), SCOPE)
+    orders = OrderLifecycle(venue, journal, SCOPE, clock=lambda: 1.0,
                             sleeper=lambda s: None, lock=threading.RLock(), wait_seconds=0, owner=OWNER,
                             entry_order_type="market", not_found_grace_seconds=90)
     service = ExecutionService(venue, orders, owner=OWNER, entry_mode="market", limit_offset=D("0.0002"),

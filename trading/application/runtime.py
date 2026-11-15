@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from collections.abc import Callable
 from typing import Any
 
 from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
@@ -323,13 +324,15 @@ class TargetRuntime:
             out["drawdown_latched"] = self.drawdown.latched()
             out["equity"] = str(self.equity.value)
         for symbol, s in self.sessions.items():
+            stops = s.stops
             out["symbols"][symbol] = {
                 "last_bar_open": s.cursor, "target": s.last_target[0], "target_ready": s.last_target[1],
-                "entry_ready": s.entry_ready, "entry_reason": s.entry_reason, "position": str(s.position_qty()),
+                "entry_ready": s.entry_ready, "entry_reason": s.entry_reason,
+                "position": _readable(lambda: str(s.position_qty())),
                 "sleeve_equity": str(s.sleeve_equity()),
-                "protective_stop": s.stops.has_active_stop() if s.stops else None,
+                "protective_stop": _readable(stops.has_active_stop) if stops else None,
                 "flatten_failures": s.flattener.failures if s.flattener else None,
-                "entry_pause": self._pause_status(symbol)}
+                "entry_pause": _readable(lambda: self._pause_status(symbol))}
         return out
 
     def cycle(self) -> None:
@@ -346,6 +349,15 @@ class TargetRuntime:
                 self.reconcile()
             self.risk_actions()
         self._status_sink.write(self.status())
+
+
+def _readable(read: Callable[[], Any]) -> Any:
+    """A status field from a store: "unreadable" instead of an exception. A lost state database must not stop
+    the cycle that reports it; reconciliation already blocks entries and raises the issue (ADR-0009)."""
+    try:
+        return read()
+    except Exception as exc:
+        return f"unreadable ({type(exc).__name__})"
 
 
 __all__ = ["POLL_SECONDS", "TargetRuntime"]

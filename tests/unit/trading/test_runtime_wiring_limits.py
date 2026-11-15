@@ -18,6 +18,7 @@ from trading.application.execution.executor import OwnerExecutor
 from trading.domain.risk.order_limits import OrderLimitsConfig   # the Python limiter since step 13b
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import bootstrap
+from tests.support.state_db import state_dir_db
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +65,7 @@ def test_the_default_order_limits_are_unchanged(tmp_path):
 
 def test_the_stop_distance_given_at_start_up_is_the_distance_of_the_exchange_stop(tmp_path):
     world = _world(tmp_path, StrategySpec(**MARKET, execution="market"))
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"], clock=lambda: world["clock"]["now"],
                             testnet=True, stop_pct=D("0.05"))

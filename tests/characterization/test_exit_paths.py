@@ -8,11 +8,13 @@ from lab.rebalance import Intent, plan
 from lab.strategy import StrategySpec
 from runner.binance_target import TargetRuntime
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world
+from tests.support.state_db import state_dir_db
 
 
 def _execution(tmp_path, **spec_kw):
     spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, **spec_kw)
     world = _world(tmp_path, spec)
+    state_dir_db(tmp_path / "exec")   # a state database as init creates it (ADR-0009)
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"],
                             clock=lambda: world["clock"]["now"], testnet=True)

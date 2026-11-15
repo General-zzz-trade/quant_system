@@ -8,62 +8,29 @@ transaction here.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import json
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
+
+from trading.adapters.sqlite.connection import connect
 
 from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLAP, SETTLED, STALE_CHECKPOINT,
                                    UNCONSUMED_FILL, UNCONSUMED_OWN_FILL)
 
 
 class SqliteOrderJournal:
-    TABLES = ("submissions", "execution_fills", "execution_consumers", "manual_actions")
+    TABLES = ("submissions", "execution_fills", "execution_consumers", "manual_actions", "protective_stops")
 
     def __init__(self, path: Path, scope: str) -> None:
         self.path, self.scope = Path(path), scope
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            db.execute("""CREATE TABLE IF NOT EXISTS submissions (
-                scope TEXT, intent_id TEXT, symbol TEXT, client_id TEXT, order_id TEXT,
-                settled INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope, intent_id))""")
-            columns = {r[1] for r in db.execute("PRAGMA table_info(submissions)")}
-            for name, definition in {
-                "side": "TEXT", "qty": "TEXT", "reducing": "INTEGER",
-                "owner": "TEXT NOT NULL DEFAULT ''", "parent": "TEXT",
-                "status": "TEXT NOT NULL DEFAULT 'unknown'",
-                "order_type": "TEXT",
-                # Wall-clock reservation time; NULL for legacy rows (never auto-resolved).
-                "created_at": "REAL",
-            }.items():
-                if name not in columns:
-                    db.execute(f"ALTER TABLE submissions ADD COLUMN {name} {definition}")
-            db.execute("""CREATE TABLE IF NOT EXISTS execution_fills (
-                scope TEXT NOT NULL, fill_id TEXT NOT NULL, intent_id TEXT NOT NULL,
-                owner TEXT NOT NULL, payload TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(scope, fill_id))""")
-            db.execute("""CREATE TABLE IF NOT EXISTS execution_consumers (
-                scope TEXT NOT NULL, owner TEXT NOT NULL, checkpoint TEXT NOT NULL,
-                PRIMARY KEY(scope, owner))""")
-            # What a person did by hand (migration step 12b); rows are never changed or deleted.
-            db.execute("""CREATE TABLE IF NOT EXISTS manual_actions (
-                scope TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL,
-                before TEXT, after TEXT NOT NULL, venue TEXT NOT NULL, reason TEXT NOT NULL)""")
 
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        """Raw access, kept for the frozen Bybit/OKX adapters, the ML runtime and tests."""
-        db = sqlite3.connect(self.path, timeout=10)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA synchronous=FULL")
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+    def connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        """The state database as ``state_dir init`` created it (WAL, synchronous=FULL); never creates a file or a
+        table (ADR-0009). Raw access is kept for tests."""
+        return connect(self.path)
 
     # -- reads ------------------------------------------------------------
     def orders(self, owner: str | None = None, *, unresolved: bool = False) -> list[dict[str, Any]]:
@@ -235,14 +202,6 @@ class SqliteOrderJournal:
             raise
 
     # -- protective stops -------------------------------------------------
-    def ensure_stop_table(self) -> None:
-        with self.connect() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS protective_stops (
-                scope TEXT NOT NULL, owner TEXT NOT NULL, client_algo_id TEXT NOT NULL,
-                symbol TEXT NOT NULL, revision TEXT NOT NULL, attempt INTEGER NOT NULL,
-                side TEXT NOT NULL, trigger_price TEXT NOT NULL, status TEXT NOT NULL,
-                created_at REAL NOT NULL, PRIMARY KEY(scope, client_algo_id))""")
-
     def stop_rows(self, owner: str, symbol: str, *, live_only: bool) -> list[dict[str, Any]]:
         query = "SELECT * FROM protective_stops WHERE scope=? AND owner=? AND symbol=?"
         if live_only:

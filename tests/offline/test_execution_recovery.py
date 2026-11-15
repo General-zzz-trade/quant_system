@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -79,18 +78,6 @@ class RecoveryTests(unittest.TestCase):
         other = ConfirmedExecutor(self.exchange, self.path, "live", wait_seconds=0, owner=self.executor.owner)
         self.assertFalse(other.pending)
         self.assertFalse(other.unresolved())
-
-    def test_legacy_schema_is_migrated_without_unlocking_or_guessing_side(self):
-        path = Path(self.temp.name) / "legacy.sqlite"
-        with sqlite3.connect(path) as db:
-            db.execute("CREATE TABLE submissions(scope TEXT,intent_id TEXT,symbol TEXT,client_id TEXT,"
-                       "order_id TEXT,settled INTEGER,PRIMARY KEY(scope,intent_id))")
-            db.execute("INSERT INTO submissions VALUES('demo','old','BTCUSDT','cl','o',0)")
-        executor = ConfirmedExecutor(self.exchange, path, "demo", wait_seconds=0)
-        self.assertEqual(len(executor.unresolved()), 1)
-        self.assertFalse(executor.pending)
-        self.assertEqual(executor.submit(intent_id="new", symbol="BTCUSDT", side="buy", qty=D(1)), ())
-        self.assertFalse(self.exchange.calls)
 
     def test_undelivered_terminal_fill_blocks_next_entry(self):
         self.exchange.state = "filled"

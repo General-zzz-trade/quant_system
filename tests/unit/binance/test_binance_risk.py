@@ -15,6 +15,7 @@ from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
+from tests.support.state_db import state_db
 
 OWNER = "alpha.BTCUSDT"
 
@@ -124,7 +125,7 @@ def test_kill_file_fails_closed(tmp_path):
 
 
 def test_drawdown_measured_from_period_peak(tmp_path):
-    guard = DrawdownGuard(tmp_path / "dd.sqlite", "binance-testnet-ut", daily_pct=3, weekly_pct=10)
+    guard = DrawdownGuard(state_db(tmp_path / "dd.sqlite"), "binance-testnet-ut", daily_pct=3, weekly_pct=10)
     t = 1_800_000_000.0
     assert guard.observe(1000, now=t)[0]
     assert guard.observe(1100, now=t + 60)[0]           # new high-water mark

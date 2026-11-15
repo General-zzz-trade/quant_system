@@ -6,12 +6,13 @@ reads as latched. Deposits and withdrawals are not reconciled here.
 """
 from __future__ import annotations
 
-import math
 import sqlite3
+import math
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager
 from pathlib import Path
+
+from trading.adapters.sqlite.connection import connect
 
 from trading.application.ports import Clock
 from trading.domain.risk.drawdown import advance, periods, validate_limits
@@ -30,23 +31,10 @@ class SqliteDrawdownGuard:
         self.path, self.scope, self.clock = Path(path), scope, clock
         self.max_age = max_age_seconds
         self._error = "equity not refreshed in this process"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS drawdown_periods (
-                scope TEXT, kind TEXT, period TEXT, baseline REAL NOT NULL,
-                limit_pct REAL NOT NULL, tripped INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY(scope, kind, period))""")
-            db.execute("""CREATE TABLE IF NOT EXISTS equity_observations (
-                scope TEXT PRIMARY KEY, equity REAL NOT NULL, observed_at REAL NOT NULL)""")
 
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=5)
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        """The state database as ``state_dir init`` created it; never creates a file or a table (ADR-0009)."""
+        return connect(self.path)
 
     def invalidate(self, reason: str) -> None:
         self._error = reason

@@ -160,7 +160,7 @@ flowchart TB
     KC["急停命令行<br/>python -m trading.infrastructure.cli.kill"]
     MON["监控与对账定时任务<br/>（只读，告警）"]
     subgraph STATE["状态目录（受管）"]
-      DB[("orders.sqlite<br/>drawdown.sqlite<br/>paper.sqlite")]
+      DB[("state.sqlite（执行模式，ADR-0009）<br/>paper_state.sqlite（模拟盘）")]
       FILES["kill_switch.json<br/>status.json<br/>events.jsonl<br/>manifest.json"]
     end
     SPEC["已签名的策略 spec<br/>final_spec.json + .sig"]

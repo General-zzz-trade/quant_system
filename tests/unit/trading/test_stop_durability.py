@@ -17,7 +17,7 @@ from tests.characterization.test_runtime_decisions import _events, _runtime, _st
 from tests.characterization.test_stops_and_fills import OWNER, _with_position
 from tests.unit.lab.test_target_runtime import _advance
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
-from trading.infrastructure.target import PAUSES_FILE
+from trading.adapters.sqlite.schema import STATE_DB as PAUSES_FILE
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +65,9 @@ def test_a_deleted_pause_store_pauses_again_every_symbol_whose_stop_ever_fired(t
     assert pauses.release("BTCUSDT", "checked") == 1
     _tick(world, runtime)
     assert pauses.reason("BTCUSDT") is None                                   # a release holds ...
-    (tmp_path / "exec" / PAUSES_FILE).unlink()
+    with sqlite3.connect(tmp_path / "exec" / PAUSES_FILE) as db:      # the pauses are lost (ADR-0009: rows)
+        db.execute("DELETE FROM entry_pauses")
+        db.execute("DELETE FROM pause_triggers")
     _tick(world, runtime)
     assert pauses.reason("BTCUSDT") == "protective stop triggered"            # ... a lost store does not release
     assert runtime.pauses.reason("ETHUSDT") is None

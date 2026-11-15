@@ -20,6 +20,7 @@ from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+from trading.adapters.sqlite.schema import STATE_DB
 from trading.application.equity import EquitySource
 from trading.application.execution.executor import OwnerExecutor
 from trading.application.execution.fills import TargetFillConsumer
@@ -40,14 +41,12 @@ from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
-from trading.infrastructure.entry_pause import PAUSES_FILE
 from trading.infrastructure.settings import RiskLimits, exchange_settings
 
 ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
 LIMIT_OFFSET = Decimal("0.0002")    # a maker entry rests 2 bp inside the reference, as research assumes
 HOUR_SECONDS = 3600.0
-ORDERS_FILE, DRAWDOWN_FILE, LIMITS_FILE = "orders.sqlite", "drawdown.sqlite", "order_limits.sqlite"
 
 
 class Account(ExchangeAccount, OrderGateway, StopVenue, Protocol):
@@ -83,7 +82,7 @@ def refuse_foreign_holdings(account: AccountSnapshot, *, state_dir: Path, scope:
     """ADR-0010: execution starts only if the account holds nothing outside the strategy ledger and the leverage
     and margin mode of the strategy's symbols are as configured. Read-only; run before the runtime is built."""
     leverage, margin = exchange_settings()
-    findings = foreign_holdings(account, SqliteOrderJournal(Path(state_dir) / ORDERS_FILE, scope),
+    findings = foreign_holdings(account, SqliteOrderJournal(Path(state_dir) / STATE_DB, scope),
                                 symbols=tuple(symbols), leverage=leverage,
                                 margin=MARGIN_TYPES[margin] if margin else MARGIN_TYPES["CROSSED"])
     if findings:
@@ -119,12 +118,12 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     check_stop_inside_liquidation(float(inputs.stop_pct), leverage, margin)   # before anything is created
     account, scope, limits = inputs.account, inputs.scope, inputs.limits
     rules = exchange_lot_rules(account, symbols)
-    orders_path = Path(state_dir) / ORDERS_FILE
-    drawdown = SqliteDrawdownGuard(Path(state_dir) / DRAWDOWN_FILE, scope, daily_pct=limits.daily_drawdown_pct,
+    orders_path = Path(state_dir) / STATE_DB         # one database for every store (ADR-0009)
+    drawdown = SqliteDrawdownGuard(orders_path, scope, daily_pct=limits.daily_drawdown_pct,
                                    weekly_pct=limits.weekly_drawdown_pct, clock=clock)
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
-    pauses = SqliteEntryPauses(Path(state_dir) / PAUSES_FILE, clock=clock)
+    pauses = SqliteEntryPauses(orders_path, clock=clock)
     stops_of: dict[str, ProtectiveStopManager] = {}
 
     def paused(symbol: str) -> bool:
@@ -138,7 +137,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     limiter = OrderLimiter(OrderLimitsConfig(max_order_notional=limits.max_order_notional,
                                              max_daily_notional=limits.max_daily_notional,
                                              max_daily_orders=limits.max_daily_orders, max_orders_per_second=1.0),
-                           store=SqliteLimitStore(Path(state_dir) / LIMITS_FILE, scope), clock=clock,
+                           store=SqliteLimitStore(orders_path, scope), clock=clock,
                            monotonic=time.monotonic)
     gate = CompositeRiskGate.for_execution(limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
                                            portfolio_reader=exposure, venue="binance",
@@ -173,5 +172,5 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     return ExecutionWiring(sessions, drawdown, pauses)
 
 
-__all__ = ["PAUSES_FILE", "Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
+__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
            "paper_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet"]
