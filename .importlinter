@@ -83,5 +83,6 @@ modules =
     trading.adapters.binance
     trading.adapters.files
     trading.adapters.notify
+    trading.adapters.simulated
     trading.adapters.sqlite
 
