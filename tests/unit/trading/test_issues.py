@@ -24,7 +24,7 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.STOP_MISSING: BLOCK,
         IssueKind.STOP_UNCERTAIN: BLOCK,
         IssueKind.LEDGER_MISMATCH: BLOCK,
-        IssueKind.FOREIGN_HOLDING: BLOCK,
+        IssueKind.FOREIGN_HOLDING: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),    # ADR-0011 (S5a)
         IssueKind.UNRESOLVED_ORDER: BLOCK,
         IssueKind.UNDELIVERED_FILL: BLOCK,
         IssueKind.RECONCILE_FAILED: BLOCK,
@@ -37,6 +37,8 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.DECISION_FAILED: BLOCK,                               # S3c: one symbol's bar failed
         IssueKind.CYCLE_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),       # S3c: a whole block of the cycle failed
         IssueKind.EVENT_LOG_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),   # S3 audit 3: the event log is not writable
+        IssueKind.ACCOUNT_UNREADABLE: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # ADR-0011
+        IssueKind.ACCOUNT_SETTINGS: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),    # ADR-0011
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect
