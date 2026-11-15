@@ -18,7 +18,7 @@ from trading.domain.bars import HOUR, Bar
 from trading.domain.market import frame_from_bars, funding_window
 from trading.domain.orders import BLOCKED, SETTLED
 from trading.domain.position import StrategyPosition
-from trading.domain.rebalance import Intent, plan
+from trading.domain.rebalance import Intent, close_without_equity, plan
 from trading.domain.strategy.overlay import StrategySpec, latest_target
 
 FUNDING_INTERVAL = 8 * HOUR
@@ -248,7 +248,11 @@ class TargetSession:
         self.drop_deferred("superseded by a newer bar")
         if not ready:
             return
-        intents = plan(target, equity=self.sleeve_equity(), price=bar.close, current_qty=self.position_qty(),
+        equity = self.sleeve_equity()
+        if equity <= 0:      # unknown: only a whole-position close can be planned (R13, decided 2026-11-15)
+            self.submit(close_without_equity(target, self.position_qty()), bar, "rebalance")
+            return
+        intents = plan(target, equity=equity, price=bar.close, current_qty=self.position_qty(),
                        entry_pending=any(not reduce_only for reduce_only in self.pending.values()),
                        band=self.spec.band, step=self.rules.step, min_qty=self.rules.min_qty,
                        min_notional=self.rules.min_notional)

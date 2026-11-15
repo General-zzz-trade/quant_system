@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from decimal import Decimal as D
 
-import pytest
-
 from lab.rebalance import Intent, plan
 from lab.strategy import StrategySpec
 from runner.binance_target import TargetRuntime
@@ -98,9 +96,14 @@ def test_kill_flatten_cancels_a_resting_entry_first_then_closes_the_position(tmp
     assert len(btc.posts) == posts + 1 and btc.positions["BTCUSDT"] == 0     # and nothing else goes out
 
 
-@pytest.mark.known_defect("R13")
-def test_current_plan_emits_no_reduction_when_equity_is_unknown():
+def test_with_equity_unknown_the_execution_session_still_closes_a_position_the_target_no_longer_wants():
+    """R13, fixed in migration step 13d (decided 2026-11-15): with equity unknown the execution session plans
+    only a whole-position close (target 0 or the other side) and never an entry; see
+    tests/unit/trading/test_unknown_equity.py for the runtime. Until then this test pinned the defect: nothing
+    at all was planned. The research plan itself is unchanged and still plans nothing without equity."""
+    from trading.domain.rebalance import close_without_equity
     common = dict(price=D(100), current_qty=D("0.5"), entry_pending=False, band=0.1, step=D("0.001"),
                   min_qty=D("0.001"), min_notional=D(20))
     assert plan(0.0, equity=D(0), **common) == []
     assert plan(0.0, equity=D(1000), **common) == [Intent("sell", D("0.5"), True)]
+    assert close_without_equity(0.0, D("0.5")) == [Intent("sell", D("0.5"), True)]

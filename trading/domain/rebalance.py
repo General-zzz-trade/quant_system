@@ -67,3 +67,13 @@ def plan(target_weight: float, *, equity: Decimal, price: Decimal, current_qty: 
         if qty >= min_qty and qty * price >= min_notional:
             intents.append(Intent("buy" if target_qty > 0 else "sell", qty, False))
     return intents
+
+
+def close_without_equity(target_weight: float, current_qty: Decimal) -> list[Intent]:
+    """With equity unknown nothing can be sized, but closing the whole position needs no size: when the target
+    is 0 or on the other side, close it all; otherwise do nothing, and never enter (R13, decided 2026-11-15)."""
+    if current_qty == 0:
+        return []
+    if target_weight == 0 or (target_weight > 0) != (current_qty > 0):
+        return [Intent("sell" if current_qty > 0 else "buy", abs(current_qty), True)]
+    return []
