@@ -19,8 +19,7 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
     db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=rw", uri=True, timeout=BUSY_TIMEOUT_MS / 1000)
     db.row_factory = sqlite3.Row
     try:
-        db.execute("PRAGMA synchronous=FULL")
-        db.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        db.execute("PRAGMA synchronous=FULL")      # the busy timeout is set by ``timeout`` above
         with db:
             yield db
     finally:
