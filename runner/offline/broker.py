@@ -24,8 +24,6 @@ from types import SimpleNamespace
 
 from data.quality.causal_bars import Bar
 from shared.exposure_gate import MAX_TOTAL_LEVERAGE
-from event.header import EventHeader
-from event.types import EventType, FillEvent
 from shared.strategy_position import StrategyPosition
 
 D = Decimal
@@ -97,6 +95,20 @@ class ReplayConfig:
             for key in ("isolated_leverage", "maintenance_margin_rate", "stop_slippage_bps"):
                 out.pop(key)
         return out
+
+
+@dataclass(frozen=True)
+class BrokerFill:
+    """One simulated fill, passed to ``BarBroker.emit`` (a hook; nothing in the repository sets it). It replaced a
+    Rust-backed FillEvent whose header nobody read (ADR-0006, 2026-11-15)."""
+
+    fill_id: str
+    order_id: str
+    symbol: str
+    side: str
+    qty: Decimal
+    price: Decimal
+    at: int
 
 
 class BarBroker:
@@ -223,10 +235,8 @@ class BarBroker:
                 fill_id = f"offline-fill-{len(self.fills) + 1}"
                 self.fills.append({"id": fill_id, "order": row["id"], "at": self.now, "side": row["side"],
                                    "qty": str(qty), "price": str(price), "fee": str(fee)})
-                event = FillEvent(header=EventHeader(fill_id, EventType.FILL, 1, self.now * 1_000_000, "offline"),
-                                  fill_id=fill_id, order_id=row["internal_id"], symbol=row["symbol"],
-                                  qty=qty, price=price, side=row["side"])
-                self.emit(event)
+                self.emit(BrokerFill(fill_id=fill_id, order_id=row["internal_id"], symbol=row["symbol"],
+                                     qty=qty, price=price, side=row["side"], at=self.now))
                 remaining -= qty
                 row["remaining"] = str(remaining)
                 if not row["reduce_only"]:

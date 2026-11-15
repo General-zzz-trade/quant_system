@@ -81,6 +81,22 @@ def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, s
     return frozen
 
 
+
+class _TcaLog:
+    """The EventLog port over the TCA file next to the order journal (one append per fill). Moved here from the
+    execution adapter shell (ADR-0006, 2026-11-15); the writer itself is still the legacy monitoring.tca."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def write(self, kind: str, **fields: Any) -> None:
+        from monitoring.tca import TCALogger
+        tca = TCALogger("binance", path=self._path)
+        try:
+            tca.record_fill(**fields)
+        finally:
+            tca.close()
+
 class TargetRuntime(_runtime.TargetRuntime):
     """The legacy entry point's constructor. The loop is trading.application.runtime.TargetRuntime and the
     sessions are wired in trading.infrastructure.target (migration step 10); this class loads the signed
@@ -130,7 +146,6 @@ class TargetRuntime(_runtime.TargetRuntime):
             alert_prefix=alert_prefix)
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
-        from execution.adapters.binance.execution_adapter import _TcaLog
         scope = execution_scope(testnet=testnet)
         limits = risk_limits()
         # In a managed directory a missing kill file reads as active (ADR-0005 5b); the runtime never writes it.

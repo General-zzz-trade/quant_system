@@ -157,6 +157,14 @@ class BinanceExecutionAdapter:
             return self._send_order(order_event)
 
     def _send_order(self, event: Any) -> tuple[FillEvent, ...]:
+        if getattr(event, "header", None) is None:
+            # Paper orders are the plain OrderIntent since ADR-0006 (2026-11-15). Give them the header
+            # lab.orders.make_order used to build, so this shell records them exactly as before.
+            header = replace(EventHeader.new_root(event_type=EventType.ORDER, version=1,
+                                                  source=str(getattr(event, "source", "") or "")),
+                             event_id=str(getattr(event, "order_id", "") or ""))
+            event = SimpleNamespace(header=header, **{name: getattr(event, name, None) for name in (
+                "order_id", "symbol", "side", "qty", "price", "reduce_only", "reason")})
         intent_id = str(getattr(event, "order_id", "") or "")
         intent = OrderIntent(
             order_id=intent_id, source=getattr(getattr(event, "header", None), "source", None),
