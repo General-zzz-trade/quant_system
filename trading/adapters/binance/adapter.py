@@ -41,8 +41,7 @@ logger = logging.getLogger(__name__)
 # changes only through human config (BINANCE_EXCHANGE_LEVERAGE); the default stays 3.
 MAX_LEVERAGE = 10
 DEFAULT_LEVERAGE = 3
-MARGIN_TYPES = {"ISOLATED": "isolated", "CROSSED": "cross"}   # request value -> positionRisk value
-_NO_MARGIN_CHANGE_NEEDED = -4046
+MARGIN_TYPES = {"ISOLATED": "isolated", "CROSSED": "cross"}   # config value -> positionRisk value
 
 _INTERVAL_MAP = {
     "1": "1m", "5": "5m", "15": "15m", "60": "1h", "240": "4h", "D": "1d",
@@ -82,6 +81,15 @@ def _fmt(value: Decimal) -> str:
     return text if text else "0"
 
 
+def _stop_order(row: dict[str, Any]) -> StopOrder:
+    status = str(row.get("algoStatus", "")).upper()
+    state = STOP_ACTIVE if status in ACTIVE else STOP_TRIGGERED if status in TRIGGERED else STOP_GONE
+    return StopOrder(algo_id=str(row.get("algoId", "")), client_algo_id=str(row.get("clientAlgoId", "")),
+                     symbol=row.get("symbol", ""), side=str(row.get("side", "")).lower(), status=status,
+                     state=state, trigger_price=Decimal(str(row.get("triggerPrice", "0") or "0")),
+                     actual_order_id=str(row.get("actualOrderId", "") or ""))
+
+
 class BinanceAdapter:
     """Binance USDⓈ-M futures REST adapter (one-way mode, USDT margin)."""
 
@@ -99,14 +107,9 @@ class BinanceAdapter:
     # ------------------------------------------------------------------
     # Connection and account configuration
     # ------------------------------------------------------------------
-    def connect(self, *, symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
-                configure_leverage: bool = False, leverage: int = DEFAULT_LEVERAGE,
-                margin_type: str | None = None) -> bool:
-        """Load filters, detect position mode, verify auth; optionally set and verify leverage/margin type.
-
-        Any symbol whose exchange setting differs from the request afterwards becomes an
-        execution blocker (for example, Binance refuses a margin-type change while a
-        position or order is open)."""
+    def connect(self, *, symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")) -> bool:
+        """Load filters, detect position mode and verify auth. Read-only: leverage and margin mode are set by a
+        person on the exchange and only checked at start-up (ADR-0010)."""
         try:
             info = self._client.request_public(method="GET", path="/fapi/v1/exchangeInfo")
             by_symbol = {s["symbol"]: s for s in info.get("symbols", [])}
@@ -115,13 +118,6 @@ class BinanceAdapter:
             mode = self._client.request_signed(method="GET", path="/fapi/v1/positionSide/dual")
             self._hedge_mode = bool(mode.get("dualSidePosition", False))
             self._client.request_signed(method="GET", path="/fapi/v2/account")
-            self._config_issues = []
-            if configure_leverage:
-                for symbol in symbols:
-                    if margin_type is not None:
-                        self.set_margin_type(symbol, margin_type)
-                    self.set_leverage(symbol, leverage)
-                self._config_issues = self._verify_settings(symbols, leverage, margin_type)
             self._connected = True
             logger.info("Binance connected: %s symbols=%s hedge_mode=%s",
                         self._config.base_url, list(symbols), self._hedge_mode)
@@ -151,7 +147,6 @@ class BinanceAdapter:
             issues.append("adapter not connected")
         if self._hedge_mode:
             issues.append("hedge (dual-side) position mode is not supported; switch the account to one-way mode")
-        issues.extend(getattr(self, "_config_issues", []))
         return issues
 
     def filters(self, symbol: str) -> SymbolFilters:
@@ -160,37 +155,13 @@ class BinanceAdapter:
         except KeyError:
             raise RuntimeError(f"No exchange filters loaded for {symbol}") from None
 
-    def set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
-        if not 1 <= int(leverage) <= MAX_LEVERAGE:
-            raise ValueError(f"leverage must be between 1 and {MAX_LEVERAGE}")
-        return self._client.request_signed(method="POST", path="/fapi/v1/leverage",
-                                           params={"symbol": symbol, "leverage": int(leverage)})
-
-    def set_margin_type(self, symbol: str, margin_type: str) -> None:
-        margin_type = margin_type.upper()
-        if margin_type not in MARGIN_TYPES:
-            raise ValueError(f"margin type must be one of {sorted(MARGIN_TYPES)}")
-        try:
-            self._client.request_signed(method="POST", path="/fapi/v1/marginType",
-                                        params={"symbol": symbol, "marginType": margin_type})
-        except BinanceNonRetryableError as exc:
-            if exc.code != _NO_MARGIN_CHANGE_NEEDED:
-                logger.warning("%s: margin type change to %s refused: %s", symbol, margin_type, exc)
-
-    def _verify_settings(self, symbols: tuple[str, ...], leverage: int, margin_type: str | None) -> list[str]:
-        issues = []
-        for symbol in symbols:
-            rows = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk",
-                                               params={"symbol": symbol})
-            row = next((r for r in rows if r.get("symbol") == symbol), None) if isinstance(rows, list) else None
-            if row is None:
-                issues.append(f"{symbol}: leverage/margin settings could not be read")
-                continue
-            if int(row.get("leverage", 0)) != int(leverage):
-                issues.append(f"{symbol}: exchange leverage {row.get('leverage')} != required {leverage}")
-            if margin_type is not None and str(row.get("marginType", "")).lower() != MARGIN_TYPES[margin_type.upper()]:
-                issues.append(f"{symbol}: margin type {row.get('marginType')} != required {margin_type.upper()}")
-        return issues
+    def get_symbol_settings(self, symbol: str) -> tuple[int, str]:
+        """(leverage, margin mode as positionRisk spells it: "cross" | "isolated"); errors propagate."""
+        rows = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={"symbol": symbol})
+        row = next((r for r in rows if r.get("symbol") == symbol), None) if isinstance(rows, list) else None
+        if row is None or str(row.get("marginType", "")).lower() not in MARGIN_TYPES.values():
+            raise RuntimeError(f"{symbol}: leverage/margin settings could not be read")
+        return int(row["leverage"]), str(row["marginType"]).lower()
 
     def is_connected(self) -> bool:
         return self._connected
@@ -409,12 +380,14 @@ class BinanceAdapter:
             if exc.code in _ALGO_DOES_NOT_EXIST:
                 return None
             raise
-        status = str(row.get("algoStatus", "")).upper()
-        state = STOP_ACTIVE if status in ACTIVE else STOP_TRIGGERED if status in TRIGGERED else STOP_GONE
-        return StopOrder(algo_id=str(row.get("algoId", "")), client_algo_id=str(row.get("clientAlgoId", "")),
-                         symbol=row.get("symbol", ""), side=str(row.get("side", "")).lower(), status=status,
-                         state=state, trigger_price=Decimal(str(row.get("triggerPrice", "0") or "0")),
-                         actual_order_id=str(row.get("actualOrderId", "") or ""))
+        return _stop_order(row)
+
+    def get_open_algo_orders(self) -> tuple[StopOrder, ...]:
+        """Every open conditional order of the account, on any symbol (ADR-0010 start-up check)."""
+        rows = self._client.request_signed(method="GET", path="/fapi/v1/openAlgoOrders")
+        if not isinstance(rows, list):
+            raise RuntimeError("Invalid Binance open algo-order snapshot")
+        return tuple(_stop_order(row) for row in rows)
 
     def cancel_algo_order(self, *, client_algo_id: str) -> dict[str, Any]:
         self._client.request_signed(method="DELETE", path="/fapi/v1/algoOrder",

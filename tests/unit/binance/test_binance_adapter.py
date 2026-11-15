@@ -6,7 +6,8 @@ from decimal import Decimal as D
 import pytest
 
 from trading.adapters.binance.config import BinanceConfig
-from trading.adapters.binance.adapter import MAX_LEVERAGE, BinanceAdapter
+from trading.adapters.binance.adapter import BinanceAdapter
+from trading.domain.venue import STOP_ACTIVE
 from tests.unit.binance.fake_venue import HOUR, FakeBinance, make_bars
 
 
@@ -33,13 +34,6 @@ def test_hedge_mode_blocks_execution():
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
     assert adapter.connect(symbols=("BTCUSDT",))
     assert any("hedge" in issue for issue in adapter.execution_blockers())
-
-
-def test_leverage_is_hard_capped(venue):
-    _, adapter, _ = venue
-    adapter.set_leverage("BTCUSDT", MAX_LEVERAGE)
-    with pytest.raises(ValueError):
-        adapter.set_leverage("BTCUSDT", MAX_LEVERAGE + 1)
 
 
 def test_market_order_contract(venue):
@@ -83,30 +77,35 @@ def test_protective_stop_uses_algo_service(venue):
     assert bad["status"] == "rejected" and bad["code"] == -2021
 
 
-def test_isolated_ten_x_is_set_and_verified():
+def test_connecting_is_read_only():
+    """ADR-0010: leverage and margin mode are set by a person; connecting only reads."""
     fake = FakeBinance(make_bars(5))
+    calls = []
+    signed = fake.request_signed
+    fake.request_signed = lambda **kw: calls.append(kw["method"]) or signed(**kw)
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
-    assert adapter.connect(symbols=("BTCUSDT", "ETHUSDT"), configure_leverage=True, leverage=10,
-                           margin_type="ISOLATED")
-    assert fake.leverage == {"BTCUSDT": 10, "ETHUSDT": 10}
-    assert fake.margin_type == {"BTCUSDT": "isolated", "ETHUSDT": "isolated"}
-    assert adapter.execution_blockers() == []
-    # Already isolated: Binance answers -4046 "no need to change"; that is not an error.
-    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True, leverage=10, margin_type="ISOLATED")
+    assert adapter.connect(symbols=("BTCUSDT", "ETHUSDT"))
+    assert set(calls) == {"GET"} and fake.leverage == {} and fake.margin_type == {}
     assert adapter.execution_blockers() == []
 
 
-def test_refused_margin_change_blocks_execution():
+def test_symbol_settings_are_read_as_the_exchange_reports_them():
     fake = FakeBinance(make_bars(5))
-    fake.margin_change_refused = True          # e.g. a position or order is open on the symbol
+    fake.leverage["BTCUSDT"], fake.margin_type["BTCUSDT"] = 10, "isolated"
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
-    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True, leverage=10, margin_type="ISOLATED")
-    assert any("margin type cross != required ISOLATED" in i for i in adapter.execution_blockers())
+    assert adapter.get_symbol_settings("BTCUSDT") == (10, "isolated")
+    assert adapter.get_symbol_settings("ETHUSDT") == (3, "cross")
+    fake.margin_type["ETHUSDT"] = "unknown"
+    with pytest.raises(RuntimeError, match="could not be read"):
+        adapter.get_symbol_settings("ETHUSDT")
 
 
-def test_default_connect_keeps_three_x_and_leaves_margin_type_alone():
-    fake = FakeBinance(make_bars(5))
-    adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
-    assert adapter.connect(symbols=("BTCUSDT",), configure_leverage=True)
-    assert fake.leverage == {"BTCUSDT": 3} and fake.margin_type == {}
-    assert adapter.execution_blockers() == []
+def test_open_conditional_orders_of_every_symbol_are_listed(venue):
+    fake, adapter, _ = venue
+    adapter.place_stop_market("BTCUSDT", "sell", D("50.05"), client_algo_id="qsstop1")
+    fake.algo["web"] = {"algoId": 7, "clientAlgoId": "web", "symbol": "SOXLUSDT", "side": "BUY",
+                        "algoStatus": "NEW", "triggerPrice": "40"}
+    fake.algo["done"] = {"algoId": 8, "clientAlgoId": "done", "symbol": "ETHUSDT", "side": "BUY",
+                         "algoStatus": "CANCELED", "triggerPrice": "40"}
+    listed = {(o.symbol, o.client_algo_id, o.state) for o in adapter.get_open_algo_orders()}
+    assert listed == {("BTCUSDT", "qsstop1", STOP_ACTIVE), ("SOXLUSDT", "web", STOP_ACTIVE)}

@@ -179,6 +179,8 @@ def main(argv: list[str] | None = None) -> None:
     args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / "orders.sqlite", scope)
     market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"])
+    if args.execution:       # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
+        target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"])
     runtime = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
                             mode="execution" if args.execution else "paper", market=market, account=account,
                             testnet=testnet, stop_pct=args.stop_pct, reset_paper=args.reset_paper_state)

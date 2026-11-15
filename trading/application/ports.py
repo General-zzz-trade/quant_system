@@ -193,6 +193,41 @@ class OrderJournal(Protocol):
     def set_stop_status(self, client_algo_id: str, status: str) -> None: ...
 
 
+class AccountOrderView(Protocol):
+    """An open order of the account, any symbol (ADR-0010 start-up check)."""
+
+    @property
+    def order_id(self) -> str: ...
+
+    @property
+    def client_order_id(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+
+class AccountStopView(Protocol):
+    """An open conditional order of the account, any symbol (ADR-0010 start-up check)."""
+
+    @property
+    def client_algo_id(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+
+class AccountSnapshot(Protocol):
+    """The read-only view of the whole account the start-up check needs (ADR-0010)."""
+
+    def get_positions(self, symbol: str = "", *, strict: bool = True) -> tuple[PositionView, ...]: ...
+
+    def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[AccountOrderView, ...]: ...
+
+    def get_open_algo_orders(self) -> tuple[AccountStopView, ...]: ...
+
+    def get_symbol_settings(self, symbol: str) -> tuple[int, str]: ...
+
+
 @runtime_checkable
 class KillSwitch(Protocol):
     """Operator kill switch. Read-only for the runtime: an unreadable switch counts as active."""
@@ -316,4 +351,5 @@ class Notifier(Protocol):
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
            "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
-           "WalletCheck", "ExposureReader", "EventLog", "Notifier"]
+           "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView", "AccountStopView",
+           "AccountSnapshot"]

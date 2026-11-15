@@ -23,8 +23,6 @@ from trading.infrastructure import state_dir as managed
 
 ROOT = Path(__file__).resolve().parents[2]
 SCOPE = "binance-testnet-ut"
-# Written before the change: every test fails on the code before ADR-0010 (removed with the implementation).
-pytestmark = pytest.mark.xfail(strict=True, reason="ADR-0010 not implemented yet")
 T0 = 1_794_700_000.0
 
 
@@ -210,3 +208,34 @@ def test_no_production_code_sets_leverage_or_margin_type():
                  if re.search(r"/fapi/v1/(leverage|marginType)\b|configure_leverage|set_leverage|set_margin_type",
                               p.read_text(encoding="utf-8"))]
     assert offenders == []
+
+
+# -- added after the mutation self-check (survivors N11, N12, N16) -----------------------------------------------
+def test_the_strategy_owner_of_a_symbol_counts_even_without_order_rows(world):
+    """A booked position belongs to the strategy whether or not its order rows are still in the journal."""
+    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+        db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
+                   (SCOPE, "target.ETHUSDT", json.dumps({"position": {"qty": "-0.5"}})))
+    world["fake"].positions["ETHUSDT"] = D("-0.5")
+    _started(world)
+
+
+def test_a_ledger_position_the_venue_does_not_have_refuses_the_start(world):
+    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+        db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
+                   (SCOPE, "target.BTCUSDT", json.dumps({"position": {"qty": "0.1"}})))
+    _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
+
+
+def test_an_unexpected_conditional_order_snapshot_refuses_the_start(world):
+    fake = world["fake"]
+    signed = fake.request_signed
+
+    def odd(*, method, path, params=None):
+        if path == "/fapi/v1/openAlgoOrders":
+            fake.requests.append((method, path))
+            return {"orders": []}                     # not the documented list: never read as "none"
+        return signed(method=method, path=path, params=params)
+
+    fake.request_signed = odd
+    _refused(world, "account could not be read")

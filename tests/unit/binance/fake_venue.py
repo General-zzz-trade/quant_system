@@ -212,6 +212,8 @@ class FakeBinance:
                                             "triggerPrice": p["triggerPrice"], "actualOrderId": "",
                                             "closePosition": p.get("closePosition")}
             return dict(self.algo[p["clientAlgoId"]])
+        if path == "/fapi/v1/openAlgoOrders" and method == "GET":
+            return [dict(a) for a in self.algo.values() if a["algoStatus"] == "NEW"]
         if path == "/fapi/v1/algoOrder" and method == "GET":
             if p["clientAlgoId"] not in self.algo:
                 self._error(-2013, "Order does not exist.")

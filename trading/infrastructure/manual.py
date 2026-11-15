@@ -42,7 +42,7 @@ SETTLES_AS = {"filled": "filled", "canceled": "canceled", "expired": "expired", 
 
 def _connect(testnet: bool, symbols: list[str], env: Mapping[str, str]) -> Any:
     account = BinanceAdapter(binance_config_from_env(testnet=testnet, env=env))
-    if not account.connect(symbols=tuple(symbols), configure_leverage=False):
+    if not account.connect(symbols=tuple(symbols)):
         raise RuntimeError("Binance account connection failed")
     return account
 
