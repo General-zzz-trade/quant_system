@@ -12,6 +12,8 @@ from tests.unit.lab.test_target_runtime import _world
 from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.telegram import TelegramNotifier
 from trading.application.alerts import ALERT_AFTER_SECONDS, REPEAT_SECONDS, IssueAlerts, NotifyingEventLog
+from trading.application.issues import Issue
+from trading.domain.issues import IssueKind
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure.settings import notifier_from_env
 from tests.support.state_db import state_dir_db
@@ -115,7 +117,7 @@ def test_a_notifier_that_fails_never_stops_the_event_log():
 def test_an_issue_is_sent_once_it_lasts_then_repeated_rarely_and_its_end_is_reported():
     clock, notifier = {"t": 0.0}, Recorder()
     alerts = IssueAlerts(notifier, lambda: clock["t"], prefix="p")
-    issue = "BTCUSDT: venue qty=0.1, ledger qty=0"
+    issue = Issue(IssueKind.LEDGER_MISMATCH, "BTCUSDT", "BTCUSDT: venue qty=0.1, ledger qty=0")
     for t in (0, 60, ALERT_AFTER_SECONDS - 1):
         clock["t"] = t
         alerts.observe("BTCUSDT", [issue])
@@ -139,13 +141,13 @@ def test_an_issue_is_sent_once_it_lasts_then_repeated_rarely_and_its_end_is_repo
 def test_an_issue_that_ends_before_it_was_sent_ends_silently_and_starts_afresh():
     clock, notifier = {"t": 0.0}, Recorder()
     alerts = IssueAlerts(notifier, lambda: clock["t"], prefix="p")
-    alerts.observe("BTCUSDT", ["BTCUSDT: undelivered fills"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.UNDELIVERED_FILL, "BTCUSDT", "BTCUSDT: undelivered fills")])
     clock["t"] = 100
     alerts.observe("BTCUSDT", [])
     clock["t"] = 200
-    alerts.observe("BTCUSDT", ["BTCUSDT: undelivered fills"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.UNDELIVERED_FILL, "BTCUSDT", "BTCUSDT: undelivered fills")])
     clock["t"] = 300
-    alerts.observe("BTCUSDT", ["BTCUSDT: undelivered fills"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.UNDELIVERED_FILL, "BTCUSDT", "BTCUSDT: undelivered fills")])
     assert notifier.sent == []
 
 
@@ -155,19 +157,21 @@ def test_some_issues_may_wait_longer_before_they_are_sent():
                          wait=lambda issue: 4000.0 if "unresolved" in issue else ALERT_AFTER_SECONDS)
     for t in (0, 3999):
         clock["t"] = t
-        alerts.observe("BTCUSDT", ["BTCUSDT: unresolved orders or legacy journal records"])
+        alerts.observe("BTCUSDT", [Issue(IssueKind.UNRESOLVED_ORDER, "BTCUSDT",
+                                         "BTCUSDT: unresolved orders or legacy journal records")])
     assert notifier.sent == []
     clock["t"] = 4000
-    alerts.observe("BTCUSDT", ["BTCUSDT: unresolved orders or legacy journal records"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.UNRESOLVED_ORDER, "BTCUSDT",
+                                         "BTCUSDT: unresolved orders or legacy journal records")])
     assert len(notifier.sent) == 1
 
 
 def test_a_notifier_that_fails_never_stops_the_issue_tracking():
     clock = {"t": 0.0}
     alerts = IssueAlerts(Recorder(fail=True), lambda: clock["t"], prefix="p")
-    alerts.observe("BTCUSDT", ["x"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.RECONCILE_FAILED, "BTCUSDT", "x")])
     clock["t"] = ALERT_AFTER_SECONDS
-    alerts.observe("BTCUSDT", ["x"])
+    alerts.observe("BTCUSDT", [Issue(IssueKind.RECONCILE_FAILED, "BTCUSDT", "x")])
     alerts.observe("BTCUSDT", [])
 
 
@@ -229,5 +233,7 @@ def test_without_telegram_settings_execution_alerts_go_to_the_log(tmp_path):
 @pytest.mark.parametrize("execution,ttl,wait", [("maker", 3, 3 * 3600.0 + 600.0), ("market", 1, ALERT_AFTER_SECONDS)])
 def test_an_unresolved_order_is_news_only_after_a_maker_entry_s_lifetime(tmp_path, execution, ttl, wait):
     _, runtime = _runtime(tmp_path, Recorder(), execution=execution, ttl_bars=ttl)
-    assert runtime._alert_wait("BTCUSDT: unresolved orders or legacy journal records") == wait
-    assert runtime._alert_wait("BTCUSDT: venue qty=0.1, ledger qty=0") == ALERT_AFTER_SECONDS
+    unresolved = Issue(IssueKind.UNRESOLVED_ORDER, "BTCUSDT", "BTCUSDT: unresolved orders or legacy journal records")
+    mismatch = Issue(IssueKind.LEDGER_MISMATCH, "BTCUSDT", "BTCUSDT: venue qty=0.1, ledger qty=0")
+    assert runtime._alert_wait(unresolved) == wait
+    assert runtime._alert_wait(mismatch) == ALERT_AFTER_SECONDS

@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 from trading.application.execution.service import ExecutionService
+from trading.application.issues import Issue
 from trading.application.ports import OrderJournal
 from trading.domain.orders import ConfirmedFill, OrderIntent
 
@@ -99,8 +100,8 @@ class OwnerExecutor:
                           qty=Decimal(str(row["qty"])), price=Decimal(str(row["price"])))
                      for row in self._service.poll())
 
-    def reconcile_account(self, symbol: str) -> list[str]:
-        """Read-only verification; any issue blocks entries until a clean pass."""
+    def reconcile_account(self, symbol: str) -> list[Issue]:
+        """Read-only verification; a blocking issue blocks entries until a clean pass."""
         return self._service.reconcile(symbol)
 
 

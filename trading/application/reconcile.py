@@ -8,7 +8,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from trading.application.issues import Issue
 from trading.application.ports import ExchangeAccount, OrderJournal
+from trading.domain.issues import IssueKind as K
 
 UNRESOLVED_ORDERS = "unresolved orders or legacy journal records"
 
@@ -28,25 +30,29 @@ def booked_position(journal: OrderJournal, rows: list[dict[str, Any]], symbol: s
     return total
 
 
-def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str) -> list[str]:
-    issues: list[str] = []
+def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str) -> list[Issue]:
+    issues: list[Issue] = []
+
+    def add(kind: K, text: str) -> None:
+        issues.append(Issue(kind, symbol, f"{symbol}: {text}"))
+
     try:
         positions = account.get_positions(symbol=symbol, strict=True)
         nonflat = [p for p in positions if p.symbol == symbol and Decimal(str(p.qty)) != 0]
         if len(nonflat) > 1:
-            issues.append(f"{symbol}: multiple positions require explicit reconciliation")
+            add(K.LEDGER_MISMATCH, "multiple positions require explicit reconciliation")
         actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))
         expected = booked_position(journal, journal.orders(), symbol, owner)
         if not actual.is_finite() or not expected.is_finite() or actual != expected:
-            issues.append(f"{symbol}: venue qty={actual}, ledger qty={expected}")
+            add(K.LEDGER_MISMATCH, f"venue qty={actual}, ledger qty={expected}")
         if any(row["symbol"] == symbol for row in journal.orders(unresolved=True)):
-            issues.append(f"{symbol}: {UNRESOLVED_ORDERS}")
+            add(K.UNRESOLVED_ORDER, UNRESOLVED_ORDERS)
         known = {row["order_id"] for row in journal.orders() if row["symbol"] == symbol}
         for order in account.get_open_orders(symbol=symbol, strict=True):
             if order.order_id not in known:
-                issues.append(f"{symbol}: unowned open order {order.order_id}")
+                add(K.FOREIGN_HOLDING, f"unowned open order {order.order_id}")
         if journal.fills(owner):
-            issues.append(f"{symbol}: undelivered fills")
+            add(K.UNDELIVERED_FILL, "undelivered fills")
     except Exception as exc:
-        issues.append(f"{symbol}: reconciliation failed ({type(exc).__name__})")
+        add(K.RECONCILE_FAILED, f"reconciliation failed ({type(exc).__name__})")
     return issues

@@ -12,11 +12,12 @@ from typing import Any
 
 from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
 from trading.application.equity import EquitySource
+from trading.application.issues import Issue, with_effect
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
                                        MarketData, Notifier, PaperStore, StatusSink)
-from trading.application.reconcile import UNRESOLVED_ORDERS
 from trading.application.session import FUNDING_INTERVAL, TargetSession
 from trading.domain.bars import HOUR, bar_from_kline
+from trading.domain.issues import Effect, IssueKind as K
 from trading.domain.strategy.overlay import StrategySpec
 
 logger = logging.getLogger("binance_target")
@@ -59,7 +60,7 @@ class TargetRuntime:
         self.notifier = notifier
         self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
             if notifier is not None else None
-        self._exit_errors: dict[str, str] = {}      # symbol -> the last exit failure, until an exit succeeds
+        self._exit_errors: dict[str, Issue] = {}    # symbol -> the last exit failure, until an exit succeeds
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
@@ -135,30 +136,44 @@ class TargetRuntime:
                 session.executor.notify_status()
                 issues = session.executor.reconcile_account(symbol) + session.stops.sync()
             except Exception as exc:
-                session.executor.block_entries()
-                issues = [f"reconciliation failed: {type(exc).__name__}: {exc}"]
+                issues = [Issue(K.RECONCILE_FAILED, symbol, f"reconciliation failed: {type(exc).__name__}: {exc}")]
                 logger.exception("%s reconciliation failed; entries blocked", symbol)
             for issue in issues:
-                self.journal.write("issue", symbol=symbol, issue=issue)
-            if any("stop_breached" in i for i in issues):
-                self._exit(symbol, session, "stop_breached")
-            if self._market_refused is not None:
-                session.executor.block_entries()
-                self.journal.write("issue", symbol=symbol, issue=f"{symbol}: {self._market_refused}")
+                self._write_issue(symbol, issue)
+            flatten = with_effect(issues, Effect.FLATTEN_SYMBOL)
+            if flatten:
+                self._exit(symbol, session, flatten[0].kind.value)
+            refused = Issue(K.MARKET_REFUSED, symbol, f"{symbol}: {self._market_refused}") \
+                if self._market_refused is not None else None
+            if refused is not None:
+                self._write_issue(symbol, refused)
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
-                    self._exit_errors.get(symbol),
-                    f"{symbol}: {self._market_refused}" if self._market_refused else None]
+                    self._exit_errors.get(symbol), refused]
+            found = issues + [issue for issue in more if issue is not None]
+            self._block(session, found)
             if self.issue_alerts is not None:
-                self.issue_alerts.observe(symbol, issues + [issue for issue in more if issue])
+                self.issue_alerts.observe(symbol, found)
         self._last_reconcile = self.clock()
 
-    def _alert_wait(self, issue: str) -> float:
+    def _write_issue(self, symbol: str | None, issue: Issue) -> None:
+        self.journal.write("issue", **({"symbol": symbol} if symbol else {}), issue=str(issue),
+                           issue_kind=issue.kind.value)
+
+    def _block(self, session: TargetSession, issues: list[Issue]) -> None:
+        """Entry blocks from the ADR-0014 table; reductions are never blocked."""
+        if with_effect(issues, Effect.BLOCK_ALL_ENTRIES):
+            for other in self.sessions.values():
+                other.executor.block_entries()
+        elif with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES):
+            session.executor.block_entries()
+
+    def _alert_wait(self, issue: Issue) -> float:
         """A maker entry rests at the venue by design: an unresolved order is news only after its lifetime."""
-        if issue.endswith(UNRESOLVED_ORDERS) and self.spec.execution == "maker":
+        if issue.kind is K.UNRESOLVED_ORDER and self.spec.execution == "maker":
             return self.spec.ttl_bars * 3600.0 + 600.0
         return ALERT_AFTER_SECONDS
 
-    def _save_pause(self, symbol: str, session: TargetSession) -> str | None:
+    def _save_pause(self, symbol: str, session: TargetSession) -> Issue | None:
         """Pause the symbol's entries for every stop trigger the order journal holds that no pause covers yet
         (decided 2026-11-14 / 2026-11-15). Derived from durable rows, so a pause that could not be written -
         or a restart before it was - is written on a later reconciliation; until then entries are blocked."""
@@ -169,13 +184,13 @@ class TargetRuntime:
             new_triggers = {t: c for t, c in triggers.items() if t not in self.pauses.covered(symbol)}
             if not new_triggers:
                 return None
-            breached = [c for c in new_triggers.values() if "breached" in c]
-            cause = breached[0] if breached else next(iter(new_triggers.values()))
+            breached = [c for c in new_triggers.values() if c.kind is K.STOP_BREACHED]
+            cause = str(breached[0] if breached else next(iter(new_triggers.values())))
             new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers))
         except Exception as exc:
-            session.executor.block_entries()
-            issue = f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked"
-            self.journal.write("issue", symbol=symbol, issue=issue)
+            issue = Issue(K.PAUSE_NOT_SAVED, symbol,
+                          f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked")
+            self._write_issue(symbol, issue)
             logger.exception("%s entry pause not saved", symbol)
             return issue
         if new:
@@ -192,7 +207,7 @@ class TargetRuntime:
         except Exception:
             return "unreadable"
 
-    def _require_stop(self, symbol: str, session: TargetSession) -> str | None:
+    def _require_stop(self, symbol: str, session: TargetSession) -> Issue | None:
         """ADR-0005 4b: a confirmed position without an active exchange stop blocks entries. Checked after a
         breached stop's flatten, so a position that flatten closed blocks nothing."""
         try:
@@ -202,9 +217,8 @@ class TargetRuntime:
             unprotected = True
         if not unprotected:
             return None
-        session.executor.block_entries()
-        issue = f"{symbol}: position without an active protective stop; entries blocked"
-        self.journal.write("issue", symbol=symbol, issue=issue)
+        issue = Issue(K.STOP_MISSING, symbol, f"{symbol}: position without an active protective stop; entries blocked")
+        self._write_issue(symbol, issue)
         return issue
 
     def risk_actions(self) -> None:
@@ -227,9 +241,11 @@ class TargetRuntime:
                 session.flatten(reason, now_ms=int(self.clock() * 1000))
             self._exit_errors.pop(symbol, None)
         except Exception as exc:
-            issue = f"{symbol}: {'flatten' if reason else 'entry cancellation'} failed: {type(exc).__name__}: {exc}"
+            what = "flatten" if reason else "entry cancellation"
+            issue = Issue(K.FLATTEN_FAILED if reason else K.CANCEL_FAILED, symbol,
+                          f"{symbol}: {what} failed: {type(exc).__name__}: {exc}")
             self._exit_errors[symbol] = issue
-            self.journal.write("issue", symbol=symbol, issue=issue)
+            self._write_issue(symbol, issue)
             logger.exception("%s exit failed", symbol)
 
     def poll(self) -> int:
@@ -254,8 +270,8 @@ class TargetRuntime:
                                                       MARKET_BACKOFF_MAX)
         self._market_retry_at = self.clock() + delay
         text = f"{type(exc).__name__}: {exc}"
-        self.journal.write("issue", issue=f"market data unavailable: {text}", failures=self._market_failures,
-                           retry_in=delay)
+        self.journal.write("issue", issue=f"market data unavailable: {text}", issue_kind=K.MARKET_DATA.value,
+                           failures=self._market_failures, retry_in=delay)
         logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s", self._market_failures, delay, exc)
         if final and self._market_refused is None:
             self._market_refused = f"market data refused by the exchange ({text}); entries blocked"

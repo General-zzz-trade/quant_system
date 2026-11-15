@@ -22,8 +22,10 @@ from typing import Any, Callable, Protocol
 
 from trading.application.execution.lifecycle import OrderLifecycle, PendingOrder
 from trading.application.execution.reduction import size_reduction
+from trading.application.issues import Issue, with_effect
 from trading.application.ports import Clock, EventLog, ExchangeAccount, Lock, OrderGateway, OrderJournal
 from trading.application.reconcile import reconcile_account
+from trading.domain.issues import Effect, IssueKind
 from trading.domain.orders import BLOCKED, ConfirmedFill, OrderIntent
 
 logger = logging.getLogger(__name__)
@@ -204,13 +206,14 @@ class ExecutionService:
                 self._log_fills(intent_id, (fact,))
             return self.journal.fills(self.owner)
 
-    def reconcile(self, symbol: str) -> list[str]:
-        """Read-only verification; any issue blocks entries until a clean pass."""
+    def reconcile(self, symbol: str) -> list[Issue]:
+        """Read-only verification; an issue whose effects block the symbol's entries blocks them until a
+        clean pass (ADR-0014 table)."""
         self.ready = False
         blockers = getattr(self._venue, "execution_blockers", None)   # optional on legacy venues
-        issues = list(blockers()) if blockers is not None else []
+        issues = [Issue(IssueKind.VENUE_BLOCKED, symbol, text) for text in (blockers() if blockers else [])]
         issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol)
-        self.ready = not issues
+        self.ready = not with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES)
         if issues:
             logger.error("Entry blocked: %s", "; ".join(issues))
         return issues
