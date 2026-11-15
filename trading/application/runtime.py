@@ -1,37 +1,36 @@
-"""The target runtime's main loop: warm up, poll closed bars, reconcile, act on risk, publish status.
+"""The target runtime's main loop: warm up, then every cycle the market, exit and status sides.
 
-Moved from runner/binance_target.py (migration step 10). Everything it touches is injected: market data,
-account, sessions, event log, kill switch, drawdown guard, paper store, status sink and the clock.
+Moved from runner/binance_target.py (migration step 10); split into three parts in S3c (ADR-0013 point 4):
+``MarketPoller`` (market_poller.py), ``ExitSupervisor`` (exit_supervisor.py) and ``StatusReporter`` (status.py).
+This class wires them, keeps the paper state, and runs one cycle. In execution mode the three sides are isolated:
+one that raises does not stop the others in that cycle, and blocks every entry until it works again.
+
+Everything it touches is injected: market data, account, sessions, event log, kill switch, drawdown guard, paper
+store, status sink and the clock.
 """
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from collections.abc import Callable
 from typing import Any
 
-from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
 from trading.application.equity import EquitySource
-from trading.application.issues import Issue, with_effect
+from trading.application.exit_supervisor import EQUITY_SECONDS, RECONCILE_SECONDS, RELEASE_COMMAND, ExitSupervisor
+from trading.application.issues import Issue, write_issue
+from trading.application.market_poller import (FUNDING_WAIT_MS, MARKET_ALERT_AFTER, MARKET_BACKOFF_MAX,
+                                               POLL_SECONDS, MarketPoller)
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
                                        MarketData, Notifier, PaperStore, StatusSink)
-from trading.application.session import FUNDING_INTERVAL, TargetSession
+from trading.application.session import TargetSession
+from trading.application.status import StatusReporter
 from trading.domain.bars import HOUR, bar_from_kline
-from trading.domain.issues import Effect, IssueKind as K
-from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.events import EventKind
+from trading.domain.issues import IssueKind as K
+from trading.domain.strategy.overlay import StrategySpec
 
 logger = logging.getLogger("binance_target")
 
-POLL_SECONDS = 5.0
-RECONCILE_SECONDS = 5.0
-EQUITY_SECONDS = 60.0
-FUNDING_WAIT_MS = 2 * 60_000
-MARKET_BACKOFF_MAX = 300.0
-MARKET_ALERT_AFTER = 5            # failures in a row before an alert (about 75 s with the 5/10/20/40 s backoff)
 PAPER_SCHEMA = 1
-RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
-                  "--reason <why>"
 
 
 class TargetRuntime:
@@ -49,21 +48,46 @@ class TargetRuntime:
         self.sessions, self.journal, self.equity = sessions, journal, equity
         self.kill: Any = kill
         self.drawdown: Any = drawdown
-        self._status_sink, self._paper_store, self._market_errors = status_sink, paper_store, market_errors
-        self._final_market_errors = final_market_errors   # the exchange says retrying will not help (step 14)
-        self._market_refused: str | None = None           # set by such an error, cleared by a success
-        self._spec_passed = spec_passed
-        self._last_equity = self._last_reconcile = 0.0
-        self._market_failures, self._market_retry_at = 0, 0.0
+        self._status_sink, self._paper_store = status_sink, paper_store
         self.reset_paper = reset_paper
         self._saved_cursors: dict[str, int | None] | None = None
         self.pauses = pauses
         self.notifier = notifier
-        self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
-            if notifier is not None else None
-        self._exit_errors: dict[str, Issue] = {}    # symbol -> the last exit failure, until an exit succeeds
-        self._decision_errors: dict[str, Issue] = {}  # symbol -> its last failed bar, until a bar succeeds
-        self._cycle_errors: dict[str, Issue] = {}     # block -> its last failure, until the block succeeds
+        self._cycle_errors: dict[str, Issue] = {}     # side -> its last failure, until the side succeeds
+        self.market_side = MarketPoller(market, sessions, mode=mode, journal=journal, clock=clock,
+                                        market_errors=market_errors, final_market_errors=final_market_errors)
+        self.exits = ExitSupervisor(sessions, spec=spec, journal=journal, clock=clock, account=account, equity=equity,
+                                    kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
+                                    alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
+                                    decision_error=self.market_side.decision_errors.get,
+                                    cycle_errors=lambda: list(self._cycle_errors.values()))
+        self.reporter = StatusReporter(sessions, mode=mode, clock=clock, spec_passed=spec_passed, notifier=notifier,
+                                       kill=kill, drawdown=drawdown, equity=equity,
+                                       market_failures=lambda: self.market_side.failures,
+                                       pause_status=self.exits.pause_status)
+
+    # -- the parts, as the entry point and the tests have always called them --------------------------------------
+    def refresh_equity(self) -> None:
+        self.exits.refresh_equity()
+
+    def reconcile(self) -> None:
+        self.exits.reconcile()
+
+    def risk_actions(self) -> None:
+        self.exits.risk_actions()
+
+    def poll(self) -> int:
+        return self.market_side.poll()
+
+    def status(self) -> dict[str, Any]:
+        return self.reporter.status()
+
+    def _alert_wait(self, issue: Issue) -> float:
+        return self.exits.alert_wait(issue)
+
+    @property
+    def _market_retry_at(self) -> float:
+        return self.market_side.retry_at
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
@@ -93,8 +117,8 @@ class TargetRuntime:
         if self.mode == "paper":
             self.save_paper_state()
         if self.mode == "execution":
-            self.refresh_equity()
-            self.reconcile()
+            self.exits.refresh_equity()
+            self.exits.reconcile()
 
     def warmup_or_hold(self) -> bool:
         """Warm up. In execution mode a market-data failure does not end the process: the exit side - equity,
@@ -103,228 +127,22 @@ class TargetRuntime:
         if self.mode != "execution":
             self.warmup()
             return True
-        if self.clock() >= self._market_retry_at:
+        if self.market_side.due():
             for session in self.sessions.values():        # a partial earlier attempt must not leave bars behind
                 session.bars.clear()
                 session.funding.clear()
                 session.cursor = None
             try:
                 self.warmup()
-                self._market_failures, self._market_refused = 0, None
+                self.market_side.recovered()
                 return True
-            except self._market_errors as exc:
-                self._market_failed(exc)
-        if self.clock() - self._last_equity >= EQUITY_SECONDS:
-            self.refresh_equity()
-        self.reconcile()
-        self.risk_actions()
+            except self.market_side.errors as exc:
+                self.market_side.failed(exc)
+        self.exits.refresh_equity_if_due()
+        self.exits.reconcile()
+        self.exits.risk_actions()
         self._status_sink.write(self.status())
         return False
-
-    def refresh_equity(self) -> None:
-        try:
-            assert self.account is not None
-            equity = self.account.get_account_equity()
-            self.equity.update(Decimal(str(equity)))
-            self.drawdown.observe(float(equity))
-        except Exception:
-            self.drawdown.invalidate("exchange equity unavailable")
-            logger.warning("Equity refresh failed; entries blocked", exc_info=True)
-        self._last_equity = self.clock()
-
-    def reconcile(self) -> None:
-        for symbol, session in self.sessions.items():
-            try:
-                session.consume_fills()
-                session.executor.notify_status()
-                issues = session.executor.reconcile_account(symbol) + session.stops.sync()
-            except Exception as exc:
-                issues = [Issue(K.RECONCILE_FAILED, symbol, f"reconciliation failed: {type(exc).__name__}: {exc}")]
-                logger.exception("%s reconciliation failed; entries blocked", symbol)
-            for issue in issues:
-                self._write_issue(symbol, issue)
-            flatten = with_effect(issues, Effect.FLATTEN_SYMBOL)
-            if flatten:
-                self._exit(symbol, session, flatten[0].kind.value)
-            refused = Issue(K.MARKET_REFUSED, symbol, f"{symbol}: {self._market_refused}") \
-                if self._market_refused is not None else None
-            if refused is not None:
-                self._write_issue(symbol, refused)
-            more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
-                    self._exit_errors.get(symbol), self._decision_errors.get(symbol), refused]
-            found = issues + [issue for issue in more if issue is not None]
-            self._block(session, found + list(self._cycle_errors.values()))
-            if self.issue_alerts is not None:
-                self.issue_alerts.observe(symbol, found)
-        if self.issue_alerts is not None:
-            self.issue_alerts.observe("runtime", list(self._cycle_errors.values()))
-        self._last_reconcile = self.clock()
-
-    def _write_issue(self, symbol: str | None, issue: Issue) -> None:
-        self.journal.write(EventKind.ISSUE, **({"symbol": symbol} if symbol else {}), issue=str(issue),
-                           issue_kind=issue.kind.value)
-
-    def _block(self, session: TargetSession, issues: list[Issue]) -> None:
-        """Entry blocks from the ADR-0014 table; reductions are never blocked."""
-        if with_effect(issues, Effect.BLOCK_ALL_ENTRIES):
-            for other in self.sessions.values():
-                other.executor.block_entries()
-        elif with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES):
-            session.executor.block_entries()
-
-    def _alert_wait(self, issue: Issue) -> float:
-        """A maker entry rests at the venue by design: an unresolved order is news only after its lifetime."""
-        if issue.kind is K.UNRESOLVED_ORDER and self.spec.execution == "maker":
-            return self.spec.ttl_bars * 3600.0 + 600.0
-        return ALERT_AFTER_SECONDS
-
-    def _save_pause(self, symbol: str, session: TargetSession) -> Issue | None:
-        """Pause the symbol's entries for every stop trigger the order journal holds that no pause covers yet
-        (decided 2026-11-14 / 2026-11-15). Derived from durable rows, so a pause that could not be written -
-        or a restart before it was - is written on a later reconciliation; until then entries are blocked."""
-        if self.pauses is None:
-            return None
-        try:
-            triggers = session.stops.triggers()
-            new_triggers = {t: c for t, c in triggers.items() if t not in self.pauses.covered(symbol)}
-            if not new_triggers:
-                return None
-            breached = [c for c in new_triggers.values() if c.kind is K.STOP_BREACHED]
-            cause = str(breached[0] if breached else next(iter(new_triggers.values())))
-            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers))
-        except Exception as exc:
-            issue = Issue(K.PAUSE_NOT_SAVED, symbol,
-                          f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked")
-            self._write_issue(symbol, issue)
-            logger.exception("%s entry pause not saved", symbol)
-            return issue
-        if new:
-            self.journal.write(EventKind.ALERT, symbol=symbol,
-                               reason=f"entries paused: {cause}; a person releases them "
-                                      f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
-            logger.error("%s entries paused: %s", symbol, cause)
-        return None
-
-    def _pause_status(self, symbol: str) -> str | None:
-        if self.pauses is None:
-            return None
-        try:
-            return self.pauses.reason(symbol)
-        except Exception:
-            return "unreadable"
-
-    def _require_stop(self, symbol: str, session: TargetSession) -> Issue | None:
-        """ADR-0005 4b: a confirmed position without an active exchange stop blocks entries. Checked after a
-        breached stop's flatten, so a position that flatten closed blocks nothing."""
-        try:
-            unprotected = session.stops.unprotected()
-        except Exception:
-            logger.exception("%s stop check failed; entries blocked", symbol)
-            unprotected = True
-        if not unprotected:
-            return None
-        issue = Issue(K.STOP_MISSING, symbol, f"{symbol}: position without an active protective stop; entries blocked")
-        self._write_issue(symbol, issue)
-        return issue
-
-    def risk_actions(self) -> None:
-        kill = self.kill.state()
-        close = (kill.active and kill.flatten) or self.drawdown.latched()
-        for symbol, session in self.sessions.items():
-            if close:
-                self._exit(symbol, session, "kill_switch" if kill.active else "drawdown_latched")
-            elif kill.active or self._pause_status(symbol) is not None:
-                # New exposure is blocked, so a resting entry must not fill either (audit after step 12b).
-                self._exit(symbol, session, None)
-
-    def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
-        """Flatten (or, without a reason, only cancel resting entries). A failure is reported, never raised:
-        one symbol's broken exit must not stop the other symbol's, nor the next cycle."""
-        try:
-            if reason is None:
-                session.cancel_entries()
-            else:
-                session.flatten(reason, now_ms=int(self.clock() * 1000))
-            self._exit_errors.pop(symbol, None)
-        except Exception as exc:
-            what = "flatten" if reason else "entry cancellation"
-            issue = Issue(K.FLATTEN_FAILED if reason else K.CANCEL_FAILED, symbol,
-                          f"{symbol}: {what} failed: {type(exc).__name__}: {exc}")
-            self._exit_errors[symbol] = issue
-            self._write_issue(symbol, issue)
-            logger.exception("%s exit failed", symbol)
-
-    def poll(self) -> int:
-        """Process newly closed bars. A market-data failure is logged and retried with backoff instead of
-        ending the process, so reconciliation, stops and risk actions keep running in the same cycle."""
-        if self.clock() < self._market_retry_at:
-            return 0
-        try:
-            processed = self._poll_market()
-        except self._market_errors as exc:
-            self._market_failed(exc)
-            return 0
-        self._market_failures, self._market_refused = 0, None
-        return processed
-
-    def _market_failed(self, exc: BaseException) -> None:
-        """Count, back off, and tell a person: after MARKET_ALERT_AFTER failures in a row, or at once when the
-        exchange calls the error final - entries then stay blocked until market data works again."""
-        self._market_failures += 1
-        final = isinstance(exc, self._final_market_errors)
-        delay = MARKET_BACKOFF_MAX if final else min(POLL_SECONDS * 2 ** (self._market_failures - 1),
-                                                      MARKET_BACKOFF_MAX)
-        self._market_retry_at = self.clock() + delay
-        text = f"{type(exc).__name__}: {exc}"
-        self.journal.write(EventKind.ISSUE, issue=f"market data unavailable: {text}", issue_kind=K.MARKET_DATA.value,
-                           failures=self._market_failures, retry_in=delay)
-        logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s", self._market_failures, delay, exc)
-        if final and self._market_refused is None:
-            self._market_refused = f"market data refused by the exchange ({text}); entries blocked"
-            self.journal.write(EventKind.ALERT, reason=f"{self._market_refused} until it works again")
-        elif not final and self._market_failures == MARKET_ALERT_AFTER:
-            self.journal.write(EventKind.ALERT,
-                               reason=f"market data unavailable {MARKET_ALERT_AFTER} times in a row: {text}")
-
-    def _poll_market(self) -> int:
-        processed = 0
-        now_ms = int(self.clock() * 1000)
-        for symbol, session in self.sessions.items():
-            assert session.cursor is not None
-            close = session.cursor + 2 * HOUR
-            if now_ms < close:
-                continue
-            missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
-            for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) // 8):
-                session.funding[round(at / HOUR) * HOUR] = rate
-            settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
-            if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
-                continue
-            rows = self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms)
-            new = [bar for bar in map(bar_from_kline, rows) if bar.open_time > session.cursor]
-            for k, bar in enumerate(new):
-                # Execution decides on the newest bar only: older bars missed during an outage just extend
-                # the window. A late newest bar may still reduce; entries are refused as "processed too late"
-                # (approved 2026-11-14, ADR-0007). Paper replays every bar, as research does.
-                try:
-                    session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
-                    self._decision_errors.pop(symbol, None)
-                except Exception as exc:
-                    if self.mode != "execution":
-                        raise                       # paper must not diverge from research silently
-                    self._decision_failed(symbol, session, exc)
-                processed += 1
-        return processed
-
-    def _decision_failed(self, symbol: str, session: TargetSession, exc: Exception) -> None:
-        """One symbol's bar raised (S3c): only its entries are blocked, the other symbols and the exit side go
-        on, and the next bar decides again. Until a bar succeeds the issue is re-applied every reconciliation."""
-        issue = Issue(K.DECISION_FAILED, symbol, f"{symbol}: bar not processed: {type(exc).__name__}: {exc}")
-        if self._decision_errors.get(symbol) != issue:
-            self._write_issue(symbol, issue)
-            logger.exception("%s bar not processed; its entries are blocked", symbol)
-        self._decision_errors[symbol] = issue
-        session.executor.block_entries()
 
     # -- paper state -----------------------------------------------------------
     def _load_paper_state(self) -> dict[str, Any]:
@@ -353,58 +171,32 @@ class TargetRuntime:
                                 "symbols": {symbol: s.paper_snapshot() for symbol, s in self.sessions.items()}})
         self._saved_cursors = cursors
 
-    # -- status and the cycle ------------------------------------------------------
-    def status(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"mode": self.mode, "at": self.clock(), "spec_passed_gate": self._spec_passed,
-                               "alerts": getattr(self.notifier, "channel", None),
-                               "market_failures": self._market_failures, "symbols": {}}
-        if self.kill is not None:
-            out["kill"] = _readable(lambda: self.kill.state().__dict__)
-            out["drawdown_latched"] = _readable(self.drawdown.latched)
-            out["equity"] = str(self.equity.value)
-        for symbol, s in self.sessions.items():
-            stops = s.stops
-            out["symbols"][symbol] = {
-                "last_bar_open": s.cursor, "target": s.last_target[0], "target_ready": s.last_target[1],
-                "entry_ready": s.entry_ready, "entry_reason": s.entry_reason,
-                "position": _readable(lambda: str(s.position_qty())),
-                "sleeve_equity": str(s.sleeve_equity()),
-                "protective_stop": _readable(stops.has_active_stop) if stops else None,
-                "flatten_failures": s.flattener.failures if s.flattener else None,
-                "entry_pause": _readable(lambda: self._pause_status(symbol))}
-        return out
-
+    # -- the cycle ------------------------------------------------------------------------------------------------
     def cycle(self) -> None:
         if self.mode == "paper":
-            self.poll()
+            self.market_side.poll()
             self.save_paper_state()
             self._status_sink.write(self.status())
             return
-        # Execution: three isolated blocks (S3c). One that raises does not stop the others in this cycle.
-        self._run_block("market", self._market_side)
-        self._run_block("exit", self._exit_side)
-        self._run_block("status", lambda: self._status_sink.write(self.status()))
+        # Execution: three isolated sides (S3c). One that raises does not stop the others in this cycle.
+        self._run_side("market", self._market)
+        self._run_side("exit", self.exits.run)
+        self._run_side("status", lambda: self._status_sink.write(self.status()))
 
-    def _market_side(self) -> None:
-        if self.clock() - self._last_equity >= EQUITY_SECONDS:
-            self.refresh_equity()
+    def _market(self) -> None:
+        self.exits.refresh_equity_if_due()
         for session in self.sessions.values():           # entries the rate limit refused on an earlier cycle
             session.retry_deferred(int(self.clock() * 1000))
-        self.poll()
+        self.market_side.poll()
 
-    def _exit_side(self) -> None:
-        if self.clock() - self._last_reconcile >= RECONCILE_SECONDS:
-            self.reconcile()
-        self.risk_actions()
-
-    def _run_block(self, name: str, run: Callable[[], None]) -> None:
-        """A failing block blocks every entry at once, and at every reconciliation until it succeeds again."""
+    def _run_side(self, name: str, run: Callable[[], None]) -> None:
+        """A failing side blocks every entry at once, and at every reconciliation until it succeeds again."""
         try:
             run()
         except Exception as exc:
             issue = Issue(K.CYCLE_FAILED, None, f"{name} side failed: {type(exc).__name__}: {exc}")
             if self._cycle_errors.get(name) != issue:
-                self._write_issue(None, issue)
+                write_issue(self.journal, None, issue)
                 logger.exception("%s side failed; every entry is blocked", name)
             self._cycle_errors[name] = issue
             for session in self.sessions.values():
@@ -413,13 +205,5 @@ class TargetRuntime:
             self._cycle_errors.pop(name, None)
 
 
-def _readable(read: Callable[[], Any]) -> Any:
-    """A status field from a store: "unreadable" instead of an exception. A lost state database must not stop
-    the cycle that reports it; reconciliation already blocks entries and raises the issue (ADR-0009)."""
-    try:
-        return read()
-    except Exception as exc:
-        return f"unreadable ({type(exc).__name__})"
-
-
-__all__ = ["POLL_SECONDS", "TargetRuntime"]
+__all__ = ["EQUITY_SECONDS", "FUNDING_WAIT_MS", "MARKET_ALERT_AFTER", "MARKET_BACKOFF_MAX", "PAPER_SCHEMA",
+           "POLL_SECONDS", "RECONCILE_SECONDS", "RELEASE_COMMAND", "TargetRuntime"]

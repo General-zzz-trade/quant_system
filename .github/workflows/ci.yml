@@ -74,6 +74,8 @@ jobs:
             --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite \
             --cov=trading.application.reconcile --cov=trading.adapters.binance --cov=trading.adapters.files \
             --cov=trading.application.runtime --cov=trading.application.session --cov=trading.infrastructure \
+            --cov=trading.application.market_poller --cov=trading.application.exit_supervisor \
+            --cov=trading.application.status --cov=trading.application.issues \
             --cov=trading.domain.risk --cov=trading.domain.orders --cov-report=term --cov-fail-under=75
 
   # The whole suite (everything `make test-all` runs), split into shards that run at the same time.
