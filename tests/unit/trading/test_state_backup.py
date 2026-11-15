@@ -117,3 +117,20 @@ def test_two_backups_in_the_same_second_do_not_overwrite_each_other(state, tmp_p
     assert _run(state, tmp_path / "backups")[0] == 0
     code, out = _run(state, tmp_path / "backups")
     assert code != 0 and _snapshots(tmp_path / "backups") == ["state-20261120T120005Z.sqlite"]
+
+
+def test_the_live_database_stays_as_it_was_and_the_snapshot_is_one_file(state, tmp_path):
+    before = (state / schema.STATE_DB).read_bytes()
+    assert _run(state, tmp_path / "backups")[0] == 0
+    db = sqlite3.connect(state / schema.STATE_DB)
+    try:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        db.close()
+    assert (state / schema.STATE_DB).read_bytes() == before
+    snapshot = tmp_path / "backups" / "state-20261120T120005Z.sqlite"
+    db = sqlite3.connect(f"{snapshot.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    finally:
+        db.close()
