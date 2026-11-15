@@ -24,3 +24,17 @@ def state_dir_db(directory: Path) -> Path:
 
 
 __all__ = ["state_db", "state_dir_db"]
+
+
+def database_tables(path: Path) -> set[str] | None:
+    """The tables of the database at ``path``, opened read-only, or None if it cannot be read. Moved here from
+    trading/adapters/sqlite/check.py, which no production code used any more (S2 audit, finding 6)."""
+    import sqlite3
+    try:
+        db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return {str(r[0]) for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return None

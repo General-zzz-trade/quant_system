@@ -2461,3 +2461,18 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
 - 最终 12 个全部被抓住。
 
 **本地**【实际运行结果】：相关的 7 组测试、ruff、`mypy trading/`（79 个文件）、导入契约都通过。
+
+## 删除 `trading/adapters/sqlite/check.py`（2026-11-15，删除批次，轻流程）
+
+- **依据**：S2 独立审计第 6 条记下"已经没有生产代码使用，放进下一个删除批次"。正在进行 S3 独立审计，按规则这期间只做文档和删除。
+- **方法**：`import_graph.py importers` 只找到一个测试文件在用；用 `git grep` 查了模块名和路径，除执行记录外没有别的引用。
+- **改动**：
+  - 删除生产文件 1 个（21 行）。
+  - 唯一的函数 `database_tables` 原样搬到测试辅助 `tests/support/state_db.py`。
+  - `test_lost_state_files.py` 只改了导入行，断言不变。
+- **本地**【实际运行结果】：`test_lost_state_files.py`、架构测试、导入契约、`mypy trading/`（78 个文件）都通过。
+- **已有断言的改动（1 处，CI 第一次运行时发现）**：
+  - `test_state_database.py::test_only_the_schema_module_creates_tables_and_only_the_factory_connects` 列出了允许直接连接数据库的模块。删掉 `check.py` 后清单少了一项，测试因此变得更严。
+    - 原来：`assert connectors == ["check.py", "connection.py", "paper_store.py", "schema.py"]`
+    - 现在：`assert connectors == ["connection.py", "paper_store.py", "schema.py"]`
+  - 本地漏掉的原因：引用扫描只查了模块路径写法，没查 `check.py` 这种文件名写法，相关的测试文件也没跑。
