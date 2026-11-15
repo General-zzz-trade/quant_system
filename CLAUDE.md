@@ -122,7 +122,10 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Research:**
 - `lab/`: target-weight strategies with fixed-date windows.
-- `runner/offline/broker.py`: the research broker `lab.simulate` uses; it moves into `trading/` with ADR-0006.
+- `trading/adapters/simulated/bar_broker.py`: the research broker (`BarBroker`), its configuration and the research
+  lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; that path is a
+  re-export shell for the broker's unit tests). The maker limit offset is defined once:
+  `trading.domain.orders.LIMIT_OFFSET_BPS`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**

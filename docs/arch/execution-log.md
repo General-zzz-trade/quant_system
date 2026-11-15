@@ -2541,3 +2541,75 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
 **留给技术负责人**
 - 中频线的模拟器列为例外，没有删除。设计第 10 节只对配对研究写了"列为例外或删除"。
 - 成交规则抓不到"完全不算成本"的自写收益曲线，这类写法仍靠审查【推测】。
+
+## S10 第 1 部分：研究撮合器搬进 trading，限价偏移只定义一次（2026-11-15，ADR-0013 第 1、5 条，资金路径完整流程）
+
+技术负责人 2026-11-15 批准 S10，要求在 M5 的 4 周计时开始之前合并，分 2–3 个 PR。这是第 1 个。S10 的四个决定（翻向规则、每秒限额、默认风控限额、状态原子保存）记在 ADR-0013 的"实施更正（S10）"里，这一部分不实施。
+
+**改了什么**
+- 撮合器 `runner/offline/broker.py` 搬到 `trading/adapters/simulated/bar_broker.py`（`a93f0b6`，纯搬移）。撮合逻辑没有改，和原文件只有三处不同：
+  - `Bar` 改从 `trading.domain.bars` 导入。这是同一个类；`trading` 不得导入 `data`。
+  - 为 `mypy trading/` 的严格检查加了类型标注（`23e404b`）：只读协议 `BrokerOrder`（撮合器读订单的哪些字段）、行的别名 `Row`，以及一处 `cast`。`_protect` 只在逐仓模式且有持仓时调用，此时强平价不会是 None。
+  - 新增公开方法 `cancel(order_id)`（`31813a5`），供模拟交易所撤单：
+    - 挂着的单经撮合器自己的 `_finish` 撤掉（状态回调，原因 "canceled by request"），返回 True；
+    - 不在挂着的单（已成交、已撤、被拒、从没发过）什么都不改，返回 False；
+    - 撤掉的单用同一个编号重发不会复活。
+    - 研究不调用它，研究结果不变。
+- `SymbolRules`、`SYMBOL_RULES`、`broker_config` 从 `lab/simulate.py` 原样搬到同一个模块（`2ca2837`）。
+  - `broker_config` 的 `spec` 参数加了类型 `StrategySpec`，只在类型检查时导入。所以撮合器模块仍然不加载 numpy、pandas【实际运行结果】。
+  - `lab.simulate` 导入并转出这三个名字，研究、入口和测试照旧从那里取。
+- 限价偏移只定义一次（`80f18c5`）：`trading/domain/orders.py` 的 `LIMIT_OFFSET_BPS = Decimal("2")`。
+  - 原来写了四份：撮合器 `ReplayConfig` 的默认值、`broker_config`、`lab/breakout_study.py:73`、执行组装的 `target.LIMIT_OFFSET`。ADR-0013 第 5 条只列了三份，漏了已关闭的突破线。
+  - 四处都改为引用它，值不变：撮合器仍是字符串 `"2"`，`ExecutionService` 仍是 `0.0002`。
+  - 放在领域层，因为研究、适配器和组装根都可以导入领域层。
+- 导入契约"adapters do not import each other"加入 `trading.adapters.simulated`（`e7f6509`）。这是收紧，没有放开任何导入。
+
+**旧路径**
+- `runner/offline/broker.py` 留作转发薄壳（`BarBroker`、`ReplayConfig`、`BrokerFill`）。
+  - 生产代码已经不用它。只有撮合器的两个单元测试文件 `tests/unit/runner/test_broker_isolated.py`、`test_broker_maker.py` 还从这里导入。
+  - 这两个文件搬到 `tests/unit/trading/`（只改导入行）之后，薄壳就可以删掉。
+- `lab.simulate` 转出 `SYMBOL_RULES`、`SymbolRules`、`broker_config`。`lab.simulate` 本身不是薄壳，`Sleeve` 和 `simulate` 还在这里。
+  - 生产代码里的使用者：`runner/binance_target.py`、`lab/overlay_risk_study.py`、`lab/breakout_study.py`。
+
+**先写的测试**（单独提交 `105bafe`，在旧代码上失败）
+- `tests/architecture/test_shared_parameters.py`（5 条）：
+  - 规则：生产代码里名字含 `limit_offset`（不分大小写）的东西不得取字面值，唯一的定义除外。"取值"指赋值、数据类字段、关键字参数、参数默认值。"字面值"指常数，可以套 `Decimal`、`D`、`str`、`float`、`int` 和算术，也包括绑定到常数的模块级名字。
+  - 在旧代码上找到 5 处【测试日志】：四份定义，加上 `target.py` 把模块级常数 `LIMIT_OFFSET` 传给 `limit_offset=`。
+  - 撮合器、它的配置和研究的手数常数（`BarBroker`、`ReplayConfig`、`BrokerFill`、`SymbolRules`、`SYMBOL_RULES`）只在 `bar_broker.py` 定义。`broker_config` 不在名单里：已关闭的突破研究有自己的成本设置。
+  - 反例 3 条：9 种字面值写法都被抓到；引用唯一定义的写法不算违规；导入不算定义。
+- `tests/unit/trading/test_simulated_bar_broker.py`（5 条，旧代码上导入失败）：
+  - 研究的 `Sleeve`、突破研究和旧路径用的都是适配器里的同一个类，`lab.simulate` 转出的是同一批对象；
+  - 研究和执行把挂单入场挂在同一个价格：参考价 ×（1 − 偏移）；
+  - `cancel` 3 条：撤掉挂着的入场后它不再成交，重发也不复活，回调和原因正确；撤掉挂着的减仓；不在挂着的单不改任何东西。
+- 变异自检后补 1 条（同一文件）：已关闭的突破研究的撮合器设置，等于 2026-11-14 记录在 `research/results/breakout_2026-11-14/final_spec.json` 里的那份。
+- 每条新测试都单独跑过。
+
+**已有测试的改动**
+- 有一条已有断言必须改，**还没有改，等技术负责人决定**：`tests/architecture/test_rules.py::test_the_target_entry_point_loads_no_rust_and_no_old_event_types`。
+  - 原来：`assert _legacy_loaded_by("runner.binance_target") == "['data', 'lab', 'runner']"`
+  - 应改为：`assert _legacy_loaded_by("runner.binance_target") == "['lab', 'runner']"`
+  - 原因【实际运行结果】：入口只经 `runner.offline.broker` 加载 `data`，因为撮合器从 `data.quality.causal_bars` 导入 `Bar`。撮合器进了 `trading` 只能从 `trading.domain.bars` 导入，入口就不再加载 `data`。
+  - 这条测试记的是入口还加载哪些旧包。少一个正是 ADR-0013 要的方向（完成标准第 1 条）。
+- `tests/architecture/test_research_fills.py` 只改了文档字符串里撮合器的路径，规则和断言不变。
+- 测试辅助：没有改。
+
+**变异自检**【实际运行结果】（`scripts/dev/mutate.py`，16 个缺陷）
+- 撤单 8 个：对不在挂着的单也报成功；在全部订单里找；按行号找；不记原因；绕过状态回调；记成被拒；不从挂单里移走；撤掉后报失败。
+- 偏移 8 个：
+  - 唯一定义改值；
+  - 撮合器默认值、研究的 `broker_config`、突破研究各自算出别的偏移；
+  - 执行把基点换算错；
+  - 撮合器默认值又写成字面值（换了值）；执行、研究又各写一份字面值（值相同，只有架构规则能发现）。
+- 第一轮抓住 15 个。存活 1 个：突破研究的偏移换成别的值，没有测试发现。突破线是市价入场，偏移不影响成交，只进记录。补了上面那条"设置等于记录"的测试。
+- 第二轮 16 个全部抓住。
+
+**本地**【实际运行结果】
+- `tests/unit/lab`、`tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/offline`、`tests/unit/runner` 一起跑：963 条通过，1 条跳过，2 条失败。
+  - `test_rules.py::test_the_target_entry_point_loads_no_rust_and_no_old_event_types`：就是上面等决定的那条断言。
+  - `test_entry_pause.py::test_a_breached_stop_pauses_entries_until_a_person_releases_them`：这条测试按真实时间睡 1.1 秒，等每秒 1 笔的限额放行。当时机器上同时在跑变异自检和别的会话。单独重跑 1 次、整个文件重跑 2 次都通过。这次没有改执行路径和限额。
+- 验收门的测试都在上面这次运行里通过，断言没有改：`test_simulation_golden.py` 的两个指纹、`test_target_runtime.py::test_paper_runtime_reproduces_lab_simulation` 的全部组合、`test_target_runtime_resilience.py`、`test_execution_matches_research.py`。
+- 全仓库 ruff、`mypy trading/`（80 个文件）、导入契约（5 条）、`scripts/check_local_safety.py` 都通过。
+
+**留给技术负责人**
+- 上面那条已有断言要不要改（建议改：入口少加载一个旧包是这一步的预期结果）。决定之前不推送、不开 PR。
+- 旧路径 `runner/offline/broker.py` 只剩测试在用。建议在下一个删除批次把两个撮合器测试文件搬到 `tests/unit/trading/`（只改导入行），再删掉薄壳和 `runner/offline/`。
