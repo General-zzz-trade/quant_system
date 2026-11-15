@@ -76,31 +76,37 @@ class MarketPoller:
         processed = 0
         now_ms = int(self.clock() * 1000)
         for symbol, session in self.sessions.items():
-            assert session.cursor is not None
-            close = session.cursor + 2 * HOUR
-            if now_ms < close:
-                continue
-            missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
-            for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) // 8):
-                session.funding[round(at / HOUR) * HOUR] = rate
-            settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
-            if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
-                continue
-            rows = self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms)
-            new = [bar for bar in map(bar_from_kline, rows) if bar.open_time > session.cursor]
-            for k, bar in enumerate(new):
-                # Execution decides on the newest bar only: older bars missed during an outage just extend
-                # the window. A late newest bar may still reduce; entries are refused as "processed too late"
-                # (approved 2026-11-14, ADR-0007). Paper replays every bar, as research does.
-                try:
-                    session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
-                    self.decision_errors.pop(symbol, None)
-                except Exception as exc:
-                    if self.mode != "execution":
-                        raise                       # paper must not diverge from research silently
-                    self._decision_failed(symbol, session, exc)
-                processed += 1
+            try:
+                processed += self._poll_symbol(symbol, session, now_ms)
+            except self.errors:
+                raise                               # market data: the backoff in poll(), as before S3
+            except Exception as exc:
+                if self.mode != "execution":
+                    raise                           # paper must not diverge from research silently
+                # One symbol's malformed data or failing bar stops only that symbol (S3 audit finding 4).
+                self._decision_failed(symbol, session, exc)
         return processed
+
+    def _poll_symbol(self, symbol: str, session: TargetSession, now_ms: int) -> int:
+        assert session.cursor is not None
+        close = session.cursor + 2 * HOUR
+        if now_ms < close:
+            return 0
+        missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
+        for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) // 8):
+            session.funding[round(at / HOUR) * HOUR] = rate
+        settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
+        if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
+            return 0
+        rows = self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms)
+        new = [bar for bar in map(bar_from_kline, rows) if bar.open_time > session.cursor]
+        for k, bar in enumerate(new):
+            # Execution decides on the newest bar only: older bars missed during an outage just extend the
+            # window. A late newest bar may still reduce; entries are refused as "processed too late"
+            # (approved 2026-11-14, ADR-0007). Paper replays every bar, as research does.
+            session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
+            self.decision_errors.pop(symbol, None)
+        return len(new)
 
     def _decision_failed(self, symbol: str, session: TargetSession, exc: Exception) -> None:
         """One symbol's bar raised (S3c): only its entries are blocked, the other symbols and the exit side go
