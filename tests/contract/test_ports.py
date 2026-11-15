@@ -14,11 +14,11 @@ from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.rest import BinanceRestError, BinanceRetryableError
 from execution.safety.limits import OrderLimiter
-from runner.binance_main import EventJournal
-from shared.drawdown_guard import DrawdownGuard
-from shared.execution_journal import ExecutionJournal
+from trading.adapters.files.event_log import JsonlEventLog as EventJournal
+from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
+from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
 from shared.exposure_gate import AccountExposureGate
-from shared.kill_file import KillFile
+from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 from trading.application import ports
 
@@ -57,7 +57,7 @@ def test_binance_adapter_implements_the_exchange_ports(protocol):
 def test_state_and_risk_components_implement_their_ports(tmp_path):
     cases = [
         (ExecutionJournal(tmp_path / "orders.sqlite", "s"), ports.OrderJournal),
-        (KillFile(tmp_path / "kill.json"), ports.KillSwitch),
+        (KillFile(tmp_path / "kill.json", missing_is_active=False), ports.KillSwitch),
         (DrawdownGuard(tmp_path / "dd.sqlite", "s"), ports.DrawdownGuard),
         (OrderLimiter(), ports.OrderLimits),
         (AccountExposureGate(_adapter()), ports.ExposureReader),

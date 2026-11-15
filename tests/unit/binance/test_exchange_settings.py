@@ -5,7 +5,13 @@ from decimal import Decimal as D
 
 import pytest
 
-from runner.binance_main import check_stop_inside_liquidation, exchange_settings
+from trading.domain.risk.liquidation import check_stop_inside_liquidation as _check_stop
+from trading.infrastructure.settings import exchange_settings
+
+
+def check_stop_inside_liquidation(stop_pct, env):
+    """What the deleted runner.binance_main wrapper did (M4): settings from ``env``, then the domain check."""
+    _check_stop(stop_pct, *exchange_settings(env))
 
 
 def test_defaults_are_unchanged():

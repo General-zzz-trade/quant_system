@@ -10,7 +10,7 @@ import itertools
 import json
 from decimal import Decimal as D
 
-from execution.adapters.binance.rest import BinanceNonRetryableError, BinanceRetryableError
+from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRetryableError
 
 HOUR = 3_600_000
 

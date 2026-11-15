@@ -14,7 +14,7 @@ import pytest
 
 class TestBinanceRestClient:
     def _make_client(self, rate_policy=None):
-        from execution.adapters.binance.rest import BinanceRestConfig, BinanceRestClient
+        from trading.adapters.binance.rest import BinanceRestConfig, BinanceRestClient
         cfg = BinanceRestConfig(
             base_url="https://fapi.binance.com",
             api_key="testkey",
@@ -32,7 +32,7 @@ class TestBinanceRestClient:
         return mock_resp
 
     def test_config_repr_hides_secrets(self):
-        from execution.adapters.binance.rest import BinanceRestConfig
+        from trading.adapters.binance.rest import BinanceRestConfig
         cfg = BinanceRestConfig(
             base_url="https://fapi.binance.com",
             api_key="mykey",
@@ -44,7 +44,7 @@ class TestBinanceRestClient:
         assert "***" in r
 
     def test_encode_params_bool_conversion(self):
-        from execution.adapters.binance.rest import _encode_params
+        from trading.adapters.binance.rest import _encode_params
         qs = _encode_params({"reduceOnly": True, "foo": False, "bar": None, "val": 123})
         assert "reduceOnly=true" in qs
         assert "foo=false" in qs
@@ -52,7 +52,7 @@ class TestBinanceRestClient:
         assert "val=123" in qs
 
     def test_hmac_sha256_hex(self):
-        from execution.adapters.binance.rest import _hmac_sha256_hex
+        from trading.adapters.binance.rest import _hmac_sha256_hex
         result = _hmac_sha256_hex("secret", "payload")
         assert len(result) == 64
         assert all(c in "0123456789abcdef" for c in result)
@@ -72,7 +72,7 @@ class TestBinanceRestClient:
         assert result == {"orderId": 456}
 
     def test_request_signed_rate_limited(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         rate_policy = MagicMock()
         rate_policy.check.return_value = False
         client = self._make_client(rate_policy=rate_policy)
@@ -94,7 +94,7 @@ class TestBinanceRestClient:
         assert result == {"result": "ok"}
 
     def test_send_http_error_retryable_429(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 429, "Too Many Requests", {}, BytesIO(b"rate limit"))
@@ -103,7 +103,7 @@ class TestBinanceRestClient:
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
     def test_send_http_error_retryable_500(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 500, "Internal Server Error", {}, BytesIO(b"server error"))
@@ -112,7 +112,7 @@ class TestBinanceRestClient:
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
     def test_send_http_error_non_retryable_400(self):
-        from execution.adapters.binance.rest import BinanceNonRetryableError
+        from trading.adapters.binance.rest import BinanceNonRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 400, "Bad Request", {}, BytesIO(b"bad params"))
@@ -121,7 +121,7 @@ class TestBinanceRestClient:
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
     def test_send_network_error(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         from urllib.error import URLError
         client = self._make_client()
         with patch("trading.adapters.binance.rest.urlopen", side_effect=URLError("timeout")):
@@ -129,7 +129,7 @@ class TestBinanceRestClient:
                 client.request_signed(method="GET", path="/fapi/v1/order")
 
     def test_send_invalid_json_raises(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         client = self._make_client()
         mock_resp = MagicMock()
         mock_resp.read.return_value = b"not-json{"
@@ -181,7 +181,7 @@ class TestBinanceRestClient:
         assert result == {"listenKey": "newkey"}
 
     def test_send_api_key_http_error_429(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 429, "Rate limit", {}, BytesIO(b"rate"))
@@ -190,7 +190,7 @@ class TestBinanceRestClient:
                 client.request_api_key(method="POST", path="/fapi/v1/listenKey")
 
     def test_send_api_key_non_retryable(self):
-        from execution.adapters.binance.rest import BinanceNonRetryableError
+        from trading.adapters.binance.rest import BinanceNonRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 401, "Unauthorized", {}, BytesIO(b"unauth"))
@@ -199,7 +199,7 @@ class TestBinanceRestClient:
                 client.request_api_key(method="POST", path="/fapi/v1/listenKey")
 
     def test_send_public_retryable_418(self):
-        from execution.adapters.binance.rest import BinanceRetryableError
+        from trading.adapters.binance.rest import BinanceRetryableError
         from urllib.error import HTTPError
         client = self._make_client()
         err = HTTPError("http://x.com", 418, "I'm a teapot", {}, BytesIO(b"teapot"))
@@ -211,96 +211,3 @@ class TestBinanceRestClient:
 # ─────────────────────────────────────────────────────────────
 # bybit/client.py
 # ─────────────────────────────────────────────────────────────
-
-class TestBybitRestClient:
-    def _make_client(self):
-        from execution.adapters.bybit.client import BybitRestClient
-        from execution.adapters.bybit.config import BybitConfig
-        cfg = BybitConfig(api_key="testkey", api_secret="testsecret")
-        return BybitRestClient(cfg)
-
-    def _mock_urlopen(self, data: dict):
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps(data).encode()
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        return mock_resp
-
-    def test_sign_produces_hex_string(self):
-        client = self._make_client()
-        sig = client._sign("12345", "testparams")
-        assert len(sig) == 64
-        assert all(c in "0123456789abcdef" for c in sig)
-
-    def test_headers_contain_required_fields(self):
-        client = self._make_client()
-        headers = client._headers("12345", "sig123")
-        assert headers["X-BAPI-API-KEY"] == "testkey"
-        assert headers["X-BAPI-SIGN"] == "sig123"
-        assert headers["X-BAPI-TIMESTAMP"] == "12345"
-        assert headers["Content-Type"] == "application/json"
-
-    def test_get_success(self):
-        client = self._make_client()
-        resp = self._mock_urlopen({"retCode": 0, "result": {"price": "50000"}})
-        with patch("execution.adapters.bybit.client.urlopen", return_value=resp):
-            result = client.get("/v5/market/tickers", {"symbol": "BTCUSDT"})
-        assert result["retCode"] == 0
-
-    def test_get_no_params(self):
-        client = self._make_client()
-        resp = self._mock_urlopen({"retCode": 0})
-        with patch("execution.adapters.bybit.client.urlopen", return_value=resp):
-            result = client.get("/v5/market/time")
-        assert result["retCode"] == 0
-
-    def test_post_success(self):
-        client = self._make_client()
-        resp = self._mock_urlopen({"retCode": 0, "result": {"orderId": "abc"}})
-        with patch("execution.adapters.bybit.client.urlopen", return_value=resp):
-            result = client.post("/v5/order/create", {"symbol": "BTCUSDT", "qty": "0.001"})
-        assert result["retCode"] == 0
-
-    def test_api_error_non_zero_ret_code_logs_warning(self):
-        client = self._make_client()
-        resp = self._mock_urlopen({"retCode": 10001, "retMsg": "param error"})
-        with patch("execution.adapters.bybit.client.urlopen", return_value=resp):
-            result = client.get("/v5/order/create")
-        assert result["retCode"] == 10001
-
-    def test_http_error_retryable_429(self):
-        from urllib.error import HTTPError
-        client = self._make_client()
-        err = HTTPError("http://x.com", 429, "Too Many Requests", {}, BytesIO(b"rate limit"))
-        with patch("execution.adapters.bybit.client.urlopen", side_effect=err):
-            result = client.get("/v5/order/create")
-        assert result["retCode"] == 429
-        assert result["retryable"] is True
-
-    def test_http_error_retryable_500(self):
-        from urllib.error import HTTPError
-        client = self._make_client()
-        err = HTTPError("http://x.com", 500, "Internal Server Error", {}, BytesIO(b"err"))
-        with patch("execution.adapters.bybit.client.urlopen", side_effect=err):
-            result = client.post("/v5/order/create", {})
-        assert result["retCode"] == 500
-        assert result["retryable"] is True
-
-    def test_http_error_non_retryable_400(self):
-        from urllib.error import HTTPError
-        client = self._make_client()
-        err = HTTPError("http://x.com", 400, "Bad Request", {}, BytesIO(b"bad"))
-        with patch("execution.adapters.bybit.client.urlopen", side_effect=err):
-            result = client.get("/v5/order")
-        assert result["retCode"] == 400
-        assert result["retryable"] is False
-
-    def test_network_exception_retryable(self):
-        client = self._make_client()
-        with patch("execution.adapters.bybit.client.urlopen", side_effect=Exception("network error")):
-            result = client.get("/v5/order")
-        assert result["retCode"] == -1
-        assert result["retryable"] is True
-
-
-

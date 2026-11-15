@@ -12,7 +12,7 @@ from decimal import Decimal as D
 from lab.orders import make_order
 from lab.rebalance import plan
 from lab.strategy import StrategySpec
-from runner.binance_main import EquitySource
+from trading.application.equity import EquitySource
 from runner.binance_target import TargetRuntime
 from tests.unit.binance.fake_venue import HOUR
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world

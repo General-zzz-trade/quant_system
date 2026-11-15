@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 
 from shared.confirmed_execution import ConfirmedExecutor
-from shared.execution_journal import ExecutionJournal
+from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
 from shared.strategy_position import StrategyPosition
 
 # The sibling helper module is importable by name under unittest discovery
@@ -124,7 +124,7 @@ class RecoveryTests(unittest.TestCase):
         code = '''
 import os, sys
 from pathlib import Path
-from shared.execution_journal import ExecutionJournal
+from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
 from shared.strategy_position import StrategyPosition
 from types import SimpleNamespace
 j=ExecutionJournal(Path(sys.argv[1]), 'demo')
@@ -184,13 +184,13 @@ class PositionTests(unittest.TestCase):
 
 class LeaseTests(unittest.TestCase):
     def test_two_processes_cannot_execute_same_scope(self):
-        from shared.execution_lease import ExecutionLease
+        from trading.adapters.files.lease import ExecutionLease
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "orders.sqlite"
             code = '''
 import sys
 from pathlib import Path
-from shared.execution_lease import ExecutionLease
+from trading.adapters.files.lease import ExecutionLease
 try:
     lease=ExecutionLease(Path(sys.argv[1]), sys.argv[2])
 except RuntimeError:

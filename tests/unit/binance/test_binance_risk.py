@@ -9,10 +9,10 @@ import pytest
 from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
 from execution.adapters.binance.execution_adapter import BinanceExecutionAdapter
-from execution.adapters.binance.protective_stops import ProtectiveStopManager
-from shared.drawdown_guard import DrawdownGuard
+from trading.application.execution.stops import ProtectiveStopManager
+from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
 from shared.exposure_gate import MAX_TOTAL_LEVERAGE, AccountExposureGate
-from shared.kill_file import KillFile
+from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 
 OWNER = "alpha.BTCUSDT"
@@ -110,7 +110,7 @@ def test_exposure_gate_caps_gross_notional(env):
 
 
 def test_kill_file_fails_closed(tmp_path):
-    kill = KillFile(tmp_path / "kill.json")
+    kill = KillFile(tmp_path / "kill.json", missing_is_active=False)
     assert kill.allow_order(symbol="BTCUSDT")[0] is True
     kill.write(active=True, reason="manual", flatten=True)
     state = kill.state()

@@ -215,7 +215,7 @@ def test_the_ci_shards_together_are_the_whole_suite():
     assert indices == list(range(count)) and count >= 2          # each shard index runs exactly once
     dealt = shard.shards(count)
     assert sorted(f for files in dealt for f in files) == every     # nothing dropped, nothing twice
-    assert all(files for files in dealt) and len(every) > 200
+    assert all(files for files in dealt) and len(every) > 100       # 123 files after the M4 deletion
     run = _tokens(job.split("name: Run one shard of the whole suite", 1)[1])
     arguments = run[run.index("pytest") + 1:]                      # `python3 -m pytest` itself is fine
     assert not any(t.startswith(SELECTING) for t in arguments) and "continue-on-error" not in job
@@ -304,8 +304,7 @@ def test_the_hard_leverage_cap_is_defined_once():
 
 
 def test_binance_order_paths_use_the_status_table_not_literal_sets():
-    paths = ("shared/confirmed_execution.py", "trading/application/execution/lifecycle.py", "runner/binance_target.py",
-             "runner/binance_main.py")
+    paths = ("shared/confirmed_execution.py", "trading/application/execution/lifecycle.py", "runner/binance_target.py")
     literal = re.compile(r"""["']mmp_canceled["']""")
     assert [p for p in paths if literal.search((ROOT / p).read_text(encoding="utf-8"))] == []
 

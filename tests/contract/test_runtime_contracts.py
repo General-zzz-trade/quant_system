@@ -5,7 +5,6 @@ from decimal import Decimal
 
 from event.header import EventHeader
 from event.types import EventType, FillEvent, IntentEvent, MarketEvent, OrderEvent
-from runner.backtest_runner import MovingAverageCrossModule
 from state import AccountState, MarketState, PositionState
 from state.snapshot import StateSnapshot
 
@@ -41,54 +40,6 @@ def test_state_snapshot_contract_baseline() -> None:
     assert "BTCUSDT" in snap.markets
     assert "BTCUSDT" in snap.positions
     assert snap.account.currency == "USDT"
-
-
-def test_backtest_decision_events_follow_contract_baseline() -> None:
-    mod = MovingAverageCrossModule(symbol="BTCUSDT", window=3, order_qty=Decimal("0.01"))
-
-    def _market_snapshot(close: str):
-        return StateSnapshot.of(
-            symbol="BTCUSDT",
-            ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            event_id="mkt-evt",
-            event_type="market",
-            bar_index=1,
-            markets={
-                "BTCUSDT": MarketState(
-                    symbol="BTCUSDT",
-                    last_price=int(Decimal(close) * _SCALE),
-                    close=int(Decimal(close) * _SCALE),
-                )
-            },
-            positions={"BTCUSDT": PositionState.empty("BTCUSDT")},
-            account=AccountState.initial(currency="USDT", balance=10000 * _SCALE),
-        )
-
-    mod.decide(_market_snapshot("100"))
-    mod.decide(_market_snapshot("100"))
-    events = list(mod.decide(_market_snapshot("110")))
-
-    assert len(events) == 2
-    intent, order = events
-
-    assert isinstance(intent, IntentEvent)
-    assert isinstance(order, OrderEvent)
-    assert isinstance(intent.header, EventHeader)
-    assert isinstance(order.header, EventHeader)
-
-    assert intent.intent_id
-    assert intent.symbol == "BTCUSDT"
-    assert intent.side == "buy"
-    assert intent.target_qty == Decimal("0.01")
-    assert intent.reason_code
-    assert intent.origin
-
-    assert order.order_id
-    assert order.intent_id == intent.intent_id
-    assert order.symbol == "BTCUSDT"
-    assert order.side == "buy"
-    assert order.qty == Decimal("0.01")
-    assert order.header.parent_event_id == intent.header.event_id
 
 
 def test_event_minimum_fields_baseline() -> None:

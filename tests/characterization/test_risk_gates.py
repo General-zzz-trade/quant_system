@@ -14,12 +14,12 @@ from execution.adapters.binance import BinanceConfig
 from execution.adapters.binance.adapter import BinanceAdapter
 from execution.safety.limits import OrderLimiter, OrderLimitsConfig
 from lab.orders import make_order
-from runner.binance_main import EntryReadinessGate
-from shared.drawdown_guard import DrawdownGuard
-from shared.entry_risk import CompositeRiskGate
-from shared.execution_journal import ExecutionJournal
+from trading.application.risk.readiness import EntryReadinessGate
+from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as DrawdownGuard
+from trading.application.risk.entry_gate import CompositeRiskGate
+from trading.adapters.sqlite.order_journal import SqliteOrderJournal as ExecutionJournal
 from shared.exposure_gate import AccountExposureGate
-from shared.kill_file import KillFile
+from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 
 T0 = 1_794_700_000.0
@@ -37,7 +37,7 @@ def _gates(tmp_path, *, limits=None):
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=fake)
     assert adapter.connect(symbols=("BTCUSDT",))
     journal = ExecutionJournal(tmp_path / "orders.sqlite", SCOPE)
-    kill = KillFile(tmp_path / "kill_switch.json")
+    kill = KillFile(tmp_path / "kill_switch.json", missing_is_active=False)
     drawdown = DrawdownGuard(tmp_path / "drawdown.sqlite", SCOPE, daily_pct=5, weekly_pct=12)
     drawdown.observe(10_000.0)
     limiter = OrderLimiter(limits or OrderLimitsConfig(max_order_notional=D("5000"), max_orders_per_second=1000.0))
@@ -115,6 +115,6 @@ def test_a_wider_limit_after_restart_cannot_relax_the_current_period(tmp_path):
 def test_kill_file_with_a_non_boolean_or_broken_active_flag_blocks_entries(tmp_path, content):
     path = tmp_path / "kill_switch.json"
     path.write_text(content)
-    state = KillFile(path).state()
+    state = KillFile(path, missing_is_active=False).state()
     assert state.active is True and state.flatten is False
-    assert KillFile(path).allow_order(symbol="BTCUSDT")[0] is False
+    assert KillFile(path, missing_is_active=False).allow_order(symbol="BTCUSDT")[0] is False
