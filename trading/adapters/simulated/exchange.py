@@ -14,8 +14,11 @@ execution (S10 part 3); this adapter is the venue they then talk to. Its fills c
   ``LIMIT_TOLERANCE`` relative because the lifecycle sends the price as a float; any other price could not be
   simulated with research parity.
 
-A protective stop (``STOP_MARKET closePosition``) is modelled by a ``StopModel`` (decision L): it triggers when a
-closed bar's low (a sell stop) or high (a buy stop) reaches the trigger.
+A protective stop (``STOP_MARKET closePosition``) is modelled by a ``StopModel`` (decision L): after the broker
+has matched a closed bar, a stop that the bar's low (a sell stop on a long) or high (a buy stop on a short) reaches
+closes the whole position at the model's price with the broker's taker fee. The fill is written to the broker as
+research writes its own stop fills and is recorded as an exchange order, which the stop's ``actual_order_id``
+names: the existing stop manager adopts it as it adopts the order a Binance stop became.
 
 Like the real venue, it raises when it cannot answer. It reads no clock and no environment, holds no
 credentials and sends no request.
@@ -25,14 +28,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
+from types import SimpleNamespace
 from typing import Any, Protocol
 
 from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig, Row
 from trading.domain.bars import Bar
 from trading.domain.orders import OrderIntent
-from trading.domain.venue import CanonicalFill, OpenOrder, Placement, Ticker, VenueOrder, VenuePosition
+from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, CanonicalFill, OpenOrder, Placement,
+                                  StopOrder, StopPlacement, Ticker, VenueOrder, VenuePosition)
 
 VENUE = "simulated"
+STOP_MARKET = "STOP_MARKET"         # the type of the order a triggered stop became
 LIMIT_TOLERANCE = Decimal("1e-9")   # relative; the lifecycle sends the limit price as a float
 # The broker's order-row status, as the order lifecycle's venue-order state.
 STATES = {"created": "new", "pending": "new", "filled": "filled", "canceled": "canceled", "rejected": "rejected"}
@@ -96,11 +102,13 @@ class SimulatedExchange:
         self._brokers, self._filters, self.stop_model = dict(brokers), dict(filters), stop_model
         self._orders: dict[str, dict[str, Any]] = {}    # venue order id -> {symbol, client_id, type, side}
         self._by_client: dict[str, str] = {}            # client order id -> venue order id
+        self._stops: dict[str, dict[str, Any]] = {}     # client algo id -> {symbol, side, trigger, state, ...}
         self._next_id = 1
 
     # -- BarListener ------------------------------------------------------------------------------------------
     def on_closed_bar(self, symbol: str, bar: Bar, funding_rate: Decimal | None) -> None:
-        """The research sleeve's ``on_bar``: funding at the open, then the broker matches the bar."""
+        """The research sleeve's ``on_bar`` (funding at the open, then the broker matches the bar), then the stops
+        on what the bar left open."""
         broker = self._broker(symbol)
         if bar.open_time < broker.now:
             raise ValueError(f"{symbol}: the bar at {bar.open_time} is before the broker's time {broker.now}")
@@ -108,6 +116,7 @@ class SimulatedExchange:
         if funding_rate is not None:
             broker.settle_funding(bar.open_time, funding_rate, bar.open)
         broker.process_bar(bar)
+        self._trigger_stops(symbol, bar)
 
     # -- account ----------------------------------------------------------------------------------------------
     def filters(self, symbol: str) -> SimFilters:
@@ -209,8 +218,11 @@ class SimulatedExchange:
         fills = self._fills_of(order_id)
         filled = sum((Decimal(f["qty"]) for f in fills), Decimal(0))
         cost = sum((Decimal(f["qty"]) * Decimal(f["price"]) for f in fills), Decimal(0))
-        status = self._row(order_id)["status"]
-        state = "partially_filled" if status == "pending" and filled > 0 else STATES[status]
+        if record["type"] == STOP_MARKET:
+            state = "filled"                                 # a stop's order exists only once it has filled
+        else:
+            status = self._row(order_id)["status"]
+            state = "partially_filled" if status == "pending" and filled > 0 else STATES[status]
         return VenueOrder(order_id=order_id, client_order_id=record["client_id"], symbol=symbol, side=record["side"],
                           state=state, filled_qty=filled, avg_price=cost / filled if filled else Decimal(0))
 
@@ -238,6 +250,72 @@ class SimulatedExchange:
         fills = [self._fill(owners[f["id"]], f) for f in broker.fills if f["id"] in owners and f["at"] >= since_ms]
         return tuple(fills[:limit])
 
+    # -- protective stops -------------------------------------------------------------------------------------
+    def place_stop_market(self, symbol: str, side: str, trigger_price: Decimal, *,
+                          client_algo_id: str) -> StopPlacement:
+        """A close-all stop. Refused as ``breached``, like Binance's "would immediately trigger", when the last
+        close is already at or beyond the trigger."""
+        broker = self._broker(symbol)
+        side, trigger = side.lower(), Decimal(str(trigger_price))
+        if side not in ("buy", "sell") or not trigger.is_finite() or trigger <= 0 or not client_algo_id:
+            return {"status": "rejected", "msg": "side, a positive trigger and client_algo_id are required"}
+        if client_algo_id in self._stops:
+            return {"status": "rejected", "msg": "duplicate client algo id"}
+        if broker.mark <= 0:
+            return {"status": "rejected", "msg": f"no price for {symbol} yet"}
+        if (broker.mark <= trigger) if side == "sell" else (broker.mark >= trigger):
+            return {"status": "rejected", "msg": "would immediately trigger", "breached": True}
+        self._stops[client_algo_id] = {"symbol": symbol, "side": side, "trigger": trigger, "state": STOP_ACTIVE,
+                                       "actual_order_id": ""}
+        return {"status": "submitted", "algoId": client_algo_id}
+
+    def get_algo_order(self, *, client_algo_id: str) -> StopOrder | None:
+        stop = self._stops.get(client_algo_id)
+        return None if stop is None else self._stop_order(client_algo_id, stop)
+
+    def get_open_algo_orders(self) -> tuple[StopOrder, ...]:
+        return tuple(self._stop_order(cid, stop) for cid, stop in self._stops.items() if stop["state"] == STOP_ACTIVE)
+
+    def cancel_algo_order(self, *, client_algo_id: str) -> dict[str, Any]:
+        stop = self._stops.get(client_algo_id)
+        if stop is None:
+            raise RuntimeError(f"unknown simulated stop {client_algo_id}")
+        if stop["state"] == STOP_ACTIVE:
+            stop["state"] = STOP_GONE
+        return {"status": "cancel_requested"}
+
+    def _trigger_stops(self, symbol: str, bar: Bar) -> None:
+        broker = self._brokers[symbol]
+        for client_algo_id, stop in self._stops.items():
+            qty = broker.position.qty                      # read again: an earlier stop may have closed it
+            if stop["symbol"] != symbol or stop["state"] != STOP_ACTIVE or qty == 0:
+                continue
+            if stop["side"] != ("sell" if qty > 0 else "buy"):
+                continue                                   # a close-all stop only reduces
+            price = self.stop_model.triggered(stop["side"], stop["trigger"], bar)
+            if price is not None:
+                self._fill_stop(symbol, client_algo_id, abs(qty), price, at=bar.available_at)
+
+    def _fill_stop(self, symbol: str, client_algo_id: str, qty: Decimal, price: Decimal, *, at: int) -> None:
+        broker, stop = self._brokers[symbol], self._stops[client_algo_id]
+        side = stop["side"]
+        fee = qty * price * Decimal(broker.config.taker_bps) / 10000
+        broker.position.apply(SimpleNamespace(side=side, qty=qty, price=price, fee=fee, fee_asset="USDT"))
+        broker.fees += fee
+        broker.fills.append({"id": f"offline-fill-{len(broker.fills) + 1}", "order": f"stop:{client_algo_id}",
+                             "at": at, "side": side, "qty": str(qty), "price": str(price), "fee": str(fee)})
+        order_id, client_id = self._new_id(symbol), f"autoclose-{client_algo_id}"
+        self._orders[order_id] = {"symbol": symbol, "client_id": client_id, "type": STOP_MARKET, "side": side,
+                                  "stop": client_algo_id}
+        self._by_client[client_id] = order_id
+        stop["state"], stop["actual_order_id"] = STOP_TRIGGERED, order_id
+
+    @staticmethod
+    def _stop_order(client_algo_id: str, stop: dict[str, Any]) -> StopOrder:
+        return StopOrder(algo_id=client_algo_id, client_algo_id=client_algo_id, symbol=stop["symbol"],
+                         side=stop["side"], status=stop["state"], state=stop["state"], trigger_price=stop["trigger"],
+                         actual_order_id=stop["actual_order_id"])
+
     # -- helpers ----------------------------------------------------------------------------------------------
     def _broker(self, symbol: str) -> BarBroker:
         try:
@@ -263,8 +341,8 @@ class SimulatedExchange:
 
     def _fills_of(self, order_id: str) -> list[Row]:
         record = self._orders[order_id]
-        row_id = self._row(order_id)["id"]
-        return [f for f in self._brokers[record["symbol"]].fills if f["order"] == row_id]
+        key = f"stop:{record['stop']}" if record["type"] == STOP_MARKET else self._row(order_id)["id"]
+        return [f for f in self._brokers[record["symbol"]].fills if f["order"] == key]
 
     def _fill(self, order_id: str, f: Row) -> CanonicalFill:
         record = self._orders[order_id]
@@ -274,4 +352,4 @@ class SimulatedExchange:
                              liquidity="maker" if record["type"] == "LIMIT" else "taker", ts_ms=int(f["at"]))
 
 
-__all__ = ["LIMIT_TOLERANCE", "BarStopModel", "SimFilters", "SimulatedExchange", "StopModel", "VENUE"]
+__all__ = ["LIMIT_TOLERANCE", "STOP_MARKET", "BarStopModel", "SimFilters", "SimulatedExchange", "StopModel", "VENUE"]
