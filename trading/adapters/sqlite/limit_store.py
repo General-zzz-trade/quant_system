@@ -1,4 +1,9 @@
-"""Today's order count and notional per scope and UTC day, in SQLite (the LimitStore port; step 13b)."""
+"""Today's order count and notional per scope and UTC day, in SQLite (the LimitStore port; step 13b).
+
+The table is created when the store is constructed (by ``state_dir init``, or before the runtime starts). Later
+reads and writes open the existing file only: a store deleted or emptied while running raises, and the limiter
+then refuses orders (ADR-0007 2b), instead of a re-created store counting the day from zero (audit after M3).
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -9,19 +14,26 @@ from pathlib import Path
 
 
 class SqliteLimitStore:
+    TABLES = ("order_limits",)
+
     def __init__(self, path: Path, scope: str) -> None:
         if not scope.strip():
             raise ValueError("risk scope is required")
         self.path, self.scope = Path(path), scope
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=10)
+        db = sqlite3.connect(self.path, timeout=10)          # never creates the directory
         try:
             with db:
                 db.execute("""CREATE TABLE IF NOT EXISTS order_limits (
                     scope TEXT NOT NULL, day TEXT NOT NULL, orders INTEGER NOT NULL, notional TEXT NOT NULL,
                     PRIMARY KEY(scope, day))""")
+        finally:
+            db.close()
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=10)
+        try:
+            with db:
                 yield db
         finally:
             db.close()

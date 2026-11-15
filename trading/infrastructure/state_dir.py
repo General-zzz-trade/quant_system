@@ -4,8 +4,9 @@
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target check
 
 A person initializes the directory once: a manifest naming the account scope, every store, and an inactive
-kill file. Execution mode then starts only if the manifest exists, names the same scope, and every store and
-the kill file are there and readable; nothing is created on the way. Changing the directory or the scope is
+kill file. Execution mode then starts only if the manifest exists, names the same scope, every store has its
+tables and the kill file is readable; no store, kill file or manifest is created on the way (reading a WAL
+database may leave SQLite's -shm/-wal files next to it). Changing the directory or the scope is
 changing the account identity: initialize a new directory. Paper mode does not use this.
 """
 from __future__ import annotations
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import TextIO
 
 from trading.adapters.files.kill_switch import KillFile
-from trading.adapters.sqlite.check import database_readable
+from trading.adapters.sqlite.check import database_tables
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
@@ -33,6 +34,8 @@ from trading.infrastructure.target import DRAWDOWN_FILE, LIMITS_FILE, ORDERS_FIL
 MANIFEST = "manifest.json"
 KILL_FILE = "kill_switch.json"
 STORES = (ORDERS_FILE, DRAWDOWN_FILE, LIMITS_FILE, PAUSES_FILE)
+TABLES = {ORDERS_FILE: SqliteOrderJournal.TABLES, DRAWDOWN_FILE: SqliteDrawdownGuard.TABLES,
+          LIMITS_FILE: SqliteLimitStore.TABLES, PAUSES_FILE: SqliteEntryPauses.TABLES}
 
 
 def kill_file_path(state_dir: Path) -> Path:
@@ -62,8 +65,12 @@ def verify(state_dir: Path, scope: str) -> None:
         if not path.is_file():
             problems.append(f"{name} is missing")
             continue
-        if not database_readable(path):
+        tables = database_tables(path)
+        if tables is None:
             problems.append(f"{name} is unreadable")
+        elif missing := [t for t in TABLES[name] if t not in tables]:
+            # emptied (0 bytes) or replaced: its state - a drawdown latch, today's counts - is gone (audit after M3)
+            problems.append(f"{name} has lost its tables ({', '.join(missing)}); it was emptied or replaced")
     kill = kill_file_path(state_dir)
     if not kill.is_file():
         problems.append(f"{KILL_FILE} is missing")

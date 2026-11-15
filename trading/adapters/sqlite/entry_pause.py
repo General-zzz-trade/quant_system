@@ -19,6 +19,8 @@ from typing import Any
 
 
 class SqliteEntryPauses:
+    TABLES = ("entry_pauses", "pause_triggers")
+
     def __init__(self, path: Path, *, clock: Callable[[], float] = time.time) -> None:
         self.path, self.clock = Path(path), clock
 
