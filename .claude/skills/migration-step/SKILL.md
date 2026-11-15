@@ -8,6 +8,14 @@ description: The checklist for one migration step or code change in this reposit
 Read `CLAUDE.md` first; its rules win over this list. Reply to the tech lead in Chinese, with evidence
 tags 【实际运行结果】/【测试日志】/【推测】.
 
+## Which process (the tech lead's decision of 2026-11-15)
+
+- **Money path, full process:** exits (flatten, stops), risk gates (kill switch, drawdown, limits, pauses,
+  exposure), the order state machine and journal, sizing, reconciliation and fills. Everything below applies.
+- **Light process:** deletions, docs, tooling, test-only changes. Tests still pass locally for what you
+  touched and CI must be green, but no mutation self-check, a one-paragraph log entry, merge on green.
+- When unsure which applies, use the full process.
+
 ## Before writing code
 
 1. Find the step and its approved decisions in `docs/arch/migration-plan.md`, `docs/arch/roadmap.md`
@@ -49,7 +57,7 @@ lint-imports-isolated
 python3 -m pytest tests/architecture -q -p no:cacheprovider
 ```
 
-## Mutation self-check
+## Mutation self-check (money path only)
 
 Write mutants for the new or changed production lines (`[label, file, old, new]`, optional fifth item =
 the test that should catch it) and run
