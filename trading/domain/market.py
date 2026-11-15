@@ -62,6 +62,21 @@ def aggregate(frame: pd.DataFrame, hours: int) -> pd.DataFrame:
     return agg.reset_index(drop=True)
 
 
+def group_closes(frame: pd.DataFrame, hours: int) -> pd.DataFrame:
+    """``aggregate(frame, hours)[["available_at", "close"]]`` computed with numpy: the same complete, UTC-aligned
+    groups and, per group, the close of its last row. For a frame of sorted hourly bars (as the session and
+    research build them) the result is identical to the pandas groupby, which was most of the runtime's
+    per-bar cost (speed work, 2026-11-15)."""
+    span = hours * HOUR
+    open_time = frame["open_time"].to_numpy(dtype=np.int64)
+    close = frame["close"].to_numpy(dtype=float)
+    group = open_time // span
+    _, first, counts = np.unique(group, return_index=True, return_counts=True)
+    last = len(group) - 1 - np.unique(group[::-1], return_index=True)[1]
+    keep = (counts == hours) & (open_time[first] % span == 0)
+    return pd.DataFrame({"available_at": open_time[first][keep] + span, "close": close[last][keep]})
+
+
 def funding_series(funding: Mapping[int, tuple[Decimal, Decimal]]) -> pd.Series:
     """Settled funding rates indexed by settlement time (ms)."""
     times = sorted(funding)

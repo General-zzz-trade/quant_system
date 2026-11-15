@@ -110,9 +110,9 @@ def test_the_bar_closing_at_a_daily_boundary_is_visible_at_that_boundary():
 def test_a_lookahead_bug_is_caught(monkeypatch):
     """Mutation self-check: aggregates visible one hour before they close must be detected."""
     def early(frame, hours):
-        out = market.aggregate(frame, hours)
+        out = market.group_closes(frame, hours)          # the aggregation the overlay calls (2026-11-15)
         return out.assign(available_at=out["available_at"] - HOUR)
 
-    monkeypatch.setattr(overlay, "aggregate", early)
+    monkeypatch.setattr(overlay, "group_closes", early)
     bars, funding = _world(1)
     assert _violations(SPECS["trend_long_only"], bars, funding, 1) != []
