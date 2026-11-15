@@ -6,7 +6,9 @@ For the simulated exchange's order gateway the broker gains one public method, `
 """
 from __future__ import annotations
 
+import json
 from decimal import Decimal as D
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import lab.breakout_study as breakout
@@ -58,6 +60,13 @@ def test_research_and_execution_rest_a_maker_entry_at_the_same_offset():
     simulated = BarBroker(config)
     simulated.send_order(order("entry", qty="0.01", price="60000"))
     assert D(simulated.pending[0]["limit"]) == D("60000") * (1 - target.LIMIT_OFFSET)   # ExecutionService's price
+
+
+def test_the_closed_breakout_study_keeps_the_broker_settings_it_recorded():
+    """Its recorded result must stay reproducible; it now takes the offset from the one definition."""
+    recorded = Path(__file__).resolve().parents[3] / "research/results/breakout_2026-11-14/final_spec.json"
+    config = breakout.broker_config(research.SYMBOL_RULES[breakout.SYMBOL]).record()
+    assert config == json.loads(recorded.read_text())["broker"]
 
 
 def test_cancel_takes_a_resting_order_off_the_book_for_good():
