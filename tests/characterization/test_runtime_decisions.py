@@ -79,11 +79,12 @@ def test_a_stop_that_would_trigger_at_once_flattens_the_position(tmp_path):
     assert btc.positions["BTCUSDT"] == 0 and session.position_qty() == 0
     assert any(r["reason"] == "stop_breached" for r in _events(tmp_path, "intent"))
     assert any("stop_breached" in r["issue"] for r in _events(tmp_path, "issue"))
-    # Current behaviour, found while writing this test and not in the R1-R22 list: nothing remembers the
-    # breach, so the next bar's rebalance opens the same position again. Whether that is wanted is an open
-    # question for the stop-handling step (12); this assertion changes only with that decision.
+    # Decided 2026-11-14 and done in step 12: the breach pauses the symbol's entries until a person releases
+    # them. Until then this assertion pinned the old behaviour: the next bar's rebalance opened the same
+    # position again.
     _advance(world, runtime, i + 2)
-    assert btc.positions["BTCUSDT"] == qty and _events(tmp_path, "intent")[-1]["reason"] == "rebalance"
+    assert btc.positions["BTCUSDT"] == 0 and _events(tmp_path, "intent")[-1]["reason"] == "rebalance"
+    assert _events(tmp_path, "blocked")[-1]["reason"] == "runner paused"
 
 
 def test_resting_entries_never_stack(tmp_path):

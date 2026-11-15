@@ -92,10 +92,10 @@ class TargetRuntime(_runtime.TargetRuntime):
         journal = JsonlEventLog(self.state_dir / "target_events.jsonl")
         self.equity = EquitySource(clock)
         symbols = self.frozen["symbols"]
-        kill = drawdown = None
+        kill = drawdown = pauses = None
         if mode == "execution":
             wiring, kill = self._execution(spec, symbols, journal, testnet, stop_pct)
-            sessions, drawdown = wiring.sessions, wiring.drawdown
+            sessions, drawdown, pauses = wiring.sessions, wiring.drawdown, wiring.pauses
         else:
             sessions = target.paper_sessions(
                 spec, symbols, journal=journal, rules=SYMBOL_RULES,     # paper equals research
@@ -107,7 +107,7 @@ class TargetRuntime(_runtime.TargetRuntime):
             paper_store=MirroredPaperStore(
                 SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
                 JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
-            reset_paper=reset_paper, spec_passed=self.frozen.get("passed"))
+            reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses)
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
         from execution.adapters.binance.execution_adapter import _TcaLog

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
+from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.equity import EquitySource
 from trading.application.execution.executor import OwnerExecutor
@@ -34,6 +35,7 @@ from trading.domain.rebalance import Lot
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
+from trading.infrastructure.entry_pause import PAUSES_FILE
 from trading.infrastructure.settings import RiskLimits, exchange_settings
 
 ENTRY_WAIT_SECONDS = 0.5
@@ -65,6 +67,7 @@ class ExecutionInputs:
 class ExecutionWiring:
     sessions: dict[str, TargetSession]
     drawdown: SqliteDrawdownGuard
+    pauses: SqliteEntryPauses
 
 
 def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
@@ -104,8 +107,10 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
                                    weekly_pct=limits.weekly_drawdown_pct)
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
+    pauses = SqliteEntryPauses(Path(state_dir) / PAUSES_FILE, clock=clock)
     gate = CompositeRiskGate.for_execution(inputs.limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
-                                           portfolio_reader=exposure, venue="binance")
+                                           portfolio_reader=exposure, venue="binance",
+                                           paused=lambda symbol: pauses.reason(symbol) is not None)
     maker = spec.execution == "maker"
     settings: dict[str, Any] = dict(
         wait_seconds=ENTRY_WAIT_SECONDS, entry_order_type="limit" if maker else "market",
@@ -131,8 +136,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
         sessions[symbol] = session
-    return ExecutionWiring(sessions, drawdown)
+    return ExecutionWiring(sessions, drawdown, pauses)
 
 
-__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
+__all__ = ["PAUSES_FILE", "Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
            "paper_sessions", "refuse_unverified_mainnet"]

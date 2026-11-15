@@ -81,6 +81,8 @@ class ProtectiveStopManager:
         self.stop_pct, self.clock = stop_pct, clock
         self.journal = executor.journal
         self.journal.ensure_stop_table()
+        self.triggered = False   # set by the last sync: a stop of this position triggered
+        self.breached = False    # set by the last sync: placement refused, price already beyond the trigger
 
     # ------------------------------------------------------------------
     def _client_id(self, revision: str, attempt: int) -> str:
@@ -104,6 +106,7 @@ class ProtectiveStopManager:
     def sync(self) -> list[str]:
         """Bring the exchange stop in line with the confirmed position. Returns issues."""
         issues: list[str] = []
+        self.triggered = self.breached = False
         qty, entry, revision = self._position()
         current = None
         for row in self._rows():
@@ -112,6 +115,7 @@ class ProtectiveStopManager:
             if state is not None and status == STOP_TRIGGERED and state.actual_order_id \
                     and self._adopt(row, state.actual_order_id):
                 self._set(row["client_algo_id"], "triggered")
+                self.triggered = True
                 issues.append(f"{self.symbol}: protective stop triggered")
                 current = row   # the ledger is stale until the adopted fill is consumed: place nothing now
                 continue
@@ -120,6 +124,7 @@ class ProtectiveStopManager:
                 # position at a stale price.
                 if row["status"] != AWAITING_ORDER:
                     self._set(row["client_algo_id"], AWAITING_ORDER)
+                self.triggered = True
                 issues.append(f"{self.symbol}: protective stop triggered; the order it became is not known yet")
                 current = row
                 continue
@@ -159,6 +164,7 @@ class ProtectiveStopManager:
         elif result.get("status") == "rejected":
             self._set(client_algo_id, "rejected")
             if result.get("breached") is True:
+                self.breached = True
                 issues.append(f"{self.symbol}: stop_breached (price already beyond {trigger})")
             else:
                 issues.append(f"{self.symbol}: protective stop rejected: {result.get('msg')}")
