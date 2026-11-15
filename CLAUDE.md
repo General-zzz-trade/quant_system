@@ -19,7 +19,8 @@
     (`research/protocols/2026-11-14-forward-candidates.md`).
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
-    (`research/results/ml_recheck_2026-11-13/`).
+    (`research/results/ml_recheck_2026-11-13/`). Its code was deleted 2026-11-15 (M4); the last version is
+    the git tag `archive/ml-line-2026-11-15`.
   - The legacy LGBM models in `models_v8/`: the training method selected parameters on its test
     window, and the binaries are not in the repo.
   - ETH 4h breakout at 10x isolated / 1-3x exposure (`lab/breakout_study.py`): failed its
@@ -42,8 +43,7 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
-- **Venue:** Binance USDT-M perpetuals only. OKX and Bybit code is frozen until it is deleted
-  in M4 (decided 2026-11-15): safety changes only, no features. Polymarket code is deleted.
+- **Venue:** Binance USDT-M perpetuals only. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
 ## Commands
@@ -56,9 +56,6 @@ ruff check --select E,W,F .        # lint, whole repo
 python scripts/check_local_safety.py               # stdlib-only offline fault-injection suite
 python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
-python -m runner.offline research --validation-only --symbol BTCUSDT --start 2021-12-02 \
-    --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
-    --data-dir data_files/binance_public --out <empty dir>
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
 python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
@@ -85,18 +82,13 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
   - Execution mode sends `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`,
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
-- `runner/binance_main.py`: ML runtime (`AlphaDecisionModule` with a frozen Ridge bundle). The ML line
-  is closed.
-- `runner/alpha_main.py`: legacy runner for Bybit/OKX.
-  - Dry-run in every unit. It refuses `--venue binance`, and execution is allowed for Bybit only
-    (`runner/portfolio_risk.py`).
-  - Models load once at startup. There is no hot reload; SIGHUP is only logged.
-- `runner/shadow_main.py`: signal observation only, no account access.
+- The other runtimes (ML runtime, Bybit/OKX runner, shadow process) and the Docker deploy path were deleted
+  on 2026-11-15 (M4). systemd runs three units: `binance-target`, `health-watchdog`, `log-archive`.
 
 **Binance execution:**
 - `OrderLifecycle` (`trading/application/execution/lifecycle.py`) keeps durable SQLite intents and never resends;
-  it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter` are legacy shells over it, still used
-  by `binance_main` and the frozen venues.
+  it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter` are legacy shells over it; the target
+  entry point still imports the adapter shell until the shells go at the end of M4.
 - Only exchange trade records become fills.
 - Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
@@ -105,7 +97,7 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
-  in an initialized state directory a missing file means active. `shared/kill_file.py` is `binance_main`'s.
+  in an initialized state directory a missing file means active.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
@@ -114,22 +106,17 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Research:**
 - `lab/`: target-weight strategies with fixed-date windows.
-- `runner/offline/`: ML replay through the production decision module; the split is at two fixed
-  timestamps.
+- `runner/offline/broker.py`: the research broker `lab.simulate` uses; it moves into `trading/` with ADR-0006.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
-- One failed REST call exits the process (`binance_main`; since migration step 1b `binance_target` backs off on market-data failures instead).
 - `binance_target` only:
   - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
-    process log (status `alerts: "log only"`). Market-data failures are not sent yet (step 14).
+    process log (status `alerts: "log only"`).
   - There is no paper-vs-replay compare tool.
-- `binance_main` only:
-  - After 5 failed exits, the runtime rewrites an operator's `flatten: true` kill file to `false`.
-  - Execution sizing uses 3x leverage, while research uses 1x.
 
 ## Rules for changes
 
@@ -163,12 +150,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - **pip:** `pip install` needs `--break-system-packages --ignore-installed` (system Python 3.12).
 - **Result files:** `research/results/` matches a `.gitignore` pattern but is tracked. Add new results
   with `git add -f`.
-- **Out-of-repo dependencies:**
-  - `scripts/training/train_4h_daily.py` runs a script outside the repo (`/home/ubuntu/dev`).
-  - Systemd units assume the checkout is at `/quant_system`.
+- **Checkout path:** systemd units assume the checkout is at `/quant_system`.
 - **Retired units:** removed systemd units are listed in `RETIRED_UNITS` in `infra/sync_systemd.sh`.
   Hosts only stop them after someone runs `sudo bash infra/sync_systemd.sh`.
 - **gh 2.45:** `gh pr edit` fails silently (Projects classic deprecation). Use
   `gh api -X PATCH repos/General-zzz-trade/quant_system/pulls/N -F body=@file`.
-- **Known pre-existing defect:** `monitoring/daily_reconcile_report.py` has a circular import.
 - **Docs may lag the code:** when they disagree, the code wins; fix the doc.

@@ -13,18 +13,10 @@ paper/dry-run or only observes.
 |---|---|---|---|
 | `binance-target` | service | `runner.binance_target --spec models_binance/strategy/final_spec.json --dry-run` | product runtime, paper |
 | `health-watchdog` | timer, every 5 min | `monitoring.watchdog` | observes and alerts; never restarts |
-| `daily-pnl-alert` | timer, 23:00 UTC | `monitoring.daily_pnl_alert` | |
-| `portfolio-risk-monitor` | timer, every 60 s | `scripts.portfolio_risk_monitor` | |
-| `prometheus-exporter` | service | `monitoring.prometheus_exporter --port 9102 --bind 127.0.0.1` | |
 | `log-archive` | timer, Sun 05:00 | `scripts/archive_logs.py` | |
-| `quant-backup` | timer, 04:00 UTC | `scripts/backup_remote.py` | |
-| `bybit-alpha` | service | `runner.alpha_main --venue bybit ...` | frozen venue, dry-run |
-| `okx-alpha` | service | `runner.alpha_main --venue okx ...` | frozen venue, dry-run |
-| `daily-live-runner` | timer, 00:35 UTC | `runner.daily_live_runner --symbols BTCUSDT` | OKX, `--live` refused in code |
-| `live-ic-killswitch` | timer, hourly | `monitoring.live_ic_killswitch --update --alert` | |
 
-All units use `WorkingDirectory=/quant_system`; all but `daily-pnl-alert`, `log-archive`
-and `quant-backup` load `EnvironmentFile=/quant_system/.env`.
+All units use `WorkingDirectory=/quant_system`; `binance-target` and `health-watchdog` load
+`EnvironmentFile=/quant_system/.env`, `log-archive` does not.
 
 ## 2. Retired units
 
@@ -34,6 +26,9 @@ and `quant-backup` load `EnvironmentFile=/quant_system/.env`.
 `oos-sharpe-monitor`, `daily-paper-runner`, `daily-check`, `live-vs-backtest`). Retired on
 2026-11-15 with their code (frozen lines deleted, ADR-0008 3b): `polymarket-collector`,
 `polymarket-maker`, `audit-reconcile`, `cross-venue-reconcile`, `okx-ramp-up`, `okx-status-probe`.
+Retired on 2026-11-15 with the rest of the frozen lines (M4): `bybit-alpha`, `okx-alpha`,
+`daily-live-runner`, `live-ic-killswitch`, `daily-pnl-alert`, `portfolio-risk-monitor`,
+`prometheus-exporter`, `quant-backup`. State-directory backup is redone in M5.
 
 ## 3. Syncing a host
 
@@ -47,15 +42,11 @@ The script never restarts a service. Restart what changed by hand, after reading
 sudo systemctl restart binance-target.service
 ```
 
-## 4. Compose (`docker-compose.yml`)
+## 4. Docker
 
-| Service | Command | Note |
-|---|---|---|
-| `quant-paper` | `runner.shadow_main --manifest config/shadow.json --dry-run` | signal observation only |
-| `quant-live` | `scripts.run_bybit_alpha ...` | profile `live`; frozen venue |
-| `quant-framework` | `runner.live_runner ...` | profile `framework`; **broken**: `runner/live_runner.py` does not exist |
-
-CI never deploys; deploys are manual.
+The Docker image, `docker-compose.yml` and the manual deploy workflow were deleted on 2026-11-15 (they ran
+the deleted shadow process and Bybit runner). On a host that still runs those containers, a person stops them
+(`docker compose down` in the old checkout) before pulling. CI never deploys; deploys are manual.
 
 ## 5. Checks
 
