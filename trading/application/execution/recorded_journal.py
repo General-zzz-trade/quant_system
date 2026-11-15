@@ -59,7 +59,8 @@ class RecordedOrderJournal:
                  trigger_price: str, created_at: float) -> None:
         self.inner.add_stop(owner=owner, client_algo_id=client_algo_id, symbol=symbol, revision=revision,
                             attempt=attempt, side=side, trigger_price=trigger_price, created_at=created_at)
-        self._record(EventKind.STOP, symbol=symbol, client_algo_id=client_algo_id, status="reserved", side=side,
+        # The journal stores a new stop as "unknown" until the placement's outcome is known (S3 audit finding 7).
+        self._record(EventKind.STOP, symbol=symbol, client_algo_id=client_algo_id, status="unknown", side=side,
                      trigger_price=trigger_price, owner=owner)
 
     def set_stop_status(self, client_algo_id: str, status: str) -> None:
