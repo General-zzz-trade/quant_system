@@ -54,7 +54,6 @@ class TargetRuntime:
         self.notifier = notifier
         self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
             if notifier is not None else None
-        self._unsaved_pauses: dict[str, str] = {}   # symbol -> cause of a pause that could not be written yet
         self._exit_errors: dict[str, str] = {}      # symbol -> the last exit failure, until an exit succeeds
 
     # -- lifecycle ------------------------------------------------------------
@@ -113,11 +112,6 @@ class TargetRuntime:
                 self.journal.write("issue", symbol=symbol, issue=issue)
             if any("stop_breached" in i for i in issues):
                 self._exit(symbol, session, "stop_breached")
-            stops = session.stops
-            if getattr(stops, "breached", False) is True:        # decided 2026-11-14 / 2026-11-15
-                self._unsaved_pauses.setdefault(symbol, "protective stop breached; position flattened")
-            elif getattr(stops, "triggered", False) is True:
-                self._unsaved_pauses.setdefault(symbol, "protective stop triggered")
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
                     self._exit_errors.get(symbol)]
             if self.issue_alerts is not None:
@@ -131,20 +125,25 @@ class TargetRuntime:
         return ALERT_AFTER_SECONDS
 
     def _save_pause(self, symbol: str, session: TargetSession) -> str | None:
-        """Pause the symbol's entries after its stop triggered or was breached. A pause that cannot be written
-        blocks entries and is written on a later reconciliation."""
-        cause = self._unsaved_pauses.get(symbol)
-        if cause is None or self.pauses is None:
+        """Pause the symbol's entries for every stop trigger the order journal holds that no pause covers yet
+        (decided 2026-11-14 / 2026-11-15). Derived from durable rows, so a pause that could not be written -
+        or a restart before it was - is written on a later reconciliation; until then entries are blocked."""
+        if self.pauses is None:
             return None
         try:
-            new = self.pauses.pause(symbol, cause)
+            triggers = session.stops.triggers()
+            new_triggers = {t: c for t, c in triggers.items() if t not in self.pauses.covered(symbol)}
+            if not new_triggers:
+                return None
+            breached = [c for c in new_triggers.values() if "breached" in c]
+            cause = breached[0] if breached else next(iter(new_triggers.values()))
+            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers))
         except Exception as exc:
             session.executor.block_entries()
             issue = f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked"
             self.journal.write("issue", symbol=symbol, issue=issue)
             logger.exception("%s entry pause not saved", symbol)
             return issue
-        del self._unsaved_pauses[symbol]
         if new:
             self.journal.write("alert", symbol=symbol, reason=f"entries paused: {cause}; a person releases them "
                                f"with: {RELEASE_COMMAND.format(symbol=symbol)}")

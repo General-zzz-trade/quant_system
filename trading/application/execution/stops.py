@@ -33,12 +33,17 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from trading.application.ports import Clock, OrderJournal, OrderView, StopOrderGateway
-from trading.domain.venue import STOP_ACTIVE, STOP_TRIGGERED
+from trading.domain.venue import STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED
 
 logger = logging.getLogger(__name__)
 
 MIN_STOP_PCT, MAX_STOP_PCT = Decimal("0.005"), Decimal("0.15")
 AWAITING_ORDER = "awaiting_order"     # triggered; the order it became is not known yet (a live row)
+BREACHED = "breached"                 # placement refused because price was already beyond the trigger
+NO_ORDER = "triggered_no_order"       # triggered, then ended at the venue without any order
+# Rows that mean "price went through the stop": each pauses the symbol's entries until a person releases it.
+TRIGGERS = {"triggered": "protective stop triggered", AWAITING_ORDER: "protective stop triggered",
+            NO_ORDER: "protective stop triggered", BREACHED: "protective stop breached; position flattened"}
 
 
 class TriggeredOrder(OrderView, Protocol):
@@ -48,8 +53,18 @@ class TriggeredOrder(OrderView, Protocol):
     def side(self) -> str: ...
 
 
+class PositionView(Protocol):
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def qty(self) -> Decimal: ...
+
+
 class StopVenue(StopOrderGateway, Protocol):
-    """Places and looks up stops, and looks up the order a triggered stop became."""
+    """Places and looks up stops, looks up the order a triggered stop became, and reads the venue position."""
+
+    def get_positions(self, symbol: str = "", *, strict: bool = True) -> tuple[PositionView, ...]: ...
 
     def get_order(self, symbol: str, *, order_id: str = "",
                   client_order_id: str = "") -> TriggeredOrder | None: ...
@@ -81,8 +96,6 @@ class ProtectiveStopManager:
         self.stop_pct, self.clock = stop_pct, clock
         self.journal = executor.journal
         self.journal.ensure_stop_table()
-        self.triggered = False   # set by the last sync: a stop of this position triggered
-        self.breached = False    # set by the last sync: placement refused, price already beyond the trigger
 
     # ------------------------------------------------------------------
     def _client_id(self, revision: str, attempt: int) -> str:
@@ -106,7 +119,6 @@ class ProtectiveStopManager:
     def sync(self) -> list[str]:
         """Bring the exchange stop in line with the confirmed position. Returns issues."""
         issues: list[str] = []
-        self.triggered = self.breached = False
         qty, entry, revision = self._position()
         current = None
         for row in self._rows():
@@ -115,16 +127,21 @@ class ProtectiveStopManager:
             if state is not None and status == STOP_TRIGGERED and state.actual_order_id \
                     and self._adopt(row, state.actual_order_id):
                 self._set(row["client_algo_id"], "triggered")
-                self.triggered = True
                 issues.append(f"{self.symbol}: protective stop triggered")
                 current = row   # the ledger is stale until the adopted fill is consumed: place nothing now
+                continue
+            if row["status"] == AWAITING_ORDER and state is not None and status == STOP_GONE \
+                    and not state.actual_order_id:
+                # It went through the trigger but never became an order: the position is unprotected again.
+                self._set(row["client_algo_id"], NO_ORDER)
+                issues.append(f"{self.symbol}: protective stop triggered but ended without an order; "
+                              "a new stop is placed")
                 continue
             if (state is not None and status == STOP_TRIGGERED) or row["status"] == AWAITING_ORDER:
                 # Keep following it: its fill must reach the ledger, and a new stop now could close a later
                 # position at a stale price.
                 if row["status"] != AWAITING_ORDER:
                     self._set(row["client_algo_id"], AWAITING_ORDER)
-                self.triggered = True
                 issues.append(f"{self.symbol}: protective stop triggered; the order it became is not known yet")
                 current = row
                 continue
@@ -149,6 +166,13 @@ class ProtectiveStopManager:
             return issues
         if entry <= 0:
             return issues + [f"{self.symbol}: confirmed position has no entry price; stop not placed"]
+        venue = self._venue_qty()
+        if venue is None:
+            return issues + [f"{self.symbol}: venue position unavailable; protective stop not placed"]
+        if venue == 0 or (venue > 0) != (qty > 0):
+            # A close-all stop for a position the venue does not hold would sit there and could close a later
+            # one at a stale price (audit after step 12b, finding 4). Entries stay blocked: no stop, no entry.
+            return issues + [f"{self.symbol}: venue holds {venue}, ledger {qty}; protective stop not placed"]
         side = "sell" if qty > 0 else "buy"
         trigger = entry * (1 - self.stop_pct) if qty > 0 else entry * (1 + self.stop_pct)
         attempts = [r["attempt"] for r in self._rows(live_only=False) if r["revision"] == revision]
@@ -164,7 +188,7 @@ class ProtectiveStopManager:
         elif result.get("status") == "rejected":
             self._set(client_algo_id, "rejected")
             if result.get("breached") is True:
-                self.breached = True
+                self._set(client_algo_id, BREACHED)
                 issues.append(f"{self.symbol}: stop_breached (price already beyond {trigger})")
             else:
                 issues.append(f"{self.symbol}: protective stop rejected: {result.get('msg')}")
@@ -181,6 +205,19 @@ class ProtectiveStopManager:
             intent_id=f"stop-{row['client_algo_id']}", symbol=self.symbol, side=order.side,
             order_id=order.order_id, client_order_id=order.client_order_id, reason="protective_stop")
         return True
+
+    def triggers(self) -> dict[str, str]:
+        """Every stop of this position that the price went through, with the cause to pause entries for."""
+        return {r["client_algo_id"]: TRIGGERS[r["status"]] for r in self._rows(live_only=False)
+                if r["status"] in TRIGGERS}
+
+    def _venue_qty(self) -> Decimal | None:
+        try:
+            positions = self.adapter.get_positions(self.symbol, strict=True)
+        except Exception:
+            logger.warning("%s venue position unavailable", self.symbol, exc_info=True)
+            return None
+        return sum((Decimal(str(p.qty)) for p in positions if p.symbol == self.symbol), Decimal(0))
 
     def has_active_stop(self) -> bool:
         return any(r["status"] == "active" for r in self._rows())
