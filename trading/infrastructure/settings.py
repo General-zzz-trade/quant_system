@@ -1,6 +1,7 @@
 """Configuration read from the environment. This package is the only place that reads it."""
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -81,12 +82,21 @@ def notifier_from_env(env: Mapping[str, str] | None = None) -> TelegramNotifier 
     return LogNotifier()
 
 
+# Hard ceilings of the drawdown limits (tech lead, 2026-11-15): a person may set less, never more.
+DRAWDOWN_CEILING_PCT = {"daily": 10.0, "weekly": 25.0}
+
+
 def risk_limits(env: Mapping[str, str] | None = None) -> RiskLimits:
-    """Drawdown, order and exposure limits of the target runtime, with the defaults it has always had."""
+    """Drawdown, order and exposure limits of the target runtime, with the defaults it has always had. A
+    drawdown limit outside (0, ceiling] is a start-up error."""
     env = os.environ if env is None else env
-    return RiskLimits(daily_drawdown_pct=float(env.get("MAX_DAILY_DRAWDOWN_PCT", "5")),
+    limits = RiskLimits(daily_drawdown_pct=float(env.get("MAX_DAILY_DRAWDOWN_PCT", "5")),
                       weekly_drawdown_pct=float(env.get("MAX_WEEKLY_DRAWDOWN_PCT", "12")),
                       max_order_notional=Decimal(env.get("BINANCE_MAX_ORDER_NOTIONAL", "5000")),
                       max_daily_notional=Decimal(env.get("BINANCE_MAX_DAILY_NOTIONAL", "50000")),
                       max_daily_orders=int(env.get("BINANCE_MAX_DAILY_ORDERS", "50")),
                       max_leverage=Decimal(env.get("BINANCE_MAX_LEVERAGE", "3")))
+    for kind, value in (("daily", limits.daily_drawdown_pct), ("weekly", limits.weekly_drawdown_pct)):
+        if not math.isfinite(value) or not 0 < value <= DRAWDOWN_CEILING_PCT[kind]:
+            raise RuntimeError(f"{kind} drawdown limit {value}% is outside (0, {DRAWDOWN_CEILING_PCT[kind]}%]")
+    return limits

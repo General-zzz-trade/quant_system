@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
+from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.application.equity import EquitySource
 from trading.application.execution.executor import OwnerExecutor
@@ -25,13 +26,15 @@ from trading.application.execution.flatten import Flattener
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
-from trading.application.ports import Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway, OrderLimits
+from trading.application.ports import Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
+from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, OrderFactory, TargetSession
 from trading.domain.orders import OrderIntent
 from trading.domain.rebalance import Lot
+from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
@@ -42,7 +45,7 @@ ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
 LIMIT_OFFSET = Decimal("0.0002")    # a maker entry rests 2 bp inside the reference, as research assumes
 HOUR_SECONDS = 3600.0
-ORDERS_FILE, DRAWDOWN_FILE = "orders.sqlite", "drawdown.sqlite"
+ORDERS_FILE, DRAWDOWN_FILE, LIMITS_FILE = "orders.sqlite", "drawdown.sqlite", "order_limits.sqlite"
 
 
 class Account(ExchangeAccount, OrderGateway, StopVenue, Protocol):
@@ -58,7 +61,6 @@ class ExecutionInputs:
     scope: str
     stop_pct: Decimal
     limits: RiskLimits
-    limiter: OrderLimits
     kill: KillSwitch
     tca_log: EventLog | None = None
 
@@ -108,7 +110,12 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
     pauses = SqliteEntryPauses(Path(state_dir) / PAUSES_FILE, clock=clock)
-    gate = CompositeRiskGate.for_execution(inputs.limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
+    limiter = OrderLimiter(OrderLimitsConfig(max_order_notional=limits.max_order_notional,
+                                             max_daily_notional=limits.max_daily_notional,
+                                             max_daily_orders=limits.max_daily_orders, max_orders_per_second=1.0),
+                           store=SqliteLimitStore(Path(state_dir) / LIMITS_FILE, scope), clock=clock,
+                           monotonic=time.monotonic)
+    gate = CompositeRiskGate.for_execution(limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
                                            portfolio_reader=exposure, venue="binance",
                                            paused=lambda symbol: pauses.reason(symbol) is not None)
     maker = spec.execution == "maker"

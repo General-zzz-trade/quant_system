@@ -286,6 +286,14 @@ class StatusSink(Protocol):
 
 
 @runtime_checkable
+class LimitStore(Protocol):
+    """Today's order count and notional per UTC day ("YYYY-MM-DD"). A store that cannot answer raises."""
+
+    def load(self, day: str) -> tuple[int, Decimal]: ...
+
+    def add(self, day: str, notional: Decimal) -> None: ...   # one more order of this notional today
+
+
 class EntryPauses(Protocol):
     """Entries paused per symbol after a protective stop. The runtime only sets pauses; a person releases them
     outside the runtime. A store that cannot be read raises; it never reads as "not paused"."""

@@ -7,7 +7,6 @@ from decimal import Decimal as D
 
 import pytest
 
-from execution.safety.limits import OrderLimitsConfig
 from runner.binance_target import TargetRuntime, main
 from tests.characterization.test_runtime_decisions import MARKET, _events, _start, _until_position
 from tests.unit.binance.fake_venue import HOUR, FakeBinance, make_bars
@@ -16,6 +15,7 @@ from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.rest import BinanceRateLimitError, BinanceRetryableError
 from trading.application.execution.executor import OwnerExecutor
+from trading.domain.risk.order_limits import OrderLimitsConfig   # the Python limiter since step 13b
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import bootstrap
 
