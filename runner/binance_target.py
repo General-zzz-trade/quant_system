@@ -27,7 +27,7 @@ from typing import Any
 
 from lab.orders import make_order
 from lab.simulate import SYMBOL_RULES, Sleeve, broker_config
-from trading.adapters.binance.rest import BinanceRestError
+from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRestError
 from trading.adapters.files.event_log import JsonlEventLog
 from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.files.lease import ExecutionLease
@@ -121,7 +121,8 @@ class TargetRuntime(_runtime.TargetRuntime):
         super().__init__(
             spec=spec, mode=mode, market=market, sessions=sessions, journal=journal, equity=self.equity, clock=clock,
             status_sink=JsonStatusFile(self.state_dir / "target_status.json"),
-            market_errors=(BinanceRestError, OSError), account=account, kill=kill, drawdown=drawdown,
+            market_errors=(BinanceRestError, OSError), final_market_errors=(BinanceNonRetryableError,),
+            account=account, kill=kill, drawdown=drawdown,
             paper_store=MirroredPaperStore(
                 SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
                 JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
@@ -170,7 +171,8 @@ def main(argv: list[str] | None = None) -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.update(flag=True))
     try:
-        runtime.warmup()
+        while not stop["flag"] and not runtime.warmup_or_hold():   # market data down: exits keep working
+            time.sleep(POLL_SECONDS)
         cycles = 0
         while not stop["flag"]:
             runtime.cycle()

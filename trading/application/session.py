@@ -266,13 +266,21 @@ class TargetSession:
         self.executor.cancel_entries(self.symbol)
         self.consume_fills()
 
-    def flatten(self, reason: str) -> None:
+    def flatten(self, reason: str, now_ms: int | None = None) -> None:
         """Exit for a kill switch, a latched drawdown or a breached stop; called every cycle while it holds.
-        Resting entries are canceled first and failed attempts are retried (step 11, ``Flattener``)."""
+        Resting entries are canceled first and failed attempts are retried (step 11, ``Flattener``). Without
+        bars (a warm-up that market data did not allow, step 14) the hour of ``now_ms`` names the attempts."""
         self.drop_deferred(f"{reason}: deferred entry dropped")
-        if self.flattener is None or not self.bars:
+        if self.flattener is None:
             return
-        self.flattener.flatten(reason, bar=self.bars[-1], ledger=self.position_qty, consume=self.consume_fills)
+        if self.bars:
+            bar = self.bars[-1]
+        elif now_ms is not None:
+            hour = now_ms // HOUR * HOUR
+            bar = Bar(hour - HOUR, Decimal(0), Decimal(0), Decimal(0), Decimal(0), Decimal(0))
+        else:
+            return
+        self.flattener.flatten(reason, bar=bar, ledger=self.position_qty, consume=self.consume_fills)
 
 
 __all__ = ["BROKER_STATE", "Deferred", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
