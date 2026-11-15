@@ -93,3 +93,13 @@ def test_a_failing_event_log_never_fails_the_order_path(tmp_path):
     journal.set_order_id("i1", "777")
     assert journal.update_status("i1", "filled", settle=True) == "reserved"
     assert journal.orders()[0]["settled"] == 1
+
+
+def test_settling_without_a_new_status_is_still_an_event(tmp_path):
+    events = Events()
+    journal = _journal(tmp_path, events)
+    _reserve(journal)
+    journal.update_status("i1", "filled", settle=False)
+    journal.update_status("i1", "filled", settle=True)                   # only the settled flag changes
+    assert [(f["status"], f["previous"], f["settled"]) for k, f in events.rows if "previous" in f] == [
+        ("filled", "reserved", False), ("filled", "filled", True)]
