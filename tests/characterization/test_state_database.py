@@ -56,6 +56,25 @@ def test_init_creates_one_state_database_at_version_1_with_every_table(tmp_path)
 
 
 # -- the start-up check ----------------------------------------------------------------------------------------
+@pytest.mark.parametrize("name,value", [("MAX_DAILY_DRAWDOWN_PCT", "10.5"), ("MAX_WEEKLY_DRAWDOWN_PCT", "26")])
+def test_init_with_a_drawdown_limit_above_the_ceiling_refuses_before_anything_exists(tmp_path, name, value):
+    # S2 audit finding 3 (mutants M2, M3): the ceiling check and its place before the directory is created.
+    state = tmp_path / "state"
+    with pytest.raises(RuntimeError, match="drawdown limit"):
+        managed.initialize(state, scope=SCOPE, testnet=True, env={name: value})
+    assert not state.exists()
+
+
+def test_the_schema_refuses_an_existing_empty_file_and_leaves_it_empty(tmp_path):
+    # S2 audit finding 3 (mutant M1): a 0-byte leftover is not silently turned into a database.
+    from trading.adapters.sqlite import schema
+    leftover = tmp_path / "state.sqlite"
+    leftover.touch()
+    with pytest.raises(FileExistsError, match="created once"):
+        schema.create(leftover)
+    assert leftover.stat().st_size == 0
+
+
 def _set_version(path, version):
     with sqlite3.connect(path) as db:
         db.execute(f"PRAGMA user_version={version}")
