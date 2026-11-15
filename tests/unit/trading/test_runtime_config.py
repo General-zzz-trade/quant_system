@@ -125,3 +125,10 @@ def test_paper_config_carries_no_limits_and_the_start_up_check_uses_the_configur
     target.refuse_foreign_holdings(object(), state_dir=tmp_path, scope=SCOPE, symbols=["BTCUSDT"], leverage=5,
                                    margin="ISOLATED")
     assert seen == {"leverage": 5, "margin": "isolated"}
+
+
+def test_the_binance_config_never_shows_its_key_or_secret():
+    # Found while checking S4's mutants: its generated repr printed both in plain text.
+    from trading.adapters.binance.config import BinanceConfig
+    text = repr(BinanceConfig(api_key="key-0123456789abcdef", api_secret="secret-fedcba9876543210", testnet=True))
+    assert "key-0123456789abcdef" not in text and "secret-fedcba9876543210" not in text and "testnet=True" in text

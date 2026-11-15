@@ -1,7 +1,7 @@
 """Binance Futures adapter configuration."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from trading.adapters.binance.urls import resolve_binance_urls
 
 
@@ -15,8 +15,8 @@ class BinanceConfig:
         testnet: Whether to use the testnet endpoint.
         category: Product type -- "linear" (USDT-M futures).
     """
-    api_key: str = ""
-    api_secret: str = ""
+    api_key: str = field(default="", repr=False)          # never printed (S4)
+    api_secret: str = field(default="", repr=False)
     testnet: bool = True
     category: str = "linear"
 
