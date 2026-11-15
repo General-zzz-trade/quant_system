@@ -220,6 +220,19 @@ def test_a_failure_blocks_entries_and_counts_on_the_breaker(env):
     assert venue.calls == []
 
 
+def test_a_lost_journal_fails_the_send_without_raising_and_reports_it_blocked(env, tmp_path):
+    # Audit 2026-11-15 of S2, finding 1: the failure handler read the lost journal again, and that error escaped.
+    breaker = Breaker()
+    service, venue, statuses, _ = env(breaker=breaker)
+    service.ready = True
+    for suffix in ("", "-wal", "-shm"):
+        (tmp_path / f"orders.sqlite{suffix}").unlink(missing_ok=True)
+    reduction = _intent(1, side="sell", reduce_only=True)
+    assert service.send(reduction, _parent(reduction)) == SendResult(False, ())
+    assert service.ready is False and breaker.failures == 1 and statuses == [("i1", "blocked")]
+    assert venue.calls == [] and not (tmp_path / "orders.sqlite").exists()
+
+
 def test_a_parent_that_cannot_be_built_fails_before_anything_is_sent(env):
     service, venue, _, _ = env()
     service.ready = True

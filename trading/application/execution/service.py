@@ -166,7 +166,11 @@ class ExecutionService:
         self.ready = False
         if self._breaker is not None:
             self._breaker.record_failure()
-        if not self._journaled(intent_id, self.owner):
+        try:
+            journaled = self._journaled(intent_id, self.owner)
+        except Exception:   # the journal itself is unreadable (e.g. the database was lost): nothing was placed
+            journaled = False
+        if not journaled:
             self.status_callback(intent_id, BLOCKED)
         logger.exception("Order unresolved or blocked; no placement retry")
 

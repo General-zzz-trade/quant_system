@@ -171,3 +171,62 @@ def test_a_database_deleted_while_running_is_not_re_created_and_sends_no_unregis
     assert not db_path.exists()
     assert all(not s.executor.ready for s in runtime.sessions.values())   # entries blocked by reconciliation
     assert runtime.status()["symbols"]["BTCUSDT"]["protective_stop"].startswith("unreadable")
+
+
+class _Notifier:
+    channel = "test"
+
+    def __init__(self):
+        self.sent = []
+
+    def alert(self, level, title, detail=""):
+        self.sent.append((level, title, detail))
+
+
+def _holding(tmp_path, notifier):
+    """An execution runtime on a fresh state directory, advanced until BTC holds a position."""
+    from runner.binance_target import TargetRuntime
+    from tests.unit.lab.test_target_runtime import LIVE, _advance, _world
+    from trading.domain.strategy.overlay import StrategySpec
+    state = tmp_path / "state"
+    db_path = _init(state)
+    world = _world(tmp_path, StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05,
+                                          execution="market"))
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=state, mode="execution", market=world["adapter"],
+                            account=world["adapter"], clock=lambda: world["clock"]["now"], testnet=True,
+                            notifier=notifier)
+    runtime.warmup()
+    btc, i = world["fakes"]["BTCUSDT"], world["warm"]
+    while btc.positions.get("BTCUSDT", D(0)) == 0 and i < world["warm"] + LIVE - 40:
+        _advance(world, runtime, i)
+        i += 1
+    assert btc.positions.get("BTCUSDT", D(0)) != 0
+    return world, runtime, db_path, i
+
+
+@pytest.mark.xfail(strict=True, raises=sqlite3.OperationalError,
+                   reason="known gap, fixed in S3 (ADR-0014; tech lead 2026-11-15): the bookkeeping after a send "
+                          "reads the lost journal and the error leaves the cycle")
+def test_a_reduction_after_the_database_was_deleted_is_retried_and_alerted_and_the_cycle_goes_on(
+        tmp_path, monkeypatch):
+    # Audit 2026-11-15 of S2, finding 1: the failure handler read the lost journal again, and that error ended
+    # the process (no more alerts, retries or entry cancellation; a restart is refused by the start-up check).
+    # The handler is fixed (test_execution_service); the next read after the send still escapes.
+    from tests.unit.lab.test_target_runtime import _advance
+    note = _Notifier()
+    world, runtime, db_path, i = _holding(tmp_path, note)
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+    session = runtime.sessions["BTCUSDT"]
+    monkeypatch.setattr(session, "_target", lambda: (0.0, True))     # the strategy now wants flat: a reduction
+    tried = []
+    send = session.executor.send_order
+    monkeypatch.setattr(session.executor, "send_order", lambda order: (tried.append(order), send(order))[1])
+    posts, before = [len(f.posts) for f in world["fakes"].values()], len(note.sent)
+    for k in range(1, 4):
+        _advance(world, runtime, i + k)                               # no exception leaves the cycle
+    assert [len(f.posts) for f in world["fakes"].values()] == posts  # never sent without a journal row
+    assert not db_path.exists()
+    reductions = {o.order_id for o in tried if o.reduce_only}
+    assert len(reductions) == 3                                       # tried again on every bar
+    assert note.sent[before:]                                         # and the failure is alerted
