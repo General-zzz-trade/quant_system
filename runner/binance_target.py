@@ -38,6 +38,7 @@ from trading.application import runtime as _runtime
 from trading.application.equity import EquitySource
 from trading.application.execution.fills import TargetFillConsumer
 from trading.application.alerts import NotifyingEventLog
+from trading.application.event_guard import GuardedEventLog
 from trading.application.runtime import POLL_SECONDS
 from trading.application.session import BROKER_STATE as _BROKER_STATE
 from trading.application.session import MAX_ENTRY_DELAY_MS, TargetSession
@@ -123,7 +124,9 @@ class TargetRuntime(_runtime.TargetRuntime):
             notifier = None
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        journal: Any = JsonlEventLog(self.state_dir / "target_events.jsonl")
+        # A failing event log never stops trading; it blocks every entry until it works again (S3 audit, finding 3).
+        events = GuardedEventLog(JsonlEventLog(self.state_dir / "target_events.jsonl"))
+        journal: Any = events
         if notifier is not None:
             journal = NotifyingEventLog(journal, notifier, prefix=alert_prefix)
         self.equity = EquitySource(clock)
@@ -145,7 +148,7 @@ class TargetRuntime(_runtime.TargetRuntime):
                 SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
                 JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
             reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses, notifier=notifier,
-            alert_prefix=alert_prefix)
+            alert_prefix=alert_prefix, event_log_failure=events.failure)
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
         scope = execution_scope(testnet=testnet)

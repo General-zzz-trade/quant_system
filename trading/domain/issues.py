@@ -27,12 +27,12 @@ class IssueKind(Enum):
     CANCEL_FAILED = "cancel_failed"          # cancelling resting entries raised; tried again likewise
     DECISION_FAILED = "decision_failed"      # one symbol's bar could not be processed; the next bar tries again
     CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
+    EVENT_LOG_FAILED = "event_log_failed"    # the event log cannot be written; exits go on (S3 audit finding 3)
 
 
 class Effect(Enum):
     BLOCK_SYMBOL_ENTRIES = "block_symbol_entries"
     BLOCK_ALL_ENTRIES = "block_all_entries"
-    CANCEL_RESTING_ENTRIES = "cancel_resting_entries"
     FLATTEN_SYMBOL = "flatten_symbol"
     PAUSE_SYMBOL = "pause_symbol"            # written from the durable stop rows, so a restart cannot lose it
     ALERT_ONLY = "alert_only"                # no trading effect; a lasting issue is sent to a person
@@ -58,6 +58,7 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.CANCEL_FAILED: frozenset({Effect.ALERT_ONLY}),
     IssueKind.DECISION_FAILED: _BLOCK,
     IssueKind.CYCLE_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
+    IssueKind.EVENT_LOG_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
 }
 
 

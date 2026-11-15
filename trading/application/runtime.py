@@ -41,7 +41,8 @@ class TargetRuntime:
                  kill: KillSwitch | None = None, drawdown: DrawdownGuard | None = None,
                  paper_store: PaperStore | None = None, reset_paper: bool = False,
                  spec_passed: object = None, pauses: EntryPauses | None = None,
-                 notifier: Notifier | None = None, alert_prefix: str = "") -> None:
+                 notifier: Notifier | None = None, alert_prefix: str = "",
+                 event_log_failure: Callable[[], Issue | None] = lambda: None) -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.spec, self.mode, self.market, self.account, self.clock = spec, mode, market, account, clock
@@ -54,17 +55,24 @@ class TargetRuntime:
         self.pauses = pauses
         self.notifier = notifier
         self._cycle_errors: dict[str, Issue] = {}     # side -> its last failure, until the side succeeds
+        self._event_log_failure = event_log_failure    # S3 audit finding 3: blocks entries while it lasts
+        self._warmed = False                          # the whole warm-up succeeded (S3 audit finding 6)
         self.market_side = MarketPoller(market, sessions, mode=mode, journal=journal, clock=clock,
                                         market_errors=market_errors, final_market_errors=final_market_errors)
         self.exits = ExitSupervisor(sessions, spec=spec, journal=journal, clock=clock, account=account, equity=equity,
                                     kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
-                                    cycle_errors=lambda: list(self._cycle_errors.values()))
+                                    cycle_errors=self._runtime_issues, warmed=lambda: self._warmed)
         self.reporter = StatusReporter(sessions, mode=mode, clock=clock, spec_passed=spec_passed, notifier=notifier,
                                        kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures,
                                        pause_status=self.exits.pause_status)
+
+    def _runtime_issues(self) -> list[Issue]:
+        """Problems of the runtime as a whole: a failing side, an event log that cannot be written."""
+        log_failure = self._event_log_failure()
+        return list(self._cycle_errors.values()) + ([log_failure] if log_failure is not None else [])
 
     # -- the parts, as the entry point and the tests have always called them --------------------------------------
     def refresh_equity(self) -> None:
@@ -114,6 +122,7 @@ class TargetRuntime:
                 raise RuntimeError(f"{symbol}: incomplete warmup ({len(session.bars)}/{self.spec.window_hours()})")
             self.journal.write(EventKind.WARMUP, symbol=symbol, bars=len(session.bars), last_open=session.cursor,
                                resumed_from=resume)
+        self._warmed = True
         if self.mode == "paper":
             self.save_paper_state()
         if self.mode == "execution":
@@ -139,12 +148,17 @@ class TargetRuntime:
                 return True
             except self.market_side.errors as exc:
                 self.market_side.failed(exc)
+        # The exit and status sides of the hold are isolated like a cycle's (S3 audit finding 5). An error of the
+        # warm-up itself other than a market-data failure still ends the process: a person looks before it runs.
+        self._run_side("exit", self._hold_exit)
+        self._run_side("status", lambda: self._status_sink.write(self.status()))
+        return False
+
+    def _hold_exit(self) -> None:
         self.exits.refresh_equity_if_due()
         self.exits.reconcile()
         self.exits.risk_actions()
         self.exits.update_states()
-        self._status_sink.write(self.status())
-        return False
 
     # -- paper state -----------------------------------------------------------
     def _load_paper_state(self) -> dict[str, Any]:
@@ -187,6 +201,15 @@ class TargetRuntime:
 
     def _market(self) -> None:
         self.exits.refresh_equity_if_due()
+        # The gate's symbol state must be this cycle's: a pause released or a kill cleared since the last exit side
+        # must not refuse the next entry as PAUSED or HALTED (S3 audit finding 1). If it cannot be read, this
+        # cycle's entries are blocked and the bars are still processed, so strategy reductions go on.
+        try:
+            self.exits.update_states()
+        except Exception:
+            logger.exception("Symbol states not refreshed; every entry is blocked this cycle")
+            for session in self.sessions.values():
+                session.executor.block_entries()
         for session in self.sessions.values():           # entries the rate limit refused on an earlier cycle
             session.retry_deferred(int(self.clock() * 1000))
         self.market_side.poll()
@@ -198,8 +221,11 @@ class TargetRuntime:
         except Exception as exc:
             issue = Issue(K.CYCLE_FAILED, None, f"{name} side failed: {type(exc).__name__}: {exc}")
             if self._cycle_errors.get(name) != issue:
-                write_issue(self.journal, None, issue)
                 logger.exception("%s side failed; every entry is blocked", name)
+                try:
+                    write_issue(self.journal, None, issue)
+                except Exception:               # the handler itself never raises out of the cycle
+                    logger.exception("%s side failure not written to the event log", name)
             self._cycle_errors[name] = issue
             for session in self.sessions.values():
                 session.executor.block_entries()

@@ -36,6 +36,7 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.CANCEL_FAILED: frozenset({E.ALERT_ONLY}),
         IssueKind.DECISION_FAILED: BLOCK,                               # S3c: one symbol's bar failed
         IssueKind.CYCLE_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),       # S3c: a whole block of the cycle failed
+        IssueKind.EVENT_LOG_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),   # S3 audit 3: the event log is not writable
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect
