@@ -55,6 +55,12 @@ def test_a_stored_exchange_restores_exactly_and_trades_on_identically():
     restored.restore(document)
     assert restored.snapshot() == venue.snapshot()
     assert restored_brokers["ETHUSDT"].pending[0] is restored_brokers["ETHUSDT"].orders[-1]   # one row, as before
+    assert restored.get_open_orders() == venue.get_open_orders()
+    for symbol, client_id in (("ETHUSDT", "e1"), ("BTCUSDT", "autoclose-s1")):
+        assert restored.get_order(symbol, client_order_id=client_id) == venue.get_order(symbol,
+                                                                                        client_order_id=client_id)
+    assert restored.send_limit_order("BTCUSDT", "buy", 0.1, float(maker_price("buy", "97")),
+                                     client_order_id="b2")["msg"] == "duplicate client order id"
     again = Feed(restored)
     again.at = dict(feed.at)
     assert _next_bars(restored, again) == _next_bars(venue, feed)

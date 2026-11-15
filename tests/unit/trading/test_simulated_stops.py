@@ -114,12 +114,26 @@ def test_a_stop_without_its_position_does_not_trigger_and_stays_active(world):
     assert not [f for b in brokers.values() for f in b.fills if str(f["order"]).startswith("stop:")]
 
 
-def test_two_stops_reached_by_one_bar_close_the_position_once(world):
+def test_a_stop_is_triggered_only_by_its_own_symbols_bars(world):
     venue, brokers, feed = world
     _hold(world, 1)
-    venue.place_stop_market("BTCUSDT", "sell", D("96"), client_algo_id="s1")
-    venue.place_stop_market("BTCUSDT", "sell", D("97"), client_algo_id="s2")
-    feed(o=99, h=99, lo=90, c=92)
+    _hold(world, 1, "ETHUSDT")
+    venue.place_stop_market("ETHUSDT", "sell", D("96"), client_algo_id="eth")
+    feed(o=99, h=99, lo=90, c=92)                                      # BTCUSDT crashes; the ETHUSDT stop waits
+    assert brokers["BTCUSDT"].position.qty == D("1.000") and brokers["ETHUSDT"].position.qty == D("1.000")
+    assert venue.get_algo_order(client_algo_id="eth").state == STOP_ACTIVE
+    feed(o=99, h=99, lo=90, c=92, symbol="ETHUSDT")
+    assert brokers["ETHUSDT"].position.qty == 0 and venue.get_algo_order(client_algo_id="eth").state == STOP_TRIGGERED
+
+
+@pytest.mark.parametrize("qty,side,triggers,bar", [(1, "sell", ("96", "97"), (99, 99, 90, 92)),
+                                                   (-1, "buy", ("104", "103"), (101, 110, 101, 108))])
+def test_two_stops_reached_by_one_bar_close_the_position_once(world, qty, side, triggers, bar):
+    venue, brokers, feed = world
+    _hold(world, qty)
+    venue.place_stop_market("BTCUSDT", side, D(triggers[0]), client_algo_id="s1")
+    venue.place_stop_market("BTCUSDT", side, D(triggers[1]), client_algo_id="s2")
+    feed(*bar)
     states = sorted(venue.get_algo_order(client_algo_id=c).state for c in ("s1", "s2"))
     assert states == [STOP_ACTIVE, STOP_TRIGGERED] and brokers["BTCUSDT"].position.qty == 0
     assert len([f for f in brokers["BTCUSDT"].fills if str(f["order"]).startswith("stop:")]) == 1
