@@ -47,7 +47,7 @@ from lab.rebalance import floor_step
 from lab.simulate import SYMBOL_RULES, SymbolRules
 from lab.sizing import SizingRule
 from lab.study import DEV_END, EVAL_START, _manifest
-from runner.offline.broker import BarBroker, ReplayConfig
+from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
 
 D = Decimal
 HOUR = 3_600_000

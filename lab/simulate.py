@@ -14,7 +14,7 @@ import pandas as pd
 
 from lab.orders import make_order
 from lab.rebalance import plan
-from runner.offline.broker import BarBroker, ReplayConfig
+from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
 
 HOUR = 3_600_000
 
