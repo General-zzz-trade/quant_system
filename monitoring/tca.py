@@ -1,6 +1,6 @@
 """Transaction Cost Analysis (TCA) — per-fill slippage and latency logger.
 
-Every execution adapter (bybit / binance / okx) hands each fill through
+The Binance execution path (``runner.binance_target``'s TCA log) hands each fill through
 ``TCALogger.record_fill()`` which captures:
 
 * ``ref_price``  — best-known mark/last price at order-send time (pre-fill)
@@ -9,12 +9,8 @@ Every execution adapter (bybit / binance / okx) hands each fill through
 
 Results land in ``data/runtime/tca_{venue}.jsonl`` (JSON per line, append-only).
 
-Downstream:
-  * ``monitoring/daily_pnl_alert.py`` loads recent TCA rows and reports a
-    per-venue slippage-bps median in the daily telegram.
-  * ``monitoring/prometheus_exporter.py`` exposes
-    ``quant_slippage_bps_median{venue,symbol}`` for Grafana.
-  * A quick CLI (``python3 -m monitoring.tca``) prints a 24h summary.
+Downstream: nothing reads it automatically (the daily PnL alert and the Prometheus exporter were deleted on
+2026-11-15). A quick CLI (``python3 -m monitoring.tca``) prints a 24h summary.
 
 Design notes:
   * Pure stdlib — no pandas/numpy.  Append-only JSONL, one line per fill,

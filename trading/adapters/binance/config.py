@@ -23,11 +23,3 @@ class BinanceConfig:
     @property
     def base_url(self) -> str:
         return resolve_binance_urls(testnet=self.testnet).rest_base
-
-    @property
-    def is_testnet(self) -> bool:
-        return self.testnet
-
-    @property
-    def is_demo(self) -> bool:
-        return self.testnet

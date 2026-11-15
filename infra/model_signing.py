@@ -19,7 +19,6 @@ import hmac
 import json
 import logging
 import os
-import pickle  # noqa: S403 — HMAC-verified before deserialize
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -63,11 +62,6 @@ def allow_unsigned_models() -> bool:
         return False
     raw = os.environ.get(_ALLOW_UNSIGNED_ENV, "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
-
-
-def is_verification_enforced() -> bool:
-    """Whether model signature verification must be enforced."""
-    return _get_key() is not None or not allow_unsigned_models()
 
 
 def sign_file(path: Path) -> None:
@@ -154,11 +148,6 @@ def read_verified_bytes(path: str | Path) -> bytes:
     data = p.read_bytes()
     verify_file(p, data=data)
     return data
-
-
-def load_verified_pickle(path: str | Path):  # noqa: S301
-    """Verify an artifact's HMAC signature, then load it via pickle."""
-    return pickle.loads(read_verified_bytes(path))  # noqa: S301 — HMAC-verified bytes
 
 
 def load_verified_json(path: str | Path):

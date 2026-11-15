@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
-import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -86,16 +84,3 @@ def align_closed_signals(signals, source_open_times, target_available_times, *, 
             or not target.is_monotonic_increasing or target.has_duplicates):
         raise ValueError("signal timestamps must be sorted and unique")
     return pd.Series(signals, index=source).reindex(target, method="ffill").fillna(0).to_numpy()
-
-
-def fingerprint(value) -> str:
-    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    return hashlib.sha256(raw).hexdigest()
-
-
-def dataset_manifest(bars: list[Bar], *, synthetic: bool = False) -> dict:
-    validate_bars(bars)
-    return {"sha256": fingerprint([b.record() for b in bars]), "rows": len(bars),
-            "start_ms": bars[0].open_time, "end_ms": bars[-1].available_at,
-            "timestamp_semantics": "UTC open_time milliseconds; available at open_time + 1h",
-            "synthetic": synthetic}

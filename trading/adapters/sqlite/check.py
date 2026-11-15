@@ -18,8 +18,4 @@ def database_tables(path: Path) -> set[str] | None:
         return None
 
 
-def database_readable(path: Path) -> bool:
-    return database_tables(path) is not None
-
-
-__all__ = ["database_readable", "database_tables"]
+__all__ = ["database_tables"]
