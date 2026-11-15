@@ -52,13 +52,14 @@ def test_stop_follows_position_lifecycle(env):
     # Since the step-12b audit a stop is placed only for a position the venue holds: the venue follows the
     # ledger here (setup only; no assertion changed).
     fake.positions["BTCUSDT"] = D("0.1")
+    fake.entry["BTCUSDT"] = D("100")         # since S5b the trigger is from the venue's entry price (ADR-0012)
     _checkpoint(executor, "0.1")
     stops.sync()
     (stop,) = _live_stops(fake).values()
     assert stop["side"] == "SELL" and D(stop["triggerPrice"]) == D("96")
     stops.sync()
     assert len(_live_stops(fake)) == 1  # idempotent
-    fake.positions["BTCUSDT"] = D("0.2")
+    fake.positions["BTCUSDT"], fake.entry["BTCUSDT"] = D("0.2"), D("101")
     _checkpoint(executor, "0.2", entry="101", revision="r2")  # added to the position
     stops.sync()
     (stop2,) = _live_stops(fake).values()
@@ -72,10 +73,12 @@ def test_stop_follows_position_lifecycle(env):
 def test_short_stop_and_breach_reporting(env):
     fake, _, executor, stops, _ = env
     fake.positions["BTCUSDT"] = D("-0.1")    # the venue follows the ledger (setup only, see above)
+    fake.entry["BTCUSDT"] = D("100")
     _checkpoint(executor, "-0.1")
     stops.sync()
     (stop,) = _live_stops(fake).values()
     assert stop["side"] == "BUY" and D(stop["triggerPrice"]) == D("104")
+    fake.entry["BTCUSDT"] = D("90")
     _checkpoint(executor, "-0.1", entry="90", revision="r2")  # price already above 93.6
     issues = stops.sync()
     assert any("stop_breached" in issue for issue in issues)
