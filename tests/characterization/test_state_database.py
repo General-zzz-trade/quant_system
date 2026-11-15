@@ -163,7 +163,7 @@ def test_only_the_schema_module_creates_tables_and_only_the_factory_connects():
     creators = sorted(p.name for p in sqlite_dir.glob("*.py") if "CREATE TABLE" in p.read_text())
     connectors = sorted(p.name for p in sqlite_dir.glob("*.py") if "sqlite3.connect(" in p.read_text())
     assert creators == ["paper_store.py", "schema.py"]                  # paper keeps its own file (ADR-0009 1)
-    assert connectors == ["check.py", "connection.py", "paper_store.py", "schema.py"]
+    assert connectors == ["connection.py", "paper_store.py", "schema.py"]       # check.py deleted 2026-11-15
 
 
 def test_every_connection_uses_full_synchronous_writes_and_a_busy_timeout(tmp_path):

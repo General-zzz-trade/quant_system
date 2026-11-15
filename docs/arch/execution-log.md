@@ -2471,3 +2471,8 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
   - 唯一的函数 `database_tables` 原样搬到测试辅助 `tests/support/state_db.py`。
   - `test_lost_state_files.py` 只改了导入行，断言不变。
 - **本地**【实际运行结果】：`test_lost_state_files.py`、架构测试、导入契约、`mypy trading/`（78 个文件）都通过。
+- **已有断言的改动（1 处，CI 第一次运行时发现）**：
+  - `test_state_database.py::test_only_the_schema_module_creates_tables_and_only_the_factory_connects` 列出了允许直接连接数据库的模块。删掉 `check.py` 后清单少了一项，测试因此变得更严。
+    - 原来：`assert connectors == ["check.py", "connection.py", "paper_store.py", "schema.py"]`
+    - 现在：`assert connectors == ["connection.py", "paper_store.py", "schema.py"]`
+  - 本地漏掉的原因：引用扫描只查了模块路径写法，没查 `check.py` 这种文件名写法，相关的测试文件也没跑。
