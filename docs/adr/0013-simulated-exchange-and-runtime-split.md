@@ -126,3 +126,14 @@
   - 现在只在 `trading/domain/orders.py` 的 `LIMIT_OFFSET_BPS` 定义一次，四处都引用它，值不变。
   - 由架构测试 `tests/architecture/test_shared_parameters.py` 固定。
 - 导入契约"adapters do not import each other"加入 `trading.adapters.simulated`。这是收紧，没有放开任何导入。
+
+**第 2 部分**（分支 `s10-simulated-exchange`）：
+- 新增模拟交易所 `trading/adapters/simulated/exchange.py`（`SimulatedExchange`、`StopModel`、`BarStopModel`）和新端口 `BarListener`。
+- 新增一组接口契约测试 `tests/contract/test_exchange_ports.py`，在模拟交易所和假 Binance 上都通过；两边合理的差异列在它的文档字符串里。
+- 还没有接进运行时，那是第 3 部分。
+- 与设计第 4.2 节签名草案的不同：
+  - 没有 `clock`，成交时间取 K 线时间；
+  - `filters` 的类型是 `SimFilters`，因为适配器之间不得互相导入；
+  - taker 费率取各品种撮合器的配置；
+  - 拒绝逐仓模式的撮合器。
+- 详见执行记录"S10 第 2 部分"。
