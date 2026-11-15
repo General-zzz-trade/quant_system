@@ -98,3 +98,54 @@ def test_one_symbol_s_failing_decision_blocks_only_that_symbol(tmp_path, monkeyp
     assert {r["symbol"] for r in _issues(tmp_path, "decision_failed")} == {"ETHUSDT"}
     _advance(world, runtime, i)
     assert eth.executor.ready is False and runtime.sessions["BTCUSDT"].executor.ready is True
+
+
+def test_an_exit_side_that_failed_blocks_entries_on_the_next_cycle_s_market_side(tmp_path, monkeypatch):
+    # The market side runs before the exit side, so the block must be in place before the next decision.
+    entry = _first_entry_bar(tmp_path)
+    world, runtime = _execution(tmp_path, execution="market")
+    for i in range(world["warm"], entry - 1):
+        _advance(world, runtime, i)
+
+    def broken():
+        raise RuntimeError("exit side broken")
+    monkeypatch.setattr(runtime.exits, "risk_actions", broken)       # the gate itself reads nothing broken
+    _advance(world, runtime, entry - 1)
+    posts = _posts(world)
+    _advance(world, runtime, entry)                                   # the bar the strategy would enter on
+    assert _posts(world) == posts
+
+
+def test_a_symbol_whose_decisions_work_again_may_enter_again(tmp_path, monkeypatch):
+    world, runtime = _execution(tmp_path, execution="market")
+    eth = runtime.sessions["ETHUSDT"]
+    working = eth._target
+
+    def broken():
+        raise RuntimeError("ETH decision failed")
+    monkeypatch.setattr(eth, "_target", broken)
+    i = world["warm"]
+    for i in range(world["warm"], world["warm"] + 3):
+        _advance(world, runtime, i)
+    assert eth.executor.ready is False
+    monkeypatch.setattr(eth, "_target", working)
+    _advance(world, runtime, i + 1)                                   # a bar succeeds ...
+    _advance(world, runtime, i + 2)                                   # ... and the next reconciliation unblocks
+    assert eth.executor.ready is True
+
+
+def test_paper_mode_raises_a_failing_decision_instead_of_skipping_it(tmp_path, monkeypatch):
+    import pytest
+    from runner.binance_target import TargetRuntime
+    from tests.unit.lab.test_target_runtime import _world
+    from trading.domain.strategy.overlay import StrategySpec
+    world = _world(tmp_path, StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05))
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
+                            market=world["adapter"], clock=lambda: world["clock"]["now"])
+    runtime.warmup()
+
+    def broken():
+        raise RuntimeError("paper decision failed")
+    monkeypatch.setattr(runtime.sessions["BTCUSDT"], "_target", broken)
+    with pytest.raises(RuntimeError, match="paper decision failed"):
+        _advance(world, runtime, world["warm"])
