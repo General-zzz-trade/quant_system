@@ -69,6 +69,16 @@ def test_a_store_replaced_by_another_database_refuses_to_start(tmp_path):
         managed.verify(tmp_path / "state", SCOPE)
 
 
+@pytest.mark.parametrize("name,table", [(name, table) for name in STORES for table in TABLES[name]])
+def test_a_store_missing_any_one_of_its_tables_refuses_to_start(tmp_path, name, table):
+    """Every declared table is checked, not only the first (M4 audit finding 2, mutant M6)."""
+    _init(tmp_path / "state")
+    with sqlite3.connect(tmp_path / "state" / name) as db:
+        db.execute(f"DROP TABLE {table}")
+    with pytest.raises(RuntimeError, match=f"{name} has lost its tables \\({table}\\)"):
+        managed.verify(tmp_path / "state", SCOPE)
+
+
 def test_a_truncated_drawdown_store_cannot_drop_a_latched_guard_on_restart(tmp_path):
     _init(tmp_path / "state")
     path, now = tmp_path / "state" / DRAWDOWN_FILE, 1_800_000_000.0
