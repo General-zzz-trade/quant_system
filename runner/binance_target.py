@@ -70,6 +70,7 @@ def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D) -
         if not testnet and frozen.get("passed") is not True:
             raise RuntimeError("research gate not passed; mainnet execution refused")
         execution_scope(testnet=testnet)
+        risk_limits()                             # the drawdown ceiling (step 13b), before any account access
         check_stop_inside_liquidation(float(stop_pct), *exchange_settings())
     return frozen
 
@@ -123,16 +124,12 @@ class TargetRuntime(_runtime.TargetRuntime):
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
         from execution.adapters.binance.execution_adapter import _TcaLog
-        from execution.safety.limits import OrderLimiter, OrderLimitsConfig
         from shared.kill_file import KillFile
         scope = execution_scope(testnet=testnet)
         limits = risk_limits()
         kill = KillFile(self.state_dir / "kill_switch.json")
-        limiter = OrderLimiter(OrderLimitsConfig(
-            max_order_notional=limits.max_order_notional, max_daily_notional=limits.max_daily_notional,
-            max_daily_orders=limits.max_daily_orders, max_orders_per_second=1.0))
         inputs = target.ExecutionInputs(account=self.account, scope=scope, stop_pct=stop_pct, limits=limits,
-                                        limiter=limiter, kill=kill,
+                                        kill=kill,
                                         tca_log=_TcaLog(self.state_dir / "tca_binance.jsonl"))
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock), kill
