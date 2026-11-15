@@ -113,6 +113,9 @@ def test_a_forbidden_transition_blocks_the_symbol_and_is_alerted(tmp_path):
     session.bars.clear()                                              # "not warmed up" while running: never allowed
     _tick(world, runtime)
     assert session.state is S.BLOCKED
+    _tick(world, runtime)
+    _tick(world, runtime)                                             # still forbidden: alerted once, not each cycle
+    assert sum("is not allowed" in r["reason"] for r in _events(tmp_path, "alert")) == 1
     assert any("ready -> warming" in r["reason"] for r in _events(tmp_path, "alert"))
 
 

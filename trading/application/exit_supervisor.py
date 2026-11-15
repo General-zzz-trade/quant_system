@@ -76,11 +76,12 @@ class ExitSupervisor:
                              with_effect(issues, Effect.BLOCK_ALL_ENTRIES)))
             previous, state = session.state, classify(inputs)
             if (previous, state) not in ALLOWED:
-                text = f"{symbol}: state {previous.value} -> {state.value} is not allowed; entries blocked"
-                if self._forbidden.get(symbol) != text:
+                # Alerted once per state it is kept out of: BLOCKED -> WARMING after READY -> WARMING is the same.
+                if self._forbidden.get(symbol) != state.value:
+                    text = f"{symbol}: state {previous.value} -> {state.value} is not allowed; entries blocked"
                     self.journal.write(EventKind.ALERT, symbol=symbol, reason=text)
                     logger.error(text)
-                self._forbidden[symbol] = text
+                self._forbidden[symbol] = state.value
                 state = SymbolState.BLOCKED
             else:
                 self._forbidden.pop(symbol, None)
