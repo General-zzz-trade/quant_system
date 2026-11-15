@@ -8,6 +8,8 @@ from decimal import Decimal
 
 from trading.adapters.binance.adapter import DEFAULT_LEVERAGE, MARGIN_TYPES, MAX_LEVERAGE
 from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.notify.log import LogNotifier
+from trading.adapters.notify.telegram import TelegramNotifier
 
 
 def binance_config_from_env(*, testnet: bool) -> BinanceConfig:
@@ -58,6 +60,18 @@ class RiskLimits:
     max_daily_notional: Decimal
     max_daily_orders: int
     max_leverage: Decimal
+
+
+def notifier_from_env(env: Mapping[str, str] | None = None) -> TelegramNotifier | LogNotifier:
+    """Telegram when both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set, the process log when neither is.
+    One without the other is a start-up error. The values are never echoed."""
+    env = os.environ if env is None else env
+    token, chat_id = env.get("TELEGRAM_BOT_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
+    if token and chat_id:
+        return TelegramNotifier(token, chat_id)
+    if token or chat_id:
+        raise RuntimeError("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither")
+    return LogNotifier()
 
 
 def risk_limits(env: Mapping[str, str] | None = None) -> RiskLimits:
