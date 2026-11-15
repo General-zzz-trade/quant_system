@@ -22,6 +22,8 @@ from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRetry
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.application.runtime import MARKET_BACKOFF_MAX, POLL_SECONDS
 from tests.support.state_db import state_db
+from trading.application.issues import Issue
+from trading.domain.issues import IssueKind
 
 
 @pytest.fixture(autouse=True)
@@ -118,7 +120,8 @@ def test_a_trigger_that_arrives_during_a_pause_is_recorded_so_a_release_holds(tm
 def test_a_breach_names_the_pause_when_it_comes_with_a_plain_trigger(tmp_path):
     world, runtime = _start(tmp_path)
     session = runtime.sessions["BTCUSDT"]
-    session.stops.triggers = lambda: {"stop-a": "protective stop triggered",
-                                      "stop-b": "protective stop breached; position flattened"}
+    session.stops.triggers = lambda: {                    # typed since S3a (ADR-0014); the texts are unchanged
+        "stop-a": Issue(IssueKind.STOP_TRIGGERED, "BTCUSDT", "protective stop triggered"),
+        "stop-b": Issue(IssueKind.STOP_BREACHED, "BTCUSDT", "protective stop breached; position flattened")}
     _tick(world, runtime)
     assert runtime.pauses.reason("BTCUSDT") == "protective stop breached; position flattened"
