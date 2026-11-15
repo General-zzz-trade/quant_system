@@ -32,9 +32,13 @@
   - Mid-frequency on USDT perpetuals (`lab/midfreq_study.py`): 15 symbols, 15 min to 4 h holds, 7 candidates,
     failed 2026-11-14. Every candidate loses 78-85% at taker costs; gross edge per unit traded is 0.004-0.035%
     against a 0.02% maker fee (`research/results/midfreq_2026-11-14/`). No engine work for it.
+  - Risk management of the frozen overlay (`lab/overlay_risk_study.py`): 4 predeclared variants (EWMA
+    volatility, correlation-aware portfolio cap, drawdown brake, all three) failed 2026-11-15. Only the brake cut
+    the drawdown enough, and its Sharpe fell to 0.59 from 0.72 (`research/results/overlay_risk_2026-11-15/`).
+    Not to be re-tuned on that window; the frozen overlay is unchanged.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
-    data; gates use the deflated Sharpe over the whole family. The directional family holds 79 trials.
+    data; gates use the deflated Sharpe over the whole family. The directional family holds 83 trials.
   - `lab/validation.py`: purged walk-forward splits.
   - `lab/forward.py`: data from 2026-11-13 on is read only at looks registered in
     `research/forward_looks.jsonl` before their end date
