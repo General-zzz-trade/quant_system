@@ -359,6 +359,11 @@ class SimulatedExchange:
         self._by_client = {record["client_id"]: order_id for order_id, record in orders.items()}
 
     # -- helpers ----------------------------------------------------------------------------------------------
+    def broker(self, symbol: str) -> BarBroker:
+        """The symbol's research broker, to read only: people and the tests compare it with research. It is the same
+        object for the life of the exchange; ``restore`` loads a snapshot into it."""
+        return self._broker(symbol)
+
     def _broker(self, symbol: str) -> BarBroker:
         try:
             return self._brokers[symbol]

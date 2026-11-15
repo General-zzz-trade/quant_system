@@ -1,15 +1,15 @@
 """Composition root of the target runtime's sessions (migration step 10). It decides nothing about trading.
 
-An execution session is built from the durable order journal, the order lifecycle, the execution service,
-the owner's executor, its fill consumer, the protective stop manager and the entry gates. What still lives
-in the legacy packages is passed in by the caller: the order limiter, the kill switch, the
-transaction-cost log and, for paper trading, the research sleeve.
+A session is built from the durable order journal, the order lifecycle, the execution service, the owner's
+executor, its fill consumer, the protective stop manager and the entry gates. Paper builds the same sessions over
+the simulated exchange (ADR-0013 plan B, S10 part 3); the ``ModePolicy`` decides what differs and ``PaperParts``
+supplies what only paper has. What lives outside ``trading`` is passed in by the caller: the transaction-cost log.
 """
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -30,12 +30,14 @@ from trading.application.execution.service import ExecutionService
 from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
 from trading.application.account_ownership import foreign_holdings
 from trading.application.issues import Issue
-from trading.application.ports import AccountSnapshot, Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway
+from trading.application.mode_policy import ModePolicy
+from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
+                                       OrderGateway, Sleeper)
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
-from trading.application.session import ExecutionParts, LotRules, OrderFactory, TargetSession
+from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
 from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.rebalance import Lot
@@ -44,6 +46,7 @@ from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure.config import RiskLimits
+from trading.infrastructure.modes import EXECUTION
 
 ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
@@ -74,7 +77,17 @@ class ExecutionInputs:
 class ExecutionWiring:
     sessions: dict[str, TargetSession]
     drawdown: SqliteDrawdownGuard
-    pauses: SqliteEntryPauses
+    pauses: EntryPauses
+
+
+@dataclass(frozen=True)
+class PaperParts:
+    """What only paper plugs in (S10 part 3): each symbol's own simulated equity (``sizing_equity``), the gate clock on
+    bar time (``limiter_clock``), no wait after a placement, and the pause store that reports new pauses."""
+    symbol_equity: Callable[[str], SizingEquity]
+    gate_clock: Clock
+    sleeper: Sleeper
+    pauses: Callable[[EntryPauses], EntryPauses] = lambda pauses: pauses
 
 
 def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
@@ -115,17 +128,12 @@ def exchange_lot_rules(account: ExchangeAccount, symbols: Sequence[str]) -> dict
     return rules
 
 
-def paper_sessions(spec: StrategySpec, symbols: Sequence[str], *, journal: EventLog,
-                   rules: Mapping[str, LotRules], make_order: OrderFactory,
-                   sleeve: Callable[[str, LotRules], object]) -> dict[str, TargetSession]:
-    allocation = Decimal(1) / Decimal(len(symbols))
-    return {symbol: TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=make_order,
-                                  allocation=allocation, sleeve=sleeve(symbol, rules[symbol]))
-            for symbol in symbols}
-
-
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
-                       equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time) -> ExecutionWiring:
+                       equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
+                       policy: ModePolicy = EXECUTION, paper: PaperParts | None = None) -> ExecutionWiring:
+    """The sessions of either mode: paper differs only by ``policy`` and the ``paper`` parts it needs."""
+    if (paper is None) != (policy.sizing_equity == "account_share" and policy.limiter_clock == "monotonic"):
+        raise ValueError("per-symbol sizing and the bar-time gate clock need the paper parts, and only they")
     check_stop_inside_liquidation(float(inputs.stop_pct), inputs.leverage, inputs.margin)   # before anything exists
     account, scope, limits = inputs.account, inputs.scope, inputs.limits
     rules = exchange_lot_rules(account, symbols)
@@ -134,7 +142,9 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
                                    weekly_pct=limits.weekly_drawdown_pct, clock=clock)
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
-    pauses = SqliteEntryPauses(orders_path, clock=clock)
+    pauses = SqliteEntryPauses(orders_path, clock=clock) if paper is None \
+        else paper.pauses(SqliteEntryPauses(orders_path, clock=clock))
+    gate_clock = paper.gate_clock if paper is not None else None
     stops_of: dict[str, ProtectiveStopManager] = {}
 
     def paused(symbol: str) -> bool:
@@ -148,8 +158,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     limiter = OrderLimiter(OrderLimitsConfig(max_order_notional=limits.max_order_notional,
                                              max_daily_notional=limits.max_daily_notional,
                                              max_daily_orders=limits.max_daily_orders, max_orders_per_second=1.0),
-                           store=SqliteLimitStore(orders_path, scope), clock=clock,
-                           monotonic=time.monotonic)
+                           store=SqliteLimitStore(orders_path, scope), clock=gate_clock or clock,
+                           monotonic=gate_clock or time.monotonic)
     gate = CompositeRiskGate.for_execution(limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
                                            portfolio_reader=exposure, venue="binance",
                                            paused=paused)
@@ -159,31 +169,36 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         not_found_grace_seconds=NOT_FOUND_GRACE_SECONDS,
         entry_ttl_seconds=spec.ttl_bars * HOUR_SECONDS if maker else None)
     OrderLifecycle.check_settings(scope, **settings)      # before the journal file is created
-    allocation = Decimal(1) / Decimal(len(symbols))
+    allocation = Decimal(1) / Decimal(len(symbols)) if policy.sizing_equity == "account_share" else Decimal(1)
+    sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
         owner = f"target.{symbol}"
-        # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time.
+        # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time; in paper the
+        # entry gates run on bar time (ModePolicy.limiter_clock) and nothing waits for the simulated venue.
         # Every order and stop status change is also an event (2026-11-15); the journal stays the state.
-        lifecycle = OrderLifecycle(account, RecordedOrderJournal(SqliteOrderJournal(orders_path, scope), journal),
-                                   scope, clock=clock,
-                                   sleeper=lambda seconds: time.sleep(seconds), lock=threading.RLock(),
-                                   owner=owner, **settings)
+        orders = SqliteOrderJournal(orders_path, scope,
+                                    entry_beside_working_reduction=policy.entry_beside_working_reduction)
+        lifecycle = OrderLifecycle(account, RecordedOrderJournal(orders, journal), scope, clock=clock,
+                                   sleeper=sleeper, lock=threading.RLock(), owner=owner,
+                                   venue_expires_entries=policy.entry_ttl == "venue", **settings)
         service = ExecutionService(account, lifecycle, owner=owner, entry_mode=spec.execution,
                                    limit_offset=LIMIT_OFFSET, lock=threading.RLock(), clock=clock,
                                    monotonic=time.monotonic, event_log=inputs.tca_log)
         executor = OwnerExecutor(service, scope=scope)
         stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=clock)
         stops_of[symbol] = stops
+        sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else equity
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
-                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity,
+                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, sizing,
                                                          Flattener(symbol, executor, account, journal, clock)))
+        session.restore_pending()
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
         sessions[symbol] = session
     return ExecutionWiring(sessions, drawdown, pauses)
 
 
-__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
-           "paper_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet"]
+__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "PaperParts", "exchange_lot_rules", "execution_sessions",
+           "refuse_foreign_holdings", "refuse_unverified_mainnet"]
