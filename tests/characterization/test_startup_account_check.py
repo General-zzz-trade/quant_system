@@ -186,9 +186,9 @@ def test_the_strategy_s_own_position_order_and_stop_do_not_refuse_the_start(worl
 def test_a_difference_on_a_symbol_with_an_unsettled_strategy_order_is_left_to_recovery(world):
     """After a crash between a fill and its booking the venue is ahead of the ledger; the order recovery at start
     settles it, and reconciliation blocks entries until then. Refusing here would block that recovery."""
-    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
-        db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner) "
-                   "VALUES (?, 'i3', 'BTCUSDT', 'cid-3', '', 0, 'target.BTCUSDT')", (SCOPE,))
+    with sqlite3.connect(world["state"] / "orders.sqlite") as db:     # a real intent has a side and a quantity
+        db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty) "
+                   "VALUES (?, 'i3', 'BTCUSDT', 'cid-3', '', 0, 'target.BTCUSDT', 'buy', '0.1')", (SCOPE,))
     world["fake"].positions["BTCUSDT"] = D("0.1")
     _started(world)
 
@@ -239,3 +239,186 @@ def test_an_unexpected_conditional_order_snapshot_refuses_the_start(world):
 
     fake.request_signed = odd
     _refused(world, "account could not be read")
+
+
+# -- independent audit of ADR-0010 (findings 1-5): in-flight strategy activity is accounted for exactly -----------
+def _row(world, intent, symbol, *, side=None, qty=None, settled=0, client_id="", order_id=""):
+    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+        db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (SCOPE, intent, symbol, client_id, order_id, settled, f"target.{symbol}", side, qty))
+
+
+def _checkpoint(world, symbol, qty):
+    with sqlite3.connect(world["state"] / "orders.sqlite") as db:
+        db.execute("INSERT INTO execution_consumers VALUES (?, ?, ?)",
+                   (SCOPE, f"target.{symbol}", json.dumps({"position": {"qty": qty}})))
+
+
+_UNDER_REVIEW = pytest.mark.xfail(strict=True, reason="audit finding; fixed in the next commit")
+
+
+@_UNDER_REVIEW
+def test_finding_1_a_fill_booked_but_not_yet_consumed_is_the_strategy_s(world):
+    """Crash after the fill was stored and the order settled, before the ledger took it (P6)."""
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    fill = {"fill_id": "f1", "intent_id": "i1", "symbol": "BTCUSDT", "order_id": "501", "trade_id": "1",
+            "side": "buy", "qty": "0.1", "price": "100", "fee": "0", "fee_asset": "USDT"}
+    assert _journal(world).insert_fill(fill_id="f1", intent_id="i1", owner="target.BTCUSDT", payload=fill)
+    world["fake"].positions["BTCUSDT"] = D("0.1")
+    _started(world)
+
+
+@_UNDER_REVIEW
+def test_finding_1_a_stop_that_fired_while_stopped_is_left_to_the_stop_sync(world):
+    """The venue is flat because the strategy's own stop closed it; the runtime adopts that fill at start (P7)."""
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    journal = _journal(world)
+    journal.ensure_stop_table()
+    journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
+                     side="sell", trigger_price="92", created_at=T0)
+    journal.set_stop_status("stop-1", "active")
+    world["fake"].algo["stop-1"] = {"algoId": 9, "clientAlgoId": "stop-1", "symbol": "BTCUSDT", "side": "SELL",
+                                    "algoStatus": "FINISHED", "triggerPrice": "92", "actualOrderId": "777"}
+    _started(world)
+
+
+def test_a_flat_venue_without_a_fired_stop_still_refuses(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    journal = _journal(world)
+    journal.ensure_stop_table()
+    journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
+                     side="sell", trigger_price="92", created_at=T0)
+    journal.set_stop_status("stop-1", "active")
+    world["fake"].algo["stop-1"] = {"algoId": 9, "clientAlgoId": "stop-1", "symbol": "BTCUSDT", "side": "SELL",
+                                    "algoStatus": "CANCELED", "triggerPrice": "92", "actualOrderId": ""}
+    _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
+
+
+@_UNDER_REVIEW
+def test_finding_2_a_resting_entry_does_not_excuse_a_position_against_it(world):
+    _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9", order_id="900")
+    world["fake"].orders["900"] = {"orderId": 900, "clientOrderId": "cid-9", "symbol": "ETHUSDT", "side": "BUY",
+                                   "type": "LIMIT", "status": "NEW"}
+    world["fake"].positions["ETHUSDT"] = D("-1")
+    _refused(world, re.escape("ETHUSDT: position -1 is not in the strategy ledger"))
+
+
+@_UNDER_REVIEW
+def test_finding_2_a_resting_entry_excuses_at_most_its_own_quantity(world):
+    _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9", order_id="900")
+    world["fake"].positions["ETHUSDT"] = D("0.6")
+    _refused(world, re.escape("ETHUSDT: position 0.6 is not in the strategy ledger"))
+
+
+def test_a_resting_entry_filled_in_part_while_stopped_starts(world):
+    _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9", order_id="900")
+    world["fake"].positions["ETHUSDT"] = D("0.3")
+    _started(world)
+
+
+def test_a_reduction_in_flight_may_have_closed_the_position(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    _row(world, "i2", "BTCUSDT", side="sell", qty="0.1", client_id="cid-2")
+    _started(world)                                   # venue already flat: the close went through
+
+
+@_UNDER_REVIEW
+def test_finding_2_a_legacy_row_without_side_or_quantity_excuses_nothing(world):
+    _row(world, "legacy", "BTCUSDT")
+    world["fake"].positions["BTCUSDT"] = D("5")
+    _refused(world, re.escape("BTCUSDT: position 5 is not in the strategy ledger"))
+
+
+@_UNDER_REVIEW
+def test_finding_4_an_order_id_of_another_symbol_does_not_make_an_order_known(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="77")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    world["fake"].positions["BTCUSDT"] = D("0.1")
+    world["fake"].orders["77"] = {"orderId": 77, "clientOrderId": "web_x", "symbol": "SOLUSDT", "side": "SELL",
+                                  "type": "LIMIT", "status": "NEW"}
+    _refused(world, re.escape("SOLUSDT: open order 77 is not in the strategy journal"))
+
+
+@_UNDER_REVIEW
+def test_finding_4_a_client_id_of_another_symbol_does_not_make_an_order_known(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    world["fake"].positions["BTCUSDT"] = D("0.1")
+    world["fake"].orders["88"] = {"orderId": 88, "clientOrderId": "cid-1", "symbol": "ETHUSDT", "side": "SELL",
+                                  "type": "LIMIT", "status": "NEW"}
+    _refused(world, re.escape("ETHUSDT: open order 88 is not in the strategy journal"))
+
+
+def test_finding_3_a_manual_order_on_another_symbol_refuses_the_start(world):
+    world["fake"].orders["5"] = {"orderId": 5, "clientOrderId": "web", "symbol": "SOXLUSDT", "side": "SELL",
+                                 "type": "LIMIT", "status": "NEW"}
+    _refused(world, re.escape("SOXLUSDT: open order 5 is not in the strategy journal"))
+
+
+def test_finding_3_a_manual_conditional_order_on_another_symbol_refuses_the_start(world):
+    world["fake"].algo["web"] = {"algoId": 6, "clientAlgoId": "web", "symbol": "SOXLUSDT", "side": "BUY",
+                                 "algoStatus": "NEW", "triggerPrice": "40"}
+    _refused(world, re.escape("SOXLUSDT: conditional order web is not in the strategy journal"))
+
+
+def test_finding_3_a_leverage_lower_than_configured_refuses_the_start(world):
+    world["fake"].leverage["BTCUSDT"] = 2
+    _refused(world, re.escape("BTCUSDT: exchange leverage 2x, configured 3x"))
+
+
+def test_finding_3_an_unexpected_open_order_snapshot_refuses_the_start(world):
+    fake = world["fake"]
+    signed = fake.request_signed
+
+    def odd(*, method, path, params=None):
+        if path == "/fapi/v1/openOrders":
+            fake.requests.append((method, path))
+            return {"orders": []}
+        return signed(method=method, path=path, params=params)
+
+    fake.request_signed = odd
+    _refused(world, "account could not be read")
+
+
+def test_finding_3_an_unreadable_journal_refuses():
+    from trading.application.account_ownership import foreign_holdings
+
+    class Account:
+        def get_positions(self, symbol="", *, strict=True):
+            return ()
+
+        def get_open_orders(self, symbol="", *, strict=True):
+            return ()
+
+        def get_open_algo_orders(self):
+            return ()
+
+        def get_symbol_settings(self, symbol):
+            return 3, "cross"
+
+        def get_algo_order(self, *, client_algo_id):
+            return None
+
+    class Journal:
+        def orders(self, owner=None, *, unresolved=False):
+            raise OSError("disk I/O error")
+
+    findings = foreign_holdings(Account(), Journal(), symbols=("BTCUSDT",), leverage=3, margin="cross")
+    assert findings and "strategy journal could not be read" in findings[0]
+
+
+@_UNDER_REVIEW
+def test_finding_5_reconciliation_counts_the_same_booked_position_as_the_start_up_check(world):
+    """After `manual position` on a symbol the strategy never traded there is a checkpoint but no order row; both
+    checks must count it, or the start passes and reconciliation then blocks entries every cycle."""
+    from trading.application.reconcile import reconcile_account
+    _checkpoint(world, "BTCUSDT", "0.1")
+    world["fake"].positions["BTCUSDT"] = D("0.1")
+    adapter = binance.BinanceAdapter(binance.BinanceConfig(api_key="k", api_secret="s"), client=world["fake"])
+    issues = reconcile_account(adapter, _journal(world), owner="target.BTCUSDT", symbol="BTCUSDT")
+    assert not [i for i in issues if "venue qty" in i]
+    _started(world)
