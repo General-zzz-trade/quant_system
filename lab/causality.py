@@ -21,9 +21,10 @@ decision times) stays as it is; any other output is refused, because nothing say
 A changed value is multiplied by a random factor in [0.5, 0.9] or [1.1, 2.0], so prices stay positive; an integer
 column other than a time column is increased by 1 to 999 instead. Time columns never change. After a
 change the outputs are compared bit for bit. A removal shortens arrays, and OpenBLAS then rounds some rows of a
-matrix product differently: Ridge and frozen-model predictions moved by up to one unit in the last place of the
-largest prediction (S12). After a removal, finite floats may therefore differ by at most ``REMOVAL_ULPS`` units
-in the last place of the largest value in their column; everything else is still compared bit for bit.
+matrix product differently: in 1 to 3 rows, Ridge and frozen-model predictions moved by up to 1.5 units in the
+last place of the largest prediction (S12). After a removal, finite floats may therefore differ by at most
+``REMOVAL_ULPS`` units in the last place of the largest value in their column; everything else is still compared
+bit for bit.
 
 A check is refused as vacuous when a cut has no output known by it or no input known after it, or when no change
 at any cut reaches the output.
