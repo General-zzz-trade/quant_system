@@ -1230,5 +1230,7 @@ Contracts: 5 kept, 0 broken.
 
 **本地回归**：特征测试、两份运行时测试、`tests/unit/trading`、架构测试、`tests/offline`、`tests/unit/binance`、契约测试、`tests/unit/bybit`、`tests/unit/execution` 通过。ruff、`mypy trading/`（61 个文件）、lint-imports 通过。全量测试见 PR 的 CI。
 
+**一处偏离工作约定**：提交 `2241e9e` 把命令（约 190 行）和它的测试（约 240 行）放在了一起，共 430 行，超过"每次提交少于 400 行"。拆分需要改写已推送的分支，没有做；如实记在这里。
+
 **下一步**：按路线图，第 12b 步之后做一次独立审计（范围：第 11、12、12b 步），审计结论处理完再开始第 13 步。
 
