@@ -138,13 +138,15 @@ def _position(journal: SqliteOrderJournal, account: Any, symbol: str, owner: str
     if any(r["symbol"] == symbol for r in journal.orders(unresolved=True)):
         print(f"{symbol} has open orders; settle the open orders first (orders, settle)", file=stdout)
         return 1
+    positions = [p for p in account.get_positions(symbol, strict=True)
+                 if p.symbol == symbol and Decimal(str(p.qty)) != 0]
+    # After the venue read: a stop that fires before it shows in the position, one that fires after it is seen
+    # here (audit after M3). Either way the ledger is not set to a position the stop's fill will change.
     unseen = _unseen_trigger(journal, account, owner, symbol)
     if unseen is not None:
         print(f"{unseen}; start the runtime once so it takes the stop's fill into the ledger, stop it, then "
               "check again; nothing changed", file=stdout)
         return 1
-    positions = [p for p in account.get_positions(symbol, strict=True)
-                 if p.symbol == symbol and Decimal(str(p.qty)) != 0]
     if len(positions) > 1:
         print(f"{symbol} has more than one venue position; nothing changed", file=stdout)
         return 1

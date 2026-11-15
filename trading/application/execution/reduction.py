@@ -22,8 +22,9 @@ class Reduction:
 def size_reduction(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str, side: str,
                    qty: Decimal, cap_to_owner: bool = True) -> Reduction:
     """``qty == 0`` closes the whole owned position, whatever ``side`` says. With ``cap_to_owner`` false the
-    venue position alone sets the size (an emergency flatten, ADR-0005 3b); the checkpoint revision is still
-    recorded, so the order journal refuses the reduction if the checkpoint changes before it is reserved."""
+    venue position alone sets the size (an emergency flatten, ADR-0005 3b). The revision returned then is for the
+    record only: a venue close does not depend on the ledger checkpoint (ADR-0005 7b), and the execution service
+    reserves it without one; the order journal still refuses it while another reduction is in flight."""
     positions = [p for p in account.get_positions(symbol=symbol, strict=True)
                  if p.symbol == symbol and Decimal(str(p.qty)) != 0]
     if len(positions) != 1:

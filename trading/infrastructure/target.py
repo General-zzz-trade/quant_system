@@ -110,6 +110,16 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     exposure = AccountExposureGate(account, SqliteOrderJournal(orders_path, scope),
                                    max_leverage=min(MAX_TOTAL_LEVERAGE, limits.max_leverage))
     pauses = SqliteEntryPauses(Path(state_dir) / PAUSES_FILE, clock=clock)
+    stops_of: dict[str, ProtectiveStopManager] = {}
+
+    def paused(symbol: str) -> bool:
+        """Paused in the store, or by a stop trigger no pause covers yet. The runtime writes that pause at its
+        next reconciliation; until then a lost or emptied store must not let an entry through (audit after M3)."""
+        if pauses.reason(symbol) is not None:
+            return True
+        stops = stops_of.get(symbol)
+        return stops is None or bool(set(stops.triggers()) - pauses.covered(symbol))
+
     limiter = OrderLimiter(OrderLimitsConfig(max_order_notional=limits.max_order_notional,
                                              max_daily_notional=limits.max_daily_notional,
                                              max_daily_orders=limits.max_daily_orders, max_orders_per_second=1.0),
@@ -117,7 +127,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
                            monotonic=time.monotonic)
     gate = CompositeRiskGate.for_execution(limiter, kill_switch=inputs.kill, drawdown_guard=drawdown,
                                            portfolio_reader=exposure, venue="binance",
-                                           paused=lambda symbol: pauses.reason(symbol) is not None)
+                                           paused=paused)
     maker = spec.execution == "maker"
     settings: dict[str, Any] = dict(
         wait_seconds=ENTRY_WAIT_SECONDS, entry_order_type="limit" if maker else "market",
@@ -137,6 +147,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
                                    monotonic=time.monotonic, event_log=inputs.tca_log)
         executor = OwnerExecutor(service, scope=scope)
         stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=clock)
+        stops_of[symbol] = stops
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity,

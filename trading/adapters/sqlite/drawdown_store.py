@@ -18,6 +18,8 @@ from trading.domain.risk.drawdown import advance, periods, validate_limits
 
 
 class SqliteDrawdownGuard:
+    TABLES = ("drawdown_periods", "equity_observations")
+
     def __init__(self, path: Path, scope: str, *, daily_pct: float = 3.0,
                  weekly_pct: float = 10.0, max_age_seconds: float = 120.0, clock: Clock = time.time) -> None:
         if not scope.strip():

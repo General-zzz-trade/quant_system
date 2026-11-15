@@ -294,3 +294,22 @@ def test_several_venue_positions_are_never_aligned_and_a_failed_lookup_is_listed
     code, out = _run(tmp_path, Hedged(), "orders")
     (listed,) = json.loads(out)
     assert code == 0 and listed["venue"] == {"state": "lookup failed: OSError"}
+
+
+# -- audit after M3: finding 9 -------------------------------------------------------------------------------------
+def test_a_stop_that_fires_right_after_the_venue_position_is_read_still_refuses_the_alignment(tmp_path, venue):
+    fake, adapter, journal = venue
+    _own(journal, qty="-0.1")
+    _stop_row(journal, "qsstop1", "active")
+    fake.algo["qsstop1"] = {"algoId": 1, "clientAlgoId": "qsstop1", "symbol": "BTCUSDT", "side": "BUY",
+                            "algoStatus": "NEW", "triggerPrice": "104", "closePosition": "true"}
+    read = adapter.get_positions
+
+    def read_then_fire(*args, **kwargs):
+        positions = read(*args, **kwargs)
+        fake.algo["qsstop1"].update(algoStatus="FINISHED", actualOrderId="77")    # fires just after the read
+        return positions
+
+    adapter.get_positions = read_then_fire
+    code, out = _run(tmp_path, adapter, "position", "--symbol", "BTCUSDT", "--reason", "r", typed="BTCUSDT")
+    assert code == 1 and "start the runtime once" in out and journal.manual_actions() == []

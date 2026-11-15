@@ -20,6 +20,8 @@ from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLA
 
 
 class SqliteOrderJournal:
+    TABLES = ("submissions", "execution_fills", "execution_consumers", "manual_actions")
+
     def __init__(self, path: Path, scope: str) -> None:
         self.path, self.scope = Path(path), scope
         self.path.parent.mkdir(parents=True, exist_ok=True)

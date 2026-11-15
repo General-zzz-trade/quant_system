@@ -164,3 +164,20 @@ def test_a_refused_placement_that_is_not_a_breach_is_not_a_trigger(tmp_path):
     fake.request_signed = refuse
     stops.sync()
     assert stops.triggers() == {}
+
+
+# -- audit after M3: finding 9 -------------------------------------------------------------------------------------
+def test_a_breach_is_written_in_one_step(tmp_path):
+    fake, executor, consumer, stops = _with_position(tmp_path)
+    fake.price["BTCUSDT"] = D("80")                                           # far below the stop of a long
+    written = []
+    original = stops.journal.set_stop_status
+
+    def record(client_algo_id, status):
+        written.append(status)
+        original(client_algo_id, status)
+
+    stops.journal.set_stop_status = record
+    issues = stops.sync()
+    assert any("stop_breached" in issue for issue in issues)
+    assert written == ["breached"]                       # never "rejected" first: a crash in between lost the trigger
