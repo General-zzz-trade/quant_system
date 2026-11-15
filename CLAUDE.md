@@ -59,6 +59,8 @@ python -m runner.offline research --validation-only --symbol BTCUSDT --start 202
     --train-end 2024-11-20T04:00 --validation-end 2025-11-16T14:00 \
     --data-dir data_files/binance_public --out <empty dir>
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
+python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
+python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
 python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
 python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
 python -m trading.infrastructure.manual --state-dir <dir> orders     # open orders and the venue's view
@@ -101,10 +103,13 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
-- Kill file (`shared/kill_file.py`); a missing file means inactive.
+- Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
+  in an initialized state directory a missing file means active. `shared/kill_file.py` is `binance_main`'s.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
-- `OrderLimiter`: in memory, resets on restart.
+- `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
+  in `order_limits.sqlite`; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
+  weekly at start-up.
 
 **Research:**
 - `lab/`: target-weight strategies with fixed-date windows.

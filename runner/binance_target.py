@@ -29,6 +29,7 @@ from lab.orders import make_order
 from lab.simulate import SYMBOL_RULES, Sleeve, broker_config
 from trading.adapters.binance.rest import BinanceRestError
 from trading.adapters.files.event_log import JsonlEventLog
+from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
 from trading.adapters.sqlite.paper_store import SqlitePaperStore
@@ -44,6 +45,8 @@ from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.paper_store import MirroredPaperStore
+from trading.infrastructure.state_dir import is_managed, kill_file_path
+from trading.infrastructure.state_dir import verify as verify_state_dir
 from trading.infrastructure.settings import (exchange_settings, execution_scope, notifier_from_env, risk_limits,
                                              testnet_from_env)
 
@@ -61,17 +64,20 @@ def load_spec(path: Path) -> dict:
     return spec
 
 
-def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D) -> dict:
+def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, state_dir: Path | None = None) -> dict:
     """Every start-up check that needs no exchange: the spec's signature and kind, the research gate for
-    mainnet, the risk scope and the stop distance. Run before any account is connected (invariant L6):
+    mainnet, the risk scope, the drawdown ceiling, the stop distance and - for execution - a state directory a
+    person initialized for this scope (step 13c). Run before any account is connected (invariant L6):
     connecting sets leverage and margin type on the exchange."""
     frozen = load_spec(spec_path)
     if execution:
         if not testnet and frozen.get("passed") is not True:
             raise RuntimeError("research gate not passed; mainnet execution refused")
-        execution_scope(testnet=testnet)
+        scope = execution_scope(testnet=testnet)
         risk_limits()                             # the drawdown ceiling (step 13b), before any account access
         check_stop_inside_liquidation(float(stop_pct), *exchange_settings())
+        if state_dir is not None:
+            verify_state_dir(state_dir, scope)
     return frozen
 
 
@@ -124,10 +130,10 @@ class TargetRuntime(_runtime.TargetRuntime):
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
         from execution.adapters.binance.execution_adapter import _TcaLog
-        from shared.kill_file import KillFile
         scope = execution_scope(testnet=testnet)
         limits = risk_limits()
-        kill = KillFile(self.state_dir / "kill_switch.json")
+        # In a managed directory a missing kill file reads as active (ADR-0005 5b); the runtime never writes it.
+        kill = KillFile(kill_file_path(self.state_dir), missing_is_active=is_managed(self.state_dir))
         inputs = target.ExecutionInputs(account=self.account, scope=scope, stop_pct=stop_pct, limits=limits,
                                         kill=kill,
                                         tca_log=_TcaLog(self.state_dir / "tca_binance.jsonl"))
@@ -150,7 +156,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     testnet = testnet_from_env()
-    frozen = preflight(args.spec, execution=args.execution, testnet=testnet, stop_pct=args.stop_pct)
+    frozen = preflight(args.spec, execution=args.execution, testnet=testnet, stop_pct=args.stop_pct,
+                       state_dir=args.state_dir)
     # The same validated, stripped scope the journal and the manual tools use (audit after step 12b, finding 7).
     scope = execution_scope(testnet=testnet) if args.execution else "paper-target"
     args.state_dir.mkdir(parents=True, exist_ok=True)

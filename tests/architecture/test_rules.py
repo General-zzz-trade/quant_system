@@ -356,7 +356,6 @@ TARGET_ENTRY_LEGACY = {
     "lab.orders": "order events of the research paper broker; stays with the paper sleeve",
     "lab.simulate": "the research paper sleeve and its lot rules; stays (paper equals research by design)",
     "execution.adapters.binance.execution_adapter": "transaction-cost log; step 15",
-    "shared.kill_file": "kill file; step 13",
 }
 
 
