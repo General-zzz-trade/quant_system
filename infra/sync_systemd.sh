@@ -57,6 +57,10 @@ RETIRED_UNITS=(
     daily-check.timer
     live-vs-backtest.service
     live-vs-backtest.timer
+    # Polymarket collector and maker; the Polymarket code was deleted
+    # (frozen lines removed, ADR-0008 3b):
+    polymarket-collector.service
+    polymarket-maker.service
 )
 
 for unit in "${RETIRED_UNITS[@]}"; do
