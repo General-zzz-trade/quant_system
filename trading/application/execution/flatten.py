@@ -24,6 +24,8 @@ from typing import Protocol
 from trading.application.ports import Clock, EventLog, ExchangeAccount, OrderJournal
 from trading.domain.bars import Bar
 from trading.domain.orders import OrderIntent
+from trading.domain.events import EventKind
+from trading.domain.issues import IssueKind
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +98,7 @@ class Flattener:
         if self.failures >= MAX_FAILURES:
             self._waiting_bar = bar.open_time
             reason = f"flatten failed {self.failures} times in a row; automatic retries stopped, once per bar now"
-            self.events.write("alert", symbol=self.symbol, reason=reason, failures=self.failures)
+            self.events.write(EventKind.ALERT, symbol=self.symbol, reason=reason, failures=self.failures)
             logger.error("%s: %s", self.symbol, reason)
 
     def _venue_qty(self) -> Decimal | None:
@@ -115,22 +117,24 @@ class Flattener:
         intent = OrderIntent(order_id=intent_id, source=self.executor.owner, symbol=self.symbol, side=side,
                              qty=Decimal(0) if emergency else abs(qty), price=bar.close, reduce_only=True,
                              reason=reason, close_venue_position=emergency)
-        self.events.write("intent", symbol=self.symbol, order_id=intent_id, side=side, qty=str(abs(qty)),
+        self.events.write(EventKind.INTENT, symbol=self.symbol, order_id=intent_id, side=side, qty=str(abs(qty)),
                           reduce_only=True, reason=reason)
         self._last, self._sent_at = intent_id, now
         self.executor.send_order(intent)
         refusal = self.executor.take_refusal(intent_id)
         if refusal is not None:
-            self.events.write("blocked", symbol=self.symbol, order_id=intent_id, reason=f"journal: {refusal}")
+            self.events.write(EventKind.BLOCKED, symbol=self.symbol, order_id=intent_id,
+                              reason=f"journal: {refusal}")
         elif not any(r["intent_id"] == intent_id for r in self._rows()):
-            self.events.write("blocked", symbol=self.symbol, order_id=intent_id, reason="not placed; see the log")
+            self.events.write(EventKind.BLOCKED, symbol=self.symbol, order_id=intent_id,
+                              reason="not placed; see the log")
         try:
             consume()
         except Exception as exc:              # the order is out; its fill is consumed on a later call
             self._issue(f"flatten: fill consumption failed ({type(exc).__name__}: {exc})")
 
     def _issue(self, issue: str) -> None:
-        self.events.write("issue", symbol=self.symbol, issue=issue)
+        self.events.write(EventKind.ISSUE, symbol=self.symbol, issue=issue, issue_kind=IssueKind.FLATTEN_FAILED.value)
         logger.warning("%s: %s", self.symbol, issue)
 
 

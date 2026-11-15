@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from trading.domain.venue import Placement, StopPlacement, Ticker
+from trading.domain.events import EventKind
 
 Clock = Callable[[], float]          # wall-clock seconds since the epoch
 Sleeper = Callable[[float], None]
@@ -297,9 +298,9 @@ class ExposureReader(Protocol):
 
 @runtime_checkable
 class EventLog(Protocol):
-    """Append-only operational events (observability only, never state)."""
+    """Append-only operational events (observability only, never state). The kind is always an EventKind."""
 
-    def write(self, kind: str, **fields: Any) -> None: ...
+    def write(self, kind: EventKind, **fields: Any) -> None: ...
 
 
 @runtime_checkable
