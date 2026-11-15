@@ -13,6 +13,7 @@ from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.telegram import TelegramNotifier
 from trading.application.alerts import ALERT_AFTER_SECONDS, REPEAT_SECONDS, IssueAlerts, NotifyingEventLog
 from trading.application.issues import Issue
+from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure.settings import notifier_from_env
@@ -47,7 +48,7 @@ class Rows:
         self.rows = []
 
     def write(self, kind, **fields):
-        self.rows.append((kind, fields))
+        self.rows.append((kind.value, fields))            # the word, as the JSONL log writes it (S3b)
 
 
 # -- the Telegram adapter ---------------------------------------------------------------------------------------
@@ -100,8 +101,8 @@ def test_both_settings_choose_telegram_neither_the_log_and_one_alone_is_an_error
 def test_alert_rows_are_sent_at_once_and_other_rows_are_not():
     inner, notifier = Rows(), Recorder()
     log = NotifyingEventLog(inner, notifier, prefix="binance-testnet-ut")
-    log.write("issue", symbol="BTCUSDT", issue="x")
-    log.write("alert", symbol="BTCUSDT", reason="entries paused: protective stop triggered")
+    log.write(EventKind.ISSUE, symbol="BTCUSDT", issue="x")
+    log.write(EventKind.ALERT, symbol="BTCUSDT", reason="entries paused: protective stop triggered")
     assert [k for k, _ in inner.rows] == ["issue", "alert"]
     assert notifier.sent == [("critical", "[binance-testnet-ut] BTCUSDT",
                               "entries paused: protective stop triggered")]
@@ -109,7 +110,7 @@ def test_alert_rows_are_sent_at_once_and_other_rows_are_not():
 
 def test_a_notifier_that_fails_never_stops_the_event_log():
     inner = Rows()
-    NotifyingEventLog(inner, Recorder(fail=True), prefix="p").write("alert", symbol="BTCUSDT", reason="r")
+    NotifyingEventLog(inner, Recorder(fail=True), prefix="p").write(EventKind.ALERT, symbol="BTCUSDT", reason="r")
     assert inner.rows == [("alert", {"symbol": "BTCUSDT", "reason": "r"})]
 
 

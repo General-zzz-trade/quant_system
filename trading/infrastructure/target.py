@@ -35,6 +35,7 @@ from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, OrderFactory, TargetSession
+from trading.application.execution.recorded_journal import RecordedOrderJournal
 from trading.domain.orders import OrderIntent
 from trading.domain.rebalance import Lot
 from trading.domain.risk.order_limits import OrderLimitsConfig
@@ -153,7 +154,9 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     for symbol in symbols:
         owner = f"target.{symbol}"
         # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time.
-        lifecycle = OrderLifecycle(account, SqliteOrderJournal(orders_path, scope), scope, clock=clock,
+        # Every order and stop status change is also an event (2026-11-15); the journal stays the state.
+        lifecycle = OrderLifecycle(account, RecordedOrderJournal(SqliteOrderJournal(orders_path, scope), journal),
+                                   scope, clock=clock,
                                    sleeper=lambda seconds: time.sleep(seconds), lock=threading.RLock(),
                                    owner=owner, **settings)
         service = ExecutionService(account, lifecycle, owner=owner, entry_mode=spec.execution,

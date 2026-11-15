@@ -27,6 +27,7 @@ from trading.application.ports import Clock, EventLog, ExchangeAccount, Lock, Or
 from trading.application.reconcile import reconcile_account
 from trading.domain.issues import Effect, IssueKind
 from trading.domain.orders import BLOCKED, ConfirmedFill, OrderIntent
+from trading.domain.events import EventKind
 
 logger = logging.getLogger(__name__)
 MAX_OFFSET = Decimal("0.01")
@@ -85,7 +86,7 @@ class ExecutionService:
             reference = float(self._reference[intent_id] or 0)
             for fact in facts:
                 latency = (self._monotonic() - self._submitted_at.get(intent_id, self._monotonic())) * 1000
-                self._event_log.write("fill", symbol=fact.symbol, side=fact.side, qty=float(fact.qty),
+                self._event_log.write(EventKind.FILL, symbol=fact.symbol, side=fact.side, qty=float(fact.qty),
                                       ref_price=reference, fill_price=float(fact.price), latency_ms=latency,
                                       order_id=fact.order_id, fill_id=fact.fill_id, ref_source="decision_price")
         except Exception:

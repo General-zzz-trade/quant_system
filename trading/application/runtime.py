@@ -19,6 +19,7 @@ from trading.application.session import FUNDING_INTERVAL, TargetSession
 from trading.domain.bars import HOUR, bar_from_kline
 from trading.domain.issues import Effect, IssueKind as K
 from trading.domain.strategy.overlay import StrategySpec
+from trading.domain.events import EventKind
 
 logger = logging.getLogger("binance_target")
 
@@ -85,7 +86,7 @@ class TargetRuntime:
                 session.process_bar(bar, live=resume is not None and bar.open_time > resume, now_ms=now_ms)
             if len(session.bars) < self.spec.window_hours():
                 raise RuntimeError(f"{symbol}: incomplete warmup ({len(session.bars)}/{self.spec.window_hours()})")
-            self.journal.write("warmup", symbol=symbol, bars=len(session.bars), last_open=session.cursor,
+            self.journal.write(EventKind.WARMUP, symbol=symbol, bars=len(session.bars), last_open=session.cursor,
                                resumed_from=resume)
         if self.mode == "paper":
             self.save_paper_state()
@@ -156,7 +157,7 @@ class TargetRuntime:
         self._last_reconcile = self.clock()
 
     def _write_issue(self, symbol: str | None, issue: Issue) -> None:
-        self.journal.write("issue", **({"symbol": symbol} if symbol else {}), issue=str(issue),
+        self.journal.write(EventKind.ISSUE, **({"symbol": symbol} if symbol else {}), issue=str(issue),
                            issue_kind=issue.kind.value)
 
     def _block(self, session: TargetSession, issues: list[Issue]) -> None:
@@ -194,8 +195,9 @@ class TargetRuntime:
             logger.exception("%s entry pause not saved", symbol)
             return issue
         if new:
-            self.journal.write("alert", symbol=symbol, reason=f"entries paused: {cause}; a person releases them "
-                               f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
+            self.journal.write(EventKind.ALERT, symbol=symbol,
+                               reason=f"entries paused: {cause}; a person releases them "
+                                      f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
             logger.error("%s entries paused: %s", symbol, cause)
         return None
 
@@ -270,14 +272,15 @@ class TargetRuntime:
                                                       MARKET_BACKOFF_MAX)
         self._market_retry_at = self.clock() + delay
         text = f"{type(exc).__name__}: {exc}"
-        self.journal.write("issue", issue=f"market data unavailable: {text}", issue_kind=K.MARKET_DATA.value,
+        self.journal.write(EventKind.ISSUE, issue=f"market data unavailable: {text}", issue_kind=K.MARKET_DATA.value,
                            failures=self._market_failures, retry_in=delay)
         logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s", self._market_failures, delay, exc)
         if final and self._market_refused is None:
             self._market_refused = f"market data refused by the exchange ({text}); entries blocked"
-            self.journal.write("alert", reason=f"{self._market_refused} until it works again")
+            self.journal.write(EventKind.ALERT, reason=f"{self._market_refused} until it works again")
         elif not final and self._market_failures == MARKET_ALERT_AFTER:
-            self.journal.write("alert", reason=f"market data unavailable {MARKET_ALERT_AFTER} times in a row: {text}")
+            self.journal.write(EventKind.ALERT,
+                               reason=f"market data unavailable {MARKET_ALERT_AFTER} times in a row: {text}")
 
     def _poll_market(self) -> int:
         processed = 0
@@ -309,7 +312,7 @@ class TargetRuntime:
         if self.reset_paper:
             archived = self._paper_store.archive()
             if archived is not None:
-                self.journal.write("paper_reset", archived=archived)
+                self.journal.write(EventKind.PAPER_RESET, archived=archived)
         data = self._paper_store.load()
         if data is None:
             return {}

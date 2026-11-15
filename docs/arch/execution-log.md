@@ -2328,3 +2328,40 @@ S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；
 **本地**【实际运行结果】
 - `tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/unit/lab` 全部通过。修 3 处测试设置之前有 3 条失败，原因都是测试传入纯文字。
 - ruff、`mypy trading/`（73 个文件）、导入契约（5 条）都通过。
+
+## S3b：事件类型改成枚举，订单和止损的每次状态变化都写事件（2026-11-15，ADR-0014 第 2 条，资金路径完整流程）
+
+**改了什么**
+- 新增 `trading/domain/events.py` 的 `EventKind`：11 种事件。其中 9 种是原有的词，新增 `order` 和 `stop`。
+- 事件日志接口（`ports.EventLog`）只接受 `EventKind`；JSONL 日志收到别的类型会抛 `TypeError`。
+  - 生产代码里 18 处写事件的地方都改为枚举，写进日志的词不变。
+  - 平仓过程中出的问题，事件里多了 `issue_kind`。
+- 新增 `RecordedOrderJournal`，包在执行用的订单库外面，在组装时接入（`trading/infrastructure/target.py`）。每次状态变化写一条事件，写失败只记日志：
+  - 订单：保留、确认（交易所订单号）、接管交易所订单、状态改变、了结；
+  - 止损：保留、每次状态改变。
+- 手工工具直接操作订单库，它们的改动还不写事件，已写进 ADR-0014。
+
+**先写的测试**（单独提交 `c8007a1`，在旧代码上全部失败）
+- `tests/unit/trading/test_event_kinds.py`：
+  - 枚举取值固定；
+  - JSONL 日志写出的是词，收到字符串就拒绝；
+  - 订单每次状态变化各写一条事件，状态没变就不写；
+  - 被拒绝的保留不写事件；
+  - 止损状态变化写事件；
+  - 事件日志失败不影响订单库操作。
+- `tests/architecture/test_event_kind_rules.py`：生产代码里不允许 `x.write("词", 字段=…)` 这种写法，配反例。
+- 后来补充：
+  - `test_runtime_decisions.py::test_every_status_change_of_an_order_is_in_the_event_log`：运行时开出仓位后，事件日志里能看到这笔订单从保留、确认到成交的完整经过，止损也生效了。不接入包装层时这条测试失败。
+  - `test_event_kinds.py::test_settling_without_a_new_status_is_still_an_event`。
+
+**已有测试的改动**：没有改任何断言。只改了测试设置：
+- `test_alerts.py` 的 `Rows` 和 `test_execution_service.py` 的 `Log` 两个假日志改为记录事件种类对应的词，也就是 JSONL 日志写出的内容；
+- `test_alerts.py` 里两处写事件改用 `EventKind`。
+
+**变异自检**【实际运行结果】
+- 第一轮：11 个缺陷，抓住 10 个。存活 1 个：只把订单标为了结、状态没变时不写事件。补了一条测试后被抓住。
+- 最终：11 个全部被抓住。
+
+**本地**【实际运行结果】
+- `tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/unit/lab` 通过。改测试设置之前有 2 条失败，都是假日志直接拿事件种类去和字符串比较。
+- ruff、`mypy trading/`（75 个文件）、导入契约都通过。

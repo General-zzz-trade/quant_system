@@ -15,6 +15,7 @@ from typing import Any
 
 from trading.application.issues import Issue
 from trading.application.ports import Clock, EventLog, Notifier
+from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,9 @@ class NotifyingEventLog:
     def __init__(self, inner: EventLog, notifier: Notifier, *, prefix: str) -> None:
         self.inner, self.notifier, self.prefix = inner, notifier, prefix
 
-    def write(self, kind: str, **fields: Any) -> None:
+    def write(self, kind: EventKind, **fields: Any) -> None:
         self.inner.write(kind, **fields)
-        if kind == "alert":
+        if kind is EventKind.ALERT:
             _send(self.notifier, "critical", f"[{self.prefix}] {fields.get('symbol', '')}".rstrip(),
                   str(fields.get("reason", "")))
 

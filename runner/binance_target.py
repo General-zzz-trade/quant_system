@@ -50,6 +50,7 @@ from trading.infrastructure.state_dir import is_managed, kill_file_path
 from trading.infrastructure.state_dir import verify as verify_state_dir
 from trading.infrastructure.settings import (exchange_settings, execution_scope, notifier_from_env, risk_limits,
                                              testnet_from_env)
+from trading.domain.events import EventKind
 
 logger = logging.getLogger("binance_target")
 
@@ -90,7 +91,7 @@ class _TcaLog:
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def write(self, kind: str, **fields: Any) -> None:
+    def write(self, kind: EventKind, **fields: Any) -> None:
         from monitoring.tca import TCALogger
         tca = TCALogger("binance", path=self._path)
         try:

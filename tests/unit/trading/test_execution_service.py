@@ -90,7 +90,7 @@ class Log:
     def write(self, kind, **fields):
         if self.fail:
             raise OSError("disk full")
-        self.rows.append((kind, fields))
+        self.rows.append((kind.value, fields))            # the word, as the JSONL log writes it (S3b)
 
 
 @pytest.fixture

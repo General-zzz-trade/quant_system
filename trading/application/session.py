@@ -20,6 +20,7 @@ from trading.domain.orders import BLOCKED, SETTLED
 from trading.domain.position import StrategyPosition
 from trading.domain.rebalance import Intent, close_without_equity, plan
 from trading.domain.strategy.overlay import StrategySpec, latest_target
+from trading.domain.events import EventKind
 
 FUNDING_INTERVAL = 8 * HOUR
 MAX_ENTRY_DELAY_MS = 10 * 60_000
@@ -145,7 +146,7 @@ class TargetSession:
     def consume_fills(self) -> None:
         for event in self.executor.reconcile_pending():
             if self.consumer.consume(event):
-                self.journal.write("fill", symbol=self.symbol, order_id=event.order_id, side=event.side,
+                self.journal.write(EventKind.FILL, symbol=self.symbol, order_id=event.order_id, side=event.side,
                                    qty=str(event.qty), price=str(event.price))
 
     def _order(self, k: int, intent: Intent, bar: Bar, reason: str) -> Any:
@@ -154,7 +155,7 @@ class TargetSession:
                                 qty=intent.qty, price=bar.close, reduce_only=intent.reduce_only, reason=reason)
 
     def _blocked(self, order_id: str, reason: str, **extra: Any) -> None:
-        self.journal.write("blocked", symbol=self.symbol, order_id=order_id, reason=reason, **extra)
+        self.journal.write(EventKind.BLOCKED, symbol=self.symbol, order_id=order_id, reason=reason, **extra)
 
     def _send(self, order: RoutedOrder, intent: Intent) -> None:
         self.pending[order.order_id] = intent.reduce_only
@@ -168,7 +169,7 @@ class TargetSession:
     def submit(self, intents: list[Intent], bar: Bar, reason: str) -> None:
         for k, intent in enumerate(intents):
             order = self._order(k, intent, bar, reason)
-            self.journal.write("intent", symbol=self.symbol, order_id=order.order_id, side=intent.side,
+            self.journal.write(EventKind.INTENT, symbol=self.symbol, order_id=order.order_id, side=intent.side,
                                qty=str(intent.qty), reduce_only=intent.reduce_only, reason=reason)
             if self.sleeve is not None:
                 self.sleeve.broker.send_order(order)
@@ -239,9 +240,9 @@ class TargetSession:
             # Paper: exactly the research sleeve step (no readiness gate in research).
             self.sleeve.decide(bar, target, ready)
             for fill in self.sleeve.broker.fills[self._logged:]:
-                self.journal.write("paper_fill", symbol=self.symbol, **fill)
+                self.journal.write(EventKind.PAPER_FILL, symbol=self.symbol, **fill)
             self._logged = len(self.sleeve.broker.fills)
-            self.journal.write("paper_equity", symbol=self.symbol, bar_open=bar.open_time,
+            self.journal.write(EventKind.PAPER_EQUITY, symbol=self.symbol, bar_open=bar.open_time,
                                equity=str(self.sleeve.broker.equity), qty=str(self.sleeve.broker.position.qty),
                                target=target)
             return

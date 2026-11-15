@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from trading.domain.events import EventKind
+
 
 class JsonlEventLog:
     """Append-only JSONL of signals, intents, fills and issues (observability only)."""
@@ -14,8 +16,10 @@ class JsonlEventLog:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def write(self, kind: str, **fields: Any) -> None:
-        row = {"ts": time.time(), "kind": kind, **fields}
+    def write(self, kind: EventKind, **fields: Any) -> None:
+        if not isinstance(kind, EventKind):
+            raise TypeError(f"an event needs an EventKind, not {kind!r}")
+        row = {"ts": time.time(), "kind": kind.value, **fields}
         with self.path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(row, default=str, ensure_ascii=False) + "\n")
 
