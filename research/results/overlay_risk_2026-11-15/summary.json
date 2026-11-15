@@ -1,0 +1,429 @@
+{
+  "study": "overlay_risk_2026-11-15",
+  "window": {
+    "eval_start_ms": 1610236800000,
+    "dev_end_ms": 1763251200000,
+    "holdout": "not computed; the final test is forward data at registered looks"
+  },
+  "reference_overlay": {
+    "spec": {
+      "lookbacks": [
+        10,
+        20,
+        30,
+        60,
+        90,
+        120,
+        180
+      ],
+      "signal": "sign",
+      "long_only": true,
+      "vol_lookback": 30,
+      "target_vol": 0.3,
+      "max_weight": 0.9,
+      "funding_filter": false,
+      "vol_spike_cut": false,
+      "confirm_4h": false,
+      "band": 0.1,
+      "execution": "market",
+      "ttl_bars": 1
+    },
+    "strategy": {
+      "days": 1771,
+      "total_return": 0.6454620670157896,
+      "cagr": 0.10809387017443006,
+      "max_drawdown": 0.15795649747792792,
+      "sharpe": 0.7179385901638707,
+      "vol": 0.16097222945492526,
+      "calmar": 0.6843268361881383
+    },
+    "yearly_max_drawdown": {
+      "2021": 0.10180321932768586,
+      "2022": 0.04410942988812775,
+      "2023": 0.15795649747792792,
+      "2024": 0.1492367137647809,
+      "2025": 0.11337466270929603
+    },
+    "average_exposure": 0.20094524302623898
+  },
+  "gate": {
+    "max_drawdown_at_most_ratio_of_overlay": 0.85,
+    "sharpe_shortfall_vs_overlay_max": 0.05,
+    "cost_x2_total_return_min_exclusive": 0.0,
+    "fills_per_symbol_year_max": 150,
+    "years_drawdown_not_worse_min": 4
+  },
+  "variants": {
+    "ewma_vol": {
+      "variant": {
+        "vol": "ewma",
+        "portfolio": false,
+        "brake": false
+      },
+      "strategy": {
+        "days": 1771,
+        "total_return": 0.5680995034344551,
+        "cagr": 0.0971503867508634,
+        "max_drawdown": 0.15474472854577284,
+        "sharpe": 0.6755017053618042,
+        "vol": 0.1550164755878367,
+        "calmar": 0.6278106379703056
+      },
+      "strategy_cost_x2": {
+        "days": 1771,
+        "total_return": 0.4905194394416761,
+        "cagr": 0.08573686761960886,
+        "max_drawdown": 0.15996439189858813,
+        "sharpe": 0.6078173993896884,
+        "vol": 0.15508915981282254,
+        "calmar": 0.5359747041326738
+      },
+      "average_exposure": 0.1969840453875858,
+      "fills_per_symbol_year": {
+        "BTCUSDT": 72.13438735177866,
+        "ETHUSDT": 54.822134387351774
+      },
+      "yearly_max_drawdown": {
+        "2021": 0.10245875876657652,
+        "2022": 0.038846580969804825,
+        "2023": 0.1441678457840241,
+        "2024": 0.15474472854577284,
+        "2025": 0.11676928155618893
+      },
+      "gate": {
+        "passed": false,
+        "checks": {
+          "max_drawdown_vs_overlay": {
+            "value": 0.15474472854577284,
+            "reference": 0.15795649747792792,
+            "ok": false
+          },
+          "sharpe_vs_overlay": {
+            "value": 0.6755017053618042,
+            "reference": 0.7179385901638707,
+            "ok": true
+          },
+          "cost_x2_total_return": {
+            "value": 0.4905194394416761,
+            "reference": 0.0,
+            "ok": true
+          },
+          "fills_per_symbol_year": {
+            "value": 72.13438735177866,
+            "reference": 150,
+            "ok": true
+          },
+          "years_drawdown_not_worse": {
+            "value": 2,
+            "reference": 4,
+            "ok": false
+          }
+        }
+      },
+      "deflated_sharpe_report_only": {
+        "family": "directional_btc_eth",
+        "n_trials": 83,
+        "n_with_sharpe": 31,
+        "sharpe_std": 0.1364412747060655,
+        "best_sharpe": 0.7844655563581826,
+        "probability": 0.7735513917827184
+      }
+    },
+    "portfolio_vol": {
+      "variant": {
+        "vol": "simple",
+        "portfolio": true,
+        "brake": false
+      },
+      "strategy": {
+        "days": 1771,
+        "total_return": 0.6594646877690888,
+        "cagr": 0.11003078368352659,
+        "max_drawdown": 0.15747375891252766,
+        "sharpe": 0.7310635734097815,
+        "vol": 0.1603290799800526,
+        "calmar": 0.6987245649266914
+      },
+      "strategy_cost_x2": {
+        "days": 1771,
+        "total_return": 0.5612515591878604,
+        "cagr": 0.0961611933105353,
+        "max_drawdown": 0.16650498524916493,
+        "sharpe": 0.6523061360754613,
+        "vol": 0.16043678131516967,
+        "calmar": 0.5775274125674719
+      },
+      "average_exposure": 0.20056224282691246,
+      "fills_per_symbol_year": {
+        "BTCUSDT": 72.9587803500847,
+        "ETHUSDT": 56.26482213438735
+      },
+      "yearly_max_drawdown": {
+        "2021": 0.10018831797012366,
+        "2022": 0.04357514621289293,
+        "2023": 0.15747375891252766,
+        "2024": 0.14496388924869863,
+        "2025": 0.11298650788681094
+      },
+      "gate": {
+        "passed": false,
+        "checks": {
+          "max_drawdown_vs_overlay": {
+            "value": 0.15747375891252766,
+            "reference": 0.15795649747792792,
+            "ok": false
+          },
+          "sharpe_vs_overlay": {
+            "value": 0.7310635734097815,
+            "reference": 0.7179385901638707,
+            "ok": true
+          },
+          "cost_x2_total_return": {
+            "value": 0.5612515591878604,
+            "reference": 0.0,
+            "ok": true
+          },
+          "fills_per_symbol_year": {
+            "value": 72.9587803500847,
+            "reference": 150,
+            "ok": true
+          },
+          "years_drawdown_not_worse": {
+            "value": 5,
+            "reference": 4,
+            "ok": true
+          }
+        }
+      },
+      "deflated_sharpe_report_only": {
+        "family": "directional_btc_eth",
+        "n_trials": 83,
+        "n_with_sharpe": 31,
+        "sharpe_std": 0.1364412747060655,
+        "best_sharpe": 0.7844655563581826,
+        "probability": 0.8096462673197133
+      }
+    },
+    "drawdown_brake": {
+      "variant": {
+        "vol": "simple",
+        "portfolio": false,
+        "brake": true
+      },
+      "strategy": {
+        "days": 1771,
+        "total_return": 0.42601800696386194,
+        "cagr": 0.07588262691265735,
+        "max_drawdown": 0.1294526786960018,
+        "sharpe": 0.5862678505523797,
+        "vol": 0.14193818311560036,
+        "calmar": 0.5861804303861116
+      },
+      "strategy_cost_x2": {
+        "days": 1771,
+        "total_return": 0.3006233688952533,
+        "cagr": 0.05566575899336201,
+        "max_drawdown": 0.13705240024300677,
+        "sharpe": 0.46406686009983494,
+        "vol": 0.13694249374295717,
+        "calmar": 0.40616405764993097
+      },
+      "average_exposure": 0.1599063076043708,
+      "fills_per_symbol_year": {
+        "BTCUSDT": 62.03557312252964,
+        "ETHUSDT": 43.89892715979672
+      },
+      "yearly_max_drawdown": {
+        "2021": 0.09479535368762695,
+        "2022": 0.030512499255529832,
+        "2023": 0.1019400393385495,
+        "2024": 0.1166631440432337,
+        "2025": 0.10842977761095689
+      },
+      "gate": {
+        "passed": false,
+        "checks": {
+          "max_drawdown_vs_overlay": {
+            "value": 0.1294526786960018,
+            "reference": 0.15795649747792792,
+            "ok": true
+          },
+          "sharpe_vs_overlay": {
+            "value": 0.5862678505523797,
+            "reference": 0.7179385901638707,
+            "ok": false
+          },
+          "cost_x2_total_return": {
+            "value": 0.3006233688952533,
+            "reference": 0.0,
+            "ok": true
+          },
+          "fills_per_symbol_year": {
+            "value": 62.03557312252964,
+            "reference": 150,
+            "ok": true
+          },
+          "years_drawdown_not_worse": {
+            "value": 5,
+            "reference": 4,
+            "ok": true
+          }
+        }
+      },
+      "deflated_sharpe_report_only": {
+        "family": "directional_btc_eth",
+        "n_trials": 83,
+        "n_with_sharpe": 31,
+        "sharpe_std": 0.1364412747060655,
+        "best_sharpe": 0.7844655563581826,
+        "probability": 0.7089818693962988
+      }
+    },
+    "combined": {
+      "variant": {
+        "vol": "ewma",
+        "portfolio": true,
+        "brake": true
+      },
+      "strategy": {
+        "days": 1771,
+        "total_return": 0.30416547537750604,
+        "cagr": 0.056257650098026746,
+        "max_drawdown": 0.14023066147020774,
+        "sharpe": 0.48768897967677655,
+        "vol": 0.12940841004271786,
+        "calmar": 0.40117938194264874
+      },
+      "strategy_cost_x2": {
+        "days": 1771,
+        "total_return": 0.2558190919006411,
+        "cagr": 0.048066159001270536,
+        "max_drawdown": 0.14259622448132078,
+        "sharpe": 0.4293872461767589,
+        "vol": 0.12860437018091847,
+        "calmar": 0.337078763313028
+      },
+      "average_exposure": 0.14298415514363602,
+      "fills_per_symbol_year": {
+        "BTCUSDT": 55.85262563523433,
+        "ETHUSDT": 41.21964991530209
+      },
+      "yearly_max_drawdown": {
+        "2021": 0.0960139739445887,
+        "2022": 0.03217629692665066,
+        "2023": 0.0884214066809919,
+        "2024": 0.12126224975803876,
+        "2025": 0.10733837579060547
+      },
+      "gate": {
+        "passed": false,
+        "checks": {
+          "max_drawdown_vs_overlay": {
+            "value": 0.14023066147020774,
+            "reference": 0.15795649747792792,
+            "ok": false
+          },
+          "sharpe_vs_overlay": {
+            "value": 0.48768897967677655,
+            "reference": 0.7179385901638707,
+            "ok": false
+          },
+          "cost_x2_total_return": {
+            "value": 0.2558190919006411,
+            "reference": 0.0,
+            "ok": true
+          },
+          "fills_per_symbol_year": {
+            "value": 55.85262563523433,
+            "reference": 150,
+            "ok": true
+          },
+          "years_drawdown_not_worse": {
+            "value": 5,
+            "reference": 4,
+            "ok": true
+          }
+        }
+      },
+      "deflated_sharpe_report_only": {
+        "family": "directional_btc_eth",
+        "n_trials": 83,
+        "n_with_sharpe": 31,
+        "sharpe_std": 0.1364412747060655,
+        "best_sharpe": 0.7844655563581826,
+        "probability": 0.6302793773154352
+      }
+    }
+  },
+  "selected": null,
+  "parameters": {
+    "ewma_halflife_days": 10,
+    "corr_lookback_days": 30,
+    "brake": [
+      0.05,
+      0.15,
+      0.25
+    ]
+  },
+  "code": {
+    "git_revision": "247d50215fe144dae73f8fa6d0534a99de69438e",
+    "lab_or_offline_dirty": false
+  },
+  "data": {
+    "downloaded_at": "2026-11-13T11:26:51+00:00",
+    "end": "2026-11-13",
+    "files": {
+      "BTCUSDT_1h.csv": {
+        "rows": 60192,
+        "sha256": "83edb54ba9bc6addcbe5ccd6b89c09675e70c6795f8179aea0d4d04498de638b"
+      },
+      "BTCUSDT_funding.csv": {
+        "mark_proxy_rows": 4198,
+        "rows": 7524,
+        "sha256": "843f49ac0d8edac1399ccaaddd5a560a3237526501a51bca18d3378636367dc4"
+      },
+      "BTCUSDT_metrics.csv": {
+        "first_missing": [
+          "2020-01-01",
+          "2020-01-02",
+          "2020-01-03"
+        ],
+        "last_missing": [
+          "2020-08-29",
+          "2020-08-30",
+          "2020-08-31"
+        ],
+        "missing_days": 244,
+        "rows": 726653,
+        "sha256": "6829cd1a42449f43523e040b62a032c42f9ae36ac18719a1bac4cbd841b2bd7c"
+      },
+      "ETHUSDT_1h.csv": {
+        "rows": 60192,
+        "sha256": "ddbf0e3824a9e77f11f26fc5efdbdf6cc2d775e63a848aa90cec9f09f095284d"
+      },
+      "ETHUSDT_funding.csv": {
+        "mark_proxy_rows": 4198,
+        "rows": 7524,
+        "sha256": "6a60629ad06bfeb194e27ad351d2e69d20b0b186fe66544a8e4630ad28497699"
+      },
+      "ETHUSDT_metrics.csv": {
+        "first_missing": [
+          "2020-01-01",
+          "2020-01-02",
+          "2020-01-03"
+        ],
+        "last_missing": [
+          "2021-11-28",
+          "2021-11-29",
+          "2021-11-30"
+        ],
+        "missing_days": 700,
+        "rows": 520564,
+        "sha256": "d5b3cee6f48812a50b91a89748abd0de947971e6d43591af1d6677ec3bbe1d0a"
+      }
+    },
+    "source": "binance-usdm-public",
+    "start": "2020-01-01"
+  },
+  "caveat": "The overlay's development results, its yearly returns and the lab's funding, 4h-volatility and 4h-confirmation layers were seen before these variants were written; this is a screen. A passing variant only earns a forward test; the frozen overlay is unchanged."
+}
