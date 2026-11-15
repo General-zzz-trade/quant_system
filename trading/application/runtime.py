@@ -202,8 +202,14 @@ class TargetRuntime:
     def _market(self) -> None:
         self.exits.refresh_equity_if_due()
         # The gate's symbol state must be this cycle's: a pause released or a kill cleared since the last exit side
-        # must not refuse the next entry as PAUSED or HALTED (S3 audit finding 1).
-        self.exits.update_states()
+        # must not refuse the next entry as PAUSED or HALTED (S3 audit finding 1). If it cannot be read, this
+        # cycle's entries are blocked and the bars are still processed, so strategy reductions go on.
+        try:
+            self.exits.update_states()
+        except Exception:
+            logger.exception("Symbol states not refreshed; every entry is blocked this cycle")
+            for session in self.sessions.values():
+                session.executor.block_entries()
         for session in self.sessions.values():           # entries the rate limit refused on an earlier cycle
             session.retry_deferred(int(self.clock() * 1000))
         self.market_side.poll()

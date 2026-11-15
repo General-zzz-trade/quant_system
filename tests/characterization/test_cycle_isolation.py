@@ -38,7 +38,8 @@ def test_a_failing_market_side_still_runs_the_exits_and_the_status(tmp_path, mon
 
     def broken(*args, **kwargs):
         raise RuntimeError("an unexpected market-side error")
-    monkeypatch.setattr(world["adapter"], "get_klines", broken)       # not a declared market-data error
+    # A kline error is one symbol's failure since the S3 audit (finding 4); this one fails the side as a whole.
+    monkeypatch.setattr(runtime.sessions["BTCUSDT"], "retry_deferred", broken)
     runtime.kill.write(active=True, reason="test", flatten=True)
     _advance(world, runtime, i)                                       # must not raise
     assert btc.positions["BTCUSDT"] == 0                              # the exit side ran in the same cycle
