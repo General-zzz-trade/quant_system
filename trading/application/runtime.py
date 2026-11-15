@@ -62,6 +62,8 @@ class TargetRuntime:
         self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self._alert_wait) \
             if notifier is not None else None
         self._exit_errors: dict[str, Issue] = {}    # symbol -> the last exit failure, until an exit succeeds
+        self._decision_errors: dict[str, Issue] = {}  # symbol -> its last failed bar, until a bar succeeds
+        self._cycle_errors: dict[str, Issue] = {}     # block -> its last failure, until the block succeeds
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
@@ -149,11 +151,13 @@ class TargetRuntime:
             if refused is not None:
                 self._write_issue(symbol, refused)
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
-                    self._exit_errors.get(symbol), refused]
+                    self._exit_errors.get(symbol), self._decision_errors.get(symbol), refused]
             found = issues + [issue for issue in more if issue is not None]
-            self._block(session, found)
+            self._block(session, found + list(self._cycle_errors.values()))
             if self.issue_alerts is not None:
                 self.issue_alerts.observe(symbol, found)
+        if self.issue_alerts is not None:
+            self.issue_alerts.observe("runtime", list(self._cycle_errors.values()))
         self._last_reconcile = self.clock()
 
     def _write_issue(self, symbol: str | None, issue: Issue) -> None:
@@ -302,9 +306,25 @@ class TargetRuntime:
                 # Execution decides on the newest bar only: older bars missed during an outage just extend
                 # the window. A late newest bar may still reduce; entries are refused as "processed too late"
                 # (approved 2026-11-14, ADR-0007). Paper replays every bar, as research does.
-                session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
+                try:
+                    session.process_bar(bar, live=self.mode == "paper" or k == len(new) - 1, now_ms=now_ms)
+                    self._decision_errors.pop(symbol, None)
+                except Exception as exc:
+                    if self.mode != "execution":
+                        raise                       # paper must not diverge from research silently
+                    self._decision_failed(symbol, session, exc)
                 processed += 1
         return processed
+
+    def _decision_failed(self, symbol: str, session: TargetSession, exc: Exception) -> None:
+        """One symbol's bar raised (S3c): only its entries are blocked, the other symbols and the exit side go
+        on, and the next bar decides again. Until a bar succeeds the issue is re-applied every reconciliation."""
+        issue = Issue(K.DECISION_FAILED, symbol, f"{symbol}: bar not processed: {type(exc).__name__}: {exc}")
+        if self._decision_errors.get(symbol) != issue:
+            self._write_issue(symbol, issue)
+            logger.exception("%s bar not processed; its entries are blocked", symbol)
+        self._decision_errors[symbol] = issue
+        session.executor.block_entries()
 
     # -- paper state -----------------------------------------------------------
     def _load_paper_state(self) -> dict[str, Any]:
@@ -339,8 +359,8 @@ class TargetRuntime:
                                "alerts": getattr(self.notifier, "channel", None),
                                "market_failures": self._market_failures, "symbols": {}}
         if self.kill is not None:
-            out["kill"] = self.kill.state().__dict__
-            out["drawdown_latched"] = self.drawdown.latched()
+            out["kill"] = _readable(lambda: self.kill.state().__dict__)
+            out["drawdown_latched"] = _readable(self.drawdown.latched)
             out["equity"] = str(self.equity.value)
         for symbol, s in self.sessions.items():
             stops = s.stops
@@ -355,19 +375,42 @@ class TargetRuntime:
         return out
 
     def cycle(self) -> None:
-        if self.mode == "execution" and self.clock() - self._last_equity >= EQUITY_SECONDS:
-            self.refresh_equity()
-        if self.mode == "execution":
-            for session in self.sessions.values():       # entries the rate limit refused on an earlier cycle
-                session.retry_deferred(int(self.clock() * 1000))
-        self.poll()
         if self.mode == "paper":
+            self.poll()
             self.save_paper_state()
-        if self.mode == "execution":
-            if self.clock() - self._last_reconcile >= RECONCILE_SECONDS:
-                self.reconcile()
-            self.risk_actions()
-        self._status_sink.write(self.status())
+            self._status_sink.write(self.status())
+            return
+        # Execution: three isolated blocks (S3c). One that raises does not stop the others in this cycle.
+        self._run_block("market", self._market_side)
+        self._run_block("exit", self._exit_side)
+        self._run_block("status", lambda: self._status_sink.write(self.status()))
+
+    def _market_side(self) -> None:
+        if self.clock() - self._last_equity >= EQUITY_SECONDS:
+            self.refresh_equity()
+        for session in self.sessions.values():           # entries the rate limit refused on an earlier cycle
+            session.retry_deferred(int(self.clock() * 1000))
+        self.poll()
+
+    def _exit_side(self) -> None:
+        if self.clock() - self._last_reconcile >= RECONCILE_SECONDS:
+            self.reconcile()
+        self.risk_actions()
+
+    def _run_block(self, name: str, run: Callable[[], None]) -> None:
+        """A failing block blocks every entry at once, and at every reconciliation until it succeeds again."""
+        try:
+            run()
+        except Exception as exc:
+            issue = Issue(K.CYCLE_FAILED, None, f"{name} side failed: {type(exc).__name__}: {exc}")
+            if self._cycle_errors.get(name) != issue:
+                self._write_issue(None, issue)
+                logger.exception("%s side failed; every entry is blocked", name)
+            self._cycle_errors[name] = issue
+            for session in self.sessions.values():
+                session.executor.block_entries()
+        else:
+            self._cycle_errors.pop(name, None)
 
 
 def _readable(read: Callable[[], Any]) -> Any:
