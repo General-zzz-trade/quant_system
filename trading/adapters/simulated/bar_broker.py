@@ -18,15 +18,37 @@ behaves, and records its configuration, exactly as before.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
+from typing import Any, Protocol, cast
 
 from trading.domain.bars import Bar
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.position import StrategyPosition
 
 D = Decimal
+Row = dict[str, Any]     # an order, fill or log row: the broker keeps its state as plain dicts
+
+
+class BrokerOrder(Protocol):
+    """What the broker reads of an order; it also reads ``reduce_only`` and ``reason`` when present."""
+
+    @property
+    def order_id(self) -> str: ...
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def side(self) -> str: ...
+
+    @property
+    def qty(self) -> Decimal: ...
+
+    @property
+    def price(self) -> Decimal: ...
 
 
 @dataclass(frozen=True)
@@ -54,7 +76,7 @@ class ReplayConfig:
     maintenance_margin_rate: str = "0.005"
     stop_slippage_bps: str = "10"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for key in ("starting_balance", "maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps",
                     "participation", "max_exposure", "qty_step", "min_notional"):
             value = D(str(getattr(self, key)))
@@ -88,7 +110,7 @@ class ReplayConfig:
         if not 0 < self.deadzone < 10 or not 1 <= self.min_hold <= self.max_hold:
             raise ValueError("invalid signal constraints")
 
-    def record(self):
+    def record(self) -> dict[str, Any]:
         """Without isolated mode the new fields are omitted, so earlier records stay identical."""
         out = asdict(self)
         if D(str(self.isolated_leverage)) == 0:
@@ -112,37 +134,37 @@ class BrokerFill:
 
 
 class BarBroker:
-    def __init__(self, config: ReplayConfig):
+    def __init__(self, config: ReplayConfig) -> None:
         self.config = config
         self.position = StrategyPosition()
         self.fees = D(0)
         self.funding = D(0)
         self.mark = D(0)
         self.now = 0
-        self.orders: list[dict] = []
-        self.fills: list[dict] = []
-        self.funding_log: list[dict] = []
-        self.pending: list[dict] = []
-        self.emit = lambda event: None
-        self.status = lambda oid, status: None
+        self.orders: list[Row] = []
+        self.fills: list[Row] = []
+        self.funding_log: list[Row] = []
+        self.pending: list[Row] = []
+        self.emit: Callable[[BrokerFill], None] = lambda event: None
+        self.status: Callable[[str, str], None] = lambda oid, status: None
         self.leverage = D(str(config.isolated_leverage))
         self.margin = D(0)           # isolated margin posted for the open position
-        self.stop_price = None       # protective stop for the open position (isolated mode only)
-        self.liquidations: list[dict] = []
+        self.stop_price: Decimal | None = None   # protective stop for the open position (isolated mode only)
+        self.liquidations: list[Row] = []
 
     @property
-    def cash(self):
+    def cash(self) -> Decimal:
         return D(self.config.starting_balance) + self.position.realized_pnl - self.fees + self.funding
 
     @property
-    def equity(self):
+    def equity(self) -> Decimal:
         return self.cash + self.position.qty * (self.mark - self.position.entry_price)
 
-    def round_qty(self, qty):
+    def round_qty(self, qty: Decimal) -> Decimal:
         step = D(self.config.qty_step)
         return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
 
-    def register(self, order):
+    def register(self, order: BrokerOrder) -> Row:
         existing = next((r for r in self.orders if r["internal_id"] == order.order_id), None)
         if existing:
             return existing
@@ -153,14 +175,14 @@ class BarBroker:
         self.orders.append(row)
         return row
 
-    def status_update(self, oid, status):
+    def status_update(self, oid: str, status: str) -> None:
         row = next((r for r in self.orders if r["internal_id"] == oid), None)
         if row is not None:
             row["status"] = status
             row["updated_at"] = self.now
         self.status(oid, status)
 
-    def send_order(self, order):
+    def send_order(self, order: BrokerOrder) -> list[BrokerFill]:
         row = self.register(order)
         if row["status"] != "created":
             return []  # a retry never creates a second order
@@ -184,7 +206,7 @@ class BarBroker:
         self.pending.append(row)
         return []
 
-    def process_bar(self, bar: Bar):
+    def process_bar(self, bar: Bar) -> None:
         self.mark = bar.open
         budget = self.round_qty(bar.volume * D(self.config.participation))
         # Market reductions occur at open, maker fills at close. Preserve time order.
@@ -249,7 +271,8 @@ class BarBroker:
             self._protect(bar)
         self.now, self.mark = bar.available_at, bar.close
 
-    def _exceeds_cap(self, row, bar, qty, sign, price, fee_bps) -> bool:
+    def _exceeds_cap(self, row: Row, bar: Bar, qty: Decimal, sign: Decimal, price: Decimal,
+                     fee_bps: Decimal) -> bool:
         """Whether an entry fill would breach ``max_exposure``.
 
         Unlevered mode (the default): adverse bar extremes also bound exposure, since the
@@ -266,7 +289,7 @@ class BarBroker:
         return abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure)
 
     # -- isolated-margin mode -----------------------------------------------------------------
-    def set_stop(self, price) -> None:
+    def set_stop(self, price: Decimal | float | str) -> None:
         """Protective stop for the current position (isolated mode only; cleared when flat)."""
         if self.leverage <= 0:
             raise ValueError("protective stops are modelled only in isolated-margin mode")
@@ -278,7 +301,7 @@ class BarBroker:
     def clear_stop(self) -> None:
         self.stop_price = None
 
-    def liquidation_price(self):
+    def liquidation_price(self) -> Decimal | None:
         """Isolated-margin liquidation price of the open position (None when flat or not isolated)."""
         qty = self.position.qty
         if self.leverage <= 0 or qty == 0:
@@ -286,7 +309,7 @@ class BarBroker:
         mmr, entry = D(self.config.maintenance_margin_rate), self.position.entry_price
         return entry * (1 - 1 / self.leverage + mmr) if qty > 0 else entry * (1 + 1 / self.leverage - mmr)
 
-    def _update_margin(self, before, price) -> None:
+    def _update_margin(self, before: Decimal, price: Decimal) -> None:
         if self.leverage <= 0:
             return
         after = self.position.qty
@@ -299,18 +322,18 @@ class BarBroker:
         else:
             self.margin = self.margin * abs(after) / abs(before)
 
-    def _record_exit(self, kind, side, qty, price, fee) -> None:
+    def _record_exit(self, kind: str, side: str, qty: Decimal, price: Decimal, fee: Decimal) -> None:
         fill_id = f"offline-fill-{len(self.fills) + 1}"
         self.fills.append({"id": fill_id, "order": kind, "at": self.now, "side": side,
                            "qty": str(qty), "price": str(price), "fee": str(fee)})
 
-    def _protect(self, bar) -> None:
+    def _protect(self, bar: Bar) -> None:
         qty = self.position.qty
         if qty == 0:
             self.stop_price = None
             return
         long = qty > 0
-        liq = self.liquidation_price()
+        liq = cast(Decimal, self.liquidation_price())   # isolated mode with a position: never None
         beyond = (lambda p: p <= liq) if long else (lambda p: p >= liq)
         self.now = bar.available_at
         if beyond(bar.open):
@@ -333,7 +356,7 @@ class BarBroker:
         if (bar.low <= liq) if long else (bar.high >= liq):
             self._liquidate(bar)
 
-    def _liquidate(self, bar) -> None:
+    def _liquidate(self, bar: Bar) -> None:
         """Close at the price that realizes exactly the posted isolated margin as the loss."""
         qty, margin = self.position.qty, self.margin
         side = "sell" if qty > 0 else "buy"
@@ -343,18 +366,18 @@ class BarBroker:
         self._record_exit("liquidation", side, abs(qty), price, D(0))
         self.margin, self.stop_price = D(0), None
 
-    def _finish(self, row, status):
+    def _finish(self, row: Row, status: str) -> None:
         self.status_update(row["internal_id"], status)
         self.pending.remove(row)
 
-    def settle_funding(self, at: int, rate: D, mark: D):
+    def settle_funding(self, at: int, rate: Decimal, mark: Decimal) -> None:
         if not rate.is_finite() or not mark.is_finite() or mark <= 0:
             raise ValueError("invalid funding event")
         payment = -self.position.qty * mark * rate  # positive rate: longs pay, shorts receive
         self.funding += payment
         self.funding_log.append({"at": at, "rate": str(rate), "mark": str(mark), "cashflow": str(payment)})
 
-    def snapshot(self):
+    def snapshot(self) -> dict[str, Any]:
         return {"at": self.now, "equity": str(self.equity), "cash": str(self.cash),
                 "qty": str(self.position.qty), "mark": str(self.mark),
                 "realized_pnl": str(self.position.realized_pnl), "fees": str(self.fees),
