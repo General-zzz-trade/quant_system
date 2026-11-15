@@ -485,3 +485,62 @@ def test_a_stop_whose_state_cannot_be_read_refuses_the_start(world):
 
     fake.request_signed = failing
     _refused(world, "account could not be read")
+
+
+# -- re-check of the audit fixes (mutants Z1-Z7 and Z9 survived): settled rows, fired stops, close-all -------------
+def _strategy_long(world, qty="0.1"):
+    _row(world, "i1", "BTCUSDT", side="buy", qty=qty, settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", qty)
+
+
+def _stop_row(world, status, venue_status=None):
+    """A strategy stop on BTCUSDT in journal ``status``; at the venue absent, or with ``venue_status``."""
+    journal = _journal(world)
+    journal.ensure_stop_table()
+    journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
+                     side="sell", trigger_price="92", created_at=T0)
+    journal.set_stop_status("stop-1", status)
+    if venue_status is not None:
+        world["fake"].algo["stop-1"] = {"algoId": 9, "clientAlgoId": "stop-1", "symbol": "BTCUSDT", "side": "SELL",
+                                        "algoStatus": venue_status, "triggerPrice": "92", "actualOrderId": "777"}
+
+
+def test_a_settled_entry_excuses_nothing_even_with_an_unfilled_remainder(world):
+    """A maker entry canceled with its remainder unfilled is settled: the venue cannot be ahead because of it."""
+    _row(world, "i9", "BTCUSDT", side="buy", qty="0.5", settled=1, client_id="cid-9", order_id="900")
+    world["fake"].positions["BTCUSDT"] = D("0.3")
+    _refused(world, re.escape("BTCUSDT: position 0.3 is not in the strategy ledger"))
+
+
+def test_a_stop_the_venue_does_not_know_has_not_fired(world):
+    _strategy_long(world)
+    _stop_row(world, "active")                                   # the venue answers "order does not exist"
+    _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
+
+
+def test_a_close_all_reduction_in_flight_may_have_flattened_the_position(world):
+    _strategy_long(world)
+    _row(world, "i2", "BTCUSDT", side="sell", qty="0", client_id="cid-2", reducing=1)   # e.g. an adopted stop order
+    _started(world)
+
+
+@pytest.mark.parametrize("status", ["active", "unknown", "canceling", "awaiting_order"])
+def test_a_stop_that_fired_while_stopped_counts_in_every_live_status(world, status):
+    _strategy_long(world)
+    _stop_row(world, status, venue_status=None if status == "awaiting_order" else "FINISHED")
+    _started(world)
+
+
+@pytest.mark.parametrize("status", ["triggered", "canceled"])
+def test_a_stop_row_that_is_no_longer_live_is_not_looked_up(world, status):
+    """An adopted (triggered) or canceled stop row explains nothing by itself; its adopted order row would."""
+    _strategy_long(world)
+    _stop_row(world, status, venue_status="FINISHED")
+    _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
+
+
+def test_a_fired_stop_explains_a_move_to_zero_not_past_it(world):
+    _strategy_long(world)
+    _stop_row(world, "active", venue_status="FINISHED")
+    world["fake"].positions["BTCUSDT"] = D("-0.05")
+    _refused(world, re.escape("BTCUSDT: position -0.05 is not in the strategy ledger"))
