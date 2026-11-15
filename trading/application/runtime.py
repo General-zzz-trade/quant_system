@@ -119,6 +119,7 @@ class TargetRuntime:
         if self.mode == "execution":
             self.exits.refresh_equity()
             self.exits.reconcile()
+            self.exits.update_states()
 
     def warmup_or_hold(self) -> bool:
         """Warm up. In execution mode a market-data failure does not end the process: the exit side - equity,
@@ -141,6 +142,7 @@ class TargetRuntime:
         self.exits.refresh_equity_if_due()
         self.exits.reconcile()
         self.exits.risk_actions()
+        self.exits.update_states()
         self._status_sink.write(self.status())
         return False
 

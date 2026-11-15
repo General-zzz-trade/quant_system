@@ -18,6 +18,7 @@ class EventKind(Enum):
     PAPER_RESET = "paper_reset"
     ORDER = "order"
     STOP = "stop"
+    SYMBOL_STATE = "symbol_state"      # every change of a symbol's state (ADR-0014 point 3)
 
 
 __all__ = ["EventKind"]

@@ -108,6 +108,8 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
   `tests/architecture/test_issue_rules.py` forbids text searches in `trading/application`.
 - Events are written with an `EventKind` (`trading/domain/events.py`); the JSONL log refuses anything else. Every
   order and stop status change is an `order`/`stop` event (`RecordedOrderJournal`); the journal stays the state.
+- Every symbol has a state (`trading/domain/symbol_state.py`: warming, ready, blocked, paused, flattening, halted),
+  set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);

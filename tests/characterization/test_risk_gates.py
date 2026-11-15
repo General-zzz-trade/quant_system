@@ -26,6 +26,7 @@ from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.adapters.files.kill_switch import KillFile
 from tests.unit.binance.fake_venue import FakeBinance, make_bars
 from tests.support.state_db import state_db
+from trading.domain.symbol_state import SymbolState
 
 T0 = 1_794_700_000.0
 SCOPE = "binance-testnet-ut"
@@ -51,7 +52,7 @@ def _gates(tmp_path, *, limits=None):
                            monotonic=time.monotonic)
     inner = CompositeRiskGate(limiter, kill_switch=kill, drawdown_guard=drawdown,
                               portfolio_reader=AccountExposureGate(adapter, journal), venue="binance")
-    session = SimpleNamespace(entry_ready=True, entry_reason="")
+    session = SimpleNamespace(entry_ready=True, entry_reason="", state=SymbolState.READY)   # S3d
     return SimpleNamespace(fake=fake, journal=journal, kill=kill, drawdown=drawdown, session=session,
                            gate=EntryReadinessGate(session, inner))
 
