@@ -186,9 +186,9 @@ class ProtectiveStopManager:
             self._set(client_algo_id, "active")
             logger.info("%s protective stop %s %s @ %s", self.symbol, side, client_algo_id, trigger)
         elif result.get("status") == "rejected":
-            self._set(client_algo_id, "rejected")
-            if result.get("breached") is True:
-                self._set(client_algo_id, BREACHED)
+            breached = result.get("breached") is True
+            self._set(client_algo_id, BREACHED if breached else "rejected")     # one write: a crash cannot lose it
+            if breached:
                 issues.append(f"{self.symbol}: stop_breached (price already beyond {trigger})")
             else:
                 issues.append(f"{self.symbol}: protective stop rejected: {result.get('msg')}")

@@ -25,7 +25,7 @@ RECONCILE_SECONDS = 5.0
 EQUITY_SECONDS = 60.0
 FUNDING_WAIT_MS = 2 * 60_000
 MARKET_BACKOFF_MAX = 300.0
-MARKET_ALERT_AFTER = 5            # failures in a row before an alert (about 2.5 minutes with the backoff)
+MARKET_ALERT_AFTER = 5            # failures in a row before an alert (about 75 s with the 5/10/20/40 s backoff)
 PAPER_SCHEMA = 1
 RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
                   "--reason <why>"
