@@ -67,8 +67,8 @@ def load_spec(path: Path) -> dict:
 def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, state_dir: Path | None = None) -> dict:
     """Every start-up check that needs no exchange: the spec's signature and kind, the research gate for
     mainnet, the risk scope, the drawdown ceiling, the stop distance and - for execution - a state directory a
-    person initialized for this scope (step 13c). Run before any account is connected (invariant L6):
-    connecting sets leverage and margin type on the exchange."""
+    person initialized for this scope (step 13c). Run before any account is connected (invariant L6). Since
+    ADR-0010 connecting is read-only; the account itself is checked next, by ``refuse_foreign_holdings``."""
     frozen = load_spec(spec_path)
     if execution:
         if not testnet and frozen.get("passed") is not True:

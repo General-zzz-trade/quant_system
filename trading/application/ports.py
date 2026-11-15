@@ -227,6 +227,8 @@ class AccountSnapshot(Protocol):
 
     def get_symbol_settings(self, symbol: str) -> tuple[int, str]: ...
 
+    def get_algo_order(self, *, client_algo_id: str) -> StopView | None: ...
+
 
 @runtime_checkable
 class KillSwitch(Protocol):

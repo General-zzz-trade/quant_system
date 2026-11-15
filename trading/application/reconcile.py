@@ -6,10 +6,26 @@ entries while any issue remains. Nothing here places, cancels or fabricates anyt
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 from trading.application.ports import ExchangeAccount, OrderJournal
 
 UNRESOLVED_ORDERS = "unresolved orders or legacy journal records"
+
+
+def booked_position(journal: OrderJournal, rows: list[dict[str, Any]], symbol: str, owner: str | None) -> Decimal:
+    """The ledger's position in ``symbol``: the checkpoints of every owner that traded it, and always ``owner``'s
+    own (a position set by hand on a symbol never traded has a checkpoint but no order row). The one definition
+    reconciliation and the start-up account check share (ADR-0010 audit, finding 5)."""
+    owners = {row["owner"] for row in rows if row["symbol"] == symbol}
+    if owner:
+        owners.add(owner)
+    total = Decimal(0)
+    for name in sorted(owners):
+        checkpoint = journal.checkpoint(name)
+        if checkpoint:
+            total += Decimal(str(checkpoint["position"]["qty"]))
+    return total
 
 
 def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str) -> list[str]:
@@ -20,11 +36,7 @@ def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner:
         if len(nonflat) > 1:
             issues.append(f"{symbol}: multiple positions require explicit reconciliation")
         actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))
-        expected = Decimal(0)
-        for other in {r["owner"] for r in journal.orders() if r["symbol"] == symbol}:
-            checkpoint = journal.checkpoint(other)
-            if checkpoint:
-                expected += Decimal(checkpoint["position"]["qty"])
+        expected = booked_position(journal, journal.orders(), symbol, owner)
         if not actual.is_finite() or not expected.is_finite() or actual != expected:
             issues.append(f"{symbol}: venue qty={actual}, ledger qty={expected}")
         if any(row["symbol"] == symbol for row in journal.orders(unresolved=True)):

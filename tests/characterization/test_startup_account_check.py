@@ -242,11 +242,11 @@ def test_an_unexpected_conditional_order_snapshot_refuses_the_start(world):
 
 
 # -- independent audit of ADR-0010 (findings 1-5): in-flight strategy activity is accounted for exactly -----------
-def _row(world, intent, symbol, *, side=None, qty=None, settled=0, client_id="", order_id=""):
+def _row(world, intent, symbol, *, side=None, qty=None, settled=0, client_id="", order_id="", reducing=0):
     with sqlite3.connect(world["state"] / "orders.sqlite") as db:
-        db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                   (SCOPE, intent, symbol, client_id, order_id, settled, f"target.{symbol}", side, qty))
+        db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, owner, side, qty, "
+                   "reducing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (SCOPE, intent, symbol, client_id, order_id, settled, f"target.{symbol}", side, qty, reducing))
 
 
 def _checkpoint(world, symbol, qty):
@@ -255,10 +255,6 @@ def _checkpoint(world, symbol, qty):
                    (SCOPE, f"target.{symbol}", json.dumps({"position": {"qty": qty}})))
 
 
-_UNDER_REVIEW = pytest.mark.xfail(strict=True, reason="audit finding; fixed in the next commit")
-
-
-@_UNDER_REVIEW
 def test_finding_1_a_fill_booked_but_not_yet_consumed_is_the_strategy_s(world):
     """Crash after the fill was stored and the order settled, before the ledger took it (P6)."""
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
@@ -269,7 +265,6 @@ def test_finding_1_a_fill_booked_but_not_yet_consumed_is_the_strategy_s(world):
     _started(world)
 
 
-@_UNDER_REVIEW
 def test_finding_1_a_stop_that_fired_while_stopped_is_left_to_the_stop_sync(world):
     """The venue is flat because the strategy's own stop closed it; the runtime adopts that fill at start (P7)."""
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
@@ -297,7 +292,6 @@ def test_a_flat_venue_without_a_fired_stop_still_refuses(world):
     _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
 
 
-@_UNDER_REVIEW
 def test_finding_2_a_resting_entry_does_not_excuse_a_position_against_it(world):
     _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9", order_id="900")
     world["fake"].orders["900"] = {"orderId": 900, "clientOrderId": "cid-9", "symbol": "ETHUSDT", "side": "BUY",
@@ -306,7 +300,6 @@ def test_finding_2_a_resting_entry_does_not_excuse_a_position_against_it(world):
     _refused(world, re.escape("ETHUSDT: position -1 is not in the strategy ledger"))
 
 
-@_UNDER_REVIEW
 def test_finding_2_a_resting_entry_excuses_at_most_its_own_quantity(world):
     _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9", order_id="900")
     world["fake"].positions["ETHUSDT"] = D("0.6")
@@ -326,14 +319,12 @@ def test_a_reduction_in_flight_may_have_closed_the_position(world):
     _started(world)                                   # venue already flat: the close went through
 
 
-@_UNDER_REVIEW
 def test_finding_2_a_legacy_row_without_side_or_quantity_excuses_nothing(world):
     _row(world, "legacy", "BTCUSDT")
     world["fake"].positions["BTCUSDT"] = D("5")
     _refused(world, re.escape("BTCUSDT: position 5 is not in the strategy ledger"))
 
 
-@_UNDER_REVIEW
 def test_finding_4_an_order_id_of_another_symbol_does_not_make_an_order_known(world):
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="77")
     _checkpoint(world, "BTCUSDT", "0.1")
@@ -343,7 +334,6 @@ def test_finding_4_an_order_id_of_another_symbol_does_not_make_an_order_known(wo
     _refused(world, re.escape("SOLUSDT: open order 77 is not in the strategy journal"))
 
 
-@_UNDER_REVIEW
 def test_finding_4_a_client_id_of_another_symbol_does_not_make_an_order_known(world):
     _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
     _checkpoint(world, "BTCUSDT", "0.1")
@@ -411,7 +401,6 @@ def test_finding_3_an_unreadable_journal_refuses():
     assert findings and "strategy journal could not be read" in findings[0]
 
 
-@_UNDER_REVIEW
 def test_finding_5_reconciliation_counts_the_same_booked_position_as_the_start_up_check(world):
     """After `manual position` on a symbol the strategy never traded there is a checkpoint but no order row; both
     checks must count it, or the start passes and reconciliation then blocks entries every cycle."""
@@ -422,3 +411,77 @@ def test_finding_5_reconciliation_counts_the_same_booked_position_as_the_start_u
     issues = reconcile_account(adapter, _journal(world), owner="target.BTCUSDT", symbol="BTCUSDT")
     assert not [i for i in issues if "venue qty" in i]
     _started(world)
+
+
+# -- added after the mutation self-check of the audit fixes (survivors F5, F7, F8, F9, F11, F12, F14) --------------
+def _fill(world, fill_id, intent, symbol, side, qty):
+    payload = {"fill_id": fill_id, "intent_id": intent, "symbol": symbol, "order_id": "", "trade_id": fill_id,
+               "side": side, "qty": qty, "price": "100", "fee": "0", "fee_asset": "USDT"}
+    assert _journal(world).insert_fill(fill_id=fill_id, intent_id=intent, owner=f"target.{symbol}", payload=payload)
+
+
+def test_a_resting_buy_excuses_nothing_on_the_short_side(world):
+    _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9")
+    world["fake"].positions["ETHUSDT"] = D("-0.3")
+    _refused(world, re.escape("ETHUSDT: position -0.3 is not in the strategy ledger"))
+
+
+def test_the_filled_part_of_a_resting_entry_is_not_excused_twice(world):
+    _row(world, "i9", "ETHUSDT", side="buy", qty="0.5", client_id="cid-9")
+    _fill(world, "f9", "i9", "ETHUSDT", "buy", "0.2")          # stored, not yet consumed: the ledger counts 0.2
+    world["fake"].positions["ETHUSDT"] = D("0.6")              # at most 0.2 + the unfilled 0.3
+    _refused(world, re.escape("ETHUSDT: position 0.6 is not in the strategy ledger (ledger 0.2"))
+
+
+def test_a_reduction_on_the_wrong_side_moves_nothing(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    _row(world, "i2", "BTCUSDT", side="buy", qty="0.1", client_id="cid-2", reducing=1)
+    _refused(world, re.escape("BTCUSDT: the venue is flat but the strategy ledger holds 0.1"))
+
+
+def test_a_reduction_never_crosses_zero(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    _row(world, "i2", "BTCUSDT", side="sell", qty="0.3", client_id="cid-2", reducing=1)
+    world["fake"].positions["BTCUSDT"] = D("-0.2")
+    _refused(world, re.escape("BTCUSDT: position -0.2 is not in the strategy ledger"))
+
+
+def test_a_stop_id_of_another_symbol_does_not_make_a_conditional_order_known(world):
+    journal = _journal(world)
+    journal.ensure_stop_table()
+    journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
+                     side="sell", trigger_price="92", created_at=T0)
+    journal.set_stop_status("stop-1", "canceled")
+    world["fake"].algo["stop-1"] = {"algoId": 9, "clientAlgoId": "stop-1", "symbol": "ETHUSDT", "side": "BUY",
+                                    "algoStatus": "NEW", "triggerPrice": "2100"}
+    _refused(world, re.escape("ETHUSDT: conditional order stop-1 is not in the strategy journal"))
+
+
+def test_a_stored_fill_that_cannot_be_read_refuses_the_start(world):
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _fill(world, "f1", "i1", "BTCUSDT", "buy", "not-a-number")
+    _refused(world, "strategy journal could not be read")
+
+
+def test_a_stop_whose_state_cannot_be_read_refuses_the_start(world):
+    from trading.adapters.binance.rest import BinanceRetryableError
+    _row(world, "i1", "BTCUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    _checkpoint(world, "BTCUSDT", "0.1")
+    journal = _journal(world)
+    journal.ensure_stop_table()
+    journal.add_stop(owner="target.BTCUSDT", client_algo_id="stop-1", symbol="BTCUSDT", revision="r", attempt=0,
+                     side="sell", trigger_price="92", created_at=T0)
+    journal.set_stop_status("stop-1", "active")               # not among the open conditional orders: look it up
+    fake = world["fake"]
+    signed = fake.request_signed
+
+    def failing(*, method, path, params=None):
+        if path == "/fapi/v1/algoOrder":
+            fake.requests.append((method, path))
+            raise BinanceRetryableError("HTTP 503: unavailable")
+        return signed(method=method, path=path, params=params)
+
+    fake.request_signed = failing
+    _refused(world, "account could not be read")
