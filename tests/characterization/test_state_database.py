@@ -107,6 +107,16 @@ def test_the_old_five_file_layout_refuses_to_start_and_says_how_to_fix_it(tmp_pa
         managed.verify(tmp_path / "state", SCOPE)
 
 
+def test_the_old_layout_hint_names_a_new_directory_not_the_old_one(tmp_path):
+    # S2 audit finding 6: "init" on the old directory only says "already initialized; nothing changed".
+    _init(tmp_path / "state")
+    (tmp_path / "state" / "orders.sqlite").write_bytes(b"")
+    with pytest.raises(RuntimeError) as refused:
+        managed.verify(tmp_path / "state", SCOPE)
+    assert "--state-dir <new directory> init" in str(refused.value)
+    assert f"--state-dir {tmp_path / 'state'} init" not in str(refused.value)
+
+
 def test_a_missing_database_refuses_to_start_and_is_not_re_created(tmp_path):
     db_path = _init(tmp_path / "state")
     db_path.unlink()

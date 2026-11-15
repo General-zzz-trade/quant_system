@@ -57,7 +57,8 @@ def verify(state_dir: Path, scope: str) -> None:
         raise RuntimeError(f"state directory {state_dir} belongs to scope {manifest.get('scope')}, not {scope}")
     if old := [name for name in OLD_LAYOUT if (state_dir / name).exists()]:
         raise RuntimeError(f"state directory {state_dir} has the old state layout ({', '.join(old)}); "
-                           f"initialize a new directory{hint}")
+                           "initialize a new directory: python -m trading.infrastructure.state_dir "
+                           "--state-dir <new directory> init")
     # Emptied (0 bytes), replaced or of another version: its state - a drawdown latch, today's counts, the
     # orders - is gone or unknown (audit after M3; ADR-0009).
     problems = schema.problems(state_dir / STATE_DB)
