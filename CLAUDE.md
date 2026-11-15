@@ -100,6 +100,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Risk gates:**
 - `CompositeRiskGate` checks entries only. Reductions (`qty == 0` or `reduce_only`) bypass it by design.
+- Problems found in a cycle are typed issues (ADR-0014). What each kind does to trading (block a symbol's or
+  every entry, flatten, pause, alert only) is one table in `trading/domain/issues.py`. The text is for people:
+  `tests/architecture/test_issue_rules.py` forbids text searches in `trading/application`.
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);

@@ -2273,3 +2273,58 @@ Contracts: 5 kept, 0 broken.
 - 第 15 项：已被第 19 项取代，原文删除，只留编号和一句说明，第 16–19 项的编号不变。
 - 文末两段旧的执行顺序删除。
 - 保留：里程碑、完成标准、工作方式、风险、其余已决定事项。原文都在 git 历史里。
+
+## S3a：问题改成固定类型，后果由一张表决定（2026-11-15，ADR-0014，资金路径完整流程）
+
+S3 分 4 个 PR：S3a 类型化问题；S3b 事件枚举与订单状态事件；S3c 运行时拆分与三块隔离；S3d 品种状态机。4 个都合并后做一次独立审计。
+
+**改了什么**
+- 新增 `trading/domain/issues.py`：15 种问题（`IssueKind`），6 种后果（`Effect`），以及一张"问题 → 后果"的表。
+  - 表里没有登记的种类，生产中按"阻断全部入场"处理。
+- 新增 `trading/application/issues.py`：`Issue` 是 `str` 的子类，文字和原来完全相同，种类和品种是它的属性。
+- 生成问题的地方都改为返回 `Issue`：
+  - 对账（`reconcile.py`）；
+  - 执行服务（交易所适配器的拒绝执行原因记为 `VENUE_BLOCKED`）；
+  - 止损维护（`stops.py`）；
+  - 运行时自己的问题：对账异常、暂停写不进、有仓位没止损、平仓或撤单失败、行情被拒、行情暂不可用。
+- 按表决定的行为：
+  - 执行服务按"后果里有没有阻断这个品种"决定能否入场；
+  - 运行时按表阻断这个品种或全部入场，按"平仓"后果执行击穿平仓；
+  - `stops.triggers()` 只返回后果里含"暂停"的止损记录。
+- 运行时里 3 处按文字做的判断改为按种类：击穿平仓、挂单未决的告警等待时间、暂停原因优先写击穿。
+- 告警按（品种，种类）去重，消息显示最新文字。
+- 事件日志的 `issue` 事件多了 `issue_kind` 字段。
+- 与 ADR 原文的不同，已在 ADR-0014 末尾"实施更正"一节写明：
+  - `Issue` 是字符串子类，不是数据类；
+  - 新增 `VENUE_BLOCKED` 和 `CANCEL_FAILED` 两个种类；
+  - 4 个种类推迟到产生它们的步骤；
+  - 一处行为变严：止损检查发现的问题当轮就阻断这个品种的入场。
+
+**先写的测试**（单独提交 `6f33730`，在旧代码上全部失败）
+- `tests/unit/trading/test_issues.py`：
+  - 表逐行固定；
+  - 每个种类都有至少一种后果，"只告警"不和别的后果混用；
+  - `Issue` 保留文字并带种类；
+  - 对账的 6 种情形各自报出对应的种类；
+  - 告警按种类去重；
+  - 表里漏登记的种类阻断全部入场。这一条后来补充。
+- `tests/architecture/test_issue_rules.py`：
+  - `trading/application` 里不允许任何文字查找：不能用字符串常量做 `in` 判断，不能调用 `startswith`、`endswith`、`find`、`index`、`count`，也不能用 `re`；
+  - 唯一例外是平仓意图编号的前缀匹配；
+  - 配反例证明规则抓得到。
+- 后来补充：`test_execution_service.py::test_each_reconciliation_problem_alone_blocks_entries_until_a_clean_pass`（6 例，期望值直接写死，不从表推出）。
+
+**已有测试的改动**：没有改任何断言。只改了 3 处测试设置，都是把纯文字换成带种类的问题对象，文字不变：
+- `test_alerts.py` 里 4 个 `IssueAlerts` 单元测试，以及 `_alert_wait` 那一个测试；
+- `test_alert_and_retry_rules.py::test_a_breach_names_the_pause_when_it_comes_with_a_plain_trigger` 里伪造的 `triggers()`。
+
+**变异自检**【实际运行结果】
+- 第一轮：注入 24 个缺陷（代码 11 个、表 13 个），抓住 17 个（代码 9 个、表 8 个），存活 7 个。
+  - 击穿不平仓、击穿记成缺失、表里去掉击穿的平仓后果：覆盖它们的是 `test_runtime_decisions.py:82`，第一轮没把它放进测试列表。第二轮被抓住。
+  - 交易所拒绝执行、挂单未决、成交未入账改成只告警：已有测试总是同时带着账本不符等其他阻断原因，测不出单独的效果。补了上面那条 6 例测试后，第二轮被抓住。
+  - 止损结果未知改成只告警：等价变异。这种情况下仓位一定没有生效的止损（"有仓位没止损"会阻断），或者已经写了暂停。
+- 最终：24 个里 23 个被抓住，1 个等价。
+
+**本地**【实际运行结果】
+- `tests/unit/trading`、`tests/characterization`、`tests/architecture`、`tests/unit/binance`、`tests/contract`、`tests/offline`、`tests/unit/lab` 全部通过。修 3 处测试设置之前有 3 条失败，原因都是测试传入纯文字。
+- ruff、`mypy trading/`（73 个文件）、导入契约（5 条）都通过。
