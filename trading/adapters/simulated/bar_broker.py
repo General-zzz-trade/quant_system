@@ -210,6 +210,16 @@ class BarBroker:
         self.pending.append(row)
         return []
 
+    def cancel(self, order_id: str) -> bool:
+        """Take a resting order off the book (the simulated exchange's cancel). False when it is not resting:
+        already filled, canceled or rejected, or never sent. A retry of a canceled order does not revive it."""
+        row = next((r for r in self.pending if r["internal_id"] == order_id), None)
+        if row is None:
+            return False
+        row["rejection"] = "canceled by request"
+        self._finish(row, "canceled")
+        return True
+
     def process_bar(self, bar: Bar) -> None:
         self.mark = bar.open
         budget = self.round_qty(bar.volume * D(self.config.participation))
