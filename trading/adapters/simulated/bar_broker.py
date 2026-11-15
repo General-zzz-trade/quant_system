@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from trading.domain.bars import Bar
+from trading.domain.orders import LIMIT_OFFSET_BPS
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.position import StrategyPosition
 
@@ -60,7 +61,7 @@ class ReplayConfig:
     maker_bps: str = "2"
     taker_bps: str = "5"
     slippage_bps: str = "3"
-    limit_offset_bps: str = "2"
+    limit_offset_bps: str = str(LIMIT_OFFSET_BPS)
     participation: str = "0.01"
     max_exposure: str = "1"
     qty_step: str = "0.001"
@@ -406,6 +407,6 @@ def broker_config(spec: StrategySpec, rules: SymbolRules, *, starting_balance: s
                   cost_multiplier: int = 1) -> ReplayConfig:
     m = D(cost_multiplier)
     return ReplayConfig(starting_balance=starting_balance, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
-                        slippage_bps=str(D(3) * m), limit_offset_bps="2", participation="0.01", max_exposure="1",
-                        qty_step=str(rules.step), min_notional=str(rules.min_notional), ttl_bars=spec.ttl_bars,
-                        entry_mode=spec.execution)
+                        slippage_bps=str(D(3) * m), limit_offset_bps=str(LIMIT_OFFSET_BPS), participation="0.01",
+                        max_exposure="1", qty_step=str(rules.step), min_notional=str(rules.min_notional),
+                        ttl_bars=spec.ttl_bars, entry_mode=spec.execution)

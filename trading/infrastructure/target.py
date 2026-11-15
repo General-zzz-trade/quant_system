@@ -36,7 +36,7 @@ from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, OrderFactory, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
-from trading.domain.orders import OrderIntent
+from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.rebalance import Lot
 from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
@@ -46,7 +46,7 @@ from trading.infrastructure.settings import RiskLimits, exchange_settings
 
 ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
-LIMIT_OFFSET = Decimal("0.0002")    # a maker entry rests 2 bp inside the reference, as research assumes
+LIMIT_OFFSET = LIMIT_OFFSET_BPS / 10000    # the same maker offset as research, as the fraction the service takes
 HOUR_SECONDS = 3600.0
 
 

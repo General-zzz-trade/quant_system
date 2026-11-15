@@ -48,6 +48,7 @@ from lab.simulate import SYMBOL_RULES, SymbolRules
 from lab.sizing import SizingRule
 from lab.study import DEV_END, EVAL_START, _manifest
 from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
+from trading.domain.orders import LIMIT_OFFSET_BPS
 
 D = Decimal
 HOUR = 3_600_000
@@ -70,7 +71,7 @@ GATE = {
 def broker_config(rules: SymbolRules, cost_multiplier: int = 1) -> ReplayConfig:
     m = D(cost_multiplier)
     return ReplayConfig(starting_balance=START_BALANCE, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
-                        slippage_bps=str(D(3) * m), limit_offset_bps="2", participation="0.01",
+                        slippage_bps=str(D(3) * m), limit_offset_bps=str(LIMIT_OFFSET_BPS), participation="0.01",
                         max_exposure=str(RULE.max_exposure), qty_step=str(rules.step),
                         min_notional=str(rules.min_notional), ttl_bars=1, entry_mode="market",
                         isolated_leverage=str(RULE.isolated_leverage),
