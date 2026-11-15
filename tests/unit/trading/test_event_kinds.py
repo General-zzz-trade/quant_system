@@ -19,7 +19,7 @@ def test_the_event_kinds_keep_the_words_the_log_has_always_used():
     assert {k.name: k.value for k in EventKind} == {
         "WARMUP": "warmup", "INTENT": "intent", "FILL": "fill", "BLOCKED": "blocked", "ISSUE": "issue",
         "ALERT": "alert", "PAPER_EQUITY": "paper_equity", "PAPER_FILL": "paper_fill", "PAPER_RESET": "paper_reset",
-        "ORDER": "order", "STOP": "stop"}
+        "ORDER": "order", "STOP": "stop", "SYMBOL_STATE": "symbol_state"}      # S3d: every symbol state change
 
 
 def test_the_event_log_writes_the_kind_word_and_refuses_anything_but_a_kind(tmp_path):
