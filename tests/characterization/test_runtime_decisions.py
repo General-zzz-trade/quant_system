@@ -249,3 +249,16 @@ def test_a_second_entry_within_a_second_is_refused_by_the_rate_limit_and_marked_
                            qty=D("0.1"), price=D("2000"), reduce_only=True, reason="test")
     assert runtime.sessions["ETHUSDT"].gate.check(reduction).allowed          # reductions are never rate limited
 
+
+
+def test_every_status_change_of_an_order_is_in_the_event_log(tmp_path):
+    # Data and state architecture decision (2026-11-15, S3b): the journal row is updated in place, so the event
+    # log keeps how an order got where it is.
+    world, runtime = _start(tmp_path)
+    _until_position(world, runtime)
+    entry = next(r["order_id"] for r in _events(tmp_path, "intent") if not r["reduce_only"])
+    trail = [r["status"] for r in _events(tmp_path, "order") if r["order_id"] == entry]
+    assert trail[0] == "reserved" and "acknowledged" in trail and trail[-1] == "filled"
+    settled = [r for r in _events(tmp_path, "order") if r["order_id"] == entry and r.get("settled")]
+    assert len(settled) == 1 and settled[0]["previous"] in trail
+    assert any(r["status"] == "active" for r in _events(tmp_path, "stop"))   # the protective stop went live
