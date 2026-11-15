@@ -339,6 +339,7 @@ lint-imports                                                 # 第 2 步之后
   - 新增：不可重试的错误触发告警，入场保持阻断。
   - `tests/unit/lab/test_target_runtime.py`、`test_target_runtime_resilience.py` 不改断言通过。
 - **新增 CI 规则**：无。
+- **执行结果（2026-11-15）**：已完成，分 2 个 PR：行情失败告警、终局错误、预热阶段（14a）；成交分页读完、修 R9（14b，按路线图顺序并入）。详见 `execution-log.md`。
 
 ### 第 15 步：删除被取代的旧代码与薄壳（第一批）
 

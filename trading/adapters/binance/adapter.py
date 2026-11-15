@@ -54,6 +54,8 @@ _ORDER_STATES = {"NEW": "new", "PARTIALLY_FILLED": "partially_filled", "FILLED":
                  "CANCELED": "canceled", "EXPIRED": "expired", "EXPIRED_IN_MATCH": "expired",
                  "REJECTED": "rejected"}
 _ORDER_DOES_NOT_EXIST = -2013
+TRADE_PAGE = 1000                   # Binance's largest userTrades page
+MAX_TRADE_PAGES = 100               # an order with more trades than this many pages stays unresolved (step 14b)
 _ALGO_DOES_NOT_EXIST = (-2013, -2011)
 # Algo-order statuses. Anything not listed (CANCELED, EXPIRED, REJECTED, a new word) means the stop is gone.
 ACTIVE = frozenset({"NEW", "TRIGGERING"})
@@ -346,14 +348,28 @@ class BinanceAdapter:
         """Trade history; errors propagate (missing history keeps orders unresolved)."""
         if not symbol:
             raise ValueError("symbol is required for Binance trade history")
-        params: dict[str, Any] = {"symbol": symbol, "limit": min(int(limit), 1000)}
+        params: dict[str, Any] = {"symbol": symbol, "limit": min(int(limit), TRADE_PAGE)}
         if order_id:
-            params["orderId"] = order_id
-        if since_ms:
-            params["startTime"] = since_ms
-        data = self._client.request_signed(method="GET", path="/fapi/v1/userTrades", params=params)
-        if not isinstance(data, list):
-            raise RuntimeError("Invalid Binance trade history")
+            # Every trade of the order, page by page from the last id seen (known defect R9: a single page of
+            # ``limit`` trades left an order with more trades unsettled and blocked later reductions).
+            params.update(orderId=order_id, limit=TRADE_PAGE)
+            data: Any = []
+            for _ in range(MAX_TRADE_PAGES):
+                page = self._client.request_signed(method="GET", path="/fapi/v1/userTrades", params=params)
+                if not isinstance(page, list):
+                    raise RuntimeError("Invalid Binance trade history")
+                data += page
+                if len(page) < TRADE_PAGE:
+                    break
+                params["fromId"] = max(int(f["id"]) for f in page) + 1
+            else:
+                raise RuntimeError(f"trade history of order {order_id} is more than {MAX_TRADE_PAGES} pages")
+        else:
+            if since_ms:
+                params["startTime"] = since_ms
+            data = self._client.request_signed(method="GET", path="/fapi/v1/userTrades", params=params)
+            if not isinstance(data, list):
+                raise RuntimeError("Invalid Binance trade history")
         return tuple(CanonicalFill(
             venue="binance", symbol=f.get("symbol", ""), order_id=str(f.get("orderId", "")),
             trade_id=str(f.get("id", "")), fill_id=str(f.get("id", "")),

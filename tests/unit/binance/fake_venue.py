@@ -38,6 +38,7 @@ class FakeBinance:
         self.margin_type: dict[str, str] = {}   # positionRisk spelling: "cross" | "isolated"
         self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
+        self.trade_requests: list[dict] = []
 
     # -- helpers ---------------------------------------------------------
     def now_ms(self) -> int:
@@ -196,9 +197,11 @@ class FakeBinance:
             if order["status"] in ("NEW", "PARTIALLY_FILLED"):
                 order["status"] = "CANCELED"
             return dict(order)
-        if path == "/fapi/v1/userTrades":
+        if path == "/fapi/v1/userTrades":            # fromId as Binance does it (step 14b); every request is kept
+            self.trade_requests.append(dict(p))
             return [t for t in self.trades if t["symbol"] == p["symbol"]
-                    and (not p.get("orderId") or str(t["orderId"]) == str(p["orderId"]))]
+                    and (not p.get("orderId") or str(t["orderId"]) == str(p["orderId"]))
+                    and (not p.get("fromId") or int(t["id"]) >= int(p["fromId"]))]
         if path == "/fapi/v1/algoOrder" and method == "POST":
             symbol, side, trigger = p["symbol"], p["side"], D(p["triggerPrice"])
             mark = self.mark(symbol)
