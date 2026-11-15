@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from decimal import Decimal
+from collections.abc import Iterable
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from trading.domain.venue import Placement, StopPlacement, Ticker
@@ -289,9 +290,11 @@ class EntryPauses(Protocol):
     """Entries paused per symbol after a protective stop. The runtime only sets pauses; a person releases them
     outside the runtime. A store that cannot be read raises; it never reads as "not paused"."""
 
-    def pause(self, symbol: str, cause: str) -> bool: ...   # False if the symbol was already paused
+    def pause(self, symbol: str, cause: str, triggers: Iterable[str] = ()) -> bool: ...   # False if already paused
 
     def reason(self, symbol: str) -> str | None: ...
+
+    def covered(self, symbol: str) -> set[str]: ...          # stop triggers a pause has been set for
 
 
 class Notifier(Protocol):
