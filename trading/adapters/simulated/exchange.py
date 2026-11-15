@@ -155,6 +155,15 @@ class SimulatedExchange:
                                    mark_price=b.mark)
                      for name, b in self._selected(symbol) if b.position.qty != 0)
 
+    def get_position(self, symbol: str) -> VenuePosition | None:
+        """One symbol's position, flat included (qty 0), as the Binance adapter answers it (ADR-0012); None for a
+        symbol this venue does not trade."""
+        broker = self._brokers.get(symbol)
+        if broker is None:
+            return None
+        return VenuePosition(venue=VENUE, symbol=symbol, qty=broker.position.qty,
+                             entry_price=broker.position.entry_price, mark_price=broker.mark)
+
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         out = []
         for name, broker in self._selected(symbol):

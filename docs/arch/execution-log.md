@@ -2978,3 +2978,7 @@ S5 分两个 PR：S5a 是 ADR-0011 的运行中整账户检查和限频权重；
 - 补了 1 条测试 `test_an_answer_without_the_symbol_s_row_is_unknown_and_never_flat`：账本归 0 后交易所回答里没有这一行，已有止损不被撤。补上后 P1 被抓住，最终 12 个全部被抓住。
 
 **本地**【实际运行结果】：相关的 10 组测试全部通过（trading 单元、刻画、架构、binance 单元、契约、offline、lab、runner、工具、infra）。ruff、`mypy trading/`、导入契约都通过。
+
+**合并 master 之后**【测试日志】：CI 第一次在契约测试 `tests/contract/test_exchange_ports.py` 的模拟交易所参数上失败。
+- 原因：S5b 分支建于 S10 第 2 部分合入之前，模拟交易所没有 `get_position`。
+- 处理：模拟交易所补上 `get_position`，回答与 Binance 适配器相同（平仓也返回数量 0，不交易的品种返回 None）。没有改测试。
