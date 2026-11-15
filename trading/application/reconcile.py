@@ -9,6 +9,8 @@ from decimal import Decimal
 
 from trading.application.ports import ExchangeAccount, OrderJournal
 
+UNRESOLVED_ORDERS = "unresolved orders or legacy journal records"
+
 
 def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str) -> list[str]:
     issues: list[str] = []
@@ -26,7 +28,7 @@ def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner:
         if not actual.is_finite() or not expected.is_finite() or actual != expected:
             issues.append(f"{symbol}: venue qty={actual}, ledger qty={expected}")
         if any(row["symbol"] == symbol for row in journal.orders(unresolved=True)):
-            issues.append(f"{symbol}: unresolved orders or legacy journal records")
+            issues.append(f"{symbol}: {UNRESOLVED_ORDERS}")
         known = {row["order_id"] for row in journal.orders() if row["symbol"] == symbol}
         for order in account.get_open_orders(symbol=symbol, strict=True):
             if order.order_id not in known:

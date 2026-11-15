@@ -35,6 +35,7 @@ from trading.adapters.sqlite.paper_store import SqlitePaperStore
 from trading.application import runtime as _runtime
 from trading.application.equity import EquitySource
 from trading.application.execution.fills import TargetFillConsumer
+from trading.application.alerts import NotifyingEventLog
 from trading.application.runtime import POLL_SECONDS
 from trading.application.session import BROKER_STATE as _BROKER_STATE
 from trading.application.session import MAX_ENTRY_DELAY_MS, TargetSession
@@ -43,7 +44,7 @@ from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.paper_store import MirroredPaperStore
-from trading.infrastructure.settings import exchange_settings, execution_scope, risk_limits
+from trading.infrastructure.settings import exchange_settings, execution_scope, notifier_from_env, risk_limits
 
 logger = logging.getLogger("binance_target")
 
@@ -79,7 +80,8 @@ class TargetRuntime(_runtime.TargetRuntime):
     order limiter, the kill file and the transaction-cost log."""
 
     def __init__(self, *, spec_path: Path, state_dir: Path, mode: str, market: Any, account: Any = None,
-                 clock=time.time, testnet: bool = True, stop_pct: D = D("0.08"), reset_paper: bool = False) -> None:
+                 clock=time.time, testnet: bool = True, stop_pct: D = D("0.08"), reset_paper: bool = False,
+                 notifier: Any = None) -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.frozen = load_spec(spec_path)
@@ -87,9 +89,17 @@ class TargetRuntime(_runtime.TargetRuntime):
         if mode == "execution":
             target.refuse_unverified_mainnet(testnet=testnet, spec_passed=self.frozen.get("passed"))
         self.account, self.clock = account, clock
+        alert_prefix = ""
+        if mode == "execution":                   # alerts reach a person in execution mode (step 12)
+            alert_prefix = execution_scope(testnet=testnet)
+            notifier = notifier if notifier is not None else notifier_from_env()
+        else:
+            notifier = None
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        journal = JsonlEventLog(self.state_dir / "target_events.jsonl")
+        journal: Any = JsonlEventLog(self.state_dir / "target_events.jsonl")
+        if notifier is not None:
+            journal = NotifyingEventLog(journal, notifier, prefix=alert_prefix)
         self.equity = EquitySource(clock)
         symbols = self.frozen["symbols"]
         kill = drawdown = pauses = None
@@ -107,7 +117,8 @@ class TargetRuntime(_runtime.TargetRuntime):
             paper_store=MirroredPaperStore(
                 SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
                 JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
-            reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses)
+            reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses, notifier=notifier,
+            alert_prefix=alert_prefix)
 
     def _execution(self, spec, symbols, journal, testnet: bool, stop_pct: D):
         from execution.adapters.binance.execution_adapter import _TcaLog

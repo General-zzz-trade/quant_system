@@ -112,10 +112,11 @@ python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol 
 **Open exit-side gaps — fix before any testnet or live execution:**
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
-- A failed stop placement blocks entries (step 12) but reaches a person only through the event log and status.
+- A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - One failed REST call exits the process (`binance_main`; since migration step 1b `binance_target` backs off on market-data failures instead).
 - `binance_target` only:
-  - Flatten alerts (10 failed attempts in a row) are event-log rows and a status field only; no notifier yet.
+  - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
+    process log (status `alerts: "log only"`). Market-data failures are not sent yet (step 14).
   - There is no paper-vs-replay compare tool.
 - `binance_main` only:
   - After 5 failed exits, the runtime rewrites an operator's `flatten: true` kill file to `false`.
