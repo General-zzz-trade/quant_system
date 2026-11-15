@@ -13,7 +13,6 @@ paper/dry-run or only observes.
 |---|---|---|---|
 | `binance-target` | service | `runner.binance_target --spec models_binance/strategy/final_spec.json --dry-run` | product runtime, paper |
 | `health-watchdog` | timer, every 5 min | `monitoring.watchdog` | observes and alerts; never restarts |
-| `audit-reconcile` | timer, hourly | `scripts.audit_fill_reconcile --days 7 --alert` | |
 | `daily-pnl-alert` | timer, 23:00 UTC | `monitoring.daily_pnl_alert` | |
 | `portfolio-risk-monitor` | timer, every 60 s | `scripts.portfolio_risk_monitor` | |
 | `prometheus-exporter` | service | `monitoring.prometheus_exporter --port 9102 --bind 127.0.0.1` | |
@@ -21,23 +20,20 @@ paper/dry-run or only observes.
 | `quant-backup` | timer, 04:00 UTC | `scripts/backup_remote.py` | |
 | `bybit-alpha` | service | `runner.alpha_main --venue bybit ...` | frozen venue, dry-run |
 | `okx-alpha` | service | `runner.alpha_main --venue okx ...` | frozen venue, dry-run |
-| `okx-ramp-up` | timer, 6-hourly | `scripts.okx_ramp_up` | report-only |
-| `okx-status-probe` | timer, hourly | `monitoring.okx_status_probe` | |
-| `cross-venue-reconcile` | timer, 6-hourly | `scripts.cross_venue_reconcile` | |
 | `daily-live-runner` | timer, 00:35 UTC | `runner.daily_live_runner --symbols BTCUSDT` | OKX, `--live` refused in code |
 | `live-ic-killswitch` | timer, hourly | `monitoring.live_ic_killswitch --update --alert` | |
-| `polymarket-collector` | service | `polymarket.collector` | frozen venue |
-| `polymarket-maker` | service | `scripts/run_polymarket_maker.py` | frozen venue |
 
-All units use `WorkingDirectory=/quant_system`; all but `daily-pnl-alert`, `log-archive`,
-`polymarket-collector` and `quant-backup` load `EnvironmentFile=/quant_system/.env`.
+All units use `WorkingDirectory=/quant_system`; all but `daily-pnl-alert`, `log-archive`
+and `quant-backup` load `EnvironmentFile=/quant_system/.env`.
 
 ## 2. Retired units
 
 `RETIRED_UNITS` in `infra/sync_systemd.sh` lists every removed unit with the reason. Retired on
 2026-11-14: `binance-runtime` (closed ML runtime) and the models_v8 analysis timers
 (`feature-ablation`, `feature-auto-update`, `feature-ic-analysis`, `ic-decay-monitor`,
-`oos-sharpe-monitor`, `daily-paper-runner`, `daily-check`, `live-vs-backtest`).
+`oos-sharpe-monitor`, `daily-paper-runner`, `daily-check`, `live-vs-backtest`). Retired on
+2026-11-15 with their code (frozen lines deleted, ADR-0008 3b): `polymarket-collector`,
+`polymarket-maker`, `audit-reconcile`, `cross-venue-reconcile`, `okx-ramp-up`, `okx-status-probe`.
 
 ## 3. Syncing a host
 

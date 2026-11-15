@@ -133,7 +133,7 @@ state/              状态管理 (Rust 类型, 零 Python dataclass)
   rust/             19 个 .rs (类型, reducer, store)
 
 execution/          交易所适配 (Bybit, Hyperliquid, Binance)
-  adapters/         3 个交易所 + Polymarket
+  adapters/         3 个交易所
   safety/           电路断路器, Kill Switch, 去重 (Rust 委托)
   rust/             6 个 .rs (订单状态机, WS 客户端)
 

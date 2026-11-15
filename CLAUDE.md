@@ -42,8 +42,8 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
-- **Venue:** Binance USDT-M perpetuals only. OKX, Bybit and Polymarket code is frozen: safety changes
-  only, no features.
+- **Venue:** Binance USDT-M perpetuals only. OKX and Bybit code is frozen until it is deleted
+  in M4 (decided 2026-11-15): safety changes only, no features. Polymarket code is deleted.
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
 ## Commands

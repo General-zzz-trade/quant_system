@@ -76,7 +76,6 @@ Data flow: `Bybit WS kline → MarketEvent → EngineCoordinator.emit() → Feat
 | Bybit | **WIRED** (primary) | execution/adapters/ | REST V5 + WS |
 | Hyperliquid | **WIRED** (optional) | execution/adapters/hyperliquid/ | Via VenueRouter, needs `HYPERLIQUID_PRIVATE_KEY` |
 | Binance | **WIRED** (data only) | scripts/data/ | OI/klines/funding data source |
-| Polymarket | **WIRED** (standalone) | polymarket/ | CLOB collector + RSI dry-run |
 
 ### LiveRunner 路径（框架层）
 
@@ -98,8 +97,6 @@ Data flow: `Bybit WS kline → MarketEvent → EngineCoordinator.emit() → Feat
 | Module | File | Status | Notes |
 |--------|------|--------|-------|
 | StrategyRegistry | strategies/registry.py | Utility | Not in critical path; for strategy discovery |
-| AvellanedaStoikovMaker | polymarket/strategies/maker_5m.py | Standalone | Needs manual startup; not in systemd |
-| InventoryManager | polymarket/strategies/inventory_manager.py | Standalone | Paired with maker strategy |
 
 ## Configuration Flags
 

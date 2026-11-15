@@ -221,4 +221,3 @@ Raw prediction (Ridge 60% + LightGBM 40% ensemble, T-1 cross-market features)
 | Bybit | REST V5 + WS | ✅ 生产 | 0.02% maker |
 | Hyperliquid | REST | 已接入 | 0% maker |
 | Binance | REST + WS | 已搭建 | 0.02% maker |
-| Polymarket | CLOB REST | dry-run | 0% |
