@@ -360,6 +360,3 @@ class BarBroker:
                 "realized_pnl": str(self.position.realized_pnl), "fees": str(self.fees),
                 "funding": str(self.funding),
                 "unrealized_pnl": str(self.position.qty * (self.mark - self.position.entry_price))}
-
-    def order_records(self):
-        return [{k: v for k, v in row.items() if k != "internal_id"} for row in self.orders]

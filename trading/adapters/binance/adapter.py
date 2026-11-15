@@ -433,14 +433,6 @@ class BinanceAdapter:
                 for t, k in sorted(rows.items())]
         return bars[-limit:]
 
-    def get_last_funding(self, symbol: str) -> tuple[int, float]:
-        """Most recent SETTLED funding event (time ms, rate)."""
-        data = self._client.request_public(method="GET", path="/fapi/v1/fundingRate",
-                                           params={"symbol": symbol, "limit": 1})
-        if not isinstance(data, list) or not data:
-            raise RuntimeError("funding history unavailable")
-        return int(data[-1]["fundingTime"]), float(data[-1]["fundingRate"])
-
     def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]:
         """Settled funding events (time ms, rate), oldest first, up to ``limit`` (paginated)."""
         rows: dict[int, float] = {}
@@ -459,26 +451,3 @@ class BinanceAdapter:
                 break
             end = oldest - 1
         return sorted(rows.items())[-limit:]
-
-    def get_positioning(self, symbol: str, *, limit: int = 3) -> list[dict[str, Any]]:
-        """Recent 5-minute OI and long/short snapshots, aligned by timestamp."""
-        def series(path: str, key: str) -> dict[int, float]:
-            data = self._client.request_public(method="GET", path=path,
-                                               params={"symbol": symbol, "period": "5m", "limit": limit})
-            if not isinstance(data, list):
-                raise RuntimeError(f"invalid response from {path}")
-            return {int(row["timestamp"]): float(row[key]) for row in data}
-        oi = series("/futures/data/openInterestHist", "sumOpenInterest")
-        ls = series("/futures/data/globalLongShortAccountRatio", "longShortRatio")
-        top = series("/futures/data/topLongShortPositionRatio", "longShortRatio")
-        return [{"timestamp": t, "open_interest": oi[t], "ls_ratio": ls.get(t), "top_trader_ls_ratio": top.get(t)}
-                for t in sorted(oi)]
-
-    def get_account_info(self) -> dict[str, Any]:
-        bal = self.get_balances()
-        result: dict[str, Any] = {"venue": "binance", "is_demo": self._config.is_demo}
-        for b in bal.balances:
-            result[f"{b.asset}_free"] = float(b.free)
-            result[f"{b.asset}_locked"] = float(b.locked)
-            result[f"{b.asset}_total"] = float(b.total)
-        return result

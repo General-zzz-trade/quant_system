@@ -48,35 +48,13 @@ class CanonicalFill:
 
     raw: Optional[Mapping[str, Any]] = None
 
-    def to_record(self) -> dict[str, str]:
-        """Lossless string-serialized record for fill history tracking.
-
-        All fields preserved as strings. Use this instead of ad-hoc dicts.
-        """
-        return {
-            "venue": self.venue,
-            "symbol": self.symbol,
-            "order_id": self.order_id,
-            "trade_id": self.trade_id,
-            "fill_id": self.fill_id,
-            "side": self.side,
-            "qty": str(self.qty),
-            "price": str(self.price),
-            "fee": str(self.fee),
-            "fee_asset": self.fee_asset or "",
-            "liquidity": self.liquidity or "",
-            "ts_ms": str(self.ts_ms),
-            "payload_digest": self.payload_digest,
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class VenuePosition:
     """
     交易所报告的仓位快照。
 
-    与 state/position.py 的 PositionState（内部SSOT）不同，
-    VenuePosition 是交易所原始上报数据，用于对账。
+    与策略账本（订单库里的检查点）不同，VenuePosition 是交易所原始上报数据，用于对账和启动检查。
     """
     venue: str
     symbol: str
@@ -92,22 +70,6 @@ class VenuePosition:
 
     ts_ms: int = 0
     raw: Optional[Mapping[str, Any]] = None
-
-    @property
-    def is_long(self) -> bool:
-        return self.qty > 0
-
-    @property
-    def is_short(self) -> bool:
-        return self.qty < 0
-
-    @property
-    def is_flat(self) -> bool:
-        return self.qty == 0
-
-    @property
-    def abs_qty(self) -> Decimal:
-        return abs(self.qty)
 
     @property
     def side(self) -> str:
