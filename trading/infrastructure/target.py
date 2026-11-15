@@ -15,6 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
 
+from trading.adapters.binance.adapter import MARGIN_TYPES
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
@@ -26,7 +27,8 @@ from trading.application.execution.flatten import Flattener
 from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
-from trading.application.ports import Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway
+from trading.application.account_ownership import foreign_holdings
+from trading.application.ports import AccountSnapshot, Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.order_limiter import OrderLimiter
@@ -75,6 +77,19 @@ class ExecutionWiring:
 def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
     if not testnet and spec_passed is not True:
         raise RuntimeError("research gate not passed; mainnet execution refused")
+
+
+def refuse_foreign_holdings(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str]) -> None:
+    """ADR-0010: execution starts only if the account holds nothing outside the strategy ledger and the leverage
+    and margin mode of the strategy's symbols are as configured. Read-only; run before the runtime is built."""
+    leverage, margin = exchange_settings()
+    findings = foreign_holdings(account, SqliteOrderJournal(Path(state_dir) / ORDERS_FILE, scope),
+                                symbols=tuple(symbols), leverage=leverage,
+                                margin=MARGIN_TYPES[margin] if margin else MARGIN_TYPES["CROSSED"])
+    if findings:
+        raise RuntimeError("execution refused (ADR-0010): " + "; ".join(findings) + ". Close or cancel what the "
+                           "strategy does not own on Binance, or set the configured leverage and margin mode there, "
+                           "then start again; the runtime changes neither")
 
 
 def exchange_lot_rules(account: ExchangeAccount, symbols: Sequence[str]) -> dict[str, LotRules]:
@@ -159,4 +174,4 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
 
 
 __all__ = ["PAUSES_FILE", "Account", "ExecutionInputs", "ExecutionWiring", "exchange_lot_rules", "execution_sessions",
-           "paper_sessions", "refuse_unverified_mainnet"]
+           "paper_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet"]

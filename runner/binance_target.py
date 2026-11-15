@@ -67,8 +67,8 @@ def load_spec(path: Path) -> dict:
 def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, state_dir: Path | None = None) -> dict:
     """Every start-up check that needs no exchange: the spec's signature and kind, the research gate for
     mainnet, the risk scope, the drawdown ceiling, the stop distance and - for execution - a state directory a
-    person initialized for this scope (step 13c). Run before any account is connected (invariant L6):
-    connecting sets leverage and margin type on the exchange."""
+    person initialized for this scope (step 13c). Run before any account is connected (invariant L6). Since
+    ADR-0010 connecting is read-only; the account itself is checked next, by ``refuse_foreign_holdings``."""
     frozen = load_spec(spec_path)
     if execution:
         if not testnet and frozen.get("passed") is not True:
@@ -179,6 +179,8 @@ def main(argv: list[str] | None = None) -> None:
     args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / "orders.sqlite", scope)
     market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"])
+    if args.execution:       # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
+        target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"])
     runtime = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
                             mode="execution" if args.execution else "paper", market=market, account=account,
                             testnet=testnet, stop_pct=args.stop_pct, reset_paper=args.reset_paper_state)

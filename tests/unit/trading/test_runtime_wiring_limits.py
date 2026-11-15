@@ -190,15 +190,15 @@ class _RecordingAdapter:
         return list(type(self).pending_blockers)
 
 
-def test_the_account_is_connected_with_the_configured_leverage_and_blockers_stop_the_start(monkeypatch):
+def test_the_account_is_connected_read_only_and_blockers_stop_the_start(monkeypatch):
+    """Since ADR-0010 connecting sets no leverage or margin mode; the start-up check compares them instead."""
     monkeypatch.setattr(bootstrap, "BinanceAdapter", _RecordingAdapter)
     for name, value in (("BINANCE_TESTNET_API_KEY", "k"), ("BINANCE_TESTNET_API_SECRET", "s"),
                         ("BINANCE_EXCHANGE_LEVERAGE", "5"), ("BINANCE_MARGIN_TYPE", "ISOLATED")):
         monkeypatch.setenv(name, value)
     _RecordingAdapter.instances, _RecordingAdapter.pending_blockers = [], []
     market, account = bootstrap.build_adapters(execution=True, testnet=True, symbols=["BTCUSDT", "ETHUSDT"])
-    assert account.connected_with == {"symbols": ("BTCUSDT", "ETHUSDT"), "configure_leverage": True, "leverage": 5,
-                                      "margin_type": "ISOLATED"}
+    assert account.connected_with == {"symbols": ("BTCUSDT", "ETHUSDT")}
     assert market.connected_with is None and market.config.testnet is False    # public data: mainnet, no keys
     _RecordingAdapter.pending_blockers = ["hedge mode is enabled"]
     with pytest.raises(RuntimeError, match="Execution blocked: hedge mode is enabled"):

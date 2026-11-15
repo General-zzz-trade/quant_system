@@ -3,21 +3,19 @@ from __future__ import annotations
 
 from trading.adapters.binance.adapter import BinanceAdapter
 from trading.adapters.binance.config import BinanceConfig
-from trading.infrastructure.settings import binance_config_from_env, exchange_settings
+from trading.infrastructure.settings import binance_config_from_env
 from trading.infrastructure.target import Account
 
 
 def build_adapters(*, execution: bool, testnet: bool,
                    symbols: list[str]) -> tuple[BinanceAdapter, BinanceAdapter | None]:
-    """(public market-data adapter, account adapter or None). Connecting the account sets leverage and
-    margin type on the exchange, so call this only after every local start-up check has passed."""
+    """(public market-data adapter, account adapter or None). Connecting is read-only: leverage and margin mode
+    are set by a person and checked at start-up (ADR-0010). Call this after every local start-up check."""
     market = BinanceAdapter(BinanceConfig(testnet=False))  # public mainnet data only (no keys)
     account = None
     if execution:
-        leverage, margin = exchange_settings()
         account = BinanceAdapter(binance_config_from_env(testnet=testnet))
-        if not account.connect(symbols=tuple(symbols), configure_leverage=True, leverage=leverage,
-                               margin_type=margin):
+        if not account.connect(symbols=tuple(symbols)):
             raise RuntimeError("Binance account connection failed")
         blockers = account.execution_blockers()
         if blockers:
