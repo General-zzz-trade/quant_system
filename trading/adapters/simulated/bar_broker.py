@@ -22,11 +22,14 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from trading.domain.bars import Bar
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.position import StrategyPosition
+
+if TYPE_CHECKING:
+    from trading.domain.strategy.overlay import StrategySpec
 
 D = Decimal
 Row = dict[str, Any]     # an order, fill or log row: the broker keeps its state as plain dicts
@@ -383,3 +386,26 @@ class BarBroker:
                 "realized_pnl": str(self.position.realized_pnl), "fees": str(self.fees),
                 "funding": str(self.funding),
                 "unrealized_pnl": str(self.position.qty * (self.mark - self.position.entry_price))}
+
+
+# -- research settings: lot constants and broker costs (moved from lab/simulate.py; research and paper use them) --
+@dataclass(frozen=True)
+class SymbolRules:
+    step: D
+    min_qty: D
+    min_notional: D
+
+
+SYMBOL_RULES = {
+    "BTCUSDT": SymbolRules(D("0.001"), D("0.001"), D("100")),
+    "ETHUSDT": SymbolRules(D("0.001"), D("0.001"), D("20")),
+}
+
+
+def broker_config(spec: StrategySpec, rules: SymbolRules, *, starting_balance: str = "5000",
+                  cost_multiplier: int = 1) -> ReplayConfig:
+    m = D(cost_multiplier)
+    return ReplayConfig(starting_balance=starting_balance, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
+                        slippage_bps=str(D(3) * m), limit_offset_bps="2", participation="0.01", max_exposure="1",
+                        qty_step=str(rules.step), min_notional=str(rules.min_notional), ttl_bars=spec.ttl_bars,
+                        entry_mode=spec.execution)
