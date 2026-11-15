@@ -21,6 +21,7 @@ from trading.domain.position import StrategyPosition
 from trading.domain.rebalance import Intent, close_without_equity, plan
 from trading.domain.strategy.overlay import StrategySpec, latest_target
 from trading.domain.events import EventKind
+from trading.domain.symbol_state import SymbolState
 
 FUNDING_INTERVAL = 8 * HOUR
 MAX_ENTRY_DELAY_MS = 10 * 60_000
@@ -84,6 +85,7 @@ class TargetSession:
         self.funding: dict[int, float] = {}
         self.cursor: int | None = None
         self.entry_ready, self.entry_reason = False, "no live bar yet"
+        self.state = SymbolState.WARMING      # set by the exit side every cycle (ADR-0014 point 3)
         self.last_target: tuple[float, bool] = (0.0, False)
         self.sleeve: Any = sleeve
         self.executor: Any = execution.executor if execution else None

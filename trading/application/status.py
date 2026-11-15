@@ -36,6 +36,7 @@ class StatusReporter:
             out["symbols"][symbol] = {
                 "last_bar_open": s.cursor, "target": s.last_target[0], "target_ready": s.last_target[1],
                 "entry_ready": s.entry_ready, "entry_reason": s.entry_reason,
+                "state": s.state.value if self.mode == "execution" else None,
                 "position": readable(lambda: str(s.position_qty())),
                 "sleeve_equity": str(s.sleeve_equity()),
                 "protective_stop": readable(stops.has_active_stop) if stops else None,

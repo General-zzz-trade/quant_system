@@ -16,6 +16,15 @@ from trading.domain.symbol_state import ALLOWED, StateInputs, SymbolState as S, 
 ALL = list(S)
 
 
+@pytest.fixture(autouse=True)
+def _offline_env(monkeypatch):
+    for name in ("QUANT_MODEL_SIGN_KEY", "BINANCE_TESTNET", "BINANCE_EXCHANGE_LEVERAGE", "BINANCE_MARGIN_TYPE",
+                 "MAX_DAILY_DRAWDOWN_PCT", "MAX_WEEKLY_DRAWDOWN_PCT", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
+    monkeypatch.setenv("RISK_SCOPE", "binance-testnet-ut")
+
+
 def _inputs(**over):
     base = dict(warmed=True, flattening=False, halted=False, paused=False, blocked=False)
     base.update(over)
@@ -105,3 +114,36 @@ def test_a_forbidden_transition_blocks_the_symbol_and_is_alerted(tmp_path):
     _tick(world, runtime)
     assert session.state is S.BLOCKED
     assert any("ready -> warming" in r["reason"] for r in _events(tmp_path, "alert"))
+
+
+def test_a_latched_drawdown_halts_every_symbol(tmp_path):
+    from tests.unit.lab.test_target_runtime import _advance
+    world, runtime = _execution(tmp_path, execution="market")
+    btc = world["fakes"]["BTCUSDT"]
+    i = _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    for fake in world["fakes"].values():
+        fake.equity = D("7000")                                       # -30%: past the daily and the weekly limit
+    for k in range(3):
+        _advance(world, runtime, i + k)
+    assert runtime.drawdown.latched()
+    assert {s.state for s in runtime.sessions.values()} == {S.HALTED}
+
+
+def test_a_failing_side_makes_every_symbol_blocked(tmp_path):
+    world, runtime = _execution(tmp_path, execution="market")
+    _tick(world, runtime)
+    status = tmp_path / "exec/target_status.json"
+    status.unlink()
+    status.mkdir()                                                    # the status side fails from now on
+    _tick(world, runtime)
+    _tick(world, runtime)
+    assert {s.state for s in runtime.sessions.values()} == {S.BLOCKED}
+
+
+def test_a_position_that_cannot_be_read_still_counts_as_held_while_flattening():
+    from trading.application.exit_supervisor import ExitSupervisor
+
+    def unreadable():
+        raise OSError("database lost")
+    assert ExitSupervisor._holds(SimpleNamespace(position_qty=unreadable)) is True
+    assert ExitSupervisor._holds(SimpleNamespace(position_qty=lambda: D(0))) is False

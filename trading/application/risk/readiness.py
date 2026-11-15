@@ -6,11 +6,13 @@ from typing import Protocol
 
 from trading.application.ports import OrderRequest
 from trading.application.risk.entry_gate import GateResult
+from trading.domain.symbol_state import SymbolState
 
 
 class BarInputs(Protocol):
     entry_ready: bool
     entry_reason: str
+    state: SymbolState
 
 
 class EntryGate(Protocol):
@@ -29,7 +31,13 @@ class EntryReadinessGate:
             reducing = qty == 0 or getattr(event, "reduce_only", False) is True
             if not reducing and not self.session.entry_ready:
                 return GateResult(False, "inputs: " + self.session.entry_reason)
-            return self.inner.check(event)
+            result = self.inner.check(event)
+            # ADR-0014 point 3, a backstop after the gate (so its own refusal reason is kept): only a READY symbol
+            # enters. Every condition that makes a symbol not READY already refuses above; this catches any that
+            # would not. A limiter reservation the gate made for such an entry is then counted but not used.
+            if result.allowed and not reducing and self.session.state is not SymbolState.READY:
+                return GateResult(False, f"state: {self.session.state.value}")
+            return result
         except Exception as exc:
             return GateResult(False, f"entry gate failed: {type(exc).__name__}")
 

@@ -21,6 +21,7 @@ from trading.application.session import TargetSession
 from trading.domain.events import EventKind
 from trading.domain.issues import Effect, IssueKind as K
 from trading.domain.strategy.overlay import StrategySpec
+from trading.domain.symbol_state import ALLOWED, StateInputs, SymbolState, classify
 
 logger = logging.getLogger("binance_target")
 
@@ -44,14 +45,55 @@ class ExitSupervisor:
         self._market_refused, self._decision_error, self._cycle_errors = market_refused, decision_error, cycle_errors
         self.last_equity = self.last_reconcile = 0.0
         self.exit_errors: dict[str, Issue] = {}     # symbol -> the last exit failure, until an exit succeeds
+        self.last_issues: dict[str, list[Issue]] = {}   # symbol -> the issues of the last reconciliation
+        self._forbidden: dict[str, str] = {}        # symbol -> the last forbidden transition alerted
         self.issue_alerts = IssueAlerts(notifier, clock, prefix=alert_prefix, wait=self.alert_wait) \
             if notifier is not None else None
 
     def run(self) -> None:
-        """The exit side of one cycle: reconcile when due, then the risk actions."""
+        """The exit side of one cycle: reconcile when due, then the risk actions. The symbol states are set before
+        the risk actions (a flatten about to run shows as FLATTENING) and again after them."""
         if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:
             self.reconcile()
+        self.update_states()
         self.risk_actions()
+        self.update_states()
+
+    def update_states(self) -> None:
+        """ADR-0014 point 3: each symbol's state from the last reconciliation's issues, the kill switch, the
+        drawdown guard and its pause. A change is an event; a transition outside the table is BLOCKED and
+        alerted once."""
+        kill = self.kill.state()
+        halted = bool(kill.active) or bool(self.drawdown.latched())
+        closing = bool(kill.active and kill.flatten) or bool(self.drawdown.latched())
+        for symbol, session in self.sessions.items():
+            issues = self.last_issues.get(symbol, [])
+            inputs = StateInputs(
+                warmed=session.cursor is not None and len(session.bars) >= self.spec.window_hours(),
+                flattening=(closing or bool(with_effect(issues, Effect.FLATTEN_SYMBOL))) and self._holds(session),
+                halted=halted, paused=self.pause_status(symbol) is not None,
+                blocked=bool(with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
+                             with_effect(issues, Effect.BLOCK_ALL_ENTRIES)))
+            previous, state = session.state, classify(inputs)
+            if (previous, state) not in ALLOWED:
+                text = f"{symbol}: state {previous.value} -> {state.value} is not allowed; entries blocked"
+                if self._forbidden.get(symbol) != text:
+                    self.journal.write(EventKind.ALERT, symbol=symbol, reason=text)
+                    logger.error(text)
+                self._forbidden[symbol] = text
+                state = SymbolState.BLOCKED
+            else:
+                self._forbidden.pop(symbol, None)
+            if state is not previous:
+                self.journal.write(EventKind.SYMBOL_STATE, symbol=symbol, previous=previous.value, state=state.value)
+                session.state = state
+
+    @staticmethod
+    def _holds(session: TargetSession) -> bool:
+        try:
+            return session.position_qty() != 0
+        except Exception:
+            return True                             # unknown: still flattening
 
     def refresh_equity_if_due(self) -> None:
         if self.clock() - self.last_equity >= EQUITY_SECONDS:
@@ -91,6 +133,7 @@ class ExitSupervisor:
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
                     self.exit_errors.get(symbol), self._decision_error(symbol), refused]
             found = issues + [issue for issue in more if issue is not None]
+            self.last_issues[symbol] = found + cycle_errors
             self._block(session, found + cycle_errors)
             if self.issue_alerts is not None:
                 self.issue_alerts.observe(symbol, found)
