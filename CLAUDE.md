@@ -53,6 +53,7 @@ make test                          # core gate: money-path and execution pytest,
 make test-all                      # entire pytest suite (must be all green); CI runs it as 4 shards (python-test-all)
 ruff check --select E,W,F .        # lint, whole repo
 python scripts/check_local_safety.py               # stdlib-only offline fault-injection suite
+python3 -m scripts.account_check                   # live account, read-only GET (the one sanctioned reader of the credentials file)
 python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
