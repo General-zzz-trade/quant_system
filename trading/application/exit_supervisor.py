@@ -37,12 +37,13 @@ class ExitSupervisor:
                  drawdown: DrawdownGuard | None,
                  pauses: EntryPauses | None, notifier: Notifier | None, alert_prefix: str,
                  market_refused: Callable[[], str | None], decision_error: Callable[[str], Issue | None],
-                 cycle_errors: Callable[[], list[Issue]]) -> None:
+                 cycle_errors: Callable[[], list[Issue]], warmed: Callable[[], bool] = lambda: True) -> None:
         self.sessions, self.spec, self.journal, self.clock = sessions, spec, journal, clock
         self.account, self.equity, self.pauses = account, equity, pauses
         self.kill: Any = kill               # present in execution mode, the only mode that runs the exit side
         self.drawdown: Any = drawdown
         self._market_refused, self._decision_error, self._cycle_errors = market_refused, decision_error, cycle_errors
+        self._warmed = warmed                       # the whole warm-up succeeded (S3 audit finding 6)
         self.last_equity = self.last_reconcile = 0.0
         self.exit_errors: dict[str, Issue] = {}     # symbol -> the last exit failure, until an exit succeeds
         self.last_issues: dict[str, list[Issue]] = {}   # symbol -> the issues of the last reconciliation
@@ -64,16 +65,19 @@ class ExitSupervisor:
         drawdown guard and its pause. A change is an event; a transition outside the table is BLOCKED and
         alerted once."""
         kill = self.kill.state()
-        halted = bool(kill.active) or bool(self.drawdown.latched())
-        closing = bool(kill.active and kill.flatten) or bool(self.drawdown.latched())
+        latched = bool(self.drawdown.latched())
+        halted = bool(kill.active) or latched
+        closing = bool(kill.active and kill.flatten) or latched
+        equity_unknown = not self.drawdown.check()[0]   # the gate refuses too (S3 audit finding 8)
+        warmed = self._warmed()
         for symbol, session in self.sessions.items():
             issues = self.last_issues.get(symbol, [])
             inputs = StateInputs(
-                warmed=session.cursor is not None and len(session.bars) >= self.spec.window_hours(),
+                warmed=warmed and session.cursor is not None and len(session.bars) >= self.spec.window_hours(),
                 flattening=(closing or bool(with_effect(issues, Effect.FLATTEN_SYMBOL))) and self._holds(session),
                 halted=halted, paused=self.pause_status(symbol) is not None,
-                blocked=bool(with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
-                             with_effect(issues, Effect.BLOCK_ALL_ENTRIES)))
+                blocked=equity_unknown or bool(with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
+                                               with_effect(issues, Effect.BLOCK_ALL_ENTRIES)))
             previous, state = session.state, classify(inputs)
             if (previous, state) not in ALLOWED:
                 # Alerted once per state it is kept out of: BLOCKED -> WARMING after READY -> WARMING is the same.
@@ -114,6 +118,7 @@ class ExitSupervisor:
     def reconcile(self) -> None:
         refused_text = self._market_refused()
         cycle_errors = self._cycle_errors()
+        found_of: dict[str, list[Issue]] = {}
         for symbol, session in self.sessions.items():
             try:
                 session.consume_fills()
@@ -133,9 +138,14 @@ class ExitSupervisor:
                 write_issue(self.journal, symbol, refused)
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
                     self.exit_errors.get(symbol), self._decision_error(symbol), refused]
-            found = issues + [issue for issue in more if issue is not None]
-            self.last_issues[symbol] = found + cycle_errors
-            self._block(session, found + cycle_errors)
+            found_of[symbol] = issues + [issue for issue in more if issue is not None]
+        # Blocks are applied once every symbol is reconciled: each symbol's reconciliation resets its own entry
+        # readiness, so a block-all found on one symbol must come after the others' (S3 audit finding 2).
+        every = with_effect([i for found in found_of.values() for i in found] + cycle_errors, Effect.BLOCK_ALL_ENTRIES)
+        for symbol, session in self.sessions.items():
+            found = found_of[symbol]
+            self.last_issues[symbol] = found + [i for i in every if i not in found]
+            self._block(session, self.last_issues[symbol])
             if self.issue_alerts is not None:
                 self.issue_alerts.observe(symbol, found)
         if self.issue_alerts is not None:
