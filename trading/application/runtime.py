@@ -25,6 +25,7 @@ RECONCILE_SECONDS = 5.0
 EQUITY_SECONDS = 60.0
 FUNDING_WAIT_MS = 2 * 60_000
 MARKET_BACKOFF_MAX = 300.0
+MARKET_ALERT_AFTER = 5            # failures in a row before an alert (about 2.5 minutes with the backoff)
 PAPER_SCHEMA = 1
 RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
                   "--reason <why>"
@@ -34,6 +35,7 @@ class TargetRuntime:
     def __init__(self, *, spec: StrategySpec, mode: str, market: MarketData, sessions: dict[str, TargetSession],
                  journal: EventLog, equity: EquitySource, clock: Clock, status_sink: StatusSink,
                  market_errors: tuple[type[BaseException], ...], account: ExchangeAccount | None = None,
+                 final_market_errors: tuple[type[BaseException], ...] = (),
                  kill: KillSwitch | None = None, drawdown: DrawdownGuard | None = None,
                  paper_store: PaperStore | None = None, reset_paper: bool = False,
                  spec_passed: object = None, pauses: EntryPauses | None = None,
@@ -45,6 +47,8 @@ class TargetRuntime:
         self.kill: Any = kill
         self.drawdown: Any = drawdown
         self._status_sink, self._paper_store, self._market_errors = status_sink, paper_store, market_errors
+        self._final_market_errors = final_market_errors   # the exchange says retrying will not help (step 14)
+        self._market_refused: str | None = None           # set by such an error, cleared by a success
         self._spec_passed = spec_passed
         self._last_equity = self._last_reconcile = 0.0
         self._market_failures, self._market_retry_at = 0, 0.0
@@ -87,6 +91,31 @@ class TargetRuntime:
             self.refresh_equity()
             self.reconcile()
 
+    def warmup_or_hold(self) -> bool:
+        """Warm up. In execution mode a market-data failure does not end the process: the exit side - equity,
+        reconciliation, stop upkeep, risk actions - runs, and False asks the caller to try again later
+        (step 14). Paper mode raises as before."""
+        if self.mode != "execution":
+            self.warmup()
+            return True
+        if self.clock() >= self._market_retry_at:
+            for session in self.sessions.values():        # a partial earlier attempt must not leave bars behind
+                session.bars.clear()
+                session.funding.clear()
+                session.cursor = None
+            try:
+                self.warmup()
+                self._market_failures, self._market_refused = 0, None
+                return True
+            except self._market_errors as exc:
+                self._market_failed(exc)
+        if self.clock() - self._last_equity >= EQUITY_SECONDS:
+            self.refresh_equity()
+        self.reconcile()
+        self.risk_actions()
+        self._status_sink.write(self.status())
+        return False
+
     def refresh_equity(self) -> None:
         try:
             assert self.account is not None
@@ -112,8 +141,12 @@ class TargetRuntime:
                 self.journal.write("issue", symbol=symbol, issue=issue)
             if any("stop_breached" in i for i in issues):
                 self._exit(symbol, session, "stop_breached")
+            if self._market_refused is not None:
+                session.executor.block_entries()
+                self.journal.write("issue", symbol=symbol, issue=f"{symbol}: {self._market_refused}")
             more = [self._save_pause(symbol, session), self._require_stop(symbol, session),
-                    self._exit_errors.get(symbol)]
+                    self._exit_errors.get(symbol),
+                    f"{symbol}: {self._market_refused}" if self._market_refused else None]
             if self.issue_alerts is not None:
                 self.issue_alerts.observe(symbol, issues + [issue for issue in more if issue])
         self._last_reconcile = self.clock()
@@ -190,7 +223,7 @@ class TargetRuntime:
             if reason is None:
                 session.cancel_entries()
             else:
-                session.flatten(reason)
+                session.flatten(reason, now_ms=int(self.clock() * 1000))
             self._exit_errors.pop(symbol, None)
         except Exception as exc:
             issue = f"{symbol}: {'flatten' if reason else 'entry cancellation'} failed: {type(exc).__name__}: {exc}"
@@ -206,16 +239,28 @@ class TargetRuntime:
         try:
             processed = self._poll_market()
         except self._market_errors as exc:
-            self._market_failures += 1
-            delay = min(POLL_SECONDS * 2 ** (self._market_failures - 1), MARKET_BACKOFF_MAX)
-            self._market_retry_at = self.clock() + delay
-            self.journal.write("issue", issue=f"market data unavailable: {type(exc).__name__}: {exc}",
-                               failures=self._market_failures, retry_in=delay)
-            logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s",
-                           self._market_failures, delay, exc)
+            self._market_failed(exc)
             return 0
-        self._market_failures = 0
+        self._market_failures, self._market_refused = 0, None
         return processed
+
+    def _market_failed(self, exc: BaseException) -> None:
+        """Count, back off, and tell a person: after MARKET_ALERT_AFTER failures in a row, or at once when the
+        exchange calls the error final - entries then stay blocked until market data works again."""
+        self._market_failures += 1
+        final = isinstance(exc, self._final_market_errors)
+        delay = MARKET_BACKOFF_MAX if final else min(POLL_SECONDS * 2 ** (self._market_failures - 1),
+                                                      MARKET_BACKOFF_MAX)
+        self._market_retry_at = self.clock() + delay
+        text = f"{type(exc).__name__}: {exc}"
+        self.journal.write("issue", issue=f"market data unavailable: {text}", failures=self._market_failures,
+                           retry_in=delay)
+        logger.warning("Market data unavailable (%d in a row); retry in %.0fs: %s", self._market_failures, delay, exc)
+        if final and self._market_refused is None:
+            self._market_refused = f"market data refused by the exchange ({text}); entries blocked"
+            self.journal.write("alert", reason=f"{self._market_refused} until it works again")
+        elif not final and self._market_failures == MARKET_ALERT_AFTER:
+            self.journal.write("alert", reason=f"market data unavailable {MARKET_ALERT_AFTER} times in a row: {text}")
 
     def _poll_market(self) -> int:
         processed = 0
