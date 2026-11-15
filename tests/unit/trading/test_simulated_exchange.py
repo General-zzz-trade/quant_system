@@ -7,14 +7,16 @@ the Binance adapter is fixed by the port-contract suite (tests/contract/test_exc
 from __future__ import annotations
 
 from decimal import Decimal as D
+from types import SimpleNamespace as NS
 
 import pytest
 
-from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
+from lab.simulate import Sleeve
+from trading.adapters.simulated.bar_broker import SYMBOL_RULES, BarBroker, ReplayConfig, broker_config
 from trading.adapters.simulated.exchange import BarStopModel, SimFilters, SimulatedExchange
 from trading.application import ports
 from trading.domain.bars import HOUR, Bar
-from trading.domain.orders import LIMIT_OFFSET_BPS
+from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.venue import OpenOrder
 
 START = 1_800_000_000_000 // HOUR * HOUR
@@ -117,6 +119,69 @@ def maker_price(side, close="100"):
     return D(close) * (1 - sign * LIMIT_OFFSET_BPS / 10000)
 
 
+def test_the_exchange_refuses_brokers_and_filters_that_do_not_belong_together():
+    good = SimFilters(D("0.001"), D("0.001"), D("5"))
+    broker = BarBroker(ReplayConfig(qty_step="0.001", min_notional="5"))
+    SimulatedExchange({"BTCUSDT": broker}, filters={"BTCUSDT": good}, stop_model=BarStopModel())
+    cases = [({}, {}), ({"BTCUSDT": broker}, {"ETHUSDT": good}),
+             ({"BTCUSDT": broker}, {"BTCUSDT": SimFilters(D("0.01"), D("0.001"), D("5"))}),
+             ({"BTCUSDT": broker}, {"BTCUSDT": SimFilters(D("0.001"), D("0.001"), D("20"))}),
+             ({"BTCUSDT": BarBroker(ReplayConfig(qty_step="0.001", min_notional="5", isolated_leverage="3",
+                                                 max_exposure="1"))}, {"BTCUSDT": good})]
+    for brokers, filters in cases:
+        with pytest.raises(ValueError):
+            SimulatedExchange(brokers, filters=filters, stop_model=BarStopModel())
+
+
+# (bar, orders sent after it as (side, qty, reduce_only), funding rate): an entry, a partial reduction, a flip, an
+# entry capped by the bar's volume that the broker expires, and funding on a long and on a short.
+SCRIPT = [((2000, 2010, 1990, 2000, "1000"), [("buy", "1.250", False)], None),
+          ((2001, 2012, 1995, 2005, "1000"), [], None),
+          ((2006, 2015, 2000, 2010, "1000"), [("sell", "0.500", True)], D("0.0001")),
+          ((2009, 2011, 1990, 1995, "1000"), [], None),
+          ((1996, 2000, 1980, 1985, "1000"), [("sell", "0.750", True), ("sell", "1.000", False)], None),
+          ((1984, 1990, 1975, 1980, "1000"), [], None),
+          ((1981, 1983, 1970, 1975, "1000"), [("buy", "1.000", True), ("buy", "2.000", False)], D("-0.0002")),
+          ((1976, 1980, 1960, 1977, "50"), [], None),
+          ((1976, 1979, 1961, 1970, "50"), [], None),
+          ((1969, 1975, 1955, 1972, "50"), [], None),
+          ((1971, 1980, 1965, 1978, "50"), [], None)]
+
+
+@pytest.mark.parametrize("entry_mode", ["market", "maker"])
+def test_the_exchange_matches_exactly_as_the_research_sleeve(entry_mode):
+    """The same bars, funding and orders give the research sleeve's fills to the last digit of every string, and
+    its equity. The lifecycle sends quantities and prices as floats; research sends Decimals on the lot step."""
+    rules = SYMBOL_RULES["ETHUSDT"]
+    config = broker_config(NS(ttl_bars=3, execution=entry_mode), rules)
+    sleeve = Sleeve("ETHUSDT", None, rules, config)
+    venue = SimulatedExchange({"ETHUSDT": BarBroker(config)}, stop_model=BarStopModel(),
+                              filters={"ETHUSDT": SimFilters(rules.step, rules.min_qty, rules.min_notional)})
+    for k, ((o, h, lo, c, volume), orders, funding) in enumerate(SCRIPT):
+        bar = candle(o, h, lo, c, at=START + k * HOUR, volume=volume)
+        sleeve.on_bar(bar, funding)
+        venue.on_closed_bar("ETHUSDT", bar, funding)
+        for j, (side, qty, reduce_only) in enumerate(orders):
+            oid = f"ETHUSDT:{k}:{j}"
+            sleeve.broker.send_order(OrderIntent(order_id=oid, source="research", symbol="ETHUSDT", side=side,
+                                                 qty=D(qty), price=bar.close, reduce_only=reduce_only,
+                                                 reason="rebalance"))
+            if reduce_only or entry_mode == "market":
+                placed = venue.send_market_order("ETHUSDT", side, float(qty), reduce_only=reduce_only,
+                                                 client_order_id=oid)
+            else:
+                placed = venue.send_limit_order("ETHUSDT", side, float(qty), float(maker_price(side, bar.close)),
+                                                client_order_id=oid)
+            assert placed["status"] == "submitted", placed
+    key = lambda f: (f["at"], f["side"], f["qty"], f["price"], f["fee"])  # noqa: E731
+    simulated = venue.get_recent_fills(symbol="ETHUSDT", limit=1000)
+    assert [(f.ts_ms, f.side, str(f.qty), str(f.price), str(f.fee)) for f in simulated] == \
+        [key(f) for f in sleeve.broker.fills]
+    assert len(simulated) >= 7 and any(f["qty"] == "0.500" for f in sleeve.broker.fills)
+    assert venue.get_symbol_equity("ETHUSDT") == sleeve.broker.equity
+    assert len(sleeve.broker.funding_log) == 2 and sleeve.broker.funding != 0
+
+
 def test_a_float_quantity_goes_back_on_the_lot_step_with_the_steps_exponent(market):
     venue, brokers, feed = market
     venue.send_market_order("BTCUSDT", "buy", 0.15, client_order_id="a")
@@ -199,6 +264,20 @@ def test_a_market_order_rests_until_the_next_closed_bar_and_fills_at_its_open(ma
     assert venue.get_positions("ETHUSDT") == ()
 
 
+def test_a_maker_entry_capped_by_the_bars_volume_fills_in_parts_and_the_broker_expires_the_rest(maker):
+    venue, _, feed = maker
+    placed = venue.send_limit_order("BTCUSDT", "buy", 2.0, float(maker_price("buy")), client_order_id="big")
+    feed(volume="50")                                                  # 1 % of 50: 0.5 per bar
+    order = venue.get_order("BTCUSDT", order_id=placed["orderId"])
+    assert (order.state, order.filled_qty, order.avg_price) == ("partially_filled", D("0.500"), maker_price("buy"))
+    assert [o.order_id for o in venue.get_open_orders("BTCUSDT")] == [placed["orderId"]]
+    assert venue.get_recent_fills(symbol="BTCUSDT")[0].liquidity == "maker"
+    feed(volume="50")
+    feed(volume="50")                                                  # ttl_bars = 3
+    order = venue.get_order("BTCUSDT", order_id=placed["orderId"])
+    assert (order.state, order.filled_qty) == ("canceled", D("1.500")) and venue.get_open_orders() == ()
+
+
 def test_a_canceled_order_never_fills_and_a_cancel_needs_a_known_order(maker):
     venue, brokers, feed = maker
     placed = venue.send_limit_order("BTCUSDT", "buy", 0.1, float(maker_price("buy")), client_order_id="c1")
@@ -215,3 +294,68 @@ def test_a_canceled_order_never_fills_and_a_cancel_needs_a_known_order(maker):
             venue.cancel_order(symbol, order_id)
 
 
+def test_orders_are_found_by_either_id_and_only_under_their_symbol(market):
+    venue, _, _ = market
+    placed = venue.send_market_order("BTCUSDT", "sell", 0.1, client_order_id="c1")
+    by_id = venue.get_order("BTCUSDT", order_id=placed["orderId"])
+    assert by_id == venue.get_order("BTCUSDT", client_order_id="c1") == \
+        venue.get_order("BTCUSDT", order_id=placed["orderId"], client_order_id="c1")
+    assert (by_id.order_id, by_id.client_order_id, by_id.symbol, by_id.side) == (placed["orderId"], "c1",
+                                                                                  "BTCUSDT", "sell")
+    assert venue.get_order("ETHUSDT", order_id=placed["orderId"]) is None
+    assert venue.get_order("BTCUSDT", order_id="BTCUSDT-999", client_order_id="c1") is None
+    assert venue.get_recent_fills(symbol="ETHUSDT", order_id=placed["orderId"]) == ()
+    assert venue.get_recent_fills(symbol="BTCUSDT", order_id="BTCUSDT-999") == ()
+    assert venue.send_market_order("BTCUSDT", "sell", 0.1, client_order_id="c1")["status"] == "rejected"
+    assert [venue.send_market_order("BTCUSDT", side, 0.1, client_order_id=cid)["status"]
+            for side, cid in (("hold", "c3"), ("buy", ""))] == ["rejected", "rejected"]
+    assert venue.send_market_order("BTCUSDT", "BUY", 0.1, client_order_id="c4")["status"] == "submitted"
+    assert venue.get_order("BTCUSDT", client_order_id="c4").side == "buy"
+
+
+def test_trade_history_without_an_order_is_every_fill_of_the_symbol_in_order(market):
+    venue, _, feed = market
+    for n in range(3):
+        venue.send_market_order("BTCUSDT", "buy", 0.1, client_order_id=f"b{n}")
+        venue.send_market_order("ETHUSDT", "buy", 0.1, client_order_id=f"e{n}")
+        feed()
+        feed(symbol="ETHUSDT")
+    fills = venue.get_recent_fills(symbol="BTCUSDT")
+    assert [f.order_id for f in fills] == [venue.get_order("BTCUSDT", client_order_id=f"b{n}").order_id
+                                           for n in range(3)]
+    assert [f.ts_ms for f in fills] == [START + HOUR, START + 2 * HOUR, START + 3 * HOUR]
+    assert venue.get_recent_fills(symbol="BTCUSDT", since_ms=START + 2 * HOUR) == fills[1:]
+    assert venue.get_recent_fills(symbol="BTCUSDT", limit=2) == fills[:2]
+    with pytest.raises(ValueError):
+        venue.get_recent_fills(order_id=fills[0].order_id)
+
+
+def test_each_symbol_is_its_own_simulated_account(market):
+    venue, brokers, feed = market
+    venue.send_market_order("BTCUSDT", "buy", 1.0, client_order_id="b")
+    feed(o=100, h=110, lo=100, c=110)
+    btc, eth = venue.get_symbol_equity("BTCUSDT"), venue.get_symbol_equity("ETHUSDT")
+    assert btc == brokers["BTCUSDT"].equity and eth == D("10000") and btc > eth
+    assert venue.get_account_equity() == float(btc + eth)
+    assert venue.get_ticker("BTCUSDT") == {"symbol": "BTCUSDT", "lastPrice": 110.0, "bid1Price": 110.0,
+                                           "ask1Price": 110.0}
+    assert venue.execution_blockers() == [] and venue.get_symbol_settings("ETHUSDT") == (1, "cross")
+
+
+def test_a_bar_is_matched_once_and_only_for_a_simulated_symbol(market):
+    venue, brokers, feed = market
+    venue.send_market_order("BTCUSDT", "buy", 0.1, client_order_id="b")
+    bar = feed()
+    for again in (bar, candle(100, 101, 99, 100, at=bar.open_time - HOUR)):
+        with pytest.raises(ValueError):
+            venue.on_closed_bar("BTCUSDT", again, None)
+    assert len(brokers["BTCUSDT"].fills) == 1
+    feed(funding=D("0.001"))
+    assert brokers["BTCUSDT"].funding_log[-1]["cashflow"] == str(-D("0.100") * D("100") * D("0.001"))
+    for call in (lambda: venue.on_closed_bar("XRPUSDT", bar, None), lambda: venue.filters("XRPUSDT"),
+                 lambda: venue.get_positions("XRPUSDT"), lambda: venue.get_ticker("XRPUSDT"),
+                 lambda: venue.send_market_order("XRPUSDT", "buy", 1.0, client_order_id="x"),
+                 lambda: venue.get_recent_fills(symbol="XRPUSDT"), lambda: venue.get_symbol_settings("XRPUSDT")):
+        with pytest.raises(RuntimeError):
+            call()
+    assert venue.filters("ETHUSDT") == SimFilters(D("0.001"), D("0.001"), D("5"))
