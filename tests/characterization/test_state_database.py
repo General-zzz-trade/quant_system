@@ -233,14 +233,12 @@ def _holding(tmp_path, notifier):
     return world, runtime, db_path, i
 
 
-@pytest.mark.xfail(strict=True, raises=sqlite3.OperationalError,
-                   reason="known gap, fixed in S3 (ADR-0014; tech lead 2026-11-15): the bookkeeping after a send "
-                          "reads the lost journal and the error leaves the cycle")
 def test_a_reduction_after_the_database_was_deleted_is_retried_and_alerted_and_the_cycle_goes_on(
         tmp_path, monkeypatch):
     # Audit 2026-11-15 of S2, finding 1: the failure handler read the lost journal again, and that error ended
     # the process (no more alerts, retries or entry cancellation; a restart is refused by the start-up check).
-    # The handler is fixed (test_execution_service); the next read after the send still escapes.
+    # The handler was fixed in S2 (test_execution_service); the next read after the send escaped until S3c,
+    # which contains a symbol's failing bar (DECISION_FAILED) instead of letting it end the cycle.
     from tests.unit.lab.test_target_runtime import _advance
     note = _Notifier()
     world, runtime, db_path, i = _holding(tmp_path, note)

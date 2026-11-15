@@ -78,7 +78,10 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 **Runtimes:**
 - `runner/binance_target.py`: entry point of the overlay strategy. It loads the signed spec and passes in
   the parts that are still legacy (paper sleeve, order limiter, kill file, lease, TCA log).
-  - The loop is `trading/application/runtime.py`; one symbol's hourly step is `trading/application/session.py`;
+  - The loop is `trading/application/runtime.py`; it wires `market_poller.py`, `exit_supervisor.py` and `status.py`
+    (S3c). In execution mode the three sides are isolated: one that raises blocks every entry until it works again
+    and the others still run; one symbol's failing bar blocks only that symbol. One symbol's hourly step is
+    `trading/application/session.py`;
     `trading/infrastructure/target.py` wires the sessions.
   - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
   - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`); its state is stored in
@@ -124,9 +127,6 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
   position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
-- With `state.sqlite` lost while running, a decided reduction raises out of the cycle and ends the process.
-  That cycle's reconcile and risk actions are skipped too; only the exchange-side stop remains. This is fixed in S3
-  (ADR-0014); a strict-xfail test in `tests/characterization/test_state_database.py` marks it.
 - `binance_target` only:
   - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
     process log (status `alerts: "log only"`).

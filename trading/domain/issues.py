@@ -25,6 +25,8 @@ class IssueKind(Enum):
     MARKET_DATA = "market_data"              # market data unavailable for now (retried with backoff)
     FLATTEN_FAILED = "flatten_failed"        # a flatten raised; it is tried again while its cause lasts
     CANCEL_FAILED = "cancel_failed"          # cancelling resting entries raised; tried again likewise
+    DECISION_FAILED = "decision_failed"      # one symbol's bar could not be processed; the next bar tries again
+    CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
 
 
 class Effect(Enum):
@@ -54,6 +56,8 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.MARKET_DATA: frozenset({Effect.ALERT_ONLY}),
     IssueKind.FLATTEN_FAILED: frozenset({Effect.ALERT_ONLY}),
     IssueKind.CANCEL_FAILED: frozenset({Effect.ALERT_ONLY}),
+    IssueKind.DECISION_FAILED: _BLOCK,
+    IssueKind.CYCLE_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
 }
 
 

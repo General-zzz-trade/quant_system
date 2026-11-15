@@ -34,6 +34,8 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.MARKET_DATA: frozenset({E.ALERT_ONLY}),
         IssueKind.FLATTEN_FAILED: frozenset({E.ALERT_ONLY}),
         IssueKind.CANCEL_FAILED: frozenset({E.ALERT_ONLY}),
+        IssueKind.DECISION_FAILED: BLOCK,                               # S3c: one symbol's bar failed
+        IssueKind.CYCLE_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),       # S3c: a whole block of the cycle failed
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect

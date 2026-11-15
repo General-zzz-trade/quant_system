@@ -6,6 +6,8 @@ in this layer never reads that text to decide anything (tests/architecture/test_
 """
 from __future__ import annotations
 
+from trading.application.ports import EventLog
+from trading.domain.events import EventKind
 from trading.domain.issues import Effect, IssueKind, effects
 
 
@@ -29,4 +31,10 @@ def with_effect(issues: list[Issue], effect: Effect) -> list[Issue]:
     return [issue for issue in issues if effect in issue.effects]
 
 
-__all__ = ["Issue", "with_effect"]
+def write_issue(events: EventLog, symbol: str | None, issue: Issue) -> None:
+    """The ``issue`` event: its text, as always, and its kind."""
+    events.write(EventKind.ISSUE, **({"symbol": symbol} if symbol else {}), issue=str(issue),
+                 issue_kind=issue.kind.value)
+
+
+__all__ = ["Issue", "with_effect", "write_issue"]
