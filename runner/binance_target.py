@@ -135,10 +135,13 @@ class TargetRuntime(_runtime.TargetRuntime):
             journal = NotifyingEventLog(journal, notifier, prefix=alert_prefix)
         self.equity = EquitySource(clock)
         symbols = self.frozen["symbols"]
-        kill = drawdown = pauses = None
+        kill = drawdown = pauses = account_check = None
         if mode == "execution":
             wiring, kill = self._execution(spec, symbols, journal)
             sessions, drawdown, pauses = wiring.sessions, wiring.drawdown, wiring.pauses
+            assert config.leverage is not None
+            account_check = target.account_checker(account, state_dir=self.state_dir, scope=config.scope,
+                                                   symbols=symbols, leverage=config.leverage, margin=config.margin)
         else:
             sessions = target.paper_sessions(
                 spec, symbols, journal=journal, rules=SYMBOL_RULES,     # paper equals research
@@ -152,7 +155,8 @@ class TargetRuntime(_runtime.TargetRuntime):
                 SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
                 JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
             reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses, notifier=notifier,
-            alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest())
+            alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest(),
+            account_check=account_check)
         # ADR-0017: what this run uses, recorded once, without any secret.
         journal.write(EventKind.CONFIG, **config.record(), digest=config.digest())
         logger.info("Configuration %s: %s", config.digest()[:12], config.record())

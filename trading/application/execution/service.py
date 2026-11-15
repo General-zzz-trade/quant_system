@@ -214,7 +214,9 @@ class ExecutionService:
         blockers = getattr(self._venue, "execution_blockers", None)   # optional on legacy venues
         issues = [Issue(IssueKind.VENUE_BLOCKED, symbol, text) for text in (blockers() if blockers else [])]
         issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol)
-        self.ready = not with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES)
+        # A block-all problem blocks this symbol too; the exit side spreads it to the others (ADR-0011).
+        self.ready = not (with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
+                          with_effect(issues, Effect.BLOCK_ALL_ENTRIES))
         if issues:
             logger.error("Entry blocked: %s", "; ".join(issues))
         return issues

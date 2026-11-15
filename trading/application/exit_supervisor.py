@@ -26,6 +26,7 @@ from trading.domain.symbol_state import ALLOWED, StateInputs, SymbolState, class
 logger = logging.getLogger("binance_target")
 
 RECONCILE_SECONDS = 5.0
+ACCOUNT_CHECK_SECONDS = 60.0      # ADR-0011 / decision O: the whole account at most once a minute
 EQUITY_SECONDS = 60.0
 RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
                   "--reason <why>"
@@ -37,13 +38,18 @@ class ExitSupervisor:
                  drawdown: DrawdownGuard | None,
                  pauses: EntryPauses | None, notifier: Notifier | None, alert_prefix: str,
                  market_refused: Callable[[], str | None], decision_error: Callable[[str], Issue | None],
-                 cycle_errors: Callable[[], list[Issue]], warmed: Callable[[], bool] = lambda: True) -> None:
+                 cycle_errors: Callable[[], list[Issue]], warmed: Callable[[], bool] = lambda: True,
+                 account_check: Callable[[], list[Issue]] | None = None) -> None:
         self.sessions, self.spec, self.journal, self.clock = sessions, spec, journal, clock
         self.account, self.equity, self.pauses = account, equity, pauses
         self.kill: Any = kill               # present in execution mode, the only mode that runs the exit side
         self.drawdown: Any = drawdown
         self._market_refused, self._decision_error, self._cycle_errors = market_refused, decision_error, cycle_errors
         self._warmed = warmed                       # the whole warm-up succeeded (S3 audit finding 6)
+        # ADR-0011: the start-up check (ADR-0010) passed before the runtime was built; that is the first result.
+        self._account_check = account_check
+        self.account_findings: list[Issue] = []
+        self.last_account_check = clock()
         self.last_equity = self.last_reconcile = 0.0
         self.exit_errors: dict[str, Issue] = {}     # symbol -> the last exit failure, until an exit succeeds
         self.last_issues: dict[str, list[Issue]] = {}   # symbol -> the issues of the last reconciliation
@@ -54,11 +60,32 @@ class ExitSupervisor:
     def run(self) -> None:
         """The exit side of one cycle: reconcile when due, then the risk actions. The symbol states are set before
         the risk actions (a flatten about to run shows as FLATTENING) and again after them."""
+        self.check_account_if_due()
         if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:
             self.reconcile()
         self.update_states()
         self.risk_actions()
         self.update_states()
+
+    def check_account_if_due(self) -> None:
+        """ADR-0011: the whole account, with the start-up check's function, at most every 60 s. The result holds
+        until the next check and is applied at every reconciliation; an account that cannot be read is a finding."""
+        if self._account_check is None or self.clock() - self.last_account_check < ACCOUNT_CHECK_SECONDS:
+            return
+        self.last_account_check = self.clock()
+        try:
+            findings = list(self._account_check())
+        except Exception as exc:
+            findings = [Issue(K.ACCOUNT_UNREADABLE, None, f"account check failed ({type(exc).__name__}: {exc})")]
+        if findings != self.account_findings:
+            for issue in findings:
+                write_issue(self.journal, issue.symbol, issue)
+            if findings:
+                logger.error("Account check: %s; every entry is blocked", "; ".join(findings))
+        self.account_findings = findings
+        if with_effect(findings, Effect.BLOCK_ALL_ENTRIES):
+            for session in self.sessions.values():
+                session.executor.block_entries()
 
     def update_states(self) -> None:
         """ADR-0014 point 3: each symbol's state from the last reconciliation's issues, the kill switch, the
@@ -117,7 +144,7 @@ class ExitSupervisor:
 
     def reconcile(self) -> None:
         refused_text = self._market_refused()
-        cycle_errors = self._cycle_errors()
+        cycle_errors = self._cycle_errors() + self.account_findings      # runtime-wide, applied every time
         found_of: dict[str, list[Issue]] = {}
         for symbol, session in self.sessions.items():
             try:
@@ -221,8 +248,10 @@ class ExitSupervisor:
         for symbol, session in self.sessions.items():
             if close:
                 self._exit(symbol, session, "kill_switch" if kill.active else "drawdown_latched")
-            elif kill.active or self.pause_status(symbol) is not None:
-                # New exposure is blocked, so a resting entry must not fill either (audit after step 12b).
+            elif kill.active or self.pause_status(symbol) is not None or \
+                    with_effect(self.last_issues.get(symbol, []), Effect.CANCEL_RESTING_ENTRIES):
+                # New exposure is blocked, so a resting entry must not fill either (audit after step 12b; a foreign
+                # holding or an unreadable account likewise, ADR-0011).
                 self._exit(symbol, session, None)
 
     def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
@@ -243,4 +272,4 @@ class ExitSupervisor:
             logger.exception("%s exit failed", symbol)
 
 
-__all__ = ["EQUITY_SECONDS", "ExitSupervisor", "RECONCILE_SECONDS", "RELEASE_COMMAND"]
+__all__ = ["ACCOUNT_CHECK_SECONDS", "EQUITY_SECONDS", "ExitSupervisor", "RECONCILE_SECONDS", "RELEASE_COMMAND"]

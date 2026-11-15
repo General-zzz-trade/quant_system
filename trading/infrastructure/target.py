@@ -29,6 +29,7 @@ from trading.application.execution.lifecycle import OrderLifecycle
 from trading.application.execution.service import ExecutionService
 from trading.application.execution.stops import ProtectiveStopManager, StopVenue, TriggeredOrder
 from trading.application.account_ownership import foreign_holdings
+from trading.application.issues import Issue
 from trading.application.ports import AccountSnapshot, Clock, EventLog, ExchangeAccount, KillSwitch, OrderGateway
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
@@ -81,14 +82,21 @@ def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
         raise RuntimeError("research gate not passed; mainnet execution refused")
 
 
+def account_checker(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str], leverage: int,
+                    margin: str | None) -> Callable[[], list[Issue]]:
+    """The whole-account check of ADR-0010, as the runtime repeats it while running (ADR-0011)."""
+    journal = SqliteOrderJournal(Path(state_dir) / STATE_DB, scope)
+    spelled = MARGIN_TYPES[margin] if margin else MARGIN_TYPES["CROSSED"]
+    return lambda: foreign_holdings(account, journal, symbols=tuple(symbols), leverage=leverage, margin=spelled)
+
+
 def refuse_foreign_holdings(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str],
                             leverage: int, margin: str | None) -> None:
     """ADR-0010: execution starts only if the account holds nothing outside the strategy ledger and the leverage
     and margin mode of the strategy's symbols are as configured (RuntimeConfig, ADR-0017). Read-only; run before
     the runtime is built."""
-    findings = foreign_holdings(account, SqliteOrderJournal(Path(state_dir) / STATE_DB, scope),
-                                symbols=tuple(symbols), leverage=leverage,
-                                margin=MARGIN_TYPES[margin] if margin else MARGIN_TYPES["CROSSED"])
+    findings = account_checker(account, state_dir=state_dir, scope=scope, symbols=symbols, leverage=leverage,
+                               margin=margin)()
     if findings:
         raise RuntimeError("execution refused (ADR-0010): " + "; ".join(findings) + ". Close or cancel what the "
                            "strategy does not own on Binance, or set the configured leverage and margin mode there, "

@@ -18,8 +18,10 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from trading.application.issues import Issue
 from trading.application.ports import AccountSnapshot, OrderJournal
 from trading.application.reconcile import booked_position
+from trading.domain.issues import IssueKind as K
 from trading.domain.venue import STOP_TRIGGERED
 
 FIRED = "awaiting_order"     # a stop row the runtime saw fire but whose order it has not adopted yet
@@ -31,24 +33,26 @@ def owner_of(symbol: str) -> str:
 
 
 def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols: tuple[str, ...], leverage: int,
-                     margin: str) -> list[str]:
+                     margin: str) -> list[Issue]:
     """Every way the account differs from the strategy ledger or the configuration; empty when it does not.
 
     ``margin`` is spelled as the exchange reports it: "cross" or "isolated". An account or journal that cannot
-    be read is a finding too (fail closed)."""
+    be read is a finding too (fail closed). Each finding is a typed issue (ADR-0011): a foreign holding, an
+    unreadable account or journal, or a setting that differs from the configuration."""
     try:
         positions = account.get_positions(strict=True)
         orders = account.get_open_orders(strict=True)
         stops = account.get_open_algo_orders()
         settings = {symbol: account.get_symbol_settings(symbol) for symbol in symbols}
     except Exception as exc:
-        return [f"account could not be read ({type(exc).__name__}: {exc})"]
+        return [Issue(K.ACCOUNT_UNREADABLE, None, f"account could not be read ({type(exc).__name__}: {exc})")]
     try:
         rows = journal.orders()
     except Exception as exc:
-        return [f"strategy journal could not be read ({type(exc).__name__}: {exc})"]
+        return [Issue(K.ACCOUNT_UNREADABLE, None,
+                      f"strategy journal could not be read ({type(exc).__name__}: {exc})")]
 
-    findings: list[str] = []
+    findings: list[Issue] = []
     stop_rows: list[dict[str, Any]] = []
     try:
         stop_rows = [row for symbol in symbols for row in journal.stop_rows(owner_of(symbol), symbol, live_only=False)]
@@ -56,12 +60,13 @@ def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols
         # Unread records (a damaged database; ADR-0009 init creates the stop table) only add refusals: every
         # conditional order counts as foreign and no stop counts as fired.
         if stops:
-            findings.append(f"strategy stop records could not be read ({type(exc).__name__}: {exc})")
+            findings.append(Issue(K.ACCOUNT_UNREADABLE, None,
+                                  f"strategy stop records could not be read ({type(exc).__name__}: {exc})"))
     open_stops = {(stop.symbol, stop.client_algo_id) for stop in stops}
     try:
         fired = {row["symbol"] for row in stop_rows if _fired(account, row, open_stops)}
     except Exception as exc:
-        return [f"account could not be read ({type(exc).__name__}: {exc})"]
+        return [Issue(K.ACCOUNT_UNREADABLE, None, f"account could not be read ({type(exc).__name__}: {exc})")]
 
     venue: dict[str, Decimal] = {}
     for p in positions:
@@ -74,27 +79,36 @@ def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols
             if low <= actual <= high:
                 continue
             if actual == 0:
-                findings.append(f"{symbol}: the venue is flat but the strategy ledger holds {base}")
+                findings.append(Issue(K.FOREIGN_HOLDING, symbol,
+                                      f"{symbol}: the venue is flat but the strategy ledger holds {base}"))
             else:
                 window = f"; in-flight strategy orders allow {low} to {high}" if (low, high) != (base, base) else ""
-                findings.append(f"{symbol}: position {actual} is not in the strategy ledger (ledger {base}{window})")
+                findings.append(Issue(K.FOREIGN_HOLDING, symbol,
+                                      f"{symbol}: position {actual} is not in the strategy ledger "
+                                      f"(ledger {base}{window})"))
     except Exception as exc:
-        return [f"strategy journal could not be read ({type(exc).__name__}: {exc})"]
+        return [Issue(K.ACCOUNT_UNREADABLE, None,
+                      f"strategy journal could not be read ({type(exc).__name__}: {exc})")]
 
     known = {(str(row["symbol"]), str(row[key])) for row in rows for key in ("order_id", "client_id") if row.get(key)}
     for order in orders:
         if (order.symbol, order.order_id) not in known and (order.symbol, order.client_order_id) not in known:
-            findings.append(f"{order.symbol}: open order {order.order_id} is not in the strategy journal")
+            findings.append(Issue(K.FOREIGN_HOLDING, order.symbol,
+                                  f"{order.symbol}: open order {order.order_id} is not in the strategy journal"))
     known_stops = {(str(row["symbol"]), str(row["client_algo_id"])) for row in stop_rows}
     for stop in stops:
         if (stop.symbol, stop.client_algo_id) not in known_stops:
-            findings.append(f"{stop.symbol}: conditional order {stop.client_algo_id} is not in the strategy journal")
+            findings.append(Issue(K.FOREIGN_HOLDING, stop.symbol,
+                                  f"{stop.symbol}: conditional order {stop.client_algo_id} is not in the "
+                                  "strategy journal"))
     for symbol in symbols:
         venue_leverage, venue_margin = settings[symbol]
         if venue_leverage != leverage:
-            findings.append(f"{symbol}: exchange leverage {venue_leverage}x, configured {leverage}x")
+            findings.append(Issue(K.ACCOUNT_SETTINGS, symbol,
+                                  f"{symbol}: exchange leverage {venue_leverage}x, configured {leverage}x"))
         if venue_margin != margin:
-            findings.append(f"{symbol}: exchange margin {venue_margin}, configured {margin}")
+            findings.append(Issue(K.ACCOUNT_SETTINGS, symbol,
+                                  f"{symbol}: exchange margin {venue_margin}, configured {margin}"))
     return findings
 
 

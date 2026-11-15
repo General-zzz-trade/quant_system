@@ -43,7 +43,8 @@ class TargetRuntime:
                  spec_passed: object = None, pauses: EntryPauses | None = None,
                  notifier: Notifier | None = None, alert_prefix: str = "",
                  event_log_failure: Callable[[], Issue | None] = lambda: None,
-                 config_digest: str | None = None) -> None:
+                 config_digest: str | None = None,
+                 account_check: Callable[[], list[Issue]] | None = None) -> None:
         if mode not in ("paper", "execution"):
             raise ValueError("mode must be paper or execution")
         self.spec, self.mode, self.market, self.account, self.clock = spec, mode, market, account, clock
@@ -64,7 +65,8 @@ class TargetRuntime:
                                     kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
-                                    cycle_errors=self._runtime_issues, warmed=lambda: self._warmed)
+                                    cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
+                                    account_check=account_check)
         self.reporter = StatusReporter(sessions, mode=mode, clock=clock, spec_passed=spec_passed, notifier=notifier,
                                        kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures, config_digest=config_digest,
