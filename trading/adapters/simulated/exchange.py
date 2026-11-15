@@ -197,7 +197,7 @@ class SimulatedExchange:
         if client_order_id in self._by_client:
             return _rejected("duplicate client order id")
         requested = Decimal(str(qty))
-        if not requested.is_finite() or requested <= 0:
+        if not requested.is_finite():
             return _rejected(f"invalid quantity {qty}")
         step = rules.step_size
         quantity = ((requested / step).to_integral_value(rounding=ROUND_DOWN) * step).quantize(step)
