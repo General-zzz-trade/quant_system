@@ -164,7 +164,9 @@ def test_a_market_entry_fills_and_its_order_trades_and_position_can_be_read(make
     (position,) = h.venue.get_positions("BTCUSDT", strict=True)
     assert isinstance(position, VenuePosition) and (position.symbol, position.qty) == ("BTCUSDT", sign * D("0.1"))
     assert position.entry_price > 0 and position.mark_price > 0
-    assert h.venue.get_positions(strict=True) == (position,) and h.venue.get_positions("ETHUSDT") == ()
+    (again,) = h.venue.get_positions(strict=True)                    # ts_ms is stamped per read: not compared
+    assert dataclasses.replace(again, ts_ms=0) == dataclasses.replace(position, ts_ms=0)
+    assert h.venue.get_positions("ETHUSDT") == ()
     assert h.venue.get_open_orders("BTCUSDT", strict=True) == ()
     with pytest.raises(dataclasses.FrozenInstanceError):
         order.state = "new"
