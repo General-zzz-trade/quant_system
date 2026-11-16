@@ -171,7 +171,8 @@ def test_paper_keeps_its_stops_and_flattens_on_the_kill_switch_while_market_data
     venue.cancel_algo_order(client_algo_id=stop.client_algo_id)    # the venue lost the stop
     _advance(world, runtime, i)                                      # no bar can be fetched ...
     assert runtime.status()["market_failures"] == 1
-    assert [s.symbol for s in venue.get_open_algo_orders()] == ["BTCUSDT"]   # ... and the stop is placed again
+    (again,) = [s for s in venue.get_open_algo_orders() if s.symbol == "BTCUSDT"]   # ... and a stop is placed again
+    assert again.client_algo_id != stop.client_algo_id and again.trigger_price == stop.trigger_price
     runtime.kill.write(active=True, reason="test", flatten=True)
     _advance(world, runtime, i + 1)
     closing = [o for o in venue.get_open_orders("BTCUSDT")]
