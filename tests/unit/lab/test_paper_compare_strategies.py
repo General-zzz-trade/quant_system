@@ -53,4 +53,13 @@ def test_a_record_naming_an_unknown_strategy_cannot_be_compared(tmp_path):
     document["spec"] = {**document["spec"], "strategy": "no_such_strategy"}
     _save_document(paper, document)
     report = paper_compare.compare(paper, data)
-    assert report.verdict == paper_compare.CANNOT and "no_such_strategy" in report.reason
+    assert report.verdict == paper_compare.CANNOT and "不认识" in report.reason and "no_such_strategy" in report.reason
+
+
+def test_the_record_s_execution_settings_are_the_research_ones():
+    strategy, spec = paper_compare._strategy({"strategy": "A1_tsmom_long", "params": {"n": 20}, "band": 0.07,
+                                              "execution": "maker", "ttl_bars": 3})
+    assert strategy.name == "A1_tsmom_long" and strategy.params == {"n": 20}
+    assert (spec.band, spec.execution, spec.ttl_bars) == (0.07, "maker", 3)
+    overlay, spec = paper_compare._strategy(StrategySpec(band=0.07, execution="market").record())
+    assert overlay.name == "overlay" and spec.band == 0.07 and overlay.spec == spec

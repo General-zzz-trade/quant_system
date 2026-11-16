@@ -1,0 +1,23 @@
+[
+ [
+  "references ignored",
+  "trading/application/market_poller.py",
+  "if not any(s.cross_sectional or s.references() for s in strategies.values()):",
+  "if not any(s.cross_sectional for s in strategies.values()):",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "unknown strategy compared",
+  "lab/paper_compare.py",
+  "    if name not in STRATEGIES or name not in PARAMS:\n        raise CannotCompare",
+  "    if False:\n        raise CannotCompare",
+  "tests/unit/lab/test_paper_compare_strategies.py::test_a_record_naming_an_unknown_strategy_cannot_be_compared"
+ ],
+ [
+  "overlay settings ignored",
+  "lab/paper_compare.py",
+  "        spec = StrategySpec(band=float(identity[\"band\"]), execution=str(identity[\"execution\"]),\n                            ttl_bars=int(identity[\"ttl_bars\"]))",
+  "        spec = StrategySpec(execution=str(identity[\"execution\"]))",
+  "tests/unit/lab/test_paper_compare_strategies.py::test_the_record_s_execution_settings_are_the_research_ones"
+ ]
+]
