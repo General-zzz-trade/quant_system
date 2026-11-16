@@ -17,8 +17,8 @@
   funding income of each strategy symbol since the strategy's first fill on it, from Binance's income history, read
   at most every 10 minutes; funding never read or older than 2 hours sizes the base to zero. Binance keeps that
   history for three months only, so a first fill older than 88 days also sizes to zero (open for the tech lead).
-  The drawdown latch, the -3 % daily stop and the 3x exposure cap stay on the whole account's equity (owner's choice: with a large account and a small strategy they rarely
-  trigger on the strategy's losses alone).
+  The drawdown latch, the -3 % daily stop and the 3x exposure cap stay on the whole account's equity (owner's
+  choice: with a large account and a small strategy they rarely trigger on the strategy's losses alone).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
     - It passed a pre-registered development-window screen, which earns forward paper trading only
@@ -74,7 +74,7 @@
   test; every configuration tested is recorded in `research/lab/trials.jsonl`; lab data ends 2026-11-12 (forward
   guard; snapshot `data_files/binance_usdt_perps_2026-11-12`); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
   lookahead, and the live terms: `LiveTerms` in `lab/um_lab.py`, 300 USDT split 1/N over a fixed list, the 8 % stop, a
-  pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
+  4-hour pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
   -3 % a day, 3 losses in a row, a stale feed).
@@ -97,7 +97,7 @@ python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot 
 python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
 sudo bash infra/install_host.sh                    # host install/update: packages, dirs, units; starts nothing
 python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
-python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
+python -m trading.infrastructure.entry_pause --state-dir <dir> status            # paused symbols, ends_at if scheduled
 python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
 python -m trading.infrastructure.manual --state-dir <dir> orders     # open orders and the venue's view
 python -m trading.infrastructure.manual --state-dir <dir> settle --intent <id> --reason "..."     # runtime stopped
@@ -210,9 +210,11 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   - Never add an automatic path that raises a risk limit, removes a cap, restarts a live service or
     swaps a model into a running process.
   - Limits change only when a person edits config.
-  - The one exception, the owner's choice of 2026-11-16: the strategy's sizing base grows with its own realized
+  - Two exceptions, both the owner's choices of 2026-11-16: the strategy's sizing base grows with its own realized
     PnL and funding income (`CappedEquity`, `StrategyFunding`), never above the account's equity and under the 3x
-    exposure cap.
+    exposure cap; and a stop's entry pause
+    (triggered or breached stop) ends by itself after 4 hours (`STOP_PAUSE_SECONDS`, the same in the lab's
+    `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person.
 - **Signed artifacts:** model artifacts (pickle and JSON, including `config.json` and strategy specs)
   load only through `infra/model_signing.py`.
 - **Fail closed:** unreadable pause, kill or drawdown state blocks new exposure.

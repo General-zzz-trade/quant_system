@@ -123,8 +123,8 @@ class DivergencePauses:
     def __init__(self, inner: EntryPauses, divergences: PaperDivergenceLog) -> None:
         self.inner, self.divergences = inner, divergences
 
-    def pause(self, symbol: str, cause: str, triggers: Iterable[str] = ()) -> bool:
-        new = self.inner.pause(symbol, cause, triggers=triggers)
+    def pause(self, symbol: str, cause: str, triggers: Iterable[str] = (), *, ends_at: float | None = None) -> bool:
+        new = self.inner.pause(symbol, cause, triggers=triggers, ends_at=ends_at)
         if new:
             self.divergences.paused(symbol, cause)
         return new

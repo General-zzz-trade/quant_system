@@ -53,7 +53,7 @@ def test_after_a_pause_is_released_the_next_bar_enters_and_is_not_refused_as_pau
     btc.price.pop("BTCUSDT")
     for k in range(2, 4):
         _advance(world, runtime, i + k)
-    assert _release(tmp_path / "exec", "BTCUSDT", typed="BTCUSDT")[0] == 0
+    assert _release(tmp_path / "exec", "BTCUSDT", typed="BTCUSDT", clock=lambda: world["clock"]["now"])[0] == 0
     time.sleep(1.2)                                       # no per-second deferral: BTC decides first on this bar
     _advance(world, runtime, i + 4)
     assert _blocked(tmp_path, "BTCUSDT", "state:") == []

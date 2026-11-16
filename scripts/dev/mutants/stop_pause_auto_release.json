@@ -1,0 +1,92 @@
+[
+ [
+  "scheduled never ends",
+  "trading/adapters/sqlite/entry_pause.py",
+  "_ACTIVE = \"(released_at IS NULL OR released_at > ?)\"",
+  "_ACTIVE = \"(released_at IS NULL OR released_at > ? - 1e12)\""
+ ],
+ [
+  "end boundary inclusive",
+  "trading/adapters/sqlite/entry_pause.py",
+  "_ACTIVE = \"(released_at IS NULL OR released_at > ?)\"",
+  "_ACTIVE = \"(released_at IS NULL OR released_at >= ?)\""
+ ],
+ [
+  "manual pause not outlasting",
+  "trading/adapters/sqlite/entry_pause.py",
+  "            if any(end is None for end in ends) or (ends_at is not None and any(end >= ends_at for end in ends)):",
+  "            if ends_at is not None and any(end is not None and end >= ends_at for end in ends):"
+ ],
+ [
+  "scheduled never extends",
+  "trading/adapters/sqlite/entry_pause.py",
+  "            if any(end is None for end in ends) or (ends_at is not None and any(end >= ends_at for end in ends)):",
+  "            if ends:"
+ ],
+ [
+  "no end recorded",
+  "trading/adapters/sqlite/entry_pause.py",
+  "(symbol, now, cause, None if ends_at is None else float(ends_at),",
+  "(symbol, now, cause, None,"
+ ],
+ [
+  "no scheduled reason",
+  "trading/adapters/sqlite/entry_pause.py",
+  "                                                  None if ends_at is None else SCHEDULED_END))",
+  "                                                  None))"
+ ],
+ [
+  "past end accepted",
+  "trading/adapters/sqlite/entry_pause.py",
+  "        if ends_at is not None and not (math.isfinite(ends_at) and ends_at > now):",
+  "        if False:"
+ ],
+ [
+  "release skips scheduled",
+  "trading/adapters/sqlite/entry_pause.py",
+  "            return db.execute(f\"UPDATE entry_pauses SET released_at=?, release_reason=? WHERE symbol=? AND {_ACTIVE}\",\n                              (now, reason.strip(), symbol, now)).rowcount",
+  "            return db.execute(\"UPDATE entry_pauses SET released_at=?, release_reason=? WHERE symbol=? AND released_at IS NULL\",\n                              (now, reason.strip(), symbol)).rowcount"
+ ],
+ [
+  "active hides end",
+  "trading/adapters/sqlite/entry_pause.py",
+  "\"SELECT symbol, paused_at, cause, released_at AS ends_at \"",
+  "\"SELECT symbol, paused_at, cause, NULL AS ends_at \""
+ ],
+ [
+  "runtime pause for a person",
+  "trading/application/exit_supervisor.py",
+  "            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers), ends_at=ends_at)",
+  "            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers))"
+ ],
+ [
+  "alert says a person releases",
+  "trading/application/exit_supervisor.py",
+  "reason=f\"entries paused: {cause}; they resume by themselves at {resume} \"",
+  "reason=f\"entries paused: {cause}; a person releases them {resume} \""
+ ],
+ [
+  "8 hours",
+  "trading/domain/issues.py",
+  "STOP_PAUSE_SECONDS = 4 * 3600",
+  "STOP_PAUSE_SECONDS = 8 * 3600"
+ ],
+ [
+  "lab keeps its own number",
+  "lab/um_lab.py",
+  "    pause_hours: int = STOP_PAUSE_SECONDS // 3600",
+  "    pause_hours: int = 24"
+ ],
+ [
+  "paper drops the end",
+  "trading/infrastructure/paper.py",
+  "        new = self.inner.pause(symbol, cause, triggers=triggers, ends_at=ends_at)",
+  "        new = self.inner.pause(symbol, cause, triggers=triggers)"
+ ],
+ [
+  "release command ignores clock",
+  "trading/infrastructure/entry_pause.py",
+  "    pauses = SqliteEntryPauses(args.state_dir / STATE_DB, clock=clock)",
+  "    pauses = SqliteEntryPauses(args.state_dir / STATE_DB)"
+ ]
+]

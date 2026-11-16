@@ -41,7 +41,7 @@ def test_a_pause_that_was_never_written_is_written_after_a_restart(tmp_path):
     world, runtime = _start(tmp_path)
     _until_position(world, runtime)
 
-    def disk_full(symbol, cause, triggers=()):
+    def disk_full(symbol, cause, triggers=(), ends_at=None):
         raise sqlite3.OperationalError("disk full")
 
     runtime.pauses.pause = disk_full
@@ -61,7 +61,7 @@ def test_a_deleted_pause_store_pauses_again_every_symbol_whose_stop_ever_fired(t
     _until_position(world, runtime)
     _trigger(world, runtime)
     _tick(world, runtime)
-    pauses = SqliteEntryPauses(tmp_path / "exec" / PAUSES_FILE)
+    pauses = SqliteEntryPauses(tmp_path / "exec" / PAUSES_FILE, clock=lambda: world["clock"]["now"])
     assert pauses.release("BTCUSDT", "checked") == 1
     _tick(world, runtime)
     assert pauses.reason("BTCUSDT") is None                                   # a release holds ...
