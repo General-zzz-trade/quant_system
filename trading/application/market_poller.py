@@ -13,6 +13,12 @@ What differs between the modes is read from ``ModePolicy`` (ADR-0013, S10 part 3
   ``settle_new_bar_before_decision``, and the sessions decide - on the gate clock at the bar's close when the
   entry gates run on bar time (``limiter_clock``), where an entry the per-second limit deferred is asked again one
   poll (5 s) later in simulated time.
+
+Deciding together (plan R3, owner 2026-11-16): a per-symbol strategy decides each symbol as its bar arrives, so a
+late or failing symbol holds back nobody else. A cross-sectional strategy (``Strategy.cross_sectional``) decides every
+symbol at one close with one call, once every symbol has that close's bar; while one is behind nobody decides (the
+decision depends on the missing bar: fail closed), and once that close is too late to enter (``MAX_ENTRY_DELAY_MS``)
+the symbols still behind have their entries blocked (DECISION_FAILED, once per close; paper raises).
 """
 from __future__ import annotations
 
@@ -21,11 +27,12 @@ from collections.abc import Callable, Sequence
 
 from trading.application.issues import Issue, write_issue
 from trading.application.ports import BarListener, Clock, EventLog, GateClock, MarketData
-from trading.application.session import FUNDING_INTERVAL, TargetSession
+from trading.application.session import FUNDING_INTERVAL, MAX_ENTRY_DELAY_MS, TargetSession
 from trading.application.mode_policy import ModePolicy
 from trading.domain.bars import HOUR, Bar, bar_from_kline
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind as K
+from trading.domain.strategy.base import Strategy
 
 logger = logging.getLogger("binance_target")
 
@@ -48,6 +55,7 @@ class MarketPoller:
         self.failures, self.retry_at = 0, 0.0
         self.refused: str | None = None                   # set by such an error, cleared by a success
         self.decision_errors: dict[str, Issue] = {}       # symbol -> its last failed bar, until a bar succeeds
+        self.behind_at: int | None = None                 # the last close whose missing bars were reported (R3)
 
     def due(self) -> bool:
         return self.clock() >= self.retry_at
@@ -90,9 +98,19 @@ class MarketPoller:
         """The entry gates' clock now: the gate clock when they run on bar time, the runtime clock otherwise."""
         return self.gate_clock.ms() if self.gate_clock is not None else int(self.clock() * 1000)
 
+    def together(self) -> Strategy | None:
+        """The cross-sectional strategy every session shares, or None when each symbol decides on its own (R3)."""
+        strategies = {id(session.strategy): session.strategy for session in self.sessions.values()}
+        if not any(strategy.cross_sectional for strategy in strategies.values()):
+            return None
+        if len(strategies) != 1:
+            raise ValueError("a cross-sectional strategy must be the one every symbol uses")
+        return next(iter(strategies.values()))
+
     def _poll_market(self) -> int:
         processed = 0
         now_ms = int(self.clock() * 1000)
+        together = self.together()
         replay: dict[str, list[Bar]] = {}
         for symbol, session in self.sessions.items():
             try:
@@ -103,9 +121,10 @@ class MarketPoller:
                 for k, bar in enumerate(new):
                     # Execution decides on the newest bar only: older bars missed during an outage just extend the
                     # window. A late newest bar may still reduce; entries are refused as "processed too late"
-                    # (approved 2026-11-14, ADR-0007).
-                    session.process_bar(bar, live=k == len(new) - 1, now_ms=now_ms)
-                    self.decision_errors.pop(symbol, None)
+                    # (approved 2026-11-14, ADR-0007). A cross-sectional strategy decides below, for every symbol.
+                    session.process_bar(bar, live=together is None and k == len(new) - 1, now_ms=now_ms)
+                    if together is None:
+                        self.decision_errors.pop(symbol, None)      # together: the decision below clears it
                 processed += len(new)
             except self.errors:
                 raise                               # market data: the backoff in poll(), as before S3
@@ -114,7 +133,12 @@ class MarketPoller:
                     raise                           # paper must not diverge from research silently
                 # One symbol's malformed data or failing bar stops only that symbol (S3 audit finding 4).
                 self._decision_failed(symbol, session, exc)
-        return processed + self.replay(replay)
+        if together is not None and processed:
+            self._decide_together(together, now_ms)
+        processed += self.replay(replay)
+        if together is not None:
+            self._report_behind(together, self.decision_ms())
+        return processed
 
     def replay(self, bars: dict[str, list[Bar]], *, matched: Callable[[str, Bar], bool] | None = None) -> int:
         """Every bar, in time order across the symbols (``catch_up == "replay_all"``), as research replays them. A bar
@@ -142,16 +166,54 @@ class MarketPoller:
         if gate is not None:
             gate.at(max(bar.available_at for _, bar in group))
         decide_ms = self.decision_ms()
-        for symbol, bar in group:
-            self._guarded(symbol, lambda: self.sessions[symbol].decide(bar, now_ms=decide_ms))
+        together = self.together()
+        if together is None:
+            for symbol, bar in group:
+                self._guarded(symbol, lambda: self.sessions[symbol].decide(bar, now_ms=decide_ms))
+        else:
+            self._decide_together(together, decide_ms)
         if gate is not None:
             # An entry the orders-per-second limit refused goes again one poll later, before the next bar, as the
-            # next cycle sends it in real time (S10 decision 2; R23).
+            # next cycle sends it in real time (S10 decision 2; R23). Deciding together, every symbol may have one.
             gate.advance(POLL_SECONDS)
-            for symbol, _ in group:
+            for symbol in (s for s, _ in group) if together is None else self.sessions:
                 self._guarded(symbol, lambda: self.sessions[symbol].retry_deferred(gate.ms()), clears=False)
         if self.on_step is not None:
             self.on_step(group)
+
+    def _decide_together(self, strategy: Strategy, decide_ms: int) -> None:
+        """Every symbol at one close, with one call of the strategy - only when a new bar has just completed the close
+        (the callers' condition), so a close is decided once. While a symbol is behind nobody decides."""
+        if len({session.cursor for session in self.sessions.values()}) != 1:
+            return
+        try:
+            targets = strategy.latest({symbol: session.window() for symbol, session in self.sessions.items()})
+        except Exception as exc:
+            if not self.policy.isolate_failures:
+                raise                               # paper must not diverge from research silently
+            for symbol, session in self.sessions.items():
+                self._decision_failed(symbol, session, exc)
+            return
+        for symbol, session in self.sessions.items():
+            bar = session.bars[-1]
+            self._guarded(symbol, lambda: session.decide(bar, now_ms=decide_ms, target=targets[symbol]))
+
+    def _report_behind(self, strategy: Strategy, decide_ms: int) -> None:
+        """Once the newest close is too late to enter and a symbol still has no bar there, block that symbol's
+        entries (once per close): the cross-sectional decision waits for it."""
+        lead = max(self.sessions.values(), key=lambda session: session.cursor or 0)
+        behind = [symbol for symbol, session in self.sessions.items() if session.cursor != lead.cursor]
+        if not behind or not lead.bars or self.behind_at == lead.cursor:
+            return
+        if decide_ms - lead.bars[-1].available_at <= MAX_ENTRY_DELAY_MS:
+            return
+        self.behind_at = lead.cursor
+        for symbol in behind:
+            text = (f"{symbol}: no bar at the close {lead.cursor}; the {strategy.name} strategy decides every symbol "
+                    "together, so no symbol decided there")
+            if not self.policy.isolate_failures:
+                raise RuntimeError(text)
+            self._block(symbol, self.sessions[symbol], Issue(K.DECISION_FAILED, symbol, text), traceback=False)
 
     def _guarded(self, symbol: str, run: Callable[[], None], *, clears: bool = True) -> None:
         try:
@@ -181,9 +243,15 @@ class MarketPoller:
         """One symbol's bar raised (S3c): only its entries are blocked, the other symbols and the exit side go
         on, and the next bar decides again. Until a bar succeeds the issue is re-applied every reconciliation."""
         issue = Issue(K.DECISION_FAILED, symbol, f"{symbol}: bar not processed: {type(exc).__name__}: {exc}")
+        self._block(symbol, session, issue, traceback=True)
+
+    def _block(self, symbol: str, session: TargetSession, issue: Issue, *, traceback: bool) -> None:
         if self.decision_errors.get(symbol) != issue:
             write_issue(self.journal, symbol, issue)
-            logger.exception("%s bar not processed; its entries are blocked", symbol)
+            if traceback:
+                logger.exception("%s bar not processed; its entries are blocked", symbol)
+            else:
+                logger.warning("%s; its entries are blocked", issue)
         self.decision_errors[symbol] = issue
         session.executor.block_entries()
 

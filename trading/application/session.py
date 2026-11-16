@@ -108,9 +108,12 @@ class TargetSession:
         """Settlements known at ``upto`` (all when None); a catch-up must not see later ones."""
         return funding_window(self.funding, upto, self.strategy.funding_window())
 
+    def window(self) -> Window:
+        """The closed bars and the funding settlements known at the newest close: what the strategy decides on."""
+        return Window(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at))
+
     def _target(self) -> tuple[float, bool]:
-        window = Window(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at))
-        return self.strategy.latest({self.symbol: window})[self.symbol]
+        return self.strategy.latest({self.symbol: self.window()})[self.symbol]
 
     # -- execution callbacks ------------------------------------------------
     def restore_pending(self) -> None:
@@ -222,8 +225,10 @@ class TargetSession:
         rate = self.funding.get(bar.open_time)
         return Decimal(str(rate)) if rate is not None else None
 
-    def decide(self, bar: Bar, *, now_ms: int) -> None:
-        """Rebalance toward the target at ``bar``'s close; ``now_ms`` is the entry gates' clock."""
+    def decide(self, bar: Bar, *, now_ms: int, target: tuple[float, bool] | None = None) -> None:
+        """Rebalance toward the target at ``bar``'s close; ``now_ms`` is the entry gates' clock. ``target`` is the
+        (weight, ready) a cross-sectional strategy gave for every symbol at once (R3); without it the session asks
+        its own strategy."""
         reasons = []
         if now_ms - bar.available_at > MAX_ENTRY_DELAY_MS:
             reasons.append("bar processed too late")
@@ -231,16 +236,16 @@ class TargetSession:
         if latest_settlement not in self.funding:
             reasons.append("funding settlement at or before this close not published yet")
         self.entry_ready, self.entry_reason = not reasons, "; ".join(reasons)
-        target, ready = self._target()
-        self.last_target = (target, ready)
+        weight, ready = target if target is not None else self._target()
+        self.last_target = (weight, ready)
         self.drop_deferred("superseded by a newer bar")
         if not ready:
             return
         equity = self.sleeve_equity()
         if equity <= 0:      # unknown: only a whole-position close can be planned (R13, decided 2026-11-15)
-            self.submit(close_without_equity(target, self.position_qty()), bar, "rebalance")
+            self.submit(close_without_equity(weight, self.position_qty()), bar, "rebalance")
             return
-        intents = plan(target, equity=equity, price=bar.close, current_qty=self.position_qty(),
+        intents = plan(weight, equity=equity, price=bar.close, current_qty=self.position_qty(),
                        entry_pending=any(not reduce_only for reduce_only in self.pending.values()),
                        band=self.spec.band, step=self.rules.step, min_qty=self.rules.min_qty,
                        min_notional=self.rules.min_notional)

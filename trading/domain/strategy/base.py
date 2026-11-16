@@ -9,10 +9,11 @@ target weight - a signed fraction of the symbol's sizing equity - and a ready fl
 - ``latest(windows)``: the last close, per symbol (the runtime acts on it). It equals history's last row for the same
   windows: one function decides in research and in live trading.
 
-A per-symbol strategy (``PerSymbol``) reads only its own symbol's window; a cross-sectional one may read all of them
-(from R3 on, the runtime gives it every symbol's window at the same close). Strategies are code, reviewed and tested;
-a signed spec names one from ``STRATEGIES`` with its parameters. Every input known at a close is in the windows;
-nothing later is (tests/unit/lab/test_lookahead.py checks the functions).
+A per-symbol strategy (``PerSymbol``, ``cross_sectional`` false) reads only its own symbol's window, and the runtime
+decides each symbol as its bar arrives. A cross-sectional one may read all of them: from R3 on the runtime gives it
+every symbol's window at the same close in one call, and decides nothing while a symbol's bar is missing.
+Strategies are code, reviewed and tested; a signed spec names one from ``STRATEGIES`` with its parameters. Every
+input known at a close is in the windows; nothing later is (tests/unit/lab/test_lookahead.py checks the functions).
 """
 from __future__ import annotations
 
@@ -35,6 +36,7 @@ class Window:
 
 class Strategy(Protocol):
     name: str
+    cross_sectional: bool                     # a symbol's target may depend on the other symbols' windows
 
     def window_hours(self) -> int: ...        # closed bars a decision needs (a trailing window gives the full value)
 
@@ -48,6 +50,7 @@ class Strategy(Protocol):
 class PerSymbol:
     """A strategy whose decision for a symbol reads only that symbol's window: ``symbol_history`` is the whole of it."""
     name = "per_symbol"
+    cross_sectional = False
 
     def window_hours(self) -> int:
         raise NotImplementedError
