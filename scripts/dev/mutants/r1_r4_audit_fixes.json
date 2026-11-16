@@ -1,0 +1,170 @@
+[
+ [
+  "paper behind on the gate clock",
+  "trading/application/market_poller.py",
+  "self._report_behind(together, int(self.clock() * 1000))",
+  "self._report_behind(together, self.decision_ms())",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "unknown fields allowed",
+  "trading/domain/strategy/spec.py",
+  "    if unknown:                       # R2 audit",
+  "    if False:                       # R2 audit",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "passed unchecked",
+  "trading/domain/strategy/spec.py",
+  "    if not isinstance(document.get(\"passed\"), bool):\n        raise ValueError(\"the spec's passed must be true or false\")",
+  "    pass",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "strategy extra keys allowed",
+  "trading/domain/strategy/spec.py",
+  "    if set(strategy) - {\"name\", \"params\"}:",
+  "    if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "overlay not strict",
+  "trading/domain/strategy/spec.py",
+  "    if strategy.get(\"name\") == \"overlay\" and isinstance(strategy.get(\"params\"), Mapping):",
+  "    if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "bool types loose",
+  "trading/domain/strategy/spec.py",
+  "            ok = type(value) is bool",
+  "            ok = True",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "int types loose",
+  "trading/domain/strategy/spec.py",
+  "            ok = type(value) is int\n",
+  "            ok = True\n",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "float types loose",
+  "trading/domain/strategy/spec.py",
+  "        elif isinstance(default, float):\n            ok = _number(value)",
+  "        elif isinstance(default, float):\n            ok = True",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "lookbacks loose",
+  "trading/domain/strategy/spec.py",
+  "ok = isinstance(value, (list, tuple)) and bool(value) and all(type(x) is int and x > 0 for x in value)",
+  "ok = True",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "execution extra keys",
+  "trading/domain/strategy/spec.py",
+  "if not isinstance(raw, Mapping) or set(raw) != set(EXECUTION_KEYS):",
+  "if not isinstance(raw, Mapping) or not set(EXECUTION_KEYS) <= set(raw):",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "execution types loose",
+  "trading/domain/strategy/spec.py",
+  "    if not _number(band) or type(mode) is not str or type(ttl) is not int:",
+  "    if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "differing settings allowed",
+  "trading/domain/strategy/spec.py",
+  "        if key in EXECUTION_KEYS and value != getattr(settings, key):",
+  "        if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "schema float allowed",
+  "trading/domain/strategy/spec.py",
+  "    if type(schema) is not int:\n        raise ValueError",
+  "    if False:\n        raise ValueError",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "six characters again",
+  "trading/domain/strategy/spec.py",
+  "5 <= len(symbol) <= 24",
+  "6 <= len(symbol) <= 24",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "identity ignores the block",
+  "trading/domain/strategy/spec.py",
+  "            return traded.record()",
+  "            return self.params.record()",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "runtime stores execution record",
+  "trading/application/runtime.py",
+  "        self.spec_record = spec_record if spec_record is not None else spec.record()",
+  "        self.spec_record = spec.record()",
+  "tests/characterization/test_runtime_extension_audit_runtime.py"
+ ],
+ [
+  "cli passes no identity",
+  "trading/infrastructure/cli/target.py",
+  "            spec_record=self.target_spec.identity(),\n",
+  "",
+  "tests/characterization/test_runtime_extension_audit_runtime.py"
+ ],
+ [
+  "config lacks strategy",
+  "trading/infrastructure/cli/target.py",
+  "        journal.write(EventKind.CONFIG, **config.record(), digest=config.digest(),\n                      strategy=self.target_spec.record())",
+  "        journal.write(EventKind.CONFIG, **config.record(), digest=config.digest())",
+  "tests/characterization/test_runtime_extension_audit_runtime.py"
+ ],
+ [
+  "compare guard removed",
+  "lab/paper_compare.py",
+  "        if \"strategy\" in document[\"spec\"]:",
+  "        if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "paper unnamed",
+  "trading/infrastructure/paper.py",
+  "    if missing:\n        raise ValueError",
+  "    if False:\n        raise ValueError",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "interval issue not given to the exit side",
+  "trading/application/market_poller.py",
+  "return self.decision_errors.get(symbol) or self.interval_issues.get(symbol)",
+  "return self.decision_errors.get(symbol)",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "interval issue never cleared",
+  "trading/application/market_poller.py",
+  "        if text is None:\n            self.interval_issues.pop(symbol, None)\n            return",
+  "        if text is None:\n            return",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "interval unknown only alerts",
+  "trading/domain/issues.py",
+  "    IssueKind.FUNDING_INTERVAL_UNKNOWN: _BLOCK,",
+  "    IssueKind.FUNDING_INTERVAL_UNKNOWN: frozenset({Effect.ALERT_ONLY}),",
+  "tests/unit/trading/test_funding_interval.py tests/characterization/test_runtime_extension_audit_runtime.py"
+ ],
+ [
+  "first failure says 2 hours",
+  "trading/application/market_poller.py",
+  "since = \"since the start\" if self.intervals_at is None else",
+  "since = \"for 2 hours\" if self.intervals_at is None else",
+  "tests/unit/trading/test_funding_interval.py"
+ ]
+]

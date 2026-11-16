@@ -341,6 +341,9 @@ def compare(paper_dir: Path, data_dir: Path) -> Report:
         if symbols != sorted(document["venue"]["brokers"]):
             raise CannotCompare("模拟盘状态里的品种与模拟交易所的品种不同")
         record, warm = _record_start(events, symbols)
+        if "strategy" in document["spec"]:            # a record of another strategy than the overlay (R2 audit)
+            raise CannotCompare("这个对照工具只能对照 BTC/ETH 叠加策略的模拟盘；"
+                                f"这份记录是 {document['spec']['strategy']}")
         spec = StrategySpec.from_record(document["spec"])
         results = [_compare_symbol(s, document, warm[s], journal, clients, record, data_dir, spec) for s in symbols]
     except CannotCompare as exc:
