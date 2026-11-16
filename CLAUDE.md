@@ -62,6 +62,9 @@ python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
+python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
+python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
+sudo bash infra/install_host.sh                    # host install/update: packages, dirs, units; starts nothing
 python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
 python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
 python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
@@ -100,7 +103,10 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
 - The other runtimes (ML runtime, Bybit/OKX runner, shadow process) and the Docker deploy path were deleted
-  on 2026-11-15 (M4). systemd runs three units: `binance-target`, `health-watchdog`, `log-archive`.
+  on 2026-11-15 (M4). systemd units: `binance-target` (paper), `binance-target-testnet`
+  (execution, restarts at most 3 times an hour, network fixed to the testnet) and `binance-target-mainnet`
+  (`Restart=no`, never at boot), `quant-alert@` (the failure alert), `state-backup@<network>.timer` (hourly),
+  `health-watchdog`, `log-archive` (S8). One execution network per host; state under `/var/lib/quant` (2026-11-16).
 
 **Binance execution:**
 - `OrderLifecycle` (`trading/application/execution/lifecycle.py`) keeps durable SQLite intents and never resends;
