@@ -285,6 +285,12 @@ def _unjournaled(paper, data):
     _journal_fill(paper, "BTCUSDT", _first_btc_fill(paper)["id"], None)
 
 
+def _undecided(paper, data):
+    document = _document(paper)                         # a crash between a bar's matching and its decision
+    document["symbols"]["BTCUSDT"]["cursor"] -= HOUR
+    _save_document(paper, document)
+
+
 MISSING = {"a gap in the bars": (_gap, "K 线快照"),
            "bars that end before the paper record": (_short, "K 线快照"),
            "a missing funding settlement": (_no_funding, "资金费"),
@@ -293,7 +299,8 @@ MISSING = {"a gap in the bars": (_gap, "K 线快照"),
            "the record's start missing from the event log": (_no_warmup, "事件日志"),
            "no state database": (_no_db, "state.sqlite"),
            "no saved paper state": (_no_document, "模拟盘状态"),
-           "a venue fill missing from the order journal": (_unjournaled, "订单库")}
+           "a venue fill missing from the order journal": (_unjournaled, "订单库"),
+           "a bar matched but not decided yet": (_undecided, "还没有决策")}
 
 
 @pytest.mark.parametrize("case", list(MISSING))
@@ -304,6 +311,15 @@ def test_missing_or_unusable_data_cannot_be_compared_and_is_never_equal(plain, t
     code, out = _compare(paper, data, capsys)
     assert (code, out.splitlines()[0]) == (2, "结论：无法比较"), out
     assert reason in out
+
+
+def test_the_record_starts_at_its_own_first_warm_up_not_at_an_older_record_s(plain, tmp_path, capsys):
+    paper, data = _copy(plain, tmp_path)
+    events = _events(paper)
+    older = [{**e, "last_open": e["last_open"] - 100 * HOUR} for e in events if e["kind"] == "warmup"]
+    (paper / "target_events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in [*older, *events]))
+    code, out = _compare(paper, data, capsys)
+    assert (code, out.splitlines()[0]) == (0, "结论：一致"), out
 
 
 # -- intended divergences --------------------------------------------------------------------------------------
