@@ -1,6 +1,7 @@
 # ruff: noqa
 # Read-only diagnosis probe (no network): runs the real runtime classes against the in-memory fake venue used by the unit tests.
-# Usage: python3 -B <this file> <empty work dir> [scenario]. See docs/arch/current-state.md.
+# Usage: python3 -B <this file> <empty work dir> [scenario]. Written for the 2026-11-14 diagnosis (deleted in R9;
+# in git history).
 """Offline probe #2 (fake venue only). Position is built through the real entry->fill->consume flow."""
 import sys, tempfile, logging
 from decimal import Decimal as D

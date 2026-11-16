@@ -33,6 +33,7 @@ class IssueKind(Enum):
     FUNDING_INTERVAL_UNKNOWN = "funding_interval_unknown"   # the symbol's settlement interval is not known (R4)
     CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
     EVENT_LOG_FAILED = "event_log_failed"    # the event log cannot be written; exits go on (S3 audit finding 3)
+    STRATEGY_LOSS_STOP = "strategy_loss_stop"    # the loss stop: loss unknown, reached, or its switch not set
 
 
 class Effect(Enum):
@@ -78,6 +79,7 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.FUNDING_INTERVAL_UNKNOWN: _BLOCK,
     IssueKind.CYCLE_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
     IssueKind.EVENT_LOG_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
+    IssueKind.STRATEGY_LOSS_STOP: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
 }
 
 
