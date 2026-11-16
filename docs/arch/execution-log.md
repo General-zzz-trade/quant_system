@@ -3555,3 +3555,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   真实的数量步长通常留有余量。
 - **变异自检**（撮合器是模拟盘也用的，所以做了）【实际运行结果】：`scripts/dev/mutants/backtest_live_parity.json` 14 个变异（触发方向、跳空规则、止损滑点、止损手续费、开关、三条校验、配置记录、模拟交易所拒绝、`broker_config` 传参、暂停的设置/边界/生效），基线通过，14 个全部被杀。写变异时发现"止损手续费没从现金扣"没有测试会抓到，跑之前给第一个测试加了 `broker.fees` 的断言。
 - **本地**【实际运行结果】：新测试、撮合器和模拟交易所、模拟盘逐根一致、研究金标准、lab、架构测试通过；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
+
+## 策略资金上限（2026-11-16，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 选择"继续共用主账户，加策略资金上限"，上限"加策略自己的累计盈亏"，回撤和敞口"仍按整个账户的权益"。
+- **改了什么**：
+  - `trading/application/equity.py` 加 `CappedEquity`：仓位基数 = max(0, min(账户权益, 上限 + 策略已实现盈亏))；账户权益未知、账本读不出、
+    盈亏为空或非有限数时一律为 0（失败即关闭）。
+  - `trading/infrastructure/config.py`：`STRATEGY_CAPITAL_USDT` 只在执行模式读一次，进 `RuntimeConfig.strategy_capital` 并写进配置记录；
+    必须是正的有限数，否则拒绝启动；`require_strategy_capital` 让主网执行没有上限时拒绝启动（测试网可以不设，模拟盘不读）。
+  - `trading/infrastructure/target.py`：`strategy_realized_pnl` 从各品种账本检查点加总已实现盈亏减 USDT 手续费；执行模式有上限时各品种
+    用 `CappedEquity` 定仓位（仍乘 1/N 分配）。资金费不在账本里，所以不计入基数（已在 `CLAUDE.md` 写明）。
+  - `trading/infrastructure/cli/target.py`：执行模式在检查告警和心跳之前先检查上限，早于任何账户请求。
+  - 文档：`CLAUDE.md`（共用账户一条、"不自动升级风险"的唯一例外、上实盘前的条件）、`.env.example`、`docs/binance_runbook.md`。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_strategy_capital.py`（16 个：基数表、未知即 0、解析和校验、主网必填、模拟盘不读、账本盈亏），
+  `tests/characterization/test_strategy_capital_sizing.py`（2 个：上限 300、账户 10,000 时按上限定仓位；主网无上限在任何账户请求前拒绝）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_capital_cap.json` 12 个变异（忽略上限、忽略盈亏、不受账户约束、无零下限、
+  读不出时按上限、盈亏为空时按上限、不扣手续费、主网检查关闭、入口不检查、定仓位不用上限、校验漏掉非正数、记录漏掉上限），基线通过，
+  第一轮 12 个全部被杀。
+- **本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、目标运行时两个测试文件全部通过（`-x`，退出码 0）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。

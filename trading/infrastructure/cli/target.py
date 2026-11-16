@@ -51,7 +51,8 @@ from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.config import (RuntimeConfig, Secrets, load_config, make_heartbeat, make_notifier,
-                                           require_operator_channels, risk_limits, with_credentials)
+                                           require_operator_channels, require_strategy_capital, risk_limits,
+                                           with_credentials)
 from trading.infrastructure.modes import PAPER, policy_for
 from trading.infrastructure.paper import (PAPER_STATE, PAPER_STATE_DIR, BarTimeClock, DivergencePauses,
                                           PaperDivergenceLog, PaperStateStore, SymbolVenueEquity, paper_exchange,
@@ -185,6 +186,7 @@ class TargetRuntime(_runtime.TargetRuntime):
         account: Any = self.account          # the connected Binance adapter (build_adapters)
         inputs = target.ExecutionInputs(account=account, scope=config.scope, stop_pct=config.stop_pct,
                                         limits=config.limits, kill=kill, leverage=config.leverage, margin=config.margin,
+                                        strategy_capital=config.strategy_capital,
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock), kill
@@ -223,6 +225,8 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     notifier = None
     try:
         if args.execution:
+            # Owner 2026-11-16: mainnet sizes from the owner's strategy capital; it refuses to start without one.
+            require_strategy_capital(config)
             # ADR-0016 points 1 and 3: alerts and a heartbeat, checked before anything reaches the account.
             require_operator_channels(config, secrets)
             config, secrets = with_credentials(config, secrets)   # after every local check (as before ADR-0017)
