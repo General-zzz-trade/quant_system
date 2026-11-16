@@ -4,7 +4,7 @@
   指向本文；ADR 里引用的"2.1""2.3""第 3 节"仍是这几节。
 - 依据是代码（基线：分支 `r7d-paper-compare`，即运行时扩展计划 R1–R7 之后）。本文与代码不一致时以代码为准，并改正本文。
 - 为什么这样设计见 `docs/adr/`；每一步改了什么见 `docs/arch/execution-log.md`；运行时扩展的计划见
-  `docs/arch/runtime-lab-strategies-plan.md`。2026-11-14 的现状诊断、迁移计划、路线图和 M5 设计都已完成并在 R9 删除，原文在 git 历史里。
+  `docs/arch/runtime-lab-strategies-plan.md`。2026-11-14 的现状诊断、迁移计划、路线图和 M5 设计已在 R9 删除（迁移和 M5 之前的步骤都已完成），原文在 git 历史里。
 
 ## 1. 范围
 
