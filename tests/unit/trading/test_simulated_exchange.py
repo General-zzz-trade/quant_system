@@ -384,3 +384,13 @@ def test_a_bar_is_matched_once_and_only_for_a_simulated_symbol(market):
         with pytest.raises(RuntimeError):
             call()
     assert venue.filters("ETHUSDT") == SimFilters(D("0.001"), D("0.001"), D("5"))
+
+
+def test_one_symbol_s_position_answers_like_the_binance_adapter(market):
+    # S4-S5 audit, finding 9: a flat symbol is a row with qty 0; a symbol the venue does not trade is an error, as
+    # on Binance and in this venue's other methods.
+    venue, brokers, feed = market
+    flat = venue.get_position("BTCUSDT")
+    assert flat is not None and flat.qty == 0
+    with pytest.raises(RuntimeError, match="not traded"):
+        venue.get_position("SOLUSDT")
