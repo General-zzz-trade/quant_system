@@ -6,6 +6,8 @@ and ETHUSDT, the position mode, the fee rates, and how the funding income histor
 relies on.
 
     python3 -m scripts.account_check [--env-file PATH]
+    python3 -m scripts.account_check --history DIR [--days 89]    # scripts/account_history.py: the account's own
+                                                                  # income, trades and orders, read-only, to DIR
 
 Allowed by the tech lead on 2026-11-15 as the one command Claude may run that reads the credentials file:
 - it takes only BINANCE_API_KEY and BINANCE_API_SECRET from it, keeps them in memory and never prints or writes
@@ -47,8 +49,12 @@ ALLOWED = {
     (FAPI, "/fapi/v1/feeBurn", True),
     (FAPI, "/fapi/v1/commissionRate", True),
     (FAPI, "/fapi/v1/apiTradingStatus", True),
-    (FAPI, "/fapi/v1/income", True),
     (SAPI, "/sapi/v1/account/apiRestrictions", True),
+    # The history export (tech lead 2026-11-16, scripts/account_history.py): the account's own records, GET only.
+    # The report's funding income section asks the income history too.
+    (FAPI, "/fapi/v1/income", True),
+    (FAPI, "/fapi/v1/userTrades", True),
+    (FAPI, "/fapi/v1/allOrders", True),
 }
 
 Fetch = Callable[[str, dict[str, str]], tuple[int, bytes]]
@@ -226,6 +232,9 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = _urlopen, stdout=sys.s
          clock: Callable[[], float] = time.time) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--history", type=Path, default=None, metavar="DIR",
+                        help="write the account's income, trades and orders to this private directory instead")
+    parser.add_argument("--days", type=int, default=89, help="how far back the history goes (at most 89)")
     args = parser.parse_args(argv)
     try:
         found = read_credentials(args.env_file)
@@ -237,7 +246,15 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = _urlopen, stdout=sys.s
         print(f"not set in the credentials file: {', '.join(missing)}", file=stdout)
         return 2
     print("mainnet, read-only (GET requests only; no order, no setting change)", file=stdout)
-    for line in report(ReadOnlyClient(found[NAMES[0]], found[NAMES[1]], fetch=fetch, clock=clock)):
+    client = ReadOnlyClient(found[NAMES[0]], found[NAMES[1]], fetch=fetch, clock=clock)
+    if args.history is not None:
+        from scripts import account_history
+        summary = account_history.export(client, args.history, days=args.days, now_ms=int(clock() * 1000))
+        print(f"== history written to {args.history} (counts only)", file=stdout)
+        for line in account_history.lines(summary):
+            print(f"  {line}", file=stdout)
+        return 0
+    for line in report(client):
         print(line, file=stdout)
     return 0
 

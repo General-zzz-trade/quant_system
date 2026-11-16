@@ -1,0 +1,650 @@
+{
+ "data": "data_files/binance_aggtrades_2026-11-12 (data.binance.vision, aggTrades, sha256 verified)",
+ "days": {
+  "2026-08-15": "quiet",
+  "2026-10-03": "quiet",
+  "2026-11-05": "violent",
+  "2026-11-08": "violent"
+ },
+ "results": {
+  "BTCUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.01
+    ],
+    "p90": [
+     0.01
+    ],
+    "mean": 0.01
+   },
+   "round_trip_side_cost_bp_mean": 0.01,
+   "drift_abs_bp_median": {
+    "2": [
+     0.01
+    ],
+    "5": [
+     0.01
+    ],
+    "10": [
+     0.01
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     0.32
+    ],
+    "5": [
+     0.69
+    ],
+    "10": [
+     1.12
+    ]
+   },
+   "stops": {
+    "n": 0,
+    "slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "BTCUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.01
+    ],
+    "p90": [
+     0.01
+    ],
+    "mean": -0.04
+   },
+   "round_trip_side_cost_bp_mean": -0.04,
+   "drift_abs_bp_median": {
+    "2": [
+     0.73
+    ],
+    "5": [
+     0.77
+    ],
+    "10": [
+     0.89
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     3.4
+    ],
+    "5": [
+     5.89
+    ],
+    "10": [
+     4.95
+    ]
+   },
+   "stops": {
+    "n": 30,
+    "slip_bp": {
+     "mean": -0.57,
+     "median_p90_p99_max": [
+      0.03,
+      0.06,
+      0.11,
+      0.12
+     ]
+    },
+    "fast_moves_n": 3,
+    "fast_slip_bp": {
+     "mean": -6.05,
+     "median_p90_p99_max": [
+      0.03,
+      0.04,
+      0.04,
+      0.04
+     ]
+    }
+   }
+  },
+  "ETHUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.02
+    ],
+    "p90": [
+     0.03
+    ],
+    "mean": 0.0
+   },
+   "round_trip_side_cost_bp_mean": 0.0,
+   "drift_abs_bp_median": {
+    "2": [
+     0.03
+    ],
+    "5": [
+     0.21
+    ],
+    "10": [
+     0.5
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     1.03
+    ],
+    "5": [
+     1.04
+    ],
+    "10": [
+     1.26
+    ]
+   },
+   "stops": {
+    "n": 0,
+    "slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "ETHUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.02
+    ],
+    "p90": [
+     0.02
+    ],
+    "mean": -0.01
+   },
+   "round_trip_side_cost_bp_mean": -0.01,
+   "drift_abs_bp_median": {
+    "2": [
+     1.84
+    ],
+    "5": [
+     1.84
+    ],
+    "10": [
+     1.74
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     5.39
+    ],
+    "5": [
+     7.61
+    ],
+    "10": [
+     7.65
+    ]
+   },
+   "stops": {
+    "n": 54,
+    "slip_bp": {
+     "mean": 0.08,
+     "median_p90_p99_max": [
+      0.07,
+      0.14,
+      0.24,
+      0.27
+     ]
+    },
+    "fast_moves_n": 10,
+    "fast_slip_bp": {
+     "mean": 0.15,
+     "median_p90_p99_max": [
+      0.14,
+      0.22,
+      0.27,
+      0.27
+     ]
+    }
+   }
+  },
+  "SOLUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.54
+    ],
+    "p90": [
+     0.66
+    ],
+    "mean": 0.51
+   },
+   "round_trip_side_cost_bp_mean": 0.51,
+   "drift_abs_bp_median": {
+    "2": [
+     0.66
+    ],
+    "5": [
+     0.66
+    ],
+    "10": [
+     0.66
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     1.33
+    ],
+    "5": [
+     1.99
+    ],
+    "10": [
+     2.1
+    ]
+   },
+   "stops": {
+    "n": 2,
+    "slip_bp": {
+     "mean": 0.52,
+     "median_p90_p99_max": [
+      0.52,
+      0.59,
+      0.6,
+      0.6
+     ]
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "SOLUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.56
+    ],
+    "p90": [
+     0.56
+    ],
+    "mean": 0.43
+   },
+   "round_trip_side_cost_bp_mean": 0.43,
+   "drift_abs_bp_median": {
+    "2": [
+     1.88
+    ],
+    "5": [
+     2.95
+    ],
+    "10": [
+     2.7
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     9.07
+    ],
+    "5": [
+     10.52
+    ],
+    "10": [
+     11.66
+    ]
+   },
+   "stops": {
+    "n": 60,
+    "slip_bp": {
+     "mean": 0.51,
+     "median_p90_p99_max": [
+      0.51,
+      1.78,
+      2.05,
+      2.07
+     ]
+    },
+    "fast_moves_n": 3,
+    "fast_slip_bp": {
+     "mean": -1.11,
+     "median_p90_p99_max": [
+      1.39,
+      1.45,
+      1.46,
+      1.46
+     ]
+    }
+   }
+  },
+  "XRPUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.34
+    ],
+    "p90": [
+     0.5
+    ],
+    "mean": 0.37
+   },
+   "round_trip_side_cost_bp_mean": 0.37,
+   "drift_abs_bp_median": {
+    "2": [
+     0.5
+    ],
+    "5": [
+     0.5
+    ],
+    "10": [
+     0.75
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     1.88
+    ],
+    "5": [
+     2.4
+    ],
+    "10": [
+     2.66
+    ]
+   },
+   "stops": {
+    "n": 0,
+    "slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "XRPUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.38
+    ],
+    "p90": [
+     0.43
+    ],
+    "mean": 0.2
+   },
+   "round_trip_side_cost_bp_mean": 0.2,
+   "drift_abs_bp_median": {
+    "2": [
+     1.96
+    ],
+    "5": [
+     2.63
+    ],
+    "10": [
+     2.16
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     5.26
+    ],
+    "5": [
+     8.28
+    ],
+    "10": [
+     11.44
+    ]
+   },
+   "stops": {
+    "n": 51,
+    "slip_bp": {
+     "mean": 0.05,
+     "median_p90_p99_max": [
+      0.75,
+      1.46,
+      1.66,
+      1.7
+     ]
+    },
+    "fast_moves_n": 6,
+    "fast_slip_bp": {
+     "mean": -5.44,
+     "median_p90_p99_max": [
+      -0.16,
+      1.66,
+      1.69,
+      1.7
+     ]
+    }
+   }
+  },
+  "DOGEUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.54
+    ],
+    "p90": [
+     0.72
+    ],
+    "mean": 0.57
+   },
+   "round_trip_side_cost_bp_mean": 0.57,
+   "drift_abs_bp_median": {
+    "2": [
+     0.71
+    ],
+    "5": [
+     0.71
+    ],
+    "10": [
+     0.71
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     1.61
+    ],
+    "5": [
+     2.13
+    ],
+    "10": [
+     2.69
+    ]
+   },
+   "stops": {
+    "n": 3,
+    "slip_bp": {
+     "mean": 0.89,
+     "median_p90_p99_max": [
+      0.59,
+      1.47,
+      1.67,
+      1.69
+     ]
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "DOGEUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.69
+    ],
+    "p90": [
+     0.7
+    ],
+    "mean": 0.47
+   },
+   "round_trip_side_cost_bp_mean": 0.47,
+   "drift_abs_bp_median": {
+    "2": [
+     1.01
+    ],
+    "5": [
+     2.04
+    ],
+    "10": [
+     2.1
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     6.2
+    ],
+    "5": [
+     8.53
+    ],
+    "10": [
+     9.69
+    ]
+   },
+   "stops": {
+    "n": 55,
+    "slip_bp": {
+     "mean": 0.48,
+     "median_p90_p99_max": [
+      1.11,
+      2.24,
+      2.55,
+      2.55
+     ]
+    },
+    "fast_moves_n": 7,
+    "fast_slip_bp": {
+     "mean": 1.73,
+     "median_p90_p99_max": [
+      1.78,
+      2.5,
+      2.55,
+      2.55
+     ]
+    }
+   }
+  },
+  "SUIUSDT quiet": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.43
+    ],
+    "p90": [
+     0.73
+    ],
+    "mean": 0.42
+   },
+   "round_trip_side_cost_bp_mean": 0.42,
+   "drift_abs_bp_median": {
+    "2": [
+     1.28
+    ],
+    "5": [
+     1.29
+    ],
+    "10": [
+     2.18
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     4.12
+    ],
+    "5": [
+     5.87
+    ],
+    "10": [
+     7.14
+    ]
+   },
+   "stops": {
+    "n": 41,
+    "slip_bp": {
+     "mean": 0.47,
+     "median_p90_p99_max": [
+      1.06,
+      1.52,
+      1.61,
+      1.62
+     ]
+    },
+    "fast_moves_n": 0,
+    "fast_slip_bp": {
+     "mean": null,
+     "median_p90_p99_max": null
+    }
+   }
+  },
+  "SUIUSDT violent": {
+   "hours": 48,
+   "half_spread_bp": {
+    "median": [
+     0.55
+    ],
+    "p90": [
+     0.59
+    ],
+    "mean": 0.29
+   },
+   "round_trip_side_cost_bp_mean": 0.29,
+   "drift_abs_bp_median": {
+    "2": [
+     2.94
+    ],
+    "5": [
+     4.02
+    ],
+    "10": [
+     3.25
+    ]
+   },
+   "drift_abs_bp_p90": {
+    "2": [
+     9.19
+    ],
+    "5": [
+     10.49
+    ],
+    "10": [
+     15.07
+    ]
+   },
+   "stops": {
+    "n": 79,
+    "slip_bp": {
+     "mean": 0.32,
+     "median_p90_p99_max": [
+      1.0,
+      1.99,
+      2.26,
+      2.34
+     ]
+    },
+    "fast_moves_n": 5,
+    "fast_slip_bp": {
+     "mean": -3.43,
+     "median_p90_p99_max": [
+      0.89,
+      1.99,
+      2.16,
+      2.18
+     ]
+    }
+   }
+  }
+ }
+}
