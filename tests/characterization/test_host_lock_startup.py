@@ -63,8 +63,10 @@ def test_a_missing_lock_directory_refuses_the_start_before_any_account_request(w
 
 def test_paper_mode_needs_no_lock_directory(world, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.setattr(host_lock, "LOCK_DIR", tmp_path / "no-locks")
+    paper = [a for a in world["argv"] if a != "--enable-execution"]
+    paper[paper.index("--state-dir") + 1] = str(tmp_path / "paper")      # paper refuses an execution directory
     with pytest.raises(Started):
-        world["main"]([a for a in world["argv"] if a != "--enable-execution"])
+        world["main"](paper)
 
 
 def test_init_creates_the_lock_directory(tmp_path, monkeypatch):
