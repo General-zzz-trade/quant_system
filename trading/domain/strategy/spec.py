@@ -16,9 +16,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from trading.domain.strategy.base import STRATEGIES, Strategy
+from trading.domain.strategy.ideas import IDEAS, idea_params
 from trading.domain.strategy.overlay import StrategySpec
 
 MAX_SYMBOLS = 10                    # owner 2026-11-16: at most 10 symbols in the first version
@@ -26,6 +28,7 @@ KIND_V1, KIND_V2 = "btc_eth_multitimeframe_target", "target_strategy"
 # How each strategy's parameters become what its constructor takes.
 PARAMS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "overlay": lambda params: StrategySpec.from_record(dict(params)),
+    **{name: partial(idea_params, name) for name in IDEAS},          # R7b: the lab's ideas
 }
 
 
