@@ -2,9 +2,10 @@
 
     python -m trading.infrastructure.unit_alert <unit>
 
-when a unit fails (``OnFailure=``), including a failure that systemd then restarts. It sends one Telegram message
-and waits for Telegram's confirmation. Exit 0 when confirmed, 1 when not (systemd then shows the alert unit failed
-too, so the failure is visible on the host), 2 when Telegram is not configured. Never prints the token.
+when a unit fails (``OnFailure=``), including a failure that systemd then restarts. It sends one message through
+the configured alert channel - Telegram, or the alert file (owner 2026-11-16) - and waits for the confirmation
+(Telegram's answer, or the line written). Exit 0 when confirmed, 1 when not (systemd then shows the alert unit failed
+too, so the failure is visible on the host), 2 when no channel is configured. Never prints the token.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import sys
 from collections.abc import Callable, Mapping
 from typing import Any, TextIO
 
-from trading.adapters.notify.telegram import TelegramNotifier
+from trading.adapters.notify.log import LogNotifier
 from trading.infrastructure.config import notifier_from_env
 
 TIMEOUT_SECONDS = 20.0
@@ -30,8 +31,8 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
     except RuntimeError as exc:                    # half a configuration: the message names the variables only
         print(f"no alert sent: {exc}", file=stdout)
         return 2
-    if not isinstance(notifier, TelegramNotifier):
-        print("no alert sent: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set", file=stdout)
+    if isinstance(notifier, LogNotifier):
+        print("no alert sent: neither ALERT_FILE nor TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID is set", file=stdout)
         return 2
     title = f"{args.unit} failed on {socket.gethostname()}"
     detail = ("systemd reports the unit failed. The testnet unit restarts by itself at most 3 times an hour; the "
@@ -39,7 +40,7 @@ def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None,
     if notifier.deliver(title, detail, timeout_s=TIMEOUT_SECONDS):
         print(f"alert sent: {title}", file=stdout)
         return 0
-    print(f"alert not confirmed by Telegram: {title}", file=stdout)
+    print(f"alert not confirmed by the alert channel ({notifier.channel}): {title}", file=stdout)
     return 1
 
 

@@ -15,11 +15,13 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from pathlib import Path
 
 from trading.adapters.binance.adapter import DEFAULT_LEVERAGE, MARGIN_TYPES, MAX_LEVERAGE
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.notify.heartbeat import HttpHeartbeat
 from trading.adapters.notify.log import LogNotifier
+from trading.adapters.notify.file import FileNotifier
 from trading.adapters.notify.telegram import TelegramNotifier
 
 
@@ -80,16 +82,30 @@ class RiskLimits:
     max_leverage: Decimal
 
 
-def notifier_from_env(env: Mapping[str, str] | None = None) -> TelegramNotifier | LogNotifier:
-    """Telegram when both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set, the process log when neither is.
-    One without the other is a start-up error. The values are never echoed."""
+def alert_file(env: Mapping[str, str], *, telegram: bool) -> Path | None:
+    """ALERT_FILE (owner 2026-11-16): the file alerts are appended to in place of Telegram. An absolute path; with
+    the Telegram pair set as well the start is refused: one channel, so it is clear who is told."""
+    raw = env.get("ALERT_FILE", "").strip()
+    if not raw:
+        return None
+    if telegram:
+        raise RuntimeError("set ALERT_FILE or the Telegram pair (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), not both")
+    if not Path(raw).is_absolute():
+        raise RuntimeError("ALERT_FILE must be an absolute path")
+    return Path(raw)
+
+
+def notifier_from_env(env: Mapping[str, str] | None = None) -> TelegramNotifier | FileNotifier | LogNotifier:
+    """Telegram when both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set, the alert file when ALERT_FILE is, the
+    process log when none is. Half a Telegram pair, or both channels, is a start-up error. Values are never echoed."""
     env = os.environ if env is None else env
     token, chat_id = env.get("TELEGRAM_BOT_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
+    file = alert_file(env, telegram=bool(token or chat_id))
     if token and chat_id:
         return TelegramNotifier(token, chat_id, background=True)
     if token or chat_id:
         raise RuntimeError("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither")
-    return LogNotifier()
+    return FileNotifier(file) if file is not None else LogNotifier()
 
 
 # Hard ceilings of the drawdown limits (tech lead, 2026-11-15): a person may set less, never more.
@@ -119,6 +135,7 @@ class Secrets:
     binance: BinanceConfig | None
     telegram: tuple[str, str] | None
     heartbeat_url: str | None = None   # the external heartbeat's address (ADR-0016 point 3): a secret too
+    alert_file: Path | None = None     # owner 2026-11-16: alerts appended here in place of Telegram (not a secret)
 
     def __repr__(self) -> str:
         return "Secrets(<hidden>)"
@@ -133,7 +150,7 @@ class RuntimeConfig:
     limits: RiskLimits | None          # execution only; paper uses the code defaults (S10 decision)
     leverage: int | None               # the exchange's leverage setting the start-up check expects
     margin: str | None                 # the margin mode it expects, or None for "as the account has it"
-    alerts: str | None                 # "telegram" or "log" in execution mode
+    alerts: str | None                 # "telegram", "file" or "log" in execution mode
     identity: str | None               # sha256(network:API key) when credentials are loaded
     # The owner's strategy capital (2026-11-16): the strategy sizes from min(account equity, this + its own
     # realized PnL); required on mainnet, optional on the testnet (whole account), unused in paper.
@@ -174,6 +191,7 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     token, chat_id = env.get("TELEGRAM_BOT_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
     if bool(token) != bool(chat_id):
         raise RuntimeError("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither")
+    file = alert_file(env, telegram=bool(token))
     heartbeat = env.get("HEARTBEAT_URL", "").strip() or None
     if heartbeat is not None and not heartbeat.startswith("https://"):
         raise RuntimeError("HEARTBEAT_URL must be an https:// address")       # never echoed: it is a secret
@@ -181,9 +199,11 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     binance = binance_config_from_env(testnet=net, env=env) if require_credentials else None
     identity = account_identity(testnet=net, api_key=binance.api_key) if binance is not None else None
     config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=Decimal(stop_pct), limits=limits,
-                           leverage=leverage, margin=margin, alerts="telegram" if token else "log", identity=identity,
+                           leverage=leverage, margin=margin, identity=identity,
+                           alerts="telegram" if token else "file" if file else "log",
                            strategy_capital=capital, strategy_loss_stop=strategy_loss_stop(env, capital))
-    return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat)
+    return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat,
+                           alert_file=file)
 
 
 def strategy_capital(env: Mapping[str, str]) -> Decimal | None:
@@ -230,12 +250,12 @@ def require_strategy_capital(config: RuntimeConfig) -> None:
 
 
 def require_operator_channels(config: RuntimeConfig, secrets: Secrets) -> None:
-    """ADR-0016 points 1 and 3: execution mode (testnet and mainnet) refuses to start without Telegram or without a
-    heartbeat address. Paper needs neither."""
+    """ADR-0016 points 1 and 3: execution mode (testnet and mainnet) refuses to start without an alert channel -
+    the alert file (owner 2026-11-16) or Telegram - or without a heartbeat address. Paper needs neither."""
     if not config.execution:
         return
-    if secrets.telegram is None:
-        raise RuntimeError("execution mode needs alerts: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+    if secrets.telegram is None and secrets.alert_file is None:
+        raise RuntimeError("execution mode needs alerts: set ALERT_FILE, or TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
     if not secrets.heartbeat_url:
         raise RuntimeError("execution mode needs an external heartbeat: set HEARTBEAT_URL")
 
@@ -257,8 +277,11 @@ def with_credentials(config: RuntimeConfig, secrets: Secrets,
             replace(secrets, binance=binance))
 
 
-def make_notifier(secrets: Secrets) -> TelegramNotifier | LogNotifier:
-    """Telegram when both its values were set, the process log otherwise (load_config refused one alone)."""
+def make_notifier(secrets: Secrets) -> TelegramNotifier | FileNotifier | LogNotifier:
+    """Telegram when both its values were set, the alert file when that was, the process log otherwise
+    (load_config refused half a pair and both channels)."""
     if secrets.telegram is not None:
         return TelegramNotifier(*secrets.telegram, background=True)
+    if secrets.alert_file is not None:
+        return FileNotifier(secrets.alert_file)
     return LogNotifier()
