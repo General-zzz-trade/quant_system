@@ -132,6 +132,9 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
     if bad := schema.problems(snapshot):
         print(f"the snapshot {snapshot} is not usable: {'; '.join(bad)}", file=stdout)
         return 2
+    if schema.holds_paper_state(snapshot):      # S10 audit H1: an account's directory never takes a paper record
+        print(f"the snapshot {snapshot} is a paper record's database, not an account's", file=stdout)
+        return 2
     if not reason.strip():
         print("a restore needs a reason", file=stdout)
         return 2
