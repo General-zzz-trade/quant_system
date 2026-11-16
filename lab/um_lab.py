@@ -9,13 +9,19 @@ when they are delisted (the broker closes the position at the last price).
 Windows (research/lab/README.md): selection 2022-11-13..2026-05-12 with yearly walk-forward folds; the last six
 months 2026-05-13..2026-11-12 are not used to choose anything and answer "does it still win on data it never
 saw". Every configuration tested is appended to research/lab/trials.jsonl.
+
+Live terms (``LiveTerms``, tech lead 2026-11-16: the backtest follows the live runtime): one strategy capital split
+equally over the strategy's fixed symbol list (the runtime's 1/N allocation; an order below the exchange minimum is
+not sent), the runtime's exchange stop, an entry pause after a stop that ends by itself, and the account's daily
+returns over the whole capital (idle slots hold cash). The report gives what the order limits must allow (the tech
+lead sets the live limits from it) and how often the pilot's hard stops would have fired.
 """
 from __future__ import annotations
 
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal as D
 from functools import lru_cache
@@ -47,6 +53,19 @@ HOLDOUT = (SELECT_END, END)
 DEFAULT_RULES = SymbolRules(D("0.001"), D("0.001"), D("5"))   # a delisted contract has no published filters
 
 Idea = Callable[[pd.DataFrame, dict], pd.Series]               # hourly frame, context -> target weight per bar
+
+
+@dataclass(frozen=True)
+class LiveTerms:
+    """What the live runtime does that the backtest follows (tech lead 2026-11-16)."""
+    capital: str = "300"          # STRATEGY_CAPITAL_USDT of the small live pilot
+    stop_pct: str = "0.08"        # the runtime's exchange stop (the entry point's --stop-pct default)
+    pause_hours: int = 24         # PROVISIONAL: the live pause will end by itself; the tech lead sets its length
+    daily_stop: float = 0.03      # the pilot stops for the day at -3 % (reported, from daily closes)
+    losing_trades: int = 3        # the pilot stops after 3 losing trades in a row (reported)
+
+
+LIVE = LiveTerms()
 
 
 # -- data ------------------------------------------------------------------------------------------------------
@@ -99,9 +118,10 @@ def liquid(symbol: str, *, min_daily_quote: float, snapshot: Path = SNAPSHOT) ->
 
 # -- one contract through the shared broker --------------------------------------------------------------------
 def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: int = START, end: int = END,
-           snapshot: Path = SNAPSHOT) -> dict:
+           snapshot: Path = SNAPSHOT, starting_balance: str = "5000", stop_pct: str = "0",
+           pause_ms: int | None = None) -> dict:
     """Target weights (decided at each bar's close, index = open time) through the shared broker. Returns the
-    hourly equity curve and the fills."""
+    hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only)."""
     df = frame(symbol, snapshot)
     df = df[(df.index >= start - 40 * DAY) & (df.index < end)]
     bars = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
@@ -112,14 +132,18 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
     funding = {int(t): (D(repr(float(r))),) for t, r in df["funding"].items() if r != 0.0}
     result = simulate(symbol, bars, targets, funding, StrategySpec(execution="market"),
                       start_ms=max(start, int(df.index[0]) if len(df) else start), end_ms=end,
-                      rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier)
+                      rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier,
+                      starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms)
     curve = result.curve.set_index("at")["equity"]
-    return {"symbol": symbol, "curve": curve, "fills": [_fill(f) for f in result.fills]}
+    orders = [(int(o["submitted_at"]), float(D(o["qty"]) * D(o["reference"])), bool(o["reduce_only"]))
+              for o in result.order_rows if o.get("rejection") != "below trading minimum"]
+    return {"symbol": symbol, "curve": curve, "fills": [_fill(f) for f in result.fills], "orders": orders}
 
 
 def _fill(f: Any) -> dict:
     get = (lambda k: getattr(f, k, None)) if not isinstance(f, dict) else f.get
-    return {"at": get("at"), "side": get("side"), "qty": str(get("qty")), "price": str(get("price"))}
+    return {"at": get("at"), "side": get("side"), "qty": str(get("qty")), "price": str(get("price")),
+            "fee": str(get("fee") or 0), "order": get("order")}
 
 
 # -- portfolio and metrics -------------------------------------------------------------------------------------
@@ -134,6 +158,73 @@ def portfolio_daily(curves: list[pd.Series]) -> pd.Series:
     change = (panel - previous).where(previous.notna()).sum(axis=1)
     base = previous.sum(axis=1)
     return (change / base).where(base > 0).dropna()
+
+
+def account_daily(curves: list[pd.Series], *, slots: int, slot_capital: float) -> pd.Series:
+    """Daily returns of the live account: ``slots`` equal slots of ``slot_capital``. A slot holds cash before its
+    contract trades (or when it never does) and keeps its last equity after the contract ends."""
+    days = [c.groupby(c.index // DAY).last() for c in curves if len(c)]
+    if not days:
+        return pd.Series(dtype=float)
+    panel = pd.concat(days, axis=1).sort_index().ffill().fillna(slot_capital)
+    total = panel.sum(axis=1) + (slots - panel.shape[1]) * slot_capital
+    return total.pct_change().dropna()
+
+
+def limits_needed(entries: list[tuple[int, float]]) -> dict:
+    """What the live order limits (they count entries) must allow for these entry orders (time, notional)."""
+    if not entries:
+        return {"entry_orders": 0}
+    df = pd.DataFrame(entries, columns=["at", "notional"])
+    per_day = df.groupby(df["at"] // DAY)
+    return {"entry_orders": len(df), "max_orders_per_day": int(per_day.size().max()),
+            "p95_orders_per_active_day": float(per_day.size().quantile(0.95)),
+            "max_daily_notional": float(per_day["notional"].sum().max()),
+            "max_order_notional": float(df["notional"].max()),
+            "max_orders_in_one_hour": int(df.groupby(df["at"] // H).size().max())}
+
+
+def round_trips(fills: list[dict]) -> list[tuple[int, float]]:
+    """(time closed, money made after fees, funding excluded) of each trade from flat back to flat. A fill through
+    zero closes one trade and opens the next; its whole fee goes to the trade it closes."""
+    position, flow, trips = D(0), 0.0, []
+    for f in fills:
+        sign, qty, price, fee = (1 if f["side"] == "buy" else -1), D(f["qty"]), float(f["price"]), float(f["fee"])
+        if position * sign < 0 and qty > abs(position):              # through zero: close, then open the rest
+            trips.append((int(f["at"]), flow - sign * float(abs(position)) * price - fee))
+            position = sign * (qty - abs(position))
+            flow = -sign * float(abs(position)) * price
+            continue
+        position += sign * qty
+        flow += -sign * float(qty) * price - fee
+        if position == 0:
+            trips.append((int(f["at"]), flow))
+            flow = 0.0
+    return trips
+
+
+def losing_streaks(trips: list[tuple[int, float]], n: int) -> list[int]:
+    """Times at which ``n`` losing trades in a row completed (the count starts again after each)."""
+    run, out = 0, []
+    for at, money in sorted(trips):
+        run = run + 1 if money < 0 else 0
+        if run == n:
+            out.append(at)
+            run = 0
+    return out
+
+
+def live_report(results: list[dict], daily: pd.Series, terms: LiveTerms, slots: int) -> dict:
+    trips = [t for r in results for t in round_trips(r["fills"])]
+    streaks = losing_streaks(trips, terms.losing_trades)
+    days = max(1, len(daily))
+    return {"terms": asdict(terms), "slots": slots, "slot_capital": float(D(terms.capital) / slots),
+            "limits_needed": limits_needed([(at, n) for r in results for at, n, reduce in r["orders"] if not reduce]),
+            "round_trips": len(trips), "losing_trades": sum(1 for _, m in trips if m < 0),
+            "exchange_stops": sum(1 for r in results for f in r["fills"] if f["order"] == "protective_stop"),
+            "losing_streak_stops": len(streaks), "losing_streak_stops_per_30_days": len(streaks) * 30 / days,
+            "losing_streak_stops_in_holdout": sum(1 for at in streaks if HOLDOUT[0] <= at < HOLDOUT[1]),
+            "days_below_daily_stop": int((daily < -terms.daily_stop).sum())}
 
 
 def summary(daily: pd.Series) -> dict:
@@ -200,30 +291,41 @@ def walk_forward(runs: list[Run]) -> dict:
 
 # -- running an idea -------------------------------------------------------------------------------------------
 def _replay_job(job: tuple) -> dict:
-    symbol, idea, params, cost_multiplier, min_daily_quote, snapshot = job
+    symbol, idea, params, cost_multiplier, min_daily_quote, snapshot, terms = job
     df = frame(symbol, snapshot)
     context = {"params": params, "btc": frame("BTCUSDT", snapshot), "symbol": symbol}
     weights = idea(df, context).reindex(df.index).fillna(0.0)
     if min_daily_quote:
         weights = weights.where(liquid(symbol, min_daily_quote=min_daily_quote, snapshot=snapshot), 0.0)
     if not (weights != 0).any():
-        return {"symbol": symbol, "curve": pd.Series(dtype=float), "fills": []}
-    return replay(symbol, weights, cost_multiplier=cost_multiplier, snapshot=snapshot)
+        return {"symbol": symbol, "curve": pd.Series(dtype=float), "fills": [], "orders": []}
+    return replay(symbol, weights, cost_multiplier=cost_multiplier, snapshot=snapshot, **terms)
 
 
 def run_idea(idea: Idea, params: dict, symbols: list[str], *, cost_multiplier: int = 1, min_daily_quote: float = 0,
-             processes: int = 2, snapshot: Path = SNAPSHOT) -> dict:
+             processes: int = 2, snapshot: Path = SNAPSHOT, live: LiveTerms | None = None) -> dict:
     """One parameter set of an idea over ``symbols``: per-contract replays, the portfolio's daily returns and the
-    number of fills."""
-    jobs = [(s, idea, params, cost_multiplier, min_daily_quote, snapshot) for s in symbols]
+    number of fills. With ``live`` the symbols are the strategy's fixed list sharing ``live.capital`` equally, each
+    replay has the live stop and pause, the daily returns are the whole account's, and ``live`` reports what the
+    order limits must allow and how often the pilot's hard stops would have fired."""
+    terms: dict = {}
+    if live is not None:
+        terms = {"starting_balance": str(D(live.capital) / len(symbols)), "stop_pct": live.stop_pct,
+                 "pause_ms": live.pause_hours * H}
+    jobs = [(s, idea, params, cost_multiplier, min_daily_quote, snapshot, terms) for s in symbols]
     if processes > 1:
         with get_context("fork").Pool(processes) as pool:
             results = pool.map(_replay_job, jobs)
     else:
         results = [_replay_job(j) for j in jobs]
     active = [r for r in results if len(r["curve"])]
-    return {"daily": portfolio_daily([r["curve"] for r in active]), "fills": sum(len(r["fills"]) for r in active),
-            "contracts_traded": len(active), "per_symbol": {r["symbol"]: len(r["fills"]) for r in active}}
+    out = {"daily": portfolio_daily([r["curve"] for r in active]), "fills": sum(len(r["fills"]) for r in active),
+           "contracts_traded": len(active), "per_symbol": {r["symbol"]: len(r["fills"]) for r in active}}
+    if live is not None:
+        out["daily"] = account_daily([r["curve"] for r in active], slots=len(symbols),
+                                     slot_capital=float(D(live.capital) / len(symbols)))
+        out["live"] = live_report(active, out["daily"], live, len(symbols))
+    return out
 
 
 def record(rows: list[dict], path: Path = TRIALS) -> None:
@@ -234,6 +336,7 @@ def record(rows: list[dict], path: Path = TRIALS) -> None:
             handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
 
 
-__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "Run", "SELECT_END", "START", "buy_and_hold", "by_regime",
-           "contracts", "frame", "liquid", "manifest", "portfolio_daily", "record", "regimes", "replay", "rules",
-           "run_idea", "summary", "walk_forward", "window"]
+__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LiveTerms", "Run", "SELECT_END", "START",
+           "account_daily", "buy_and_hold", "by_regime", "contracts", "frame", "limits_needed", "liquid",
+           "live_report", "losing_streaks", "manifest", "portfolio_daily", "record", "regimes", "replay",
+           "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]

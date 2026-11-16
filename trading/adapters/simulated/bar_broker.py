@@ -15,6 +15,12 @@ bar the order of events is unknown, so the model is deliberately adverse:
 Liquidation realizes exactly the posted isolated margin (the exchange's
 clearance fee is taken out of that margin). With every option off the broker
 behaves, and records its configuration, exactly as before.
+
+Optional cross-margin stop (``stop_pct`` > 0, off by default; tech lead 2026-11-16): the live runtime's exchange
+stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct) for a long, x (1 + stop_pct) for a
+short (trading/application/execution/stops.py). Market entries fill at the open, so the stop guards the rest of
+that bar and every later one, at the current average entry; it fills by the isolated-mode stop rule above (and
+paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
 """
 from __future__ import annotations
 
@@ -79,6 +85,8 @@ class ReplayConfig:
     isolated_leverage: str = "0"
     maintenance_margin_rate: str = "0.005"
     stop_slippage_bps: str = "10"
+    # Cross-margin protective stop as a fraction of the entry price; "0" keeps the broker without one.
+    stop_pct: str = "0"
 
     def __post_init__(self) -> None:
         for key in ("starting_balance", "maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps",
@@ -105,6 +113,13 @@ class ReplayConfig:
                 raise ValueError("maintenance_margin_rate must be in (0, 1/isolated_leverage)")
         if not D(str(self.stop_slippage_bps)).is_finite() or not 0 <= D(str(self.stop_slippage_bps)) < 10000:
             raise ValueError("stop_slippage_bps must be in [0, 10000)")
+        stop_pct = D(str(self.stop_pct))
+        if not stop_pct.is_finite() or not 0 <= stop_pct < 1:
+            raise ValueError("stop_pct must be in [0, 1)")
+        if stop_pct > 0 and leverage > 0:
+            raise ValueError("stop_pct is the cross-margin stop; isolated mode places its own with set_stop")
+        if stop_pct > 0 and self.entry_mode != "market":
+            raise ValueError("stop_pct needs market entries (a maker fill lands after the bar's range)")
         if any(D(getattr(self, k)) >= 10000 for k in ("maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps")):
             raise ValueError("cost/offset bps must be below 10000")
         if self.entry_mode not in ("maker", "market"):
@@ -115,11 +130,14 @@ class ReplayConfig:
             raise ValueError("invalid signal constraints")
 
     def record(self) -> dict[str, Any]:
-        """Without isolated mode the new fields are omitted, so earlier records stay identical."""
+        """Without isolated mode or a stop the new fields are omitted, so earlier records stay identical."""
         out = asdict(self)
+        stop = D(str(self.stop_pct)) > 0
         if D(str(self.isolated_leverage)) == 0:
-            for key in ("isolated_leverage", "maintenance_margin_rate", "stop_slippage_bps"):
+            for key in ("isolated_leverage", "maintenance_margin_rate") + (() if stop else ("stop_slippage_bps",)):
                 out.pop(key)
+        if not stop:
+            out.pop("stop_pct")
         return out
 
 
@@ -283,6 +301,8 @@ class BarBroker:
                 self._finish(row, "canceled")
         if self.leverage > 0:
             self._protect(bar)
+        elif D(self.config.stop_pct) > 0:
+            self._cross_stop(bar)
         self.now, self.mark = bar.available_at, bar.close
 
     def _exceeds_cap(self, row: Row, bar: Bar, qty: Decimal, sign: Decimal, price: Decimal,
@@ -370,6 +390,25 @@ class BarBroker:
         if (bar.low <= liq) if long else (bar.high >= liq):
             self._liquidate(bar)
 
+    def _cross_stop(self, bar: Bar) -> None:
+        """The live exchange stop (``stop_pct``) on the position held after this bar's open fills."""
+        qty = self.position.qty
+        if qty == 0:
+            return
+        long, pct = qty > 0, D(self.config.stop_pct)
+        stop = self.position.entry_price * (1 - pct if long else 1 + pct)
+        if not ((bar.low <= stop) if long else (bar.high >= stop)):
+            return
+        self.now = bar.available_at
+        base = min(bar.open, stop) if long else max(bar.open, stop)
+        slip = D(self.config.stop_slippage_bps) / 10000
+        price = base * (1 - slip) if long else base * (1 + slip)
+        side = "sell" if long else "buy"
+        fee = abs(qty) * price * D(self.config.taker_bps) / 10000
+        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset="USDT"))
+        self.fees += fee
+        self._record_exit("protective_stop", side, abs(qty), price, fee)
+
     def _liquidate(self, bar: Bar) -> None:
         """Close at the price that realizes exactly the posted isolated margin as the loss."""
         qty, margin = self.position.qty, self.margin
@@ -414,9 +453,9 @@ SYMBOL_RULES = {
 
 
 def broker_config(spec: StrategySpec, rules: SymbolRules, *, starting_balance: str = "5000",
-                  cost_multiplier: int = 1) -> ReplayConfig:
+                  cost_multiplier: int = 1, stop_pct: str = "0") -> ReplayConfig:
     m = D(cost_multiplier)
     return ReplayConfig(starting_balance=starting_balance, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
                         slippage_bps=str(D(3) * m), limit_offset_bps=str(LIMIT_OFFSET_BPS), participation="0.01",
                         max_exposure="1", qty_step=str(rules.step), min_notional=str(rules.min_notional),
-                        ttl_bars=spec.ttl_bars, entry_mode=spec.execution)
+                        ttl_bars=spec.ttl_bars, entry_mode=spec.execution, stop_pct=stop_pct)

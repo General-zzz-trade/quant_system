@@ -1,0 +1,86 @@
+[
+ [
+  "trigger side",
+  "trading/adapters/simulated/bar_broker.py",
+  "stop = self.position.entry_price * (1 - pct if long else 1 + pct)",
+  "stop = self.position.entry_price * (1 + pct if long else 1 - pct)"
+ ],
+ [
+  "no gap rule",
+  "trading/adapters/simulated/bar_broker.py",
+  "        base = min(bar.open, stop) if long else max(bar.open, stop)\n        slip = D(self.config.stop_slippage_bps) / 10000\n        price = base * (1 - slip) if long else base * (1 + slip)\n        side = \"sell\" if long else \"buy\"\n        fee = abs(qty) * price * D(self.config.taker_bps) / 10000\n        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset=\"USDT\"))\n        self.fees += fee\n        self._record_exit(\"protective_stop\"",
+  "        base = stop\n        slip = D(self.config.stop_slippage_bps) / 10000\n        price = base * (1 - slip) if long else base * (1 + slip)\n        side = \"sell\" if long else \"buy\"\n        fee = abs(qty) * price * D(self.config.taker_bps) / 10000\n        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset=\"USDT\"))\n        self.fees += fee\n        self._record_exit(\"protective_stop\""
+ ],
+ [
+  "no stop slippage",
+  "trading/adapters/simulated/bar_broker.py",
+  "        price = base * (1 - slip) if long else base * (1 + slip)\n        side = \"sell\" if long else \"buy\"\n        fee = abs(qty) * price * D(self.config.taker_bps) / 10000\n        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset=\"USDT\"))\n        self.fees += fee\n        self._record_exit(\"protective_stop\"",
+  "        price = base\n        side = \"sell\" if long else \"buy\"\n        fee = abs(qty) * price * D(self.config.taker_bps) / 10000\n        self.position.apply(SimpleNamespace(side=side, qty=abs(qty), price=price, fee=fee, fee_asset=\"USDT\"))\n        self.fees += fee\n        self._record_exit(\"protective_stop\""
+ ],
+ [
+  "stop fee not paid",
+  "trading/adapters/simulated/bar_broker.py",
+  "        self.fees += fee\n        self._record_exit(\"protective_stop\"",
+  "        self._record_exit(\"protective_stop\""
+ ],
+ [
+  "stop never checked",
+  "trading/adapters/simulated/bar_broker.py",
+  "        elif D(self.config.stop_pct) > 0:\n            self._cross_stop(bar)",
+  "        elif False:\n            self._cross_stop(bar)"
+ ],
+ [
+  "maker allowed",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if stop_pct > 0 and self.entry_mode != \"market\":",
+  "        if False:"
+ ],
+ [
+  "isolated allowed",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if stop_pct > 0 and leverage > 0:",
+  "        if False:"
+ ],
+ [
+  "upper bound off",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if not stop_pct.is_finite() or not 0 <= stop_pct < 1:",
+  "        if not stop_pct.is_finite() or not 0 <= stop_pct:"
+ ],
+ [
+  "record drops stop",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if not stop:\n            out.pop(\"stop_pct\")",
+  "        out.pop(\"stop_pct\")"
+ ],
+ [
+  "exchange accepts",
+  "trading/adapters/simulated/exchange.py",
+  "            if Decimal(broker.config.stop_pct) != 0:",
+  "            if False:"
+ ],
+ [
+  "broker_config ignores stop",
+  "trading/adapters/simulated/bar_broker.py",
+  "entry_mode=spec.execution, stop_pct=stop_pct)",
+  "entry_mode=spec.execution)"
+ ],
+ [
+  "pause never set",
+  "lab/simulate.py",
+  "            paused_until = bar.available_at + pause_after_stop_ms",
+  "            paused_until = 0"
+ ],
+ [
+  "pause one bar long",
+  "lab/simulate.py",
+  "        if bar.available_at < paused_until:",
+  "        if bar.available_at <= paused_until:"
+ ],
+ [
+  "pause ignored",
+  "lab/simulate.py",
+  "            target = 0.0                                   # paused",
+  "            pass                                           # paused"
+ ]
+]
