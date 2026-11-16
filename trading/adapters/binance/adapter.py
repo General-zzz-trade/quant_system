@@ -494,6 +494,20 @@ class BinanceAdapter:
                 for t, k in sorted(rows.items())]
         return bars[-limit:]
 
+    def get_funding_intervals(self) -> dict[str, int]:
+        """Every listed symbol's funding interval in hours (``GET /fapi/v1/fundingInfo``, IP weight 0, sharing the
+        500 per 5 minutes of ``fundingRate``). A row whose interval is not a whole number of hours dividing a day is
+        left out: that symbol's interval is unknown and it takes no entries (plan R4)."""
+        data = self._client.request_public(method="GET", path="/fapi/v1/fundingInfo", params={})
+        out: dict[str, int] = {}
+        for row in data if isinstance(data, list) else ():
+            if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
+                continue
+            hours = row.get("fundingIntervalHours")
+            if type(hours) is int and 0 < hours <= 24 and 24 % hours == 0:
+                out[row["symbol"]] = hours
+        return out
+
     def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]:
         """Settled funding events (time ms, rate), oldest first, up to ``limit`` (paginated)."""
         rows: dict[int, float] = {}
