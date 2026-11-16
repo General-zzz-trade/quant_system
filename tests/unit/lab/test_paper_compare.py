@@ -291,6 +291,12 @@ def _undecided(paper, data):
     _save_document(paper, document)
 
 
+def _unsettled(paper, data):
+    document = _document(paper)                         # e.g. decided before the settlement was published
+    document["venue"]["brokers"]["BTCUSDT"]["broker"]["funding_log"].pop(0)
+    _save_document(paper, document)
+
+
 MISSING = {"a gap in the bars": (_gap, "K 线快照"),
            "bars that end before the paper record": (_short, "K 线快照"),
            "a missing funding settlement": (_no_funding, "资金费"),
@@ -300,7 +306,8 @@ MISSING = {"a gap in the bars": (_gap, "K 线快照"),
            "no state database": (_no_db, "state.sqlite"),
            "no saved paper state": (_no_document, "模拟盘状态"),
            "a venue fill missing from the order journal": (_unjournaled, "订单库"),
-           "a bar matched but not decided yet": (_undecided, "还没有决策")}
+           "a bar matched but not decided yet": (_undecided, "还没有决策"),
+           "a funding settlement paper did not apply": (_unsettled, "没有结算")}
 
 
 @pytest.mark.parametrize("case", list(MISSING))
@@ -310,7 +317,7 @@ def test_missing_or_unusable_data_cannot_be_compared_and_is_never_equal(plain, t
     damage(paper, data)
     code, out = _compare(paper, data, capsys)
     assert (code, out.splitlines()[0]) == (2, "结论：无法比较"), out
-    assert reason in out
+    assert reason in out.split("原因：", 1)[1]                    # the reason itself, not the header lines
 
 
 def test_the_record_starts_at_its_own_first_warm_up_not_at_an_older_record_s(plain, tmp_path, capsys):
@@ -341,6 +348,13 @@ def test_an_intended_divergence_is_listed_apart_and_is_no_inconsistency(request,
 def test_without_its_divergence_events_the_same_record_is_inconsistent(request, tmp_path, capsys, run, cause):
     paper, data = _copy(request.getfixturevalue(run), tmp_path)
     _keep_events(paper, lambda e: e["kind"] != "paper_divergence")
+    code, out = _compare(paper, data, capsys)
+    assert (code, out.splitlines()[0]) == (1, "结论：不一致"), out
+
+
+def test_a_flatten_fill_is_explained_by_its_own_flatten_event_only(kill_flatten, tmp_path, capsys):
+    paper, data = _copy(kill_flatten, tmp_path)
+    _keep_events(paper, lambda e: e.get("cause") != "flatten")    # the refused entries after it stay
     code, out = _compare(paper, data, capsys)
     assert (code, out.splitlines()[0]) == (1, "结论：不一致"), out
 
