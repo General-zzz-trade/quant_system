@@ -126,13 +126,15 @@ class TargetRuntime:
             assert self.venue is not None
             self.venue.restore(saved["venue"])
         cursors: dict[str, Any] = saved["symbols"] if saved is not None else {}
+        self.market_side.refresh_intervals(now_ms)      # R4: each symbol's funding interval, before its history
         missed: dict[str, list[Bar]] = {}
         resumed: dict[str, int | None] = {}
         for symbol, session in self.sessions.items():
             snap = cursors.get(symbol)
             resume = resumed[symbol] = snap["cursor"] if snap else None
             gap = 0 if resume is None else max(0, (now_ms // HOUR * HOUR - HOUR - resume) // HOUR)
-            limit = session.strategy.funding_window() + 30 + gap // 8 + 1   # R2: the strategy's windows
+            per = (session.funding_interval or HOUR) // HOUR      # R4: the symbol's interval; unknown, hourly
+            limit = session.strategy.funding_window() + 30 + gap // per + 1   # R2: the strategy's windows
             for at, rate in self.market.get_funding_history(symbol, limit=limit):
                 session.funding[round(at / HOUR) * HOUR] = rate
             rows = self.market.get_klines(symbol, "60", (session.bars.maxlen or 0) + gap, now_ms=now_ms)
