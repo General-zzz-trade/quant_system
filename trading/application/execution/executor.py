@@ -7,14 +7,14 @@ extra event header, which is ignored here.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from trading.application.execution.service import ExecutionService
 from trading.application.issues import Issue
-from trading.application.ports import OrderJournal
+from trading.application.ports import OrderJournal, PositionView
 from trading.domain.orders import ConfirmedFill, OrderIntent
 
 
@@ -100,9 +100,9 @@ class OwnerExecutor:
                           qty=Decimal(str(row["qty"])), price=Decimal(str(row["price"])))
                      for row in self._service.poll())
 
-    def reconcile_account(self, symbol: str) -> list[Issue]:
+    def reconcile_account(self, symbol: str, positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
         """Read-only verification; a blocking issue blocks entries until a clean pass."""
-        return self._service.reconcile(symbol)
+        return self._service.reconcile(symbol, positions)
 
 
 __all__ = ["Fill", "OwnerExecutor"]

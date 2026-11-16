@@ -1,0 +1,114 @@
+[
+ [
+  "snapshot sends a symbol",
+  "trading/adapters/binance/adapter.py",
+  "return self._position_rows(self._client.request_signed(method=\"GET\", path=\"/fapi/v2/positionRisk\", params={}))",
+  "return self._position_rows(self._client.request_signed(method=\"GET\", path=\"/fapi/v2/positionRisk\", params={\"symbol\": \"BTCUSDT\"}))",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "duplicate allowed",
+  "trading/adapters/binance/adapter.py",
+  "            if symbol in out or p.get(\"positionSide\", \"BOTH\") != \"BOTH\":",
+  "            if p.get(\"positionSide\", \"BOTH\") != \"BOTH\":",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "hedge allowed",
+  "trading/adapters/binance/adapter.py",
+  "            if symbol in out or p.get(\"positionSide\", \"BOTH\") != \"BOTH\":",
+  "            if symbol in out:",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "bad qty allowed",
+  "trading/adapters/binance/adapter.py",
+  "            if not amt.is_finite():\n                raise RuntimeError(\"Invalid Binance position quantity\")\n            out[symbol]",
+  "            out[symbol]",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "no-symbol row allowed",
+  "trading/adapters/binance/adapter.py",
+  "            if not isinstance(symbol, str) or not symbol:\n                raise RuntimeError(\"Invalid Binance position snapshot\")",
+  "            if False:\n                raise RuntimeError(\"Invalid Binance position snapshot\")",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "flat rows dropped",
+  "trading/adapters/binance/adapter.py",
+  "            out[symbol] = VenuePosition(\n                venue=\"binance\", symbol=symbol, qty=amt,",
+  "            if amt == 0:\n                continue\n            out[symbol] = VenuePosition(\n                venue=\"binance\", symbol=symbol, qty=amt,",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "sim snapshot empty",
+  "trading/adapters/simulated/exchange.py",
+  "mark_price=b.mark) for name, b in self._selected(\"\")}",
+  "mark_price=b.mark) for name, b in self._selected(\"\") if b.position.qty != 0}",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "reconcile ignores snapshot",
+  "trading/application/reconcile.py",
+  "rows = [positions[symbol]] if positions is not None and symbol in positions \\\n            else account.get_positions(symbol=symbol, strict=True)",
+  "rows = account.get_positions(symbol=symbol, strict=True)",
+  "tests/unit/trading/test_account_snapshot.py tests/characterization/test_account_weight.py"
+ ],
+ [
+  "reconcile trusts a missing row",
+  "trading/application/reconcile.py",
+  "rows = [positions[symbol]] if positions is not None and symbol in positions \\\n            else account.get_positions(symbol=symbol, strict=True)",
+  "rows = [positions[symbol]] if positions is not None and symbol in positions \\\n            else (() if positions is not None else account.get_positions(symbol=symbol, strict=True))",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "stops ignore snapshot",
+  "trading/application/execution/stops.py",
+  "venue = positions[self.symbol] if positions is not None and self.symbol in positions \\\n            else self._venue_position()",
+  "venue = self._venue_position()",
+  "tests/unit/trading/test_account_snapshot.py tests/characterization/test_account_weight.py"
+ ],
+ [
+  "stops trust a missing row",
+  "trading/application/execution/stops.py",
+  "venue = positions[self.symbol] if positions is not None and self.symbol in positions \\\n            else self._venue_position()",
+  "venue = positions.get(self.symbol) if positions is not None else self._venue_position()",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "exit side no snapshot",
+  "trading/application/exit_supervisor.py",
+  "        positions = self._position_snapshot()\n",
+  "        positions = None\n",
+  "tests/unit/trading/test_account_snapshot.py tests/characterization/test_account_weight.py"
+ ],
+ [
+  "snapshot before fills",
+  "trading/application/exit_supervisor.py",
+  "        failed: dict[str, Exception] = {}\n        for symbol, session in self.sessions.items():",
+  "        positions = self._position_snapshot()\n        failed: dict[str, Exception] = {}\n        for symbol, session in self.sessions.items():",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "consume failure ignored",
+  "trading/application/exit_supervisor.py",
+  "                if symbol in failed:\n                    raise failed[symbol]\n",
+  "",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "snapshot failure raises",
+  "trading/application/exit_supervisor.py",
+  "        try:\n            return self.account.get_position_snapshot()\n        except Exception as exc:",
+  "        try:\n            return self.account.get_position_snapshot()\n        except ZeroDivisionError as exc:",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "no account check",
+  "trading/application/exit_supervisor.py",
+  "        if self.account is None:\n            return None\n        try:\n            return self.account.get_position_snapshot()",
+  "        try:\n            return self.account.get_position_snapshot()",
+  "tests/unit/trading/test_account_snapshot.py"
+ ]
+]
