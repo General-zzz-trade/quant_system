@@ -4058,3 +4058,29 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **新增测试**：`tests/unit/trading/test_strategy_inputs.py`（8 个，含一个真实运行时里窗口带着交易所字段的测试）。改代码前 8 个全部失败。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r7a_strategy_inputs.json` 5 个，5/5 被杀。
 - **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过。
+
+## R7b 实验室的 29 个想法写成策略接口的实现（2026-11-16 晚，资金路径完整流程）
+
+- **改了什么**：新模块 `trading/domain/strategy/ideas.py`：实验室第一轮的 29 个想法（`research/lab/runs/2026-11-16/ideas.py`），
+  函数体照抄（只加了类型注解），改的只是输入从哪里来——每个品种的 K 线框架由窗口构造（`lab_frame`，资金费按小时求和，和
+  `lab.um_lab.frame` 一样），BTCUSDT 的框架来自 BTCUSDT 的窗口（`references`），横截面想法在给它的窗口之间排名，而不是自己去读数据快照。
+  `IdeaStrategy` 是接口实现：`history` 给实验室回测，`latest` 给实盘。每个想法有自己需要的最长回看天数（加 3 天余量；三个会延续
+  持仓状态的想法再加 120 天）。29 个想法按实验室的名字登记，参数必须正好是它参数表里的名字、都是正数；5 个横截面想法标记为横截面，
+  7 个读 BTCUSDT 的想法要求规格列出 BTCUSDT。
+- **证据**【测试日志】：
+  - 29 个想法、91 组参数，在合成数据上（横截面想法用 7 个品种）和实验室自己的函数**逐位相同**（`test_lab_ideas.py`）；合成数据里
+    放了闪跌、放量日和资金费的阶段，确保每个想法都有非零的仓位可比（否则测试拒绝）。
+  - 实盘用的截尾窗口（`window_hours` 根 K 线）给出的值和完整历史在同一收盘的值相同：120 天里 26 个收盘、每个想法每组参数。
+    比较允许 1e-9 的相对误差：pandas 的滚动标准差从数据开头累积，截尾窗口和完整历史在最后一位小数上可能不同；决定不会因此改变
+    （改变的话差的是一整个仓位，测试会失败）。
+  - 防未来函数检查：模块登记为特征模块，每个想法一个检查用例（改变或删除切点之后才知道的数据，切点之前的输出必须逐位不变）。
+    检查数据由输入推导出能让想法起反应的字段（主动买入占比、放量、资金费正负交替、由 BTC 和 ETH 合成的 4 个品种），否则检查会
+    因为输出从不变化而被判为空检查。
+- **已有测试的改动**：`test_strategy_interface.py::test_the_registry_names_every_strategy_and_refuses_an_unknown_one`：
+  原来 `assert set(STRATEGIES) == {"overlay"}`，现在 `assert set(STRATEGIES) == {"overlay"} | set(IDEAS)`（登记了 29 个想法）。
+  测试辅助：`test_lookahead.py` 登记新模块并加 29 个用例。
+- **新增测试**：`tests/unit/trading/test_lab_ideas.py`（131 个，含参数化）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r7b_lab_ideas.json` 16 个，按顺序、关闭字节码缓存，每个变异只跑针对它的测试。
+  第一轮：8 个被杀；1 个存活（"收益大于 0"改成"大于等于 0"：数据里收益恰好为 0 的情况不会出现，实际等价，换成"回看少算一天"）；
+  7 个"基线失败"是我的错：工具按空格切分测试选择，`-k "a or b"` 被拆坏了。改用测试节点名重跑这 8 个：全部被杀，最终 16/16。
+- **本地**【实际运行结果】：新测试、防未来函数检查整个文件、ruff、`mypy trading/`（96 个文件）、导入契约（5 个）通过。
