@@ -12,9 +12,12 @@ parameters; the method is the one written in research/lab/runs/2026-11-16/ideas.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+import json
+import pickle
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import asdict, dataclass
 from decimal import Decimal as D
+from multiprocessing import get_context
 from pathlib import Path
 
 import pandas as pd
@@ -141,5 +144,193 @@ def period_daily(curves: list[pd.Series], start: int, end: int, *, slots: int, s
     return daily.reindex(pd.RangeIndex(start // DAY, end // DAY)).fillna(0.0)
 
 
-__all__ = ["BTC", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant", "period_daily", "periods",
-           "universe", "universe_record"]
+def joined(periods: Mapping[int, dict], ks: Iterable[int]) -> pd.Series:
+    """The daily returns of periods ``ks`` of one configuration, end to end."""
+    parts = [periods[k]["daily"] for k in ks]
+    return pd.concat(parts) if parts else pd.Series(dtype=float)
+
+
+# -- configurations and their replays --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Config:
+    """One configuration: an idea's parameter set, the stop variant and the cost multiplier of the broker."""
+    idea: str
+    params: dict
+    stop: StopVariant = LIVE_STOP
+    cost: int = 1
+
+    @property
+    def label(self) -> dict:
+        return {"params": self.params, "stop": asdict(self.stop)}
+
+    @property
+    def key(self) -> str:
+        return json.dumps(self.label, sort_keys=True)
+
+
+Job = tuple[Config, tuple[int, ...]]                             # a configuration and the periods to replay
+_WORKER: "Judge | None" = None                                   # the judge of a running pool (forked workers)
+
+
+def _work(job: Job) -> dict:
+    assert _WORKER is not None
+    return _WORKER.run_config(job)
+
+
+@dataclass(frozen=True)
+class Judge:
+    """One run's settings. ``ideas``: name -> (function, parameter grid) as lab.um_lab.Idea; ``lists``: one symbol
+    list per period (``universe``); ``terms`` gives the capital and the pilot's limits, the stop is each
+    configuration's ``StopVariant``. ``cross_sectional`` ideas read the period's list (``ctx["universe"]``).
+    ``note`` goes into every registry row. ``legacy_days``: see ``period_daily``."""
+    ideas: Mapping[str, tuple[Callable, list[dict]]]
+    lists: Sequence[Sequence[str]]
+    cache: Path
+    run_date: str
+    snapshot: Path = lab.SNAPSHOT
+    terms: lab.LiveTerms = lab.LIVE
+    slots: int = 10
+    periods: tuple[tuple[int, int], ...] = PERIODS
+    cross_sectional: frozenset = frozenset()
+    trials: Path = lab.TRIALS
+    note: str = ""
+    legacy_days: bool = False
+
+    def __post_init__(self) -> None:
+        if len(self.lists) != len(self.periods):
+            raise ValueError(f"one symbol list per period: {len(self.lists)} lists, {len(self.periods)} periods")
+        if any(len(symbols) > self.slots for symbols in self.lists):
+            raise ValueError(f"a list has more symbols than slots ({self.slots})")
+
+    @property
+    def slot_capital(self) -> float:
+        return float(D(self.terms.capital) / self.slots)
+
+    @property
+    def holdout(self) -> int:
+        return len(self.periods) - 1
+
+    @property
+    def selection(self) -> range:
+        return range(self.holdout)
+
+    @property
+    def folds(self) -> range:
+        return range(1, self.holdout)
+
+    def candidates(self, name: str, variants: Sequence[StopVariant] = (LIVE_STOP,)) -> list[Config]:
+        """Every parameter set of an idea with every stop variant, in the order ties are broken."""
+        return [Config(name, params, variant) for params in self.ideas[name][1] for variant in variants]
+
+    # -- one configuration ---------------------------------------------------------------------------------
+    def run_config(self, job: Job) -> dict:
+        """One configuration over the periods asked for: per period the account's daily returns, the round
+        trips, the entry orders (time, notional), the exchange stops and the number of fills. Every period starts
+        flat: each listed contract is replayed from ``slot_capital``, whatever the period before left."""
+        config, wanted = job
+        fn = self.ideas[config.idea][0]
+        btc, slot, out, weights = lab.frame(BTC, self.snapshot), self.slot_capital, {}, {}
+        for k in wanted:
+            start, end = self.periods[k]
+            symbols, curves, trips, entries, stops, fills = list(self.lists[k]), [], [], [], 0, 0
+            for symbol in symbols:
+                df = lab.frame(symbol, self.snapshot)
+                key = (symbol, tuple(symbols) if config.idea in self.cross_sectional else None)
+                if key not in weights:
+                    ctx = {"params": config.params, "btc": btc, "symbol": symbol, "universe": symbols}
+                    weights[key] = fn(df, ctx).reindex(df.index).fillna(0.0)
+                w = weights[key]
+                if not (w[(w.index >= start - H) & (w.index < end)] != 0).any():
+                    continue
+                r = lab.replay(symbol, w, cost_multiplier=config.cost, start=start, end=end, snapshot=self.snapshot,
+                               starting_balance=str(slot), **config.stop.replay_terms())
+                if not len(r["curve"]):
+                    continue
+                curves.append(r["curve"])
+                trips += lab.round_trips(r["fills"])
+                entries += [(at, notional) for at, notional, reduce in r["orders"] if not reduce]
+                stops += sum(1 for f in r["fills"] if f["order"] == "protective_stop")
+                fills += len(r["fills"])
+            daily = period_daily(curves, start, end, slots=self.slots, slot_capital=slot, legacy=self.legacy_days)
+            out[k] = {"daily": daily, "trips": sorted(trips), "entries": sorted(entries), "stops": stops,
+                      "fills": fills}
+        return {"config": config, "periods": out}
+
+    # -- cache and registry --------------------------------------------------------------------------------
+    def _settings(self) -> dict:
+        """What a cached result depends on besides its configuration."""
+        return {"snapshot": self.snapshot.name, "capital": self.terms.capital, "slots": self.slots,
+                "periods": [list(p) for p in self.periods], "lists": [list(symbols) for symbols in self.lists],
+                "legacy_days": self.legacy_days}
+
+    def _path(self, config: Config) -> Path:
+        tag = "_".join(f"{k}{v}" for k, v in sorted(config.params.items()))
+        return self.cache / f"{config.idea}__{tag}__{config.stop.name}__x{config.cost}.pkl"
+
+    def _cached(self, config: Config) -> dict:
+        path = self._path(config)
+        if not path.exists():
+            return {}
+        stored = pickle.loads(path.read_bytes())
+        if stored["settings"] != self._settings():
+            raise ValueError(f"{path} was made with other settings; use another cache directory")
+        return stored["periods"]
+
+    def load(self, config: Config) -> dict:
+        """The cached periods of a configuration: {period: result}."""
+        found = self._cached(config)
+        if not found:
+            raise KeyError(f"not in the cache: {config.idea} {config.key} x{config.cost}")
+        return found
+
+    def _row(self, config: Config, k: int, result: dict) -> dict:
+        s = lab.summary(result["daily"])
+        row = {"date": self.run_date, "idea": config.idea, "params": config.params, "stop": config.stop.name,
+               "cost_multiplier": config.cost, "holdout": k == self.holdout,
+               "terms": f"{self.terms.capital} USDT, {self.slots} slots, yearly list, {config.stop.name}",
+               "window": [_date(t) for t in self.periods[k]], "total_return": s.get("total_return"),
+               "sharpe": s.get("sharpe"), "max_drawdown": s.get("max_drawdown"),
+               "round_trips": len(result["trips"]), "fills": result["fills"]}
+        if self.note:
+            row["note"] = self.note
+        if self.legacy_days:
+            row["days"] = "as the 2026-11-16 script: each period's first day is not counted"
+        return row
+
+    def run_all(self, jobs: Sequence[Job], *, processes: int = 2, holdout: bool = False) -> int:
+        """Replay what the cache lacks (a cached configuration with fewer periods is extended, not rerun) and
+        append one registry row per configuration and period before the cache keeps it. Returns the number of
+        configurations replayed. A job on the holdout period is refused unless ``holdout`` (``final`` only)."""
+        global _WORKER
+        if not holdout and any(self.holdout in wanted for _, wanted in jobs):
+            raise ValueError("the holdout period is read only in the final check of a survivor")
+        todo = []
+        for config, wanted in jobs:
+            missing = tuple(k for k in wanted if k not in self._cached(config))
+            if missing:
+                todo.append((config, missing))
+        if not todo:
+            return 0
+        self.cache.mkdir(parents=True, exist_ok=True)
+        for symbol in sorted({s for _, wanted in todo for k in wanted for s in self.lists[k]} | {BTC}):
+            lab.frame(symbol, self.snapshot)                      # loaded once, shared by the forked workers
+        _WORKER = self
+        pool = get_context("fork").Pool(processes) if processes > 1 else None
+        try:
+            results = pool.imap_unordered(_work, todo) if pool else map(self.run_config, todo)
+            for result in results:
+                config = result["config"]
+                old = self._cached(config)
+                lab.record([self._row(config, k, p) for k, p in result["periods"].items() if k not in old],
+                           self.trials)
+                stored = {"settings": self._settings(), "periods": {**old, **result["periods"]}}
+                self._path(config).write_bytes(pickle.dumps(stored))
+        finally:
+            _WORKER = None
+            if pool:
+                pool.terminate()
+        return len(todo)
+
+
+__all__ = ["BTC", "Config", "Judge", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant", "joined",
+           "period_daily", "periods", "universe", "universe_record"]

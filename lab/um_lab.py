@@ -122,9 +122,10 @@ def liquid(symbol: str, *, min_daily_quote: float, snapshot: Path = SNAPSHOT) ->
 # -- one contract through the shared broker --------------------------------------------------------------------
 def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: int = START, end: int = END,
            snapshot: Path = SNAPSHOT, starting_balance: str = "5000", stop_pct: str = "0",
-           pause_ms: int | None = None) -> dict:
+           pause_ms: int | None = None, reenter_after_stop: str = "pause") -> dict:
     """Target weights (decided at each bar's close, index = open time) through the shared broker. Returns the
-    hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only)."""
+    hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only).
+    ``stop_pct``, ``pause_ms`` and ``reenter_after_stop`` are lab.simulate's stop, pause and re-entry rule."""
     df = frame(symbol, snapshot)
     df = df[(df.index >= start - 40 * DAY) & (df.index < end)]
     bars = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
@@ -136,7 +137,8 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
     result = simulate(symbol, bars, targets, funding, StrategySpec(execution="market"),
                       start_ms=max(start, int(df.index[0]) if len(df) else start), end_ms=end,
                       rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier,
-                      starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms)
+                      starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms,
+                      reenter_after_stop=reenter_after_stop)
     curve = result.curve.set_index("at")["equity"]
     orders = [(int(o["submitted_at"]), float(D(o["qty"]) * D(o["reference"])), bool(o["reduce_only"]))
               for o in result.order_rows if o.get("rejection") != "below trading minimum"]
