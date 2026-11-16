@@ -16,5 +16,10 @@ class LogNotifier:
         else:
             logger.log(_LEVELS.get(level, logging.ERROR), "%s", title)
 
+    def deliver(self, title: str, detail: str = "", *, timeout_s: float) -> bool:
+        """The process log reaches no person: logged, and never counted as delivered (ADR-0016 point 2)."""
+        self.alert("info", title, detail)
+        return False
+
 
 __all__ = ["LogNotifier"]
