@@ -141,3 +141,21 @@ def test_the_restart_skips_only_bars_the_venue_has_matched(tmp_path):
     from trading.domain.bars import bar_from_kline
     last, nxt = bar_from_kline(rows[world["warm"] + 2]), bar_from_kline(rows[world["warm"] + 3])
     assert venue.has_matched("BTCUSDT", last) and not venue.has_matched("BTCUSDT", nxt)
+
+
+def test_a_process_that_has_not_loaded_the_saved_state_writes_nothing_over_it(tmp_path):
+    world = _world(tmp_path, _spec())
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    for i in range(world["warm"], world["warm"] + 5):
+        _advance(world, runtime, i)
+    from tests.support.paper_state import edit_saved_paper_state
+    saved = []
+    edit_saved_paper_state(state, saved.append)
+    restarted = _paper(world, state)                     # its exchange is still empty ...
+    restarted.status()                                   # ... and reading the journal must not save it
+    restarted.reconcile()
+    after = []
+    edit_saved_paper_state(state, after.append)
+    assert after == saved and saved[0]["symbols"]["BTCUSDT"]["cursor"] == runtime.sessions["BTCUSDT"].cursor
