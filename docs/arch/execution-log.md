@@ -3619,8 +3619,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   不记尝试时间、不传当前时间；取最晚订单、不按 owner、忽略人工仓位、忽略无时间成交、取较晚者；资金费不加、资金费减、不读首笔成交、
   入口不传端口、缺端口不拒绝），基线通过，**第一轮 39 个全部被杀**。说明：第一次运行之前，对照变异清单补了两个测试（人工仓位早于成交时取
   较早者；有上限但没有资金费端口时拒绝建会话），并删掉了 `StrategyFunding` 里一行多余的有限数检查（`CappedEquity` 已把非有限的盈亏定为 0）。
-- **本地**【实际运行结果】：见 PR 说明里的本地结果一节（`tests/unit/trading`、`tests/unit/binance`、`tests/characterization`、目标运行时测试、
-  `tests/architecture`，`-x`）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
+- **本地**【实际运行结果】：`tests/unit/trading`、`tests/unit/binance`、`tests/characterization`、`tests/unit/lab/test_target_runtime.py`、
+  `tests/architecture` 一起跑，约 1060 个用例全部通过（`-x`，退出码 0）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
 - **待技术负责人决定**：
   1. **三个月**【实际运行结果：文档原文】：币安收入历史只保留三个月，而设计要求"从首笔成交起"累计。照设计每次重算，策略跑满约三个月后，
      更早的资金费会悄悄少算；多头通常付资金费，少算会让基数自动变大（`CLAUDE.md` 禁止的自动升级风险）。现在的处理是失败即关闭：首笔成交早于
