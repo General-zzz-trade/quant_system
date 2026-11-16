@@ -44,6 +44,7 @@ def test_target_runtime_refuses_an_isolated_stop_too_close_to_liquidation(tmp_pa
     monkeypatch.setenv("BINANCE_MARGIN_TYPE", "ISOLATED")
     monkeypatch.setenv("RISK_SCOPE", "binance-testnet-x")
     monkeypatch.setattr("runner.binance_target.load_spec", lambda path: {
+        "schema": 1, "kind": "btc_eth_multitimeframe_target",          # R2: the runtime parses the loaded spec
         "symbols": ["ETHUSDT"], "spec": {"lookbacks": [10, 30, 90]}, "passed": False})
     with pytest.raises(RuntimeError, match="liquidation distance"):
         TargetRuntime(spec_path=tmp_path / "spec.json", state_dir=tmp_path / "state", mode="execution",

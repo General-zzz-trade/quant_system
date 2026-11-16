@@ -48,6 +48,8 @@ from trading.application.runtime import POLL_SECONDS
 from trading.domain.events import EventKind
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
+from trading.domain.strategy.base import Strategy
+from trading.domain.strategy.spec import parse_spec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.config import (RuntimeConfig, Secrets, load_config, make_heartbeat, make_notifier,
@@ -104,7 +106,9 @@ class TargetRuntime(_runtime.TargetRuntime):
             config, secrets = load_config(execution=mode == "execution", testnet=testnet, stop_pct=stop_pct)
         self.config = config
         self.frozen = load_spec(spec_path)
-        spec = StrategySpec.from_record(self.frozen["spec"])
+        # R2: one record for either spec schema; the sessions get the spec's strategy and execution settings.
+        self.target_spec = parse_spec(self.frozen)
+        spec, strategy = self.target_spec.execution, self.target_spec.strategy()
         if mode == "execution":
             target.refuse_unverified_mainnet(testnet=config.testnet, spec_passed=self.frozen.get("passed"))
         self.account, self.clock, self._tca_log = account, clock, tca_log
@@ -122,17 +126,17 @@ class TargetRuntime(_runtime.TargetRuntime):
         if notifier is not None:
             journal = NotifyingEventLog(journal, notifier, prefix=alert_prefix)
         self.equity = EquitySource(clock)
-        symbols = self.frozen["symbols"]
+        symbols = list(self.target_spec.symbols)
         account_check = venue = gate_clock = paper_store = None
         if mode == "execution":
-            wiring, kill = self._execution(spec, symbols, journal)
+            wiring, kill = self._execution(spec, symbols, journal, strategy)
             assert config.leverage is not None
             account_check = target.account_checker(account, state_dir=self.state_dir, scope=config.scope,
                                                    symbols=symbols, leverage=config.leverage, margin=config.margin)
         else:
             journal = PaperDivergenceLog(journal)
             venue, gate_clock = paper_exchange(spec, symbols), BarTimeClock()
-            paper_store, wiring, kill = self._paper(spec, symbols, journal, venue, gate_clock, reset_paper)
+            paper_store, wiring, kill = self._paper(spec, symbols, journal, venue, gate_clock, reset_paper, strategy)
             account = venue
         self.exchange = venue
         super().__init__(
@@ -152,7 +156,8 @@ class TargetRuntime(_runtime.TargetRuntime):
         logger.info("Configuration %s: %s", config.digest()[:12], config.record())
 
     def _paper(self, spec: StrategySpec, symbols: list[str], journal: PaperDivergenceLog, venue: SimulatedExchange,
-               gate_clock: BarTimeClock, reset: bool) -> tuple[PaperStateStore, target.ExecutionWiring, KillSwitch]:
+               gate_clock: BarTimeClock, reset: bool,
+               strategy: Strategy) -> tuple[PaperStateStore, target.ExecutionWiring, KillSwitch]:
         """Plan B (ADR-0013): the execution path over the simulated exchange. No credentialed adapter, no signed
         request, no account setting from the environment: the code's default limits (S10 decision 3), the venue's
         unlevered account for the stop check, a kill file that is not managed unless the directory is. The paper
@@ -172,13 +177,13 @@ class TargetRuntime(_runtime.TargetRuntime):
                                   pauses=lambda pauses: DivergencePauses(pauses, journal), state=store.state)
         wiring = target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                            equity=self.equity, inputs=inputs, clock=self.clock, policy=PAPER,
-                                           paper=parts)
+                                           paper=parts, strategy=strategy)
         for symbol, session in wiring.sessions.items():
             session.sleeve = SimpleNamespace(broker=venue.broker(symbol))    # read-only, for people and tests
         return store, wiring, kill
 
-    def _execution(self, spec: StrategySpec, symbols: list[str],
-                   journal: EventLog) -> tuple[target.ExecutionWiring, KillSwitch]:
+    def _execution(self, spec: StrategySpec, symbols: list[str], journal: EventLog,
+                   strategy: Strategy) -> tuple[target.ExecutionWiring, KillSwitch]:
         config = self.config
         assert config.limits is not None and config.leverage is not None
         # In a managed directory a missing kill file reads as active (ADR-0005 5b). The runtime never clears it; the
@@ -192,7 +197,8 @@ class TargetRuntime(_runtime.TargetRuntime):
                                         strategy_loss_stop=config.strategy_loss_stop,
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
-                                         equity=self.equity, inputs=inputs, clock=self.clock), kill
+                                         equity=self.equity, inputs=inputs, clock=self.clock,
+                                         strategy=strategy), kill
 
 
 def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
@@ -245,13 +251,14 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
                                     f"{args.state_dir}", timeout_s=START_ALERT_SECONDS):
                 raise RuntimeError(f"the start-up alert was not confirmed by the alert channel "
                                    f"({notifier.channel}); execution not started")
-        market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"],
+        symbols = list(parse_spec(frozen).symbols)
+        market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=symbols,
                                          credentials=secrets.binance)
         if args.execution:   # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
             assert config.leverage is not None and account is not None and notifier is not None
             try:
                 target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope,
-                                               symbols=frozen["symbols"], leverage=config.leverage,
+                                               symbols=symbols, leverage=config.leverage,
                                                margin=config.margin)
             except RuntimeError as exc:                       # best effort: the refusal still stands
                 notifier.deliver("execution start refused", str(exc)[:3000], timeout_s=START_ALERT_SECONDS)
