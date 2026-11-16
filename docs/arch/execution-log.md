@@ -4011,3 +4011,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     这段时间停止线是"未知"（阻断入场），成交入账后恢复。真实接口对空仓行返回什么标记价没有核对过【推测】。
   - "已到线"的问题每 30 分钟重复告警，直到进程被停掉；状态文件里仍然没有显示当前累计亏损。
   - 资金费翻页假设升序：`account_check` 新增的一节可以让人核对；`get_funding_income` 遇到倒序回答仍会漏行或报"不前进"。
+
+## 试运行的两个配置：仓位倍数 `STRATEGY_LEVERAGE` 和止损距离 `STOP_PCT`（2026-11-16 晚，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 晚纠正我：币安上很小的资金都能下单（交易所的最小值限制的是名义金额，不是保证金），
+  之前"发不出单"是程序定仓位不用杠杆造成的。随后选择：10 倍逐仓、止损 4.5%、仓位为策略资金的 2 到 3 倍，15% 停止线和回撤锁定不变。
+  回测见 `research/results/overlay_pilot_leverage_2026-11-16/`（2 倍最好）。这是"不自动升级风险"规则下由人写的配置，程序从不改它。
+- **改了什么**：
+  - `trading/infrastructure/config.py`：`STRATEGY_LEVERAGE`（1 到 3；不设为 1；大于 1 必须有策略资金；不超过 `MAX_TOTAL_LEVERAGE`
+    和 `BINANCE_EXCHANGE_LEVERAGE`），进配置记录。`STOP_PCT`：命令行没有 `--stop-pct` 时的止损距离（主网服务单元不带这个参数），
+    不设为 0.08，范围用止损管理器的上下限；命令行仍然优先。模拟盘两个都不读。
+  - `trading/infrastructure/target.py`：执行模式有策略资金时，每个品种的份额乘以 `STRATEGY_LEVERAGE`。
+  - `trading/infrastructure/cli/target.py`：传入倍数；`--stop-pct` 默认改为不给（由配置决定，结果仍是 0.08）。
+  - 文档：`CLAUDE.md` 试运行一条、`.env.example`、运行手册的变量表。
+- **已有测试的改动**：没有。**测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_pilot_settings.py`（26 个）、`tests/characterization/test_pilot_leverage_sizing.py`（3 个）。
+- **变异自检**【实际运行结果】（用修过字节码问题的工具）：`scripts/dev/mutants/pilot_leverage_settings.json` 15 个变异，基线通过，
+  第一轮 14 个被杀。存活 1 个："模拟盘也乘倍数"（去掉 `paper is None` 条件）。等价：模拟盘的配置从不带策略资金
+  （`test_paper_reads_no_cap`、`test_paper_reads_neither_setting`），所以这个条件在任何可达的情况下都不改变结果。保留在清单里，标为等价。
+- **本地**【实际运行结果】：所有引用 `load_config`、`stop_pct`、`ExecutionInputs`、`preflight`、`strategy_capital` 的 28 个测试文件
+  加架构测试共 495 个通过；ruff、`mypy trading/`（93 个文件）、导入契约（5 个）通过。
+- 这个分支基于停止线的审计修复（PR #117），等它合并后再开 PR。
