@@ -166,7 +166,8 @@ def pulse(df, ctx):
     return pd.Series(((df.index // H) % 24 < ctx["params"]["hours"]) * 0.9, index=df.index)
 
 
-RUN_IDEAS = {"pulse": (pulse, [{"hours": 12}, {"hours": 8}]), "always": IDEAS["always"], "short": IDEAS["short"]}
+RUN_IDEAS = {"pulse": (lab.legacy(pulse), [{"hours": 12}, {"hours": 8}]), "always": IDEAS["always"],
+             "short": IDEAS["short"]}
 
 
 def _run_judge(market, tmp_path, **kwargs):  # noqa: F811

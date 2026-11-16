@@ -66,8 +66,10 @@ import ideas as lib                    # 当晚的 ideas.py：IDEAS = {名字: (
 
 dates = [start for start, _ in judge.PERIODS]
 lists = judge.universe(lab.SNAPSHOT, dates, capital=lab.LIVE.capital, slots=10)   # 连同规则写进 universe.json
-j = judge.Judge(ideas=lib.IDEAS, lists=lists, cache=Path("/tmp/lab_<日期>"), run_date="<日期>",
-                cross_sectional=frozenset(lib.XS), lookahead=causal)              # causal：当晚脚本里的防未来函数检查
+j = judge.Judge(ideas=lab.lab_ideas(), lists=lists, cache=Path("/tmp/lab_<日期>"), run_date="<日期>",
+                lookahead=causal)              # causal：当晚脚本里的防未来函数检查
+# R7c：想法要写成 trading/domain/strategy 里的策略（实盘跑的就是这份代码）；还没写成策略的研究函数用
+# lab.legacy(函数, cross=是否横截面) 包一下也能回测，但不能上实盘
 screened = j.screen(variants=judge.STOP_VARIANTS)   # 挑选窗口的全部配置、滚动前推、打分、淘汰；不读验证段
 checked = j.final(screened)                         # 只对过淘汰线的想法打开验证段；冠军或 None
 ```
