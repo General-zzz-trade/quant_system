@@ -77,6 +77,7 @@ class ExecutionInputs:
     strategy_capital: Decimal | None = None   # owner 2026-11-16: size from min(account, this + own realized PnL)
     funding: FundingIncome | None = None      # the account's funding income, which that PnL includes (2026-11-16)
     strategy_loss_stop: Decimal | None = None   # owner 2026-11-16: at this share of the capital lost, flatten and stop
+    strategy_leverage: Decimal = Decimal(1)     # owner 2026-11-16: a full position, in multiples of the capital
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         entry_ttl_seconds=spec.ttl_bars * HOUR_SECONDS if maker else None)
     OrderLifecycle.check_settings(scope, **settings)      # before the journal file is created
     allocation = Decimal(1) / Decimal(len(symbols)) if policy.sizing_equity == "account_share" else Decimal(1)
+    if paper is None and inputs.strategy_capital is not None:
+        allocation *= inputs.strategy_leverage           # the owner's multiple of the capital (1 to 3)
     sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
     capped: SizingEquity | None = None
     loss_stop: StrategyLossStop | None = None

@@ -20,8 +20,12 @@
 - **Calibration pilot (owner, 2026-11-16 evening):** separately, the existing BTC/ETH overlay may run on mainnet to
   collect real fills (prices, slippage, stop fills, refusals) for checking the backtest against reality. The owner
   chose to use the 150 USDT now on the account, not 300: `STRATEGY_CAPITAL_USDT=150`, so the loss stop is at
-  22.5 USDT, and BTC will hardly trade (one lot of 0.001 BTC was about 64 to 71 USDT that day, against 75 USDT per
-  symbol; `research/results/overlay_pilot_2026-11-16/README.md`).
+  22.5 USDT. Later that evening the owner chose 10x isolated margin (`BINANCE_EXCHANGE_LEVERAGE=10`,
+  `BINANCE_MARGIN_TYPE=ISOLATED`), a 4.5 % stop (`STOP_PCT=0.045`; 10x isolated allows at most 4.75 %) and positions
+  of 2 to 3 times the capital (`STRATEGY_LEVERAGE`, which the owner writes; 3 is the hard cap). The backtest of that
+  choice (`research/results/overlay_pilot_leverage_2026-11-16/`, development window) had 2x best: +69 %, Sharpe
+  0.54, max drawdown 23 %; 3x: +19 %, Sharpe 0.30, max drawdown 46 %. Exchange minimums limit an order's notional,
+  not its margin: with leverage BTC trades too (the 1x sizing was what kept it out, not the exchange).
   It has no verified edge and none is expected; the 15 % loss stop bounds the cost. Every "still required first"
   item above applies, the account must hold nothing outside the strategy ledger (a manual position on BTCUSDT or
   ETHUSDT would be netted with the strategy's; the loss stop itself counts only the ledger's positions), and the
