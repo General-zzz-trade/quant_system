@@ -381,9 +381,10 @@ class BinanceAdapter:
 
     def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal:
         """The account's USDT funding income on ``symbol`` from ``since_ms`` to ``now_ms`` (both inclusive): the
-        strategy capital base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next page starts at the
-        last row's time, and a row returned twice counts once (by its transaction id). Errors and answers that
-        cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance keeps."""
+        strategy capital base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next
+        page starts at the last row's time, and a row returned twice counts once (by its transaction id). Errors and
+        answers that cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance
+        keeps."""
         if since_ms < now_ms - INCOME_HISTORY_MS:
             raise RuntimeError(f"funding income of {symbol} since {since_ms} cannot be read whole: Binance keeps "
                                "income history for three months only")
