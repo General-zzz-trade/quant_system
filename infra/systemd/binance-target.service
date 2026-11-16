@@ -1,5 +1,5 @@
 [Unit]
-Description=Binance BTC/ETH target-position runtime (PAPER by default; see docs/btc_eth_strategy.md)
+Description=Binance BTC/ETH target-position runtime (PAPER by default; see docs/binance_runbook.md)
 After=network-online.target
 Wants=network-online.target
 

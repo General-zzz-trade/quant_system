@@ -1,9 +1,12 @@
 # quant_system — project instructions
 
-## Current status (2026-11-13) — read first
+## Current status (2026-11-16) — read first
 
 - **Not approved for live trading. No strategy has a verified edge.** Older Sharpe/return figures in docs,
   configs, `models_v8/` or commit messages are unverified claims, not results.
+- **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16). Next is M5, the
+  4-week testnet run; it waits on the owner's preparations in `docs/m5_checklist.md` (testnet key, Telegram,
+  external heartbeat, a clean-host install, the second-closePosition-stop check on the testnet).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
     - It passed a pre-registered development-window screen, which earns forward paper trading only

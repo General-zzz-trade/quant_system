@@ -1,17 +1,21 @@
 # BTC/ETH 多周期策略：研究、纸面与实盘路径（2026-11-13）
 
+> **2026-11-16 注**：这是第一版多周期研究的记录，第 2 节的结论和数字不变。运行、部署和风险操作以 `docs/binance_runbook.md` 和 `docs/m5_checklist.md` 为准；第 1 节的模块名已对到现在的代码，第 3、4 节改为指向它们。
+
 **结论：** 第一版多周期策略**未通过**预先声明的上线门槛，主网执行会被代码拒绝。研究引擎、运行时和纸面运行链路已经完成，并逐笔验证与研究一致，可以直接用于下一轮研究和前瞻纸面运行。
 
 ## 1. 架构（一个函数贯穿研究与实盘）
 
 ```
 1h 收盘 K 线 ──┬─> 聚合出完整的 4h / 日线 K 线（日线在次日 00:00 UTC 后才可见）
-              └─> lab.strategy.compute_targets / latest_target   ← 研究与实盘调用同一个函数
+              └─> trading.domain.strategy.overlay.compute_targets / latest_target   ← 研究与实盘调用同一个函数
+                  （lab.strategy 是它的转发名）
                      日线：多回看期趋势得分 × 目标波动率 ÷ 实际波动率（核心）
                      资金费：拥挤一侧仓位减半（可选层）
                      4h：波动突变降仓 / 24h 趋势确认（可选层）
-              ─> lab.rebalance.plan：差额超过阈值才交易；缩仓用 reduce-only，加仓用入场单
-              ─> 纸面：研究撮合模型 BarBroker │ 实盘：币安持久化执行 + 门禁 + 交易所端止损
+              ─> trading.domain.rebalance.plan：差额超过阈值才交易；缩仓用 reduce-only，加仓用入场单
+              ─> 纸面（S10 起）：同一条执行路径跑在模拟交易所上（研究撮合器 trading/adapters/simulated/bar_broker.py）
+                 │ 实盘：币安持久化执行 + 门禁 + 交易所端止损
 ```
 
 - **截尾窗口一致：** 所有特征都是有限滚动窗口，实盘只用尾部窗口算出的值与用全量历史算出的完全一致（`tests/unit/lab/test_lab_engine.py`）。
@@ -74,21 +78,13 @@ python3 -m lab.study --data-dir data_files/binance_public --out research/results
 
 # 发布冻结的策略（签名）；门槛未通过时，主网执行仍会被拒绝
 QUANT_MODEL_SIGN_KEY=... python3 -m scripts.publish_strategy_spec --study research/results/lab_<日期> --out models_binance/strategy
-
-# 纸面运行（默认）：行情来自主网公开接口，撮合模型与研究相同
-python3 -m runner.binance_target --spec models_binance/strategy/final_spec.json
-# 服务器常驻运行：infra/systemd/binance-target.service（默认纸面模式）
-
-# 测试网执行（需要测试网 API key，RISK_SCOPE 必须含 binance 和 testnet）
-RISK_SCOPE=binance-testnet-main python3 -m runner.binance_target --spec ... --enable-execution
 ```
 
-- **输出文件：**
-  - `data/runtime/binance_target/target_status.json`：每 5 秒更新的状态；
-  - `target_events.jsonl`：K 线、目标仓位、订单意图、纸面成交与权益、问题记录。
-- **kill switch：** `python3 -m shared.kill_file activate --flatten --path data/runtime/binance_target/kill_switch.json`。
+模拟盘、测试网执行、急停和其它风险操作、备份恢复都见 `docs/binance_runbook.md`（2026-11-16 起这里不再重复，原来的命令和路径已过时）。
 
-## 4. 下一步（第 4 周起）
+## 4. 下一步（2026-11-13 时的计划）
+
+> 后来的安排：前向检验的候选和查看日期见 `CLAUDE.md` 的 Current status 和 `research/protocols/`；测试网演练见 `docs/m5_checklist.md`。
 
 1. **前瞻纸面运行（最终测试）：** 即使本版没过门槛，也可以先在服务器上纸面运行，验证运行链路与实时数据，并积累 2026-11-13 之后的干净样本。
 2. **新一轮研究（先登记再跑）：** 方向是在“只做多趋势 + 波动率目标”平台上降低选择不稳定。例如固定一组回看期，不再选择；把多个回看期等权组合，减少可选项；或者把它定位为降回撤的仓位规则，而不是超额收益来源。门槛也要相应重新声明，例如以“同等夏普下回撤是否显著更低”为目标，**且必须在看新数据之前写好**。
