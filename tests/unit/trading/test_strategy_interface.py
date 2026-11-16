@@ -68,7 +68,8 @@ def test_a_per_symbol_strategy_reads_only_its_own_window():
 
 
 def test_the_registry_names_every_strategy_and_refuses_an_unknown_one():
-    assert set(STRATEGIES) == {"overlay"}
+    from trading.domain.strategy.ideas import IDEAS
+    assert set(STRATEGIES) == {"overlay"} | set(IDEAS)          # R7b: and the research lab's 29 ideas
     with pytest.raises(ValueError, match="unknown strategy"):
         strategy_from("momentum_xs", SPEC)
 

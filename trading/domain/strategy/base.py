@@ -23,6 +23,7 @@ from typing import Any, Protocol
 
 import pandas as pd
 
+from trading.domain.strategy.ideas import IDEAS as LAB_IDEAS, IdeaStrategy
 from trading.domain.strategy.overlay import StrategySpec, compute_targets
 
 
@@ -92,7 +93,13 @@ class OverlayStrategy(PerSymbol):
         return compute_targets(window.hourly, window.funding, self.spec)
 
 
-STRATEGIES: dict[str, Callable[[Any], Strategy]] = {"overlay": OverlayStrategy}
+# The overlay, and from R7b the research lab's ideas under their lab names (trading/domain/strategy/ideas.py).
+def _idea(name: str) -> Callable[[Any], Strategy]:
+    return lambda params: IdeaStrategy(name, params)
+
+
+STRATEGIES: dict[str, Callable[[Any], Strategy]] = {"overlay": OverlayStrategy,
+                                                    **{name: _idea(name) for name in LAB_IDEAS}}
 
 
 def strategy_from(name: str, params: Any) -> Strategy:

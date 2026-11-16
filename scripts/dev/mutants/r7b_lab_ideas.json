@@ -1,0 +1,114 @@
+[
+ [
+  "funding not summed",
+  "trading/domain/strategy/ideas.py",
+  "rates = pd.Series(np.asarray(funding.to_numpy(), dtype=float), index=hours).groupby(level=0).sum()",
+  "rates = pd.Series(np.asarray(funding.to_numpy(), dtype=float), index=hours).groupby(level=0).last()",
+  "tests/unit/trading/test_lab_ideas.py -k lab_frame"
+ ],
+ [
+  "no funding is not zero",
+  "trading/domain/strategy/ideas.py",
+  "frame[\"funding\"] = rates.reindex(frame.index).fillna(0.0).to_numpy()",
+  "frame[\"funding\"] = rates.reindex(frame.index).fillna(1e-4).to_numpy()",
+  "tests/unit/trading/test_lab_ideas.py -k lab_frame"
+ ],
+ [
+  "panel of one symbol",
+  "trading/domain/strategy/ideas.py",
+  "for s in ctx[\"universe\"]})",
+  "for s in ctx[\"universe\"][:4]})",
+  "tests/unit/trading/test_lab_ideas.py -k B2_xs"
+ ],
+ [
+  "no day margin",
+  "trading/domain/strategy/ideas.py",
+  "days = int(self.idea.days(self.params)) + 3 +",
+  "days = int(self.idea.days(self.params)) + 0 +",
+  "tests/unit/trading/test_lab_ideas.py::test_the_window_covers_each_idea_s_longest_lookback tests/unit/trading/test_lab_ideas.py::test_the_runtime_s_trailing_window_gives_the_whole_history_s_value[A1_tsmom_long]"
+ ],
+ [
+  "no state margin",
+  "trading/domain/strategy/ideas.py",
+  "(STATE_MARGIN_DAYS if self.idea.state else 0)",
+  "(0 if self.idea.state else 0)",
+  "tests/unit/trading/test_lab_ideas.py::test_the_window_covers_each_idea_s_longest_lookback tests/unit/trading/test_lab_ideas.py::test_the_runtime_s_trailing_window_gives_the_whole_history_s_value[B4_band_reversion_ls]"
+ ],
+ [
+  "no btc reference",
+  "trading/domain/strategy/ideas.py",
+  "return (BTC,) if self.idea.btc else ()",
+  "return ()",
+  "tests/unit/trading/test_lab_ideas.py::test_the_registry_knows_every_idea_and_checks_its_parameters tests/unit/trading/test_lab_ideas.py::test_a_spec_can_name_an_idea_and_one_that_reads_btc_must_list_it"
+ ],
+ [
+  "btc missing allowed",
+  "trading/domain/strategy/ideas.py",
+  "        if self.idea.btc and BTC not in frames:\n            raise",
+  "        if False:\n            raise",
+  "tests/unit/trading/test_lab_ideas.py -k refuses_windows"
+ ],
+ [
+  "always ready",
+  "trading/domain/strategy/ideas.py",
+  "ready = np.arange(len(frame)) >= need - 1",
+  "ready = np.arange(len(frame)) >= 0",
+  "tests/unit/trading/test_lab_ideas.py -k ready_only"
+ ],
+ [
+  "never cross",
+  "trading/domain/strategy/ideas.py",
+  "self.cross_sectional = self.idea.cross",
+  "self.cross_sectional = False",
+  "tests/unit/trading/test_lab_ideas.py::test_the_registry_knows_every_idea_and_checks_its_parameters tests/unit/trading/test_lab_ideas.py::test_a_spec_can_name_an_idea_and_one_that_reads_btc_must_list_it"
+ ],
+ [
+  "bool params",
+  "trading/domain/strategy/ideas.py",
+  "if isinstance(value, bool) or not isinstance(value, (int, float))",
+  "if not isinstance(value, (int, float))",
+  "tests/unit/trading/test_lab_ideas.py -k registry"
+ ],
+ [
+  "extra params",
+  "trading/domain/strategy/ideas.py",
+  "if not isinstance(params, Mapping) or set(params) != wanted:",
+  "if not isinstance(params, Mapping) or not wanted <= set(params):",
+  "tests/unit/trading/test_lab_ideas.py -k registry"
+ ],
+ [
+  "zero params",
+  "trading/domain/strategy/ideas.py",
+  "or not np.isfinite(value) or value <= 0:",
+  "or not np.isfinite(value) or value < 0:",
+  "tests/unit/trading/test_lab_ideas.py -k registry"
+ ],
+ [
+  "E2 window short",
+  "trading/domain/strategy/ideas.py",
+  "\"E2_calm_trend\": Idea(_calm_trend, _grid(w=[20, 30, 60]), lambda p: p[\"w\"] + 180)",
+  "\"E2_calm_trend\": Idea(_calm_trend, _grid(w=[20, 30, 60]), lambda p: p[\"w\"])",
+  "tests/unit/trading/test_lab_ideas.py::test_the_window_covers_each_idea_s_longest_lookback tests/unit/trading/test_lab_ideas.py::test_the_runtime_s_trailing_window_gives_the_whole_history_s_value[E2_calm_trend]"
+ ],
+ [
+  "ideas not registered",
+  "trading/domain/strategy/base.py",
+  "                                                    **{name: partial(IdeaStrategy, name) for name in LAB_IDEAS}}",
+  "                                                    }",
+  "tests/unit/trading/test_lab_ideas.py::test_the_registry_knows_every_idea_and_checks_its_parameters tests/unit/trading/test_lab_ideas.py::test_a_spec_can_name_an_idea_and_one_that_reads_btc_must_list_it"
+ ],
+ [
+  "params not registered",
+  "trading/domain/strategy/spec.py",
+  "    **{name: partial(idea_params, name) for name in IDEAS},          # R7b: the lab's ideas\n",
+  "",
+  "tests/unit/trading/test_lab_ideas.py::test_the_registry_knows_every_idea_and_checks_its_parameters tests/unit/trading/test_lab_ideas.py::test_a_spec_can_name_an_idea_and_one_that_reads_btc_must_list_it"
+ ],
+ [
+  "tsmom lookback off by one",
+  "trading/domain/strategy/ideas.py",
+  "return _hours(df, (d[\"close\"] / d[\"close\"].shift(ctx[\"params\"][\"n\"]) - 1 > 0) * ON)",
+  "return _hours(df, (d[\"close\"] / d[\"close\"].shift(ctx[\"params\"][\"n\"] + 1) - 1 > 0) * ON)",
+  "tests/unit/trading/test_lab_ideas.py -k A1_tsmom"
+ ]
+]

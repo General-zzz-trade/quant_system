@@ -20,13 +20,19 @@ from dataclasses import dataclass, fields, replace
 from typing import Any
 
 from trading.domain.strategy.base import STRATEGIES, Strategy
+from trading.domain.strategy.ideas import IDEAS, idea_params
 from trading.domain.strategy.overlay import StrategySpec
 
 MAX_SYMBOLS = 10                    # owner 2026-11-16: at most 10 symbols in the first version
 KIND_V1, KIND_V2 = "btc_eth_multitimeframe_target", "target_strategy"
+def _idea_params(name: str) -> Callable[[Mapping[str, Any]], Any]:
+    return lambda params: idea_params(name, params)
+
+
 # How each strategy's parameters become what its constructor takes.
 PARAMS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "overlay": lambda params: StrategySpec.from_record(dict(params)),
+    **{name: _idea_params(name) for name in IDEAS},                  # R7b: the lab's ideas
 }
 
 
