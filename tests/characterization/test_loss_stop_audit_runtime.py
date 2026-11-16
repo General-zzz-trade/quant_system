@@ -3,22 +3,28 @@ reproductions, asserting the decided behaviour. The fake account holds 10,000 US
 the stop is at -45 USDT."""
 from __future__ import annotations
 
+import dataclasses
 import json
 from decimal import Decimal as D
+from types import SimpleNamespace
 
 import pytest
 
+from lab.strategy import StrategySpec
+from runner.binance_target import TargetRuntime
 from tests.characterization.test_exit_paths import _tick, _until
 from tests.characterization.test_runtime_decisions import _events, _runtime
 from tests.characterization.test_strategy_capital_sizing import _execution
 from tests.characterization.test_strategy_loss_stop_runtime import _flat, _holding, _kill
 from tests.support.state_db import state_dir_db
 from tests.unit.binance.fake_venue import HOUR, FakeBinance
-from tests.unit.lab.test_target_runtime import _advance
+from tests.unit.lab.test_target_runtime import _advance, _world
 from tests.unit.trading.test_market_failures import _due, _market
 from trading.adapters.binance.rest import BinanceRetryableError
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB
+from trading.application.issues import Issue
+from trading.domain.issues import IssueKind
 from trading.domain.issues import STOP_PAUSE_SECONDS
 
 SCOPE = "binance-testnet-ut"
@@ -226,3 +232,39 @@ def test_a_stop_s_pause_ends_four_hours_after_it_was_set_to_the_second(tmp_path)
     _tick(world, runtime)
     (pause,) = [p for p in runtime.pauses.active() if p["symbol"] == "BTCUSDT"]
     assert pause["ends_at"] == world["clock"]["now"] + STOP_PAUSE_SECONDS == world["clock"]["now"] + 4 * 3600
+
+
+# -- survivors of the first mutation round -------------------------------------------------------------------------
+def test_a_new_finding_of_the_stop_blocks_entries_in_the_reconciliation_that_found_it(tmp_path):
+    world, runtime = _execution(tmp_path)
+    _tick(world, runtime)
+    assert all(s.executor.ready for s in runtime.sessions.values())
+    finding = Issue(IssueKind.STRATEGY_LOSS_STOP, None, "strategy loss unknown (test)")
+    runtime.exits.loss_stop = SimpleNamespace(check=lambda: [finding], take_trip=lambda: None)
+    runtime.exits.reconcile()                                         # one reconciliation, nothing before it
+    assert not any(s.executor.ready for s in runtime.sessions.values())
+    assert all(finding in runtime.exits.last_issues[symbol] for symbol in runtime.sessions)
+    runtime.exits.update_states()
+    assert {s.state.value for s in runtime.sessions.values()} == {"blocked"}
+
+
+def test_paper_builds_neither_the_stop_nor_the_capped_base_even_if_handed_a_capital(tmp_path, monkeypatch):
+    """Paper reads no strategy capital (``load_config``); the composition's own guard is checked here by handing it
+    one anyway."""
+    from trading.infrastructure import target
+    real, built = target.execution_sessions, []
+
+    def with_capital(spec, symbols, *, inputs, **kw):
+        inputs = dataclasses.replace(inputs, strategy_capital=D("300"), funding=world["adapter"],
+                                     strategy_loss_stop=D("0.15"))
+        built.append(real(spec, symbols, inputs=inputs, **kw))
+        return built[-1]
+    monkeypatch.setattr(target, "execution_sessions", with_capital)
+    spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
+    world = _world(tmp_path, spec)
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
+                            market=world["adapter"], clock=lambda: world["clock"]["now"])
+    (wiring,) = built
+    assert wiring.loss_stop is None and runtime.exits.loss_stop is None
+    runtime.warmup()
+    assert all(fake.income_requests == [] for fake in world["fakes"].values())      # no funding asked: no capped base

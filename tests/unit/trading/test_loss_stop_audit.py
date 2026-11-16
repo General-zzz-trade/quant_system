@@ -127,13 +127,14 @@ def test_the_journal_lists_every_owner_its_scope_knows(tmp_path):
     journal, other = SqliteOrderJournal(path, "scope"), SqliteOrderJournal(path, "another")
     assert journal.owners() == []
     journal.insert_fill(fill_id="f1", intent_id="i1", owner="target.BTCUSDT", payload={})     # a fill, not consumed
-    journal.set_position_manually("target.SOLUSDT", {"qty": "0"}, venue={}, reason="ledger := venue", at=70.0)
+    journal.set_position_manually("target.SOLUSDT", {"qty": "0"}, venue={}, reason="by hand", at=70.0)
     other.insert_fill(fill_id="f2", intent_id="i2", owner="target.XRPUSDT", payload={})       # another scope
     assert journal.owners() == ["target.BTCUSDT", "target.SOLUSDT"]
     with journal.connect() as db:                                                             # a checkpoint only
         db.execute("INSERT INTO execution_consumers VALUES ('scope', 'target.ETHUSDT', '{}')")
-        db.execute("INSERT INTO manual_actions VALUES ('scope', 1.0, 'settle_order', 'intent-9', NULL, 'x', '{}', 'r')")
+        db.execute("INSERT INTO execution_consumers VALUES ('another', 'target.DOGEUSDT', '{}')")
     assert journal.owners() == ["target.BTCUSDT", "target.ETHUSDT", "target.SOLUSDT"]
+    assert other.owners() == ["target.DOGEUSDT", "target.XRPUSDT"]
 
 
 def test_funding_asks_for_the_symbols_it_is_given_at_each_refresh():
@@ -270,3 +271,14 @@ def test_a_second_scheduled_pause_with_the_same_end_adds_no_row(tmp_path):
     assert pauses.pause("BTCUSDT", "protective stop triggered", triggers=["7"], ends_at=5000.0) is True
     assert pauses.pause("BTCUSDT", "protective stop breached", triggers=["8"], ends_at=5000.0) is False
     assert len(_rows(tmp_path)) == 1 and pauses.covered("BTCUSDT") == {"7", "8"}
+
+
+# -- a survivor of the first mutation round: an unknown loss is not forgotten for a minute ------------------------
+def test_while_the_loss_is_unknown_every_check_reads_it_again_and_keeps_blocking(tmp_path):
+    stop, kill, holder, _ = _stop(tmp_path, OSError("ledger locked"))
+    (first,) = stop.check()
+    (second,) = stop.check()                                 # the same second: still unknown, still blocking
+    assert second == first and "strategy loss unknown" in second and holder["calls"] == 2
+    holder["pnl"] = D("-50")
+    (reached,) = stop.check()                                # known again, and at the limit: no minute's wait
+    assert "strategy loss stop reached" in reached and kill.state().flatten is True and holder["calls"] == 3

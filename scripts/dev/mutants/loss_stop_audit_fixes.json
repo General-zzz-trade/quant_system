@@ -247,29 +247,22 @@
  [
   "journal owners - fills left out",
   "trading/adapters/sqlite/order_journal.py",
-  "\"UNION SELECT owner FROM execution_fills WHERE scope=? \"",
-  "\"UNION SELECT owner FROM execution_consumers WHERE scope=? \"",
-  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
- ],
- [
-  "journal owners - manual positions left out",
-  "trading/adapters/sqlite/order_journal.py",
-  "\"UNION SELECT subject FROM manual_actions WHERE scope=? AND kind='set_position'\",",
+  "\"UNION SELECT owner FROM execution_fills WHERE scope=?\",",
   "\"UNION SELECT owner FROM execution_consumers WHERE scope=?\",",
-  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
- ],
- [
-  "journal owners - manual settlements listed",
-  "trading/adapters/sqlite/order_journal.py",
-  "\"UNION SELECT subject FROM manual_actions WHERE scope=? AND kind='set_position'\",",
-  "\"UNION SELECT subject FROM manual_actions WHERE scope=?\",",
   "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "journal owners - another scope's fills listed",
   "trading/adapters/sqlite/order_journal.py",
-  "\"UNION SELECT owner FROM execution_fills WHERE scope=? \"",
-  "\"UNION SELECT owner FROM execution_fills WHERE ?<>'' \"",
+  "\"UNION SELECT owner FROM execution_fills WHERE scope=?\",",
+  "\"UNION SELECT owner FROM execution_fills WHERE ?<>''\",",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "journal owners - another scope's checkpoints listed",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"SELECT owner FROM execution_consumers WHERE scope=? \"",
+  "\"SELECT owner FROM execution_consumers WHERE ?<>'' \"",
   "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
