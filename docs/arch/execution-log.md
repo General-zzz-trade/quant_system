@@ -3576,3 +3576,58 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   读不出时按上限、盈亏为空时按上限、不扣手续费、主网检查关闭、入口不检查、定仓位不用上限、校验漏掉非正数、记录漏掉上限），基线通过，
   第一轮 12 个全部被杀。
 - **本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、目标运行时两个测试文件全部通过（`-x`，退出码 0）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
+
+## 策略资金基数计入资金费（2026-11-16，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 决定策略资金基数要计入资金费。原来的基数是 max(0, min(账户权益, 上限 + 账本已实现盈亏扣 USDT 手续费))，
+  订单账本里没有资金费，所以资金费一直不在基数里。
+- **改了什么**：
+  - `trading/adapters/binance/adapter.py`：`get_funding_income(symbol, since_ms=, now_ms=)`，只读 GET `/fapi/v1/income`（`symbol`、
+    `incomeType=FUNDING_FEE`、`startTime`、`limit=1000`），按时间翻页：下一页从上一页最后一行的时间开始（含该时间），同一行按 `tranId`
+    只计一次，不足 1000 行即停；只加该品种、`FUNDING_FEE`、资产 USDT 的行。回答不是列表、金额不是有限数、缺字段、时间不前进、超过 100 页
+    一律报错（未知不当 0）。不下单，不改账户。权重 30 在 `rate_limit.py` 里已有。
+  - 同一方法：起点早于运行时当前时间 88 天时直接报错，不发请求。币安文档原话 "Income history only contains data for the last three
+    months"，更早的资金费会少返回而不报错；三个月至少 89 天，留一天余量。**这一条是设计之外加的**，单独一个提交，见下面"待技术负责人决定"。
+  - `trading/application/ports.py`：新端口 `FundingIncome`（应用层不导入适配器，币安的字眼只在适配器里）。
+  - `trading/application/equity.py`：`StrategyFunding`。每个策略品种从策略在该品种的首笔成交起查资金费；从未交易的品种不查，计 0。最多每
+    10 分钟查一次（每个品种一个请求；失败也算一次尝试），缓存总数。最后一次成功超过 2 小时，或从未成功，`current()` 报错，`CappedEquity`
+    因此把仓位基数定为 0（只挡开仓；平仓、止损、对账不受影响）。查询失败只记警告日志，不结束运行时。时间用运行时注入的时钟。
+  - `trading/adapters/sqlite/order_journal.py`：`first_fill_at(owner)`。成交行本身没有时间，所以取该 owner 有交易所成交的最早订单的创建时间
+    （下单前一刻记下，早于或等于成交），和人工写入账本仓位（`manual position`）的时间，取较早者；有成交但订单没有创建时间时报错。
+    设计第 2 条说"读不可靠时改用状态目录清单的 `created_at`"：日志里没有成交时间，但订单创建时间可靠地落在首笔成交之前几秒内，在
+    "账户上没有策略账本以外的持仓"这个前提下这几秒里该品种不会有别的资金费，所以用订单创建时间，**没有**改用清单时间。
+  - `trading/infrastructure/target.py`：只在原来建 `CappedEquity` 的地方（执行模式且设了 `STRATEGY_CAPITAL_USDT`），已实现盈亏加上
+    `StrategyFunding.current()`。`ExecutionInputs` 加 `funding`（账户的资金费收入端口）；有上限却没有它时，建会话即报错。
+    `trading/infrastructure/cli/target.py` 的执行模式传入已连接的币安适配器。模拟盘、测试网不设上限时不变（不建，不查）。
+  - 文档：`CLAUDE.md`（共用账户一条、"不自动升级风险"的唯一例外）、`.env.example`、`docs/binance_runbook.md`。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：`tests/unit/binance/fake_venue.py` 的 `FakeBinance` 加收入历史（`income`、`add_income`、`income_requests`、
+  `income_error`；`GET /fapi/v1/income` 按 symbol、incomeType、startTime 过滤，按时间升序取 limit 行）。默认没有收入行，已有测试不受影响。
+- **新增测试**：
+  - `tests/unit/binance/test_funding_income.py`（8 个函数、10 个用例）：一次 GET 的参数和求和（起点含、之前的不算、非 USDT/其他类型/
+    其他品种不算、不下单）；回答里混进其他行也不算；2500 行翻 3 页、页界重复行只计一次；与上一页最后一行同一时间的行不丢；时间不前进时报错
+    而不死循环；读不出的回答（非列表、NaN、缺 `tranId`）报错；请求失败照样抛出；起点早于 88 天报错且不发请求，正好 88 天可读。
+  - `tests/unit/trading/test_strategy_capital.py`（新增 5 个函数、6 个用例）：从各品种首笔成交起算、未交易品种不查；最多每 10 分钟查一次
+    （599 秒不查，600 秒查）；失败时 2 小时内用上次的总数、7201 秒起基数为 0、恢复后回来；从未读到（端口或账本读不出）时基数为 0；
+    `first_fill_at`（只算有成交的订单、只算本 owner、人工仓位、取较早者、无创建时间时报错）。
+  - `tests/characterization/test_strategy_capital_sizing.py`（新增 4 个）：首笔成交后的 -40 USDT 资金费使该品种的仓位基数正好少 20
+    （1/2 分配），首笔成交前的和 BNB 的不算，未交易的品种不查；资金费读不到时第 1、2 小时仍按上次总数、第 3 小时基数为 0，运行时照常循环，
+    恢复后回来；有上限却没有资金费端口时拒绝建会话；不设上限时一次也不查。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/capped_base_funding.json` 39 个变异（起点、类型参数、资产/品种/类型过滤、翻页不前进、
+  翻页跳到最后时间 +1、只取一页、不去重、页大小、接受非有限数、非列表当空、去掉不前进检查、去掉 88 天检查、改成 90 天、88 天边界；
+  刷新间隔 60/6000 秒、刷新边界、过期 1/20 小时、过期边界、过期仍返回旧值、从未读到返回 0、失败当成功、起点不传、未交易品种从 0 查、
+  不记尝试时间、不传当前时间；取最晚订单、不按 owner、忽略人工仓位、忽略无时间成交、取较晚者；资金费不加、资金费减、不读首笔成交、
+  入口不传端口、缺端口不拒绝），基线通过，**第一轮 39 个全部被杀**。说明：第一次运行之前，对照变异清单补了两个测试（人工仓位早于成交时取
+  较早者；有上限但没有资金费端口时拒绝建会话），并删掉了 `StrategyFunding` 里一行多余的有限数检查（`CappedEquity` 已把非有限的盈亏定为 0）。
+- **本地**【实际运行结果】：见 PR 说明里的本地结果一节（`tests/unit/trading`、`tests/unit/binance`、`tests/characterization`、目标运行时测试、
+  `tests/architecture`，`-x`）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
+- **待技术负责人决定**：
+  1. **三个月**【实际运行结果：文档原文】：币安收入历史只保留三个月，而设计要求"从首笔成交起"累计。照设计每次重算，策略跑满约三个月后，
+     更早的资金费会悄悄少算；多头通常付资金费，少算会让基数自动变大（`CLAUDE.md` 禁止的自动升级风险）。现在的处理是失败即关闭：首笔成交早于
+     88 天时资金费未知，基数为 0，开仓停止。也就是说，小资金试点跑满 88 天后会停止开仓，直到另做决定。可选方案（未实现）：把资金费累计值存进
+     状态数据库，只增量查询最近的部分（要改表结构、`state_dir init/restore`）；或者"起点 = max(首笔成交, 当前 - 88 天)"加上一个已持久化的
+     早期累计值。
+  2. **翻页顺序**【推测】：币安文档没有写返回顺序。实现假设给了 `startTime` 时返回自该时间起最早的 1000 行（升序，常见用法），没有在真实
+     接口上验证（本任务不碰账户）。如果实际是倒序，翻页会漏行。建议在试点前用只读查询（`account_check` 那条路）核对一次。
+  3. 资金费超过 2 小时读不到时只有警告日志（每 10 分钟一条），没有 Telegram 告警，也没有事件；状态文件里各品种的 `sleeve_equity` 显示 0。
+  4. 前提：账户上出现策略账本以外的同品种持仓时（账户检查会挡开仓），这段时间该品种的资金费也会算进策略基数。
