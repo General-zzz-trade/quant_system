@@ -1,6 +1,7 @@
 # ruff: noqa
 # Read-only diagnosis probe (no network): runs the real runtime classes against the in-memory fake venue used by the unit tests.
-# Usage: python3 -B <this file> <empty work dir> [scenario]. See docs/arch/current-state.md.
+# Usage: python3 -B <this file> <empty work dir> [scenario]. Written for the 2026-11-14 diagnosis (deleted in R9;
+# in git history).
 """Read-only experiment (no network): TargetRuntime execution mode against the repo's in-memory FakeBinance.
 A) kill-switch flatten rejected once -> is it retried within the same bar?
 E) maker entry resting + kill(flatten) -> is the entry cancelled / the position flattened?

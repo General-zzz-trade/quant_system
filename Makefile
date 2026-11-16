@@ -18,7 +18,7 @@ test-py:  ## Money-path and core tests (CI runs them within the whole-suite shar
 test-exec:  ## Execution subsystem tests (adapters, durable execution, Binance runtime)
 	python3 -m pytest tests/unit/execution/ tests/unit/binance/ -x -q --tb=short
 
-test-all:  ## Entire suite; must pass (see docs/known_test_failures.md for the 2026-11-13 cleanup)
+test-all:  ## Entire suite; must pass (CI runs it as 4 shards)
 	python3 -m pytest tests/ -q --tb=line --ignore=tests/performance
 
 lint:  ## Lint (matches CI 'Ruff check' step)

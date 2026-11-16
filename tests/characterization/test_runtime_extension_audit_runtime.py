@@ -19,7 +19,8 @@ def test_a_paper_record_does_not_resume_under_other_strategy_parameters(tmp_path
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
                             market=world["adapter"], clock=lambda: world["clock"]["now"])
     runtime.warmup()
-    assert runtime.paper_document()["spec"] == OVERLAY.record()       # the overlay as traded, as before R2
+    # the overlay as traded, as before R2, with the spec's shorts rule since the R5/R6 audit (it allows none here)
+    assert runtime.paper_document()["spec"] == {**OVERLAY.record(), "allow_short": False}
     world["spec_path"].write_text(json.dumps(_v2(strategy=_params(target_vol=0.5))))     # another parameter
     again = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
                           market=world["adapter"], clock=lambda: world["clock"]["now"])
