@@ -80,6 +80,19 @@ def test_overlay_params_may_leave_the_execution_settings_to_the_block():
                           execution={"band": 0.07, "execution": "maker", "ttl_bars": 3}))
     assert (spec.execution.band, spec.execution.execution, spec.execution.ttl_bars) == (0.07, "maker", 3)
     assert spec.identity()["band"] == 0.07 and spec.identity()["execution"] == "maker"
+    assert spec.identity()["ttl_bars"] == 3
+
+
+def test_the_shorts_rule_is_part_of_a_paper_record_s_identity(toy):
+    """R5/R6 audit S1: two specs that differ only in allow_short are different records; a schema-1 record is not."""
+    both = parse_spec(_v2(allow_short=True)).identity()
+    long_only = parse_spec(_v2(allow_short=False)).identity()
+    assert both != long_only and long_only["allow_short"] is False and "allow_short" not in both
+    v1 = {"schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": ["BTCUSDT", "ETHUSDT"],
+          "spec": OVERLAY.record(), "passed": False}
+    assert parse_spec(v1).identity() == OVERLAY.record()
+    toy_spec = parse_spec(_v2(strategy={"name": "toy", "params": {"n": 20}}, allow_short=True))
+    assert toy_spec.identity()["allow_short"] is True
 
 
 def test_the_pilot_s_schema_1_spec_loads_as_before_and_its_identity_is_its_old_record():
@@ -129,7 +142,7 @@ def test_two_strategies_have_different_identities(toy):
     two = parse_spec(_v2(strategy={"name": "toy", "params": {"n": 40}})).identity()
     overlay = parse_spec(_v2()).identity()
     assert one != two and one == {"strategy": "toy", "params": {"n": 20}, "band": 0.05, "execution": "market",
-                                  "ttl_bars": 1}
+                                  "ttl_bars": 1, "allow_short": False}
     assert "strategy" not in overlay
 
 
@@ -182,3 +195,24 @@ def test_the_warm_up_asks_for_funding_by_the_symbol_s_interval(tmp_path, monkeyp
     base = OVERLAY.funding_window() + 30 + 1
     assert limits["ETHUSDT"] - base > limits["BTCUSDT"] - base >= 0
     assert limits["ETHUSDT"] - base == 23 or limits["ETHUSDT"] - base == 24     # one settlement an hour missed
+
+
+def test_with_equity_unknown_a_short_held_under_no_shorts_is_still_closed():
+    """R5/R6 audit S3: equity unknown (a stale funding read sizes the base to zero) plans only whole closes; the
+    clamped target 0 closes a short the spec no longer allows."""
+    from decimal import Decimal as D
+    from types import SimpleNamespace
+    from trading.application.session import TargetSession
+
+    class Parts:
+        executor = consumer = stops = gate = flattener = equity = None
+    session = TargetSession("BTCUSDT", OVERLAY, journal=None, rules=None, make_order=None, execution=Parts(),
+                            allow_short=False)
+    session.funding_interval = 8 * 3_600_000
+    session.sleeve_equity = lambda: D(0)
+    session.position_qty = lambda: D("-0.3")
+    sent = []
+    session.submit = lambda intents, bar, reason: sent.append(intents)
+    bar = SimpleNamespace(open_time=0, available_at=3_600_000, close=D(100))
+    session.decide(bar, now_ms=bar.available_at, target=(-0.5, True))
+    assert [(i.side, i.qty, i.reduce_only) for i in sent[0]] == [("buy", D("0.3"), True)]

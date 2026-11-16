@@ -1,0 +1,58 @@
+[
+ [
+  "compare does not clamp",
+  "lab/paper_compare.py",
+  "    if not allow_short:                                  # the session trades a negative target as 0 (R6)\n",
+  "    if False:\n",
+  "tests/characterization/test_runtime_extension_audit_runtime.py -k without_shorts"
+ ],
+ [
+  "identity omits the shorts rule",
+  "trading/domain/strategy/spec.py",
+  "            if self.allow_short != (not traded.long_only):",
+  "            if False:",
+  "tests/unit/trading/test_runtime_extension_audit.py tests/characterization/test_runtime_extension_audit_runtime.py -k shorts"
+ ],
+ [
+  "toy identity omits the shorts rule",
+  "trading/domain/strategy/spec.py",
+  "                \"execution\": self.execution.execution, \"ttl_bars\": self.execution.ttl_bars,\n                \"allow_short\": self.allow_short}",
+  "                \"execution\": self.execution.execution, \"ttl_bars\": self.execution.ttl_bars}",
+  "tests/unit/trading/test_runtime_extension_audit.py"
+ ],
+ [
+  "snapshot failure silent",
+  "trading/application/exit_supervisor.py",
+  "            self.snapshot_issue = issue\n            return None",
+  "            return None",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "snapshot issue not cleared",
+  "trading/application/exit_supervisor.py",
+  "        self.snapshot_issue = None\n        return positions",
+  "        return positions",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "snapshot issue written every time",
+  "trading/application/exit_supervisor.py",
+  "            if issue != self.snapshot_issue:\n                write_issue",
+  "            if True:\n                write_issue",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "missing quantity is flat",
+  "trading/adapters/binance/adapter.py",
+  "            if \"positionAmt\" not in p:          # R5 audit",
+  "            if False:          # R5 audit",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "unknown equity unclamped",
+  "trading/application/session.py",
+  "        if weight < 0 and not self.allow_short:\n",
+  "        if False:\n",
+  "tests/unit/trading/test_runtime_extension_audit.py -k equity_unknown"
+ ]
+]

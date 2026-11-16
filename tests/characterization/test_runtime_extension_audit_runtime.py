@@ -96,3 +96,26 @@ def test_an_unknown_funding_interval_still_lets_a_position_be_reduced(tmp_path, 
     assert [i.kind.value for i in issues] == ["funding_interval_unknown"] and session.state.value == "blocked"
     assert runtime.sessions["BTCUSDT"].state.value == "ready"
     assert eth.positions["ETHUSDT"] == 0 and eth.trades[-1]["side"] == "BUY"
+
+
+def test_a_paper_run_without_shorts_compares_equal_with_research(tmp_path, monkeypatch):
+    """R5/R6 audit S1: the paper record carries the spec's shorts rule and the compare tool applies the session's
+    clamp to research's targets, so a run whose overlay wants shorts it may not take is still "一致"."""
+    from lab import paper_compare
+    from runner.binance_target import TargetRuntime
+    from tests.unit.lab.test_paper_compare import _bars, _snapshot
+    monkeypatch.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
+    monkeypatch.delenv("QUANT_MODEL_SIGN_KEY", raising=False)
+    world = _world(tmp_path, _v2(allow_short=False))
+    runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
+                            market=world["adapter"], clock=lambda: world["clock"]["now"])
+    runtime.warmup()
+    _bars(world, runtime, world["warm"], 120)
+    targets = [s.last_target for s in runtime.sessions.values()]
+    _snapshot(world, tmp_path / "data")
+    assert runtime.paper_document()["spec"]["allow_short"] is False
+    report = paper_compare.compare(tmp_path / "paper", tmp_path / "data")
+    assert report.verdict == paper_compare.EQUAL, paper_compare.render(report)
+    assert sum(r.matched for r in report.symbols) > 0 and all(t[0] >= 0 for t in targets)
+    sells = [f for s in runtime.sessions.values() for f in s.sleeve.broker.fills if f["side"] == "sell"]
+    assert all(f.get("reduce", True) for f in sells)                     # no short was opened
