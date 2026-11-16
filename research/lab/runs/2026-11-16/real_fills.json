@@ -1,0 +1,129 @@
+{
+ "orders_measured": 253,
+ "of_which_exchange_closes": 0,
+ "all_person_orders": {
+  "orders": 253,
+  "median_notional": 1293,
+  "slip_bp_mean": 0.01,
+  "slip_bp_median": 0.02,
+  "slip_bp_p90": 0.02,
+  "slip_bp_max": 0.99,
+  "worst_fill_bp_p90": 0.02,
+  "fills_per_order_median": 1.0,
+  "fills_per_order_max": 35
+ },
+ "by_notional": {
+  "under 500 USDT": {
+   "orders": 42,
+   "median_notional": 301,
+   "slip_bp_mean": 0.0,
+   "slip_bp_median": 0.02,
+   "slip_bp_p90": 0.3,
+   "slip_bp_max": 0.68,
+   "worst_fill_bp_p90": 0.3,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 3
+  },
+  "500 to 2,000": {
+   "orders": 99,
+   "median_notional": 1196,
+   "slip_bp_mean": -0.0,
+   "slip_bp_median": 0.02,
+   "slip_bp_p90": 0.02,
+   "slip_bp_max": 0.68,
+   "worst_fill_bp_p90": 0.02,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 19
+  },
+  "2,000 to 8,000": {
+   "orders": 93,
+   "median_notional": 3930,
+   "slip_bp_mean": 0.03,
+   "slip_bp_median": 0.02,
+   "slip_bp_p90": 0.02,
+   "slip_bp_max": 0.99,
+   "worst_fill_bp_p90": 0.02,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 15
+  },
+  "over 8,000": {
+   "orders": 19,
+   "median_notional": 12094,
+   "slip_bp_mean": -0.02,
+   "slip_bp_median": 0.02,
+   "slip_bp_p90": 0.08,
+   "slip_bp_max": 0.89,
+   "worst_fill_bp_p90": 0.2,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 35
+  }
+ },
+ "by_symbol": {
+  "BTCUSDT": {
+   "orders": 14,
+   "median_notional": 3922,
+   "slip_bp_mean": 0.02,
+   "slip_bp_median": 0.01,
+   "slip_bp_p90": 0.01,
+   "slip_bp_max": 0.24,
+   "worst_fill_bp_p90": 0.01,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 4
+  },
+  "ETHUSDT": {
+   "orders": 233,
+   "median_notional": 1242,
+   "slip_bp_mean": 0.0,
+   "slip_bp_median": 0.02,
+   "slip_bp_p90": 0.02,
+   "slip_bp_max": 0.89,
+   "worst_fill_bp_p90": 0.02,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 35
+  },
+  "SPCXUSDT": {
+   "orders": 6,
+   "median_notional": 488,
+   "slip_bp_mean": 0.27,
+   "slip_bp_median": 0.33,
+   "slip_bp_p90": 0.66,
+   "slip_bp_max": 0.99,
+   "worst_fill_bp_p90": 0.66,
+   "fills_per_order_median": 1.0,
+   "fills_per_order_max": 3
+  }
+ },
+ "fee_bp": {
+  "median": 5.0,
+  "min": 4.0,
+  "max": 5.0
+ },
+ "order_to_first_fill_ms": {
+  "median": 0.0,
+  "p90": 0.0
+ },
+ "funding_check": {
+  "ETHUSDT": {
+   "settlements": 41,
+   "matched": 41,
+   "largest_abs_error_usdt": 0.0,
+   "largest_error_share_of_payment": 0.0,
+   "sum_abs_actual_vs_model": [
+    7.787,
+    7.787
+   ],
+   "same_sign": true
+  },
+  "BTCUSDT": {
+   "settlements": 2,
+   "matched": 2,
+   "largest_abs_error_usdt": 0.0,
+   "largest_error_share_of_payment": 0.0,
+   "sum_abs_actual_vs_model": [
+    0.597,
+    0.597
+   ],
+   "same_sign": true
+  }
+ }
+}
