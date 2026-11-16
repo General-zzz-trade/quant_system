@@ -244,7 +244,7 @@ class ExitSupervisor:
         except Exception as exc:
             # R5 audit: not silent. Each symbol then reads its own (exits go on), at five times the request weight
             # of the snapshot per symbol, so every entry is blocked and a person is told when it lasts.
-            issue = Issue(K.ACCOUNT_UNREADABLE, None, "account positions not read in one request "
+            issue = Issue(K.POSITIONS_UNREAD, None, "account positions not read in one request "
                           f"({type(exc).__name__}: {exc}); each symbol reads its own; entries blocked")
             if issue != self.snapshot_issue:
                 write_issue(self.journal, None, issue)

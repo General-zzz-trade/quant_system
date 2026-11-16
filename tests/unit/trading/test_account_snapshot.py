@@ -194,7 +194,7 @@ def test_without_a_snapshot_each_symbol_reads_its_own_and_every_entry_is_blocked
                                                                 ("reconcile", "BUSDT", None), ("stop", "BUSDT", None)]
     # R5 audit S2: not silent - the per-symbol reads weigh five times the snapshot each, so entries wait
     assert {s: [i.kind.value for i in found] for s, found in exits.last_issues.items()} == \
-        {"AUSDT": ["account_unreadable"], "BUSDT": ["account_unreadable"]}
+        {"AUSDT": ["positions_unread"], "BUSDT": ["positions_unread"]}
     assert {e[1] for e in log if e[0] == "blocked"} == {"AUSDT", "BUSDT"}
     exits.reconcile()
     assert len([1 for kind, _ in exits.journal.rows if kind == "issue"]) == 1               # written once

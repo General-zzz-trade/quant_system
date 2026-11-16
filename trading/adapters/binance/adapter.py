@@ -205,7 +205,9 @@ class BinanceAdapter:
             raise RuntimeError("Invalid Binance position snapshot")
         positions = []
         for p in data:
-            amt = Decimal(str(p.get("positionAmt", "0")))
+            if not isinstance(p, dict) or "positionAmt" not in p:      # R8 re-check: unknown, never flat
+                raise RuntimeError("Invalid Binance position quantity")
+            amt = Decimal(str(p["positionAmt"]))
             if not amt.is_finite():
                 raise RuntimeError("Invalid Binance position quantity")
             if amt == 0:
