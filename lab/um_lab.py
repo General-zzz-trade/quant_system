@@ -63,7 +63,9 @@ class LiveTerms:
     stop_pct: str = "0.08"        # the runtime's exchange stop (the entry point's --stop-pct default)
     pause_hours: int = STOP_PAUSE_SECONDS // 3600   # the live pause after a stop ends by itself (4 hours)
     daily_stop: float = 0.03      # the pilot stops for the day at -3 % (reported, from daily closes)
-    losing_trades: int = 3        # the pilot stops after 3 losing trades in a row (reported)
+    losing_trades: int = 3        # the pilot's rule until 2026-11-16, replaced by loss_stop; still reported
+    loss_stop: float = 0.15       # the pilot flattens and stops once the strategy has lost 15 % of its capital
+    loss_stop_days: int = 90      # reported: the share of pilots of this length that the loss stop would end
 
 
 LIVE = LiveTerms()
@@ -215,6 +217,17 @@ def losing_streaks(trips: list[tuple[int, float]], n: int) -> list[int]:
     return out
 
 
+def loss_stop_share(daily: pd.Series, loss: float, days: int) -> float | None:
+    """The share of pilots, one starting on each day with ``days`` days ahead of it, whose value falls ``loss``
+    below its start within those days (the pilot's cumulative loss stop, from daily closes)."""
+    value = (1 + daily).cumprod().to_numpy()
+    if len(value) <= days:
+        return None
+    base = np.concatenate(([1.0], value[:-1]))
+    hits = sum(bool((value[s:s + days] / base[s] <= 1 - loss).any()) for s in range(len(value) - days))
+    return hits / (len(value) - days)
+
+
 def live_report(results: list[dict], daily: pd.Series, terms: LiveTerms, slots: int) -> dict:
     trips = [t for r in results for t in round_trips(r["fills"])]
     streaks = losing_streaks(trips, terms.losing_trades)
@@ -225,7 +238,8 @@ def live_report(results: list[dict], daily: pd.Series, terms: LiveTerms, slots: 
             "exchange_stops": sum(1 for r in results for f in r["fills"] if f["order"] == "protective_stop"),
             "losing_streak_stops": len(streaks), "losing_streak_stops_per_30_days": len(streaks) * 30 / days,
             "losing_streak_stops_in_holdout": sum(1 for at in streaks if HOLDOUT[0] <= at < HOLDOUT[1]),
-            "days_below_daily_stop": int((daily < -terms.daily_stop).sum())}
+            "days_below_daily_stop": int((daily < -terms.daily_stop).sum()),
+            "loss_stop_share": loss_stop_share(daily, terms.loss_stop, terms.loss_stop_days)}
 
 
 def summary(daily: pd.Series) -> dict:
@@ -339,5 +353,5 @@ def record(rows: list[dict], path: Path = TRIALS) -> None:
 
 __all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LiveTerms", "Run", "SELECT_END", "START",
            "account_daily", "buy_and_hold", "by_regime", "contracts", "frame", "limits_needed", "liquid",
-           "live_report", "losing_streaks", "manifest", "portfolio_daily", "record", "regimes", "replay",
-           "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]
+           "live_report", "losing_streaks", "loss_stop_share", "manifest", "portfolio_daily", "record", "regimes",
+           "replay", "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]

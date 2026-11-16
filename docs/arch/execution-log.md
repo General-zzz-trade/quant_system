@@ -3668,3 +3668,16 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
      接口上验证（本任务不碰账户）。如果实际是倒序，翻页会漏行。建议在试点前用只读查询（`account_check` 那条路）核对一次。
   3. 资金费超过 2 小时读不到时只有警告日志（每 10 分钟一条），没有 Telegram 告警，也没有事件；状态文件里各品种的 `sleeve_equity` 显示 0。
   4. 前提：账户上出现策略账本以外的同品种持仓时（账户检查会挡开仓），这段时间该品种的资金费也会算进策略基数。
+
+## 实验室第一轮之后的决定（2026-11-16，研究侧和文档，轻流程）
+
+- 技术负责人 2026-11-16 看了第一轮结果（`research/lab/runs/2026-11-16/judge.md`，PR #104）后的决定：
+  - 试运行的"连亏 3 笔就停"改为"累计亏掉策略资金的 15% 就平掉全部仓位并停止开仓，由人解除"。统计见
+    `research/lab/runs/2026-11-16/loss_stop.md`。实盘程序一侧按资金路径完整流程另做。
+  - 下一轮检验事先写好的 12 种止损方案（`research/lab/runs/2026-11-17/plan.md`）。
+  - 资金费的 88 天保护先保留，上实盘前改为把累计资金费存进状态库。
+  - 11-16 当晚的侦察员和评审员跳过。
+- 改了什么：`lab/um_lab.py` 的 `LiveTerms` 加 `loss_stop`（0.15）和 `loss_stop_days`（90），`live_report` 多报一项
+  `loss_stop_share`（90 天的试运行里亏到 15% 的比例）；旧的连亏统计保留作参考。`research/lab/README.md`、`CLAUDE.md`、
+  `docs/m5_checklist.md` 同步。
+- 已有测试的改动：没有。新增 1 个测试（`test_um_lab_live_terms.py`）。本地：lab 实盘条件测试、架构测试、ruff 通过。

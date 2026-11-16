@@ -6,11 +6,14 @@
   configs, `models_v8/` or commit messages are unverified claims, not results.
 - **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16).
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
-  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day, 3 losses in a row, kill switch); the
-  owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
+  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
+  capital flattens and stops, which replaced "3 losses in a row" on 2026-11-16 and is not in the runtime yet; kill
+  switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, Telegram and the heartbeat,
-  the host install, and the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it).
+  the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), the loss
+  stop in the runtime, and the cumulative funding kept in the state database instead of the 88-day guard (owner
+  2026-11-16: the guard stays until then).
 - **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
   min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
   that this base grows with the strategy's profits. The PnL includes funding (tech lead, 2026-11-16): the USDT
@@ -77,7 +80,7 @@
   4-hour pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
-  -3 % a day, 3 losses in a row, a stale feed).
+  -3 % a day, the 15 % cumulative loss stop, a stale feed).
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
 ## Commands
