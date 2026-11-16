@@ -189,3 +189,21 @@ def test_a_cleared_switch_lets_no_entry_through_and_is_set_again_at_the_next_rec
     assert len(reached) == 1                           # a lasting finding is written once
     trips = [r for r in _events(tmp_path, "alert") if "strategy loss stop" in r.get("reason", "")]
     assert len(trips) == 2                             # the trip and the trip after the clear
+
+
+# -- audit finding 4: funding that cannot be refreshed does not blind the stop ------------------------------------
+def test_funding_unreadable_for_hours_sizes_to_zero_but_the_stop_still_knows_the_loss(tmp_path):
+    world, runtime, btc, i = _holding(tmp_path)
+    btc.add_income("BTCUSDT", "-10", btc.now_ms() + 1_000)
+    _tick(world, runtime, 601)                                        # a funding total is read: -10
+    for fake in world["fakes"].values():
+        fake.income_error = True
+    for step in range(3):                                             # three hours without a refresh
+        _advance(world, runtime, i + step)
+    assert runtime.sessions["BTCUSDT"].sleeve_equity() == 0           # the sizing base keeps its two-hour rule
+    assert runtime.exits.loss_findings == [] and _loss_issues(tmp_path) == []      # the stop is not blind
+    assert _kill(tmp_path)["active"] is False and btc.positions["BTCUSDT"] != 0
+    _under_water(btc, "BTCUSDT", 40)                                  # 40 open + the 10 of funding read earlier
+    _tick(world, runtime, 61)
+    assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
+    assert _flat(world)

@@ -203,3 +203,33 @@ def test_the_reason_names_the_limit_as_a_person_wrote_it(tmp_path):
         stop, kill, _, _ = _stop(tmp_path / limit, D("-50"), limit=limit)
         stop.check()
         assert text in kill.state().reason, kill.state().reason
+
+
+# -- point 6: funding that cannot be refreshed does not blind the stop (audit finding 4) --------------------------
+def test_the_stop_gets_the_last_funding_total_read_in_this_process_whatever_its_age():
+    from tests.unit.trading.test_strategy_capital import Clock, Venue
+    from trading.application.equity import FUNDING_MAX_AGE, StrategyFunding
+    venue, clock = Venue({"BTCUSDT": D("-4")}), Clock()
+    funding = StrategyFunding(venue, ["BTCUSDT"], {"BTCUSDT": 10.0}.get, clock)
+    assert funding.last_known() == D("-4") and len(venue.calls) == 1          # it refreshes when due
+    venue.down = True
+    clock.now += FUNDING_MAX_AGE + 1
+    with pytest.raises(RuntimeError, match="funding"):
+        funding.current()                                                     # the sizing base: the two-hour rule
+    assert funding.last_known() == D("-4")                                    # the stop: the last total read
+    clock.now += 30 * 86400
+    assert funding.last_known() == D("-4") and len(venue.calls) == 3          # still tried, still kept
+    venue.down, venue.income["BTCUSDT"] = False, D("-9")
+    clock.now += 600
+    assert funding.last_known() == D("-9")
+
+
+def test_funding_never_read_in_this_process_is_unknown_for_the_stop_too():
+    from tests.unit.trading.test_strategy_capital import Clock, Venue
+    from trading.application.equity import StrategyFunding
+    venue = Venue({"BTCUSDT": D("5")})
+    venue.down = True
+    funding = StrategyFunding(venue, ["BTCUSDT"], {"BTCUSDT": 10.0}.get, Clock())
+    with pytest.raises(RuntimeError, match="funding"):
+        funding.last_known()
+    assert len(venue.calls) == 1

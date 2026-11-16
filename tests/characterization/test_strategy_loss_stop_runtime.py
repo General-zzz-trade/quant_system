@@ -9,7 +9,7 @@ from decimal import Decimal as D
 import pytest
 
 from tests.characterization.test_exit_paths import _tick, _until
-from tests.characterization.test_runtime_decisions import _events
+from tests.characterization.test_runtime_decisions import _events, _runtime
 from tests.characterization.test_strategy_capital_sizing import _execution
 from tests.unit.lab.test_target_runtime import _advance
 
@@ -88,7 +88,9 @@ def test_a_loss_that_cannot_be_known_closes_nothing_and_blocks_entries(tmp_path)
     held = btc.positions["BTCUSDT"]
     for fake in world["fakes"].values():
         fake.income_error = True
-    for step in range(3):                                           # after two hours the funding total is unknown
+    runtime = _runtime(tmp_path, world)                             # a restart: this process never read the funding
+    runtime.warmup()
+    for step in range(3):
         _advance(world, runtime, i + step)
     assert _kill(tmp_path)["active"] is False
     assert btc.positions["BTCUSDT"] == held                         # nothing was closed

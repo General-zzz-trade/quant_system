@@ -231,9 +231,10 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         if inputs.strategy_loss_stop is not None:
             def strategy_pnl() -> Decimal:
                 """The loss stop also counts what is still open: each owner's ledger position at the venue's mark
-                for its symbol (never the venue's own quantity, which a person's position is netted into)."""
+                for its symbol (never the venue's own quantity, which a person's position is netted into). Its
+                funding is the last total read in this process, however old: only the sizing base ages it."""
                 held = owners()
-                return (strategy_realized_pnl(ledger, held) + funding.current()
+                return (strategy_realized_pnl(ledger, held) + funding.last_known()
                         + strategy_unrealized(strategy_positions(ledger, held), account.get_position))
             loss_stop = StrategyLossStop(inputs.strategy_capital, inputs.strategy_loss_stop, strategy_pnl,
                                          inputs.kill, clock=clock)

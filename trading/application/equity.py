@@ -8,7 +8,8 @@ exposure cap still holds, and anything unknown (stale equity, an unreadable ledg
 ``StrategyFunding`` (tech lead, 2026-11-16): the realized PnL of the base includes the strategy's funding income on
 its symbols, each counted from the strategy's first fill on it. It is asked of the venue at most every ten minutes;
 a total older than two hours, or none yet, is unknown, so the capped base sizes to zero. A failed refresh never
-raises: the last total is kept, and only the base sees it age.
+raises: the last total is kept, and only the base sees it age. The loss stop counts the last total read in this
+process whatever its age (``last_known``); only a total never read is unknown to it.
 """
 from __future__ import annotations
 
@@ -94,6 +95,15 @@ class StrategyFunding:
         self.refresh_if_due()
         if self.refreshed_at is None or self.clock() - self.refreshed_at > FUNDING_MAX_AGE:
             raise RuntimeError("strategy funding unknown: no successful refresh in the last two hours")
+        return self.total
+
+    def last_known(self) -> Decimal:
+        """The last funding total read in this process, whatever its age: what the loss stop counts (audit
+        2026-11-16, finding 4: a refresh that keeps failing must not blind the stop, and an old total is nearer the
+        truth than none). Raises only when no total was ever read in this process."""
+        self.refresh_if_due()
+        if self.refreshed_at is None:
+            raise RuntimeError("strategy funding unknown: not read once in this process")
         return self.total
 
 
