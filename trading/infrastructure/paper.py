@@ -37,6 +37,10 @@ STOP_KINDS = frozenset({IssueKind.STOP_TRIGGERED.value, IssueKind.STOP_BREACHED.
 def paper_exchange(spec: StrategySpec, symbols: Sequence[str]) -> SimulatedExchange:
     """One research broker per symbol, configured exactly as research configures it (``broker_config`` and the
     research lot constants), behind the exchange ports; stops by the bar stop model (decision L)."""
+    missing = [s for s in symbols if s not in SYMBOL_RULES]
+    if missing:
+        raise ValueError(f"paper has research lot rules for {', '.join(sorted(SYMBOL_RULES))} only, not for "
+                         f"{', '.join(missing)}")
     brokers = {s: BarBroker(broker_config(spec, SYMBOL_RULES[s])) for s in symbols}
     filters = {s: SimFilters(SYMBOL_RULES[s].step, SYMBOL_RULES[s].min_qty, SYMBOL_RULES[s].min_notional)
                for s in symbols}

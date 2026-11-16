@@ -30,6 +30,7 @@ class IssueKind(Enum):
     FLATTEN_FAILED = "flatten_failed"        # a flatten raised; it is tried again while its cause lasts
     CANCEL_FAILED = "cancel_failed"          # cancelling resting entries raised; tried again likewise
     DECISION_FAILED = "decision_failed"      # one symbol's bar could not be processed; the next bar tries again
+    FUNDING_INTERVAL_UNKNOWN = "funding_interval_unknown"   # the symbol's settlement interval is not known (R4)
     CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
     EVENT_LOG_FAILED = "event_log_failed"    # the event log cannot be written; exits go on (S3 audit finding 3)
 
@@ -74,6 +75,7 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.FLATTEN_FAILED: frozenset({Effect.ALERT_ONLY}),
     IssueKind.CANCEL_FAILED: frozenset({Effect.ALERT_ONLY}),
     IssueKind.DECISION_FAILED: _BLOCK,
+    IssueKind.FUNDING_INTERVAL_UNKNOWN: _BLOCK,
     IssueKind.CYCLE_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
     IssueKind.EVENT_LOG_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
 }

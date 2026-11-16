@@ -225,10 +225,13 @@ def test_a_failed_read_keeps_the_last_intervals_for_two_hours_then_none_is_known
     w.poller.poll()
     assert all(s.funding_interval is None for s in w.sessions.values())
     issues = [f for kind, f in w.journal.rows if kind == "issue"]
-    assert len(issues) == 1 and issues[0]["issue_kind"] == "market_data" and "funding interval" in issues[0]["issue"]
+    assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("FOURUSDT", "funding_interval_unknown"),
+                                                               ("EIGHTUSDT", "funding_interval_unknown")]
+    assert all("not read for 2 hours" in i["issue"] for i in issues)
+    assert w.poller.symbol_issue("FOURUSDT") is not None                   # the exit side blocks and alerts it
     w.clock["ms"] += 60_000
     w.poller.poll()
-    assert len([1 for kind, _ in w.journal.rows if kind == "issue"]) == 1      # said once
+    assert len([1 for kind, _ in w.journal.rows if kind == "issue"]) == 2      # said once per symbol
     w.market.fail = False
     w.clock["ms"] += 60_000
     w.poller.poll()
@@ -239,7 +242,7 @@ def test_a_failed_read_keeps_the_last_intervals_for_two_hours_then_none_is_known
     w.clock["ms"] += 60_000
     w.poller.poll()
     assert all(s.funding_interval is None for s in w.sessions.values())
-    assert len([1 for kind, _ in w.journal.rows if kind == "issue"]) == 2
+    assert len([1 for kind, _ in w.journal.rows if kind == "issue"]) == 4
 
 
 def test_a_symbol_the_exchange_does_not_list_is_unknown_and_said_once_per_read():
@@ -249,5 +252,17 @@ def test_a_symbol_the_exchange_does_not_list_is_unknown_and_said_once_per_read()
     w.clock["ms"] += 10_000
     w.poller.poll()
     issues = [f for kind, f in w.journal.rows if kind == "issue"]
-    assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("FOURUSDT", "market_data")]
+    assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("FOURUSDT", "funding_interval_unknown")]
     assert w.sessions["FOURUSDT"].funding_interval is None
+    assert w.poller.symbol_issue("FOURUSDT").kind.value == "funding_interval_unknown"
+    assert w.poller.symbol_issue("EIGHTUSDT") is None
+
+
+def test_a_first_read_that_fails_says_none_was_read_since_the_start():
+    w = _poller(cursor=3, now_ms=T0 + 4 * HOUR + 5_000, last=3, settlements={"FOURUSDT": [T0], "EIGHTUSDT": [T0]},
+                intervals={"FOURUSDT": 4, "EIGHTUSDT": 8})
+    w.market.fail = True
+    w.poller.poll()
+    issues = [f for kind, f in w.journal.rows if kind == "issue"]
+    assert len(issues) == 2 and all("not read since the start" in i["issue"] for i in issues)
+    assert all(s.funding_interval is None for s in w.sessions.values())

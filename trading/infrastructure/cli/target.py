@@ -147,12 +147,14 @@ class TargetRuntime(_runtime.TargetRuntime):
             spec_passed=self.frozen.get("passed"), pauses=wiring.pauses, notifier=notifier,
             loss_stop=wiring.loss_stop,
             alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest(),
+            spec_record=self.target_spec.identity(),
             account_check=account_check, venue=venue, gate_clock=gate_clock,
             exit_observer=journal.risk_exit if venue is not None else None)
         if paper_store is not None:      # from now on every journal transaction carries the paper state
             paper_store.state.follow(self.paper_revision, self.paper_document)
         # ADR-0017: what this run uses, recorded once, without any secret.
-        journal.write(EventKind.CONFIG, **config.record(), digest=config.digest())
+        journal.write(EventKind.CONFIG, **config.record(), digest=config.digest(),
+                      strategy=self.target_spec.record())       # R2 audit: the spec's strategy, symbols, shorts
         logger.info("Configuration %s: %s", config.digest()[:12], config.record())
 
     def _paper(self, spec: StrategySpec, symbols: list[str], journal: PaperDivergenceLog, venue: SimulatedExchange,
