@@ -50,34 +50,6 @@ jobs:
       - name: Ruff check (whole repository)
         run: ruff check --select E,W,F .
 
-  # The coverage gate of the Binance execution path: the only test run the shards below do not do.
-  python-acceptance:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install Python dependencies
-        run: |
-          pip install pytest==9.0.2 pytest-cov==7.0.0
-          pip install --require-hashes -r requirements/container.lock
-
-      - name: Binance execution coverage gate
-        run: |
-          python3 -m pytest tests/unit/binance/ tests/unit/trading/ tests/characterization/ \
-            tests/unit/lab/test_target_runtime.py tests/unit/lab/test_target_runtime_resilience.py -q --tb=short \
-            --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite \
-            --cov=trading.application.reconcile --cov=trading.adapters.binance --cov=trading.adapters.files \
-            --cov=trading.application.runtime --cov=trading.application.session --cov=trading.infrastructure \
-            --cov=trading.application.market_poller --cov=trading.application.exit_supervisor \
-            --cov=trading.application.status --cov=trading.application.issues \
-            --cov=trading.domain.risk --cov=trading.domain.orders --cov-report=term --cov-fail-under=75
-
   # The whole suite (everything `make test-all` runs), split into shards that run at the same time.
   # scripts/ci_shard.py deals every test file to exactly one shard; tests/architecture checks that.
   python-test-all:
@@ -100,8 +72,30 @@ jobs:
           pip install pytest==9.0.2 pytest-cov==7.0.0
           pip install --require-hashes -r requirements/container.lock
 
+      # Every shard also measures the money path's coverage; the coverage-gate job adds the four up, so the paper
+      # replays run once (tech lead 2026-11-16: no second run of the same tests for the gate). --durations shows
+      # the slow tests, which set the shard weights in scripts/ci_durations.json. A shard alone is not held to the
+      # project's fail_under (one shard can be a single file); the gate below holds the sum to 75 %.
       - name: Run one shard of the whole suite
-        run: python3 -m pytest $(python3 scripts/ci_shard.py ${{ matrix.shard }} 4) -q --tb=short
+        env:
+          COVERAGE_FILE: .coverage.shard${{ matrix.shard }}
+        run: >-
+          python3 -m pytest $(python3 scripts/ci_shard.py ${{ matrix.shard }} 4) -q --tb=short
+          --durations=0 --durations-min=1.0 --cov-report= --cov-fail-under=0
+          --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite
+          --cov=trading.application.reconcile --cov=trading.adapters.binance --cov=trading.adapters.files
+          --cov=trading.application.runtime --cov=trading.application.session --cov=trading.infrastructure
+          --cov=trading.application.market_poller --cov=trading.application.exit_supervisor
+          --cov=trading.application.status --cov=trading.application.issues
+          --cov=trading.domain.risk --cov=trading.domain.orders
+
+      - name: Keep this shard's coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard${{ matrix.shard }}
+          path: .coverage.shard${{ matrix.shard }}
+          include-hidden-files: true
+          retention-days: 3
 
   security-scan:
     runs-on: ubuntu-latest
@@ -114,3 +108,29 @@ jobs:
 
       - name: Check tracked credential assignments and private-key file names
         run: python3 -B scripts/check_ci_security.py
+
+  # The coverage gate of the Binance execution path, over the four shards together (it was a separate job that
+  # ran part of the suite a second time until 2026-11-16).
+  coverage-gate:
+    needs: python-test-all
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install coverage
+        run: pip install pytest-cov==7.0.0        # the same coverage version the shards use
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard*
+          merge-multiple: true
+
+      - name: Money path coverage of the whole suite (at least 75 %)
+        run: |
+          coverage combine .coverage.shard*
+          coverage report --fail-under=75
