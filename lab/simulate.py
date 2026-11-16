@@ -73,8 +73,9 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
 
     ``reenter_after_stop="signal_reset"`` is the other rule a study may test (research/lab/runs/2026-11-17/plan.md):
     after a stop fills there is no entry until the target has been exactly 0 on a ready decision since the stop (the
-    decision at the close of the stop's bar counts); the next non-zero target may enter. A target that changes sign
-    without a decision at 0 has not reset. It takes no pause time and needs a stop."""
+    decision at the close of the stop's bar counts); the next non-zero target may enter. A target on the other side
+    of the stopped position is a new signal and may enter too (decided 2026-11-16, before the first run that uses the
+    rule: a long/short idea can change direction without a decision at 0). It takes no pause time and needs a stop."""
     if reenter_after_stop not in ("pause", "signal_reset"):
         raise ValueError(f"reenter_after_stop must be 'pause' or 'signal_reset', not {reenter_after_stop!r}")
     wait_for_reset = reenter_after_stop == "signal_reset"
@@ -87,20 +88,24 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
                                                        cost_multiplier=cost_multiplier, stop_pct=stop_pct))
     target_map = dict(zip(targets["available_at"].to_numpy(dtype=np.int64).tolist(),
                           zip(targets["target"].tolist(), targets["ready"].tolist())))
-    rows, paused_until, waiting = [], 0, False
+    rows, paused_until, waiting, stopped_side = [], 0, False, 0
     for bar in bars:
         if bar.available_at <= start_ms or (end_ms is not None and bar.open_time >= end_ms):
             continue
         rate = funding[bar.open_time][0] if bar.open_time in funding else None
         stops = len(sleeve.broker.fills)
         sleeve.on_bar(bar, rate)
-        stopped = (pause_after_stop_ms or wait_for_reset) and any(
-            f["order"] == "protective_stop" for f in sleeve.broker.fills[stops:])
+        stop_fills = [f for f in sleeve.broker.fills[stops:] if f["order"] == "protective_stop"] \
+            if (pause_after_stop_ms or wait_for_reset) else []
+        stopped = bool(stop_fills)
         if stopped and pause_after_stop_ms:
             paused_until = bar.available_at + pause_after_stop_ms
         target, ready = target_map.get(bar.available_at, (0.0, False))
         if wait_for_reset:
-            waiting = (waiting or bool(stopped)) and not (ready and target == 0.0)
+            if stopped:                                    # a sell stop closed a long, a buy stop a short
+                waiting, stopped_side = True, (1 if stop_fills[-1]["side"] == "sell" else -1)
+            if waiting and ready and (target == 0.0 or target * stopped_side < 0):
+                waiting = False
         if bar.available_at < paused_until or waiting:
             target = 0.0                                   # paused: no entry (a stopped sleeve holds nothing)
         sleeve.decide(bar, target, ready)
