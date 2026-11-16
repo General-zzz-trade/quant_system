@@ -84,3 +84,10 @@ def _host_lock_directory(tmp_path_factory, monkeypatch):
     from trading.adapters.files import host_lock
     locks = tmp_path_factory.mktemp("locks")
     monkeypatch.setattr(host_lock, "LOCK_DIR", locks)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_alert_file(monkeypatch):
+    """A test never appends to the host's alert file: a runtime built in a test reads the environment, and the
+    file's reader may act on what it finds there (audit of 2026-11-16, finding L7)."""
+    monkeypatch.delenv("ALERT_FILE", raising=False)
