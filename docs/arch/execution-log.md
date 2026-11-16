@@ -4032,3 +4032,14 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **本地**【实际运行结果】：所有引用 `load_config`、`stop_pct`、`ExecutionInputs`、`preflight`、`strategy_capital` 的 28 个测试文件
   加架构测试共 495 个通过；ruff、`mypy trading/`（93 个文件）、导入契约（5 个）通过。
 - 这个分支基于停止线的审计修复（PR #117），等它合并后再开 PR。
+
+## 账户只读检查：配置项报告 `--settings`（2026-11-16 晚，工具，轻流程）
+
+- 起因：服务的配置文件只能由技术负责人写，我不读它（防护钩子也拦）；技术负责人要的是"报告缺哪些项"。已批准的只读检查是唯一可以读这个
+  文件的命令，加一个不联网的选项：`python3 -m scripts.account_check --settings`（`scripts/account_settings.py`）。
+- 做什么：在内存里读整个文件；密钥类（API Key 和密钥、Telegram、心跳地址、签名密钥）只报"已设/未设"，其余配置报值；
+  然后用运行时自己的 `load_config` 按主网执行启动的方式建配置，跑启动前的本地检查（策略资金、告警出口和心跳、止损在强平距离以内），
+  通过就打印不含密钥的配置记录，不通过就写出被哪一项拒绝。不发任何请求。退出码：0 通过，1 会被拒绝，2 文件读不到。
+- 这扩大了已批准读取范围（原来只取两个 Key），已写进 `scripts/account_check.py` 的说明。
+- 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
+  已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。

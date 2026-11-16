@@ -8,10 +8,14 @@ relies on.
     python3 -m scripts.account_check [--env-file PATH]
     python3 -m scripts.account_check --history DIR [--days 89]    # scripts/account_history.py: the account's own
                                                                   # income, trades and orders, read-only, to DIR
+    python3 -m scripts.account_check --settings                   # scripts/account_settings.py: which settings the
+                                                                  # file holds (secrets: set or not), and what the
+                                                                  # runtime's start checks say; no request at all
 
 Allowed by the tech lead on 2026-11-15 as the one command Claude may run that reads the credentials file:
 - it takes only BINANCE_API_KEY and BINANCE_API_SECRET from it, keeps them in memory and never prints or writes
-  them (nor the request signature);
+  them (nor the request signature); with ``--settings`` (tech lead 2026-11-16: "report which settings are missing")
+  it reads every line in memory, prints secrets only as set or not set, and sends no request at all;
 - it sends only GET requests, and only to the paths in ALLOWED; anything else raises before a request is made;
 - it places no order and changes no account setting (no leverage, margin type or position mode call).
 """
@@ -235,7 +239,20 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = _urlopen, stdout=sys.s
     parser.add_argument("--history", type=Path, default=None, metavar="DIR",
                         help="write the account's income, trades and orders to this private directory instead")
     parser.add_argument("--days", type=int, default=89, help="how far back the history goes (at most 89)")
+    parser.add_argument("--settings", action="store_true",
+                        help="report the file's settings (secrets as set or not set) and the runtime's start checks")
     args = parser.parse_args(argv)
+    if args.settings:
+        from scripts import account_settings
+        try:
+            values = account_settings.read_all(args.env_file)
+        except OSError as exc:
+            print(f"credentials file not readable: {type(exc).__name__}", file=stdout)
+            return 2
+        lines, passed = account_settings.report(values)
+        for line in lines:
+            print(line, file=stdout)
+        return 0 if passed else 1
     try:
         found = read_credentials(args.env_file)
     except OSError as exc:
