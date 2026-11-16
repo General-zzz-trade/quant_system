@@ -204,6 +204,8 @@ def test_the_first_fill_is_the_earliest_order_of_the_owner_with_a_fill_or_a_manu
     assert journal.first_fill_at(btc) == 100.0 and journal.first_fill_at(eth) == 10.0
     journal.set_position_manually(sol, {"qty": "1"}, venue={}, reason="ledger := venue", at=70.0)
     assert journal.first_fill_at(sol) == 70.0                       # a position put into the ledger by a person
+    order("s1", "SOLUSDT", sol, 300.0, filled=True)
+    assert journal.first_fill_at(sol) == 70.0                       # whichever is earlier
     journal.insert_fill(fill_id="f-x", intent_id="no-such-order", owner=btc, payload={})
     with pytest.raises(RuntimeError, match="creation time"):        # a fill of unknown time: unknown funding
         journal.first_fill_at(btc)

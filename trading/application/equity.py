@@ -80,8 +80,6 @@ class StrategyFunding:
                 if since is not None:
                     total += Decimal(self.venue.get_funding_income(symbol, since_ms=int(since * 1000),
                                                                    now_ms=int(now * 1000)))
-            if not total.is_finite():
-                raise ValueError(f"funding total {total}")
         except Exception:
             logger.warning("Strategy funding not refreshed; the last total is kept for at most two hours",
                            exc_info=True)

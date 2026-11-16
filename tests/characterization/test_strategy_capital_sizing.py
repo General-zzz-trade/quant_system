@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from decimal import Decimal as D
+from types import SimpleNamespace
 
 import pytest
 
@@ -106,6 +107,21 @@ def test_funding_that_cannot_be_read_sizes_to_zero_after_two_hours_and_the_runti
         fake.income_error = False
     _advance(world, runtime, i + 3)
     assert session.sleeve_equity() > 0
+
+
+def test_a_cap_without_the_account_s_funding_income_is_refused_when_the_sessions_are_built(tmp_path):
+    from trading.application.equity import EquitySource
+    from trading.infrastructure import target
+    from trading.infrastructure.config import risk_limits
+    spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
+    world = _world(tmp_path, spec)
+    state_dir_db(tmp_path / "exec")
+    inputs = target.ExecutionInputs(account=world["adapter"], scope="binance-testnet-ut", stop_pct=D("0.08"),
+                                    limits=risk_limits({}), kill=SimpleNamespace(state=None), leverage=3, margin=None,
+                                    strategy_capital=D("300"))
+    with pytest.raises(ValueError, match="funding income"):
+        target.execution_sessions(spec, ["BTCUSDT", "ETHUSDT"], state_dir=tmp_path / "exec", journal=None,
+                                  equity=EquitySource(lambda: 0.0), inputs=inputs)
 
 
 def test_without_a_cap_no_funding_is_asked(tmp_path, monkeypatch):
