@@ -3907,6 +3907,28 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   最终 10/10。
 - **本地**【实际运行结果】：所有涉及会话、目标计算、模拟盘逐根一致、研究金标准和运行时的 38 个测试文件加全部刻画测试：621 个通过
   （改测试辅助前 1 个失败，就是上面那处补丁目标）；ruff、`mypy trading/`（94 个文件）、导入契约（5 个）通过。
+
+## R2 规格第 2 版：写明策略、参数、品种（最多 10 个）和是否做空（2026-11-16 晚，资金路径完整流程）
+
+- 依据：`docs/arch/runtime-lab-strategies-plan.md`；技术负责人 2026-11-16：清单由实验室算、人来发布，支持做空由规格决定，最多 10 个品种。
+- **改了什么**：
+  - `trading/domain/strategy/spec.py`（新）：`TargetSpec`（策略名称和参数、执行设置、品种、`allow_short`）和 `parse_spec`。
+    第 1 版（BTC/ETH 多周期策略，试运行用的就是它）照旧加载，做空与否由它的 `long_only` 决定；第 2 版（`target_strategy`）写明
+    `strategy`、`execution`、`symbols`、`allow_short`。不能用的一律按名字拒绝：超过 10 个品种、不是 USDT 永续的名字、重复、
+    未知的策略或版本、参数或执行设置不合法、`allow_short` 不是布尔值。
+  - `runner/binance_target.py` 的签名加载器、组装（执行和模拟盘）、`scripts/publish_strategy_spec.py` 都用它；会话拿到规格里的策略；
+    预热和"已预热"用策略自己的窗口（R1 时还用规格的，第 1 版两者相同，第 2 版不同）。
+  - `allow_short` 现在只记录，真正按它限制下单在 R6 做。
+- **已有测试的改动**：没有改断言。测试辅助的改动 1 处：`tests/unit/binance/test_exchange_settings.py::test_target_runtime_refuses_an_isolated_stop_too_close_to_liquidation`
+  的假加载器返回的文档补上 `"schema": 1, "kind": "btc_eth_multitimeframe_target"`（运行时现在会解析加载到的规格）。
+  `tests/unit/lab/test_lookahead.py` 登记了新模块。
+- **新增测试**：`tests/unit/trading/test_spec_v2.py`（23 个）、`tests/characterization/test_spec_v2_runtime.py`（3 个）、
+  `tests/unit/tooling/test_publish_strategy_spec.py`（2 个）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r2_spec_v2.json` 23 个。第一轮 18 个被杀，存活 5 个：两条品种名检查我的用例碰不到
+  （补了 `ethUSDT`、`ETH_USDT`）、"缺参数"的报错我只匹配了 "params"（改成匹配完整句子）、模拟盘用第 2 版规格没有测试、预热要多少资金费
+  没有测试。补测试后 5 个都被杀，最终 23/23。
+- **本地**【实际运行结果】：所有加载规格或组装运行时的 38 个测试文件加模拟盘逐根一致和金标准：398 个通过、1 个失败（就是上面那处假加载器），
+  改后通过；ruff、`mypy trading/`（95 个文件）、导入契约（5 个）通过。
 ## 策略亏损停止线的独立审计与处理（2026-11-16 晚，资金路径完整流程）
 
 - **起因**：PR #106（策略亏损停止线）合并当天做了独立审计。审计的复现测试和它自己的变异在 `/root/lab_logs/audit-2026-11-16/`

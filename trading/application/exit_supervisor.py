@@ -117,7 +117,8 @@ class ExitSupervisor:
         for symbol, session in self.sessions.items():
             issues = self.last_issues.get(symbol, [])
             inputs = StateInputs(
-                warmed=warmed and session.cursor is not None and len(session.bars) >= self.spec.window_hours(),
+                warmed=(warmed and session.cursor is not None
+                        and len(session.bars) >= session.strategy.window_hours()),
                 flattening=(closing or bool(with_effect(issues, Effect.FLATTEN_SYMBOL))) and self._holds(session),
                 halted=halted, paused=self.pause_status(symbol) is not None,
                 blocked=equity_unknown or bool(with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or

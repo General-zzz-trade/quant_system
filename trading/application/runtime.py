@@ -132,7 +132,7 @@ class TargetRuntime:
             snap = cursors.get(symbol)
             resume = resumed[symbol] = snap["cursor"] if snap else None
             gap = 0 if resume is None else max(0, (now_ms // HOUR * HOUR - HOUR - resume) // HOUR)
-            limit = self.spec.funding_window() + 30 + gap // 8 + 1
+            limit = session.strategy.funding_window() + 30 + gap // 8 + 1   # R2: the strategy's windows
             for at, rate in self.market.get_funding_history(symbol, limit=limit):
                 session.funding[round(at / HOUR) * HOUR] = rate
             rows = self.market.get_klines(symbol, "60", (session.bars.maxlen or 0) + gap, now_ms=now_ms)
@@ -147,8 +147,8 @@ class TargetRuntime:
                 else:
                     session.advance(bar)
             have = min(len(session.bars) + len(missed[symbol]), session.bars.maxlen or 0)
-            if have < self.spec.window_hours():
-                raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{self.spec.window_hours()})")
+            if have < session.strategy.window_hours():
+                raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{session.strategy.window_hours()})")
             self._decided[symbol] = session.cursor
         self._warmed = True
         self._paper_loaded = self._paper_store is not None

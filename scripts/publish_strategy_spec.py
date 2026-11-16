@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 
 from infra.model_signing import _get_key, sign_file
+from trading.domain.strategy.spec import parse_spec
 
 
 def main() -> None:
@@ -23,8 +24,10 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("models_binance/strategy"))
     args = parser.parse_args()
     spec = json.loads((args.study / "final_spec.json").read_text())
-    if spec.get("kind") != "btc_eth_multitimeframe_target":
-        raise SystemExit("not a lab target-strategy spec")
+    try:
+        parse_spec(spec)            # schema 1 or 2 (R2); the same checks the runtime's loader makes
+    except ValueError as exc:
+        raise SystemExit(f"not a usable target-strategy spec: {exc}") from None
     if _get_key() is None:
         raise SystemExit("QUANT_MODEL_SIGN_KEY is required to publish runtime artifacts")
     args.out.mkdir(parents=True, exist_ok=True)
