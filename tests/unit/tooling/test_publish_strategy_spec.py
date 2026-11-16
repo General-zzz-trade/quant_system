@@ -9,7 +9,8 @@ import pytest
 from scripts import publish_strategy_spec as publish
 from trading.domain.strategy.overlay import StrategySpec
 
-V2 = {"schema": 2, "kind": "target_strategy", "strategy": {"name": "overlay", "params": StrategySpec().record()},
+V2 = {"schema": 2, "kind": "target_strategy",
+      "strategy": {"name": "overlay", "params": StrategySpec(band=0.1, execution="market").record()},
       "execution": {"band": 0.1, "execution": "market", "ttl_bars": 1}, "symbols": ["ETHUSDT"], "allow_short": False,
       "passed": False}
 
