@@ -67,6 +67,16 @@ def test_a_snapshot_that_cannot_be_trusted_raises(rows, named):
         adapter.get_position_snapshot()
 
 
+def test_the_per_symbol_reader_also_refuses_a_row_without_a_quantity():
+    """R8 re-check, finding 3: get_positions feeds the exposure gate, the reduction size, the per-symbol reconcile and
+    the account check; a row without positionAmt is unknown there too, never flat (or zero exposure)."""
+    adapter, _ = _adapter([{"symbol": "BTCUSDT", "positionSide": "BOTH", "entryPrice": "1"}])
+    with pytest.raises(RuntimeError, match="quantity"):
+        adapter.get_positions(strict=True)
+    adapter, _ = _adapter([_row("BTCUSDT", "0"), _row("ETHUSDT", "2")])
+    assert [p.symbol for p in adapter.get_positions(strict=True)] == ["ETHUSDT"]       # flat rows still left out
+
+
 def test_one_symbol_s_read_is_unchanged():
     adapter, client = _adapter([_row("BTCUSDT", "0")])
     assert adapter.get_position("BTCUSDT").qty == 0 and adapter.get_position("ETHUSDT") is None
