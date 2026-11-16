@@ -83,7 +83,10 @@ class PaperDivergenceLog:
     - an entry the gates or the order journal refused for good (``blocked`` without ``retry``): ``entry_refused``;
     - a protective stop that went off or could not be placed because price was beyond it (the ``issue`` of that
       kind, written once per stop): ``stop_triggered`` or ``stop_breached``;
-    - a new entry pause (reported by ``DivergencePauses``): ``pause``.
+    - a new entry pause (reported by ``DivergencePauses``): ``pause``;
+    - a risk exit the exit side starts (reported by it once per symbol and cause): ``flatten`` for a kill switch or
+      a latched drawdown, ``cancel_entries`` for a kill switch without flatten or an issue that cancels resting
+      entries, each with its ``reason``.
     """
 
     def __init__(self, inner: EventLog) -> None:
@@ -99,6 +102,9 @@ class PaperDivergenceLog:
 
     def paused(self, symbol: str, cause: str) -> None:
         self._divergence("pause", symbol=symbol, reason=cause)
+
+    def risk_exit(self, symbol: str, action: str, reason: str) -> None:
+        self._divergence(action, symbol=symbol, reason=reason)
 
     def _divergence(self, cause: str, **fields: Any) -> None:
         self.inner.write(EventKind.PAPER_DIVERGENCE, cause=cause, **fields)

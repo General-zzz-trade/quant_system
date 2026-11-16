@@ -101,7 +101,9 @@ def test_each_entry_the_gates_refuse_is_one_divergence_event(tmp_path):
     assert sorted(e["order_id"] for e in divergences) == sorted(e["order_id"] for e in refused)
     assert all(e["symbol"] and e["reason"] for e in divergences)
     assert not [e for e in _events(state) if e["kind"] == "fill"]     # nothing traded, so nothing else diverged
-    assert _divergences(state) == divergences
+    # S10 audit M1: the kill switch itself is a divergence too, once per symbol (cancel_entries, kill_switch).
+    assert [e for e in _divergences(state) if e["cause"] != "cancel_entries"] == divergences
+    assert _risk_divergences(state) == [("cancel_entries", s, "kill_switch") for s in ("BTCUSDT", "ETHUSDT")]
 
 
 def test_a_crash_through_the_stop_fills_it_pauses_the_symbol_and_writes_one_event_per_cause(tmp_path):

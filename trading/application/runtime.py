@@ -52,7 +52,8 @@ class TargetRuntime:
                  event_log_failure: Callable[[], Issue | None] = lambda: None,
                  config_digest: str | None = None,
                  account_check: Callable[[], list[Issue]] | None = None, venue: PaperVenue | None = None,
-                 gate_clock: GateClock | None = None) -> None:
+                 gate_clock: GateClock | None = None,
+                 exit_observer: Callable[[str, str, str], None] | None = None) -> None:
         self.policy, self.venue = policy, venue
         self.spec, self.mode, self.market, self.account, self.clock = spec, policy.name, market, account, clock
         self.sessions, self.journal, self.equity = sessions, journal, equity
@@ -78,7 +79,7 @@ class TargetRuntime:
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
                                     cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
-                                    account_check=account_check)
+                                    account_check=account_check, exit_observer=exit_observer)
         self.reporter = StatusReporter(sessions, mode=policy.name, clock=clock, spec_passed=spec_passed,
                                        notifier=notifier, kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures, config_digest=config_digest,

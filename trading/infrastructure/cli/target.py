@@ -137,7 +137,8 @@ class TargetRuntime(_runtime.TargetRuntime):
             account=account, kill=kill, drawdown=wiring.drawdown, paper_store=paper_store,
             spec_passed=self.frozen.get("passed"), pauses=wiring.pauses, notifier=notifier,
             alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest(),
-            account_check=account_check, venue=venue, gate_clock=gate_clock)
+            account_check=account_check, venue=venue, gate_clock=gate_clock,
+            exit_observer=journal.risk_exit if venue is not None else None)
         if paper_store is not None:      # from now on every journal transaction carries the paper state
             paper_store.state.follow(self.paper_revision, self.paper_document)
         # ADR-0017: what this run uses, recorded once, without any secret.
