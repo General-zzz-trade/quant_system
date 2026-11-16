@@ -213,5 +213,5 @@ def test_a_full_telegram_queue_drops_new_alerts_and_logs_it(caplog):
 
 
 def test_the_runtime_s_telegram_notifier_sends_in_the_background():
-    from trading.infrastructure.settings import notifier_from_env
+    from trading.infrastructure.config import notifier_from_env
     assert notifier_from_env({"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "42"}).background is True

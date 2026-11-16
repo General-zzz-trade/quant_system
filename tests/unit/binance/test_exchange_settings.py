@@ -6,7 +6,7 @@ from decimal import Decimal as D
 import pytest
 
 from trading.domain.risk.liquidation import check_stop_inside_liquidation as _check_stop
-from trading.infrastructure.settings import exchange_settings
+from trading.infrastructure.config import exchange_settings
 
 
 def check_stop_inside_liquidation(stop_pct, env):

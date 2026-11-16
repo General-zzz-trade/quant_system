@@ -358,13 +358,13 @@ def _legacy_loaded_by(modules: str) -> str:
 
 
 def test_the_binance_adapter_loads_no_legacy_package_and_no_rust():
-    assert _legacy_loaded_by("trading.adapters.binance.adapter, trading.infrastructure.settings") == "[]"
+    assert _legacy_loaded_by("trading.adapters.binance.adapter, trading.infrastructure.config") == "[]"
 
 
 def test_the_target_runtime_and_its_composition_load_no_legacy_package_and_no_rust():
     """Lazy imports are invisible to import-linter; this loads the modules for real (migration step 10)."""
     assert _legacy_loaded_by("trading.infrastructure.target, trading.infrastructure.bootstrap, "
-                             "trading.infrastructure.paper_store, trading.application.runtime") == "[]"
+                             "trading.infrastructure.paper, trading.application.runtime") == "[]"
 
 
 def test_the_target_entry_point_loads_no_rust_and_no_old_event_types():
