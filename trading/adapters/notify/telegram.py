@@ -30,12 +30,19 @@ def _post(url: str, body: bytes) -> None:
         response.read()
 
 
+def _request(url: str, body: bytes, timeout: float) -> bytes:
+    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return bytes(response.read())
+
+
 class TelegramNotifier:
     channel = "telegram"
 
     def __init__(self, token: str, chat_id: str, *, post: Callable[[str, bytes], None] = _post,
+                 request: Callable[[str, bytes, float], bytes] = _request,
                  background: bool = False, queue_size: int = QUEUE_SIZE) -> None:
-        self._url, self._chat_id, self._post = API.format(token=token), chat_id, post
+        self._url, self._chat_id, self._post, self._request = API.format(token=token), chat_id, post, request
         self._queue: queue.Queue[tuple[str, str, str]] | None = queue.Queue(queue_size) if background else None
         self._worker: threading.Thread | None = None
 
@@ -50,6 +57,19 @@ class TelegramNotifier:
             self._queue.put_nowait((level, title, detail))
         except queue.Full:
             logger.warning("Telegram alert dropped (queue full): %s", title)
+
+    def deliver(self, title: str, detail: str = "", *, timeout_s: float) -> bool:
+        """Send now, beside any queued alerts, and wait (ADR-0016 point 2): True only when Telegram's answer says
+        ``"ok": true`` within ``timeout_s``. A failure is logged by exception type only (the token is in the URL)."""
+        try:
+            answer = json.loads(self._request(self._url, self._body("info", title, detail), timeout_s))
+        except Exception as exc:
+            logger.warning("Telegram message not confirmed (%s): %s", type(exc).__name__, title)
+            return False
+        if not isinstance(answer, dict) or answer.get("ok") is not True:
+            logger.warning("Telegram message not confirmed (answer not ok): %s", title)
+            return False
+        return True
 
     @property
     def background(self) -> bool:
@@ -70,11 +90,14 @@ class TelegramNotifier:
             finally:
                 self._queue.task_done()
 
-    def _send(self, level: str, title: str, detail: str) -> None:
+    def _body(self, level: str, title: str, detail: str) -> bytes:
         text = f"[{level.upper()}] {title}" + (f"\n{detail}" if detail else "")
         if len(text) > MAX_TEXT:
             text = text[:MAX_TEXT - 1] + "…"
-        body = json.dumps({"chat_id": self._chat_id, "text": text, "disable_web_page_preview": True}).encode()
+        return json.dumps({"chat_id": self._chat_id, "text": text, "disable_web_page_preview": True}).encode()
+
+    def _send(self, level: str, title: str, detail: str) -> None:
+        body = self._body(level, title, detail)
         try:
             self._post(self._url, body)
         except Exception as exc:
