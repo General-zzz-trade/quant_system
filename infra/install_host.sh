@@ -34,6 +34,8 @@ python3 -m pip install --require-hashes --no-deps --break-system-packages --igno
 
 echo "2/5 Directories for state, backups and logs (the host lock directory is created by state_dir init)"
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_ROOT" "$STATE_ROOT/state" "$STATE_ROOT/backups"
+# The alert file's directory (ALERT_FILE, owner 2026-11-16): the runtime never creates it.
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_ROOT/alerts"
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$CHECKOUT/logs"
 
 echo "3/5 systemd units: copied and reloaded; nothing is enabled or started"
@@ -48,7 +50,8 @@ echo "5/5 Offline safety checks"
 cat <<EOF
 
 Installed. What a person does next (docs/binance_runbook.md):
-  1. Write $CHECKOUT/.env from .env.example (chmod 600, owner $SERVICE_USER).
+  1. Write $CHECKOUT/.env from .env.example (chmod 600, owner $SERVICE_USER). Execution needs an alert channel
+     there: ALERT_FILE=$STATE_ROOT/alerts/<network>.jsonl (the directory exists now), or the Telegram pair.
   2. Initialize the state directory once, as $SERVICE_USER:
        python3 -m trading.infrastructure.state_dir --state-dir $STATE_ROOT/state/testnet init
   3. Enable the hourly backup:   systemctl enable --now state-backup@testnet.timer

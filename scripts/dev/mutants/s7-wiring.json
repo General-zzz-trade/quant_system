@@ -50,7 +50,7 @@
  [
   "C2 Telegram not required",
   "trading/infrastructure/config.py",
-  "    if secrets.telegram is None:\n        raise RuntimeError(\"execution mode needs alerts",
+  "    if secrets.telegram is None and secrets.alert_file is None:\n        raise RuntimeError(\"execution mode needs alerts",
   "    if False:\n        raise RuntimeError(\"execution mode needs alerts"
  ],
  [
@@ -68,14 +68,14 @@
  [
   "U1 an unconfirmed alert succeeds",
   "trading/infrastructure/unit_alert.py",
-  "    print(f\"alert not confirmed by Telegram: {title}\", file=stdout)\n    return 1",
-  "    print(f\"alert not confirmed by Telegram: {title}\", file=stdout)\n    return 0"
+  "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 1",
+  "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 0"
  ],
  [
   "U2 the process log counts as Telegram",
   "trading/infrastructure/unit_alert.py",
-  "if not isinstance(notifier, TelegramNotifier):",
-  "if False:"
+  "    if isinstance(notifier, LogNotifier):",
+  "    if False:"
  ],
  [
   "U3 the unit is not named",
