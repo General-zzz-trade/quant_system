@@ -114,7 +114,7 @@ class TargetSession:
 
     def window(self) -> Window:
         """The closed bars and the funding settlements known at the newest close: what the strategy decides on."""
-        return Window(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at))
+        return Window(frame_from_bars(list(self.bars), extras=True), self.funding_series(self.bars[-1].available_at))
 
     def _target(self) -> tuple[float, bool]:
         return self.strategy.latest({self.symbol: self.window()})[self.symbol]

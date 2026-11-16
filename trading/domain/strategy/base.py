@@ -28,8 +28,9 @@ from trading.domain.strategy.overlay import StrategySpec, compute_targets
 
 @dataclass(frozen=True)
 class Window:
-    """One symbol's inputs at a close: its closed hourly bars (``available_at``, ``open_time``, OHLC, ``volume``) and
-    its funding settlements (settlement time in ms -> rate) known by then."""
+    """One symbol's inputs at a close: its closed hourly bars (``available_at``, ``open_time``, OHLC, ``volume`` and,
+    from R7a, the kline fields ``quote_volume``, ``trades``, ``taker_buy_volume``, ``taker_buy_quote_volume``: NaN
+    when unknown) and its funding settlements (settlement time in ms -> rate) known by then."""
     hourly: pd.DataFrame
     funding: pd.Series
 
@@ -41,6 +42,8 @@ class Strategy(Protocol):
     def window_hours(self) -> int: ...        # closed bars a decision needs (a trailing window gives the full value)
 
     def funding_window(self) -> int: ...      # funding settlements it needs
+
+    def references(self) -> tuple[str, ...]: ...    # symbols it reads besides each traded one (R7a)
 
     def history(self, windows: Mapping[str, Window]) -> dict[str, pd.DataFrame]: ...
 
@@ -60,6 +63,9 @@ class PerSymbol:
 
     def symbol_history(self, window: Window) -> pd.DataFrame:
         raise NotImplementedError
+
+    def references(self) -> tuple[str, ...]:
+        return ()
 
     def history(self, windows: Mapping[str, Window]) -> dict[str, pd.DataFrame]:
         return {symbol: self.symbol_history(window) for symbol, window in windows.items()}
