@@ -110,6 +110,9 @@ class SimulatedExchange:
         self._by_client: dict[str, str] = {}            # client order id -> venue order id
         self._stops: dict[str, dict[str, Any]] = {}     # client algo id -> {symbol, side, trigger, state, ...}
         self._next_id = 1
+        # Changes with every call that can change the exchange or its brokers: the paper state is saved again with
+        # the next journal transaction after it moved (S10 decision 4).
+        self.revision = 0
 
     # -- BarListener ------------------------------------------------------------------------------------------
     def on_closed_bar(self, symbol: str, bar: Bar, funding_rate: Decimal | None) -> None:
@@ -118,11 +121,17 @@ class SimulatedExchange:
         broker = self._broker(symbol)
         if bar.open_time < broker.now:
             raise ValueError(f"{symbol}: the bar at {bar.open_time} is before the broker's time {broker.now}")
+        self.revision += 1
         broker.now, broker.mark = bar.open_time, bar.open
         if funding_rate is not None:
             broker.settle_funding(bar.open_time, funding_rate, bar.open)
         broker.process_bar(bar)
         self._trigger_stops(symbol, bar)
+
+    def has_matched(self, symbol: str, bar: Bar) -> bool:
+        """Whether ``bar`` has been matched: a restart after a crash between a bar's matching and its decision decides
+        the bar without matching it again (S10 decision 4). After matching, the broker's time is the bar's close."""
+        return self._broker(symbol).now >= bar.available_at
 
     # -- account ----------------------------------------------------------------------------------------------
     def filters(self, symbol: str) -> SimFilters:
@@ -156,11 +165,9 @@ class SimulatedExchange:
                      for name, b in self._selected(symbol) if b.position.qty != 0)
 
     def get_position(self, symbol: str) -> VenuePosition | None:
-        """One symbol's position, flat included (qty 0), as the Binance adapter answers it (ADR-0012); None for a
-        symbol this venue does not trade."""
-        broker = self._brokers.get(symbol)
-        if broker is None:
-            return None
+        """One symbol's position, flat included (qty 0), as the Binance adapter answers it (ADR-0012); a symbol this
+        venue does not trade raises, as on Binance and in this venue's other methods (S4-S5 audit, finding 9)."""
+        broker = self._broker(symbol)
         return VenuePosition(venue=VENUE, symbol=symbol, qty=broker.position.qty,
                              entry_price=broker.position.entry_price, mark_price=broker.mark)
 
@@ -205,6 +212,7 @@ class SimulatedExchange:
         broker, rules = self._broker(symbol), self.filters(symbol)
         if client_order_id in self._by_client:
             return _rejected("duplicate client order id")
+        self.revision += 1
         requested = Decimal(str(qty))
         if not requested.is_finite():
             return _rejected(f"invalid quantity {qty}")
@@ -245,6 +253,7 @@ class SimulatedExchange:
         record = self._orders.get(order_id)
         if record is None or record["symbol"] != symbol:
             raise RuntimeError(f"unknown simulated order {order_id} for {symbol}")
+        self.revision += 1
         self._broker(symbol).cancel(record["client_id"])    # False when it no longer rests: nothing changes
         return {"status": "cancel_requested"}
 
@@ -280,6 +289,7 @@ class SimulatedExchange:
             return {"status": "rejected", "msg": f"no price for {symbol} yet"}
         if (broker.mark <= trigger) if side == "sell" else (broker.mark >= trigger):
             return {"status": "rejected", "msg": "would immediately trigger", "breached": True}
+        self.revision += 1
         self._stops[client_algo_id] = {"symbol": symbol, "side": side, "trigger": trigger, "state": STOP_ACTIVE,
                                        "actual_order_id": ""}
         return {"status": "submitted", "algoId": client_algo_id}
@@ -296,6 +306,7 @@ class SimulatedExchange:
         if stop is None:
             raise RuntimeError(f"unknown simulated stop {client_algo_id}")
         if stop["state"] == STOP_ACTIVE:
+            self.revision += 1
             stop["state"] = STOP_GONE
         return {"status": "cancel_requested"}
 
@@ -366,8 +377,14 @@ class SimulatedExchange:
             broker.position, broker.pending = position, pending
         self._orders, self._stops, self._next_id = orders, stops, next_id
         self._by_client = {record["client_id"]: order_id for order_id, record in orders.items()}
+        self.revision += 1
 
     # -- helpers ----------------------------------------------------------------------------------------------
+    def broker(self, symbol: str) -> BarBroker:
+        """The symbol's research broker, to read only: people and the tests compare it with research. It is the same
+        object for the life of the exchange; ``restore`` loads a snapshot into it."""
+        return self._broker(symbol)
+
     def _broker(self, symbol: str) -> BarBroker:
         try:
             return self._brokers[symbol]

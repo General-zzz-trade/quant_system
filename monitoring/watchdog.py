@@ -41,8 +41,9 @@ SERVICES = {
     "binance-target": {
         "unit": "binance-target.service",
         "journal_match": "binance_target",
-        # rewritten every poll (5 s) by runner.binance_target
-        "status_file": "data/runtime/binance_target/target_status.json",
+        # rewritten every poll (5 s) by runner.binance_target; the unit runs paper (--dry-run), whose default
+        # state directory is data/runtime/paper since S10 (execution's stays data/runtime/binance_target)
+        "status_file": "data/runtime/paper/target_status.json",
         "max_silent_s": 600,
         # a closed 1h bar is processed about 2h after its open (+ funding wait)
         "max_bar_lag_s": 3 * 3600,

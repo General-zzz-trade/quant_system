@@ -14,6 +14,7 @@ from trading.domain.bars import bar_from_kline
 from runner.binance_target import PAPER_STATE, TargetRuntime
 from tests.unit.binance.fake_venue import HOUR
 from tests.unit.lab.test_target_runtime import LIVE, _advance, _world
+from tests.support.paper_state import edit_saved_paper_state
 from tests.support.state_db import state_dir_db
 
 MARKET_PATHS = ("/fapi/v1/klines", "/fapi/v1/fundingRate")
@@ -146,9 +147,7 @@ def test_saved_paper_state_of_another_spec_is_refused_until_reset(tmp_path):
     runtime.warmup()
     for i in range(world["warm"], world["warm"] + 5):
         _advance(world, runtime, i)
-    saved = json.loads((state / PAPER_STATE).read_text())
-    saved["spec"]["band"] = 0.2
-    (state / PAPER_STATE).write_text(json.dumps(saved))
+    edit_saved_paper_state(state, lambda saved: saved["spec"].update(band=0.2))   # setup since S10 part 3
     with pytest.raises(RuntimeError, match="another spec"):
         _paper(world, state).warmup()
     fresh = _paper(world, state, reset_paper=True)
@@ -162,10 +161,10 @@ def test_paper_state_older_than_the_available_history_is_refused(tmp_path):
     state = tmp_path / "paper"
     runtime = _paper(world, state)
     runtime.warmup()
-    saved = json.loads((state / PAPER_STATE).read_text())
-    for symbol, snap in saved["symbols"].items():
-        snap["cursor"] = world["rows"][symbol][0]["start"] - 24 * HOUR   # before the venue's first bar
-    (state / PAPER_STATE).write_text(json.dumps(saved))
+    def before_the_first_bar(saved):                  # setup since S10 part 3: the database, not the JSON copy
+        for symbol, snap in saved["symbols"].items():
+            snap["cursor"] = world["rows"][symbol][0]["start"] - 24 * HOUR   # before the venue's first bar
+    edit_saved_paper_state(state, before_the_first_bar)
     with pytest.raises(RuntimeError, match="cannot be resumed"):
         _paper(world, state).warmup()
 

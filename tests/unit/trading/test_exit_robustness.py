@@ -168,7 +168,8 @@ def test_the_runtime_takes_its_lease_with_the_same_scope_the_tools_use(tmp_path,
         seen["scope"] = scope
         raise Stop
 
-    monkeypatch.setattr(target, "ExecutionLease", capture)
+    from trading.infrastructure.cli import target as cli    # setup since S10 part 3: main moved there
+    monkeypatch.setattr(cli, "ExecutionLease", capture)
     monkeypatch.setenv("RISK_SCOPE", " binance-testnet-ut ")
     monkeypatch.setenv("BINANCE_TESTNET", "1")
     import io

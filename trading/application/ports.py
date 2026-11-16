@@ -162,6 +162,32 @@ class BarListener(Protocol):
     def on_closed_bar(self, symbol: str, bar: Bar, funding_rate: Decimal | None) -> None: ...
 
 
+class PaperVenue(BarListener, Protocol):
+    """The simulated exchange as the paper runtime keeps it: a bar listener whose state is saved with the cursors
+    and loaded at a restart (ADR-0013 consequences: paper state = the venue's snapshot + the order journal).
+    ``revision`` changes with every change of its state; ``has_matched`` says whether a bar was matched already."""
+
+    @property
+    def revision(self) -> int: ...
+
+    def snapshot(self) -> dict[str, Any]: ...
+
+    def restore(self, state: dict[str, Any]) -> None: ...
+
+    def has_matched(self, symbol: str, bar: Bar) -> bool: ...
+
+
+class GateClock(Protocol):
+    """The entry gates' clock when they run on bar time (``ModePolicy.limiter_clock == "bar_time"``, paper): set to
+    a bar's close before the decision, moved on by one poll for the retry of deferred entries; never goes back."""
+
+    def at(self, ms: int) -> None: ...
+
+    def advance(self, seconds: float) -> None: ...
+
+    def ms(self) -> int: ...
+
+
 @runtime_checkable
 class OrderJournal(Protocol):
     """Durable order intents, exchange fills and consumer checkpoints (one writer: the SQLite adapter)."""
@@ -358,7 +384,8 @@ class Notifier(Protocol):
 
 
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
-           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway", "BarListener",
+           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway", "BarListener", "PaperVenue",
+           "GateClock",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
            "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView", "AccountStopView",
            "AccountSnapshot"]

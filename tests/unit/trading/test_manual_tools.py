@@ -26,7 +26,8 @@ from trading.infrastructure import manual
 
 ROOT = Path(__file__).resolve().parents[3]
 SCOPE, OWNER = "binance-testnet-ut", "target.BTCUSDT"
-ENV = {"BINANCE_TESTNET": "1", "RISK_SCOPE": SCOPE}
+# The API key names the account identity the host lock is taken for (S6); the secret is never used here.
+ENV = {"BINANCE_TESTNET": "1", "RISK_SCOPE": SCOPE, "BINANCE_TESTNET_API_KEY": "k", "BINANCE_TESTNET_API_SECRET": "s"}
 
 
 @pytest.fixture
@@ -188,6 +189,24 @@ def test_nothing_runs_while_the_runtime_holds_the_lease(tmp_path, venue):
     with ExecutionLease(tmp_path / "state.sqlite", SCOPE):
         code, out = _run(tmp_path, adapter, "orders")
     assert code == 3 and "stop the runtime" in out
+
+
+def test_nothing_runs_while_a_runtime_holds_the_account_identity(tmp_path, venue):
+    # S6 (ADR-0016 point 5): a runtime of the same account in any state directory holds the host lock.
+    from trading.adapters.files.host_lock import HostLock
+    from trading.infrastructure.config import account_identity
+    fake, adapter, journal = venue
+    with HostLock(account_identity(testnet=True, api_key="k"), holder="a runtime in another directory"):
+        code, out = _run(tmp_path, adapter, "orders")
+    assert code == 3 and "stop the runtime" in out
+
+
+def test_the_tools_refuse_without_the_api_key_that_names_the_account(tmp_path, venue):
+    fake, adapter, journal = venue
+    out = io.StringIO()
+    code = manual.main(["--state-dir", str(tmp_path), "orders"], stdin=io.StringIO("\n"), stdout=out,
+                       env={"BINANCE_TESTNET": "1", "RISK_SCOPE": SCOPE}, account=adapter)
+    assert code == 2 and "API key" in out.getvalue()
 
 
 def test_a_reason_is_required(tmp_path, venue):

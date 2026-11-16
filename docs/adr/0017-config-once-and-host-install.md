@@ -75,3 +75,9 @@
   - 手工工具和状态目录命令不再自己读 `os.environ`，改为调用 `config.py` 里的函数。
 - **"入口变薄"推迟到 S10 第 3 部分**：那一步要大改入口里模拟盘的组装，现在搬移入口会和副线冲突。
 - **安装脚本和重写 `.env.example`** 按设计第 10 节放在 S8。
+
+## 实施更正（2026-11-16，S10 第 3b 部分）
+
+- **入口变薄已完成**：启动检查（`preflight`）、两种模式的组装（`TargetRuntime`）和主循环（`main`）搬到 `trading/infrastructure/cli/target.py`。
+- `runner/binance_target.py` 只留 `trading` 按导入契约不能导入的两样：签名的规格加载器（`infra.model_signing`）和交易成本日志（`monitoring.tca`），并把它们交给 `cli/target.py`；原有的名字（`TargetRuntime`、`load_spec`、`preflight`、`main` 等）照旧可以导入，systemd 单元不用改。
+- 模拟盘只用 `load_config(execution=False)` 的结果，不读任何账户配置；规格加载器读 `BINANCE_TESTNET` 只会让检查更严（S10 决定 3）。
