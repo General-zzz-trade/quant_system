@@ -6,8 +6,12 @@ kill path then closes every position and refuses entries, and the kill file is t
 ever sets it, a person clears it. The loss stays in the ledger, so clearing alone sets it again; going on means a
 new pilot in a new state directory.
 
+Once reached, the stop stays reached for the life of the process (audit 2026-11-16): every check reads the kill
+switch, sets it again if it is not active with flatten, and returns a finding that blocks every entry, so a person's
+clear lets nothing through. A restart reads the loss again in its warm-up, before any entry can be decided.
+
 A loss that cannot be known closes nothing and blocks every entry (an issue, until it is known again). So does a
-kill switch that could not be set, which is tried again on every cycle.
+kill switch that could not be set, which is tried again at every check.
 """
 from __future__ import annotations
 
@@ -60,15 +64,21 @@ class StrategyLossStop:
         self._checked_at: float | None = None
         self._findings: list[Issue] = []
         self._trip: str | None = None
+        self._reached: str | None = None            # the trip reason, from the first read at or beyond the limit
 
     def check(self) -> list[Issue]:
         """Read the loss when due and set the kill switch at the limit. Never raises; returns what blocks every entry
-        meanwhile (an unknown loss, a switch that could not be set)."""
+        meanwhile: an unknown loss, a switch that could not be set, and - once the limit was reached, for the life
+        of the process - the stop itself. From then on every call reads the kill switch and sets it again if a
+        person cleared it; the loss is not read again."""
         now = self.clock()
-        if self._checked_at is not None and not self._findings and now - self._checked_at < LOSS_STOP_SECONDS:
-            return []
-        self._checked_at = now
-        self._findings = self._evaluate()
+        if self._reached is None:
+            if self._checked_at is not None and not self._findings and now - self._checked_at < LOSS_STOP_SECONDS:
+                return []
+            self._checked_at = now
+            self._findings = self._evaluate()
+        if self._reached is not None:
+            self._findings = self._hold(self._reached)
         return list(self._findings)
 
     def take_trip(self) -> str | None:
@@ -85,21 +95,26 @@ class StrategyLossStop:
         except Exception as exc:
             return [Issue(K.STRATEGY_LOSS_STOP, None, f"strategy loss unknown ({type(exc).__name__}: {exc}); "
                                                       "every entry is blocked, nothing is closed")]
-        if pnl > -self.limit * self.capital:
-            return []
+        if pnl <= -self.limit * self.capital:
+            self._reached = (f"strategy loss stop: the strategy has lost {-pnl:.2f} USDT of its {self.capital} USDT "
+                             f"capital (limit {(self.limit * 100).normalize():f} %); every position is closed and "
+                             "entries are refused. Clearing the kill switch alone sets it again: going on means a "
+                             "new pilot in a new state directory")
+        return []
+
+    def _hold(self, reason: str) -> list[Issue]:
+        """Reached: the switch is kept active with flatten, and this process refuses every entry until it ends - a
+        person's clear cannot let one through before the switch is set again (audit 2026-11-16, finding 6)."""
         try:
             state = self.kill.state()
             if not (state.active and state.flatten):
-                reason = (f"strategy loss stop: the strategy has lost {-pnl:.2f} USDT of its {self.capital} USDT "
-                          f"capital (limit {self.limit * 100:g} %); every position is closed and entries are refused. "
-                          "Clearing the kill switch alone sets it again: going on means a new pilot in a new state "
-                          "directory")
                 self.kill.trip(reason)
                 self._trip = reason
         except Exception as exc:
             return [Issue(K.STRATEGY_LOSS_STOP, None, "strategy loss stop reached but the kill switch could not be "
                                                       f"set ({type(exc).__name__}: {exc}); every entry is blocked")]
-        return []
+        return [Issue(K.STRATEGY_LOSS_STOP, None, "strategy loss stop reached: this process refuses every entry "
+                                                  "until it ends and keeps the kill switch set with flatten")]
 
 
 __all__ = ["LOSS_STOP_SECONDS", "StrategyLossStop", "strategy_unrealized"]

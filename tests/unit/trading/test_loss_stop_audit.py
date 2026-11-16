@@ -24,7 +24,7 @@ def _raising(exc):
 
 
 # -- point 5: the stop's own issue kind ---------------------------------------------------------------------------
-@pytest.mark.parametrize("case", ["unknown", "switch not set"])
+@pytest.mark.parametrize("case", ["unknown", "reached", "switch not set"])
 def test_every_finding_of_the_stop_is_a_strategy_loss_stop_issue(tmp_path, case):
     stop, kill, _, _ = _stop(tmp_path, OSError("ledger locked") if case == "unknown" else D("-50"))
     if case == "switch not set":
@@ -148,3 +148,58 @@ def test_funding_asks_for_the_symbols_it_is_given_at_each_refresh():
     never = StrategyFunding(venue, unreadable, {"BTCUSDT": 10.0}.get, Clock())
     with pytest.raises(RuntimeError, match="funding"):      # owners that cannot be listed: unknown, never 0
         never.current()
+
+
+# -- point 4: once reached, reached for the life of the process (audit finding 6) ---------------------------------
+def test_once_reached_every_check_blocks_entries_and_sets_a_cleared_switch_again_at_once(tmp_path):
+    stop, kill, holder, clock = _stop(tmp_path, D("-45"))
+    (reached,) = stop.check()
+    assert reached.kind is IssueKind.STRATEGY_LOSS_STOP and "strategy loss stop reached" in reached
+    assert kill.state().active and kill.state().flatten and stop.take_trip() is not None
+    kill.write(active=False, reason="cleared by a person")
+    assert stop.check() == [reached]                         # no minute's wait: the same cycle's check
+    state = kill.state()
+    assert state.active and state.flatten and "strategy loss stop" in state.reason
+    assert stop.take_trip() is not None and stop.take_trip() is None       # each trip is reported once
+    written = (tmp_path / "kill_switch.json").read_text()
+    holder["pnl"] = D("25")                                  # the loss is gone (a person changed the ledger, say)
+    for _ in range(3):
+        clock.now += 61
+        assert stop.check() == [reached]                     # still reached: this process never enters again
+    assert (tmp_path / "kill_switch.json").read_text() == written and stop.take_trip() is None
+
+
+def test_a_switch_that_cannot_be_set_after_a_clear_is_a_finding_until_it_is_set(tmp_path):
+    stop, kill, _, _ = _stop(tmp_path, D("-50"))
+    (reached,) = stop.check()
+    assert stop.take_trip() is not None
+    kill.write(active=False, reason="cleared by a person")
+    real, kill.trip = kill.trip, _raising(OSError("read-only file system"))
+    (failed,) = stop.check()
+    assert "kill switch could not be set" in failed and failed.kind is IssueKind.STRATEGY_LOSS_STOP
+    assert kill.state().active is False and stop.take_trip() is None
+    kill.trip = real
+    assert stop.check() == [reached] and kill.state().flatten is True
+
+
+@pytest.mark.parametrize("content", [None, "{not json", '{"active": "yes"}'])
+def test_a_missing_or_unreadable_kill_file_is_not_flatten_so_the_stop_writes_it(tmp_path, content):
+    from trading.adapters.files.kill_switch import KillFile
+    from trading.application.risk.loss_stop import StrategyLossStop
+    path = tmp_path / "kill_switch.json"
+    if content is not None:
+        path.write_text(content)
+    kill = KillFile(path, missing_is_active=True)                    # an initialized state directory
+    before = kill.state()
+    assert before.active and not before.flatten                      # blocks entries, closes nothing
+    stop = StrategyLossStop(D("300"), D("0.15"), lambda: D("-50"), kill, clock=lambda: 1000.0)
+    stop.check()
+    state = kill.state()
+    assert state.active and state.flatten and "strategy loss stop" in state.reason
+
+
+def test_the_reason_names_the_limit_as_a_person_wrote_it(tmp_path):
+    for limit, text in (("0.15", "limit 15 %"), ("0.075", "limit 7.5 %"), ("0.10", "limit 10 %")):
+        stop, kill, _, _ = _stop(tmp_path / limit, D("-50"), limit=limit)
+        stop.check()
+        assert text in kill.state().reason, kill.state().reason

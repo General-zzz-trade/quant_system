@@ -51,7 +51,7 @@ def test_a_loss_short_of_the_limit_does_nothing(tmp_path):
 
 def test_at_15_per_cent_the_kill_switch_is_set_with_flatten_once(tmp_path):
     stop, kill, holder, clock = _stop(tmp_path, D("-45"))
-    assert stop.check() == []
+    (reached,) = stop.check()                                       # reached: a finding while the process lives
     state = kill.state()
     assert state.active is True and state.flatten is True
     assert "strategy loss stop" in state.reason and "45" in state.reason and "15" in state.reason
@@ -61,7 +61,7 @@ def test_at_15_per_cent_the_kill_switch_is_set_with_flatten_once(tmp_path):
     written = (tmp_path / "kill_switch.json").read_text()
     clock.now += LOSS_STOP_SECONDS
     holder["pnl"] = D("-60")
-    assert stop.check() == [] and stop.take_trip() is None
+    assert stop.check() == [reached] and stop.take_trip() is None
     assert (tmp_path / "kill_switch.json").read_text() == written                 # already set: left as it is
 
 
@@ -99,7 +99,8 @@ def test_a_switch_that_cannot_be_set_blocks_every_entry_and_is_tried_again(tmp_p
     assert Effect.BLOCK_ALL_ENTRIES in issue.effects and "kill switch" in issue
     assert stop.take_trip() is None
     kill.trip = real
-    assert stop.check() == [] and kill.state().flatten is True     # no minute's wait
+    (reached,) = stop.check()                                       # no minute's wait
+    assert "strategy loss stop reached" in reached and kill.state().flatten is True
 
 
 def test_the_loss_is_read_at_most_once_a_minute_while_it_is_known(tmp_path):

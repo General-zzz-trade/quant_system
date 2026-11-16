@@ -13,7 +13,7 @@ from tests.characterization.test_runtime_decisions import _events, _runtime
 from tests.characterization.test_strategy_capital_sizing import _execution
 from tests.characterization.test_strategy_loss_stop_runtime import _flat, _holding, _kill
 from tests.support.state_db import state_dir_db
-from tests.unit.binance.fake_venue import FakeBinance
+from tests.unit.binance.fake_venue import HOUR, FakeBinance
 from tests.unit.lab.test_target_runtime import _advance
 from tests.unit.trading.test_market_failures import _due, _market
 from trading.adapters.binance.rest import BinanceRetryableError
@@ -165,3 +165,27 @@ def test_a_restart_with_the_switch_cleared_sets_it_again_in_the_warm_up_before_a
         assert _flat(world)
     assert sum(len(f.posts) for f in world["fakes"].values()) == posts
 
+
+# -- audit finding 6: once reached, a cleared switch lets no entry through ----------------------------------------
+def test_a_cleared_switch_lets_no_entry_through_and_is_set_again_at_the_next_reconciliation(tmp_path):
+    world, runtime, btc, i = _holding(tmp_path)
+    btc.add_income("BTCUSDT", "-50", btc.now_ms() + 1_000)
+    _tick(world, runtime, 601)
+    _tick(world, runtime)
+    assert _kill(tmp_path)["active"] is True and _flat(world)
+    _advance(world, runtime, i + 1)
+    close = (world["rows"]["BTCUSDT"][i + 2]["start"] + HOUR) / 1000
+    world["clock"]["now"] = close - 20                 # a cycle 20 s before the next bar closes
+    runtime.cycle()
+    (tmp_path / "exec" / "kill_switch.json").write_text(json.dumps({"active": False, "reason": "cleared"}))
+    posts = sum(len(f.posts) for f in world["fakes"].values())
+    _advance(world, runtime, i + 2)                    # 25 s later the bar closes: the market side decides first
+    assert _flat(world) and sum(len(f.posts) for f in world["fakes"].values()) == posts
+    assert _kill(tmp_path)["active"] is True and _kill(tmp_path)["flatten"] is True     # set again in that cycle
+    for k in range(3, 6):
+        _advance(world, runtime, i + k)
+        assert _flat(world)
+    reached = [r for r in _loss_issues(tmp_path) if "strategy loss stop reached" in r["issue"]]
+    assert len(reached) == 1                           # a lasting finding is written once
+    trips = [r for r in _events(tmp_path, "alert") if "strategy loss stop" in r.get("reason", "")]
+    assert len(trips) == 2                             # the trip and the trip after the clear
