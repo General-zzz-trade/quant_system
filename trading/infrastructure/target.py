@@ -150,6 +150,12 @@ def strategy_realized_pnl(ledger: SqliteOrderJournal, owners: list[str]) -> Deci
     return total
 
 
+def strategy_owners(ledger: SqliteOrderJournal, symbols: Sequence[str]) -> list[str]:
+    """Every ``target.*`` owner of the scope: the spec's symbols and whatever the ledger holds of an earlier spec
+    (audit 2026-11-16, finding 7). A ledger that cannot be listed raises."""
+    return sorted({OWNER_PREFIX + s for s in symbols} | {o for o in ledger.owners() if o.startswith(OWNER_PREFIX)})
+
+
 def strategy_positions(ledger: SqliteOrderJournal, owners: list[str]) -> list[tuple[str, Decimal, Decimal]]:
     """Each owner's ledger position as (symbol, quantity, entry price), from its checkpoint: what the loss stop
     values at the venue's mark. An owner without a checkpoint holds nothing; one that cannot be read raises."""
@@ -213,17 +219,22 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         # since its first fill on each (tech lead 2026-11-16); either one unknown sizes to zero.
         if inputs.funding is None:
             raise ValueError("the strategy capital base needs the account's funding income")
+        # Every target.* owner of the scope counts, also one of an earlier spec (audit 2026-11-16, finding 7).
         ledger = SqliteOrderJournal(orders_path, scope)
-        funding = StrategyFunding(inputs.funding, symbols, lambda s: ledger.first_fill_at(OWNER_PREFIX + s), clock)
-        owners = [OWNER_PREFIX + s for s in symbols]
+
+        def owners() -> list[str]:
+            return strategy_owners(ledger, symbols)
+        funding = StrategyFunding(inputs.funding, lambda: [o[len(OWNER_PREFIX):] for o in owners()],
+                                  lambda s: ledger.first_fill_at(OWNER_PREFIX + s), clock)
         capped = CappedEquity(equity, inputs.strategy_capital,
-                              lambda: strategy_realized_pnl(ledger, owners) + funding.current())
+                              lambda: strategy_realized_pnl(ledger, owners()) + funding.current())
         if inputs.strategy_loss_stop is not None:
             def strategy_pnl() -> Decimal:
                 """The loss stop also counts what is still open: each owner's ledger position at the venue's mark
                 for its symbol (never the venue's own quantity, which a person's position is netted into)."""
-                return (strategy_realized_pnl(ledger, owners) + funding.current()
-                        + strategy_unrealized(strategy_positions(ledger, owners), account.get_position))
+                held = owners()
+                return (strategy_realized_pnl(ledger, held) + funding.current()
+                        + strategy_unrealized(strategy_positions(ledger, held), account.get_position))
             loss_stop = StrategyLossStop(inputs.strategy_capital, inputs.strategy_loss_stop, strategy_pnl,
                                          inputs.kill, clock=clock)
     sessions: dict[str, TargetSession] = {}
@@ -258,5 +269,5 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
 
 
 __all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "OWNER_PREFIX", "PaperParts", "exchange_lot_rules",
-           "execution_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet", "strategy_positions",
-           "strategy_realized_pnl"]
+           "execution_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet", "strategy_owners",
+           "strategy_positions", "strategy_realized_pnl"]

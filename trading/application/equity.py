@@ -57,13 +57,16 @@ class CappedEquity:
 
 class StrategyFunding:
     """The strategy's funding income: per symbol, what the venue reports from the strategy's first fill on it
-    (``first_fill``: seconds, None for a symbol never traded, which adds nothing). The precondition that the account
-    holds nothing outside the strategy ledger is what makes this funding the strategy's. Called on the runtime's
-    cycle; ``clock`` is the runtime's."""
+    (``first_fill``: seconds, None for a symbol never traded, which adds nothing). ``symbols`` is a fixed list, or a
+    function asked at every refresh (the ledger's owners: an earlier spec's symbol still counts; one that cannot be
+    listed fails the refresh). The precondition that the account holds nothing outside the strategy ledger is what
+    makes this funding the strategy's. Called on the runtime's cycle; ``clock`` is the runtime's."""
 
-    def __init__(self, venue: FundingIncome, symbols: Sequence[str], first_fill: Callable[[str], float | None],
-                 clock: Clock) -> None:
-        self.venue, self.symbols, self.first_fill, self.clock = venue, tuple(symbols), first_fill, clock
+    def __init__(self, venue: FundingIncome, symbols: Sequence[str] | Callable[[], Sequence[str]],
+                 first_fill: Callable[[str], float | None], clock: Clock) -> None:
+        self.venue, self.first_fill, self.clock = venue, first_fill, clock
+        fixed = () if callable(symbols) else tuple(symbols)
+        self.symbols: Callable[[], Sequence[str]] = symbols if callable(symbols) else (lambda: fixed)
         self.total = Decimal(0)
         self.refreshed_at: float | None = None      # the last successful refresh
         self.attempted_at: float | None = None
@@ -75,7 +78,7 @@ class StrategyFunding:
         self.attempted_at = now
         try:
             total = Decimal(0)
-            for symbol in self.symbols:
+            for symbol in self.symbols():
                 since = self.first_fill(symbol)
                 if since is not None:
                     total += Decimal(self.venue.get_funding_income(symbol, since_ms=int(since * 1000),

@@ -10,7 +10,13 @@ import pytest
 from tests.characterization.test_exit_paths import _tick, _until
 from tests.characterization.test_runtime_decisions import _events
 from tests.characterization.test_strategy_capital_sizing import _execution
-from tests.characterization.test_strategy_loss_stop_runtime import _holding, _kill
+from tests.characterization.test_strategy_loss_stop_runtime import _flat, _holding, _kill
+from tests.support.state_db import state_dir_db
+from tests.unit.binance.fake_venue import FakeBinance
+from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+from trading.adapters.sqlite.schema import STATE_DB
+
+SCOPE = "binance-testnet-ut"
 
 
 @pytest.fixture(autouse=True)
@@ -97,3 +103,22 @@ def test_the_second_symbol_s_open_loss_counts(tmp_path):
     _tick(world, runtime, 61)
     assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
 
+
+# -- audit finding 7: an owner of an earlier spec in the same scope still counts ----------------------------------
+def test_an_earlier_spec_s_owner_in_the_ledger_counts_for_the_base_and_for_the_stop(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    state_dir_db(tmp_path / "exec")
+    ledger = SqliteOrderJournal(tmp_path / "exec" / STATE_DB, SCOPE)
+    world, runtime = _execution(tmp_path)
+    sol = world["fakes"]["SOLUSDT"] = FakeBinance(world["rows"]["ETHUSDT"], clock=lambda: world["clock"]["now"])
+    # SOLUSDT was traded under an earlier spec: 30 USDT lost and realized, nothing held now.
+    ledger.set_position_manually("target.SOLUSDT", {"qty": "0", "entry_price": "0", "realized_pnl": "-30", "fees": {}},
+                                 venue={}, reason="test: an earlier spec's ledger", at=world["clock"]["now"] - 3600)
+    sol.add_income("SOLUSDT", "-10", sol.now_ms() - 1_000)           # and its funding since then
+    _tick(world, runtime, 601)
+    assert runtime.sessions["BTCUSDT"].sleeve_equity() == (D("300") - D("30") - D("10")) / 2
+    assert _kill(tmp_path)["active"] is False                         # 40 lost: short of 45
+    sol.add_income("SOLUSDT", "-5", sol.now_ms())
+    _tick(world, runtime, 601)
+    assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
+    assert _flat(world)
