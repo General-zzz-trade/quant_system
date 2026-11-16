@@ -4051,6 +4051,86 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   改代码前 9 个全部失败。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r6_shorts.json` 7 个，按顺序、关闭字节码缓存：7/7 被杀。
 - **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过；其余见 R5 之后的合并检查。
+
+## R1–R4 的独立审计和修复（2026-11-16 晚，资金路径完整流程）
+
+- **审计**（c25847b9..3ef568c6，独立审计员在自己的克隆里只读运行）：试运行用的第 1 版规格路径没有阻塞问题；"应修" 5 条、轻微 6 条。
+  成立的结论：R1 逐位不变；第 1 版规格照旧；R3 执行侧的行为、R4 的读取和重试、没有自动提高风险的路径、记录里的测试数和断言原文都对。
+- **修了什么**（分支 `r-audit-fixes`，叠在 R6 上）：
+  1. R3：模拟盘里一个品种一直落后时从不报错、默默不再决定——迟到用的是模拟盘的下单时钟，它只随新 K 线前进。改为两种模式都用运行时钟。
+  2. R2：第 2 版规格里不认识的字段被忽略、类型不对的值被宽松转换（`"false"` 当真、`1.9` 变 1、`true` 变 1、字符串的 band 等），
+     策略参数里的执行设置和执行块不同时被悄悄丢掉。改为严格解析：不认识的顶层字段、策略里除 name/params 之外的键、执行块里除
+     band/execution/ttl_bars 之外的键、类型不对的值、和执行块不同的执行设置，都按名字拒绝；schema 必须是整数，passed 必须是布尔值。
+     第 1 版（试运行的规格）照旧加载（真实的试运行规格文件有测试）。
+  3. R2：`allow_short` 在 R2 里既不约束也不记录（R2 记录里"只记录"的说法不准确）。约束在 R6（同一叠 PR）；记录：启动时的 config 事件
+     现在带上规格的策略、参数、品种和是否做空。
+  4. R2：第 2 版的模拟盘记录认不出策略（存的是执行设置），可能用另一组参数续跑，对照工具也会按错的策略重算。改为存策略的身份
+     （`TargetSpec.identity`：叠加策略存它实际交易时的记录——第 1 版和以前完全一样；其他策略存名字、参数、执行设置）；对照工具遇到
+     叠加策略以外的记录时报"无法比较"。
+  5. R4 测试缺口：资金费间隔未知时仍能减仓、预热时按品种间隔请求资金费——代码是对的，补了测试。
+  6. 轻微：品种名最短 6 个字符会拒绝币安真有的 5 字符合约（`AUSDT`、`4USDT`，2026-11-16 读公开接口），改为 5；第 1 版规格里多出的
+     参数被按名字拒绝（补测试）。
+  7. 轻微：资金费间隔未知只写一条事件，不进退出侧的问题清单，不告警，品种状态仍是"可交易"。改为品种自己的问题
+     `FUNDING_INTERVAL_UNKNOWN`（禁止这个品种开仓、显示在状态里、持续时告警），持续期间只写一次，交易所重新列出后清除。
+  8. 轻微：第一次读取就失败时说"2 小时没读到"，改为"自启动以来没读到"。
+  10. 轻微：模拟盘遇到没有研究用下单规则的品种时报裸的 KeyError，改为按名字拒绝。
+  - 没改的（记录下来）：9（横截面策略里一个品种卡住会冻结所有品种的决定，包括减仓；因行情错误落后时没有 DECISION_FAILED）是 R7/R8 的
+    设计问题，在 R7 的说明里写明；11（交易所在本小时第一轮之后改间隔，最多有一个收盘用旧间隔）影响很小，不改。
+  - 币安还有 5 个中文名的 USDT 永续合约；品种检查只接受 ASCII 大写字母和数字，所以它们会被拒绝（失败即关闭），要不要支持由技术负责人决定。
+- **已有测试的改动**（都来自审计的修复）：
+  - `test_funding_interval.py`（R4 的测试，问题改成每个品种一条、种类改名）：
+    - 原来 `assert len(issues) == 1 and issues[0]["issue_kind"] == "market_data" and "funding interval" in issues[0]["issue"]`；
+      现在 `assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("FOURUSDT", "funding_interval_unknown"), ("EIGHTUSDT", "funding_interval_unknown")]`
+      加 `"not read for 2 hours"` 和 `symbol_issue` 两条断言；
+    - 原来 `... == 1      # said once`，现在 `... == 2      # said once per symbol`；原来 `... == 2`（第二次断网后），现在 `... == 4`；
+    - 原来 `[("FOURUSDT", "market_data")]`，现在 `[("FOURUSDT", "funding_interval_unknown")]`，加两条 `symbol_issue` 断言。
+  - `test_decide_together.py::test_paper_raises_when_a_symbol_is_still_behind_a_late_close`：原来手动把下单时钟拨到迟到之后
+    （`gate.at(T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS + 1)`，运行时从不这样做）；现在拨运行时钟，先在刚好 10 分钟时不报错，
+    再晚 1 毫秒报错，并断言下单时钟没动。
+  - 测试辅助：`test_publish_strategy_spec.py` 的叠加参数原来是默认的 maker，和执行块的 market 不同（正是审计指出的被悄悄丢掉的情况），
+    改为和执行块一致。
+  - `tests/unit/trading/test_issues.py::test_the_table_is_exactly_the_decided_one` 固定了整张问题表：加一行
+    `IssueKind.FUNDING_INTERVAL_UNKNOWN: BLOCK`（新的问题种类，禁止这个品种开仓），其他行不变。
+- **新增测试**：`tests/unit/trading/test_runtime_extension_audit.py`（30 个，含参数化）、
+  `tests/characterization/test_runtime_extension_audit_runtime.py`（3 个）。在 R6 的代码上跑：26 个失败，7 个通过——通过的是审计指出的
+  测试缺口（代码本来就对：第 1 版多出参数被拒、4 字符被拒、预热按间隔请求、间隔未知时减仓等）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r1_r4_audit_fixes.json` 24 个，按顺序、关闭字节码缓存。第一轮 21 个被杀；存活 3 个：
+  整数参数给成小数（补了 `vol_lookback=10.5`、`True` 两个用例）、间隔未知的问题是否真的禁止开仓（运行时测试补上"品种状态为 blocked、
+  另一个品种仍是 ready"）、第一次读取失败时的措辞（补了一个测试）。补后 3 个都被杀，最终 24/24。
+- **本地**【实际运行结果】：所有加载规格、组装运行时、会话、行情侧、问题表或假交易所的测试文件（68 个）加架构测试：1 个失败——
+  上面那张固定的问题表，加一行后通过。ruff、`mypy trading/`（95 个文件）、导入契约通过。
+
+## R5、R6 和 R1–R4 修复的独立审计，以及修复（2026-11-16 深夜，资金路径完整流程）
+
+- **审计**（3ef568c6..223630d4 加 11ed55fd）：没有阻塞问题；没找到会重复发减仓单、平掉超过交易所持仓、或在该挡住时开仓的路径。
+  3 条应修、5 条轻微。成立的结论：R5 的顺序和"缺行就单独读"、平仓和人工工具仍读最新、快照不会让止损被错放错撤；R6 的符号；
+  修复里的严格解析、迟到时钟、间隔问题等；测试在改前失败的说法属实；1580 → 440 属实。
+- **修了什么**：
+  1. 模拟盘记录没有写是否允许做空：同一组参数、只差 `allow_short` 的两份规格记录相同，可以互相续跑；研究那边没有这条限制，
+     对照会无缘无故"不一致"。现在叠加策略在规格的做空规则和它自己 `long_only` 推出的不同时，把 `allow_short` 写进记录
+     （第 1 版的记录不变）；其他策略总是写。对照工具对不允许做空的记录，把研究的目标也截到不小于 0（和会话的做法一样）。
+  2. R5 的余量说错了基准：客户端自己的限额是每分钟 1200（`rate_limit.py` 的池子，按交易所返回的已用权重同步），不是交易所的 2400；
+     440 是它的 37%，改之前的 1580 已经超过它。测试改成对 1200 的一半断言（数值界限仍是 600），说明里写上；另外有策略资金时
+     还有资金费流水的读取，10 个品种约每分钟多 30。整账户快照读不出来时原来只写一行日志、悄悄退回逐个品种读（10 个品种时会超过
+     1200）：现在是全运行时的问题 `ACCOUNT_UNREADABLE`（禁止所有开仓、持续时告警），只写一次，读成功后清除；退出照常。
+  3. 测试缺口：权益未知时，不允许做空下持有的空单仍会被平掉；身份里的 `ttl_bars`；交易所没列的品种跨小时重读时问题只写一次。
+  - 轻微：一行持仓没有 `positionAmt` 时原来当作平仓，现在当作读不出（报错）；记录里的测试数更正（见下）。
+  - 没改的：M3（直接构造会话不给 `allow_short` 时按执行设置的 `long_only`，在第 2 版里等于允许做空）：组合根总是传规格的值，
+    代码里写明；M5（审计员没重跑我的变异，因为机器忙）。
+- **已有测试的改动**：
+  - `test_account_weight.py`：原来 `assert total <= LIMIT_PER_MINUTE / 4`（LIMIT 2400），现在 `assert total <= CLIENT_BUDGET_PER_MINUTE / 2`
+    （1200），数值同为 600，基准改对。
+  - `test_account_snapshot.py`：原来的"没有快照时每个品种自己读"断言 `exits.last_issues == {"AUSDT": [], "BUSDT": []}`；现在每个品种
+    都有 `account_unreadable`、开仓被挡住、问题只写一次、读成功后清除（测试改名为 `..._and_every_entry_is_blocked`）。测试辅助：
+    假会话记录 `block_entries` 的调用。
+  - `test_runtime_extension_audit.py::test_two_strategies_have_different_identities`：期望的身份多了 `"allow_short": False`。
+  - `test_runtime_extension_audit_runtime.py::test_a_paper_record_does_not_resume_under_other_strategy_parameters`：原来
+    `== OVERLAY.record()`，现在 `== {**OVERLAY.record(), "allow_short": False}`（那份规格不允许做空，而叠加参数允许）。
+- **新增测试**：`test_runtime_extension_audit.py` 加 2 个（做空规则在身份里、权益未知时仍平空单），运行时文件加 1 个（不允许做空的
+  模拟盘对照"一致"），`test_funding_interval.py` 的一个测试加跨小时的断言，`test_account_snapshot.py` 加 1 个用例（没有数量的行）。
+  更正：上一节写的 `test_runtime_extension_audit.py` 30 个，实际在那之后补了 2 个用例，是 32 个；现在是 34 个。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r5_r6_audit_fixes.json` 8 个，8/8 被杀。
+- **本地**【实际运行结果】：改动涉及的测试文件和架构测试通过；ruff、`mypy trading/`（95 个文件）通过。
 ## 策略亏损停止线的独立审计与处理（2026-11-16 晚，资金路径完整流程）
 
 - **起因**：PR #106（策略亏损停止线）合并当天做了独立审计。审计的复现测试和它自己的变异在 `/root/lab_logs/audit-2026-11-16/`

@@ -56,6 +56,7 @@ class ExitSupervisor:
         self._exit_observer = exit_observer
         self._risk_exits: dict[str, tuple[str, str] | None] = {}
         self.account_findings: list[Issue] = []
+        self.snapshot_issue: Issue | None = None       # the last failed read of every position (R5 audit)
         self.loss_stop = loss_stop                  # owner 2026-11-16; None without a strategy capital
         self.loss_findings: list[Issue] = []
         self.last_account_check = clock()
@@ -198,6 +199,8 @@ class ExitSupervisor:
             except Exception as exc:
                 failed[symbol] = exc
         positions = self._position_snapshot()
+        if self.snapshot_issue is not None:
+            cycle_errors = cycle_errors + [self.snapshot_issue]
         for symbol, session in self.sessions.items():
             try:
                 if symbol in failed:
@@ -237,11 +240,19 @@ class ExitSupervisor:
         if self.account is None:
             return None
         try:
-            return self.account.get_position_snapshot()
+            positions = self.account.get_position_snapshot()
         except Exception as exc:
-            logger.warning("Account positions not read in one request (%s: %s); each symbol reads its own",
-                           type(exc).__name__, exc)
+            # R5 audit: not silent. Each symbol then reads its own (exits go on), at five times the request weight
+            # of the snapshot per symbol, so every entry is blocked and a person is told when it lasts.
+            issue = Issue(K.ACCOUNT_UNREADABLE, None, "account positions not read in one request "
+                          f"({type(exc).__name__}: {exc}); each symbol reads its own; entries blocked")
+            if issue != self.snapshot_issue:
+                write_issue(self.journal, None, issue)
+                logger.error("%s", issue)
+            self.snapshot_issue = issue
             return None
+        self.snapshot_issue = None
+        return positions
 
     def _block(self, session: TargetSession, issues: list[Issue]) -> None:
         """Entry blocks from the ADR-0014 table; reductions are never blocked."""

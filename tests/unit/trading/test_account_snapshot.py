@@ -58,6 +58,7 @@ def test_the_snapshot_is_one_read_of_every_row_flat_included():
     ([_row("BTCUSDT", "1"), _row("BTCUSDT", "0")], "Hedge"),
     ([_row("BTCUSDT", "NaN")], "quantity"),
     ([{"positionAmt": "1"}], "snapshot"),
+    ([{"symbol": "BTCUSDT", "positionSide": "BOTH", "entryPrice": "1"}], "quantity"),     # no quantity: unknown
     ({"code": -1}, "snapshot"),
 ])
 def test_a_snapshot_that_cannot_be_trusted_raises(rows, named):
@@ -128,7 +129,8 @@ class Session:
     def __init__(self, symbol, log, *, consume_fails=False):
         self.symbol, self.log, self.consume_fails = symbol, log, consume_fails
         self.executor = SimpleNamespace(notify_status=lambda: log.append(("notify", symbol)),
-                                        reconcile_account=self._reconcile, block_entries=lambda: None)
+                                        reconcile_account=self._reconcile,
+                                        block_entries=lambda: log.append(("blocked", symbol)))
         self.stops = SimpleNamespace(sync=self._sync, unprotected=lambda: False)
 
     def consume_fills(self):
@@ -182,14 +184,23 @@ def test_the_exit_side_reads_the_positions_once_after_every_symbol_s_fills():
                    ("reconcile", "BUSDT", snap), ("stop", "BUSDT", snap)]
 
 
-def test_without_a_snapshot_each_symbol_reads_its_own():
+def test_without_a_snapshot_each_symbol_reads_its_own_and_every_entry_is_blocked():
     log = []
     sessions = {s: Session(s, log) for s in ("AUSDT", "BUSDT")}
-    exits = _exits(sessions, SnapshotAccount(log, fail=True))
+    account = SnapshotAccount(log, fail=True)
+    exits = _exits(sessions, account)
     exits.reconcile()
     assert [e for e in log if e[0] in ("reconcile", "stop")] == [("reconcile", "AUSDT", None), ("stop", "AUSDT", None),
                                                                 ("reconcile", "BUSDT", None), ("stop", "BUSDT", None)]
-    assert exits.last_issues == {"AUSDT": [], "BUSDT": []}
+    # R5 audit S2: not silent - the per-symbol reads weigh five times the snapshot each, so entries wait
+    assert {s: [i.kind.value for i in found] for s, found in exits.last_issues.items()} == \
+        {"AUSDT": ["account_unreadable"], "BUSDT": ["account_unreadable"]}
+    assert {e[1] for e in log if e[0] == "blocked"} == {"AUSDT", "BUSDT"}
+    exits.reconcile()
+    assert len([1 for kind, _ in exits.journal.rows if kind == "issue"]) == 1               # written once
+    account.fail = False
+    exits.reconcile()
+    assert exits.last_issues == {"AUSDT": [], "BUSDT": []} and exits.snapshot_issue is None
 
 
 def test_a_symbol_whose_fills_cannot_be_consumed_fails_alone():

@@ -252,7 +252,7 @@ def _same_data(symbol: str, broker: dict[str, Any], bars: list[Any], funding: di
 
 # -- research -----------------------------------------------------------------------------------------------------
 def _research(symbol: str, spec: StrategySpec, config: dict[str, Any], bars: list[Any],
-              funding: dict[int, tuple[D, D]], first: int, last: int) -> list[Fill]:
+              funding: dict[int, tuple[D, D]], first: int, last: int, allow_short: bool = True) -> list[Fill]:
     rules = SYMBOL_RULES.get(symbol)
     if rules is None:
         raise CannotCompare(f"研究没有 {symbol} 的交易规则")
@@ -260,6 +260,8 @@ def _research(symbol: str, spec: StrategySpec, config: dict[str, Any], bars: lis
     if broker_config(spec, rules, starting_balance=balance).record() != config:
         raise CannotCompare(f"{symbol}：模拟交易所的撮合配置与研究的不同")
     targets = compute_targets(frame_from_bars(bars), funding_series(funding), spec)
+    if not allow_short:                                  # the session trades a negative target as 0 (R6)
+        targets = targets.assign(target=targets["target"].clip(lower=0.0))
     result = simulate(symbol, bars, targets, funding, spec, start_ms=first, end_ms=last + HOUR,
                       starting_balance=balance)
     orders = {row["id"]: str(row["internal_id"]) for row in result.order_rows}
@@ -303,7 +305,7 @@ def _explained(symbol: str, paper: Fill | None, research: Fill | None, events: l
 
 def _compare_symbol(symbol: str, document: dict[str, Any], warm: dict[str, Any], journal: list[dict[str, Any]],
                     clients: dict[str, str], events: list[dict[str, Any]], data_dir: Path,
-                    spec: StrategySpec) -> SymbolResult:
+                    spec: StrategySpec, allow_short: bool = True) -> SymbolResult:
     saved = document["venue"]["brokers"][symbol]
     broker, config = saved["broker"], saved["config"]
     last_open, count = int(warm["last_open"]), int(warm["bars"])
@@ -316,7 +318,7 @@ def _compare_symbol(symbol: str, document: dict[str, Any], warm: dict[str, Any],
     funding = _funding(data_dir, symbol, window, last)
     _same_data(symbol, broker, bars, funding, first)
     paper = _paper_fills(symbol, broker, journal)
-    research = _research(symbol, spec, config, bars, funding, first, last)
+    research = _research(symbol, spec, config, bars, funding, first, last, allow_short)
     n = 0
     while n < len(paper) and n < len(research) and paper[n].key() == research[n].key():
         n += 1
@@ -341,8 +343,14 @@ def compare(paper_dir: Path, data_dir: Path) -> Report:
         if symbols != sorted(document["venue"]["brokers"]):
             raise CannotCompare("模拟盘状态里的品种与模拟交易所的品种不同")
         record, warm = _record_start(events, symbols)
-        spec = StrategySpec.from_record(document["spec"])
-        results = [_compare_symbol(s, document, warm[s], journal, clients, record, data_dir, spec) for s in symbols]
+        if "strategy" in document["spec"]:            # a record of another strategy than the overlay (R2 audit)
+            raise CannotCompare("这个对照工具只能对照 BTC/ETH 叠加策略的模拟盘；"
+                                f"这份记录是 {document['spec']['strategy']}")
+        identity = dict(document["spec"])
+        allow_short = identity.pop("allow_short", True)             # R5/R6 audit: the spec's shorts rule
+        spec = StrategySpec.from_record(identity)
+        results = [_compare_symbol(s, document, warm[s], journal, clients, record, data_dir, spec, allow_short)
+                   for s in symbols]
     except CannotCompare as exc:
         return Report(CANNOT, paper_dir, data_dir, reason=str(exc))
     except Exception as exc:                 # whatever else cannot be read is never "equal" either

@@ -247,7 +247,9 @@ class BinanceAdapter:
                 raise RuntimeError("Invalid Binance position snapshot")
             if symbol in out or p.get("positionSide", "BOTH") != "BOTH":
                 raise RuntimeError("Hedge-mode position present; one-way mode required")
-            amt = Decimal(str(p.get("positionAmt", "0")))
+            if "positionAmt" not in p:          # R5 audit: a row without a quantity is unknown, never flat
+                raise RuntimeError("Invalid Binance position quantity")
+            amt = Decimal(str(p["positionAmt"]))
             if not amt.is_finite():
                 raise RuntimeError("Invalid Binance position quantity")
             out[symbol] = VenuePosition(
