@@ -4204,6 +4204,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     都有 `account_unreadable`、开仓被挡住、问题只写一次、读成功后清除（测试改名为 `..._and_every_entry_is_blocked`）。测试辅助：
     假会话记录 `block_entries` 的调用。
   - `test_runtime_extension_audit.py::test_two_strategies_have_different_identities`：期望的身份多了 `"allow_short": False`。
+  - `test_runtime_extension_audit_runtime.py::test_a_paper_record_does_not_resume_under_other_strategy_parameters`：原来
+    `== OVERLAY.record()`，现在 `== {**OVERLAY.record(), "allow_short": False}`（那份规格不允许做空，而叠加参数允许）。
 - **新增测试**：`test_runtime_extension_audit.py` 加 2 个（做空规则在身份里、权益未知时仍平空单），运行时文件加 1 个（不允许做空的
   模拟盘对照"一致"），`test_funding_interval.py` 的一个测试加跨小时的断言，`test_account_snapshot.py` 加 1 个用例（没有数量的行）。
   更正：上一节写的 `test_runtime_extension_audit.py` 30 个，实际在那之后补了 2 个用例，是 32 个；现在是 34 个。
