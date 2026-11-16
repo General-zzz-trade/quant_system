@@ -23,7 +23,7 @@ from trading.application.issues import Issue
 from trading.application.ports import Clock, KillLatch
 from trading.domain.issues import IssueKind as K
 
-LOSS_STOP_SECONDS = 60.0     # how often the loss is read while it is known (one whole-account position request)
+LOSS_STOP_SECONDS = 60.0     # how often the loss is read while it is known (one position request per held symbol)
 
 
 class MarkView(Protocol):
