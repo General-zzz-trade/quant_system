@@ -17,17 +17,24 @@
   tracked on new data for 4 weeks first: one registered look a week (`research/forward_looks.jsonl`, as the forward
   protocol says), each on a new snapshot; it goes to the pilot only if it still holds on all four. Nothing is
   deployed for this. This changes "passes the backtest checks, then the pilot".
-- **Calibration pilot (owner, 2026-11-16 evening):** separately, the existing BTC/ETH overlay may run on mainnet with
-  300 USDT to collect real fills (prices, slippage, stop fills, refusals) for checking the backtest against reality.
+- **Calibration pilot (owner, 2026-11-16 evening):** separately, the existing BTC/ETH overlay may run on mainnet to
+  collect real fills (prices, slippage, stop fills, refusals) for checking the backtest against reality. The owner
+  chose to use the 150 USDT now on the account, not 300: `STRATEGY_CAPITAL_USDT=150`, so the loss stop is at
+  22.5 USDT, and BTC will hardly trade (one lot of 0.001 BTC was about 64 to 71 USDT that day, against 75 USDT per
+  symbol; `research/results/overlay_pilot_2026-11-16/README.md`).
   It has no verified edge and none is expected; the 15 % loss stop bounds the cost. Every "still required first"
   item above applies, the account must hold nothing outside the strategy ledger (a manual position on BTCUSDT or
-  ETHUSDT would be netted with the strategy's), and the owner marks the spec.
+  ETHUSDT would be netted with the strategy's; the loss stop itself counts only the ledger's positions), and the
+  owner marks the spec.
 - **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
   min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
   that this base grows with the strategy's profits. The PnL includes funding (tech lead, 2026-11-16): the USDT
   funding income of each strategy symbol since the strategy's first fill on it, from Binance's income history, read
   at most every 10 minutes; funding never read or older than 2 hours sizes the base to zero. Binance keeps that
   history for three months only, so a first fill older than 88 days also sizes to zero (open for the tech lead).
+  Every `target.*` owner in the scope's ledger counts, also one whose symbol the current spec no longer trades.
+  A zero base plans no partial reduction, only a whole close (the zero-sizing rule). Fees paid in BNB are not in
+  the PnL (BNB fee payment is off on the account, checked 2026-11-16).
   The drawdown latch, the -3 % daily stop and the 3x exposure cap stay on the whole account's equity (owner's
   choice: with a large account and a small strategy they rarely trigger on the strategy's losses alone).
 - **Forward-test candidates (none has a verified edge):**
@@ -192,11 +199,23 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
   in an initialized state directory a missing file means active. The runtime never clears it.
-- Strategy loss stop (owner 2026-11-16, `trading/application/risk/loss_stop.py`): with a strategy capital, once
-  realized PnL after fees + funding + the venue positions' unrealized PnL is 15 % of the capital below zero
+- Strategy loss stop (owner 2026-11-16, `trading/application/risk/loss_stop.py`; audit fixes of the same day): with
+  a strategy capital, once realized PnL after fees + funding + unrealized PnL is 15 % of the capital below zero
   (`STRATEGY_LOSS_STOP_PCT`, a person can only tighten it), the runtime sets the kill file with flatten: the one
-  write it makes there. Clearing alone trips it again; going on means a new pilot in a new state directory. A loss
-  that cannot be known closes nothing and blocks every entry.
+  write it makes there.
+  - Unrealized PnL is the strategy's own: each `target.*` owner's ledger quantity x (the venue's mark for the symbol
+    - the ledger's entry price). A manual position on a strategy symbol neither trips the stop nor hides a loss; a
+    held ledger position without a venue row or a usable mark is unknown. Every `target.*` owner of the scope counts.
+  - It is read at the start of every reconciliation, at most once a minute: in a cycle, in the warm-up and while a
+    restart waits for market data. The flatten happens in the cycle of the trip.
+  - Once reached it stays reached while the process lives: every reconciliation sets a cleared switch again and
+    entries stay refused meanwhile (issue kind `strategy_loss_stop`: block every entry, cancel resting entries; a
+    lasting one is alerted). Clearing alone trips it again, also after a restart (the warm-up reads the loss before
+    any entry); going on means a new pilot in a new state directory.
+  - A loss that cannot be known closes nothing and blocks every entry. Funding that cannot be refreshed does not
+    blind the stop: it counts the last total read in this process, whatever its age (the sizing base keeps the
+    2-hour rule). After a restart with a first fill older than 88 days the funding, and so the loss, is unknown
+    until the cumulative funding is kept in the state database.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day

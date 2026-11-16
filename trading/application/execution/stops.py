@@ -46,7 +46,8 @@ MIN_STOP_PCT, MAX_STOP_PCT = Decimal("0.005"), Decimal("0.15")
 AWAITING_ORDER = "awaiting_order"     # triggered; the order it became is not known yet (a live row)
 BREACHED = "breached"                 # placement refused because price was already beyond the trigger
 NO_ORDER = "triggered_no_order"       # triggered, then ended at the venue without any order
-# Rows that mean "price went through the stop": each pauses the symbol's entries until a person releases it.
+# Rows that mean "price went through the stop": each pauses the symbol's entries for STOP_PAUSE_SECONDS (4 hours;
+# the pause ends by itself since 2026-11-16, and a person can release it earlier).
 # A stop row's status after the price went through it, as an issue kind; the pause cause is the text.
 TRIGGER_KINDS = {"triggered": K.STOP_TRIGGERED, AWAITING_ORDER: K.STOP_TRIGGERED, NO_ORDER: K.STOP_TRIGGERED,
                  BREACHED: K.STOP_BREACHED}
@@ -70,6 +71,9 @@ class PositionView(Protocol):
 
     @property
     def entry_price(self) -> Decimal | None: ...
+
+    @property
+    def mark_price(self) -> Decimal | None: ...
 
 
 class StopVenue(StopOrderGateway, Protocol):
