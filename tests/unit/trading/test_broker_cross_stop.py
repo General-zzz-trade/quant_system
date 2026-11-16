@@ -57,6 +57,7 @@ def test_a_long_s_stop_fills_at_the_trigger_less_the_stop_slippage_and_pays_the_
     assert {k: fill[k] for k in ("id", "at", "side", "qty")} == {"id": "offline-fill-2", "at": 2 * HOUR + HOUR,
                                                                  "side": "sell", "qty": "2"}
     assert D(fill["price"]) == price and D(fill["fee"]) == D(2) * price * 5 / 10000
+    assert broker.fees == D(2) * D(100) * 5 / 10000 + D(fill["fee"])       # the entry's fee and the stop's
     assert broker.cash == D(1000) + broker.position.realized_pnl - broker.fees
 
 
