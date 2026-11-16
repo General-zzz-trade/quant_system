@@ -3877,3 +3877,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   `({"stop_pct": "0.08", "isolated_leverage": "5", "max_exposure": "3"}, "isolated")`（它断言逐仓加 `stop_pct` 被拒绝），其余 4 组不变。
 - 新增测试：`tests/unit/trading/test_broker_isolated_stop.py`（6 个）。本地：撮合器、模拟交易所、模拟盘逐根一致、金标准、架构测试通过；
   ruff、`mypy trading/` 通过。
+
+## 计划：让实盘程序能跑实验室的策略（2026-11-16 晚，文档）
+
+- 技术负责人决定先把程序扩展成能跑实验室的策略，并定下：清单由实验室算、人来发布；支持做空，规格里决定用不用；第一版最多 10 个品种。
+  另外把回测历史拉长到 2020 年（全市场数据下载中）。计划见 `docs/arch/runtime-lab-strategies-plan.md`（R1–R8，每步一个 PR，合并前审计）。

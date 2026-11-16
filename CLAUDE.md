@@ -73,6 +73,11 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
+- **Runtime extension (owner, 2026-11-16 late evening):** before the lab searches on, the runtime is extended to
+  run lab-style strategies: a strategy interface shared by research and runtime, specs naming the strategy and up to
+  10 symbols (the lab computes the list, the owner publishes a new signed spec; the runtime never starts a symbol
+  by itself), shorts allowed when the spec says so, per-symbol funding intervals, whole-account queries. Plan and
+  steps R1-R8: `docs/arch/runtime-lab-strategies-plan.md`. The lab's history is being extended back to 2020.
 - **Venue:** Binance USDT-margined perpetuals. Since 2026-11-16 research and trading cover all of them (tech lead;
   delivery and USDC-margined contracts are not used); the runtime still trades the BTC/ETH spec until it is
   extended through the full money-path process. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
