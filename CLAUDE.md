@@ -138,8 +138,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 **Research:**
 - `lab/`: target-weight strategies with fixed-date windows.
 - `trading/adapters/simulated/bar_broker.py`: the research broker (`BarBroker`), its configuration and the research
-  lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; that path is a
-  re-export shell for the broker's unit tests). The maker limit offset is defined once:
+  lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; the old path is
+  deleted). The maker limit offset is defined once:
   `trading.domain.orders.LIMIT_OFFSET_BPS`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
