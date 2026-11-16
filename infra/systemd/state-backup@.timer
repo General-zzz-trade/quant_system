@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly snapshot of the %i execution state database (enable as state-backup@testnet.timer)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

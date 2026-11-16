@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from trading.adapters.binance.adapter import DEFAULT_LEVERAGE, MARGIN_TYPES, MAX_LEVERAGE
 from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.notify.heartbeat import HttpHeartbeat
 from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.telegram import TelegramNotifier
 
@@ -117,6 +118,7 @@ class Secrets:
 
     binance: BinanceConfig | None
     telegram: tuple[str, str] | None
+    heartbeat_url: str | None = None   # the external heartbeat's address (ADR-0016 point 3): a secret too
 
     def __repr__(self) -> str:
         return "Secrets(<hidden>)"
@@ -166,11 +168,32 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     token, chat_id = env.get("TELEGRAM_BOT_TOKEN", "").strip(), env.get("TELEGRAM_CHAT_ID", "").strip()
     if bool(token) != bool(chat_id):
         raise RuntimeError("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither")
+    heartbeat = env.get("HEARTBEAT_URL", "").strip() or None
+    if heartbeat is not None and not heartbeat.startswith("https://"):
+        raise RuntimeError("HEARTBEAT_URL must be an https:// address")       # never echoed: it is a secret
     binance = binance_config_from_env(testnet=net, env=env) if require_credentials else None
     identity = account_identity(testnet=net, api_key=binance.api_key) if binance is not None else None
     config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=Decimal(stop_pct), limits=limits,
                            leverage=leverage, margin=margin, alerts="telegram" if token else "log", identity=identity)
-    return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None)
+    return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat)
+
+
+def require_operator_channels(config: RuntimeConfig, secrets: Secrets) -> None:
+    """ADR-0016 points 1 and 3: execution mode (testnet and mainnet) refuses to start without Telegram or without a
+    heartbeat address. Paper needs neither."""
+    if not config.execution:
+        return
+    if secrets.telegram is None:
+        raise RuntimeError("execution mode needs alerts: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+    if not secrets.heartbeat_url:
+        raise RuntimeError("execution mode needs an external heartbeat: set HEARTBEAT_URL")
+
+
+def make_heartbeat(config: RuntimeConfig, secrets: Secrets) -> HttpHeartbeat | None:
+    """The external heartbeat of an execution run; None in paper mode."""
+    if not config.execution or not secrets.heartbeat_url:
+        return None
+    return HttpHeartbeat(secrets.heartbeat_url)
 
 
 def with_credentials(config: RuntimeConfig, secrets: Secrets,

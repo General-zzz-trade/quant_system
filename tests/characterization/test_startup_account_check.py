@@ -48,8 +48,22 @@ def world(tmp_path, monkeypatch):
                  "MAX_DAILY_DRAWDOWN_PCT", "MAX_WEEKLY_DRAWDOWN_PCT"):
         monkeypatch.delenv(name, raising=False)
     for name, value in (("QUANT_ALLOW_UNSIGNED_MODELS", "1"), ("RISK_SCOPE", SCOPE), ("BINANCE_TESTNET", "1"),
-                        ("BINANCE_TESTNET_API_KEY", "k"), ("BINANCE_TESTNET_API_SECRET", "s")):
+                        ("BINANCE_TESTNET_API_KEY", "k"), ("BINANCE_TESTNET_API_SECRET", "s"),
+                        # S7 (ADR-0016 points 1-3): execution needs alerts and a heartbeat; Telegram is a fake below.
+                        ("TELEGRAM_BOT_TOKEN", "123:tok"), ("TELEGRAM_CHAT_ID", "42"),
+                        ("HEARTBEAT_URL", "https://hc.example.invalid/ping/x")):
         monkeypatch.setenv(name, value)
+    from trading.infrastructure.cli import target as cli
+
+    class Confirming:                      # Telegram confirms every message; nothing leaves the host
+        channel = "telegram"
+
+        def deliver(self, title, detail="", *, timeout_s):
+            return True
+
+        def alert(self, level, title, detail=""):
+            pass
+    monkeypatch.setattr(cli, "make_notifier", lambda secrets: Confirming())
     fake = Recording(make_bars(10), clock=lambda: T0)
 
     class Adapter(binance.BinanceAdapter):

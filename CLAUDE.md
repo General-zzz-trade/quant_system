@@ -63,6 +63,9 @@ python -m lab.overlay_study --out <empty dir>      # overlay screen (development
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
 python -m lab.paper_compare --paper-dir <paper dir> --data-dir <snapshot dir>   # paper vs research, fill by fill
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
+python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
+python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
+sudo bash infra/install_host.sh                    # host install/update: packages, dirs, units; starts nothing
 python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
 python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
 python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
@@ -101,7 +104,10 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
 - The other runtimes (ML runtime, Bybit/OKX runner, shadow process) and the Docker deploy path were deleted
-  on 2026-11-15 (M4). systemd runs three units: `binance-target`, `health-watchdog`, `log-archive`.
+  on 2026-11-15 (M4). systemd units: `binance-target` (paper), `binance-target-testnet`
+  (execution, restarts at most 3 times an hour, network fixed to the testnet) and `binance-target-mainnet`
+  (`Restart=no`, never at boot), `quant-alert@` (the failure alert), `state-backup@<network>.timer` (hourly),
+  `health-watchdog`, `log-archive` (S8). One execution network per host; state under `/var/lib/quant` (2026-11-16).
 
 **Binance execution:**
 - `OrderLifecycle` (`trading/application/execution/lifecycle.py`) keeps durable SQLite intents and never resends;
@@ -131,6 +137,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
+- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` and an https `HEARTBEAT_URL` (a secret), and starts only after Telegram
+  confirmed "execution starting", before any account request. The heartbeat pings at most once a minute while
+  waiting for market data and between cycles; it never stops the loop. Paper logs alerts only.
 - Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
   host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
   manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
@@ -161,9 +171,6 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).
-- `binance_target` only:
-  - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
-    process log (status `alerts: "log only"`).
 
 ## Rules for changes
 

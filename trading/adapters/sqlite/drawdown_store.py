@@ -69,6 +69,21 @@ class SqliteDrawdownGuard:
             self.invalidate(f"equity refresh failed: {type(exc).__name__}: {exc}")
         return self.check(now=now)
 
+    def latch_current(self, *, now: float) -> None:
+        """Latch the current UTC day and ISO week (a restore, ADR-0016 point 6): entries stay blocked until each
+        period ends, then the usual rules apply. Nothing here ever unlatches. A period without a row gets the last
+        observed equity as its baseline (1.0 when none was observed: it is only the start of a later high-water
+        mark, and the latch holds whatever it is)."""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT equity FROM equity_observations WHERE scope=?", (self.scope,)).fetchone()
+            baseline = float(row[0]) if row and row[0] > 0 else 1.0
+            for kind, period in periods(now).items():
+                db.execute("INSERT OR IGNORE INTO drawdown_periods VALUES (?, ?, ?, ?, ?, 1)",
+                           (self.scope, kind, period, baseline, self.limits[kind]))
+                db.execute("UPDATE drawdown_periods SET tripped=1 WHERE scope=? AND kind=? AND period=?",
+                           (self.scope, kind, period))
+
     def latched(self, *, now: float | None = None) -> bool:
         """True when a drawdown limit has tripped in the current day or week; unknown state is latched."""
         now = self.clock() if now is None else now

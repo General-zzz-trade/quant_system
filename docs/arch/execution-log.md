@@ -3304,9 +3304,105 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 
 **本地**【实际运行结果】：主机锁、启动、手工工具、风险状态、退出健壮性、启动顺序、状态目录和架构测试通过；ruff、`mypy trading/`（90 个文件）、导入契约通过。
 
-## S11 第 1 部分：模拟盘与研究的对比工具（2026-11-16，设计 G6，轻流程，先写测试）
+## S7：告警出口、启动告警与心跳（2026-11-16，ADR-0016 第 1–3 条，资金路径完整流程）
 
-分支 `s11-compare-tool`。这个 PR 只做对比工具；S11 的 M5 运行手册、核对清单、开始计时和成本核对不在这里。没有改资金路径代码：`trading/` 一行没动。
+**改了什么**
+- **执行模式必须有告警和心跳**（`config.require_operator_channels`）：测试网和主网缺 `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` 或 `HEARTBEAT_URL` 都拒绝启动，在读凭据、连接账户之前。模拟盘两样都不需要。
+- **心跳地址按密钥处理**：只放在 `Secrets` 里，必须是 `https://`；不进配置记录、摘要和任何打印；错误信息不回显它。
+- **确认送达**（`TelegramNotifier.deliver`）：同步发送，在超时内收到 Telegram 回答 `"ok": true` 才算送达；排队中的告警不挡它；失败只按异常类型记日志，不写令牌。进程日志（`LogNotifier`）永远不算送达。
+- **启动告警**（入口，`trading/infrastructure/cli/target.py`）：本地检查全部通过、拿到主机锁之后，连接账户之前，发"testnet/MAINNET execution starting"（含 scope、账户身份前 12 位、状态目录，不含密钥）。15 秒内没有确认就拒绝启动，不发出任何账户请求。
+- **拒绝启动也告警**：启动时的账户检查（ADR-0010）拒绝时，再发一条"execution start refused"和原因（尽力而为，拒绝照旧）。
+- 运行时用同一个通知器发运行中的告警。
+- **心跳**（`trading/adapters/notify/heartbeat.py`）：每分钟最多一次，在单独线程里发、带 5 秒超时，上一次还没发完就不再发；失败只按异常类型记日志。主循环在等行情（预热）和每轮之前都调用它；它出任何错都不会停下主循环（审计 L6、ADR-0016 第 3 条"旁观者"）。
+- **服务失败告警**（`trading/infrastructure/unit_alert.py`，S8 的 `quant-alert@.service` 调用）：一条带单元名和主机名的 Telegram 消息，确认送达退出 0，没确认退出 1，没配 Telegram 退出 2；不打印令牌。
+
+**已有测试的改动**：没有改断言。
+
+**测试辅助的改动**
+- `tests/characterization/test_startup_account_check.py` 的 `world` 夹具：加了 Telegram 和心跳地址的环境变量，并把入口的 `make_notifier` 换成一个确认所有消息的假通知器（不出主机）。原因：执行模式现在没有这两样就拒绝启动，并且要 Telegram 确认才继续。用这个夹具的启动测试（ADR-0010 和 S6）断言不变。
+
+**新增测试**
+- `tests/unit/trading/test_operator_delivery.py`：11 条（确认送达 6 条，心跳 5 条）。
+- `tests/unit/trading/test_execution_prerequisites.py`：9 条（含参数化）。
+- `tests/unit/trading/test_unit_alert.py`：4 条。
+- `tests/characterization/test_operator_startup.py`：9 条（含参数化）：缺告警或心跳时拒绝且没有账户请求；启动告警在任何账户请求之前送达并确认、内容不含密钥；没确认就拒绝；账户检查拒绝时也告警；运行时用同一个通知器；模拟盘不需要也不发；心跳在等行情和各轮之间都发，失败不停循环。
+
+**变异自检**【实际运行结果】
+- 适配器部分（`scripts/dev/mutants/s7-adapters.json`）：11 个（任何回答都算送达、出错算送达、忽略超时、改成排队发送、进程日志算送达、心跳不限频、心跳在调用方线程里发、在途时重复发、失败日志带出地址、地址出现在文字里、忽略超时），第一轮全部被抓住。
+- 配置、入口和服务失败告警（`s7-wiring.json`）：14 个（不要求告警和心跳、忽略启动告警的回答、拒绝时不告警、运行时用另一个通知器、等行情时不发心跳、心跳失败停下循环、各轮之间不发心跳、接受非 https 地址、不要求 Telegram、不要求心跳、错误信息回显地址、没确认也成功、进程日志当作 Telegram、消息里没有单元名），第一轮全部被抓住。
+- 合计 25 个，全部被抓住。
+
+**本地**【实际运行结果】：启动、主机锁、送达、前置条件、服务告警、配置、退出健壮性、启动顺序、状态目录、风险状态和架构测试通过；ruff、`mypy trading/`（92 个文件）、导入契约通过。
+
+## S8：服务单元、状态库备份与恢复、主机安装（2026-11-16，ADR-0016 第 4、6 条，ADR-0017，资金路径完整流程）
+
+**技术负责人的决定**（2026-11-16，AskUserQuestion）
+- 一台主机只跑一个网络的执行进程（M5 期间只有测试网），另有模拟盘；一份 `.env`，一个心跳地址。
+- 执行模式的状态目录和备份放在 `/var/lib/quant` 下：状态 `/var/lib/quant/state/<网络>`，备份 `/var/lib/quant/backups/<网络>`，主机锁 `/var/lib/quant/locks`。
+
+**改了什么**
+- **服务单元**（`infra/systemd/`）：
+  - `binance-target-testnet.service`：失败后 60 秒自动重启，每小时最多 3 次（`StartLimit*` 写在 `[Unit]`）。启动命令以 `/usr/bin/env BINANCE_TESTNET=1` 开头：不管 `.env` 怎么写，这个会自动重启的单元都连不到主网。
+  - `binance-target-mainnet.service`：`Restart=no`，没有 `[Install]`，不能设成开机启动，只能由人手动启动。
+  - 两者失败时都经 `OnFailure=quant-alert@%n.service` 告警（每次失败一条，包括随后被自动重启的那次）。告警模块 `trading.infrastructure.unit_alert` 在 S7。
+  - `state-backup@.service` 和 `.timer`：按网络实例化（`state-backup@testnet.timer`），每小时一次，失败时同样告警。
+  - 模拟盘单元不变。同步脚本只复制、不启用、不启动。
+- **备份**（`trading/infrastructure/state_backup.py`，复制在 `trading/adapters/sqlite/backup.py`）：
+  - 用 SQLite 在线备份接口拍快照，先写临时名，检查（能打开、版本对、表齐全）通过后才改成 `state-<UTC 时间>.sqlite`。
+  - 快照是单个文件（不带 WAL），源库不变；从不备份急停文件；不写进状态目录内部；不覆盖已有快照。
+  - 备份成功后才删除 14 天以前的快照（按文件名里的时间）；失败时退出码非 0，什么都不删。
+- **恢复**（`state_dir restore --snapshot <文件> --reason "..."`）：
+  - 只在状态库丢失或损坏时允许；目录必须已初始化且属于这个 scope；快照要通过检查，而且不能是模拟盘记录的库（S10 审计修复之后补上：执行模式拒绝这种库，原来会先替换、再在启动检查里失败）；要有理由，并键入 scope 确认。
+  - 运行时在跑时拒绝：拿主机锁（S6，按账户身份）和目录租约。
+  - 恢复只会收紧，在替换之前就对副本做完：当天和本周的回撤锁定；当天下单计数视为用完（不会降低已有计数）；所有品种暂停入场（默认 BTCUSDT、ETHUSDT，加上快照里出现过的品种），由人逐个解除。
+  - 急停文件不碰。损坏的库改名保留（`state.sqlite.broken-<时间>`）。恢复写一条 `manual_actions` 审计记录。恢复后的库回到 WAL，并通过启动检查。
+- **主机安装**（`infra/install_host.sh`）：幂等；不读密钥；只按 `requirements/container.lock` 的哈希安装；创建 `/var/lib/quant`、`state`、`backups` 和日志目录并交给服务用户；同步单元、部署日志轮转；最后运行 `scripts/check_local_safety.py`；不启用、不启动任何服务；任何一步失败就停止。主机锁目录由 `state_dir init` 创建。
+- **`.env.example`** 重写：列出配置读取的全部变量、默认值和规则，不含任何值；删掉 Bybit、OKX、Hyperliquid。
+
+**已有测试的改动**
+- `tests/characterization/test_state_database.py::test_only_the_schema_module_creates_tables_and_only_the_factory_connects`，依据是 ADR-0016 第 6 条（用 SQLite 在线备份接口拍快照，要连一个新建的文件，连接工厂从不建文件）：
+  - 原来：`assert connectors == ["connection.py", "paper_store.py", "schema.py"]`
+  - 现在：`assert connectors == ["backup.py", "connection.py", "paper_store.py", "schema.py"]`
+  - `backup.py` 里只有拍快照这一处直接连 SQLite，恢复用的其它函数都走连接工厂。
+- 新增一条更严的检查（设计审计 M1）：`test_state_dir.py::test_nothing_else_copies_moves_or_writes_over_the_kill_file`。原来那条只能发现 `write(active=...)`；新的这条发现任何参数里提到急停文件的复制、移动、改名、直接写入，只允许急停文件自己的适配器这样做。现在就成立。
+
+**新增测试**
+- `tests/unit/trading/test_state_backup.py`：10 条。
+- `tests/characterization/test_state_restore.py`：18 条（13 条先写，4 条是变异自检补的，1 条是合并 S10 之后补的：模拟盘的快照不能恢复进账户目录，补之前失败）。
+- `tests/unit/infra/test_systemd_units.py`：7 条。先写的版本有一个辅助函数的错：它在模拟盘单元的注释里也找到了 `--enable-execution`。改成只看 `ExecStart` 之后通过；断言没有改。
+- `tests/unit/infra/test_install_host.py`：5 条静态检查（安装脚本属于工具，和脚本一起写）。
+
+**变异自检**【实际运行结果】（`scripts/dev/mutants/s8-backup.json`、`s8-restore.json`）
+- 备份：11 个，第一轮抓住 10 个。存活的 M5（检查失败时临时文件留下）补强了自己那条新测试（检查整个目录为空）后被抓住。最终 11/11。
+- 恢复：16 个，第一轮抓住 12 个。存活 4 个：快照里已解除暂停的品种没有再暂停、计数被降低、没有目录租约、恢复进别的 scope 的目录。各补 1 条测试后都被抓住。合并 S10 后加第 17 个（接受模拟盘的快照），被抓住。最终 17/17。
+
+**没有做的**
+- "安装脚本在干净容器里跑一次"：开发机上没有容器运行环境，没有做。M5 之前由人在一台干净的主机或容器里跑一次。
+- 服务单元用 `systemd-analyze verify` 检查过，没有报错【实际运行结果】；没有在真正的服务主机上启用过。
+
+## S11（文档部分）：M5 运行手册和核对清单（2026-11-16，轻流程）
+
+- `docs/binance_runbook.md` 按 S5b–S8 更新：执行模式必填 Telegram 和心跳地址；测试网执行改用服务单元（安装、初始化、开启备份、启动、启动告警、主机锁）；手工工具的主机锁；告警与心跳一节；备份与恢复的命令和规则；"出问题时"补上启动告警未确认、主机锁被占、心跳失联、外来成交、状态库恢复，止损击穿改为按交易所持仓平仓。
+- 新增 `docs/m5_checklist.md`：通过标准（ADR-0016 第 7 条）、开始计时前由人完成的清单（含只能在测试网验证的"第二张整仓止损"和"干净容器里跑安装脚本"）、每日检查、7 类演练的做法和预期、演练记录模板。
+- 没有改代码和测试。
+
+## CI 提速：覆盖率门槛由分片汇总，分片按实测时间分（2026-11-16，轻流程）
+
+- **决定**：技术负责人 2026-11-16 选"只调 CI，不改代码行为"（S10 让验收任务从约 4 分钟涨到 8 分钟）。
+- **改了什么**：
+  - 原来的 `python-acceptance` 任务把整套测试的一部分（包括最慢的模拟盘回放）再跑一遍，只为算资金路径的覆盖率。现在 4 个分片各测同一批模块的覆盖率，新任务 `coverage-gate` 合并四份，低于 75% 就失败。模拟盘回放只跑一次。
+  - 门槛的口径因此变成"整套测试对这些模块的覆盖率"（原来是其中一部分测试的）。第一次运行合并后是 97%【实际运行结果，CI 43799319797】。
+  - 分片按实测时间分：`scripts/ci_durations.json` 记下那次运行里每个文件超过 1 秒的测试耗时之和，其余测试按文件大小估（约每 kB 0.18 秒）；没有这个文件时只按大小，与原来一样。新的分片估计各约 170–180 秒；最重的文件（`test_target_runtime_resilience.py`，178 秒）单独一片。
+  - 分片输出超过 1 秒的测试耗时（`--durations=0 --durations-min=1.0`），以后可以照此更新权重文件。
+- **已有测试的改动**：`tests/architecture/test_rules.py` 的"不得缩小测试范围"检查。
+  - 原来：`SELECTING = ("--ignore", "--deselect", "-k", "-m", "--co", "--collect-only")`，用 `t.startswith(SELECTING)` 判断。`--co`（只收集不运行）作前缀时也匹配 `--cov=...` 和 `--color`，分片加上覆盖率参数后这条检查误报。
+  - 现在：`_selects(token)`，`--co` 和 `--collect-only` 整词匹配，其余照旧按前缀。另加 4 个反例：`--co`、`--collect-only`、连写的 `-k`，以及带覆盖率参数、不缩小范围的命令。检查没有放宽。
+- **结果**【实际运行结果】：上面那次 CI 的分片用时 4m50 / 3m12 / 4m56 / 1m51，合并覆盖率 8 秒；原来验收任务 7m54。按实测时间分片的效果看下一次 CI。
+- 按实测时间分片后第一次 CI，分片 0 失败【实际运行结果】：`pyproject.toml` 的 `fail_under = 70` 对每次 pytest 运行都生效，只有一个文件的分片自身覆盖率 64%。分片改为 `--cov-fail-under=0`，75% 的门槛只由合并任务检查（对合并后的数据）。
+
+## S11（对比工具）：模拟盘与研究逐笔比较（2026-11-16，设计 G6，轻流程，先写测试）
+
+分支 `s11-compare-tool`。这个 PR 只做对比工具；M5 运行手册和核对清单见上文"S11（文档部分）"，开始计时和成本核对不在这里。没有改资金路径代码：`trading/` 一行没动。
 
 **命令**
 ```bash

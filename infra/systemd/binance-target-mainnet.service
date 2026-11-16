@@ -1,0 +1,23 @@
+[Unit]
+Description=Binance target runtime: EXECUTION on MAINNET, started by a person only (ADR-0016 point 4)
+After=network-online.target
+Wants=network-online.target
+OnFailure=quant-alert@%n.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/quant_system
+# Never restarted automatically. After a failure the exchange-side stop still protects the position; a person
+# checks, then starts it by hand ("systemctl start"), and every start-up check runs again. Mainnet execution is
+# refused anyway unless the strategy spec passed its gate.
+ExecStart=/usr/bin/env BINANCE_TESTNET=0 /usr/bin/python3 -m runner.binance_target --spec models_binance/strategy/final_spec.json --enable-execution --state-dir /var/lib/quant/state/mainnet
+Restart=no
+StandardOutput=append:/quant_system/logs/binance_target_mainnet.log
+StandardError=append:/quant_system/logs/binance_target_mainnet.log
+MemoryMax=1024M
+
+# No [Install] section: this unit can never be enabled to start at boot.
