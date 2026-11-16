@@ -71,6 +71,9 @@ class PositionView(Protocol):
     @property
     def entry_price(self) -> Decimal | None: ...
 
+    @property
+    def mark_price(self) -> Decimal | None: ...
+
 
 class StopVenue(StopOrderGateway, Protocol):
     """Places and looks up stops, looks up the order a triggered stop became, and reads one symbol's venue position

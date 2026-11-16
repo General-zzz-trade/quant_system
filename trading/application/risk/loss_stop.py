@@ -11,9 +11,9 @@ kill switch that could not be set, which is tried again on every cycle.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from decimal import Decimal
-from typing import Any
+from typing import Protocol
 
 from trading.application.issues import Issue
 from trading.application.ports import Clock, KillLatch
@@ -22,18 +22,34 @@ from trading.domain.issues import IssueKind as K
 LOSS_STOP_SECONDS = 60.0     # how often the loss is read while it is known (one whole-account position request)
 
 
-def strategy_unrealized(positions: Iterable[Any], symbols: Sequence[str]) -> Decimal:
-    """The unrealized PnL of the venue positions on the strategy's symbols: qty x (mark - entry). The account holds
-    nothing outside the strategy ledger (the start-up and account checks), so these are the strategy's. A position
-    without a usable entry or mark price raises: its loss is unknown."""
+class MarkView(Protocol):
+    @property
+    def mark_price(self) -> Decimal | None: ...
+
+
+def strategy_unrealized(ledger: Iterable[tuple[str, Decimal, Decimal | None]],
+                        venue: Callable[[str], MarkView | None]) -> Decimal:
+    """The strategy's own unrealized PnL: for each ledger position (symbol, quantity, entry price), ledger quantity x
+    (the venue's mark for the symbol - ledger entry). The venue's quantity and entry price are not the strategy's on a
+    shared account: a person's position on the same symbol is netted into them (audit 2026-11-16, findings 1 and 2).
+    A ledger quantity of 0 adds nothing whatever the venue shows. A held ledger position whose symbol the venue
+    reports no row or no usable mark for, or whose own quantity or entry price cannot be used, raises: unknown,
+    never 0."""
     total = Decimal(0)
-    for position in positions:
-        if position.symbol not in symbols or position.qty == 0:
+    for symbol, qty, entry in ledger:
+        if not qty.is_finite():
+            raise RuntimeError(f"{symbol}: ledger quantity {qty} cannot be used")
+        if qty == 0:
             continue
-        entry, mark = position.entry_price, position.mark_price
-        if entry is None or mark is None or not (entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0):
-            raise RuntimeError(f"{position.symbol}: position without a usable entry or mark price")
-        total += position.qty * (mark - entry)
+        if entry is None or not (entry.is_finite() and entry > 0):
+            raise RuntimeError(f"{symbol}: ledger entry price {entry} cannot be used")
+        position = venue(symbol)
+        if position is None:
+            raise RuntimeError(f"{symbol}: the ledger holds {qty} and the venue reports no row for the symbol")
+        mark = position.mark_price
+        if mark is None or not (mark.is_finite() and mark > 0):
+            raise RuntimeError(f"{symbol}: the ledger holds {qty} and the venue reports no usable mark price")
+        total += qty * (mark - entry)
     return total
 
 

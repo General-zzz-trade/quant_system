@@ -128,15 +128,18 @@ def _position(symbol, qty, entry, mark):
 def test_unrealized_pnl_is_the_strategy_s_positions_at_the_venue_s_mark():
     positions = [_position("BTCUSDT", "0.01", "50000", "47000"), _position("ETHUSDT", "-2", "3000", "2900"),
                  _position("SOLUSDT", "5", "100", "1")]                         # not a strategy symbol
-    assert strategy_unrealized(positions, ["BTCUSDT", "ETHUSDT"]) == D("-30") + D("200")
-    assert strategy_unrealized([], ["BTCUSDT"]) == 0
+    venue = {p.symbol: p for p in positions}.get
+    ledger = [(p.symbol, p.qty, p.entry_price) for p in positions[:2]]          # the strategy's ledger: BTC and ETH
+    assert strategy_unrealized(ledger, venue) == D("-30") + D("200")
+    assert strategy_unrealized([], venue) == 0
 
 
 @pytest.mark.parametrize("entry,mark", [(None, "47000"), ("50000", None), ("0", "47000"), ("50000", "0"),
                                         ("50000", "nan")])
 def test_a_position_without_a_usable_entry_or_mark_price_is_unknown(entry, mark):
     with pytest.raises(RuntimeError, match="BTCUSDT"):
-        strategy_unrealized([_position("BTCUSDT", "0.01", entry, mark)], ["BTCUSDT"])
+        strategy_unrealized([("BTCUSDT", D("0.01"), None if entry is None else D(entry))],
+                            lambda symbol: _position(symbol, "0.01", entry, mark))
 
 
 ENV = {"RISK_SCOPE": "binance-ut", "BINANCE_TESTNET": "0", "TELEGRAM_BOT_TOKEN": "1:t", "TELEGRAM_CHAT_ID": "1",
