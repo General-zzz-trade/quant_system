@@ -135,13 +135,17 @@ class RuntimeConfig:
     margin: str | None                 # the margin mode it expects, or None for "as the account has it"
     alerts: str | None                 # "telegram" or "log" in execution mode
     identity: str | None               # sha256(network:API key) when credentials are loaded
+    # The owner's strategy capital (2026-11-16): the strategy sizes from min(account equity, this + its own
+    # realized PnL); required on mainnet, optional on the testnet (whole account), unused in paper.
+    strategy_capital: Decimal | None = None
 
     def record(self) -> dict[str, object]:
         """Every value, as plain JSON, without any secret: what this run uses."""
         limits = None if self.limits is None else {k: str(v) for k, v in self.limits.__dict__.items()}
         return {"testnet": self.testnet, "execution": self.execution, "scope": self.scope,
                 "stop_pct": str(self.stop_pct), "limits": limits, "leverage": self.leverage, "margin": self.margin,
-                "alerts": self.alerts, "identity": self.identity}
+                "alerts": self.alerts, "identity": self.identity,
+                "strategy_capital": None if self.strategy_capital is None else str(self.strategy_capital)}
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.record(), sort_keys=True).encode()).hexdigest()
@@ -171,11 +175,34 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     heartbeat = env.get("HEARTBEAT_URL", "").strip() or None
     if heartbeat is not None and not heartbeat.startswith("https://"):
         raise RuntimeError("HEARTBEAT_URL must be an https:// address")       # never echoed: it is a secret
+    capital = strategy_capital(env)
     binance = binance_config_from_env(testnet=net, env=env) if require_credentials else None
     identity = account_identity(testnet=net, api_key=binance.api_key) if binance is not None else None
     config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=Decimal(stop_pct), limits=limits,
-                           leverage=leverage, margin=margin, alerts="telegram" if token else "log", identity=identity)
+                           leverage=leverage, margin=margin, alerts="telegram" if token else "log", identity=identity,
+                           strategy_capital=capital)
     return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat)
+
+
+def strategy_capital(env: Mapping[str, str]) -> Decimal | None:
+    """STRATEGY_CAPITAL_USDT: the owner's strategy capital in USDT, a positive amount; unset or blank means none."""
+    raw = env.get("STRATEGY_CAPITAL_USDT", "").strip()
+    if not raw:
+        return None
+    try:
+        value = Decimal(raw)
+    except (ArithmeticError, ValueError):
+        raise RuntimeError("STRATEGY_CAPITAL_USDT must be a positive amount of USDT") from None
+    if not value.is_finite() or value <= 0:
+        raise RuntimeError("STRATEGY_CAPITAL_USDT must be a positive amount of USDT")
+    return value
+
+
+def require_strategy_capital(config: RuntimeConfig) -> None:
+    """Owner, 2026-11-16: the strategy shares the main account, so mainnet execution sizes from a capital the owner
+    sets and refuses to start without one. The testnet may use the whole account; paper needs none."""
+    if config.execution and not config.testnet and config.strategy_capital is None:
+        raise RuntimeError("mainnet execution needs the strategy capital: set STRATEGY_CAPITAL_USDT")
 
 
 def require_operator_channels(config: RuntimeConfig, secrets: Secrets) -> None:
