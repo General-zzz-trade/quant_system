@@ -190,6 +190,7 @@ class TargetRuntime(_runtime.TargetRuntime):
                                         limits=config.limits, kill=kill, leverage=config.leverage, margin=config.margin,
                                         strategy_capital=config.strategy_capital, funding=account,
                                         strategy_loss_stop=config.strategy_loss_stop,
+                                        strategy_leverage=config.strategy_leverage,
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock), kill
@@ -203,7 +204,8 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--state-dir", type=Path, default=None,
                         help=f"default {PAPER_STATE_DIR} for paper, {EXECUTION_STATE_DIR} for execution")
-    parser.add_argument("--stop-pct", type=D, default=D("0.08"), help="Exchange-side catastrophic stop distance")
+    parser.add_argument("--stop-pct", type=D, default=None,
+                        help="Exchange-side catastrophic stop distance (default: STOP_PCT, else 0.08)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", dest="execution", action="store_false", help="Paper trading (default)")
     mode.add_argument("--enable-execution", dest="execution", action="store_true")
