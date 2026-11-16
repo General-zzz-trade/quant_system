@@ -152,3 +152,33 @@ def test_the_paper_parts_go_with_the_paper_policy_and_only_with_it(tmp_path):
         with pytest.raises(ValueError, match="paper parts"):
             target.execution_sessions(_spec(), ["BTCUSDT"], state_dir=tmp_path, journal=None, equity=None,
                                       inputs=None, policy=policy, paper=paper)
+
+
+# -- S10 part 3 audit -------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("reset", [False, True])
+def test_the_paper_database_is_never_made_in_an_execution_directory(tmp_path, reset):
+    from trading.infrastructure.state_dir import MANIFEST
+    (tmp_path / MANIFEST).write_text("{}")
+    with pytest.raises(RuntimeError, match="execution state directory"):
+        paper_state_db(tmp_path, reset=reset, stamp_ms=1)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [MANIFEST]
+
+
+def test_a_refused_reduction_or_a_repeated_intent_is_no_entry_divergence():
+    from trading.domain.orders import DUPLICATE
+    events = Events()
+    log = PaperDivergenceLog(events)
+    log.write(EventKind.INTENT, symbol="BTCUSDT", order_id="r1", side="sell", qty="1", reduce_only=True,
+              reason="kill_switch")
+    log.write(EventKind.BLOCKED, symbol="BTCUSDT", order_id="r1", reason="journal: reduction overlap")
+    log.write(EventKind.INTENT, symbol="BTCUSDT", order_id="e1", side="buy", qty="1", reduce_only=False,
+              reason="rebalance")
+    log.write(EventKind.BLOCKED, symbol="BTCUSDT", order_id="e1", reason=f"journal: {DUPLICATE}", refusal=DUPLICATE)
+    log.write(EventKind.BLOCKED, symbol="BTCUSDT", order_id="e2", reason="kill switch active")
+    assert [d["order_id"] for d in _divergences(events)] == ["e2"]
+
+
+def test_a_risk_exit_is_a_divergence_with_its_action_and_reason():
+    events = Events()
+    PaperDivergenceLog(events).risk_exit("BTCUSDT", "flatten", "drawdown_latched")
+    assert _divergences(events) == [{"cause": "flatten", "symbol": "BTCUSDT", "reason": "drawdown_latched"}]

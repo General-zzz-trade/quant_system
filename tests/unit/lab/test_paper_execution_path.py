@@ -205,3 +205,78 @@ def test_a_restart_decides_the_missed_bars_with_a_fresh_equity_reading(tmp_path)
     assert entries
     assert not [e for e in events if e["kind"] in ("blocked", "paper_divergence") and e.get("order_id") in entries]
     assert [e["status"] for e in events if e["kind"] == "order" and e.get("order_id") in entries][:1] == ["reserved"]
+
+
+# -- S10 part 3 audit: M1 (risk exits are divergences) and L3 (no single-order notional cap in paper) -------------
+def _risk_divergences(state):
+    return [(e["cause"], e["symbol"], e["reason"]) for e in _divergences(state)
+            if e["cause"] in ("flatten", "cancel_entries")]
+
+
+def _holding_any(world, runtime):
+    i = world["warm"]
+    while all(s.position_qty() == 0 for s in runtime.sessions.values()):
+        assert i < world["warm"] + 300, "no position"
+        _advance(world, runtime, i)
+        i += 1
+    return i
+
+
+def test_a_drawdown_latch_flatten_is_one_divergence_per_symbol(tmp_path):
+    world = _world(tmp_path, _spec())
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    i = _holding_any(world, runtime)
+    assert _risk_divergences(state) == []
+    runtime.drawdown.observe(float(runtime.account.get_account_equity()) * 0.9)      # a 10 % fall today
+    for j in range(i, i + 3):
+        _advance(world, runtime, j)
+    assert _risk_divergences(state) == [("flatten", "BTCUSDT", "drawdown_latched"),
+                                        ("flatten", "ETHUSDT", "drawdown_latched")]
+    assert all(runtime.account.broker(s).position.qty == 0 for s in runtime.sessions)
+
+
+def test_the_kill_switch_is_one_divergence_per_symbol_and_action_each_time_it_starts(tmp_path):
+    world = _world(tmp_path, _spec())
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    i = _holding_any(world, runtime)
+    runtime.kill.write(active=True, reason="test", flatten=False)
+    for j in range(i, i + 2):
+        _advance(world, runtime, j)
+    runtime.kill.write(active=True, reason="test", flatten=True)
+    for j in range(i + 2, i + 4):
+        _advance(world, runtime, j)
+    runtime.kill.write(active=False, reason="test")
+    _advance(world, runtime, i + 4)
+    runtime.kill.write(active=True, reason="again", flatten=True)
+    _advance(world, runtime, i + 5)
+    symbols = ("BTCUSDT", "ETHUSDT")
+    assert _risk_divergences(state) == [*[("cancel_entries", s, "kill_switch") for s in symbols],
+                                        *[("flatten", s, "kill_switch") for s in symbols],
+                                        *[("flatten", s, "kill_switch") for s in symbols]]
+
+
+def test_cancelling_resting_entries_for_an_account_problem_is_a_divergence_once(tmp_path):
+    from trading.application.issues import Issue
+    from trading.domain.issues import IssueKind
+    world = _world(tmp_path, _spec())
+    state = tmp_path / "paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    foreign = Issue(IssueKind.FOREIGN_HOLDING, "BTCUSDT", "BTCUSDT: unowned open order x")
+    for _ in range(2):
+        runtime.exits.last_issues["BTCUSDT"] = [foreign]
+        runtime.exits.risk_actions()
+    assert _risk_divergences(state) == [("cancel_entries", "BTCUSDT", "foreign_holding")]
+
+
+def test_paper_has_no_single_order_notional_cap_and_keeps_the_other_limits(tmp_path):
+    world = _world(tmp_path, _spec())
+    runtime = _paper(world, tmp_path / "paper")
+    config = runtime.sessions["BTCUSDT"].gate.inner._limiter._cfg     # wiring check: private on purpose
+    assert config.max_order_notional is None
+    assert (config.max_daily_notional, config.max_daily_orders, config.max_orders_per_second) == \
+        (D("50000"), 50, 1.0)
