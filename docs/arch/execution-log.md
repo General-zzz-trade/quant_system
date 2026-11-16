@@ -4043,3 +4043,18 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   改代码前 9 个全部失败。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r6_shorts.json` 7 个，按顺序、关闭字节码缓存：7/7 被杀。
 - **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过；其余见 R5 之后的合并检查。
+
+## R7a 策略能读到的数据：K 线的成交额字段，和"要读哪些别的品种"（2026-11-16 晚，资金路径完整流程）
+
+- 依据：计划第 7 步（实验室和实盘用同一份策略代码）。实验室第一轮的 29 个想法除了 OHLC 还读成交额（`quote_volume`）、
+  主动买入成交额（`taker_buy_quote_volume`），7 个想法还读 BTCUSDT 的 K 线；实盘的窗口原来只有 OHLCV。
+- **改了什么**：
+  - 会话的窗口多了 4 列 `quote_volume`、`trades`、`taker_buy_volume`、`taker_buy_quote_volume`，来自交易所 K 线（`bar_from_kline`
+    原来就收着，只是没放进窗口），列名和实验室的数据快照一样；某根 K 线没有这些字段时是 NaN（未知），不是 0。
+    `frame_from_bars` 的其他调用方不变（要 `extras=True` 才加这几列）。现有策略的目标不受影响（有测试）。
+  - 策略接口多一个 `references()`：除了自己交易的品种还要读哪些品种（比如 BTCUSDT）。实盘程序没有"只读不交易"的品种，所以规格的
+    策略要读一个规格里没列的品种时，按名字拒绝——这样的策略只能在列了那个品种时运行。现有策略不读别的品种。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_strategy_inputs.py`（8 个，含一个真实运行时里窗口带着交易所字段的测试）。改代码前 8 个全部失败。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r7a_strategy_inputs.json` 5 个，5/5 被杀。
+- **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过。
