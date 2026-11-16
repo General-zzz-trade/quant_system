@@ -49,13 +49,18 @@ class TargetSpec:
 
     def identity(self) -> dict[str, Any]:
         """What a paper record stores to know its strategy: the overlay as traded (its own record, as before R2, so a
-        schema-1 record is unchanged), any other strategy by name, parameters and execution settings (R2 audit)."""
+        schema-1 record is unchanged; with ``allow_short`` when the spec's rule is not the one its ``long_only``
+        implies), any other strategy by name, parameters, execution settings and shorts rule (R2 and R5/R6 audits)."""
         if self.strategy_name == "overlay":
             traded: StrategySpec = replace(self.params, band=self.execution.band, execution=self.execution.execution,
                                            ttl_bars=self.execution.ttl_bars)
-            return traded.record()
+            record = traded.record()
+            if self.allow_short != (not traded.long_only):     # R5/R6 audit: the shorts rule, when the spec sets it
+                record["allow_short"] = self.allow_short
+            return record
         return {"strategy": self.strategy_name, "params": dict(self.params), "band": self.execution.band,
-                "execution": self.execution.execution, "ttl_bars": self.execution.ttl_bars}
+                "execution": self.execution.execution, "ttl_bars": self.execution.ttl_bars,
+                "allow_short": self.allow_short}
 
 
 def _is_usdt_perpetual(symbol: Any) -> bool:

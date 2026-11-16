@@ -4081,6 +4081,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     再晚 1 毫秒报错，并断言下单时钟没动。
   - 测试辅助：`test_publish_strategy_spec.py` 的叠加参数原来是默认的 maker，和执行块的 market 不同（正是审计指出的被悄悄丢掉的情况），
     改为和执行块一致。
+  - `tests/unit/trading/test_issues.py::test_the_table_is_exactly_the_decided_one` 固定了整张问题表：加一行
+    `IssueKind.FUNDING_INTERVAL_UNKNOWN: BLOCK`（新的问题种类，禁止这个品种开仓），其他行不变。
 - **新增测试**：`tests/unit/trading/test_runtime_extension_audit.py`（30 个，含参数化）、
   `tests/characterization/test_runtime_extension_audit_runtime.py`（3 个）。在 R6 的代码上跑：26 个失败，7 个通过——通过的是审计指出的
   测试缺口（代码本来就对：第 1 版多出参数被拒、4 字符被拒、预热按间隔请求、间隔未知时减仓等）。
@@ -4101,3 +4103,35 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **新增测试**：`tests/unit/trading/test_strategy_inputs.py`（8 个，含一个真实运行时里窗口带着交易所字段的测试）。改代码前 8 个全部失败。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r7a_strategy_inputs.json` 5 个，5/5 被杀。
 - **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过。
+- **本地**【实际运行结果】：所有加载规格、组装运行时、会话、行情侧、问题表或假交易所的测试文件（68 个）加架构测试：1 个失败——
+  上面那张固定的问题表，加一行后通过。ruff、`mypy trading/`（95 个文件）、导入契约通过。
+
+## R5、R6 和 R1–R4 修复的独立审计，以及修复（2026-11-16 深夜，资金路径完整流程）
+
+- **审计**（3ef568c6..223630d4 加 11ed55fd）：没有阻塞问题；没找到会重复发减仓单、平掉超过交易所持仓、或在该挡住时开仓的路径。
+  3 条应修、5 条轻微。成立的结论：R5 的顺序和"缺行就单独读"、平仓和人工工具仍读最新、快照不会让止损被错放错撤；R6 的符号；
+  修复里的严格解析、迟到时钟、间隔问题等；测试在改前失败的说法属实；1580 → 440 属实。
+- **修了什么**：
+  1. 模拟盘记录没有写是否允许做空：同一组参数、只差 `allow_short` 的两份规格记录相同，可以互相续跑；研究那边没有这条限制，
+     对照会无缘无故"不一致"。现在叠加策略在规格的做空规则和它自己 `long_only` 推出的不同时，把 `allow_short` 写进记录
+     （第 1 版的记录不变）；其他策略总是写。对照工具对不允许做空的记录，把研究的目标也截到不小于 0（和会话的做法一样）。
+  2. R5 的余量说错了基准：客户端自己的限额是每分钟 1200（`rate_limit.py` 的池子，按交易所返回的已用权重同步），不是交易所的 2400；
+     440 是它的 37%，改之前的 1580 已经超过它。测试改成对 1200 的一半断言（数值界限仍是 600），说明里写上；另外有策略资金时
+     还有资金费流水的读取，10 个品种约每分钟多 30。整账户快照读不出来时原来只写一行日志、悄悄退回逐个品种读（10 个品种时会超过
+     1200）：现在是全运行时的问题 `ACCOUNT_UNREADABLE`（禁止所有开仓、持续时告警），只写一次，读成功后清除；退出照常。
+  3. 测试缺口：权益未知时，不允许做空下持有的空单仍会被平掉；身份里的 `ttl_bars`；交易所没列的品种跨小时重读时问题只写一次。
+  - 轻微：一行持仓没有 `positionAmt` 时原来当作平仓，现在当作读不出（报错）；记录里的测试数更正（见下）。
+  - 没改的：M3（直接构造会话不给 `allow_short` 时按执行设置的 `long_only`，在第 2 版里等于允许做空）：组合根总是传规格的值，
+    代码里写明；M5（审计员没重跑我的变异，因为机器忙）。
+- **已有测试的改动**：
+  - `test_account_weight.py`：原来 `assert total <= LIMIT_PER_MINUTE / 4`（LIMIT 2400），现在 `assert total <= CLIENT_BUDGET_PER_MINUTE / 2`
+    （1200），数值同为 600，基准改对。
+  - `test_account_snapshot.py`：原来的"没有快照时每个品种自己读"断言 `exits.last_issues == {"AUSDT": [], "BUSDT": []}`；现在每个品种
+    都有 `account_unreadable`、开仓被挡住、问题只写一次、读成功后清除（测试改名为 `..._and_every_entry_is_blocked`）。测试辅助：
+    假会话记录 `block_entries` 的调用。
+  - `test_runtime_extension_audit.py::test_two_strategies_have_different_identities`：期望的身份多了 `"allow_short": False`。
+- **新增测试**：`test_runtime_extension_audit.py` 加 2 个（做空规则在身份里、权益未知时仍平空单），运行时文件加 1 个（不允许做空的
+  模拟盘对照"一致"），`test_funding_interval.py` 的一个测试加跨小时的断言，`test_account_snapshot.py` 加 1 个用例（没有数量的行）。
+  更正：上一节写的 `test_runtime_extension_audit.py` 30 个，实际在那之后补了 2 个用例，是 32 个；现在是 34 个。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r5_r6_audit_fixes.json` 8 个，8/8 被杀。
+- **本地**【实际运行结果】：改动涉及的测试文件和架构测试通过；ruff、`mypy trading/`（95 个文件）通过。
