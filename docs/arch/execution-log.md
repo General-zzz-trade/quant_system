@@ -3725,3 +3725,23 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 校准用的试运行：已有的 BTC/ETH 策略，300 USDT，目的是拿真实成交，不期望盈利。上实盘前的条件照旧，另外账户里
     BTCUSDT、ETHUSDT 上不能有手动仓位（单向持仓模式下会和策略的仓位合并）。
 - 改了 `CLAUDE.md`（两条）和 `research/lab/README.md`（一条）。没有改代码和测试。
+
+## 告警改成写文件，不用 Telegram（2026-11-16 晚，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 晚决定不用 Telegram，改由 Claude Code 会话读告警：大约每小时读一次，自己只做降低风险的动作
+  （打开急停、停止服务），重启、解除急停和暂停、改配置都先问人；外部心跳保留。这改变了 ADR-0016 第 1、2 点里"必须有 Telegram"。
+- **改了什么**：
+  - `trading/adapters/notify/file.py`（新）：`FileNotifier`，每条告警追加一行 JSON（时间、级别、标题、内容），写完就落盘；
+    写失败只记日志，不抛出，不影响交易和退出；`deliver` 只有在这一行写进去时才算确认。目录不由程序创建。
+  - `trading/infrastructure/config.py`：`ALERT_FILE`（必须是绝对路径）。执行模式要求有告警文件或 Telegram 其中之一，外加心跳；
+    两个同时设置拒绝启动；配置记录里 `alerts` 多一个取值 `file`。`make_notifier`、`notifier_from_env` 相应返回文件出口。
+  - `trading/infrastructure/cli/target.py`：启动告警由配置的出口确认；文件写不进去就拒绝启动，不发任何账户请求。
+  - `trading/infrastructure/unit_alert.py`：服务失败告警走同一个出口。
+  - `infra/install_host.sh`：创建 `/var/lib/quant/alerts`。文档：`CLAUDE.md`、`.env.example`、运行手册。
+- **已有测试的改动**：没有。**测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_alert_file.py`（15 个）、`tests/characterization/test_alert_file_startup.py`（2 个）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json` 19 个变异，基线通过，第一轮 19 个全部被杀。
+- **本地**【实际运行结果】：涉及告警和启动的 9 个已有测试文件加架构测试共 200 个通过；ruff、`mypy trading/`（93 个文件）、
+  导入契约（5 个）通过。
+- **要知道的限制**：程序自己不再通知任何人。会话没醒、登录过期或这台主机死了，告警就没人读；主机死了只有外部心跳能发现。
+  告警延迟最长约一小时。每小时的值守任务在试运行启动时建立，不在这个改动里。

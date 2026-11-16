@@ -1,0 +1,116 @@
+[
+ [
+  "execution starts with no channel",
+  "trading/infrastructure/config.py",
+  "    if secrets.telegram is None and secrets.alert_file is None:",
+  "    if False:"
+ ],
+ [
+  "file alone is not enough",
+  "trading/infrastructure/config.py",
+  "    if secrets.telegram is None and secrets.alert_file is None:",
+  "    if secrets.telegram is None:"
+ ],
+ [
+  "both channels accepted",
+  "trading/infrastructure/config.py",
+  "    if telegram:\n        raise RuntimeError(\"set ALERT_FILE or the Telegram pair",
+  "    if False:\n        raise RuntimeError(\"set ALERT_FILE or the Telegram pair"
+ ],
+ [
+  "relative path accepted",
+  "trading/infrastructure/config.py",
+  "    if not Path(raw).is_absolute():",
+  "    if False:"
+ ],
+ [
+  "config records log for a file",
+  "trading/infrastructure/config.py",
+  "alerts=\"telegram\" if token else \"file\" if file else \"log\",",
+  "alerts=\"telegram\" if token else \"log\","
+ ],
+ [
+  "secrets drop the file",
+  "trading/infrastructure/config.py",
+  "heartbeat_url=heartbeat,\n                           alert_file=file)",
+  "heartbeat_url=heartbeat)"
+ ],
+ [
+  "make_notifier ignores the file",
+  "trading/infrastructure/config.py",
+  "    if secrets.alert_file is not None:\n        return FileNotifier(secrets.alert_file)\n",
+  ""
+ ],
+ [
+  "notifier_from_env ignores the file",
+  "trading/infrastructure/config.py",
+  "    return FileNotifier(file) if file is not None else LogNotifier()",
+  "    return LogNotifier()"
+ ],
+ [
+  "heartbeat optional",
+  "trading/infrastructure/config.py",
+  "    if not secrets.heartbeat_url:\n        raise RuntimeError(\"execution mode needs an external heartbeat",
+  "    if False:\n        raise RuntimeError(\"execution mode needs an external heartbeat"
+ ],
+ [
+  "deliver always confirms",
+  "trading/adapters/notify/file.py",
+  "            logger.warning(\"Alert file not writable (%s): %s\", type(exc).__name__, title)\n            return False",
+  "            logger.warning(\"Alert file not writable (%s): %s\", type(exc).__name__, title)\n            return True"
+ ],
+ [
+  "alert raises on a failed write",
+  "trading/adapters/notify/file.py",
+  "        except OSError as exc:\n            logger.error(\"Alert not written to the alert file",
+  "        except KeyError as exc:\n            logger.error(\"Alert not written to the alert file"
+ ],
+ [
+  "failed alert not logged",
+  "trading/adapters/notify/file.py",
+  "            logger.error(\"Alert not written to the alert file (%s): %s: %s\", type(exc).__name__, title, detail)",
+  "            pass"
+ ],
+ [
+  "lines overwrite",
+  "trading/adapters/notify/file.py",
+  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)",
+  "os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0o640)"
+ ],
+ [
+  "file world readable",
+  "trading/adapters/notify/file.py",
+  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)",
+  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)"
+ ],
+ [
+  "deliver level",
+  "trading/adapters/notify/file.py",
+  "            self._append(\"info\", title, detail)",
+  "            self._append(\"critical\", title, detail)"
+ ],
+ [
+  "detail dropped",
+  "trading/adapters/notify/file.py",
+  "\"title\": title, \"detail\": detail}",
+  "\"title\": title, \"detail\": \"\"}"
+ ],
+ [
+  "unconfirmed start goes on",
+  "trading/infrastructure/cli/target.py",
+  "                raise RuntimeError(f\"the start-up alert was not confirmed by the alert channel \"\n                                   f\"({notifier.channel}); execution not started\")",
+  "                pass"
+ ],
+ [
+  "unit alert refuses the file",
+  "trading/infrastructure/unit_alert.py",
+  "    if isinstance(notifier, LogNotifier):",
+  "    if not hasattr(notifier, \"_url\"):"
+ ],
+ [
+  "unit alert exit 0 unconfirmed",
+  "trading/infrastructure/unit_alert.py",
+  "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 1",
+  "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 0"
+ ]
+]

@@ -180,9 +180,12 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   `state_dir init` creates it and its tables (`state_dir restore` puts a checked snapshot back when it is lost or
   broken, and tightens it: drawdown latched - the next start flattens and stays flat until the week ends -,
   today's count used up, every symbol paused); the stores open it read-write and never create anything.
-- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without
-  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` and an https `HEARTBEAT_URL` (a secret), and starts only after Telegram
-  confirmed "execution starting", before any account request. The heartbeat pings at most once a minute while
+- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without an
+  alert channel and an https `HEARTBEAT_URL` (a secret), and starts only after the channel confirmed "execution
+  starting", before any account request. The channel is `ALERT_FILE` (owner 2026-11-16: no Telegram; one JSON line
+  per alert in `/var/lib/quant/alerts/`, confirmed when the line is written; a Claude Code session reads it about
+  once an hour and may only reduce risk on its own: kill switch, stop the service) or the Telegram pair
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`; both together are refused. The heartbeat pings at most once a minute while
   waiting for market data and between cycles; it never stops the loop. Paper logs alerts only.
 - Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
   host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the

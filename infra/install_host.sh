@@ -34,6 +34,8 @@ python3 -m pip install --require-hashes --no-deps --break-system-packages --igno
 
 echo "2/5 Directories for state, backups and logs (the host lock directory is created by state_dir init)"
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_ROOT" "$STATE_ROOT/state" "$STATE_ROOT/backups"
+# The alert file's directory (ALERT_FILE, owner 2026-11-16): the runtime never creates it.
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_ROOT/alerts"
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$CHECKOUT/logs"
 
 echo "3/5 systemd units: copied and reloaded; nothing is enabled or started"
