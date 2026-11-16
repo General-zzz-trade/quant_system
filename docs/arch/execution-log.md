@@ -4127,3 +4127,11 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   第一轮：8 个被杀；1 个存活（"收益大于 0"改成"大于等于 0"：数据里收益恰好为 0 的情况不会出现，实际等价，换成"回看少算一天"）；
   7 个"基线失败"是我的错：工具按空格切分测试选择，`-k "a or b"` 被拆坏了。改用测试节点名重跑这 8 个：全部被杀，最终 16/16。
 - **本地**【实际运行结果】：新测试、防未来函数检查整个文件、ruff、`mypy trading/`（96 个文件）、导入契约（5 个）通过。
+
+## R7b 补：领域层不用 functools（2026-11-16 深夜）
+
+- R7b 在 `trading/domain/strategy/base.py` 和 `spec.py` 里用了 `functools.partial`，而架构测试只允许领域层导入一张白名单上的模块：
+  `tests/architecture/test_rules.py::test_domain_and_application_import_only_from_an_allow_list` 从 R7b 起失败。我在 R7b 的本地检查里
+  漏看了它（输出被截断）；叠在别的分支上的 PR 不跑 CI，所以也没被 CI 发现。是做 R9 的助手跑架构测试时发现的。
+- 改法：两处都换成一个小的工厂函数，行为不变（登记表和参数检查的测试照常通过）。架构测试、mypy、ruff 通过。
+- 教训（记下来）：叠在别的分支上的 PR 每一步都要在本地跑完整的 `tests/architecture`，并看完整的输出。
