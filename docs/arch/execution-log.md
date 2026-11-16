@@ -4025,7 +4025,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `trading/infrastructure/cli/target.py`：传入倍数；`--stop-pct` 默认改为不给（由配置决定，结果仍是 0.08）。
   - 文档：`CLAUDE.md` 试运行一条、`.env.example`、运行手册的变量表。
 - **已有测试的改动**：没有。**测试辅助的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_pilot_settings.py`（26 个）、`tests/characterization/test_pilot_leverage_sizing.py`（3 个）。
+- **新增测试**：`tests/unit/trading/test_pilot_settings.py`（27 个）、`tests/characterization/test_pilot_leverage_sizing.py`（3 个）。
 - **变异自检**【实际运行结果】（用修过字节码问题的工具）：`scripts/dev/mutants/pilot_leverage_settings.json` 15 个变异，基线通过，
   第一轮 14 个被杀。存活 1 个："模拟盘也乘倍数"（去掉 `paper is None` 条件）。等价：模拟盘的配置从不带策略资金
   （`test_paper_reads_no_cap`、`test_paper_reads_neither_setting`），所以这个条件在任何可达的情况下都不改变结果。保留在清单里，标为等价。
