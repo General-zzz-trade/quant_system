@@ -4476,3 +4476,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   不会发生。最终 10/11，1 个等价。
 - **本地**【实际运行结果】：`test_decide_together.py`、`test_account_snapshot.py`、`test_issues.py`、`test_paper_replay.py` 通过；ruff、
   `mypy trading/`（96 个文件）通过。整叠分支的完整测试由 CI 跑。
+## R6 补：做空测试用亏损停止线的新接口（2026-11-17 凌晨）
+
+- 把 master 并进整叠分支后，#117 把 `strategy_unrealized` 改成按账本持仓和交易所标记价计算（`strategy_unrealized(ledger, venue)`），
+  R6 的做空测试还在用旧接口，CI 的一个分片失败（`TypeError: cannot unpack non-iterable VenuePosition object`）。我在本地检查合并交汇处时
+  没有把这个测试文件列进去。改为新接口：账本里的空单（数量、开仓价）和交易所的标记价；断言不变（价格上涨时空单的未实现盈亏为负）。
