@@ -1,0 +1,51 @@
+[
+ [
+  "no clamp",
+  "trading/application/session.py",
+  "        if weight < 0 and not self.allow_short:\n",
+  "        if False:\n",
+  "tests/unit/trading/test_allow_short.py tests/characterization/test_shorts_runtime.py"
+ ],
+ [
+  "clamp longs",
+  "trading/application/session.py",
+  "        if weight < 0 and not self.allow_short:\n",
+  "        if weight > 0 and not self.allow_short:\n",
+  "tests/unit/trading/test_allow_short.py"
+ ],
+ [
+  "default allows shorts",
+  "trading/application/session.py",
+  "self.allow_short = (not spec.long_only) if allow_short is None else bool(allow_short)",
+  "self.allow_short = True if allow_short is None else bool(allow_short)",
+  "tests/unit/trading/test_allow_short.py"
+ ],
+ [
+  "spec value ignored",
+  "trading/application/session.py",
+  "self.allow_short = (not spec.long_only) if allow_short is None else bool(allow_short)",
+  "self.allow_short = (not spec.long_only)",
+  "tests/unit/trading/test_allow_short.py"
+ ],
+ [
+  "wiring drops it",
+  "trading/infrastructure/target.py",
+  "allocation=allocation, strategy=strategy, allow_short=allow_short,",
+  "allocation=allocation, strategy=strategy,",
+  "tests/unit/trading/test_allow_short.py tests/characterization/test_shorts_runtime.py"
+ ],
+ [
+  "execution not told",
+  "trading/infrastructure/cli/target.py",
+  "strategy=strategy, allow_short=self.target_spec.allow_short), kill",
+  "strategy=strategy), kill",
+  "tests/characterization/test_shorts_runtime.py"
+ ],
+ [
+  "paper not told",
+  "trading/infrastructure/cli/target.py",
+  "paper=parts, strategy=strategy,\n                                           allow_short=self.target_spec.allow_short)",
+  "paper=parts, strategy=strategy)",
+  "tests/unit/trading/test_allow_short.py"
+ ]
+]
