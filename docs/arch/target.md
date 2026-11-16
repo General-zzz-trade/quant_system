@@ -105,8 +105,9 @@ trading/
   `trading/infrastructure/modes.py` 是两者差别的唯一清单）。
 - 配置在入口读一次（`trading/infrastructure/config.py`，ADR-0017），成为不可变的 `RuntimeConfig`，密钥另放在 `Secrets`；启动时记一条
   不含密钥的 `config` 事件，带规格的策略、参数、品种和是否做空。
-- 执行模式的状态目录由人用 `state_dir init` 建一次，里面是清单 `manifest.json`、唯一的状态库 `state.sqlite`（订单、止损、限额、
-  暂停、回撤）、急停文件 `kill_switch.json`、事件日志 `target_events.jsonl`、状态文件 `target_status.json`。主机上执行模式的目录在
+- 执行模式的状态目录由人用 `state_dir init` 建一次：清单 `manifest.json`、唯一的状态库 `state.sqlite`（订单、止损、限额、
+  暂停、回撤）和急停文件 `kill_switch.json`；运行时在里面写事件日志 `target_events.jsonl` 和状态文件 `target_status.json`，
+  从不新建状态库或它的表。主机上执行模式的目录在
   `/var/lib/quant/state/<网络>`（服务单元里写死），备份在 `/var/lib/quant/backups/<网络>`，主机锁在 `/var/lib/quant/locks`。
 - 模拟盘的目录默认是 `data/runtime/paper`，它自己建 `state.sqlite`，拒绝带清单的执行目录。
 - 服务单元（`infra/systemd/`）：`binance-target`（模拟盘）、`binance-target-testnet`、`binance-target-mainnet`（不自动重启、
