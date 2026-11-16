@@ -171,10 +171,11 @@ def test_today_s_count_is_used_up_whatever_limits_the_service_runs_with(broken):
     state, snapshot, kill = broken
     assert _restore(state, snapshot)[0] == 0                            # the shell's limit: 40 orders
     orders, notional = SqliteLimitStore(state / schema.STATE_DB, SCOPE).load(periods(NOW)["day"])
-    service = OrderLimitsConfig(max_daily_orders=200, max_daily_notional=D("10000000"))   # the service's .env
-    result = check_limits(service, qty=D("0.001"), price=D("100"), position_notional=D("0"), orders_last_second=0,
-                          orders_today=orders, notional_today=notional)
-    assert not result.allowed
+    for service in (OrderLimitsConfig(max_daily_orders=200),                       # the service's .env: each
+                    OrderLimitsConfig(max_daily_notional=D("10000000"))):         # limit alone is used up
+        result = check_limits(service, qty=D("0.001"), price=D("100"), position_notional=D("0"),
+                              orders_last_second=0, orders_today=orders, notional_today=notional)
+        assert not result.allowed, service
 
 
 def test_a_symbol_only_in_the_order_journal_is_paused(tmp_path):
@@ -198,3 +199,38 @@ def test_a_temporary_file_left_by_an_interrupted_restore_does_not_get_in_the_way
     assert code == 0, out
     managed.verify(state, SCOPE)
     assert not os.path.exists(state / f".{schema.STATE_DB}.restoring")
+
+
+def test_a_corruption_the_page_check_reports_while_the_database_still_opens_is_named(tmp_path):
+    # Mutation self-check of the audit fix: the corruption above makes SQLite raise, which reads as "unreadable"
+    # anyway. Here the database opens and its schema reads, and only the page check finds the damage.
+    state, db = _init(tmp_path)
+    conn = sqlite3.connect(db)
+    with conn:
+        for i in range(400):
+            conn.execute("INSERT INTO submissions (scope, intent_id, symbol, qty) VALUES (?, ?, ?, ?)",
+                         (SCOPE, f"i{i:04d}", "BTCUSDT", "0.1" * 20))
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.close()
+    clean, page = db.read_bytes(), 4096
+
+    def reported_but_readable():
+        try:
+            probe = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+            try:
+                probe.execute("SELECT name FROM sqlite_master").fetchall()
+                return [r[0] for r in probe.execute("PRAGMA quick_check(5)")] != ["ok"]
+            finally:
+                probe.close()
+        except sqlite3.Error:
+            return False
+    for number in range(len(clean) // page - 1, 1, -1):              # from the last page back: data pages
+        spoiled = bytearray(clean)
+        spoiled[number * page + 200:number * page + 208] = bytes(range(8))
+        db.write_bytes(bytes(spoiled))
+        if reported_but_readable():
+            break
+    else:
+        pytest.fail("no corruption that the page check reports was found")
+    assert any("corrupt" in problem for problem in schema.problems(db))
