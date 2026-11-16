@@ -35,6 +35,7 @@ import pandas as pd
 from lab.simulate import SymbolRules, simulate
 from lab.strategy import StrategySpec
 from trading.domain.bars import bar_from_kline
+from trading.domain.issues import STOP_PAUSE_SECONDS
 
 H = 3_600_000
 DAY = 86_400_000
@@ -60,7 +61,7 @@ class LiveTerms:
     """What the live runtime does that the backtest follows (tech lead 2026-11-16)."""
     capital: str = "300"          # STRATEGY_CAPITAL_USDT of the small live pilot
     stop_pct: str = "0.08"        # the runtime's exchange stop (the entry point's --stop-pct default)
-    pause_hours: int = 4          # the live pause after a stop ends by itself after 4 hours (tech lead 2026-11-16)
+    pause_hours: int = STOP_PAUSE_SECONDS // 3600   # the live pause after a stop ends by itself (4 hours)
     daily_stop: float = 0.03      # the pilot stops for the day at -3 % (reported, from daily closes)
     losing_trades: int = 3        # the pilot stops after 3 losing trades in a row (reported)
 

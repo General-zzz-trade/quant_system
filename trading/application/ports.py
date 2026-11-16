@@ -365,10 +365,12 @@ class LimitStore(Protocol):
 
 
 class EntryPauses(Protocol):
-    """Entries paused per symbol after a protective stop. The runtime only sets pauses; a person releases them
-    outside the runtime. A store that cannot be read raises; it never reads as "not paused"."""
+    """Entries paused per symbol after a protective stop. The runtime sets pauses; a stop's pause ends by itself at
+    ``ends_at`` (tech lead 2026-11-16), any other waits for a person, who can also end a scheduled one early, outside
+    the runtime. A store that cannot be read raises; it never reads as "not paused"."""
 
-    def pause(self, symbol: str, cause: str, triggers: Iterable[str] = ()) -> bool: ...   # False if already paused
+    def pause(self, symbol: str, cause: str, triggers: Iterable[str] = (), *,
+              ends_at: float | None = None) -> bool: ...                  # False if a pause already lasts as long
 
     def reason(self, symbol: str) -> str | None: ...
 
