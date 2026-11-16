@@ -4249,3 +4249,6 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 把 master 并进整叠分支后，#117 把 `strategy_unrealized` 改成按账本持仓和交易所标记价计算（`strategy_unrealized(ledger, venue)`），
   R6 的做空测试还在用旧接口，CI 的一个分片失败（`TypeError: cannot unpack non-iterable VenuePosition object`）。我在本地检查合并交汇处时
   没有把这个测试文件列进去。改为新接口：账本里的空单（数量、开仓价）和交易所的标记价；断言不变（价格上涨时空单的未实现盈亏为负）。
+- 同一轮 CI 里 R2 的 `test_spec_v2_runtime.py::test_the_same_strategy_in_either_schema_trades_the_same` 失败了一次（ETH 数量 2.254 对 2.255）：
+  执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
+  也固定为测试世界的时钟（测试辅助的改动，断言不变）。

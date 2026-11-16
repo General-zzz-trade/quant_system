@@ -23,6 +23,9 @@ def _run(tmp_path, document):
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "exec", mode="execution",
                             market=world["adapter"], account=world["adapter"],
                             clock=lambda: world["clock"]["now"], testnet=True)
+    # The orders-per-second limit on the world's clock, not the real one: on the real clock whether BTC's and ETH's
+    # orders of one cycle share a second depends on the machine's speed (a CI run entered ETH a cycle later).
+    runtime.sessions["BTCUSDT"].gate.inner._limiter._monotonic = lambda: world["clock"]["now"]
     runtime.warmup()
     for i in range(world["warm"], world["warm"] + 40):
         _advance(world, runtime, i)
