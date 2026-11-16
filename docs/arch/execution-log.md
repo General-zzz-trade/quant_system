@@ -4081,9 +4081,13 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     再晚 1 毫秒报错，并断言下单时钟没动。
   - 测试辅助：`test_publish_strategy_spec.py` 的叠加参数原来是默认的 maker，和执行块的 market 不同（正是审计指出的被悄悄丢掉的情况），
     改为和执行块一致。
+  - `tests/unit/trading/test_issues.py::test_the_table_is_exactly_the_decided_one` 固定了整张问题表：加一行
+    `IssueKind.FUNDING_INTERVAL_UNKNOWN: BLOCK`（新的问题种类，禁止这个品种开仓），其他行不变。
 - **新增测试**：`tests/unit/trading/test_runtime_extension_audit.py`（30 个，含参数化）、
   `tests/characterization/test_runtime_extension_audit_runtime.py`（3 个）。在 R6 的代码上跑：26 个失败，7 个通过——通过的是审计指出的
   测试缺口（代码本来就对：第 1 版多出参数被拒、4 字符被拒、预热按间隔请求、间隔未知时减仓等）。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r1_r4_audit_fixes.json` 24 个，按顺序、关闭字节码缓存。第一轮 21 个被杀；存活 3 个：
   整数参数给成小数（补了 `vol_lookback=10.5`、`True` 两个用例）、间隔未知的问题是否真的禁止开仓（运行时测试补上"品种状态为 blocked、
   另一个品种仍是 ready"）、第一次读取失败时的措辞（补了一个测试）。补后 3 个都被杀，最终 24/24。
+- **本地**【实际运行结果】：所有加载规格、组装运行时、会话、行情侧、问题表或假交易所的测试文件（68 个）加架构测试：1 个失败——
+  上面那张固定的问题表，加一行后通过。ruff、`mypy trading/`（95 个文件）、导入契约通过。
