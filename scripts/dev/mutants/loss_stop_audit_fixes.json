@@ -1,0 +1,492 @@
+[
+ [
+  "X1 the risk actions run before the reconciliation that reads the stop (flatten a cycle later)",
+  "trading/application/exit_supervisor.py",
+  "        if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:\n            self.reconcile()\n        self.update_states()\n        self.risk_actions()\n        self.update_states()",
+  "        self.update_states()\n        self.risk_actions()\n        if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:\n            self.reconcile()\n        self.update_states()",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X1b the hold's risk actions run before its reconciliation",
+  "trading/application/runtime.py",
+  "        self.exits.reconcile()\n        self.exits.risk_actions()\n        self.exits.update_states()",
+  "        self.exits.risk_actions()\n        self.exits.reconcile()\n        self.exits.update_states()",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X2 loss findings written every cycle",
+  "trading/application/exit_supervisor.py",
+  "        if findings != self.loss_findings:\n            for issue in findings:\n                write_issue(self.journal, None, issue)",
+  "        if True:\n            for issue in findings:\n                write_issue(self.journal, None, issue)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X3 pause end equal to now accepted",
+  "trading/adapters/sqlite/entry_pause.py",
+  "math.isfinite(ends_at) and ends_at > now",
+  "math.isfinite(ends_at) and ends_at >= now",
+  "tests/unit/trading/test_stop_pause_auto_release.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X4 equal end inserts a second row",
+  "trading/adapters/sqlite/entry_pause.py",
+  "any(end >= ends_at for end in ends)",
+  "any(end > ends_at for end in ends)",
+  "tests/unit/trading/test_stop_pause_auto_release.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X5 pause 4.5 hours",
+  "trading/application/exit_supervisor.py",
+  "ends_at = self.clock() + STOP_PAUSE_SECONDS ",
+  "ends_at = self.clock() + STOP_PAUSE_SECONDS + 1800 ",
+  "tests/unit/trading/test_stop_pause_auto_release.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X6 pause 3.5 hours",
+  "trading/application/exit_supervisor.py",
+  "ends_at = self.clock() + STOP_PAUSE_SECONDS ",
+  "ends_at = self.clock() + STOP_PAUSE_SECONDS - 1800 ",
+  "tests/unit/trading/test_stop_pause_auto_release.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X7 loss check boundary",
+  "trading/application/risk/loss_stop.py",
+  "now - self._checked_at < LOSS_STOP_SECONDS",
+  "now - self._checked_at <= LOSS_STOP_SECONDS",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X8 limit 15 itself refused",
+  "trading/infrastructure/config.py",
+  "not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT",
+  "not 0 < value < STRATEGY_LOSS_STOP_MAX_PCT",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X9 non-finite pnl accepted by the cap",
+  "trading/application/equity.py",
+  "        if pnl is None or not Decimal(pnl).is_finite():\n            return Decimal(0)\n        return max",
+  "        if pnl is None:\n            return Decimal(0)\n        return max",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X10 manual position of any owner",
+  "trading/adapters/sqlite/order_journal.py",
+  "AND kind='set_position' \"\n                                \"AND subject=?\", (self.scope, owner))",
+  "AND kind='set_position' \"\n                                \"AND ?<>''\", (self.scope, owner))",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X11 inner join drops fills without an order row",
+  "trading/adapters/sqlite/order_journal.py",
+  "FROM execution_fills f LEFT JOIN submissions s \"\n                \"ON f.scope=s.scope AND f.intent_id=s.intent_id WHERE f.scope=? AND f.owner=?\",",
+  "FROM execution_fills f JOIN submissions s \"\n                \"ON f.scope=s.scope AND f.intent_id=s.intent_id WHERE f.scope=? AND f.owner=?\",",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X12 loss stop period 10 minutes",
+  "trading/application/risk/loss_stop.py",
+  "LOSS_STOP_SECONDS = 60.0",
+  "LOSS_STOP_SECONDS = 600.0",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X13 only the first owner's open position is valued",
+  "trading/infrastructure/target.py",
+  "strategy_unrealized(strategy_positions(ledger, held), account.get_position))",
+  "strategy_unrealized(strategy_positions(ledger, held[:1]), account.get_position))",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "X14 zero account equity not short-circuited",
+  "trading/application/equity.py",
+  "        if account <= 0:\n            return Decimal(0)\n        try:\n            pnl = self.realized()",
+  "        try:\n            pnl = self.realized()",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X15 income pages cap 3",
+  "trading/adapters/binance/adapter.py",
+  "MAX_INCOME_PAGES = 100",
+  "MAX_INCOME_PAGES = 3",
+  "tests/unit/binance/test_funding_income.py"
+ ],
+ [
+  "X16 loss stop built in paper too",
+  "trading/infrastructure/target.py",
+  "    if paper is None and inputs.strategy_capital is not None:",
+  "    if inputs.strategy_capital is not None:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py tests/unit/trading/test_strategy_capital.py tests/characterization/test_strategy_capital_sizing.py tests/unit/lab/test_target_runtime.py"
+ ],
+ [
+  "X17 fees of every asset subtracted",
+  "trading/infrastructure/target.py",
+  "Decimal(str(position.get(\"fees\", {}).get(\"USDT\", \"0\")))",
+  "sum((Decimal(str(v)) for v in position.get(\"fees\", {}).values()), Decimal(0))",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "X18 a missing or unreadable kill file is left as it is",
+  "trading/application/risk/loss_stop.py",
+  "            if not (state.active and state.flatten):\n                self.kill.trip(reason)",
+  "            if not (state.active and state.flatten) and not state.reason.startswith('kill file'):\n                self.kill.trip(reason)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the venue's quantity is valued",
+  "trading/application/risk/loss_stop.py",
+  "        total += qty * (mark - entry)",
+  "        total += position.qty * (mark - entry)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the venue's entry price is used",
+  "trading/application/risk/loss_stop.py",
+  "        total += qty * (mark - entry)",
+  "        total += qty * (mark - position.entry_price)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "no venue row reads as zero",
+  "trading/application/risk/loss_stop.py",
+  "        if position is None:\n            raise RuntimeError(f\"{symbol}: the ledger holds {qty} and the venue reports no row for the symbol\")",
+  "        if position is None:\n            continue",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "non-finite ledger quantity accepted",
+  "trading/application/risk/loss_stop.py",
+  "        if not qty.is_finite():\n            raise RuntimeError(f\"{symbol}: ledger quantity {qty} cannot be used\")\n",
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "non-finite ledger entry accepted",
+  "trading/application/risk/loss_stop.py",
+  "        if entry is None or not (entry.is_finite() and entry > 0):",
+  "        if entry is None or not (entry.is_nan() or entry > 0):",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "a short's ledger quantity loses its sign",
+  "trading/infrastructure/target.py",
+  "rows.append((owner[len(OWNER_PREFIX):], Decimal(str(position[\"qty\"])),",
+  "rows.append((owner[len(OWNER_PREFIX):], abs(Decimal(str(position[\"qty\"]))),",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "ledger position keyed by owner not symbol",
+  "trading/infrastructure/target.py",
+  "rows.append((owner[len(OWNER_PREFIX):], Decimal(str(position[\"qty\"])),",
+  "rows.append((owner, Decimal(str(position[\"qty\"])),",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "ledger entry replaced by zero",
+  "trading/infrastructure/target.py",
+  "                         Decimal(str(position[\"entry_price\"]))))",
+  "                         Decimal(str(position.get(\"entry_price\", \"0\")))))",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the whole-account answer is used for the mark",
+  "trading/infrastructure/target.py",
+  "strategy_unrealized(strategy_positions(ledger, held), account.get_position))",
+  "strategy_unrealized(strategy_positions(ledger, held),\n                                             {p.symbol: p for p in account.get_positions()}.get))",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "only the spec's symbols are owners",
+  "trading/infrastructure/target.py",
+  " | {o for o in ledger.owners() if o.startswith(OWNER_PREFIX)})",
+  ")",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py tests/unit/trading/test_strategy_capital.py tests/characterization/test_strategy_capital_sizing.py"
+ ],
+ [
+  "owners of anything count",
+  "trading/infrastructure/target.py",
+  "{o for o in ledger.owners() if o.startswith(OWNER_PREFIX)}",
+  "{o for o in ledger.owners() if o}",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the spec's symbols are not owners until traded",
+  "trading/infrastructure/target.py",
+  "    return sorted({OWNER_PREFIX + s for s in symbols} | ",
+  "    return sorted(set() | ",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "funding ignores an earlier spec's owner",
+  "trading/infrastructure/target.py",
+  "StrategyFunding(inputs.funding, lambda: [o[len(OWNER_PREFIX):] for o in owners()],",
+  "StrategyFunding(inputs.funding, list(symbols),",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py tests/unit/trading/test_strategy_capital.py tests/characterization/test_strategy_capital_sizing.py"
+ ],
+ [
+  "the base ignores an earlier spec's realized PnL",
+  "trading/infrastructure/target.py",
+  "lambda: strategy_realized_pnl(ledger, owners()) + funding.current())",
+  "lambda: strategy_realized_pnl(ledger, [OWNER_PREFIX + s for s in symbols]) + funding.current())",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py tests/unit/trading/test_strategy_capital.py tests/characterization/test_strategy_capital_sizing.py"
+ ],
+ [
+  "the stop ignores an earlier spec's owner",
+  "trading/infrastructure/target.py",
+  "                held = owners()\n",
+  "                held = [OWNER_PREFIX + s for s in symbols]\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py tests/unit/trading/test_strategy_capital.py tests/characterization/test_strategy_capital_sizing.py"
+ ],
+ [
+  "journal owners - checkpoints left out",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"SELECT owner FROM execution_consumers WHERE scope=? \"",
+  "\"SELECT owner FROM execution_fills WHERE scope=? \"",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "journal owners - fills left out",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"UNION SELECT owner FROM execution_fills WHERE scope=? \"",
+  "\"UNION SELECT owner FROM execution_consumers WHERE scope=? \"",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "journal owners - manual positions left out",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"UNION SELECT subject FROM manual_actions WHERE scope=? AND kind='set_position'\",",
+  "\"UNION SELECT owner FROM execution_consumers WHERE scope=?\",",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "journal owners - manual settlements listed",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"UNION SELECT subject FROM manual_actions WHERE scope=? AND kind='set_position'\",",
+  "\"UNION SELECT subject FROM manual_actions WHERE scope=?\",",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "journal owners - another scope's fills listed",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"UNION SELECT owner FROM execution_fills WHERE scope=? \"",
+  "\"UNION SELECT owner FROM execution_fills WHERE ?<>'' \"",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "funding lists its symbols once",
+  "trading/application/equity.py",
+  "        fixed = () if callable(symbols) else tuple(symbols)\n        self.symbols: Callable[[], Sequence[str]] = symbols if callable(symbols) else (lambda: fixed)",
+  "        fixed = tuple(symbols()) if callable(symbols) else tuple(symbols)\n        self.symbols: Callable[[], Sequence[str]] = lambda: fixed",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the stop is not read before the warm-up succeeded",
+  "trading/application/exit_supervisor.py",
+  "        self.check_loss_stop()                      # first: its findings are among this reconciliation's\n",
+  "        if self._warmed():\n            self.check_loss_stop()\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "the stop's findings reach the next reconciliation only",
+  "trading/application/exit_supervisor.py",
+  "        self.check_loss_stop()                      # first: its findings are among this reconciliation's\n        refused_text = self._market_refused()\n        cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide\n",
+  "        refused_text = self._market_refused()\n        cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide\n        self.check_loss_stop()\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "the loss is read again after it was reached",
+  "trading/application/risk/loss_stop.py",
+  "        if self._reached is None:\n            if self._checked_at",
+  "        if True:\n            if self._checked_at",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "after reaching, the switch is read once a minute",
+  "trading/application/risk/loss_stop.py",
+  "        if self._reached is not None:\n            self._findings = self._hold(self._reached)",
+  "        if self._reached is not None and (not self._findings or now - self._checked_at >= LOSS_STOP_SECONDS):\n            self._checked_at = now\n            self._findings = self._hold(self._reached)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "reached blocks nothing once the switch is set",
+  "trading/application/risk/loss_stop.py",
+  "        return [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached: this process",
+  "        return [] if True else [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached: this process",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "reached blocks nothing once the switch is set (runtime)",
+  "trading/application/risk/loss_stop.py",
+  "        return [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached: this process",
+  "        return [] if True else [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached: this process",
+  "tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "a cleared switch is set again only at the moment of reaching",
+  "trading/application/risk/loss_stop.py",
+  "                self.kill.trip(reason)\n                self._trip = reason",
+  "                if self._checked_at == self.clock():\n                    self.kill.trip(reason)\n                    self._trip = reason",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "reached is forgotten at the next check",
+  "trading/application/risk/loss_stop.py",
+  "        if self._reached is not None:\n            self._findings = self._hold(self._reached)",
+  "        if self._reached is not None:\n            self._findings = self._hold(self._reached)\n            self._reached = None",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the reason prints the limit with trailing zeros",
+  "trading/application/risk/loss_stop.py",
+  "(limit {(self.limit * 100).normalize():f} %)",
+  "(limit {self.limit * 100:g} %)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the stop's finding does not cancel resting entries",
+  "trading/domain/issues.py",
+  "    IssueKind.STRATEGY_LOSS_STOP: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),",
+  "    IssueKind.STRATEGY_LOSS_STOP: frozenset({Effect.BLOCK_ALL_ENTRIES}),",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the kind's value is account_unreadable",
+  "trading/domain/issues.py",
+  "    STRATEGY_LOSS_STOP = \"strategy_loss_stop\" ",
+  "    STRATEGY_LOSS_STOP = \"strategy_loss\" ",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "unknown loss is still an account finding",
+  "trading/application/risk/loss_stop.py",
+  "            return [Issue(K.STRATEGY_LOSS_STOP, None, f\"strategy loss unknown",
+  "            return [Issue(K.ACCOUNT_UNREADABLE, None, f\"strategy loss unknown",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "switch not set is still an account finding",
+  "trading/application/risk/loss_stop.py",
+  "            return [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached but",
+  "            return [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached but",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "reached is an account finding",
+  "trading/application/risk/loss_stop.py",
+  "        return [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached: this process",
+  "        return [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached: this process",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the stop's funding ages after two hours",
+  "trading/infrastructure/target.py",
+  "                return (strategy_realized_pnl(ledger, held) + funding.last_known()\n",
+  "                return (strategy_realized_pnl(ledger, held) + funding.current()\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
+ ],
+ [
+  "funding never read counts as zero for the stop",
+  "trading/application/equity.py",
+  "        if self.refreshed_at is None:\n            raise RuntimeError(\"strategy funding unknown: not read once in this process\")",
+  "        if False:\n            raise RuntimeError(\"strategy funding unknown: not read once in this process\")",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "funding never read counts as zero for the stop (runtime)",
+  "trading/application/equity.py",
+  "        if self.refreshed_at is None:\n            raise RuntimeError(\"strategy funding unknown: not read once in this process\")",
+  "        if False:\n            raise RuntimeError(\"strategy funding unknown: not read once in this process\")",
+  "tests/characterization/test_strategy_loss_stop_runtime.py"
+ ],
+ [
+  "the last total is not refreshed",
+  "trading/application/equity.py",
+  "        self.refresh_if_due()\n        if self.refreshed_at is None:\n            raise RuntimeError(\"strategy funding unknown: not read once",
+  "        if self.refreshed_at is None:\n            raise RuntimeError(\"strategy funding unknown: not read once",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "the last total ages after 60 hours",
+  "trading/application/equity.py",
+  "        if self.refreshed_at is None:\n            raise RuntimeError(\"strategy funding unknown: not read once",
+  "        if self.refreshed_at is None or self.clock() - self.refreshed_at > 30 * FUNDING_MAX_AGE:\n            raise RuntimeError(\"strategy funding unknown: not read once",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
+ ],
+ [
+  "no endTime in the income request",
+  "trading/adapters/binance/adapter.py",
+  "                                  \"endTime\": int(now_ms), \"limit\": INCOME_PAGE}",
+  "                                  \"limit\": INCOME_PAGE}",
+  "tests/unit/binance/test_funding_income.py"
+ ],
+ [
+  "endTime is the start",
+  "trading/adapters/binance/adapter.py",
+  "\"endTime\": int(now_ms), \"limit\": INCOME_PAGE}",
+  "\"endTime\": int(since_ms), \"limit\": INCOME_PAGE}",
+  "tests/unit/binance/test_funding_income.py"
+ ],
+ [
+  "page cap does not raise",
+  "trading/adapters/binance/adapter.py",
+  "        raise RuntimeError(f\"funding income of {symbol} is more than {MAX_INCOME_PAGES} pages\")",
+  "        return sum(income.values(), Decimal(0))",
+  "tests/unit/binance/test_funding_income.py"
+ ],
+ [
+  "account check - 800 days",
+  "scripts/account_check.py",
+  "INCOME_DAYS = 80 ",
+  "INCOME_DAYS = 800 ",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - small page of 50",
+  "scripts/account_check.py",
+  "INCOME_LIMITS = (1000, 5) ",
+  "INCOME_LIMITS = (1000, 50) ",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - order always reported ascending",
+  "scripts/account_check.py",
+  "ascending by time: {times == sorted(times)}",
+  "ascending by time: {True}",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - compares with the first row, not the oldest",
+  "scripts/account_check.py",
+  "str(small[0] == min(whole))",
+  "str(small[0] == whole[0])",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - no endTime",
+  "scripts/account_check.py",
+  "startTime=start,\n                                  endTime=end, limit=limit)",
+  "startTime=start,\n                                  limit=limit)",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - another income type",
+  "scripts/account_check.py",
+  "incomeType=\"FUNDING_FEE\", startTime=start,",
+  "incomeType=\"COMMISSION\", startTime=start,",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - an answer that is not a list is accepted",
+  "scripts/account_check.py",
+  "                if not isinstance(rows, list):\n                    raise RuntimeError(\"the income history answer is not a list\")\n",
+  "",
+  "tests/unit/tooling/test_account_check.py"
+ ],
+ [
+  "account check - income path unsigned",
+  "scripts/account_check.py",
+  "    (FAPI, \"/fapi/v1/income\", True),",
+  "    (FAPI, \"/fapi/v1/income\", False),",
+  "tests/unit/tooling/test_account_check.py"
+ ]
+]

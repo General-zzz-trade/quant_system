@@ -96,9 +96,12 @@ class Ledger:
 def test_the_ledger_positions_are_each_owner_s_checkpoint():
     from trading.infrastructure.target import strategy_positions
     ledger = Ledger({"target.BTCUSDT": {"position": {"qty": "0.002", "entry_price": "30123.5", "realized_pnl": "1"}},
-                     "target.ETHUSDT": {"position": {"qty": "0", "entry_price": "0", "realized_pnl": "-3"}}})
-    assert strategy_positions(ledger, ["target.BTCUSDT", "target.ETHUSDT", "target.SOLUSDT"]) == [
-        ("BTCUSDT", D("0.002"), D("30123.5")), ("ETHUSDT", D("0"), D("0"))]      # no checkpoint: nothing held
+                     "target.ETHUSDT": {"position": {"qty": "0", "entry_price": "0", "realized_pnl": "-3"}},
+                     "target.XRPUSDT": {"position": {"qty": "-40", "entry_price": "0.5", "realized_pnl": "0"}}})
+    owners = ["target.BTCUSDT", "target.ETHUSDT", "target.SOLUSDT", "target.XRPUSDT"]
+    assert strategy_positions(ledger, owners) == [
+        ("BTCUSDT", D("0.002"), D("30123.5")), ("ETHUSDT", D("0"), D("0")),      # no checkpoint: nothing held
+        ("XRPUSDT", D("-40"), D("0.5"))]                                         # a short keeps its sign
     broken = Ledger({"target.BTCUSDT": {"position": {"qty": "0.002"}}})
     with pytest.raises(KeyError):
         strategy_positions(broken, ["target.BTCUSDT"])                           # unknown, never 0
@@ -167,6 +170,7 @@ def test_once_reached_every_check_blocks_entries_and_sets_a_cleared_switch_again
         clock.now += 61
         assert stop.check() == [reached]                     # still reached: this process never enters again
     assert (tmp_path / "kill_switch.json").read_text() == written and stop.take_trip() is None
+    assert holder["calls"] == 1                              # and the loss is not read again
 
 
 def test_a_switch_that_cannot_be_set_after_a_clear_is_a_finding_until_it_is_set(tmp_path):

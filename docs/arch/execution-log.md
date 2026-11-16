@@ -3708,7 +3708,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     `sorted(set(writers)) == ["trading/adapters/files/kill_switch.py", "trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]`，
     并新增两条：`kill_switch.py` 里那次写入的 `active` 是常量 `True`；全代码只有 `trading/application/risk/loss_stop.py` 调用 `trip`。
 - **测试辅助的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（27 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（19 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+  （2026-11-16 晚更正：这里原来写的是 27 个，实际 `--collect-only` 收集到 19 个用例，加上运行时的 7 个共 26 个。）
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_loss_stop.json` 39 个变异，基线通过，第一轮 37 个被杀。存活 2 个：
   问题"不立即阻断入场"和"对账时不继续生效"——原来的"亏损未知"测试里仓位基数本来就是 0，分辨不出。补了一个只有停止线报问题、
   仓位基数正常的运行时测试后都被杀。最终 39/39。
@@ -3716,6 +3717,13 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   ruff、`mypy trading/`（92 个文件）、导入契约（5 个）通过。
 - **已知的限制**：停止线 60 秒读一次，两次之间的亏损靠每个仓位的 8% 交易所止损兜底；浮动盈亏按交易所标记价算，
   平仓成交价可能更差；状态里还没有显示当前累计亏损。
+- **更正和补充（2026-11-16 晚，独立审计之后；上面的原文不改）**：
+  - 上面"改了什么"没有写全：停止线的问题除了阻断全部入场，还会撤掉未成交的入场挂单（问题表里的 `CANCEL_RESTING_ENTRIES`），
+    持续 2 分钟后发 Telegram，之后每 30 分钟重复（`IssueAlerts`）。
+  - 触发原因里的上限印成了 "limit 15.00 %"，已改为 "15 %"。
+  - 用 BNB 付的手续费不在盈亏里（账本只扣 USDT 手续费）。账户上没有开用 BNB 付手续费（2026-11-16 核对过，任务说明里给的事实，这次没有重新查）。
+  - 仓位基数为 0 时（资金费未知等）不做部分减仓，只做整仓平仓：这是已有的"未知即 0"规则（R13，2026-11-15 的决定），不是这次的改动。
+  - 审计发现的缺陷和处理见下面"策略亏损停止线的独立审计与处理"。
 
 ## 2026-11-16 晚的决定（文档，轻流程）
 
