@@ -141,6 +141,9 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
+- Unverified: whether Binance accepts a second `closePosition` stop in the same direction. ADR-0012 places the new
+  stop before it cancels the old one; if Binance refuses (the old order API had -4130), a new revision's stop is
+  never placed and entries stay blocked while the old stop protects. Check on the testnet before M5.
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).

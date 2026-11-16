@@ -92,6 +92,23 @@ def test_ten_failed_attempts_stop_the_retries_with_an_alert_and_leave_one_attemp
     assert runtime.status()["symbols"]["BTCUSDT"]["flatten_failures"] == 0
 
 
+def test_an_unreadable_venue_does_not_reset_the_failed_attempts(tmp_path):
+    # S4-S5 audit fix, mutant N6: an unreadable venue is unknown, not flat; the count and the once-per-bar rule stay.
+    world, runtime, i, btc, session = _with_position(tmp_path)
+    _refuse_reductions(btc)
+    runtime.kill.write(active=True, reason="test", flatten=True)
+    for _ in range(12):
+        _tick(world, runtime, 31)
+    assert len(_attempts(tmp_path)) == 10
+    btc.position_error = True
+    _tick(world, runtime, 31)
+    btc.position_error = False
+    for _ in range(3):
+        _tick(world, runtime, 31)
+    assert len(_attempts(tmp_path)) == 10                     # still once per bar: nothing more in this bar
+    assert runtime.status()["symbols"]["BTCUSDT"]["flatten_failures"] == 10
+
+
 def test_once_flat_the_next_flatten_starts_afresh(tmp_path):
     world, runtime, i, btc, session = _with_position(tmp_path)
     position = btc.positions["BTCUSDT"]
