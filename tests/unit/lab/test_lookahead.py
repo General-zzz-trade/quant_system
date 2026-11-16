@@ -143,6 +143,7 @@ OTHER_MODULES = {
     "lab.midfreq_study": "study driver of a closed line",
     "lab.orders": "builds one order record",
     "lab.overlay_study": "study driver and report; the overlay's targets are trading.domain.strategy.overlay",
+    "lab.paper_compare": "compares a paper record's fills with lab.simulate's on the same bars; no feature",
     "lab.rebalance": "re-export of the rebalancing planner (a target and a position in, orders out)",
     "lab.simulate": "the shared simulator",
     "lab.sizing": "sizing rule: numbers in, a number out",
