@@ -191,3 +191,21 @@ def test_a_directory_of_another_scope_is_not_restored_into(tmp_path, broken):
     (other / schema.STATE_DB).write_bytes(b"")
     code, out = _restore(other, snapshot)
     assert code != 0 and "belongs to scope" in out and (other / schema.STATE_DB).read_bytes() == b""
+
+
+def test_a_paper_record_s_snapshot_is_never_restored_into_an_account_s_directory(broken, tmp_path):
+    # S10 audit H1 made execution refuse a paper record's database; a restore must refuse one before anything.
+    import sqlite3 as _sqlite
+    state, snapshot, kill = broken
+    paper = tmp_path / "backups" / "state-20261230T000000Z.sqlite"
+    paper.write_bytes(Path(snapshot).read_bytes())
+    db = _sqlite.connect(paper)
+    try:
+        for ddl in schema.PAPER_TABLES.values():
+            db.execute(ddl)
+    finally:
+        db.commit()
+        db.close()
+    code, out = _restore(state, paper)
+    assert code != 0 and "paper" in out
+    assert (state / schema.STATE_DB).read_bytes() == b"" and not list(state.glob("*.broken-*"))
