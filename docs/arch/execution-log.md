@@ -3524,3 +3524,13 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     - 现在：`assert creators == ["schema.py"]`；`assert connectors == ["backup.py", "connection.py", "schema.py"]`
 - **文档**：`config.py` 的说明、`docs/arch/target.md` 的两处模块名。
 - **本地**【实际运行结果】：架构测试和所有改了导入的测试文件、模拟盘状态和安全测试通过；ruff、`mypy trading/`（91 个文件）、导入契约通过；分片列表能生成。
+
+## 文档的技术债清理（2026-11-16，轻流程）
+
+- 技术负责人 2026-11-16"先把技术债清理掉"。只改文档和一个服务单元的说明文字。
+- `README.md`：现状改到 2026-11-16（S1–S12 完成，下一步 M5）；服务单元清单、常用命令（恢复、对比工具、安装脚本）、文档清单（M5 核对清单）。
+- `docs/deploy_truth.md`：补上 S8 的服务单元（测试网、主网、`quant-alert@`、`state-backup@`）、主机布局、安装脚本和检查命令；"备份在 M5 重做"改为"S8 已重做"。
+- `docs/btc_eth_strategy.md`：保留为 2026-11-13 的研究记录（第 2 节不变）；第 1 节模块名对到现在的代码；第 3 节只留研究和发布命令，运行和风险操作改为指向运行手册（原来的路径和 `shared.kill_file` 命令早已失效）；第 4 节标为当时的计划。
+- `CLAUDE.md` 现状加"工程进度"一条；`docs/arch/roadmap.md` 第 19 项加进度；`docs/arch/design-2026-11-m5.md` 开头加实施状态说明。
+- `infra/systemd/binance-target.service` 的 `Description` 改为指向运行手册（只是说明文字；主机上要同步单元才会更新）。
+- 没有清理的：两个超过 400 行的"先写测试"提交（S10 第 3 部分）改不了历史，已记录；`lab/strategy.py` 等研究侧的转发名被已冻结的研究脚本使用，保留。
