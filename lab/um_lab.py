@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal as D
-from functools import lru_cache
+from functools import lru_cache, partial
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,8 @@ from lab.simulate import SymbolRules, simulate
 from lab.strategy import StrategySpec
 from trading.domain.bars import bar_from_kline
 from trading.domain.issues import STOP_PAUSE_SECONDS
+from trading.domain.strategy.base import Strategy, Window
+from trading.domain.strategy.ideas import IDEAS as REGISTERED, IdeaStrategy, lab_frame
 
 H = 3_600_000
 DAY = 86_400_000
@@ -54,6 +56,51 @@ HOLDOUT = (SELECT_END, END)
 DEFAULT_RULES = SymbolRules(D("0.001"), D("0.001"), D("5"))   # a delisted contract has no published filters
 
 Idea = Callable[[pd.DataFrame, dict], pd.Series]               # hourly frame, context -> target weight per bar
+Factory = Callable[[dict], Strategy]                           # a parameter set -> the strategy the judge replays
+
+
+def lab_ideas() -> dict[str, tuple[Factory, list[dict]]]:
+    """The registered ideas (trading/domain/strategy/ideas.py), as the judge takes them: the code the runtime would
+    run (plan R7c)."""
+    return {name: (partial(IdeaStrategy, name), list(idea.grid)) for name, idea in REGISTERED.items()}
+
+
+class FunctionStrategy:
+    """An idea written as a function of (hourly frame, context), behind the strategy interface so the judge replays it
+    as it replays every strategy. Research only: the runtime runs only the strategies registered in
+    trading/domain/strategy. ``ctx`` is what the first run's functions read: ``params``; ``btc``, BTCUSDT's frame;
+    ``symbol``; ``universe``, the symbols the strategy was given."""
+    name = "function"
+
+    def __init__(self, fn: Idea, params: dict, *, cross: bool = False) -> None:
+        self.fn, self.params, self.cross_sectional = fn, params, cross
+
+    def window_hours(self) -> int:
+        raise NotImplementedError("a research function has no runtime window; register it as a strategy first")
+
+    def funding_window(self) -> int:
+        raise NotImplementedError("a research function has no runtime window; register it as a strategy first")
+
+    def references(self) -> tuple[str, ...]:
+        return () if self.cross_sectional else ("BTCUSDT",)
+
+    def history(self, windows: Mapping[str, Any]) -> dict[str, pd.DataFrame]:
+        frames = {symbol: lab_frame(window) for symbol, window in windows.items()}
+        out = {}
+        for symbol, frame in frames.items():
+            ctx = {"params": self.params, "btc": frames.get("BTCUSDT"), "symbol": symbol, "universe": list(frames)}
+            weight = self.fn(frame, ctx).reindex(frame.index).fillna(0.0)
+            out[symbol] = pd.DataFrame({"available_at": frame.index.to_numpy(np.int64) + H,
+                                        "target": weight.to_numpy(dtype=float), "ready": True})
+        return out
+
+    def latest(self, windows: Mapping[str, Any]) -> dict[str, tuple[float, bool]]:
+        return {s: (float(f["target"].iloc[-1]), True) for s, f in self.history(windows).items()}
+
+
+def legacy(fn: Idea, *, cross: bool = False) -> Factory:
+    """A research function as the judge takes an idea (``FunctionStrategy``)."""
+    return partial(FunctionStrategy, fn, cross=cross)
 
 
 @dataclass(frozen=True)
@@ -86,6 +133,20 @@ def exchange_info(snapshot: Path = SNAPSHOT) -> dict:
 def contracts(snapshot: Path = SNAPSHOT, *, kind: str | None = None) -> list[str]:
     rows = manifest(snapshot)["contracts"]
     return sorted(r["symbol"] for r in rows if r["files"] and (kind is None or r["type"] == kind))
+
+
+@lru_cache(maxsize=64)
+def snapshot_window(symbol: str, snapshot: Path = SNAPSHOT) -> Window:
+    """One contract's whole snapshot as the strategy interface's window (R7c): the hourly bars with ``available_at``
+    and the funding settlements (time in ms -> rate). ``lab_frame`` of it is ``frame``."""
+    hourly = pd.read_csv(snapshot / f"{symbol}_1h.csv.gz").sort_values("open_time").reset_index(drop=True)
+    hourly["available_at"] = hourly["open_time"] + H
+    funding = pd.Series(dtype=float)
+    funding_path = snapshot / f"{symbol}_funding.csv.gz"
+    if funding_path.is_file():
+        fund = pd.read_csv(funding_path)
+        funding = pd.Series(fund["rate"].to_numpy(float), index=fund["funding_time"].to_numpy(np.int64))
+    return Window(hourly, funding)
 
 
 @lru_cache(maxsize=64)

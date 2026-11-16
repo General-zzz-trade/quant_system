@@ -37,8 +37,8 @@ def short(df, ctx):
     return pd.Series(-ctx["params"]["w"], index=df.index)
 
 
-IDEAS = {"always": (always, [{"w": 0.5}, {"w": 0.9}]), "trend": (trend, [{"n": 3}, {"n": 6}]),
-         "short": (short, [{"w": 0.5}])}
+IDEAS = {"always": (lab.legacy(always), [{"w": 0.5}, {"w": 0.9}]), "trend": (lab.legacy(trend), [{"n": 3}, {"n": 6}]),
+         "short": (lab.legacy(short), [{"w": 0.5}])}
 FULL = judge.Config("always", {"w": 0.9})
 
 
@@ -145,15 +145,19 @@ def test_a_cross_sectional_idea_gets_each_period_s_list_and_the_others_run_once_
     calls = []
 
     def recording(df, ctx):
-        calls.append((ctx["symbol"], tuple(ctx["universe"]), ctx["params"]["w"], len(ctx["btc"]) == len(df)))
+        btc = ctx["btc"] is not None and len(ctx["btc"]) == len(df)
+        calls.append((ctx["symbol"], tuple(ctx["universe"]), ctx["params"]["w"], btc))
         return pd.Series(ctx["params"]["w"], index=df.index)
-    ideas = {"xs": (recording, [{"w": 0.5}]), "own": (recording, [{"w": 0.6}])}
-    j = make(market, tmp_path, ideas=ideas, cross_sectional=frozenset({"xs"}))
+    ideas = {"xs": (lab.legacy(recording, cross=True), [{"w": 0.5}]), "own": (lab.legacy(recording), [{"w": 0.6}])}
+    j = make(market, tmp_path, ideas=ideas)
     j.run_config((judge.Config("xs", {"w": 0.5}), (0, 1, 2)))
-    assert calls == [(s, LISTS[k], 0.5, True) for k in (0, 1) for s in LISTS[k]]    # period 2 has period 0's list
+    # R7c: a cross-sectional strategy is given the period's list and nothing else (no BTCUSDT frame unasked)
+    assert calls == [(s, LISTS[k], 0.5, False) for k in (0, 1) for s in LISTS[k]]   # period 2 has period 0's list
     del calls[:]
     j.run_config((judge.Config("own", {"w": 0.6}), (0, 1, 2)))
-    assert [c[0] for c in calls] == ["UPUSDT", "DOWNUSDT", "CRASHUSDT"]            # UP once for three periods
+    # a per-symbol one is given its symbol and BTCUSDT, which a research function may read
+    assert [c[0] for c in calls if c[0] != "BTCUSDT"] == ["UPUSDT", "DOWNUSDT", "CRASHUSDT"]   # UP once for 3 periods
+    assert all(c[3] for c in calls)
 
 
 # -- cache and registry ----------------------------------------------------------------------------------------

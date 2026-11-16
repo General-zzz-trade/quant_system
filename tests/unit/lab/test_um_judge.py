@@ -43,7 +43,7 @@ def finish(snapshot, symbols, info=None):
     (snapshot / "manifest.json").write_text(json.dumps({"contracts": [
         {"symbol": s, "type": "perpetual", "margin": "USDT", "files": {"x": {}}} for s in symbols]}))
     (snapshot / "exchange_info.json").write_text(json.dumps(info or {}))
-    for cached in (lab.frame, lab.manifest, lab.exchange_info):
+    for cached in (lab.frame, lab.snapshot_window, lab.manifest, lab.exchange_info):
         cached.cache_clear()
     return snapshot
 

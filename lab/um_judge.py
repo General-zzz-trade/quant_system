@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any
 from dataclasses import asdict, dataclass
 from decimal import Decimal as D
 from multiprocessing import get_context
@@ -254,12 +255,15 @@ def _work(job: Job) -> dict:
 
 @dataclass(frozen=True)
 class Judge:
-    """One run's settings. ``ideas``: name -> (function, parameter grid) as lab.um_lab.Idea; ``lists``: one symbol
-    list per period (``universe``); ``terms`` gives the capital and the pilot's limits, the stop is each
-    configuration's ``StopVariant``. ``cross_sectional`` ideas read the period's list (``ctx["universe"]``).
-    ``note`` goes into every registry row. ``legacy_days``: see ``period_daily``. ``lookahead``: the run's check of
-    one idea and parameter set with lab/causality.py, returning the violations (``final`` fails without it)."""
-    ideas: Mapping[str, tuple[Callable, list[dict]]]
+    """One run's settings. ``ideas``: name -> (factory, parameter grid); a factory turns a parameter set into the
+    strategy the judge replays through the shared interface (plan R7c): ``lab.um_lab.lab_ideas()`` for the
+    registered ideas the runtime can run, ``lab.um_lab.legacy(function)`` for an idea still written as a research
+    function. ``lists``: one symbol list per period (``universe``); a cross-sectional strategy is given the period's
+    list, a per-symbol one each symbol, and both the symbols they read besides (``references``). ``terms`` gives the
+    capital and the pilot's limits, the stop is each configuration's ``StopVariant``. ``note`` goes into every
+    registry row. ``legacy_days``: see ``period_daily``. ``lookahead``: the run's check of one idea and parameter set
+    with lab/causality.py, returning the violations (``final`` fails without it)."""
+    ideas: Mapping[str, tuple[Callable[[dict], Any], list[dict]]]
     lists: Sequence[Sequence[str]]
     cache: Path
     run_date: str
@@ -267,7 +271,6 @@ class Judge:
     terms: lab.LiveTerms = lab.LIVE
     slots: int = 10
     periods: tuple[tuple[int, int], ...] = PERIODS
-    cross_sectional: frozenset = frozenset()
     trials: Path = lab.TRIALS
     note: str = ""
     legacy_days: bool = False
@@ -305,18 +308,18 @@ class Judge:
         trips, the entry orders (time, notional), the exchange stops and the number of fills. Every period starts
         flat: each listed contract is replayed from ``slot_capital``, whatever the period before left."""
         config, wanted = job
-        fn = self.ideas[config.idea][0]
-        btc, slot, out, weights = lab.frame(BTC, self.snapshot), self.slot_capital, {}, {}
+        strategy = self.ideas[config.idea][0](config.params)
+        slot, out, weights = self.slot_capital, {}, {}
         for k in wanted:
             start, end = self.periods[k]
             symbols, curves, trips, entries, stops, fills = list(self.lists[k]), [], [], [], 0, 0
             for symbol in symbols:
                 df = lab.frame(symbol, self.snapshot)
-                key = (symbol, tuple(symbols) if config.idea in self.cross_sectional else None)
-                if key not in weights:
-                    ctx = {"params": config.params, "btc": btc, "symbol": symbol, "universe": symbols}
-                    weights[key] = fn(df, ctx).reindex(df.index).fillna(0.0)
-                w = weights[key]
+                given = tuple(symbols) if strategy.cross_sectional else (symbol,)
+                if (symbol, given) not in weights:
+                    for traded, target in self._targets(strategy, given).items():
+                        weights[(traded, given)] = target
+                w = weights[(symbol, given)].reindex(df.index).fillna(0.0)
                 if not (w[(w.index >= start - H) & (w.index < end)] != 0).any():
                     continue
                 r = lab.replay(symbol, w, cost_multiplier=config.cost, start=start, end=end, snapshot=self.snapshot,
@@ -332,6 +335,14 @@ class Judge:
             out[k] = {"daily": daily, "trips": sorted(trips), "entries": sorted(entries), "stops": stops,
                       "fills": fills}
         return {"config": config, "periods": out}
+
+    def _targets(self, strategy: Any, traded: Sequence[str]) -> dict[str, pd.Series]:
+        """The strategy's target at every close of the snapshot for ``traded``, by bar open time, from the windows of
+        those symbols and of the ones it reads besides (R7c: the code the runtime runs)."""
+        read = list(traded) + [s for s in strategy.references() if s not in traded]
+        history = strategy.history({s: lab.snapshot_window(s, self.snapshot) for s in read})
+        return {s: pd.Series(history[s]["target"].to_numpy(dtype=float),
+                             index=history[s]["available_at"].to_numpy(dtype="int64") - H) for s in traded}
 
     # -- cache and registry --------------------------------------------------------------------------------
     def _settings(self) -> dict:

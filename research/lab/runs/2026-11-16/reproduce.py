@@ -32,8 +32,11 @@ NOTE = "reproduction of research/lab/runs/2026-11-16 with lab/um_judge.py: a reg
 
 def _judge(lists: list, legacy: bool) -> judge.Judge:
     how = "days as judge.py counted them" if legacy else "every day of a period counted"
-    return judge.Judge(ideas=lib.IDEAS, lists=lists, cache=CACHE / ("legacy" if legacy else "days"),
-                       run_date="2026-11-16", cross_sectional=frozenset(lib.XS), note=f"{NOTE}; {how}",
+    # R7c: the registered ideas, the code the runtime runs (bit-identical to this run's functions,
+    # tests/unit/trading/test_lab_ideas.py); the numbers must still be this run's.
+    registered = lab.lab_ideas()
+    return judge.Judge(ideas={name: registered[name] for name in lib.IDEAS}, lists=lists,
+                       cache=CACHE / ("legacy" if legacy else "days"), run_date="2026-11-16", note=f"{NOTE}; {how}",
                        legacy_days=legacy)
 
 
