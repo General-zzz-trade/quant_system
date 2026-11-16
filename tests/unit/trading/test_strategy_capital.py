@@ -85,3 +85,21 @@ def test_paper_reads_no_cap():
     config = load_config({"STRATEGY_CAPITAL_USDT": "300"}, execution=False, stop_pct=D("0.08"))[0]
     assert config.strategy_capital is None
     require_strategy_capital(config)
+
+
+def test_the_strategy_s_pnl_is_its_owners_realized_pnl_after_usdt_fees():
+    from trading.infrastructure.target import strategy_realized_pnl
+
+    class Ledger:
+        rows = {"target.BTCUSDT": {"position": {"realized_pnl": "50", "fees": {"USDT": "2", "BNB": "1"}}},
+                "target.ETHUSDT": {"position": {"realized_pnl": "-10.5", "fees": {}}}}
+
+        def checkpoint(self, owner):
+            return self.rows.get(owner)
+    assert strategy_realized_pnl(Ledger(), ["target.BTCUSDT", "target.ETHUSDT", "target.SOLUSDT"]) == D("37.5")
+
+    class Unreadable:
+        def checkpoint(self, owner):
+            raise OSError("database is locked")
+    with pytest.raises(OSError):
+        strategy_realized_pnl(Unreadable(), ["target.BTCUSDT"])           # the cap then sizes to zero

@@ -22,7 +22,7 @@ from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.paper_state import PaperOrderJournal, SqlitePaperState
 from trading.adapters.sqlite.schema import STATE_DB
-from trading.application.equity import EquitySource
+from trading.application.equity import CappedEquity, EquitySource
 from trading.application.execution.executor import OwnerExecutor
 from trading.application.execution.fills import TargetFillConsumer
 from trading.application.execution.flatten import Flattener
@@ -72,6 +72,7 @@ class ExecutionInputs:
     leverage: int                       # the exchange settings the configuration expects (RuntimeConfig)
     margin: str | None
     tca_log: EventLog | None = None
+    strategy_capital: Decimal | None = None   # owner 2026-11-16: size from min(account, this + own realized PnL)
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,19 @@ def exchange_lot_rules(account: ExchangeAccount, symbols: Sequence[str]) -> dict
     return rules
 
 
+def strategy_realized_pnl(ledger: SqliteOrderJournal, owners: list[str]) -> Decimal:
+    """The strategy's cumulative realized PnL after its USDT fees, from its owners' ledger checkpoints (the strategy
+    capital cap, owner 2026-11-16). A checkpoint that cannot be read raises: the cap then sizes to zero."""
+    total = Decimal(0)
+    for owner in owners:
+        checkpoint = ledger.checkpoint(owner)
+        if checkpoint is None:
+            continue
+        position = checkpoint["position"]
+        total += Decimal(str(position["realized_pnl"])) - Decimal(str(position.get("fees", {}).get("USDT", "0")))
+    return total
+
+
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
                        policy: ModePolicy = EXECUTION, paper: PaperParts | None = None) -> ExecutionWiring:
@@ -174,6 +188,11 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     OrderLifecycle.check_settings(scope, **settings)      # before the journal file is created
     allocation = Decimal(1) / Decimal(len(symbols)) if policy.sizing_equity == "account_share" else Decimal(1)
     sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
+    capped: SizingEquity | None = None
+    if paper is None and inputs.strategy_capital is not None:
+        ledger = SqliteOrderJournal(orders_path, scope)
+        capped = CappedEquity(equity, inputs.strategy_capital,
+                              lambda: strategy_realized_pnl(ledger, [f"target.{s}" for s in symbols]))
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
         owner = f"target.{symbol}"
@@ -193,7 +212,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         executor = OwnerExecutor(service, scope=scope)
         stops = ProtectiveStopManager(account, executor, symbol, stop_pct=inputs.stop_pct, clock=clock)
         stops_of[symbol] = stops
-        sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else equity
+        sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else (capped or equity)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
