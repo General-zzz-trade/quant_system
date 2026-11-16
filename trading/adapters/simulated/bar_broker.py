@@ -16,13 +16,13 @@ Liquidation realizes exactly the posted isolated margin (the exchange's
 clearance fee is taken out of that margin). With every option off the broker
 behaves, and records its configuration, exactly as before.
 
-Optional stop at a fixed distance (``stop_pct`` > 0, off by default; tech lead 2026-11-16), in either mode:
-the live runtime's exchange stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct)
-for a long, x (1 + stop_pct) for a short (trading/application/execution/stops.py). Market entries fill at the open, so the stop guards the rest of
-that bar and every later one, at the current average entry; it fills by the isolated-mode stop rule above (and
-paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range. In isolated mode
-it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie inside the
-liquidation distance; liquidation is still modelled first.
+Optional stop at a fixed distance (``stop_pct`` > 0, off by default; tech lead 2026-11-16), in either mode: the live
+runtime's exchange stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct) for a long, x (1
++ stop_pct) for a short (trading/application/execution/stops.py). Market entries fill at the open, so the stop
+guards the rest of that bar and every later one, at the current average entry; it fills by the isolated-mode stop
+rule above (and paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
+In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
+inside the liquidation distance; liquidation is still modelled first.
 """
 from __future__ import annotations
 
