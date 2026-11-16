@@ -3575,4 +3575,4 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_capital_cap.json` 12 个变异（忽略上限、忽略盈亏、不受账户约束、无零下限、
   读不出时按上限、盈亏为空时按上限、不扣手续费、主网检查关闭、入口不检查、定仓位不用上限、校验漏掉非正数、记录漏掉上限），基线通过，
   第一轮 12 个全部被杀。
-- **本地**【实际运行结果】：见 PR。
+- **本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、目标运行时两个测试文件全部通过（`-x`，退出码 0）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
