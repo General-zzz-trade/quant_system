@@ -130,6 +130,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
+- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` and an https `HEARTBEAT_URL` (a secret), and starts only after Telegram
+  confirmed "execution starting", before any account request. The heartbeat pings at most once a minute while
+  waiting for market data and between cycles; it never stops the loop. Paper logs alerts only.
 - Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
   host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
   manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
@@ -156,10 +160,7 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).
-- `binance_target` only:
-  - Alerts go to Telegram only when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are both set; otherwise to the
-    process log (status `alerts: "log only"`).
-  - There is no paper-vs-replay compare tool.
+- `binance_target` only: there is no paper-vs-replay compare tool (S11).
 
 ## Rules for changes
 

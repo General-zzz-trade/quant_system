@@ -1,0 +1,86 @@
+[
+ [
+  "W3 alerts and heartbeat not required",
+  "trading/infrastructure/cli/target.py",
+  "            require_operator_channels(config, secrets)\n",
+  "            pass\n"
+ ],
+ [
+  "W4 the start alert's answer is ignored",
+  "trading/infrastructure/cli/target.py",
+  "            if not notifier.deliver(f\"{network} execution starting\",",
+  "            if False and not notifier.deliver(f\"{network} execution starting\","
+ ],
+ [
+  "W6 a refusal is not sent",
+  "trading/infrastructure/cli/target.py",
+  "                notifier.deliver(\"execution start refused\", str(exc)[:3000], timeout_s=START_ALERT_SECONDS)",
+  "                pass"
+ ],
+ [
+  "W7 the runtime gets another notifier",
+  "trading/infrastructure/cli/target.py",
+  "**({\"notifier\": notifier} if notifier else {})",
+  "**{}"
+ ],
+ [
+  "W8 no heartbeat while waiting",
+  "trading/infrastructure/cli/target.py",
+  "        _beat(heartbeat)\n        if built.warmup_or_hold():",
+  "        if built.warmup_or_hold():"
+ ],
+ [
+  "W9 a failing heartbeat stops the loop",
+  "trading/infrastructure/cli/target.py",
+  "    except Exception as exc:\n        logger.warning(\"heartbeat failed (%s)\", type(exc).__name__)",
+  "    except Exception as exc:\n        raise"
+ ],
+ [
+  "W10 no heartbeat between cycles",
+  "trading/infrastructure/cli/target.py",
+  "        _beat(heartbeat)\n        built.cycle()",
+  "        built.cycle()"
+ ],
+ [
+  "C1 any heartbeat address",
+  "trading/infrastructure/config.py",
+  "if heartbeat is not None and not heartbeat.startswith(\"https://\"):",
+  "if False:"
+ ],
+ [
+  "C2 Telegram not required",
+  "trading/infrastructure/config.py",
+  "    if secrets.telegram is None:\n        raise RuntimeError(\"execution mode needs alerts",
+  "    if False:\n        raise RuntimeError(\"execution mode needs alerts"
+ ],
+ [
+  "C3 heartbeat not required",
+  "trading/infrastructure/config.py",
+  "    if not secrets.heartbeat_url:\n        raise RuntimeError",
+  "    if False:\n        raise RuntimeError"
+ ],
+ [
+  "C5 the address is echoed",
+  "trading/infrastructure/config.py",
+  "raise RuntimeError(\"HEARTBEAT_URL must be an https:// address\")",
+  "raise RuntimeError(f\"HEARTBEAT_URL must be an https:// address, not {heartbeat}\")"
+ ],
+ [
+  "U1 an unconfirmed alert succeeds",
+  "trading/infrastructure/unit_alert.py",
+  "    print(f\"alert not confirmed by Telegram: {title}\", file=stdout)\n    return 1",
+  "    print(f\"alert not confirmed by Telegram: {title}\", file=stdout)\n    return 0"
+ ],
+ [
+  "U2 the process log counts as Telegram",
+  "trading/infrastructure/unit_alert.py",
+  "if not isinstance(notifier, TelegramNotifier):",
+  "if False:"
+ ],
+ [
+  "U3 the unit is not named",
+  "trading/infrastructure/unit_alert.py",
+  "title = f\"{args.unit} failed on {socket.gethostname()}\"",
+  "title = f\"a unit failed on {socket.gethostname()}\""
+ ]
+]
