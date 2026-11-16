@@ -3866,3 +3866,14 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 健康检查只监控模拟盘那个单元，不监控执行单元；它自己的单元没有失败告警。
   - 读的一方轮换文件时只能把旧文件移走，不能自己新建。文件里的文字有一部分来自交易所的错误信息，只当数据看。
   - 每小时的值守任务在试运行启动时建立，不在这个改动里。
+
+## 研究撮合器：逐仓模式也能用 `stop_pct`（2026-11-16 晚，研究侧，轻流程）
+
+- 技术负责人 2026-11-16 晚定下试运行用 10 倍逐仓、4.5% 止损、仓位为策略资金的 2 到 3 倍。回测要能模拟这个组合，而撮合器原来在逐仓模式下
+  拒绝 `stop_pct`（只能手动 `set_stop`）。现在逐仓模式也按当前平均开仓价放 `stop_pct` 止损，强平照旧先判断；止损距离必须在强平距离以内，
+  否则拒绝。不设 `stop_pct` 时逐仓模式不变。模拟盘的模拟交易所本来就拒绝逐仓撮合器，不受影响。
+- 已有测试的改动（1 处，PR #99 我自己加的测试，随这个决定改）：`tests/unit/trading/test_broker_cross_stop.py` 的
+  `test_invalid_stop_settings_are_refused` 去掉了一组参数
+  `({"stop_pct": "0.08", "isolated_leverage": "5", "max_exposure": "3"}, "isolated")`（它断言逐仓加 `stop_pct` 被拒绝），其余 4 组不变。
+- 新增测试：`tests/unit/trading/test_broker_isolated_stop.py`（6 个）。本地：撮合器、模拟交易所、模拟盘逐根一致、金标准、架构测试通过；
+  ruff、`mypy trading/` 通过。
