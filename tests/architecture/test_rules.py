@@ -156,13 +156,19 @@ def _tokens(block: str) -> list[str]:
     return [t for line in block.splitlines() for t in line.replace("\\", " ").split()]
 
 
-SELECTING = ("--ignore", "--deselect", "-k", "-m", "--co", "--collect-only")
+def _selects(token: str) -> bool:
+    """A pytest option that narrows what runs. ``--co`` (collect only) is matched whole: as a prefix it also
+    matched ``--cov=...`` and ``--color``, which narrow nothing (found 2026-11-16 when the shards began to
+    measure coverage)."""
+    if token in ("--co", "--collect-only"):
+        return True
+    return token.startswith(("--ignore", "--deselect", "-k", "-m", "--collect-only"))
 
 
 def _gated(tokens: list[str], directory: str) -> bool:
     """The directory is passed as its own argument and nothing in the command narrows what runs."""
     args = tokens[tokens.index("pytest") + 1:] if "pytest" in tokens else tokens   # `python3 -m pytest` is fine
-    narrowed = any(t.startswith(SELECTING) for t in args) or "continue-on-error:" in tokens
+    narrowed = any(_selects(t) for t in args) or "continue-on-error:" in tokens
     return directory in args and not narrowed
 
 
@@ -195,6 +201,10 @@ def test_gate_check_rejects_ignored_directories():
     assert not _gated(["pytest", "-k", "not offline", "tests/offline/"], "tests/offline/")
     assert not _gated(["continue-on-error:", "true", "pytest", "tests/offline/"], "tests/offline/")
     assert _gated(["python3", "-m", "pytest", "tests/offline/", "-x", "-q"], "tests/offline/")
+    assert not _gated(["pytest", "--co", "tests/offline/"], "tests/offline/")
+    assert not _gated(["pytest", "--collect-only", "tests/offline/"], "tests/offline/")
+    assert not _gated(["pytest", "-knot_offline", "tests/offline/"], "tests/offline/")
+    assert _gated(["pytest", "tests/offline/", "--cov=trading", "--cov-report=", "--color=yes"], "tests/offline/")
 
 
 def _shard_module():
@@ -220,7 +230,7 @@ def test_the_ci_shards_together_are_the_whole_suite():
     assert all(files for files in dealt) and len(every) > 50        # 79 files after the Rust deletion
     run = _tokens(job.split("name: Run one shard of the whole suite", 1)[1])
     arguments = run[run.index("pytest") + 1:]                      # `python3 -m pytest` itself is fine
-    assert not any(t.startswith(SELECTING) for t in arguments) and "continue-on-error" not in job
+    assert not any(_selects(t) for t in arguments) and "continue-on-error" not in job
     assert "fail-fast: false" in job                                 # one failing shard does not hide another
 
 

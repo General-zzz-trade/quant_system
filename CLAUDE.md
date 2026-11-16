@@ -61,6 +61,7 @@ python3 -m scripts.account_check                   # live account, read-only GET
 python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
+python -m lab.paper_compare --paper-dir <paper dir> --data-dir <snapshot dir>   # paper vs research, fill by fill
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
 python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
 python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
@@ -159,6 +160,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; the old path is
   deleted). The maker limit offset is defined once:
   `trading.domain.orders.LIMIT_OFFSET_BPS`.
+- `lab/paper_compare.py` (S11, G6): a paper directory against `lab.simulate` on a dated data snapshot, fill by fill
+  (paper records no bars). Exit 0 "一致", 1 "不一致" (first differing fill), 2 "无法比较" (data missing, or not
+  what paper saw). A difference is an intended divergence only through a fact of the record plus its
+  `paper_divergence` event. Prints fills only, no returns.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
@@ -168,7 +173,6 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).
-- `binance_target` only: there is no paper-vs-replay compare tool (S11).
 
 ## Rules for changes
 

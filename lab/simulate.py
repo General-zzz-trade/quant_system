@@ -26,6 +26,7 @@ class SleeveResult:
     curve: pd.DataFrame            # at, equity, qty, mark, fees, funding
     fills: list = field(default_factory=list)
     orders: int = 0
+    order_rows: list = field(default_factory=list)   # the broker's order rows; a fill's "order" is a row's "id"
 
 
 class Sleeve:
@@ -83,7 +84,7 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
         rows.append((bar.available_at, float(b.equity), float(b.position.qty), float(b.mark), float(b.fees),
                      float(b.funding)))
     curve = pd.DataFrame(rows, columns=["at", "equity", "qty", "mark", "fees", "funding"])
-    return SleeveResult(symbol, curve, list(sleeve.broker.fills), sleeve.orders)
+    return SleeveResult(symbol, curve, list(sleeve.broker.fills), sleeve.orders, list(sleeve.broker.orders))
 
 
 __all__ = ["simulate", "Sleeve", "SymbolRules", "SYMBOL_RULES", "broker_config", "replace"]

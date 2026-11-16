@@ -4,17 +4,29 @@
     python3 scripts/ci_shard.py <index> <count>      # prints the test files of one shard
 
 Every ``test_*.py`` under ``tests/`` except ``tests/performance`` belongs to exactly one shard, so the
-shards together are the whole suite (``tests/architecture`` checks this). Files are dealt out largest
-first to the lightest shard, with file size as a stand-in for run time; the split depends only on the
-files in the checkout.
+shards together are the whole suite (``tests/architecture`` checks this). Files are dealt out heaviest
+first to the lightest shard. A file weighs its measured seconds in ``scripts/ci_durations.json`` (the tests
+over 1 s in a CI run) plus an estimate for its other tests from its size; without that file, its size alone.
+The split depends only on the files in the checkout.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EXCLUDED = ("performance",)
+DURATIONS = "scripts/ci_durations.json"
+
+
+def weights(files: list[Path], root: Path = ROOT) -> dict[Path, float]:
+    path = root / DURATIONS
+    if not path.is_file():
+        return {f: float(f.stat().st_size) for f in files}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    per_byte, measured = float(data["seconds_per_kilobyte"]) / 1000, data["seconds"]
+    return {f: float(measured.get(str(f.relative_to(root)), 0.0)) + f.stat().st_size * per_byte for f in files}
 
 
 def test_files(root: Path = ROOT) -> list[Path]:
@@ -26,11 +38,13 @@ def shards(count: int, root: Path = ROOT) -> list[list[str]]:
     if count < 1:
         raise ValueError("shard count must be positive")
     out: list[list[str]] = [[] for _ in range(count)]
-    load = [0] * count
-    for path in sorted(test_files(root), key=lambda p: (-p.stat().st_size, str(p))):
+    load = [0.0] * count
+    files = test_files(root)
+    weight = weights(files, root)
+    for path in sorted(files, key=lambda p: (-weight[p], str(p))):
         k = load.index(min(load))
         out[k].append(str(path.relative_to(root)))
-        load[k] += path.stat().st_size
+        load[k] += weight[path]
     return [sorted(files) for files in out]
 
 
