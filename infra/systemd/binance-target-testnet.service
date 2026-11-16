@@ -1,0 +1,28 @@
+[Unit]
+Description=Binance target runtime: EXECUTION on the TESTNET (ADR-0016 point 4)
+After=network-online.target
+Wants=network-online.target
+# At most 3 starts an hour, manual starts included: run "systemctl reset-failed" before and after a drill.
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+# Every failure sends an alert, including one that is then restarted.
+OnFailure=quant-alert@%n.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/quant_system
+# The network is fixed here, whatever .env says: this unit restarts by itself, so it must never reach mainnet.
+# Every start runs every start-up check again (spec, gate, state directory, host lock, alerts, account).
+ExecStart=/usr/bin/env BINANCE_TESTNET=1 /usr/bin/python3 -m runner.binance_target --spec models_binance/strategy/final_spec.json --enable-execution --state-dir /var/lib/quant/state/testnet
+Restart=on-failure
+RestartSec=60
+StandardOutput=append:/quant_system/logs/binance_target_testnet.log
+StandardError=append:/quant_system/logs/binance_target_testnet.log
+MemoryMax=1024M
+
+[Install]
+WantedBy=multi-user.target

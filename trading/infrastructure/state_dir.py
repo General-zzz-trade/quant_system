@@ -2,6 +2,7 @@
 
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target init
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target check
+    python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "<why>"
 
 A person initializes the directory once: a manifest naming the account scope, the one state database
 ``state.sqlite`` with every table at its version (ADR-0009), and an inactive kill file. ``init`` also creates the
@@ -18,16 +19,23 @@ import json
 import os
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from trading.adapters.files.host_lock import prepare_lock_dir
+from trading.adapters.files.host_lock import HostLock, prepare_lock_dir
 from trading.adapters.files.kill_switch import KillFile
+from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite import schema
+from trading.adapters.sqlite.backup import copy_database, enable_wal, record_restore, symbols_in
+from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
+from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
+from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.schema import STATE_DB
-from trading.infrastructure.config import execution_scope, risk_limits, testnet_from_env
+from trading.domain.risk.drawdown import periods
+from trading.infrastructure.config import (account_identity, binance_config_from_env, execution_scope, risk_limits,
+                                           testnet_from_env)
 
 MANIFEST = "manifest.json"
 KILL_FILE = "kill_switch.json"
@@ -94,13 +102,120 @@ def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, 
     return True
 
 
-def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Mapping[str, str] | None = None) -> int:
+RESTORE_PAUSE = "restored from a backup: a person checks the venue position and the ledger, then releases"
+RESTORE_SYMBOLS = ("BTCUSDT", "ETHUSDT")
+
+
+def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: Mapping[str, str] | None,
+            reason: str, symbols: Iterable[str], stdin: TextIO, stdout: TextIO, now: float) -> int:
+    """ADR-0016 point 6: put ``snapshot`` back, only when the state database is lost or broken, and only tighten.
+
+    Refused unless the directory was initialized for ``scope``, its database fails the start-up check, the
+    snapshot passes it, there is a reason, no runtime of the account runs (the host lock and the directory lease)
+    and the person types the scope back. The copy is tightened before it takes the database's place: the current
+    day and week latched, today's order count used up, every symbol paused. The kill file is never touched; the
+    broken database is kept beside the new one; the restore is recorded in ``manual_actions``."""
+    state_dir, snapshot = Path(state_dir), Path(snapshot)
+    try:
+        manifest = json.loads((state_dir / MANIFEST).read_text())
+    except Exception:
+        print(f"{state_dir} was never initialized: initialize a new directory instead of restoring", file=stdout)
+        return 2
+    if manifest.get("scope") != scope:
+        print(f"{state_dir} belongs to scope {manifest.get('scope')}, not {scope}", file=stdout)
+        return 2
+    database = state_dir / STATE_DB
+    problems = schema.problems(database)
+    if not problems:
+        print(f"{STATE_DB} is intact; a restore is only for a lost or broken state database", file=stdout)
+        return 1
+    if bad := schema.problems(snapshot):
+        print(f"the snapshot {snapshot} is not usable: {'; '.join(bad)}", file=stdout)
+        return 2
+    if schema.holds_paper_state(snapshot):      # S10 audit H1: an account's directory never takes a paper record
+        print(f"the snapshot {snapshot} is a paper record's database, not an account's", file=stdout)
+        return 2
+    if not reason.strip():
+        print("a restore needs a reason", file=stdout)
+        return 2
+    limits = risk_limits(env)
+    try:                       # the API key names the account (ADR-0016 point 5); the secret is not used here
+        identity = account_identity(testnet=testnet, api_key=binance_config_from_env(testnet=testnet, env=env).api_key)
+    except RuntimeError:
+        print("the API key that names the account is not set", file=stdout)
+        return 2
+    try:
+        host = HostLock(identity, holder=f"state_dir restore --state-dir {state_dir}")
+    except RuntimeError as exc:
+        print(f"a runtime of this account runs; stop the runtime first ({exc})", file=stdout)
+        return 3
+    try:
+        lease = ExecutionLease(database, scope)
+    except RuntimeError:
+        host.close()
+        print("a runtime holds this directory; stop the runtime first", file=stdout)
+        return 3
+    try:
+        print(f"{STATE_DB} is not usable: {'; '.join(problems)}", file=stdout)
+        print(f"Restore {snapshot.name}, latch today's and this week's drawdown, count today's orders as used up "
+              f"and pause every symbol. Type {scope} to restore: ", end="", file=stdout)
+        if stdin.readline().strip() != scope:
+            print("not restored", file=stdout)
+            return 1
+        temporary = state_dir / f".{STATE_DB}.restoring"
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{temporary}{suffix}").unlink(missing_ok=True)
+        copy_database(snapshot, temporary)
+        paused = sorted(set(symbols) | symbols_in(temporary))
+        SqliteDrawdownGuard(temporary, scope, daily_pct=limits.daily_drawdown_pct,
+                            weekly_pct=limits.weekly_drawdown_pct).latch_current(now=now)
+        day = periods(now)["day"]
+        SqliteLimitStore(temporary, scope).use_up(day, orders=limits.max_daily_orders,
+                                                  notional=limits.max_daily_notional)
+        pauses = SqliteEntryPauses(temporary, clock=lambda: now)
+        for symbol in paused:
+            pauses.pause(symbol, RESTORE_PAUSE)
+        record_restore(temporary, scope=scope, at=now, snapshot=snapshot.name, reason=reason.strip(),
+                       after={"latched": periods(now), "orders_used_up": day, "paused": paused})
+        enable_wal(temporary)
+        if left := schema.problems(temporary):
+            raise RuntimeError(f"the restored copy failed its check: {'; '.join(left)}")
+        stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for suffix in ("", "-wal", "-shm"):
+            old = Path(f"{database}{suffix}")
+            if old.exists():
+                os.replace(old, Path(f"{old}.broken-{stamp}"))
+        os.replace(temporary, database)
+        verify(state_dir, scope)
+    finally:
+        lease.close()
+        host.close()
+    print(f"restored {snapshot.name}; drawdown latched for {periods(now)}, today's orders used up, paused: "
+          f"{', '.join(paused)}. The kill file was not touched. Release each symbol with: python -m "
+          f"trading.infrastructure.entry_pause --state-dir {state_dir} release --symbol <symbol> --reason ...",
+          file=stdout)
+    return 0
+
+
+def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Mapping[str, str] | None = None,
+         stdin: TextIO = sys.stdin, clock: Callable[[], float] = time.time) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--state-dir", type=Path, required=True)
-    parser.add_argument("command", choices=["init", "check"])
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("init", help="create the state database, the kill file and the manifest")
+    commands.add_parser("check", help="the start-up check of the directory")
+    restore_cmd = commands.add_parser("restore", help="put a snapshot back when the state database is lost")
+    restore_cmd.add_argument("--snapshot", type=Path, required=True)
+    restore_cmd.add_argument("--reason", required=True)
+    restore_cmd.add_argument("--symbols", default=",".join(RESTORE_SYMBOLS),
+                             help="symbols to pause besides those in the snapshot")
     args = parser.parse_args(argv)
     testnet = testnet_from_env(env)
     scope = execution_scope(testnet=testnet, env=env)          # raises before anything is created
+    if args.command == "restore":
+        return restore(args.state_dir, args.snapshot, scope=scope, testnet=testnet, env=env, reason=args.reason,
+                       symbols=[s.strip() for s in args.symbols.split(",") if s.strip()], stdin=stdin,
+                       stdout=stdout, now=clock())
     if args.command == "check":
         verify(args.state_dir, scope)
         print(f"{args.state_dir}: initialized for {scope}", file=stdout)
@@ -123,4 +238,4 @@ if __name__ == "__main__":
 
 
 __all__ = ["KILL_FILE", "MANIFEST", "OLD_LAYOUT", "STORES", "initialize", "is_managed", "kill_file_path", "main",
-           "verify"]
+           "restore", "verify"]

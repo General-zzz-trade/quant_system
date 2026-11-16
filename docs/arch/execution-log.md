@@ -3333,3 +3333,49 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 - 合计 25 个，全部被抓住。
 
 **本地**【实际运行结果】：启动、主机锁、送达、前置条件、服务告警、配置、退出健壮性、启动顺序、状态目录、风险状态和架构测试通过；ruff、`mypy trading/`（92 个文件）、导入契约通过。
+
+## S8：服务单元、状态库备份与恢复、主机安装（2026-11-16，ADR-0016 第 4、6 条，ADR-0017，资金路径完整流程）
+
+**技术负责人的决定**（2026-11-16，AskUserQuestion）
+- 一台主机只跑一个网络的执行进程（M5 期间只有测试网），另有模拟盘；一份 `.env`，一个心跳地址。
+- 执行模式的状态目录和备份放在 `/var/lib/quant` 下：状态 `/var/lib/quant/state/<网络>`，备份 `/var/lib/quant/backups/<网络>`，主机锁 `/var/lib/quant/locks`。
+
+**改了什么**
+- **服务单元**（`infra/systemd/`）：
+  - `binance-target-testnet.service`：失败后 60 秒自动重启，每小时最多 3 次（`StartLimit*` 写在 `[Unit]`）。启动命令以 `/usr/bin/env BINANCE_TESTNET=1` 开头：不管 `.env` 怎么写，这个会自动重启的单元都连不到主网。
+  - `binance-target-mainnet.service`：`Restart=no`，没有 `[Install]`，不能设成开机启动，只能由人手动启动。
+  - 两者失败时都经 `OnFailure=quant-alert@%n.service` 告警（每次失败一条，包括随后被自动重启的那次）。告警模块 `trading.infrastructure.unit_alert` 在 S7。
+  - `state-backup@.service` 和 `.timer`：按网络实例化（`state-backup@testnet.timer`），每小时一次，失败时同样告警。
+  - 模拟盘单元不变。同步脚本只复制、不启用、不启动。
+- **备份**（`trading/infrastructure/state_backup.py`，复制在 `trading/adapters/sqlite/backup.py`）：
+  - 用 SQLite 在线备份接口拍快照，先写临时名，检查（能打开、版本对、表齐全）通过后才改成 `state-<UTC 时间>.sqlite`。
+  - 快照是单个文件（不带 WAL），源库不变；从不备份急停文件；不写进状态目录内部；不覆盖已有快照。
+  - 备份成功后才删除 14 天以前的快照（按文件名里的时间）；失败时退出码非 0，什么都不删。
+- **恢复**（`state_dir restore --snapshot <文件> --reason "..."`）：
+  - 只在状态库丢失或损坏时允许；目录必须已初始化且属于这个 scope；快照要通过检查，而且不能是模拟盘记录的库（S10 审计修复之后补上：执行模式拒绝这种库，原来会先替换、再在启动检查里失败）；要有理由，并键入 scope 确认。
+  - 运行时在跑时拒绝：拿主机锁（S6，按账户身份）和目录租约。
+  - 恢复只会收紧，在替换之前就对副本做完：当天和本周的回撤锁定；当天下单计数视为用完（不会降低已有计数）；所有品种暂停入场（默认 BTCUSDT、ETHUSDT，加上快照里出现过的品种），由人逐个解除。
+  - 急停文件不碰。损坏的库改名保留（`state.sqlite.broken-<时间>`）。恢复写一条 `manual_actions` 审计记录。恢复后的库回到 WAL，并通过启动检查。
+- **主机安装**（`infra/install_host.sh`）：幂等；不读密钥；只按 `requirements/container.lock` 的哈希安装；创建 `/var/lib/quant`、`state`、`backups` 和日志目录并交给服务用户；同步单元、部署日志轮转；最后运行 `scripts/check_local_safety.py`；不启用、不启动任何服务；任何一步失败就停止。主机锁目录由 `state_dir init` 创建。
+- **`.env.example`** 重写：列出配置读取的全部变量、默认值和规则，不含任何值；删掉 Bybit、OKX、Hyperliquid。
+
+**已有测试的改动**
+- `tests/characterization/test_state_database.py::test_only_the_schema_module_creates_tables_and_only_the_factory_connects`，依据是 ADR-0016 第 6 条（用 SQLite 在线备份接口拍快照，要连一个新建的文件，连接工厂从不建文件）：
+  - 原来：`assert connectors == ["connection.py", "paper_store.py", "schema.py"]`
+  - 现在：`assert connectors == ["backup.py", "connection.py", "paper_store.py", "schema.py"]`
+  - `backup.py` 里只有拍快照这一处直接连 SQLite，恢复用的其它函数都走连接工厂。
+- 新增一条更严的检查（设计审计 M1）：`test_state_dir.py::test_nothing_else_copies_moves_or_writes_over_the_kill_file`。原来那条只能发现 `write(active=...)`；新的这条发现任何参数里提到急停文件的复制、移动、改名、直接写入，只允许急停文件自己的适配器这样做。现在就成立。
+
+**新增测试**
+- `tests/unit/trading/test_state_backup.py`：10 条。
+- `tests/characterization/test_state_restore.py`：18 条（13 条先写，4 条是变异自检补的，1 条是合并 S10 之后补的：模拟盘的快照不能恢复进账户目录，补之前失败）。
+- `tests/unit/infra/test_systemd_units.py`：7 条。先写的版本有一个辅助函数的错：它在模拟盘单元的注释里也找到了 `--enable-execution`。改成只看 `ExecStart` 之后通过；断言没有改。
+- `tests/unit/infra/test_install_host.py`：5 条静态检查（安装脚本属于工具，和脚本一起写）。
+
+**变异自检**【实际运行结果】（`scripts/dev/mutants/s8-backup.json`、`s8-restore.json`）
+- 备份：11 个，第一轮抓住 10 个。存活的 M5（检查失败时临时文件留下）补强了自己那条新测试（检查整个目录为空）后被抓住。最终 11/11。
+- 恢复：16 个，第一轮抓住 12 个。存活 4 个：快照里已解除暂停的品种没有再暂停、计数被降低、没有目录租约、恢复进别的 scope 的目录。各补 1 条测试后都被抓住。合并 S10 后加第 17 个（接受模拟盘的快照），被抓住。最终 17/17。
+
+**没有做的**
+- "安装脚本在干净容器里跑一次"：开发机上没有容器运行环境，没有做。M5 之前由人在一台干净的主机或容器里跑一次。
+- 服务单元用 `systemd-analyze verify` 检查过，没有报错【实际运行结果】；没有在真正的服务主机上启用过。

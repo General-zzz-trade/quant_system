@@ -43,4 +43,15 @@ class SqliteLimitStore:
                        (self.scope, day, orders + 1, str(total + notional)))
 
 
+    def use_up(self, day: str, *, orders: int, notional: Decimal) -> None:
+        """Count ``day`` as used up to at least these limits (a restore, ADR-0016 point 6); never lowers a count."""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT orders, notional FROM order_limits WHERE scope=? AND day=?",
+                             (self.scope, day)).fetchone()
+            have_orders, have_notional = (int(row[0]), Decimal(row[1])) if row else (0, Decimal(0))
+            db.execute("INSERT OR REPLACE INTO order_limits VALUES (?, ?, ?, ?)",
+                       (self.scope, day, max(have_orders, orders), str(max(have_notional, notional))))
+
+
 __all__ = ["SqliteLimitStore"]

@@ -153,6 +153,34 @@ def test_only_the_kill_command_writes_a_kill_file():
     assert sorted(set(writers)) == ["trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]
 
 
+def test_nothing_else_copies_moves_or_writes_over_the_kill_file():
+    """Design audit M1 (S8): the test above only finds ``write(active=...)``; a restore or backup that copied or moved
+    the kill file would slip past it. Any copy, move, rename or raw write whose arguments name the kill file is
+    allowed only in the kill file's own adapter."""
+    allowed = {"trading/adapters/files/kill_switch.py"}
+    calls = {"copy", "copy2", "copyfile", "copyfileobj", "move", "replace", "rename", "write_text", "write_bytes",
+             "unlink", "symlink_to", "hardlink_to"}
+
+    def names_kill(node):
+        return any((isinstance(n, ast.Name) and "kill" in n.id.lower())
+                   or (isinstance(n, ast.Attribute) and "kill" in n.attr.lower())
+                   or (isinstance(n, ast.Constant) and isinstance(n.value, str) and "kill_switch" in n.value)
+                   for n in ast.walk(node))
+    found = []
+    files = [*sorted((ROOT / "trading").rglob("*.py")), *sorted((ROOT / "runner").rglob("*.py"))]
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name))):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+            receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+            if name in calls and (any(names_kill(a) for a in node.args)
+                                  or (receiver is not None and names_kill(receiver))):
+                found.append(rel)
+    assert sorted(set(found) - allowed) == []
+
+
 def test_the_entry_point_refuses_execution_from_an_uninitialized_directory_and_creates_nothing(tmp_path):
     from runner.binance_target import main
     spec = _spec(tmp_path)
