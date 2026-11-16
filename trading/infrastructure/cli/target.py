@@ -186,7 +186,7 @@ class TargetRuntime(_runtime.TargetRuntime):
         account: Any = self.account          # the connected Binance adapter (build_adapters)
         inputs = target.ExecutionInputs(account=account, scope=config.scope, stop_pct=config.stop_pct,
                                         limits=config.limits, kill=kill, leverage=config.leverage, margin=config.margin,
-                                        strategy_capital=config.strategy_capital,
+                                        strategy_capital=config.strategy_capital, funding=account,
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock), kill

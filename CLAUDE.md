@@ -13,10 +13,12 @@
   the host install, and the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it).
 - **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
   min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
-  that this base grows with the strategy's profits. Funding payments are not in the base (the order ledger has no
-  funding). The drawdown latch, the -3 % daily stop and the 3x exposure
-  cap stay on the whole account's equity (owner's choice: with a large account and a small strategy they rarely
-  trigger on the strategy's losses alone).
+  that this base grows with the strategy's profits. The PnL includes funding (tech lead, 2026-11-16): the USDT
+  funding income of each strategy symbol since the strategy's first fill on it, from Binance's income history, read
+  at most every 10 minutes; funding never read or older than 2 hours sizes the base to zero. Binance keeps that
+  history for three months only, so a first fill older than 88 days also sizes to zero (open for the tech lead).
+  The drawdown latch, the -3 % daily stop and the 3x exposure cap stay on the whole account's equity (owner's
+  choice: with a large account and a small strategy they rarely trigger on the strategy's losses alone).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
     - It passed a pre-registered development-window screen, which earns forward paper trading only
@@ -209,7 +211,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     swaps a model into a running process.
   - Limits change only when a person edits config.
   - Two exceptions, both the owner's choices of 2026-11-16: the strategy's sizing base grows with its own realized
-    PnL (`CappedEquity`), never above the account's equity and under the 3x exposure cap; and a stop's entry pause
+    PnL and funding income (`CappedEquity`, `StrategyFunding`), never above the account's equity and under the 3x
+    exposure cap; and a stop's entry pause
     (triggered or breached stop) ends by itself after 4 hours (`STOP_PAUSE_SECONDS`, the same in the lab's
     `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person.
 - **Signed artifacts:** model artifacts (pickle and JSON, including `config.json` and strategy specs)

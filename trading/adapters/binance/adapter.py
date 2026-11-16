@@ -55,6 +55,11 @@ _ORDER_STATES = {"NEW": "new", "PARTIALLY_FILLED": "partially_filled", "FILLED":
 _ORDER_DOES_NOT_EXIST = -2013
 TRADE_PAGE = 1000                   # Binance's largest userTrades page
 MAX_TRADE_PAGES = 100               # an order with more trades than this many pages stays unresolved (step 14b)
+INCOME_PAGE = 1000                  # Binance's largest income-history page
+MAX_INCOME_PAGES = 100
+# Binance: "Income history only contains data for the last three months" (three months are at least 89 days).
+# Older funding comes back short without an error, so a start older than this, with a day's margin, is refused.
+INCOME_HISTORY_MS = 88 * 86_400_000
 _ALGO_DOES_NOT_EXIST = (-2013, -2011)
 # Algo-order statuses. Anything not listed (CANCELED, EXPIRED, REJECTED, a new word) means the stop is gone.
 ACTIVE = frozenset({"NEW", "TRIGGERING"})
@@ -373,6 +378,38 @@ class BinanceAdapter:
             fee=Decimal(str(f.get("commission", "0"))), fee_asset=f.get("commissionAsset"),
             liquidity="maker" if f.get("maker") else "taker", ts_ms=int(f.get("time", 0)),
         ) for f in data)
+
+    def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal:
+        """The account's USDT funding income on ``symbol`` from ``since_ms`` on (inclusive): the strategy capital
+        base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next page starts at the
+        last row's time, and a row returned twice counts once (by its transaction id). Errors and answers that
+        cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance keeps."""
+        if since_ms < now_ms - INCOME_HISTORY_MS:
+            raise RuntimeError(f"funding income of {symbol} since {since_ms} cannot be read whole: Binance keeps "
+                               "income history for three months only")
+        params: dict[str, Any] = {"symbol": symbol, "incomeType": "FUNDING_FEE", "startTime": int(since_ms),
+                                  "limit": INCOME_PAGE}
+        income: dict[str, Decimal] = {}
+        for _ in range(MAX_INCOME_PAGES):
+            page = self._client.request_signed(method="GET", path="/fapi/v1/income", params=dict(params))
+            if not isinstance(page, list):
+                raise RuntimeError("Invalid Binance income history")
+            try:
+                for row in page:
+                    if row["symbol"] == symbol and row["incomeType"] == "FUNDING_FEE" and row["asset"] == "USDT":
+                        amount = Decimal(str(row["income"]))
+                        if not amount.is_finite():
+                            raise ValueError(f"income {row['income']!r}")
+                        income[str(row["tranId"])] = amount
+                last = max((int(row["time"]) for row in page), default=params["startTime"])
+            except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                raise RuntimeError(f"Invalid Binance income history row ({type(exc).__name__}: {exc})") from None
+            if len(page) < INCOME_PAGE:
+                return sum(income.values(), Decimal(0))
+            if last <= params["startTime"]:
+                raise RuntimeError(f"Binance income history of {symbol} does not advance past {last}")
+            params["startTime"] = last
+        raise RuntimeError(f"funding income of {symbol} is more than {MAX_INCOME_PAGES} pages")
 
     # ------------------------------------------------------------------
     # Protective stops (Algo service)

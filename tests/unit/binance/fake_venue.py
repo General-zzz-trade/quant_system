@@ -2,7 +2,7 @@
 
 Supports klines (closed + the open bar), funding/positioning, one-way positions,
 MARKET and GTX LIMIT orders, cancels, order/trade queries, algo STOP_MARKET
-closePosition orders, and fault injection around order placement.
+closePosition orders, the account's income history, and fault injection around order placement.
 """
 from __future__ import annotations
 
@@ -39,6 +39,9 @@ class FakeBinance:
         self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
         self.trade_requests: list[dict] = []
+        self.income: list[dict] = []            # the account's income history (GET /fapi/v1/income)
+        self.income_requests: list[dict] = []
+        self.income_error = False
 
     # -- helpers ---------------------------------------------------------
     def now_ms(self) -> int:
@@ -66,6 +69,11 @@ class FakeBinance:
                             "commission": str((qty * price * D("0.0002")).quantize(D("0.00000001"))),
                             "commissionAsset": "USDT", "maker": order["type"] == "LIMIT",
                             "time": self.now_ms()})
+
+    def add_income(self, symbol: str, income: str, time_ms: int, *, asset: str = "USDT",
+                   income_type: str = "FUNDING_FEE") -> None:
+        self.income.append({"symbol": symbol, "incomeType": income_type, "income": income, "asset": asset,
+                            "info": income_type, "time": int(time_ms), "tranId": next(self.ids), "tradeId": ""})
 
     def fill_limit(self, order_id: str, qty: D | None = None) -> None:
         order = self.orders[order_id]
@@ -202,6 +210,14 @@ class FakeBinance:
             return [t for t in self.trades if t["symbol"] == p["symbol"]
                     and (not p.get("orderId") or str(t["orderId"]) == str(p["orderId"]))
                     and (not p.get("fromId") or int(t["id"]) >= int(p["fromId"]))]
+        if path == "/fapi/v1/income" and method == "GET":   # oldest first from startTime (inclusive), like Binance
+            self.income_requests.append(dict(p))
+            if self.income_error:
+                raise BinanceRetryableError("HTTP 503: unavailable")
+            rows = sorted((r for r in self.income if (not p.get("symbol") or r["symbol"] == p["symbol"])
+                           and (not p.get("incomeType") or r["incomeType"] == p["incomeType"])
+                           and r["time"] >= int(p.get("startTime", 0))), key=lambda r: (r["time"], r["tranId"]))
+            return [dict(r) for r in rows[:int(p.get("limit", 100))]]
         if path == "/fapi/v1/algoOrder" and method == "POST":
             symbol, side, trigger = p["symbol"], p["side"], D(p["triggerPrice"])
             mark = self.mark(symbol)

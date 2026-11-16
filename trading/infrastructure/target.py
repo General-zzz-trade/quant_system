@@ -22,7 +22,7 @@ from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.paper_state import PaperOrderJournal, SqlitePaperState
 from trading.adapters.sqlite.schema import STATE_DB
-from trading.application.equity import CappedEquity, EquitySource
+from trading.application.equity import CappedEquity, EquitySource, StrategyFunding
 from trading.application.execution.executor import OwnerExecutor
 from trading.application.execution.fills import TargetFillConsumer
 from trading.application.execution.flatten import Flattener
@@ -32,8 +32,8 @@ from trading.application.execution.stops import ProtectiveStopManager, StopVenue
 from trading.application.account_ownership import foreign_holdings
 from trading.application.issues import Issue
 from trading.application.mode_policy import ModePolicy
-from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
-                                       OrderGateway, Sleeper)
+from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, FundingIncome,
+                                       KillSwitch, OrderGateway, Sleeper)
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.order_limiter import OrderLimiter
@@ -73,6 +73,7 @@ class ExecutionInputs:
     margin: str | None
     tca_log: EventLog | None = None
     strategy_capital: Decimal | None = None   # owner 2026-11-16: size from min(account, this + own realized PnL)
+    funding: FundingIncome | None = None      # the account's funding income, which that PnL includes (2026-11-16)
 
 
 @dataclass(frozen=True)
@@ -190,9 +191,15 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
     capped: SizingEquity | None = None
     if paper is None and inputs.strategy_capital is not None:
+        # The base's PnL: the ledger's realized PnL after USDT fees plus the funding income of the strategy's symbols
+        # since its first fill on each (tech lead 2026-11-16); either one unknown sizes to zero.
+        if inputs.funding is None:
+            raise ValueError("the strategy capital base needs the account's funding income")
         ledger = SqliteOrderJournal(orders_path, scope)
+        funding = StrategyFunding(inputs.funding, symbols, lambda s: ledger.first_fill_at(f"target.{s}"), clock)
         capped = CappedEquity(equity, inputs.strategy_capital,
-                              lambda: strategy_realized_pnl(ledger, [f"target.{s}" for s in symbols]))
+                              lambda: strategy_realized_pnl(ledger, [f"target.{s}" for s in symbols])
+                              + funding.current())
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
         owner = f"target.{symbol}"

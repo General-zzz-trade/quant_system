@@ -71,6 +71,23 @@ class SqliteOrderJournal:
             row = db.execute(query, params).fetchone()
         return json.loads(row[0]) if row else None
 
+    def first_fill_at(self, owner: str) -> float | None:
+        """When the owner's ledger first held something (seconds): the creation time of its earliest order with an
+        exchange fill, or of a position a person put into its ledger, whichever is earlier; None if neither exists.
+        The fill rows carry no time; an order is created just before it is sent, so this is at or before the fill.
+        A fill whose order has no creation time raises: its time is unknown."""
+        with self.connect() as db:
+            filled, untimed = db.execute(
+                "SELECT MIN(s.created_at), SUM(s.created_at IS NULL) FROM execution_fills f LEFT JOIN submissions s "
+                "ON f.scope=s.scope AND f.intent_id=s.intent_id WHERE f.scope=? AND f.owner=?",
+                (self.scope, owner)).fetchone()
+            manual = db.execute("SELECT MIN(at) FROM manual_actions WHERE scope=? AND kind='set_position' "
+                                "AND subject=?", (self.scope, owner)).fetchone()[0]
+        if untimed:
+            raise RuntimeError(f"{owner}: a fill whose order has no creation time")
+        times = [float(t) for t in (filled, manual) if t is not None]
+        return min(times) if times else None
+
     def checkpoint(self, owner: str) -> dict[str, Any] | None:
         with self.connect() as db:
             row = db.execute("SELECT checkpoint FROM execution_consumers WHERE scope=? AND owner=?",

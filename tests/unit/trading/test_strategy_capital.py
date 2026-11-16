@@ -103,3 +103,109 @@ def test_the_strategy_s_pnl_is_its_owners_realized_pnl_after_usdt_fees():
             raise OSError("database is locked")
     with pytest.raises(OSError):
         strategy_realized_pnl(Unreadable(), ["target.BTCUSDT"])           # the cap then sizes to zero
+
+
+# -- funding in the base (tech lead 2026-11-16) -------------------------------------------------------------------
+class Venue:
+    """Funding income per symbol; records (symbol, since_ms, now_ms) of every request."""
+
+    def __init__(self, income):
+        self.income, self.calls, self.down = dict(income), [], False
+
+    def get_funding_income(self, symbol, *, since_ms, now_ms):
+        self.calls.append((symbol, since_ms, now_ms))
+        if self.down:
+            raise OSError("HTTP 503")
+        return self.income[symbol]
+
+
+def _funding(venue, first_fills, clock):
+    from trading.application.equity import StrategyFunding
+    return StrategyFunding(venue, ["BTCUSDT", "ETHUSDT"], first_fills.get, clock)
+
+
+def test_funding_counts_from_each_symbol_s_first_fill_and_a_symbol_never_traded_adds_nothing():
+    venue = Venue({"BTCUSDT": D("-3.25"), "ETHUSDT": D("1.5")})
+    assert _funding(venue, {"BTCUSDT": 500.5}, Clock()).current() == D("-3.25")
+    assert venue.calls == [("BTCUSDT", 500_500, 1_000_000)]   # no request for a symbol never traded
+    venue.calls.clear()
+    assert _funding(venue, {"BTCUSDT": 500.5, "ETHUSDT": 400.0}, Clock()).current() == D("-1.75")
+    assert venue.calls == [("BTCUSDT", 500_500, 1_000_000), ("ETHUSDT", 400_000, 1_000_000)]
+
+
+def test_funding_is_asked_at_most_every_ten_minutes():
+    venue, clock = Venue({"BTCUSDT": D("-1"), "ETHUSDT": D("0")}), Clock()
+    funding = _funding(venue, {"BTCUSDT": 10.0}, clock)
+    funding.current()
+    clock.now += 599
+    venue.income["BTCUSDT"] = D("-2")
+    assert funding.current() == D("-1") and len(venue.calls) == 1    # the cached total, no request
+    clock.now += 1
+    assert funding.current() == D("-2") and len(venue.calls) == 2
+
+
+def test_a_failed_refresh_keeps_the_last_total_for_two_hours_then_the_base_sizes_to_zero():
+    venue, clock = Venue({"BTCUSDT": D("-4"), "ETHUSDT": D("0")}), Clock()
+    funding = _funding(venue, {"BTCUSDT": 10.0}, clock)
+    account = EquitySource(clock)
+    account.update(D("10000"))
+    capped = CappedEquity(account, D("300"), lambda: D("20") + funding.current())
+    start = clock.now
+    assert capped.current() == D("316")
+    venue.down = True
+    for at in (600, 1200, 7200):                                      # failures are tried again, never raised
+        clock.now = start + at
+        assert funding.current() == D("-4")
+    assert len(venue.calls) == 4
+    clock.now = start + 7201                                          # older than two hours: unknown
+    account.update(D("10000"))
+    with pytest.raises(RuntimeError, match="funding"):
+        funding.current()
+    assert capped.current() == 0
+    venue.down, clock.now = False, start + 7800                       # the next refresh is due again
+    account.update(D("10000"))
+    assert capped.current() == D("316")
+
+
+@pytest.mark.parametrize("broken", ["venue", "ledger"])
+def test_funding_never_read_is_unknown_and_sizes_the_base_to_zero(broken):
+    from trading.application.equity import StrategyFunding
+    venue = Venue({"BTCUSDT": D("5")})
+    venue.down = broken == "venue"
+
+    def first_fill(symbol):
+        if broken == "ledger":
+            raise OSError("database is locked")
+        return 10.0
+    funding = StrategyFunding(venue, ["BTCUSDT"], first_fill, Clock())
+    with pytest.raises(RuntimeError, match="funding"):
+        funding.current()
+    assert CappedEquity(_account("10000"), D("300"), lambda: D("0") + funding.current()).current() == 0
+
+
+def test_the_first_fill_is_the_earliest_order_of_the_owner_with_a_fill_or_a_manual_ledger_position(tmp_path):
+    from tests.support.state_db import state_db
+    from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+    journal = SqliteOrderJournal(state_db(tmp_path / "state.sqlite"), "scope")
+    btc, eth, sol = "target.BTCUSDT", "target.ETHUSDT", "target.SOLUSDT"
+
+    def order(intent, symbol, owner, at, *, filled):
+        journal.reserve(intent_id=intent, symbol=symbol, client_id=intent, side="buy", qty="1", reducing=False,
+                        owner=owner, parent=None, order_type="market", clock=lambda: at)
+        journal.update_status(intent, "filled" if filled else "rejected", settle=True)
+        if filled:
+            journal.insert_fill(fill_id=f"f-{intent}", intent_id=intent, owner=owner, payload={})
+    assert journal.first_fill_at(btc) is None
+    order("e1", "ETHUSDT", eth, 10.0, filled=True)                  # another owner
+    order("b1", "BTCUSDT", btc, 50.0, filled=False)                 # never filled
+    assert journal.first_fill_at(btc) is None
+    order("b2", "BTCUSDT", btc, 100.0, filled=True)
+    order("b3", "BTCUSDT", btc, 200.0, filled=True)
+    assert journal.first_fill_at(btc) == 100.0 and journal.first_fill_at(eth) == 10.0
+    journal.set_position_manually(sol, {"qty": "1"}, venue={}, reason="ledger := venue", at=70.0)
+    assert journal.first_fill_at(sol) == 70.0                       # a position put into the ledger by a person
+    order("s1", "SOLUSDT", sol, 300.0, filled=True)
+    assert journal.first_fill_at(sol) == 70.0                       # whichever is earlier
+    journal.insert_fill(fill_id="f-x", intent_id="no-such-order", owner=btc, payload={})
+    with pytest.raises(RuntimeError, match="creation time"):        # a fill of unknown time: unknown funding
+        journal.first_fill_at(btc)

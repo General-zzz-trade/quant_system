@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 from decimal import Decimal as D
+from types import SimpleNamespace
 
 import pytest
 
 from lab.strategy import StrategySpec
 from runner.binance_target import TargetRuntime
-from tests.characterization.test_exit_paths import _until
+from tests.characterization.test_exit_paths import _tick, _until
+from tests.unit.lab.test_target_runtime import _advance
 from tests.support.state_db import state_dir_db
 from tests.unit.lab.test_target_runtime import _world
 
@@ -68,3 +70,64 @@ def test_mainnet_execution_without_a_cap_is_refused_before_any_account_request(t
     with pytest.raises(RuntimeError, match="STRATEGY_CAPITAL_USDT"):
         entry.main(["--spec", str(tmp_path / "spec.json"), "--enable-execution", "--state-dir", str(tmp_path / "s")])
     assert fake.requests == []
+
+
+# -- funding in the base (tech lead 2026-11-16) -------------------------------------------------------------------
+def test_funding_since_the_first_fill_moves_the_capped_base(tmp_path, monkeypatch):
+    monkeypatch.setenv("STRATEGY_CAPITAL_USDT", "300")
+    world, runtime = _execution(tmp_path)
+    btc, eth = world["fakes"]["BTCUSDT"], world["fakes"]["ETHUSDT"]
+    _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    session = runtime.sessions["BTCUSDT"]
+    before = session.sleeve_equity()
+    now = btc.now_ms()
+    btc.add_income("BTCUSDT", "-40", now + 1_000)                  # after the first fill: the strategy's
+    btc.add_income("BTCUSDT", "-500", now - 24 * 3_600_000)        # before it: not the strategy's
+    btc.add_income("BTCUSDT", "-700", now + 2_000, asset="BNB")    # not USDT
+    _tick(world, runtime, 601)                                      # the next refresh is due
+    assert session.sleeve_equity() == before - D("40") / 2         # half of the base per symbol
+    assert btc.income_requests and {r["incomeType"] for r in btc.income_requests} == {"FUNDING_FEE"}
+    eth_traded = any(t["symbol"] == "ETHUSDT" for t in eth.trades)
+    assert bool(eth.income_requests) == eth_traded                  # a symbol never traded is not asked
+
+
+def test_funding_that_cannot_be_read_sizes_to_zero_after_two_hours_and_the_runtime_runs_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("STRATEGY_CAPITAL_USDT", "300")
+    world, runtime = _execution(tmp_path)
+    btc = world["fakes"]["BTCUSDT"]
+    i = _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    session = runtime.sessions["BTCUSDT"]
+    for fake in world["fakes"].values():
+        fake.income_error = True
+    for step in range(3):                                           # 1 h, 2 h: the last total; 3 h: unknown
+        _advance(world, runtime, i + step)
+        assert (session.sleeve_equity() > 0) == (step < 2)
+    assert D(runtime.status()["symbols"]["BTCUSDT"]["sleeve_equity"]) == 0
+    for fake in world["fakes"].values():
+        fake.income_error = False
+    _advance(world, runtime, i + 3)
+    assert session.sleeve_equity() > 0
+
+
+def test_a_cap_without_the_account_s_funding_income_is_refused_when_the_sessions_are_built(tmp_path):
+    from trading.application.equity import EquitySource
+    from trading.infrastructure import target
+    from trading.infrastructure.config import risk_limits
+    spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
+    world = _world(tmp_path, spec)
+    state_dir_db(tmp_path / "exec")
+    inputs = target.ExecutionInputs(account=world["adapter"], scope="binance-testnet-ut", stop_pct=D("0.08"),
+                                    limits=risk_limits({}), kill=SimpleNamespace(state=None), leverage=3, margin=None,
+                                    strategy_capital=D("300"))
+    with pytest.raises(ValueError, match="funding income"):
+        target.execution_sessions(spec, ["BTCUSDT", "ETHUSDT"], state_dir=tmp_path / "exec", journal=None,
+                                  equity=EquitySource(lambda: 0.0), inputs=inputs)
+
+
+def test_without_a_cap_no_funding_is_asked(tmp_path, monkeypatch):
+    monkeypatch.delenv("STRATEGY_CAPITAL_USDT", raising=False)
+    world, runtime = _execution(tmp_path)
+    btc = world["fakes"]["BTCUSDT"]
+    _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    _tick(world, runtime, 601)
+    assert all(fake.income_requests == [] for fake in world["fakes"].values())
