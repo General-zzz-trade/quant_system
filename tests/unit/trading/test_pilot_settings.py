@@ -70,6 +70,10 @@ def test_a_stop_distance_outside_its_bounds_is_refused_and_named(raw):
         _load(STOP_PCT=raw)
 
 
+def test_the_bounds_themselves_are_allowed():
+    assert _load(STOP_PCT="0.005").stop_pct == D("0.005") and _load(STOP_PCT="0.15").stop_pct == D("0.15")
+
+
 def test_the_pilot_s_combination_passes_the_liquidation_check_and_8_per_cent_does_not():
     from trading.domain.risk.liquidation import check_stop_inside_liquidation
     pilot = _load(STOP_PCT="0.045", STRATEGY_LEVERAGE="2")

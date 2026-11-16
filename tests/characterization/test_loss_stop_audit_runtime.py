@@ -256,7 +256,7 @@ def test_paper_builds_neither_the_stop_nor_the_capped_base_even_if_handed_a_capi
 
     def with_capital(spec, symbols, *, inputs, **kw):
         inputs = dataclasses.replace(inputs, strategy_capital=D("300"), funding=world["adapter"],
-                                     strategy_loss_stop=D("0.15"))
+                                     strategy_loss_stop=D("0.15"), strategy_leverage=D("2"))
         built.append(real(spec, symbols, inputs=inputs, **kw))
         return built[-1]
     monkeypatch.setattr(target, "execution_sessions", with_capital)
@@ -266,5 +266,6 @@ def test_paper_builds_neither_the_stop_nor_the_capped_base_even_if_handed_a_capi
                             market=world["adapter"], clock=lambda: world["clock"]["now"])
     (wiring,) = built
     assert wiring.loss_stop is None and runtime.exits.loss_stop is None
+    assert all(session.allocation == D(1) for session in runtime.sessions.values())   # no leverage multiple either
     runtime.warmup()
     assert all(fake.income_requests == [] for fake in world["fakes"].values())      # no funding asked: no capped base
