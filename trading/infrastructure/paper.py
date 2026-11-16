@@ -21,6 +21,7 @@ from trading.adapters.sqlite.paper_state import SqlitePaperState
 from trading.application.ports import EntryPauses, EventLog
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
+from trading.domain.orders import DUPLICATE
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure.state_dir import MANIFEST, is_managed
 
@@ -80,7 +81,9 @@ class PaperDivergenceLog:
     """The event log of a paper run, and the only writer of ``paper_divergence`` events (ADR-0013 "intended
     divergences"): one follows each event that means paper has left research on purpose.
 
-    - an entry the gates or the order journal refused for good (``blocked`` without ``retry``): ``entry_refused``;
+    - an entry the gates or the order journal refused for good (``blocked`` without ``retry``): ``entry_refused``.
+      Not a reduction (its intent said ``reduce_only``) and not a repeated intent (the journal's ``duplicate``
+      refusal, e.g. a bar decided again after a crash): research would not have placed either anew;
     - a protective stop that went off or could not be placed because price was beyond it (the ``issue`` of that
       kind, written once per stop): ``stop_triggered`` or ``stop_breached``;
     - a new entry pause (reported by ``DivergencePauses``): ``pause``;
@@ -91,10 +94,14 @@ class PaperDivergenceLog:
 
     def __init__(self, inner: EventLog) -> None:
         self.inner = inner
+        self._reductions: set[str] = set()       # intents that said reduce_only, by order id
 
     def write(self, kind: EventKind, **fields: Any) -> None:
         self.inner.write(kind, **fields)
-        if kind is EventKind.BLOCKED and not fields.get("retry"):
+        if kind is EventKind.INTENT and fields.get("reduce_only"):
+            self._reductions.add(str(fields.get("order_id")))
+        if kind is EventKind.BLOCKED and not fields.get("retry") and fields.get("refusal") != DUPLICATE \
+                and str(fields.get("order_id")) not in self._reductions:
             self._divergence("entry_refused", symbol=fields.get("symbol"), order_id=fields.get("order_id"),
                              reason=fields.get("reason"))
         elif kind is EventKind.ISSUE and fields.get("issue_kind") in STOP_KINDS:
