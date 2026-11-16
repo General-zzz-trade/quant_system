@@ -27,7 +27,7 @@ from collections.abc import Callable, Sequence
 
 from trading.application.issues import Issue, write_issue
 from trading.application.ports import BarListener, Clock, EventLog, GateClock, MarketData
-from trading.application.session import FUNDING_INTERVAL, MAX_ENTRY_DELAY_MS, TargetSession
+from trading.application.session import MAX_ENTRY_DELAY_MS, TargetSession
 from trading.application.mode_policy import ModePolicy
 from trading.domain.bars import HOUR, Bar, bar_from_kline
 from trading.domain.events import EventKind
@@ -40,6 +40,8 @@ POLL_SECONDS = 5.0
 FUNDING_WAIT_MS = 2 * 60_000
 MARKET_BACKOFF_MAX = 300.0
 MARKET_ALERT_AFTER = 5            # failures in a row before an alert (about 75 s with the 5/10/20/40 s backoff)
+INTERVALS_RETRY_MS = 60_000       # a failed read of the funding intervals is tried again once a minute (plan R4)
+INTERVALS_KEPT_MS = 2 * HOUR      # the last intervals read are used this long while reads fail; then unknown
 
 
 class MarketPoller:
@@ -56,6 +58,9 @@ class MarketPoller:
         self.refused: str | None = None                   # set by such an error, cleared by a success
         self.decision_errors: dict[str, Issue] = {}       # symbol -> its last failed bar, until a bar succeeds
         self.behind_at: int | None = None                 # the last close whose missing bars were reported (R3)
+        self.intervals_at: int | None = None              # when the funding intervals were last read (R4)
+        self.intervals_tried: int | None = None
+        self.intervals_lost = False                       # said once that none is known any more
 
     def due(self) -> bool:
         return self.clock() >= self.retry_at
@@ -107,9 +112,39 @@ class MarketPoller:
             raise ValueError("a cross-sectional strategy must be the one every symbol uses")
         return next(iter(strategies.values()))
 
+    def refresh_intervals(self, now_ms: int) -> None:
+        """Each symbol's funding interval from the exchange (plan R4): read at warm-up and in the first poll of every
+        hour (bars close on the hour). A failed read is tried again once a minute and the last intervals are kept for
+        ``INTERVALS_KEPT_MS``; after that, and at once for a symbol the exchange does not list, the interval is
+        unknown and the symbol takes no entries (``TargetSession.decide``)."""
+        read_this_hour = self.intervals_at is not None and now_ms // HOUR == self.intervals_at // HOUR
+        tried_lately = self.intervals_tried is not None and now_ms - self.intervals_tried < INTERVALS_RETRY_MS
+        if not read_this_hour and not tried_lately:
+            self.intervals_tried = now_ms
+            try:
+                hours = self.market.get_funding_intervals()
+            except self.errors as exc:
+                logger.warning("Funding intervals not read; retry in %ds: %s", INTERVALS_RETRY_MS // 1000, exc)
+            else:
+                self.intervals_at, self.intervals_lost = now_ms, False
+                for symbol, session in self.sessions.items():
+                    session.funding_interval = hours[symbol] * HOUR if symbol in hours else None
+                    if symbol not in hours:
+                        write_issue(self.journal, symbol, Issue(K.MARKET_DATA, symbol,
+                                    f"{symbol}: the exchange lists no funding interval; entries refused"))
+                return
+        if self.intervals_lost or (self.intervals_at is not None and now_ms - self.intervals_at <= INTERVALS_KEPT_MS):
+            return
+        self.intervals_lost = True
+        for session in self.sessions.values():
+            session.funding_interval = None
+        write_issue(self.journal, None, Issue(K.MARKET_DATA, None, "funding intervals unknown: not read for "
+                                              f"{INTERVALS_KEPT_MS // HOUR} hours; entries refused"))
+
     def _poll_market(self) -> int:
         processed = 0
         now_ms = int(self.clock() * 1000)
+        self.refresh_intervals(now_ms)
         together = self.together()
         replay: dict[str, list[Bar]] = {}
         for symbol, session in self.sessions.items():
@@ -231,10 +266,14 @@ class MarketPoller:
         if now_ms < close:
             return []
         missing = (now_ms // HOUR * HOUR - (session.cursor + HOUR)) // HOUR
-        for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) // 8):
+        interval = session.funding_interval
+        per = interval or HOUR                  # unknown: ask for as many settlements as an hourly symbol has
+        for at, rate in self.market.get_funding_history(symbol, limit=3 + max(missing, 0) * HOUR // per):
             session.funding[round(at / HOUR) * HOUR] = rate
-        settlement = close // FUNDING_INTERVAL * FUNDING_INTERVAL
-        if settlement not in session.funding and now_ms - close < FUNDING_WAIT_MS:
+        # Wait for the symbol's settlement at or before the close (R4: its own interval). Unknown, nothing to wait
+        # for: the session refuses entries anyway.
+        if interval is not None and close // interval * interval not in session.funding \
+                and now_ms - close < FUNDING_WAIT_MS:
             return []
         rows = self.market.get_klines(symbol, "60", int(min(max(missing, 1) + 2, 1500)), now_ms=now_ms)
         return [bar for bar in map(bar_from_kline, rows) if bar.open_time > session.cursor]

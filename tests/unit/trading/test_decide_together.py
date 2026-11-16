@@ -40,6 +40,9 @@ class Market:
     def __init__(self, last):
         self.last = dict(last)
 
+    def get_funding_intervals(self):                       # R4: every symbol settles every 8 hours
+        return {"BTCUSDT": 8, "ETHUSDT": 8, "AUSDT": 8, "BUSDT": 8, "CUSDT": 8}
+
     def get_funding_history(self, symbol, *, limit=1000):
         return [(t, 0.0001) for t in range(T0, T0 + 48 * HOUR, 8 * HOUR)]
 

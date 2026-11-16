@@ -3962,6 +3962,43 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   （`PYTHONDONTWRITEBYTECODE=1`，这个分支上的变异工具还没有 #117 的修复）重跑全部 22 个：22/22 被杀。
 - **本地**【实际运行结果】：行情侧、模拟盘逐根一致、运行时、策略接口、规格的 9 个测试文件全部通过；架构测试和前视检查通过；
   ruff、`mypy trading/`（95 个文件）、导入契约（5 个）通过。
+
+## R4 每个品种自己的资金费结算间隔（2026-11-16 晚，资金路径完整流程）
+
+- 依据：`docs/arch/runtime-lab-strategies-plan.md` 第 4 步："从交易所读取，读不到时这个品种不入场"。
+- **事实**【实际运行结果】：2026-11-16 读币安公开接口 `GET /fapi/v1/fundingInfo`：824 行（4 小时 466、8 小时 355、1 小时 3），
+  正在交易的 522 个 USDT 永续**全部在列**；抽查 24 个品种最近 3 次结算的间隔都与它一致（BTC、ETH 是 8 小时）。
+  币安文档说这个接口列的是"调整过上限、下限或结算间隔的品种"，没有说不在列的品种用什么间隔，所以程序不假设默认值：
+  不在列就是未知。接口权重 0，与 `fundingRate` 共用每 5 分钟 500 次。
+- **改了什么**：
+  - 适配器 `get_funding_intervals()`：每个品种的间隔（小时）；不是能整除 24 的正整数的行跳过（那个品种未知）。
+  - 行情侧在预热时和每个小时的第一轮读一次。读失败时每分钟重试一次，最后一次读到的值最多沿用 2 小时；
+    超过 2 小时全部变成未知（写一条 MARKET_DATA 事件，只写一次）。交易所没列的品种立即未知（每次读都写一条事件）。
+  - 等待"收盘时或之前的那次结算公布"（最多 2 分钟）和入场前的检查都按品种自己的间隔；间隔未知时不等待、拒绝入场
+    （"funding interval not known"），减仓照常。资金费请求的条数也按间隔算（未知时按 1 小时，多取不少取）。
+  - 状态里每个品种显示 `funding_interval_hours`。去掉了写死 8 小时的常量 `FUNDING_INTERVAL`。
+  - 不在这一步：策略自己的资金费窗口按结算次数计（现有策略按 8 小时设计），多品种策略在 R7 处理。
+- **已有测试的改动**：1 处断言，因为 R4 多了一次读取（批准的计划：从交易所读间隔），原意（退避期间不发请求）不变：
+  `tests/unit/lab/test_target_runtime_resilience.py::test_market_failure_backs_off_before_retrying`
+  - 原来：`assert len(calls) == 1 and runtime.status()["market_failures"] == 1`；……`assert len(calls) == 1`；……
+    `assert len(calls) == 2 and runtime._market_retry_at - world["clock"]["now"] == pytest.approx(10)`
+  - 现在：`assert calls == ["/fapi/v1/fundingInfo", "/fapi/v1/fundingRate"] and runtime.status()["market_failures"] == 1`；
+    ……`assert len(calls) == 2`；……`assert calls[2:] == ["/fapi/v1/fundingRate"] and runtime._market_retry_at - world["clock"]["now"] == pytest.approx(10)`
+    （间隔的读取每分钟最多重试一次，和行情的退避分开：如果它也走行情的退避，一个一直失败的 `fundingInfo` 会让 K 线也停下来。）
+- **测试辅助的改动**：假交易所回答 `fundingInfo`（BTC、ETH 都是 8 小时）；行情侧测试和 R3 测试里的假行情加上这个读取；
+  端口测试的 `Partial` 加上这个成员（"缺哪个成员"的断言不变），"交易所不可用时读取报错"多一个用例。
+- **新增测试**：`tests/unit/trading/test_funding_interval.py`（21 个，含参数化）、`tests/characterization/test_funding_interval_runtime.py`
+  （1 个：交易所没列的品种不入场，另一个品种的成交和两个都列时逐笔相同；预热结束时间隔已知）。改代码前 22 个全部失败。
+  运行时那个测试同 R3，把每秒下单限制的时钟固定为测试世界的时钟。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r4_funding_interval.json` 22 个，按顺序、关闭字节码缓存运行。第一轮 20 个被杀；
+  存活 2 个："恢复后没有清除'已失效'标记"（第二次长时间读不到时不会再变成未知，入场会用过期的间隔，补了第二次断网的测试）、
+  "预热时不读间隔"（第一轮行情也会读，补了"预热结束时间隔已知"）。补后 2 个都被杀，最终 22/22。
+- **本地**【实际运行结果】：所有组装运行时、会话或假交易所的测试文件（加新文件）一起跑：2 个失败——上面那处断言，和 R3 的运行时测试
+  （每秒下单限制用真实时钟，见 R3 记录，已在 R3 分支修好）；改后重跑这两个文件和 R4 的两个新文件：38 个通过
+  （其余文件第一次就通过，没有重跑）。架构测试、前视检查、契约测试、ruff、
+  `mypy trading/`（95 个文件）、导入契约（5 个）通过。
+- **对试运行的影响**【推测】：BTC、ETH 都是 8 小时，行为与之前相同；只是启动和每小时多一次公开请求（权重 0）。
+  读不到间隔超过 2 小时时，两个品种都停止入场，减仓和止损照常。
 ## 策略亏损停止线的独立审计与处理（2026-11-16 晚，资金路径完整流程）
 
 - **起因**：PR #106（策略亏损停止线）合并当天做了独立审计。审计的复现测试和它自己的变异在 `/root/lab_logs/audit-2026-11-16/`

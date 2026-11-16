@@ -23,7 +23,6 @@ from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.events import EventKind
 from trading.domain.symbol_state import SymbolState
 
-FUNDING_INTERVAL = 8 * HOUR
 MAX_ENTRY_DELAY_MS = 10 * 60_000
 
 
@@ -87,6 +86,9 @@ class TargetSession:
         self.strategy: Strategy = strategy if strategy is not None else OverlayStrategy(spec)
         self.bars: deque[Bar] = deque(maxlen=self.strategy.window_hours() + 48)
         self.funding: dict[int, float] = {}
+        # Plan R4: ms between this symbol's funding settlements, from the exchange (the market side sets it); unknown,
+        # the symbol takes no entries.
+        self.funding_interval: int | None = None
         self.cursor: int | None = None
         self.entry_ready, self.entry_reason = False, "no live bar yet"
         self.state = SymbolState.WARMING      # set by the exit side every cycle (ADR-0014 point 3)
@@ -232,8 +234,10 @@ class TargetSession:
         reasons = []
         if now_ms - bar.available_at > MAX_ENTRY_DELAY_MS:
             reasons.append("bar processed too late")
-        latest_settlement = bar.available_at // FUNDING_INTERVAL * FUNDING_INTERVAL
-        if latest_settlement not in self.funding:
+        interval = self.funding_interval
+        if interval is None:
+            reasons.append("funding interval not known")
+        elif bar.available_at // interval * interval not in self.funding:
             reasons.append("funding settlement at or before this close not published yet")
         self.entry_ready, self.entry_reason = not reasons, "; ".join(reasons)
         weight, ready = target if target is not None else self._target()
@@ -274,4 +278,4 @@ class TargetSession:
         self.flattener.flatten(reason, bar=bar, ledger=self.position_qty, consume=self.consume_fills)
 
 
-__all__ = ["Deferred", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
+__all__ = ["Deferred", "ExecutionParts", "MAX_ENTRY_DELAY_MS", "TargetSession"]

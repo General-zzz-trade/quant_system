@@ -111,13 +111,16 @@ def test_market_failure_backs_off_before_retrying(tmp_path):
             raise BinanceRetryableError("Network error: injected")
         fake.request_public = failing
     _advance(world, runtime, world["warm"])
-    assert len(calls) == 1 and runtime.status()["market_failures"] == 1
+    # R4: the first poll of the hour also reads the funding intervals (retried at most once a minute, apart from the
+    # market data's backoff), then the funding history fails.
+    assert calls == ["/fapi/v1/fundingInfo", "/fapi/v1/fundingRate"] and runtime.status()["market_failures"] == 1
     world["clock"]["now"] += 4                # inside the first 5 s backoff: no request
     runtime.cycle()
-    assert len(calls) == 1
+    assert len(calls) == 2
     world["clock"]["now"] += 2
     runtime.cycle()
-    assert len(calls) == 2 and runtime._market_retry_at - world["clock"]["now"] == pytest.approx(10)
+    assert calls[2:] == ["/fapi/v1/fundingRate"] and runtime._market_retry_at - world["clock"]["now"] == \
+        pytest.approx(10)
 
 
 def test_kill_flatten_runs_while_market_data_is_unavailable(tmp_path):

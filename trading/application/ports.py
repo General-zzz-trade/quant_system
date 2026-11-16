@@ -105,6 +105,8 @@ class MarketData(Protocol):
 
     def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]: ...
 
+    def get_funding_intervals(self) -> dict[str, int]: ...     # symbol -> hours between settlements (plan R4)
+
 
 @runtime_checkable
 class ExchangeAccount(Protocol):

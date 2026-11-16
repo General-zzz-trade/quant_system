@@ -38,6 +38,7 @@ class FakeBinance:
         self.margin_type: dict[str, str] = {}   # positionRisk spelling: "cross" | "isolated"
         self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
+        self.funding_hours = {"BTCUSDT": 8, "ETHUSDT": 8}    # what /fapi/v1/fundingInfo lists (R4)
         self.trade_requests: list[dict] = []
         self.income: list[dict] = []            # the account's income history (GET /fapi/v1/income)
         self.income_requests: list[dict] = []
@@ -113,6 +114,9 @@ class FakeBinance:
                     {"filterType": "PRICE_FILTER", "tickSize": "0.1"},
                     {"filterType": "MIN_NOTIONAL", "notional": "5"}]}
             return {"symbols": [info("BTCUSDT"), info("ETHUSDT")]}
+        if path == "/fapi/v1/fundingInfo":       # R4: every symbol of this fake settles every 8 hours
+            return [{"symbol": s, "fundingIntervalHours": h, "adjustedFundingRateCap": "0.02",
+                     "adjustedFundingRateFloor": "-0.02", "disclaimer": False} for s, h in self.funding_hours.items()]
         if path == "/fapi/v1/klines":
             end = int(p.get("endTime", 10**15))
             rows = [b for t, b in sorted(self.bars.items()) if t <= end and t <= self.now_ms()]
