@@ -37,7 +37,7 @@ def _judge(lists: list, legacy: bool) -> judge.Judge:
     registered = lab.lab_ideas()
     return judge.Judge(ideas={name: registered[name] for name in lib.IDEAS}, lists=lists,
                        cache=CACHE / ("legacy" if legacy else "days"), run_date="2026-11-16", note=f"{NOTE}; {how}",
-                       legacy_days=legacy)
+                       legacy_days=legacy, ready_only=False)          # the first run took positions from bar one
 
 
 def _compare(expected: dict, screened: dict) -> list[dict]:

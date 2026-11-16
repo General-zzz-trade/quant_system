@@ -23,6 +23,7 @@ from tests.unit.lab.test_um_judge_runs import LISTS, make, market  # noqa: F401 
 from trading.domain.strategy.ideas import lab_frame
 
 ROOT = Path(__file__).resolve().parents[3]
+H = lab.H
 NAMES = ("A1_tsmom_long", "F1_btc_trend_beta", "D2_taker_imbalance", "B1_xs_reversal_long", "E3_vol_target_trend")
 
 
@@ -46,8 +47,9 @@ def test_a_registered_idea_gives_the_judge_the_research_function_s_results(marke
     research._PANELS.clear()
     registered = lab.lab_ideas()
     legacy = {n: (lab.legacy(research.IDEAS[n][0], cross=n in research.XS), research.IDEAS[n][1]) for n in NAMES}
-    new = make(market, tmp_path / "new", ideas={n: registered[n] for n in NAMES})
-    old = make(market, tmp_path / "old", ideas=legacy)
+    # the functions are compared, so both take positions from bar one (a research function is always "ready")
+    new = make(market, tmp_path / "new", ideas={n: registered[n] for n in NAMES}, ready_only=False)
+    old = make(market, tmp_path / "old", ideas=legacy, ready_only=False)
     traded = 0
     for name in NAMES:
         params = research.IDEAS[name][1][0]
@@ -70,3 +72,27 @@ def test_a_research_function_has_no_runtime_window():
     with pytest.raises(NotImplementedError, match="register"):
         strategy.funding_window()
     assert strategy.references() == ("BTCUSDT",) and lab.legacy(len, cross=True)({}).references() == ()
+
+
+def test_no_position_before_the_strategy_s_window_is_full(market, tmp_path):  # noqa: F811
+    """R7 audit F2: the runtime cannot hold a position before window_hours bars; the judge does not either
+    (``ready_only``, off only to reproduce the first run)."""
+    strategy = lab.lab_ideas()["A1_tsmom_long"][0]({"n": 80})                 # 80-day momentum, window 84 days
+    need = strategy.window_hours()
+    judged = make(market, tmp_path / "a")._targets(strategy, ("UPUSDT",))["UPUSDT"]
+    first = make(market, tmp_path / "b", ready_only=False)._targets(strategy, ("UPUSDT",))["UPUSDT"]
+    assert (first.iloc[81 * 24:need - 1] > 0).all()                           # momentum known, window not full
+    assert (judged.iloc[:need - 1] == 0).all() and judged.iloc[need - 1:].equals(first.iloc[need - 1:])
+
+
+def test_a_target_decided_at_a_close_is_filled_at_the_next_open(market, tmp_path):  # noqa: F811
+    """F10: the replay's alignment - a decision at bar h's close (available at h + 1 hour) fills at bar h + 1's
+    open; one bar earlier would look ahead, one later would lag."""
+    period = make(market, tmp_path).periods[0]
+    step = period[0] + 5 * 24 * H + 7 * H                                       # an odd hour inside period 0
+
+    def from_step(df, ctx):
+        return pd.Series((df.index >= step).astype(float) * 0.9, index=df.index)
+    j = make(market, tmp_path / "step", ideas={"step": (lab.legacy(from_step, reads=()), [{}])})
+    out = j.run_config((judge.Config("step", {}), (0,)))["periods"][0]
+    assert out["entries"] and min(at for at, _ in out["entries"]) == step + H

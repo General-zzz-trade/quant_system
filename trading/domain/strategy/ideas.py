@@ -45,8 +45,10 @@ def lab_frame(window: Any) -> pd.DataFrame:
 # -- helpers (as in the lab) ---------------------------------------------------------------------------------------
 def _daily(df: pd.DataFrame) -> pd.DataFrame:
     day = df.index // DAY
-    out = pd.DataFrame({"close": df["close"].groupby(day).last(), "quote": df["quote_volume"].groupby(day).sum(),
-                        "taker": df["taker_buy_quote_volume"].groupby(day).sum(),
+    # min_count=1: a day whose kline fields are all unknown is unknown, not 0 (R7 audit F7)
+    out = pd.DataFrame({"close": df["close"].groupby(day).last(),
+                        "quote": df["quote_volume"].groupby(day).sum(min_count=1),
+                        "taker": df["taker_buy_quote_volume"].groupby(day).sum(min_count=1),
                         "funding": df["funding"].groupby(day).sum()})
     out["ret"] = out["close"].pct_change()
     return out
@@ -81,8 +83,9 @@ def _state(enter_long: Any, exit_long: Any, enter_short: Any = None, exit_short:
 
 def _panel(ctx: Ctx, column: str) -> pd.DataFrame:
     """The daily ``column`` of every symbol the strategy was given (the lab read the period's list from the
-    snapshot)."""
-    return pd.DataFrame({s: _daily(ctx["frames"][s])[column] for s in ctx["universe"]})
+    snapshot), in symbol-name order: ``_rank_pick`` breaks ties by column, so the decision may not depend on the order
+    a list was written in (the lab's volume order, a spec's, the compare tool's; R7 audit F1)."""
+    return pd.DataFrame({s: _daily(ctx["frames"][s])[column] for s in sorted(ctx["universe"])})
 
 
 def _rank_pick(score: pd.DataFrame, symbol: str, k: int, *, top: bool) -> pd.Series:
@@ -345,8 +348,13 @@ IDEAS: dict[str, Idea] = {
 }
 
 
+WHOLE = frozenset({"n", "m", "days", "window", "hold", "fast", "slow", "w"})   # counts of days or hours
+
+
 def idea_params(name: str, params: Mapping[str, Any]) -> dict[str, Any]:
-    """An idea's parameters from a spec: exactly the names its grid uses, each a finite positive number."""
+    """An idea's parameters from a spec: exactly the names its grid uses, each a finite positive number; a count
+    (``WHOLE``) a whole number; a quantile below 1; a fast average shorter than the slow one (R7 audit F6: values
+    every decision would fail on are refused when the spec is read)."""
     idea = IDEAS[name]
     wanted = set(idea.grid[0])
     if not isinstance(params, Mapping) or set(params) != wanted:
@@ -355,7 +363,13 @@ def idea_params(name: str, params: Mapping[str, Any]) -> dict[str, Any]:
     for key, value in params.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name}: {key} must be a positive number")
+        if key in WHOLE and type(value) is not int:
+            raise ValueError(f"{name}: {key} must be a whole number")
         out[key] = value
+    if "q" in out and out["q"] >= 1:
+        raise ValueError(f"{name}: q must be below 1")
+    if "fast" in out and out["fast"] >= out["slow"]:
+        raise ValueError(f"{name}: fast must be shorter than slow")
     return out
 
 

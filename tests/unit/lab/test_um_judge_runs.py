@@ -37,8 +37,9 @@ def short(df, ctx):
     return pd.Series(-ctx["params"]["w"], index=df.index)
 
 
-IDEAS = {"always": (lab.legacy(always), [{"w": 0.5}, {"w": 0.9}]), "trend": (lab.legacy(trend), [{"n": 3}, {"n": 6}]),
-         "short": (lab.legacy(short), [{"w": 0.5}])}
+IDEAS = {"always": (lab.legacy(always, reads=()), [{"w": 0.5}, {"w": 0.9}]),        # they read no other symbol
+         "trend": (lab.legacy(trend, reads=()), [{"n": 3}, {"n": 6}]),
+         "short": (lab.legacy(short, reads=()), [{"w": 0.5}])}
 FULL = judge.Config("always", {"w": 0.9})
 
 
