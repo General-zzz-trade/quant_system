@@ -1,0 +1,236 @@
+[
+ [
+  "never trips",
+  "trading/application/risk/loss_stop.py",
+  "        if pnl > -self.limit * self.capital:\n            return []",
+  "        if True:\n            return []"
+ ],
+ [
+  "boundary exclusive",
+  "trading/application/risk/loss_stop.py",
+  "        if pnl > -self.limit * self.capital:",
+  "        if pnl >= -self.limit * self.capital:"
+ ],
+ [
+  "limit of the capital ignored",
+  "trading/application/risk/loss_stop.py",
+  "        if pnl > -self.limit * self.capital:",
+  "        if pnl > -self.limit:"
+ ],
+ [
+  "trips although already flattening",
+  "trading/application/risk/loss_stop.py",
+  "            if not (state.active and state.flatten):",
+  "            if True:"
+ ],
+ [
+  "active without flatten is enough",
+  "trading/application/risk/loss_stop.py",
+  "            if not (state.active and state.flatten):",
+  "            if not state.active:"
+ ],
+ [
+  "unknown pnl reads as no loss",
+  "trading/application/risk/loss_stop.py",
+  "        except Exception as exc:\n            return [Issue(K.ACCOUNT_UNREADABLE, None, f\"strategy loss unknown",
+  "        except Exception as exc:\n            return [] if True else [Issue(K.ACCOUNT_UNREADABLE, None, f\"strategy loss unknown"
+ ],
+ [
+  "non-finite pnl accepted",
+  "trading/application/risk/loss_stop.py",
+  "            if raw is None or not Decimal(raw).is_finite():",
+  "            if raw is None:"
+ ],
+ [
+  "None pnl accepted",
+  "trading/application/risk/loss_stop.py",
+  "            if raw is None or not Decimal(raw).is_finite():\n                raise ValueError(f\"PnL {raw!r}\")\n            pnl = Decimal(raw)",
+  "            pnl = Decimal(raw or 0)\n            if not pnl.is_finite():\n                raise ValueError(f\"PnL {raw!r}\")"
+ ],
+ [
+  "failed trip is silent",
+  "trading/application/risk/loss_stop.py",
+  "            return [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached but",
+  "            return [] if True else [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached but"
+ ],
+ [
+  "trip reported although it failed",
+  "trading/application/risk/loss_stop.py",
+  "                self.kill.trip(reason)\n                self._trip = reason",
+  "                self._trip = reason\n                self.kill.trip(reason)"
+ ],
+ [
+  "trip never reported",
+  "trading/application/risk/loss_stop.py",
+  "                self.kill.trip(reason)\n                self._trip = reason",
+  "                self.kill.trip(reason)"
+ ],
+ [
+  "trip reported every time",
+  "trading/application/risk/loss_stop.py",
+  "        trip, self._trip = self._trip, None\n        return trip",
+  "        return self._trip"
+ ],
+ [
+  "checked every cycle",
+  "trading/application/risk/loss_stop.py",
+  "and now - self._checked_at < LOSS_STOP_SECONDS:",
+  "and now - self._checked_at < 0:"
+ ],
+ [
+  "findings wait a minute",
+  "trading/application/risk/loss_stop.py",
+  "        if self._checked_at is not None and not self._findings and now",
+  "        if self._checked_at is not None and now"
+ ],
+ [
+  "unrealized counts other symbols",
+  "trading/application/risk/loss_stop.py",
+  "        if position.symbol not in symbols or position.qty == 0:",
+  "        if position.qty == 0:"
+ ],
+ [
+  "unrealized sign",
+  "trading/application/risk/loss_stop.py",
+  "        total += position.qty * (mark - entry)",
+  "        total += position.qty * (entry - mark)"
+ ],
+ [
+  "zero mark accepted",
+  "trading/application/risk/loss_stop.py",
+  "entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0",
+  "entry.is_finite() and mark.is_finite() and entry > 0"
+ ],
+ [
+  "zero entry accepted",
+  "trading/application/risk/loss_stop.py",
+  "entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0",
+  "entry.is_finite() and mark.is_finite() and mark > 0"
+ ],
+ [
+  "nan mark accepted",
+  "trading/application/risk/loss_stop.py",
+  "not (entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0)",
+  "not (entry > 0 and (mark.is_nan() or mark > 0))"
+ ],
+ [
+  "missing price accepted",
+  "trading/application/risk/loss_stop.py",
+  "        if entry is None or mark is None or not",
+  "        if entry is None or mark is None:\n            continue\n        if not"
+ ],
+ [
+  "trip without flatten",
+  "trading/adapters/files/kill_switch.py",
+  "        self.write(active=True, reason=reason, flatten=True)",
+  "        self.write(active=True, reason=reason, flatten=False)"
+ ],
+ [
+  "supervisor never checks",
+  "trading/application/exit_supervisor.py",
+  "        self.check_account_if_due()\n        self.check_loss_stop()",
+  "        self.check_account_if_due()"
+ ],
+ [
+  "no alert on a trip",
+  "trading/application/exit_supervisor.py",
+  "            self.journal.write(EventKind.ALERT, reason=tripped)\n",
+  ""
+ ],
+ [
+  "findings do not block",
+  "trading/application/exit_supervisor.py",
+  "        self.loss_findings = findings\n        if findings:\n            for session in self.sessions.values():\n                session.executor.block_entries()",
+  "        self.loss_findings = findings"
+ ],
+ [
+  "findings not applied at reconciliation",
+  "trading/application/exit_supervisor.py",
+  "self._cycle_errors() + self.account_findings + self.loss_findings",
+  "self._cycle_errors() + self.account_findings"
+ ],
+ [
+  "findings not written",
+  "trading/application/exit_supervisor.py",
+  "            for issue in findings:\n                write_issue(self.journal, None, issue)\n            if findings:\n                logger.error(\"Strategy loss stop",
+  "            if findings:\n                logger.error(\"Strategy loss stop"
+ ],
+ [
+  "unrealized left out of the stop",
+  "trading/infrastructure/target.py",
+  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current()\n                + strategy_unrealized(account.get_positions(), symbols), inputs.kill, clock=clock)",
+  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current(), inputs.kill, clock=clock)"
+ ],
+ [
+  "funding left out of the stop",
+  "trading/infrastructure/target.py",
+  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current()\n                + strategy_unrealized",
+  "                lambda: strategy_realized_pnl(ledger, owners)\n                + strategy_unrealized"
+ ],
+ [
+  "stop not built",
+  "trading/infrastructure/target.py",
+  "        if inputs.strategy_loss_stop is not None:\n",
+  "        if False:\n"
+ ],
+ [
+  "wiring drops the stop",
+  "trading/infrastructure/target.py",
+  "    return ExecutionWiring(sessions, drawdown, pauses, loss_stop)",
+  "    return ExecutionWiring(sessions, drawdown, pauses)"
+ ],
+ [
+  "entry point drops the limit",
+  "trading/infrastructure/cli/target.py",
+  "                                        strategy_loss_stop=config.strategy_loss_stop,\n",
+  ""
+ ],
+ [
+  "entry point drops the stop",
+  "trading/infrastructure/cli/target.py",
+  "            loss_stop=wiring.loss_stop,\n",
+  ""
+ ],
+ [
+  "runtime drops the stop",
+  "trading/application/runtime.py",
+  "exit_observer=exit_observer, loss_stop=loss_stop)",
+  "exit_observer=exit_observer)"
+ ],
+ [
+  "limit may exceed 15",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT:",
+  "    if not value.is_finite() or not 0 < value:"
+ ],
+ [
+  "limit may be zero",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT:",
+  "    if not value.is_finite() or not 0 <= value <= STRATEGY_LOSS_STOP_MAX_PCT:"
+ ],
+ [
+  "default is not 15",
+  "trading/infrastructure/config.py",
+  "STRATEGY_LOSS_STOP_MAX_PCT = Decimal(15)",
+  "STRATEGY_LOSS_STOP_MAX_PCT = Decimal(20)"
+ ],
+ [
+  "limit without a capital accepted",
+  "trading/infrastructure/config.py",
+  "        if raw:\n            raise RuntimeError(\"STRATEGY_LOSS_STOP_PCT is a share",
+  "        if False:\n            raise RuntimeError(\"STRATEGY_LOSS_STOP_PCT is a share"
+ ],
+ [
+  "record omits the limit",
+  "trading/infrastructure/config.py",
+  "\"strategy_loss_stop\": None if self.strategy_loss_stop is None else str(self.strategy_loss_stop)}",
+  "\"strategy_loss_stop\": None}"
+ ],
+ [
+  "per cent not divided",
+  "trading/infrastructure/config.py",
+  "    return value / 100\n\n\ndef require_strategy_capital",
+  "    return value\n\n\ndef require_strategy_capital"
+ ]
+]

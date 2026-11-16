@@ -7,12 +7,11 @@
 - **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16).
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
   checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
-  capital flattens and stops, which replaced "3 losses in a row" on 2026-11-16 and is not in the runtime yet; kill
-  switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
+  capital flattens and stops, which replaced "3 losses in a row" on 2026-11-16; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, Telegram and the heartbeat,
-  the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), the loss
-  stop in the runtime, and the cumulative funding kept in the state database instead of the 88-day guard (owner
+  the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), and the
+  cumulative funding kept in the state database instead of the 88-day guard (owner
   2026-11-16: the guard stays until then).
 - **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
   min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
@@ -180,7 +179,12 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
   manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
-  in an initialized state directory a missing file means active.
+  in an initialized state directory a missing file means active. The runtime never clears it.
+- Strategy loss stop (owner 2026-11-16, `trading/application/risk/loss_stop.py`): with a strategy capital, once
+  realized PnL after fees + funding + the venue positions' unrealized PnL is 15 % of the capital below zero
+  (`STRATEGY_LOSS_STOP_PCT`, a person can only tighten it), the runtime sets the kill file with flatten: the one
+  write it makes there. Clearing alone trips it again; going on means a new pilot in a new state directory. A loss
+  that cannot be known closes nothing and blocks every entry.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day

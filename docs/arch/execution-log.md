@@ -3681,3 +3681,38 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   `loss_stop_share`（90 天的试运行里亏到 15% 的比例）；旧的连亏统计保留作参考。`research/lab/README.md`、`CLAUDE.md`、
   `docs/m5_checklist.md` 同步。
 - 已有测试的改动：没有。新增 1 个测试（`test_um_lab_live_terms.py`）。本地：lab 实盘条件测试、架构测试、ruff 通过。
+
+## 策略亏损停止线：累计亏损 15% 就平仓并停（2026-11-16，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 看了实验室第一轮的统计（`research/lab/runs/2026-11-16/loss_stop.md`）后的决定：用"累计亏掉
+  策略资金的 15% 就平掉全部仓位并停止开仓，由人解除"取代"连亏 3 笔就停"；亏损算上持仓浮亏；触发后要继续就开一次新的试运行。
+  触发后复用急停（程序只打开、从不关闭）的做法事先向技术负责人说明过。
+- **改了什么**：
+  - `trading/application/risk/loss_stop.py`（新）：`StrategyLossStop` 最多每 60 秒读一次策略盈亏；亏损达到 `上限 × 策略资金` 时，
+    急停还没处在"激活并平仓"就调用 `kill.trip(原因)`。盈亏读不出来或不是有限数时，不平仓，返回一条 `ACCOUNT_UNREADABLE` 问题
+    （阻断全部入场）；急停写不进去时同样返回问题，并且每个循环重试。`strategy_unrealized` 按交易所持仓算策略品种的浮动盈亏
+    （数量 ×（标记价 − 开仓价）），缺价格就报错。
+  - `trading/adapters/files/kill_switch.py`：`KillFile.trip(reason)`，只会写"激活并平仓"。`trading/application/ports.py` 加 `KillLatch`。
+  - `trading/application/exit_supervisor.py`：每个循环在风险动作之前 `check_loss_stop()`，所以同一个循环就平仓；触发时写一条
+    `ALERT`（发 Telegram）；问题立即阻断入场，并在每次对账时继续生效。
+  - `trading/infrastructure/config.py`：`STRATEGY_LOSS_STOP_PCT`，默认 15，只能调紧（大于 0、不超过 15），进配置记录；
+    没有策略资金时没有停止线，这时设它会拒绝启动。
+  - `trading/infrastructure/target.py`、`cli/target.py`、`trading/application/runtime.py`：有策略资金时组装停止线，
+    盈亏 = 账本已实现盈亏扣手续费 + 资金费 + 持仓浮动盈亏。
+  - 文档：`CLAUDE.md`、`.env.example`、运行手册（变量表、故障表、两句已经不对的话：其中"不会自动解除暂停"在 PR #102 就该改，
+    当时漏了）、实验室说明。
+- **已有测试的改动**（1 处，随决定改变的规则，原文和新文）：`tests/unit/trading/test_state_dir.py`
+  - 原来：`test_only_the_kill_command_writes_a_kill_file`，断言
+    `sorted(set(writers)) == ["trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]`
+  - 现在：`test_only_the_kill_command_and_the_loss_stop_s_trip_write_a_kill_file`，断言
+    `sorted(set(writers)) == ["trading/adapters/files/kill_switch.py", "trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]`，
+    并新增两条：`kill_switch.py` 里那次写入的 `active` 是常量 `True`；全代码只有 `trading/application/risk/loss_stop.py` 调用 `trip`。
+- **测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（22 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_loss_stop.json` 39 个变异，基线通过，第一轮 37 个被杀。存活 2 个：
+  问题"不立即阻断入场"和"对账时不继续生效"——原来的"亏损未知"测试里仓位基数本来就是 0，分辨不出。补了一个只有停止线报问题、
+  仓位基数正常的运行时测试后都被杀。最终 39/39。
+- **本地**【实际运行结果】：涉及急停、退出侧、配置、组装的 26 个测试文件加架构测试和问题表测试共 401 个通过（补测试之前的数）；
+  ruff、`mypy trading/`（92 个文件）、导入契约（5 个）通过。
+- **已知的限制**：停止线 60 秒读一次，两次之间的亏损靠每个仓位的 8% 交易所止损兜底；浮动盈亏按交易所标记价算，
+  平仓成交价可能更差；状态里还没有显示当前累计亏损。

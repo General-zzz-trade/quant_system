@@ -102,3 +102,34 @@ def test_without_a_strategy_capital_there_is_no_loss_stop(tmp_path, monkeypatch)
     btc.add_income("BTCUSDT", "-5000", btc.now_ms() + 1_000)
     _tick(world, runtime, 601)
     assert _kill(tmp_path)["active"] is False and runtime.exits.loss_stop is None
+
+
+def test_while_the_loss_is_unknown_no_entry_is_made_although_the_sizing_is_known(tmp_path):
+    """The unknown-loss test above also has a zero sizing base. Here only the loss stop reports a finding: entries
+    are blocked at once and stay blocked through the reconciliations, until the finding is gone."""
+    from types import SimpleNamespace
+    from trading.application.issues import Issue
+    from trading.domain.issues import IssueKind
+    control, runtime_c, _, first = _holding(tmp_path / "control")          # the bar after which BTC is held
+    world, runtime = _execution(tmp_path / "blocked")
+    btc = world["fakes"]["BTCUSDT"]
+    _tick(world, runtime)
+    assert all(s.executor.ready for s in runtime.sessions.values())
+    stub = SimpleNamespace(findings=[Issue(IssueKind.ACCOUNT_UNREADABLE, None, "strategy loss unknown (test)")],
+                           take_trip=lambda: None)
+    stub.check = lambda: list(stub.findings)
+    runtime.exits.loss_stop = stub
+    runtime.exits.check_loss_stop()
+    assert not any(s.executor.ready for s in runtime.sessions.values())    # at once, before any reconciliation
+    for i in range(world["warm"], first + 3):
+        _advance(world, runtime, i)
+        _tick(world, runtime, 31)                                          # past a reconciliation
+        assert not any(s.executor.ready for s in runtime.sessions.values())
+    assert _flat(world)                                                     # the control holds BTC by now
+    assert control["fakes"]["BTCUSDT"].positions["BTCUSDT"] != 0
+    stub.findings = []
+    for i in range(first + 3, first + 40):                                 # known again: entries come back
+        if btc.positions.get("BTCUSDT", D(0)) != 0:
+            break
+        _advance(world, runtime, i)
+    assert btc.positions.get("BTCUSDT", D(0)) != 0
