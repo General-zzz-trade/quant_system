@@ -2,8 +2,8 @@
 snapshot: no network, no real data.
 
 The market: UP gains 2 % a day, DOWN loses 0.2 % a day, CRASH is flat with one bar whose low is 10 % down on day 55
-(it trips an 8 % stop, not a 12 % one), BTC drifts up. Three slots of 100 USDT; each period lists two contracts,
-so one slot is idle.
+(it trips an 8 % stop, not a 12 % one), BTC wanders with a small drift. Three slots of 100 USDT; each period lists
+two contracts, so one slot is idle.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from tests.unit.lab.test_um_judge import PERIODS, finish, write_contract
 
 H, DAY = lab.H, lab.DAY
 S = lab.START
-CRASH_HOUR = 55 * 24 + 3
+CRASH_HOUR = 55 * 24 + 15
 LISTS = (("UPUSDT", "DOWNUSDT"), ("UPUSDT", "CRASHUSDT"), ("UPUSDT", "DOWNUSDT"), ("UPUSDT", "CRASHUSDT"),
          ("UPUSDT", "DOWNUSDT"))
 
@@ -45,7 +45,7 @@ FULL = judge.Config("always", {"w": 0.9})
 @pytest.fixture(scope="module")
 def market(tmp_path_factory):
     path = tmp_path_factory.mktemp("judge_market")
-    write_contract(path, "BTCUSDT", price=lambda d: 100 * math.exp(0.001 * d))
+    write_contract(path, "BTCUSDT", price=lambda d: 100 * math.exp(0.0005 * d + 0.02 * math.sin(2.3 * d)))
     write_contract(path, "UPUSDT", price=lambda d: 100 * math.exp(0.02 * d))
     write_contract(path, "DOWNUSDT", price=lambda d: 100 * math.exp(-0.002 * d))
     write_contract(path, "CRASHUSDT", lows={CRASH_HOUR: 0.90})
@@ -221,3 +221,15 @@ def test_the_settings_must_fit_together(market, tmp_path):
         make(market, tmp_path, lists=LISTS[:4])
     with pytest.raises(ValueError, match="more symbols than slots"):
         make(market, tmp_path, slots=1)
+
+
+def test_the_cache_is_json_and_gives_back_exactly_what_was_computed(market, tmp_path):
+    j = make(market, tmp_path)
+    direct = j.run_config((FULL, (1,)))["periods"][1]
+    j.run_all([(FULL, (1,))], processes=1)
+    stored = j.load(FULL)[1]
+    assert stored["daily"].equals(direct["daily"]) and list(stored["daily"].index) == list(direct["daily"].index)
+    assert stored["trips"] == direct["trips"] != [] and stored["entries"] == direct["entries"]
+    assert (stored["stops"], stored["fills"]) == (direct["stops"], direct["fills"]) == (1, 4)
+    files = list(j.cache.iterdir())                               # no pickle in lab/ (test_artifact_loading)
+    assert [f.suffix for f in files] == [".json"] and json.loads(files[0].read_text())["settings"]["slots"] == 3
