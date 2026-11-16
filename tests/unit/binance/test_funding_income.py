@@ -1,0 +1,102 @@
+"""The account's funding income on one symbol (the strategy capital base, tech lead 2026-11-16): a read-only, paged
+GET of Binance's income history. Only USDT funding of that symbol counts; an answer that cannot be read raises, so
+the capped base sizes to zero instead of guessing.
+"""
+from __future__ import annotations
+
+from decimal import Decimal as D
+
+import pytest
+
+from trading.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.binance.config import BinanceConfig
+from trading.adapters.binance.rest import BinanceRetryableError
+from tests.unit.binance.fake_venue import HOUR, FakeBinance
+
+T = 1_794_000_000_000          # since (ms)
+
+
+def _adapter(client):
+    return BinanceAdapter(BinanceConfig(api_key="k", api_secret="s", testnet=True), client=client)
+
+
+class Pages:
+    """Answers each request with the next prepared page, as given (no filtering), and records every call."""
+
+    def __init__(self, *pages):
+        self.pages, self.calls = list(pages), []
+
+    def request_signed(self, *, method, path, params=None):
+        self.calls.append((method, path, dict(params or {})))
+        return self.pages.pop(0)
+
+    def request_public(self, *, method, path, params=None):
+        raise AssertionError("funding income is a signed account read")
+
+
+def _row(income, time_ms, tran_id, *, symbol="BTCUSDT", asset="USDT", income_type="FUNDING_FEE"):
+    return {"symbol": symbol, "incomeType": income_type, "income": income, "asset": asset, "info": income_type,
+            "time": time_ms, "tranId": tran_id, "tradeId": ""}
+
+
+def test_the_symbol_s_usdt_funding_since_the_time_is_summed_from_one_get():
+    fake = FakeBinance()
+    fake.add_income("BTCUSDT", "-1.5", T)                          # at the start time: counted (inclusive)
+    fake.add_income("BTCUSDT", "0.25", T + 8 * HOUR)
+    fake.add_income("BTCUSDT", "-9", T - 1)                        # before the strategy's first fill
+    fake.add_income("BTCUSDT", "-2", T + HOUR, asset="BNB")        # not USDT
+    fake.add_income("BTCUSDT", "-3", T + 2 * HOUR, income_type="COMMISSION")
+    fake.add_income("ETHUSDT", "-4", T + 3 * HOUR)
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("-1.25")
+    assert fake.income_requests == [{"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE", "startTime": T,
+                                     "limit": 1000}]
+    assert fake.posts == [] and fake.algo == {} and fake.orders == {}
+
+
+def test_rows_of_another_symbol_type_or_asset_never_count_even_if_the_venue_returns_them():
+    client = Pages([_row("1", T, 1), _row("10", T, 2, symbol="ETHUSDT"), _row("100", T, 3, income_type="TRANSFER"),
+                    _row("1000", T, 4, asset="USDC")])
+    assert _adapter(client).get_funding_income("BTCUSDT", since_ms=T) == D("1")
+    assert [(method, path) for method, path, _ in client.calls] == [("GET", "/fapi/v1/income")]
+
+
+def test_the_history_is_paged_by_time_and_a_row_asked_twice_counts_once():
+    fake = FakeBinance()
+    for i in range(2500):
+        fake.add_income("BTCUSDT", "-0.01", T + i * HOUR)
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("-25.00")
+    assert [r["startTime"] for r in fake.income_requests] == [T, T + 999 * HOUR, T + 1998 * HOUR]
+    assert {r["limit"] for r in fake.income_requests} == {1000}
+
+
+def test_a_row_sharing_the_time_of_a_page_s_last_row_is_not_lost():
+    fake = FakeBinance()
+    for i in range(1000):
+        fake.add_income("BTCUSDT", "1", T + i * HOUR)
+    fake.add_income("BTCUSDT", "1", T + 999 * HOUR)               # same time as the first page's last row
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("1001")
+
+
+def test_a_history_that_does_not_advance_raises_instead_of_looping():
+    fake = FakeBinance()
+    for _ in range(1000):
+        fake.add_income("BTCUSDT", "1", T)
+    with pytest.raises(RuntimeError, match="advance"):
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T)
+
+
+@pytest.mark.parametrize("page", [
+    {"code": -1021, "msg": "Timestamp outside recvWindow"},        # not a list
+    [_row("NaN", T, 1)],                                           # not a finite amount
+    [{k: v for k, v in _row("1", T, 1).items() if k != "tranId"}],  # no transaction id
+])
+def test_an_answer_that_cannot_be_read_raises(page):
+    with pytest.raises(RuntimeError, match="income"):
+        _adapter(Pages(page)).get_funding_income("BTCUSDT", since_ms=T)
+
+
+def test_a_failed_request_propagates():
+    fake = FakeBinance()
+    fake.income_error = True
+    with pytest.raises(BinanceRetryableError):
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T)
