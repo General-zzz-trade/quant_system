@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from decimal import Decimal as D
 
+import pytest
+
 from tests.characterization.test_stops_and_fills import _drain, _with_position
 
 
@@ -138,3 +140,58 @@ def test_an_answer_without_the_symbol_s_row_is_unknown_and_never_flat(tmp_path):
     fake.request_signed = no_row
     stops.sync()
     assert set(_active(fake)) == before
+
+
+# -- S4-S5 audit (2026-11-16): mutants A1 and A10, finding 7 ---------------------------------------------------
+def test_with_the_ledger_at_0_and_a_manual_position_left_the_stop_stays(tmp_path):
+    # A stop is cancelled only when ledger and venue are both flat (ADR-0012 point 3).
+    from tests.characterization.test_stops_and_fills import _order
+    fake, executor, consumer, stops = _placed(tmp_path)
+    before = set(_active(fake))
+    for event in executor.send_order(_order(2, "sell", "0.1", reduce_only=True)):
+        consumer.consume(event)
+    assert consumer.position.qty == 0
+    _venue(fake, "0.05", "100")                                         # a manual position is left
+    stops.sync()
+    assert set(_active(fake)) == before
+
+
+@pytest.mark.parametrize("venue", ["flat", "opposite", "unreadable"])
+def test_a_venue_unlike_the_ledger_blocks_the_symbol_s_entries(tmp_path, monkeypatch, venue):
+    from trading.application.issues import with_effect
+    from trading.domain.issues import Effect
+    fake, executor, consumer, stops = _placed(tmp_path)
+    if venue == "flat":
+        _venue(fake, "0", "0")
+    elif venue == "opposite":
+        _venue(fake, "-0.1", "100")
+    else:
+        def unreadable(*args, **kwargs):
+            raise ConnectionError("positions unavailable")
+        monkeypatch.setattr(stops.adapter, "get_position", unreadable)
+    assert with_effect(stops.sync(), Effect.BLOCK_SYMBOL_ENTRIES)
+
+
+def test_a_breach_with_no_row_for_the_symbol_sends_nothing_and_says_so(tmp_path):
+    # Finding 7: for the breach flatten too, an answer without the symbol's row is unknown, never flat.
+    import json
+    from tests.characterization.test_exit_paths import _execution, _until
+    from tests.unit.lab.test_target_runtime import _advance
+    world, runtime = _execution(tmp_path, execution="market")
+    btc = world["fakes"]["BTCUSDT"]
+    i = _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    _advance(world, runtime, i)
+    session = runtime.sessions["BTCUSDT"]
+    posts = len(btc.posts)
+    original = btc.request_signed
+
+    def no_row(*, method, path, params=None):
+        if path == "/fapi/v2/positionRisk":
+            return []
+        return original(method=method, path=path, params=params)
+    btc.request_signed = no_row
+    session.flatten("stop_breached", now_ms=int(world["clock"]["now"] * 1000))
+    assert len(btc.posts) == posts
+    rows = [json.loads(line) for line in (tmp_path / "exec/target_events.jsonl").read_text().splitlines()]
+    assert any(r["kind"] == "issue" and r.get("symbol") == "BTCUSDT" and "venue position unavailable" in r["issue"]
+               for r in rows)

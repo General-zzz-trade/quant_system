@@ -109,3 +109,33 @@ def test_open_conditional_orders_of_every_symbol_are_listed(venue):
                          "algoStatus": "CANCELED", "triggerPrice": "40"}
     listed = {(o.symbol, o.client_algo_id, o.state) for o in adapter.get_open_algo_orders()}
     assert listed == {("BTCUSDT", "qsstop1", STOP_ACTIVE), ("SOXLUSDT", "web", STOP_ACTIVE)}
+
+
+def _answer(fake, rows):
+    original = fake.request_signed
+
+    def answer(*, method, path, params=None):
+        if path == "/fapi/v2/positionRisk":
+            return rows
+        return original(method=method, path=path, params=params)
+    fake.request_signed = answer
+
+
+def test_one_symbol_s_position_flat_missing_and_hedge_mode(venue):
+    # S4-S5 audit, mutant A5: get_position (ADR-0012) had no direct test.
+    fake, adapter, _ = venue
+    flat = adapter.get_position("BTCUSDT")
+    assert flat is not None and flat.qty == 0                          # flat is a row with qty 0
+    fake.positions["BTCUSDT"], fake.entry["BTCUSDT"] = D("-0.2"), D("101")
+    held = adapter.get_position("BTCUSDT")
+    assert held is not None and held.qty == D("-0.2") and held.entry_price == D("101")
+    _answer(fake, [])
+    assert adapter.get_position("BTCUSDT") is None                     # no row: unknown, never flat
+    row = {"symbol": "BTCUSDT", "positionAmt": "0.1", "entryPrice": "100", "markPrice": "100", "leverage": "3",
+           "marginType": "cross"}
+    _answer(fake, [dict(row, positionSide="LONG"), dict(row, positionSide="SHORT", positionAmt="0")])
+    with pytest.raises(RuntimeError, match="Hedge-mode"):
+        adapter.get_position("BTCUSDT")
+    _answer(fake, [dict(row, positionSide="LONG")])
+    with pytest.raises(RuntimeError, match="Hedge-mode"):
+        adapter.get_position("BTCUSDT")

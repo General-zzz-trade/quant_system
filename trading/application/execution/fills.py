@@ -43,10 +43,17 @@ class TargetFillConsumer:
     the tech lead extended it on 2026-11-15 to every reduction: stops, breached-stop, kill-switch and drawdown
     flattens that close the whole venue position). Only the ledger's part is consumed; the rest is stored as a
     foreign fill (owner ``foreign:<symbol>``, in no owner's checkpoint), with a FOREIGN_FILL issue and an alert. An
-    entry never crosses zero either: the strategy splits a flip into a reduction and an entry."""
+    entry never crosses zero either: the strategy splits a flip into a reduction and an entry.
+
+    The foreign part is a record (S4-S5 audit): it is stored under its own intent id (``<intent>:foreign``), so it
+    never counts as the order's fill - the order settles on what the venue filled - and never as a fill waiting to
+    be consumed. A fill consumed already is never split again. The issue and alert are written before the
+    ledger's part is consumed: at least once (again after a crash before that), once per process while a
+    consumption keeps failing."""
 
     def __init__(self, executor: FillSource, events: EventLog | None = None) -> None:
         self.executor, self.journal, self.owner, self.events = executor, executor.journal, executor.owner, events
+        self._alerted: set[str] = set()
         saved = self.journal.checkpoint(self.owner)
         self.position = StrategyPosition.from_dict(saved["position"]) if saved else StrategyPosition()
         self.revision = saved["revision"] if saved else None
@@ -56,6 +63,8 @@ class TargetFillConsumer:
         if (str(event.order_id) != fact["intent_id"] or event.symbol != fact["symbol"] or event.side != fact["side"]
                 or event.qty != Decimal(fact["qty"]) or event.price != Decimal(fact["price"])):
             raise ValueError("Event differs from its durable exchange fact")
+        if not any(f.get("fill_id") == event.fill_id for f in self.journal.fills(self.owner)):
+            return False                             # consumed already: never split or applied again
         before = self.position.to_dict()
         owned = self._owned_part(event, fact)
 
@@ -90,9 +99,11 @@ class TargetFillConsumer:
         fee = Decimal(str(fact.get("fee") or 0))
         owned = dict(fact, qty=str(mine), fee=str(fee * mine / qty))
         foreign = dict(fact, qty=str(excess), fee=str(fee - Decimal(owned["fee"])))
-        # Stored before the ledger's part is consumed; storing it again after a restart is ignored.
-        if self.journal.insert_fill(fill_id=f"{event.fill_id}:foreign", intent_id=fact["intent_id"],
-                                    owner=f"foreign:{fact['symbol']}", payload=foreign):
+        # Stored before the ledger's part is consumed; storing it again after a restart is ignored. Its own intent
+        # id keeps it out of the order's fills and out of the fills the journal waits for (S4-S5 audit, 1 and 2).
+        self.journal.insert_fill(fill_id=f"{event.fill_id}:foreign", intent_id=f"{fact['intent_id']}:foreign",
+                                 owner=f"foreign:{fact['symbol']}", payload=foreign)
+        if event.fill_id not in self._alerted:
             text = (f"{fact['symbol']}: {excess} of fill {event.fill_id} was beyond the strategy ledger "
                     f"({mine}); booked as a foreign fill")
             logger.warning(text)
@@ -100,6 +111,7 @@ class TargetFillConsumer:
                 self.events.write(EventKind.ISSUE, symbol=fact["symbol"], issue=text,
                                   issue_kind=IssueKind.FOREIGN_FILL.value)
                 self.events.write(EventKind.ALERT, symbol=fact["symbol"], reason=text)
+            self._alerted.add(event.fill_id)
         return owned
 
 
