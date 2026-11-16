@@ -73,3 +73,7 @@ def test_a_slot_below_the_exchange_minimum_never_trades(snapshot):  # noqa: F811
     out = lab.run_idea(_always, {}, ["BTCUSDT", "ALTUSDT"], processes=1, snapshot=snapshot,
                        live=lab.LiveTerms(capital="8"))                     # 4 USDT per slot, minimum is 5
     assert out["fills"] == 0 and out["live"]["limits_needed"] == {"entry_orders": 0}
+
+
+def test_the_default_terms_are_the_tech_lead_s():
+    assert (lab.LIVE.capital, lab.LIVE.stop_pct, lab.LIVE.pause_hours) == ("300", "0.08", 4)   # 2026-11-16

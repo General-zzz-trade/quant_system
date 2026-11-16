@@ -72,7 +72,7 @@
   test; every configuration tested is recorded in `research/lab/trials.jsonl`; lab data ends 2026-11-12 (forward
   guard; snapshot `data_files/binance_usdt_perps_2026-11-12`); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
   lookahead, and the live terms: `LiveTerms` in `lab/um_lab.py`, 300 USDT split 1/N over a fixed list, the 8 % stop, a
-  pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
+  4-hour pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
   -3 % a day, 3 losses in a row, a stale feed).

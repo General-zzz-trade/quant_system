@@ -3576,3 +3576,9 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   读不出时按上限、盈亏为空时按上限、不扣手续费、主网检查关闭、入口不检查、定仓位不用上限、校验漏掉非正数、记录漏掉上限），基线通过，
   第一轮 12 个全部被杀。
 - **本地**【实际运行结果】：`tests/unit/trading`、`tests/characterization`、`tests/architecture`、目标运行时两个测试文件全部通过（`-x`，退出码 0）；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
+
+## 回测的止损后暂停改为 4 小时（2026-11-16，研究侧，轻流程）
+
+- 技术负责人 2026-11-16 定下止损后暂停 4 小时、到时自动解除。`lab/um_lab.py` 的 `LiveTerms.pause_hours` 从暂定的 24 改为 4，
+  `research/lab/README.md` 和 `CLAUDE.md` 同步。实盘程序一侧（自动解除）按资金路径完整流程另做，改好前实盘仍要人工解除。
+- 已有测试的改动：没有。新增 1 个测试（`test_um_lab_live_terms.py` 检查默认条件）。

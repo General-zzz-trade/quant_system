@@ -60,7 +60,7 @@ class LiveTerms:
     """What the live runtime does that the backtest follows (tech lead 2026-11-16)."""
     capital: str = "300"          # STRATEGY_CAPITAL_USDT of the small live pilot
     stop_pct: str = "0.08"        # the runtime's exchange stop (the entry point's --stop-pct default)
-    pause_hours: int = 24         # PROVISIONAL: the live pause will end by itself; the tech lead sets its length
+    pause_hours: int = 4          # the live pause after a stop ends by itself after 4 hours (tech lead 2026-11-16)
     daily_stop: float = 0.03      # the pilot stops for the day at -3 % (reported, from daily closes)
     losing_trades: int = 3        # the pilot stops after 3 losing trades in a row (reported)
 
