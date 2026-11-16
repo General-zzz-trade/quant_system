@@ -21,6 +21,7 @@ import sys
 import time
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import TextIO
 
@@ -104,6 +105,8 @@ def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, 
 
 RESTORE_PAUSE = "restored from a backup: a person checks the venue position and the ledger, then releases"
 RESTORE_SYMBOLS = ("BTCUSDT", "ETHUSDT")
+# Today's count after a restore: used up whatever limits the service runs with (S6-S8 audit, L2).
+USED_UP_ORDERS, USED_UP_NOTIONAL = 1_000_000_000, Decimal("1e15")
 
 
 def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: Mapping[str, str] | None,
@@ -158,7 +161,8 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
     try:
         print(f"{STATE_DB} is not usable: {'; '.join(problems)}", file=stdout)
         print(f"Restore {snapshot.name}, latch today's and this week's drawdown, count today's orders as used up "
-              f"and pause every symbol. Type {scope} to restore: ", end="", file=stdout)
+              f"and pause every symbol. The latch makes the next start flatten every position and stay flat until "
+              f"this ISO week ends (tech lead 2026-11-16). Type {scope} to restore: ", end="", file=stdout)
         if stdin.readline().strip() != scope:
             print("not restored", file=stdout)
             return 1
@@ -170,8 +174,8 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
         SqliteDrawdownGuard(temporary, scope, daily_pct=limits.daily_drawdown_pct,
                             weekly_pct=limits.weekly_drawdown_pct).latch_current(now=now)
         day = periods(now)["day"]
-        SqliteLimitStore(temporary, scope).use_up(day, orders=limits.max_daily_orders,
-                                                  notional=limits.max_daily_notional)
+        SqliteLimitStore(temporary, scope).use_up(day, orders=max(limits.max_daily_orders, USED_UP_ORDERS),
+                                                  notional=max(limits.max_daily_notional, USED_UP_NOTIONAL))
         pauses = SqliteEntryPauses(temporary, clock=lambda: now)
         for symbol in paused:
             pauses.pause(symbol, RESTORE_PAUSE)
@@ -180,17 +184,22 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
         enable_wal(temporary)
         if left := schema.problems(temporary):
             raise RuntimeError(f"the restored copy failed its check: {'; '.join(left)}")
+        # The broken database and every file of it (a WAL or a hot rollback journal would be applied to whatever
+        # takes its name: S6-S8 audit, M3 and L1) go together into one folder, which keeps them openable as one.
         stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        for suffix in ("", "-wal", "-shm"):
+        kept = state_dir / f"{STATE_DB}.broken-{stamp}"
+        kept.mkdir()
+        for suffix in ("", "-wal", "-shm", "-journal"):
             old = Path(f"{database}{suffix}")
             if old.exists():
-                os.replace(old, Path(f"{old}.broken-{stamp}"))
+                os.replace(old, kept / old.name)
         os.replace(temporary, database)
         verify(state_dir, scope)
     finally:
         lease.close()
         host.close()
-    print(f"restored {snapshot.name}; drawdown latched for {periods(now)}, today's orders used up, paused: "
+    print(f"restored {snapshot.name}; drawdown latched for {periods(now)} (the next start flattens every position "
+          f"and stays flat until the week ends), today's orders used up, paused: "
           f"{', '.join(paused)}. The kill file was not touched. Release each symbol with: python -m "
           f"trading.infrastructure.entry_pause --state-dir {state_dir} release --symbol <symbol> --reason ...",
           file=stdout)
