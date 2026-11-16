@@ -164,11 +164,17 @@ class BarListener(Protocol):
 
 class PaperVenue(BarListener, Protocol):
     """The simulated exchange as the paper runtime keeps it: a bar listener whose state is saved with the cursors
-    and loaded at a restart (ADR-0013 consequences: paper state = the venue's snapshot + the order journal)."""
+    and loaded at a restart (ADR-0013 consequences: paper state = the venue's snapshot + the order journal).
+    ``revision`` changes with every change of its state; ``has_matched`` says whether a bar was matched already."""
+
+    @property
+    def revision(self) -> int: ...
 
     def snapshot(self) -> dict[str, Any]: ...
 
     def restore(self, state: dict[str, Any]) -> None: ...
+
+    def has_matched(self, symbol: str, bar: Bar) -> bool: ...
 
 
 class GateClock(Protocol):

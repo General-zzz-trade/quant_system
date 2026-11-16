@@ -148,7 +148,7 @@ class TargetSession:
         self.executor.send_order(order)
         refusal = self.executor.take_refusal(order.order_id)
         if refusal is not None:                  # ADR-0005 7b: say why the order journal refused it
-            self._blocked(order.order_id, f"journal: {refusal}")
+            self._blocked(order.order_id, f"journal: {refusal}", refusal=refusal)
         self.executor.notify_status()
         self.consume_fills()
 

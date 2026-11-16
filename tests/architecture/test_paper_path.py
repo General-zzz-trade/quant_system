@@ -81,3 +81,15 @@ def test_the_rules_catch_what_they_forbid():
         "a = mode == 'paper'\nb = 'execution' != policy.name\nc = name in ('x',)\n"
         "match m:\n    case 'paper':\n        pass\n"))
     assert sorted(int(line.split(":")[0]) for line in comparisons) == [1, 2, 5]
+
+
+def test_the_entry_point_loads_neither_research_nor_the_old_research_broker():
+    """Completion criterion 1 (S10): the runtime's entry, with paper on the simulated exchange, loads no module of lab/
+    and not runner.offline (the old path of the research broker)."""
+    import subprocess
+    import sys
+    code = ("import sys, runner.binance_target; "
+            "print(sorted(m for m in sys.modules if m.split('.')[0] == 'lab' or m.startswith('runner.offline')))")
+    out = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"

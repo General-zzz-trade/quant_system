@@ -52,7 +52,7 @@ the deleted shadow process and Bybit runner). On a host that still runs those co
 
 ```bash
 systemctl list-units 'binance-target*' 'health-watchdog*' --no-pager
-cat /quant_system/data/runtime/binance_target/target_status.json
+cat /quant_system/data/runtime/paper/target_status.json     # the unit runs paper (--dry-run); execution: data/runtime/binance_target
 cat /quant_system/data/runtime/health_status.json
 tail -f /quant_system/logs/binance_target.log
 sudo systemctl list-timers --all --no-pager

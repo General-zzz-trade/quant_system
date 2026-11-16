@@ -52,7 +52,8 @@ class TargetRuntime:
                  event_log_failure: Callable[[], Issue | None] = lambda: None,
                  config_digest: str | None = None,
                  account_check: Callable[[], list[Issue]] | None = None, venue: PaperVenue | None = None,
-                 gate_clock: GateClock | None = None) -> None:
+                 gate_clock: GateClock | None = None,
+                 exit_observer: Callable[[str, str, str], None] | None = None) -> None:
         self.policy, self.venue = policy, venue
         self.spec, self.mode, self.market, self.account, self.clock = spec, policy.name, market, account, clock
         self.sessions, self.journal, self.equity = sessions, journal, equity
@@ -64,16 +65,21 @@ class TargetRuntime:
         self._cycle_errors: dict[str, Issue] = {}     # side -> its last failure, until the side succeeds
         self._event_log_failure = event_log_failure    # S3 audit finding 3: blocks entries while it lasts
         self._warmed = False                          # the whole warm-up succeeded (S3 audit finding 6)
+        # Paper: the last bar each symbol has decided on, and whether the saved state has been loaded (before that
+        # nothing may be saved over it).
+        self._decided: dict[str, int | None] = {}
+        self._paper_loaded = False
         self.market_side = MarketPoller(market, sessions, policy=policy, journal=journal, clock=clock,
                                         market_errors=market_errors, final_market_errors=final_market_errors,
                                         listeners=(venue,) if venue is not None else (),
-                                        settle=lambda: self.exits.settle(), gate_clock=gate_clock)
+                                        settle=lambda: self.exits.settle(), gate_clock=gate_clock,
+                                        on_step=self._decided_on)
         self.exits = ExitSupervisor(sessions, spec=spec, journal=journal, clock=clock, account=account, equity=equity,
                                     kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
                                     cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
-                                    account_check=account_check)
+                                    account_check=account_check, exit_observer=exit_observer)
         self.reporter = StatusReporter(sessions, mode=policy.name, clock=clock, spec_passed=spec_passed,
                                        notifier=notifier, kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures, config_digest=config_digest,
@@ -141,13 +147,16 @@ class TargetRuntime:
             have = min(len(session.bars) + len(missed[symbol]), session.bars.maxlen or 0)
             if have < self.spec.window_hours():
                 raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{self.spec.window_hours()})")
+            self._decided[symbol] = session.cursor
         self._warmed = True
+        self._paper_loaded = self._paper_store is not None
         if any(missed.values()):
-            # The exit side sees the restored venue and journal before any missed bar is decided.
+            # The exit side sees the restored venue and journal before any missed bar is decided. A bar the venue
+            # had matched before a crash, but not yet decided on, is decided without being matched again.
             self.exits.refresh_equity()
             self.exits.reconcile()
             self.exits.update_states()
-            self.market_side.replay(missed)
+            self.market_side.replay(missed, matched=self.venue.has_matched if self.venue is not None else None)
         for symbol, session in self.sessions.items():
             self.journal.write(EventKind.WARMUP, symbol=symbol, bars=len(session.bars), last_open=session.cursor,
                                resumed_from=resumed[symbol])
@@ -201,11 +210,21 @@ class TargetRuntime:
                                "start a new paper record with --reset-paper-state")
         return data
 
+    def _decided_on(self, group: list[tuple[str, Bar]]) -> None:
+        for symbol, bar in group:
+            self._decided[symbol] = bar.open_time
+
+    def paper_revision(self) -> object | None:
+        """Changes whenever the paper document would; None until the saved state is loaded (S10 decision 4)."""
+        if not self._paper_loaded or self.venue is None:
+            return None
+        return self.venue.revision, tuple(sorted(self._decided.items()))
+
     def paper_document(self) -> dict[str, Any]:
         """The paper state: the simulated exchange's snapshot and the last bar each symbol has decided on."""
         assert self.venue is not None
         return {"schema": PAPER_SCHEMA, "spec": self.spec.record(),
-                "symbols": {symbol: {"cursor": s.cursor} for symbol, s in self.sessions.items()},
+                "symbols": {symbol: {"cursor": cursor} for symbol, cursor in self._decided.items()},
                 "venue": self.venue.snapshot()}
 
     def save_paper_state(self) -> None:
