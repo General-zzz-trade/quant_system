@@ -95,3 +95,23 @@ def test_a_restart_counts_only_the_symbol_s_own_working_orders_and_a_reduction_a
                             execution=ExecutionParts(executor, None, None, None, None))
     session.restore_pending()
     assert session.pending == {"b-entry": False, "b-reduce": True}
+
+
+def test_execution_waits_after_a_placement_and_paper_does_not(tmp_path, monkeypatch):
+    # The auditor's E4 survived the first round: nothing checked that execution still waits for the venue.
+    from trading.infrastructure.target import ENTRY_WAIT_SECONDS
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda seconds: slept.append(seconds))
+    world, runtime = _execution(tmp_path)
+    i, btc = world["warm"], world["fakes"]["BTCUSDT"]
+    while not btc.posts:
+        assert i < world["warm"] + 200, "no order placed"
+        _advance(world, runtime, i)
+        i += 1
+    assert ENTRY_WAIT_SECONDS in slept
+    slept.clear()
+    paper = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
+                          market=world["adapter"], clock=lambda: world["clock"]["now"])
+    lifecycle = paper.sessions["BTCUSDT"].executor._service._orders           # wiring check: private on purpose
+    lifecycle.sleeper(ENTRY_WAIT_SECONDS)
+    assert slept == []
