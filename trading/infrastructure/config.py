@@ -22,6 +22,8 @@ from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.notify.heartbeat import HttpHeartbeat
 from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.file import FileNotifier
+from trading.application.execution.stops import MAX_STOP_PCT, MIN_STOP_PCT
+from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.adapters.notify.telegram import TelegramNotifier
 
 
@@ -156,6 +158,8 @@ class RuntimeConfig:
     # realized PnL); required on mainnet, optional on the testnet (whole account), unused in paper.
     strategy_capital: Decimal | None = None
     strategy_loss_stop: Decimal | None = None    # a fraction of the strategy capital; None without a capital
+    # Owner 2026-11-16: a full position is this many times the strategy capital (1 to 3; 1 without a capital).
+    strategy_leverage: Decimal = Decimal(1)
 
     def record(self) -> dict[str, object]:
         """Every value, as plain JSON, without any secret: what this run uses."""
@@ -164,7 +168,8 @@ class RuntimeConfig:
                 "stop_pct": str(self.stop_pct), "limits": limits, "leverage": self.leverage, "margin": self.margin,
                 "alerts": self.alerts, "identity": self.identity,
                 "strategy_capital": None if self.strategy_capital is None else str(self.strategy_capital),
-                "strategy_loss_stop": None if self.strategy_loss_stop is None else str(self.strategy_loss_stop)}
+                "strategy_loss_stop": None if self.strategy_loss_stop is None else str(self.strategy_loss_stop),
+                "strategy_leverage": str(self.strategy_leverage)}
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.record(), sort_keys=True).encode()).hexdigest()
@@ -175,14 +180,16 @@ def account_identity(*, testnet: bool, api_key: str) -> str:
     return hashlib.sha256(f"{'testnet' if testnet else 'mainnet'}:{api_key}".encode()).hexdigest()
 
 
-def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_pct: Decimal,
+def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_pct: Decimal | None,
                 testnet: bool | None = None, require_credentials: bool = False) -> tuple[RuntimeConfig, Secrets]:
     """Read and check every setting once. A missing or invalid one refuses the start and names it. ``testnet``
-    overrides BINANCE_TESTNET (tests); credentials are read only when ``require_credentials``."""
+    overrides BINANCE_TESTNET (tests); credentials are read only when ``require_credentials``. ``stop_pct`` is the
+    command line's ``--stop-pct``; None leaves it to ``STOP_PCT`` (execution) or the default."""
     env = os.environ if env is None else env
     net = testnet_from_env(env) if testnet is None else testnet
     if not execution:
-        return (RuntimeConfig(testnet=net, execution=False, scope="paper-target", stop_pct=Decimal(stop_pct),
+        stop = DEFAULT_STOP_PCT if stop_pct is None else Decimal(stop_pct)
+        return (RuntimeConfig(testnet=net, execution=False, scope="paper-target", stop_pct=stop,
                               limits=None, leverage=None, margin=None, alerts=None, identity=None),
                 Secrets(binance=None, telegram=None))
     scope = execution_scope(testnet=net, env=env)
@@ -198,12 +205,49 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     capital = strategy_capital(env)
     binance = binance_config_from_env(testnet=net, env=env) if require_credentials else None
     identity = account_identity(testnet=net, api_key=binance.api_key) if binance is not None else None
-    config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=Decimal(stop_pct), limits=limits,
-                           leverage=leverage, margin=margin, identity=identity,
+    config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=stop_distance(env, stop_pct),
+                           limits=limits, leverage=leverage, margin=margin, identity=identity,
                            alerts="telegram" if token else "file" if file else "log",
-                           strategy_capital=capital, strategy_loss_stop=strategy_loss_stop(env, capital))
+                           strategy_capital=capital, strategy_loss_stop=strategy_loss_stop(env, capital),
+                           strategy_leverage=strategy_leverage(env, capital, leverage))
     return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat,
                            alert_file=file)
+
+
+DEFAULT_STOP_PCT = Decimal("0.08")
+
+
+def stop_distance(env: Mapping[str, str], given: Decimal | None) -> Decimal:
+    """The exchange stop's distance: the command line's ``--stop-pct`` when given, else STOP_PCT (owner 2026-11-16:
+    the pilot's 4.5 %, and the mainnet unit passes no flag), else 8 %; within the stop manager's bounds."""
+    raw = env.get("STOP_PCT", "").strip()
+    try:
+        value = Decimal(given) if given is not None else Decimal(raw) if raw else DEFAULT_STOP_PCT
+    except (ArithmeticError, ValueError):
+        value = Decimal("nan")
+    if not value.is_finite() or not MIN_STOP_PCT <= value <= MAX_STOP_PCT:
+        raise RuntimeError(f"STOP_PCT (or --stop-pct) must be a fraction between {MIN_STOP_PCT} and {MAX_STOP_PCT}")
+    return value
+
+
+def strategy_leverage(env: Mapping[str, str], capital: Decimal | None, exchange_leverage: int) -> Decimal:
+    """STRATEGY_LEVERAGE (owner 2026-11-16): a full position is this many times the strategy capital. 1 unless set;
+    above 1 only with a strategy capital; at most MAX_TOTAL_LEVERAGE (the exposure cap) and at most the exchange
+    leverage setting the account has (BINANCE_EXCHANGE_LEVERAGE). A person writes it; nothing changes it."""
+    raw = env.get("STRATEGY_LEVERAGE", "").strip()
+    if not raw:
+        return Decimal(1)
+    try:
+        value = Decimal(raw)
+    except (ArithmeticError, ValueError):
+        value = Decimal("nan")
+    if not value.is_finite() or not 1 <= value <= MAX_TOTAL_LEVERAGE:
+        raise RuntimeError(f"STRATEGY_LEVERAGE must be between 1 and {MAX_TOTAL_LEVERAGE}")
+    if value > 1 and capital is None:
+        raise RuntimeError("STRATEGY_LEVERAGE above 1 is a multiple of the strategy capital: set STRATEGY_CAPITAL_USDT")
+    if value > exchange_leverage:
+        raise RuntimeError("STRATEGY_LEVERAGE may not exceed the exchange leverage setting BINANCE_EXCHANGE_LEVERAGE")
+    return value
 
 
 def strategy_capital(env: Mapping[str, str]) -> Decimal | None:

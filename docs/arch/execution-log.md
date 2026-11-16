@@ -3708,7 +3708,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     `sorted(set(writers)) == ["trading/adapters/files/kill_switch.py", "trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]`，
     并新增两条：`kill_switch.py` 里那次写入的 `active` 是常量 `True`；全代码只有 `trading/application/risk/loss_stop.py` 调用 `trip`。
 - **测试辅助的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（27 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（19 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+  （2026-11-16 晚更正：这里原来写的是 27 个，实际 `--collect-only` 收集到 19 个用例，加上运行时的 7 个共 26 个。）
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_loss_stop.json` 39 个变异，基线通过，第一轮 37 个被杀。存活 2 个：
   问题"不立即阻断入场"和"对账时不继续生效"——原来的"亏损未知"测试里仓位基数本来就是 0，分辨不出。补了一个只有停止线报问题、
   仓位基数正常的运行时测试后都被杀。最终 39/39。
@@ -3716,6 +3717,13 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   ruff、`mypy trading/`（92 个文件）、导入契约（5 个）通过。
 - **已知的限制**：停止线 60 秒读一次，两次之间的亏损靠每个仓位的 8% 交易所止损兜底；浮动盈亏按交易所标记价算，
   平仓成交价可能更差；状态里还没有显示当前累计亏损。
+- **更正和补充（2026-11-16 晚，独立审计之后；上面的原文不改）**：
+  - 上面"改了什么"没有写全：停止线的问题除了阻断全部入场，还会撤掉未成交的入场挂单（问题表里的 `CANCEL_RESTING_ENTRIES`），
+    持续 2 分钟后发 Telegram，之后每 30 分钟重复（`IssueAlerts`）。
+  - 触发原因里的上限印成了 "limit 15.00 %"，已改为 "15 %"。
+  - 用 BNB 付的手续费不在盈亏里（账本只扣 USDT 手续费）。账户上没有开用 BNB 付手续费（2026-11-16 核对过，任务说明里给的事实，这次没有重新查）。
+  - 仓位基数为 0 时（资金费未知等）不做部分减仓，只做整仓平仓：这是已有的"未知即 0"规则（R13，2026-11-15 的决定），不是这次的改动。
+  - 审计发现的缺陷和处理见下面"策略亏损停止线的独立审计与处理"。
 
 ## 2026-11-16 晚的决定（文档，轻流程）
 
@@ -3991,3 +3999,195 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   `mypy trading/`（95 个文件）、导入契约（5 个）通过。
 - **对试运行的影响**【推测】：BTC、ETH 都是 8 小时，行为与之前相同；只是启动和每小时多一次公开请求（权重 0）。
   读不到间隔超过 2 小时时，两个品种都停止入场，减仓和止损照常。
+## 策略亏损停止线的独立审计与处理（2026-11-16 晚，资金路径完整流程）
+
+- **起因**：PR #106（策略亏损停止线）合并当天做了独立审计。审计的复现测试和它自己的变异在 `/root/lab_logs/audit-2026-11-16/`
+  （不在仓库里）。处理方案由技术负责人事先定好，这里照做；分支 `loss-stop-audit-fixes`，中途合并过一次 master（PR #108、#109）。
+- **审计发现和处理**（编号是审计的）：
+  1. **交易所的整账户持仓回答为空时，浮亏读成 0**；2. **账户上同品种的手动仓位被当成策略的**（它的盈利能盖住策略的亏损，它的亏损能触发
+     停止线并被急停一起平掉）。处理：`strategy_unrealized`（`trading/application/risk/loss_stop.py`）改为按**账本**算——每个
+     `target.<品种>` 的账本数量 ×（交易所该品种的标记价 − 账本开仓价）。账本数量为 0 的品种不管交易所显示什么都计 0，也不去读交易所。
+     账本有仓位而交易所没有返回该品种的行、标记价不可用（空、非有限数、不大于 0）、或账本的数量、开仓价不可用时一律报错，停止线记为"亏损未知"，
+     不当成 0。标记价用按品种的持仓查询（`get_position`，平仓的行也返回），不再用整账户的回答。`trading/infrastructure/target.py`
+     加 `strategy_positions`（从各 owner 的检查点读数量和开仓价）；`PositionView`（`execution/stops.py`）加 `mark_price`。
+  3. **重启后等行情、预热期间不读停止线**。处理：`ExitSupervisor.reconcile()` 一开始就调用 `check_loss_stop()`，所以每个循环的对账、
+     预热里的对账、等行情时的 `_hold_exit` 都会读；`run()` 里原来单独的那次调用删掉。对账之后才是风险动作，所以"触发的那个循环就平仓"不变。
+  4. **资金费超过 2 小时读不到时停止线失明**（亏损未知，不会触发）。处理：`StrategyFunding.last_known()` 返回本进程最后一次成功读到的
+     总数，不管多旧（调用时照常按 10 分钟节奏尝试刷新）；本进程一次都没读到才报错。停止线用它，仓位基数仍用 `current()`（2 小时规则）。
+     **仍然存在的情况**：重启后如果某个 owner 的首笔成交已早于 88 天，资金费读不出来（88 天保护），本进程就从未读到过，停止线一直是"未知"：
+     阻断全部入场、撤入场挂单、告警，不平仓。这要等技术负责人已经定下的改动（累计资金费存进状态数据库）。
+     另外，仓位基数为 0 时不做部分减仓、只做整仓平仓，是已有的"未知即 0"规则，这次没有改。
+  5. **`get_funding_income` 只发 `startTime`**。处理：每一页都带 `endTime=now_ms`（`trading/adapters/binance/adapter.py`）。
+     `scripts/account_check.py` 的报告多一节只读检查：对 BTCUSDT、ETHUSDT 用 `/fapi/v1/income`（`incomeType=FUNDING_FEE`）查最近
+     80 天，各查两次（`limit=1000` 和 `limit=5`），打印行数、首行和末行时间、是否按时间升序、5 行那页是不是从最旧的一行开始。只用测试里的
+     假传输测过，**我没有运行它**（它会连真实账户）。协调方转告：当天已在真实账户上只读核对过，带 `startTime`+`endTime`、按周分窗时
+     币安按时间升序返回（【转述，非本次运行结果】）。
+  6. **人解除急停后，60 秒的检查间隔内可以放行一笔入场**。处理：`StrategyLossStop` 一旦读到亏损到线，就在进程存活期间一直算"已到线"：
+     之后每次 `check()`（每次对账，不等 60 秒）都读急停文件，不是"激活并平仓"就再 `trip` 一次，并且一直返回一条阻断全部入场的问题；
+     不再重读亏损。重启后预热里的对账会重新读亏损，早于任何入场决定。运行时仍然从不关闭急停。
+  7. **只算当前规格的品种**。处理：`SqliteOrderJournal.owners()` 列出本 scope 账本里的全部 owner（有检查点的，或有还没入账的成交的；
+     人工写入仓位时同一事务里也写检查点，所以不用另查人工操作表）；
+     `strategy_owners`（`target.py`）= 规格的品种 ∪ 账本里所有 `target.*`。仓位基数（`CappedEquity`）和停止线的已实现盈亏、
+     资金费（各 owner 自己的首笔成交起）、浮动盈亏都按这个清单算。`StrategyFunding` 的品种可以是每次刷新时现取的函数。
+  - **新问题类型**（方案第 5 条）：`IssueKind.STRATEGY_LOSS_STOP = "strategy_loss_stop"`，效果 `BLOCK_ALL_ENTRIES` +
+    `CANCEL_RESTING_ENTRIES`。停止线的三种问题（亏损未知；已到线；急停写不进去）都用它，不再用 `ACCOUNT_UNREADABLE`。
+    `tests/architecture/test_issue_rules.py` 仍然通过（应用层没有新增文本搜索）；告警规则不变（按品种和类型计时，持续 2 分钟后发，
+    每 30 分钟重复）。"已到线"这条问题会一直存在到进程结束，所以每 30 分钟会重复告警一次，直到有人停掉进程。
+  - **过时的话**：`trading/infrastructure/kill.py`（"运行时从不写急停文件"）、`execution/stops.py` 和 `domain/symbol_state.py`
+    （"暂停由人解除"）改成现在的事实。触发原因里的上限印成 "15 %"（原来是 "15.00 %"）。"策略亏损停止线"一节里的 27 个更正为 19 个，
+    并加了一条带日期的更正。`CLAUDE.md`（校准试运行改为 150 USDT：`STRATEGY_CAPITAL_USDT=150`，停止线 22.5 USDT，BTC 基本不会成交；
+    停止线一条；共用账户一条）、`docs/binance_runbook.md`（变量表两行、故障表两行）、`.env.example` 同步。
+    校准试运行的资金在上面"2026-11-16 晚的决定"一节里写的是 300 USDT；技术负责人当晚改为用账户上现有的 150 USDT，那一节的原文不改。
+- **已有测试的改动**（全部列出，原文和新文）：
+  1. `tests/unit/trading/test_issues.py::test_the_table_is_exactly_the_decided_one`（方案第 5 条，问题表逐行固定）：**新增一行**
+     `IssueKind.STRATEGY_LOSS_STOP: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # loss stop audit`，其他行不动。
+  2. `tests/contract/test_exchange_ports.py`（方案第 9 条；`ts_ms` 每次读取时打时间戳，两次读取跨毫秒就失败）：
+     - 原来：`assert h.venue.get_positions(strict=True) == (position,) and h.venue.get_positions("ETHUSDT") == ()`
+     - 现在：`(again,) = h.venue.get_positions(strict=True)`；
+       `assert dataclasses.replace(again, ts_ms=0) == dataclasses.replace(position, ts_ms=0)`；
+       `assert h.venue.get_positions("ETHUSDT") == ()`
+  3. `tests/characterization/test_strategy_loss_stop_runtime.py::test_a_loss_that_cannot_be_known_closes_nothing_and_blocks_entries`
+     （当天 PR #106 自己的测试，随第 5、6 条改变）：
+     - 原来：`assert issues and issues[0]["issue_kind"] == "account_unreadable"`
+     - 现在：`assert issues and issues[0]["issue_kind"] == "strategy_loss_stop"`
+     - 场景（测试准备）也改了：原来是"资金费连续 3 小时读不到"，按第 6 条这不再让亏损未知；现在是"资金费读不到时重启"
+       （加了 `runtime = _runtime(tmp_path, world)` 和 `runtime.warmup()` 两行，本进程从未读到资金费）。其余断言不变。
+  4. `tests/unit/trading/test_strategy_loss_stop.py::test_at_15_per_cent_the_kill_switch_is_set_with_flatten_once`
+     （PR #106 自己的测试，随第 4 条"到线后一直返回问题"改变）：
+     - 原来：`assert stop.check() == []`（触发的那次）→ 现在：`(reached,) = stop.check()`
+     - 原来：`assert stop.check() == [] and stop.take_trip() is None` → 现在：`assert stop.check() == [reached] and stop.take_trip() is None`
+     - "急停文件原样不动""只报告一次"等其余断言不变。
+  5. 同一文件 `test_a_switch_that_cannot_be_set_blocks_every_entry_and_is_tried_again`（同上原因）：
+     - 原来：`assert stop.check() == [] and kill.state().flatten is True     # no minute's wait`
+     - 现在：`(reached,) = stop.check()`；`assert "strategy loss stop reached" in reached and kill.state().flatten is True`
+  6. `tests/unit/binance/test_funding_income.py::test_the_symbol_s_usdt_funding_since_the_time_is_summed_from_one_get`
+     （当天"资金费计入基数"的测试，逐字固定请求参数；随第 7 条多发 `endTime` 改变。**这一处不在任务说明点名的两处之内**，
+     是第 7 条的直接结果，已在报告里单独标出）：
+     - 原来：`assert fake.income_requests == [{"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE", "startTime": T, "limit": 1000}]`
+     - 现在：`assert fake.income_requests == [{"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE", "startTime": T, "endTime": NOW, "limit": 1000}]`
+- **测试辅助的改动**：
+  - `tests/unit/trading/test_strategy_loss_stop.py` 两个 `strategy_unrealized` 测试的调用改成新签名（账本行 + 按品种取交易所行的函数），
+    期望值和 `pytest.raises(RuntimeError, match="BTCUSDT")` 不变：
+    `strategy_unrealized(positions, ["BTCUSDT", "ETHUSDT"])` → `strategy_unrealized(ledger, venue)`（`ledger` 取前两个仓位的数量和开仓价，
+    `venue` 按品种返回仓位）；`strategy_unrealized([_position("BTCUSDT", "0.01", entry, mark)], ["BTCUSDT"])` →
+    `strategy_unrealized([("BTCUSDT", D("0.01"), None if entry is None else D(entry))], lambda symbol: _position(symbol, "0.01", entry, mark))`。
+  - `tests/characterization/test_strategy_loss_stop_runtime.py`：桩里的问题类型 `IssueKind.ACCOUNT_UNREADABLE` → `IssueKind.STRATEGY_LOSS_STOP`；
+    多导入 `_runtime`。
+  - `tests/unit/binance/fake_venue.py`：`GET /fapi/v1/income` 也按 `endTime` 过滤（含端点）；不带 `endTime` 的请求和原来一样。
+  - `tests/unit/tooling/test_account_check.py`：假传输 `Venue` 加 `answers`（某个路径的回答可以是查询参数的函数），默认给
+    `/fapi/v1/income` 一个按 `startTime`/`endTime`/`limit` 生成升序资金费行的回答。合并 master 时 `scripts/account_check.py` 有一处冲突
+    （PR #109 的历史导出和这里的资金费一节），两边都保留，`/fapi/v1/income` 在允许清单里只留一行。
+- **新增测试**（`--collect-only` 核对过的用例数）：
+  - `tests/unit/trading/test_loss_stop_audit.py`（新，38 个）：三种问题的类型和效果；账本数量 × 标记价、数量 0 计 0 且不读交易所、
+    没有行/标记价不可用/账本不可用即未知；`strategy_positions`、`strategy_owners`、`journal.owners()`、资金费品种每次现取；
+    到线后每次检查都阻断并立刻重设被解除的急停、不再读亏损；解除后急停写不进去；急停文件丢失或读不出时照样写入；原因里的上限写法；
+    `last_known()`；以及审计存活变异对应的缺口（基数遇到非有限盈亏、`first_fill_at` 不看别的 owner 的人工仓位、上限正好 15、
+    同一结束时间的第二次暂停不加行）；亏损未知时每次检查都重读并继续阻断。
+  - `tests/characterization/test_loss_stop_audit_runtime.py`（新，14 个）：整账户回答为空时照样触发；持有的品种交易所没有行时亏损未知、
+    不平仓、阻断入场；手动仓位的盈利盖不住策略的亏损；手动仓位的亏损不触发、不被平掉；第二个品种（ETH）的浮亏算数；早先规格的 owner
+    计入基数和停止线；触发的那个循环就平仓；重启等行情时读停止线并在同一次等待里平仓；解除急停后重启，预热时再次打开、之后不入场；
+    解除急停后下一根 K 线不入场、同一循环再次打开、问题只写一次、告警两次；资金费 3 小时读不到时基数为 0 但停止线照常触发；
+    止损后的暂停正好 4 小时；停止线新出现的问题在发现它的那次对账里就阻断入场；模拟盘即使被塞进策略资金也不建停止线和资金上限。
+    先写的 11 个里有 9 个在 master 的代码上失败（把 `trading/` 换回 master 实际跑过）；另外 2 个和后加的 3 个是为存活变异补的
+    缺口测试，在改动前的代码上本来就通过或没有单独在 master 上跑。两个手动仓位的测试第一版依赖真实时间的下单限速
+    （第二个品种的入场是否被推迟），偶发失败，已改成与此无关（单独一个提交）。
+  - `tests/unit/binance/test_funding_income.py`（新增 3 个，共 13 个）：每页都带 `endTime`、之后的行不算；5 页读全；超过页数上限报错。
+  - `tests/unit/tooling/test_account_check.py`（新增 4 个，共 10 个）：资金费一节的请求参数和输出；倒序回答如实显示；空回答和非列表回答；
+    `/fapi/v1/income` 在允许清单里且要签名。
+- **变异自检**【实际运行结果】：两份清单，默认测试是停止线和资金上限的 6 个测试文件，个别变异指定了更窄的文件。
+  - `scripts/dev/mutants/strategy_loss_stop.json`（按新代码改写，39 个）和新的 `scripts/dev/mutants/loss_stop_audit_fixes.json`
+    （审计自己的 18 个变异按新代码改写成 19 个，加上这次新代码的变异；第一轮 70 个，最终 69 个）。基线都通过。
+  - **第一轮**：39 个里 38 个被杀，存活 1 个；70 个里 65 个被杀，存活 5 个。逐个处理：
+    - "findings wait a minute"（有问题时也等 60 秒）：真缺口。原来靠"急停写不进去"的测试杀它，到线锁定之后那条路不再经过这里，
+      亏损未知时 60 秒内的第二次检查会返回空、放开入场。补了单元测试（未知时每次检查都重读、继续阻断）。
+    - "the stop's findings reach the next reconciliation only"（新问题要到下一次对账才生效）：真缺口，补了运行时测试。
+    - X16（模拟盘也建停止线）：入口不会把策略资金交给模拟盘，但组装函数自己的防线没有测试；补了一个。
+    - "journal owners - manual positions left out"：人工写入仓位总是同时写检查点，`owners()` 里查人工操作表的那一支多余，删掉了
+      （对应的两个变异去掉，加了一个"别的 scope 的检查点也列出"，所以 70 → 69）。
+    - "switch not set is still an account finding"：**工具的假存活**。单独跑、和它前面两个变异一起跑都是被杀，手工改代码测试也失败。
+      原因查到了：变异和原文一样长，写入时间又和上一次还原落在同一秒时，Python 把旧的 `.pyc` 当成新的（`.pyc` 只记源文件的秒级修改时间
+      和大小），跑的是缓存里的代码；我在工作区手工复现了同样的现象（`.pyc` 头里的时间、大小和还原后的源文件相同，内容却是变异后的）。
+      这个缺陷反过来也能造成假的"被杀"（上一个变异的失败算到下一个头上），所以**第一轮的数字两个方向都不可靠**。
+      `scripts/dev/mutate.py` 改为运行测试时不写字节码（`PYTHONDONTWRITEBYTECODE=1`）。
+    - X14（账户权益为 0 时不提前返回）：等价变异，结果都是 0，只是少读一次账本；保留在清单里并在名字上注明。
+  - **最终一轮（改过的工具，补完测试之后重跑两份清单）**：39/39 被杀；69 个里 68 个被杀，存活 1 个（X14，等价）。
+    审计的 19 个变异里，原来存活的 11 个现在除 X14 外都被杀。
+- **本地**【实际运行结果】：任务说明里 `git grep` 列出的 35 个相关测试文件，加上契约测试、暂停自动解除、行情失败、目标运行时、
+  `tests/unit/binance`、`tests/unit/tooling`、`tests/architecture` 和问题表测试，清掉字节码缓存后一起跑，625 个全部通过（退出码 0）；
+  ruff 全仓库、`mypy trading/`（92 个文件）、导入契约（5 个）通过。整套测试没有在本地跑（CI 跑）。
+- **工具的改动（轻流程）**：`scripts/dev/mutate.py` 运行测试时设 `PYTHONDONTWRITEBYTECODE=1`，原因见上面"变异自检"。
+- **还没解决的**：
+  - 重启后首笔成交早于 88 天时停止线未知（见第 4 条），等累计资金费存进状态库。
+  - 手动仓位和策略仓位在同一品种上时，急停平仓仍按交易所持仓整仓平掉（ADR-0012），会把手动仓位一起平掉；停止线本身不再受它影响。
+    试运行的前提仍是这两个品种上没有手动仓位。
+  - 账本数量和交易所不一致时（成交还没入账的一两个循环），浮动盈亏按账本数量算；交易所对已平仓品种返回的标记价如果是 0，
+    这段时间停止线是"未知"（阻断入场），成交入账后恢复。真实接口对空仓行返回什么标记价没有核对过【推测】。
+  - "已到线"的问题每 30 分钟重复告警，直到进程被停掉；状态文件里仍然没有显示当前累计亏损。
+  - 资金费翻页假设升序：`account_check` 新增的一节可以让人核对；`get_funding_income` 遇到倒序回答仍会漏行或报"不前进"。
+
+## 试运行的两个配置：仓位倍数 `STRATEGY_LEVERAGE` 和止损距离 `STOP_PCT`（2026-11-16 晚，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 晚纠正我：币安上很小的资金都能下单（交易所的最小值限制的是名义金额，不是保证金），
+  之前"发不出单"是程序定仓位不用杠杆造成的。随后选择：10 倍逐仓、止损 4.5%、仓位为策略资金的 2 到 3 倍，15% 停止线和回撤锁定不变。
+  回测见 `research/results/overlay_pilot_leverage_2026-11-16/`（2 倍最好）。这是"不自动升级风险"规则下由人写的配置，程序从不改它。
+- **改了什么**：
+  - `trading/infrastructure/config.py`：`STRATEGY_LEVERAGE`（1 到 3；不设为 1；大于 1 必须有策略资金；不超过 `MAX_TOTAL_LEVERAGE`
+    和 `BINANCE_EXCHANGE_LEVERAGE`），进配置记录。`STOP_PCT`：命令行没有 `--stop-pct` 时的止损距离（主网服务单元不带这个参数），
+    不设为 0.08，范围用止损管理器的上下限；命令行仍然优先。模拟盘两个都不读。
+  - `trading/infrastructure/target.py`：执行模式有策略资金时，每个品种的份额乘以 `STRATEGY_LEVERAGE`。
+  - `trading/infrastructure/cli/target.py`：传入倍数；`--stop-pct` 默认改为不给（由配置决定，结果仍是 0.08）。
+  - 文档：`CLAUDE.md` 试运行一条、`.env.example`、运行手册的变量表。
+- **已有测试的改动**：没有。**测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_pilot_settings.py`（27 个）、`tests/characterization/test_pilot_leverage_sizing.py`（3 个）。
+- **变异自检**【实际运行结果】（用修过字节码问题的工具）：`scripts/dev/mutants/pilot_leverage_settings.json` 15 个变异，基线通过，
+  第一轮 14 个被杀。存活 1 个："模拟盘也乘倍数"（去掉 `paper is None` 条件）。等价：模拟盘的配置从不带策略资金
+  （`test_paper_reads_no_cap`、`test_paper_reads_neither_setting`），所以这个条件在任何可达的情况下都不改变结果。保留在清单里，标为等价。
+- **本地**【实际运行结果】：所有引用 `load_config`、`stop_pct`、`ExecutionInputs`、`preflight`、`strategy_capital` 的 28 个测试文件
+  加架构测试共 495 个通过；ruff、`mypy trading/`（93 个文件）、导入契约（5 个）通过。
+- 这个分支基于停止线的审计修复（PR #117），等它合并后再开 PR。
+
+## 杠杆设置分支的审计补充（2026-11-16 晚）
+
+- 独立审计（`pilot-leverage-settings` @ 502e81ae；#117 复查同时进行，结论"可以合并"，已合并）：代码没有问题，缺 1 个中等和 3 个轻微的测试。
+- **补的测试**：
+  - `tests/unit/trading/test_pilot_entry_point.py`（3 个，改编自审计员的复现）：生产入口 `runner.binance_target.main` 没有
+    `--stop-pct` 时用 `STOP_PCT`（0.045），都没有时 8 %，有参数时参数优先；在预检处停下，不连任何交易所。
+  - `test_pilot_settings.py` 加 1 个：止损的上下限 0.005 和 0.15 本身是允许的。
+  - `test_pilot_leverage_sizing.py` 加 1 个：杠杆 3 时每个品种的份额是 450（300 的一半乘 3）。
+  - `test_loss_stop_audit_runtime.py` 的"模拟盘拿到资金也不建止损"测试同时给它杠杆 2，并断言模拟盘的分配仍是 1（测试辅助的
+    改动：替换的输入多一个 `strategy_leverage=D("2")`，加一条断言，原有断言不变）。
+- **变异**【实际运行结果】：审计员的 8 个变异加"模拟盘也乘杠杆"，按顺序、关闭字节码缓存重跑：8 个被杀；存活 1 个"没有资金也乘杠杆"——
+  没有资金时配置只允许杠杆 1，乘 1 不变，是等价变异。
+- 审计员的观察（技术负责人的选择，不是缺陷）：账户只有约 150 USDT、和资金差不多时，"账户大、策略小"这条保留账户级回撤锁和 3 倍敞口
+  的理由不再成立：杠杆 3 时满仓约是账户的 2.7 倍，接近 3 倍敞口闸门；当日回撤锁在约 1–1.7 % 的不利波动时就会触发。
+## 账户只读检查：配置项报告 `--settings`（2026-11-16 晚，工具，轻流程）
+
+- 起因：服务的配置文件只能由技术负责人写，我不读它（防护钩子也拦）；技术负责人要的是"报告缺哪些项"。已批准的只读检查是唯一可以读这个
+  文件的命令，加一个不联网的选项：`python3 -m scripts.account_check --settings`（`scripts/account_settings.py`）。
+- 做什么：在内存里读整个文件；密钥类（API Key 和密钥、Telegram、心跳地址、签名密钥）只报"已设/未设"，其余配置报值；
+  然后用运行时自己的 `load_config` 按主网执行启动的方式建配置，跑启动前的本地检查（策略资金、告警出口和心跳、止损在强平距离以内），
+  通过就打印不含密钥的配置记录，不通过就写出被哪一项拒绝。不发任何请求。退出码：0 通过，1 会被拒绝，2 文件读不到。
+- 这扩大了已批准读取范围（原来只取两个 Key），已写进 `scripts/account_check.py` 的说明。
+- 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
+  已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。
+
+## 清理过时文档（2026-11-16 深夜，轻流程；计划 R9 的前一半）
+
+- 依据：技术负责人"计划完成后就删除过时的文档，先排查"，以及随后的"清理项目过时文档"。排查结果在计划的"文档排查"一节（PR #118）。
+  整理工作在分支 `r9-docs` 上做（叠在运行时扩展 R1–R7 之上）；这里先把**不依赖 R1–R7** 的部分放进 master。
+- **删除**（原文在 git 历史里；行数取自删除前的版本）：`research.md`（223）、`CHANGELOG.md`（140）、`docs/known_test_failures.md`（25）、
+  `docs/arch/current-state.md`（764）、`docs/arch/doc-vs-code.md`（194）、`docs/arch/migration-plan.md`（403）、`docs/arch/roadmap.md`（122）、
+  `docs/arch/design-2026-11-m5.md`（542）。共 2413 行。
+- **引用改掉的地方**：`Makefile` 的帮助文字；ADR 0001、0002、0005、0008、0013 的依据行（只改成"该文档已删除，原文在 git 历史里"，
+  ADR 其余不变）；`pytest.ini` 里 `known_defect` 标记的说明；三个测试文件的说明文字；`docs/arch/evidence/probe_*.py` 的用法注释；
+  两个技能和审计员定义；`README.md`；`docs/arch/target.md` 的依据行（加了一段说明：本文部分过时，改写版本随运行时扩展合并）。
+- **改写**：`README.md`（去掉已删除的交易所、Docker、Rust 和旧撮合器路径）、`docs/binance_runbook.md`（试运行用主网单元，告警走
+  告警文件、Telegram 可选，执行状态在 `/var/lib/quant`）、`docs/deploy_truth.md`（去掉 Docker）、`docs/m5_checklist.md`（测试网阶段已取消，
+  改成小资金主网试运行的核对清单）、`research/lab/README.md`（去掉"连亏 3 笔"和 Telegram）、`CLAUDE.md` 两处（"连亏 3 笔被替换"的旁注、
+  "测试网上检查"改为"试运行里检查"）。凡是提到 R1–R7 的地方都写明"还没有合并"。
+- **留到运行时扩展合并时**：`docs/arch/target.md` 按 R1–R7 改写、`CLAUDE.md` 的架构部分、计划文件本身（都在 `r9-docs` 分支上）。
+- **已有测试的改动**：`tests/unit/tooling/test_claude_guard.py::test_file_tools` 只换了一个路径：原来
+  `({"file_path": "/root/quant_system/docs/arch/roadmap.md"}, False),`，现在 `({"file_path": "/root/quant_system/docs/arch/target.md"}, False),`
+  （守卫只按路径判断，检查的内容不变）。
+- 保留不动：ADR 正文、`research/protocols/`、本日志的旧条目、`docs/btc_eth_strategy.md`、数据集说明、`scripts/dev/mutants/README.md`、
+  `research/results/` 和 `research/lab/runs/`。`docs/arch/evidence/probe_*.py` 四个探针脚本保留，但已没有文档讲它们，要不要删由技术负责人定。

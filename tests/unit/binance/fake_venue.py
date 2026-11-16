@@ -214,13 +214,15 @@ class FakeBinance:
             return [t for t in self.trades if t["symbol"] == p["symbol"]
                     and (not p.get("orderId") or str(t["orderId"]) == str(p["orderId"]))
                     and (not p.get("fromId") or int(t["id"]) >= int(p["fromId"]))]
-        if path == "/fapi/v1/income" and method == "GET":   # oldest first from startTime (inclusive), like Binance
+        if path == "/fapi/v1/income" and method == "GET":   # oldest first from startTime to endTime (inclusive)
             self.income_requests.append(dict(p))
             if self.income_error:
                 raise BinanceRetryableError("HTTP 503: unavailable")
             rows = sorted((r for r in self.income if (not p.get("symbol") or r["symbol"] == p["symbol"])
                            and (not p.get("incomeType") or r["incomeType"] == p["incomeType"])
-                           and r["time"] >= int(p.get("startTime", 0))), key=lambda r: (r["time"], r["tranId"]))
+                           and r["time"] >= int(p.get("startTime", 0))
+                           and ("endTime" not in p or r["time"] <= int(p["endTime"]))),
+                          key=lambda r: (r["time"], r["tranId"]))
             return [dict(r) for r in rows[:int(p.get("limit", 100))]]
         if path == "/fapi/v1/algoOrder" and method == "POST":
             symbol, side, trigger = p["symbol"], p["side"], D(p["triggerPrice"])
