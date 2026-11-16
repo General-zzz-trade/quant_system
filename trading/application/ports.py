@@ -123,6 +123,13 @@ class ExchangeAccount(Protocol):
     def get_ticker(self, symbol: str) -> Ticker: ...
 
 
+class FundingIncome(Protocol):
+    """The account's funding income on one symbol from a time on (read-only; the strategy capital base). Raises when
+    the total cannot be known."""
+
+    def get_funding_income(self, symbol: str, *, since_ms: int) -> Decimal: ...
+
+
 @runtime_checkable
 class OrderGateway(Protocol):
     """Placement and lookup of ordinary orders. Results of placement are submitted / rejected / error."""
@@ -384,8 +391,8 @@ class Notifier(Protocol):
 
 
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
-           "MarketData", "ExchangeAccount", "OrderGateway", "StopOrderGateway", "BarListener", "PaperVenue",
-           "GateClock",
+           "MarketData", "ExchangeAccount", "FundingIncome", "OrderGateway", "StopOrderGateway", "BarListener",
+           "PaperVenue", "GateClock",
            "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
            "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView", "AccountStopView",
            "AccountSnapshot"]
