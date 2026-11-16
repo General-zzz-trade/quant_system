@@ -61,7 +61,7 @@ def test_a_push_of_the_current_branch_is_blocked_only_on_master(command):
     ({"file_path": "/root/quant_system/.env"}, True),
     ({"file_path": "/root/quant_system/.env.example"}, False),
     ({"file_path": "/root/quant_system/docs/_archive/old.md"}, True),
-    ({"file_path": "/root/quant_system/docs/arch/roadmap.md"}, False),
+    ({"file_path": "/root/quant_system/docs/arch/target.md"}, False),
     ({"pattern": "x", "path": "docs/_archive"}, True),
     ({"pattern": "docs/_archive/**"}, True),
     ({"pattern": "TELEGRAM", "path": "trading"}, False),

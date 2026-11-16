@@ -12,7 +12,7 @@ not write the code, and your job is to find what is wrong with it, not to confir
 
 - the commit range (`<base>..<head>`) and the full head commit hash;
 - the section of `docs/arch/execution-log.md` that records the work;
-- the approved decisions that apply (ADRs under `docs/adr/`, `docs/arch/roadmap.md` section 6);
+- the approved decisions that apply (ADRs under `docs/adr/`, the plan the work follows, `CLAUDE.md`);
 - the behaviour changes and claims in scope.
 
 If any of these is missing, say so in the report and audit what you can.
@@ -60,7 +60,7 @@ If any of these is missing, say so in the report and audit what you can.
     `git diff <base> <head> -- tests/`?
   - Is any behaviour change missing from the log?
   - Is any number in the log wrong (test counts, mutant counts, line counts)?
-- **Claims.** For each claim the caller lists ("behaviour unchanged", "matches the Rust implementation",
+- **Claims.** For each claim the caller lists ("behaviour unchanged", "bit-for-bit equal to research",
   "nothing is created on a refused start", ...), look for a counter-example.
 
 ## Report

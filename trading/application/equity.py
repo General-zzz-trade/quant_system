@@ -8,7 +8,8 @@ exposure cap still holds, and anything unknown (stale equity, an unreadable ledg
 ``StrategyFunding`` (tech lead, 2026-11-16): the realized PnL of the base includes the strategy's funding income on
 its symbols, each counted from the strategy's first fill on it. It is asked of the venue at most every ten minutes;
 a total older than two hours, or none yet, is unknown, so the capped base sizes to zero. A failed refresh never
-raises: the last total is kept, and only the base sees it age.
+raises: the last total is kept, and only the base sees it age. The loss stop counts the last total read in this
+process whatever its age (``last_known``); only a total never read is unknown to it.
 """
 from __future__ import annotations
 
@@ -57,13 +58,16 @@ class CappedEquity:
 
 class StrategyFunding:
     """The strategy's funding income: per symbol, what the venue reports from the strategy's first fill on it
-    (``first_fill``: seconds, None for a symbol never traded, which adds nothing). The precondition that the account
-    holds nothing outside the strategy ledger is what makes this funding the strategy's. Called on the runtime's
-    cycle; ``clock`` is the runtime's."""
+    (``first_fill``: seconds, None for a symbol never traded, which adds nothing). ``symbols`` is a fixed list, or a
+    function asked at every refresh (the ledger's owners: an earlier spec's symbol still counts; one that cannot be
+    listed fails the refresh). The precondition that the account holds nothing outside the strategy ledger is what
+    makes this funding the strategy's. Called on the runtime's cycle; ``clock`` is the runtime's."""
 
-    def __init__(self, venue: FundingIncome, symbols: Sequence[str], first_fill: Callable[[str], float | None],
-                 clock: Clock) -> None:
-        self.venue, self.symbols, self.first_fill, self.clock = venue, tuple(symbols), first_fill, clock
+    def __init__(self, venue: FundingIncome, symbols: Sequence[str] | Callable[[], Sequence[str]],
+                 first_fill: Callable[[str], float | None], clock: Clock) -> None:
+        self.venue, self.first_fill, self.clock = venue, first_fill, clock
+        fixed = () if callable(symbols) else tuple(symbols)
+        self.symbols: Callable[[], Sequence[str]] = symbols if callable(symbols) else (lambda: fixed)
         self.total = Decimal(0)
         self.refreshed_at: float | None = None      # the last successful refresh
         self.attempted_at: float | None = None
@@ -75,7 +79,7 @@ class StrategyFunding:
         self.attempted_at = now
         try:
             total = Decimal(0)
-            for symbol in self.symbols:
+            for symbol in self.symbols():
                 since = self.first_fill(symbol)
                 if since is not None:
                     total += Decimal(self.venue.get_funding_income(symbol, since_ms=int(since * 1000),
@@ -91,6 +95,15 @@ class StrategyFunding:
         self.refresh_if_due()
         if self.refreshed_at is None or self.clock() - self.refreshed_at > FUNDING_MAX_AGE:
             raise RuntimeError("strategy funding unknown: no successful refresh in the last two hours")
+        return self.total
+
+    def last_known(self) -> Decimal:
+        """The last funding total read in this process, whatever its age: what the loss stop counts (audit
+        2026-11-16, finding 4: a refresh that keeps failing must not blind the stop, and an old total is nearer the
+        truth than none). Raises only when no total was ever read in this process."""
+        self.refresh_if_due()
+        if self.refreshed_at is None:
+            raise RuntimeError("strategy funding unknown: not read once in this process")
         return self.total
 
 
