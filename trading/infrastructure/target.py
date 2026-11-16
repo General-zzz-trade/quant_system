@@ -20,6 +20,7 @@ from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+from trading.adapters.sqlite.paper_state import PaperOrderJournal, SqlitePaperState
 from trading.adapters.sqlite.schema import STATE_DB
 from trading.application.equity import EquitySource
 from trading.application.execution.executor import OwnerExecutor
@@ -83,11 +84,13 @@ class ExecutionWiring:
 @dataclass(frozen=True)
 class PaperParts:
     """What only paper plugs in (S10 part 3): each symbol's own simulated equity (``sizing_equity``), the gate clock on
-    bar time (``limiter_clock``), no wait after a placement, and the pause store that reports new pauses."""
+    bar time (``limiter_clock``), no wait after a placement, the pause store that reports new pauses, and the paper
+    state its order journal saves in every transaction (S10 decision 4)."""
     symbol_equity: Callable[[str], SizingEquity]
     gate_clock: Clock
     sleeper: Sleeper
     pauses: Callable[[EntryPauses], EntryPauses] = lambda pauses: pauses
+    state: SqlitePaperState | None = None
 
 
 def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
@@ -177,8 +180,10 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time; in paper the
         # entry gates run on bar time (ModePolicy.limiter_clock) and nothing waits for the simulated venue.
         # Every order and stop status change is also an event (2026-11-15); the journal stays the state.
-        orders = SqliteOrderJournal(orders_path, scope,
-                                    entry_beside_working_reduction=policy.entry_beside_working_reduction)
+        flip = policy.entry_beside_working_reduction
+        orders = SqliteOrderJournal(orders_path, scope, entry_beside_working_reduction=flip) \
+            if paper is None or paper.state is None \
+            else PaperOrderJournal(orders_path, scope, state=paper.state, entry_beside_working_reduction=flip)
         lifecycle = OrderLifecycle(account, RecordedOrderJournal(orders, journal), scope, clock=clock,
                                    sleeper=sleeper, lock=threading.RLock(), owner=owner,
                                    venue_expires_entries=policy.entry_ttl == "venue", **settings)

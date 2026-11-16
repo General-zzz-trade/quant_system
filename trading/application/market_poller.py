@@ -116,20 +116,24 @@ class MarketPoller:
                 self._decision_failed(symbol, session, exc)
         return processed + self.replay(replay)
 
-    def replay(self, bars: dict[str, list[Bar]]) -> int:
-        """Every bar, in time order across the symbols (``catch_up == "replay_all"``), as research replays them."""
+    def replay(self, bars: dict[str, list[Bar]], *, matched: Callable[[str, Bar], bool] | None = None) -> int:
+        """Every bar, in time order across the symbols (``catch_up == "replay_all"``), as research replays them. A bar
+        ``matched`` says the venue has matched already (a restart after a crash between the matching and the
+        decision) is not handed to the listeners again."""
         processed = 0
         for at in sorted({bar.open_time for new in bars.values() for bar in new}):
             group = [(symbol, bar) for symbol, new in bars.items() for bar in new if bar.open_time == at]
-            self._step(group)
+            self._step(group, matched)
             processed += len(group)
         return processed
 
-    def _step(self, group: list[tuple[str, Bar]]) -> None:
+    def _step(self, group: list[tuple[str, Bar]], matched: Callable[[str, Bar], bool] | None = None) -> None:
         """One bar time: advance the windows, let the listeners match the bar, settle it, then decide on it."""
         for symbol, bar in group:
             self.sessions[symbol].advance(bar)
         for symbol, bar in group:
+            if matched is not None and matched(symbol, bar):
+                continue
             for listener in self.listeners:
                 listener.on_closed_bar(symbol, bar, self.sessions[symbol].funding_rate(bar))
         if self.policy.settle_new_bar_before_decision and self.settle is not None:

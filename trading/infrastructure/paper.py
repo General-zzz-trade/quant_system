@@ -2,7 +2,7 @@
 
 None of them decides anything about trading. They give the path its venue (the simulated exchange over the research
 brokers), the entry gates' clock on bar time, each symbol's own simulated equity for sizing, the paper directory's
-state database, and the ``paper_divergence`` events.
+state database with the paper state saved atomically in it, and the ``paper_divergence`` events.
 """
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from trading.adapters.files.state_files import JsonPaperStore
 from trading.adapters.simulated.bar_broker import SYMBOL_RULES, BarBroker, broker_config
 from trading.adapters.simulated.exchange import BarStopModel, SimFilters, SimulatedExchange
 from trading.adapters.sqlite import schema
+from trading.adapters.sqlite.paper_state import SqlitePaperState
 from trading.application.ports import EntryPauses, EventLog
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
@@ -116,8 +118,30 @@ class DivergencePauses:
         return self.inner.covered(symbol)
 
 
+class PaperStateStore:
+    """The ``PaperStore`` of a paper run (S10 decision 4): the document in the state database, written atomically with
+    the order journal (``SqlitePaperState`` and ``PaperOrderJournal``), and after every save a JSON copy beside it
+    (``paper_state.json``; migration plan step 10: until the audit after step 15 says it may stop). The copy is
+    never read back: the database is the one store."""
+
+    def __init__(self, state: SqlitePaperState, copy: JsonPaperStore) -> None:
+        self.state, self.copy = state, copy
+        state.saved = copy.save
+
+    def load(self) -> dict[str, Any] | None:
+        return self.state.load()
+
+    def save(self, document: dict[str, Any]) -> None:
+        self.state.save(document)
+
+    def archive(self) -> str | None:
+        """Only the copy: a new paper record sets the whole database aside (``paper_state_db``)."""
+        return self.copy.archive()
+
+
 def paper_state_db(state_dir: Path, *, reset: bool, stamp_ms: int) -> tuple[Path, str | None]:
-    """The paper directory's state database (ADR-0009: the order journal, stops, limits, pauses and drawdown).
+    """The paper directory's state database (ADR-0009: the order journal, stops, limits, pauses and drawdown, and
+    the paper state).
 
     Paper creates it at the first start of a paper record; a reset sets the old one aside first, under a name with
     ``stamp_ms`` (returned). A missing database while a paper record exists is refused: its orders and positions
@@ -140,9 +164,9 @@ def paper_state_db(state_dir: Path, *, reset: bool, stamp_ms: int) -> tuple[Path
             raise RuntimeError(f"paper state database {path} is missing but a paper record exists "
                                f"({', '.join(record)}); start a new paper record with --reset-paper-state")
         state_dir.mkdir(parents=True, exist_ok=True)
-        schema.create(path)
+        schema.create(path, paper=True)
     return path, archived
 
 
-__all__ = ["BarTimeClock", "DivergencePauses", "PAPER_STATE", "PaperDivergenceLog", "SymbolVenueEquity",
-           "paper_exchange", "paper_state_db"]
+__all__ = ["BarTimeClock", "DivergencePauses", "PAPER_STATE", "PaperDivergenceLog", "PaperStateStore",
+           "SymbolVenueEquity", "paper_exchange", "paper_state_db"]
