@@ -170,7 +170,12 @@ def parse_spec(document: Mapping[str, Any]) -> TargetSpec:
     allow_short = document.get("allow_short")
     if not isinstance(allow_short, bool):
         raise ValueError("the spec's allow_short must be true or false")
-    return TargetSpec(str(strategy["name"]), params, settings, _symbols(document.get("symbols")), allow_short)
+    spec = TargetSpec(str(strategy["name"]), params, settings, _symbols(document.get("symbols")), allow_short)
+    unlisted = [symbol for symbol in spec.strategy().references() if symbol not in spec.symbols]
+    if unlisted:     # R7a: the runtime reads only the symbols it trades
+        raise ValueError(f"the strategy {spec.strategy_name!r} reads {', '.join(unlisted)}, which the spec does not "
+                         "list; list it among the symbols")
+    return spec
 
 
 __all__ = ["EXECUTION_KEYS", "KIND_V1", "KIND_V2", "MAX_SYMBOLS", "PARAMS", "TargetSpec", "V2_KEYS", "parse_spec"]
