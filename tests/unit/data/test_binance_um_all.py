@@ -79,6 +79,18 @@ def test_contract_types_and_margins():
     assert um.contract("BTCUSDC") == {"type": "perpetual", "margin": "USDC"}
 
 
+def test_only_usdt_perpetuals_are_downloaded(tmp_path, monkeypatch):
+    # Tech lead 2026-11-16: USDT-margined perpetuals only; delivery and USDC contracts are not used.
+    monkeypatch.setattr(um, "list_symbols", lambda fetch: ["BTCUSDT", "BTCUSDT_250328", "BTCUSDC", "ETHUSDT"])
+    monkeypatch.setattr(um, "exchange_rules", lambda symbols, fetch: {})
+    seen = []
+    monkeypatch.setattr(um, "download_symbol", lambda s, out, start, end, fetch: seen.append(s) or
+                        {"symbol": s, "type": "perpetual", "margin": "USDT", "missing": [], "files": {}})
+    um.download(tmp_path / "snap", start=date(2026, 11, 1), end=date(2026, 11, 2), fetch=Archive())
+    assert sorted(seen) == ["BTCUSDT", "ETHUSDT"]
+    assert um.usdt_perpetual("1000PEPEUSDT") and not um.usdt_perpetual("ETHUSDC")
+
+
 def test_a_delivery_contract_has_no_funding_request(tmp_path):
     fake = Archive()
     um.fetch_recent_funding("BTCUSDT_261225", NOV_1, NOV_1 + 24 * H, fetch=fake)

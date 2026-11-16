@@ -1,4 +1,4 @@
-"""The research lab's harness over every USD(S)-M contract (tech lead 2026-11-16; research/lab/README.md).
+"""The research lab's harness over every USDT-margined perpetual (tech lead 2026-11-16; research/lab/README.md).
 
 A strategy idea is a function from one contract's hourly frame (and a context: BTC's frame, the funding series,
 the parameters) to target weights. Every contract is replayed through the shared conservative broker
@@ -33,7 +33,7 @@ from trading.domain.bars import bar_from_kline
 H = 3_600_000
 DAY = 86_400_000
 ROOT = Path(__file__).resolve().parents[1]
-SNAPSHOT = ROOT / "data_files" / "binance_um_all_2026-11-12"
+SNAPSHOT = ROOT / "data_files" / "binance_usdt_perps_2026-11-12"
 TRIALS = ROOT / "research" / "lab" / "trials.jsonl"
 
 

@@ -1,14 +1,14 @@
-"""Download every Binance USD(S)-M contract's hourly bars and funding from the public archive (no account access).
+"""Download every Binance USDT-margined perpetual's hourly bars and funding from the public archive (no account).
 
     python -m data.downloads.binance_um_all --start 2022-11-13 --end 2026-11-13 \\
-        --out data_files/binance_um_all_2026-11-12
+        --out data_files/binance_usdt_perps_<end day>
 
-The research lab of 2026-11-16 (tech lead: research and trading over all USD(S)-M contracts). Source:
-data.binance.vision; every zip is checked against its published SHA-256.
+The research lab of 2026-11-16 (tech lead: research and trading over every USDT-margined perpetual; delivery and
+USDC contracts are not used). Source: data.binance.vision; every zip is checked against its published SHA-256.
 
-- Universe: every symbol directory in the monthly kline archive, delisted symbols included, perpetual and
-  delivery contracts (``BTCUSDT_250328``), USDT- and USDC-margined. Nothing is ranked or filtered here: the
-  research decides what to use, and the delisted ones are kept against survivorship bias.
+- Universe: every USDT-margined perpetual in the monthly kline archive (a symbol ending in USDT, without a
+  delivery date), delisted ones included against survivorship bias. Nothing is ranked here: the research decides
+  what to use.
 - Per symbol: 1-hour klines and funding settlements in [start, end). Whole months come from the monthly archive;
   the days of a month that has not closed yet come from the daily kline archive and the public funding endpoint.
 - ``end`` is exclusive and defaults to 2026-11-13: data from 2026-11-13 on is read only at registered forward
@@ -57,6 +57,11 @@ def _wait_for_funding_slot(sleep=time.sleep, clock=time.monotonic) -> None:
 
 def _ms(day: date) -> int:
     return int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def usdt_perpetual(symbol: str) -> bool:
+    """A USDT-margined perpetual: ``BTCUSDT``, not ``BTCUSDT_250328`` (delivery) or ``BTCUSDC`` (USDC margin)."""
+    return symbol.endswith("USDT") and "_" not in symbol
 
 
 def contract(symbol: str) -> dict:
@@ -161,7 +166,7 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"{out} is not empty; snapshots are immutable")
     out.mkdir(parents=True, exist_ok=True)
-    universe = symbols if symbols is not None else list_symbols(fetch=fetch)
+    universe = symbols if symbols is not None else [s for s in list_symbols(fetch=fetch) if usdt_perpetual(s)]
     def one(symbol: str) -> dict:
         try:
             return download_symbol(symbol, out, start, end, fetch=fetch)
@@ -177,7 +182,8 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
     except Exception as exc:                                  # the rules are a convenience, not the data
         rules = {"error": f"{type(exc).__name__}"}
     (out / "exchange_info.json").write_text(json.dumps(rules, indent=1, sort_keys=True) + "\n")
-    manifest = {"source": "data.binance.vision USD(S)-M archives (monthly and daily 1h klines, monthly funding); "
+    manifest = {"universe": "USDT-margined perpetuals (tech lead 2026-11-16)",
+                "source": "data.binance.vision USD(S)-M archives (monthly and daily 1h klines, monthly funding); "
                           "fapi.binance.com public funding for the unclosed month",
                 "window": [start.isoformat(), end.isoformat()], "end_exclusive": True,
                 "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -205,4 +211,5 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["COLUMNS", "contract", "download", "download_symbol", "fetch_daily", "fetch_recent_funding", "main"]
+__all__ = ["COLUMNS", "contract", "download", "download_symbol", "fetch_daily", "fetch_recent_funding", "main",
+           "usdt_perpetual"]
