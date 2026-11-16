@@ -53,7 +53,15 @@ tail -f /quant_system/logs/binance_target.log
   - `paper_state.json`：每次保存后同步写的一份副本，只写不读。
 - 删除或修改 `paper_state.json`**不会**改变模拟盘。要重新开始，用 `--reset-paper-state`：旧的 `state.sqlite` 改名放到一边（`state.<毫秒>.sqlite`），JSON 副本归档。
 - 2026-11-16 之前的模拟盘目录（只有 `paper_state.sqlite` 和 JSON，没有 `state.sqlite`）会被拒绝启动，用 `--reset-paper-state` 开一个新记录。
-- 模拟盘走执行路径（入场闸门、订单库、止损、对账）在模拟交易所上运行，逐根补放错过的 K 线，结果与研究模拟相同（`tests/unit/lab/test_target_runtime.py`）；有意的分叉（入场被拒、止损、暂停）各写一条 `paper_divergence` 事件。
+- 模拟盘走执行路径（入场闸门、订单库、止损、对账）在模拟交易所上运行，逐根补放错过的 K 线，结果与研究模拟相同（`tests/unit/lab/test_target_runtime.py`）；有意的分叉（入场被拒、止损、暂停、急停和回撤的风险退出）各写一条 `paper_divergence` 事件。
+- **核对模拟盘与研究**（S11，设计 G6）：模拟盘不记 K 线，所以先下载一个覆盖模拟盘记录的新快照，再逐笔比较成交：
+  ```bash
+  python3 -m data.downloads.binance_public --start 2020-01-01 --end <今天>      # -> data_files/binance_public_<今天>/
+  python3 -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files/binance_public_<今天>
+  ```
+  - 第一行是结论：`一致`（退出码 0）、`不一致`（1，列出第一处不同的两笔）、`无法比较`（2，说明缺什么或哪里与模拟盘看到的不同）。
+  - 有意的分叉单独列出，不算不一致；但要有对应的 `paper_divergence` 事件。
+  - 只读，只输出成交，不输出权益和收益。
 
 ## 4. 测试网执行（M5）
 
