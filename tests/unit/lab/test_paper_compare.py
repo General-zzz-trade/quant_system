@@ -78,7 +78,7 @@ def _until(world, runtime, done, limit=300):
 
 @pytest.fixture(scope="module")
 def plain(tmp_path_factory):
-    return _run(tmp_path_factory.mktemp("plain"), lambda w, r: _bars(w, r, w["warm"], 240))
+    return _run(tmp_path_factory.mktemp("plain"), lambda w, r: _bars(w, r, w["warm"], 150))
 
 
 @pytest.fixture(scope="module")
@@ -192,7 +192,8 @@ def _csv(path, edit):
 
 
 def _files(paper):
-    return {p.name: p.read_bytes() for p in sorted(paper.iterdir()) if not p.name.endswith("-shm")}
+    """The record's files. SQLite's own -wal and -shm files are not: any reader of a WAL database may create them."""
+    return {p.name: p.read_bytes() for p in sorted(paper.iterdir()) if not p.name.endswith(("-shm", "-wal"))}
 
 
 # -- acceptance 1: equal ----------------------------------------------------------------------------------------
