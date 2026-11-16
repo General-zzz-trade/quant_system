@@ -18,7 +18,7 @@ import pytest
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.domain.risk.order_limits import OrderLimitsConfig
-from trading.infrastructure.settings import RiskLimits, risk_limits
+from trading.infrastructure.config import RiskLimits, risk_limits
 from tests.support.state_db import state_db
 
 SCOPE = "binance-testnet-ut"

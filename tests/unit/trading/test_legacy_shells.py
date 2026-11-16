@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from trading.infrastructure.settings import binance_config_from_env
+from trading.infrastructure.config import binance_config_from_env
 from tests.support.confirmed_executor import ConfirmedExecutor
 
 
