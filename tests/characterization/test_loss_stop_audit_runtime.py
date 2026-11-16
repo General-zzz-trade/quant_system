@@ -3,16 +3,20 @@ reproductions, asserting the decided behaviour. The fake account holds 10,000 US
 the stop is at -45 USDT."""
 from __future__ import annotations
 
+import json
 from decimal import Decimal as D
 
 import pytest
 
 from tests.characterization.test_exit_paths import _tick, _until
-from tests.characterization.test_runtime_decisions import _events
+from tests.characterization.test_runtime_decisions import _events, _runtime
 from tests.characterization.test_strategy_capital_sizing import _execution
 from tests.characterization.test_strategy_loss_stop_runtime import _flat, _holding, _kill
 from tests.support.state_db import state_dir_db
 from tests.unit.binance.fake_venue import FakeBinance
+from tests.unit.lab.test_target_runtime import _advance
+from tests.unit.trading.test_market_failures import _due, _market
+from trading.adapters.binance.rest import BinanceRetryableError
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB
 
@@ -122,3 +126,42 @@ def test_an_earlier_spec_s_owner_in_the_ledger_counts_for_the_base_and_for_the_s
     _tick(world, runtime, 601)
     assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
     assert _flat(world)
+
+
+# -- audit finding 3: the stop is read while a restart waits for market data and in the warm-up -------------------
+def test_the_flatten_happens_in_the_cycle_of_the_trip(tmp_path):
+    world, runtime, btc, _ = _holding(tmp_path)
+    _under_water(btc, "BTCUSDT", 60)
+    _tick(world, runtime, 61)                                         # one cycle
+    assert _kill(tmp_path)["active"] is True and _kill(tmp_path)["flatten"] is True and _flat(world)
+
+
+def test_a_restart_waiting_for_market_data_reads_the_loss_stop_and_closes_in_the_same_hold(tmp_path):
+    world, runtime, btc, i = _holding(tmp_path)
+    qty, entry = btc.positions["BTCUSDT"], btc.entry["BTCUSDT"]
+    runtime = _runtime(tmp_path, world)                               # a restart while market data is down
+    _market(world, BinanceRetryableError("Network error: down"))
+    btc.price["BTCUSDT"] = entry - D("20") / qty                      # 20 USDT under water: short of the 8 % stop
+    btc.add_income("BTCUSDT", "-40", btc.now_ms() + 1_000)            # and 40 USDT of funding paid: 60 in all
+    _due(world, i)
+    assert runtime.warmup_or_hold() is False                          # the hold: no market data, the exit side runs
+    assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
+    assert _flat(world)
+
+
+def test_a_restart_with_the_switch_cleared_sets_it_again_in_the_warm_up_before_any_entry(tmp_path):
+    world, runtime, btc, i = _holding(tmp_path)
+    btc.add_income("BTCUSDT", "-50", btc.now_ms() + 1_000)
+    _tick(world, runtime, 601)
+    _tick(world, runtime)
+    assert _kill(tmp_path)["active"] is True and _flat(world)
+    (tmp_path / "exec" / "kill_switch.json").write_text(json.dumps({"active": False, "reason": "cleared"}))
+    runtime = _runtime(tmp_path, world)                               # a person cleared the switch and restarted
+    posts = sum(len(f.posts) for f in world["fakes"].values())
+    runtime.warmup()
+    assert _kill(tmp_path)["active"] is True and _kill(tmp_path)["flatten"] is True
+    for k in range(3):                                                # the loss is still in the ledger: no entry
+        _advance(world, runtime, i + k)
+        assert _flat(world)
+    assert sum(len(f.posts) for f in world["fakes"].values()) == posts
+
