@@ -94,5 +94,11 @@
   "trading/infrastructure/state_dir.py",
   "    if manifest.get(\"scope\") != scope:\n        print(f\"{state_dir} belongs to scope",
   "    if False:\n        print(f\"{state_dir} belongs to scope"
+ ],
+ [
+  "R17 a paper snapshot is restored",
+  "trading/infrastructure/state_dir.py",
+  "    if schema.holds_paper_state(snapshot):",
+  "    if False:"
  ]
 ]
