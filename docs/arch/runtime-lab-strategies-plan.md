@@ -38,6 +38,44 @@
 7. **R7 实验室和实盘用同一份策略代码**：把实验室的想法改写成接口的实现；`lab/um_judge.py` 通过这个接口回测；
    模拟盘逐根对照（`lab/paper_compare.py`）扩展到多品种。
 8. **R8 整体独立审计**，然后实验室恢复每晚运行，在 2020 年起的新数据上重新登记窗口。
+9. **R9 删除过时的文档**（技术负责人 2026-11-16：计划完成后删除；先排查）。排查结果见下一节。
+
+## 文档排查（2026-11-16 晚，R9 的依据）
+
+【实际运行结果】做法：git 跟踪的 46 个 Markdown 文件（不含 `docs/_archive/`，那里没有被跟踪的文件；不含 `research/results/` 和
+`research/lab/runs/` 下的结果记录）。逐个查最后修改日期、引用的代码路径还在不在、提到已经改变的事（Telegram 必填、测试网阶段、
+"连亏 3 笔"、暂停只能由人解除、已删除的 Bybit/OKX/Rust/Docker）的次数，再读开头判断用途。
+
+**R9 删除**（内容整体过时，git 历史里保留原文）：
+
+| 文档 | 为什么过时 | 删除时要一起改的引用 |
+|---|---|---|
+| `research.md` | 2026-03-24 旧机器学习系统的架构报告，引用的 10 个代码路径都已删除 | 无 |
+| `CHANGELOG.md` | 2026-03-12 之后没更新，记的是已删除的机器学习代码 | 无 |
+| `docs/known_test_failures.md` | 内容只剩"没有已知失败"，引用的 11 个文件已删除 | `Makefile` |
+| `docs/arch/current-state.md` | 2026-11-14 迁移前的现状诊断，引用的 131 个路径有 108 个已删除 | 迁移步骤技能、ADR 0001/0002/0005/0008 的依据行 |
+| `docs/arch/doc-vs-code.md` | 比对的旧文档已全部删除，它自己也写明只是记录 | ADR 0008、`design-2026-11-m5.md`、`migration-plan.md` |
+| `docs/arch/migration-plan.md` | S1–S12 和 M4 已全部完成 | 迁移步骤技能、`roadmap.md` |
+| `docs/arch/roadmap.md` | 汇总的是上面那份计划，里程碑已完成 | 审计员定义、两个技能、`README.md`、`tests/unit/tooling/test_claude_guard.py` |
+| `docs/arch/design-2026-11-m5.md` | M5 设计已实施；其中"测试网连续运行 4 周"已被技术负责人取消 | ADR 0013、`m5_checklist.md` |
+
+**R9 改写后保留**（主题还在，内容部分过时）：
+
+| 文档 | 过时的部分 |
+|---|---|
+| `docs/arch/target.md` | 目标架构；15 个引用路径已删除，R1–R7 之后要按新的策略接口重写，作为唯一的架构说明（`trading/__init__.py` 和架构测试指向它） |
+| `docs/m5_checklist.md` | 测试网核对清单，测试网已取消：改写成小资金试运行的核对清单 |
+| `docs/binance_runbook.md` | 还有多处把 Telegram 当成必填；路径里的 `data/runtime/` 已改到 `/var/lib/quant` |
+| `docs/deploy_truth.md` | 还提到 Docker 和 Telegram |
+| `README.md` | 提到已删除的 Bybit/Docker/Rust 和 `runner/offline/broker.py` |
+| `CLAUDE.md` | 仍有"测试网阶段""连亏 3 笔"等旧说法各一处 |
+| `research/lab/README.md` | 仍有"连亏 3 笔"和 Telegram |
+| 两个技能、审计员定义 | 引用已删除的脚本、`roadmap.md` 和 `migration-plan.md` |
+
+**保留不动**：ADR 0001–0017（决策记录；已被取代的在开头标明，不删）、`research/protocols/` 下的 7 份研究协议
+（前向检验按它们执行，校验值已登记）、`docs/arch/execution-log.md`（只追加的历史）、`docs/btc_eth_strategy.md`
+（第一版研究的记录，开头已注明）、`research/datasets/btcusdt_2025/README.md`（数据集说明，结果目录引用它）、
+`scripts/dev/mutants/README.md`、本计划（R9 完成后改为已完成的记录）。
 
 ## 不在这一版里的
 
