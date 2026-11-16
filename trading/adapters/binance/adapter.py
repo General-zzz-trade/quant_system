@@ -217,6 +217,30 @@ class BinanceAdapter:
                 ts_ms=int(time.time() * 1000)))
         return tuple(positions)
 
+    def get_position(self, symbol: str) -> VenuePosition | None:
+        """The symbol's position as the venue reports it, flat included (qty 0); None when the answer has no row
+        for the symbol - unknown, never 'flat' (ADR-0012, audit M2: get_positions drops flat rows). Errors
+        propagate."""
+        data = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={"symbol": symbol})
+        if not isinstance(data, list):
+            raise RuntimeError("Invalid Binance position snapshot")
+        rows = [p for p in data if p.get("symbol") == symbol]
+        if not rows:
+            return None
+        if len(rows) > 1 or rows[0].get("positionSide", "BOTH") != "BOTH":
+            raise RuntimeError("Hedge-mode position present; one-way mode required")
+        p = rows[0]
+        amt = Decimal(str(p.get("positionAmt", "0")))
+        if not amt.is_finite():
+            raise RuntimeError("Invalid Binance position quantity")
+        return VenuePosition(
+            venue="binance", symbol=symbol, qty=amt, entry_price=Decimal(str(p.get("entryPrice", "0"))),
+            mark_price=Decimal(str(p.get("markPrice", "0"))),
+            liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
+            unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
+            leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(),
+            ts_ms=int(time.time() * 1000))
+
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         params: dict[str, Any] = {"symbol": symbol} if symbol else {}
         data = self._client.request_signed(method="GET", path="/fapi/v1/openOrders", params=params)

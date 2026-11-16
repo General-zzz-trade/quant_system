@@ -191,8 +191,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else equity
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
-                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, sizing,
-                                                         Flattener(symbol, executor, account, journal, clock)))
+                                execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
+                                                         sizing, Flattener(symbol, executor, account, journal, clock)))
         session.restore_pending()
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
