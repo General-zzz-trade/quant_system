@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -134,7 +135,7 @@ class ProtectiveStopManager:
     def _issue(self, kind: K, text: str) -> Issue:
         return Issue(kind, self.symbol, f"{self.symbol}: {text}")
 
-    def sync(self) -> list[Issue]:
+    def sync(self, positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
         """Bring the exchange stop in line with the venue position (ADR-0012). Returns issues.
 
         The stop covers the venue position: its revision and trigger come from the venue's quantity and entry price
@@ -144,7 +145,8 @@ class ProtectiveStopManager:
         are both flat, when the stop of the new revision is in place, or while a fired stop is followed."""
         issues: list[Issue] = []
         ledger = self._position()[0]
-        venue = self._venue_position()
+        venue = positions[self.symbol] if positions is not None and self.symbol in positions \
+            else self._venue_position()             # plan R5: this cycle's account snapshot, else read alone
         target = self._target(ledger, venue)
         following = unsure = False
         matching: dict[str, Any] | None = None

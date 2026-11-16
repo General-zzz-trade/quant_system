@@ -39,6 +39,7 @@ class FakeBinance:
         self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
         self.funding_hours = {"BTCUSDT": 8, "ETHUSDT": 8}    # what /fapi/v1/fundingInfo lists (R4)
+        self.listed: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")  # what /fapi/v1/exchangeInfo lists (R5: up to 10)
         self.trade_requests: list[dict] = []
         self.income: list[dict] = []            # the account's income history (GET /fapi/v1/income)
         self.income_requests: list[dict] = []
@@ -113,7 +114,7 @@ class FakeBinance:
                     {"filterType": "MARKET_LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
                     {"filterType": "PRICE_FILTER", "tickSize": "0.1"},
                     {"filterType": "MIN_NOTIONAL", "notional": "5"}]}
-            return {"symbols": [info("BTCUSDT"), info("ETHUSDT")]}
+            return {"symbols": [info(symbol) for symbol in self.listed]}
         if path == "/fapi/v1/fundingInfo":       # R4: every symbol of this fake settles every 8 hours
             return [{"symbol": s, "fundingIntervalHours": h, "adjustedFundingRateCap": "0.02",
                      "adjustedFundingRateFloor": "-0.02", "disclaimer": False} for s, h in self.funding_hours.items()]

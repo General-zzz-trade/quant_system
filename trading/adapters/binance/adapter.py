@@ -227,24 +227,36 @@ class BinanceAdapter:
         for the symbol - unknown, never 'flat' (ADR-0012, audit M2: get_positions drops flat rows). Errors
         propagate."""
         data = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={"symbol": symbol})
+        return self._position_rows(data).get(symbol)
+
+    def get_position_snapshot(self) -> dict[str, VenuePosition]:
+        """Every position row of the account in one read (``positionRisk`` without a symbol, weight 5 against 5 per
+        symbol; plan R5), flat rows included, by symbol. A symbol without a row is not in it: unknown, never flat -
+        the caller reads it alone. Errors propagate."""
+        return self._position_rows(self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={}))
+
+    @staticmethod
+    def _position_rows(data: Any) -> dict[str, VenuePosition]:
         if not isinstance(data, list):
             raise RuntimeError("Invalid Binance position snapshot")
-        rows = [p for p in data if p.get("symbol") == symbol]
-        if not rows:
-            return None
-        if len(rows) > 1 or rows[0].get("positionSide", "BOTH") != "BOTH":
-            raise RuntimeError("Hedge-mode position present; one-way mode required")
-        p = rows[0]
-        amt = Decimal(str(p.get("positionAmt", "0")))
-        if not amt.is_finite():
-            raise RuntimeError("Invalid Binance position quantity")
-        return VenuePosition(
-            venue="binance", symbol=symbol, qty=amt, entry_price=Decimal(str(p.get("entryPrice", "0"))),
-            mark_price=Decimal(str(p.get("markPrice", "0"))),
-            liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
-            unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
-            leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(),
-            ts_ms=int(time.time() * 1000))
+        out: dict[str, VenuePosition] = {}
+        now = int(time.time() * 1000)
+        for p in data:
+            symbol = p.get("symbol") if isinstance(p, dict) else None
+            if not isinstance(symbol, str) or not symbol:
+                raise RuntimeError("Invalid Binance position snapshot")
+            if symbol in out or p.get("positionSide", "BOTH") != "BOTH":
+                raise RuntimeError("Hedge-mode position present; one-way mode required")
+            amt = Decimal(str(p.get("positionAmt", "0")))
+            if not amt.is_finite():
+                raise RuntimeError("Invalid Binance position quantity")
+            out[symbol] = VenuePosition(
+                venue="binance", symbol=symbol, qty=amt, entry_price=Decimal(str(p.get("entryPrice", "0"))),
+                mark_price=Decimal(str(p.get("markPrice", "0"))),
+                liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
+                unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
+                leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(), ts_ms=now)
+        return out
 
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         params: dict[str, Any] = {"symbol": symbol} if symbol else {}
