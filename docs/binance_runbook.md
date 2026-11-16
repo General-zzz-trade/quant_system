@@ -1,6 +1,6 @@
-# 币安 USDⓈ-M 运行手册（2026-11-15 重写）
+# 币安 USDⓈ-M 运行手册（2026-11-15 重写，2026-11-16 按 S6–S8 更新）
 
-本手册只覆盖目标仓位运行时 `runner/binance_target.py`。**本手册不构成实盘批准。** 命令和环境变量都以代码为准；与代码不一致时，以代码为准并改正本文。
+本手册只覆盖目标仓位运行时 `runner/binance_target.py`。**本手册不构成实盘批准。** 命令和环境变量都以代码为准；与代码不一致时，以代码为准并改正本文。M5 的开始条件、每日检查和演练见 `docs/m5_checklist.md`。
 
 ## 0. 现状与硬约束
 
@@ -23,10 +23,11 @@
 | `BINANCE_MAX_ORDER_NOTIONAL` / `BINANCE_MAX_DAILY_NOTIONAL` / `BINANCE_MAX_DAILY_ORDERS` | 单笔、当日名义额和当日笔数上限 | 5000 / 50000 / 50 |
 | `BINANCE_MAX_LEVERAGE` | 账户敞口上限（倍），不能超过 3 | 3 |
 | `BINANCE_EXCHANGE_LEVERAGE` / `BINANCE_MARGIN_TYPE` | BTCUSDT、ETHUSDT 应有的交易所杠杆和保证金模式。**程序只核对、不修改**，由人在币安上设好，不符就拒绝启动（ADR-0010）。不设保证金模式表示全仓。逐仓时止损必须在强平距离的一半以内 | 3 / 全仓 |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 告警出口。两个都设才发 Telegram；都不设只写日志；只设一个拒绝启动 | 无 |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 告警出口。**执行模式（测试网和主网）必填**，缺一个就拒绝启动（S7）；模拟盘不设时只写日志；只设一个一律拒绝启动 | 无 |
+| `HEARTBEAT_URL` | 外部心跳监控的 https 地址。**执行模式必填**；按密钥处理，不写进日志和配置记录（S7） | 无 |
 | `QUANT_MODEL_SIGN_KEY` | 规格签名密钥。实盘环境下不允许加载未签名的规格 | 无 |
 
-凭据只放在主机的环境变量文件里，不提交、不打印。
+凭据只放在主机的环境变量文件里，不提交、不打印。全部变量和规则见 `.env.example`。
 
 ## 2. 发布策略规格
 
@@ -56,28 +57,35 @@ tail -f /quant_system/logs/binance_target.log
 
 ## 4. 测试网执行（M5）
 
-1. **初始化状态目录**，每个账户身份一次，由人来做：
+一台主机只跑一个网络的执行进程（M5 期间只有测试网）；状态、备份和主机锁都在 `/var/lib/quant` 下（技术负责人 2026-11-16）。
+
+1. **安装主机**（root，幂等，不读密钥，不启动任何服务）：`sudo bash /quant_system/infra/install_host.sh`。按哈希安装依赖，创建 `/var/lib/quant/{state,backups}` 和日志目录，同步服务单元，部署日志轮转，最后跑离线安全检查。
+2. **写 `.env`**：照 `.env.example`，权限 600，属主 ubuntu。执行模式必须有 Telegram 两项和 `HEARTBEAT_URL`。
+3. **初始化状态目录**，每个账户身份一次，由人来做（以 ubuntu 身份）：
    ```bash
-   RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> init
-   RISK_SCOPE=<scope> BINANCE_TESTNET=1 python -m trading.infrastructure.state_dir --state-dir <dir> check
+   python3 -m trading.infrastructure.state_dir --state-dir /var/lib/quant/state/testnet init
+   python3 -m trading.infrastructure.state_dir --state-dir /var/lib/quant/state/testnet check
    ```
-   - `init` 创建清单、唯一的状态数据库 `state.sqlite`（带版本号、全部表）和一个未激活的急停文件；已初始化的目录不会被覆盖。
-   - 运行时的各存储只打开这个数据库，从不新建文件或表。数据库丢失或被清空时启动会被拒绝；运行中丢失时入场被阻断，平仓单因为无法登记而不会发出（交易所侧止损仍在），从备份恢复见 ADR-0016。
-   - 换目录或换 `RISK_SCOPE` 就是换账户身份，要重新初始化一个新目录。
-2. **启动**（手动在前台运行，不经 systemd）：
-   ```bash
-   python -m runner.binance_target --spec models_binance/strategy/final_spec.json \
-       --state-dir <dir> --enable-execution [--stop-pct 0.08]
-   ```
-   - 在连接账户之前，启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录。
-   - 状态目录要有清单，账户身份要一致；唯一的状态数据库 `state.sqlite` 的版本号要对、表要齐（ADR-0009）；不能有旧的五文件布局；急停文件要能读。任何一项不满足就拒绝启动，并且不创建数据库、急停文件或清单。
-   - 连接账户之后、运行时建好之前，只读检查整个账户（ADR-0010）。下面任何一项成立就拒绝启动，并逐项列出：
+   - `init` 先创建主机锁目录 `/var/lib/quant/locks`（S6），再创建清单、唯一的状态数据库 `state.sqlite`（带版本号、全部表）和一个未激活的急停文件；已初始化的目录不会被覆盖。
+   - 运行时的各存储只打开这个数据库，从不新建文件或表。数据库丢失或被清空时启动会被拒绝；从备份恢复见第 7 节。
+   - 换目录或换 `RISK_SCOPE` 就是换状态；但同一把 API Key 在本机只能有一个执行进程（主机锁），与目录和 `RISK_SCOPE` 无关。
+4. **开启备份**：`sudo systemctl enable --now state-backup@testnet.timer`（每小时一份快照，保留 14 天，失败时告警）。
+5. **启动**：`sudo systemctl start binance-target-testnet.service`。
+   - 单元的启动命令里固定了测试网（`/usr/bin/env BINANCE_TESTNET=1 …`），即使 `.env` 写错，这个会自动重启的单元也连不到主网。失败后 60 秒自动重启，每小时最多 3 次（人手动启动也算）；每次失败都经 `quant-alert@` 发 Telegram。
+   - 启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录；然后要求 Telegram 和心跳地址（S7）、读凭据、拿主机锁（S6）；然后发 "testnet execution starting"，**Telegram 15 秒内没确认就不启动、不发任何账户请求**。
+   - 连接账户之后、运行时建好之前，只读检查整个账户（ADR-0010）。下面任何一项成立就拒绝启动，逐项列出，并发一条 "execution start refused"：
      - 任何品种上有不属于策略账本的持仓；
      - 有不属于策略的普通挂单或条件单；
      - BTCUSDT、ETHUSDT 的杠杆或保证金模式与配置不同；
      - 账户读不出来。
    - 策略和手动交易共用主账户（2026-11-15 的决定），所以启动执行模式之前，要先在币安上把手动仓位和挂单处理掉。
-3. **自动重启**：执行模式下要不要自动重启，项目规则规定由人决定。现有单元是模拟盘用的，不能直接改成执行模式；执行模式的单元是 M5 的待定事项。
+   - 运行中每分钟最多一次心跳（等行情时也发）；心跳监控失联说明进程或主机停了。
+6. **前台试跑**（不经 systemd，排查时用）：
+   ```bash
+   python -m runner.binance_target --spec models_binance/strategy/final_spec.json \
+       --state-dir /var/lib/quant/state/testnet --enable-execution [--stop-pct 0.08]
+   ```
+   systemd 单元在跑时，这条命令会被主机锁拒绝。
 
 ## 5. 风险操作（都由人执行）
 
@@ -94,24 +102,36 @@ tail -f /quant_system/logs/binance_target.log
 
 - 在初始化过的目录里，急停文件**丢失时按"激活"处理**。运行时从不写急停文件。
 - 止损在交易所侧触发或被击穿后，该品种暂停入场，直到人解除，同时告警。暂停记录丢失时，会根据订单库里的止损记录重新暂停，不会因为丢了文件而放行。
-- 手工工具要求运行时已经停止（持有同一把租约）、写明理由、键入确认，并留下审计记录。它们从不凭空生成成交。
+- 手工工具要求运行时已经停止：同一账户身份的运行时在本机任何目录里运行时都拒绝（主机锁），同一目录的租约也要拿得到；还要写明理由、键入确认，并留下审计记录。它们从不凭空生成成交。
 
-## 6. 告警
+## 6. 告警与心跳
 
+- 执行模式必须配置 Telegram；启动时 "execution starting" 要 Telegram 确认才继续（S7）。模拟盘没有配置时只写进程日志（状态里 `alerts: "log only"`）。
 - `alert` 类事件立即发出。持续的问题（例如没有止损、平仓失败、行情不可用）超过 2 分钟后发出，每 30 分钟重复，恢复时发"已解决"。
-- 没有配置 Telegram 时，状态里显示 `alerts: "log only"`，告警只写进程日志。主网是否必须配置告警出口，是 M5 开始前要问的事。
+- 服务失败（包括随后被自动重启的那次）和备份失败由 `quant-alert@<单元>` 发一条消息；Telegram 没确认时，告警单元自己也显示失败。
+- 外部心跳：每分钟最多一次，在单独线程里发、带超时，失败只记日志，不影响交易和平仓。心跳监控在另一处，主机宕机时由它通知人。
 
-## 7. 主机维护
+## 7. 主机维护、备份与恢复
 
 ```bash
-sudo bash infra/sync_systemd.sh     # 停用并删除退役单元，复制有变化的单元，重载 systemd；从不重启服务
-sudo systemctl restart binance-target.service      # 看过改动后由人重启
-sudo bash infra/deploy_logrotate.sh                 # 日志轮转（每天，保留 14 天）
+sudo bash /quant_system/infra/install_host.sh   # 安装或更新：依赖、目录、单元、日志轮转、安全检查；从不启动服务
+sudo bash infra/sync_systemd.sh                 # 只同步单元：停用并删除退役单元，复制有变化的单元，重载；从不重启服务
+sudo systemctl restart binance-target.service   # 看过改动后由人重启（模拟盘）
 ```
 
+- 服务单元：`binance-target`（模拟盘）、`binance-target-testnet`（测试网执行）、`binance-target-mainnet`（主网执行，不自动重启、不能开机启动，只能人手动 `systemctl start`）、`quant-alert@`、`state-backup@<网络>.timer`、`health-watchdog`、`log-archive`。
 - 2026-11-15 退役了一批单元（见 `docs/deploy_truth.md`）。主机上要运行一次同步脚本才会停掉它们。
-- 如果主机上还在跑旧的 Docker 容器（影子进程、Bybit），在旧的检出目录里执行 `docker compose down`。
-- 看门狗（`health-watchdog`）每 5 分钟检查 binance-target 的状态文件和最新 K 线的延迟，只告警、从不重启。
+- 看门狗（`health-watchdog`）每 5 分钟检查模拟盘状态文件和最新 K 线的延迟，只告警、从不重启。
+- **备份**：`state-backup@testnet.timer` 每小时用 SQLite 在线备份给 `state.sqlite` 拍快照，写到 `/var/lib/quant/backups/testnet/state-<UTC 时间>.sqlite`，检查通过才保留；成功后删除 14 天前的快照。急停文件不备份。
+- **恢复**（只在状态库丢失或损坏、启动检查拒绝它时；运行时必须已停止）：
+  ```bash
+  sudo systemctl stop binance-target-testnet.service
+  python3 -m trading.infrastructure.state_dir --state-dir /var/lib/quant/state/testnet restore \
+      --snapshot /var/lib/quant/backups/testnet/state-<时间>.sqlite --reason "<为什么>"
+  ```
+  - 要键入 scope 确认；库完好时、运行时在跑时、快照是模拟盘的库时都拒绝。
+  - 恢复只会收紧：当天和本周的回撤锁定，当天下单计数视为用完，所有品种暂停入场；急停文件不动；损坏的库改名保留（`state.sqlite.broken-<时间>`）；留一条审计记录。
+  - 恢复后先 `state_dir check`，再启动；启动时的账户检查（ADR-0010）会拒绝任何与交易所不一致的状态。然后由人核对交易所持仓和账本，逐个品种 `entry_pause release`。
 
 ## 8. 出问题时
 
@@ -121,9 +141,13 @@ sudo bash infra/deploy_logrotate.sh                 # 日志轮转（每天，�
 | 交易所说"不可重试"（如品种下线） | 立即告警，阻断入场，按 300 秒重试 | 查原因 |
 | 启动时行情不可用 | 不退出；先对账、维护止损、执行急停和回撤平仓，再重试预热 | 同上 |
 | 有持仓但没有有效止损 | 阻断入场，2 分钟后告警 | 查止损下单失败的原因 |
-| 止损被击穿 | 按账本平仓，暂停该品种入场，告警 | 核对后用 `entry_pause release` 解除 |
+| 止损被击穿 | 按交易所持仓整仓平掉（S5b），暂停该品种入场，告警 | 核对后用 `entry_pause release` 解除 |
+| 启动告警没被 Telegram 确认 | 拒绝启动，不发任何账户请求 | 查 Telegram 配置和网络 |
+| 主机锁被占（"already has an execution process"） | 拒绝启动 | 同一把 API Key 已有执行进程在跑；先停掉它（`systemctl status`），不要换目录或换 `RISK_SCOPE` 绕过 |
+| 心跳监控报失联 | — | 进程或主机停了：看 `systemctl status` 和日志；主机宕机时交易所侧止损仍在 |
+| 外来成交（`foreign_fill`） | 只记账本自己那部分，多出的记为外来成交，告警 | 核对是否有手动仓位被止损或急停一起平掉 |
 | 回撤到达限额 | 锁定到下一个 UTC 日或周，按交易所持仓整仓平掉 | 不用自动解除；查原因 |
-| 状态文件损坏或丢失（启动时） | 拒绝启动并说明缺什么 | 从备份恢复，或初始化新目录（等于换账户身份） |
+| 状态库损坏或丢失（启动时） | 拒绝启动并说明缺什么 | 用 `state_dir restore` 从最新快照恢复（第 7 节）；恢复后核对再逐个解除暂停 |
 | 启动时账户里有不属于策略的持仓、挂单或条件单，或者杠杆、保证金模式与配置不符 | 拒绝启动，逐项列出；不改账户里的任何东西 | 在币安上平掉、撤掉手动的仓位和挂单，或者按配置设好杠杆和保证金模式，再启动。**不要**用 `manual position` 收编手动仓位：收编后它归策略的止损、急停和回撤管。**被拒绝期间运行时完全不运行**：策略自己仓位的止损不补挂，急停、回撤平仓不执行，限价入场单不按时撤，所以要同时在币安上核对策略自己的仓位、止损和挂单 |
 | 限额计数读不出 | 拒单（按"已用完"处理） | 查状态目录 |
 
