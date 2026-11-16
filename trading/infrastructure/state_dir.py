@@ -4,7 +4,8 @@
     python -m trading.infrastructure.state_dir --state-dir data/runtime/binance_target check
 
 A person initializes the directory once: a manifest naming the account scope, the one state database
-``state.sqlite`` with every table at its version (ADR-0009), and an inactive kill file. Execution mode then
+``state.sqlite`` with every table at its version (ADR-0009), and an inactive kill file. ``init`` also creates the
+host lock directory if it is missing (ADR-0016 point 5), before anything else. Execution mode then
 starts only if the manifest exists, names the same scope, the database has the right version and every table,
 the old five-file layout is absent and the kill file is readable; no database, kill file or manifest is created
 on the way (reading a WAL database may leave SQLite's -shm/-wal files next to it). Changing the directory or
@@ -22,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
+from trading.adapters.files.host_lock import prepare_lock_dir
 from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.sqlite import schema
 from trading.adapters.sqlite.schema import STATE_DB
@@ -101,6 +103,12 @@ def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Map
         verify(args.state_dir, scope)
         print(f"{args.state_dir}: initialized for {scope}", file=stdout)
         return 0
+    try:                                                       # first, so a failure leaves nothing behind
+        locks = prepare_lock_dir()
+    except RuntimeError as exc:
+        print(f"not initialized: {exc}", file=stdout)
+        return 2
+    print(f"host lock directory {locks} is ready", file=stdout)
     if not initialize(args.state_dir, scope=scope, testnet=testnet, env=env):
         print(f"{args.state_dir} is already initialized; nothing changed", file=stdout)
         return 1
