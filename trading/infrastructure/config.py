@@ -4,7 +4,7 @@ and runner/ that reads the environment (tests/architecture/test_config_rules.py)
 ``load_config`` returns a frozen ``RuntimeConfig`` - every value the runtime, the composition root and the tools
 use, and the account identity (ADR-0016 point 5) - and, apart, the ``Secrets`` only the adapters are built with.
 The config is recorded at start-up without any secret; its digest is in the status file. The parsers below were
-moved here from settings.py, which re-exports them.
+moved here from settings.py (S4); that re-export shell was deleted on 2026-11-16.
 """
 from __future__ import annotations
 

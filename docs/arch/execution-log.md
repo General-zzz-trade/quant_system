@@ -3506,3 +3506,21 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 存活 4 个：A4、A5（替换前检查副本、替换后的启动检查）互为后备，去掉其中一个时另一个仍然拦住坏库；A8（逐字节复制快照）对单文件快照等价；B2（去掉 fsync）在测试里观察不到。
 
 **本地**【实际运行结果】：刻画、trading 单元、lab、架构、契约、infra、binance、offline、runner 各组测试全部通过；ruff、`mypy trading/`（94 个文件）、导入契约通过。
+
+## 删除不再使用的模拟盘旧存储和配置转发壳（2026-11-16，删除批次，轻流程）
+
+- **批准**：技术负责人 2026-11-16"先把技术债清理掉"；ADR-0008 2b（不可达代码）和"兼容壳留到 M4"（M4 已完成）。
+- **方法**：`scripts/dev/import_graph.py importers` 加 `git grep`（模块名、文件名）。三个模块都只有测试在导入。
+- **删除**（生产 3 个文件 121 行，测试 1 个文件 78 行）：
+  - `trading/infrastructure/paper_store.py`（40 行）、`trading/adapters/sqlite/paper_store.py`（71 行）：S10 之后模拟盘状态存在 `state.sqlite` 的 `paper_state` 表（`trading/adapters/sqlite/paper_state.py`），运行时不再用它们。
+  - `tests/unit/trading/test_paper_store.py`（78 行）：被删代码的测试。
+  - `trading/infrastructure/settings.py`（10 行）：S4 把配置解析搬到 `config.py` 后留下的转发壳。
+- **保留**：`data/downloads/binance_archive.py`（中频研究协议里写明的数据下载工具，人会运行）；`docs/arch/evidence/probe_*.py`（审计证据）。
+- **测试的改动**：
+  - 7 个测试文件只改导入，从 `trading.infrastructure.settings` 改为 `trading.infrastructure.config`，断言不变：`test_risk_state`、`test_exchange_settings`、`test_alerts`、`test_exit_robustness`、`test_legacy_shells`、`test_order_limits`、`test_target_composition`。
+  - `tests/architecture/test_rules.py`，两处"加载这些模块不会带进旧包"的模块列表：`trading.infrastructure.settings` 换成 `trading.infrastructure.config`；`trading.infrastructure.paper_store` 换成它的后继 `trading.infrastructure.paper`。期望值 `"[]"` 不变。
+  - `tests/characterization/test_state_database.py` 的规则测试（被删模块从清单里去掉）：
+    - 原来：`assert creators == ["paper_store.py", "schema.py"]`；`assert connectors == ["backup.py", "connection.py", "paper_store.py", "schema.py"]`
+    - 现在：`assert creators == ["schema.py"]`；`assert connectors == ["backup.py", "connection.py", "schema.py"]`
+- **文档**：`config.py` 的说明、`docs/arch/target.md` 的两处模块名。
+- **本地**【实际运行结果】：架构测试和所有改了导入的测试文件、模拟盘状态和安全测试通过；ruff、`mypy trading/`（91 个文件）、导入契约通过；分片列表能生成。

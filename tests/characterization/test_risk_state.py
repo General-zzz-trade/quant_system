@@ -61,7 +61,7 @@ def test_a_drawdown_limit_above_the_hard_ceiling_refuses_to_start():
     """R12 (first half), fixed in migration step 13b (tech lead, 2026-11-15): daily at most 10 %, weekly at
     most 25 %, checked where the target runtime reads them. Until then this test pinned the defect: the
     drawdown guard accepted 99.9 % for both."""
-    from trading.infrastructure.settings import risk_limits
+    from trading.infrastructure.config import risk_limits
     with pytest.raises(RuntimeError, match="drawdown"):
         risk_limits({"MAX_DAILY_DRAWDOWN_PCT": "99.9", "MAX_WEEKLY_DRAWDOWN_PCT": "99.9"})
     assert (risk_limits({"MAX_DAILY_DRAWDOWN_PCT": "10", "MAX_WEEKLY_DRAWDOWN_PCT": "25"}).weekly_drawdown_pct

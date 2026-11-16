@@ -63,7 +63,7 @@ trading/
     reconcile.py             账本与交易所核对
   adapters/
     binance/             rest、adapter（一个类实现行情、账户、下单、止损四个端口）
-    sqlite/              order_journal、drawdown_store、limit_store、paper_store
+    sqlite/              order_journal、drawdown_store、limit_store、paper_state（S10 起模拟盘状态与订单库同在 state.sqlite）
     files/               kill_file、event_log、status_file、signed_spec
     simulated/           bar_broker（研究撮合模型，纸面与研究共用）
     notify/              telegram、null
@@ -140,7 +140,7 @@ import-linter 查不了的规则用 AST 测试补（`tests/architecture/test_rul
 | `Clock`、`Sleeper` | `now()`、`sleep(s)` | `time.time` / `time.sleep` 散落在 5 个文件 | `adapters.system`；测试用假时钟 |
 | `Notifier` | `alert(level, title, detail)` | 资金路径上没有任何调用 | `adapters.notify.telegram`、`null` |
 | `EventLog`、`StatusSink` | `write(kind, **fields)`、`publish(status)` | `runner/binance_main.py:130-133`；`runner/binance_target.py:363-365` | `adapters.files` |
-| `PaperStore` | `load()`、`save(state)` | 不存在，纸面状态只在内存 | `adapters.sqlite.paper_store` |
+| `PaperStore` | `load()`、`save(state)` | 不存在，纸面状态只在内存 | `adapters.sqlite.paper_state`（S10；`paper_store` 已于 2026-11-16 删除） |
 
 约束：
 

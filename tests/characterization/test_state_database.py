@@ -162,9 +162,9 @@ def test_only_the_schema_module_creates_tables_and_only_the_factory_connects():
     sqlite_dir = ROOT / "trading" / "adapters" / "sqlite"
     creators = sorted(p.name for p in sqlite_dir.glob("*.py") if "CREATE TABLE" in p.read_text())
     connectors = sorted(p.name for p in sqlite_dir.glob("*.py") if "sqlite3.connect(" in p.read_text())
-    assert creators == ["paper_store.py", "schema.py"]                  # paper keeps its own file (ADR-0009 1)
+    assert creators == ["schema.py"]                  # paper's own store went with S10; its tables are in schema.py
     # check.py deleted 2026-11-15; backup.py since S8: the online backup writes a new snapshot (ADR-0016 point 6)
-    assert connectors == ["backup.py", "connection.py", "paper_store.py", "schema.py"]
+    assert connectors == ["backup.py", "connection.py", "schema.py"]
 
 
 def test_every_connection_uses_full_synchronous_writes_and_a_busy_timeout(tmp_path):

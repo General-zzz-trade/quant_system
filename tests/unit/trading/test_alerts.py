@@ -16,7 +16,7 @@ from trading.application.issues import Issue
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
 from trading.domain.strategy.overlay import StrategySpec
-from trading.infrastructure.settings import notifier_from_env
+from trading.infrastructure.config import notifier_from_env
 from tests.support.state_db import state_dir_db
 
 TOKEN = "123456:secret-token"

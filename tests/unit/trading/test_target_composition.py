@@ -15,7 +15,7 @@ from trading.application.execution.executor import OwnerExecutor
 from trading.domain.orders import OrderIntent
 from trading.domain.rebalance import Lot
 from trading.infrastructure import target
-from trading.infrastructure.settings import RiskLimits, risk_limits
+from trading.infrastructure.config import RiskLimits, risk_limits
 
 
 @pytest.fixture(autouse=True)
