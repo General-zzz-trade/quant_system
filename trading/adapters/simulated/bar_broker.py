@@ -453,9 +453,9 @@ SYMBOL_RULES = {
 
 
 def broker_config(spec: StrategySpec, rules: SymbolRules, *, starting_balance: str = "5000",
-                  cost_multiplier: int = 1) -> ReplayConfig:
+                  cost_multiplier: int = 1, stop_pct: str = "0") -> ReplayConfig:
     m = D(cost_multiplier)
     return ReplayConfig(starting_balance=starting_balance, maker_bps=str(D(2) * m), taker_bps=str(D(5) * m),
                         slippage_bps=str(D(3) * m), limit_offset_bps=str(LIMIT_OFFSET_BPS), participation="0.01",
                         max_exposure="1", qty_step=str(rules.step), min_notional=str(rules.min_notional),
-                        ttl_bars=spec.ttl_bars, entry_mode=spec.execution)
+                        ttl_bars=spec.ttl_bars, entry_mode=spec.execution, stop_pct=stop_pct)
