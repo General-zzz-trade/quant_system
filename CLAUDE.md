@@ -201,6 +201,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   (paper records no bars). Exit 0 "一致", 1 "不一致" (first differing fill), 2 "无法比较" (data missing, or not
   what paper saw). A difference is an intended divergence only through a fact of the record plus its
   `paper_divergence` event. Prints fills only, no returns.
+- `lab/um_judge.py`: the research lab's judge as a tested tool (periods, the yearly symbol lists, a configuration =
+  an idea's parameters plus a stop variant, walk-forward choice, score, final check; the holdout period is replayed
+  only in `final`, for survivors). `lab.simulate` takes `reenter_after_stop="signal_reset"` (after a stop, no entry
+  until the target has been 0). How a run uses it: `research/lab/README.md`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**

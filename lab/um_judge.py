@@ -9,6 +9,15 @@ parameters; the method is the one written in research/lab/runs/2026-11-16/ideas.
   itself (tests/architecture/test_research_fills.py).
 - Each period starts flat with fresh slot capital; its daily returns run from that capital to the period's last
   close, one per UTC day (``period_daily``), so consecutive periods join without an overlap or a gap.
+- ``Judge.screen``: every configuration on the selection periods, then per idea the walk-forward (each fold runs
+  the configuration with the best Sharpe before it; parameters and stop variant are chosen together), the score
+  and the elimination rule. ``Judge.final``: the final check of the survivors; only there, and only for them, is
+  the holdout period replayed.
+- Every configuration and period replayed is appended to research/lab/trials.jsonl, then cached as JSON.
+
+How a run uses it: research/lab/README.md. The 2026-11-16 script differs in one thing that changes numbers: it left
+the first day of every period out of the daily returns (``legacy_days`` reproduces that, for the regression check
+research/lab/runs/2026-11-16/reproduce.py only).
 """
 from __future__ import annotations
 

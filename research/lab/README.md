@@ -53,6 +53,46 @@
   - 每品种按自己的盈亏复利，实盘是共用一份资金（差别是二阶的）；
   - 小币种的买卖价差按统一的 3 个基点估计。
 
+## 评审员怎么跑（`lab/um_judge.py`，2026-11-16 起）
+
+第一轮的流程写在一次性脚本 `runs/2026-11-16/judge.py` 里，没有测试；它留作那一轮的记录。从下一轮起，流程在
+`lab/um_judge.py`（有测试，`tests/unit/lab/test_um_judge*.py`），每晚的 `runs/<日期>/judge.py` 只把当晚的想法交给它：
+
+```python
+from lab import um_judge as judge, um_lab as lab
+import ideas as lib                    # 当晚的 ideas.py：IDEAS = {名字: (函数, 参数表)}，XS = 横截面想法的名字
+
+dates = [start for start, _ in judge.PERIODS]
+lists = judge.universe(lab.SNAPSHOT, dates, capital=lab.LIVE.capital, slots=10)   # 连同规则写进 universe.json
+j = judge.Judge(ideas=lib.IDEAS, lists=lists, cache=Path("/tmp/lab_<日期>"), run_date="<日期>",
+                cross_sectional=frozenset(lib.XS), lookahead=causal)              # causal：当晚脚本里的防未来函数检查
+screened = j.screen(variants=judge.STOP_VARIANTS)   # 挑选窗口的全部配置、滚动前推、打分、淘汰；不读验证段
+checked = j.final(screened)                         # 只对过淘汰线的想法打开验证段；冠军或 None
+```
+
+工具里固定下来的规则（做法仍以 `runs/2026-11-16/ideas.md` 的"回测的做法"为准）：
+
+- 时段 `judge.PERIODS`：第一段只用来挑选，中间三段是滚动前推的三折，最后一段是验证段。
+- 品种清单 `universe`：每段开始前 30 天日成交额中位数最高的 N 个，至少有 25 天数据，一笔最小的单不超过一份资金的三分之二，
+  去掉稳定币合约；只用那个日期之前的 K 线。
+- 一个配置 = 想法的一组参数 + 止损方案 `StopVariant`（止损距离；止损后暂停几小时，或 `signal_reset`：等目标仓位回到 0
+  再出现信号才入场）。`STOP_VARIANTS` 是 `runs/2026-11-17/plan.md` 的 12 种，实盘的 8% 加 4 小时排第一。
+  每一折用它之前的数据里夏普最高的配置，参数和止损方案一起选；夏普相同时先比参数的文字（第一轮的规则），再取排在前面的方案。
+- 每段开始时每个品种从一份资金重新开始。日收益按 UTC 自然日算，从这一份资金算到这一段最后一根 K 线收盘，
+  所以相邻两段首尾相接，不重不漏。
+- 淘汰线、打分表、最终检查照 `ideas.md`；没有给 `lookahead` 检查的，"防未来函数"一项算不通过。
+- 验证段只在 `final` 里读，而且只读过了淘汰线的想法；`run_all` 默认拒绝验证段的任务。
+- 每个配置每一段的结果先登记到 `research/lab/trials.jsonl`（写明止损方案），再进缓存（JSON；设置不同的缓存会被拒绝）。
+
+和第一轮脚本不同的地方：
+
+- **每段的第一天**：第一轮的脚本把每段第一天的收益（含重新开仓的成本）漏掉了，一天还是按 23:00 截的，
+  所以它的滚动前推是 909 天，而持有 BTC 是 912 天。工具默认把每一天都算上；`legacy_days=True` 只用来复现第一轮的数字
+  （`runs/2026-11-16/reproduce.py`，结果在 `reproduction.json`）。
+- 打分表的两个边界照表上写的算：最大回撤正好 15% 得 4 分（表上 5 分是"< 15%"），熊市和震荡都正好赚 5% 得 5 分（"5% 以上"）。
+  第一轮脚本在这两个点上分别给 5 分和 4 分；实际数字不会正好落在边界上。
+- 登记在算完一个配置后立刻写，不等全部算完。
+
 ## 切分
 
 - 2022-11-13 到 2026-05-12：用来挑选，按年滚动前推。
