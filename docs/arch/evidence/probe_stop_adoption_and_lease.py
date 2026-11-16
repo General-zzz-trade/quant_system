@@ -1,6 +1,7 @@
 # ruff: noqa
 # Read-only diagnosis probe (no network): runs the real runtime classes against the in-memory fake venue used by the unit tests.
-# Usage: python3 -B <this file> <empty work dir> [scenario]. See docs/arch/current-state.md.
+# Usage: python3 -B <this file> <empty work dir> [scenario]. Written for the 2026-11-14 diagnosis (deleted in R9;
+# in git history).
 """Read-only experiment (no network): protective stop observed as TRIGGERED before actualOrderId is available;
 and the execution lease with two state directories."""
 import os, sys, json, logging
