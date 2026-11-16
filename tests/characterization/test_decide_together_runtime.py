@@ -38,6 +38,11 @@ def _run(tmp_path, mode, together):
     else:
         runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp_path / "paper", mode="paper",
                                 market=world["adapter"], clock=lambda: world["clock"]["now"])
+    if mode == "execution":
+        # Execution's orders-per-second limit runs on the real monotonic clock, so whether two symbols' orders in one
+        # cycle fall in the same second depends on how fast the test runs. On the world's clock they always do.
+        limiter = runtime.sessions["BTCUSDT"].gate.inner._limiter
+        limiter._monotonic = lambda: world["clock"]["now"]
     strategy = Together(SPEC) if together else None
     if strategy is not None:
         for session in runtime.sessions.values():
