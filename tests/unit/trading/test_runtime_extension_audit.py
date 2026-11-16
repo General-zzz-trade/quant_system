@@ -46,6 +46,8 @@ def _params(**over):
     ({"strategy": _params(long_only="false")}, "long_only"),
     ({"strategy": _params(funding_filter="no")}, "funding_filter"),
     ({"strategy": _params(max_weight=True)}, "max_weight"),
+    ({"strategy": _params(vol_lookback=10.5)}, "vol_lookback"),
+    ({"strategy": _params(vol_lookback=True)}, "vol_lookback"),
     ({"strategy": _params(lookbacks=[5.5, 10, 20])}, "lookbacks"),
     ({"strategy": _params(lookbacks=[])}, "lookbacks"),
     ({"strategy": _params(unknown_knob=1)}, "no parameter 'unknown_knob'"),

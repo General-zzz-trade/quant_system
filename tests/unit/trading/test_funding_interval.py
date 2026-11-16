@@ -256,3 +256,13 @@ def test_a_symbol_the_exchange_does_not_list_is_unknown_and_said_once_per_read()
     assert w.sessions["FOURUSDT"].funding_interval is None
     assert w.poller.symbol_issue("FOURUSDT").kind.value == "funding_interval_unknown"
     assert w.poller.symbol_issue("EIGHTUSDT") is None
+
+
+def test_a_first_read_that_fails_says_none_was_read_since_the_start():
+    w = _poller(cursor=3, now_ms=T0 + 4 * HOUR + 5_000, last=3, settlements={"FOURUSDT": [T0], "EIGHTUSDT": [T0]},
+                intervals={"FOURUSDT": 4, "EIGHTUSDT": 8})
+    w.market.fail = True
+    w.poller.poll()
+    issues = [f for kind, f in w.journal.rows if kind == "issue"]
+    assert len(issues) == 2 and all("not read since the start" in i["issue"] for i in issues)
+    assert all(s.funding_interval is None for s in w.sessions.values())

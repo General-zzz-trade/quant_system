@@ -92,4 +92,7 @@ def test_an_unknown_funding_interval_still_lets_a_position_be_reduced(tmp_path, 
     close(i + 1)                                                      # the next hour reads the intervals again
     session = runtime.sessions["ETHUSDT"]
     assert session.funding_interval is None and session.entry_reason == "funding interval not known"
+    issues = runtime.exits.last_issues["ETHUSDT"]                    # the symbol's issue: blocked, alerted if it lasts
+    assert [i.kind.value for i in issues] == ["funding_interval_unknown"] and session.state.value == "blocked"
+    assert runtime.sessions["BTCUSDT"].state.value == "ready"
     assert eth.positions["ETHUSDT"] == 0 and eth.trades[-1]["side"] == "BUY"
