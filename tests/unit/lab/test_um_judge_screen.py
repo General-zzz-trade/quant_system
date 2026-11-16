@@ -61,6 +61,14 @@ def test_nothing_from_a_fold_or_after_it_changes_the_choice_for_that_fold():
     assert judge.walk_forward(flipped, folds=(1, 2, 3))["chosen"][0].params == {"p": "late"}
 
 
+def test_the_final_choice_uses_every_selection_period_the_last_fold_included():
+    steady = _run({"p": "steady"}, (0.001, 0.001, 0.001, 0.001))
+    broke = _run({"p": "broke"}, (0.004, 0.004, 0.004, -0.03), phase=1.0)         # the best until the last fold
+    wf = judge.walk_forward([steady, broke], folds=(1, 2, 3))
+    assert [c.params["p"] for c in wf["chosen"]] == ["broke", "broke", "broke"]   # the last fold could not know
+    assert wf["final"].params == {"p": "steady"}                                  # what the holdout would get
+
+
 def test_ties_go_to_the_larger_parameter_text_then_to_the_variant_listed_first():
     means = (0.001, 0.001, 0.001, 0.001)
     same = [_run({"n": 20}, means, LIVE), _run({"n": 20}, means, WIDE), _run({"n": 40}, means, WIDE),
@@ -192,6 +200,9 @@ def test_the_screen_walks_forward_scores_and_eliminates_without_reading_the_hold
     assert pulse_row["round_trips"] == 2 * 60 and pulse_row["score"]["trades"] == 4
     assert pulse_row["score"]["total"] == sum(v for k, v in pulse_row["score"].items() if k != "total")
     assert len(pulse_row["selection_sharpe"]) == 4 and len(pulse_row["chosen_per_fold"]) == 3
+    for config in j.candidates("pulse", (LIVE, WIDE)):            # the Sharpe of all four selection periods
+        whole = lab.summary(judge.joined(j.load(config), (0, 1, 2, 3)))["sharpe"]
+        assert pulse_row["selection_sharpe"][config.key] == whole
     assert set(pulse_row["pilot"]) == {"losing_streak_stops", "per_30_days", "days_below_daily_stop",
                                        "loss_stop_share"}
     assert pulse_row["limits_needed"]["entry_orders"] == 2 * 60
