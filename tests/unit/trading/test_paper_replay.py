@@ -42,7 +42,7 @@ class Market:
 
 
 class Session:
-    strategy = SimpleNamespace(cross_sectional=False)     # R3: each symbol decides on its own
+    strategy = SimpleNamespace(cross_sectional=False, references=lambda: ())    # R3/R7d: each symbol on its own
 
     def __init__(self, symbol, cursor, log):
         self.symbol, self.cursor, self.log = symbol, T0 + cursor * HOUR, log
