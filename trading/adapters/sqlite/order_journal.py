@@ -88,6 +88,17 @@ class SqliteOrderJournal:
         times = [float(t) for t in (filled, manual) if t is not None]
         return min(times) if times else None
 
+    def owners(self) -> list[str]:
+        """Every owner the scope's ledger knows: one with a checkpoint (a consumed fill, or a position a person put
+        into its ledger, which writes a checkpoint too) or with a fill not consumed yet. The strategy capital base
+        and the loss stop count each of the strategy's (audit 2026-11-16, finding 7), also one whose symbol the
+        current spec no longer trades."""
+        with self.connect() as db:
+            rows = db.execute("SELECT owner FROM execution_consumers WHERE scope=? "
+                              "UNION SELECT owner FROM execution_fills WHERE scope=?",
+                              (self.scope, self.scope)).fetchall()
+        return sorted(str(row[0]) for row in rows)
+
     def checkpoint(self, owner: str) -> dict[str, Any] | None:
         with self.connect() as db:
             row = db.execute("SELECT checkpoint FROM execution_consumers WHERE scope=? AND owner=?",

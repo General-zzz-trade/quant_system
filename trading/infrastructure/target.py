@@ -54,6 +54,7 @@ ENTRY_WAIT_SECONDS = 0.5
 NOT_FOUND_GRACE_SECONDS = 90.0      # > Binance max recvWindow (60 s) + clock skew margin
 LIMIT_OFFSET = LIMIT_OFFSET_BPS / 10000    # the same maker offset as research, as the fraction the service takes
 HOUR_SECONDS = 3600.0
+OWNER_PREFIX = "target."            # the strategy's ledger owners: target.<SYMBOL>
 
 
 class Account(ExchangeAccount, OrderGateway, StopVenue, Protocol):
@@ -76,6 +77,7 @@ class ExecutionInputs:
     strategy_capital: Decimal | None = None   # owner 2026-11-16: size from min(account, this + own realized PnL)
     funding: FundingIncome | None = None      # the account's funding income, which that PnL includes (2026-11-16)
     strategy_loss_stop: Decimal | None = None   # owner 2026-11-16: at this share of the capital lost, flatten and stop
+    strategy_leverage: Decimal = Decimal(1)     # owner 2026-11-16: a full position, in multiples of the capital
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,25 @@ def strategy_realized_pnl(ledger: SqliteOrderJournal, owners: list[str]) -> Deci
     return total
 
 
+def strategy_owners(ledger: SqliteOrderJournal, symbols: Sequence[str]) -> list[str]:
+    """Every ``target.*`` owner of the scope: the spec's symbols and whatever the ledger holds of an earlier spec
+    (audit 2026-11-16, finding 7). A ledger that cannot be listed raises."""
+    return sorted({OWNER_PREFIX + s for s in symbols} | {o for o in ledger.owners() if o.startswith(OWNER_PREFIX)})
+
+
+def strategy_positions(ledger: SqliteOrderJournal, owners: list[str]) -> list[tuple[str, Decimal, Decimal]]:
+    """Each owner's ledger position as (symbol, quantity, entry price), from its checkpoint: what the loss stop
+    values at the venue's mark. An owner without a checkpoint holds nothing; one that cannot be read raises."""
+    rows = []
+    for owner in owners:
+        checkpoint = ledger.checkpoint(owner)
+        if checkpoint is not None:
+            position = checkpoint["position"]
+            rows.append((owner[len(OWNER_PREFIX):], Decimal(str(position["qty"])),
+                         Decimal(str(position["entry_price"]))))
+    return rows
+
+
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
                        policy: ModePolicy = EXECUTION, paper: PaperParts | None = None) -> ExecutionWiring:
@@ -191,6 +212,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         entry_ttl_seconds=spec.ttl_bars * HOUR_SECONDS if maker else None)
     OrderLifecycle.check_settings(scope, **settings)      # before the journal file is created
     allocation = Decimal(1) / Decimal(len(symbols)) if policy.sizing_equity == "account_share" else Decimal(1)
+    if paper is None and inputs.strategy_capital is not None:
+        allocation *= inputs.strategy_leverage           # the owner's multiple of the capital (1 to 3)
     sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
     capped: SizingEquity | None = None
     loss_stop: StrategyLossStop | None = None
@@ -199,20 +222,28 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         # since its first fill on each (tech lead 2026-11-16); either one unknown sizes to zero.
         if inputs.funding is None:
             raise ValueError("the strategy capital base needs the account's funding income")
+        # Every target.* owner of the scope counts, also one of an earlier spec (audit 2026-11-16, finding 7).
         ledger = SqliteOrderJournal(orders_path, scope)
-        funding = StrategyFunding(inputs.funding, symbols, lambda s: ledger.first_fill_at(f"target.{s}"), clock)
-        owners = [f"target.{s}" for s in symbols]
+
+        def owners() -> list[str]:
+            return strategy_owners(ledger, symbols)
+        funding = StrategyFunding(inputs.funding, lambda: [o[len(OWNER_PREFIX):] for o in owners()],
+                                  lambda s: ledger.first_fill_at(OWNER_PREFIX + s), clock)
         capped = CappedEquity(equity, inputs.strategy_capital,
-                              lambda: strategy_realized_pnl(ledger, owners) + funding.current())
+                              lambda: strategy_realized_pnl(ledger, owners()) + funding.current())
         if inputs.strategy_loss_stop is not None:
-            # The loss stop also counts what is still open: the venue's positions on the strategy's symbols.
-            loss_stop = StrategyLossStop(
-                inputs.strategy_capital, inputs.strategy_loss_stop,
-                lambda: strategy_realized_pnl(ledger, owners) + funding.current()
-                + strategy_unrealized(account.get_positions(), symbols), inputs.kill, clock=clock)
+            def strategy_pnl() -> Decimal:
+                """The loss stop also counts what is still open: each owner's ledger position at the venue's mark
+                for its symbol (never the venue's own quantity, which a person's position is netted into). Its
+                funding is the last total read in this process, however old: only the sizing base ages it."""
+                held = owners()
+                return (strategy_realized_pnl(ledger, held) + funding.last_known()
+                        + strategy_unrealized(strategy_positions(ledger, held), account.get_position))
+            loss_stop = StrategyLossStop(inputs.strategy_capital, inputs.strategy_loss_stop, strategy_pnl,
+                                         inputs.kill, clock=clock)
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
-        owner = f"target.{symbol}"
+        owner = OWNER_PREFIX + symbol
         # One clock for every part (step 13a): the runtime's. Waiting and latency stay on real time; in paper the
         # entry gates run on bar time (ModePolicy.limiter_clock) and nothing waits for the simulated venue.
         # Every order and stop status change is also an event (2026-11-15); the journal stays the state.
@@ -241,5 +272,6 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     return ExecutionWiring(sessions, drawdown, pauses, loss_stop)
 
 
-__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "PaperParts", "exchange_lot_rules", "execution_sessions",
-           "refuse_foreign_holdings", "refuse_unverified_mainnet"]
+__all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "OWNER_PREFIX", "PaperParts", "exchange_lot_rules",
+           "execution_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet", "strategy_owners",
+           "strategy_positions", "strategy_realized_pnl"]
