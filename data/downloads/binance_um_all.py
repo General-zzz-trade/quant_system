@@ -23,6 +23,8 @@ import argparse
 import hashlib
 import io
 import json
+import threading
+import time
 import urllib.error
 import urllib.parse
 import zipfile
@@ -39,6 +41,18 @@ COLUMNS = ("open_time", "open", "high", "low", "close", "volume", "quote_volume"
            "taker_buy_quote_volume")
 HOUR_MS = 3_600_000
 DEFAULT_END = date(2026, 11, 13)
+# The public funding endpoint allows 500 requests per 5 minutes per IP: one request every 0.7 s at most.
+FUNDING_INTERVAL_S = 0.7
+_funding_gate = threading.Lock()
+_funding_last = [0.0]
+
+
+def _wait_for_funding_slot(sleep=time.sleep, clock=time.monotonic) -> None:
+    with _funding_gate:
+        wait = _funding_last[0] + FUNDING_INTERVAL_S - clock()
+        if wait > 0:
+            sleep(wait)
+        _funding_last[0] = clock()
 
 
 def _ms(day: date) -> int:
@@ -79,6 +93,7 @@ def fetch_recent_funding(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetc
     cursor = start_ms
     while cursor < end_ms:
         query = urllib.parse.urlencode({"symbol": symbol, "startTime": cursor, "endTime": end_ms - 1, "limit": 1000})
+        _wait_for_funding_slot()
         try:
             rows = json.loads(fetch(f"{FUNDING_API}?{query}"))
         except urllib.error.HTTPError as exc:
@@ -118,12 +133,18 @@ def download_symbol(symbol: str, out: Path, start: date, end: date, *, fetch: Fe
             bars += [tuple([int(r[0])] + r[1:6] + [r[7], r[8], r[9], r[10]]) for r in rows
                      if start_ms <= int(r[0]) and int(r[0]) + HOUR_MS <= end_ms]
         day += timedelta(days=1)
+    funding_error = None
     if closed_until < end:
-        funding += fetch_recent_funding(symbol, max(_ms(closed_until), start_ms), end_ms, fetch=fetch)
+        try:
+            funding += fetch_recent_funding(symbol, max(_ms(closed_until), start_ms), end_ms, fetch=fetch)
+        except Exception as exc:            # recorded in the manifest: this month's funding is missing for it
+            funding_error = f"{type(exc).__name__}: {exc}"[:300]
     bars = sorted(set(bars))
     if len({b[0] for b in bars}) != len(bars):
         raise ValueError(f"{symbol}: two different bars share one open time")
     entry = {"symbol": symbol, **contract(symbol), "missing": missing, "files": {}}
+    if funding_error:
+        entry["funding_error"] = funding_error
     if not bars:
         return entry
     digest_b, n_b = _write_gz(out / f"{symbol}_1h.csv.gz", COLUMNS, bars)
@@ -141,8 +162,15 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
         raise FileExistsError(f"{out} is not empty; snapshots are immutable")
     out.mkdir(parents=True, exist_ok=True)
     universe = symbols if symbols is not None else list_symbols(fetch=fetch)
+    def one(symbol: str) -> dict:
+        try:
+            return download_symbol(symbol, out, start, end, fetch=fetch)
+        except Exception as exc:            # one bad symbol never stops the rest; it is listed as failed
+            return {"symbol": symbol, **contract(symbol), "missing": [], "files": {},
+                    "error": f"{type(exc).__name__}: {exc}"[:300]}
+
     with ThreadPoolExecutor(workers) as pool:
-        entries = list(pool.map(lambda s: download_symbol(s, out, start, end, fetch=fetch), universe))
+        entries = list(pool.map(one, universe))
     kept = [e for e in entries if e["files"]]
     try:
         rules = exchange_rules([e["symbol"] for e in kept], fetch=fetch)
@@ -154,6 +182,8 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
                 "window": [start.isoformat(), end.isoformat()], "end_exclusive": True,
                 "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "symbols_listed": len(universe), "symbols_with_bars": len(kept),
+                "failed": sorted(e["symbol"] for e in entries if "error" in e),
+                "funding_incomplete": sorted(e["symbol"] for e in entries if "funding_error" in e),
                 "contracts": sorted(entries, key=lambda e: e["symbol"])}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     return manifest
@@ -167,7 +197,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--workers", type=int, default=16)
     args = parser.parse_args(argv)
     manifest = download(args.out, start=args.start, end=args.end, workers=args.workers)
-    print(f"{manifest['symbols_with_bars']} of {manifest['symbols_listed']} symbols written to {args.out}")
+    print(f"{manifest['symbols_with_bars']} of {manifest['symbols_listed']} symbols written to {args.out}; "
+          f"failed {len(manifest['failed'])}, funding incomplete {len(manifest['funding_incomplete'])}")
 
 
 if __name__ == "__main__":

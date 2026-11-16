@@ -92,3 +92,21 @@ def test_the_forward_period_and_an_existing_snapshot_are_refused(tmp_path):
     (tmp_path / "b" / "x").write_text("x")
     with pytest.raises(FileExistsError):
         um.download(tmp_path / "b", start=date(2026, 1, 1), symbols=[], fetch=Archive())
+
+
+def test_a_failing_symbol_or_funding_call_is_recorded_and_the_rest_goes_on(tmp_path, monkeypatch):
+    monkeypatch.setattr(um, "FUNDING_INTERVAL_S", 0.0)
+    fake = Archive()
+    fake.add("https://data.binance.vision/data/futures/um/daily/klines/ABCUSDT/1h/ABCUSDT-1h-2026-11-01.zip",
+             _zip(_kline(NOV_1)))
+    real_call = fake.__call__
+
+    def flaky(url):
+        if url.startswith(um.FUNDING_API) or "BADUSDT" in url:
+            raise RuntimeError(f"GET failed after 4 attempts: {url}")
+        return real_call(url)
+    monkeypatch.setattr(um, "exchange_rules", lambda symbols, fetch: {})
+    manifest = um.download(tmp_path / "snap", start=date(2026, 11, 1), end=date(2026, 11, 2),
+                           symbols=["ABCUSDT", "BADUSDT"], fetch=flaky, workers=2)
+    assert manifest["failed"] == ["BADUSDT"] and manifest["funding_incomplete"] == ["ABCUSDT"]
+    assert (tmp_path / "snap" / "ABCUSDT_1h.csv.gz").exists()
