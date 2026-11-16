@@ -4079,7 +4079,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **已有测试的改动**：`test_strategy_interface.py::test_the_registry_names_every_strategy_and_refuses_an_unknown_one`：
   原来 `assert set(STRATEGIES) == {"overlay"}`，现在 `assert set(STRATEGIES) == {"overlay"} | set(IDEAS)`（登记了 29 个想法）。
   测试辅助：`test_lookahead.py` 登记新模块并加 29 个用例。
-- **新增测试**：`tests/unit/trading/test_lab_ideas.py`（131 个，含参数化）。
+- **新增测试**：`tests/unit/trading/test_lab_ideas.py`（127 个，含参数化）。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r7b_lab_ideas.json` 16 个，按顺序、关闭字节码缓存，每个变异只跑针对它的测试。
   第一轮：8 个被杀；1 个存活（"收益大于 0"改成"大于等于 0"：数据里收益恰好为 0 的情况不会出现，实际等价，换成"回看少算一天"）；
   7 个"基线失败"是我的错：工具按空格切分测试选择，`-k "a or b"` 被拆坏了。改用测试节点名重跑这 8 个：全部被杀，最终 16/16。
