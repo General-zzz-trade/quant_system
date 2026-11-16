@@ -1,6 +1,7 @@
 """Entry risk gates as runner.binance_target composes them (written before migration step 4 moves them).
 
-Each test kills a defect that survived the 2026-11-14 mutation run (docs/arch/current-state.md 5.5).
+Each test kills a defect that survived the 2026-11-14 mutation run (section 5.5 of that day's diagnosis, deleted in
+R9; in git history).
 """
 from __future__ import annotations
 

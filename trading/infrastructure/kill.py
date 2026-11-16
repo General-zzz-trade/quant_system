@@ -5,7 +5,8 @@
     python -m trading.infrastructure.kill --state-dir data/runtime/binance_target status
 
 The state directory is required (there is no default) and must be initialized, so the command writes exactly
-the file the runtime reads. The runtime itself never writes it.
+the file the runtime reads. The runtime never clears it; its one write is the strategy loss stop's trip, which
+activates it with flatten (owner 2026-11-16, ``KillFile.trip``).
 """
 from __future__ import annotations
 

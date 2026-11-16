@@ -32,6 +32,7 @@ class IssueKind(Enum):
     DECISION_FAILED = "decision_failed"      # one symbol's bar could not be processed; the next bar tries again
     CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
     EVENT_LOG_FAILED = "event_log_failed"    # the event log cannot be written; exits go on (S3 audit finding 3)
+    STRATEGY_LOSS_STOP = "strategy_loss_stop"    # the loss stop: loss unknown, reached, or its switch not set
 
 
 class Effect(Enum):
@@ -76,6 +77,7 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.DECISION_FAILED: _BLOCK,
     IssueKind.CYCLE_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
     IssueKind.EVENT_LOG_FAILED: frozenset({Effect.BLOCK_ALL_ENTRIES}),
+    IssueKind.STRATEGY_LOSS_STOP: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
 }
 
 

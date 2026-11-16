@@ -1,0 +1,92 @@
+[
+ [
+  "leverage ignored in sizing",
+  "trading/infrastructure/target.py",
+  "        allocation *= inputs.strategy_leverage           # the owner's multiple of the capital (1 to 3)",
+  "        pass"
+ ],
+ [
+  "leverage applied in paper too",
+  "trading/infrastructure/target.py",
+  "    if paper is None and inputs.strategy_capital is not None:\n        allocation *= inputs.strategy_leverage",
+  "    if inputs.strategy_capital is not None:\n        allocation *= inputs.strategy_leverage"
+ ],
+ [
+  "entry point drops the leverage",
+  "trading/infrastructure/cli/target.py",
+  "                                        strategy_leverage=config.strategy_leverage,\n",
+  ""
+ ],
+ [
+  "config drops the leverage",
+  "trading/infrastructure/config.py",
+  "                           strategy_leverage=strategy_leverage(env, capital, leverage))",
+  "                           )"
+ ],
+ [
+  "upper bound off",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or not 1 <= value <= MAX_TOTAL_LEVERAGE:",
+  "    if not value.is_finite() or not 1 <= value:"
+ ],
+ [
+  "lower bound off",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or not 1 <= value <= MAX_TOTAL_LEVERAGE:",
+  "    if not value.is_finite() or not 0 < value <= MAX_TOTAL_LEVERAGE:"
+ ],
+ [
+  "no capital accepted",
+  "trading/infrastructure/config.py",
+  "    if value > 1 and capital is None:",
+  "    if False:"
+ ],
+ [
+  "above the exchange setting accepted",
+  "trading/infrastructure/config.py",
+  "    if value > exchange_leverage:",
+  "    if False:"
+ ],
+ [
+  "leverage not recorded",
+  "trading/infrastructure/config.py",
+  "                \"strategy_leverage\": str(self.strategy_leverage)}",
+  "                \"strategy_leverage\": \"1\"}"
+ ],
+ [
+  "unset leverage is 2",
+  "trading/infrastructure/config.py",
+  "    if not raw:\n        return Decimal(1)\n    try:\n        value = Decimal(raw)\n    except (ArithmeticError, ValueError):\n        value = Decimal(\"nan\")\n    if not value.is_finite() or not 1 <= value <= MAX_TOTAL_LEVERAGE:",
+  "    if not raw:\n        return Decimal(2)\n    try:\n        value = Decimal(raw)\n    except (ArithmeticError, ValueError):\n        value = Decimal(\"nan\")\n    if not value.is_finite() or not 1 <= value <= MAX_TOTAL_LEVERAGE:"
+ ],
+ [
+  "STOP_PCT ignored",
+  "trading/infrastructure/config.py",
+  "        value = Decimal(given) if given is not None else Decimal(raw) if raw else DEFAULT_STOP_PCT",
+  "        value = Decimal(given) if given is not None else DEFAULT_STOP_PCT"
+ ],
+ [
+  "STOP_PCT beats the flag",
+  "trading/infrastructure/config.py",
+  "        value = Decimal(given) if given is not None else Decimal(raw) if raw else DEFAULT_STOP_PCT",
+  "        value = Decimal(raw) if raw else Decimal(given) if given is not None else DEFAULT_STOP_PCT"
+ ],
+ [
+  "stop bounds off",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or not MIN_STOP_PCT <= value <= MAX_STOP_PCT:\n        raise RuntimeError(f\"STOP_PCT",
+  "    if not value.is_finite():\n        raise RuntimeError(f\"STOP_PCT"
+ ],
+ [
+  "default stop 0.045",
+  "trading/infrastructure/config.py",
+  "DEFAULT_STOP_PCT = Decimal(\"0.08\")",
+  "DEFAULT_STOP_PCT = Decimal(\"0.045\")"
+ ],
+ [
+  "paper reads STOP_PCT",
+  "trading/infrastructure/config.py",
+  "        stop = DEFAULT_STOP_PCT if stop_pct is None else Decimal(stop_pct)",
+  "        stop = stop_distance(env, stop_pct)"
+ ]
+]
