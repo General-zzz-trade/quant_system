@@ -60,6 +60,7 @@
 - 入场门和止损在模拟盘里生效，研究里没有。
 - 每次分叉写一条 `paper_divergence` 事件，记下原因：入场门拒绝、止损触发、暂停。对比工具（设计 G6）把它们列为"已解释的差异"。
 - 止损触发后，模拟盘与实盘一样暂停该品种入场，由人解除（决定 L）。
+- 挂单入场跨 K 线挂着时，执行路径把它当作未了结订单，同品种的新入场（例如翻向后的新方向）被拒，写一条 `paper_divergence`（`entry_refused`）；研究里不会拒。当前规格是市价入场，不受影响；以后改用挂单入场时再处理（技术负责人 2026-11-16，见下文"实施更正（S10）"第 3a 部分）。
 
 ## 备选方案
 
@@ -137,3 +138,21 @@
   - taker 费率取各品种撮合器的配置；
   - 拒绝逐仓模式的撮合器。
 - 详见执行记录"S10 第 2 部分"。
+
+**第 3a 部分**（分支 `s10-paper-path`）：模拟盘改走执行路径。
+- `ModePolicy`：类型在 `trading/application/mode_policy.py`（应用层不得导入组装层），两个实例和 `policy_for` 在 `trading/infrastructure/modes.py`。字段与 S9 原型的报告一致：
+  - `catch_up`（`replay_all` / `latest_only`）、`entry_ttl`（`venue` / `lifecycle`）、`sizing_equity`（`per_symbol_venue` / `account_share`）；
+  - `limiter_clock`（`bar_time` / `monotonic`）：管入场闸门的全部时钟，包括限额器的日界和每秒窗口、"处理过晚"、被推迟入场的重试；
+  - `settle_new_bar_before_decision`、`isolate_failures`（模拟盘出错直接抛出）、`entry_beside_working_reduction`（决定 1）；
+  - 另有只用于状态文件的 `name`。两个实例的每个字段都不同，由测试逐项固定。
+  - 不在字段里、只在组装时不同的：交易所（模拟交易所）、默认限额（决定 3）、没有整账户检查和告警、下单后不等待。写在 `modes.py` 的说明里。
+- 会话只有一条路径（上文第 3 条）：删掉 5 处模拟盘分支和会话里那份 `BROKER_STATE`（第 2 部分的待定事项）。由架构测试 `tests/architecture/test_paper_path.py` 固定：会话里没有读 sleeve、mode 或名字含 paper 的条件；应用层没有任何与 "paper"/"execution" 的比较。
+- 行情侧按时间顺序跨品种逐根补放：推进窗口 → 模拟交易所撮合 → `ExitSupervisor.settle()` → 按 K 线收盘时间决策 → 推迟的入场在模拟时间 5 秒后重试（决定 2）。
+  - 与设计第 4.2 节草案的不同：`settle()` 不带品种参数，一次对账全部品种。原因：对账结束后统一施加阻断（S3 审计第 2 条），只对一个品种对账做不到这一点。
+  - 执行模式的每轮顺序仍是行情 → 退出 → 状态（S3c 的更正），模拟盘同一轮也是这个顺序；撮合和 settle 发生在行情侧里面。
+- `paper_divergence` 只由 `PaperDivergenceLog`（`trading/infrastructure/paper.py`）写，三种原因各一处、各写一次（第 2 部分的待定事项）：被拒的入场（`blocked` 且不是"等下一秒重试"）→ `entry_refused`；止损触发或击穿的问题事件 → `stop_triggered` / `stop_breached`；新的暂停（`DivergencePauses`）→ `pause`。模拟交易所本身不写事件。
+- 模拟盘不做 ADR-0010/0011 的整账户检查（第 2 部分的待定事项，技术负责人 2026-11-15 决定）。
+- **新增一条有意的分叉**（技术负责人 2026-11-16 决定保持现状、记录在案）：执行路径把挂着的入场单当作"未了结订单"，每次对账写 `unresolved_order` 问题并阻断本品种入场（S10 之前执行模式就是这样，`exit_supervisor.alert_wait` 只推迟了告警）。
+  - 后果：一张挂单入场跨 K 线挂着时，同品种的新入场（例如翻向后的新方向）被拒，写一条 `paper_divergence`（`entry_refused`）；研究里不会拒。
+  - 当前规格是市价入场，不受影响：模拟盘的市价单在下一根 K 线撮合后、决策之前就已了结。
+  - 以后改用挂单入场时再处理。证据见执行记录"S10 第 3a 部分"（80 根 K 线的数字）。
