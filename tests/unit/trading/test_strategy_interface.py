@@ -20,7 +20,9 @@ from trading.domain.strategy.overlay import StrategySpec, compute_targets, lates
 
 H = 3_600_000
 SPEC = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market",
-                    funding_filter=True, vol_spike_cut=True, confirm_4h=True)
+                    vol_spike_cut=True, confirm_4h=True)
+FUNDED = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market",
+                      funding_filter=True)          # needs a year of settlements: 150-day windows below
 
 
 def _window(seed, hours=24 * 60):
@@ -36,14 +38,17 @@ def _window(seed, hours=24 * 60):
     return Window(hourly, funding)
 
 
-def test_the_overlay_strategy_gives_exactly_what_the_overlay_functions_gave():
-    window = _window(1)
-    overlay = strategy_from("overlay", SPEC)
+@pytest.mark.parametrize("spec,days", [(SPEC, 60), (FUNDED, 400)])
+def test_the_overlay_strategy_gives_exactly_what_the_overlay_functions_gave(spec, days):
+    window = _window(1, 24 * days)
+    overlay = strategy_from("overlay", spec)
     history = overlay.history({"BTCUSDT": window})["BTCUSDT"]
-    pd.testing.assert_frame_equal(history, compute_targets(window.hourly, window.funding, SPEC))
-    assert overlay.latest({"BTCUSDT": window})["BTCUSDT"] == latest_target(window.hourly, window.funding, SPEC)
-    assert overlay.window_hours() == SPEC.window_hours() and overlay.funding_window() == SPEC.funding_window()
-    assert overlay.spec is SPEC and overlay.name == "overlay"
+    expected = compute_targets(window.hourly, window.funding, spec)
+    assert expected["ready"].sum() > 24 and (expected["target"] != 0).sum() > 24        # not a comparison of zeros
+    pd.testing.assert_frame_equal(history, expected)
+    assert overlay.latest({"BTCUSDT": window})["BTCUSDT"] == latest_target(window.hourly, window.funding, spec)
+    assert overlay.window_hours() == spec.window_hours() and overlay.funding_window() == spec.funding_window()
+    assert overlay.spec is spec and overlay.name == "overlay"
 
 
 def test_latest_is_the_last_row_of_history_for_every_symbol():
@@ -129,3 +134,15 @@ def test_a_session_without_a_strategy_uses_the_overlay_of_its_spec():
     session = TargetSession("BTCUSDT", SPEC, journal=None, rules=None, make_order=None, execution=Parts())
     assert session.strategy.name == "overlay" and session.strategy.spec is SPEC
     assert isinstance(session.bars, deque) and session.bars.maxlen == SPEC.window_hours() + 48
+
+
+def test_each_symbol_gets_its_own_targets_when_several_are_asked_together():
+    overlay = strategy_from("overlay", SPEC)
+    together = overlay.history({"BTCUSDT": _window(1), "ETHUSDT": _window(2)})
+    for symbol, seed in (("BTCUSDT", 1), ("ETHUSDT", 2)):
+        pd.testing.assert_frame_equal(together[symbol], overlay.history({symbol: _window(seed)})[symbol])
+    assert not together["BTCUSDT"]["target"].equals(together["ETHUSDT"]["target"])
+
+
+def test_a_window_too_short_to_warm_up_is_not_ready():
+    assert strategy_from("overlay", SPEC).latest({"BTCUSDT": _window(1, 48)})["BTCUSDT"] == (0.0, False)

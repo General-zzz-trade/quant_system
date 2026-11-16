@@ -3877,3 +3877,25 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   `({"stop_pct": "0.08", "isolated_leverage": "5", "max_exposure": "3"}, "isolated")`（它断言逐仓加 `stop_pct` 被拒绝），其余 4 组不变。
 - 新增测试：`tests/unit/trading/test_broker_isolated_stop.py`（6 个）。本地：撮合器、模拟交易所、模拟盘逐根一致、金标准、架构测试通过；
   ruff、`mypy trading/` 通过。
+
+## R1 策略接口：研究和实盘用同一个策略接口，行为不变（2026-11-16 晚，资金路径完整流程）
+
+- 依据：`docs/arch/runtime-lab-strategies-plan.md`（技术负责人 2026-11-16：先把程序扩展成能跑实验室的策略）。
+- **改了什么**：
+  - `trading/domain/strategy/base.py`（新）：`Window`（一个品种的已收盘小时线和资金费）、`Strategy` 接口（`history` 给每一根收盘，
+    研究用；`latest` 给最后一根，实盘用，必须等于 `history` 的最后一行）、`PerSymbol`（只读自己品种窗口的策略）、`OverlayStrategy`
+    （现有的 BTC/ETH 多周期策略，返回值和 `compute_targets`/`latest_target` 完全相同）、`STRATEGIES` 和 `strategy_from`（未知名称拒绝）。
+  - `trading/application/session.py`：会话向自己的策略要目标仓位（默认用规格里的 overlay）；K 线和资金费窗口的长度由策略决定；
+    规格仍然负责执行设置（调仓带宽、市价或挂单、挂单寿命）。
+- **已有测试的改动**：没有改断言。测试辅助的改动 1 处：`tests/characterization/test_runtime_decisions.py::test_the_target_sees_only_funding_settled_by_the_bar_it_decides_on`
+  原来 `monkeypatch.setattr(session_module, "latest_target", spy)`，现在 `monkeypatch.setattr(session.strategy, "latest", spy)`
+  （`session.latest_target` 已不存在），断言 `assert seen["last"] <= known_at` 不变。
+  `tests/unit/lab/test_lookahead.py` 的 `OTHER_MODULES` 加了新模块，理由：它的实现返回的就是已检查的 `compute_targets`。
+- **新增测试**：`tests/unit/trading/test_strategy_interface.py`（10 个）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r1_strategy_interface.json` 10 个变异。第一轮 9 个被杀，存活"history 把第一个品种的窗口用在
+  所有品种上"。补测试时发现**我自己的测试有缺陷**：合成数据只有 60 天，而资金费过滤要一年的结算记录，所以目标全是 0，
+  "和 `compute_targets` 完全相同"其实是零和零比。已改为不带资金费过滤的 60 天和带资金费过滤的 400 天两种，并断言目标非零。
+  第二轮 9 个被杀，存活"latest 总是 ready"（改正后的数据最后一根总是 ready，这个变异才显出来），补了"窗口太短时不 ready"的测试。
+  最终 10/10。
+- **本地**【实际运行结果】：所有涉及会话、目标计算、模拟盘逐根一致、研究金标准和运行时的 38 个测试文件加全部刻画测试：621 个通过
+  （改测试辅助前 1 个失败，就是上面那处补丁目标）；ruff、`mypy trading/`（94 个文件）、导入契约（5 个）通过。
