@@ -5,11 +5,12 @@ entries while any issue remains. Nothing here places, cancels or fabricates anyt
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
 
 from trading.application.issues import Issue
-from trading.application.ports import ExchangeAccount, OrderJournal
+from trading.application.ports import ExchangeAccount, OrderJournal, PositionView
 from trading.domain.issues import IssueKind as K
 
 UNRESOLVED_ORDERS = "unresolved orders or legacy journal records"
@@ -30,15 +31,19 @@ def booked_position(journal: OrderJournal, rows: list[dict[str, Any]], symbol: s
     return total
 
 
-def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str) -> list[Issue]:
+def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str,
+                      positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
+    """``positions``: the account's position rows read once for every symbol this cycle (plan R5); a symbol without
+    a row there, or no snapshot, is read alone."""
     issues: list[Issue] = []
 
     def add(kind: K, text: str) -> None:
         issues.append(Issue(kind, symbol, f"{symbol}: {text}"))
 
     try:
-        positions = account.get_positions(symbol=symbol, strict=True)
-        nonflat = [p for p in positions if p.symbol == symbol and Decimal(str(p.qty)) != 0]
+        rows = [positions[symbol]] if positions is not None and symbol in positions \
+            else account.get_positions(symbol=symbol, strict=True)
+        nonflat = [p for p in rows if p.symbol == symbol and Decimal(str(p.qty)) != 0]
         if len(nonflat) > 1:
             add(K.LEDGER_MISMATCH, "multiple positions require explicit reconciliation")
         actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))

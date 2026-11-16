@@ -18,12 +18,14 @@ import json
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Mapping
 from typing import Any, Callable, Protocol
 
 from trading.application.execution.lifecycle import OrderLifecycle, PendingOrder
 from trading.application.execution.reduction import size_reduction
 from trading.application.issues import Issue, with_effect
-from trading.application.ports import Clock, EventLog, ExchangeAccount, Lock, OrderGateway, OrderJournal
+from trading.application.ports import (Clock, EventLog, ExchangeAccount, Lock, OrderGateway, OrderJournal,
+                                       PositionView)
 from trading.application.reconcile import reconcile_account
 from trading.domain.issues import Effect, IssueKind
 from trading.domain.orders import BLOCKED, ConfirmedFill, OrderIntent
@@ -207,13 +209,13 @@ class ExecutionService:
                 self._log_fills(intent_id, (fact,))
             return self.journal.fills(self.owner)
 
-    def reconcile(self, symbol: str) -> list[Issue]:
+    def reconcile(self, symbol: str, positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
         """Read-only verification; an issue whose effects block the symbol's entries blocks them until a
-        clean pass (ADR-0014 table)."""
+        clean pass (ADR-0014 table). ``positions``: this cycle's account snapshot (plan R5)."""
         self.ready = False
         blockers = getattr(self._venue, "execution_blockers", None)   # optional on legacy venues
         issues = [Issue(IssueKind.VENUE_BLOCKED, symbol, text) for text in (blockers() if blockers else [])]
-        issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol)
+        issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol, positions=positions)
         # A block-all problem blocks this symbol too; the exit side spreads it to the others (ADR-0011).
         self.ready = not (with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
                           with_effect(issues, Effect.BLOCK_ALL_ENTRIES))

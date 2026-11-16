@@ -8,7 +8,7 @@ other symbol's, nor the next cycle. Moved from runtime.py without changes in beh
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 from typing import Any
 
@@ -16,7 +16,7 @@ from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
 from trading.application.equity import EquitySource
 from trading.application.issues import Issue, with_effect, write_issue
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
-                                       Notifier)
+                                       Notifier, PositionView)
 from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
@@ -185,11 +185,21 @@ class ExitSupervisor:
         refused_text = self._market_refused()
         cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide
         found_of: dict[str, list[Issue]] = {}
+        # Plan R5: every symbol's fills and order states first, then the account's positions in one read for all of
+        # them (weight 5 instead of 5 per symbol, twice), then each symbol's reconciliation and stop upkeep.
+        failed: dict[str, Exception] = {}
         for symbol, session in self.sessions.items():
             try:
                 session.consume_fills()
                 session.executor.notify_status()
-                issues = session.executor.reconcile_account(symbol) + session.stops.sync()
+            except Exception as exc:
+                failed[symbol] = exc
+        positions = self._position_snapshot()
+        for symbol, session in self.sessions.items():
+            try:
+                if symbol in failed:
+                    raise failed[symbol]
+                issues = session.executor.reconcile_account(symbol, positions) + session.stops.sync(positions)
             except Exception as exc:
                 issues = [Issue(K.RECONCILE_FAILED, symbol, f"reconciliation failed: {type(exc).__name__}: {exc}")]
                 logger.exception("%s reconciliation failed; entries blocked", symbol)
@@ -217,6 +227,18 @@ class ExitSupervisor:
         if self.issue_alerts is not None:
             self.issue_alerts.observe("runtime", cycle_errors)
         self.last_reconcile = self.clock()
+
+    def _position_snapshot(self) -> Mapping[str, PositionView] | None:
+        """The account's positions for this reconciliation (plan R5). Unreadable, each symbol reads its own as before
+        R5 - and fails on its own if the account cannot be read at all."""
+        if self.account is None:
+            return None
+        try:
+            return self.account.get_position_snapshot()
+        except Exception as exc:
+            logger.warning("Account positions not read in one request (%s: %s); each symbol reads its own",
+                           type(exc).__name__, exc)
+            return None
 
     def _block(self, session: TargetSession, issues: list[Issue]) -> None:
         """Entry blocks from the ADR-0014 table; reductions are never blocked."""
