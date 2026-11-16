@@ -128,3 +128,13 @@ def test_a_reset_sets_the_old_database_aside_and_starts_a_new_one(tmp_path):
     assert schema.problems(path) == []
     _, again = paper_state_db(tmp_path, reset=True, stamp_ms=1700)    # a second reset in the same millisecond
     assert again == "state.1700.1.sqlite"
+
+
+def test_the_paper_parts_go_with_the_paper_policy_and_only_with_it(tmp_path):
+    from trading.infrastructure import target
+    from trading.infrastructure.modes import EXECUTION, PAPER
+    parts = target.PaperParts(symbol_equity=lambda symbol: None, gate_clock=lambda: 0.0, sleeper=lambda s: None)
+    for policy, paper in ((PAPER, None), (EXECUTION, parts)):
+        with pytest.raises(ValueError, match="paper parts"):
+            target.execution_sessions(_spec(), ["BTCUSDT"], state_dir=tmp_path, journal=None, equity=None,
+                                      inputs=None, policy=policy, paper=paper)

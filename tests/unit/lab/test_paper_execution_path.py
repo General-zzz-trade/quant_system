@@ -145,3 +145,63 @@ def test_the_paper_status_shows_the_symbol_states_and_the_risk_state(tmp_path):
     assert status["mode"] == "paper"
     assert {s["state"] for s in status["symbols"].values()} == {"ready"}
     assert status["kill"]["active"] is False and status["drawdown_latched"] is False
+
+
+# -- added after the mutation self-check ------------------------------------------------------------------------
+def test_settling_a_bar_sets_the_symbol_states_before_the_decision(tmp_path):
+    world = _world(tmp_path, _spec())
+    runtime = _paper(world, tmp_path / "paper")
+    runtime.warmup()
+    assert runtime.sessions["BTCUSDT"].state is SymbolState.READY
+    runtime.pauses.pause("BTCUSDT", "protective stop triggered")
+    runtime.exits.settle()
+    assert runtime.sessions["BTCUSDT"].state is SymbolState.PAUSED
+    assert runtime.sessions["ETHUSDT"].state is SymbolState.READY
+
+
+def test_a_bar_that_is_not_live_only_extends_the_window(tmp_path, monkeypatch):
+    from trading.domain.bars import bar_from_kline
+    world = _world(tmp_path, _spec())
+    runtime = _paper(world, tmp_path / "paper")
+    runtime.warmup()
+    session, decided = runtime.sessions["BTCUSDT"], []
+    monkeypatch.setattr(session, "decide", lambda bar, *, now_ms: decided.append(bar.open_time))
+    rows = world["rows"]["BTCUSDT"]
+    first, second = bar_from_kline(rows[world["warm"]]), bar_from_kline(rows[world["warm"] + 1])
+    session.process_bar(first, live=False, now_ms=0)
+    session.process_bar(second, live=True, now_ms=0)
+    assert decided == [second.open_time] and session.cursor == second.open_time
+
+
+def test_a_restart_decides_the_missed_bars_with_a_fresh_equity_reading(tmp_path):
+    spec = _spec()
+    for name in ("probe", "run"):
+        (tmp_path / name).mkdir()
+    probe = _world(tmp_path / "probe", spec)               # where does BTC first enter after a few bars?
+    runtime = _paper(probe, tmp_path / "probe/paper")
+    runtime.warmup()
+    entry, i = None, probe["warm"]
+    while entry is None:
+        assert i < probe["warm"] + 200, "BTC never entered"
+        _advance(probe, runtime, i)
+        if i >= probe["warm"] + 3 and any(e["kind"] == "intent" and e["symbol"] == "BTCUSDT" and not e["reduce_only"]
+                                          for e in _events(tmp_path / "probe/paper")
+                                          if e["kind"] == "intent" and e["order_id"].startswith(
+                                              f"BTCUSDT:{probe['rows']['BTCUSDT'][i]['start'] + 3_600_000}:")):
+            entry = i
+        i += 1
+    world = _world(tmp_path / "run", spec)
+    state = tmp_path / "run/paper"
+    runtime = _paper(world, state)
+    runtime.warmup()
+    for j in range(world["warm"], entry - 2):
+        _advance(world, runtime, j)
+    world["clock"]["now"] = (world["rows"]["BTCUSDT"][entry]["start"] + 3_600_000 + 5_000) / 1000
+    _paper(world, state).warmup()                            # down for three bars, the last one the entry's
+    events = _events(state)
+    close = world["rows"]["BTCUSDT"][entry]["start"] + 3_600_000
+    entries = [e["order_id"] for e in events if e["kind"] == "intent" and not e["reduce_only"]
+               and e["order_id"].startswith(f"BTCUSDT:{close}:")]
+    assert entries
+    assert not [e for e in events if e["kind"] in ("blocked", "paper_divergence") and e.get("order_id") in entries]
+    assert [e["status"] for e in events if e["kind"] == "order" and e.get("order_id") in entries][:1] == ["reserved"]
