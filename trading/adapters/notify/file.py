@@ -57,8 +57,12 @@ class FileNotifier:
         try:
             self._append(level, title, detail)
         except Exception as exc:
-            logger.error("Alert not written to the alert file (%s): %s: %s", type(exc).__name__,
-                         _cut(title, MAX_TITLE), _cut(detail, MAX_DETAIL))
+            try:                                           # the reason too: a link, a pipe, a full disk, no permission
+                why = f"{type(exc).__name__} errno {exc.errno}" if isinstance(exc, OSError) else type(exc).__name__
+                logger.error("Alert not written to the alert file (%s): %s: %s", why,
+                             _cut(title, MAX_TITLE), _cut(detail, MAX_DETAIL))
+            except Exception:                              # text that cannot even be turned into a string
+                logger.error("Alert not written to the alert file, and its text could not be logged")
             return False
         return True
 

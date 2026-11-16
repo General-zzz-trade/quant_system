@@ -3809,7 +3809,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `trading/infrastructure/cli/target.py`：启动告警由配置的出口确认；文件写不进去就拒绝启动，不发任何账户请求。
   - `trading/infrastructure/unit_alert.py`：服务失败告警走同一个出口。
   - `infra/install_host.sh`：创建 `/var/lib/quant/alerts`。文档：`CLAUDE.md`、`.env.example`、运行手册。
-- **已有测试的改动**：没有。**测试辅助的改动**：没有。
+- **已有测试的改动**：没有。**测试辅助的改动**：`tests/conftest.py` 新增一个自动生效的夹具（见下面低 7），不改任何断言。
 - **新增测试**（合并前审计之后的数）：`tests/unit/trading/test_alert_file.py`（32 个）、
   `tests/characterization/test_alert_file_startup.py`（2 个）。
 - **合并前的独立审计（2026-11-16 晚）**：没有高严重度发现；建议修 3 处后合并。逐条处理：
@@ -3827,16 +3827,20 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 低 6，确认类的行（启动、启动被拒、服务失败）原来级别是 `info`：改为 `notice`，读的一方不能把它们排到最后。
   - 低 7，环境里有 `ALERT_FILE` 时，已有测试会往那个文件里写假告警：`tests/conftest.py` 加了自动生效的夹具，每个测试都先去掉它
     （测试辅助的新增，不改任何断言）。
-  - 低 8，路径：符号链接不再跟随；管道和目录被拒绝且不会卡住。文件指向状态目录内的情形没有拦，只在说明里写了不要这样设。
+  - 低 8，路径：符号链接不再跟随；管道和目录被拒绝且不会卡住。文件指向状态目录内的情形没有拦（指到急停文件只会让急停变成激活）；运行手册里写了不要这样设。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json`。合并前审计之前 19 个，第一轮 19 个被杀；
   审计之后按新代码重写为 31 个，基线通过，第一轮 31 个被杀（其中包含审计员自己写出、当时存活的 4 个）。
 - **本地**【实际运行结果】：`test_alert_file_startup`、`test_operator_startup`、`test_startup_account_check`、`tests/unit/infra`、
   `tests/unit/monitoring`、`test_alerts`、`test_execution_prerequisites`、`test_exit_robustness`、`test_unit_alert` 和架构测试共 204 个通过
   （第一版日志里写的"200 个"没有列出文件，审计员无法核对，这里改为列出文件）；ruff、`mypy trading/`（93 个文件）、导入契约（5 个）通过。
+- **复查（同一位审计员，修复之后）**：结论是可以合并。它指出的记录不准之处和小问题已处理：满盘时程序日志也可能丢（上面的限制已改写）；
+  "说明里写了不要指到状态目录"当时并没有写，现在补进运行手册；`O_RDWR` 需要文件可读（写进手册）；失败日志带上错误号；
+  `__str__` 会抛异常的对象也不再让 `write` 抛出；补了两个测试（只差一个字节的短写、健康检查拒绝相对路径）。
+  没有处理的：两个写入方在残行之后同时写可能留下一个空行（读的一方跳过解析不了的行）。
 - **要知道的限制**：
   - 程序自己不再通知任何人。会话没醒、登录过期或这台主机死了，告警就没人读；主机死了只有外部心跳能发现。告警延迟最长约一小时。
-  - 磁盘写满时告警写不进去，只进程序日志，而心跳照常；状态文件里也看不出来。每小时的检查要同时看健康检查的状态文件
-    （`data/runtime/health_status.json`）和程序日志里的 "Alert not written to the alert file"。
+  - 磁盘写满时告警写不进去，而心跳照常，状态文件里也看不出来；程序日志在同一块盘上时，那条日志也可能写不进去（复查时实测）。
+    每小时的检查要自己看磁盘用量，并把健康检查的状态文件过期或读不出来当成告警。健康检查在 85% 和 95% 时会提前写告警文件，它只看根分区。
   - 健康检查只监控模拟盘那个单元，不监控执行单元；它自己的单元没有失败告警。
   - 读的一方轮换文件时只能把旧文件移走，不能自己新建。文件里的文字有一部分来自交易所的错误信息，只当数据看。
   - 每小时的值守任务在试运行启动时建立，不在这个改动里。

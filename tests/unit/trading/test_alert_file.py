@@ -259,3 +259,35 @@ def test_an_exported_alert_file_is_removed_for_every_test(tmp_path):
                          capture_output=True, text=True, timeout=120)
     assert run.returncode == 0, run.stdout[-500:]
     assert not (tmp_path / "host.jsonl").exists()
+
+
+# -- from the auditor's re-check ---------------------------------------------------------------------------------------
+def test_a_write_one_byte_short_is_not_confirmed(tmp_path, monkeypatch):
+    import trading.adapters.notify.file as module
+    real = os.write
+    monkeypatch.setattr(module.os, "write", lambda fd, data: real(fd, data[:-1]))
+    assert FileNotifier(tmp_path / "alerts.jsonl").deliver("t", timeout_s=1.0) is False
+
+
+def test_text_whose_conversion_raises_is_not_raised_either(tmp_path):
+    class Broken:
+        def __str__(self):
+            raise RuntimeError("no str")
+    notifier = FileNotifier(tmp_path / "alerts.jsonl")
+    notifier.alert("critical", Broken(), Broken())
+    assert notifier.deliver(Broken(), timeout_s=1.0) is False
+
+
+def test_the_reason_of_a_refused_write_is_in_the_log(tmp_path, caplog):
+    FileNotifier(tmp_path / "missing" / "alerts.jsonl").alert("critical", "x")
+    assert "FileNotFoundError errno 2" in caplog.text
+
+
+def test_the_watchdog_takes_no_relative_alert_file(tmp_path, monkeypatch):
+    from monitoring import notify
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ALERT_FILE", "alerts.jsonl")
+    monkeypatch.setattr(notify, "send_telegram", lambda *a, **k: False)
+    monkeypatch.setattr(notify, "_history_path", lambda: str(tmp_path / "history.jsonl"))
+    assert notify.send_alert(notify.AlertLevel.CRITICAL, "x") is False
+    assert not (tmp_path / "alerts.jsonl").exists()

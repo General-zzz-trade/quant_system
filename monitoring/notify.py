@@ -146,7 +146,8 @@ def _history_path() -> str:
 
 
 def _write_alert_file(level: "AlertLevel", title: str, details: dict | None, source: str) -> bool:
-    """With ALERT_FILE set (an absolute path, as the runtime requires), append the alert there; False otherwise."""
+    """With ALERT_FILE set in the environment (an absolute path, as the runtime requires), append the alert there;
+    False otherwise. The environment only: the systemd unit has the EnvironmentFile; a run by hand must export it."""
     raw = os.environ.get("ALERT_FILE", "").strip()
     if not raw or not os.path.isabs(raw):
         return False

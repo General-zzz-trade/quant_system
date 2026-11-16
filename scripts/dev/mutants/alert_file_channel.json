@@ -80,20 +80,20 @@
  [
   "only a missing file is caught",
   "trading/adapters/notify/file.py",
-  "        except Exception as exc:\n            logger.error(\"Alert not written to the alert file",
-  "        except FileNotFoundError as exc:\n            logger.error(\"Alert not written to the alert file"
+  "        except Exception as exc:\n            try:                                           # the reason too",
+  "        except FileNotFoundError as exc:\n            try:                                           # the reason too"
  ],
  [
   "only OSError is caught",
   "trading/adapters/notify/file.py",
-  "        except Exception as exc:\n            logger.error(\"Alert not written to the alert file",
-  "        except OSError as exc:\n            logger.error(\"Alert not written to the alert file"
+  "        except Exception as exc:\n            try:                                           # the reason too",
+  "        except OSError as exc:\n            try:                                           # the reason too"
  ],
  [
   "failed alert not logged",
   "trading/adapters/notify/file.py",
-  "            logger.error(\"Alert not written to the alert file (%s): %s: %s\", type(exc).__name__,\n                         _cut(title, MAX_TITLE), _cut(detail, MAX_DETAIL))",
-  "            pass"
+  "                logger.error(\"Alert not written to the alert file (%s): %s: %s\", why,\n                             _cut(title, MAX_TITLE), _cut(detail, MAX_DETAIL))",
+  "                pass"
  ],
  [
   "no fsync",
@@ -106,12 +106,6 @@
   "trading/adapters/notify/file.py",
   "        finally:\n            os.close(fd)",
   "        finally:\n            pass"
- ],
- [
-  "short write accepted",
-  "trading/adapters/notify/file.py",
-  "            if os.write(fd, data) != len(data):",
-  "            if os.write(fd, data) < 0:"
  ],
  [
   "cut-off line not repaired",
@@ -184,5 +178,29 @@
   "tests/conftest.py",
   "    monkeypatch.delenv(\"ALERT_FILE\", raising=False)",
   "    pass"
+ ],
+ [
+  "a write one byte short is accepted",
+  "trading/adapters/notify/file.py",
+  "            if os.write(fd, data) != len(data):",
+  "            if os.write(fd, data) < len(data) - 1:"
+ ],
+ [
+  "unloggable text raises",
+  "trading/adapters/notify/file.py",
+  "            except Exception:                              # text that cannot even be turned into a string\n                logger.error(\"Alert not written to the alert file, and its text could not be logged\")",
+  "            except KeyError:                              # text that cannot even be turned into a string\n                logger.error(\"Alert not written to the alert file, and its text could not be logged\")"
+ ],
+ [
+  "the reason is not logged",
+  "trading/adapters/notify/file.py",
+  "why = f\"{type(exc).__name__} errno {exc.errno}\" if isinstance(exc, OSError) else type(exc).__name__",
+  "why = type(exc).__name__"
+ ],
+ [
+  "watchdog accepts a relative path",
+  "monitoring/notify.py",
+  "    if not raw or not os.path.isabs(raw):",
+  "    if not raw:"
  ]
 ]
