@@ -1,0 +1,2799 @@
+{
+ "date": "2026-11-16",
+ "note": "run ahead of schedule at the tech lead's request; not a live approval",
+ "terms": {
+  "capital": "300",
+  "slots": 10,
+  "stop_pct": "0.08",
+  "pause_hours": 4
+ },
+ "universe": {
+  "rule": "top 10 by median daily quote volume of the 30 days before each date; smallest order <= 20 USDT; no stablecoin contracts",
+  "dates": [
+   "2022-12-13",
+   "2023-11-13",
+   "2024-11-13",
+   "2025-11-13",
+   "2026-05-13"
+  ],
+  "lists": [
+   [
+    "ETHUSDT",
+    "DOGEUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "LTCUSDT",
+    "MATICUSDT",
+    "SOLUSDT",
+    "LINKUSDT",
+    "CHZUSDT",
+    "MASKUSDT"
+   ],
+   [
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "LINKUSDT",
+    "TRBUSDT",
+    "DOGEUSDT",
+    "1000PEPEUSDT",
+    "LOOMUSDT",
+    "BCHUSDT",
+    "MATICUSDT"
+   ],
+   [
+    "ETHUSDT",
+    "SOLUSDT",
+    "DOGEUSDT",
+    "NEIROUSDT",
+    "1000PEPEUSDT",
+    "SUIUSDT",
+    "WIFUSDT",
+    "APEUSDT",
+    "WLDUSDT",
+    "BNBUSDT"
+   ],
+   [
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ZECUSDT",
+    "BNBUSDT",
+    "DOGEUSDT",
+    "ASTERUSDT",
+    "HYPEUSDT",
+    "SUIUSDT",
+    "COAIUSDT"
+   ],
+   [
+    "ETHUSDT",
+    "SOLUSDT",
+    "XAUUSDT",
+    "CLUSDT",
+    "XAGUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ZECUSDT",
+    "HYPEUSDT",
+    "1000PEPEUSDT"
+   ]
+  ]
+ },
+ "windows": {
+  "walk_forward": "2023-11-13..2026-05-12",
+  "holdout": "2026-05-13..2026-11-12 (not read: no survivor)"
+ },
+ "buy_and_hold": {
+  "walk_forward_btc": {
+   "days": 912,
+   "total_return": 1.1696080678432312,
+   "cagr": 0.3634093961588043,
+   "sharpe": 0.8812856712593925,
+   "max_drawdown": 0.4955559924094408,
+   "worst_month": -0.17659848583264104,
+   "worst_month_label": "2025-02",
+   "longest_losing_days": 6
+  },
+  "walk_forward_list": {
+   "days": 909,
+   "total_return": 0.1368738335078925,
+   "cagr": 0.052860211901224474,
+   "sharpe": 0.46463555797978295,
+   "max_drawdown": 0.7623300953742802,
+   "worst_month": -0.3272852365140324,
+   "worst_month_label": "2025-02",
+   "longest_losing_days": 7
+  }
+ },
+ "ideas_tested": 29,
+ "parameter_sets": 91,
+ "survivors": [],
+ "champion": null,
+ "ranking_by_walk_forward_sharpe": [
+  "A6_voladj_mom",
+  "D2_taker_imbalance",
+  "B5_flush_reversal",
+  "A4_donchian_long",
+  "D1_volume_breakout",
+  "B3_dip_in_uptrend",
+  "A5_btc_gate_tsmom",
+  "F2_btc_lead_hourly",
+  "A1_tsmom_long",
+  "A7_rel_strength_btc",
+  "E3_vol_target_trend",
+  "A3_ma_cross_long",
+  "F4_regime_switch_ls",
+  "A2_tsmom_ls",
+  "E1_squeeze_breakout",
+  "A8_xs_momentum_top3",
+  "E2_calm_trend",
+  "F1_btc_trend_beta",
+  "C5_trend_not_crowded",
+  "D3_surge_fade_short",
+  "B4_band_reversion_ls",
+  "C1_funding_carry_short",
+  "C3_xs_funding_top_long",
+  "F3_bear_short",
+  "C2_funding_negative_long",
+  "E4_high_vol_off",
+  "B2_xs_reversal_ls",
+  "B1_xs_reversal_long",
+  "C4_xs_funding_ls"
+ ],
+ "screen": {
+  "A1_tsmom_long": {
+   "chosen_per_fold": [
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    }
+   ],
+   "final_params": {
+    "n": 20
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.21408191934736176,
+    "cagr": 0.08100810827924265,
+    "sharpe": 0.39869137220185463,
+    "max_drawdown": 0.4923172283732108,
+    "worst_month": -0.2835641174029878,
+    "worst_month_label": "2024-08",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": -0.28877512498832425,
+    "chop": -0.5525264667388712
+   },
+   "round_trips": 590,
+   "longest_losing_trades": 22,
+   "exchange_stops": 180,
+   "score": {
+    "return": 2,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 11
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 20}": 0.5207848984098848,
+    "{\"n\": 40}": 0.3006732420415885,
+    "{\"n\": 80}": 0.15356409523781492
+   },
+   "pilot": {
+    "losing_streak_stops": 112,
+    "per_30_days": 3.6963696369636962,
+    "days_below_daily_stop": 59
+   },
+   "limits_needed": {
+    "entry_orders": 623,
+    "max_orders_per_day": 19,
+    "p95_orders_per_active_day": 5.0,
+    "max_daily_notional": 517.7484716,
+    "max_order_notional": 202.0922508,
+    "max_orders_in_one_hour": 9
+   }
+  },
+  "A2_tsmom_ls": {
+   "chosen_per_fold": [
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    }
+   ],
+   "final_params": {
+    "n": 20
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.1695748394896619,
+    "cagr": -0.07189756952918847,
+    "sharpe": 0.22782052413317957,
+    "max_drawdown": 0.5584466335745706,
+    "worst_month": -0.30338471726969174,
+    "worst_month_label": "2024-08",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": 0.4444120574855417,
+    "chop": -0.6951794959340278
+   },
+   "round_trips": 1148,
+   "longest_losing_trades": 32,
+   "exchange_stops": 383,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 2,
+    "total": 10
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 20}": 0.29053967240352774,
+    "{\"n\": 40}": 0.028206827943748777,
+    "{\"n\": 80}": 0.021206084005644117
+   },
+   "pilot": {
+    "losing_streak_stops": 207,
+    "per_30_days": 6.8316831683168315,
+    "days_below_daily_stop": 129
+   },
+   "limits_needed": {
+    "entry_orders": 2101,
+    "max_orders_per_day": 22,
+    "p95_orders_per_active_day": 9.0,
+    "max_daily_notional": 545.6059716,
+    "max_order_notional": 154.8558558,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "A3_ma_cross_long": {
+   "chosen_per_fold": [
+    {
+     "fast": 10,
+     "slow": 50
+    },
+    {
+     "fast": 10,
+     "slow": 50
+    },
+    {
+     "fast": 10,
+     "slow": 50
+    }
+   ],
+   "final_params": {
+    "fast": 10,
+    "slow": 50
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.06759451880174994,
+    "cagr": 0.026611876822764557,
+    "sharpe": 0.28310503474100823,
+    "max_drawdown": 0.4490107818570075,
+    "worst_month": -0.24145677259674325,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 10
+   },
+   "regime": {
+    "bear": -0.17841655390706523,
+    "chop": -0.5351422392702689
+   },
+   "round_trips": 305,
+   "longest_losing_trades": 25,
+   "exchange_stops": 197,
+   "score": {
+    "return": 2,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 11
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"fast\": 10, \"slow\": 50}": 0.38630125264104465,
+    "{\"fast\": 20, \"slow\": 100}": 0.05234758338975342,
+    "{\"fast\": 50, \"slow\": 200}": -0.053416983990928396
+   },
+   "pilot": {
+    "losing_streak_stops": 69,
+    "per_30_days": 2.277227722772277,
+    "days_below_daily_stop": 60
+   },
+   "limits_needed": {
+    "entry_orders": 339,
+    "max_orders_per_day": 22,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 587.3365716,
+    "max_order_notional": 102.1002411,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "A4_donchian_long": {
+   "chosen_per_fold": [
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    }
+   ],
+   "final_params": {
+    "n": 20
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.4896375569403657,
+    "cagr": 0.17354248339525946,
+    "sharpe": 0.6270778893028582,
+    "max_drawdown": 0.32840878211270963,
+    "worst_month": -0.10525126514780925,
+    "worst_month_label": "2024-10",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": -0.1617885707037714,
+    "chop": -0.2975935883412947
+   },
+   "round_trips": 287,
+   "longest_losing_trades": 27,
+   "exchange_stops": 130,
+   "score": {
+    "return": 3,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 20}": 0.7716957518312052,
+    "{\"n\": 40}": 0.5365628194457615,
+    "{\"n\": 60}": 0.23643901976605936
+   },
+   "pilot": {
+    "losing_streak_stops": 59,
+    "per_30_days": 1.9471947194719472,
+    "days_below_daily_stop": 38
+   },
+   "limits_needed": {
+    "entry_orders": 325,
+    "max_orders_per_day": 19,
+    "p95_orders_per_active_day": 5.0,
+    "max_daily_notional": 517.7484716,
+    "max_order_notional": 168.065912,
+    "max_orders_in_one_hour": 9
+   }
+  },
+  "A5_btc_gate_tsmom": {
+   "chosen_per_fold": [
+    {
+     "m": 200,
+     "n": 40
+    },
+    {
+     "m": 100,
+     "n": 20
+    },
+    {
+     "m": 100,
+     "n": 20
+    }
+   ],
+   "final_params": {
+    "m": 100,
+    "n": 20
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.27836430310571214,
+    "cagr": 0.10363666086667855,
+    "sharpe": 0.44186611011618854,
+    "max_drawdown": 0.39267552353764046,
+    "worst_month": -0.2465975202047097,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": -0.0888155146360472,
+    "chop": -0.4302066971504461
+   },
+   "round_trips": 407,
+   "longest_losing_trades": 21,
+   "exchange_stops": 142,
+   "score": {
+    "return": 3,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 12
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"m\": 100, \"n\": 20}": 0.5783378731500212,
+    "{\"m\": 100, \"n\": 40}": 0.18680392341146826,
+    "{\"m\": 200, \"n\": 40}": 0.37826945174848037
+   },
+   "pilot": {
+    "losing_streak_stops": 70,
+    "per_30_days": 2.31023102310231,
+    "days_below_daily_stop": 54
+   },
+   "limits_needed": {
+    "entry_orders": 436,
+    "max_orders_per_day": 19,
+    "p95_orders_per_active_day": 7.0,
+    "max_daily_notional": 517.7484716,
+    "max_order_notional": 119.1733154,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "A6_voladj_mom": {
+   "chosen_per_fold": [
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    }
+   ],
+   "final_params": {
+    "n": 30,
+    "z": 0.5
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.8259103990663603,
+    "cagr": 0.2734869633610215,
+    "sharpe": 0.8038433273869976,
+    "max_drawdown": 0.39009471046763355,
+    "worst_month": -0.14871106993499272,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.07169017415650636,
+    "chop": -0.41860454992194607
+   },
+   "round_trips": 374,
+   "longest_losing_trades": 31,
+   "exchange_stops": 129,
+   "score": {
+    "return": 4,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 30, \"z\": 0.5}": 0.9813518243438071,
+    "{\"n\": 30, \"z\": 1.0}": 0.6374686862457779,
+    "{\"n\": 30, \"z\": 1.5}": 0.6813069839501763
+   },
+   "pilot": {
+    "losing_streak_stops": 72,
+    "per_30_days": 2.376237623762376,
+    "days_below_daily_stop": 33
+   },
+   "limits_needed": {
+    "entry_orders": 412,
+    "max_orders_per_day": 15,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 393.0083804,
+    "max_order_notional": 130.6229004,
+    "max_orders_in_one_hour": 9
+   }
+  },
+  "A7_rel_strength_btc": {
+   "chosen_per_fold": [
+    {
+     "n": 30
+    },
+    {
+     "n": 30
+    },
+    {
+     "n": 30
+    }
+   ],
+   "final_params": {
+    "n": 30
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.1895263132034979,
+    "cagr": 0.07217508019787289,
+    "sharpe": 0.3723214758051062,
+    "max_drawdown": 0.3360417860955135,
+    "worst_month": -0.1414366328504436,
+    "worst_month_label": "2024-01",
+    "longest_losing_days": 9
+   },
+   "regime": {
+    "bear": 0.00113279716217618,
+    "chop": -0.5880200696170739
+   },
+   "round_trips": 429,
+   "longest_losing_trades": 25,
+   "exchange_stops": 146,
+   "score": {
+    "return": 2,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 2,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 14}": 0.40138373624426005,
+    "{\"n\": 30}": 0.5306652479556399,
+    "{\"n\": 60}": 0.13595848037957275
+   },
+   "pilot": {
+    "losing_streak_stops": 80,
+    "per_30_days": 2.6402640264026402,
+    "days_below_daily_stop": 38
+   },
+   "limits_needed": {
+    "entry_orders": 471,
+    "max_orders_per_day": 10,
+    "p95_orders_per_active_day": 5.0,
+    "max_daily_notional": 286.0170648,
+    "max_order_notional": 85.8920153,
+    "max_orders_in_one_hour": 9
+   }
+  },
+  "A8_xs_momentum_top3": {
+   "chosen_per_fold": [
+    {
+     "n": 30
+    },
+    {
+     "n": 14
+    },
+    {
+     "n": 60
+    }
+   ],
+   "final_params": {
+    "n": 60
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.03459506360749698,
+    "cagr": 0.013750098601398975,
+    "sharpe": 0.17577341302085395,
+    "max_drawdown": 0.3269974024139537,
+    "worst_month": -0.11392487768383741,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 6
+   },
+   "regime": {
+    "bear": -0.13884142758161133,
+    "chop": -0.3533498406946256
+   },
+   "round_trips": 443,
+   "longest_losing_trades": 17,
+   "exchange_stops": 155,
+   "score": {
+    "return": 2,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 12
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 14}": 0.29094447296842746,
+    "{\"n\": 30}": 0.3624897985383532,
+    "{\"n\": 60}": 0.4968929378901089
+   },
+   "pilot": {
+    "losing_streak_stops": 66,
+    "per_30_days": 2.1782178217821784,
+    "days_below_daily_stop": 18
+   },
+   "limits_needed": {
+    "entry_orders": 492,
+    "max_orders_per_day": 11,
+    "p95_orders_per_active_day": 3.0,
+    "max_daily_notional": 329.892804,
+    "max_order_notional": 57.9605544,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "B1_xs_reversal_long": {
+   "chosen_per_fold": [
+    {
+     "days": 2
+    },
+    {
+     "days": 3
+    },
+    {
+     "days": 2
+    }
+   ],
+   "final_params": {
+    "days": 2
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.32725983191101315,
+    "cagr": -0.14714774485046278,
+    "sharpe": -0.5890473686413701,
+    "max_drawdown": 0.3905292720390071,
+    "worst_month": -0.11214811716928796,
+    "worst_month_label": "2024-12",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.32826955960590987,
+    "chop": -0.16208615941326776
+   },
+   "round_trips": 1666,
+   "longest_losing_trades": 20,
+   "exchange_stops": 430,
+   "score": {
+    "return": 1,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 10
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"days\": 1}": -0.6132794124856368,
+    "{\"days\": 2}": -0.4263777729714213,
+    "{\"days\": 3}": -0.44799620473403223
+   },
+   "pilot": {
+    "losing_streak_stops": 196,
+    "per_30_days": 6.468646864686469,
+    "days_below_daily_stop": 5
+   },
+   "limits_needed": {
+    "entry_orders": 1818,
+    "max_orders_per_day": 24,
+    "p95_orders_per_active_day": 5.0,
+    "max_daily_notional": 419.5586016,
+    "max_order_notional": 44.1165774,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "B2_xs_reversal_ls": {
+   "chosen_per_fold": [
+    {
+     "days": 2
+    },
+    {
+     "days": 2
+    },
+    {
+     "days": 3
+    }
+   ],
+   "final_params": {
+    "days": 3
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.27092367932383066,
+    "cagr": -0.1191583402782449,
+    "sharpe": -0.5690621830555171,
+    "max_drawdown": 0.3458292799554912,
+    "worst_month": -0.10458789322581852,
+    "worst_month_label": "2024-02",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": -0.03370741852696557,
+    "chop": 0.08631066239277763
+   },
+   "round_trips": 3216,
+   "longest_losing_trades": 11,
+   "exchange_stops": 812,
+   "score": {
+    "return": 1,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"days\": 1}": -0.8631373028329375,
+    "{\"days\": 2}": -0.649849582817541,
+    "{\"days\": 3}": -0.35273823245440983
+   },
+   "pilot": {
+    "losing_streak_stops": 297,
+    "per_30_days": 9.801980198019802,
+    "days_below_daily_stop": 5
+   },
+   "limits_needed": {
+    "entry_orders": 3794,
+    "max_orders_per_day": 28,
+    "p95_orders_per_active_day": 8.0,
+    "max_daily_notional": 650.2370202,
+    "max_order_notional": 111.3590764,
+    "max_orders_in_one_hour": 6
+   }
+  },
+  "B3_dip_in_uptrend": {
+   "chosen_per_fold": [
+    {
+     "z": 1.0
+    },
+    {
+     "z": 1.0
+    },
+    {
+     "z": 1.0
+    }
+   ],
+   "final_params": {
+    "z": 1.5
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.2029636593834605,
+    "cagr": 0.0770220738166032,
+    "sharpe": 0.4722942689658155,
+    "max_drawdown": 0.17771635346968606,
+    "worst_month": -0.08945129093996551,
+    "worst_month_label": "2024-12",
+    "longest_losing_days": 6
+   },
+   "regime": {
+    "bear": -0.14583700400379473,
+    "chop": 0.23331731203531958
+   },
+   "round_trips": 253,
+   "longest_losing_trades": 23,
+   "exchange_stops": 149,
+   "score": {
+    "return": 2,
+    "drawdown": 4,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 15
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"z\": 1.0}": 0.37441719450331845,
+    "{\"z\": 1.5}": 0.426105276069479,
+    "{\"z\": 2.0}": 0.3421913062111989
+   },
+   "pilot": {
+    "losing_streak_stops": 37,
+    "per_30_days": 1.221122112211221,
+    "days_below_daily_stop": 16
+   },
+   "limits_needed": {
+    "entry_orders": 275,
+    "max_orders_per_day": 16,
+    "p95_orders_per_active_day": 6.5,
+    "max_daily_notional": 508.7268797,
+    "max_order_notional": 47.7632628,
+    "max_orders_in_one_hour": 6
+   }
+  },
+  "B4_band_reversion_ls": {
+   "chosen_per_fold": [
+    {
+     "z": 2.5
+    },
+    {
+     "z": 1.5
+    },
+    {
+     "z": 2.0
+    }
+   ],
+   "final_params": {
+    "z": 2.0
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.24936238355262053,
+    "cagr": -0.1087895438656078,
+    "sharpe": -0.08086859968508639,
+    "max_drawdown": 0.4958871162604773,
+    "worst_month": -0.16853602339473517,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 9
+   },
+   "regime": {
+    "bear": -0.28004443406337,
+    "chop": 0.7135975363551266
+   },
+   "round_trips": 900,
+   "longest_losing_trades": 34,
+   "exchange_stops": 587,
+   "score": {
+    "return": 1,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 12
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"z\": 1.5}": -0.2485601987530525,
+    "{\"z\": 2.0}": -0.15913678295222083,
+    "{\"z\": 2.5}": -0.24163384539181854
+   },
+   "pilot": {
+    "losing_streak_stops": 162,
+    "per_30_days": 5.346534653465347,
+    "days_below_daily_stop": 59
+   },
+   "limits_needed": {
+    "entry_orders": 1305,
+    "max_orders_per_day": 27,
+    "p95_orders_per_active_day": 9.0,
+    "max_daily_notional": 609.9233851,
+    "max_order_notional": 51.7503,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "B5_flush_reversal": {
+   "chosen_per_fold": [
+    {
+     "drop": 0.04,
+     "hold": 24
+    },
+    {
+     "drop": 0.04,
+     "hold": 24
+    },
+    {
+     "drop": 0.04,
+     "hold": 24
+    }
+   ],
+   "final_params": {
+    "drop": 0.04,
+    "hold": 24
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.38477253854829474,
+    "cagr": 0.1396437721876569,
+    "sharpe": 0.7659459166476239,
+    "max_drawdown": 0.2182054468130169,
+    "worst_month": -0.07904297574938435,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 7
+   },
+   "regime": {
+    "bear": -0.023813707553748675,
+    "chop": 0.06116602122854964
+   },
+   "round_trips": 606,
+   "longest_losing_trades": 17,
+   "exchange_stops": 170,
+   "score": {
+    "return": 3,
+    "drawdown": 4,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 16
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"drop\": 0.04, \"hold\": 24}": 1.0540576294004504,
+    "{\"drop\": 0.04, \"hold\": 72}": 0.9852979134542947,
+    "{\"drop\": 0.06, \"hold\": 24}": 0.6378124409540908,
+    "{\"drop\": 0.06, \"hold\": 72}": 0.5980058665740171
+   },
+   "pilot": {
+    "losing_streak_stops": 69,
+    "per_30_days": 2.277227722772277,
+    "days_below_daily_stop": 6
+   },
+   "limits_needed": {
+    "entry_orders": 801,
+    "max_orders_per_day": 32,
+    "p95_orders_per_active_day": 11.899999999999977,
+    "max_daily_notional": 1062.8115083,
+    "max_order_notional": 84.4146,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "C1_funding_carry_short": {
+   "chosen_per_fold": [
+    {
+     "thr": 0.01
+    },
+    {
+     "thr": 0.006
+    },
+    {
+     "thr": 0.006
+    }
+   ],
+   "final_params": {
+    "thr": 0.006
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.0600707834122578,
+    "cagr": -0.024568846346158524,
+    "sharpe": -0.13746158419580382,
+    "max_drawdown": 0.1907888284415714,
+    "worst_month": -0.0746885353509209,
+    "worst_month_label": "2024-03",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.009101667023703963,
+    "chop": 0.03992594593583543
+   },
+   "round_trips": 101,
+   "longest_losing_trades": 26,
+   "exchange_stops": 61,
+   "score": {
+    "return": 1,
+    "drawdown": 4,
+    "trades": 4,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"thr\": 0.003}": -0.3576014552860633,
+    "{\"thr\": 0.006}": -0.12054063277068873,
+    "{\"thr\": 0.01}": -0.23111369831134226
+   },
+   "pilot": {
+    "losing_streak_stops": 19,
+    "per_30_days": 0.6270627062706271,
+    "days_below_daily_stop": 4
+   },
+   "limits_needed": {
+    "entry_orders": 197,
+    "max_orders_per_day": 16,
+    "p95_orders_per_active_day": 8.25,
+    "max_daily_notional": 175.300147,
+    "max_order_notional": 35.55886,
+    "max_orders_in_one_hour": 7
+   }
+  },
+  "C2_funding_negative_long": {
+   "chosen_per_fold": [
+    {
+     "thr": 0.003
+    },
+    {
+     "thr": 0.001
+    },
+    {
+     "thr": 0.001
+    }
+   ],
+   "final_params": {
+    "thr": 0.001
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.06803111986559329,
+    "cagr": -0.027894416066957084,
+    "sharpe": -0.2889312026762921,
+    "max_drawdown": 0.12248765208015844,
+    "worst_month": -0.04403117035250648,
+    "worst_month_label": "2024-01",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.08084625111707489,
+    "chop": 0.000183975202730835
+   },
+   "round_trips": 154,
+   "longest_losing_trades": 12,
+   "exchange_stops": 71,
+   "score": {
+    "return": 1,
+    "drawdown": 5,
+    "trades": 4,
+    "losing_streak": 1,
+    "bear_and_chop": 2,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"thr\": 0.001}": 0.6982315495190269,
+    "{\"thr\": 0.003}": -0.0015865165663637348,
+    "{\"thr\": 0.006}": -0.40121319934707467
+   },
+   "pilot": {
+    "losing_streak_stops": 18,
+    "per_30_days": 0.594059405940594,
+    "days_below_daily_stop": 0
+   },
+   "limits_needed": {
+    "entry_orders": 158,
+    "max_orders_per_day": 5,
+    "p95_orders_per_active_day": 3.0,
+    "max_daily_notional": 117.50036,
+    "max_order_notional": 42.5964151,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "C3_xs_funding_top_long": {
+   "chosen_per_fold": [
+    {
+     "window": 7
+    },
+    {
+     "window": 3
+    },
+    {
+     "window": 3
+    }
+   ],
+   "final_params": {
+    "window": 3
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.2133870892763673,
+    "cagr": -0.09187865419183172,
+    "sharpe": -0.14819888462423764,
+    "max_drawdown": 0.5059913963035853,
+    "worst_month": -0.14789176825640438,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.3757050339852701,
+    "chop": -0.17426441441654228
+   },
+   "round_trips": 856,
+   "longest_losing_trades": 17,
+   "exchange_stops": 341,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 9
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"window\": 3}": 0.06363822871375173,
+    "{\"window\": 7}": -0.1154093199273342,
+    "{\"window\": 14}": -0.3469732763234504
+   },
+   "pilot": {
+    "losing_streak_stops": 120,
+    "per_30_days": 3.9603960396039604,
+    "days_below_daily_stop": 27
+   },
+   "limits_needed": {
+    "entry_orders": 915,
+    "max_orders_per_day": 12,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 276.61138270000004,
+    "max_order_notional": 141.7303908,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "C4_xs_funding_ls": {
+   "chosen_per_fold": [
+    {
+     "window": 7
+    },
+    {
+     "window": 3
+    },
+    {
+     "window": 7
+    }
+   ],
+   "final_params": {
+    "window": 3
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.5050936479487367,
+    "cagr": -0.2460566245893978,
+    "sharpe": -0.7629901179355842,
+    "max_drawdown": 0.6393779047932313,
+    "worst_month": -0.16447932465462245,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 11
+   },
+   "regime": {
+    "bear": -0.20837797987890583,
+    "chop": -0.10681659921365005
+   },
+   "round_trips": 1398,
+   "longest_losing_trades": 14,
+   "exchange_stops": 551,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 9
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"window\": 3}": -0.5822584364098241,
+    "{\"window\": 7}": -0.6607579508923284,
+    "{\"window\": 14}": -1.0768946077009347
+   },
+   "pilot": {
+    "losing_streak_stops": 164,
+    "per_30_days": 5.412541254125412,
+    "days_below_daily_stop": 27
+   },
+   "limits_needed": {
+    "entry_orders": 1736,
+    "max_orders_per_day": 15,
+    "p95_orders_per_active_day": 6.0,
+    "max_daily_notional": 370.1299216,
+    "max_order_notional": 142.2943659,
+    "max_orders_in_one_hour": 6
+   }
+  },
+  "C5_trend_not_crowded": {
+   "chosen_per_fold": [
+    {
+     "thr": 0.003
+    },
+    {
+     "thr": 0.003
+    },
+    {
+     "thr": 0.006
+    }
+   ],
+   "final_params": {
+    "thr": 0.006
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.08827259932111142,
+    "cagr": -0.036427961779251894,
+    "sharpe": 0.04059470655370344,
+    "max_drawdown": 0.4211084361161641,
+    "worst_month": -0.1859304388669819,
+    "worst_month_label": "2024-12",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.07265448760905502,
+    "chop": -0.4891748677735879
+   },
+   "round_trips": 465,
+   "longest_losing_trades": 33,
+   "exchange_stops": 146,
+   "score": {
+    "return": 1,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 10
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"thr\": 0.003}": 0.1422038720566088,
+    "{\"thr\": 0.006}": 0.22270219882696363,
+    "{\"thr\": 0.01}": 0.1362935909931687
+   },
+   "pilot": {
+    "losing_streak_stops": 74,
+    "per_30_days": 2.442244224422442,
+    "days_below_daily_stop": 33
+   },
+   "limits_needed": {
+    "entry_orders": 502,
+    "max_orders_per_day": 15,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 353.7698898,
+    "max_order_notional": 52.66079,
+    "max_orders_in_one_hour": 6
+   }
+  },
+  "D1_volume_breakout": {
+   "chosen_per_fold": [
+    {
+     "hold": 7,
+     "m": 2
+    },
+    {
+     "hold": 7,
+     "m": 2
+    },
+    {
+     "hold": 7,
+     "m": 2
+    }
+   ],
+   "final_params": {
+    "hold": 7,
+    "m": 2
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.2864023998468015,
+    "cagr": 0.10641790128139572,
+    "sharpe": 0.49974501451407916,
+    "max_drawdown": 0.29340281647712074,
+    "worst_month": -0.1402719774034521,
+    "worst_month_label": "2024-01",
+    "longest_losing_days": 9
+   },
+   "regime": {
+    "bear": -0.07652682177088299,
+    "chop": -0.40958146373731497
+   },
+   "round_trips": 366,
+   "longest_losing_trades": 13,
+   "exchange_stops": 193,
+   "score": {
+    "return": 3,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"hold\": 3, \"m\": 2}": 0.8171189695959836,
+    "{\"hold\": 7, \"m\": 2}": 0.8697763639495761,
+    "{\"hold\": 3, \"m\": 3}": 0.702281267221063,
+    "{\"hold\": 7, \"m\": 3}": 0.6463287505728211
+   },
+   "pilot": {
+    "losing_streak_stops": 53,
+    "per_30_days": 1.7491749174917492,
+    "days_below_daily_stop": 21
+   },
+   "limits_needed": {
+    "entry_orders": 410,
+    "max_orders_per_day": 19,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 517.7484716,
+    "max_order_notional": 94.19553,
+    "max_orders_in_one_hour": 9
+   }
+  },
+  "D2_taker_imbalance": {
+   "chosen_per_fold": [
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    }
+   ],
+   "final_params": {
+    "x": 0.02
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.11709246192882916,
+    "cagr": 0.045465517627667706,
+    "sharpe": 0.7881780890809902,
+    "max_drawdown": 0.05115473980252028,
+    "worst_month": -0.015379766055276245,
+    "worst_month_label": "2024-06",
+    "longest_losing_days": 6
+   },
+   "regime": {
+    "bear": -0.019369736091429002,
+    "chop": -0.022391310811228804
+   },
+   "round_trips": 100,
+   "longest_losing_trades": 6,
+   "exchange_stops": 9,
+   "score": {
+    "return": 2,
+    "drawdown": 5,
+    "trades": 4,
+    "losing_streak": 3,
+    "bear_and_chop": 1,
+    "total": 15
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"x\": 0.01}": 0.9410610581859896,
+    "{\"x\": 0.02}": 1.079143026858884,
+    "{\"x\": 0.03}": 0.5367444368685066
+   },
+   "pilot": {
+    "losing_streak_stops": 9,
+    "per_30_days": 0.297029702970297,
+    "days_below_daily_stop": 0
+   },
+   "limits_needed": {
+    "entry_orders": 101,
+    "max_orders_per_day": 4,
+    "p95_orders_per_active_day": 2.0,
+    "max_daily_notional": 107.13665,
+    "max_order_notional": 47.5524,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "D3_surge_fade_short": {
+   "chosen_per_fold": [
+    {
+     "hold": 3,
+     "m": 5
+    },
+    {
+     "hold": 3,
+     "m": 5
+    },
+    {
+     "hold": 3,
+     "m": 3
+    }
+   ],
+   "final_params": {
+    "hold": 3,
+    "m": 5
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.0002447896182403708,
+    "cagr": -9.830006174149641e-05,
+    "sharpe": 0.03257074255313019,
+    "max_drawdown": 0.12411717739598072,
+    "worst_month": -0.05493356677752215,
+    "worst_month_label": "2024-03",
+    "longest_losing_days": 5
+   },
+   "regime": {
+    "bear": 0.022159656016531137,
+    "chop": 0.034304859702890766
+   },
+   "round_trips": 104,
+   "longest_losing_trades": 22,
+   "exchange_stops": 63,
+   "score": {
+    "return": 1,
+    "drawdown": 5,
+    "trades": 4,
+    "losing_streak": 1,
+    "bear_and_chop": 4,
+    "total": 15
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"hold\": 1, \"m\": 3}": -0.05302520710301172,
+    "{\"hold\": 3, \"m\": 3}": 0.18121775735798407,
+    "{\"hold\": 1, \"m\": 5}": -0.44968432841938105,
+    "{\"hold\": 3, \"m\": 5}": 0.2360777173888189
+   },
+   "pilot": {
+    "losing_streak_stops": 17,
+    "per_30_days": 0.5610561056105611,
+    "days_below_daily_stop": 1
+   },
+   "limits_needed": {
+    "entry_orders": 219,
+    "max_orders_per_day": 8,
+    "p95_orders_per_active_day": 6.0,
+    "max_daily_notional": 176.08597,
+    "max_order_notional": 58.06519,
+    "max_orders_in_one_hour": 3
+   }
+  },
+  "E1_squeeze_breakout": {
+   "chosen_per_fold": [
+    {
+     "r": 0.7
+    },
+    {
+     "r": 0.9
+    },
+    {
+     "r": 0.9
+    }
+   ],
+   "final_params": {
+    "r": 0.7
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.054831603304192233,
+    "cagr": 0.021666042467612057,
+    "sharpe": 0.20695224344223226,
+    "max_drawdown": 0.31202933309881364,
+    "worst_month": -0.09513354580090605,
+    "worst_month_label": "2025-01",
+    "longest_losing_days": 6
+   },
+   "regime": {
+    "bear": -0.17422259172826549,
+    "chop": -0.23226910996554062
+   },
+   "round_trips": 447,
+   "longest_losing_trades": 24,
+   "exchange_stops": 116,
+   "score": {
+    "return": 2,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 12
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"r\": 0.5}": 0.4071049765081291,
+    "{\"r\": 0.7}": 0.5264740640541374,
+    "{\"r\": 0.9}": 0.46276422412912926
+   },
+   "pilot": {
+    "losing_streak_stops": 79,
+    "per_30_days": 2.607260726072607,
+    "days_below_daily_stop": 12
+   },
+   "limits_needed": {
+    "entry_orders": 463,
+    "max_orders_per_day": 7,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 193.84223,
+    "max_order_notional": 58.8471,
+    "max_orders_in_one_hour": 7
+   }
+  },
+  "E2_calm_trend": {
+   "chosen_per_fold": [
+    {
+     "w": 60
+    },
+    {
+     "w": 60
+    },
+    {
+     "w": 60
+    }
+   ],
+   "final_params": {
+    "w": 60
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.012213488004110373,
+    "cagr": -0.004922246536267716,
+    "sharpe": 0.09900633209583054,
+    "max_drawdown": 0.295628224765931,
+    "worst_month": -0.1344702051209128,
+    "worst_month_label": "2024-06",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.02493646551211781,
+    "chop": -0.3840338681278944
+   },
+   "round_trips": 333,
+   "longest_losing_trades": 19,
+   "exchange_stops": 111,
+   "score": {
+    "return": 1,
+    "drawdown": 3,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 11
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"w\": 20}": -0.25326851416299234,
+    "{\"w\": 30}": 0.046125093442010906,
+    "{\"w\": 60}": 0.36443258586842076
+   },
+   "pilot": {
+    "losing_streak_stops": 56,
+    "per_30_days": 1.8481848184818481,
+    "days_below_daily_stop": 18
+   },
+   "limits_needed": {
+    "entry_orders": 352,
+    "max_orders_per_day": 7,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 189.4950202,
+    "max_order_notional": 61.2231528,
+    "max_orders_in_one_hour": 6
+   }
+  },
+  "E3_vol_target_trend": {
+   "chosen_per_fold": [
+    {
+     "target": 0.02
+    },
+    {
+     "target": 0.02
+    },
+    {
+     "target": 0.02
+    }
+   ],
+   "final_params": {
+    "target": 0.02
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.12082588604042499,
+    "cagr": 0.04686711456094672,
+    "sharpe": 0.36781665840217675,
+    "max_drawdown": 0.16690995419206245,
+    "worst_month": -0.050531015938807156,
+    "worst_month_label": "2024-12",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.03809623498676529,
+    "chop": -0.2428946447220489
+   },
+   "round_trips": 414,
+   "longest_losing_trades": 18,
+   "exchange_stops": 137,
+   "score": {
+    "return": 2,
+    "drawdown": 4,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"target\": 0.02}": 0.5313548033131081,
+    "{\"target\": 0.03}": 0.5025284606450601,
+    "{\"target\": 0.04}": 0.4206697779629608
+   },
+   "pilot": {
+    "losing_streak_stops": 65,
+    "per_30_days": 2.145214521452145,
+    "days_below_daily_stop": 4
+   },
+   "limits_needed": {
+    "entry_orders": 445,
+    "max_orders_per_day": 12,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 123.7702702,
+    "max_order_notional": 32.02965,
+    "max_orders_in_one_hour": 7
+   }
+  },
+  "E4_high_vol_off": {
+   "chosen_per_fold": [
+    {
+     "q": 0.9
+    },
+    {
+     "q": 0.7
+    },
+    {
+     "q": 0.7
+    }
+   ],
+   "final_params": {
+    "q": 0.7
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.569249067372319,
+    "cagr": -0.28693824681693325,
+    "sharpe": -0.29331687908373466,
+    "max_drawdown": 0.7310537011897416,
+    "worst_month": -0.26866619029157923,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 6
+   },
+   "regime": {
+    "bear": -0.5547980096073406,
+    "chop": -0.4485571706748551
+   },
+   "round_trips": 669,
+   "longest_losing_trades": 61,
+   "exchange_stops": 416,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 9
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"q\": 0.7}": -0.13169193727928966,
+    "{\"q\": 0.8}": -0.44785140179481475,
+    "{\"q\": 0.9}": -0.40549448543086103
+   },
+   "pilot": {
+    "losing_streak_stops": 153,
+    "per_30_days": 5.0495049504950495,
+    "days_below_daily_stop": 114
+   },
+   "limits_needed": {
+    "entry_orders": 745,
+    "max_orders_per_day": 23,
+    "p95_orders_per_active_day": 13.0,
+    "max_daily_notional": 551.5049616,
+    "max_order_notional": 64.695,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "F1_btc_trend_beta": {
+   "chosen_per_fold": [
+    {
+     "n": 40
+    },
+    {
+     "n": 40
+    },
+    {
+     "n": 40
+    }
+   ],
+   "final_params": {
+    "n": 40
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.26234479361171714,
+    "cagr": -0.11501106916836434,
+    "sharpe": 0.046756084784893286,
+    "max_drawdown": 0.7004504539429581,
+    "worst_month": -0.3445489685071309,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": -0.11374557303499089,
+    "chop": -0.7852887292183541
+   },
+   "round_trips": 619,
+   "longest_losing_trades": 44,
+   "exchange_stops": 291,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 9
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 10}": -0.09411170661462201,
+    "{\"n\": 20}": 0.335098672261886,
+    "{\"n\": 40}": 0.581799727697822
+   },
+   "pilot": {
+    "losing_streak_stops": 142,
+    "per_30_days": 4.686468646864687,
+    "days_below_daily_stop": 93
+   },
+   "limits_needed": {
+    "entry_orders": 660,
+    "max_orders_per_day": 21,
+    "p95_orders_per_active_day": 12.549999999999997,
+    "max_daily_notional": 571.8309716,
+    "max_order_notional": 87.34656,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "F2_btc_lead_hourly": {
+   "chosen_per_fold": [
+    {
+     "hold": 8,
+     "x": 0.02
+    },
+    {
+     "hold": 8,
+     "x": 0.03
+    },
+    {
+     "hold": 8,
+     "x": 0.03
+    }
+   ],
+   "final_params": {
+    "hold": 8,
+    "x": 0.03
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": 0.1735189891663027,
+    "cagr": 0.06635810468186976,
+    "sharpe": 0.40261387370123425,
+    "max_drawdown": 0.24189371092595857,
+    "worst_month": -0.16312950627634082,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 3
+   },
+   "regime": {
+    "bear": -0.15230726294617303,
+    "chop": -0.017000864616835143
+   },
+   "round_trips": 1459,
+   "longest_losing_trades": 29,
+   "exchange_stops": 73,
+   "score": {
+    "return": 2,
+    "drawdown": 4,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"hold\": 8, \"x\": 0.02}": 0.7734890209332914,
+    "{\"hold\": 24, \"x\": 0.02}": 0.048376677473256566,
+    "{\"hold\": 8, \"x\": 0.03}": 0.8050916974815656,
+    "{\"hold\": 24, \"x\": 0.03}": -0.01838909948351755
+   },
+   "pilot": {
+    "losing_streak_stops": 223,
+    "per_30_days": 7.35973597359736,
+    "days_below_daily_stop": 15
+   },
+   "limits_needed": {
+    "entry_orders": 1568,
+    "max_orders_per_day": 25,
+    "p95_orders_per_active_day": 20.0,
+    "max_daily_notional": 1041.7207277,
+    "max_order_notional": 62.0499,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "F3_bear_short": {
+   "chosen_per_fold": [
+    {
+     "m": 100,
+     "n": 20
+    },
+    {
+     "m": 100,
+     "n": 20
+    },
+    {
+     "m": 100,
+     "n": 40
+    }
+   ],
+   "final_params": {
+    "m": 100,
+    "n": 40
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.37068895433573734,
+    "cagr": -0.16969746573369215,
+    "sharpe": -0.25951768705959155,
+    "max_drawdown": 0.4826197191397482,
+    "worst_month": -0.13692637768260174,
+    "worst_month_label": "2025-04",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": 0.761851892493604,
+    "chop": -0.2888758392875086
+   },
+   "round_trips": 392,
+   "longest_losing_trades": 18,
+   "exchange_stops": 130,
+   "score": {
+    "return": 1,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 3,
+    "total": 12
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"m\": 100, \"n\": 20}": -0.2985438771746848,
+    "{\"m\": 100, \"n\": 40}": -0.1269823853245823,
+    "{\"m\": 200, \"n\": 40}": -0.47883402146209264
+   },
+   "pilot": {
+    "losing_streak_stops": 69,
+    "per_30_days": 2.277227722772277,
+    "days_below_daily_stop": 55
+   },
+   "limits_needed": {
+    "entry_orders": 802,
+    "max_orders_per_day": 19,
+    "p95_orders_per_active_day": 10.0,
+    "max_daily_notional": 445.1482443,
+    "max_order_notional": 45.50623,
+    "max_orders_in_one_hour": 10
+   }
+  },
+  "F4_regime_switch_ls": {
+   "chosen_per_fold": [
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    },
+    {
+     "n": 20
+    }
+   ],
+   "final_params": {
+    "n": 20
+   },
+   "walk_forward": {
+    "days": 909,
+    "total_return": -0.09208068745771214,
+    "cagr": -0.03804603739988566,
+    "sharpe": 0.23496532119996458,
+    "max_drawdown": 0.571287440036395,
+    "worst_month": -0.24268768788838668,
+    "worst_month_label": "2024-08",
+    "longest_losing_days": 8
+   },
+   "regime": {
+    "bear": 0.6315118615267774,
+    "chop": -0.654242080352289
+   },
+   "round_trips": 836,
+   "longest_losing_trades": 29,
+   "exchange_stops": 267,
+   "score": {
+    "return": 1,
+    "drawdown": 1,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 2,
+    "total": 10
+   },
+   "survives": false,
+   "selection_sharpe_by_params": {
+    "{\"n\": 20}": 0.2313334343058134,
+    "{\"n\": 40}": 0.06425809430338726,
+    "{\"n\": 80}": 0.07457514125481705
+   },
+   "pilot": {
+    "losing_streak_stops": 149,
+    "per_30_days": 4.917491749174918,
+    "days_below_daily_stop": 105
+   },
+   "limits_needed": {
+    "entry_orders": 1275,
+    "max_orders_per_day": 22,
+    "p95_orders_per_active_day": 10.0,
+    "max_daily_notional": 523.7987273,
+    "max_order_notional": 159.6324596,
+    "max_orders_in_one_hour": 10
+   }
+  }
+ },
+ "diagnostics_not_candidates": {
+  "no_stop": {
+   "A1_tsmom_long": {
+    "chosen_per_fold": [
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     }
+    ],
+    "final_params": {
+     "n": 20
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.39100986941047977,
+     "cagr": 0.14170219273381823,
+     "sharpe": 0.5142052424710084,
+     "max_drawdown": 0.4788625357863743,
+     "worst_month": -0.2524207535637858,
+     "worst_month_label": "2024-08",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": -0.2809450544061963,
+     "chop": -0.551995966724611
+    },
+    "round_trips": 437,
+    "longest_losing_trades": 18,
+    "exchange_stops": 0,
+    "score": {
+     "return": 3,
+     "drawdown": 2,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 12
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"n\": 20}": 0.6376167650737106,
+     "{\"n\": 40}": 0.43008783377400095,
+     "{\"n\": 80}": 0.34326577725462054
+    },
+    "pilot": {
+     "losing_streak_stops": 82,
+     "per_30_days": 2.706270627062706,
+     "days_below_daily_stop": 60
+    },
+    "limits_needed": {
+     "entry_orders": 467,
+     "max_orders_per_day": 14,
+     "p95_orders_per_active_day": 5.0,
+     "max_daily_notional": 388.7992712,
+     "max_order_notional": 211.4179734,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "A4_donchian_long": {
+    "chosen_per_fold": [
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     }
+    ],
+    "final_params": {
+     "n": 20
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.754094109713249,
+     "cagr": 0.253132619899306,
+     "sharpe": 0.8051789672500208,
+     "max_drawdown": 0.3278390008084303,
+     "worst_month": -0.1187972675561838,
+     "worst_month_label": "2024-10",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": -0.14837962369691293,
+     "chop": -0.3024081960495679
+    },
+    "round_trips": 167,
+    "longest_losing_trades": 11,
+    "exchange_stops": 0,
+    "score": {
+     "return": 4,
+     "drawdown": 3,
+     "trades": 4,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"n\": 20}": 0.9198826315628156,
+     "{\"n\": 40}": 0.7340436655586153,
+     "{\"n\": 60}": 0.40320153989482505
+    },
+    "pilot": {
+     "losing_streak_stops": 21,
+     "per_30_days": 0.693069306930693,
+     "days_below_daily_stop": 38
+    },
+    "limits_needed": {
+     "entry_orders": 201,
+     "max_orders_per_day": 14,
+     "p95_orders_per_active_day": 4.699999999999989,
+     "max_daily_notional": 461.1455766,
+     "max_order_notional": 211.1359754,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "A6_voladj_mom": {
+    "chosen_per_fold": [
+     {
+      "n": 30,
+      "z": 0.5
+     },
+     {
+      "n": 30,
+      "z": 0.5
+     },
+     {
+      "n": 30,
+      "z": 0.5
+     }
+    ],
+    "final_params": {
+     "n": 30,
+     "z": 0.5
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 1.1541299598293024,
+     "cagr": 0.36088695296054096,
+     "sharpe": 0.9856634098835654,
+     "max_drawdown": 0.36641175352217736,
+     "worst_month": -0.13717555028446848,
+     "worst_month_label": "2024-04",
+     "longest_losing_days": 8
+    },
+    "regime": {
+     "bear": -0.06201943909248531,
+     "chop": -0.4010915407921406
+    },
+    "round_trips": 256,
+    "longest_losing_trades": 21,
+    "exchange_stops": 0,
+    "score": {
+     "return": 4,
+     "drawdown": 2,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": true,
+    "selection_sharpe_by_params": {
+     "{\"n\": 30, \"z\": 0.5}": 1.139946374330662,
+     "{\"n\": 30, \"z\": 1.0}": 0.8374217330860435,
+     "{\"n\": 30, \"z\": 1.5}": 0.8989080509969165
+    },
+    "pilot": {
+     "losing_streak_stops": 39,
+     "per_30_days": 1.2871287128712872,
+     "days_below_daily_stop": 35
+    },
+    "limits_needed": {
+     "entry_orders": 294,
+     "max_orders_per_day": 10,
+     "p95_orders_per_active_day": 4.0,
+     "max_daily_notional": 266.0086,
+     "max_order_notional": 137.8958904,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "B3_dip_in_uptrend": {
+    "chosen_per_fold": [
+     {
+      "z": 1.0
+     },
+     {
+      "z": 1.0
+     },
+     {
+      "z": 1.5
+     }
+    ],
+    "final_params": {
+     "z": 1.5
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.35628224161870437,
+     "cagr": 0.1301702465645207,
+     "sharpe": 0.7077254693969512,
+     "max_drawdown": 0.15874002868873638,
+     "worst_month": -0.09408090685324744,
+     "worst_month_label": "2024-04",
+     "longest_losing_days": 5
+    },
+    "regime": {
+     "bear": -0.12716355515644107,
+     "chop": 0.3008215620330048
+    },
+    "round_trips": 100,
+    "longest_losing_trades": 6,
+    "exchange_stops": 0,
+    "score": {
+     "return": 3,
+     "drawdown": 4,
+     "trades": 4,
+     "losing_streak": 3,
+     "bear_and_chop": 3,
+     "total": 17
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"z\": 1.0}": 0.5313840455894178,
+     "{\"z\": 1.5}": 0.676868232544496,
+     "{\"z\": 2.0}": 0.6130121365372627
+    },
+    "pilot": {
+     "losing_streak_stops": 4,
+     "per_30_days": 0.132013201320132,
+     "days_below_daily_stop": 12
+    },
+    "limits_needed": {
+     "entry_orders": 105,
+     "max_orders_per_day": 4,
+     "p95_orders_per_active_day": 3.549999999999997,
+     "max_daily_notional": 144.06042209999998,
+     "max_order_notional": 57.4392456,
+     "max_orders_in_one_hour": 4
+    }
+   },
+   "B5_flush_reversal": {
+    "chosen_per_fold": [
+     {
+      "drop": 0.04,
+      "hold": 24
+     },
+     {
+      "drop": 0.04,
+      "hold": 24
+     },
+     {
+      "drop": 0.04,
+      "hold": 24
+     }
+    ],
+    "final_params": {
+     "drop": 0.04,
+     "hold": 24
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.48716206469463685,
+     "cagr": 0.17275900892305418,
+     "sharpe": 0.9306218152189054,
+     "max_drawdown": 0.24816147558127866,
+     "worst_month": -0.14620344108021777,
+     "worst_month_label": "2025-10",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": 0.031353572479887015,
+     "chop": -0.01498783342658161
+    },
+    "round_trips": 458,
+    "longest_losing_trades": 20,
+    "exchange_stops": 0,
+    "score": {
+     "return": 3,
+     "drawdown": 4,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 3,
+     "total": 16
+    },
+    "survives": true,
+    "selection_sharpe_by_params": {
+     "{\"drop\": 0.04, \"hold\": 24}": 1.2990787209606887,
+     "{\"drop\": 0.04, \"hold\": 72}": 1.1198289250189775,
+     "{\"drop\": 0.06, \"hold\": 24}": 0.8125573357318023,
+     "{\"drop\": 0.06, \"hold\": 72}": 0.8599357644895191
+    },
+    "pilot": {
+     "losing_streak_stops": 42,
+     "per_30_days": 1.386138613861386,
+     "days_below_daily_stop": 4
+    },
+    "limits_needed": {
+     "entry_orders": 623,
+     "max_orders_per_day": 24,
+     "p95_orders_per_active_day": 10.25,
+     "max_daily_notional": 764.6498934,
+     "max_order_notional": 74.6274,
+     "max_orders_in_one_hour": 10
+    }
+   },
+   "D1_volume_breakout": {
+    "chosen_per_fold": [
+     {
+      "hold": 7,
+      "m": 2
+     },
+     {
+      "hold": 3,
+      "m": 2
+     },
+     {
+      "hold": 3,
+      "m": 2
+     }
+    ],
+    "final_params": {
+     "hold": 3,
+     "m": 2
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.5760454764875202,
+     "cagr": 0.2004160244479265,
+     "sharpe": 0.8197943716209272,
+     "max_drawdown": 0.19648085530756865,
+     "worst_month": -0.14513316102079032,
+     "worst_month_label": "2024-01",
+     "longest_losing_days": 9
+    },
+    "regime": {
+     "bear": -0.04223466675509724,
+     "chop": -0.339932325985996
+    },
+    "round_trips": 198,
+    "longest_losing_trades": 11,
+    "exchange_stops": 0,
+    "score": {
+     "return": 3,
+     "drawdown": 4,
+     "trades": 4,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"hold\": 3, \"m\": 2}": 1.1299512965784801,
+     "{\"hold\": 7, \"m\": 2}": 1.0489020910408833,
+     "{\"hold\": 3, \"m\": 3}": 0.9005125539835596,
+     "{\"hold\": 7, \"m\": 3}": 0.8166899681109816
+    },
+    "pilot": {
+     "losing_streak_stops": 27,
+     "per_30_days": 0.8910891089108911,
+     "days_below_daily_stop": 17
+    },
+    "limits_needed": {
+     "entry_orders": 236,
+     "max_orders_per_day": 14,
+     "p95_orders_per_active_day": 4.0,
+     "max_daily_notional": 388.7992712,
+     "max_order_notional": 122.4827331,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "D2_taker_imbalance": {
+    "chosen_per_fold": [
+     {
+      "x": 0.01
+     },
+     {
+      "x": 0.01
+     },
+     {
+      "x": 0.01
+     }
+    ],
+    "final_params": {
+     "x": 0.02
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.11433993116961005,
+     "cagr": 0.04443037006248507,
+     "sharpe": 0.7597492697341356,
+     "max_drawdown": 0.050905103614886205,
+     "worst_month": -0.020304758908121112,
+     "worst_month_label": "2024-06",
+     "longest_losing_days": 6
+    },
+    "regime": {
+     "bear": -0.018033676765988327,
+     "chop": -0.025834774166415553
+    },
+    "round_trips": 92,
+    "longest_losing_trades": 6,
+    "exchange_stops": 0,
+    "score": {
+     "return": 2,
+     "drawdown": 5,
+     "trades": 3,
+     "losing_streak": 3,
+     "bear_and_chop": 1,
+     "total": 14
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"x\": 0.01}": 0.9150398083885738,
+     "{\"x\": 0.02}": 1.108143836635036,
+     "{\"x\": 0.03}": 0.5367444368685066
+    },
+    "pilot": {
+     "losing_streak_stops": 8,
+     "per_30_days": 0.264026402640264,
+     "days_below_daily_stop": 0
+    },
+    "limits_needed": {
+     "entry_orders": 93,
+     "max_orders_per_day": 3,
+     "p95_orders_per_active_day": 2.0,
+     "max_daily_notional": 86.9060924,
+     "max_order_notional": 47.5524,
+     "max_orders_in_one_hour": 3
+    }
+   }
+  },
+  "capital_5000": {
+   "A1_tsmom_long": {
+    "chosen_per_fold": [
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     }
+    ],
+    "final_params": {
+     "n": 20
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.16836514631685917,
+     "cagr": 0.06447512862275206,
+     "sharpe": 0.37168693560491817,
+     "max_drawdown": 0.496724882148309,
+     "worst_month": -0.2949868978988628,
+     "worst_month_label": "2024-08",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": -0.3032562918566237,
+     "chop": -0.58208950558468
+    },
+    "round_trips": 634,
+    "longest_losing_trades": 23,
+    "exchange_stops": 195,
+    "score": {
+     "return": 2,
+     "drawdown": 2,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 11
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"n\": 20}": 0.4925220686040347,
+     "{\"n\": 40}": 0.31961947269452584,
+     "{\"n\": 80}": 0.1712067988388598
+    },
+    "pilot": {
+     "losing_streak_stops": 120,
+     "per_30_days": 3.9603960396039604,
+     "days_below_daily_stop": 65
+    },
+    "limits_needed": {
+     "entry_orders": 687,
+     "max_orders_per_day": 21,
+     "p95_orders_per_active_day": 5.149999999999977,
+     "max_daily_notional": 9815.171620000001,
+     "max_order_notional": 3368.4137468,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "A4_donchian_long": {
+    "chosen_per_fold": [
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     },
+     {
+      "n": 20
+     }
+    ],
+    "final_params": {
+     "n": 20
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.44392153839098314,
+     "cagr": 0.15894588971362134,
+     "sharpe": 0.5843113823341348,
+     "max_drawdown": 0.3345286344650309,
+     "worst_month": -0.12722608234429378,
+     "worst_month_label": "2024-10",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": -0.16367849771469067,
+     "chop": -0.3181730362593932
+    },
+    "round_trips": 322,
+    "longest_losing_trades": 27,
+    "exchange_stops": 145,
+    "score": {
+     "return": 3,
+     "drawdown": 3,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"n\": 20}": 0.7196745968257752,
+     "{\"n\": 40}": 0.5104191934215468,
+     "{\"n\": 60}": 0.2626353561361742
+    },
+    "pilot": {
+     "losing_streak_stops": 64,
+     "per_30_days": 2.112211221122112,
+     "days_below_daily_stop": 38
+    },
+    "limits_needed": {
+     "entry_orders": 378,
+     "max_orders_per_day": 21,
+     "p95_orders_per_active_day": 5.0,
+     "max_daily_notional": 9815.171620000001,
+     "max_order_notional": 2801.259027,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "A6_voladj_mom": {
+    "chosen_per_fold": [
+     {
+      "n": 30,
+      "z": 0.5
+     },
+     {
+      "n": 30,
+      "z": 0.5
+     },
+     {
+      "n": 30,
+      "z": 0.5
+     }
+    ],
+    "final_params": {
+     "n": 30,
+     "z": 0.5
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.757669759774563,
+     "cagr": 0.2541577132963617,
+     "sharpe": 0.7537948372783558,
+     "max_drawdown": 0.4007224627146956,
+     "worst_month": -0.15856037769167863,
+     "worst_month_label": "2024-01",
+     "longest_losing_days": 8
+    },
+    "regime": {
+     "bear": -0.07229187916093294,
+     "chop": -0.46456227883814594
+    },
+    "round_trips": 384,
+    "longest_losing_trades": 32,
+    "exchange_stops": 134,
+    "score": {
+     "return": 4,
+     "drawdown": 2,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"n\": 30, \"z\": 0.5}": 0.9184605892021527,
+     "{\"n\": 30, \"z\": 1.0}": 0.5710726499835509,
+     "{\"n\": 30, \"z\": 1.5}": 0.6569573651947092
+    },
+    "pilot": {
+     "losing_streak_stops": 74,
+     "per_30_days": 2.442244224422442,
+     "days_below_daily_stop": 37
+    },
+    "limits_needed": {
+     "entry_orders": 446,
+     "max_orders_per_day": 17,
+     "p95_orders_per_active_day": 4.0,
+     "max_daily_notional": 7702.247654,
+     "max_order_notional": 2177.102214,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "B3_dip_in_uptrend": {
+    "chosen_per_fold": [
+     {
+      "z": 1.0
+     },
+     {
+      "z": 1.0
+     },
+     {
+      "z": 1.0
+     }
+    ],
+    "final_params": {
+     "z": 1.5
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.20671458491558803,
+     "cagr": 0.07836928226528017,
+     "sharpe": 0.47459121041318847,
+     "max_drawdown": 0.17875587189280562,
+     "worst_month": -0.09865404989034787,
+     "worst_month_label": "2024-12",
+     "longest_losing_days": 6
+    },
+    "regime": {
+     "bear": -0.14302660624829822,
+     "chop": 0.23596318108858116
+    },
+    "round_trips": 254,
+    "longest_losing_trades": 23,
+    "exchange_stops": 150,
+    "score": {
+     "return": 2,
+     "drawdown": 4,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 3,
+     "total": 15
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"z\": 1.0}": 0.3813699428887291,
+     "{\"z\": 1.5}": 0.42021400160119743,
+     "{\"z\": 2.0}": 0.33382797805015696
+    },
+    "pilot": {
+     "losing_streak_stops": 37,
+     "per_30_days": 1.221122112211221,
+     "days_below_daily_stop": 16
+    },
+    "limits_needed": {
+     "entry_orders": 274,
+     "max_orders_per_day": 16,
+     "p95_orders_per_active_day": 6.399999999999977,
+     "max_daily_notional": 8550.7761029,
+     "max_order_notional": 796.1873832,
+     "max_orders_in_one_hour": 6
+    }
+   },
+   "B5_flush_reversal": {
+    "chosen_per_fold": [
+     {
+      "drop": 0.04,
+      "hold": 24
+     },
+     {
+      "drop": 0.04,
+      "hold": 24
+     },
+     {
+      "drop": 0.04,
+      "hold": 24
+     }
+    ],
+    "final_params": {
+     "drop": 0.04,
+     "hold": 24
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.39465089214517435,
+     "cagr": 0.14290123689049605,
+     "sharpe": 0.7891100672526581,
+     "max_drawdown": 0.19931923678430463,
+     "worst_month": -0.07816642680733754,
+     "worst_month_label": "2025-10",
+     "longest_losing_days": 7
+    },
+    "regime": {
+     "bear": -0.035092897095938214,
+     "chop": 0.03368893764283065
+    },
+    "round_trips": 597,
+    "longest_losing_trades": 17,
+    "exchange_stops": 161,
+    "score": {
+     "return": 3,
+     "drawdown": 4,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 2,
+     "total": 15
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"drop\": 0.04, \"hold\": 24}": 1.090900335549864,
+     "{\"drop\": 0.04, \"hold\": 72}": 0.9496054230845974,
+     "{\"drop\": 0.06, \"hold\": 24}": 0.6599564575635719,
+     "{\"drop\": 0.06, \"hold\": 72}": 0.6013745135691433
+    },
+    "pilot": {
+     "losing_streak_stops": 65,
+     "per_30_days": 2.145214521452145,
+     "days_below_daily_stop": 8
+    },
+    "limits_needed": {
+     "entry_orders": 858,
+     "max_orders_per_day": 36,
+     "p95_orders_per_active_day": 12.949999999999989,
+     "max_daily_notional": 19405.2022487,
+     "max_order_notional": 1381.2186,
+     "max_orders_in_one_hour": 10
+    }
+   },
+   "D1_volume_breakout": {
+    "chosen_per_fold": [
+     {
+      "hold": 7,
+      "m": 2
+     },
+     {
+      "hold": 7,
+      "m": 2
+     },
+     {
+      "hold": 7,
+      "m": 2
+     }
+    ],
+    "final_params": {
+     "hold": 7,
+     "m": 2
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.25821130198362585,
+     "cagr": 0.09661723869669392,
+     "sharpe": 0.4642045641281559,
+     "max_drawdown": 0.30104051251157105,
+     "worst_month": -0.15078885318157342,
+     "worst_month_label": "2024-01",
+     "longest_losing_days": 8
+    },
+    "regime": {
+     "bear": -0.07645099921922105,
+     "chop": -0.41786719946561146
+    },
+    "round_trips": 375,
+    "longest_losing_trades": 15,
+    "exchange_stops": 198,
+    "score": {
+     "return": 2,
+     "drawdown": 3,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 12
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"hold\": 3, \"m\": 2}": 0.8093563940459095,
+     "{\"hold\": 7, \"m\": 2}": 0.8389557391876455,
+     "{\"hold\": 3, \"m\": 3}": 0.6404321322683834,
+     "{\"hold\": 7, \"m\": 3}": 0.5095701863753267
+    },
+    "pilot": {
+     "losing_streak_stops": 56,
+     "per_30_days": 1.8481848184818481,
+     "days_below_daily_stop": 21
+    },
+    "limits_needed": {
+     "entry_orders": 444,
+     "max_orders_per_day": 21,
+     "p95_orders_per_active_day": 5.0,
+     "max_daily_notional": 9815.171620000001,
+     "max_order_notional": 1570.1062793,
+     "max_orders_in_one_hour": 9
+    }
+   },
+   "D2_taker_imbalance": {
+    "chosen_per_fold": [
+     {
+      "x": 0.01
+     },
+     {
+      "x": 0.01
+     },
+     {
+      "x": 0.01
+     }
+    ],
+    "final_params": {
+     "x": 0.02
+    },
+    "walk_forward": {
+     "days": 909,
+     "total_return": 0.09831781626527936,
+     "cagr": 0.03837431947584702,
+     "sharpe": 0.6640068815059292,
+     "max_drawdown": 0.05264263747482112,
+     "worst_month": -0.015553071322108036,
+     "worst_month_label": "2024-06",
+     "longest_losing_days": 6
+    },
+    "regime": {
+     "bear": -0.019728546150543647,
+     "chop": -0.02467557222722383
+    },
+    "round_trips": 100,
+    "longest_losing_trades": 6,
+    "exchange_stops": 10,
+    "score": {
+     "return": 2,
+     "drawdown": 5,
+     "trades": 4,
+     "losing_streak": 3,
+     "bear_and_chop": 1,
+     "total": 15
+    },
+    "survives": false,
+    "selection_sharpe_by_params": {
+     "{\"x\": 0.01}": 0.7651422357108941,
+     "{\"x\": 0.02}": 1.0394067669525873,
+     "{\"x\": 0.03}": 0.5367445247058775
+    },
+    "pilot": {
+     "losing_streak_stops": 9,
+     "per_30_days": 0.297029702970297,
+     "days_below_daily_stop": 0
+    },
+    "limits_needed": {
+     "entry_orders": 104,
+     "max_orders_per_day": 4,
+     "p95_orders_per_active_day": 3.0,
+     "max_daily_notional": 1831.2938100000001,
+     "max_order_notional": 799.3944,
+     "max_orders_in_one_hour": 3
+    }
+   }
+  }
+ },
+ "trials_registered_today": {
+  "rows": 548,
+  "configurations": 137
+ }
+}
