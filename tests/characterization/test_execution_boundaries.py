@@ -1,7 +1,8 @@
 """Exit sizing, account reconciliation, fill consumption and stop bookkeeping of the Binance durable executor.
 
 Written before migration step 9b moves this logic (plan 0.6, step 9): each test kills a defect that
-survived the mutation run in current-state.md 5.5 or pins a stop state no test drove before.
+survived the mutation run of the 2026-11-14 diagnosis (section 5.5; deleted in R9, in git history) or pins a
+stop state no test drove before.
 """
 from __future__ import annotations
 
