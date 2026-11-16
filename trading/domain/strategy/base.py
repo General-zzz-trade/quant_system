@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from functools import partial
 from typing import Any, Protocol
 
 import pandas as pd
@@ -95,8 +94,12 @@ class OverlayStrategy(PerSymbol):
 
 
 # The overlay, and from R7b the research lab's ideas under their lab names (trading/domain/strategy/ideas.py).
+def _idea(name: str) -> Callable[[Any], Strategy]:
+    return lambda params: IdeaStrategy(name, params)
+
+
 STRATEGIES: dict[str, Callable[[Any], Strategy]] = {"overlay": OverlayStrategy,
-                                                    **{name: partial(IdeaStrategy, name) for name in LAB_IDEAS}}
+                                                    **{name: _idea(name) for name in LAB_IDEAS}}
 
 
 def strategy_from(name: str, params: Any) -> Strategy:

@@ -256,6 +256,9 @@ def test_a_symbol_the_exchange_does_not_list_is_unknown_and_said_once_per_read()
     assert w.sessions["FOURUSDT"].funding_interval is None
     assert w.poller.symbol_issue("FOURUSDT").kind.value == "funding_interval_unknown"
     assert w.poller.symbol_issue("EIGHTUSDT") is None
+    w.clock["ms"] = T0 + 5 * HOUR + 1_000                            # the next hour reads again: still not listed
+    w.poller.poll()
+    assert w.market.interval_reads == 2 and len([1 for kind, _ in w.journal.rows if kind == "issue"]) == 1
 
 
 def test_a_first_read_that_fails_says_none_was_read_since_the_start():

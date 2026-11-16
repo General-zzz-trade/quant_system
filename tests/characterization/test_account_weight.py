@@ -1,9 +1,13 @@
 """R5 of the runtime extension (docs/arch/runtime-lab-strategies-plan.md): with 10 symbols, the requests the runtime
-makes stay well inside Binance's request-weight limit.
+makes stay well inside the client's request-weight budget.
 
-Binance allows 2400 request weight per minute per IP (``GET /fapi/v1/exchangeInfo`` ``rateLimits``, read 2026-11-16).
-The weights are the client's table (``trading.adapters.binance.rate_limit.endpoint_weight``, ADR-0011 point 7: a
-position read 5, one symbol's open orders 1, every symbol's 40). The world: 10 symbols on fake venues, the overlay
+Binance allows 2400 request weight per minute per IP (``GET /fapi/v1/exchangeInfo`` ``rateLimits``, read 2026-11-16);
+the client's own budget is half that, 1200 a minute, shared with anything else on the host's IP
+(``trading.adapters.binance.rate_limit``: a pool of 1200 refilled 20 a second, synced from the used-weight header; a
+request beyond it is refused locally). The weights are the client's table
+(``trading.adapters.binance.rate_limit.endpoint_weight``, ADR-0011 point 7: a position read 5, one symbol's open
+orders 1, every symbol's 40). Not in the measure: a strategy capital adds ``/fapi/v1/income`` reads (30 per symbol
+every 10 minutes, about 30 a minute at 10 symbols). The world: 10 symbols on fake venues, the overlay
 trading every one of them, then ten minutes of 5-second cycles inside one hour with the positions held - the steady
 state of the exit side, which makes almost all of the requests.
 """
@@ -23,7 +27,7 @@ SPEC = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT",
            "LTCUSDT")
 LIVE = 30
-LIMIT_PER_MINUTE = 2400
+CLIENT_BUDGET_PER_MINUTE = 1200          # R5 audit S2: the limit that binds first
 ACCOUNT_WIDE = ("/fapi/v2/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/openAlgoOrders")
 
 
@@ -103,4 +107,4 @@ def test_ten_symbols_use_a_small_part_of_the_request_weight(tmp_path):
     total = sum(per_minute.values())
     print("weight per minute", total, sorted(per_minute.items()), "calls", sorted(calls.items()))
     assert len(holding) >= 8                         # most symbols hold a position, each with a stop to keep
-    assert total <= LIMIT_PER_MINUTE / 4, (total, per_minute)
+    assert total <= CLIENT_BUDGET_PER_MINUTE / 2, (total, per_minute)
