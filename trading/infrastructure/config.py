@@ -73,7 +73,7 @@ class RiskLimits:
 
     daily_drawdown_pct: float
     weekly_drawdown_pct: float
-    max_order_notional: Decimal
+    max_order_notional: Decimal | None      # None: no single-order cap (paper, decided 2026-11-16)
     max_daily_notional: Decimal
     max_daily_orders: int
     max_leverage: Decimal

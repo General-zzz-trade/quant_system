@@ -50,10 +50,17 @@ TABLES: dict[str, str] = {
     "pause_triggers": """CREATE TABLE pause_triggers (
         symbol TEXT NOT NULL, trigger TEXT NOT NULL, PRIMARY KEY(symbol, trigger))""",
 }
+# A paper directory's database also holds the paper state, written with the order journal (S10 decision 4). Not part
+# of the execution check below: an execution directory has no paper state.
+PAPER_TABLES: dict[str, str] = {
+    "paper_state": """CREATE TABLE paper_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1), saved_at REAL NOT NULL, document TEXT NOT NULL)""",
+}
 
 
-def create(path: Path) -> None:
-    """Create the database at ``path`` with every table and the version; refuse if the file exists."""
+def create(path: Path, *, paper: bool = False) -> None:
+    """Create the database at ``path`` with every table and the version, and with ``paper`` the paper state's table
+    too; refuse if the file exists."""
     path = Path(path)
     if path.exists():
         raise FileExistsError(f"{path} already exists; a state database is created once")
@@ -62,7 +69,7 @@ def create(path: Path) -> None:
     try:
         db.execute("PRAGMA journal_mode=WAL")            # persistent in the file
         with db:
-            for ddl in TABLES.values():
+            for ddl in [*TABLES.values(), *(PAPER_TABLES.values() if paper else ())]:
                 db.execute(ddl)
             db.execute(f"PRAGMA user_version={VERSION}")
     finally:
@@ -91,4 +98,18 @@ def problems(path: Path) -> list[str]:
     return found
 
 
-__all__ = ["STATE_DB", "TABLES", "VERSION", "create", "problems"]
+def holds_paper_state(path: Path) -> bool:
+    """Whether the database at ``path`` is a paper record's (it has the paper state's table); read-only. Execution
+    refuses such a database (S10 audit H1): a paper run's orders and positions are not an account's."""
+    try:
+        db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ({})".format(
+                ",".join("?" * len(PAPER_TABLES))), tuple(PAPER_TABLES)).fetchone() is not None
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return False
+
+
+__all__ = ["PAPER_TABLES", "STATE_DB", "TABLES", "VERSION", "create", "holds_paper_state", "problems"]

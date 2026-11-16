@@ -39,15 +39,20 @@ class ExitSupervisor:
                  pauses: EntryPauses | None, notifier: Notifier | None, alert_prefix: str,
                  market_refused: Callable[[], str | None], decision_error: Callable[[str], Issue | None],
                  cycle_errors: Callable[[], list[Issue]], warmed: Callable[[], bool] = lambda: True,
-                 account_check: Callable[[], list[Issue]] | None = None) -> None:
+                 account_check: Callable[[], list[Issue]] | None = None,
+                 exit_observer: Callable[[str, str, str], None] | None = None) -> None:
         self.sessions, self.spec, self.journal, self.clock = sessions, spec, journal, clock
         self.account, self.equity, self.pauses = account, equity, pauses
-        self.kill: Any = kill               # present in execution mode, the only mode that runs the exit side
+        self.kill: Any = kill               # both modes run the exit side (S10: paper takes the execution path)
         self.drawdown: Any = drawdown
         self._market_refused, self._decision_error, self._cycle_errors = market_refused, decision_error, cycle_errors
         self._warmed = warmed                       # the whole warm-up succeeded (S3 audit finding 6)
         # ADR-0011: the start-up check (ADR-0010) passed before the runtime was built; that is the first result.
         self._account_check = account_check
+        # Told (symbol, action, reason) once when a risk exit of a symbol starts or changes its cause: paper writes
+        # it as an intended divergence from research (S10 audit M1). A pause is reported where it is set.
+        self._exit_observer = exit_observer
+        self._risk_exits: dict[str, tuple[str, str] | None] = {}
         self.account_findings: list[Issue] = []
         self.last_account_check = clock()
         self.last_equity = self.last_reconcile = 0.0
@@ -65,6 +70,13 @@ class ExitSupervisor:
             self.reconcile()
         self.update_states()
         self.risk_actions()
+        self.update_states()
+
+    def settle(self) -> None:
+        """``ModePolicy.settle_new_bar_before_decision`` (paper): after the venue matched a new bar and before the
+        sessions decide on it - consume its fills, settle the orders it filled or expired, reconcile, protect and
+        pause every symbol, and set the states - so a decision sees what research sees after the bar."""
+        self.reconcile()
         self.update_states()
 
     def check_account_if_due(self) -> None:
@@ -246,13 +258,25 @@ class ExitSupervisor:
         kill = self.kill.state()
         close = (kill.active and kill.flatten) or self.drawdown.latched()
         for symbol, session in self.sessions.items():
+            cancelling = with_effect(self.last_issues.get(symbol, []), Effect.CANCEL_RESTING_ENTRIES)
+            exit_: tuple[str, str] | None = None
             if close:
-                self._exit(symbol, session, "kill_switch" if kill.active else "drawdown_latched")
-            elif kill.active or self.pause_status(symbol) is not None or \
-                    with_effect(self.last_issues.get(symbol, []), Effect.CANCEL_RESTING_ENTRIES):
+                exit_ = ("flatten", "kill_switch" if kill.active else "drawdown_latched")
+                self._exit(symbol, session, exit_[1])
+            elif kill.active or self.pause_status(symbol) is not None or cancelling:
                 # New exposure is blocked, so a resting entry must not fill either (audit after step 12b; a foreign
                 # holding or an unreadable account likewise, ADR-0011).
+                if kill.active:
+                    exit_ = ("cancel_entries", "kill_switch")
+                elif cancelling:
+                    exit_ = ("cancel_entries", cancelling[0].kind.value)
                 self._exit(symbol, session, None)
+            self._observe_exit(symbol, exit_)
+
+    def _observe_exit(self, symbol: str, exit_: tuple[str, str] | None) -> None:
+        if exit_ is not None and self._risk_exits.get(symbol) != exit_ and self._exit_observer is not None:
+            self._exit_observer(symbol, *exit_)
+        self._risk_exits[symbol] = exit_
 
     def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
         """Flatten (or, without a reason, only cancel resting entries). A failure is reported, never raised:
