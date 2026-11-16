@@ -66,19 +66,27 @@ class Sleeve:
 
 def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec, *, start_ms: int,
              end_ms: int | None = None, rules: SymbolRules | None = None, cost_multiplier: int = 1,
-             starting_balance: str = "5000") -> SleeveResult:
+             starting_balance: str = "5000", stop_pct: str = "0",
+             pause_after_stop_ms: int | None = None) -> SleeveResult:
+    """``stop_pct`` gives the broker the live exchange stop; after a stop fills, entries pause for
+    ``pause_after_stop_ms`` (the live entry pause, released by itself after that time: tech lead 2026-11-16)."""
     rules = rules or SYMBOL_RULES[symbol]
     sleeve = Sleeve(symbol, spec, rules, broker_config(spec, rules, starting_balance=starting_balance,
-                                                       cost_multiplier=cost_multiplier))
+                                                       cost_multiplier=cost_multiplier, stop_pct=stop_pct))
     target_map = dict(zip(targets["available_at"].to_numpy(dtype=np.int64).tolist(),
                           zip(targets["target"].tolist(), targets["ready"].tolist())))
-    rows = []
+    rows, paused_until = [], 0
     for bar in bars:
         if bar.available_at <= start_ms or (end_ms is not None and bar.open_time >= end_ms):
             continue
         rate = funding[bar.open_time][0] if bar.open_time in funding else None
+        stops = len(sleeve.broker.fills)
         sleeve.on_bar(bar, rate)
+        if pause_after_stop_ms and any(f["order"] == "protective_stop" for f in sleeve.broker.fills[stops:]):
+            paused_until = bar.available_at + pause_after_stop_ms
         target, ready = target_map.get(bar.available_at, (0.0, False))
+        if bar.available_at < paused_until:
+            target = 0.0                                   # paused: no entry (a stopped sleeve holds nothing)
         sleeve.decide(bar, target, ready)
         b = sleeve.broker
         rows.append((bar.available_at, float(b.equity), float(b.position.qty), float(b.mark), float(b.fees),

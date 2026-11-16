@@ -3534,3 +3534,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - `CLAUDE.md` 现状加"工程进度"一条；`docs/arch/roadmap.md` 第 19 项加进度；`docs/arch/design-2026-11-m5.md` 开头加实施状态说明。
 - `infra/systemd/binance-target.service` 的 `Description` 改为指向运行手册（只是说明文字；主机上要同步单元才会更新）。
 - 没有清理的：两个超过 400 行的"先写测试"提交（S10 第 3 部分）改不了历史，已记录；`lab/strategy.py` 等研究侧的转发名被已冻结的研究脚本使用，保留。
+
+## 回测按实盘条件算（2026-11-16，研究侧，轻流程）
+
+- **起因**：技术负责人 2026-11-16 要求检查回测和实盘的差别，并让回测与实盘一致。选择：回测资金 300 USDT；下单限额按策略需要定
+  （回测统计，技术负责人改实盘配置）；止损后的暂停改成到时自动解除（实盘一侧待定时长后按资金路径完整流程改，回测先按 24 小时）。
+- **改了什么**：
+  - 研究撮合器 `BarBroker` 加可选的全仓止损 `stop_pct`（默认关闭；关闭时行为和配置记录都不变）：入场价 ×(1∓stop_pct)，
+    与实盘 `stops.py` 的触发价相同；成交规则沿用逐仓止损和模拟盘 `BarStopModel` 的规则。模拟盘的模拟交易所拒绝带
+    `stop_pct` 的撮合器（模拟盘自己挂止损）。
+  - `lab.simulate.simulate` 加 `stop_pct` 和 `pause_after_stop_ms`：止损成交后该品种暂停入场到时为止。
+  - `lab/um_lab.py` 加 `LiveTerms`/`LIVE` 和 `run_idea(live=...)`：资金按固定品种清单平分（低于最小下单额的单不发）、
+    实盘止损和暂停、整份资金的日收益（`account_daily`）、需要的下单限额（`limits_needed`，只数入场单，与实盘限价器一致）、
+    往返交易和连亏（`round_trips`、`losing_streaks`）、`live_report`。
+  - `research/lab/README.md` 加"实盘条件"一节、最终检查第 7 条、策略卡一行；`CLAUDE.md` 实验室一条。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_broker_cross_stop.py`（14 个），`tests/unit/lab/test_simulate_live_terms.py`（3 个），
+  `tests/unit/lab/test_um_lab_live_terms.py`（6 个）。
+- **发现的小差别（记录，未改）**：权重正好 1.0 且取整后没有余量时，撮合器的无杠杆上限（按 K 线最高价算）会拒单，实盘不会；
+  真实的数量步长通常留有余量。
+- **变异自检**（撮合器是模拟盘也用的，所以做了）【实际运行结果】：`scripts/dev/mutants/backtest_live_parity.json` 14 个变异（触发方向、跳空规则、止损滑点、止损手续费、开关、三条校验、配置记录、模拟交易所拒绝、`broker_config` 传参、暂停的设置/边界/生效），基线通过，14 个全部被杀。写变异时发现"止损手续费没从现金扣"没有测试会抓到，跑之前给第一个测试加了 `broker.fees` 的断言。
+- **本地**【实际运行结果】：新测试、撮合器和模拟交易所、模拟盘逐根一致、研究金标准、lab、架构测试通过；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。
