@@ -102,7 +102,8 @@ for symbol in SYMBOLS:
         fast = s[s[:, 1] >= 1.0] if len(s) else s
         out[f"{symbol} {kind}"] = {
             "hours": len(e),
-            "half_spread_bp": {"median": q(e[:, 0], 0.5), "p90": q(e[:, 0], 0.9), "mean": round(float(e[:, 0].mean()), 2)},
+            "half_spread_bp": {"median": q(e[:, 0], 0.5), "p90": q(e[:, 0], 0.9),
+                               "mean": round(float(e[:, 0].mean()), 2)},
             "round_trip_side_cost_bp_mean": round(float((e[:, 1].mean() + e[:, 2].mean()) / 2), 2),
             "drift_abs_bp_median": {str(k): q(v, 0.5) for k, v in delay.items()},
             "drift_abs_bp_p90": {str(k): q(v, 0.9) for k, v in delay.items()},
