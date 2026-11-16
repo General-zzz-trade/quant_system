@@ -23,6 +23,7 @@ import logging
 import signal
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from decimal import Decimal as D
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,7 +160,8 @@ class TargetRuntime(_runtime.TargetRuntime):
         store = PaperStateStore(SqlitePaperState(path, clock=self.clock), copy)
         kill = KillFile(kill_file_path(self.state_dir), missing_is_active=is_managed(self.state_dir))
         inputs = target.ExecutionInputs(account=venue, scope=self.config.scope, stop_pct=self.config.stop_pct,
-                                        limits=risk_limits({}), kill=kill, leverage=1, margin=None)
+                                        limits=replace(risk_limits({}), max_order_notional=None), kill=kill,
+                                        leverage=1, margin=None)     # no single-order notional cap (2026-11-16)
         parts = target.PaperParts(symbol_equity=lambda symbol: SymbolVenueEquity(venue, symbol),
                                   gate_clock=gate_clock, sleeper=lambda seconds: None,
                                   pauses=lambda pauses: DivergencePauses(pauses, journal), state=store.state)
