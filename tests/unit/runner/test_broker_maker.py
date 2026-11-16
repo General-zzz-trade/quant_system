@@ -1,4 +1,4 @@
-"""Maker-mode accounting of the research broker (``runner/offline/broker.py``) and the funding reader.
+"""Maker-mode accounting of the research broker (``trading/adapters/simulated/bar_broker.py``) and the funding reader.
 
 Restored 2026-11-15 from the tests deleted with the ML offline replay in M4 (they tested kept code; M4 audit
 finding 1). Assertions are unchanged; ``load_funding`` now lives in ``lab.data``.
@@ -12,7 +12,7 @@ import pytest
 
 from data.quality.causal_bars import HOUR, Bar
 from lab.data import load_funding
-from runner.offline.broker import BarBroker, ReplayConfig
+from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
 
 
 def order(oid="one", qty="1", side="buy", price="100"):

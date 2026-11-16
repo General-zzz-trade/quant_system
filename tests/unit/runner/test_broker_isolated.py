@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from data.quality.causal_bars import HOUR, Bar
-from runner.offline.broker import BarBroker, ReplayConfig
+from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
 
 
 def config(**kwargs):
