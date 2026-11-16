@@ -245,3 +245,17 @@ def test_without_an_alert_file_the_watchdog_writes_none(tmp_path, monkeypatch):
 
 def test_tests_never_inherit_an_alert_file_from_the_environment():
     assert "ALERT_FILE" not in os.environ                             # tests/conftest.py removes it for every test
+
+
+def test_an_exported_alert_file_is_removed_for_every_test(tmp_path):
+    """The check above in a child process that does export one (the audit's finding L7, reproduced)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                          f"{Path(__file__).relative_to(root)}::test_tests_never_inherit_an_alert_file_from_the_environment"],
+                         cwd=root, env={**os.environ, "ALERT_FILE": str(tmp_path / "host.jsonl")},
+                         capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stdout[-500:]
+    assert not (tmp_path / "host.jsonl").exists()

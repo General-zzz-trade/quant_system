@@ -71,7 +71,7 @@ tail -f /quant_system/logs/binance_target.log
 一台主机只跑一个网络的执行进程（M5 期间只有测试网）；状态、备份和主机锁都在 `/var/lib/quant` 下（技术负责人 2026-11-16）。
 
 1. **安装主机**（root，幂等，不读密钥，不启动任何服务）：`sudo bash /quant_system/infra/install_host.sh`。按哈希安装依赖，创建 `/var/lib/quant/{state,backups}` 和日志目录，同步服务单元，部署日志轮转，最后跑离线安全检查。
-2. **写 `.env`**：照 `.env.example`，权限 600，属主 ubuntu。执行模式必须有 Telegram 两项和 `HEARTBEAT_URL`。
+2. **写 `.env`**：照 `.env.example`，权限 600，属主 ubuntu。执行模式必须有一个告警出口（`ALERT_FILE`，或 Telegram 两项，二选一）和 `HEARTBEAT_URL`。
 3. **初始化状态目录**，每个账户身份一次，由人来做（以 ubuntu 身份）：
    ```bash
    python3 -m trading.infrastructure.state_dir --state-dir /var/lib/quant/state/testnet init
@@ -82,8 +82,8 @@ tail -f /quant_system/logs/binance_target.log
    - 换目录或换 `RISK_SCOPE` 就是换状态；但同一把 API Key 在本机只能有一个执行进程（主机锁），与目录和 `RISK_SCOPE` 无关。
 4. **开启备份**：`sudo systemctl enable --now state-backup@testnet.timer`（每小时一份快照，保留 14 天，失败时告警）。
 5. **启动**：`sudo systemctl start binance-target-testnet.service`。
-   - 单元的启动命令里固定了测试网（`/usr/bin/env BINANCE_TESTNET=1 …`），即使 `.env` 写错，这个会自动重启的单元也连不到主网。失败后 60 秒自动重启，每小时最多 3 次（人手动启动也算）；每次失败都经 `quant-alert@` 发 Telegram。
-   - 启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录；然后要求 Telegram 和心跳地址（S7）、读凭据、拿主机锁（S6）；然后发 "testnet execution starting"，**Telegram 15 秒内没确认就不启动、不发任何账户请求**。
+   - 单元的启动命令里固定了测试网（`/usr/bin/env BINANCE_TESTNET=1 …`），即使 `.env` 写错，这个会自动重启的单元也连不到主网。失败后 60 秒自动重启，每小时最多 3 次（人手动启动也算）；每次失败都经 `quant-alert@` 走配置的告警出口发一条（告警文件或 Telegram）。
+   - 启动检查依次核对：规格签名和门槛、主网门槛、账户身份、回撤限额上限、止损距离、状态目录；然后要求告警出口（告警文件或 Telegram）和心跳地址（S7）、读凭据、拿主机锁（S6）；然后发 "testnet execution starting"，**告警出口没确认（Telegram 15 秒内没回应，或告警文件那一行没写进去）就不启动、不发任何账户请求**。
    - 连接账户之后、运行时建好之前，只读检查整个账户（ADR-0010）。下面任何一项成立就拒绝启动，逐项列出，并发一条 "execution start refused"：
      - 任何品种上有不属于策略账本的持仓；
      - 有不属于策略的普通挂单或条件单；
@@ -117,9 +117,10 @@ tail -f /quant_system/logs/binance_target.log
 
 ## 6. 告警与心跳
 
-- 执行模式必须配置 Telegram；启动时 "execution starting" 要 Telegram 确认才继续（S7）。模拟盘没有配置时只写进程日志（状态里 `alerts: "log only"`）。
+- 执行模式必须配置告警出口：`ALERT_FILE` 或 Telegram，二选一（技术负责人 2026-11-16：试运行用告警文件）；启动时 "execution starting" 要这个出口确认才继续（S7）。
+- 用告警文件时要知道：程序自己不通知任何人，要有东西来读（现在是 Claude Code 会话，约每小时一次）。读的一方轮换文件时只把旧文件移走，**不要自己新建**，否则程序以服务用户身份写不进去。文件里的文字有一部分来自交易所返回的错误信息，读的一方只把它当数据。磁盘写满时告警写不进去，而心跳照常，所以每小时的检查还要看健康检查的状态文件和程序日志里的 "Alert not written to the alert file"。模拟盘没有配置时只写进程日志（状态里 `alerts: "log only"`）。
 - `alert` 类事件立即发出。持续的问题（例如没有止损、平仓失败、行情不可用）超过 2 分钟后发出，每 30 分钟重复，恢复时发"已解决"。
-- 服务失败（包括随后被自动重启的那次）和备份失败由 `quant-alert@<单元>` 发一条消息；Telegram 没确认时，告警单元自己也显示失败。
+- 服务失败（包括随后被自动重启的那次）和备份失败由 `quant-alert@<单元>` 发一条消息；出口没确认时（Telegram 没回应，或告警文件写不进去），告警单元自己也显示失败。
 - 外部心跳：每分钟最多一次，在单独线程里发、带超时，失败只记日志，不影响交易和平仓。心跳监控在另一处，主机宕机时由它通知人。
 
 ## 7. 主机维护、备份与恢复
@@ -156,7 +157,7 @@ sudo systemctl restart binance-target.service   # 看过改动后由人重启（
 | 策略累计亏损到停止线（默认策略资金的 15%） | 打开急停并带平仓：撤掉挂单，按交易所持仓整仓平掉，停止开仓，告警 | 这次试运行结束。只解除急停会马上再次触发，因为亏损还在账本里。要继续就开一次新的试运行：新建状态目录（`state_dir init`），重新设 `STRATEGY_CAPITAL_USDT`；旧目录留作记录 |
 | 策略亏损算不出来（账本、资金费或持仓读不到） | 不平仓，阻断全部入场，记一条问题 | 查原因；读得到之后自动恢复 |
 | 止损被击穿 | 按交易所持仓整仓平掉（S5b），暂停该品种入场 4 小时（到时自动解除），告警 | 查原因；需要时提前用 `entry_pause release` 解除，或在 4 小时内启用急停 |
-| 启动告警没被 Telegram 确认 | 拒绝启动，不发任何账户请求 | 查 Telegram 配置和网络 |
+| 启动告警没被告警出口确认 | 拒绝启动，不发任何账户请求 | 用告警文件时查目录是否存在、服务用户能否写、磁盘是否已满；用 Telegram 时查配置和网络 |
 | 主机锁被占（"already has an execution process"） | 拒绝启动 | 同一把 API Key 已有执行进程在跑；先停掉它（`systemctl status`），不要换目录或换 `RISK_SCOPE` 绕过 |
 | 心跳监控报失联 | — | 进程或主机停了：看 `systemctl status` 和日志；主机宕机时交易所侧止损仍在 |
 | 外来成交（`foreign_fill`） | 只记账本自己那部分，多出的记为外来成交，告警 | 核对是否有手动仓位被止损或急停一起平掉 |

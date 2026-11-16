@@ -54,48 +54,6 @@
   "    if False:\n        raise RuntimeError(\"execution mode needs an external heartbeat"
  ],
  [
-  "deliver always confirms",
-  "trading/adapters/notify/file.py",
-  "            logger.warning(\"Alert file not writable (%s): %s\", type(exc).__name__, title)\n            return False",
-  "            logger.warning(\"Alert file not writable (%s): %s\", type(exc).__name__, title)\n            return True"
- ],
- [
-  "alert raises on a failed write",
-  "trading/adapters/notify/file.py",
-  "        except OSError as exc:\n            logger.error(\"Alert not written to the alert file",
-  "        except KeyError as exc:\n            logger.error(\"Alert not written to the alert file"
- ],
- [
-  "failed alert not logged",
-  "trading/adapters/notify/file.py",
-  "            logger.error(\"Alert not written to the alert file (%s): %s: %s\", type(exc).__name__, title, detail)",
-  "            pass"
- ],
- [
-  "lines overwrite",
-  "trading/adapters/notify/file.py",
-  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)",
-  "os.O_WRONLY | os.O_TRUNC | os.O_CREAT, 0o640)"
- ],
- [
-  "file world readable",
-  "trading/adapters/notify/file.py",
-  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)",
-  "os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)"
- ],
- [
-  "deliver level",
-  "trading/adapters/notify/file.py",
-  "            self._append(\"info\", title, detail)",
-  "            self._append(\"critical\", title, detail)"
- ],
- [
-  "detail dropped",
-  "trading/adapters/notify/file.py",
-  "\"title\": title, \"detail\": detail}",
-  "\"title\": title, \"detail\": \"\"}"
- ],
- [
   "unconfirmed start goes on",
   "trading/infrastructure/cli/target.py",
   "                raise RuntimeError(f\"the start-up alert was not confirmed by the alert channel \"\n                                   f\"({notifier.channel}); execution not started\")",
@@ -112,5 +70,119 @@
   "trading/infrastructure/unit_alert.py",
   "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 1",
   "    print(f\"alert not confirmed by the alert channel ({notifier.channel}): {title}\", file=stdout)\n    return 0"
+ ],
+ [
+  "a failed write is confirmed",
+  "trading/adapters/notify/file.py",
+  "            return False\n        return True",
+  "            return True\n        return True"
+ ],
+ [
+  "only a missing file is caught",
+  "trading/adapters/notify/file.py",
+  "        except Exception as exc:\n            logger.error(\"Alert not written to the alert file",
+  "        except FileNotFoundError as exc:\n            logger.error(\"Alert not written to the alert file"
+ ],
+ [
+  "only OSError is caught",
+  "trading/adapters/notify/file.py",
+  "        except Exception as exc:\n            logger.error(\"Alert not written to the alert file",
+  "        except OSError as exc:\n            logger.error(\"Alert not written to the alert file"
+ ],
+ [
+  "failed alert not logged",
+  "trading/adapters/notify/file.py",
+  "            logger.error(\"Alert not written to the alert file (%s): %s: %s\", type(exc).__name__,\n                         _cut(title, MAX_TITLE), _cut(detail, MAX_DETAIL))",
+  "            pass"
+ ],
+ [
+  "no fsync",
+  "trading/adapters/notify/file.py",
+  "            os.fsync(fd)\n",
+  ""
+ ],
+ [
+  "descriptor not closed",
+  "trading/adapters/notify/file.py",
+  "        finally:\n            os.close(fd)",
+  "        finally:\n            pass"
+ ],
+ [
+  "short write accepted",
+  "trading/adapters/notify/file.py",
+  "            if os.write(fd, data) != len(data):",
+  "            if os.write(fd, data) < 0:"
+ ],
+ [
+  "cut-off line not repaired",
+  "trading/adapters/notify/file.py",
+  "            if info.st_size and os.pread(fd, 1, info.st_size - 1) != b\"\\n\":",
+  "            if False:"
+ ],
+ [
+  "links followed",
+  "trading/adapters/notify/file.py",
+  "os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o640)",
+  "os.O_CREAT | os.O_NONBLOCK, 0o640)"
+ ],
+ [
+  "lines overwrite",
+  "trading/adapters/notify/file.py",
+  "os.O_RDWR | os.O_APPEND | os.O_CREAT",
+  "os.O_RDWR | os.O_TRUNC | os.O_CREAT"
+ ],
+ [
+  "file world readable",
+  "trading/adapters/notify/file.py",
+  "os.O_NOFOLLOW | os.O_NONBLOCK, 0o640)",
+  "os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)"
+ ],
+ [
+  "delivered lines rank as info",
+  "trading/adapters/notify/file.py",
+  "        return self.write(\"notice\", title, detail)",
+  "        return self.write(\"info\", title, detail)"
+ ],
+ [
+  "detail dropped",
+  "trading/adapters/notify/file.py",
+  "\"detail\": _cut(detail, MAX_DETAIL)}",
+  "\"detail\": \"\"}"
+ ],
+ [
+  "nothing is cut",
+  "trading/adapters/notify/file.py",
+  "    return whole if len(whole) <= limit else whole[:limit - 1] + \"…\"",
+  "    return whole"
+ ],
+ [
+  "unencodable text raises",
+  "trading/adapters/notify/file.py",
+  ".encode(\"utf-8\", errors=\"backslashreplace\")",
+  ".encode(\"utf-8\")"
+ ],
+ [
+  "watchdog ignores the alert file",
+  "monitoring/notify.py",
+  "    file_ok = _write_alert_file(level, title, details, source)",
+  "    file_ok = False"
+ ],
+ [
+  "watchdog result ignores the file",
+  "monitoring/notify.py",
+  "    return tg_ok or file_ok",
+  "    return tg_ok"
+ ],
+ [
+  "watchdog level not lowered",
+  "monitoring/notify.py",
+  "str(level.value).lower()",
+  "str(level.value)"
+ ],
+ [
+  "tests inherit ALERT_FILE",
+  "tests/conftest.py",
+  "    monkeypatch.delenv(\"ALERT_FILE\", raising=False)",
+  "    pass"
  ]
 ]

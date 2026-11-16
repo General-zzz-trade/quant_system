@@ -3810,9 +3810,33 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `trading/infrastructure/unit_alert.py`：服务失败告警走同一个出口。
   - `infra/install_host.sh`：创建 `/var/lib/quant/alerts`。文档：`CLAUDE.md`、`.env.example`、运行手册。
 - **已有测试的改动**：没有。**测试辅助的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_alert_file.py`（15 个）、`tests/characterization/test_alert_file_startup.py`（2 个）。
-- **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json` 19 个变异，基线通过，第一轮 19 个全部被杀。
-- **本地**【实际运行结果】：涉及告警和启动的 9 个已有测试文件加架构测试共 200 个通过；ruff、`mypy trading/`（93 个文件）、
-  导入契约（5 个）通过。
-- **要知道的限制**：程序自己不再通知任何人。会话没醒、登录过期或这台主机死了，告警就没人读；主机死了只有外部心跳能发现。
-  告警延迟最长约一小时。每小时的值守任务在试运行启动时建立，不在这个改动里。
+- **新增测试**（合并前审计之后的数）：`tests/unit/trading/test_alert_file.py`（32 个）、
+  `tests/characterization/test_alert_file_startup.py`（2 个）。
+- **合并前的独立审计（2026-11-16 晚）**：没有高严重度发现；建议修 3 处后合并。逐条处理：
+  - 中 1，写了一半也算确认（磁盘满或文件大小受限时 `os.write` 只写进一部分、不报错）：现在写入字节数不足就算失败；
+    上一行被截断时，下一条另起一行。
+  - 中 2，健康检查的告警只认 Telegram：`monitoring/notify.py` 在设了 `ALERT_FILE` 时也写这个文件。
+    磁盘写满是共同失效（告警写不进去，心跳照常），记为限制，见下。
+  - 低 1，分支和 master 冲突：已合并 master。
+  - 低 2，非 `OSError` 的异常会抛出：现在任何异常都只记日志；编不了码的文字转义后照写；标题和内容截断（低 9）。
+  - 低 3，文档里还写着必须有 Telegram：运行手册 6 处、`.env.example`、`CLAUDE.md` 2 处、告警单元的说明、安装脚本的结尾说明已改；
+    ADR-0016 加了修改说明。
+  - 低 4，配了 Telegram 时有三段文字变了（启动被拒、告警单元未确认、缺告警出口的提示），退出码和队列不变；`unit_alert` 现在接受
+    任何不是纯日志的出口。因此失效的 4 个旧变异（`s7-wiring.json` 的 C2、U1、U2，`s8-audit.json` 的 C1）已按现在的代码重写。
+  - 低 5，测试缺口（落盘、关闭文件、只接住"文件不存在"、以 root 运行时不断言）：补了测试；安装脚本建目录有了断言。
+  - 低 6，确认类的行（启动、启动被拒、服务失败）原来级别是 `info`：改为 `notice`，读的一方不能把它们排到最后。
+  - 低 7，环境里有 `ALERT_FILE` 时，已有测试会往那个文件里写假告警：`tests/conftest.py` 加了自动生效的夹具，每个测试都先去掉它
+    （测试辅助的新增，不改任何断言）。
+  - 低 8，路径：符号链接不再跟随；管道和目录被拒绝且不会卡住。文件指向状态目录内的情形没有拦，只在说明里写了不要这样设。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json`。合并前审计之前 19 个，第一轮 19 个被杀；
+  审计之后按新代码重写为 31 个，基线通过，第一轮 31 个被杀（其中包含审计员自己写出、当时存活的 4 个）。
+- **本地**【实际运行结果】：`test_alert_file_startup`、`test_operator_startup`、`test_startup_account_check`、`tests/unit/infra`、
+  `tests/unit/monitoring`、`test_alerts`、`test_execution_prerequisites`、`test_exit_robustness`、`test_unit_alert` 和架构测试共 204 个通过
+  （第一版日志里写的"200 个"没有列出文件，审计员无法核对，这里改为列出文件）；ruff、`mypy trading/`（93 个文件）、导入契约（5 个）通过。
+- **要知道的限制**：
+  - 程序自己不再通知任何人。会话没醒、登录过期或这台主机死了，告警就没人读；主机死了只有外部心跳能发现。告警延迟最长约一小时。
+  - 磁盘写满时告警写不进去，只进程序日志，而心跳照常；状态文件里也看不出来。每小时的检查要同时看健康检查的状态文件
+    （`data/runtime/health_status.json`）和程序日志里的 "Alert not written to the alert file"。
+  - 健康检查只监控模拟盘那个单元，不监控执行单元；它自己的单元没有失败告警。
+  - 读的一方轮换文件时只能把旧文件移走，不能自己新建。文件里的文字有一部分来自交易所的错误信息，只当数据看。
+  - 每小时的值守任务在试运行启动时建立，不在这个改动里。
