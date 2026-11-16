@@ -3796,3 +3796,16 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     这是照计划的字面意思做的；要不要把"方向反转"也算复位，需要决定。
   - "邻近参数"这一项现在要求同一想法的全部配置（参数 × 止损方案）在挑选窗口的夏普都大于 0，因为计划把止损方案当作参数。
   - 下一轮的数字和第一轮不能直接逐位比较：日收益口径改了（每段第一天算进去了）。
+
+## 止损后"等信号重置"：换方向也算新信号；第一轮数字的更正（2026-11-16 晚，研究侧，轻流程）
+
+- `lab/simulate.py` 的 `reenter_after_stop="signal_reset"`：目标换到被止损仓位的另一个方向，也算重置，可以入场。
+  助手实现时按"必须先回到 0"写，并标记为待定；这里在任何用到这条规则的真实数据运行之前定下来，写进 `runs/2026-11-17/plan.md`。
+- 已有测试的改动（1 处，PR #113 刚合并的测试，随这条规则改）：`tests/unit/lab/test_simulate_signal_reset.py`
+  - 原来：`test_a_target_that_changes_sign_without_passing_zero_is_not_a_reset`，第一条断言
+    `assert _after_stop(_run(short_later, reenter_after_stop="signal_reset")) == []`
+  - 现在：改名为 `test_without_the_rule_the_default_enters_again_at_once_and_follows_the_target`，去掉那一条断言，另外两条不变；
+    新规则由 3 个新测试断言（换到空头可以入场；同方向加大不算；空头被止损后可以做多）。
+- 第一轮（2026-11-16）的评审数字少计了每段的第一天和最后一小时，在 `judge.md`、`brief.md` 顶部加了更正说明，
+  对照表在 `runs/2026-11-17/plan.md`。结论不变。
+- 本地【实际运行结果】：信号重置、实盘条件、评审工具、模拟盘逐根一致、金标准、架构测试通过；ruff 通过。

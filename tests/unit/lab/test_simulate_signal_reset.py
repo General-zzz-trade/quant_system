@@ -80,9 +80,8 @@ def test_a_decision_that_is_not_ready_or_missing_is_not_a_reset():
     assert _after_stop(_run(missing=(20,), reenter_after_stop="signal_reset")) == []
 
 
-def test_a_target_that_changes_sign_without_passing_zero_is_not_a_reset():
+def test_without_the_rule_the_default_enters_again_at_once_and_follows_the_target():
     short_later = {k: -0.5 for k in range(20, N + 1)}
-    assert _after_stop(_run(short_later, reenter_after_stop="signal_reset")) == []
     assert _after_stop(_run(short_later))[0] == (11, "buy")              # the default enters again at once
     assert (20, "sell") in _after_stop(_run(short_later))                # and follows the target short
 
@@ -108,3 +107,38 @@ def test_combinations_that_make_no_sense_are_refused():
         _run(reenter_after_stop="signal_reset", stop_pct="0")
     with pytest.raises(ValueError, match="reenter_after_stop"):
         _run(reenter_after_stop="reset")
+
+
+# -- a change of direction is a new signal (decided 2026-11-16, before the first run that uses the rule) ----------
+def test_a_target_that_changes_sign_after_the_stop_is_a_new_signal_and_may_enter():
+    """A long/short idea can go from long to short without a decision at 0. The stopped signal was the long one;
+    the short one is new, so it may enter. Going back to the stopped side later needs no further reset either."""
+    result = _run({k: -0.5 for k in range(20, N + 1)}, reenter_after_stop="signal_reset")
+    assert _stops(result) == [11]
+    after = _after_stop(result)
+    assert after and after[0] == (20, "sell")                            # the first short decision, filled at once
+    assert all(hour >= 20 for hour, _ in after)                          # nothing between the stop and the flip
+
+
+def test_the_same_direction_after_the_stop_is_still_the_stopped_signal():
+    result = _run({k: 0.9 for k in range(20, N + 1)}, reenter_after_stop="signal_reset")     # larger, same side
+    assert _stops(result) == [11] and _after_stop(result) == []
+
+
+def test_a_short_stopped_out_may_enter_long():
+    bars_up = {10}
+    targets = {k: -0.5 for k in range(1, 20)}
+    targets.update({k: 0.5 for k in range(20, N + 1)})
+    result = _run_short_then_long(targets, bars_up)
+    assert _stops(result) == [11]
+    assert _after_stop(result)[0] == (20, "buy")
+
+
+def _run_short_then_long(target_at, spikes):
+    bars = [Bar(i * HOUR, D(100), D(115) if i in spikes else D("100.5"), D("99.5"), D(100), D(10_000_000))
+            for i in range(N)]
+    hours = list(range(1, N + 1))
+    targets = pd.DataFrame({"available_at": np.array(hours, dtype=np.int64) * HOUR,
+                            "target": [target_at[k] for k in hours], "ready": True})
+    return simulate("ALTUSDT", bars, targets, {}, SPEC, start_ms=0, rules=RULES, starting_balance="300",
+                    stop_pct="0.08", reenter_after_stop="signal_reset")
