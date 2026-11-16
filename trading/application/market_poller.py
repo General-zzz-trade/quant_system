@@ -60,7 +60,8 @@ class MarketPoller:
         self.behind_at: int | None = None                 # the last close whose missing bars were reported (R3)
         self.intervals_at: int | None = None              # when the funding intervals were last read (R4)
         self.intervals_tried: int | None = None
-        self.intervals_lost = False                       # said once that none is known any more
+        self.intervals_lost = False                       # every interval was set unknown after failed reads
+        self.interval_issues: dict[str, Issue] = {}       # symbol -> why its funding interval is unknown (R4 audit)
 
     def due(self) -> bool:
         return self.clock() >= self.retry_at
@@ -129,17 +130,31 @@ class MarketPoller:
                 self.intervals_at, self.intervals_lost = now_ms, False
                 for symbol, session in self.sessions.items():
                     session.funding_interval = hours[symbol] * HOUR if symbol in hours else None
-                    if symbol not in hours:
-                        write_issue(self.journal, symbol, Issue(K.MARKET_DATA, symbol,
-                                    f"{symbol}: the exchange lists no funding interval; entries refused"))
+                    self._interval_issue(symbol, None if symbol in hours else
+                                         f"{symbol}: the exchange lists no funding interval; entries refused")
                 return
         if self.intervals_lost or (self.intervals_at is not None and now_ms - self.intervals_at <= INTERVALS_KEPT_MS):
             return
         self.intervals_lost = True
-        for session in self.sessions.values():
+        since = "since the start" if self.intervals_at is None else f"for {INTERVALS_KEPT_MS // HOUR} hours"
+        for symbol, session in self.sessions.items():
             session.funding_interval = None
-        write_issue(self.journal, None, Issue(K.MARKET_DATA, None, "funding intervals unknown: not read for "
-                                              f"{INTERVALS_KEPT_MS // HOUR} hours; entries refused"))
+            self._interval_issue(symbol, f"{symbol}: funding interval unknown: not read {since}; entries refused")
+
+    def _interval_issue(self, symbol: str, text: str | None) -> None:
+        """An unknown interval is the symbol's issue (blocks its entries, shows in its state, alerted when it lasts);
+        written once while it lasts, cleared by a read that lists the symbol."""
+        if text is None:
+            self.interval_issues.pop(symbol, None)
+            return
+        issue = Issue(K.FUNDING_INTERVAL_UNKNOWN, symbol, text)
+        if self.interval_issues.get(symbol) != issue:
+            write_issue(self.journal, symbol, issue)
+        self.interval_issues[symbol] = issue
+
+    def symbol_issue(self, symbol: str) -> Issue | None:
+        """The market side's issue for one symbol, for the exit side: a failed decision, else an unknown interval."""
+        return self.decision_errors.get(symbol) or self.interval_issues.get(symbol)
 
     def _poll_market(self) -> int:
         processed = 0
@@ -172,7 +187,9 @@ class MarketPoller:
             self._decide_together(together, now_ms)
         processed += self.replay(replay)
         if together is not None:
-            self._report_behind(together, self.decision_ms())
+            # On the runtime clock in both modes: paper's gate clock moves only with new bars, so a symbol that stays
+            # behind would never be late on it (R3 audit, finding 1).
+            self._report_behind(together, int(self.clock() * 1000))
         return processed
 
     def replay(self, bars: dict[str, list[Bar]], *, matched: Callable[[str, Bar], bool] | None = None) -> int:

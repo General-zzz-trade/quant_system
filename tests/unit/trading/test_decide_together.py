@@ -180,9 +180,12 @@ def test_paper_raises_when_a_symbol_is_still_behind_a_late_close():
     gate = BarTimeClock()
     w = _poller(PAPER, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 2}, now_hours=4, gate=gate)
     w.poller.poll()
-    gate.at(T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS + 1)
+    w.clock["t"] = (T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS) / 1000       # the runtime clock: the gate clock does not move
+    w.poller.poll()                                                   # without a new bar (R3 audit, finding 1)
+    w.clock["t"] += 0.001
     with pytest.raises(RuntimeError, match="CUSDT"):
         w.poller.poll()
+    assert gate.ms() == T0 + 4 * HOUR + 5_000
 
 
 def test_a_symbol_whose_bar_fails_holds_back_the_cross_sectional_decision():
