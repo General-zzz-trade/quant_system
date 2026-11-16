@@ -20,6 +20,7 @@ class EventKind(Enum):
     STOP = "stop"
     SYMBOL_STATE = "symbol_state"      # every change of a symbol's state (ADR-0014 point 3)
     CONFIG = "config"                  # the configuration this run uses, without secrets (ADR-0017)
+    PAPER_DIVERGENCE = "paper_divergence"   # paper left research on purpose: an entry refused, a stop, a pause
 
 
 __all__ = ["EventKind"]

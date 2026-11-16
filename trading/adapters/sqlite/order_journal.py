@@ -24,8 +24,13 @@ from trading.domain.orders import (DUPLICATE, ENTRY_UNRESOLVED, REDUCTION_OVERLA
 class SqliteOrderJournal:
     TABLES = ("submissions", "execution_fills", "execution_consumers", "manual_actions", "protective_stops")
 
-    def __init__(self, path: Path, scope: str) -> None:
+    def __init__(self, path: Path, scope: str, *, entry_beside_working_reduction: bool = False) -> None:
         self.path, self.scope = Path(path), scope
+        # ModePolicy.entry_beside_working_reduction (paper, S10 decision 1): an entry may be reserved while the
+        # symbol's only unsettled orders are reductions the venue acknowledged ("submitted"). The simulated venue
+        # fills a market reduction at the next bar's open, so the entry of a flip is reserved while its reduction
+        # rests, as research places both on one bar. Execution keeps the stricter rule.
+        self.entry_beside_working_reduction = entry_beside_working_reduction
 
     def connect(self) -> AbstractContextManager[sqlite3.Connection]:
         """The state database as ``state_dir init`` created it (WAL, synchronous=FULL); never creates a file or a
@@ -86,8 +91,10 @@ class SqliteOrderJournal:
             if db.execute("SELECT 1 FROM submissions WHERE scope=? AND intent_id=?",
                           (self.scope, intent_id)).fetchone():
                 return DUPLICATE, 0.0
-            if db.execute("SELECT 1 FROM submissions WHERE scope=? AND symbol=? AND settled=0",
-                          (self.scope, symbol)).fetchone() and not reducing:
+            unsettled = "SELECT 1 FROM submissions WHERE scope=? AND symbol=? AND settled=0"
+            if self.entry_beside_working_reduction:
+                unsettled += " AND NOT (reducing=1 AND status='submitted')"
+            if db.execute(unsettled, (self.scope, symbol)).fetchone() and not reducing:
                 return ENTRY_UNRESOLVED, 0.0
             # Reductions may proceed while an entry is ambiguous, but may not
             # overlap another unresolved reduction for the same account/symbol.

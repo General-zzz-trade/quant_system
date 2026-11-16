@@ -2,11 +2,16 @@
 
 Moved from runner/binance_target.py (migration step 10); split into three parts in S3c (ADR-0013 point 4):
 ``MarketPoller`` (market_poller.py), ``ExitSupervisor`` (exit_supervisor.py) and ``StatusReporter`` (status.py).
-This class wires them, keeps the paper state, and runs one cycle. In execution mode the three sides are isolated:
-one that raises does not stop the others in that cycle, and blocks every entry until it works again.
+This class wires them, keeps the paper state, and runs one cycle. With ``ModePolicy.isolate_failures`` (execution)
+the three sides are isolated: one that raises does not stop the others in that cycle, and blocks every entry until
+it works again; paper raises.
+
+Paper and execution run the same cycle (ADR-0013 plan B, S10 part 3); what differs is the ``ModePolicy``. In paper
+the account is the simulated exchange, which is also the market side's bar listener, and the paper state is its
+snapshot plus the cursors; the order journal keeps the rest.
 
 Everything it touches is injected: market data, account, sessions, event log, kill switch, drawdown guard, paper
-store, status sink and the clock.
+store and venue, status sink and the clocks.
 """
 from __future__ import annotations
 
@@ -19,56 +24,58 @@ from trading.application.exit_supervisor import EQUITY_SECONDS, RECONCILE_SECOND
 from trading.application.issues import Issue, write_issue
 from trading.application.market_poller import (FUNDING_WAIT_MS, MARKET_ALERT_AFTER, MARKET_BACKOFF_MAX,
                                                POLL_SECONDS, MarketPoller)
-from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
-                                       MarketData, Notifier, PaperStore, StatusSink)
+from trading.application.mode_policy import ModePolicy
+from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, GateClock,
+                                       KillSwitch, MarketData, Notifier, PaperStore, PaperVenue, StatusSink)
 from trading.application.session import TargetSession
 from trading.application.status import StatusReporter
-from trading.domain.bars import HOUR, bar_from_kline
+from trading.domain.bars import HOUR, Bar, bar_from_kline
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind as K
 from trading.domain.strategy.overlay import StrategySpec
 
 logger = logging.getLogger("binance_target")
 
-PAPER_SCHEMA = 1
+PAPER_SCHEMA = 2        # 2: the simulated exchange's snapshot and the cursors (S10); 1 held the research sleeves
 
 
 class TargetRuntime:
-    def __init__(self, *, spec: StrategySpec, mode: str, market: MarketData, sessions: dict[str, TargetSession],
+    def __init__(self, *, spec: StrategySpec, policy: ModePolicy, market: MarketData,
+                 sessions: dict[str, TargetSession],
                  journal: EventLog, equity: EquitySource, clock: Clock, status_sink: StatusSink,
                  market_errors: tuple[type[BaseException], ...], account: ExchangeAccount | None = None,
                  final_market_errors: tuple[type[BaseException], ...] = (),
                  kill: KillSwitch | None = None, drawdown: DrawdownGuard | None = None,
-                 paper_store: PaperStore | None = None, reset_paper: bool = False,
+                 paper_store: PaperStore | None = None,
                  spec_passed: object = None, pauses: EntryPauses | None = None,
                  notifier: Notifier | None = None, alert_prefix: str = "",
                  event_log_failure: Callable[[], Issue | None] = lambda: None,
                  config_digest: str | None = None,
-                 account_check: Callable[[], list[Issue]] | None = None) -> None:
-        if mode not in ("paper", "execution"):
-            raise ValueError("mode must be paper or execution")
-        self.spec, self.mode, self.market, self.account, self.clock = spec, mode, market, account, clock
+                 account_check: Callable[[], list[Issue]] | None = None, venue: PaperVenue | None = None,
+                 gate_clock: GateClock | None = None) -> None:
+        self.policy, self.venue = policy, venue
+        self.spec, self.mode, self.market, self.account, self.clock = spec, policy.name, market, account, clock
         self.sessions, self.journal, self.equity = sessions, journal, equity
         self.kill: Any = kill
         self.drawdown: Any = drawdown
         self._status_sink, self._paper_store = status_sink, paper_store
-        self.reset_paper = reset_paper
-        self._saved_cursors: dict[str, int | None] | None = None
         self.pauses = pauses
         self.notifier = notifier
         self._cycle_errors: dict[str, Issue] = {}     # side -> its last failure, until the side succeeds
         self._event_log_failure = event_log_failure    # S3 audit finding 3: blocks entries while it lasts
         self._warmed = False                          # the whole warm-up succeeded (S3 audit finding 6)
-        self.market_side = MarketPoller(market, sessions, mode=mode, journal=journal, clock=clock,
-                                        market_errors=market_errors, final_market_errors=final_market_errors)
+        self.market_side = MarketPoller(market, sessions, policy=policy, journal=journal, clock=clock,
+                                        market_errors=market_errors, final_market_errors=final_market_errors,
+                                        listeners=(venue,) if venue is not None else (),
+                                        settle=lambda: self.exits.settle(), gate_clock=gate_clock)
         self.exits = ExitSupervisor(sessions, spec=spec, journal=journal, clock=clock, account=account, equity=equity,
                                     kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
                                     cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
                                     account_check=account_check)
-        self.reporter = StatusReporter(sessions, mode=mode, clock=clock, spec_passed=spec_passed, notifier=notifier,
-                                       kill=kill, drawdown=drawdown, equity=equity,
+        self.reporter = StatusReporter(sessions, mode=policy.name, clock=clock, spec_passed=spec_passed,
+                                       notifier=notifier, kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures, config_digest=config_digest,
                                        pause_status=self.exits.pause_status)
 
@@ -102,42 +109,59 @@ class TargetRuntime:
 
     # -- lifecycle ------------------------------------------------------------
     def warmup(self) -> None:
-        """Load history; a paper run resumes from its saved state and replays the bars it missed."""
+        """Load history. A paper run resumes from its saved state: the simulated exchange is restored, the exit side
+        sees it and the order journal, and then the bars missed meanwhile are replayed in time order across the
+        symbols, as the market side replays them (``ModePolicy.catch_up``)."""
         now_ms = int(self.clock() * 1000)
-        saved = self._load_paper_state() if self.mode == "paper" else {}
+        saved = self._load_paper_state() if self._paper_store is not None else None
+        if saved is not None:
+            assert self.venue is not None
+            self.venue.restore(saved["venue"])
+        cursors: dict[str, Any] = saved["symbols"] if saved is not None else {}
+        missed: dict[str, list[Bar]] = {}
+        resumed: dict[str, int | None] = {}
         for symbol, session in self.sessions.items():
-            snap = saved.get(symbol)
-            resume = snap["cursor"] if snap else None
+            snap = cursors.get(symbol)
+            resume = resumed[symbol] = snap["cursor"] if snap else None
             gap = 0 if resume is None else max(0, (now_ms // HOUR * HOUR - HOUR - resume) // HOUR)
             limit = self.spec.funding_window() + 30 + gap // 8 + 1
             for at, rate in self.market.get_funding_history(symbol, limit=limit):
                 session.funding[round(at / HOUR) * HOUR] = rate
             rows = self.market.get_klines(symbol, "60", (session.bars.maxlen or 0) + gap, now_ms=now_ms)
-            if snap is not None:
-                if not any(row["start"] == resume for row in rows):
-                    raise RuntimeError(f"{symbol}: saved paper state at {resume} cannot be resumed from the available "
-                                       "market data; start a new paper record with --reset-paper-state")
-                session.restore_paper(snap)
+            if snap is not None and not any(row["start"] == resume for row in rows):
+                raise RuntimeError(f"{symbol}: saved paper state at {resume} cannot be resumed from the available "
+                                   "market data; start a new paper record with --reset-paper-state")
+            missed[symbol] = []
             for row in rows:
                 bar = bar_from_kline(row)
-                session.process_bar(bar, live=resume is not None and bar.open_time > resume, now_ms=now_ms)
-            if len(session.bars) < self.spec.window_hours():
-                raise RuntimeError(f"{symbol}: incomplete warmup ({len(session.bars)}/{self.spec.window_hours()})")
-            self.journal.write(EventKind.WARMUP, symbol=symbol, bars=len(session.bars), last_open=session.cursor,
-                               resumed_from=resume)
+                if resume is not None and bar.open_time > resume:
+                    missed[symbol].append(bar)             # replayed below, in time order across the symbols
+                else:
+                    session.advance(bar)
+            have = min(len(session.bars) + len(missed[symbol]), session.bars.maxlen or 0)
+            if have < self.spec.window_hours():
+                raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{self.spec.window_hours()})")
         self._warmed = True
-        if self.mode == "paper":
-            self.save_paper_state()
-        if self.mode == "execution":
+        if any(missed.values()):
+            # The exit side sees the restored venue and journal before any missed bar is decided.
             self.exits.refresh_equity()
             self.exits.reconcile()
             self.exits.update_states()
+            self.market_side.replay(missed)
+        for symbol, session in self.sessions.items():
+            self.journal.write(EventKind.WARMUP, symbol=symbol, bars=len(session.bars), last_open=session.cursor,
+                               resumed_from=resumed[symbol])
+        if self._paper_store is not None:
+            self.save_paper_state()
+        self.exits.refresh_equity()
+        self.exits.reconcile()
+        self.exits.update_states()
 
     def warmup_or_hold(self) -> bool:
         """Warm up. In execution mode a market-data failure does not end the process: the exit side - equity,
         reconciliation, stop upkeep, risk actions - runs, and False asks the caller to try again later
-        (step 14). Paper mode raises as before."""
-        if self.mode != "execution":
+        (step 14). Without ``ModePolicy.isolate_failures`` (paper) a failure raises as before."""
+        if not self.policy.isolate_failures:
             self.warmup()
             return True
         if self.market_side.due():
@@ -164,42 +188,38 @@ class TargetRuntime:
         self.exits.update_states()
 
     # -- paper state -----------------------------------------------------------
-    def _load_paper_state(self) -> dict[str, Any]:
+    def _load_paper_state(self) -> dict[str, Any] | None:
+        """The saved paper state, checked against this spec and symbol set. A new paper record (a reset) is set up by
+        the composition root before the sessions are built, because it also starts a new order journal."""
         assert self._paper_store is not None
-        if self.reset_paper:
-            archived = self._paper_store.archive()
-            if archived is not None:
-                self.journal.write(EventKind.PAPER_RESET, archived=archived)
         data = self._paper_store.load()
         if data is None:
-            return {}
+            return None
         if (data.get("schema") != PAPER_SCHEMA or data.get("spec") != self.spec.record()
                 or set(data["symbols"]) != set(self.sessions)):
             raise RuntimeError("saved paper state belongs to another spec or symbol set; "
                                "start a new paper record with --reset-paper-state")
-        symbols: dict[str, Any] = data["symbols"]
-        return symbols
+        return data
+
+    def paper_document(self) -> dict[str, Any]:
+        """The paper state: the simulated exchange's snapshot and the last bar each symbol has decided on."""
+        assert self.venue is not None
+        return {"schema": PAPER_SCHEMA, "spec": self.spec.record(),
+                "symbols": {symbol: {"cursor": s.cursor} for symbol, s in self.sessions.items()},
+                "venue": self.venue.snapshot()}
 
     def save_paper_state(self) -> None:
-        """Atomically persist every paper sleeve after the bars it has processed."""
+        """Persist the paper state after the bars processed and the exits taken."""
         assert self._paper_store is not None
-        cursors = {symbol: s.cursor for symbol, s in self.sessions.items()}
-        if cursors == self._saved_cursors:
-            return
-        self._paper_store.save({"schema": PAPER_SCHEMA, "spec": self.spec.record(),
-                                "symbols": {symbol: s.paper_snapshot() for symbol, s in self.sessions.items()}})
-        self._saved_cursors = cursors
+        self._paper_store.save(self.paper_document())
 
     # -- the cycle ------------------------------------------------------------------------------------------------
     def cycle(self) -> None:
-        if self.mode == "paper":
-            self.market_side.poll()
-            self.save_paper_state()
-            self._status_sink.write(self.status())
-            return
-        # Execution: three isolated sides (S3c). One that raises does not stop the others in this cycle.
+        # Three sides (S3c), isolated with ModePolicy.isolate_failures: one that raises does not stop the others.
         self._run_side("market", self._market)
         self._run_side("exit", self.exits.run)
+        if self._paper_store is not None:
+            self.save_paper_state()
         self._run_side("status", lambda: self._status_sink.write(self.status()))
 
     def _market(self) -> None:
@@ -214,11 +234,15 @@ class TargetRuntime:
             for session in self.sessions.values():
                 session.executor.block_entries()
         for session in self.sessions.values():           # entries the rate limit refused on an earlier cycle
-            session.retry_deferred(int(self.clock() * 1000))
+            session.retry_deferred(self.market_side.decision_ms())
         self.market_side.poll()
 
     def _run_side(self, name: str, run: Callable[[], None]) -> None:
-        """A failing side blocks every entry at once, and at every reconciliation until it succeeds again."""
+        """A failing side blocks every entry at once, and at every reconciliation until it succeeds again. Without
+        ``ModePolicy.isolate_failures`` (paper) it raises."""
+        if not self.policy.isolate_failures:
+            run()
+            return
         try:
             run()
         except Exception as exc:

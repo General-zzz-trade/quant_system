@@ -3052,3 +3052,86 @@ S5 分两个 PR：S5a 是 ADR-0011 的运行中整账户检查和限频权重；
 - 最终 17 个里抓住 16 个，1 个等价。
 
 **本地**【实际运行结果】：相关的 10 组测试全部通过；ruff、`mypy trading/`、导入契约、架构测试通过。
+
+## S10 第 3a 部分：模拟盘改走执行路径（2026-11-15/16，ADR-0013 第 2、3 条，资金路径完整流程）
+
+S10 的第 3 个 PR（#84，分支 `s10-paper-path`）。第 3 部分分两个 PR：3a 是 `ModePolicy`、会话单一路径、行情侧补放和 settle、运行时、模拟盘组装；3b 是模拟盘状态原子保存、入口变薄、模拟盘安全测试和验收补充。起点是 S9 原型（分支 `s9-spike`，`dfe7845`），在 S3 审计修复、S4、S5a 和第 1、2 部分之后的 master 上重新实现，先写测试。
+
+**改了什么**【代码】
+- `ModePolicy`（`2325376`）：类型在 `trading/application/mode_policy.py`，两个实例在 `trading/infrastructure/modes.py`。7 个字段，每个字段两种模式都不同：
+
+  | 字段 | 模拟盘 | 执行 | 在哪里起作用 |
+  |---|---|---|---|
+  | `catch_up` | `replay_all` | `latest_only` | 行情侧 |
+  | `entry_ttl` | `venue` | `lifecycle` | 组装根 → `OrderLifecycle(venue_expires_entries=...)` |
+  | `sizing_equity` | `per_symbol_venue` | `account_share` | 组装根 → 会话的定仓权益和比例 |
+  | `limiter_clock` | `bar_time` | `monotonic` | 组装根 → 限额器的两个时钟；行情侧 → 决策和重试的时间 |
+  | `settle_new_bar_before_decision` | 是 | 否 | 行情侧 |
+  | `isolate_failures` | 否（抛出） | 是 | 行情侧、运行时 |
+  | `entry_beside_working_reduction` | 是 | 否 | 组装根 → 订单库的翻向规则 |
+
+- 生命周期和订单库（`d65dba5`）：
+  - `OrderLifecycle(venue_expires_entries=True)`：挂着的入场单不因时间被生命周期撤掉，由模拟交易所在撮合之后按 K 线过期（审计 H1-1）。减仓和平仓前撤入场照常。
+  - `SqliteOrderJournal(entry_beside_working_reduction=True)`（S10 决定 1）：同品种只有"交易所已确认（`submitted`）的减仓"未了结时，可以再预留一笔入场。未确认（`reserved`/`unknown`）的减仓、未了结的入场仍然拒绝；两笔减仓仍不能重叠。
+  - 两项默认关闭，执行模式不变。
+- 行情侧（`a7d99c4`）：`replay_all` 时，先取所有品种的新 K 线，再按开盘时间跨品种逐根处理：推进窗口 → 监听者（模拟交易所）撮合，带上这根开盘时的资金费 → `ExitSupervisor.settle()`（对账全部品种：消费成交、了结订单、止损、暂停，再设状态）→ 门时钟设为收盘时间，各会话决策 → 门时钟前进 5 秒，重试被每秒限额推迟的入场（决定 2）。`latest_only` 与以前完全相同。新端口 `PaperVenue`、`GateClock`。
+- 会话（`9cb55cc`）：删掉 5 处模拟盘分支、`paper_snapshot`/`restore_paper`、会话里那份 `BROKER_STATE`；`process_bar` = `advance` + `decide`；`funding_rate(bar)`；`restore_pending()` 从订单库读回本品种挂着的订单，重启后挂着的入场照样算"有入场在挂"（研究也看得见它）。这一条执行模式同样生效：以前重启后会话以为没有挂单，再规划一笔入场，被订单库以"有未了结订单"拒绝。
+- 运行时（`64c972a`）：两种模式同一轮，行情 → 退出 → 状态；模拟盘失败直接抛出。预热：恢复模拟交易所 → 加载窗口 → 退出侧先看一遍恢复的交易所和订单库 → 补放错过的 K 线（经行情侧的同一个补放）。`PAPER_SCHEMA` 改为 2（模拟交易所快照 + 游标）。新的模拟盘记录（`--reset-paper-state`）改由组装根在构造会话之前处理，因为它也要换一个新订单库。状态文件里两种模式都显示品种状态。
+- 组装（`2bf4e8f`）：`execution_sessions` 按 `ModePolicy` 和 `PaperParts` 组装两种模式，`paper_sessions` 删除。`trading/infrastructure/paper.py`：按研究的配置建模拟交易所、K 线时间门时钟、每品种模拟账户权益、模拟盘目录的状态库、`PaperDivergenceLog` 和 `DivergencePauses`。新事件种类 `PAPER_DIVERGENCE`。
+- 入口（`48d43cc`）：模拟盘不构造带凭据的适配器，用代码默认限额（决定 3），止损检查用模拟交易所的不加杠杆账户，没有整账户检查和告警；不再导入 `lab.orders`、`lab.simulate`。
+- **模拟盘目录的状态库**：模拟盘第一次启动一个模拟盘记录时自己建 `state.sqlite`（全部表），不要求 `state_dir init`；`--reset-paper-state` 先把旧库改名放到一边（`state.<毫秒>.sqlite`）再建新的；有模拟盘记录（`paper_state.json` 或 `paper_state.sqlite`）而库不在时拒绝启动。ADR-0009 写的是"方案 B 之后模拟盘目录也要初始化"，这里没有这样做，留给技术负责人（见文末）。
+
+**先写的测试**（`633ade5`，每条先单独跑过，在旧代码上失败的原因正确）【测试日志】
+- `tests/architecture/test_paper_path.py`（3 条）：会话没有模拟盘分支（旧代码 25 处）；应用层没有与模式名字的比较（旧代码 8 处）；规则的反例。
+- `tests/unit/trading/test_mode_policy.py`（4 条）：两个实例逐字段固定；每个字段都不同；只有两种模式；运行中不能改。
+- `tests/unit/trading/test_mode_differences.py`（10 条）：交易所负责过期时生命周期不按时间撤单；默认仍撤；减仓仍撤入场；翻向规则的 5 种情况。旧代码上 9 条因参数不存在而失败。
+- `tests/unit/trading/test_paper_replay.py`（9 条，用假行情、假会话、假交易所）：两个品种逐根按时间顺序、先撮合再 settle 再决策、重试在 5 秒后；资金费交给交易所；缺一根时只处理有的品种；门时钟不后退；没有门时钟时用运行时时钟；settle 由策略决定；执行只用最新一根；模拟盘抛出、执行只阻断那个品种。旧代码上因 `BarTimeClock` 不存在而无法导入。
+- `tests/unit/lab/test_paper_execution_path.py`（6 条）：所有订单、止损、平仓都到模拟交易所；按各自模拟账户定仓；重启后仍知道挂着的入场；每笔被闸门拒绝的入场正好一条分叉事件；止损被击穿时按止损模型成交、暂停、各写一条分叉事件；状态文件。
+- 后补（`79a514d`、`b94e019`）`tests/unit/trading/test_paper_parts.py`（14 条）：`paper.py` 各部分不经运行时的快速测试，为了变异自检不必每个变异体都补放 360 根 K 线。这组测试是在实现之后写的。
+
+**已有测试的改动**（技术负责人经主会话 2026-11-15 批准，`04e1aa6`）
+- `tests/architecture/test_rules.py::test_the_target_entry_point_loads_no_rust_and_no_old_event_types`
+  - 原来：`assert _legacy_loaded_by("runner.binance_target") == "['lab', 'runner']"`
+  - 现在：`assert _legacy_loaded_by("runner.binance_target") == "['runner']"`
+  - 依据：完成标准第 1 条。文档字符串补了一句"S10 第 3 部分之后不再加载 lab"。
+- 同文件 `TARGET_ENTRY_LEGACY`：删去 `"lab.orders"` 和 `"lab.simulate"` 两项，剩 `infra.model_signing`、`monitoring.tca`。
+- `tests/unit/trading/test_event_kinds.py::test_the_event_kinds_keep_the_words_the_log_has_always_used`：期望的字典加 `"PAPER_DIVERGENCE": "paper_divergence"`。`PAPER_EQUITY`、`PAPER_FILL` 保留（不再写，但删掉也要改这条断言）。
+- 曾报告可能要改的第 4 处（`test_paper_market_outage_is_survived_and_caught_up` 的筛选）没有改：它不改任何东西就通过。
+
+**测试辅助的改动**：没有。
+
+**挂着的订单在对账时算"未了结"**（技术负责人 2026-11-16：保持现状，记录在案；ADR-0013"有意的分叉"已加一条）【实际运行结果】
+- 查证脚本：`/tmp/s10_evidence/resting_evidence.py`、`outage_evidence.py`（不提交）。同一个假交易所、80 根 K 线，每根 K 线一轮之外再加一轮（6 秒后，像生产那样每 5 秒一轮）：
+
+  | 模式 | 入场方式 | `unresolved_order` 问题 | 进入 BLOCKED | 被拒入场 |
+  |---|---|---|---|---|
+  | 模拟盘 | 市价 | 6 | 6 | 0 |
+  | 执行 | 市价 | 0 | 0 | 1（其他原因） |
+  | 模拟盘 | 挂单，4 根过期 | 6 | 6 | 0 |
+  | 执行 | 挂单，4 根过期 | 252 | 32 | 4 |
+
+- 原因：`reconcile_account` 把订单库里任何未了结的订单报成 `unresolved_order`，按 ADR-0014 的表阻断本品种入场。模拟盘的市价单按研究规则在下一根开盘才成交，这一小时里每次对账都"未了结"；下一根撮合后 settle 先了结它们，所以不影响决策。挂单入场跨 K 线挂着时，同品种的新入场会被拒（两种模式都是）。不是查询失败。
+- 每根 K 线只跑一轮时（测试的做法），两种模式都只有 4 行 `market_data`，所以 outage 测试的筛选不受影响。
+
+**变异自检**【实际运行结果】
+- 45 个变异体（`scripts/dev/mutate.py`，每个变异体选最快能抓住它的测试）：生命周期 2、订单库翻向规则 4、行情侧 13、settle 2、会话 3、运行时 5、组装 8、模拟盘部件 8。
+- 第一轮：抓住 39 个，存活 6 个：
+  - X1 `settle` 不设状态：其他闸门（暂停、急停、回撤）本来也拒绝，状态只是兜底，现有测试分不出。补 `test_settling_a_bar_sets_the_symbol_states_before_the_decision`。
+  - S2 `process_bar` 对非最新的 K 线也决策：执行模式补放的那几根在测试数据里不产生意图。补 `test_a_bar_that_is_not_live_only_extends_the_window`。
+  - R2 预热时不补放错过的 K 线、R5 补放前不先跑退出侧：重启测试仍然通过，因为下一轮行情侧会补放同样的 K 线，而且补放的那几根里没有入场（没有新鲜权益时回撤闸门会拒绝入场）。补 `test_a_restart_decides_the_missed_bars_with_a_fresh_equity_reading`：重启错过的最后一根正好是入场的那根，预热就要下这笔单，不能被拒。
+  - R4 每轮开始时重试被推迟的入场用运行时时钟：模拟盘的推迟入场在同一个时间点 5 秒后已经重试完，执行模式两者是同一个时钟。等价变异，不补测试。
+  - T8 组装时不检查"模拟盘部件只配模拟盘策略"：防编程错误的检查，没有测试。补 `test_the_paper_parts_go_with_the_paper_policy_and_only_with_it`。
+- 第二轮（这 6 个）：5 个被抓住（X1、S2、R2、R5、T8），R4 仍存活（等价变异，理由见上）。最终 45 个里抓住 44 个，存活的 1 个是等价变异。
+
+**本地**【实际运行结果】
+- 验收门（断言没有改）：`test_target_runtime.py::test_paper_runtime_reproduces_lab_simulation` 的三个参数化（market-1、maker-1、maker-4）通过；`test_target_runtime_resilience.py` 14 条全部通过，其中三条重启测试（停机后重启、挂单时重启、停机加超过一天的行情中断）、outage 测试都不改任何东西；`test_simulation_golden.py` 两个指纹由 CI 的全量测试覆盖（研究模拟没有改）。
+- `tests/architecture`、`tests/unit/trading`、`tests/characterization`、`tests/contract`、`tests/offline`、`tests/unit/runner`、`tests/unit/binance` 和 `test_target_runtime.py` 一起跑，全部通过（第一次因为第 3b 部分一个还没提交的文件含 `CREATE TABLE`，`test_state_database` 的规则测试失败；那个文件后来改为由 `schema.py` 建表，不在 3a 里）。
+- 合并 master（S5b）之后：`tests/contract`、`test_venue_sized_exits.py`、`test_flatten.py`、新测试和 `tests/architecture` 再跑一次，全部通过。
+- 全仓库 ruff、`mypy trading/`（86 个文件）、导入契约（5 条）通过。
+- 每条模拟盘回放测试（360 根 K 线）本机从约 13 秒变成约 65 秒【测试日志】。剖析（cProfile，market-1）：一轮约 100 次 SQLite 连接（执行路径每个存储操作开一次连接，约 1.2 毫秒），占约 43 秒；策略计算约 19 秒；保存模拟盘状态约 14 秒。
+- CI（GitHub）：见 PR #84 的评论和第 3b 部分的"CI 时间"。
+
+**留给以后 / 没有决定的事**
+- 模拟盘目录要不要像执行目录一样先 `state_dir init`（ADR-0009 第 1 条写的是要）。现在由模拟盘在第一次启动时自己建库，测试和现有的 systemd 单元都不用改；改成必须初始化需要一个不读 `RISK_SCOPE` 的模拟盘初始化命令。
+- `PAPER_EQUITY`、`PAPER_FILL` 事件不再写。对比工具（S11、G6）需要每根 K 线的权益时，从状态文件或订单库读，或者再加一个事件。
+- `trading/infrastructure/paper_store.py`、`trading/adapters/sqlite/paper_store.py` 在 3b 之后不再被运行时使用，留给下一个删除批次。

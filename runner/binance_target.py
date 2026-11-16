@@ -4,15 +4,16 @@
     python -m runner.binance_target --spec ... --enable-execution                             # testnet
 
 Each closed 1h bar, per symbol:
-1. advance the sleeve (paper: research BarBroker; execution: consume confirmed
-   exchange fills durably),
-2. compute the target weight with ``lab.strategy.latest_target`` on a trailing
+1. advance the window (paper: the simulated exchange matches the bar and the
+   exit side consumes its fills first, as research does),
+2. compute the target weight with the function research uses on a trailing
    window (exactly the research value),
-3. rebalance with ``lab.rebalance.plan`` (band, reduce-only vs entry),
+3. rebalance with ``trading.domain.rebalance.plan`` (band, reduce-only vs entry),
 4. send intents through the gates (inputs fresh, kill switch, drawdown,
-   3x gross exposure, order limits) to the durable Binance executor.
+   3x gross exposure, order limits) to the durable executor.
 
-Paper mode reproduces ``lab.simulate`` fills exactly (tested). Mainnet
+Paper mode runs the same execution path on the simulated exchange (ADR-0013
+plan B) and reproduces ``lab.simulate`` fills exactly (tested). Mainnet
 execution requires the frozen spec's research gate to have passed.
 """
 from __future__ import annotations
@@ -23,10 +24,9 @@ import signal
 import time
 from decimal import Decimal as D
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from lab.orders import make_order
-from lab.simulate import SYMBOL_RULES, Sleeve, broker_config
 from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRestError
 from trading.adapters.files.event_log import JsonlEventLog
 from trading.adapters.files.kill_switch import KillFile
@@ -40,12 +40,16 @@ from trading.application.execution.fills import TargetFillConsumer
 from trading.application.alerts import NotifyingEventLog
 from trading.application.event_guard import GuardedEventLog
 from trading.application.runtime import POLL_SECONDS
-from trading.application.session import BROKER_STATE as _BROKER_STATE
+from trading.adapters.simulated.exchange import BROKER_STATE as _BROKER_STATE
 from trading.application.session import MAX_ENTRY_DELAY_MS, TargetSession
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
+from trading.infrastructure.config import risk_limits
+from trading.infrastructure.modes import policy_for
+from trading.infrastructure.paper import (PAPER_STATE, BarTimeClock, DivergencePauses, PaperDivergenceLog,
+                                          SymbolVenueEquity, paper_exchange, paper_state_db)
 from trading.infrastructure.paper_store import MirroredPaperStore
 from trading.infrastructure.state_dir import is_managed, kill_file_path
 from trading.infrastructure.state_dir import verify as verify_state_dir
@@ -53,8 +57,6 @@ from trading.infrastructure.config import RuntimeConfig, Secrets, load_config, m
 from trading.domain.events import EventKind
 
 logger = logging.getLogger("binance_target")
-
-PAPER_STATE = "paper_state.json"
 
 
 def load_spec(path: Path) -> dict:
@@ -104,14 +106,12 @@ class _TcaLog:
 class TargetRuntime(_runtime.TargetRuntime):
     """The legacy entry point's constructor. The loop is trading.application.runtime.TargetRuntime and the
     sessions are wired in trading.infrastructure.target (migration step 10); this class loads the signed
-    spec and supplies the parts that still live in the legacy packages: the research paper sleeve, the
-    order limiter, the kill file and the transaction-cost log."""
+    spec and picks the mode's policy and parts: in paper the simulated exchange (S10 part 3)."""
 
     def __init__(self, *, spec_path: Path, state_dir: Path, mode: str, market: Any, account: Any = None,
                  clock=time.time, testnet: bool = True, stop_pct: D = D("0.08"), reset_paper: bool = False,
                  notifier: Any = None, config: RuntimeConfig | None = None, secrets: Secrets | None = None) -> None:
-        if mode not in ("paper", "execution"):
-            raise ValueError("mode must be paper or execution")
+        policy = policy_for(mode)
         if config is None:      # read once, here, when the entry point did not (tests construct the runtime)
             config, secrets = load_config(execution=mode == "execution", testnet=testnet, stop_pct=stop_pct)
         self.config = config
@@ -135,31 +135,52 @@ class TargetRuntime(_runtime.TargetRuntime):
             journal = NotifyingEventLog(journal, notifier, prefix=alert_prefix)
         self.equity = EquitySource(clock)
         symbols = self.frozen["symbols"]
-        kill = drawdown = pauses = account_check = None
+        account_check = venue = gate_clock = paper_store = None
         if mode == "execution":
             wiring, kill = self._execution(spec, symbols, journal)
-            sessions, drawdown, pauses = wiring.sessions, wiring.drawdown, wiring.pauses
             assert config.leverage is not None
             account_check = target.account_checker(account, state_dir=self.state_dir, scope=config.scope,
                                                    symbols=symbols, leverage=config.leverage, margin=config.margin)
         else:
-            sessions = target.paper_sessions(
-                spec, symbols, journal=journal, rules=SYMBOL_RULES,     # paper equals research
-                make_order=make_order, sleeve=lambda symbol, lot: Sleeve(symbol, spec, lot, broker_config(spec, lot)))
+            journal = PaperDivergenceLog(journal)
+            venue, gate_clock = paper_exchange(spec, symbols), BarTimeClock()
+            paper_store, wiring, kill = self._paper(spec, symbols, journal, venue, gate_clock, reset_paper)
+            account = venue
+        self.exchange = venue
         super().__init__(
-            spec=spec, mode=mode, market=market, sessions=sessions, journal=journal, equity=self.equity, clock=clock,
-            status_sink=JsonStatusFile(self.state_dir / "target_status.json"),
+            spec=spec, policy=policy, market=market, sessions=wiring.sessions, journal=journal, equity=self.equity,
+            clock=clock, status_sink=JsonStatusFile(self.state_dir / "target_status.json"),
             market_errors=(BinanceRestError, OSError), final_market_errors=(BinanceNonRetryableError,),
-            account=account, kill=kill, drawdown=drawdown,
-            paper_store=MirroredPaperStore(
-                SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=clock),
-                JsonPaperStore(self.state_dir / PAPER_STATE, clock=clock)) if mode == "paper" else None,
-            reset_paper=reset_paper, spec_passed=self.frozen.get("passed"), pauses=pauses, notifier=notifier,
+            account=account, kill=kill, drawdown=wiring.drawdown, paper_store=paper_store,
+            spec_passed=self.frozen.get("passed"), pauses=wiring.pauses, notifier=notifier,
             alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest(),
-            account_check=account_check)
+            account_check=account_check, venue=venue, gate_clock=gate_clock)
         # ADR-0017: what this run uses, recorded once, without any secret.
         journal.write(EventKind.CONFIG, **config.record(), digest=config.digest())
         logger.info("Configuration %s: %s", config.digest()[:12], config.record())
+
+    def _paper(self, spec, symbols, journal, venue, gate_clock, reset: bool):
+        """Plan B (ADR-0013): the execution path over the simulated exchange. No credentialed adapter, no signed
+        request, no account setting from the environment: the code's default limits (S10 decision 3), the venue's
+        unlevered account for the stop check, a kill file that is not managed unless the directory is."""
+        _, aside = paper_state_db(self.state_dir, reset=reset, stamp_ms=int(self.clock() * 1000))
+        store = MirroredPaperStore(SqlitePaperStore(self.state_dir / "paper_state.sqlite", clock=self.clock),
+                                   JsonPaperStore(self.state_dir / PAPER_STATE, clock=self.clock))
+        archived = store.archive() if reset else None
+        if archived or aside:
+            journal.write(EventKind.PAPER_RESET, archived=archived, state_db=aside)
+        kill = KillFile(kill_file_path(self.state_dir), missing_is_active=is_managed(self.state_dir))
+        inputs = target.ExecutionInputs(account=venue, scope=self.config.scope, stop_pct=self.config.stop_pct,
+                                        limits=risk_limits({}), kill=kill, leverage=1, margin=None)
+        parts = target.PaperParts(symbol_equity=lambda symbol: SymbolVenueEquity(venue, symbol),
+                                  gate_clock=gate_clock, sleeper=lambda seconds: None,
+                                  pauses=lambda pauses: DivergencePauses(pauses, journal))
+        wiring = target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
+                                           equity=self.equity, inputs=inputs, clock=self.clock,
+                                           policy=policy_for("paper"), paper=parts)
+        for symbol, session in wiring.sessions.items():
+            session.sleeve = SimpleNamespace(broker=venue.broker(symbol))    # read-only, for people and tests
+        return store, wiring, kill
 
     def _execution(self, spec, symbols, journal):
         config = self.config

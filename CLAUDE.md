@@ -77,15 +77,19 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 
 **Runtimes:**
 - `runner/binance_target.py`: entry point of the overlay strategy. It loads the signed spec and passes in
-  the parts that are still legacy (paper sleeve, order limiter, kill file, lease, TCA log).
+  the parts that are still legacy (kill file, lease, TCA log); it loads no `lab` module (S10).
   - The loop is `trading/application/runtime.py`; it wires `market_poller.py`, `exit_supervisor.py` and `status.py`
     (S3c). In execution mode the three sides are isolated: one that raises blocks every entry until it works again
     and the others still run; one symbol's failing bar blocks only that symbol. One symbol's hourly step is
     `trading/application/session.py`;
     `trading/infrastructure/target.py` wires the sessions.
   - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
-  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`); its state is stored in
-    `paper_state.sqlite` with a JSON mirror (deleting the JSON does not reset it; use `--reset-paper-state`).
+  - Paper mode runs the same execution path (gates, journal, lifecycle, stops, reconciliation) on the simulated
+    exchange (`trading/adapters/simulated`: the research brokers, stops by bar high/low; ADR-0013 plan B).
+    `ModePolicy` (`trading/infrastructure/modes.py`) is the one list of the differences. Paper uses the code's
+    default limits, reads no account setting, has no account check; every intended divergence from research
+    (entry refused, stop, pause) is a `paper_divergence` event. Its journal is the paper directory's
+    `state.sqlite`, which paper creates at the first start of a paper record (`--reset-paper-state` sets it aside).
   - Execution mode sends `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`,
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
