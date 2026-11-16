@@ -13,6 +13,15 @@
   the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), and the
   cumulative funding kept in the state database instead of the 88-day guard (owner
   2026-11-16: the guard stays until then).
+- **Before a lab survivor gets money (owner, 2026-11-16 evening):** an idea that passes the lab's checks is frozen and
+  tracked on new data for 4 weeks first: one registered look a week (`research/forward_looks.jsonl`, as the forward
+  protocol says), each on a new snapshot; it goes to the pilot only if it still holds on all four. Nothing is
+  deployed for this. This changes "passes the backtest checks, then the pilot".
+- **Calibration pilot (owner, 2026-11-16 evening):** separately, the existing BTC/ETH overlay may run on mainnet with
+  300 USDT to collect real fills (prices, slippage, stop fills, refusals) for checking the backtest against reality.
+  It has no verified edge and none is expected; the 15 % loss stop bounds the cost. Every "still required first"
+  item above applies, the account must hold nothing outside the strategy ledger (a manual position on BTCUSDT or
+  ETHUSDT would be netted with the strategy's), and the owner marks the spec.
 - **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
   min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
   that this base grows with the strategy's profits. The PnL includes funding (tech lead, 2026-11-16): the USDT
