@@ -3708,7 +3708,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     `sorted(set(writers)) == ["trading/adapters/files/kill_switch.py", "trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]`，
     并新增两条：`kill_switch.py` 里那次写入的 `active` 是常量 `True`；全代码只有 `trading/application/risk/loss_stop.py` 调用 `trip`。
 - **测试辅助的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（22 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
+- **新增测试**：`tests/unit/trading/test_strategy_loss_stop.py`（27 个）、`tests/characterization/test_strategy_loss_stop_runtime.py`（7 个）。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_loss_stop.json` 39 个变异，基线通过，第一轮 37 个被杀。存活 2 个：
   问题"不立即阻断入场"和"对账时不继续生效"——原来的"亏损未知"测试里仓位基数本来就是 0，分辨不出。补了一个只有停止线报问题、
   仓位基数正常的运行时测试后都被杀。最终 39/39。
