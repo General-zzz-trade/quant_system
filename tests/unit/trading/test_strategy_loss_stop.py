@@ -51,7 +51,7 @@ def test_a_loss_short_of_the_limit_does_nothing(tmp_path):
 
 def test_at_15_per_cent_the_kill_switch_is_set_with_flatten_once(tmp_path):
     stop, kill, holder, clock = _stop(tmp_path, D("-45"))
-    assert stop.check() == []
+    (reached,) = stop.check()                                       # reached: a finding while the process lives
     state = kill.state()
     assert state.active is True and state.flatten is True
     assert "strategy loss stop" in state.reason and "45" in state.reason and "15" in state.reason
@@ -61,7 +61,7 @@ def test_at_15_per_cent_the_kill_switch_is_set_with_flatten_once(tmp_path):
     written = (tmp_path / "kill_switch.json").read_text()
     clock.now += LOSS_STOP_SECONDS
     holder["pnl"] = D("-60")
-    assert stop.check() == [] and stop.take_trip() is None
+    assert stop.check() == [reached] and stop.take_trip() is None
     assert (tmp_path / "kill_switch.json").read_text() == written                 # already set: left as it is
 
 
@@ -99,7 +99,8 @@ def test_a_switch_that_cannot_be_set_blocks_every_entry_and_is_tried_again(tmp_p
     assert Effect.BLOCK_ALL_ENTRIES in issue.effects and "kill switch" in issue
     assert stop.take_trip() is None
     kill.trip = real
-    assert stop.check() == [] and kill.state().flatten is True     # no minute's wait
+    (reached,) = stop.check()                                       # no minute's wait
+    assert "strategy loss stop reached" in reached and kill.state().flatten is True
 
 
 def test_the_loss_is_read_at_most_once_a_minute_while_it_is_known(tmp_path):
@@ -128,15 +129,18 @@ def _position(symbol, qty, entry, mark):
 def test_unrealized_pnl_is_the_strategy_s_positions_at_the_venue_s_mark():
     positions = [_position("BTCUSDT", "0.01", "50000", "47000"), _position("ETHUSDT", "-2", "3000", "2900"),
                  _position("SOLUSDT", "5", "100", "1")]                         # not a strategy symbol
-    assert strategy_unrealized(positions, ["BTCUSDT", "ETHUSDT"]) == D("-30") + D("200")
-    assert strategy_unrealized([], ["BTCUSDT"]) == 0
+    venue = {p.symbol: p for p in positions}.get
+    ledger = [(p.symbol, p.qty, p.entry_price) for p in positions[:2]]          # the strategy's ledger: BTC and ETH
+    assert strategy_unrealized(ledger, venue) == D("-30") + D("200")
+    assert strategy_unrealized([], venue) == 0
 
 
 @pytest.mark.parametrize("entry,mark", [(None, "47000"), ("50000", None), ("0", "47000"), ("50000", "0"),
                                         ("50000", "nan")])
 def test_a_position_without_a_usable_entry_or_mark_price_is_unknown(entry, mark):
     with pytest.raises(RuntimeError, match="BTCUSDT"):
-        strategy_unrealized([_position("BTCUSDT", "0.01", entry, mark)], ["BTCUSDT"])
+        strategy_unrealized([("BTCUSDT", D("0.01"), None if entry is None else D(entry))],
+                            lambda symbol: _position(symbol, "0.01", entry, mark))
 
 
 ENV = {"RISK_SCOPE": "binance-ut", "BINANCE_TESTNET": "0", "TELEGRAM_BOT_TOKEN": "1:t", "TELEGRAM_CHAT_ID": "1",

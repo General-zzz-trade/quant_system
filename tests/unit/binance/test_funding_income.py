@@ -51,7 +51,7 @@ def test_the_symbol_s_usdt_funding_since_the_time_is_summed_from_one_get():
     fake.add_income("ETHUSDT", "-4", T + 3 * HOUR)
     assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("-1.25")
     assert fake.income_requests == [{"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE", "startTime": T,
-                                     "limit": 1000}]
+                                     "endTime": NOW, "limit": 1000}]
     assert fake.posts == [] and fake.algo == {} and fake.orders == {}
 
 
@@ -113,3 +113,38 @@ def test_funding_older_than_binance_s_income_history_cannot_be_read_whole_and_ra
     with pytest.raises(RuntimeError, match="three months"):
         _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=T + 88 * DAY + 1)
     assert len(fake.income_requests) == 1                         # refused before any request
+
+
+# -- after the audit of 2026-11-16 (finding 5): the end of the window is sent, and the page cap is pinned ---------
+def test_every_page_asks_up_to_the_runtime_s_time_and_a_later_row_does_not_count():
+    fake = FakeBinance()
+    for i in range(1500):
+        fake.add_income("BTCUSDT", "-0.01", T + i * MINUTE)
+    fake.add_income("BTCUSDT", "-7", NOW)                          # at the end time: counted (inclusive)
+    fake.add_income("BTCUSDT", "-900", NOW + 1)                    # after it: not this request's
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("-22.00")
+    assert [(r["startTime"], r["endTime"]) for r in fake.income_requests] == [(T, NOW), (T + 999 * MINUTE, NOW)]
+    client = Pages([_row("1", T, 1)])
+    _adapter(client).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
+    assert client.calls == [("GET", "/fapi/v1/income", {"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE",
+                                                        "startTime": T, "endTime": NOW, "limit": 1000})]
+
+
+def test_a_history_of_five_pages_is_read_whole():
+    fake = FakeBinance()
+    for i in range(4100):
+        fake.add_income("BTCUSDT", "-0.01", T + i * MINUTE)
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("-41.00")
+    assert len(fake.income_requests) == 5
+
+
+def test_a_history_beyond_the_page_cap_raises_instead_of_returning_a_part(monkeypatch):
+    from trading.adapters.binance import adapter
+    assert adapter.MAX_INCOME_PAGES == 100
+    monkeypatch.setattr(adapter, "MAX_INCOME_PAGES", 2)
+    fake = FakeBinance()
+    for i in range(2500):                                          # three pages
+        fake.add_income("BTCUSDT", "-0.01", T + i * MINUTE)
+    with pytest.raises(RuntimeError, match="more than 2 pages"):
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
+    assert len(fake.income_requests) == 2
