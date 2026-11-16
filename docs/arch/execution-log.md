@@ -4084,3 +4084,26 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   第一轮：8 个被杀；1 个存活（"收益大于 0"改成"大于等于 0"：数据里收益恰好为 0 的情况不会出现，实际等价，换成"回看少算一天"）；
   7 个"基线失败"是我的错：工具按空格切分测试选择，`-k "a or b"` 被拆坏了。改用测试节点名重跑这 8 个：全部被杀，最终 16/16。
 - **本地**【实际运行结果】：新测试、防未来函数检查整个文件、ruff、`mypy trading/`（96 个文件）、导入契约（5 个）通过。
+
+## R7c 实验室的评审员通过策略接口回测（2026-11-16 晚，研究侧 + 资金路径的入口）
+
+- **改了什么**：`lab/um_judge.py` 的 `Judge.ideas` 从"名字 → (函数, 参数表)"改成"名字 → (工厂, 参数表)"，工厂把一组参数变成要回放的
+  策略。`lab.um_lab.lab_ideas()` 给出登记过的想法（实盘会跑的那份代码）；还写成研究函数的想法用 `lab.um_lab.legacy(函数, cross=...)`
+  包一下也能回测，但它没有实盘窗口，不能上实盘。评审员从数据快照构造每个合约的窗口（`snapshot_window`；它的 `lab_frame` 和原来的
+  `frame` 逐位相同），横截面策略拿到这一段的清单，按品种的策略拿到自己一个品种，两者都再加上它声明要读的品种，然后回放
+  `history` 的目标仓位。`Judge.cross_sectional` 字段去掉了：是不是横截面由策略自己说。
+- **证据**【实际运行结果】：
+  - 用登记的想法（经过接口）重跑第一轮的复现检查（`research/lab/runs/2026-11-16/reproduce.py`，真实数据快照，先清空缓存）：
+    "all recorded numbers reproduced"——A6 收益 +82.59%、夏普 0.8038、最大回撤 39.0%、374 次往返；D2 +11.71%、0.788、5.1%、100 次；
+    五年的品种清单也一致。48 次回放按规矩登记在 `research/lab/trials.jsonl`，标为复现。
+  - 【测试日志】合成市场上，登记的想法和第一轮的研究函数在评审员里给出完全相同的结果（每段的日收益、往返、入场、止损、成交），
+    覆盖按品种的、读不在清单里的 BTCUSDT 的、横截面的想法。
+- **已有测试的改动**：
+  - 评审员测试里的玩具想法用 `lab.legacy(...)` 包上（测试辅助）。
+  - `test_um_judge_runs.py::test_a_cross_sectional_idea_gets_each_period_s_list_and_the_others_run_once_per_contract`：
+    原来横截面想法也拿到 BTCUSDT 的框架（`len(ctx["btc"]) == len(df)`，断言 `True`）；现在横截面策略只拿到这一段的清单和它声明要读的
+    品种，没声明就没有 BTC（断言 `False`）；第一轮的 5 个横截面想法都不读 BTC。按品种的想法：原来断言调用的品种正好是
+    `["UPUSDT", "DOWNUSDT", "CRASHUSDT"]`，现在除去作为参考读入的 BTCUSDT 后是这三个，并断言每次都拿到了 BTC 的框架。
+  - `test_um_judge.py` 的 `finish` 也清新的缓存（测试辅助）。
+- **新增测试**：`tests/unit/lab/test_um_judge_interface.py`（3 个）。原有的评审员测试（91 个）期望的数字都没变，全部通过。
+- 研究侧的改动，按轻流程：没有做变异自检，靠上面的逐位比较和真实数据复现。
