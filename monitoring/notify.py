@@ -123,22 +123,43 @@ def send_alert(
     if not tg_ok:
         logger.debug("Telegram not configured or failed — console only")
 
+    # The alert file (owner 2026-11-16: no Telegram; audit finding M2): the same file the runtime appends to.
+    file_ok = _write_alert_file(level, title, details, source)
+
     # Save to alert history
     try:
-        history_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "data", "runtime", "alert_history.jsonl"
-        )
+        history_path = _history_path()
         os.makedirs(os.path.dirname(history_path), exist_ok=True)
         with open(history_path, "a") as f:
             f.write(json.dumps({
                 "ts": now, "level": level.value, "title": title,
-                "details": details, "telegram": tg_ok,
+                "details": details, "telegram": tg_ok, "alert_file": file_ok,
             }) + "\n")
     except Exception:
         pass
 
-    return tg_ok
+    return tg_ok or file_ok
+
+
+def _history_path() -> str:
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "runtime", "alert_history.jsonl")
+
+
+def _write_alert_file(level: "AlertLevel", title: str, details: dict | None, source: str) -> bool:
+    """With ALERT_FILE set in the environment (an absolute path, as the runtime requires), append the alert there;
+    False otherwise. The environment only: the systemd unit has the EnvironmentFile; a run by hand must export it."""
+    raw = os.environ.get("ALERT_FILE", "").strip()
+    if not raw or not os.path.isabs(raw):
+        return False
+    try:
+        from pathlib import Path
+
+        from trading.adapters.notify.file import FileNotifier
+        detail = json.dumps(details, ensure_ascii=False, default=str) if details else ""
+        return FileNotifier(Path(raw)).write(str(level.value).lower(), f"[{source}] {title}", detail)
+    except Exception:
+        logger.exception("Alert file not written")
+        return False
 
 
 def test_notification() -> None:

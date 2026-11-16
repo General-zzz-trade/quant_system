@@ -9,7 +9,7 @@
   checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
   capital flattens and stops, which replaced "3 losses in a row" on 2026-11-16; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
-  passed (code never does), no position outside the strategy ledger on the account, Telegram and the heartbeat,
+  passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
   the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), and the
   cumulative funding kept in the state database instead of the 88-day guard (owner
   2026-11-16: the guard stays until then).
@@ -180,9 +180,12 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   `state_dir init` creates it and its tables (`state_dir restore` puts a checked snapshot back when it is lost or
   broken, and tightens it: drawdown latched - the next start flattens and stays flat until the week ends -,
   today's count used up, every symbol paused); the stores open it read-write and never create anything.
-- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without
-  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` and an https `HEARTBEAT_URL` (a secret), and starts only after Telegram
-  confirmed "execution starting", before any account request. The heartbeat pings at most once a minute while
+- Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without an
+  alert channel and an https `HEARTBEAT_URL` (a secret), and starts only after the channel confirmed "execution
+  starting", before any account request. The channel is `ALERT_FILE` (owner 2026-11-16: no Telegram; one JSON line
+  per alert in `/var/lib/quant/alerts/`, confirmed when the line is written; a Claude Code session reads it about
+  once an hour and may only reduce risk on its own: kill switch, stop the service) or the Telegram pair
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`; both together are refused. The heartbeat pings at most once a minute while
   waiting for market data and between cycles; it never stops the loop. Paper logs alerts only.
 - Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
   host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
@@ -220,7 +223,7 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - Unverified: whether Binance accepts a second `closePosition` stop in the same direction. ADR-0012 places the new
   stop before it cancels the old one; if Binance refuses (the old order API had -4130), a new revision's stop is
   never placed and entries stay blocked while the old stop protects. Check on the testnet before M5.
-- A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
+- A failed stop placement blocks entries (step 12) and is sent to the alert channel once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).
 
