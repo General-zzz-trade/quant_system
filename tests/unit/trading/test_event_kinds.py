@@ -20,7 +20,8 @@ def test_the_event_kinds_keep_the_words_the_log_has_always_used():
         "WARMUP": "warmup", "INTENT": "intent", "FILL": "fill", "BLOCKED": "blocked", "ISSUE": "issue",
         "ALERT": "alert", "PAPER_EQUITY": "paper_equity", "PAPER_FILL": "paper_fill", "PAPER_RESET": "paper_reset",
         "ORDER": "order", "STOP": "stop", "SYMBOL_STATE": "symbol_state",      # S3d: every symbol state change
-        "CONFIG": "config"}                                                  # S4: the configuration at the start
+        "CONFIG": "config",                                                  # S4: the configuration at the start
+        "PAPER_DIVERGENCE": "paper_divergence"}                              # S10: paper left research on purpose
 
 
 def test_the_event_log_writes_the_kind_word_and_refuses_anything_but_a_kind(tmp_path):

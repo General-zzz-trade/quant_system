@@ -117,6 +117,9 @@ class _StopVenue:
     def get_positions(self, symbol="", *, strict=True):      # the venue holds the ledger's long 1 (step 12b audit)
         return (VenuePosition(venue="fake", symbol=symbol, qty=D("1")),)
 
+    def get_position(self, symbol):                          # since S5b the stop reads one symbol (ADR-0012)
+        return VenuePosition(venue="fake", symbol=symbol, qty=D("1"), entry_price=D("100"))
+
 
 def _manager(tmp_path, venue):
     tmp_path.mkdir(parents=True, exist_ok=True)

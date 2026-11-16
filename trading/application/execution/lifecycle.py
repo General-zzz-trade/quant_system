@@ -79,9 +79,13 @@ class OrderLifecycle:
     def __init__(self, adapter: OrderGateway, journal: OrderJournal, scope: str, *, clock: Clock,
                  sleeper: Sleeper, lock: Lock, wait_seconds: float = 3.0, owner: str = "",
                  entry_order_type: str = "limit", not_found_grace_seconds: float | None = None,
-                 entry_ttl_seconds: float | None = None) -> None:
+                 entry_ttl_seconds: float | None = None, venue_expires_entries: bool = False) -> None:
         self.check_settings(scope, wait_seconds=wait_seconds, entry_order_type=entry_order_type,
                             not_found_grace_seconds=not_found_grace_seconds, entry_ttl_seconds=entry_ttl_seconds)
+        # ModePolicy.entry_ttl == "venue" (paper): the simulated venue expires a resting entry after matching its
+        # last bar, as research does; the lifecycle then never cancels one for its age (audit H1-1). A reduction
+        # or an exit still cancels it (cancel_entries).
+        self.venue_expires_entries = venue_expires_entries
         self.adapter, self.scope = adapter, scope
         self.wait_seconds = wait_seconds
         self.entry_order_type = entry_order_type
@@ -291,6 +295,8 @@ class OrderLifecycle:
         return str(getattr(order, "state", getattr(order, "status", "unknown")))
 
     def _expired(self, pending: PendingOrder) -> bool:
+        if self.venue_expires_entries:
+            return False
         if self.entry_ttl is None:
             return True
         return pending.created_at is None or self.clock() - pending.created_at >= self.entry_ttl

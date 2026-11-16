@@ -76,16 +76,26 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 ## Architecture (as actually wired)
 
 **Runtimes:**
-- `runner/binance_target.py`: entry point of the overlay strategy. It loads the signed spec and passes in
-  the parts that are still legacy (paper sleeve, order limiter, kill file, lease, TCA log).
+- `runner/binance_target.py`: entry point of the overlay strategy, a thin shell (S10) over
+  `trading/infrastructure/cli/target.py` (start-up checks, composition of both modes, loop). It supplies what
+  `trading` may not import: the signed spec loader and the TCA log writer. It loads no `lab` module.
   - The loop is `trading/application/runtime.py`; it wires `market_poller.py`, `exit_supervisor.py` and `status.py`
     (S3c). In execution mode the three sides are isolated: one that raises blocks every entry until it works again
     and the others still run; one symbol's failing bar blocks only that symbol. One symbol's hourly step is
     `trading/application/session.py`;
     `trading/infrastructure/target.py` wires the sessions.
   - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
-  - Paper mode simulates fills with the research broker (`lab.simulate.Sleeve`); its state is stored in
-    `paper_state.sqlite` with a JSON mirror (deleting the JSON does not reset it; use `--reset-paper-state`).
+  - Paper mode runs the same execution path (gates, journal, lifecycle, stops, reconciliation) on the simulated
+    exchange (`trading/adapters/simulated`: the research brokers, stops by bar high/low; ADR-0013 plan B).
+    `ModePolicy` (`trading/infrastructure/modes.py`) is the one list of the differences. Paper uses the code's
+    default limits, reads no account setting, has no account check; every intended divergence from research
+    (entry refused, stop, pause, kill switch, drawdown flatten) is a `paper_divergence` event; paper has no
+    single-order notional cap. Its journal and its state (exchange snapshot, cursors) are in the paper directory's
+    `state.sqlite`, saved in the same transactions (S10 decision 4); paper creates it at the first start of a paper
+    record. Paper's default directory is `data/runtime/paper` (execution's `data/runtime/binance_target`); paper
+    refuses any directory with a manifest (an execution directory), a reset included, and execution refuses a
+    paper database. `paper_state.json` is a copy never read back (deleting it resets nothing;
+    `--reset-paper-state` sets the database aside).
   - Execution mode sends `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`,
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.
@@ -99,7 +109,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Only exchange trade records become fills.
 - Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
-- `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position.
+- `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position, sized and priced from
+  the venue position (ADR-0012, S5b); none when the ledger is 0. Kill, drawdown and breached-stop flattening close
+  the whole venue position. A reduction's fill beyond the ledger is booked as a foreign fill (`FOREIGN_FILL`).
 
 **Configuration (ADR-0017, S4):** `trading/infrastructure/config.py` is the only module in trading/ and runner/
 that reads the environment. The entry point reads it once into a frozen `RuntimeConfig` (credentials apart in
@@ -118,6 +130,9 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
+- Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
+  host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
+  manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
   in an initialized state directory a missing file means active.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
@@ -129,14 +144,15 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 **Research:**
 - `lab/`: target-weight strategies with fixed-date windows.
 - `trading/adapters/simulated/bar_broker.py`: the research broker (`BarBroker`), its configuration and the research
-  lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; that path is a
-  re-export shell for the broker's unit tests). The maker limit offset is defined once:
+  lot constants, which `lab.simulate` and paper use (moved from `runner/offline/broker.py` in S10; the old path is
+  deleted). The maker limit offset is defined once:
   `trading.domain.orders.LIMIT_OFFSET_BPS`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
-- Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
-  position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
+- Unverified: whether Binance accepts a second `closePosition` stop in the same direction. ADR-0012 places the new
+  stop before it cancels the old one; if Binance refuses (the old order API had -4130), a new revision's stop is
+  never placed and entries stay blocked while the old stop protects. Check on the testnet before M5.
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).

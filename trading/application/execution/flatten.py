@@ -4,10 +4,10 @@ ADR-0005, approved 2026-11-14:
 
 - 2b: every call first cancels the symbol's resting entries and consumes the fills that brings. A
   cancellation whose outcome is unknown does not stop the flatten; the next call cancels again.
-- 3b: a kill switch or a latched drawdown closes the symbol's whole venue position (the account is dedicated
-  to this runtime). A breached stop closes what the strategy owns, like every other reduction. The ledger is
-  never corrected here: if it differed from the venue, reconciliation keeps reporting it and entries stay
-  blocked until a person resolves it.
+- 3b: a kill switch or a latched drawdown closes the symbol's whole venue position; since ADR-0012 point 6 a
+  breached stop does too. The ledger is never corrected here: a fill beyond it is booked as a foreign fill
+  (ADR-0012 point 5), and if the ledger otherwise differs from the venue, reconciliation keeps reporting it and
+  entries stay blocked until a person resolves it.
 - 1b: every attempt is a new intent with its own id; nothing is ever resent. The next attempt goes out only
   when no reduction of the symbol is unresolved and RETRY_SECONDS have passed since the last one. After
   MAX_FAILURES attempts in a row without a fill the automatic retries stop, an alert is written, and one
@@ -21,6 +21,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Protocol
 
+from trading.application.execution.stops import PositionView
 from trading.application.ports import Clock, EventLog, ExchangeAccount, OrderJournal
 from trading.domain.bars import Bar
 from trading.domain.orders import OrderIntent
@@ -29,7 +30,9 @@ from trading.domain.issues import IssueKind
 
 logger = logging.getLogger(__name__)
 
-EMERGENCY = frozenset({"kill_switch", "drawdown_latched"})   # these close the whole venue position (3b)
+# These close the whole venue position: the kill switch and a latched drawdown (ADR-0005 3b), and since ADR-0012
+# point 6 a breached stop. A fill beyond the ledger is booked as a foreign fill (TargetFillConsumer).
+EMERGENCY = frozenset({"kill_switch", "drawdown_latched", "stop_breached"})
 RETRY_SECONDS = 30.0
 MAX_FAILURES = 10
 
@@ -48,8 +51,14 @@ class FlattenExecutor(Protocol):
     def take_refusal(self, intent_id: str) -> str | None: ...
 
 
+class FlattenAccount(ExchangeAccount, Protocol):
+    """The account, with one symbol's venue position (flat included; None when the answer has no row for it)."""
+
+    def get_position(self, symbol: str) -> PositionView | None: ...
+
+
 class Flattener:
-    def __init__(self, symbol: str, executor: FlattenExecutor, account: ExchangeAccount, events: EventLog,
+    def __init__(self, symbol: str, executor: FlattenExecutor, account: FlattenAccount, events: EventLog,
                  clock: Clock) -> None:
         self.symbol, self.executor, self.account, self.events, self.clock = symbol, executor, account, events, clock
         self.failures = 0                     # attempts in a row that ended without a fill
@@ -102,12 +111,17 @@ class Flattener:
             logger.error("%s: %s", self.symbol, reason)
 
     def _venue_qty(self) -> Decimal | None:
+        """The venue position to close; None (nothing sent, the issue blocks entries) when it cannot be read or the
+        answer has no row for the symbol: unknown is never flat (S4-S5 audit, finding 7)."""
         try:
-            positions = self.account.get_positions(self.symbol, strict=True)
+            position = self.account.get_position(self.symbol)
         except Exception as exc:
             self._issue(f"flatten: venue position unavailable ({type(exc).__name__})")
             return None
-        return sum((Decimal(str(p.qty)) for p in positions if p.symbol == self.symbol), Decimal(0))
+        if position is None:
+            self._issue("flatten: venue position unavailable (no row for the symbol)")
+            return None
+        return Decimal(str(position.qty))
 
     def _attempt(self, reason: str, qty: Decimal, bar: Bar, now: float, consume: Callable[[], None]) -> None:
         prefix = f"{self.symbol}:{bar.available_at}:{reason}:"

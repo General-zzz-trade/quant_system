@@ -77,6 +77,9 @@ def test_the_runtime_reads_its_spec_only_through_the_signed_loader():
     assert "load_verified_json" in calls
     assert not calls & RAW_READS, f"load_spec reads the spec itself: {sorted(calls & RAW_READS)}"
     assert _spec_path_leaks(tree) == []
+    # S10 part 3: the entry's start-up and composition moved here; runner/binance_target.py is a thin shell.
+    cli = ast.parse((ROOT / "trading" / "infrastructure" / "cli" / "target.py").read_text(encoding="utf-8"))
+    assert _spec_path_leaks(cli) == []
 
 
 def test_the_rules_detect_what_they_forbid():
