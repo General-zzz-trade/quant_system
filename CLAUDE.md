@@ -89,10 +89,13 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
     exchange (`trading/adapters/simulated`: the research brokers, stops by bar high/low; ADR-0013 plan B).
     `ModePolicy` (`trading/infrastructure/modes.py`) is the one list of the differences. Paper uses the code's
     default limits, reads no account setting, has no account check; every intended divergence from research
-    (entry refused, stop, pause) is a `paper_divergence` event. Its journal and its state (exchange snapshot,
-    cursors) are in the paper directory's `state.sqlite`, saved in the same transactions (S10 decision 4); paper
-    creates it at the first start of a paper record. `paper_state.json` is a copy never read back (deleting it
-    resets nothing; `--reset-paper-state` sets the database aside).
+    (entry refused, stop, pause, kill switch, drawdown flatten) is a `paper_divergence` event; paper has no
+    single-order notional cap. Its journal and its state (exchange snapshot, cursors) are in the paper directory's
+    `state.sqlite`, saved in the same transactions (S10 decision 4); paper creates it at the first start of a paper
+    record. Paper's default directory is `data/runtime/paper` (execution's `data/runtime/binance_target`); paper
+    refuses any directory with a manifest (an execution directory), a reset included, and execution refuses a
+    paper database. `paper_state.json` is a copy never read back (deleting it resets nothing;
+    `--reset-paper-state` sets the database aside).
   - Execution mode sends `OrderIntent`s through `OwnerExecutor` → `ExecutionService` → `OrderLifecycle`,
     behind the risk gates. Its lot rules are the exchange's filters; research and paper keep their constants.
   - Market data comes from Binance REST; it reads no local data files.

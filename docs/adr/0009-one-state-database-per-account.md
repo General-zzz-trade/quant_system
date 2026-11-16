@@ -98,5 +98,9 @@
 - 与上文第 1 条不同：模拟盘目录**不要求** `state_dir init`。
   - 模拟盘在一个模拟盘记录第一次启动时自己建库；`--reset-paper-state` 先把旧库改名放到一边（`state.<毫秒>.sqlite`），再建新的。
   - 目录里有模拟盘记录（`paper_state.json` 或旧的 `paper_state.sqlite`）而库不在时拒绝启动，不会悄悄建一个空库。
-  - 原因：`state_dir init` 要读 `RISK_SCOPE`，而模拟盘不读任何账户配置（S10 决定 3）；现有测试和 systemd 单元也不用改。要不要改成必须初始化，留给技术负责人。
+  - 原因：`state_dir init` 要读 `RISK_SCOPE`，而模拟盘不读任何账户配置（S10 决定 3）；现有测试和 systemd 单元也不用改。
+  - 技术负责人 2026-11-16 决定："自建目录，但拒绝执行目录"（S10 第 3 部分审计 H1）：
+    - 模拟盘遇到带 `manifest.json` 的目录一律拒绝，`--reset-paper-state` 也不例外，所以模拟盘从不改名、新建或使用执行模式的库；
+    - 执行模式的启动检查（`state_dir check` 和入口的预检）拒绝装着模拟盘状态的库（有 `paper_state` 表）；
+    - 两种模式的默认目录分开：模拟盘 `data/runtime/paper`，执行 `data/runtime/binance_target`。
 - 旧的 `paper_state.sqlite` 和它的 JSON 镜像不再被运行时使用；`paper_state.json` 仍在每次保存后同步写一份（迁移计划第 10 步），只写不读。

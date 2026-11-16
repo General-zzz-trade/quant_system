@@ -3077,11 +3077,12 @@ S10 的第 3 个 PR（#84，分支 `s10-paper-path`）。第 3 部分分两个 P
 - 行情侧（`a7d99c4`）：`replay_all` 时，先取所有品种的新 K 线，再按开盘时间跨品种逐根处理：推进窗口 → 监听者（模拟交易所）撮合，带上这根开盘时的资金费 → `ExitSupervisor.settle()`（对账全部品种：消费成交、了结订单、止损、暂停，再设状态）→ 门时钟设为收盘时间，各会话决策 → 门时钟前进 5 秒，重试被每秒限额推迟的入场（决定 2）。`latest_only` 与以前完全相同。新端口 `PaperVenue`、`GateClock`。
 - 会话（`9cb55cc`）：删掉 5 处模拟盘分支、`paper_snapshot`/`restore_paper`、会话里那份 `BROKER_STATE`；`process_bar` = `advance` + `decide`；`funding_rate(bar)`；`restore_pending()` 从订单库读回本品种挂着的订单，重启后挂着的入场照样算"有入场在挂"（研究也看得见它）。这一条执行模式同样生效：以前重启后会话以为没有挂单，再规划一笔入场，被订单库以"有未了结订单"拒绝。
 - 运行时（`64c972a`）：两种模式同一轮，行情 → 退出 → 状态；模拟盘失败直接抛出。预热：恢复模拟交易所 → 加载窗口 → 退出侧先看一遍恢复的交易所和订单库 → 补放错过的 K 线（经行情侧的同一个补放）。`PAPER_SCHEMA` 改为 2（模拟交易所快照 + 游标）。新的模拟盘记录（`--reset-paper-state`）改由组装根在构造会话之前处理，因为它也要换一个新订单库。状态文件里两种模式都显示品种状态。
+  - 执行模式也有一处变化（审计 L1 补记）：预热的 `warmup` 事件改为所有品种的历史都加载、检查完之后统一写，以前是每个品种加载完就写一条。某个品种历史不全时，现在一条 `warmup` 事件都不写就报错；以前前面的品种已经写了。
 - 组装（`2bf4e8f`）：`execution_sessions` 按 `ModePolicy` 和 `PaperParts` 组装两种模式，`paper_sessions` 删除。`trading/infrastructure/paper.py`：按研究的配置建模拟交易所、K 线时间门时钟、每品种模拟账户权益、模拟盘目录的状态库、`PaperDivergenceLog` 和 `DivergencePauses`。新事件种类 `PAPER_DIVERGENCE`。
 - 入口（`48d43cc`）：模拟盘不构造带凭据的适配器，用代码默认限额（决定 3），止损检查用模拟交易所的不加杠杆账户，没有整账户检查和告警；不再导入 `lab.orders`、`lab.simulate`。
 - **模拟盘目录的状态库**：模拟盘第一次启动一个模拟盘记录时自己建 `state.sqlite`（全部表），不要求 `state_dir init`；`--reset-paper-state` 先把旧库改名放到一边（`state.<毫秒>.sqlite`）再建新的；有模拟盘记录（`paper_state.json` 或 `paper_state.sqlite`）而库不在时拒绝启动。ADR-0009 写的是"方案 B 之后模拟盘目录也要初始化"，这里没有这样做，留给技术负责人（见文末）。
 
-**先写的测试**（`633ade5`，每条先单独跑过，在旧代码上失败的原因正确）【测试日志】
+**先写的测试**（`633ade5`，每条先单独跑过，在旧代码上失败的原因正确）【测试日志】。这个提交有 555 行，超过了"每个提交少于 400 行"的规定（审计 L5）；分支已推送，拆开需要强推，所以没有拆。
 - `tests/architecture/test_paper_path.py`（3 条）：会话没有模拟盘分支（旧代码 25 处）；应用层没有与模式名字的比较（旧代码 8 处）；规则的反例。
 - `tests/unit/trading/test_mode_policy.py`（4 条）：两个实例逐字段固定；每个字段都不同；只有两种模式；运行中不能改。
 - `tests/unit/trading/test_mode_differences.py`（10 条）：交易所负责过期时生命周期不按时间撤单；默认仍撤；减仓仍撤入场；翻向规则的 5 种情况。旧代码上 9 条因参数不存在而失败。
@@ -3162,7 +3163,7 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 - **入口变薄**：启动检查、两种模式的组装和主循环搬到 `trading/infrastructure/cli/target.py`（基本是搬移）。`runner/binance_target.py` 只留 `trading` 不能导入的两样：签名的规格加载器、交易成本日志；`TargetRuntime`、`load_spec`、`preflight`、`main` 等名字照旧可以导入。
 
 **先写的测试**
-- 先写的测试（`ac618c6`）。实现草稿 `paper_state.py` 先于它的单元测试写成，单元测试第一次跑时就通过；所以这一组的"先失败"由变异自检代替证明（见下）。其余新测试在没有实现时失败的原因正确（缺 `has_matched`、`cli` 模块、`paper_state` 表等）【测试日志】。
+- 先写的测试（`ac618c6`，568 行，同样超过 400 行，没有拆，原因同上）。实现草稿 `paper_state.py` 先于它的单元测试写成，单元测试第一次跑时就通过；所以这一组的"先失败"由变异自检代替证明（见下）。其余新测试在没有实现时失败的原因正确（缺 `has_matched`、`cli` 模块、`paper_state` 表等）【测试日志】。
   - `tests/unit/trading/test_paper_state.py`（7 条）：新库有全部表、没有保存的文档；文档变了才在日志事务里写；文档写不出时日志操作一起回滚；日志操作失败时不写文档；每个已提交的文档交给 JSON 副本一次（回滚的不交）；保存后不重复写。
   - `tests/unit/lab/test_paper_crash.py`（4 条）：任意一次提交之后复制数据库再重启，交易所和账本一致、没有不认识的挂单、没有未消费的成交，并能继续跑；撮合与决策之间崩溃，重启后这根照常决策、不重复撮合，整段结束时与研究逐笔一致；`has_matched` 只认已撮合的 K 线；没读出保存状态之前不写任何东西（后补，见变异自检）。
   - `tests/unit/lab/test_paper_safety.py`（5 条）：运行时和 `main` 都不构造带凭据的适配器、签名请求数为 0、不读账户环境变量（只允许 `BINANCE_TESTNET`）；行情全断时模拟盘照样补挂止损、急停平仓单照样下到交易所，行情恢复后下一根成交；执行模式行情全断时照样补挂止损。
@@ -3180,7 +3181,7 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
     - 原来：读 `paper_state.json`，改 `spec.band` 或游标，写回 JSON；
     - 现在：用 `tests/support/paper_state.py::edit_saved_paper_state` 改 `state.sqlite` 里保存的文档。
     - 原因【实际运行结果】：JSON 现在只写不读；按原来的设置，第二次预热不会报错（保存的状态没变）。
-  - `tests/architecture/test_artifact_loading.py::test_the_runtime_reads_its_spec_only_through_the_signed_loader`：`main` 搬到了 `trading/infrastructure/cli/target.py`，规格路径的检查也读这个文件（加了一行路径）。
+  - `tests/architecture/test_artifact_loading.py::test_the_runtime_reads_its_spec_only_through_the_signed_loader`：**加强**，不是只改路径。`main` 搬到了 `trading/infrastructure/cli/target.py`，这条测试多了一条断言：规格路径的检查也读这个文件（`assert _spec_path_leaks(cli) == []`），原有断言不变。（S10 第 3 部分审计 L5 更正：原来写成"加了一行路径"。）
 - 新增测试辅助：`tests/support/paper_state.py`。
 
 **变异自检**【实际运行结果】
@@ -3214,3 +3215,56 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 5. CI 里 pytest 用 xdist 在一个分片内并行（本机没有 xdist）。
 
 - 说明：分片时间里约 1 分钟是装环境。模拟盘回放测试在 CI 上比本机快 3–4 倍；本机每条从约 13 秒变成约 65 秒。
+
+## S10 第 3 部分的独立审计与处理（2026-11-16，资金路径完整流程）
+
+审计固定在 #86 的 `8257f2f`（含 #84）。技术负责人 2026-11-16 的决定：模拟盘目录"自建目录，但拒绝执行目录"；模拟盘不设单笔名义上限（只去掉这一项，其它限额不变，执行模式不变）；CI 提速另开轻流程 PR，不在这次做。修复都在 #86（分支 `s10-paper-state`）上，先写测试、小提交，没有变基、没有强推。
+
+**H1（高）：模拟盘能在执行目录里运行，`--reset-paper-state` 会把执行库改名并新建空库；执行库被删后模拟盘会悄悄新建一个库。修复（`02a4f7e`）：**
+- `paper_state_db` 和模拟盘的预检遇到带 `manifest.json` 的目录（`state_dir.is_managed`）一律拒绝，`--reset-paper-state` 也不例外。预检在入口取得租约之前就拒绝，所以目录里连租约的锁文件都不会多出来。
+- `state_dir.verify`（执行模式的启动检查）拒绝装着模拟盘状态的库：`schema.holds_paper_state`，也就是有 `paper_state` 表。
+- 默认目录分开：模拟盘 `data/runtime/paper`，执行模式仍是 `data/runtime/binance_target`，与 `state_dir.py` 的例子一致。systemd 单元运行的是模拟盘，所以看门狗（`monitoring/watchdog.py`）盯的状态文件改到 `data/runtime/paper/target_status.json`；运行手册和 `deploy_truth.md` 一起改。
+- 库里没有模拟盘状态时的报错不再提 `--reset-paper-state`。
+- 测试（`01378ce`，`tests/characterization/test_paper_beside_execution.py`）：审计员的 run1（执行目录正在交易时启动模拟盘，带和不带重置）、run5（执行库被删）、run6（有暂停和已触发的回撤锁定时重置）都被拒绝，执行目录的每个文件（inode 和内容）与库里每一行都不变，暂停和锁定都还在；执行模式拒绝模拟盘的库；默认目录；报错不提重置。在修复前的代码上 8 条失败，原因正确【测试日志】。后补 2 条（`a8efd89`）：入口的预检在取得租约之前就拒绝；订单库拒绝事件带上拒绝原因字段。这 2 条是修复之后为变异自检写的。
+
+**M1（中）：急停平仓、回撤锁定平仓、只开急停不平仓、带"撤掉挂着的入场单"后果的撤单，都和研究分叉，却不写 `paper_divergence`。修复（`4a1ae61`）：**
+- 退出侧有一个注入的观察者：某个品种的风险退出开始或原因变化时，告诉它一次（品种、动作、原因）。
+  - 动作 `flatten`：急停（要求平仓）或回撤锁定；
+  - 动作 `cancel_entries`：急停不平仓，或后果里有"撤掉挂着的入场单"的问题，原因是问题种类。
+  - 暂停不在这里报，因为设暂停时已经写了；止损击穿的平仓也不在这里报，它的 `stop_breached` 问题就是分叉。
+- 模拟盘接 `PaperDivergenceLog.risk_exit`，执行模式没有观察者。ADR-0013"有意的分叉"一节补了这一条。
+- 测试：回撤锁定时每个品种一条 `flatten`；急停先不平仓、再平仓、解除、再急停，依次每个品种一条 `cancel_entries`、一条 `flatten`、再一条 `flatten`；外来挂单撤单一条。修复前都失败。
+- **改了一条第 3a 部分自己写的测试断言**（依据 M1 的修复要求）：`test_paper_execution_path.py::test_each_entry_the_gates_refuse_is_one_divergence_event`
+  - 原来：`assert _divergences(state) == divergences`（急停不平仓时只有入场被拒的分叉）
+  - 现在：`assert [e for e in _divergences(state) if e["cause"] != "cancel_entries"] == divergences`，另加 `assert _risk_divergences(state) == [("cancel_entries", s, "kill_switch") for s in ("BTCUSDT", "ETHUSDT")]`
+  - 原因：按 M1，急停本身就是每个品种一条分叉。
+
+**M2（中）：没有测试证明执行模式够不到模拟盘专用的开关。** 补行为测试（`d7ac28c`，`tests/unit/trading/test_execution_mode_switches.py`）：
+- 执行模式下挂单入场过了寿命，被生命周期撤掉；
+- 同品种有一笔已确认、还在途的减仓时，入场被订单库拒绝；
+- 重启后只恢复本品种的在途订单，减仓单仍算减仓。
+- 这 3 条在现有代码上就通过：它们固定的是正确的现状，用来抓住审计员的变异 E1、E2、E6、E7。
+
+**L2（低）：重复意图和被拒的减仓单被写成 `entry_refused`。修复（`e70011e`）：**
+- `PaperDivergenceLog` 记住哪些意图是 `reduce_only`（会话和平仓器都先写意图事件），只为入场写 `entry_refused`；订单库以"重复意图"拒绝的也不写。
+- 会话的订单库拒绝事件多了一个字段 `refusal`（拒绝原因本身），原有字段不变。
+
+**L3（低）：模拟盘不设单笔名义上限（`64b3b2d`）**：`RiskLimits.max_order_notional` 可以是 None，模拟盘就设 None；执行模式照旧从配置读。测试：模拟盘的限额器没有单笔上限，其它限额不变。
+
+**L1、L4、L5（低，只改记录）**
+- L1：第 3a 部分的记录补上执行模式预热事件的变化（所有品种成功后统一写 `warmup` 事件，以前逐个写）。
+- L4：ADR-0013 的第 3b 部分更正改成准确说法：预留之后、下单结果提交之前崩溃，这一笔会丢，模拟盘从此与研究差这一笔；90 秒后按 `not_found` 了结，交易所和订单库仍然一致。
+- L5：第 3b 部分记录里 `test_artifact_loading` 那条改写为"加强"（多了一条断言，原有断言不变）；两个先写测试的提交（`633ade5` 555 行、`ac618c6` 568 行）超过 400 行，已写明，没有拆（需要强推）。
+
+**变异自检**【实际运行结果】
+- 一次跑了 40 个变异体（`scripts/dev/mutate.py`，每个变异体选能抓住它的测试）：
+  - 修复本身 17 个：H1 6 个（数据库辅助函数不拒绝、什么目录都不算执行目录、预检不拒绝、`verify` 接受模拟盘库、`holds_paper_state` 反过来、两种模式共用默认目录）；M1 7 个（不告诉观察者、每轮都告诉、一段退出不结束、急停不平仓不告诉、问题种类丢失、平仓原因都算回撤、模拟盘不接观察者）；L2 3 个；L3 1 个。
+  - 审计员没跑的模拟盘侧 11 个（`/tmp/audit-s10p3/mut/paper.json`）。其中 P3 的锚点因 L2 改了那一行，按同样含义重新对齐（"被推迟的入场也算分叉"）。
+  - 审计员的执行侧 12 个（`/tmp/audit-s10p3/mut/exec.json`），测试用 `tests/unit/trading` 全部，加执行模式的几条运行时测试。
+- 第一轮：抓住 39 个，存活 1 个：E4"执行模式下单后不等待"。没有测试检查执行模式真的在等交易所。补 `test_execution_waits_after_a_placement_and_paper_does_not`（`e965a29`，`tests/unit/trading/test_execution_mode_switches.py`），第二轮 E4 被抓住。
+- 最终 40 个全部被抓住。审计员报告的存活者 E1、E2、E6、E7 都被新的执行侧测试抓住；E4、E5 也被抓住。
+
+**本地**【实际运行结果】
+- 每条新测试都先单独跑过：先写的测试在修复前的代码上失败，原因正确；M2 的 3 条在现有代码上通过（固定的是正确的现状）。修复后全部通过。
+- 修复后一次跑完相关的测试组：`tests/characterization`、`tests/unit/trading`、`tests/contract`、`tests/architecture`、`tests/unit/monitoring`，以及 `tests/unit/lab` 的 `test_paper_execution_path.py`、`test_paper_safety.py`、`test_paper_crash.py`、`test_paper_per_bar_parity.py`、`test_target_runtime.py`、`test_target_runtime_resilience.py`，共 1010 条，全部通过。
+- 全仓库 ruff、`mypy trading/`（89 个文件）、导入契约（5 条）通过。全部测试由 CI 的四个分片跑。

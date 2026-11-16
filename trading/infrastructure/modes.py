@@ -5,7 +5,8 @@ paper differs only in what is plugged in, never in the code that runs:
 
 - the venue is the simulated exchange (``trading.adapters.simulated``), built from the research brokers; no
   credentialed adapter is built and no signed request is sent (audit M6);
-- the risk limits are the code defaults, and no account setting is read from the environment (S10 decision 3);
+- the risk limits are the code defaults without the single-order notional cap (tech lead 2026-11-16), and no
+  account setting is read from the environment (S10 decision 3);
 - there is no whole-account check (ADR-0010/0011) and no notifier;
 - the order lifecycle does not wait after a placement: the simulated venue fills only when a bar is matched;
 - the paper state (the simulated exchange and the cursors) is saved with the order journal.

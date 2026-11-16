@@ -41,11 +41,11 @@ QUANT_MODEL_SIGN_KEY=... python3 -m scripts.publish_strategy_spec \
 
 ```bash
 sudo systemctl start binance-target.service      # 单元里写的是 --dry-run
-cat /quant_system/data/runtime/binance_target/target_status.json
+cat /quant_system/data/runtime/paper/target_status.json
 tail -f /quant_system/logs/binance_target.log
 ```
 
-- 状态目录默认是 `data/runtime/binance_target/`，里面有：
+- 模拟盘的状态目录默认是 `data/runtime/paper/`（执行模式默认 `data/runtime/binance_target/`，两者不共用；模拟盘拒绝带 `manifest.json` 的执行目录，`--reset-paper-state` 也不例外），里面有：
   - `target_status.json`：每个周期重写；
   - `target_events.jsonl`：意图、阻断、问题、告警；
   - `state.sqlite`：订单库、止损、限额、暂停、回撤，以及模拟盘状态（模拟交易所的快照和游标），在同一事务里保存（S10）。模拟盘第一次启动时自己建这个库，不需要 `state_dir init`；
