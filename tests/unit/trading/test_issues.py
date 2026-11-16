@@ -39,6 +39,7 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.EVENT_LOG_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),   # S3 audit 3: the event log is not writable
         IssueKind.ACCOUNT_UNREADABLE: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # ADR-0011
         IssueKind.ACCOUNT_SETTINGS: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),    # ADR-0011
+        IssueKind.FOREIGN_FILL: frozenset({E.ALERT_ONLY}),             # ADR-0012: a stop fill beyond the ledger
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect

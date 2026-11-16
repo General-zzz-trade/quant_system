@@ -99,7 +99,9 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 - Only exchange trade records become fills.
 - Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
-- `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position.
+- `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position, sized and priced from
+  the venue position (ADR-0012, S5b); none when the ledger is 0. Kill, drawdown and breached-stop flattening close
+  the whole venue position. A reduction's fill beyond the ledger is booked as a foreign fill (`FOREIGN_FILL`).
 
 **Configuration (ADR-0017, S4):** `trading/infrastructure/config.py` is the only module in trading/ and runner/
 that reads the environment. The entry point reads it once into a frozen `RuntimeConfig` (credentials apart in
@@ -135,8 +137,6 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
-- Stops follow the consumed ledger, not the venue position. (Kill and drawdown flattening close the venue
-  position since migration step 11; a breached-stop flatten still closes only the owned quantity.)
 - A failed stop placement blocks entries (step 12) and is sent to Telegram once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).

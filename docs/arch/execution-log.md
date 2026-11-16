@@ -2929,3 +2929,56 @@ S5 分两个 PR：S5a 是 ADR-0011 的运行中整账户检查和限频权重；
 - 第一轮抓住 10 个。存活的 A2（检查函数本身抛错时放行）补了上面那条测试后被抓住。最终 11 个全部被抓住。
 
 **本地**【实际运行结果】：相关的 10 组测试全部通过。改测试设置之前，Rust 对照测试有 5 条失败，原因见上。ruff、`mypy trading/`（82 个文件）、导入契约都通过。
+
+## S5b：止损和击穿平仓按交易所持仓定量，多平的成交记作外来成交（2026-11-15，ADR-0012，资金路径完整流程）
+
+**改了什么**
+- **止损跟交易所持仓**（`trading/application/execution/stops.py`，ADR-0012 第 1-4 条）：
+  - 每次同步读这个品种的交易所持仓（适配器新增 `get_position`：平仓也返回一行数量 0；查不到这个品种返回 None；双向持仓模式抛错）。
+  - 账本不为 0、交易所同方向：止损覆盖交易所的全部持仓，触发价按交易所报告的入场价算。止损单类型不变（整仓平仓）。
+  - 修订号由交易所数量和入场价派生，先规范化（`0.100@100.00` 与 `0.1@100` 相同），不会因为文本不同反复撤单重挂。
+  - 账本为 0：不挂策略止损。
+  - 账本不为 0，但交易所为平、方向相反、查不到或读不出：保留已有的止损，不新挂也不撤，记 `STOP_UNCERTAIN` 问题，阻断入场。问题的文字沿用原来的三句。
+  - 止损只在三种情况下撤：账本和交易所都为平；被新修订号的止损取代且新止损已经挂上（挂上后同一轮立即撤旧的）；正在跟踪一张已触发的止损。
+- **击穿平仓按交易所持仓全平**（`flatten.py`，第 6 条）：`stop_breached` 加入与急停、回撤相同的集合。读不出持仓时不发单，重试节奏、告警、暂停入场都不变。
+- **多平的减仓成交记作外来成交**（`fills.py`，第 5 条；技术负责人 2026-11-15 把它推广到所有减仓单，"统一记作外来成交"）：
+  - 减仓单的成交只按账本持仓的数量入账；没有反向持仓时整笔都是外来的。非减仓单越过零时，只记账本那一部分。
+  - 多出的部分写进订单库，所有者为 `foreign:<品种>`，成交号加后缀 `:foreign`，手续费按数量比例拆分；不进入任何所有者的检查点。
+  - 每次写一条 `FOREIGN_FILL` 问题事件和一条告警。`FOREIGN_FILL` 的后果是"只告警"：之后的对账和 ADR-0011 的账户检查照常处理剩下的不一致。
+- **组装**：`TargetFillConsumer` 拿到事件日志，用来写外来成交的问题和告警。
+
+**先写的测试**（单独提交 `91f8627`）
+- `tests/characterization/test_venue_sized_exits.py`，9 条，对应 ADR-0012 验收清单：
+  - 账本 0.1、交易所 0.15：触发价按交易所入场价；
+  - 账本 0、交易所 0.1：不挂止损；
+  - 交易所为平、方向相反、读不出：已有止损保留，入场被阻断；
+  - 数量文本不同、数值相同：不撤单重挂；
+  - 止损成交 0.15、账本 0.1：账本归 0，一条 0.05 的外来成交；
+  - 击穿后交易所 0.15：全部平掉；击穿时读持仓失败：不发单。
+- 旧代码上失败 6 条【实际运行结果，在 `91f8627` 上复跑】：触发价、交易所为平、方向相反、读不出、多平成交、击穿全平。
+  另外 3 条本来就成立，用来固定现有行为：账本为 0 不挂、文本不同不重挂、击穿时读不出不发单。
+  该提交的说明写的是"7 条失败、2 条固定"，是写错了，以这里为准。
+- `test_issues.py` 的表测试新增一行 `FOREIGN_FILL: ALERT_ONLY`（新类型，不是改动）。
+
+**已有测试的改动**（都来自 ADR-0012 的决定和技术负责人 2026-11-15 的推广决定）
+- `tests/unit/trading/test_flatten.py::test_a_kill_switch_closes_the_whole_venue_position_and_the_mismatch_stays_reported`，改名为 `..._and_books_the_excess_as_foreign`。依据是第 5 条推广到所有减仓单：急停全平时多出的部分不再进账本。
+  - 原来：`assert session.position_qty() == -extra`；`assert f"BTCUSDT: venue qty=0, ledger qty={-extra}" in issues`；`assert session.executor.ready is False`
+  - 现在：`assert session.position_qty() == 0`；订单库里 `foreign:BTCUSDT` 正好一条成交，数量为 `abs(extra)`；有一条 `foreign_fill` 问题；`assert session.state is SymbolState.HALTED`（急停仍在，入场仍被阻断）
+- `tests/unit/trading/test_flatten.py::test_a_breached_stop_closes_only_what_the_strategy_owns`，改名为 `test_a_breached_stop_closes_the_whole_venue_position`。依据是第 6 条。
+  - 原来：`assert btc.positions["BTCUSDT"] == extra and session.position_qty() == 0`
+  - 现在：`assert btc.positions["BTCUSDT"] == 0 and session.position_qty() == 0`
+
+**测试辅助的改动**（只改设置，断言不变）
+- `tests/unit/binance/test_binance_risk.py`：两条止损测试里，假交易所在持仓旁边同时报告入场价（100、101、100、90），与账本检查点一致。原因：触发价现在按交易所入场价算。
+- `tests/unit/trading/test_venue_boundary.py`：假的止损交易所多了 `get_position`，返回多 1、入场价 100，与它原来的 `get_positions` 一致。原因：止损现在只查一个品种。
+
+**变异自检**【实际运行结果】
+- 12 个缺陷，覆盖 ADR-0012 要求的各项：触发价回到账本口径、账本为 0 也挂止损、交易所读不出时撤止损、新止损挂上之前就撤旧的、修订号不规范化、交易所不一致时不记问题、读不出当作平仓、多平部分进账本、减仓不按账本封顶、外来成交不存、击穿只平账本、查不到这一行当作平仓。
+- 第一轮抓住 11 个。存活的 P1（适配器把"回答里没有这个品种的行"当作平仓）：止损在账本不为 0 时对"平"和"未知"的处理相同，只有账本已经归 0 时才有区别。
+- 补了 1 条测试 `test_an_answer_without_the_symbol_s_row_is_unknown_and_never_flat`：账本归 0 后交易所回答里没有这一行，已有止损不被撤。补上后 P1 被抓住，最终 12 个全部被抓住。
+
+**本地**【实际运行结果】：相关的 10 组测试全部通过（trading 单元、刻画、架构、binance 单元、契约、offline、lab、runner、工具、infra）。ruff、`mypy trading/`、导入契约都通过。
+
+**合并 master 之后**【测试日志】：CI 第一次在契约测试 `tests/contract/test_exchange_ports.py` 的模拟交易所参数上失败。
+- 原因：S5b 分支建于 S10 第 2 部分合入之前，模拟交易所没有 `get_position`。
+- 处理：模拟交易所补上 `get_position`，回答与 Binance 适配器相同（平仓也返回数量 0，不交易的品种返回 None）。没有改测试。

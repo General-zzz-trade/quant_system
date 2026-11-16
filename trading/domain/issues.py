@@ -18,6 +18,7 @@ class IssueKind(Enum):
     FOREIGN_HOLDING = "foreign_holding"      # a position, open order or stop the strategy does not own (ADR-0011)
     ACCOUNT_UNREADABLE = "account_unreadable"    # the whole-account check could not read the account or journal
     ACCOUNT_SETTINGS = "account_settings"    # a symbol's leverage or margin mode differs from the configuration
+    FOREIGN_FILL = "foreign_fill"            # a stop or flatten fill beyond the ledger, booked apart (ADR-0012)
     UNRESOLVED_ORDER = "unresolved_order"    # a journal order whose outcome is not settled
     UNDELIVERED_FILL = "undelivered_fill"    # a confirmed fill the ledger has not consumed
     RECONCILE_FAILED = "reconcile_failed"    # reconciliation itself failed
@@ -52,6 +53,7 @@ EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.FOREIGN_HOLDING: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
     IssueKind.ACCOUNT_UNREADABLE: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
     IssueKind.ACCOUNT_SETTINGS: frozenset({Effect.BLOCK_ALL_ENTRIES, Effect.CANCEL_RESTING_ENTRIES}),
+    IssueKind.FOREIGN_FILL: frozenset({Effect.ALERT_ONLY}),
     IssueKind.UNRESOLVED_ORDER: _BLOCK,
     IssueKind.UNDELIVERED_FILL: _BLOCK,
     IssueKind.RECONCILE_FAILED: _BLOCK,

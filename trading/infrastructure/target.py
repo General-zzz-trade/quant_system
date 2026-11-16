@@ -177,8 +177,8 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         stops_of[symbol] = stops
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation,
-                                execution=ExecutionParts(executor, TargetFillConsumer(executor), stops, None, equity,
-                                                         Flattener(symbol, executor, account, journal, clock)))
+                                execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
+                                                         equity, Flattener(symbol, executor, account, journal, clock)))
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
         sessions[symbol] = session
