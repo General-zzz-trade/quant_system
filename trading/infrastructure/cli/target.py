@@ -50,13 +50,15 @@ from trading.infrastructure.bootstrap import build_adapters
 from trading.infrastructure.config import (RuntimeConfig, Secrets, load_config, make_notifier, risk_limits,
                                            with_credentials)
 from trading.infrastructure.modes import PAPER, policy_for
-from trading.infrastructure.paper import (PAPER_STATE, BarTimeClock, DivergencePauses, PaperDivergenceLog,
-                                          PaperStateStore, SymbolVenueEquity, paper_exchange, paper_state_db)
+from trading.infrastructure.paper import (PAPER_STATE, PAPER_STATE_DIR, BarTimeClock, DivergencePauses,
+                                          PaperDivergenceLog, PaperStateStore, SymbolVenueEquity, paper_exchange,
+                                          paper_state_db, refuse_execution_directory)
 from trading.infrastructure.state_dir import is_managed, kill_file_path
 from trading.infrastructure.state_dir import verify as verify_state_dir
 
 logger = logging.getLogger("binance_target")
 
+EXECUTION_STATE_DIR = Path("data/runtime/binance_target")    # as in the state_dir command's examples
 SpecLoader = Callable[[Path], dict[str, Any]]
 TcaLogFactory = Callable[[Path], EventLog]
 
@@ -77,6 +79,8 @@ def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, s
         check_stop_inside_liquidation(float(config.stop_pct), config.leverage or 0, config.margin)
         if state_dir is not None:
             verify_state_dir(state_dir, config.scope)
+    elif state_dir is not None:
+        refuse_execution_directory(state_dir)      # before anything is created in it (S10 audit H1)
     return frozen
 
 
@@ -146,9 +150,9 @@ class TargetRuntime(_runtime.TargetRuntime):
         request, no account setting from the environment: the code's default limits (S10 decision 3), the venue's
         unlevered account for the stop check, a kill file that is not managed unless the directory is. The paper
         state is saved with the order journal, in one database (S10 decision 4)."""
+        path, aside = paper_state_db(self.state_dir, reset=reset, stamp_ms=int(self.clock() * 1000))
         copy = JsonPaperStore(self.state_dir / PAPER_STATE, clock=self.clock)
         archived = copy.archive() if reset else None
-        path, aside = paper_state_db(self.state_dir, reset=reset, stamp_ms=int(self.clock() * 1000))
         if archived or aside:
             journal.write(EventKind.PAPER_RESET, archived=archived, state_db=aside)
         store = PaperStateStore(SqlitePaperState(path, clock=self.clock), copy)
@@ -186,7 +190,8 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     module's subclass, which supplies the loader and the TCA log); the spec path goes only to those two."""
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--spec", type=Path, required=True)
-    parser.add_argument("--state-dir", type=Path, default=Path("data/runtime/binance_target"))
+    parser.add_argument("--state-dir", type=Path, default=None,
+                        help=f"default {PAPER_STATE_DIR} for paper, {EXECUTION_STATE_DIR} for execution")
     parser.add_argument("--stop-pct", type=D, default=D("0.08"), help="Exchange-side catastrophic stop distance")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", dest="execution", action="store_false", help="Paper trading (default)")
@@ -196,6 +201,8 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     parser.add_argument("--reset-paper-state", action="store_true",
                         help="Archive the saved paper state and start a new paper record")
     args = parser.parse_args(argv)
+    # Paper and execution never share a directory by default (S10 audit H1); paper refuses an execution one.
+    args.state_dir = args.state_dir or (EXECUTION_STATE_DIR if args.execution else PAPER_STATE_DIR)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     # ADR-0017: the configuration is read here, once; everything after receives it.
     config, secrets = load_config(execution=args.execution, stop_pct=args.stop_pct)
@@ -235,4 +242,4 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
         lease.close()
 
 
-__all__ = ["SpecLoader", "TargetRuntime", "TcaLogFactory", "main", "preflight"]
+__all__ = ["EXECUTION_STATE_DIR", "SpecLoader", "TargetRuntime", "TcaLogFactory", "main", "preflight"]

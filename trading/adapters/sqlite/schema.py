@@ -98,4 +98,18 @@ def problems(path: Path) -> list[str]:
     return found
 
 
-__all__ = ["PAPER_TABLES", "STATE_DB", "TABLES", "VERSION", "create", "problems"]
+def holds_paper_state(path: Path) -> bool:
+    """Whether the database at ``path`` is a paper record's (it has the paper state's table); read-only. Execution
+    refuses such a database (S10 audit H1): a paper run's orders and positions are not an account's."""
+    try:
+        db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ({})".format(
+                ",".join("?" * len(PAPER_TABLES))), tuple(PAPER_TABLES)).fetchone() is not None
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return False
+
+
+__all__ = ["PAPER_TABLES", "STATE_DB", "TABLES", "VERSION", "create", "holds_paper_state", "problems"]

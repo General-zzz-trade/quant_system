@@ -62,6 +62,8 @@ def verify(state_dir: Path, scope: str) -> None:
     # Emptied (0 bytes), replaced or of another version: its state - a drawdown latch, today's counts, the
     # orders - is gone or unknown (audit after M3; ADR-0009).
     problems = schema.problems(state_dir / STATE_DB)
+    if schema.holds_paper_state(state_dir / STATE_DB):
+        problems.append(f"{STATE_DB} is a paper record's database (it holds a paper state), not an account's")
     kill = kill_file_path(state_dir)
     if not kill.is_file():
         problems.append(f"{KILL_FILE} is missing")

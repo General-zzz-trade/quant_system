@@ -50,8 +50,9 @@ class SqlitePaperState:
     def load(self) -> dict[str, Any] | None:
         with connect(self.path) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='paper_state'").fetchone() is None:
-                raise RuntimeError(f"{self.path} holds no paper state (made before S10 part 3); start a new paper "
-                                   "record with --reset-paper-state")
+                raise RuntimeError(f"{self.path} is not a paper record's database (it has no paper state): an "
+                                   "execution directory's, or a paper directory's from before S10 part 3; paper "
+                                   "uses a directory of its own")
             row = db.execute("SELECT document FROM paper_state WHERE id = 1").fetchone()
         if row is None:
             return None

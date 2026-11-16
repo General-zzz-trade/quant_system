@@ -22,10 +22,12 @@ from trading.application.ports import EntryPauses, EventLog
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
 from trading.domain.strategy.overlay import StrategySpec
+from trading.infrastructure.state_dir import MANIFEST, is_managed
 
 logger = logging.getLogger(__name__)
 
 PAPER_STATE = "paper_state.json"
+PAPER_STATE_DIR = Path("data/runtime/paper")          # paper's default state directory (execution's is its own)
 # A paper record exists when any of these is in the directory; its state database must then exist too.
 PAPER_RECORD = (PAPER_STATE, "paper_state.sqlite")
 STOP_KINDS = frozenset({IssueKind.STOP_TRIGGERED.value, IssueKind.STOP_BREACHED.value})
@@ -150,14 +152,26 @@ class PaperStateStore:
         return self.copy.archive()
 
 
+def refuse_execution_directory(state_dir: Path) -> None:
+    """Paper never runs in, resets or creates anything in an execution state directory (one with a manifest)."""
+    if is_managed(state_dir):
+        raise RuntimeError(f"{state_dir} is an execution state directory (it has {MANIFEST}); paper uses a "
+                           f"directory of its own, such as the default {PAPER_STATE_DIR}")
+
+
 def paper_state_db(state_dir: Path, *, reset: bool, stamp_ms: int) -> tuple[Path, str | None]:
     """The paper directory's state database (ADR-0009: the order journal, stops, limits, pauses and drawdown, and
     the paper state).
 
     Paper creates it at the first start of a paper record; a reset sets the old one aside first, under a name with
     ``stamp_ms`` (returned). A missing database while a paper record exists is refused: its orders and positions
-    would be lost, and a new paper record is started only by a person (``--reset-paper-state``)."""
+    would be lost, and a new paper record is started only by a person (``--reset-paper-state``).
+
+    An execution state directory (one with a manifest) is refused before anything is touched, a reset included:
+    its database holds an account's orders, pauses, drawdown latch and counts (tech lead 2026-11-16, S10 audit H1).
+    """
     state_dir = Path(state_dir)
+    refuse_execution_directory(state_dir)
     path = state_dir / schema.STATE_DB
     archived = None
     if reset and path.exists():
@@ -179,5 +193,5 @@ def paper_state_db(state_dir: Path, *, reset: bool, stamp_ms: int) -> tuple[Path
     return path, archived
 
 
-__all__ = ["BarTimeClock", "DivergencePauses", "PAPER_STATE", "PaperDivergenceLog", "PaperStateStore",
-           "SymbolVenueEquity", "paper_exchange", "paper_state_db"]
+__all__ = ["BarTimeClock", "DivergencePauses", "PAPER_STATE", "PAPER_STATE_DIR", "PaperDivergenceLog",
+           "PaperStateStore", "SymbolVenueEquity", "paper_exchange", "paper_state_db", "refuse_execution_directory"]
