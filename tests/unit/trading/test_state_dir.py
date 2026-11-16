@@ -141,16 +141,26 @@ def test_the_kill_command_needs_an_initialized_state_directory(tmp_path):
     assert not (tmp_path / "nowhere").exists() and "not initialized" in out.getvalue()
 
 
-def test_only_the_kill_command_writes_a_kill_file():
-    writers = []
+def test_only_the_kill_command_and_the_loss_stop_s_trip_write_a_kill_file():
+    """Owner 2026-11-16: the strategy loss stop sets the kill switch (``KillFile.trip``). It is the runtime's one
+    write there, it can only activate, and only the loss stop calls it."""
+    writers, trips, trip_writes = [], [], []
     files = [*sorted((ROOT / "trading").rglob("*.py")), ROOT / "runner" / "binance_target.py"]
     for path in files:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree, name = ast.parse(path.read_text(encoding="utf-8")), path.relative_to(ROOT).as_posix()
         for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "write"
-                    and any(k.arg == "active" for k in node.keywords)):
-                writers.append(path.relative_to(ROOT).as_posix())
-    assert sorted(set(writers)) == ["trading/infrastructure/kill.py", "trading/infrastructure/state_dir.py"]
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr == "write" and any(k.arg == "active" for k in node.keywords):
+                writers.append(name)
+                if name == "trading/adapters/files/kill_switch.py":
+                    trip_writes.append(ast.unparse(next(k.value for k in node.keywords if k.arg == "active")))
+            if node.func.attr == "trip":
+                trips.append(name)
+    assert sorted(set(writers)) == ["trading/adapters/files/kill_switch.py", "trading/infrastructure/kill.py",
+                                    "trading/infrastructure/state_dir.py"]
+    assert trip_writes == ["True"]                                   # the trip only ever activates
+    assert sorted(set(trips)) == ["trading/application/risk/loss_stop.py"]
 
 
 def test_nothing_else_copies_moves_or_writes_over_the_kill_file():
