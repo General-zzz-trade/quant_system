@@ -1,0 +1,156 @@
+[
+ [
+  "adapter accepts any int",
+  "trading/adapters/binance/adapter.py",
+  "if type(hours) is int and 0 < hours <= 24 and 24 % hours == 0:",
+  "if type(hours) is int and hours > 0:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "adapter accepts strings",
+  "trading/adapters/binance/adapter.py",
+  "if type(hours) is int and 0 < hours <= 24",
+  "if isinstance(hours, (int, str, float)) and 0 < int(hours) <= 24",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "adapter no symbol check",
+  "trading/adapters/binance/adapter.py",
+  "if not isinstance(row, dict) or not isinstance(row.get(\"symbol\"), str):",
+  "if not isinstance(row, dict):",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "session unknown allowed",
+  "trading/application/session.py",
+  "        if interval is None:\n            reasons.append(\"funding interval not known\")\n        elif",
+  "        if interval is None:\n            pass\n        elif",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "session waits 8h always",
+  "trading/application/session.py",
+  "elif bar.available_at // interval * interval not in self.funding:",
+  "elif bar.available_at // (8 * HOUR) * (8 * HOUR) not in self.funding:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "poller ignores interval wait",
+  "trading/application/market_poller.py",
+  "        if interval is not None and close // interval * interval not in session.funding \\\n",
+  "        if interval is not None and close // (8 * HOUR) * (8 * HOUR) not in session.funding \\\n",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "poller waits forever",
+  "trading/application/market_poller.py",
+  "                and now_ms - close < FUNDING_WAIT_MS:",
+  "                and now_ms - close < 10 * FUNDING_WAIT_MS:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "funding limit 8h",
+  "trading/application/market_poller.py",
+  "limit=3 + max(missing, 0) * HOUR // per)",
+  "limit=3 + max(missing, 0) // 8)",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "unknown asks fewer",
+  "trading/application/market_poller.py",
+  "per = interval or HOUR ",
+  "per = interval or 8 * HOUR ",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "read every poll",
+  "trading/application/market_poller.py",
+  "        if not read_this_hour and not tried_lately:",
+  "        if True:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "no retry pacing",
+  "trading/application/market_poller.py",
+  "        if not read_this_hour and not tried_lately:",
+  "        if not read_this_hour:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "read every hour boundary wrong",
+  "trading/application/market_poller.py",
+  "read_this_hour = self.intervals_at is not None and now_ms // HOUR == self.intervals_at // HOUR",
+  "read_this_hour = self.intervals_at is not None and now_ms - self.intervals_at < 2 * HOUR",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "unlisted gets old value",
+  "trading/application/market_poller.py",
+  "session.funding_interval = hours[symbol] * HOUR if symbol in hours else None",
+  "session.funding_interval = hours[symbol] * HOUR if symbol in hours else session.funding_interval",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "unlisted not said",
+  "trading/application/market_poller.py",
+  "                    if symbol not in hours:\n                        write_issue",
+  "                    if False:\n                        write_issue",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "kept forever",
+  "trading/application/market_poller.py",
+  "        if self.intervals_lost or (self.intervals_at is not None and now_ms - self.intervals_at <= INTERVALS_KEPT_MS):",
+  "        if True:",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "kept boundary",
+  "trading/application/market_poller.py",
+  "now_ms - self.intervals_at <= INTERVALS_KEPT_MS",
+  "now_ms - self.intervals_at < INTERVALS_KEPT_MS",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "lost said every poll",
+  "trading/application/market_poller.py",
+  "        if self.intervals_lost or (self.intervals_at",
+  "        if (self.intervals_at",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "lost not cleared",
+  "trading/application/market_poller.py",
+  "            session.funding_interval = None\n        write_issue",
+  "            pass\n        write_issue",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "lost flag not reset",
+  "trading/application/market_poller.py",
+  "self.intervals_at, self.intervals_lost = now_ms, False",
+  "self.intervals_at = now_ms",
+  "tests/unit/trading/test_funding_interval.py"
+ ],
+ [
+  "poll does not refresh",
+  "trading/application/market_poller.py",
+  "        self.refresh_intervals(now_ms)\n        together",
+  "        together",
+  "tests/unit/trading/test_funding_interval.py tests/characterization/test_funding_interval_runtime.py"
+ ],
+ [
+  "warmup does not refresh",
+  "trading/application/runtime.py",
+  "        self.market_side.refresh_intervals(now_ms)      # R4",
+  "        pass      # R4",
+  "tests/characterization/test_funding_interval_runtime.py"
+ ],
+ [
+  "status hours wrong",
+  "trading/application/status.py",
+  "s.funding_interval // HOUR if s.funding_interval else None",
+  "s.funding_interval if s.funding_interval else None",
+  "tests/characterization/test_funding_interval_runtime.py"
+ ]
+]
