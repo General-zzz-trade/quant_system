@@ -125,9 +125,9 @@ class ExchangeAccount(Protocol):
 
 class FundingIncome(Protocol):
     """The account's funding income on one symbol from a time on (read-only; the strategy capital base). Raises when
-    the total cannot be known."""
+    the total cannot be known whole; ``now_ms`` is the runtime's time."""
 
-    def get_funding_income(self, symbol: str, *, since_ms: int) -> Decimal: ...
+    def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal: ...
 
 
 @runtime_checkable

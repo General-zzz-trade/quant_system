@@ -107,13 +107,13 @@ def test_the_strategy_s_pnl_is_its_owners_realized_pnl_after_usdt_fees():
 
 # -- funding in the base (tech lead 2026-11-16) -------------------------------------------------------------------
 class Venue:
-    """Funding income per symbol; records (symbol, since_ms) of every request."""
+    """Funding income per symbol; records (symbol, since_ms, now_ms) of every request."""
 
     def __init__(self, income):
         self.income, self.calls, self.down = dict(income), [], False
 
-    def get_funding_income(self, symbol, *, since_ms):
-        self.calls.append((symbol, since_ms))
+    def get_funding_income(self, symbol, *, since_ms, now_ms):
+        self.calls.append((symbol, since_ms, now_ms))
         if self.down:
             raise OSError("HTTP 503")
         return self.income[symbol]
@@ -126,11 +126,11 @@ def _funding(venue, first_fills, clock):
 
 def test_funding_counts_from_each_symbol_s_first_fill_and_a_symbol_never_traded_adds_nothing():
     venue = Venue({"BTCUSDT": D("-3.25"), "ETHUSDT": D("1.5")})
-    assert _funding(venue, {"BTCUSDT": 1000.5}, Clock()).current() == D("-3.25")
-    assert venue.calls == [("BTCUSDT", 1_000_500)]                   # no request for a symbol never traded
+    assert _funding(venue, {"BTCUSDT": 500.5}, Clock()).current() == D("-3.25")
+    assert venue.calls == [("BTCUSDT", 500_500, 1_000_000)]   # no request for a symbol never traded
     venue.calls.clear()
-    assert _funding(venue, {"BTCUSDT": 1000.5, "ETHUSDT": 900.0}, Clock()).current() == D("-1.75")
-    assert venue.calls == [("BTCUSDT", 1_000_500), ("ETHUSDT", 900_000)]
+    assert _funding(venue, {"BTCUSDT": 500.5, "ETHUSDT": 400.0}, Clock()).current() == D("-1.75")
+    assert venue.calls == [("BTCUSDT", 500_500, 1_000_000), ("ETHUSDT", 400_000, 1_000_000)]
 
 
 def test_funding_is_asked_at_most_every_ten_minutes():

@@ -14,6 +14,8 @@ from trading.adapters.binance.rest import BinanceRetryableError
 from tests.unit.binance.fake_venue import HOUR, FakeBinance
 
 T = 1_794_000_000_000          # since (ms)
+MINUTE, DAY = 60_000, 86_400_000
+NOW = T + 30 * DAY
 
 
 def _adapter(client):
@@ -47,7 +49,7 @@ def test_the_symbol_s_usdt_funding_since_the_time_is_summed_from_one_get():
     fake.add_income("BTCUSDT", "-2", T + HOUR, asset="BNB")        # not USDT
     fake.add_income("BTCUSDT", "-3", T + 2 * HOUR, income_type="COMMISSION")
     fake.add_income("ETHUSDT", "-4", T + 3 * HOUR)
-    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("-1.25")
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("-1.25")
     assert fake.income_requests == [{"symbol": "BTCUSDT", "incomeType": "FUNDING_FEE", "startTime": T,
                                      "limit": 1000}]
     assert fake.posts == [] and fake.algo == {} and fake.orders == {}
@@ -56,25 +58,25 @@ def test_the_symbol_s_usdt_funding_since_the_time_is_summed_from_one_get():
 def test_rows_of_another_symbol_type_or_asset_never_count_even_if_the_venue_returns_them():
     client = Pages([_row("1", T, 1), _row("10", T, 2, symbol="ETHUSDT"), _row("100", T, 3, income_type="TRANSFER"),
                     _row("1000", T, 4, asset="USDC")])
-    assert _adapter(client).get_funding_income("BTCUSDT", since_ms=T) == D("1")
+    assert _adapter(client).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("1")
     assert [(method, path) for method, path, _ in client.calls] == [("GET", "/fapi/v1/income")]
 
 
 def test_the_history_is_paged_by_time_and_a_row_asked_twice_counts_once():
     fake = FakeBinance()
     for i in range(2500):
-        fake.add_income("BTCUSDT", "-0.01", T + i * HOUR)
-    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("-25.00")
-    assert [r["startTime"] for r in fake.income_requests] == [T, T + 999 * HOUR, T + 1998 * HOUR]
+        fake.add_income("BTCUSDT", "-0.01", T + i * MINUTE)
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("-25.00")
+    assert [r["startTime"] for r in fake.income_requests] == [T, T + 999 * MINUTE, T + 1998 * MINUTE]
     assert {r["limit"] for r in fake.income_requests} == {1000}
 
 
 def test_a_row_sharing_the_time_of_a_page_s_last_row_is_not_lost():
     fake = FakeBinance()
     for i in range(1000):
-        fake.add_income("BTCUSDT", "1", T + i * HOUR)
-    fake.add_income("BTCUSDT", "1", T + 999 * HOUR)               # same time as the first page's last row
-    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T) == D("1001")
+        fake.add_income("BTCUSDT", "1", T + i * MINUTE)
+    fake.add_income("BTCUSDT", "1", T + 999 * MINUTE)             # same time as the first page's last row
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW) == D("1001")
 
 
 def test_a_history_that_does_not_advance_raises_instead_of_looping():
@@ -82,7 +84,7 @@ def test_a_history_that_does_not_advance_raises_instead_of_looping():
     for _ in range(1000):
         fake.add_income("BTCUSDT", "1", T)
     with pytest.raises(RuntimeError, match="advance"):
-        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T)
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
 
 
 @pytest.mark.parametrize("page", [
@@ -92,11 +94,22 @@ def test_a_history_that_does_not_advance_raises_instead_of_looping():
 ])
 def test_an_answer_that_cannot_be_read_raises(page):
     with pytest.raises(RuntimeError, match="income"):
-        _adapter(Pages(page)).get_funding_income("BTCUSDT", since_ms=T)
+        _adapter(Pages(page)).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
 
 
 def test_a_failed_request_propagates():
     fake = FakeBinance()
     fake.income_error = True
     with pytest.raises(BinanceRetryableError):
-        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T)
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
+
+
+def test_funding_older_than_binance_s_income_history_cannot_be_read_whole_and_raises():
+    """Binance: "Income history only contains data for the last three months" (at least 89 days). Funding since a
+    first fill older than that would come back short without an error, so the total is unknown; 88 days are read."""
+    fake = FakeBinance()
+    fake.add_income("BTCUSDT", "-1", T)
+    assert _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=T + 88 * DAY) == D("-1")
+    with pytest.raises(RuntimeError, match="three months"):
+        _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=T + 88 * DAY + 1)
+    assert len(fake.income_requests) == 1                         # refused before any request
