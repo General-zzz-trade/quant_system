@@ -13,7 +13,6 @@ parameters; the method is the one written in research/lab/runs/2026-11-16/ideas.
 from __future__ import annotations
 
 import json
-import pickle
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from decimal import Decimal as D
@@ -168,6 +167,73 @@ class Config:
         return json.dumps(self.label, sort_keys=True)
 
 
+# -- the walk-forward choice, the score and the rules (research/lab/runs/2026-11-16/ideas.md) ------------------
+Run = tuple[Config, Mapping[int, dict]]                          # a configuration and its periods' results
+
+
+def _stitch(picks: Sequence[dict]) -> dict:
+    return {"daily": pd.concat([p["daily"] for p in picks]), "trips": [t for p in picks for t in p["trips"]],
+            "entries": [e for p in picks for e in p["entries"]], "stops": sum(p["stops"] for p in picks)}
+
+
+def walk_forward(runs: Sequence[Run], folds: Sequence[int], first: int = 0) -> dict:
+    """Fold k runs the configuration with the best Sharpe over periods ``first`` .. k - 1: nothing from period k
+    or later chooses for it. ``final`` is the best over every period up to the last fold (what the holdout gets).
+    Ties: the larger text of the parameters (the 2026-11-16 rule), then the configuration listed first. Returns
+    the choices and the chosen configurations' folds end to end."""
+    def best(before: range) -> Run:
+        def rank(i: int) -> tuple:
+            config, results = runs[i]
+            return lab.summary(joined(results, before)).get("sharpe", -9), str(config.params), -i
+        return runs[max(range(len(runs)), key=rank)]
+    chosen = [best(range(first, k)) for k in folds]
+    final = best(range(first, folds[-1] + 1))
+    return {"chosen": [config for config, _ in chosen], "final": final[0],
+            **_stitch([results[k] for (_, results), k in zip(chosen, folds)])}
+
+
+def longest_losing(trips: Sequence[tuple[int, float]]) -> int:
+    """The longest run of losing round trips, in time order."""
+    run = best = 0
+    for _, money in sorted(trips):
+        run = run + 1 if money < 0 else 0
+        best = max(best, run)
+    return best
+
+
+def score(wf: dict, trips: Sequence[tuple[int, float]], regime: dict) -> dict:
+    """The five 1-5 scores of ideas.md on the walk-forward and their total. Where the table names an edge it is
+    kept as written (a drawdown of exactly 15 % is not "< 15 %"; "5 % or more" includes 5 %); an edge the table
+    leaves open goes where the 2026-11-16 script put it (10 % a year scores 2, a 25 % drawdown scores 4)."""
+    def above(x: float, edges: tuple) -> int:
+        return sum(x > edge for edge in edges)
+    bear, chop, drawdown = regime["bear"], regime["chop"], wf["max_drawdown"]
+    worst = min(bear, chop)
+    parts = {"return": 1 + above(wf["cagr"], (0, 0.10, 0.25, 0.50)),
+             "drawdown": 5 if drawdown < 0.15 else 4 - above(drawdown, (0.25, 0.35, 0.50)),
+             "trades": 1 + above(len(trips), (29, 49, 99, 199)),
+             "losing_streak": 5 - above(longest_losing(trips), (3, 5, 7, 10)),
+             "bear_and_chop": (5 if worst >= 0.05 else 4 if worst >= 0 else 3 if bear + chop >= 0
+                               else 2 if max(bear, chop) >= 0 else 1)}
+    return {**parts, "total": sum(parts.values())}
+
+
+def survives(result: dict, hold: dict) -> bool:
+    """Not eliminated: a return above 0 and a Sharpe above holding BTC over the same period, both after costs."""
+    return bool(result.get("total_return", 0.0) > 0 and result.get("sharpe", 0.0) > hold["sharpe"])
+
+
+def final_checks(*, holdout: dict, holdout_hold: dict, round_trips: int, doubled: dict, walk_forward_hold: dict,
+                 selection_sharpe: Mapping[str, float], lookahead: Sequence[str] | None) -> dict:
+    """The final check of a survivor (ideas.md): it still wins on the holdout, at least 50 round trips in the
+    walk-forward, it still wins there with fees and slippage doubled, every configuration of the idea has a
+    Sharpe above 0 on the selection periods, and the look-ahead check found nothing (not run counts as failed)."""
+    return {"unseen_data": survives(holdout, holdout_hold), "at_least_50_trades": round_trips >= 50,
+            "double_fees": survives(doubled, walk_forward_hold),
+            "neighbouring_settings": all(v > 0 for v in selection_sharpe.values()),
+            "no_lookahead": lookahead is not None and not lookahead}
+
+
 Job = tuple[Config, tuple[int, ...]]                             # a configuration and the periods to replay
 _WORKER: "Judge | None" = None                                   # the judge of a running pool (forked workers)
 
@@ -182,7 +248,8 @@ class Judge:
     """One run's settings. ``ideas``: name -> (function, parameter grid) as lab.um_lab.Idea; ``lists``: one symbol
     list per period (``universe``); ``terms`` gives the capital and the pilot's limits, the stop is each
     configuration's ``StopVariant``. ``cross_sectional`` ideas read the period's list (``ctx["universe"]``).
-    ``note`` goes into every registry row. ``legacy_days``: see ``period_daily``."""
+    ``note`` goes into every registry row. ``legacy_days``: see ``period_daily``. ``lookahead``: the run's check of
+    one idea and parameter set with lab/causality.py, returning the violations (``final`` fails without it)."""
     ideas: Mapping[str, tuple[Callable, list[dict]]]
     lists: Sequence[Sequence[str]]
     cache: Path
@@ -195,6 +262,7 @@ class Judge:
     trials: Path = lab.TRIALS
     note: str = ""
     legacy_days: bool = False
+    lookahead: Callable[[str, dict], list[str]] | None = None
 
     def __post_init__(self) -> None:
         if len(self.lists) != len(self.periods):
@@ -265,16 +333,33 @@ class Judge:
 
     def _path(self, config: Config) -> Path:
         tag = "_".join(f"{k}{v}" for k, v in sorted(config.params.items()))
-        return self.cache / f"{config.idea}__{tag}__{config.stop.name}__x{config.cost}.pkl"
+        return self.cache / f"{config.idea}__{tag}__{config.stop.name}__x{config.cost}.json"
 
     def _cached(self, config: Config) -> dict:
+        """{period: result} from the cache file (JSON: floats come back exactly), {} without one."""
         path = self._path(config)
         if not path.exists():
             return {}
-        stored = pickle.loads(path.read_bytes())
+        stored = json.loads(path.read_text())
         if stored["settings"] != self._settings():
             raise ValueError(f"{path} was made with other settings; use another cache directory")
-        return stored["periods"]
+        return {int(k): {"daily": pd.Series(p["daily"], index=pd.RangeIndex(p["first_day"],
+                                                                             p["first_day"] + len(p["daily"])),
+                                            dtype=float),
+                         "trips": [tuple(t) for t in p["trips"]], "entries": [tuple(e) for e in p["entries"]],
+                         "stops": p["stops"], "fills": p["fills"]} for k, p in stored["periods"].items()}
+
+    def _store(self, config: Config, periods_: Mapping[int, dict]) -> None:
+        def plain(p: dict) -> dict:
+            days = p["daily"].index
+            if len(days) and list(days) != list(range(int(days[0]), int(days[0]) + len(days))):
+                raise ValueError("a period's days must be consecutive")
+            return {"first_day": int(days[0]) if len(days) else 0, "daily": [float(x) for x in p["daily"]],
+                    "trips": [[int(at), float(money)] for at, money in p["trips"]],
+                    "entries": [[int(at), float(notional)] for at, notional in p["entries"]],
+                    "stops": int(p["stops"]), "fills": int(p["fills"])}
+        stored = {"settings": self._settings(), "periods": {str(k): plain(p) for k, p in sorted(periods_.items())}}
+        self._path(config).write_text(json.dumps(stored))
 
     def load(self, config: Config) -> dict:
         """The cached periods of a configuration: {period: result}."""
@@ -323,14 +408,110 @@ class Judge:
                 old = self._cached(config)
                 lab.record([self._row(config, k, p) for k, p in result["periods"].items() if k not in old],
                            self.trials)
-                stored = {"settings": self._settings(), "periods": {**old, **result["periods"]}}
-                self._path(config).write_bytes(pickle.dumps(stored))
+                self._store(config, {**old, **result["periods"]})
         finally:
             _WORKER = None
             if pool:
                 pool.terminate()
         return len(todo)
 
+    # -- the screen and the final check --------------------------------------------------------------------
+    def list_hold(self, ks: Iterable[int]) -> pd.Series:
+        """Each period's list bought in equal parts at the close of the period's first day and held (no costs)."""
+        parts = []
+        for k in ks:
+            start, end = self.periods[k]
+            columns = {}
+            for symbol in self.lists[k]:
+                close = lab.frame(symbol, self.snapshot)["close"]
+                close = close[(close.index >= start) & (close.index < end)]
+                if len(close):
+                    by_day = close.groupby(close.index // DAY).last()
+                    columns[symbol] = by_day / by_day.iloc[0]
+            parts.append(pd.DataFrame(columns).ffill().mean(axis=1).pct_change().dropna())
+        return pd.concat(parts)
 
-__all__ = ["BTC", "Config", "Judge", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant", "joined",
-           "period_daily", "periods", "universe", "universe_record"]
+    def _pilot(self, daily: pd.Series, trips: list) -> dict:
+        streaks = lab.losing_streaks(trips, self.terms.losing_trades)
+        return {"losing_streak_stops": len(streaks), "per_30_days": len(streaks) * 30 / max(1, len(daily)),
+                "days_below_daily_stop": int((daily < -self.terms.daily_stop).sum()),
+                "loss_stop_share": lab.loss_stop_share(daily, self.terms.loss_stop, self.terms.loss_stop_days)}
+
+    def _screen_row(self, name: str, variants: Sequence[StopVariant], btc: pd.DataFrame, hold: dict) -> dict:
+        runs = [(config, self.load(config)) for config in self.candidates(name, variants)]
+        wf = walk_forward(runs, list(self.folds))
+        result, regime = lab.summary(wf["daily"]), lab.by_regime(wf["daily"], btc)
+        return {"chosen_per_fold": [config.label for config in wf["chosen"]], "final_choice": wf["final"].label,
+                "walk_forward": result, "regime": regime, "round_trips": len(wf["trips"]),
+                "longest_losing_trades": longest_losing(wf["trips"]), "exchange_stops": wf["stops"],
+                "score": score(result, wf["trips"], regime), "survives": survives(result, hold),
+                "selection_sharpe": {config.key: lab.summary(joined(results, self.selection))["sharpe"]
+                                     for config, results in runs},
+                "pilot": self._pilot(wf["daily"], wf["trips"]), "limits_needed": lab.limits_needed(wf["entries"])}
+
+    def screen(self, names: Sequence[str] | None = None, variants: Sequence[StopVariant] = (LIVE_STOP,), *,
+               processes: int = 2) -> dict:
+        """Every parameter set of the ideas with every stop variant on the selection periods (replayed, cached,
+        registered), then per idea the walk-forward over the folds, its score and whether it survives: a return
+        above 0 and a Sharpe above holding BTC over the folds. The holdout period is not read."""
+        names = list(self.ideas) if names is None else list(names)
+        self.run_all([(config, tuple(self.selection)) for name in names for config in self.candidates(name, variants)],
+                     processes=processes)
+        btc = lab.frame(BTC, self.snapshot)
+        first, last = self.periods[self.folds[0]][0], self.periods[self.folds[-1]][1]
+        hold = lab.summary(lab.buy_and_hold(BTC, first, last, self.snapshot))
+        return {"stop_variants": [variant.name for variant in variants], "buy_and_hold_btc": hold,
+                "buy_and_hold_list": lab.summary(self.list_hold(self.folds)),
+                "ideas": {name: self._screen_row(name, variants, btc, hold) for name in names}}
+
+    def final(self, screened: dict, *, processes: int = 2) -> dict:
+        """The final check of the ideas that survived ``screen`` (its result, as returned or read back from JSON).
+        Only here is the holdout period replayed, and only for a survivor's final choice; the folds are replayed
+        again at their chosen configurations with fees and slippage doubled. The champion is the passing idea
+        with the highest score, then the highest walk-forward Sharpe; nobody passes, no champion."""
+        names = [name for name, row in screened["ideas"].items() if row["survives"]]
+        if not names:
+            return {"buy_and_hold": None, "final_check": {}, "ranking": [], "champion": None}
+
+        def config(name: str, label: dict, multiplier: int = 1) -> Config:
+            return Config(name, label["params"], StopVariant(**label["stop"]), multiplier)
+        jobs: dict[tuple, tuple[Config, list[int]]] = {}
+        for name in names:
+            row = screened["ideas"][name]
+            wanted = [(config(name, row["final_choice"]), self.holdout)]
+            wanted += [(config(name, label, 2), k) for k, label in zip(self.folds, row["chosen_per_fold"])]
+            for c, k in wanted:
+                jobs.setdefault((c.idea, c.key, c.cost), (c, []))[1].append(k)
+        self.run_all([(c, tuple(ks)) for c, ks in jobs.values()], processes=processes, holdout=True)
+        btc = lab.frame(BTC, self.snapshot)
+        hold = {"holdout_btc": lab.summary(lab.buy_and_hold(BTC, *self.periods[self.holdout], self.snapshot)),
+                "holdout_list": lab.summary(self.list_hold((self.holdout,)))}
+        out = {}
+        for name in names:
+            row = screened["ideas"][name]
+            choice = config(name, row["final_choice"])
+            unseen = self.load(choice)[self.holdout]
+            doubled = lab.summary(_stitch([self.load(config(name, label, 2))[k]
+                                           for k, label in zip(self.folds, row["chosen_per_fold"])])["daily"])
+            found = self.lookahead(name, choice.params) if self.lookahead else None
+            checks = final_checks(
+                holdout=lab.summary(unseen["daily"]), holdout_hold=hold["holdout_btc"], round_trips=row["round_trips"],
+                doubled=doubled, walk_forward_hold=screened["buy_and_hold_btc"],
+                selection_sharpe=row["selection_sharpe"], lookahead=found)
+            out[name] = {"final_choice": row["final_choice"], "holdout": lab.summary(unseen["daily"]),
+                         "holdout_regime": lab.by_regime(unseen["daily"], btc),
+                         "holdout_round_trips": len(unseen["trips"]), "holdout_exchange_stops": unseen["stops"],
+                         "holdout_pilot": self._pilot(unseen["daily"], unseen["trips"]),
+                         "holdout_limits_needed": lab.limits_needed(unseen["entries"]),
+                         "double_fees_walk_forward": doubled,
+                         "lookahead_violations": ["not checked"] if found is None else list(found),
+                         "checks": checks, "passes": all(checks.values()), "score": row["score"]["total"]}
+        order = sorted(out, key=lambda n: (-int(out[n]["passes"]), -out[n]["score"],
+                                           -screened["ideas"][n]["walk_forward"]["sharpe"]))
+        return {"buy_and_hold": hold, "final_check": out, "ranking": order,
+                "champion": order[0] if out[order[0]]["passes"] else None}
+
+
+__all__ = ["BTC", "Config", "Judge", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant", "final_checks",
+           "joined", "longest_losing", "period_daily", "periods", "score", "survives", "universe", "universe_record",
+           "walk_forward"]

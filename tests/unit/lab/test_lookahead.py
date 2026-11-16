@@ -150,6 +150,10 @@ OTHER_MODULES = {
     "lab.strategy": "re-export of trading.domain.strategy.overlay",
     "lab.study": "study driver (stage search) over the overlay's targets",
     "lab.trials": "trial registry",
+    "lab.um_judge": ("the research lab's judge: periods, replays through lab.um_lab, walk-forward choice, score and "
+                     "final check; its one rule over market data, the yearly universe, is checked in test_um_judge "
+                     "(a list uses only bars from before its date); each idea it runs is checked with lab.causality "
+                     "by the lab, and its final check fails an idea whose check was not run"),
     "lab.um_lab": ("the research lab's harness: snapshot loading, replays through the shared broker, portfolio "
                    "and walk-forward; its liquidity filter is checked in test_um_lab, each idea it runs is checked "
                    "with lab.causality by the lab (research/lab/README.md)"),
