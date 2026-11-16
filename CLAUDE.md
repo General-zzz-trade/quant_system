@@ -10,7 +10,13 @@
   owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, Telegram and the heartbeat,
-  the host install, and a strategy capital cap (execution sizes from the whole account's equity today).
+  the host install, and the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it).
+- **Shared account (owner, 2026-11-16):** the strategy keeps sharing the main account. It sizes from
+  min(account equity, `STRATEGY_CAPITAL_USDT` + its own cumulative realized PnL after USDT fees); the owner chose
+  that this base grows with the strategy's profits. Funding payments are not in the base (the order ledger has no
+  funding). The drawdown latch, the -3 % daily stop and the 3x exposure
+  cap stay on the whole account's equity (owner's choice: with a large account and a small strategy they rarely
+  trigger on the strategy's losses alone).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
     - It passed a pre-registered development-window screen, which earns forward paper trading only
@@ -201,6 +207,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   - Never add an automatic path that raises a risk limit, removes a cap, restarts a live service or
     swaps a model into a running process.
   - Limits change only when a person edits config.
+  - The one exception, the owner's choice of 2026-11-16: the strategy's sizing base grows with its own realized
+    PnL (`CappedEquity`), never above the account's equity and under the 3x exposure cap.
 - **Signed artifacts:** model artifacts (pickle and JSON, including `config.json` and strategy specs)
   load only through `infra/model_signing.py`.
 - **Fail closed:** unreadable pause, kill or drawdown state blocks new exposure.

@@ -1,0 +1,74 @@
+[
+ [
+  "M1 cap ignored",
+  "trading/application/equity.py",
+  "        return max(Decimal(0), min(account, self.cap + Decimal(pnl)))",
+  "        return account"
+ ],
+ [
+  "M2 pnl ignored",
+  "trading/application/equity.py",
+  "        return max(Decimal(0), min(account, self.cap + Decimal(pnl)))",
+  "        return max(Decimal(0), min(account, self.cap))"
+ ],
+ [
+  "M3 not bounded by account",
+  "trading/application/equity.py",
+  "        return max(Decimal(0), min(account, self.cap + Decimal(pnl)))",
+  "        return max(Decimal(0), self.cap + Decimal(pnl))"
+ ],
+ [
+  "M4 no zero floor",
+  "trading/application/equity.py",
+  "        return max(Decimal(0), min(account, self.cap + Decimal(pnl)))",
+  "        return min(account, self.cap + Decimal(pnl))"
+ ],
+ [
+  "M5 unreadable -> min(account, cap)",
+  "trading/application/equity.py",
+  "        except Exception:                 # an unreadable ledger is unknown: size to zero, never guess\n            return Decimal(0)",
+  "        except Exception:                 # an unreadable ledger is unknown: size to zero, never guess\n            return min(account, self.cap)"
+ ],
+ [
+  "M6 None pnl -> cap",
+  "trading/application/equity.py",
+  "        if pnl is None or not Decimal(pnl).is_finite():\n            return Decimal(0)",
+  "        if pnl is None or not Decimal(pnl).is_finite():\n            return min(account, self.cap)"
+ ],
+ [
+  "M7 fees not subtracted",
+  "trading/infrastructure/target.py",
+  "        total += Decimal(str(position[\"realized_pnl\"])) - Decimal(str(position.get(\"fees\", {}).get(\"USDT\", \"0\")))",
+  "        total += Decimal(str(position[\"realized_pnl\"]))"
+ ],
+ [
+  "M8 mainnet check off",
+  "trading/infrastructure/config.py",
+  "    if config.execution and not config.testnet and config.strategy_capital is None:",
+  "    if False:"
+ ],
+ [
+  "M9 entry skips the check",
+  "trading/infrastructure/cli/target.py",
+  "            require_strategy_capital(config)\n",
+  "            pass\n"
+ ],
+ [
+  "M10 sizing ignores the cap",
+  "trading/infrastructure/target.py",
+  "else (capped or equity)",
+  "else equity"
+ ],
+ [
+  "M11 validation drops <= 0",
+  "trading/infrastructure/config.py",
+  "    if not value.is_finite() or value <= 0:",
+  "    if not value.is_finite():"
+ ],
+ [
+  "M12 record omits the cap",
+  "trading/infrastructure/config.py",
+  "                \"strategy_capital\": None if self.strategy_capital is None else str(self.strategy_capital)}",
+  "                \"strategy_capital\": None}"
+ ]
+]

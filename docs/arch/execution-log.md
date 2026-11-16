@@ -3534,3 +3534,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - `CLAUDE.md` 现状加"工程进度"一条；`docs/arch/roadmap.md` 第 19 项加进度；`docs/arch/design-2026-11-m5.md` 开头加实施状态说明。
 - `infra/systemd/binance-target.service` 的 `Description` 改为指向运行手册（只是说明文字；主机上要同步单元才会更新）。
 - 没有清理的：两个超过 400 行的"先写测试"提交（S10 第 3 部分）改不了历史，已记录；`lab/strategy.py` 等研究侧的转发名被已冻结的研究脚本使用，保留。
+
+## 策略资金上限（2026-11-16，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 选择"继续共用主账户，加策略资金上限"，上限"加策略自己的累计盈亏"，回撤和敞口"仍按整个账户的权益"。
+- **改了什么**：
+  - `trading/application/equity.py` 加 `CappedEquity`：仓位基数 = max(0, min(账户权益, 上限 + 策略已实现盈亏))；账户权益未知、账本读不出、
+    盈亏为空或非有限数时一律为 0（失败即关闭）。
+  - `trading/infrastructure/config.py`：`STRATEGY_CAPITAL_USDT` 只在执行模式读一次，进 `RuntimeConfig.strategy_capital` 并写进配置记录；
+    必须是正的有限数，否则拒绝启动；`require_strategy_capital` 让主网执行没有上限时拒绝启动（测试网可以不设，模拟盘不读）。
+  - `trading/infrastructure/target.py`：`strategy_realized_pnl` 从各品种账本检查点加总已实现盈亏减 USDT 手续费；执行模式有上限时各品种
+    用 `CappedEquity` 定仓位（仍乘 1/N 分配）。资金费不在账本里，所以不计入基数（已在 `CLAUDE.md` 写明）。
+  - `trading/infrastructure/cli/target.py`：执行模式在检查告警和心跳之前先检查上限，早于任何账户请求。
+  - 文档：`CLAUDE.md`（共用账户一条、"不自动升级风险"的唯一例外、上实盘前的条件）、`.env.example`、`docs/binance_runbook.md`。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_strategy_capital.py`（16 个：基数表、未知即 0、解析和校验、主网必填、模拟盘不读、账本盈亏），
+  `tests/characterization/test_strategy_capital_sizing.py`（2 个：上限 300、账户 10,000 时按上限定仓位；主网无上限在任何账户请求前拒绝）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/strategy_capital_cap.json` 12 个变异（忽略上限、忽略盈亏、不受账户约束、无零下限、
+  读不出时按上限、盈亏为空时按上限、不扣手续费、主网检查关闭、入口不检查、定仓位不用上限、校验漏掉非正数、记录漏掉上限），基线通过，
+  第一轮 12 个全部被杀。
+- **本地**【实际运行结果】：见 PR。
