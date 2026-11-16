@@ -27,6 +27,7 @@ from trading.application.market_poller import (FUNDING_WAIT_MS, MARKET_ALERT_AFT
 from trading.application.mode_policy import ModePolicy
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, GateClock,
                                        KillSwitch, MarketData, Notifier, PaperStore, PaperVenue, StatusSink)
+from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.application.status import StatusReporter
 from trading.domain.bars import HOUR, Bar, bar_from_kline
@@ -53,7 +54,8 @@ class TargetRuntime:
                  config_digest: str | None = None,
                  account_check: Callable[[], list[Issue]] | None = None, venue: PaperVenue | None = None,
                  gate_clock: GateClock | None = None,
-                 exit_observer: Callable[[str, str, str], None] | None = None) -> None:
+                 exit_observer: Callable[[str, str, str], None] | None = None,
+                 loss_stop: StrategyLossStop | None = None) -> None:
         self.policy, self.venue = policy, venue
         self.spec, self.mode, self.market, self.account, self.clock = spec, policy.name, market, account, clock
         self.sessions, self.journal, self.equity = sessions, journal, equity
@@ -79,7 +81,7 @@ class TargetRuntime:
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
                                     decision_error=self.market_side.decision_errors.get,
                                     cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
-                                    account_check=account_check, exit_observer=exit_observer)
+                                    account_check=account_check, exit_observer=exit_observer, loss_stop=loss_stop)
         self.reporter = StatusReporter(sessions, mode=policy.name, clock=clock, spec_passed=spec_passed,
                                        notifier=notifier, kill=kill, drawdown=drawdown, equity=equity,
                                        market_failures=lambda: self.market_side.failures, config_digest=config_digest,

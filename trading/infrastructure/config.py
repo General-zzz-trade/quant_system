@@ -138,6 +138,7 @@ class RuntimeConfig:
     # The owner's strategy capital (2026-11-16): the strategy sizes from min(account equity, this + its own
     # realized PnL); required on mainnet, optional on the testnet (whole account), unused in paper.
     strategy_capital: Decimal | None = None
+    strategy_loss_stop: Decimal | None = None    # a fraction of the strategy capital; None without a capital
 
     def record(self) -> dict[str, object]:
         """Every value, as plain JSON, without any secret: what this run uses."""
@@ -145,7 +146,8 @@ class RuntimeConfig:
         return {"testnet": self.testnet, "execution": self.execution, "scope": self.scope,
                 "stop_pct": str(self.stop_pct), "limits": limits, "leverage": self.leverage, "margin": self.margin,
                 "alerts": self.alerts, "identity": self.identity,
-                "strategy_capital": None if self.strategy_capital is None else str(self.strategy_capital)}
+                "strategy_capital": None if self.strategy_capital is None else str(self.strategy_capital),
+                "strategy_loss_stop": None if self.strategy_loss_stop is None else str(self.strategy_loss_stop)}
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.record(), sort_keys=True).encode()).hexdigest()
@@ -180,7 +182,7 @@ def load_config(env: Mapping[str, str] | None = None, *, execution: bool, stop_p
     identity = account_identity(testnet=net, api_key=binance.api_key) if binance is not None else None
     config = RuntimeConfig(testnet=net, execution=True, scope=scope, stop_pct=Decimal(stop_pct), limits=limits,
                            leverage=leverage, margin=margin, alerts="telegram" if token else "log", identity=identity,
-                           strategy_capital=capital)
+                           strategy_capital=capital, strategy_loss_stop=strategy_loss_stop(env, capital))
     return config, Secrets(binance=binance, telegram=(token, chat_id) if token else None, heartbeat_url=heartbeat)
 
 
@@ -196,6 +198,28 @@ def strategy_capital(env: Mapping[str, str]) -> Decimal | None:
     if not value.is_finite() or value <= 0:
         raise RuntimeError("STRATEGY_CAPITAL_USDT must be a positive amount of USDT")
     return value
+
+
+STRATEGY_LOSS_STOP_MAX_PCT = Decimal(15)     # the owner's limit (2026-11-16); a person can only tighten it
+
+
+def strategy_loss_stop(env: Mapping[str, str], capital: Decimal | None) -> Decimal | None:
+    """STRATEGY_LOSS_STOP_PCT: the cumulative loss, in per cent of the strategy capital, at which every position is
+    closed and entries stop. 15 unless set; above 0 and at most 15. Without a strategy capital there is none."""
+    raw = env.get("STRATEGY_LOSS_STOP_PCT", "").strip()
+    if capital is None:
+        if raw:
+            raise RuntimeError("STRATEGY_LOSS_STOP_PCT is a share of the strategy capital: set STRATEGY_CAPITAL_USDT")
+        return None
+    if not raw:
+        return STRATEGY_LOSS_STOP_MAX_PCT / 100
+    try:
+        value = Decimal(raw)
+    except (ArithmeticError, ValueError):
+        value = Decimal("nan")
+    if not value.is_finite() or not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT:
+        raise RuntimeError(f"STRATEGY_LOSS_STOP_PCT must be above 0 and at most {STRATEGY_LOSS_STOP_MAX_PCT}")
+    return value / 100
 
 
 def require_strategy_capital(config: RuntimeConfig) -> None:

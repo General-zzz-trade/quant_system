@@ -141,6 +141,7 @@ class TargetRuntime(_runtime.TargetRuntime):
             market_errors=(BinanceRestError, OSError), final_market_errors=(BinanceNonRetryableError,),
             account=account, kill=kill, drawdown=wiring.drawdown, paper_store=paper_store,
             spec_passed=self.frozen.get("passed"), pauses=wiring.pauses, notifier=notifier,
+            loss_stop=wiring.loss_stop,
             alert_prefix=alert_prefix, event_log_failure=events.failure, config_digest=config.digest(),
             account_check=account_check, venue=venue, gate_clock=gate_clock,
             exit_observer=journal.risk_exit if venue is not None else None)
@@ -180,13 +181,15 @@ class TargetRuntime(_runtime.TargetRuntime):
                    journal: EventLog) -> tuple[target.ExecutionWiring, KillSwitch]:
         config = self.config
         assert config.limits is not None and config.leverage is not None
-        # In a managed directory a missing kill file reads as active (ADR-0005 5b); the runtime never writes it.
+        # In a managed directory a missing kill file reads as active (ADR-0005 5b). The runtime never clears it; the
+        # strategy loss stop is the one thing that sets it (owner 2026-11-16).
         kill = KillFile(kill_file_path(self.state_dir), missing_is_active=is_managed(self.state_dir))
         tca = self._tca_log(self.state_dir / "tca_binance.jsonl") if self._tca_log is not None else None
         account: Any = self.account          # the connected Binance adapter (build_adapters)
         inputs = target.ExecutionInputs(account=account, scope=config.scope, stop_pct=config.stop_pct,
                                         limits=config.limits, kill=kill, leverage=config.leverage, margin=config.margin,
                                         strategy_capital=config.strategy_capital, funding=account,
+                                        strategy_loss_stop=config.strategy_loss_stop,
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock), kill

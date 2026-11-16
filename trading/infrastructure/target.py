@@ -33,9 +33,10 @@ from trading.application.account_ownership import foreign_holdings
 from trading.application.issues import Issue
 from trading.application.mode_policy import ModePolicy
 from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, FundingIncome,
-                                       KillSwitch, OrderGateway, Sleeper)
+                                       KillLatch, OrderGateway, Sleeper)
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
+from trading.application.risk.loss_stop import StrategyLossStop, strategy_unrealized
 from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
@@ -68,12 +69,13 @@ class ExecutionInputs:
     scope: str
     stop_pct: Decimal
     limits: RiskLimits
-    kill: KillSwitch
+    kill: KillLatch
     leverage: int                       # the exchange settings the configuration expects (RuntimeConfig)
     margin: str | None
     tca_log: EventLog | None = None
     strategy_capital: Decimal | None = None   # owner 2026-11-16: size from min(account, this + own realized PnL)
     funding: FundingIncome | None = None      # the account's funding income, which that PnL includes (2026-11-16)
+    strategy_loss_stop: Decimal | None = None   # owner 2026-11-16: at this share of the capital lost, flatten and stop
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,7 @@ class ExecutionWiring:
     sessions: dict[str, TargetSession]
     drawdown: SqliteDrawdownGuard
     pauses: EntryPauses
+    loss_stop: StrategyLossStop | None = None
 
 
 @dataclass(frozen=True)
@@ -190,6 +193,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
     allocation = Decimal(1) / Decimal(len(symbols)) if policy.sizing_equity == "account_share" else Decimal(1)
     sleeper: Sleeper = paper.sleeper if paper is not None else (lambda seconds: time.sleep(seconds))
     capped: SizingEquity | None = None
+    loss_stop: StrategyLossStop | None = None
     if paper is None and inputs.strategy_capital is not None:
         # The base's PnL: the ledger's realized PnL after USDT fees plus the funding income of the strategy's symbols
         # since its first fill on each (tech lead 2026-11-16); either one unknown sizes to zero.
@@ -197,9 +201,15 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
             raise ValueError("the strategy capital base needs the account's funding income")
         ledger = SqliteOrderJournal(orders_path, scope)
         funding = StrategyFunding(inputs.funding, symbols, lambda s: ledger.first_fill_at(f"target.{s}"), clock)
+        owners = [f"target.{s}" for s in symbols]
         capped = CappedEquity(equity, inputs.strategy_capital,
-                              lambda: strategy_realized_pnl(ledger, [f"target.{s}" for s in symbols])
-                              + funding.current())
+                              lambda: strategy_realized_pnl(ledger, owners) + funding.current())
+        if inputs.strategy_loss_stop is not None:
+            # The loss stop also counts what is still open: the venue's positions on the strategy's symbols.
+            loss_stop = StrategyLossStop(
+                inputs.strategy_capital, inputs.strategy_loss_stop,
+                lambda: strategy_realized_pnl(ledger, owners) + funding.current()
+                + strategy_unrealized(account.get_positions(), symbols), inputs.kill, clock=clock)
     sessions: dict[str, TargetSession] = {}
     for symbol in symbols:
         owner = f"target.{symbol}"
@@ -228,7 +238,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)
         sessions[symbol] = session
-    return ExecutionWiring(sessions, drawdown, pauses)
+    return ExecutionWiring(sessions, drawdown, pauses, loss_stop)
 
 
 __all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "PaperParts", "exchange_lot_rules", "execution_sessions",

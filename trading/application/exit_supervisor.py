@@ -17,6 +17,7 @@ from trading.application.equity import EquitySource
 from trading.application.issues import Issue, with_effect, write_issue
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
                                        Notifier)
+from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
 from trading.domain.issues import STOP_PAUSE_SECONDS, Effect, IssueKind as K, pause_end_text
@@ -40,7 +41,8 @@ class ExitSupervisor:
                  market_refused: Callable[[], str | None], decision_error: Callable[[str], Issue | None],
                  cycle_errors: Callable[[], list[Issue]], warmed: Callable[[], bool] = lambda: True,
                  account_check: Callable[[], list[Issue]] | None = None,
-                 exit_observer: Callable[[str, str, str], None] | None = None) -> None:
+                 exit_observer: Callable[[str, str, str], None] | None = None,
+                 loss_stop: StrategyLossStop | None = None) -> None:
         self.sessions, self.spec, self.journal, self.clock = sessions, spec, journal, clock
         self.account, self.equity, self.pauses = account, equity, pauses
         self.kill: Any = kill               # both modes run the exit side (S10: paper takes the execution path)
@@ -54,6 +56,8 @@ class ExitSupervisor:
         self._exit_observer = exit_observer
         self._risk_exits: dict[str, tuple[str, str] | None] = {}
         self.account_findings: list[Issue] = []
+        self.loss_stop = loss_stop                  # owner 2026-11-16; None without a strategy capital
+        self.loss_findings: list[Issue] = []
         self.last_account_check = clock()
         self.last_equity = self.last_reconcile = 0.0
         self.exit_errors: dict[str, Issue] = {}     # symbol -> the last exit failure, until an exit succeeds
@@ -66,6 +70,7 @@ class ExitSupervisor:
         """The exit side of one cycle: reconcile when due, then the risk actions. The symbol states are set before
         the risk actions (a flatten about to run shows as FLATTENING) and again after them."""
         self.check_account_if_due()
+        self.check_loss_stop()
         if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:
             self.reconcile()
         self.update_states()
@@ -139,6 +144,27 @@ class ExitSupervisor:
         except Exception:
             return True                             # unknown: still flattening
 
+    def check_loss_stop(self) -> None:
+        """Owner 2026-11-16: at the strategy's loss limit the stop sets the kill switch with flatten, which the risk
+        actions of this same cycle act on. While the loss is unknown, or the switch could not be set, every entry is
+        blocked (applied at every reconciliation, like an account finding)."""
+        if self.loss_stop is None:
+            return
+        findings = self.loss_stop.check()
+        tripped = self.loss_stop.take_trip()
+        if tripped is not None:
+            self.journal.write(EventKind.ALERT, reason=tripped)
+            logger.error("%s", tripped)
+        if findings != self.loss_findings:
+            for issue in findings:
+                write_issue(self.journal, None, issue)
+            if findings:
+                logger.error("Strategy loss stop: %s", "; ".join(findings))
+        self.loss_findings = findings
+        if findings:
+            for session in self.sessions.values():
+                session.executor.block_entries()
+
     def refresh_equity_if_due(self) -> None:
         if self.clock() - self.last_equity >= EQUITY_SECONDS:
             self.refresh_equity()
@@ -156,7 +182,7 @@ class ExitSupervisor:
 
     def reconcile(self) -> None:
         refused_text = self._market_refused()
-        cycle_errors = self._cycle_errors() + self.account_findings      # runtime-wide, applied every time
+        cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide
         found_of: dict[str, list[Issue]] = {}
         for symbol, session in self.sessions.items():
             try:

@@ -7,7 +7,8 @@
 - missing -> active without flatten when ``missing_is_active`` (a managed state directory, ADR-0005 5b);
   inactive otherwise
 
-The runtime only reads it. ``write`` is for the kill command and for initialising a state directory.
+The runtime reads it. ``write`` is for the kill command and for initialising a state directory; ``trip`` is the one
+write the runtime makes, when the strategy loss stop is reached (owner 2026-11-16): it only ever activates.
 """
 from __future__ import annotations
 
@@ -41,6 +42,10 @@ class KillFile:
     def allow_order(self, *, symbol: str) -> tuple[bool, str]:
         state = self.state()
         return (not state.active), state.reason
+
+    def trip(self, reason: str) -> None:
+        """Activate with flatten (the strategy loss stop). There is no runtime path that clears."""
+        self.write(active=True, reason=reason, flatten=True)
 
     def write(self, *, active: bool, reason: str = "", flatten: bool = False) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

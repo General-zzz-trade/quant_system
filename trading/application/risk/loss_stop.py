@@ -1,0 +1,89 @@
+"""The strategy loss stop (owner, 2026-11-16; it replaced "3 losses in a row").
+
+Once the strategy has lost ``limit`` of its capital - the ledger's realized PnL after fees, the funding income and
+the open positions' unrealized PnL at the venue's mark - it sets the operator kill switch with flatten. The audited
+kill path then closes every position and refuses entries, and the kill file is the durable latch: the runtime only
+ever sets it, a person clears it. The loss stays in the ledger, so clearing alone sets it again; going on means a
+new pilot in a new state directory.
+
+A loss that cannot be known closes nothing and blocks every entry (an issue, until it is known again). So does a
+kill switch that could not be set, which is tried again on every cycle.
+"""
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Sequence
+from decimal import Decimal
+from typing import Any
+
+from trading.application.issues import Issue
+from trading.application.ports import Clock, KillLatch
+from trading.domain.issues import IssueKind as K
+
+LOSS_STOP_SECONDS = 60.0     # how often the loss is read while it is known (one whole-account position request)
+
+
+def strategy_unrealized(positions: Iterable[Any], symbols: Sequence[str]) -> Decimal:
+    """The unrealized PnL of the venue positions on the strategy's symbols: qty x (mark - entry). The account holds
+    nothing outside the strategy ledger (the start-up and account checks), so these are the strategy's. A position
+    without a usable entry or mark price raises: its loss is unknown."""
+    total = Decimal(0)
+    for position in positions:
+        if position.symbol not in symbols or position.qty == 0:
+            continue
+        entry, mark = position.entry_price, position.mark_price
+        if entry is None or mark is None or not (entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0):
+            raise RuntimeError(f"{position.symbol}: position without a usable entry or mark price")
+        total += position.qty * (mark - entry)
+    return total
+
+
+class StrategyLossStop:
+    def __init__(self, capital: Decimal, limit: Decimal, pnl: Callable[[], Decimal | None], kill: KillLatch, *,
+                 clock: Clock) -> None:
+        self.capital, self.limit, self.pnl, self.kill, self.clock = Decimal(capital), Decimal(limit), pnl, kill, clock
+        self._checked_at: float | None = None
+        self._findings: list[Issue] = []
+        self._trip: str | None = None
+
+    def check(self) -> list[Issue]:
+        """Read the loss when due and set the kill switch at the limit. Never raises; returns what blocks every entry
+        meanwhile (an unknown loss, a switch that could not be set)."""
+        now = self.clock()
+        if self._checked_at is not None and not self._findings and now - self._checked_at < LOSS_STOP_SECONDS:
+            return []
+        self._checked_at = now
+        self._findings = self._evaluate()
+        return list(self._findings)
+
+    def take_trip(self) -> str | None:
+        """The reason of a trip not reported yet (for the alert), once."""
+        trip, self._trip = self._trip, None
+        return trip
+
+    def _evaluate(self) -> list[Issue]:
+        try:
+            raw = self.pnl()
+            if raw is None or not Decimal(raw).is_finite():
+                raise ValueError(f"PnL {raw!r}")
+            pnl = Decimal(raw)
+        except Exception as exc:
+            return [Issue(K.ACCOUNT_UNREADABLE, None, f"strategy loss unknown ({type(exc).__name__}: {exc}); "
+                                                      "every entry is blocked, nothing is closed")]
+        if pnl > -self.limit * self.capital:
+            return []
+        try:
+            state = self.kill.state()
+            if not (state.active and state.flatten):
+                reason = (f"strategy loss stop: the strategy has lost {-pnl:.2f} USDT of its {self.capital} USDT "
+                          f"capital (limit {self.limit * 100:g} %); every position is closed and entries are refused. "
+                          "Clearing the kill switch alone sets it again: going on means a new pilot in a new state "
+                          "directory")
+                self.kill.trip(reason)
+                self._trip = reason
+        except Exception as exc:
+            return [Issue(K.ACCOUNT_UNREADABLE, None, "strategy loss stop reached but the kill switch could not be "
+                                                      f"set ({type(exc).__name__}: {exc}); every entry is blocked")]
+        return []
+
+
+__all__ = ["LOSS_STOP_SECONDS", "StrategyLossStop", "strategy_unrealized"]
