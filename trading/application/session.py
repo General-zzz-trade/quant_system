@@ -18,7 +18,8 @@ from trading.domain.bars import HOUR, Bar
 from trading.domain.market import frame_from_bars, funding_window
 from trading.domain.orders import BLOCKED, SETTLED
 from trading.domain.rebalance import Intent, close_without_equity, plan
-from trading.domain.strategy.overlay import StrategySpec, latest_target
+from trading.domain.strategy.base import OverlayStrategy, Strategy, Window
+from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.events import EventKind
 from trading.domain.symbol_state import SymbolState
 
@@ -77,10 +78,14 @@ class ExecutionParts:
 
 class TargetSession:
     def __init__(self, symbol: str, spec: StrategySpec, *, journal: EventLog, rules: LotRules,
-                 make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5")) -> None:
+                 make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5"),
+                 strategy: Strategy | None = None) -> None:
         self.symbol, self.spec, self.journal, self.rules = symbol, spec, journal, rules
         self.allocation, self._make_order = allocation, make_order
-        self.bars: deque[Bar] = deque(maxlen=spec.window_hours() + 48)
+        # R1 (runtime extension plan): the target comes from a strategy behind the shared interface; the spec still
+        # carries the execution settings (band, execution mode, maker lifetime). Without one, the spec's overlay.
+        self.strategy: Strategy = strategy if strategy is not None else OverlayStrategy(spec)
+        self.bars: deque[Bar] = deque(maxlen=self.strategy.window_hours() + 48)
         self.funding: dict[int, float] = {}
         self.cursor: int | None = None
         self.entry_ready, self.entry_reason = False, "no live bar yet"
@@ -101,11 +106,11 @@ class TargetSession:
     # -- data ---------------------------------------------------------------
     def funding_series(self, upto: int | None = None) -> Any:
         """Settlements known at ``upto`` (all when None); a catch-up must not see later ones."""
-        return funding_window(self.funding, upto, self.spec.funding_window())
+        return funding_window(self.funding, upto, self.strategy.funding_window())
 
     def _target(self) -> tuple[float, bool]:
-        return latest_target(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at),
-                             self.spec)
+        window = Window(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at))
+        return self.strategy.latest({self.symbol: window})[self.symbol]
 
     # -- execution callbacks ------------------------------------------------
     def restore_pending(self) -> None:
