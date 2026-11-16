@@ -204,7 +204,7 @@ def _paper_fills(symbol: str, broker: dict[str, Any], journal: list[dict[str, An
 def _bars(data_dir: Path, symbol: str, window: int, last: int) -> list[Any]:
     path = data_dir / f"{symbol}_1h.csv"
     try:
-        bars = load_bars(path, start_ms=window)
+        bars = load_bars(path, start_ms=window, extras=True)          # R7 audit F4: the kline fields too
     except BAD_DATA as exc:
         raise CannotCompare(f"K 线快照 {path} 不能用：{exc}") from None
     bars = [b for b in bars if b.open_time <= last]

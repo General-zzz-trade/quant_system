@@ -148,7 +148,8 @@ def _checks(**changes):
 
 def test_the_final_check_passes_only_when_all_five_hold():
     assert _checks() == {"unseen_data": True, "at_least_50_trades": True, "double_fees": True,
-                         "neighbouring_settings": True, "no_lookahead": True}
+                         "neighbouring_settings": True, "no_lookahead": True, "runs_as_judged": True}
+    assert not _checks(runs_as_judged=False)["runs_as_judged"]                     # R7 audit F9
     assert not _checks(holdout={"total_return": 0.0, "sharpe": 1.0})["unseen_data"]
     assert not _checks(holdout={"total_return": 0.02, "sharpe": 0.5})["unseen_data"]
     assert not _checks(holdout={"days": 0})["unseen_data"]
@@ -166,7 +167,7 @@ def pulse(df, ctx):
     return pd.Series(((df.index // H) % 24 < ctx["params"]["hours"]) * 0.9, index=df.index)
 
 
-RUN_IDEAS = {"pulse": (lab.legacy(pulse), [{"hours": 12}, {"hours": 8}]), "always": IDEAS["always"],
+RUN_IDEAS = {"pulse": (lab.legacy(pulse, reads=()), [{"hours": 12}, {"hours": 8}]), "always": IDEAS["always"],
              "short": IDEAS["short"]}
 
 
@@ -239,7 +240,7 @@ def test_the_final_check_reads_the_holdout_for_survivors_only_and_names_the_cham
     assert set(out["final_check"]) == {"pulse", "always"}
     assert out["final_check"]["pulse"]["checks"] == {"unseen_data": True, "at_least_50_trades": True,
                                                      "double_fees": True, "neighbouring_settings": True,
-                                                     "no_lookahead": True}
+                                                     "no_lookahead": True, "runs_as_judged": True}
     assert out["final_check"]["pulse"]["final_choice"] == screened["ideas"]["pulse"]["final_choice"]
     assert out["final_check"]["pulse"]["holdout"]["days"] == 20
     doubled = out["final_check"]["pulse"]["double_fees_walk_forward"]["total_return"]
@@ -275,3 +276,13 @@ def test_with_no_survivor_the_holdout_stays_closed(market, tmp_path, monkeypatch
     out = j.final(screened, processes=1)
     assert ends == [] and windows == []
     assert out == {"buy_and_hold": None, "final_check": {}, "ranking": [], "champion": None}
+
+
+def test_an_idea_that_reads_a_symbol_outside_its_lists_does_not_run_as_judged(market, tmp_path):  # noqa: F811
+    """R7 audit F9: the runtime trades every symbol a strategy reads, so an idea judged reading BTCUSDT outside the
+    lists cannot run as it was judged: the final check fails it, whatever its numbers."""
+    reading = {**RUN_IDEAS, "pulse": (lab.legacy(pulse), RUN_IDEAS["pulse"][1])}          # reads BTCUSDT by default
+    j = make(market, tmp_path, ideas=reading, lookahead=lambda name, params: [])
+    out = j.final(j.screen(["pulse"], processes=1), processes=1)
+    assert out["final_check"]["pulse"]["checks"]["runs_as_judged"] is False
+    assert out["final_check"]["pulse"]["passes"] is False and out["champion"] is None

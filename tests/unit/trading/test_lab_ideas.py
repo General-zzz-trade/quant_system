@@ -125,7 +125,8 @@ def test_every_idea_gives_exactly_the_lab_s_weights(data, monkeypatch, name, par
     strategy = ideas.IdeaStrategy(name, params)
     history = strategy.history(_windows(data, symbols=symbols))
     for symbol in symbols:
-        ctx = {"params": params, "btc": frames["BTCUSDT"], "symbol": symbol, "universe": list(symbols)}
+        # the registered ideas rank in symbol-name order (R7 audit F1): the research function is given that order
+        ctx = {"params": params, "btc": frames["BTCUSDT"], "symbol": symbol, "universe": sorted(symbols)}
         expected = lab.IDEAS[name][0](frames[symbol], ctx).reindex(frames[symbol].index).fillna(0.0)
         got = history[symbol]
         assert got["available_at"].tolist() == (frames[symbol].index + H).tolist()
@@ -218,3 +219,46 @@ def test_lab_frame_sums_the_settlements_of_an_hour_and_puts_zero_elsewhere():
     assert frame.index.tolist() == [T0, T0 + H, T0 + 2 * H] and frame["close"].tolist() == [1.0, 2.0, 3.0]
     assert frame["funding"].tolist() == pytest.approx([1e-4, 0.0, 2.5e-4])
     assert "available_at" not in frame and "open_time" not in frame
+
+
+# -- the R7 audit -------------------------------------------------------------------------------------------------
+def test_a_cross_sectional_idea_does_not_depend_on_the_order_of_its_symbols(data):
+    """F1: ties (funding sums of exactly the same rate are common) are broken by symbol name, not by list order."""
+    symbols = SYMBOLS + MORE
+    for name, params in (("C4_xs_funding_ls", {"window": 3}), ("C3_xs_funding_top_long", {"window": 3}),
+                         ("B2_xs_reversal_ls", {"days": 1})):
+        strategy = ideas.IdeaStrategy(name, params)
+        forward = strategy.history(_windows(data, symbols=symbols))
+        backward = strategy.history(_windows(data, symbols=tuple(reversed(symbols))))
+        for symbol in symbols:
+            pd.testing.assert_frame_equal(forward[symbol], backward[symbol], obj=f"{name} {symbol}")
+    tied = {s: Window(w.hourly, pd.Series(1e-4, index=w.funding.index))
+            for s, w in _windows(data, symbols=symbols).items()}
+    a = ideas.IdeaStrategy("C3_xs_funding_top_long", {"window": 3}).history(tied)
+    b = ideas.IdeaStrategy("C3_xs_funding_top_long", {"window": 3}).history(dict(reversed(list(tied.items()))))
+    assert all(a[s]["target"].equals(b[s]["target"]) for s in symbols)              # every sum tied
+    held = {s for s in symbols if (a[s]["target"] > 0).any()}
+    assert held == {"ADAUSDT", "BTCUSDT", "DOGEUSDT"}                               # the first three names
+
+
+@pytest.mark.parametrize("name,params,named", [
+    ("A1_tsmom_long", {"n": 20.0}, "whole number"), ("A1_tsmom_long", {"n": 20.5}, "whole number"),
+    ("E4_high_vol_off", {"q": 1.5}, "below 1"), ("A3_ma_cross_long", {"fast": 50, "slow": 20}, "shorter"),
+    ("B5_flush_reversal", {"drop": 0.04, "hold": 24.0}, "whole number")])
+def test_parameters_every_decision_would_fail_on_are_refused_when_read(name, params, named):
+    """F6: refused when the spec is read, not at every bar."""
+    with pytest.raises(ValueError, match=named):
+        PARAMS[name](params)
+    assert PARAMS["B5_flush_reversal"]({"drop": 0.04, "hold": 24})["hold"] == 24
+
+
+def test_a_day_whose_kline_fields_are_unknown_gives_no_signal(data):
+    """F7: an all-unknown day sums to unknown, not 0, so a volume surge is not read into the next known day."""
+    hourly, funding = data["ETHUSDT"]
+    hourly = hourly.iloc[-24 * 60:].reset_index(drop=True).copy()
+    for column in ("quote_volume", "taker_buy_quote_volume", "taker_buy_volume", "trades"):
+        hourly.loc[: len(hourly) - 49, column] = np.nan                     # known for the last two days only
+    window = {"ETHUSDT": Window(hourly, funding)}
+    for name, params in (("D3_surge_fade_short", {"m": 3, "hold": 1}), ("D1_volume_breakout", {"m": 2, "hold": 3}),
+                         ("D2_taker_imbalance", {"x": 0.01})):
+        assert ideas.IdeaStrategy(name, params).latest(window)["ETHUSDT"][0] == 0.0, name

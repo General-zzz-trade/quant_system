@@ -1,0 +1,93 @@
+[
+ [
+  "F1 list order ranks",
+  "trading/domain/strategy/ideas.py",
+  "for s in sorted(ctx[\"universe\"])})",
+  "for s in ctx[\"universe\"]})",
+  "tests/unit/trading/test_lab_ideas.py::test_a_cross_sectional_idea_does_not_depend_on_the_order_of_its_symbols"
+ ],
+ [
+  "F2 positions before ready",
+  "lab/um_judge.py",
+  "            if self.ready_only:\n                target = np.where",
+  "            if False:\n                target = np.where",
+  "tests/unit/lab/test_um_judge_interface.py::test_no_position_before_the_strategy_s_window_is_full"
+ ],
+ [
+  "F3 references freeze all",
+  "trading/application/market_poller.py",
+  "        if not strategy.cross_sectional:\n            self._decide_with_references(strategy, decide_ms, advanced)\n            return\n",
+  "",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "F3 decided twice",
+  "trading/application/market_poller.py",
+  "            if at is None or self.decided_at.get(symbol) == at:",
+  "            if at is None:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "F3 only own symbol fresh",
+  "trading/application/market_poller.py",
+  "            if not advanced & set(unit) or",
+  "            if symbol not in advanced or",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "F4 no kline fields",
+  "lab/paper_compare.py",
+  "bars = load_bars(path, start_ms=window, extras=True)",
+  "bars = load_bars(path, start_ms=window)",
+  "tests/unit/lab/test_paper_compare_strategies.py -k D2"
+ ],
+ [
+  "F6 float counts",
+  "trading/domain/strategy/ideas.py",
+  "        if key in WHOLE and type(value) is not int:",
+  "        if False:",
+  "tests/unit/trading/test_lab_ideas.py -k refused_when_read"
+ ],
+ [
+  "F6 quantile 1.5",
+  "trading/domain/strategy/ideas.py",
+  "    if \"q\" in out and out[\"q\"] >= 1:",
+  "    if False:",
+  "tests/unit/trading/test_lab_ideas.py -k refused_when_read"
+ ],
+ [
+  "F6 fast slow",
+  "trading/domain/strategy/ideas.py",
+  "    if \"fast\" in out and out[\"fast\"] >= out[\"slow\"]:",
+  "    if False:",
+  "tests/unit/trading/test_lab_ideas.py -k refused_when_read"
+ ],
+ [
+  "F7 unknown sums zero",
+  "trading/domain/strategy/ideas.py",
+  "\"quote\": df[\"quote_volume\"].groupby(day).sum(min_count=1),",
+  "\"quote\": df[\"quote_volume\"].groupby(day).sum(),",
+  "tests/unit/trading/test_lab_ideas.py -k unknown_gives"
+ ],
+ [
+  "F9 always runnable",
+  "lab/um_judge.py",
+  "                runs_as_judged=all(reads <= set(symbols) for symbols in self.lists))",
+  "                runs_as_judged=True)",
+  "tests/unit/lab/test_um_judge_screen.py::test_an_idea_that_reads_a_symbol_outside_its_lists_does_not_run_as_judged"
+ ],
+ [
+  "F10 one bar early",
+  "lab/um_judge.py",
+  "            out[s] = pd.Series(target, index=history[s][\"available_at\"].to_numpy(dtype=\"int64\") - H)",
+  "            out[s] = pd.Series(target, index=history[s][\"available_at\"].to_numpy(dtype=\"int64\") - 2 * H)",
+  "tests/unit/lab/test_um_judge_interface.py::test_a_target_decided_at_a_close_is_filled_at_the_next_open"
+ ],
+ [
+  "F10 one bar late",
+  "lab/um_judge.py",
+  "            out[s] = pd.Series(target, index=history[s][\"available_at\"].to_numpy(dtype=\"int64\") - H)",
+  "            out[s] = pd.Series(target, index=history[s][\"available_at\"].to_numpy(dtype=\"int64\"))",
+  "tests/unit/lab/test_um_judge_interface.py::test_a_target_decided_at_a_close_is_filled_at_the_next_open"
+ ]
+]

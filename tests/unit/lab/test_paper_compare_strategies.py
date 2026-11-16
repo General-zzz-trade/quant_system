@@ -5,6 +5,7 @@ registry does not know cannot be compared."""
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
@@ -18,16 +19,19 @@ from tests.unit.lab.test_target_runtime import _world
 WARM = StrategySpec(lookbacks=(20,), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
 
 
-def _paper(tmp, name, params, live=60):
+def _paper(tmp, name, params, live=60, allow_short=True):
     with pytest.MonkeyPatch.context() as mp:
         for var in ("QUANT_MODEL_SIGN_KEY", "BINANCE_TESTNET", "RISK_SCOPE"):
             mp.delenv(var, raising=False)
         mp.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
         world = _world(tmp, WARM)
+        for rows in world["rows"].values():           # a taker-buy share that moves, for the ideas that read it
+            for i, row in enumerate(rows):
+                row["taker_buy_quote_volume"] = round(row["quote_volume"] * (0.5 + 0.06 * math.sin(i / 60)), 2)
         world["spec_path"].write_text(json.dumps({
             "schema": 2, "kind": "target_strategy", "strategy": {"name": name, "params": params},
             "execution": {"band": 0.05, "execution": "market", "ttl_bars": 1}, "symbols": ["BTCUSDT", "ETHUSDT"],
-            "allow_short": True, "passed": False}))
+            "allow_short": allow_short, "passed": False}))
         runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp / "paper", mode="paper",
                                 market=world["adapter"], clock=lambda: world["clock"]["now"])
         assert runtime.sessions["BTCUSDT"].strategy.name == name
@@ -37,10 +41,13 @@ def _paper(tmp, name, params, live=60):
     return tmp / "paper", tmp / "data"
 
 
-@pytest.mark.parametrize("name,params", [("A1_tsmom_long", {"n": 20}), ("B1_xs_reversal_long", {"days": 1}),
-                                         ("F1_btc_trend_beta", {"n": 10})])
-def test_a_paper_run_of_a_registered_idea_compares_equal(tmp_path, name, params):
-    paper, data = _paper(tmp_path, name, params)
+@pytest.mark.parametrize("name,params,short", [("A1_tsmom_long", {"n": 20}, True),
+                                               ("B1_xs_reversal_long", {"days": 1}, True),
+                                               ("F1_btc_trend_beta", {"n": 10}, True),
+                                               ("D2_taker_imbalance", {"x": 0.01}, True),   # reads the kline fields
+                                               ("A2_tsmom_ls", {"n": 20}, False)])          # shorts not allowed
+def test_a_paper_run_of_a_registered_idea_compares_equal(tmp_path, name, params, short):
+    paper, data = _paper(tmp_path, name, params, allow_short=short)
     report = paper_compare.compare(paper, data)
     assert report.verdict == paper_compare.EQUAL, paper_compare.render(report)
     assert {r.symbol for r in report.symbols} == {"BTCUSDT", "ETHUSDT"}

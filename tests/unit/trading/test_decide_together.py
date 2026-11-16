@@ -308,17 +308,34 @@ def test_the_session_decides_on_a_given_target_without_asking_its_strategy():
     assert list(window.funding.index) == [T0 + k * 8 * HOUR for k in range(2, 6)]
 
 
-def test_a_strategy_that_reads_another_symbol_decides_together():
-    """R7d: a per-symbol strategy that reads BTCUSDT depends on BTCUSDT's bar too: every symbol at one close."""
-    class Gated(Ranked):
-        cross_sectional = False
+class Gated(Ranked):
+    """A per-symbol strategy that reads AUSDT (as the lab's ideas read BTCUSDT)."""
+    cross_sectional = False
 
-        def references(self):
-            return ("AUSDT",)
+    def references(self):
+        return ("AUSDT",)
+
+
+def test_a_symbol_that_is_behind_holds_back_only_the_decisions_that_read_it():
+    """R7 audit F3: each symbol decides with the symbols it reads; CUSDT behind does not stop AUSDT or BUSDT."""
     w = _poller(EXECUTION, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 2}, now_hours=4, strategy=Gated(None))
     w.poller.poll()
-    assert w.log == []                                                # CUSDT is behind: nobody decides
+    assert w.log == [("latest", [("AUSDT", 3)]), ("decide", "AUSDT", 3, (0.0, True)),
+                     ("latest", [("AUSDT", 3), ("BUSDT", 3)]), ("decide", "BUSDT", 3, (0.1, True))]
     w.market.last["CUSDT"] = 3
     w.clock["t"] += 5
     w.poller.poll()
-    assert [e[0] for e in w.log] == ["latest", "decide", "decide", "decide"]
+    assert w.log[4:] == [("latest", [("AUSDT", 3), ("CUSDT", 3)]), ("decide", "CUSDT", 3, (0.1, True))]
+    w.clock["t"] += 5
+    w.poller.poll()
+    assert len(w.log) == 6                                            # each symbol decides once per close
+
+
+def test_when_the_symbol_read_is_behind_nobody_that_reads_it_decides():
+    w = _poller(EXECUTION, {"AUSDT": 2, "BUSDT": 3, "CUSDT": 3}, now_hours=4, strategy=Gated(None))
+    w.poller.poll()
+    assert [(e[0], e[1], e[2]) for e in w.log if e[0] == "decide"] == [("decide", "AUSDT", 2)]   # its own close
+    w.market.last["AUSDT"] = 3
+    w.clock["t"] += 5
+    w.poller.poll()
+    assert [(e[1], e[2]) for e in w.log if e[0] == "decide"][1:] == [("AUSDT", 3), ("BUSDT", 3), ("CUSDT", 3)]

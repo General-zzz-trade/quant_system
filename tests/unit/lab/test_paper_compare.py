@@ -33,9 +33,11 @@ def _snapshot(world, out: Path) -> None:
         rows = world["rows"][symbol]
         with (out / f"{symbol}_1h.csv").open("w", newline="") as stream:
             writer = csv.writer(stream)
-            writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+            fields = ("open", "high", "low", "close", "volume", "quote_volume", "trades", "taker_buy_volume",
+                      "taker_buy_quote_volume")                 # R7 audit F4: the kline fields paper read from REST
+            writer.writerow(["open_time", *fields])
             for r in rows:
-                writer.writerow([r["start"], *(str(r[k]) for k in ("open", "high", "low", "close", "volume"))])
+                writer.writerow([r["start"], *(str(r[k]) for k in fields)])
         opens = {r["start"]: r["open"] for r in rows}
         with (out / f"{symbol}_funding.csv").open("w", newline="") as stream:
             writer = csv.writer(stream)

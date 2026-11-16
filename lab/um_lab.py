@@ -72,8 +72,9 @@ class FunctionStrategy:
     ``symbol``; ``universe``, the symbols the strategy was given."""
     name = "function"
 
-    def __init__(self, fn: Idea, params: dict, *, cross: bool = False) -> None:
+    def __init__(self, fn: Idea, params: dict, *, cross: bool = False, reads: tuple[str, ...] | None = None) -> None:
         self.fn, self.params, self.cross_sectional = fn, params, cross
+        self.reads = reads
 
     def window_hours(self) -> int:
         raise NotImplementedError("a research function has no runtime window; register it as a strategy first")
@@ -82,6 +83,10 @@ class FunctionStrategy:
         raise NotImplementedError("a research function has no runtime window; register it as a strategy first")
 
     def references(self) -> tuple[str, ...]:
+        """What it reads besides: ``reads`` when given, else BTCUSDT for a per-symbol function (the first run's
+        functions could read ``ctx["btc"]``) and nothing for a cross-sectional one."""
+        if self.reads is not None:
+            return self.reads
         return () if self.cross_sectional else ("BTCUSDT",)
 
     def history(self, windows: Mapping[str, Any]) -> dict[str, pd.DataFrame]:
@@ -98,9 +103,10 @@ class FunctionStrategy:
         return {s: (float(f["target"].iloc[-1]), True) for s, f in self.history(windows).items()}
 
 
-def legacy(fn: Idea, *, cross: bool = False) -> Factory:
-    """A research function as the judge takes an idea (``FunctionStrategy``)."""
-    return partial(FunctionStrategy, fn, cross=cross)
+def legacy(fn: Idea, *, cross: bool = False, reads: tuple[str, ...] | None = None) -> Factory:
+    """A research function as the judge takes an idea (``FunctionStrategy``); ``reads``: the symbols it reads besides
+    (default: BTCUSDT for a per-symbol function)."""
+    return partial(FunctionStrategy, fn, cross=cross, reads=reads)
 
 
 @dataclass(frozen=True)
