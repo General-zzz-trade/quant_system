@@ -260,7 +260,7 @@ def _strategy(identity: dict[str, Any]) -> tuple[Strategy, StrategySpec]:
     """The strategy a paper record names (``TargetSpec.identity``) and its execution settings: the overlay's record,
     or a registered strategy's name, parameters and settings (R7d)."""
     if "strategy" not in identity:
-        spec = StrategySpec.from_record(identity)
+        spec = StrategySpec.from_record({k: v for k, v in identity.items() if k != "allow_short"})
         return OverlayStrategy(spec), spec
     name = identity["strategy"]
     if name not in STRATEGIES or name not in PARAMS:
@@ -384,6 +384,8 @@ def compare(paper_dir: Path, data_dir: Path) -> Report:
         windows = {s: Window(frame_from_bars(i.bars, extras=True), funding_series(i.funding))
                    for s, i in inputs.items()}
         targets = strategy.history(windows)
+        if not document["spec"].get("allow_short", True):        # the session trades a negative target as 0 (R6)
+            targets = {s: t.assign(target=t["target"].clip(lower=0.0)) for s, t in targets.items()}
         results = [_compare_symbol(s, inputs[s], journal, clients, record, spec, targets[s]) for s in symbols]
     except CannotCompare as exc:
         return Report(CANNOT, paper_dir, data_dir, reason=str(exc))

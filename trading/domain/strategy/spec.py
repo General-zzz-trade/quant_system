@@ -17,7 +17,6 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, replace
-from functools import partial
 from typing import Any
 
 from trading.domain.strategy.base import STRATEGIES, Strategy
@@ -26,10 +25,14 @@ from trading.domain.strategy.overlay import StrategySpec
 
 MAX_SYMBOLS = 10                    # owner 2026-11-16: at most 10 symbols in the first version
 KIND_V1, KIND_V2 = "btc_eth_multitimeframe_target", "target_strategy"
+def _idea_params(name: str) -> Callable[[Mapping[str, Any]], Any]:
+    return lambda params: idea_params(name, params)
+
+
 # How each strategy's parameters become what its constructor takes.
 PARAMS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "overlay": lambda params: StrategySpec.from_record(dict(params)),
-    **{name: partial(idea_params, name) for name in IDEAS},          # R7b: the lab's ideas
+    **{name: _idea_params(name) for name in IDEAS},                  # R7b: the lab's ideas
 }
 
 
@@ -52,13 +55,18 @@ class TargetSpec:
 
     def identity(self) -> dict[str, Any]:
         """What a paper record stores to know its strategy: the overlay as traded (its own record, as before R2, so a
-        schema-1 record is unchanged), any other strategy by name, parameters and execution settings (R2 audit)."""
+        schema-1 record is unchanged; with ``allow_short`` when the spec's rule is not the one its ``long_only``
+        implies), any other strategy by name, parameters, execution settings and shorts rule (R2 and R5/R6 audits)."""
         if self.strategy_name == "overlay":
             traded: StrategySpec = replace(self.params, band=self.execution.band, execution=self.execution.execution,
                                            ttl_bars=self.execution.ttl_bars)
-            return traded.record()
+            record = traded.record()
+            if self.allow_short != (not traded.long_only):     # R5/R6 audit: the shorts rule, when the spec sets it
+                record["allow_short"] = self.allow_short
+            return record
         return {"strategy": self.strategy_name, "params": dict(self.params), "band": self.execution.band,
-                "execution": self.execution.execution, "ttl_bars": self.execution.ttl_bars}
+                "execution": self.execution.execution, "ttl_bars": self.execution.ttl_bars,
+                "allow_short": self.allow_short}
 
 
 def _is_usdt_perpetual(symbol: Any) -> bool:
