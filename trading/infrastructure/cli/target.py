@@ -33,6 +33,7 @@ from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRestE
 from trading.adapters.files.event_log import JsonlEventLog
 from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.files.host_lock import HostLock
+from trading.adapters.notify.heartbeat import HttpHeartbeat
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
 from trading.adapters.simulated.exchange import SimulatedExchange
@@ -49,8 +50,8 @@ from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
 from trading.infrastructure import target
 from trading.infrastructure.bootstrap import build_adapters
-from trading.infrastructure.config import (RuntimeConfig, Secrets, load_config, make_notifier, risk_limits,
-                                           with_credentials)
+from trading.infrastructure.config import (RuntimeConfig, Secrets, load_config, make_heartbeat, make_notifier,
+                                           require_operator_channels, risk_limits, with_credentials)
 from trading.infrastructure.modes import PAPER, policy_for
 from trading.infrastructure.paper import (PAPER_STATE, PAPER_STATE_DIR, BarTimeClock, DivergencePauses,
                                           PaperDivergenceLog, PaperStateStore, SymbolVenueEquity, paper_exchange,
@@ -59,6 +60,7 @@ from trading.infrastructure.state_dir import is_managed, kill_file_path
 from trading.infrastructure.state_dir import verify as verify_state_dir
 
 logger = logging.getLogger("binance_target")
+START_ALERT_SECONDS = 15.0          # how long the start waits for Telegram to confirm (ADR-0016 point 2)
 
 EXECUTION_STATE_DIR = Path("data/runtime/binance_target")    # as in the state_dir command's examples
 SpecLoader = Callable[[Path], dict[str, Any]]
@@ -218,38 +220,68 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / STATE_DB, scope)
     host: HostLock | None = None
+    notifier = None
     try:
-        if args.execution:   # the credentials after every local check, before the account (as before ADR-0017)
-            config, secrets = with_credentials(config, secrets)
+        if args.execution:
+            # ADR-0016 points 1 and 3: alerts and a heartbeat, checked before anything reaches the account.
+            require_operator_channels(config, secrets)
+            config, secrets = with_credentials(config, secrets)   # after every local check (as before ADR-0017)
             assert config.identity is not None
             # ADR-0016 point 5: one execution process per account identity on this host, whatever its directory.
             host = HostLock(config.identity, holder=f"binance_target --state-dir {args.state_dir}")
+            notifier = make_notifier(secrets)
+            network = "testnet" if testnet else "MAINNET"
+            # ADR-0016 point 2: confirmed by Telegram, or no account request at all.
+            if not notifier.deliver(f"{network} execution starting",
+                                    f"scope {scope}, account identity {config.identity[:12]}, state directory "
+                                    f"{args.state_dir}", timeout_s=START_ALERT_SECONDS):
+                raise RuntimeError("the start-up alert was not confirmed by Telegram; execution not started")
         market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"],
                                          credentials=secrets.binance)
         if args.execution:   # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
-            assert config.leverage is not None and account is not None
-            target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"],
-                                           leverage=config.leverage, margin=config.margin)
+            assert config.leverage is not None and account is not None and notifier is not None
+            try:
+                target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope,
+                                               symbols=frozen["symbols"], leverage=config.leverage,
+                                               margin=config.margin)
+            except RuntimeError as exc:                       # best effort: the refusal still stands
+                notifier.deliver("execution start refused", str(exc)[:3000], timeout_s=START_ALERT_SECONDS)
+                raise
         built = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
                               mode="execution" if args.execution else "paper", market=market, account=account,
                               testnet=testnet, stop_pct=config.stop_pct, reset_paper=args.reset_paper_state,
-                              config=config, secrets=secrets)
-        _run(built, max_cycles=args.max_cycles)
+                              config=config, secrets=secrets, **({"notifier": notifier} if notifier else {}))
+        _run(built, max_cycles=args.max_cycles, heartbeat=make_heartbeat(config, secrets))
     finally:                 # a start-up that fails half way releases them too
         lease.close()
         if host is not None:
             host.close()
 
 
-def _run(built: _runtime.TargetRuntime, *, max_cycles: int | None) -> None:
-    """The loop: warm up (market data down: exits keep working), then one cycle every POLL_SECONDS."""
+def _beat(heartbeat: HttpHeartbeat | None) -> None:
+    """The heartbeat is a bystander (ADR-0016 point 3): nothing it does may stop the loop."""
+    if heartbeat is None:
+        return
+    try:
+        heartbeat.beat()
+    except Exception as exc:
+        logger.warning("heartbeat failed (%s)", type(exc).__name__)
+
+
+def _run(built: _runtime.TargetRuntime, *, max_cycles: int | None, heartbeat: HttpHeartbeat | None = None) -> None:
+    """The loop: warm up (market data down: exits keep working), then one cycle every POLL_SECONDS. The heartbeat
+    beats on both, so waiting for market data never reads as a dead process (design audit L6)."""
     stop = {"flag": False}
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.update(flag=True))
-    while not stop["flag"] and not built.warmup_or_hold():
+    while not stop["flag"]:
+        _beat(heartbeat)
+        if built.warmup_or_hold():
+            break
         time.sleep(POLL_SECONDS)
     cycles = 0
     while not stop["flag"]:
+        _beat(heartbeat)
         built.cycle()
         cycles += 1
         if max_cycles is not None and cycles >= max_cycles:

@@ -3304,6 +3304,36 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 
 **本地**【实际运行结果】：主机锁、启动、手工工具、风险状态、退出健壮性、启动顺序、状态目录和架构测试通过；ruff、`mypy trading/`（90 个文件）、导入契约通过。
 
+## S7：告警出口、启动告警与心跳（2026-11-16，ADR-0016 第 1–3 条，资金路径完整流程）
+
+**改了什么**
+- **执行模式必须有告警和心跳**（`config.require_operator_channels`）：测试网和主网缺 `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` 或 `HEARTBEAT_URL` 都拒绝启动，在读凭据、连接账户之前。模拟盘两样都不需要。
+- **心跳地址按密钥处理**：只放在 `Secrets` 里，必须是 `https://`；不进配置记录、摘要和任何打印；错误信息不回显它。
+- **确认送达**（`TelegramNotifier.deliver`）：同步发送，在超时内收到 Telegram 回答 `"ok": true` 才算送达；排队中的告警不挡它；失败只按异常类型记日志，不写令牌。进程日志（`LogNotifier`）永远不算送达。
+- **启动告警**（入口，`trading/infrastructure/cli/target.py`）：本地检查全部通过、拿到主机锁之后，连接账户之前，发"testnet/MAINNET execution starting"（含 scope、账户身份前 12 位、状态目录，不含密钥）。15 秒内没有确认就拒绝启动，不发出任何账户请求。
+- **拒绝启动也告警**：启动时的账户检查（ADR-0010）拒绝时，再发一条"execution start refused"和原因（尽力而为，拒绝照旧）。
+- 运行时用同一个通知器发运行中的告警。
+- **心跳**（`trading/adapters/notify/heartbeat.py`）：每分钟最多一次，在单独线程里发、带 5 秒超时，上一次还没发完就不再发；失败只按异常类型记日志。主循环在等行情（预热）和每轮之前都调用它；它出任何错都不会停下主循环（审计 L6、ADR-0016 第 3 条"旁观者"）。
+- **服务失败告警**（`trading/infrastructure/unit_alert.py`，S8 的 `quant-alert@.service` 调用）：一条带单元名和主机名的 Telegram 消息，确认送达退出 0，没确认退出 1，没配 Telegram 退出 2；不打印令牌。
+
+**已有测试的改动**：没有改断言。
+
+**测试辅助的改动**
+- `tests/characterization/test_startup_account_check.py` 的 `world` 夹具：加了 Telegram 和心跳地址的环境变量，并把入口的 `make_notifier` 换成一个确认所有消息的假通知器（不出主机）。原因：执行模式现在没有这两样就拒绝启动，并且要 Telegram 确认才继续。用这个夹具的启动测试（ADR-0010 和 S6）断言不变。
+
+**新增测试**
+- `tests/unit/trading/test_operator_delivery.py`：11 条（确认送达 6 条，心跳 5 条）。
+- `tests/unit/trading/test_execution_prerequisites.py`：9 条（含参数化）。
+- `tests/unit/trading/test_unit_alert.py`：4 条。
+- `tests/characterization/test_operator_startup.py`：9 条（含参数化）：缺告警或心跳时拒绝且没有账户请求；启动告警在任何账户请求之前送达并确认、内容不含密钥；没确认就拒绝；账户检查拒绝时也告警；运行时用同一个通知器；模拟盘不需要也不发；心跳在等行情和各轮之间都发，失败不停循环。
+
+**变异自检**【实际运行结果】
+- 适配器部分（`scripts/dev/mutants/s7-adapters.json`）：11 个（任何回答都算送达、出错算送达、忽略超时、改成排队发送、进程日志算送达、心跳不限频、心跳在调用方线程里发、在途时重复发、失败日志带出地址、地址出现在文字里、忽略超时），第一轮全部被抓住。
+- 配置、入口和服务失败告警（`s7-wiring.json`）：14 个（不要求告警和心跳、忽略启动告警的回答、拒绝时不告警、运行时用另一个通知器、等行情时不发心跳、心跳失败停下循环、各轮之间不发心跳、接受非 https 地址、不要求 Telegram、不要求心跳、错误信息回显地址、没确认也成功、进程日志当作 Telegram、消息里没有单元名），第一轮全部被抓住。
+- 合计 25 个，全部被抓住。
+
+**本地**【实际运行结果】：启动、主机锁、送达、前置条件、服务告警、配置、退出健壮性、启动顺序、状态目录、风险状态和架构测试通过；ruff、`mypy trading/`（92 个文件）、导入契约通过。
+
 ## S8：服务单元、状态库备份与恢复、主机安装（2026-11-16，ADR-0016 第 4、6 条，ADR-0017，资金路径完整流程）
 
 **技术负责人的决定**（2026-11-16，AskUserQuestion）
