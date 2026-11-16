@@ -4411,3 +4411,9 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   （守卫只按路径判断，检查的内容不变）。
 - 保留不动：ADR 正文、`research/protocols/`、本日志的旧条目、`docs/btc_eth_strategy.md`、数据集说明、`scripts/dev/mutants/README.md`、
   `research/results/` 和 `research/lab/runs/`。`docs/arch/evidence/probe_*.py` 四个探针脚本保留，但已没有文档讲它们，要不要删由技术负责人定。
+
+## R6 补：做空测试用亏损停止线的新接口（2026-11-17 凌晨）
+
+- 把 master 并进整叠分支后，#117 把 `strategy_unrealized` 改成按账本持仓和交易所标记价计算（`strategy_unrealized(ledger, venue)`），
+  R6 的做空测试还在用旧接口，CI 的一个分片失败（`TypeError: cannot unpack non-iterable VenuePosition object`）。我在本地检查合并交汇处时
+  没有把这个测试文件列进去。改为新接口：账本里的空单（数量、开仓价）和交易所的标记价；断言不变（价格上涨时空单的未实现盈亏为负）。

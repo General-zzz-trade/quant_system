@@ -82,9 +82,9 @@ def test_a_short_is_opened_protected_counted_and_closed_with_its_sign(tmp_path):
     assert held > 0 and abs(gross - held) <= held * D("0.0001")
     btc = world["fakes"]["BTCUSDT"]
     btc.price["BTCUSDT"] = btc.entry["BTCUSDT"] * D("1.01")             # the price rose: the short loses
-    positions = world["adapter"].get_positions(strict=True)
-    loss = strategy_unrealized([p for p in positions if p.symbol == "BTCUSDT"], ["BTCUSDT"])
-    assert loss < 0
+    ledger = [("BTCUSDT", btc.positions["BTCUSDT"], btc.entry["BTCUSDT"])]    # the short as the ledger holds it
+    loss = strategy_unrealized(ledger, world["adapter"].get_position)
+    assert btc.positions["BTCUSDT"] < 0 and loss < 0
     runtime.kill.write(active=True, reason="test", flatten=True)
     world["clock"]["now"] += 5
     runtime.cycle()
