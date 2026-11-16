@@ -1,0 +1,743 @@
+{
+ "what": "lab/um_judge.py against results.json and universe.json of this run; selection periods only, the holdout period was not read",
+ "snapshot": "binance_usdt_perps_2026-11-12",
+ "ideas": [
+  "A6_voladj_mom",
+  "D2_taker_imbalance"
+ ],
+ "stop": "stop0.08_pause4h",
+ "universe": {
+  "matches": true,
+  "obtained": {
+   "rule": "top 10 by median daily quote volume of the 30 days before each date; smallest order <= 20 USDT; no stablecoin contracts",
+   "dates": [
+    "2022-12-13",
+    "2023-11-13",
+    "2024-11-13",
+    "2025-11-13",
+    "2026-05-13"
+   ],
+   "lists": [
+    [
+     "ETHUSDT",
+     "DOGEUSDT",
+     "BNBUSDT",
+     "XRPUSDT",
+     "LTCUSDT",
+     "MATICUSDT",
+     "SOLUSDT",
+     "LINKUSDT",
+     "CHZUSDT",
+     "MASKUSDT"
+    ],
+    [
+     "ETHUSDT",
+     "SOLUSDT",
+     "XRPUSDT",
+     "LINKUSDT",
+     "TRBUSDT",
+     "DOGEUSDT",
+     "1000PEPEUSDT",
+     "LOOMUSDT",
+     "BCHUSDT",
+     "MATICUSDT"
+    ],
+    [
+     "ETHUSDT",
+     "SOLUSDT",
+     "DOGEUSDT",
+     "NEIROUSDT",
+     "1000PEPEUSDT",
+     "SUIUSDT",
+     "WIFUSDT",
+     "APEUSDT",
+     "WLDUSDT",
+     "BNBUSDT"
+    ],
+    [
+     "ETHUSDT",
+     "SOLUSDT",
+     "XRPUSDT",
+     "ZECUSDT",
+     "BNBUSDT",
+     "DOGEUSDT",
+     "ASTERUSDT",
+     "HYPEUSDT",
+     "SUIUSDT",
+     "COAIUSDT"
+    ],
+    [
+     "ETHUSDT",
+     "SOLUSDT",
+     "XAUUSDT",
+     "CLUSDT",
+     "XAGUSDT",
+     "XRPUSDT",
+     "DOGEUSDT",
+     "ZECUSDT",
+     "HYPEUSDT",
+     "1000PEPEUSDT"
+    ]
+   ]
+  }
+ },
+ "all_match": true,
+ "numbers": [
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.total_return",
+   "expected": 0.8259103990663603,
+   "obtained": 0.8259103990663603,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.sharpe",
+   "expected": 0.8038433273869976,
+   "obtained": 0.8038433273869976,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.max_drawdown",
+   "expected": 0.39009471046763355,
+   "obtained": 0.39009471046763355,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "round_trips",
+   "expected": 374,
+   "obtained": 374,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.days",
+   "expected": 909,
+   "obtained": 909,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.cagr",
+   "expected": 0.2734869633610215,
+   "obtained": 0.2734869633610215,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.worst_month",
+   "expected": -0.14871106993499272,
+   "obtained": -0.14871106993499272,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.worst_month_label",
+   "expected": "2024-04",
+   "obtained": "2024-04",
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "walk_forward.longest_losing_days",
+   "expected": 8,
+   "obtained": 8,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "chosen_per_fold",
+   "expected": [
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    }
+   ],
+   "obtained": [
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    },
+    {
+     "n": 30,
+     "z": 0.5
+    }
+   ],
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "final_params",
+   "expected": {
+    "n": 30,
+    "z": 0.5
+   },
+   "obtained": {
+    "n": 30,
+    "z": 0.5
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "selection_sharpe_by_params",
+   "expected": [
+    0.6374686862457779,
+    0.6813069839501763,
+    0.9813518243438071
+   ],
+   "obtained": [
+    0.6374686862457779,
+    0.6813069839501763,
+    0.9813518243438071
+   ],
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "regime",
+   "expected": {
+    "bear": -0.07169017415650636,
+    "chop": -0.41860454992194607
+   },
+   "obtained": {
+    "bear": -0.07169017415650636,
+    "chop": -0.41860454992194607
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "longest_losing_trades",
+   "expected": 31,
+   "obtained": 31,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "exchange_stops",
+   "expected": 129,
+   "obtained": 129,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "score",
+   "expected": {
+    "return": 4,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "obtained": {
+    "return": 4,
+    "drawdown": 2,
+    "trades": 5,
+    "losing_streak": 1,
+    "bear_and_chop": 1,
+    "total": 13
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "survives",
+   "expected": false,
+   "obtained": false,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "limits_needed",
+   "expected": {
+    "entry_orders": 412,
+    "max_orders_per_day": 15,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 393.0083804,
+    "max_order_notional": 130.6229004,
+    "max_orders_in_one_hour": 9
+   },
+   "obtained": {
+    "entry_orders": 412,
+    "max_orders_per_day": 15,
+    "p95_orders_per_active_day": 4.0,
+    "max_daily_notional": 393.0083804,
+    "max_order_notional": 130.6229004,
+    "max_orders_in_one_hour": 9
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "pilot.losing_streak_stops",
+   "expected": 72,
+   "obtained": 72,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "pilot.per_30_days",
+   "expected": 2.376237623762376,
+   "obtained": 2.376237623762376,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "A6_voladj_mom",
+   "number": "pilot.days_below_daily_stop",
+   "expected": 33,
+   "obtained": 33,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.total_return",
+   "expected": 0.11709246192882916,
+   "obtained": 0.11709246192882916,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.sharpe",
+   "expected": 0.7881780890809902,
+   "obtained": 0.7881780890809902,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.max_drawdown",
+   "expected": 0.05115473980252028,
+   "obtained": 0.05115473980252028,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "round_trips",
+   "expected": 100,
+   "obtained": 100,
+   "match": true,
+   "required": true
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.days",
+   "expected": 909,
+   "obtained": 909,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.cagr",
+   "expected": 0.045465517627667706,
+   "obtained": 0.045465517627667706,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.worst_month",
+   "expected": -0.015379766055276245,
+   "obtained": -0.015379766055276245,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.worst_month_label",
+   "expected": "2024-06",
+   "obtained": "2024-06",
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "walk_forward.longest_losing_days",
+   "expected": 6,
+   "obtained": 6,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "chosen_per_fold",
+   "expected": [
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    }
+   ],
+   "obtained": [
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    },
+    {
+     "x": 0.01
+    }
+   ],
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "final_params",
+   "expected": {
+    "x": 0.02
+   },
+   "obtained": {
+    "x": 0.02
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "selection_sharpe_by_params",
+   "expected": [
+    0.5367444368685066,
+    0.9410610581859896,
+    1.079143026858884
+   ],
+   "obtained": [
+    0.5367444368685066,
+    0.9410610581859896,
+    1.079143026858884
+   ],
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "regime",
+   "expected": {
+    "bear": -0.019369736091429002,
+    "chop": -0.022391310811228804
+   },
+   "obtained": {
+    "bear": -0.019369736091429002,
+    "chop": -0.022391310811228804
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "longest_losing_trades",
+   "expected": 6,
+   "obtained": 6,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "exchange_stops",
+   "expected": 9,
+   "obtained": 9,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "score",
+   "expected": {
+    "return": 2,
+    "drawdown": 5,
+    "trades": 4,
+    "losing_streak": 3,
+    "bear_and_chop": 1,
+    "total": 15
+   },
+   "obtained": {
+    "return": 2,
+    "drawdown": 5,
+    "trades": 4,
+    "losing_streak": 3,
+    "bear_and_chop": 1,
+    "total": 15
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "survives",
+   "expected": false,
+   "obtained": false,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "limits_needed",
+   "expected": {
+    "entry_orders": 101,
+    "max_orders_per_day": 4,
+    "p95_orders_per_active_day": 2.0,
+    "max_daily_notional": 107.13665,
+    "max_order_notional": 47.5524,
+    "max_orders_in_one_hour": 3
+   },
+   "obtained": {
+    "entry_orders": 101,
+    "max_orders_per_day": 4,
+    "p95_orders_per_active_day": 2.0,
+    "max_daily_notional": 107.13665,
+    "max_order_notional": 47.5524,
+    "max_orders_in_one_hour": 3
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "pilot.losing_streak_stops",
+   "expected": 9,
+   "obtained": 9,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "pilot.per_30_days",
+   "expected": 0.297029702970297,
+   "obtained": 0.297029702970297,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "D2_taker_imbalance",
+   "number": "pilot.days_below_daily_stop",
+   "expected": 0,
+   "obtained": 0,
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "buy and hold BTC",
+   "number": "walk_forward",
+   "expected": {
+    "days": 912,
+    "total_return": 1.1696080678432312,
+    "cagr": 0.3634093961588043,
+    "sharpe": 0.8812856712593925,
+    "max_drawdown": 0.4955559924094408,
+    "worst_month": -0.17659848583264104,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 6
+   },
+   "obtained": {
+    "days": 912,
+    "total_return": 1.1696080678432312,
+    "cagr": 0.3634093961588043,
+    "sharpe": 0.8812856712593925,
+    "max_drawdown": 0.4955559924094408,
+    "worst_month": -0.17659848583264104,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 6
+   },
+   "match": true,
+   "required": false
+  },
+  {
+   "idea": "buy and hold the list",
+   "number": "walk_forward",
+   "expected": {
+    "days": 909,
+    "total_return": 0.1368738335078925,
+    "cagr": 0.052860211901224474,
+    "sharpe": 0.46463555797978295,
+    "max_drawdown": 0.7623300953742802,
+    "worst_month": -0.3272852365140324,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 7
+   },
+   "obtained": {
+    "days": 909,
+    "total_return": 0.1368738335078925,
+    "cagr": 0.052860211901224474,
+    "sharpe": 0.46463555797978295,
+    "max_drawdown": 0.7623300953742802,
+    "worst_month": -0.3272852365140324,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 7
+   },
+   "match": true,
+   "required": false
+  }
+ ],
+ "with_every_day_counted": {
+  "note": "the same configurations with lab/um_judge.py's own days: each period's first day (and the cost of entering) is in the returns and a day ends at midnight; judge.py left the first day out",
+  "buy_and_hold_btc": {
+   "days": 912,
+   "total_return": 1.1696080678432312,
+   "cagr": 0.3634093961588043,
+   "sharpe": 0.8812856712593925,
+   "max_drawdown": 0.4955559924094408,
+   "worst_month": -0.17659848583264104,
+   "worst_month_label": "2025-02",
+   "longest_losing_days": 6
+  },
+  "ideas": {
+   "A6_voladj_mom": {
+    "walk_forward": {
+     "days": 912,
+     "total_return": 0.78942814753523,
+     "cagr": 0.2622376367013586,
+     "sharpe": 0.7740771541849745,
+     "max_drawdown": 0.4058172240789256,
+     "worst_month": -0.1526568381087715,
+     "worst_month_label": "2024-04",
+     "longest_losing_days": 14
+    },
+    "round_trips": 374,
+    "chosen_per_fold": [
+     {
+      "params": {
+       "n": 30,
+       "z": 0.5
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     },
+     {
+      "params": {
+       "n": 30,
+       "z": 0.5
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     },
+     {
+      "params": {
+       "n": 30,
+       "z": 0.5
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     }
+    ],
+    "exchange_stops": 129,
+    "score": {
+     "return": 4,
+     "drawdown": 2,
+     "trades": 5,
+     "losing_streak": 1,
+     "bear_and_chop": 1,
+     "total": 13
+    },
+    "survives": false
+   },
+   "D2_taker_imbalance": {
+    "walk_forward": {
+     "days": 912,
+     "total_return": 0.11709246192882761,
+     "cagr": 0.04531262171298067,
+     "sharpe": 0.7667456426703924,
+     "max_drawdown": 0.051037532815004893,
+     "worst_month": -0.01583705518793055,
+     "worst_month_label": "2024-06",
+     "longest_losing_days": 6
+    },
+    "round_trips": 100,
+    "chosen_per_fold": [
+     {
+      "params": {
+       "x": 0.01
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     },
+     {
+      "params": {
+       "x": 0.01
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     },
+     {
+      "params": {
+       "x": 0.01
+      },
+      "stop": {
+       "stop_pct": "0.08",
+       "pause_hours": 4,
+       "reenter": "pause"
+      }
+     }
+    ],
+    "exchange_stops": 9,
+    "score": {
+     "return": 2,
+     "drawdown": 5,
+     "trades": 4,
+     "losing_streak": 3,
+     "bear_and_chop": 1,
+     "total": 15
+    },
+    "survives": false
+   }
+  }
+ }
+}
