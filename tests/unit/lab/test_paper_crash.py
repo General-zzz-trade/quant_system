@@ -11,6 +11,7 @@ the journal's own transactions, so every copy is one instant of the running proc
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 
@@ -52,6 +53,22 @@ def _backup(source, directory):
         src.backup(dst)
 
 
+def _unknown_orders(copy, world):
+    """Unsettled journal orders with a venue order id that the saved simulated exchange does not know."""
+    from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+    from trading.adapters.sqlite.paper_state import SqlitePaperState
+    from trading.infrastructure.paper import paper_exchange
+    path = copy / STATE_DB
+    saved = SqlitePaperState(path).load()
+    spec = json.loads(world["spec_path"].read_text())
+    venue = paper_exchange(StrategySpec.from_record(spec["spec"]), spec["symbols"])
+    if saved is not None:
+        venue.restore(saved["venue"])
+    rows = SqliteOrderJournal(path, "paper-target").orders(unresolved=True)
+    return [r["intent_id"] for r in rows
+            if r["order_id"] and venue.get_order(r["symbol"], order_id=r["order_id"]) is None]
+
+
 class Commits:
     """Counts the paper journal's committed transactions and copies the database after the chosen ones."""
 
@@ -83,6 +100,8 @@ def test_after_any_commit_a_restart_finds_the_venue_and_the_journal_in_agreement
         _advance(world, runtime, i)
     traded = sum(len(s.sleeve.broker.fills) for s in runtime.sessions.values())
     assert traded > 0 and len(commits.copies) >= 20
+    for n, copy in sorted(commits.copies.items()):        # every copy: the venue knows each order the journal named
+        assert _unknown_orders(copy, world) == [], n
     restarts = 0
     for n, copy in sorted(commits.copies.items())[::max(1, len(commits.copies) // 5)]:
         restarted = _paper(world, copy)
@@ -106,23 +125,25 @@ def test_a_crash_between_a_bar_s_matching_and_its_decision_decides_the_bar_once(
     commits = Commits(monkeypatch, state, tmp_path)
     runtime = _paper(world, state)
     runtime.warmup()
-    crash_at = world["warm"] + 150
-    crash_open, venue, after = world["rows"]["ETHUSDT"][crash_at]["start"], runtime.account, []
+    first, last = world["warm"] + 120, world["warm"] + 180
+    venue, after = runtime.account, {}
     match = venue.on_closed_bar
 
     def recording(symbol, bar, funding_rate):
         match(symbol, bar, funding_rate)
-        if symbol == "ETHUSDT" and bar.open_time == crash_open:
-            after.append(commits.n + 1)                # copy after the first commit that follows the matching
+        if symbol == "ETHUSDT" and world["rows"]["ETHUSDT"][first]["start"] <= bar.open_time:
+            after[bar.open_time] = commits.n + 1         # copy after the first commit that follows the matching
             commits.wanted.add(commits.n + 1)
     monkeypatch.setattr(venue, "on_closed_bar", recording)
-    for i in range(world["warm"], crash_at + 1):
+    for i in range(world["warm"], last):
         _advance(world, runtime, i)
-    (after,) = after
-    assert after in commits.copies
+    events = [json.loads(line) for line in (state / "target_events.jsonl").read_text().splitlines()]
+    sent = {e["order_id"].split(":")[1] for e in events if e["kind"] == "intent" and e["symbol"] == "ETHUSDT"}
+    crash_at = next(i for i in range(first, last) if str(world["rows"]["ETHUSDT"][i]["start"] + HOUR) in sent)
+    copy = commits.copies[after[world["rows"]["ETHUSDT"][crash_at]["start"]]]   # matched, its order not sent yet
     resume = crash_at + 3                                # down for two more bars
     world["clock"]["now"] = (world["rows"]["BTCUSDT"][resume - 1]["start"] + HOUR + 5_000) / 1000
-    restarted = _paper(world, commits.copies[after])
+    restarted = _paper(world, copy)
     restarted.warmup()
     for i in range(resume, world["warm"] + LIVE):
         _advance(world, restarted, i)

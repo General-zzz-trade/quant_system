@@ -120,3 +120,30 @@ def test_saving_writes_the_given_document_and_marks_the_revision_written(tmp_pat
     state.save({"n": 5})
     journal.orders()
     assert state.load() == {"n": 5} and source.built == 0
+
+
+def test_a_commit_that_fails_hands_nothing_on_and_the_next_transaction_writes_again(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from trading.adapters.sqlite import paper_state as module
+    source, copies = Source(), []
+    path = tmp_path / schema.STATE_DB
+    schema.create(path, paper=True)
+    state = SqlitePaperState(path, clock=lambda: 1000.0, saved=copies.append)
+    state.follow(lambda: source.revision, source.build)
+    journal = PaperOrderJournal(path, SCOPE, state=state)
+    real = module.connect
+
+    @contextmanager
+    def failing_commit(p):
+        with real(p) as db:
+            yield db
+            db.rollback()                                     # the commit fails: nothing of it is kept
+            raise sqlite3.OperationalError("disk I/O error")
+    source.revision, source.document = 1, {"n": 1}
+    monkeypatch.setattr(module, "connect", failing_commit)
+    with pytest.raises(sqlite3.OperationalError):
+        journal.orders()
+    monkeypatch.setattr(module, "connect", real)
+    assert copies == [] and state.load() is None
+    journal.orders()                                        # still owed: written by the next transaction
+    assert copies == [{"n": 1}] and state.load() == {"n": 1}
