@@ -6,7 +6,8 @@ it is compared here with the research ``Sleeve`` fed the same bars and funding, 
 symbol's decision (side, quantity, reduce-only) and the ledger's position. test_execution_matches_research.py does
 the same for one symbol with market entries against the fake Binance venue. The run must see both symbols enter on
 one bar (the orders-per-second limit then defers the second entry by 5 s of simulated time, S10 decision 2) and,
-with maker entries, entries that rest, fill as maker and expire.
+with maker entries, entries that fill as maker and - on the test data with every third bar's wicks removed, so a
+maker price can be missed - entries that expire unfilled (ttl 1) or rest past a bar and fill later (ttl 4).
 """
 from __future__ import annotations
 
@@ -43,6 +44,10 @@ def test_the_execution_path_sends_research_s_orders_bar_by_bar_for_both_symbols(
     spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution=execution,
                         ttl_bars=ttl)
     world = _world(tmp_path, spec)
+    if execution == "maker":
+        for rows in world["rows"].values():              # every third bar trades only between its open and close
+            for row in rows[::3]:
+                row["high"], row["low"] = max(row["open"], row["close"]), min(row["open"], row["close"])
     state = tmp_path / "paper"
     runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=state, mode="paper", market=world["adapter"],
                             clock=lambda: world["clock"]["now"])
@@ -84,6 +89,8 @@ def test_the_execution_path_sends_research_s_orders_bar_by_bar_for_both_symbols(
     assert len(fills) == len(research_fills) > 0
     if execution == "maker":
         assert {f.liquidity for f in fills} == {"maker", "taker"}       # maker entries filled, reductions taker
-        expired = [r for s in SYMBOLS for r in research[s].broker.orders
-                   if r["status"] == "canceled" and not r["reduce_only"]]
-        assert expired, "no maker entry expired unfilled"
+        entries = [r for s in SYMBOLS for r in research[s].broker.orders if not r["reduce_only"]]
+        if ttl == 1:
+            assert any(r["status"] == "canceled" for r in entries), "no maker entry expired unfilled"
+        else:
+            assert any(r["age"] > 1 and r["status"] == "filled" for r in entries), "no maker entry rested past a bar"
