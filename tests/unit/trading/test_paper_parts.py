@@ -142,3 +142,13 @@ def test_the_json_copy_follows_every_save_and_a_failing_copy_fails_nothing(tmp_p
     (tmp_path / PAPER_STATE).mkdir()                       # the copy can no longer be written
     store.save({"n": 2})
     assert store.load() == {"n": 2}
+
+
+def test_the_paper_parts_go_with_the_paper_policy_and_only_with_it(tmp_path):
+    from trading.infrastructure import target
+    from trading.infrastructure.modes import EXECUTION, PAPER
+    parts = target.PaperParts(symbol_equity=lambda symbol: None, gate_clock=lambda: 0.0, sleeper=lambda s: None)
+    for policy, paper in ((PAPER, None), (EXECUTION, parts)):
+        with pytest.raises(ValueError, match="paper parts"):
+            target.execution_sessions(_spec(), ["BTCUSDT"], state_dir=tmp_path, journal=None, equity=None,
+                                      inputs=None, policy=policy, paper=paper)
