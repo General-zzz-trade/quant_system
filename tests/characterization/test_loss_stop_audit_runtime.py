@@ -19,6 +19,7 @@ from tests.unit.trading.test_market_failures import _due, _market
 from trading.adapters.binance.rest import BinanceRetryableError
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB
+from trading.domain.issues import STOP_PAUSE_SECONDS
 
 SCOPE = "binance-testnet-ut"
 
@@ -215,3 +216,13 @@ def test_funding_unreadable_for_hours_sizes_to_zero_but_the_stop_still_knows_the
     _tick(world, runtime, 61)
     assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
     assert _flat(world)
+
+
+# -- the stop's entry pause (PR #102): a mutant of the auditor survived in the runtime ----------------------------
+def test_a_stop_s_pause_ends_four_hours_after_it_was_set_to_the_second(tmp_path):
+    world, runtime, btc, _ = _holding(tmp_path)
+    (client_id,) = [k for k, v in btc.algo.items() if v["algoStatus"] == "NEW"]
+    btc.trigger_stop(client_id, btc.mark("BTCUSDT"))
+    _tick(world, runtime)
+    (pause,) = [p for p in runtime.pauses.active() if p["symbol"] == "BTCUSDT"]
+    assert pause["ends_at"] == world["clock"]["now"] + STOP_PAUSE_SECONDS == world["clock"]["now"] + 4 * 3600

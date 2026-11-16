@@ -233,3 +233,36 @@ def test_funding_never_read_in_this_process_is_unknown_for_the_stop_too():
     with pytest.raises(RuntimeError, match="funding"):
         funding.last_known()
     assert len(venue.calls) == 1
+
+
+# -- point 8: gaps the auditor's surviving mutants showed ---------------------------------------------------------
+@pytest.mark.parametrize("pnl", [D("Infinity"), D("-Infinity"), D("NaN"), float("inf"), float("nan")])
+def test_a_pnl_that_is_not_a_finite_number_sizes_the_base_to_zero(pnl):
+    from tests.unit.trading.test_strategy_capital import _account
+    from trading.application.equity import CappedEquity
+    assert CappedEquity(_account("10000"), D("300"), lambda: pnl).current() == 0
+
+
+def test_the_first_fill_ignores_a_manual_position_of_another_owner(tmp_path):
+    from tests.support.state_db import state_db
+    from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+    journal = SqliteOrderJournal(state_db(tmp_path / "state.sqlite"), "scope")
+    journal.set_position_manually("target.SOLUSDT", {"qty": "1"}, venue={}, reason="ledger := venue", at=70.0)
+    assert journal.first_fill_at("target.BTCUSDT") is None            # never traded: no funding is asked for it
+    journal.set_position_manually("target.BTCUSDT", {"qty": "1"}, venue={}, reason="ledger := venue", at=90.0)
+    assert journal.first_fill_at("target.BTCUSDT") == 90.0            # its own, not the other owner's earlier one
+
+
+def test_a_limit_of_exactly_15_per_cent_is_accepted():
+    from tests.unit.trading.test_strategy_loss_stop import _load
+    assert _load(STRATEGY_LOSS_STOP_PCT="15").strategy_loss_stop == D("0.15")
+    assert _load(STRATEGY_LOSS_STOP_PCT="15.0").strategy_loss_stop == D("0.15")
+
+
+# -- the stop's entry pause (PR #102): a mutant of the auditor survived in its store ------------------------------
+def test_a_second_scheduled_pause_with_the_same_end_adds_no_row(tmp_path):
+    from tests.unit.trading.test_stop_pause_auto_release import _rows, _store
+    pauses, _ = _store(tmp_path)
+    assert pauses.pause("BTCUSDT", "protective stop triggered", triggers=["7"], ends_at=5000.0) is True
+    assert pauses.pause("BTCUSDT", "protective stop breached", triggers=["8"], ends_at=5000.0) is False
+    assert len(_rows(tmp_path)) == 1 and pauses.covered("BTCUSDT") == {"7", "8"}
