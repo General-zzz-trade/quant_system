@@ -7,7 +7,7 @@
 - **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16).
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
   checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
-  capital flattens and stops, which replaced "3 losses in a row" on 2026-11-16; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
+  capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
   the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), and the
@@ -242,10 +242,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   until the target has been 0). How a run uses it: `research/lab/README.md`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
-**Open exit-side gaps — fix before any testnet or live execution:**
+**Open exit-side gaps — check before or in the pilot (the testnet stage was cancelled 2026-11-16):**
 - Unverified: whether Binance accepts a second `closePosition` stop in the same direction. ADR-0012 places the new
   stop before it cancels the old one; if Binance refuses (the old order API had -4130), a new revision's stop is
-  never placed and entries stay blocked while the old stop protects. Check on the testnet before M5.
+  never placed and entries stay blocked while the old stop protects. To be checked in the pilot.
 - A failed stop placement blocks entries (step 12) and is sent to the alert channel once it has lasted 2 minutes.
 - At start-up a warm-up error other than a market-data failure (incomplete or non-contiguous history) still ends
   the process: a person looks before it runs. Once running, failures are isolated (S3c and its audit).

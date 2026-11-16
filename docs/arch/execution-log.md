@@ -4057,3 +4057,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 这扩大了已批准读取范围（原来只取两个 Key），已写进 `scripts/account_check.py` 的说明。
 - 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
   已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。
+
+## 清理过时文档（2026-11-16 深夜，轻流程；计划 R9 的前一半）
+
+- 依据：技术负责人"计划完成后就删除过时的文档，先排查"，以及随后的"清理项目过时文档"。排查结果在计划的"文档排查"一节（PR #118）。
+  整理工作在分支 `r9-docs` 上做（叠在运行时扩展 R1–R7 之上）；这里先把**不依赖 R1–R7** 的部分放进 master。
+- **删除**（原文在 git 历史里；行数取自删除前的版本）：`research.md`（223）、`CHANGELOG.md`（140）、`docs/known_test_failures.md`（25）、
+  `docs/arch/current-state.md`（764）、`docs/arch/doc-vs-code.md`（194）、`docs/arch/migration-plan.md`（403）、`docs/arch/roadmap.md`（122）、
+  `docs/arch/design-2026-11-m5.md`（542）。共 2413 行。
+- **引用改掉的地方**：`Makefile` 的帮助文字；ADR 0001、0002、0005、0008、0013 的依据行（只改成"该文档已删除，原文在 git 历史里"，
+  ADR 其余不变）；`pytest.ini` 里 `known_defect` 标记的说明；三个测试文件的说明文字；`docs/arch/evidence/probe_*.py` 的用法注释；
+  两个技能和审计员定义；`README.md`；`docs/arch/target.md` 的依据行（加了一段说明：本文部分过时，改写版本随运行时扩展合并）。
+- **改写**：`README.md`（去掉已删除的交易所、Docker、Rust 和旧撮合器路径）、`docs/binance_runbook.md`（试运行用主网单元，告警走
+  告警文件、Telegram 可选，执行状态在 `/var/lib/quant`）、`docs/deploy_truth.md`（去掉 Docker）、`docs/m5_checklist.md`（测试网阶段已取消，
+  改成小资金主网试运行的核对清单）、`research/lab/README.md`（去掉"连亏 3 笔"和 Telegram）、`CLAUDE.md` 两处（"连亏 3 笔被替换"的旁注、
+  "测试网上检查"改为"试运行里检查"）。凡是提到 R1–R7 的地方都写明"还没有合并"。
+- **留到运行时扩展合并时**：`docs/arch/target.md` 按 R1–R7 改写、`CLAUDE.md` 的架构部分、计划文件本身（都在 `r9-docs` 分支上）。
+- **已有测试的改动**：`tests/unit/tooling/test_claude_guard.py::test_file_tools` 只换了一个路径：原来
+  `({"file_path": "/root/quant_system/docs/arch/roadmap.md"}, False),`，现在 `({"file_path": "/root/quant_system/docs/arch/target.md"}, False),`
+  （守卫只按路径判断，检查的内容不变）。
+- 保留不动：ADR 正文、`research/protocols/`、本日志的旧条目、`docs/btc_eth_strategy.md`、数据集说明、`scripts/dev/mutants/README.md`、
+  `research/results/` 和 `research/lab/runs/`。`docs/arch/evidence/probe_*.py` 四个探针脚本保留，但已没有文档讲它们，要不要删由技术负责人定。
