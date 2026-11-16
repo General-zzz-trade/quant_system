@@ -279,6 +279,13 @@ class KillSwitch(Protocol):
     def allow_order(self, *, symbol: str) -> tuple[bool, str]: ...
 
 
+class KillLatch(KillSwitch, Protocol):
+    """The kill switch as the strategy loss stop uses it (owner 2026-11-16): the runtime may set it, with flatten;
+    it never clears it."""
+
+    def trip(self, reason: str) -> None: ...
+
+
 @runtime_checkable
 class DrawdownGuard(Protocol):
     """Period drawdown latch. Unknown state blocks entries and counts as latched."""
@@ -395,6 +402,6 @@ class Notifier(Protocol):
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
            "MarketData", "ExchangeAccount", "FundingIncome", "OrderGateway", "StopOrderGateway", "BarListener",
            "PaperVenue", "GateClock",
-           "OrderJournal", "KillSwitch", "DrawdownGuard", "OrderLimits", "OrderRequest", "EntryReservation",
-           "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView", "AccountStopView",
-           "AccountSnapshot"]
+           "OrderJournal", "KillSwitch", "KillLatch", "DrawdownGuard", "OrderLimits", "OrderRequest",
+           "EntryReservation", "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView",
+           "AccountStopView", "AccountSnapshot"]
