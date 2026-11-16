@@ -3914,7 +3914,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **已有测试的改动**：没有改断言。测试辅助的改动 1 处：`tests/unit/binance/test_exchange_settings.py::test_target_runtime_refuses_an_isolated_stop_too_close_to_liquidation`
   的假加载器返回的文档补上 `"schema": 1, "kind": "btc_eth_multitimeframe_target"`（运行时现在会解析加载到的规格）。
   `tests/unit/lab/test_lookahead.py` 登记了新模块。
-- **新增测试**：`tests/unit/trading/test_spec_v2.py`（26 个）、`tests/characterization/test_spec_v2_runtime.py`（3 个）、
+- **新增测试**：`tests/unit/trading/test_spec_v2.py`（23 个）、`tests/characterization/test_spec_v2_runtime.py`（3 个）、
   `tests/unit/tooling/test_publish_strategy_spec.py`（2 个）。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r2_spec_v2.json` 23 个。第一轮 18 个被杀，存活 5 个：两条品种名检查我的用例碰不到
   （补了 `ethUSDT`、`ETH_USDT`）、"缺参数"的报错我只匹配了 "params"（改成匹配完整句子）、模拟盘用第 2 版规格没有测试、预热要多少资金费
