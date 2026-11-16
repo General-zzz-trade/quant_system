@@ -98,7 +98,7 @@
   "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
-  "X14 zero account equity not short-circuited",
+  "X14 zero account equity not short-circuited (equivalent - the value is 0 either way, only the ledger read is skipped)",
   "trading/application/equity.py",
   "        if account <= 0:\n            return Decimal(0)\n        try:\n            pnl = self.realized()",
   "        try:\n            pnl = self.realized()",
