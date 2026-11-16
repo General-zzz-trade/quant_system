@@ -3398,3 +3398,4 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
   - 原来：`SELECTING = ("--ignore", "--deselect", "-k", "-m", "--co", "--collect-only")`，用 `t.startswith(SELECTING)` 判断。`--co`（只收集不运行）作前缀时也匹配 `--cov=...` 和 `--color`，分片加上覆盖率参数后这条检查误报。
   - 现在：`_selects(token)`，`--co` 和 `--collect-only` 整词匹配，其余照旧按前缀。另加 4 个反例：`--co`、`--collect-only`、连写的 `-k`，以及带覆盖率参数、不缩小范围的命令。检查没有放宽。
 - **结果**【实际运行结果】：上面那次 CI 的分片用时 4m50 / 3m12 / 4m56 / 1m51，合并覆盖率 8 秒；原来验收任务 7m54。按实测时间分片的效果看下一次 CI。
+- 按实测时间分片后第一次 CI，分片 0 失败【实际运行结果】：`pyproject.toml` 的 `fail_under = 70` 对每次 pytest 运行都生效，只有一个文件的分片自身覆盖率 64%。分片改为 `--cov-fail-under=0`，75% 的门槛只由合并任务检查（对合并后的数据）。

@@ -74,13 +74,14 @@ jobs:
 
       # Every shard also measures the money path's coverage; the coverage-gate job adds the four up, so the paper
       # replays run once (tech lead 2026-11-16: no second run of the same tests for the gate). --durations shows
-      # the slow tests, which set the shard weights in scripts/ci_durations.json.
+      # the slow tests, which set the shard weights in scripts/ci_durations.json. A shard alone is not held to the
+      # project's fail_under (one shard can be a single file); the gate below holds the sum to 75 %.
       - name: Run one shard of the whole suite
         env:
           COVERAGE_FILE: .coverage.shard${{ matrix.shard }}
         run: >-
           python3 -m pytest $(python3 scripts/ci_shard.py ${{ matrix.shard }} 4) -q --tb=short
-          --durations=0 --durations-min=1.0 --cov-report=
+          --durations=0 --durations-min=1.0 --cov-report= --cov-fail-under=0
           --cov=trading.application.risk --cov=trading.application.execution --cov=trading.adapters.sqlite
           --cov=trading.application.reconcile --cov=trading.adapters.binance --cov=trading.adapters.files
           --cov=trading.application.runtime --cov=trading.application.session --cov=trading.infrastructure
