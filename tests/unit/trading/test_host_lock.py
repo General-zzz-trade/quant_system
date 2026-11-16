@@ -105,3 +105,10 @@ def test_prepare_refuses_a_directory_it_cannot_create(tmp_path):
     (tmp_path / "file").write_text("")
     with pytest.raises(RuntimeError, match="lock directory"):
         prepare_lock_dir(tmp_path / "file" / "locks")
+
+
+def test_a_new_holder_replaces_the_old_text_entirely(tmp_path):
+    # S6-S8 audit, mutant C7: a shorter holder must not leave the end of a longer one behind.
+    HostLock(A, lock_dir=tmp_path, holder="x" * 200).close()
+    with HostLock(A, lock_dir=tmp_path, holder="short"):
+        assert (tmp_path / f"{A}.lock").read_text() == f"pid={os.getpid()} short\n"

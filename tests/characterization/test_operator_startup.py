@@ -146,3 +146,10 @@ def test_the_heartbeat_beats_while_waiting_and_between_cycles_and_never_stops_th
     assert "beat" in order[:first_ready]                               # beating while market data is down
     cycles = [i for i, step in enumerate(order) if step == "cycle"]
     assert all("beat" in order[a:b] for a, b in zip(cycles, cycles[1:]))
+
+
+def test_the_start_waits_at_most_thirty_seconds_for_telegram(world, channels):  # noqa: F811
+    # S6-S8 audit, mutant C6: a start alert that may wait for minutes is no check at all.
+    with pytest.raises(Started):
+        world["main"](world["argv"])
+    assert channels.delivered[0][2] == cli.START_ALERT_SECONDS and 0 < cli.START_ALERT_SECONDS <= 30
