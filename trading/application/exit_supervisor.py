@@ -68,10 +68,10 @@ class ExitSupervisor:
             if notifier is not None else None
 
     def run(self) -> None:
-        """The exit side of one cycle: reconcile when due, then the risk actions. The symbol states are set before
-        the risk actions (a flatten about to run shows as FLATTENING) and again after them."""
+        """The exit side of one cycle: reconcile when due (the strategy loss stop is read first there), then the risk
+        actions. The symbol states are set before the risk actions (a flatten about to run shows as FLATTENING) and
+        again after them."""
         self.check_account_if_due()
-        self.check_loss_stop()
         if self.clock() - self.last_reconcile >= RECONCILE_SECONDS:
             self.reconcile()
         self.update_states()
@@ -148,8 +148,10 @@ class ExitSupervisor:
 
     def check_loss_stop(self) -> None:
         """Owner 2026-11-16: at the strategy's loss limit the stop sets the kill switch with flatten, which the risk
-        actions of this same cycle act on. While the loss is unknown, or the switch could not be set, every entry is
-        blocked (applied at every reconciliation, like an account finding)."""
+        actions of this same cycle act on. While the loss is unknown, the switch could not be set, or - for the rest
+        of the process - the limit was reached, every entry is blocked (applied by the reconciliation this starts).
+        It runs at the start of every reconciliation: a cycle's, the warm-up's, and a hold's while a restart waits
+        for market data (audit 2026-11-16, finding 3)."""
         if self.loss_stop is None:
             return
         findings = self.loss_stop.check()
@@ -183,6 +185,7 @@ class ExitSupervisor:
         self.last_equity = self.clock()
 
     def reconcile(self) -> None:
+        self.check_loss_stop()                      # first: its findings are among this reconciliation's
         refused_text = self._market_refused()
         cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide
         found_of: dict[str, list[Issue]] = {}

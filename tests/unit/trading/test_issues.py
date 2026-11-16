@@ -41,6 +41,7 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.ACCOUNT_UNREADABLE: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # ADR-0011
         IssueKind.ACCOUNT_SETTINGS: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),    # ADR-0011
         IssueKind.FOREIGN_FILL: frozenset({E.ALERT_ONLY}),             # ADR-0012: a stop fill beyond the ledger
+        IssueKind.STRATEGY_LOSS_STOP: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # loss stop audit
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect

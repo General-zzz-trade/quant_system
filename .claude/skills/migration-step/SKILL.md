@@ -18,9 +18,10 @@ tags 【实际运行结果】/【测试日志】/【推测】.
 
 ## Before writing code
 
-1. Find the step and its approved decisions in `docs/arch/migration-plan.md`, `docs/arch/roadmap.md`
-   (section 6) and `docs/adr/`. If a choice is uncertain or is a trade-off nobody decided, stop and ask
-   the tech lead (AskUserQuestion, recommended option first). Do not assume.
+1. Find the step and its approved decisions in the plan it belongs to (today
+   `docs/arch/runtime-lab-strategies-plan.md`), `docs/adr/` and `CLAUDE.md`. If a choice is uncertain or is
+   a trade-off nobody decided, stop and ask the tech lead (AskUserQuestion, recommended option first).
+   Do not assume.
 2. Check that no other session is working in the shared checkout: `git status`, `git branch --show-current`,
    `ps aux | grep -c claude`. Then `git checkout master && git pull --ff-only` and
    `git checkout -b <short-step-name>`.
@@ -68,7 +69,8 @@ survivor add or sharpen a test, rerun, and report the counts honestly (first rou
 
 Add a section to `docs/arch/execution-log.md` with: 改了什么; 已有测试的改动 (exact, or "没有");
 测试辅助的改动; 新增测试 (file and count); 变异自检 (numbers, survivors and what was added); 本地.
-Correct `docs/arch/migration-plan.md`, `current-state.md`, `CLAUDE.md` where they disagree with the code.
+Correct `CLAUDE.md`, `docs/arch/target.md` (the architecture description) and `docs/binance_runbook.md`
+where they disagree with the code; mark the step's progress in its plan.
 
 ## PR, CI, merge
 
