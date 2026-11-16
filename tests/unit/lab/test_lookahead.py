@@ -132,6 +132,9 @@ FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "
                    "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study")
 OTHER_MODULES = {
     "lab": "package marker",
+    "trading.domain.strategy.base": ("the strategy interface (runtime extension R1); its implementations' targets "
+                                     "are the checked functions (OverlayStrategy returns compute_targets exactly, "
+                                     "tests/unit/trading/test_strategy_interface.py)"),
     "lab.breakout_study": "study driver of a closed line; its signal is lab.breakout",
     "lab.candidates_forward": "forward replay; it calls the checked functions of the candidate modules",
     "lab.causality": "the check itself",

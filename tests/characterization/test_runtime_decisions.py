@@ -193,18 +193,17 @@ def test_an_unpublished_funding_settlement_cannot_open_a_position(tmp_path):
 
 
 def test_the_target_sees_only_funding_settled_by_the_bar_it_decides_on(tmp_path, monkeypatch):
-    from trading.application import session as session_module
     world, runtime = _start(tmp_path)
     session = runtime.sessions["BTCUSDT"]
     known_at = session.bars[-1].available_at
     session.funding[known_at + 8 * HOUR] = 0.5                    # a settlement from the future of this bar
     seen = {}
 
-    def spy(frame, funding, spec):
-        seen["last"] = int(funding.index.max())
-        return 0.0, True
+    def spy(windows):
+        seen["last"] = int(windows["BTCUSDT"].funding.index.max())
+        return {"BTCUSDT": (0.0, True)}
 
-    monkeypatch.setattr(session_module, "latest_target", spy)
+    monkeypatch.setattr(session.strategy, "latest", spy)          # R1: the target comes from the session's strategy
     session._target()
     assert seen["last"] <= known_at
 
