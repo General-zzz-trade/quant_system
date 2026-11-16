@@ -1,0 +1,140 @@
+[
+ [
+  "eleven symbols accepted",
+  "trading/domain/strategy/spec.py",
+  "    if len(raw) > MAX_SYMBOLS:",
+  "    if len(raw) > MAX_SYMBOLS + 1:"
+ ],
+ [
+  "empty list accepted",
+  "trading/domain/strategy/spec.py",
+  "    if not raw:\n        raise ValueError(\"the spec lists no symbol\")",
+  "    if False:\n        raise ValueError(\"the spec lists no symbol\")"
+ ],
+ [
+  "duplicates accepted",
+  "trading/domain/strategy/spec.py",
+  "    if len(set(raw)) != len(raw):",
+  "    if False:"
+ ],
+ [
+  "any symbol accepted",
+  "trading/domain/strategy/spec.py",
+  "        if not _is_usdt_perpetual(symbol):",
+  "        if not isinstance(symbol, str):"
+ ],
+ [
+  "delivery suffix accepted",
+  "trading/domain/strategy/spec.py",
+  "symbol.isascii() and symbol.isalnum() and symbol",
+  "symbol.isascii() and symbol"
+ ],
+ [
+  "lower case accepted",
+  "trading/domain/strategy/spec.py",
+  " and symbol == symbol.upper()\n",
+  "\n"
+ ],
+ [
+  "USDC accepted",
+  "trading/domain/strategy/spec.py",
+  "            and symbol.endswith(\"USDT\") and 6 <= len(symbol) <= 24)",
+  "            and 6 <= len(symbol) <= 24)"
+ ],
+ [
+  "unknown strategy accepted",
+  "trading/domain/strategy/spec.py",
+  "    if name not in STRATEGIES or name not in PARAMS:\n        raise",
+  "    if name not in PARAMS and False:\n        raise"
+ ],
+ [
+  "missing params accepted",
+  "trading/domain/strategy/spec.py",
+  "    if not isinstance(raw, Mapping):\n        raise ValueError(f\"the strategy {name!r} needs its params\")",
+  "    if raw is None:\n        raw = {}"
+ ],
+ [
+  "v1 shorts inverted",
+  "trading/domain/strategy/spec.py",
+  "        return TargetSpec(\"overlay\", overlay, overlay, _symbols(document.get(\"symbols\")), not overlay.long_only)",
+  "        return TargetSpec(\"overlay\", overlay, overlay, _symbols(document.get(\"symbols\")), overlay.long_only)"
+ ],
+ [
+  "v1 kind not checked",
+  "trading/domain/strategy/spec.py",
+  "        if kind != KIND_V1:",
+  "        if False:"
+ ],
+ [
+  "v2 kind not checked",
+  "trading/domain/strategy/spec.py",
+  "    if kind != KIND_V2:",
+  "    if False:"
+ ],
+ [
+  "unknown schema read as v2",
+  "trading/domain/strategy/spec.py",
+  "    if schema != 2:\n        raise ValueError(f\"unknown spec schema {schema!r}\")",
+  "    if schema is None:\n        raise ValueError(f\"unknown spec schema {schema!r}\")"
+ ],
+ [
+  "allow_short truthy",
+  "trading/domain/strategy/spec.py",
+  "    if not isinstance(allow_short, bool):",
+  "    if allow_short is None:"
+ ],
+ [
+  "execution keys not required",
+  "trading/domain/strategy/spec.py",
+  "    if not isinstance(execution, Mapping) or any(k not in execution for k in (\"band\", \"execution\", \"ttl_bars\")):",
+  "    if not isinstance(execution, Mapping):"
+ ],
+ [
+  "runtime ignores the strategy",
+  "trading/infrastructure/cli/target.py",
+  "                                         strategy=strategy), kill",
+  "                                         ), kill"
+ ],
+ [
+  "paper ignores the strategy",
+  "trading/infrastructure/cli/target.py",
+  "                                           paper=parts, strategy=strategy)",
+  "                                           paper=parts)"
+ ],
+ [
+  "sessions ignore the strategy",
+  "trading/infrastructure/target.py",
+  "                                allocation=allocation, strategy=strategy,",
+  "                                allocation=allocation,"
+ ],
+ [
+  "warm-up from the spec",
+  "trading/application/runtime.py",
+  "            if have < session.strategy.window_hours():",
+  "            if have < self.spec.window_hours():"
+ ],
+ [
+  "funding history from the spec",
+  "trading/application/runtime.py",
+  "            limit = session.strategy.funding_window() + 30 + gap // 8 + 1",
+  "            limit = self.spec.funding_window() + 30 + gap // 8 + 1"
+ ],
+ [
+  "warmed from the spec",
+  "trading/application/exit_supervisor.py",
+  "                        and len(session.bars) >= session.strategy.window_hours()),",
+  "                        and len(session.bars) >= self.spec.window_hours()),"
+ ],
+ [
+  "loader checks nothing",
+  "runner/binance_target.py",
+  "    spec = load_verified_json(path)\n    parse_spec(spec)\n",
+  "    spec = load_verified_json(path)\n"
+ ],
+ [
+  "publish checks nothing",
+  "scripts/publish_strategy_spec.py",
+  "        parse_spec(spec)            # schema 1 or 2",
+  "        pass            # schema 1 or 2"
+ ]
+]
