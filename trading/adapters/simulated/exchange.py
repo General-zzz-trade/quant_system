@@ -102,6 +102,8 @@ class SimulatedExchange:
         for symbol, broker in brokers.items():
             if broker.leverage != 0:
                 raise ValueError(f"{symbol}: an isolated-margin broker models its own stops and liquidation")
+            if Decimal(broker.config.stop_pct) != 0:
+                raise ValueError(f"{symbol}: a broker with stop_pct models its own stops; paper places them")
             rules, config = filters[symbol], broker.config
             if rules.step_size != Decimal(config.qty_step) or rules.min_notional != Decimal(config.min_notional):
                 raise ValueError(f"{symbol}: the filters differ from the broker's lot step or minimum notional")
