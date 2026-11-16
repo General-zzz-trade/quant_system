@@ -67,7 +67,7 @@ class StrategyLossStop:
                 raise ValueError(f"PnL {raw!r}")
             pnl = Decimal(raw)
         except Exception as exc:
-            return [Issue(K.ACCOUNT_UNREADABLE, None, f"strategy loss unknown ({type(exc).__name__}: {exc}); "
+            return [Issue(K.STRATEGY_LOSS_STOP, None, f"strategy loss unknown ({type(exc).__name__}: {exc}); "
                                                       "every entry is blocked, nothing is closed")]
         if pnl > -self.limit * self.capital:
             return []
@@ -81,7 +81,7 @@ class StrategyLossStop:
                 self.kill.trip(reason)
                 self._trip = reason
         except Exception as exc:
-            return [Issue(K.ACCOUNT_UNREADABLE, None, "strategy loss stop reached but the kill switch could not be "
+            return [Issue(K.STRATEGY_LOSS_STOP, None, "strategy loss stop reached but the kill switch could not be "
                                                       f"set ({type(exc).__name__}: {exc}); every entry is blocked")]
         return []
 

@@ -93,7 +93,7 @@ def test_a_loss_that_cannot_be_known_closes_nothing_and_blocks_entries(tmp_path)
     assert _kill(tmp_path)["active"] is False
     assert btc.positions["BTCUSDT"] == held                         # nothing was closed
     issues = [r for r in _events(tmp_path, "issue") if "strategy loss" in r.get("issue", "")]
-    assert issues and issues[0]["issue_kind"] == "account_unreadable"
+    assert issues and issues[0]["issue_kind"] == "strategy_loss_stop"
 
 
 def test_without_a_strategy_capital_there_is_no_loss_stop(tmp_path, monkeypatch):
@@ -115,7 +115,7 @@ def test_while_the_loss_is_unknown_no_entry_is_made_although_the_sizing_is_known
     btc = world["fakes"]["BTCUSDT"]
     _tick(world, runtime)
     assert all(s.executor.ready for s in runtime.sessions.values())
-    stub = SimpleNamespace(findings=[Issue(IssueKind.ACCOUNT_UNREADABLE, None, "strategy loss unknown (test)")],
+    stub = SimpleNamespace(findings=[Issue(IssueKind.STRATEGY_LOSS_STOP, None, "strategy loss unknown (test)")],
                            take_trip=lambda: None)
     stub.check = lambda: list(stub.findings)
     runtime.exits.loss_stop = stub
