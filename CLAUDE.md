@@ -50,7 +50,21 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
-- **Venue:** Binance USDT-M perpetuals only. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
+- **Venue:** Binance USD(S)-M contracts. Since 2026-11-16 research and trading cover all of them (perpetual and
+  delivery, USDT- and USDC-margined; tech lead); the runtime still trades the BTC/ETH spec until it is extended
+  through the full money-path process. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
+- **Research lab (tech lead, 2026-11-16):** a scheduled crew in this session (Asia/Shanghai): scout 20:54, judge
+  22:54, engineer 02:51, morning brief 07:17 (push), weekly review Sunday. It follows the owner's lab prompt
+  as written: ideas are scanned and tested the same night and a champion and two challengers are named each
+  morning, without pre-registering each batch (this replaces the research-protocol rule below for the lab;
+  the four registered forward tests stay as they are). What stays: real data with source and timestamp only,
+  never invented numbers, every estimate labelled; fees, funding, slippage and delisted contracts in every
+  test; every configuration tested is recorded in `research/trials.jsonl`; lab data ends 2026-11-12 (forward
+  guard); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
+  lookahead) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. Paper is not
+  deployed (owner, 2026-11-16); real money waits for the owner's "go live"; the existing audited runtime
+  and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
+  -3 % a day, 3 losses in a row, a stale feed).
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
 ## Commands
@@ -188,7 +202,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - **Fail closed:** unreadable pause, kill or drawdown state blocks new exposure.
 - **Zero sizing:** unknown equity or price sizes to zero, never to a minimum lot.
 - **Research protocol:**
-  - Pre-register the spec, gate and windows in a commit before running a study on real data.
+  - Pre-register the spec, gate and windows in a commit before running a study on real data (except the research
+    lab of 2026-11-16, see Current status).
   - Never tune on a viewed final-test window, and record every final-test look.
 - **Data snapshots are immutable:**
   - Each download goes into a new dated directory.
