@@ -1,0 +1,62 @@
+[
+ [
+  "H1 the lock creates its directory",
+  "trading/adapters/files/host_lock.py",
+  "            raise RuntimeError(f\"host lock directory {directory} does not exist; a person creates it with: {_INIT}\")",
+  "            directory.mkdir(parents=True)"
+ ],
+ [
+  "H2 any identity names a lock file",
+  "trading/adapters/files/host_lock.py",
+  "if not isinstance(identity, str) or not _IDENTITY.fullmatch(identity):",
+  "if False:"
+ ],
+ [
+  "H3 nothing is locked",
+  "trading/adapters/files/host_lock.py",
+  "        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)",
+  "        pass"
+ ],
+ [
+  "H4 the holder is not written",
+  "trading/adapters/files/host_lock.py",
+  "self._file.write(f\"pid={os.getpid()} {holder}\".rstrip().encode() + b\"\\n\")",
+  "self._file.write(b\"\\n\")"
+ ],
+ [
+  "H5 a refused process truncates the holder",
+  "trading/adapters/files/host_lock.py",
+  "os.O_RDWR | os.O_CREAT, 0o644",
+  "os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o644"
+ ],
+ [
+  "W1 the entry takes no host lock",
+  "trading/infrastructure/cli/target.py",
+  "host = HostLock(config.identity, holder=f\"binance_target --state-dir {args.state_dir}\")",
+  "host = None"
+ ],
+ [
+  "W2 the host lock is not released",
+  "trading/infrastructure/cli/target.py",
+  "        if host is not None:\n            host.close()",
+  "        if False:\n            host.close()"
+ ],
+ [
+  "M1 the manual tools take no host lock",
+  "trading/infrastructure/manual.py",
+  "host = HostLock(identity, holder=f\"manual {args.command} --state-dir {args.state_dir}\")",
+  "host = type(\"H\", (), {\"close\": lambda self: None})()"
+ ],
+ [
+  "M2 the manual tools need no API key",
+  "trading/infrastructure/manual.py",
+  "identity = account_identity(testnet=testnet, api_key=binance_config_from_env(testnet=testnet, env=env).api_key)",
+  "identity = account_identity(testnet=testnet, api_key=(env or {}).get(\"BINANCE_TESTNET_API_KEY\", \"\"))"
+ ],
+ [
+  "I1 init does not create the lock directory",
+  "trading/infrastructure/state_dir.py",
+  "        locks = prepare_lock_dir()",
+  "        locks = Path(\".\")"
+ ]
+]

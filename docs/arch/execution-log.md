@@ -3268,3 +3268,38 @@ S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上
 - 每条新测试都先单独跑过：先写的测试在修复前的代码上失败，原因正确；M2 的 3 条在现有代码上通过（固定的是正确的现状）。修复后全部通过。
 - 修复后一次跑完相关的测试组：`tests/characterization`、`tests/unit/trading`、`tests/contract`、`tests/architecture`、`tests/unit/monitoring`，以及 `tests/unit/lab` 的 `test_paper_execution_path.py`、`test_paper_safety.py`、`test_paper_crash.py`、`test_paper_per_bar_parity.py`、`test_target_runtime.py`、`test_target_runtime_resilience.py`，共 1010 条，全部通过。
 - 全仓库 ruff、`mypy trading/`（89 个文件）、导入契约（5 条）通过。全部测试由 CI 的四个分片跑。
+
+## S6：一个账户身份一个执行进程（2026-11-16，ADR-0016 第 5 条，R20，资金路径完整流程）
+
+**改了什么**
+- **主机锁**（`trading/adapters/files/host_lock.py`）：锁文件是 `<锁目录>/<账户身份>.lock`，账户身份 = `sha256(网络:API Key)`（S4 已有的 `account_identity`）。
+  - 锁目录固定在主机上（`/var/lib/quant/locks`），与状态目录无关：同一把 Key 在两个状态目录、或用两个 `RISK_SCOPE`，第二个进程都被拒绝。
+  - 拿锁时从不创建锁目录；目录不存在、不是目录或打不开锁文件，都拒绝。被拒时说明锁的持有者（进程号和它写下的说明）。
+  - 账户身份必须是 sha256 摘要，别的字符串（包括路径）一律拒绝。进程以任何方式结束，操作系统都会释放锁。
+- **入口**：执行模式在读凭据之后、连接账户之前拿锁，运行期间一直持有；启动中途出错也会释放（整个启动包在 `try/finally` 里，原来目录租约只在主循环里释放）。模拟盘不拿这把锁。
+- **手工工具**（`manual`）：从环境里的 API Key 算出账户身份，拿同一把锁。同一账户的运行时在本机任何目录里运行时，手工工具都拒绝；没有 API Key 时拒绝并说明。原来的目录租约保留。
+- **初始化**（`state_dir init`）：先创建主机锁目录（不存在时），再做别的；锁目录建不了时什么都不创建。
+- 恢复命令（S8）用同一把锁。
+
+**已有测试的改动**
+- `tests/characterization/test_risk_state.py` 的已知缺陷测试 R20（依据 ADR-0016 第 5 条，行为改变）：
+  - 原来：`test_current_lease_allows_the_same_scope_in_two_state_dirs`，标记 `known_defect("R20")`，固定"同一 scope 在两个目录各拿一把租约"。
+  - 现在：`test_the_same_account_identity_in_two_state_dirs_is_refused`，去掉标记。目录租约照旧允许第二个目录，主机锁拒绝第二个进程。
+- 已知缺陷测试清零（设计第 1 节完成标准第 3 条）。
+
+**测试辅助的改动**
+- `tests/conftest.py`：每个测试有自己的、已存在的主机锁目录（不用主机上的 `/var/lib/quant/locks`）；测"目录缺失或不可用"的测试自己设。
+- `tests/unit/trading/test_manual_tools.py`：环境里加了测试网 API Key 和密钥（账户身份要用 Key；密钥在这里不用）。
+
+**新增测试**
+- `tests/unit/trading/test_host_lock.py`：12 条。
+- `tests/characterization/test_host_lock_startup.py`：7 条（同身份第二个进程被拒且没有账户请求；两个 scope 同一把 Key 被拒；运行时持锁、结束后释放；锁目录缺失时拒绝且不创建；模拟盘不需要锁目录；初始化创建锁目录；锁目录建不了时初始化什么都不建）。
+- `test_manual_tools.py` 加 2 条（运行时持锁时拒绝；没有 API Key 时拒绝）。
+- 这一步自己的新测试 `test_paper_mode_needs_no_lock_directory` 在 S10 合入后改了设置：模拟盘改在单独的目录里跑（S10 审计修复让模拟盘拒绝执行目录），断言不变。
+
+**变异自检**【实际运行结果】（`scripts/dev/mutants/s6.json`）
+- 10 个：锁自己建目录、任何字符串都能当身份、什么都没锁、不写持有者、被拒的进程清掉持有者信息、入口不拿锁、入口不释放锁、手工工具不拿锁、手工工具不要 API Key、初始化不建锁目录。
+- 抓住 9 个。存活的 W2（入口结束时不显式释放锁）在 CPython 里等价：入口函数一结束锁对象就被回收，文件关闭，锁随之释放；进程退出时也一样。
+- 最终 10 个里抓住 9 个，1 个等价。
+
+**本地**【实际运行结果】：主机锁、启动、手工工具、风险状态、退出健壮性、启动顺序、状态目录和架构测试通过；ruff、`mypy trading/`（90 个文件）、导入契约通过。
