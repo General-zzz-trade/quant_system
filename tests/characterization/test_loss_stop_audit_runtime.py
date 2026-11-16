@@ -72,29 +72,37 @@ def test_a_held_symbol_the_venue_reports_no_row_for_is_an_unknown_loss_not_zero(
     assert _loss_issues(tmp_path) and not any(s.executor.ready for s in runtime.sessions.values())
 
 
+def _manual_long(world, runtime, symbol, usdt):
+    """A person's own long of 1 on ``symbol`` of the shared account, netted with whatever the strategy holds there;
+    the venue's row for the symbol then shows ``usdt`` of unrealized PnL that is not the strategy's. Whether the
+    strategy holds the second symbol at this point depends on the real-time order rate limit, so an entry still
+    waiting for it is dropped first: the scenario is the same either way."""
+    fake, session = world["fakes"][symbol], runtime.sessions[symbol]
+    session.drop_deferred("test: no entry waiting")
+    own = fake.positions.get(symbol, D(0))
+    assert session.position_qty() == own
+    fake.positions[symbol] = own + D("1")
+    fake.entry[symbol] = fake.mark(symbol) - D(usdt) / fake.positions[symbol]
+    return fake.positions[symbol]
+
+
 def test_a_manual_position_s_profit_on_a_strategy_symbol_does_not_hide_the_strategy_s_loss(tmp_path):
     world, runtime, btc, _ = _holding(tmp_path)
-    eth = world["fakes"]["ETHUSDT"]
-    assert eth.positions.get("ETHUSDT", D(0)) == 0 and runtime.sessions["ETHUSDT"].position_qty() == 0
     _under_water(btc, "BTCUSDT", 60)
-    eth.positions["ETHUSDT"] = D("1")                    # the owner's manual long on the shared account, 100 USDT up
-    eth.entry["ETHUSDT"] = eth.mark("ETHUSDT") - D("100")
+    _manual_long(world, runtime, "ETHUSDT", 100)         # the owner's manual long, 100 USDT up
     _tick(world, runtime, 61)
     assert _kill(tmp_path)["active"] is True and "strategy loss stop" in _kill(tmp_path)["reason"]
 
 
 def test_a_manual_position_s_loss_does_not_trip_the_stop_and_is_not_closed_by_it(tmp_path):
     world, runtime, btc, _ = _holding(tmp_path)
-    eth = world["fakes"]["ETHUSDT"]
-    assert eth.positions.get("ETHUSDT", D(0)) == 0 and runtime.sessions["ETHUSDT"].position_qty() == 0
-    held = btc.positions["BTCUSDT"]
-    eth.positions["ETHUSDT"] = D("1")                    # the owner's manual long, 60 USDT under water
-    eth.entry["ETHUSDT"] = eth.mark("ETHUSDT") + D("60")
+    eth, held = world["fakes"]["ETHUSDT"], btc.positions["BTCUSDT"]
+    netted = _manual_long(world, runtime, "ETHUSDT", -60)             # the owner's manual long, 60 USDT under water
     _tick(world, runtime, 61)
     _tick(world, runtime)
     _tick(world, runtime)
     assert _kill(tmp_path)["active"] is False and runtime.exits.loss_findings == []
-    assert eth.positions["ETHUSDT"] == D("1") and btc.positions["BTCUSDT"] == held
+    assert eth.positions["ETHUSDT"] == netted and btc.positions["BTCUSDT"] == held
 
 
 def test_the_second_symbol_s_open_loss_counts(tmp_path):
