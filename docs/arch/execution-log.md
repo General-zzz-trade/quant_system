@@ -3797,6 +3797,28 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - "邻近参数"这一项现在要求同一想法的全部配置（参数 × 止损方案）在挑选窗口的夏普都大于 0，因为计划把止损方案当作参数。
   - 下一轮的数字和第一轮不能直接逐位比较：日收益口径改了（每段第一天算进去了）。
 
+## 止损后"等信号重置"：换方向也算新信号；第一轮数字的更正（2026-11-16 晚，研究侧，轻流程）
+
+- `lab/simulate.py` 的 `reenter_after_stop="signal_reset"`：目标换到被止损仓位的另一个方向，也算重置，可以入场。
+  助手实现时按"必须先回到 0"写，并标记为待定；这里在任何用到这条规则的真实数据运行之前定下来，写进 `runs/2026-11-17/plan.md`。
+- 已有测试的改动（1 处，PR #113 刚合并的测试，随这条规则改）：`tests/unit/lab/test_simulate_signal_reset.py`
+  - 原来：`test_a_target_that_changes_sign_without_passing_zero_is_not_a_reset`，第一条断言
+    `assert _after_stop(_run(short_later, reenter_after_stop="signal_reset")) == []`
+  - 现在：改名为 `test_without_the_rule_the_default_enters_again_at_once_and_follows_the_target`，去掉那一条断言，另外两条不变；
+    新规则由 3 个新测试断言（换到空头可以入场；同方向加大不算；空头被止损后可以做多）。
+- 第一轮（2026-11-16）的评审数字少计了每段的第一天和最后一小时，在 `judge.md`、`brief.md` 顶部加了更正说明，
+  对照表在 `runs/2026-11-17/plan.md`。结论不变。
+- 本地【实际运行结果】：信号重置、实盘条件、评审工具、模拟盘逐根一致、金标准、架构测试通过；ruff 通过。
+
+## 更正："单太小发不出"是程序定仓位不用杠杆造成的，不是交易所的限制（2026-11-16 晚，文档）
+
+- 技术负责人指出：币安上很小的资金都能下单。核对【实际运行结果】：币安现在的规则是 BTCUSDT 最小 0.001 BTC（约 64 USDT）且名义额不低于 50，
+  ETHUSDT 名义额不低于 20，多数合约 5；这些数字和快照里的一致。但它们限制的是名义金额，5 倍杠杆下最小单只占几到十几 USDT 保证金。
+  账户自己的记录里，一百多 USDT 的账户单笔名义额中位数是 1292 USDT。
+- 之前多处把"分到的资金低于最小下单额所以发不出单"说成交易所的限制，说错了：原因是程序（和按它写的回测）定仓位时不用杠杆，
+  仓位名义金额不超过分到的那份资金。改了 `research/results/overlay_pilot_2026-11-16/README.md` 和 `research/lab/README.md` 的说法。
+  规则数字和回测结果本身不变。
+
 ## 告警改成写文件，不用 Telegram（2026-11-16 晚，资金路径完整流程）
 
 - **起因**：技术负责人 2026-11-16 晚决定不用 Telegram，改由 Claude Code 会话读告警：大约每小时读一次，自己只做降低风险的动作
