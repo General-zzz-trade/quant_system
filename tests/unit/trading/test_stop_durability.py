@@ -41,7 +41,7 @@ def test_a_pause_that_was_never_written_is_written_after_a_restart(tmp_path):
     world, runtime = _start(tmp_path)
     _until_position(world, runtime)
 
-    def disk_full(symbol, cause, triggers=()):
+    def disk_full(symbol, cause, triggers=(), ends_at=None):
         raise sqlite3.OperationalError("disk full")
 
     runtime.pauses.pause = disk_full

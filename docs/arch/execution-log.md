@@ -3605,9 +3605,11 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     `_release(..., clock=lambda: world["clock"]["now"])`。
   - `tests/unit/trading/test_stop_durability.py::test_a_deleted_pause_store_pauses_again_every_symbol_whose_stop_ever_fired`：
     `SqliteEntryPauses(..., clock=lambda: world["clock"]["now"])`。
+  - `tests/unit/trading/test_paper_parts.py` 的假暂停存储 `Pauses.pause` 和 `test_stop_durability.py` 的 `disk_full` 替身：签名加 `ends_at=None`（模拟盘包装和运行时现在传这个参数；不加时前者报 TypeError，后者会因为 TypeError 而不是模拟的磁盘错误通过）。
 - **新增测试**：`tests/unit/trading/test_stop_pause_auto_release.py`（12 个：回测和实盘同一个时长、到期结束并留记录、人提前结束、
   人工暂停比定时的长、后来的止损延长、到期后新止损再暂停、运行时 4 小时后重新入场、不在未来的结束时间被拒绝（4 个）、模拟盘传递）。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/stop_pause_auto_release.json` 15 个变异，基线通过，第一轮 14 个被杀；
   存活 1 个（模拟盘包装丢掉结束时间），补了模拟盘传递的测试后被杀。最终 15/15。
+- **CI 第一次**【实际运行结果】：分片 2 失败 2 个：`test_paper_parts` 的假存储签名（上面已补）；新的运行时测试在 CI 上没重新入场——两个品种同一根 K 线入场时第二个要等真实的 1 秒（限价器每秒 1 笔），本地机器慢所以通过了；照已有测试的做法在入场前 `time.sleep(1.1)`。
 - **本地**【实际运行结果】：新测试和所有涉及暂停的测试文件（入场暂停、模拟盘并存、恢复加固、S3 审计、状态库、恢复、按交易所持仓平仓、
   告警、丢失状态文件、备份、止损持久、问题表）、架构测试、lab 实盘条件测试通过；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。

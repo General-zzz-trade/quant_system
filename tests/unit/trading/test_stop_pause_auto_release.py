@@ -9,6 +9,7 @@ its end, so the history shows when it ended and why.
 from __future__ import annotations
 
 import sqlite3
+import time
 from decimal import Decimal as D
 
 import pytest
@@ -122,7 +123,8 @@ def test_the_runtime_resumes_entries_4_hours_after_a_stop(tmp_path):
     for _ in range(3):                                                          # past the 4 hours: entries again
         k += 1
         _advance(world, runtime, k)
-        _tick(world, runtime, seconds=1.1)
+        time.sleep(1.1)              # both symbols may enter on one bar: the second waits a real second (R23)
+        _tick(world, runtime)
     assert runtime.status()["symbols"]["BTCUSDT"]["entry_pause"] is None
     assert btc.positions["BTCUSDT"] != D(0) and qty != 0                    # entered again
 
