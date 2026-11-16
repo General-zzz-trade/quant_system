@@ -4,9 +4,13 @@
 
 - **Not approved for live trading. No strategy has a verified edge.** Older Sharpe/return figures in docs,
   configs, `models_v8/` or commit messages are unverified claims, not results.
-- **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16). Next is M5, the
-  4-week testnet run; it waits on the owner's preparations in `docs/m5_checklist.md` (testnet key, Telegram,
-  external heartbeat, a clean-host install, the second-closePosition-stop check on the testnet).
+- **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16).
+- **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
+  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day, 3 losses in a row, kill switch); the
+  owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
+  (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
+  passed (code never does), no position outside the strategy ledger on the account, Telegram and the heartbeat,
+  the host install, and a strategy capital cap (execution sizes from the whole account's equity today).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
     - It passed a pre-registered development-window screen, which earns forward paper trading only
@@ -61,8 +65,8 @@
   never invented numbers, every estimate labelled; fees, funding, slippage and delisted contracts in every
   test; every configuration tested is recorded in `research/lab/trials.jsonl`; lab data ends 2026-11-12 (forward
   guard; snapshot `data_files/binance_usdt_perps_2026-11-12`); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
-  lookahead) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. Paper is not
-  deployed (owner, 2026-11-16); real money waits for the owner's "go live"; the existing audited runtime
+  lookahead) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
+  testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
   -3 % a day, 3 losses in a row, a stale feed).
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
