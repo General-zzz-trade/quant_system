@@ -88,6 +88,9 @@ class Ranked:
     def __init__(self, log, fail=False):
         self.log, self.fail = log, fail
 
+    def references(self):
+        return ()
+
     def latest(self, windows):
         self.log.append(("latest", sorted(windows.values())))
         if self.fail:
@@ -303,3 +306,19 @@ def test_the_session_decides_on_a_given_target_without_asking_its_strategy():
                                                        [T0 + 40 * HOUR])
     # the strategy's 4 settlements known at the close (T0 + 40 h, one settles then); none of the later ones
     assert list(window.funding.index) == [T0 + k * 8 * HOUR for k in range(2, 6)]
+
+
+def test_a_strategy_that_reads_another_symbol_decides_together():
+    """R7d: a per-symbol strategy that reads BTCUSDT depends on BTCUSDT's bar too: every symbol at one close."""
+    class Gated(Ranked):
+        cross_sectional = False
+
+        def references(self):
+            return ("AUSDT",)
+    w = _poller(EXECUTION, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 2}, now_hours=4, strategy=Gated(None))
+    w.poller.poll()
+    assert w.log == []                                                # CUSDT is behind: nobody decides
+    w.market.last["CUSDT"] = 3
+    w.clock["t"] += 5
+    w.poller.poll()
+    assert [e[0] for e in w.log] == ["latest", "decide", "decide", "decide"]

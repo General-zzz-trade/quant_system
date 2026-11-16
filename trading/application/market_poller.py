@@ -105,9 +105,11 @@ class MarketPoller:
         return self.gate_clock.ms() if self.gate_clock is not None else int(self.clock() * 1000)
 
     def together(self) -> Strategy | None:
-        """The cross-sectional strategy every session shares, or None when each symbol decides on its own (R3)."""
+        """The strategy every session shares when its symbols decide together, or None when each symbol decides on
+        its own (R3): a cross-sectional strategy, and from R7d one that reads other symbols (``references``, e.g.
+        BTCUSDT): a symbol's decision then depends on their bars too."""
         strategies = {id(session.strategy): session.strategy for session in self.sessions.values()}
-        if not any(strategy.cross_sectional for strategy in strategies.values()):
+        if not any(s.cross_sectional or s.references() for s in strategies.values()):
             return None
         if len(strategies) != 1:
             raise ValueError("a cross-sectional strategy must be the one every symbol uses")
