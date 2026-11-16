@@ -6,6 +6,7 @@ state database with the paper state saved atomically in it, and the ``paper_dive
 """
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
@@ -21,6 +22,8 @@ from trading.application.ports import EntryPauses, EventLog
 from trading.domain.events import EventKind
 from trading.domain.issues import IssueKind
 from trading.domain.strategy.overlay import StrategySpec
+
+logger = logging.getLogger(__name__)
 
 PAPER_STATE = "paper_state.json"
 # A paper record exists when any of these is in the directory; its state database must then exist too.
@@ -122,11 +125,19 @@ class PaperStateStore:
     """The ``PaperStore`` of a paper run (S10 decision 4): the document in the state database, written atomically with
     the order journal (``SqlitePaperState`` and ``PaperOrderJournal``), and after every save a JSON copy beside it
     (``paper_state.json``; migration plan step 10: until the audit after step 15 says it may stop). The copy is
-    never read back: the database is the one store."""
+    never read back: the database is the one store. So a copy that cannot be written is logged and never fails the
+    journal operation whose transaction has already committed."""
 
     def __init__(self, state: SqlitePaperState, copy: JsonPaperStore) -> None:
         self.state, self.copy = state, copy
-        state.saved = copy.save
+        state.saved = self._copy
+
+    def _copy(self, document: dict[str, Any]) -> None:
+        try:
+            self.copy.save(document)
+        except Exception:
+            logger.warning("Paper state copy %s not written; the state database holds the state", self.copy.path,
+                           exc_info=True)
 
     def load(self) -> dict[str, Any] | None:
         return self.state.load()

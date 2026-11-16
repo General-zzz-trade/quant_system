@@ -128,3 +128,17 @@ def test_a_reset_sets_the_old_database_aside_and_starts_a_new_one(tmp_path):
     assert schema.problems(path) == []
     _, again = paper_state_db(tmp_path, reset=True, stamp_ms=1700)    # a second reset in the same millisecond
     assert again == "state.1700.1.sqlite"
+
+
+def test_the_json_copy_follows_every_save_and_a_failing_copy_fails_nothing(tmp_path):
+    from trading.adapters.files.state_files import JsonPaperStore
+    from trading.adapters.sqlite.paper_state import SqlitePaperState
+    from trading.infrastructure.paper import PaperStateStore
+    path, _ = paper_state_db(tmp_path, reset=False, stamp_ms=1)
+    store = PaperStateStore(SqlitePaperState(path), JsonPaperStore(tmp_path / PAPER_STATE))
+    store.save({"n": 1})
+    assert store.load() == {"n": 1} and (tmp_path / PAPER_STATE).read_text() == '{"n": 1}'
+    (tmp_path / PAPER_STATE).unlink()
+    (tmp_path / PAPER_STATE).mkdir()                       # the copy can no longer be written
+    store.save({"n": 2})
+    assert store.load() == {"n": 2}
