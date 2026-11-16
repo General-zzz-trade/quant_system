@@ -1,31 +1,18 @@
-# 目标架构（阶段 2）
+# 架构说明（2026-11-16 晚重写，R9）
 
-> 2026-11-16 晚：本文写于 2026-11-14，部分内容已过时。按运行时扩展（策略接口、第 2 版规格、多品种、做空、整账户查询）改写的
-> 版本随 PR #119–#130 合并；在那之前以代码和 `CLAUDE.md` 为准。下面引用的 `current-state.md` 和 `design-2026-11-m5.md` 已删除，
-> 原文在 git 历史里。
+- 这是仓库里唯一的架构说明。`trading/__init__.py`、`trading/application/ports.py` 和 `tests/architecture/test_rules.py`
+  指向本文；ADR 里引用的"2.1""2.3""第 3 节"仍是这几节。
+- 依据是代码（基线：分支 `r7d-paper-compare`，即运行时扩展计划 R1–R7 之后）。本文与代码不一致时以代码为准，并改正本文。
+- 为什么这样设计见 `docs/adr/`；每一步改了什么见 `docs/arch/execution-log.md`；运行时扩展的计划见
+  `docs/arch/runtime-lab-strategies-plan.md`。2026-11-14 的现状诊断、迁移计划、路线图和 M5 设计都已完成并在 R9 删除，原文在 git 历史里。
 
-- 依据：`docs/arch/current-state.md`（HEAD `e3cd2d6`；已删除，原文在 git 历史里）。
-- 状态：**已批准**（2026-11-14）。每个取舍的实际批准范围与未答事项以对应 ADR 的状态行为准。凡是会改变交易或风控行为的地方都在 ADR 里单独列出。
+## 1. 范围
 
-## 1. 目标与范围
-
-### 1.1 要解决什么
-
-`current-state.md` 第 7 节的五个结构性结论，对应五个目标：
-
-| 现状 | 目标 |
-|---|---|
-| 候选运行时被已关闭的 ML 系统拖着 | 候选运行时放进一个独立的包，不 import 任何遗留代码 |
-| 退出侧不可靠（R1–R7） | 退出路径有明确语义、有测试、失败时有告警 |
-| 没有端口，订单库被 7 个以上文件直接写 SQL | 交易所、行情、存储、时钟、通知都经过端口；每张表只有一个写入者 |
-| 约一半代码不在运行路径上 | 新包里只有在用的代码；遗留代码在边界之外，按批次处置 |
-| 安全网不均匀，没有架构规则 | 每条不变量对应一个自动检查，全部进 CI |
-
-### 1.2 范围
-
-- **范围内**：Binance USDT-M 上的目标仓位运行时（现在的 `runner.binance_target`）及其依赖的策略、风控、执行、持久化和研究撮合。
-- **范围外，原地冻结**：ML 线（`engine`、`decision`、`features`、`alpha`、`runner/binance_main.py`、`runner/offline` 的 ML 部分）、Bybit / OKX / Polymarket、`rust_bin`。它们不迁入新包，只接受安全修改和删除。去留见 ADR-0008。
-- 新包名用 `trading/`。仓库里没有同名目录。
+- 一个交易系统：币安 USDT 保证金永续合约上的目标仓位运行时，入口 `runner/binance_target.py`，代码在 `trading/`。
+- 一个研究侧：`lab/`（研究、实验室的评审员、模拟盘对照），依赖 `trading.domain` 和 `trading.adapters.simulated`，不属于 `trading/`。
+- 运行时交易一份签名规格里列出的品种（最多 10 个），用规格里写明的策略。策略在 `trading/domain/strategy/` 里，研究和实盘调用同一份代码。
+- 已删除、不在范围内：机器学习运行时、Bybit / OKX / Polymarket、Rust 扩展、Docker 部署（2026-11-15，M4；最后一版在 git 标签
+  `archive/ml-line-2026-11-15`）。
 
 ## 2. 分层与依赖规则
 
@@ -33,341 +20,225 @@
 
 依赖只能向内：`infrastructure → adapters → application → domain`。
 
-| 层 | 放什么 | 允许依赖 | 禁止 |
-|---|---|---|---|
-| `trading/domain` | 策略函数、再平衡、订单与状态转移表、持仓投影、风控规则。全部是纯计算 | 标准库的纯计算模块、numpy、pandas | 任何 I/O：`sqlite3`、`urllib`、`socket`、`subprocess`、`time`、`logging`、`os`；Rust 扩展 `_quant_hotpath` |
-| `trading/application` | 用例（每小时决策、下单生命周期、止损维护、急停平仓、对账）和端口定义 | `domain`；`logging` | 同上，但允许 `logging`（2026-11-14 实施时调整）。时间只能经 `Clock` 端口取得 |
-| `trading/adapters` | 端口的实现：Binance REST、SQLite、文件、模拟交易所、通知、系统时钟 | `application` 的端口、`domain` | 读环境变量；适配器之间互相 import |
-| `trading/infrastructure` | 配置加载（唯一读环境变量的地方）、组装根、命令行入口、进程租约、日志设置 | 以上全部 | — |
-
-研究代码（现在的 `lab/*_study.py`）是另一个入口：它依赖 `trading.domain` 和 `trading.adapters.simulated`，不属于 `trading/`。
+| 层 | 放什么 | 不许做的 |
+|---|---|---|
+| `trading/domain` | 策略、规格解析、再平衡、订单与状态、持仓、交易所返回的类型化记录、问题种类及其效果表、风控规则。纯计算 | 任何 I/O；`logging`、`sys` |
+| `trading/application` | 用例：每个品种的会话、行情侧、退出侧、状态、下单生命周期、止损、平仓、对账、入场门、亏损停止线；端口定义 | 任何 I/O；可以用 `logging`；时间只经 `Clock` 端口 |
+| `trading/adapters` | 端口的实现：币安 REST、SQLite、文件、模拟交易所、告警出口和心跳 | 读环境变量；适配器之间互相 import |
+| `trading/infrastructure` | 配置（唯一读环境变量的地方）、组装、命令行入口、人用的工具（状态目录、急停、暂停、手工工具、备份、单元告警） | — |
 
 ### 2.2 包结构
 
 ```
 trading/
   domain/
-    market.py            Bar、资金费、可见时间（available_at）语义
-    strategy/overlay.py  StrategySpec、compute_targets、latest_target
-    rebalance.py         Intent、plan
-    orders.py            OrderIntent、OrderStatus、合法转移表、Fill
-    position.py          StrategyPosition
-    risk/exposure.py     3 倍上限常量与判定函数
-    risk/drawdown.py     周期键、高水位、触发与闩锁规则
-    risk/limits.py       单笔 / 日累计 / 频率限额规则
-    risk/kill.py         KillState
+    bars.py, market.py         已收盘 K 线、窗口框架、资金费窗口
+    strategy/base.py           Strategy 接口、Window、PerSymbol、OverlayStrategy、STRATEGIES、strategy_from
+    strategy/overlay.py        BTC/ETH 多周期策略（StrategySpec、compute_targets）
+    strategy/ideas.py          实验室的 29 个想法（IdeaStrategy）
+    strategy/spec.py           签名规格的解析：TargetSpec、parse_spec（第 1、2 版）
+    rebalance.py               目标权重 → 意图（plan）
+    orders.py, position.py     订单、状态、成交；策略持仓
+    venue.py                   交易所返回的类型化记录
+    issues.py, symbol_state.py 问题种类和它们的效果表；品种状态
+    events.py                  事件种类
+    risk/                      敞口上限、回撤、限额、急停、逐仓强平距离
   application/
-    ports.py             全部端口（Protocol）
-    session.py           每小时一步：行情 → 目标 → 意图 → 提交
-    runtime.py           主循环编排：预热、轮询、对账、风险动作
-    execution/lifecycle.py   意图预留、发单、查询、成交入账、结算
-    execution/stops.py       交易所侧止损维护
-    execution/flatten.py     急停与回撤平仓
-    risk/entry_gate.py       入场组合门
-    reconcile.py             账本与交易所核对
+    ports.py                   全部端口（Protocol）
+    runtime.py                 主循环：预热、三个侧（行情、退出、状态）
+    market_poller.py           行情侧：新 K 线、资金费间隔、按品种或一起决定
+    exit_supervisor.py         退出侧：权益、对账、止损维护、暂停、急停 / 回撤 / 击穿平仓、亏损停止线、账户检查
+    session.py                 一个品种：窗口、目标、再平衡、下单
+    status.py, alerts.py, issues.py, event_guard.py, equity.py, account_ownership.py, mode_policy.py
+    execution/                 lifecycle、service、executor、stops、flatten、reduction、fills、recorded_journal
+    risk/                      entry_gate、exposure_gate、order_limiter、readiness、loss_stop
   adapters/
-    binance/             rest、adapter（一个类实现行情、账户、下单、止损四个端口）
-    sqlite/              order_journal、drawdown_store、limit_store、paper_state（S10 起模拟盘状态与订单库同在 state.sqlite）
-    files/               kill_file、event_log、status_file、signed_spec
-    simulated/           bar_broker（研究撮合模型，纸面与研究共用）
-    notify/              telegram、null
-    system/              clock、sleeper
+    binance/                   adapter（行情、账户、下单、止损）、rest、rate_limit、urls
+    sqlite/                    schema、order_journal、drawdown_store、limit_store、entry_pause、paper_state、backup
+    files/                     event_log、kill_switch、lease、host_lock、state_files
+    simulated/                 bar_broker（研究撮合器）、exchange（模拟交易所）
+    notify/                    file（告警文件）、telegram、log、heartbeat
   infrastructure/
-    settings.py          环境变量 → 带校验的不可变配置对象
-    bootstrap.py         组装根
-    cli/target.py        运行时入口
-    cli/kill.py          急停命令行
-    lease.py
+    config.py                  环境变量 → RuntimeConfig 和 Secrets
+    cli/target.py              运行时入口：启动检查、两种模式的组装、循环
+    target.py, paper.py, modes.py, bootstrap.py
+    state_dir.py, state_backup.py, kill.py, entry_pause.py, manual.py, unit_alert.py
 ```
+
+`runner/binance_target.py` 是一层薄壳：它提供 `trading` 不能 import 的两样东西（签名规格的加载器 `infra.model_signing`、成交分析
+日志 `monitoring.tca`），其余都在 `trading/infrastructure/cli/target.py`。
 
 ### 2.3 规则的自动化检查
 
-用 import-linter 在 CI 里检查。下面是最初的草案；实际生效的契约见仓库根目录 `.importlinter`（2026-11-14 第 3 步审计后加严：`no-legacy` 同时禁止 `_quant_hotpath` 和 `tests`；`core-no-io` 还禁止 `pathlib`、`io`、`shutil`、`random`、`tempfile`、`glob`、`importlib`；另有 `domain` 不得 import `logging`；"适配器互不依赖"在第 8 步加入）：
-
-```ini
-[importlinter]
-root_package = trading
-include_external_packages = True
-
-[importlinter:contract:layers]
-name = trading 的依赖只能向内
-type = layers
-layers =
-    trading.infrastructure
-    trading.adapters
-    trading.application
-    trading.domain
-
-[importlinter:contract:no-legacy]
-name = trading 不依赖遗留包
-type = forbidden
-source_modules = trading
-forbidden_modules = runner, shared, execution, engine, decision, features, alpha,
-    strategy, event, state, risk, data, monitoring, attribution, infra,
-    polymarket, scripts, research, lab
-
-[importlinter:contract:core-no-io]
-name = domain 与 application 不做 I/O
-type = forbidden
-source_modules = trading.domain, trading.application
-forbidden_modules = sqlite3, urllib, http, socket, subprocess, time, _quant_hotpath
-
-[importlinter:contract:adapters-independent]
-name = 适配器之间互不依赖
-type = independence
-modules = trading.adapters.binance, trading.adapters.sqlite, trading.adapters.files,
-    trading.adapters.simulated, trading.adapters.notify, trading.adapters.system
-```
-
-import-linter 查不了的规则用 AST 测试补（`tests/architecture/test_rules.py`）。除下面两条外，还检查 `domain`、`application` 中不经 import 就能做的 I/O（`open()`、`__import__()`、`Path.write_text()`、`datetime.now()` 等）：
-
-- `os.environ` / `os.getenv` 只出现在 `trading/infrastructure/`。
-- `trading/domain` 不 import `logging` 和 `os`。
-
-迁移期间，旧位置的模块变成只做重导出的薄壳（例如 `lab/strategy.py` 重导出 `trading.domain.strategy.overlay`）。所以"遗留包 import 新包"是允许的，反方向被 `no-legacy` 契约禁止。
+- `.importlinter` 的 5 条契约（`lint-imports`）：分层只能向内；`trading` 不 import 遗留包、`lab`、`tests`；`domain` 和 `application`
+  不 import 做 I/O 或读时钟的模块；`domain` 不 import `logging`、`sys`；适配器之间互不依赖。契约以文件为准。
+- import-linter 查不了的用测试补（`tests/architecture/`）：`test_rules.py`（`domain`、`application` 里不经 import 的 I/O；只有
+  组装层读环境变量；SQLite 只在 SQLite 适配器里；3 倍上限只定义一次；资金路径测试都在 CI 里）、`test_config_rules.py`、
+  `test_issue_rules.py`（应用层不在问题文字里找字）、`test_event_kind_rules.py`、`test_artifact_loading.py`（规格只经签名加载）、
+  `test_paper_path.py`、`test_research_fills.py`、`test_shared_parameters.py`、`test_no_ai_sdk.py`。
 
 ## 3. 端口
 
-端口的方法集合来自现有代码的实际调用点（`current-state.md` 2.2 的 V8–V10，以及订单生命周期追踪）。全部用 `typing.Protocol` 定义在 `trading/application/ports.py`。方法名沿用现有命名，这样现有的适配器和测试用假交易所不改代码就符合端口。
+全部是 `typing.Protocol`，在 `trading/application/ports.py`。端口方法答不出时抛错，从不返回会被当成"什么都没有"的空结果。
 
-| 端口 | 方法 | 现在的直接调用点 | 目标适配器 |
-|---|---|---|---|
-| `MarketData` | `get_klines(symbol, interval, limit, now_ms)`、`get_funding_history(symbol, limit)` | `runner/binance_target.py:277,279,328,334` | `adapters.binance.market_data`；研究用 CSV 快照 |
-| `ExchangeAccount` | `get_account_equity()`、`get_positions(symbol, strict)`、`get_open_orders(symbol, strict)`、`filters(symbol)`、`execution_blockers()`、`get_ticker(symbol)` | `shared/exposure_gate.py:26,30,34`；`execution_adapter.py:165,260-277`；`runner/binance_target.py:236,291` | `adapters.binance.account`；`adapters.simulated` |
-| `OrderGateway` | `send_market_order(...)`、`send_limit_order(...)`、`get_order(...)`、`cancel_order(...)`、`get_recent_fills(symbol, order_id, limit)` | `shared/confirmed_execution.py:176,185,189,226,249,254` | `adapters.binance.order_gateway`；`adapters.simulated` |
-| `StopOrderGateway` | `place_stop_market(...)`、`get_algo_order(...)`、`cancel_algo_order(...)` | `protective_stops.py:87,103,106,125` | `adapters.binance.stop_gateway` |
-| `OrderJournal` | `reserve(intent)`、`transition(intent_id, to)`、`record_fill(...)`、`settle(...)`、`unresolved(...)`、`undelivered(owner)`、`consume(owner, fill_id, apply)`、`checkpoint(owner)`、`adopt(...)`、止损行的读写 | 7 个以上文件直接写 SQL（V8） | `adapters.sqlite.order_journal`，三张订单表和止损表的唯一写入者 |
-| `DrawdownStore` | `load(scope, period)`、`save(...)`、`observe(...)` | `shared/drawdown_guard.py:45` | `adapters.sqlite.drawdown_store` |
-| `LimitStore` | `load_day(scope, day)`、`add(...)` | 现在在 Rust 进程内存里 | `adapters.sqlite.limit_store` |
-| `KillSwitch` | `state()` | `runner/binance_target.py:258,316` | `adapters.files.kill_file` |
-| `SpecSource` | `load_verified()` | `runner/binance_target.py:52-58,386` | `adapters.files.signed_spec` |
-| `Clock`、`Sleeper` | `now()`、`sleep(s)` | `time.time` / `time.sleep` 散落在 5 个文件 | `adapters.system`；测试用假时钟 |
-| `Notifier` | `alert(level, title, detail)` | 资金路径上没有任何调用 | `adapters.notify.telegram`、`null` |
-| `EventLog`、`StatusSink` | `write(kind, **fields)`、`publish(status)` | `runner/binance_main.py:130-133`；`runner/binance_target.py:363-365` | `adapters.files` |
-| `PaperStore` | `load()`、`save(state)` | 不存在，纸面状态只在内存 | `adapters.sqlite.paper_state`（S10；`paper_store` 已于 2026-11-16 删除） |
-
-约束：
-
-- 应用层的构造参数全部用端口类型，不再出现 `Any`。
-- 执行模式下，入场门的 kill、回撤、敞口、限额四个组件必须齐全，缺任何一个在构造时抛错。
-- 适配器不读环境变量。所有配置由 `infrastructure.settings` 读一次，校验后以不可变对象传入。
-
-## 4. C4 容器图
-
-```mermaid
-flowchart TB
-  OP(["操作员"])
-  RS(["研究者"])
-
-  subgraph HOST["交易主机"]
-    RT["目标仓位运行时<br/>python -m runner.binance_target<br/>（systemd，默认纸面）"]
-    KC["急停命令行<br/>python -m trading.infrastructure.cli.kill"]
-    MON["监控与对账定时任务<br/>（只读，告警）"]
-    subgraph STATE["状态目录（受管）"]
-      DB[("state.sqlite（执行模式，ADR-0009）<br/>paper_state.sqlite（模拟盘）")]
-      FILES["kill_switch.json<br/>status.json<br/>events.jsonl<br/>manifest.json"]
-    end
-    SPEC["已签名的策略 spec<br/>final_spec.json + .sig"]
-    LEG["遗留运行时（冻结）<br/>alpha_main / shadow_main / polymarket"]
-  end
-
-  subgraph RESEARCH["研究环境"]
-    ST["研究 study<br/>python -m lab.*_study"]
-    SNAP[("不可变数据快照<br/>data_files/binance_public_日期")]
-    REG["trials.jsonl<br/>forward_looks.jsonl"]
-  end
-
-  BPUB["Binance 公共行情<br/>（主网 REST）"]
-  BACC["Binance 账户与下单<br/>（测试网或主网 REST）"]
-  TG["Telegram"]
-
-  OP -->|"写入急停"| KC --> FILES
-  OP -->|"启停、看状态"| RT
-  RT -->|"已收盘 K 线、资金费"| BPUB
-  RT -->|"权益、持仓、订单、止损"| BACC
-  RT --> DB
-  RT --> FILES
-  RT -->|"验签后读取"| SPEC
-  RT -->|"告警"| TG
-  MON -->|"只读"| BACC
-  MON --> FILES
-  MON --> TG
-  RS --> ST
-  ST --> SNAP
-  ST --> REG
-  ST -->|"发布并签名"| SPEC
-```
-
-说明：
-
-- 运行时是单进程、单线程。纸面和执行是同一个进程的两种组装方式。
-- systemd 的 `ExecStart` 不变，仍是 `python3 -m runner.binance_target`。这个模块在迁移后是一个转发到 `trading.infrastructure.cli.target` 的薄壳。
-- 状态目录是"受管"的：带清单和账户身份，执行模式下缺库拒绝启动（ADR-0007）。
-- 遗留运行时与新运行时不共享代码路径，也不共享状态目录。
-
-## 5. C4 组件图（目标仓位运行时内部）
-
-```mermaid
-flowchart LR
-  subgraph INFRA["infrastructure"]
-    CLI["cli/target.py"]
-    SET["settings.py<br/>环境变量 → 不可变配置"]
-    BOOT["bootstrap.py<br/>组装根"]
-    LEASE["lease.py"]
-  end
-
-  subgraph APP["application"]
-    RUN["runtime.py<br/>主循环"]
-    SES["session.py<br/>每小时一步"]
-    GATE["risk/entry_gate.py<br/>入场门"]
-    LIFE["execution/lifecycle.py<br/>下单生命周期"]
-    STOPS["execution/stops.py"]
-    FLAT["execution/flatten.py<br/>急停与回撤平仓"]
-    REC["reconcile.py"]
-    PORTS{{"ports.py"}}
-  end
-
-  subgraph DOM["domain"]
-    STRAT["strategy/overlay.py"]
-    REB["rebalance.py"]
-    ORD["orders.py<br/>状态与转移表"]
-    POS["position.py"]
-    RISK["risk/*<br/>敞口、回撤、限额、kill"]
-  end
-
-  subgraph ADP["adapters"]
-    BIN["binance/*"]
-    SQL["sqlite/*"]
-    FIL["files/*"]
-    SIMX["simulated/bar_broker"]
-    NOT["notify/*"]
-    SYS["system/clock"]
-  end
-
-  CLI --> SET --> BOOT
-  CLI --> LEASE
-  BOOT --> RUN
-  BOOT -.->|"构造并注入"| ADP
-
-  RUN --> SES
-  RUN --> REC
-  RUN --> FLAT
-  RUN --> STOPS
-  SES --> STRAT
-  SES --> REB
-  SES --> GATE
-  SES --> LIFE
-  FLAT --> LIFE
-  GATE --> RISK
-  LIFE --> ORD
-  LIFE --> POS
-  STOPS --> ORD
-
-  SES --> PORTS
-  GATE --> PORTS
-  LIFE --> PORTS
-  STOPS --> PORTS
-  FLAT --> PORTS
-  REC --> PORTS
-
-  BIN -.->|"实现"| PORTS
-  SQL -.->|"实现"| PORTS
-  FIL -.->|"实现"| PORTS
-  SIMX -.->|"实现"| PORTS
-  NOT -.->|"实现"| PORTS
-  SYS -.->|"实现"| PORTS
-```
-
-要点：
-
-- 入场订单到达 `OrderGateway` 的唯一路径是 `session → entry_gate → lifecycle`。`adapters.binance` 只在 `bootstrap` 里被构造，应用层拿不到具体类。
-- 减仓不经过入场门（与现在一致），但经过同一个 `lifecycle`，所以"至多发一次、只认交易所成交"对减仓同样成立。
-- 纸面模式把 `BIN` 换成 `SIMX`，其余组件不变（ADR-0006）。
-
-## 6. 现有文件 → 目标位置
-
-| 现有 | 目标 | 方式 |
+| 端口 | 方法 | 实现 |
 |---|---|---|
-| `lab/strategy.py`、`lab/data.py` 的聚合函数 | `trading/domain/strategy/overlay.py`、`trading/domain/market.py` | 移动，旧位置留薄壳 |
-| `lab/rebalance.py` | `trading/domain/rebalance.py` | 移动 |
-| `shared/strategy_position.py` | `trading/domain/position.py` | 移动 |
-| `lab/orders.py`（依赖 Rust 事件类型） | `trading/domain/orders.py`（纯 Python 数据类） | 重写，约 40 行 |
-| `shared/exposure_gate.py` | 规则 → `domain/risk/exposure.py`；取数 → `application/risk/entry_gate.py` 经 `ExchangeAccount` | 拆分 |
-| `shared/drawdown_guard.py` | 规则 → `domain/risk/drawdown.py`；存储 → `adapters/sqlite/drawdown_store.py` | 拆分 |
-| `execution/safety/limits.py` + Rust 限额器 | `domain/risk/limits.py` + `adapters/sqlite/limit_store.py` | 重写为纯 Python（ADR-0008） |
-| `shared/entry_risk.py` | `application/risk/entry_gate.py` | 移动并加类型 |
-| `shared/confirmed_execution.py` | `application/execution/lifecycle.py` | 移动；SQL 移入适配器 |
-| `shared/execution_journal.py` | `adapters/sqlite/order_journal.py` | 移动并扩展为唯一写入者 |
-| `execution/adapters/binance/execution_adapter.py` | 减仓定量与对账 → `application`；其余并入 `lifecycle` | 拆分 |
-| `execution/adapters/binance/protective_stops.py` | `application/execution/stops.py` | 移动；SQL 移入适配器 |
-| `execution/adapters/binance/adapter.py`、`rest.py` | `adapters/binance/*`。先由一个类实现四个端口，按端口拆成多个类留作后续 | 移动 |
-| `shared/kill_file.py` | `adapters/files/kill_file.py` + `infrastructure/cli/kill.py` | 拆分 |
-| `infra/model_signing.py` 的验签 | `adapters/files/signed_spec.py` | 移动在用部分 |
-| `runner/offline/broker.py` 的 `BarBroker` | `adapters/simulated/bar_broker.py` | 移动 |
-| `lab/simulate.py` | 研究侧保留 `simulate()`；`Sleeve` 的职责由 `application/session.py` + 模拟适配器承担 | 见 ADR-0006 |
-| `runner/binance_target.py` | `application/runtime.py`、`application/session.py`、`infrastructure/bootstrap.py`、`infrastructure/cli/target.py` | 拆分；旧文件留薄壳 |
-| `runner/binance_main.py` 的 6 个符号 | 各归其位（`EquitySource` → application，`EventJournal` → adapters.files，`build_adapters` → bootstrap） | 复制后切断依赖 |
-| `shared/execution_lease.py` | `infrastructure/lease.py` | 移动 |
+| `MarketData` | `get_klines`、`get_funding_history`、`get_funding_intervals`（R4） | `adapters.binance` |
+| `ExchangeAccount` | `get_account_equity`、`get_positions`、`get_position_snapshot`（R5）、`get_open_orders`、`filters`、`execution_blockers`、`get_ticker` | `adapters.binance`、`adapters.simulated` |
+| `FundingIncome` | `get_funding_income` | `adapters.binance` |
+| `OrderGateway` | `send_market_order`、`send_limit_order`、`get_order`、`cancel_order`、`get_recent_fills`、`get_ticker` | `adapters.binance`、`adapters.simulated` |
+| `StopOrderGateway` | `place_stop_market`、`get_algo_order`、`cancel_algo_order` | 同上 |
+| `AccountSnapshot` | 整个账户的持仓、挂单、条件单、品种设置（ADR-0010 的启动检查和运行中每分钟的检查） | `adapters.binance` |
+| `OrderJournal` | 意图、订单、成交、检查点、止损行 | `adapters.sqlite.order_journal`（唯一写入者） |
+| `DrawdownGuard`、`LimitStore`、`EntryPauses`、`PaperStore` | 回撤闩锁、当日计数、入场暂停、模拟盘状态 | `adapters.sqlite` |
+| `KillSwitch`、`KillLatch` | `state`、`allow_order`；`trip`（只给亏损停止线用） | `adapters.files.kill_switch` |
+| `EventLog`、`StatusSink` | `write` | `adapters.files` |
+| `Notifier` | `alert` | `adapters.notify`（告警文件、Telegram、只写日志） |
+| `BarListener`、`PaperVenue`、`GateClock` | 模拟盘：撮合已收盘 K 线、存取快照、按 K 线时间走的入场门时钟 | `adapters.simulated`、`infrastructure.paper` |
+| `Clock`、`Sleeper` | 秒数；睡眠 | 组装层传入；测试用假时钟 |
 
-## 7. 不变量清单与自动化检查
+只读的交易所记录用 `...View` 协议描述（`PositionView`、`OrderView`、`FillView` 等），币安适配器返回 `trading.domain.venue` 里的冻结记录。
 
-2026-11-15 按 `design-2026-11-m5.md` 第 7 节更新（原表停在 2026-11-14，L5、L6、K2–K5、S1、S2 已修复却仍标 ✗）。表中 T1–T10 是这次设计新增的不变量；"没有"的项由设计第 10 节的对应步骤补上。S1 步骤之后，T1（测试不联网）和 T2（规格只经签名加载）已有检查：`tests/conftest.py` 的网络屏蔽与 `tests/unit/tooling/test_network_guard.py`，以及 `tests/architecture/test_artifact_loading.py`。
+## 4. 进程、状态和部署
 
-| 不变量 | 现在的自动检查 | 状态 |
-|---|---|---|
-| L1 3 倍上限只定义一次 | 【测试日志】`tests/architecture/test_rules.py::test_the_hard_leverage_cap_is_defined_once` | 有 |
-| L2 每张入场单都经过入场门 | 【测试日志】`tests/characterization/test_runtime_decisions.py::test_the_entry_gate_as_the_runtime_assembles_it`；但模拟盘路径绕过入场门【代码 `session.py:173-175`】 | 部分（S10 之后成立） |
-| L3 执行模式入场门的四个组件缺一不可 | 【测试日志】`tests/unit/trading/test_domain_risk.py` | 有 |
-| L4 权益、持仓、状态库任何一项未知时拒绝入场 | 【测试日志】`tests/unit/trading/test_unknown_equity.py`、`tests/unit/trading/test_lost_state_files.py` | 有 |
-| L5 回撤锁定和当日计数在重启后保持 | 【测试日志】`test_risk_state.py::test_drawdown_latch_survives_a_restart_with_the_same_file_and_scope`、`::test_the_daily_order_count_survives_a_restart` | 有 |
-| L6 检查通过之前不写账户 | 【测试日志】`test_risk_state.py::test_the_mainnet_gate_refuses_before_any_account_setting_is_written` 等 3 条；ADR-0010 之后，连接账户本身也是只读的 | 有 |
-| L7 没有自动提高上限的路径 | 回撤上限有硬顶，并有测试；还没有"配置对象不可变、启动后不再读配置"的架构测试 | 部分（S4） |
-| K1 急停激活后没有新的入场 | 【测试日志】`tests/unit/trading/test_exit_robustness.py`、`test_exit_paths.py` | 有 |
-| K2–K5 急停先撤后平；命令和运行时用同一个文件；运行时只读；没有止损就阻断 | 【测试日志】`test_exit_paths.py::test_kill_flatten_cancels_a_resting_entry_first_then_closes_the_position`、`test_state_dir.py::test_the_runtime_reads_the_kill_file_the_command_writes`、`::test_only_the_kill_command_writes_a_kill_file`、`test_stops_and_fills.py::test_a_position_without_a_working_stop_blocks_entries_until_one_is_in_place` | 有。K4 只能发现带 `active=` 参数的写调用，发现不了复制文件（审计 M1），S8 补 |
-| K6 急停文件损坏或不可读按激活处理 | 【测试日志】`test_state_dir.py::test_in_a_managed_directory_a_kill_file_that_disappears_reads_as_active` | 有 |
-| F1–F4 无前视 | 【测试日志】`tests/unit/trading/test_strategy_causality.py`、`tests/unit/lab/test_lab_engine.py::test_targets_are_causal`、`tests/unit/binance/test_binance_adapter.py::test_klines_closed_only_and_ascending`、`tests/unit/data/test_causal_bars.py` | 有 |
-| F5 前向窗口只在登记的查看里读取 | `lab/forward.py` 的拒绝逻辑有测试；数据加载函数没有日期上限 | 部分 |
-| O1 同一意图至多提交一次；O4 只有交易所成交才入账、恰好一次 | 【测试日志】`tests/offline/test_execution_safety.py`、`tests/characterization/test_order_facts.py` | 有 |
-| O2 状态只能按转移表变化 | 【测试日志】`test_order_transitions.py` 固定了转移表；生产中只记录、不拒绝（ADR-0004，M5 之后再定） | 部分 |
-| O3 订单表只有一个写入者 | 【测试日志】`tests/architecture/test_rules.py::test_sqlite_is_imported_only_by_the_sqlite_adapters` | 有 |
-| O5 崩溃重启不重复下单、不丢成交 | 【测试日志】`tests/offline/test_execution_recovery.py`、`test_target_runtime_resilience.py::test_paper_restart_while_orders_are_pending_reproduces_lab_simulation`、`test_startup_account_check.py` 的恢复类测试 | 有 |
-| O6 减仓被拒绝时记日志 | 【测试日志】`test_flatten.py::test_a_reduction_refused_by_the_order_journal_is_logged_with_its_reason` | 有 |
-| P1 模拟盘与研究逐笔相同 | 【测试日志】`test_target_runtime.py::test_paper_runtime_reproduces_lab_simulation` 等 | 有（S10 面临的主要风险） |
-| P2 模拟盘与执行用同一份会话代码 | 没有 | **没有**（S10） |
-| P3 模拟盘状态跨重启连续 | 【测试日志】`test_target_runtime_resilience.py` | 有 |
-| P4 研究与实盘共用的参数只有一个来源 | 限价偏移只在 `trading/domain/orders.py` 的 `LIMIT_OFFSET_BPS` 定义一次【测试日志】`tests/architecture/test_shared_parameters.py` | 有（S10 第 1 部分；原来写了四份） |
-| S1 依赖只能向内，核心层不做 I/O | `.importlinter` 5 条契约，加 `tests/architecture/test_rules.py` | 有 |
-| S2 资金相关测试都在 CI 门禁里 | 【测试日志】`test_rules.py::test_money_path_tests_are_gated_in_ci_and_make`、`::test_the_ci_shards_together_are_the_whole_suite` | 有 |
-| T1 测试从不联网 | `tests/conftest.py` 屏蔽本机以外的连接和域名解析；`tests/unit/tooling/test_network_guard.py` | 有（S1） |
-| T2 策略规格和模型只经签名校验加载 | `tests/architecture/test_artifact_loading.py`：生产代码不用 pickle 一类的反序列化；运行时的规格只经 `load_verified_json` 读取 | 有（S1） |
-| T3 主网执行单元不自动重启 | 没有 | **没有**（S8） |
-| T4 运行中出现外来持仓就阻断入场，而且阻断持续到外来持仓消失 | 没有（G5 还没实现） | **没有**（S5） |
-| T5 执行模式没有告警出口、启动告警没送达、没有心跳地址时不能启动 | 没有 | **没有**（S7） |
-| T6 启动之后不再读配置；配置日志里不含密钥和心跳地址 | 只有"只有组装层读环境变量"这一条 | **没有**（S4） |
-| T7 一个账户身份同时只有一个执行进程；运行时在跑时，手工工具和恢复命令拒绝执行 | 已知缺陷测试固定了现状（R20）；手工工具按状态目录的租约拒绝 | **不成立**（S6） |
-| T8 恢复只收紧、不放宽风险状态 | 没有 | **没有**（S8） |
-| T9 心跳失败不影响平仓和对账 | 没有 | **没有**（S7） |
-| T10 模拟盘不构造带凭据的适配器、不发签名请求 | 没有 | **没有**（S10） |
+- 单进程、单线程轮询，每 5 秒一轮（`POLL_SECONDS`）。模拟盘和执行是同一个进程的两种组装（`ModePolicy`，
+  `trading/infrastructure/modes.py` 是两者差别的唯一清单）。
+- 配置在入口读一次（`trading/infrastructure/config.py`，ADR-0017），成为不可变的 `RuntimeConfig`，密钥另放在 `Secrets`；启动时记一条
+  不含密钥的 `config` 事件，带规格的策略、参数、品种和是否做空。
+- 执行模式的状态目录由人用 `state_dir init` 建一次，里面是清单 `manifest.json`、唯一的状态库 `state.sqlite`（订单、止损、限额、
+  暂停、回撤）、急停文件 `kill_switch.json`、事件日志 `target_events.jsonl`、状态文件 `target_status.json`。主机上执行模式的目录在
+  `/var/lib/quant/state/<网络>`（服务单元里写死），备份在 `/var/lib/quant/backups/<网络>`，主机锁在 `/var/lib/quant/locks`。
+- 模拟盘的目录默认是 `data/runtime/paper`，它自己建 `state.sqlite`，拒绝带清单的执行目录。
+- 服务单元（`infra/systemd/`）：`binance-target`（模拟盘）、`binance-target-testnet`、`binance-target-mainnet`（不自动重启、
+  不能开机启动）、`quant-alert@`、`state-backup@<网络>.timer`、`health-watchdog`、`log-archive`。一台主机只跑一个网络的执行进程。
+- 执行模式启动前要有告警出口（`ALERT_FILE`，或 Telegram 两项；二选一）和 https 的 `HEARTBEAT_URL`，告警出口确认
+  "execution starting" 之后才发任何账户请求；然后只读检查整个账户（ADR-0010），账户里有不属于策略账本的东西就拒绝启动。
 
-## 8. 关键决策
+## 5. 一个周期
 
-每条都有 ADR。批准情况见各 ADR 的状态行（2026-11-14）。
+`trading/application/runtime.py` 每轮跑三个侧：行情侧、退出侧、状态。执行模式下三个侧互相隔离：一个侧出错，阻断全部入场直到它
+恢复，其他侧照常运行；模拟盘里任何错误都直接报错停下（模拟盘不许悄悄和研究分叉）。
 
-| ADR | 决策 | 建议 |
-|---|---|---|
-| [0001](../adr/0001-migration-scope-and-strangler-boundary.md) | 迁移范围与新旧边界 | 新建 `trading/` 包，只迁候选运行时；遗留代码原地冻结 |
-| [0002](../adr/0002-layering-and-enforcement.md) | 分层方式与强制手段 | 四层 + import-linter；组装根在最外层 |
-| [0003](../adr/0003-ports.md) | 端口粒度 | 按能力拆成小端口，用 `Protocol` |
-| [0004](../adr/0004-order-state-machine-and-journal-ownership.md) | 订单状态机与订单库所有权 | 状态枚举加转移表放在 `domain`；SQLite 适配器是唯一写入者 |
-| [0005](../adr/0005-exit-path-semantics.md) | 急停、平仓、止损的语义 | **改变风控行为，需要您逐项确认** |
-| [0006](../adr/0006-one-session-for-paper-and-live.md) | 纸面与实盘是否同一份会话代码 | 同一份，换适配器 |
-| [0007](../adr/0007-state-durability.md) | 状态持久化 | 受管状态目录；缺库拒启；限额计数与纸面状态落盘 |
-| [0008](../adr/0008-legacy-code-and-rust.md) | 遗留代码与 Rust 扩展的处置 | 新路径不依赖 Rust；死代码分批删除；冻结线加执行硬开关 |
+### 5.1 行情侧（`market_poller.py`）
 
-## 9. 明确不做的事
+- **资金费间隔**（R4）：预热时和每小时第一轮读一次交易所公布的每个品种的结算间隔（`get_funding_intervals`）。读失败每分钟重试，
+  最后读到的值最多用 2 小时；之后，以及交易所没有列出的品种，间隔未知：这个品种的问题 `FUNDING_INTERVAL_UNKNOWN`，不入场，
+  减仓照常。等待"收盘时或之前的那次结算"和入场前的检查都按品种自己的间隔。
+- **新 K 线**：执行模式只按最新一根决定（停机期间错过的只延长窗口）；模拟盘按时间顺序逐根补放，每根先让模拟交易所撮合、
+  退出侧结算，再决定。
+- **按品种决定或一起决定**（R3、R7d）：
+  - 策略按品种算、也不读别的品种（`cross_sectional` 为假、`references()` 为空，例如 BTC/ETH 多周期策略）：每个品种的 K 线一到就
+    决定，一个品种晚到或出错不影响别的品种。
+  - 横截面策略，或者要读别的品种的策略（例如读 BTCUSDT）：所有品种都拿到同一个收盘的 K 线后，**一次调用**
+    `strategy.latest(...)` 算出所有品种的目标，再逐个品种下单。有品种还没到时谁都不决定；那个收盘已经晚到不能开仓
+    （`MAX_ENTRY_DELAY_MS`，10 分钟）而某个品种仍没到时，这个品种记 `DECISION_FAILED`、禁止开仓。策略本身出错时所有品种都
+    记 `DECISION_FAILED`。所有品种必须共用同一个策略对象。
+  - 已知的限制（R1–R4 审计第 9 条，留给 R8）：一起决定时一个品种一直卡住，所有品种的决定都停，包括策略想要的减仓。
+    止损、急停和亏损停止线在退出侧，不受影响。
 
-- 不改策略数学、不改任何风控阈值的数值。
-- 不迁移 ML 线和其他交易所的代码。
-- 不引入新的外部依赖作为运行时依赖。import-linter 只在开发与 CI 环境使用。
-- 不引入消息总线、异步框架或多进程。运行时保持单进程单线程轮询。
-- 不改 systemd 单元的 `ExecStart`。
+### 5.2 一个品种（`session.py`）
+
+- 窗口（`Window`）：已收盘的小时线（OHLCV 加 R7a 的成交额、笔数、主动买入量和额；没有的字段是 NaN）和收盘时已公布的资金费。
+  窗口长度由策略决定（`window_hours`、`funding_window`）。
+- 决定：目标权重（占这个品种可用资金的有符号比例）和是否 ready；规格不允许做空时负目标按 0 交易（R6），已有空头平掉。
+  不 ready 不下单。资金：执行模式按账户份额（1/N 个品种），有策略资金时按 `CappedEquity`；未知时为 0，只能整仓平掉。
+- 入场拒绝的条件：K 线处理太晚、资金费间隔未知、那次结算还没公布。然后 `rebalance.plan` 生成意图，入场经入场门
+  （`risk/entry_gate.py`：数量、品种、价格、急停、回撤、暂停、钱包、敞口、限额，任何异常都拒绝），减仓不经入场门，
+  都经同一个下单生命周期（`execution/lifecycle.py`：持久的意图，至多发一次，只认交易所成交）。
+
+### 5.3 退出侧（`exit_supervisor.py`）
+
+- 每分钟最多一次整账户检查（ADR-0011）；读亏损停止线（`risk/loss_stop.py`）；每 5 秒对账。
+- 对账（R5）：先把每个品种的成交消化完、刷新订单状态，再**一次**读整个账户的持仓（`get_position_snapshot`），然后每个品种用
+  这份快照对账和维护止损。快照读不出，或快照里没有某个品种的行：那个品种照旧自己读。某个品种消化成交出错，只有它记
+  `RECONCILE_FAILED`。平仓、手工工具和入场时的敞口检查仍读最新的持仓。
+- 问题都是类型化的（ADR-0014）；每种问题对交易的效果（阻断一个品种或全部入场、平仓、暂停、只告警）只在
+  `trading/domain/issues.py` 的表里。每个品种的状态（warming、ready、blocked、paused、flattening、halted）每轮由退出侧设定，
+  只有 ready 能入场。
+- 止损：每个确认的仓位一张交易所 `STOP_MARKET closePosition`，按交易所持仓定方向和价格（ADR-0012）；多头卖出止损在开仓价
+  下方，空头买入止损在开仓价上方。急停、回撤和止损击穿的平仓按交易所持仓整仓平掉。止损触发或击穿后这个品种暂停入场 4 小时，
+  到时自动解除（`STOP_PAUSE_SECONDS`）。
+- 亏损停止线：有策略资金时，已实现盈亏扣手续费 + 资金费 + 持仓浮动盈亏低于策略资金的 15%（`STRATEGY_LOSS_STOP_PCT`，只能调紧）
+  就打开急停并平仓；这是运行时唯一写急停文件的地方，它从不关闭急停。
+
+## 6. 策略接口和规格
+
+### 6.1 接口（`trading/domain/strategy/base.py`，R1）
+
+- `Strategy`：`name`；`cross_sectional`（某个品种的目标是否用到别的品种的数据）；`window_hours()`、`funding_window()`；
+  `references()`（除了交易的品种还要读哪些品种，R7a）；`history(windows)`（每个收盘的目标和 ready，研究回放用）；
+  `latest(windows)`（最后一个收盘，实盘用，必须等于 `history` 的最后一行）。
+- `PerSymbol`：只读自己品种窗口的策略的基类。`OverlayStrategy` 是现有的 BTC/ETH 多周期策略（`overlay.py`），是第一个实现。
+- `STRATEGIES`：名字 → 构造函数，包括 overlay 和实验室的 29 个想法；`strategy_from` 拒绝不认识的名字。
+- 防未来函数：`tests/unit/lab/test_lookahead.py` 对每个特征模块和每个想法检查，切点之后的数据不改变切点之前的输出。
+
+### 6.2 实验室的想法（`trading/domain/strategy/ideas.py`，R7b）
+
+- 实验室第一轮的 29 个想法，函数体照抄，输入改为从窗口构造（`lab_frame`）。`IdeaStrategy` 是接口实现；参数必须正好是想法
+  参数表里的名字，都是正数。5 个是横截面的；读 BTCUSDT 的想法要求规格列出 BTCUSDT（运行时只读它交易的品种）。
+- 和实验室原函数逐位相同（`tests/unit/trading/test_lab_ideas.py`）；实盘用的截尾窗口和完整历史在同一收盘给出相同的值
+  （允许 1e-9 的相对误差，来自 pandas 滚动标准差的最后一位小数）。
+
+### 6.3 签名规格（`trading/domain/strategy/spec.py`，R2）
+
+- 规格只经签名加载（`infra/model_signing.py`），然后由 `parse_spec` 解析成 `TargetSpec`：策略名称和参数、执行设置
+  （`band`、`execution`、`ttl_bars`）、品种、`allow_short`。
+- 第 1 版（`btc_eth_multitimeframe_target`）：BTC/ETH 多周期策略，试运行用的就是它；是否做空由它的 `long_only` 决定。
+- 第 2 版（`target_strategy`）：`strategy` {`name`, `params`}、`execution`、`symbols`、`allow_short`、`passed`。严格解析：不认识的
+  字段、类型不对的值、超过 10 个品种、不是 USDT 永续的名字、重复的品种、不认识的策略、读了规格没列出的品种，都按名字拒绝。
+- 清单由实验室算、人来发布（技术负责人 2026-11-16）：运行时只交易规格里列出的品种，从不自己开始交易一个新品种。每个品种的
+  交易所杠杆和保证金模式由人先在币安设好，否则启动检查拒绝。
+- 主网要求规格的 `passed` 为真；代码从不修改它。
+- 发布：`python3 -m scripts.publish_strategy_spec --study <目录> --out models_binance/strategy`（用同一个解析器检查后签名）。
+
+## 7. 研究侧
+
+- `trading/adapters/simulated/bar_broker.py`：研究撮合器 `BarBroker`，`lab.simulate`、实验室回放和模拟盘共用；研究用的下单规则
+  常量只有 BTCUSDT、ETHUSDT，所以模拟盘只能跑这两个品种（其他品种按名字拒绝）。
+- `lab/um_judge.py`：实验室的评审员（时段、每段的品种清单、配置 = 想法的参数 + 止损方案、滚动前推、打分、最终检查；验证段只在
+  `final` 里、只为过了淘汰线的想法回放）。R7c 起它通过策略接口回测：从数据快照构造每个合约的窗口，横截面策略拿到这一段的清单，
+  按品种的策略拿到自己一个品种，再加上它声明要读的品种，然后回放 `history` 的目标。`lab.um_lab.lab_ideas()` 给出登记的想法
+  （实盘会跑的那份代码）；还是研究函数的想法用 `lab.um_lab.legacy(...)` 包上也能回测，但不能上实盘。
+- `lab/paper_compare.py`：模拟盘记录和研究在同一批 K 线上逐笔比较成交（退出码 0 一致、1 不一致、2 无法比较）。R7d 起按记录里的
+  策略身份重建研究，所有品种的目标在模拟盘看到的 K 线上一次算出，横截面策略也能对照。
+- 研究的纪律（试验登记、前向检验、数据快照不可变）见 `CLAUDE.md` 和 `research/protocols/`。
+
+## 8. 不变量和检查它们的测试
+
+| 不变量 | 测试 |
+|---|---|
+| 3 倍敞口上限只定义一次，只在入场时检查 | `tests/architecture/test_rules.py`、`tests/unit/trading/test_domain_risk.py` |
+| 每张入场单都经过入场门；执行模式入场门的组件缺一不可 | `tests/characterization/test_runtime_decisions.py`、`test_domain_risk.py` |
+| 权益、价格、持仓或状态库未知时不入场，仓位按 0 算 | `tests/unit/trading/test_unknown_equity.py`、`test_lost_state_files.py` |
+| 回撤闩锁和当日计数跨重启保持；检查通过之前不写账户 | `tests/characterization/test_risk_state.py` |
+| 急停：先撤后平；命令和运行时用同一个文件；文件丢失按激活；只有急停命令和亏损停止线写它 | `tests/characterization/test_exit_paths.py`、`tests/unit/trading/test_state_dir.py` |
+| 有仓位而没有有效止损时阻断入场 | `tests/characterization/test_stops_and_fills.py` |
+| 同一意图至多提交一次；只有交易所成交才入账、恰好一次；崩溃重启不重复下单 | `tests/offline/test_execution_safety.py`、`test_execution_recovery.py`、`tests/characterization/test_order_facts.py` |
+| 无前视 | `tests/unit/lab/test_lookahead.py`、`tests/unit/trading/test_strategy_causality.py`、`tests/unit/binance/test_binance_adapter.py` |
+| 模拟盘与研究逐笔相同；模拟盘不构造带凭据的适配器 | `tests/unit/lab/test_target_runtime.py`、`tests/unit/lab/test_paper_safety.py`、`tests/architecture/test_paper_path.py` |
+| 账户里有不属于策略的东西时拒绝启动，运行中阻断入场 | `tests/characterization/test_runtime_account_check.py`、`test_foreign_fills.py` |
+| 执行模式没有告警出口或心跳不能启动；心跳失败不影响交易 | `tests/characterization/test_operator_startup.py`、`tests/unit/trading/test_execution_prerequisites.py` |
+| 一个账户身份在本机只有一个执行进程 | `tests/characterization/test_host_lock_startup.py`、`tests/unit/trading/test_host_lock.py` |
+| 恢复只收紧风险状态 | `tests/characterization/test_restore_hardening.py`、`test_state_restore.py` |
+| 主网执行单元不自动重启 | `tests/unit/infra/test_systemd_units.py` |
+| 配置只读一次，配置记录不含密钥 | `tests/unit/trading/test_runtime_config.py`、`tests/architecture/test_config_rules.py` |
+| 亏损停止线到线就急停平仓，算不出时阻断入场 | `tests/unit/trading/test_strategy_loss_stop.py`、`tests/characterization/test_strategy_loss_stop_runtime.py` |
+| 策略接口：`latest` 等于 `history` 的最后一行；BTC/ETH 策略行为不变 | `tests/unit/trading/test_strategy_interface.py` |
+| 规格严格解析，第 1 版照旧加载 | `tests/unit/trading/test_spec_v2.py`、`test_runtime_extension_audit.py`、`tests/characterization/test_spec_v2_runtime.py` |
+| 一起决定：一次调用、缺数据时谁都不决定 | `tests/unit/trading/test_decide_together.py`、`tests/characterization/test_decide_together_runtime.py` |
+| 资金费间隔按品种，未知时不入场、减仓照常 | `tests/unit/trading/test_funding_interval.py`、`tests/characterization/test_funding_interval_runtime.py` |
+| 整账户快照；10 个品种时请求权重留有余量 | `tests/unit/trading/test_account_snapshot.py`、`tests/characterization/test_account_weight.py` |
+| 规格允许才开空；空头的止损、敞口、平仓、浮动盈亏的符号 | `tests/unit/trading/test_allow_short.py`、`tests/characterization/test_shorts_runtime.py` |
+| 实验室的想法和原函数逐位相同；评审员通过接口回测；模拟盘对照登记的策略 | `tests/unit/trading/test_lab_ideas.py`、`tests/unit/lab/test_um_judge_interface.py`、`test_paper_compare_strategies.py` |
+| 测试从不联网 | `tests/conftest.py`、`tests/unit/tooling/test_network_guard.py` |
+
+## 9. 决策记录
+
+`docs/adr/` 下的 0001–0017。已被取代的在各自开头标明，不删除。
+
+## 10. 不在这一版里的
+
+- 程序自己换品种清单（技术负责人选的是人来发布）；超过 10 个品种；不同策略同时运行、共用一个账户。
+- 只读不交易的品种：策略要读的品种必须在规格里列出，也就会被交易。
+- 模拟盘只有 BTCUSDT、ETHUSDT 的研究用下单规则；对照工具的资金费完整性检查仍按每 8 小时一次。
+- 币安是否接受同方向的第二张整仓止损还没有验证，在小资金试运行里验证（见 `CLAUDE.md`）。
