@@ -32,6 +32,7 @@ from typing import Any
 from trading.adapters.binance.rest import BinanceNonRetryableError, BinanceRestError
 from trading.adapters.files.event_log import JsonlEventLog
 from trading.adapters.files.kill_switch import KillFile
+from trading.adapters.files.host_lock import HostLock
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.files.state_files import JsonPaperStore, JsonStatusFile
 from trading.adapters.simulated.exchange import SimulatedExchange
@@ -216,33 +217,44 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
     scope = config.scope
     args.state_dir.mkdir(parents=True, exist_ok=True)
     lease = ExecutionLease(args.state_dir / STATE_DB, scope)
-    if args.execution:       # the credentials after every local check, before the account (as before ADR-0017)
-        config, secrets = with_credentials(config, secrets)
-    market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"],
-                                     credentials=secrets.binance)
-    if args.execution:       # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
-        assert config.leverage is not None and account is not None
-        target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"],
-                                       leverage=config.leverage, margin=config.margin)
-    built = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
-                          mode="execution" if args.execution else "paper", market=market, account=account,
-                          testnet=testnet, stop_pct=config.stop_pct, reset_paper=args.reset_paper_state, config=config,
-                          secrets=secrets)
+    host: HostLock | None = None
+    try:
+        if args.execution:   # the credentials after every local check, before the account (as before ADR-0017)
+            config, secrets = with_credentials(config, secrets)
+            assert config.identity is not None
+            # ADR-0016 point 5: one execution process per account identity on this host, whatever its directory.
+            host = HostLock(config.identity, holder=f"binance_target --state-dir {args.state_dir}")
+        market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"],
+                                         credentials=secrets.binance)
+        if args.execution:   # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
+            assert config.leverage is not None and account is not None
+            target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope, symbols=frozen["symbols"],
+                                           leverage=config.leverage, margin=config.margin)
+        built = TargetRuntime(spec_path=args.spec, state_dir=args.state_dir,
+                              mode="execution" if args.execution else "paper", market=market, account=account,
+                              testnet=testnet, stop_pct=config.stop_pct, reset_paper=args.reset_paper_state,
+                              config=config, secrets=secrets)
+        _run(built, max_cycles=args.max_cycles)
+    finally:                 # a start-up that fails half way releases them too
+        lease.close()
+        if host is not None:
+            host.close()
+
+
+def _run(built: _runtime.TargetRuntime, *, max_cycles: int | None) -> None:
+    """The loop: warm up (market data down: exits keep working), then one cycle every POLL_SECONDS."""
     stop = {"flag": False}
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.update(flag=True))
-    try:
-        while not stop["flag"] and not built.warmup_or_hold():   # market data down: exits keep working
-            time.sleep(POLL_SECONDS)
-        cycles = 0
-        while not stop["flag"]:
-            built.cycle()
-            cycles += 1
-            if args.max_cycles is not None and cycles >= args.max_cycles:
-                break
-            time.sleep(POLL_SECONDS)
-    finally:
-        lease.close()
+    while not stop["flag"] and not built.warmup_or_hold():
+        time.sleep(POLL_SECONDS)
+    cycles = 0
+    while not stop["flag"]:
+        built.cycle()
+        cycles += 1
+        if max_cycles is not None and cycles >= max_cycles:
+            break
+        time.sleep(POLL_SECONDS)
 
 
 __all__ = ["EXECUTION_STATE_DIR", "SpecLoader", "TargetRuntime", "TcaLogFactory", "main", "preflight"]

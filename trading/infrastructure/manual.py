@@ -6,7 +6,8 @@
 
 Approved by the tech lead (ADR-0004 item 2, 2026-11-14; ledger alignment 2026-11-15). Every command:
 
-- refuses while the runtime holds the account's lease (stop it first), and never creates a state file;
+- refuses while a runtime of the same account identity runs on this host (the host lock, ADR-0016 point 5)
+  or holds this directory's lease (stop it first), and never creates a state file;
 - reads the venue first and prints what it found;
 - needs a reason, and the order id or symbol typed back at the prompt - there is no flag that skips it;
 - leaves a row in the order journal's ``manual_actions`` table.
@@ -29,11 +30,13 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from trading.adapters.binance.adapter import BinanceAdapter
+from trading.adapters.files.host_lock import HostLock
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB
 from trading.domain.venue import STOP_TRIGGERED
-from trading.infrastructure.config import binance_config_from_env, execution_scope, testnet_from_env
+from trading.infrastructure.config import (account_identity, binance_config_from_env, execution_scope,
+                                           testnet_from_env)
 
 JOURNAL = STATE_DB      # the one state database (ADR-0009)
 WORKING = frozenset({"new", "partially_filled"})
@@ -196,9 +199,21 @@ def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: Te
         return 2
     testnet = testnet_from_env(env)
     scope = execution_scope(testnet=testnet, env=env)
+    try:                       # the API key names the account (ADR-0016 point 5); the secret is not used here
+        identity = account_identity(testnet=testnet, api_key=binance_config_from_env(testnet=testnet, env=env).api_key)
+    except RuntimeError:
+        print("the API key that names the account is not set (BINANCE_TESTNET_API_KEY or BINANCE_API_KEY)",
+              file=stdout)
+        return 2
+    try:
+        host = HostLock(identity, holder=f"manual {args.command} --state-dir {args.state_dir}")
+    except RuntimeError as exc:
+        print(f"the runtime holds this account's lease; stop the runtime first ({exc})", file=stdout)
+        return 3
     try:
         lease = ExecutionLease(path, scope)
     except RuntimeError:
+        host.close()
         print("the runtime holds this account's lease; stop the runtime first", file=stdout)
         return 3
     try:
@@ -216,6 +231,7 @@ def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: Te
                          stdin, stdout)
     finally:
         lease.close()
+        host.close()
 
 
 if __name__ == "__main__":

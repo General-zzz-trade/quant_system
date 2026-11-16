@@ -123,12 +123,21 @@ def test_the_kill_command_writes_exactly_where_the_runtime_reads(tmp_path):
     assert runtime.kill.state().active is True
 
 
-@pytest.mark.known_defect("R20")
-def test_current_lease_allows_the_same_scope_in_two_state_dirs(tmp_path):
+def test_the_same_account_identity_in_two_state_dirs_is_refused(tmp_path):
+    """R20, fixed in S6 (ADR-0016 point 5). Until then this test pinned the defect: the lease was taken per state
+    directory, so one account could run in two directories. The directory lease stays as it was; the host lock
+    by account identity is what refuses the second process."""
+    from trading.adapters.files.host_lock import HostLock
+    from trading.infrastructure.config import account_identity
+    identity = account_identity(testnet=True, api_key="k")
     first = ExecutionLease(tmp_path / "a" / "orders.sqlite", "binance-testnet-ut")
-    second = ExecutionLease(tmp_path / "b" / "orders.sqlite", "binance-testnet-ut")
+    held = HostLock(identity, holder="the runtime of directory a")
+    second = ExecutionLease(tmp_path / "b" / "orders.sqlite", "binance-testnet-ut")   # the directory lease allows it
+    with pytest.raises(RuntimeError, match="already has an execution process"):
+        HostLock(identity, holder="the runtime of directory b")                      # the host lock does not
     with pytest.raises(RuntimeError, match="already has an execution process"):
         ExecutionLease(tmp_path / "a" / "orders.sqlite", "binance-testnet-ut")
+    held.close()
     first.close()
     second.close()
 

@@ -130,6 +130,9 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
   `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
+- Host lock (ADR-0016 point 5, S6): one execution process per account identity (sha256(network:API key)) on this
+  host, `/var/lib/quant/locks/<identity>.lock`, whatever the state directory or `RISK_SCOPE`. The runtime and the
+  manual tools take it; `state_dir init` creates the directory. Another host cannot be stopped from here.
 - Kill file: the target runtime reads `<state dir>/kill_switch.json` (`trading/adapters/files/kill_switch.py`);
   in an initialized state directory a missing file means active.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
