@@ -4044,6 +4044,49 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/r6_shorts.json` 7 个，按顺序、关闭字节码缓存：7/7 被杀。
 - **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过；其余见 R5 之后的合并检查。
 
+## R1–R4 的独立审计和修复（2026-11-16 晚，资金路径完整流程）
+
+- **审计**（c25847b9..3ef568c6，独立审计员在自己的克隆里只读运行）：试运行用的第 1 版规格路径没有阻塞问题；"应修" 5 条、轻微 6 条。
+  成立的结论：R1 逐位不变；第 1 版规格照旧；R3 执行侧的行为、R4 的读取和重试、没有自动提高风险的路径、记录里的测试数和断言原文都对。
+- **修了什么**（分支 `r-audit-fixes`，叠在 R6 上）：
+  1. R3：模拟盘里一个品种一直落后时从不报错、默默不再决定——迟到用的是模拟盘的下单时钟，它只随新 K 线前进。改为两种模式都用运行时钟。
+  2. R2：第 2 版规格里不认识的字段被忽略、类型不对的值被宽松转换（`"false"` 当真、`1.9` 变 1、`true` 变 1、字符串的 band 等），
+     策略参数里的执行设置和执行块不同时被悄悄丢掉。改为严格解析：不认识的顶层字段、策略里除 name/params 之外的键、执行块里除
+     band/execution/ttl_bars 之外的键、类型不对的值、和执行块不同的执行设置，都按名字拒绝；schema 必须是整数，passed 必须是布尔值。
+     第 1 版（试运行的规格）照旧加载（真实的试运行规格文件有测试）。
+  3. R2：`allow_short` 在 R2 里既不约束也不记录（R2 记录里"只记录"的说法不准确）。约束在 R6（同一叠 PR）；记录：启动时的 config 事件
+     现在带上规格的策略、参数、品种和是否做空。
+  4. R2：第 2 版的模拟盘记录认不出策略（存的是执行设置），可能用另一组参数续跑，对照工具也会按错的策略重算。改为存策略的身份
+     （`TargetSpec.identity`：叠加策略存它实际交易时的记录——第 1 版和以前完全一样；其他策略存名字、参数、执行设置）；对照工具遇到
+     叠加策略以外的记录时报"无法比较"。
+  5. R4 测试缺口：资金费间隔未知时仍能减仓、预热时按品种间隔请求资金费——代码是对的，补了测试。
+  6. 轻微：品种名最短 6 个字符会拒绝币安真有的 5 字符合约（`AUSDT`、`4USDT`，2026-11-16 读公开接口），改为 5；第 1 版规格里多出的
+     参数被按名字拒绝（补测试）。
+  7. 轻微：资金费间隔未知只写一条事件，不进退出侧的问题清单，不告警，品种状态仍是"可交易"。改为品种自己的问题
+     `FUNDING_INTERVAL_UNKNOWN`（禁止这个品种开仓、显示在状态里、持续时告警），持续期间只写一次，交易所重新列出后清除。
+  8. 轻微：第一次读取就失败时说"2 小时没读到"，改为"自启动以来没读到"。
+  10. 轻微：模拟盘遇到没有研究用下单规则的品种时报裸的 KeyError，改为按名字拒绝。
+  - 没改的（记录下来）：9（横截面策略里一个品种卡住会冻结所有品种的决定，包括减仓；因行情错误落后时没有 DECISION_FAILED）是 R7/R8 的
+    设计问题，在 R7 的说明里写明；11（交易所在本小时第一轮之后改间隔，最多有一个收盘用旧间隔）影响很小，不改。
+  - 币安还有 5 个中文名的 USDT 永续合约；品种检查只接受 ASCII 大写字母和数字，所以它们会被拒绝（失败即关闭），要不要支持由技术负责人决定。
+- **已有测试的改动**（都来自审计的修复）：
+  - `test_funding_interval.py`（R4 的测试，问题改成每个品种一条、种类改名）：
+    - 原来 `assert len(issues) == 1 and issues[0]["issue_kind"] == "market_data" and "funding interval" in issues[0]["issue"]`；
+      现在 `assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("FOURUSDT", "funding_interval_unknown"), ("EIGHTUSDT", "funding_interval_unknown")]`
+      加 `"not read for 2 hours"` 和 `symbol_issue` 两条断言；
+    - 原来 `... == 1      # said once`，现在 `... == 2      # said once per symbol`；原来 `... == 2`（第二次断网后），现在 `... == 4`；
+    - 原来 `[("FOURUSDT", "market_data")]`，现在 `[("FOURUSDT", "funding_interval_unknown")]`，加两条 `symbol_issue` 断言。
+  - `test_decide_together.py::test_paper_raises_when_a_symbol_is_still_behind_a_late_close`：原来手动把下单时钟拨到迟到之后
+    （`gate.at(T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS + 1)`，运行时从不这样做）；现在拨运行时钟，先在刚好 10 分钟时不报错，
+    再晚 1 毫秒报错，并断言下单时钟没动。
+  - 测试辅助：`test_publish_strategy_spec.py` 的叠加参数原来是默认的 maker，和执行块的 market 不同（正是审计指出的被悄悄丢掉的情况），
+    改为和执行块一致。
+- **新增测试**：`tests/unit/trading/test_runtime_extension_audit.py`（30 个，含参数化）、
+  `tests/characterization/test_runtime_extension_audit_runtime.py`（3 个）。在 R6 的代码上跑：26 个失败，7 个通过——通过的是审计指出的
+  测试缺口（代码本来就对：第 1 版多出参数被拒、4 字符被拒、预热按间隔请求、间隔未知时减仓等）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r1_r4_audit_fixes.json` 24 个，按顺序、关闭字节码缓存。第一轮 21 个被杀；存活 3 个：
+  整数参数给成小数（补了 `vol_lookback=10.5`、`True` 两个用例）、间隔未知的问题是否真的禁止开仓（运行时测试补上"品种状态为 blocked、
+  另一个品种仍是 ready"）、第一次读取失败时的措辞（补了一个测试）。补后 3 个都被杀，最终 24/24。
 ## R7a 策略能读到的数据：K 线的成交额字段，和"要读哪些别的品种"（2026-11-16 晚，资金路径完整流程）
 
 - 依据：计划第 7 步（实验室和实盘用同一份策略代码）。实验室第一轮的 29 个想法除了 OHLC 还读成交额（`quote_volume`）、
