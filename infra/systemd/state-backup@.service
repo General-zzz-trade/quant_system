@@ -1,0 +1,11 @@
+[Unit]
+Description=Snapshot of the %i execution state database (ADR-0016 point 6)
+OnFailure=quant-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/quant_system
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m trading.infrastructure.state_backup --state-dir /var/lib/quant/state/%i --backup-dir /var/lib/quant/backups/%i
+TimeoutStartSec=300

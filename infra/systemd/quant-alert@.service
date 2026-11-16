@@ -1,0 +1,11 @@
+[Unit]
+Description=Telegram alert: %i failed (ADR-0016 point 4)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/quant_system
+EnvironmentFile=/quant_system/.env
+Environment=PYTHONPATH=/quant_system
+ExecStart=/usr/bin/python3 -m trading.infrastructure.unit_alert %i
+TimeoutStartSec=60

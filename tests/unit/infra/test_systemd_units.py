@@ -38,7 +38,8 @@ def _get(unit, section, key):
 
 
 def _execution_units():
-    return [p.name for p in sorted(UNITS.glob("*.service")) if "--enable-execution" in p.read_text()]
+    return [p.name for p in sorted(UNITS.glob("*.service"))
+            if "--enable-execution" in (_get(_unit(p.name), "Service", "ExecStart") or "")]
 
 
 def test_the_testnet_unit_restarts_a_limited_number_of_times_and_only_on_the_testnet():
