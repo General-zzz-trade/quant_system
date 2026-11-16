@@ -2,235 +2,274 @@
  [
   "never trips",
   "trading/application/risk/loss_stop.py",
-  "        if pnl > -self.limit * self.capital:\n            return []",
-  "        if True:\n            return []"
+  "        if pnl <= -self.limit * self.capital:",
+  "        if False:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "boundary exclusive",
   "trading/application/risk/loss_stop.py",
-  "        if pnl > -self.limit * self.capital:",
-  "        if pnl >= -self.limit * self.capital:"
+  "        if pnl <= -self.limit * self.capital:",
+  "        if pnl < -self.limit * self.capital:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "limit of the capital ignored",
   "trading/application/risk/loss_stop.py",
-  "        if pnl > -self.limit * self.capital:",
-  "        if pnl > -self.limit:"
+  "        if pnl <= -self.limit * self.capital:",
+  "        if pnl <= -self.limit:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "trips although already flattening",
   "trading/application/risk/loss_stop.py",
   "            if not (state.active and state.flatten):",
-  "            if True:"
+  "            if True:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "active without flatten is enough",
   "trading/application/risk/loss_stop.py",
   "            if not (state.active and state.flatten):",
-  "            if not state.active:"
+  "            if not state.active:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "unknown pnl reads as no loss",
   "trading/application/risk/loss_stop.py",
-  "        except Exception as exc:\n            return [Issue(K.ACCOUNT_UNREADABLE, None, f\"strategy loss unknown",
-  "        except Exception as exc:\n            return [] if True else [Issue(K.ACCOUNT_UNREADABLE, None, f\"strategy loss unknown"
+  "        except Exception as exc:\n            return [Issue(K.STRATEGY_LOSS_STOP, None, f\"strategy loss unknown",
+  "        except Exception as exc:\n            return [] if True else [Issue(K.STRATEGY_LOSS_STOP, None, f\"strategy loss unknown",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "non-finite pnl accepted",
   "trading/application/risk/loss_stop.py",
   "            if raw is None or not Decimal(raw).is_finite():",
-  "            if raw is None:"
+  "            if raw is None:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "None pnl accepted",
   "trading/application/risk/loss_stop.py",
   "            if raw is None or not Decimal(raw).is_finite():\n                raise ValueError(f\"PnL {raw!r}\")\n            pnl = Decimal(raw)",
-  "            pnl = Decimal(raw or 0)\n            if not pnl.is_finite():\n                raise ValueError(f\"PnL {raw!r}\")"
+  "            pnl = Decimal(raw or 0)\n            if not pnl.is_finite():\n                raise ValueError(f\"PnL {raw!r}\")",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "failed trip is silent",
   "trading/application/risk/loss_stop.py",
-  "            return [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached but",
-  "            return [] if True else [Issue(K.ACCOUNT_UNREADABLE, None, \"strategy loss stop reached but"
+  "            return [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached but",
+  "            return [] if True else [Issue(K.STRATEGY_LOSS_STOP, None, \"strategy loss stop reached but",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "trip reported although it failed",
   "trading/application/risk/loss_stop.py",
   "                self.kill.trip(reason)\n                self._trip = reason",
-  "                self._trip = reason\n                self.kill.trip(reason)"
+  "                self._trip = reason\n                self.kill.trip(reason)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "trip never reported",
   "trading/application/risk/loss_stop.py",
   "                self.kill.trip(reason)\n                self._trip = reason",
-  "                self.kill.trip(reason)"
+  "                self.kill.trip(reason)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "trip reported every time",
   "trading/application/risk/loss_stop.py",
   "        trip, self._trip = self._trip, None\n        return trip",
-  "        return self._trip"
+  "        return self._trip",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "checked every cycle",
   "trading/application/risk/loss_stop.py",
   "and now - self._checked_at < LOSS_STOP_SECONDS:",
-  "and now - self._checked_at < 0:"
+  "and now - self._checked_at < 0:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "findings wait a minute",
   "trading/application/risk/loss_stop.py",
-  "        if self._checked_at is not None and not self._findings and now",
-  "        if self._checked_at is not None and now"
+  "            if self._checked_at is not None and not self._findings and now",
+  "            if self._checked_at is not None and now",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
-  "unrealized counts other symbols",
+  "a flat ledger position is valued",
   "trading/application/risk/loss_stop.py",
-  "        if position.symbol not in symbols or position.qty == 0:",
-  "        if position.qty == 0:"
+  "        if qty == 0:\n            continue\n",
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "unrealized sign",
   "trading/application/risk/loss_stop.py",
-  "        total += position.qty * (mark - entry)",
-  "        total += position.qty * (entry - mark)"
+  "        total += qty * (mark - entry)",
+  "        total += qty * (entry - mark)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "zero mark accepted",
   "trading/application/risk/loss_stop.py",
-  "entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0",
-  "entry.is_finite() and mark.is_finite() and entry > 0"
+  "        if mark is None or not (mark.is_finite() and mark > 0):",
+  "        if mark is None or not mark.is_finite():",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "zero entry accepted",
   "trading/application/risk/loss_stop.py",
-  "entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0",
-  "entry.is_finite() and mark.is_finite() and mark > 0"
+  "        if entry is None or not (entry.is_finite() and entry > 0):",
+  "        if entry is None or not entry.is_finite():",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "nan mark accepted",
   "trading/application/risk/loss_stop.py",
-  "not (entry.is_finite() and mark.is_finite() and entry > 0 and mark > 0)",
-  "not (entry > 0 and (mark.is_nan() or mark > 0))"
+  "        if mark is None or not (mark.is_finite() and mark > 0):",
+  "        if mark is None or not (mark.is_nan() or mark > 0):",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
-  "missing price accepted",
+  "missing mark reads as zero",
   "trading/application/risk/loss_stop.py",
-  "        if entry is None or mark is None or not",
-  "        if entry is None or mark is None:\n            continue\n        if not"
+  "        if mark is None or not (mark.is_finite() and mark > 0):",
+  "        if mark is None:\n            continue\n        if not (mark.is_finite() and mark > 0):",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "trip without flatten",
   "trading/adapters/files/kill_switch.py",
   "        self.write(active=True, reason=reason, flatten=True)",
-  "        self.write(active=True, reason=reason, flatten=False)"
+  "        self.write(active=True, reason=reason, flatten=False)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "supervisor never checks",
   "trading/application/exit_supervisor.py",
-  "        self.check_account_if_due()\n        self.check_loss_stop()",
-  "        self.check_account_if_due()"
+  "        self.check_loss_stop()                      # first: its findings are among this reconciliation's\n",
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "no alert on a trip",
   "trading/application/exit_supervisor.py",
   "            self.journal.write(EventKind.ALERT, reason=tripped)\n",
-  ""
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "findings do not block",
   "trading/application/exit_supervisor.py",
   "        self.loss_findings = findings\n        if findings:\n            for session in self.sessions.values():\n                session.executor.block_entries()",
-  "        self.loss_findings = findings"
+  "        self.loss_findings = findings",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "findings not applied at reconciliation",
   "trading/application/exit_supervisor.py",
   "self._cycle_errors() + self.account_findings + self.loss_findings",
-  "self._cycle_errors() + self.account_findings"
+  "self._cycle_errors() + self.account_findings",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "findings not written",
   "trading/application/exit_supervisor.py",
   "            for issue in findings:\n                write_issue(self.journal, None, issue)\n            if findings:\n                logger.error(\"Strategy loss stop",
-  "            if findings:\n                logger.error(\"Strategy loss stop"
+  "            if findings:\n                logger.error(\"Strategy loss stop",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "unrealized left out of the stop",
   "trading/infrastructure/target.py",
-  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current()\n                + strategy_unrealized(account.get_positions(), symbols), inputs.kill, clock=clock)",
-  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current(), inputs.kill, clock=clock)"
+  "                return (strategy_realized_pnl(ledger, held) + funding.last_known()\n                        + strategy_unrealized(strategy_positions(ledger, held), account.get_position))",
+  "                return strategy_realized_pnl(ledger, held) + funding.last_known()",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "funding left out of the stop",
   "trading/infrastructure/target.py",
-  "                lambda: strategy_realized_pnl(ledger, owners) + funding.current()\n                + strategy_unrealized",
-  "                lambda: strategy_realized_pnl(ledger, owners)\n                + strategy_unrealized"
+  "                return (strategy_realized_pnl(ledger, held) + funding.last_known()\n",
+  "                return (strategy_realized_pnl(ledger, held)\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "stop not built",
   "trading/infrastructure/target.py",
   "        if inputs.strategy_loss_stop is not None:\n",
-  "        if False:\n"
+  "        if False:\n",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "wiring drops the stop",
   "trading/infrastructure/target.py",
   "    return ExecutionWiring(sessions, drawdown, pauses, loss_stop)",
-  "    return ExecutionWiring(sessions, drawdown, pauses)"
+  "    return ExecutionWiring(sessions, drawdown, pauses)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "entry point drops the limit",
   "trading/infrastructure/cli/target.py",
   "                                        strategy_loss_stop=config.strategy_loss_stop,\n",
-  ""
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "entry point drops the stop",
   "trading/infrastructure/cli/target.py",
   "            loss_stop=wiring.loss_stop,\n",
-  ""
+  "",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "runtime drops the stop",
   "trading/application/runtime.py",
   "exit_observer=exit_observer, loss_stop=loss_stop)",
-  "exit_observer=exit_observer)"
+  "exit_observer=exit_observer)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/characterization/test_strategy_loss_stop_runtime.py tests/characterization/test_loss_stop_audit_runtime.py"
  ],
  [
   "limit may exceed 15",
   "trading/infrastructure/config.py",
   "    if not value.is_finite() or not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT:",
-  "    if not value.is_finite() or not 0 < value:"
+  "    if not value.is_finite() or not 0 < value:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "limit may be zero",
   "trading/infrastructure/config.py",
   "    if not value.is_finite() or not 0 < value <= STRATEGY_LOSS_STOP_MAX_PCT:",
-  "    if not value.is_finite() or not 0 <= value <= STRATEGY_LOSS_STOP_MAX_PCT:"
+  "    if not value.is_finite() or not 0 <= value <= STRATEGY_LOSS_STOP_MAX_PCT:",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "default is not 15",
   "trading/infrastructure/config.py",
   "STRATEGY_LOSS_STOP_MAX_PCT = Decimal(15)",
-  "STRATEGY_LOSS_STOP_MAX_PCT = Decimal(20)"
+  "STRATEGY_LOSS_STOP_MAX_PCT = Decimal(20)",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "limit without a capital accepted",
   "trading/infrastructure/config.py",
   "        if raw:\n            raise RuntimeError(\"STRATEGY_LOSS_STOP_PCT is a share",
-  "        if False:\n            raise RuntimeError(\"STRATEGY_LOSS_STOP_PCT is a share"
+  "        if False:\n            raise RuntimeError(\"STRATEGY_LOSS_STOP_PCT is a share",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "record omits the limit",
   "trading/infrastructure/config.py",
   "\"strategy_loss_stop\": None if self.strategy_loss_stop is None else str(self.strategy_loss_stop)}",
-  "\"strategy_loss_stop\": None}"
+  "\"strategy_loss_stop\": None}",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ],
  [
   "per cent not divided",
   "trading/infrastructure/config.py",
   "    return value / 100\n\n\ndef require_strategy_capital",
-  "    return value\n\n\ndef require_strategy_capital"
+  "    return value\n\n\ndef require_strategy_capital",
+  "tests/unit/trading/test_strategy_loss_stop.py tests/unit/trading/test_loss_stop_audit.py tests/unit/trading/test_issues.py tests/unit/trading/test_strategy_capital.py"
  ]
 ]
