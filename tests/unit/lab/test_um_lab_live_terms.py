@@ -77,3 +77,12 @@ def test_a_slot_below_the_exchange_minimum_never_trades(snapshot):  # noqa: F811
 
 def test_the_default_terms_are_the_tech_lead_s():
     assert (lab.LIVE.capital, lab.LIVE.stop_pct, lab.LIVE.pause_hours) == ("300", "0.08", 4)   # 2026-11-16
+
+
+def test_the_loss_stop_share_counts_the_pilots_that_fall_15_per_cent_below_their_start():
+    daily = pd.Series([0.0, -0.10, -0.06, 0.20, 0.0, 0.0], index=range(6))   # value 1, .9, .846, 1.015, ...
+    assert lab.loss_stop_share(daily, 0.15, 3) == pytest.approx(2 / 3)       # starting on day 0 or 1: down to 0.846
+    assert lab.loss_stop_share(daily, 0.15, 2) == pytest.approx(1 / 4)       # only day 1's pilot: -10 % then -6 %
+    assert lab.loss_stop_share(daily, 0.05, 3) == pytest.approx(1.0)         # day 2's pilot loses 6 % at once
+    assert lab.loss_stop_share(daily, 0.15, 6) is None                        # no pilot has 6 days ahead of it
+    assert lab.LIVE.loss_stop == 0.15 and lab.LIVE.loss_stop_days == 90       # tech lead 2026-11-16
