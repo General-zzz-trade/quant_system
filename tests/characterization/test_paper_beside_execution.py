@@ -177,3 +177,34 @@ def test_paper_and_execution_have_different_default_state_directories(tmp_path, 
         with pytest.raises(Started):
             entry.main(["--spec", str(spec)])
         assert seen["state_dir"] == Path(expected)
+
+
+def test_the_paper_entry_point_refuses_an_execution_directory_before_creating_anything_in_it(tmp_path, monkeypatch):
+    import runner.binance_target as entry
+    state = tmp_path / "exec"
+    _init(state)
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": ["BTCUSDT"],
+                                "spec": _spec().record(), "passed": False}))
+    before = _snapshot(state)
+    with pytest.raises(RuntimeError, match=EXECUTION_DIR):
+        entry.main(["--spec", str(spec), "--state-dir", str(state)])                # paper (--dry-run)
+    assert _snapshot(state) == before                                               # not even the lease's lock
+
+
+def test_a_journal_refusal_event_names_the_refusal_itself():
+    from types import SimpleNamespace
+    from trading.application.session import ExecutionParts, TargetSession
+    from trading.domain.events import EventKind
+    from trading.domain.orders import DUPLICATE, OrderIntent
+    from trading.domain.rebalance import Intent, Lot
+    events = []
+    executor = SimpleNamespace(send_order=lambda order: (), take_refusal=lambda intent_id: DUPLICATE,
+                               notify_status=lambda: None, reconcile_pending=lambda: ())
+    session = TargetSession("BTCUSDT", _spec(), journal=SimpleNamespace(write=lambda k, **f: events.append((k, f))),
+                            rules=Lot(D("0.001"), D("0.001"), D("5")), make_order=OrderIntent,
+                            execution=ExecutionParts(executor, None, None, None, None))
+    order = OrderIntent(order_id="BTCUSDT:1:rebalance:0", source="target.BTCUSDT", symbol="BTCUSDT", side="buy",
+                        qty=D("0.1"), price=D("100"), reduce_only=False, reason="rebalance")
+    session._send(order, Intent("buy", D("0.1"), False))
+    assert [(k, f.get("refusal")) for k, f in events] == [(EventKind.BLOCKED, DUPLICATE)]
