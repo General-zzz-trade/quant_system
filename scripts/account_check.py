@@ -1,15 +1,21 @@
 """Read-only look at the live (mainnet) Binance USD-M futures account.
 
 Shows the API key's permissions, balances, open positions, open orders, the leverage and margin mode of BTCUSDT
-and ETHUSDT, the position mode and the fee rates.
+and ETHUSDT, the position mode, the fee rates, and how the funding income history of the last 80 days is answered
+(row count, first and last row time, order; whole and with a page of 5), which is what the strategy's funding total
+relies on.
 
     python3 -m scripts.account_check [--env-file PATH]
     python3 -m scripts.account_check --history DIR [--days 89]    # scripts/account_history.py: the account's own
                                                                   # income, trades and orders, read-only, to DIR
+    python3 -m scripts.account_check --settings                   # scripts/account_settings.py: which settings the
+                                                                  # file holds (secrets: set or not), and what the
+                                                                  # runtime's start checks say; no request at all
 
 Allowed by the tech lead on 2026-11-15 as the one command Claude may run that reads the credentials file:
 - it takes only BINANCE_API_KEY and BINANCE_API_SECRET from it, keeps them in memory and never prints or writes
-  them (nor the request signature);
+  them (nor the request signature); with ``--settings`` (tech lead 2026-11-16: "report which settings are missing")
+  it reads every line in memory, prints secrets only as set or not set, and sends no request at all;
 - it sends only GET requests, and only to the paths in ALLOWED; anything else raises before a request is made;
 - it places no order and changes no account setting (no leverage, margin type or position mode call).
 """
@@ -21,6 +27,7 @@ import hmac
 import json
 import sys
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,6 +39,8 @@ SAPI = "https://api.binance.com"
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 NAMES = ("BINANCE_API_KEY", "BINANCE_API_SECRET")
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
+INCOME_DAYS = 80                     # inside the three months Binance keeps (the runtime refuses beyond 88 days)
+INCOME_LIMITS = (1000, 5)            # the runtime's page size, and a small page: does it start at the oldest row?
 # (base, path, signed): every request this command can make. All are GET (read-only) endpoints.
 ALLOWED = {
     (FAPI, "/fapi/v1/time", False),
@@ -46,6 +55,7 @@ ALLOWED = {
     (FAPI, "/fapi/v1/apiTradingStatus", True),
     (SAPI, "/sapi/v1/account/apiRestrictions", True),
     # The history export (tech lead 2026-11-16, scripts/account_history.py): the account's own records, GET only.
+    # The report's funding income section asks the income history too.
     (FAPI, "/fapi/v1/income", True),
     (FAPI, "/fapi/v1/userTrades", True),
     (FAPI, "/fapi/v1/allOrders", True),
@@ -80,6 +90,9 @@ class ReadOnlyClient:
     def __init__(self, key: str, secret: str, *, fetch: Fetch = _urlopen, clock: Callable[[], float] = time.time):
         self._key, self._secret, self._fetch, self._clock = key, secret, fetch, clock
 
+    def now_ms(self) -> int:
+        return int(self._clock() * 1000)
+
     def get(self, base: str, path: str, *, signed: bool = True, **params: Any) -> Any:
         if (base, path, signed) not in ALLOWED:
             raise PermissionError(f"not a read-only request on the allowlist: {base}{path}")
@@ -106,6 +119,10 @@ def _section(out: list[str], title: str, produce: Callable[[], list[str]]) -> No
         out.extend(f"  {line}" for line in produce())
     except Exception as exc:  # one failing section never hides the others
         out.append(f"  unavailable: {type(exc).__name__}: {exc}")
+
+
+def _utc(time_ms: int) -> str:
+    return datetime.fromtimestamp(time_ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def report(client: ReadOnlyClient) -> list[str]:
@@ -181,10 +198,36 @@ def report(client: ReadOnlyClient) -> list[str]:
     def trading_status() -> list[str]:
         return [json.dumps(client.get(FAPI, "/fapi/v1/apiTradingStatus"), sort_keys=True)]
 
+    def income() -> list[str]:
+        """What the strategy's funding total asks (trading.adapters.binance.adapter.get_funding_income): the same
+        request, whole and with a page of 5, so a person sees the order of the rows and where a page starts."""
+        end = client.now_ms()
+        start, lines = end - INCOME_DAYS * 86_400_000, []
+        for symbol in SYMBOLS:
+            pages = []
+            for limit in INCOME_LIMITS:
+                rows = client.get(FAPI, "/fapi/v1/income", symbol=symbol, incomeType="FUNDING_FEE", startTime=start,
+                                  endTime=end, limit=limit)
+                if not isinstance(rows, list):
+                    raise RuntimeError("the income history answer is not a list")
+                times = [int(row["time"]) for row in rows]
+                pages.append(times)
+                line = f"{symbol} limit {limit}: rows {len(times)}"
+                if times:
+                    line += (f", first {times[0]} ({_utc(times[0])}), last {times[-1]} ({_utc(times[-1])}), "
+                             f"ascending by time: {times == sorted(times)}")
+                lines.append(line)
+            whole, small = pages
+            same = str(small[0] == min(whole)) if whole and small else "no rows to compare"
+            lines.append(f"{symbol}: the page of {INCOME_LIMITS[1]} starts at the oldest row of the page of "
+                         f"{INCOME_LIMITS[0]}: {same}")
+        return lines
+
     for title, produce in (("API key permissions", permissions), ("clock", clock), ("futures account", account),
                            ("account modes", modes), ("positions and symbol settings", positions),
                            ("open orders", orders), ("open conditional orders", algo_orders),
-                           ("fee rates", fees), ("quantitative trading status", trading_status)):
+                           ("fee rates", fees), ("quantitative trading status", trading_status),
+                           (f"funding income history (FUNDING_FEE, last {INCOME_DAYS} days)", income)):
         _section(out, title, produce)
     return out
 
@@ -196,7 +239,20 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = _urlopen, stdout=sys.s
     parser.add_argument("--history", type=Path, default=None, metavar="DIR",
                         help="write the account's income, trades and orders to this private directory instead")
     parser.add_argument("--days", type=int, default=89, help="how far back the history goes (at most 89)")
+    parser.add_argument("--settings", action="store_true",
+                        help="report the file's settings (secrets as set or not set) and the runtime's start checks")
     args = parser.parse_args(argv)
+    if args.settings:
+        from scripts import account_settings
+        try:
+            values = account_settings.read_all(args.env_file)
+        except OSError as exc:
+            print(f"credentials file not readable: {type(exc).__name__}", file=stdout)
+            return 2
+        lines, passed = account_settings.report(values)
+        for line in lines:
+            print(line, file=stdout)
+        return 0 if passed else 1
     try:
         found = read_credentials(args.env_file)
     except OSError as exc:

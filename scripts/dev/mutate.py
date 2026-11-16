@@ -13,6 +13,7 @@ in, so the real working tree is never modified. The selected tests must pass on 
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -40,8 +41,13 @@ def make_copy(k: int) -> pathlib.Path:
 
 
 def _pytest(copy: pathlib.Path, selected: list[str]) -> int:
+    # No bytecode files in the copy: a .pyc is taken as fresh when the source has the same size and the same
+    # modification second. A mutant of the same length as the original, written within a second of the previous
+    # restore, then ran the cached code - a false "SURVIVED", or the previous mutant's failure counted for the next
+    # one (seen 2026-11-16).
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     return subprocess.run(["nice", "-n", "10", sys.executable, "-m", "pytest", *selected, "-q", "-p",
-                           "no:cacheprovider", "-x"], capture_output=True, text=True, cwd=copy).returncode
+                           "no:cacheprovider", "-x"], capture_output=True, text=True, cwd=copy, env=env).returncode
 
 
 class Worker:
