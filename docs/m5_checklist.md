@@ -56,7 +56,7 @@
 |---|---|---|
 | 急停平仓 | `kill --state-dir … activate --reason … --flatten` | 撤掉挂单，按交易所持仓整仓平掉；告警；之后 `kill clear` |
 | 回撤锁定 | 在测试网把日回撤限额临时调低（改 `.env`，人来改，重启服务）到当前回撤以下 | 锁定到下一个 UTC 日，整仓平掉；告警；演练后恢复限额 |
-| 止损触发 | 在测试网持仓时人为让价格穿过止损（或用很近的 `--stop-pct` 单独跑一次） | 交易所止损成交；品种暂停入场；告警；人用 `entry_pause release` 解除 |
+| 止损触发 | 在测试网持仓时人为让价格穿过止损（或用很近的 `--stop-pct` 单独跑一次） | 交易所止损成交；品种暂停入场 4 小时后自动解除（告警写明恢复时间）；也试一次人用 `entry_pause release` 提前解除 |
 | 重启恢复 | `systemctl kill binance-target-testnet`（模拟崩溃） | 60 秒后自动重启；每次失败都有告警；启动检查全部重新通过；订单库和交易所一致 |
 | 备份恢复 | 停服务；把 `state.sqlite` 移走；`state_dir restore --snapshot <最新快照> --reason …` | 恢复后回撤锁定、当天计数用完、所有品种暂停；急停文件没变；启动检查通过；**启动后所有仓位按市价平掉，本周空仓**；人逐个解除暂停 |
 | 告警送达 | 停服务，`sudo systemctl start quant-alert@drill.service` | Telegram 收到 "drill failed on …" |

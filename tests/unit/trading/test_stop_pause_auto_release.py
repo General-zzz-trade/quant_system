@@ -133,3 +133,18 @@ def test_a_scheduled_end_that_is_not_in_the_future_is_refused(tmp_path, ends_at)
     with pytest.raises(ValueError, match="future"):          # the runtime then blocks entries (PAUSE_NOT_SAVED)
         pauses.pause("BTCUSDT", "protective stop triggered", ends_at=ends_at)
     assert _rows(tmp_path) == []
+
+
+def test_paper_s_pauses_pass_the_end_on_and_are_reported_as_divergences(tmp_path):
+    from trading.infrastructure.paper import DivergencePauses
+    reported = []
+
+    class Log:
+        def paused(self, symbol, cause):
+            reported.append((symbol, cause))
+    store, clock = _store(tmp_path)
+    pauses = DivergencePauses(store, Log())
+    assert pauses.pause("BTCUSDT", "protective stop triggered", ends_at=1000.0 + 4 * 3600) is True
+    assert reported == [("BTCUSDT", "protective stop triggered")]
+    clock["t"] = 1000.0 + 4 * 3600
+    assert pauses.reason("BTCUSDT") is None
