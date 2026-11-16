@@ -165,11 +165,9 @@ class SimulatedExchange:
                      for name, b in self._selected(symbol) if b.position.qty != 0)
 
     def get_position(self, symbol: str) -> VenuePosition | None:
-        """One symbol's position, flat included (qty 0), as the Binance adapter answers it (ADR-0012); None for a
-        symbol this venue does not trade."""
-        broker = self._brokers.get(symbol)
-        if broker is None:
-            return None
+        """One symbol's position, flat included (qty 0), as the Binance adapter answers it (ADR-0012); a symbol this
+        venue does not trade raises, as on Binance and in this venue's other methods (S4-S5 audit, finding 9)."""
+        broker = self._broker(symbol)
         return VenuePosition(venue=VENUE, symbol=symbol, qty=broker.position.qty,
                              entry_price=broker.position.entry_price, mark_price=broker.mark)
 
