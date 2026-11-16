@@ -86,11 +86,13 @@ def problems(path: Path) -> list[str]:
         try:
             version = int(db.execute("PRAGMA user_version").fetchone()[0])
             tables = {str(r[0]) for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            # Every page, not only the schema page: a corrupt page reads as intact otherwise (S6-S8 audit, M4).
+            check = [str(r[0]) for r in db.execute("PRAGMA quick_check(5)")]
         finally:
             db.close()
     except sqlite3.Error:
         return [f"{name} is unreadable"]
-    found = []
+    found = [] if check == ["ok"] else [f"{name} is corrupt ({'; '.join(check)})"]
     if version != VERSION:
         found.append(f"{name} has version {version}, expected {VERSION}")
     if missing := [t for t in TABLES if t not in tables]:

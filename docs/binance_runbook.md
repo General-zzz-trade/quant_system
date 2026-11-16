@@ -138,7 +138,8 @@ sudo systemctl restart binance-target.service   # 看过改动后由人重启（
       --snapshot /var/lib/quant/backups/testnet/state-<时间>.sqlite --reason "<为什么>"
   ```
   - 要键入 scope 确认；库完好时、运行时在跑时、快照是模拟盘的库时都拒绝。
-  - 恢复只会收紧：当天和本周的回撤锁定，当天下单计数视为用完，所有品种暂停入场；急停文件不动；损坏的库改名保留（`state.sqlite.broken-<时间>`）；留一条审计记录。
+  - 恢复只会收紧：当天和本周的回撤锁定，当天下单计数视为用完，所有品种暂停入场；急停文件不动；损坏的库连同它的 -wal、-shm、-journal 一起移进 `state.sqlite.broken-<时间>/`；留一条审计记录。
+  - **回撤锁定的后果：恢复后下次启动会按市价平掉所有仓位，并且空仓到本 ISO 周结束**（技术负责人 2026-11-16 决定保持）。M5 的备份恢复演练会真的平仓。
   - 恢复后先 `state_dir check`，再启动；启动时的账户检查（ADR-0010）会拒绝任何与交易所不一致的状态。然后由人核对交易所持仓和账本，逐个品种 `entry_pause release`。
 
 ## 8. 出问题时

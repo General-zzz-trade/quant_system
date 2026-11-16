@@ -1,0 +1,155 @@
+[
+ [
+  "A3 an existing unlatched row is not latched",
+  "trading/adapters/sqlite/drawdown_store.py",
+  "                db.execute(\"UPDATE drawdown_periods SET tripped=1 WHERE scope=? AND kind=? AND period=?\",\n                           (self.scope, kind, period))",
+  "                pass"
+ ],
+ [
+  "A4 the restored copy is not checked",
+  "trading/infrastructure/state_dir.py",
+  "if left := schema.problems(temporary):",
+  "if left := []:"
+ ],
+ [
+  "A5 no final start-up check",
+  "trading/infrastructure/state_dir.py",
+  "        os.replace(temporary, database)\n        verify(state_dir, scope)",
+  "        os.replace(temporary, database)"
+ ],
+ [
+  "A6 only pause-table symbols",
+  "trading/adapters/sqlite/backup.py",
+  "for table in (\"submissions\", \"protective_stops\", \"entry_pauses\")",
+  "for table in (\"entry_pauses\",)"
+ ],
+ [
+  "A7 notional not used up",
+  "trading/adapters/sqlite/limit_store.py",
+  "str(max(have_notional, notional))",
+  "str(have_notional)"
+ ],
+ [
+  "A8 restore copies the snapshot file byte for byte",
+  "trading/infrastructure/state_dir.py",
+  "        copy_database(snapshot, temporary)",
+  "        import shutil; shutil.copyfile(snapshot, temporary)"
+ ],
+ [
+  "A9 stale temporary not removed first",
+  "trading/infrastructure/state_dir.py",
+  "        for suffix in (\"\", \"-wal\", \"-shm\", \"-journal\"):\n            Path(f\"{temporary}{suffix}\").unlink(missing_ok=True)",
+  "        pass"
+ ],
+ [
+  "B1 prune by modification time of any file",
+  "trading/infrastructure/state_backup.py",
+  "        if not match or not path.is_file():\n            continue",
+  "        if not path.is_file():\n            continue\n        match = match or _NAME.fullmatch(\"state-19700101T000000Z.sqlite\")"
+ ],
+ [
+  "B2 backup fsync dropped",
+  "trading/adapters/sqlite/backup.py",
+  "        os.fsync(handle.fileno())",
+  "        pass"
+ ],
+ [
+  "C1 host lock taken after the account connects",
+  "trading/infrastructure/cli/target.py",
+  "            host = HostLock(config.identity, holder=f\"binance_target --state-dir {args.state_dir}\")\n            notifier = make_notifier(secrets)\n            network = \"testnet\" if testnet else \"MAINNET\"\n            # ADR-0016 point 2: confirmed by Telegram, or no account request at all.\n            if not notifier.deliver(f\"{network} execution starting\",\n                                    f\"scope {scope}, account identity {config.identity[:12]}, state directory \"\n                                    f\"{args.state_dir}\", timeout_s=START_ALERT_SECONDS):\n                raise RuntimeError(\"the start-up alert was not confirmed by Telegram; execution not started\")\n        market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen[\"symbols\"],\n                                         credentials=secrets.binance)\n",
+  "            notifier = make_notifier(secrets)\n            network = \"testnet\" if testnet else \"MAINNET\"\n            # ADR-0016 point 2: confirmed by Telegram, or no account request at all.\n            if not notifier.deliver(f\"{network} execution starting\",\n                                    f\"scope {scope}, account identity {config.identity[:12]}, state directory \"\n                                    f\"{args.state_dir}\", timeout_s=START_ALERT_SECONDS):\n                raise RuntimeError(\"the start-up alert was not confirmed by Telegram; execution not started\")\n        market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen[\"symbols\"],\n                                         credentials=secrets.binance)\n        if args.execution:\n            host = HostLock(config.identity, holder=f\"binance_target --state-dir {args.state_dir}\")\n",
+  "tests/characterization/test_host_lock_startup.py tests/characterization/test_operator_startup.py tests/characterization/test_startup_account_check.py"
+ ],
+ [
+  "C2 refusal alert skipped for non-RuntimeError (control)",
+  "trading/infrastructure/cli/target.py",
+  "            except RuntimeError as exc:                       # best effort: the refusal still stands",
+  "            except ValueError as exc:                       # best effort: the refusal still stands",
+  "tests/characterization/test_host_lock_startup.py tests/characterization/test_operator_startup.py tests/characterization/test_startup_account_check.py"
+ ],
+ [
+  "C3 heartbeat only between cycles",
+  "trading/infrastructure/cli/target.py",
+  "    while not stop[\"flag\"]:\n        _beat(heartbeat)\n        if built.warmup_or_hold():",
+  "    while not stop[\"flag\"]:\n        if built.warmup_or_hold():",
+  "tests/characterization/test_host_lock_startup.py tests/characterization/test_operator_startup.py tests/characterization/test_startup_account_check.py"
+ ],
+ [
+  "C4 heartbeat rate limit 1 s",
+  "trading/adapters/notify/heartbeat.py",
+  "MIN_INTERVAL_SECONDS = 60.0",
+  "MIN_INTERVAL_SECONDS = 1.0",
+  "tests/unit/trading/test_operator_delivery.py"
+ ],
+ [
+  "C5 telegram answer ok truthy",
+  "trading/adapters/notify/telegram.py",
+  "answer.get(\"ok\") is not True",
+  "not answer.get(\"ok\")",
+  "tests/unit/trading/test_operator_delivery.py"
+ ],
+ [
+  "C6 start alert timeout huge",
+  "trading/infrastructure/cli/target.py",
+  "START_ALERT_SECONDS = 15.0",
+  "START_ALERT_SECONDS = 600.0",
+  "tests/characterization/test_host_lock_startup.py tests/characterization/test_operator_startup.py tests/characterization/test_startup_account_check.py"
+ ],
+ [
+  "C7 host lock not truncated",
+  "trading/adapters/files/host_lock.py",
+  "        self._file.seek(0)\n        self._file.truncate()\n",
+  "        self._file.seek(0)\n",
+  "tests/unit/trading/test_host_lock.py tests/characterization/test_host_lock_startup.py tests/unit/trading/test_manual_tools.py"
+ ],
+ [
+  "C8 manual tool lock dir missing reads as free",
+  "trading/adapters/files/host_lock.py",
+  "        if not directory.exists():\n            raise RuntimeError(",
+  "        if not directory.exists() and False:\n            raise RuntimeError(",
+  "tests/unit/trading/test_host_lock.py tests/characterization/test_host_lock_startup.py tests/unit/trading/test_manual_tools.py"
+ ],
+ [
+  "C9 heartbeat checks in-flight before rate (order swap)",
+  "trading/adapters/notify/heartbeat.py",
+  "            self._last = now\n            self._worker = threading.Thread",
+  "            self._worker = threading.Thread",
+  "tests/unit/trading/test_operator_delivery.py"
+ ],
+ [
+  "N1 no page check",
+  "trading/adapters/sqlite/schema.py",
+  "    found = [] if check == [\"ok\"] else [f\"{name} is corrupt ({'; '.join(check)})\"]",
+  "    found = []"
+ ],
+ [
+  "N2 a hot journal is left beside",
+  "trading/infrastructure/state_dir.py",
+  "for suffix in (\"\", \"-wal\", \"-shm\", \"-journal\"):\n            old = Path(f\"{database}{suffix}\")",
+  "for suffix in (\"\", \"-wal\", \"-shm\"):\n            old = Path(f\"{database}{suffix}\")"
+ ],
+ [
+  "N3 the broken files are not kept together",
+  "trading/infrastructure/state_dir.py",
+  "os.replace(old, kept / old.name)",
+  "os.replace(old, Path(f\"{old}.broken-{stamp}\"))"
+ ],
+ [
+  "N4 the count is used up only to the shell's limit",
+  "trading/infrastructure/state_dir.py",
+  "orders=max(limits.max_daily_orders, USED_UP_ORDERS)",
+  "orders=limits.max_daily_orders"
+ ],
+ [
+  "A1 the broken -wal is left beside (rewritten for the new code)",
+  "trading/infrastructure/state_dir.py",
+  "for suffix in (\"\", \"-wal\", \"-shm\", \"-journal\"):\n            old = Path(f\"{database}{suffix}\")",
+  "for suffix in (\"\", \"-shm\", \"-journal\"):\n            old = Path(f\"{database}{suffix}\")"
+ ],
+ [
+  "A2 the broken -wal and -shm are left beside (rewritten)",
+  "trading/infrastructure/state_dir.py",
+  "for suffix in (\"\", \"-wal\", \"-shm\", \"-journal\"):\n            old = Path(f\"{database}{suffix}\")",
+  "for suffix in (\"\", \"-journal\"):\n            old = Path(f\"{database}{suffix}\")"
+ ]
+]

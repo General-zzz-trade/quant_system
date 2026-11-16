@@ -43,6 +43,14 @@ def test_an_answer_that_is_not_ok_is_not_delivered():
     assert notifier.deliver("t", "d", timeout_s=5) is False
 
 
+def test_only_a_true_ok_counts_as_delivered():
+    # S6-S8 audit, mutant C5: a truthy "ok" that is not true (a string, a number) is no confirmation.
+    for ok in ("false", "true", 1, [1]):
+        answer = json.dumps({"ok": ok}).encode()
+        assert TelegramNotifier(TOKEN, "42", request=lambda url, body, timeout, a=answer: a).deliver(
+            "t", "d", timeout_s=5) is False
+
+
 def test_an_unreadable_answer_is_not_delivered():
     notifier = TelegramNotifier(TOKEN, "42", request=lambda url, body, timeout: b"<html>bad gateway</html>")
     assert notifier.deliver("t", "d", timeout_s=5) is False

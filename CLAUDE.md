@@ -136,7 +136,9 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 - Every symbol has a state (`trading/domain/symbol_state.py`: warming, ready, blocked, paused, flattening, halted),
   set by the exit side each cycle and shown in the status. Only `ready` enters (a backstop after the gate).
 - State: an execution state directory holds one versioned database, `state.sqlite` (ADR-0009). Only
-  `state_dir init` creates it and its tables; the stores open it read-write and never create anything.
+  `state_dir init` creates it and its tables (`state_dir restore` puts a checked snapshot back when it is lost or
+  broken, and tightens it: drawdown latched - the next start flattens and stays flat until the week ends -,
+  today's count used up, every symbol paused); the stores open it read-write and never create anything.
 - Alerts and heartbeat (ADR-0016 points 1-3, S7): execution (testnet and mainnet) refuses to start without
   `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` and an https `HEARTBEAT_URL` (a secret), and starts only after Telegram
   confirmed "execution starting", before any account request. The heartbeat pings at most once a minute while
