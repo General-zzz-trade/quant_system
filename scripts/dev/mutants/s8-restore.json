@@ -1,0 +1,98 @@
+[
+ [
+  "R1 an intact database is restored",
+  "trading/infrastructure/state_dir.py",
+  "    if not problems:\n        print(f\"{STATE_DB} is intact",
+  "    if False:\n        print(f\"{STATE_DB} is intact"
+ ],
+ [
+  "R2 the snapshot is not checked",
+  "trading/infrastructure/state_dir.py",
+  "if bad := schema.problems(snapshot):",
+  "if bad := []:"
+ ],
+ [
+  "R3 no host lock",
+  "trading/infrastructure/state_dir.py",
+  "host = HostLock(identity, holder=f\"state_dir restore --state-dir {state_dir}\")",
+  "host = type(\"H\", (), {\"close\": lambda self: None})()"
+ ],
+ [
+  "R4 no typed confirmation",
+  "trading/infrastructure/state_dir.py",
+  "if stdin.readline().strip() != scope:",
+  "if False:"
+ ],
+ [
+  "R5 drawdown not latched",
+  "trading/infrastructure/state_dir.py",
+  "weekly_pct=limits.weekly_drawdown_pct).latch_current(now=now)",
+  "weekly_pct=limits.weekly_drawdown_pct)"
+ ],
+ [
+  "R6 counts not used up",
+  "trading/infrastructure/state_dir.py",
+  "        SqliteLimitStore(temporary, scope).use_up(day, orders=limits.max_daily_orders,\n                                                  notional=limits.max_daily_notional)",
+  "        pass"
+ ],
+ [
+  "R7 default symbols not paused",
+  "trading/infrastructure/state_dir.py",
+  "paused = sorted(set(symbols) | symbols_in(temporary))",
+  "paused = sorted(symbols_in(temporary))"
+ ],
+ [
+  "R8 snapshot symbols not paused",
+  "trading/infrastructure/state_dir.py",
+  "paused = sorted(set(symbols) | symbols_in(temporary))",
+  "paused = sorted(set(symbols))"
+ ],
+ [
+  "R9 broken database deleted",
+  "trading/infrastructure/state_dir.py",
+  "os.replace(old, Path(f\"{old}.broken-{stamp}\"))",
+  "old.unlink()"
+ ],
+ [
+  "R10 no audit record",
+  "trading/infrastructure/state_dir.py",
+  "        record_restore(temporary,",
+  "        (lambda *a, **k: None)(temporary,"
+ ],
+ [
+  "R11 not back in WAL",
+  "trading/infrastructure/state_dir.py",
+  "        enable_wal(temporary)\n",
+  "        pass\n"
+ ],
+ [
+  "R12 only the day latched",
+  "trading/adapters/sqlite/drawdown_store.py",
+  "            for kind, period in periods(now).items():\n                db.execute(\"INSERT OR IGNORE INTO drawdown_periods VALUES (?, ?, ?, ?, ?, 1)\"",
+  "            for kind, period in list(periods(now).items())[:1]:\n                db.execute(\"INSERT OR IGNORE INTO drawdown_periods VALUES (?, ?, ?, ?, ?, 1)\""
+ ],
+ [
+  "R13 use_up lowers a count",
+  "trading/adapters/sqlite/limit_store.py",
+  "max(have_orders, orders)",
+  "orders"
+ ],
+ [
+  "R14 no directory lease",
+  "trading/infrastructure/state_dir.py",
+  "        lease = ExecutionLease(database, scope)\n    except RuntimeError:\n        host.close()",
+  "        lease = type(\"L\", (), {\"close\": lambda self: None})()\n    except RuntimeError:\n        host.close()"
+ ],
+ [
+  "R15 reason not required",
+  "trading/infrastructure/state_dir.py",
+  "    if not reason.strip():\n        print(\"a restore needs a reason\", file=stdout)",
+  "    if False:\n        print(\"a restore needs a reason\", file=stdout)"
+ ],
+ [
+  "R16 another scope's directory restored",
+  "trading/infrastructure/state_dir.py",
+  "    if manifest.get(\"scope\") != scope:\n        print(f\"{state_dir} belongs to scope",
+  "    if False:\n        print(f\"{state_dir} belongs to scope"
+ ]
+]

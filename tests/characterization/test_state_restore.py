@@ -147,3 +147,47 @@ def test_the_snapshot_s_own_rows_come_back(broken):
     assert causes["SOLUSDT"] == "stop_triggered"                         # the pause from before keeps its cause
     assert json.loads((state / managed.MANIFEST).read_text())["scope"] == SCOPE
     assert Path(snapshot).is_file()                                      # the snapshot itself is left as it was
+
+
+# -- added for the mutation self-check ----------------------------------------------------------------------
+def test_a_symbol_the_snapshot_knows_is_paused_again_even_if_its_pause_was_released(tmp_path):
+    state = tmp_path / "state"
+    assert managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(), env=ENV) == 0
+    pauses = SqliteEntryPauses(state / schema.STATE_DB)
+    pauses.pause("XRPUSDT", "stop_triggered", ["t9"])
+    pauses.release("XRPUSDT", "checked")
+    from datetime import datetime, timezone
+    snapshot = state_backup.backup(state, tmp_path / "backups", now=datetime.fromtimestamp(NOW, timezone.utc))
+    (state / schema.STATE_DB).write_bytes(b"")
+    assert _restore(state, snapshot)[0] == 0
+    assert "XRPUSDT" in {row["symbol"] for row in SqliteEntryPauses(state / schema.STATE_DB).active()}
+
+
+def test_using_up_a_day_never_lowers_its_count(tmp_path):
+    from tests.support.state_db import state_db
+    store = SqliteLimitStore(state_db(tmp_path / "state.sqlite"), SCOPE)
+    for _ in range(3):
+        store.add("2026-11-16", D("100"))
+    store.use_up("2026-11-16", orders=2, notional=D("50"))
+    assert store.load("2026-11-16") == (3, D("300"))
+    store.use_up("2026-11-16", orders=40, notional=D("30000"))
+    assert store.load("2026-11-16") == (40, D("30000"))
+
+
+def test_nothing_is_restored_while_a_runtime_holds_the_directory(broken):
+    from trading.adapters.files.lease import ExecutionLease
+    state, snapshot, kill = broken
+    with ExecutionLease(state / schema.STATE_DB, SCOPE):
+        code, out = _restore(state, snapshot)
+    assert code == 3 and "stop the runtime" in out
+    assert (state / schema.STATE_DB).read_bytes() == b""
+
+
+def test_a_directory_of_another_scope_is_not_restored_into(tmp_path, broken):
+    state, snapshot, kill = broken
+    other = tmp_path / "other"
+    assert managed.main(["--state-dir", str(other), "init"], stdout=io.StringIO(),
+                        env=dict(ENV, RISK_SCOPE="binance-testnet-ut2")) == 0
+    (other / schema.STATE_DB).write_bytes(b"")
+    code, out = _restore(other, snapshot)
+    assert code != 0 and "belongs to scope" in out and (other / schema.STATE_DB).read_bytes() == b""
