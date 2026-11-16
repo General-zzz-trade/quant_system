@@ -3828,7 +3828,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 低 7，环境里有 `ALERT_FILE` 时，已有测试会往那个文件里写假告警：`tests/conftest.py` 加了自动生效的夹具，每个测试都先去掉它
     （测试辅助的新增，不改任何断言）。
   - 低 8，路径：符号链接不再跟随；管道和目录被拒绝且不会卡住。文件指向状态目录内的情形没有拦（指到急停文件只会让急停变成激活）；运行手册里写了不要这样设。
-- **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json`。合并前审计之前 19 个，第一轮 19 个被杀；
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/alert_file_channel.json`。合并前审计之前 19 个，第一轮 19 个被杀；复查之后再按新代码改为 34 个，第一轮 34 个被杀；
   审计之后按新代码重写为 31 个，基线通过，第一轮 31 个被杀（其中包含审计员自己写出、当时存活的 4 个）。
 - **本地**【实际运行结果】：`test_alert_file_startup`、`test_operator_startup`、`test_startup_account_check`、`tests/unit/infra`、
   `tests/unit/monitoring`、`test_alerts`、`test_execution_prerequisites`、`test_exit_robustness`、`test_unit_alert` 和架构测试共 204 个通过
