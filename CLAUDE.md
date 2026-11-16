@@ -20,7 +20,8 @@
 - **Calibration pilot (owner, 2026-11-16 evening):** separately, the existing BTC/ETH overlay may run on mainnet to
   collect real fills (prices, slippage, stop fills, refusals) for checking the backtest against reality. The owner
   chose to use the 150 USDT now on the account, not 300: `STRATEGY_CAPITAL_USDT=150`, so the loss stop is at
-  22.5 USDT, and BTC will hardly trade (one lot is about 71 USDT against 75 per symbol).
+  22.5 USDT, and BTC will hardly trade (one lot of 0.001 BTC was about 64 to 71 USDT that day, against 75 USDT per
+  symbol; `research/results/overlay_pilot_2026-11-16/README.md`).
   It has no verified edge and none is expected; the 15 % loss stop bounds the cost. Every "still required first"
   item above applies, the account must hold nothing outside the strategy ledger (a manual position on BTCUSDT or
   ETHUSDT would be netted with the strategy's; the loss stop itself counts only the ledger's positions), and the
@@ -228,6 +229,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   (paper records no bars). Exit 0 "一致", 1 "不一致" (first differing fill), 2 "无法比较" (data missing, or not
   what paper saw). A difference is an intended divergence only through a fact of the record plus its
   `paper_divergence` event. Prints fills only, no returns.
+- `lab/um_judge.py`: the research lab's judge as a tested tool (periods, the yearly symbol lists, a configuration =
+  an idea's parameters plus a stop variant, walk-forward choice, score, final check; the holdout period is replayed
+  only in `final`, for survivors). `lab.simulate` takes `reenter_after_stop="signal_reset"` (after a stop, no entry
+  until the target has been 0). How a run uses it: `research/lab/README.md`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 
 **Open exit-side gaps — fix before any testnet or live execution:**
