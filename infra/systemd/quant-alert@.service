@@ -1,5 +1,5 @@
 [Unit]
-Description=Telegram alert: %i failed (ADR-0016 point 4)
+Description=Alert (alert file or Telegram): %i failed (ADR-0016 point 4)
 
 [Service]
 Type=oneshot

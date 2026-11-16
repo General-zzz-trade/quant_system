@@ -16,11 +16,13 @@ Liquidation realizes exactly the posted isolated margin (the exchange's
 clearance fee is taken out of that margin). With every option off the broker
 behaves, and records its configuration, exactly as before.
 
-Optional cross-margin stop (``stop_pct`` > 0, off by default; tech lead 2026-11-16): the live runtime's exchange
-stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct) for a long, x (1 + stop_pct) for a
-short (trading/application/execution/stops.py). Market entries fill at the open, so the stop guards the rest of
-that bar and every later one, at the current average entry; it fills by the isolated-mode stop rule above (and
-paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
+Optional stop at a fixed distance (``stop_pct`` > 0, off by default; tech lead 2026-11-16), in either mode: the live
+runtime's exchange stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct) for a long, x (1
++ stop_pct) for a short (trading/application/execution/stops.py). Market entries fill at the open, so the stop
+guards the rest of that bar and every later one, at the current average entry; it fills by the isolated-mode stop
+rule above (and paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
+In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
+inside the liquidation distance; liquidation is still modelled first.
 """
 from __future__ import annotations
 
@@ -116,8 +118,8 @@ class ReplayConfig:
         stop_pct = D(str(self.stop_pct))
         if not stop_pct.is_finite() or not 0 <= stop_pct < 1:
             raise ValueError("stop_pct must be in [0, 1)")
-        if stop_pct > 0 and leverage > 0:
-            raise ValueError("stop_pct is the cross-margin stop; isolated mode places its own with set_stop")
+        if stop_pct > 0 and leverage > 0 and stop_pct >= 1 / leverage - mmr:
+            raise ValueError("stop_pct must be inside the isolated liquidation distance")
         if stop_pct > 0 and self.entry_mode != "market":
             raise ValueError("stop_pct needs market entries (a maker fill lands after the bar's range)")
         if any(D(getattr(self, k)) >= 10000 for k in ("maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps")):
@@ -369,6 +371,9 @@ class BarBroker:
         long = qty > 0
         liq = cast(Decimal, self.liquidation_price())   # isolated mode with a position: never None
         beyond = (lambda p: p <= liq) if long else (lambda p: p >= liq)
+        pct = D(self.config.stop_pct)
+        if pct > 0:                                      # the live exchange stop at the current average entry
+            self.stop_price = self.position.entry_price * (1 - pct if long else 1 + pct)
         self.now = bar.available_at
         if beyond(bar.open):
             return self._liquidate(bar)

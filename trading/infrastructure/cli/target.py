@@ -61,7 +61,7 @@ from trading.infrastructure.state_dir import is_managed, kill_file_path
 from trading.infrastructure.state_dir import verify as verify_state_dir
 
 logger = logging.getLogger("binance_target")
-START_ALERT_SECONDS = 15.0          # how long the start waits for Telegram to confirm (ADR-0016 point 2)
+START_ALERT_SECONDS = 15.0          # how long the start waits for the alert channel to confirm (ADR-0016 point 2)
 
 EXECUTION_STATE_DIR = Path("data/runtime/binance_target")    # as in the state_dir command's examples
 SpecLoader = Callable[[Path], dict[str, Any]]
@@ -238,11 +238,13 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
             host = HostLock(config.identity, holder=f"binance_target --state-dir {args.state_dir}")
             notifier = make_notifier(secrets)
             network = "testnet" if testnet else "MAINNET"
-            # ADR-0016 point 2: confirmed by Telegram, or no account request at all.
+            # ADR-0016 point 2: confirmed by the alert channel (Telegram's answer, or the line written to the
+            # alert file), or no account request at all.
             if not notifier.deliver(f"{network} execution starting",
                                     f"scope {scope}, account identity {config.identity[:12]}, state directory "
                                     f"{args.state_dir}", timeout_s=START_ALERT_SECONDS):
-                raise RuntimeError("the start-up alert was not confirmed by Telegram; execution not started")
+                raise RuntimeError(f"the start-up alert was not confirmed by the alert channel "
+                                   f"({notifier.channel}); execution not started")
         market, account = build_adapters(execution=args.execution, testnet=testnet, symbols=frozen["symbols"],
                                          credentials=secrets.binance)
         if args.execution:   # ADR-0010: read-only, before the runtime is built; the runtime never sets leverage
