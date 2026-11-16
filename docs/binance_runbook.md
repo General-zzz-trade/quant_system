@@ -48,9 +48,11 @@ tail -f /quant_system/logs/binance_target.log
 - 状态目录默认是 `data/runtime/binance_target/`，里面有：
   - `target_status.json`：每个周期重写；
   - `target_events.jsonl`：意图、阻断、问题、告警；
-  - `paper_state.sqlite`：模拟账户，旁边有一份 JSON 镜像。
-- 删除 JSON 镜像**不会**重置模拟账户。要重新开始，用 `--reset-paper-state`；旧记录会归档。
-- 模拟盘逐根补放错过的 K 线，结果与研究模拟相同（`tests/unit/lab/test_target_runtime.py`）。
+  - `state.sqlite`：订单库、止损、限额、暂停、回撤，以及模拟盘状态（模拟交易所的快照和游标），在同一事务里保存（S10）。模拟盘第一次启动时自己建这个库，不需要 `state_dir init`；
+  - `paper_state.json`：每次保存后同步写的一份副本，只写不读。
+- 删除或修改 `paper_state.json`**不会**改变模拟盘。要重新开始，用 `--reset-paper-state`：旧的 `state.sqlite` 改名放到一边（`state.<毫秒>.sqlite`），JSON 副本归档。
+- 2026-11-16 之前的模拟盘目录（只有 `paper_state.sqlite` 和 JSON，没有 `state.sqlite`）会被拒绝启动，用 `--reset-paper-state` 开一个新记录。
+- 模拟盘走执行路径（入场闸门、订单库、止损、对账）在模拟交易所上运行，逐根补放错过的 K 线，结果与研究模拟相同（`tests/unit/lab/test_target_runtime.py`）；有意的分叉（入场被拒、止损、暂停）各写一条 `paper_divergence` 事件。
 
 ## 4. 测试网执行（M5）
 

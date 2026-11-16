@@ -3065,3 +3065,82 @@ S10 的第 3 个 PR（#84，分支 `s10-paper-path`）。第 3 部分分两个 P
 - 模拟盘目录要不要像执行目录一样先 `state_dir init`（ADR-0009 第 1 条写的是要）。现在由模拟盘在第一次启动时自己建库，测试和现有的 systemd 单元都不用改；改成必须初始化需要一个不读 `RISK_SCOPE` 的模拟盘初始化命令。
 - `PAPER_EQUITY`、`PAPER_FILL` 事件不再写。对比工具（S11、G6）需要每根 K 线的权益时，从状态文件或订单库读，或者再加一个事件。
 - `trading/infrastructure/paper_store.py`、`trading/adapters/sqlite/paper_store.py` 在 3b 之后不再被运行时使用，留给下一个删除批次。
+
+## S10 第 3b 部分：模拟盘状态原子保存、入口变薄、模拟盘安全和验收补充（2026-11-16，ADR-0013 决定 4、ADR-0017，资金路径完整流程）
+
+S10 的第 4 个 PR（#86，分支 `s10-paper-state`，建在第 3a 部分之上）。
+
+**原子保存的做法**（S10 决定 4：模拟交易所快照和订单库在崩溃后不能不一致）
+- 比较过的办法：
+  1. 每轮结束时保存快照，订单库照旧逐笔提交：崩溃落在两者之间时，订单库领先于快照（例如订单库已记下某笔下单，快照里的交易所没有这张单）。不满足决定 4。
+  2. 重启时从订单库重建模拟交易所：订单库里没有资金费记录、撮合器自己拒绝的订单、挂单的剩余量和年龄、撮合器的时间和标记价等，重建不出与研究逐笔一致的交易所。做不到。
+  3. 整轮一个事务（所有存储在一轮里共用一个连接，结束时与快照一起提交）：满足决定 4，崩溃后还能逐笔复现研究。但要改连接工厂、所有存储的 `BEGIN IMMEDIATE`，执行模式也会走到这些改动。没有采用。
+  4. **采用**：快照放进模拟盘目录的 `state.sqlite`（`paper_state` 表），在订单库自己的事务里写——订单库每个事务提交前，只要交易所或游标自上次写入后变过，就在同一事务里写当前文档。
+- 为什么每次写入都一致：库里每个已提交的状态都是进程某一时刻的完整状态（订单库在提交那一刻的样子 + 交易所在同一时刻的快照）。两次提交之间交易所的变化，崩溃时一起丢掉，等于没有发生：
+  - 已预留、下单结果还没提交的订单，交易所里没有；生命周期在 90 秒宽限之后按 `not_found` 了结，和真实交易所同样处理。这种情况下这笔单丢了，模拟盘与研究会差这一笔，但交易所和订单库一致。
+  - 已撮合、还没决策的 K 线：文档里存的是"已决策到的 K 线"，重启后照常决策；交易所说它已经撮合过（`has_matched`），不会撮合第二次。
+  - 运行时读出保存的状态之前，什么都不写（`paper_revision` 为 None），所以重启时空的交易所不会盖掉保存的状态。
+- `paper_state.json` 照迁移计划第 10 步，每次保存后同步写一份；只写不读，删除或修改它不改变模拟盘状态。
+- `trading/adapters/sqlite/schema.py`：`create(path, paper=True)` 多建一张 `paper_state` 表。执行目录的检查不变。
+
+**改了什么**【代码】
+- `trading/adapters/sqlite/paper_state.py`：`SqlitePaperState`、`PaperOrderJournal`。
+- `SimulatedExchange.revision`（每个会改变状态的调用都加一）、`has_matched(symbol, bar)`；`PaperVenue` 端口加这两项。
+- 运行时：每补放完一个时间点记下各品种已决策的 K 线（`on_step`），快照里存它；预热补放时跳过交易所已撮合的 K 线的撮合。
+- `trading/infrastructure/paper.py`：`PaperStateStore`（数据库文档 + 每次保存后的 JSON 副本）；模拟盘目录的库带 `paper_state` 表。
+- 组装：模拟盘的订单库是 `PaperOrderJournal`。
+- **入口变薄**：启动检查、两种模式的组装和主循环搬到 `trading/infrastructure/cli/target.py`（基本是搬移）。`runner/binance_target.py` 只留 `trading` 不能导入的两样：签名的规格加载器、交易成本日志；`TargetRuntime`、`load_spec`、`preflight`、`main` 等名字照旧可以导入。
+
+**先写的测试**
+- 先写的测试（`ac618c6`）。实现草稿 `paper_state.py` 先于它的单元测试写成，单元测试第一次跑时就通过；所以这一组的"先失败"由变异自检代替证明（见下）。其余新测试在没有实现时失败的原因正确（缺 `has_matched`、`cli` 模块、`paper_state` 表等）【测试日志】。
+  - `tests/unit/trading/test_paper_state.py`（7 条）：新库有全部表、没有保存的文档；文档变了才在日志事务里写；文档写不出时日志操作一起回滚；日志操作失败时不写文档；每个已提交的文档交给 JSON 副本一次（回滚的不交）；保存后不重复写。
+  - `tests/unit/lab/test_paper_crash.py`（4 条）：任意一次提交之后复制数据库再重启，交易所和账本一致、没有不认识的挂单、没有未消费的成交，并能继续跑；撮合与决策之间崩溃，重启后这根照常决策、不重复撮合，整段结束时与研究逐笔一致；`has_matched` 只认已撮合的 K 线；没读出保存状态之前不写任何东西（后补，见变异自检）。
+  - `tests/unit/lab/test_paper_safety.py`（5 条）：运行时和 `main` 都不构造带凭据的适配器、签名请求数为 0、不读账户环境变量（只允许 `BINANCE_TESTNET`）；行情全断时模拟盘照样补挂止损、急停平仓单照样下到交易所，行情恢复后下一根成交；执行模式行情全断时照样补挂止损。
+  - `tests/unit/lab/test_paper_per_bar_parity.py`（3 条）：两个品种、market-1、maker-1、maker-4，每根 K 线比较各品种发出的意图和持仓，与研究的 `Sleeve` 相同；要求出现同一根两个品种都入场（第二笔被每秒限额推迟 5 秒）、没有任何分叉事件、成交笔数相同；挂单模式要求有 maker 成交，ttl 1 有过期，ttl 4 有挂过一根以上再成交的入场。
+    - 第一次运行只有最后一项失败：验收数据里每张挂单都在下一根成交（研究也一样，5 笔成交、没有过期）。测试数据改为每三根去掉一根的上下影线后，研究每个品种有 4 张过期（ttl 1）、4 张挂过一根以上（ttl 4），没有挂单期间翻向；逐根比较全部相同（`b50ac61`）。
+  - `tests/architecture/test_paper_path.py` 加 1 条：入口不加载 `lab` 和 `runner.offline`。
+  - `tests/unit/trading/test_paper_venue_revision.py`（2 条，后补）：每个会改状态的调用都让 `revision` 变，读取不变；`has_matched` 按品种。
+  - `test_paper_parts.py` 加 1 条：JSON 副本跟着每次保存，副本写不出时不影响保存。
+- 运行中修正的新测试：行情全断那条第一次失败，因为 ETH 也有止损；改为只看 BTC 的止损（`b9e38a1`）。
+
+**已有测试的改动**
+- 断言：没有改。
+- 测试设置（主会话 2026-11-15 同意，记录在此）：
+  - `test_target_runtime_resilience.py::test_saved_paper_state_of_another_spec_is_refused_until_reset` 和 `test_paper_state_older_than_the_available_history_is_refused`：
+    - 原来：读 `paper_state.json`，改 `spec.band` 或游标，写回 JSON；
+    - 现在：用 `tests/support/paper_state.py::edit_saved_paper_state` 改 `state.sqlite` 里保存的文档。
+    - 原因【实际运行结果】：JSON 现在只写不读；按原来的设置，第二次预热不会报错（保存的状态没变）。
+  - `tests/architecture/test_artifact_loading.py::test_the_runtime_reads_its_spec_only_through_the_signed_loader`：`main` 搬到了 `trading/infrastructure/cli/target.py`，规格路径的检查也读这个文件（加了一行路径）。
+- 新增测试辅助：`tests/support/paper_state.py`。
+
+**变异自检**【实际运行结果】
+- 25 个变异体：文档写入的时机和条件 8、建表 1、交易所的 `revision` 与 `has_matched` 5、运行时（何时可写、游标、补放）5、补放跳过已撮合 1、JSON 副本 1、组装 4。
+- 第一轮：抓住 19 个，存活 5 个，1 个锚点写错（I1：后来给 JSON 副本加了容错，原文不在了）：
+  - PS3 "读出保存状态之前也写"：`_written` 起始就是 None，与"还没读出"的 None 相等，所以照样不写。等价变异。
+  - PS8 提交失败时也当作已写入、也写副本：没有模拟提交失败的测试。补 `test_a_commit_that_fails_hands_nothing_on_and_the_next_transaction_writes_again`。
+  - R4 永远不进入"可写"、C1 不跟随运行时：只在每轮结束时保存。重启检查仍然通过，因为从落后的快照补放会重新得到同样的成交（编号确定），账本和交易所又一致了。补了更严的检查：每一份复制的库里，订单库中每张有交易所编号、未了结的订单，保存的交易所都认识（`_unknown_orders`）。
+  - R5 游标存成会话的游标（决策之前就已前移）：选中的崩溃点那根 K 线没有下单，跳过它的决策看不出来。崩溃点改为选一根 ETH 会下单的 K 线。
+- 第二轮（这 7 个，I1 改正锚点，另加 I2"副本写不出时让保存失败"）：PS8、R4、R5、C1、I1、I2 都被抓住；PS3 仍存活（等价变异）。最终 26 个里抓住 25 个，存活的 1 个是等价变异。加强后的崩溃测试在没有变异时通过（变异脚本先跑的基线）。
+
+**本地**【实际运行结果】
+- 新测试都单独跑过：`test_paper_state.py`、`test_paper_venue_revision.py`、`test_paper_parts.py`、`tests/architecture`（含入口不加载 `lab`/`runner.offline`）通过；`test_paper_crash.py` 4 条通过（两条长的各约 100 秒）；`test_paper_safety.py` 5 条通过（第一次一条因 ETH 也有止损而失败，见上）；`test_paper_per_bar_parity.py` 3 条通过（maker 两条改数据后重跑）。
+- 验收门在第 3b 部分的原子保存下：`test_target_runtime.py` 的逐笔一致三个参数化通过；`test_target_runtime_resilience.py` 的两条状态测试改设置后通过，其余由 CI 覆盖（本机负载高，为让出 CPU 停了那次整组运行，CI 全部通过）。
+- CI 第一次运行发现 `test_exit_robustness.py` 的租约测试按旧位置打补丁（入口搬家），改测试设置后通过（`35a9634`）。这条本该在本机 `tests/unit/trading` 跑一遍时发现，本机没有在 3b 上跑全 `tests/unit/trading`。
+- 全仓库 ruff、`mypy trading/`（89 个文件）、导入契约（5 条）通过。
+
+**CI 时间**
+| 运行 | test-all 0 | test-all 1 | test-all 2 | test-all 3 | acceptance |
+|---|---|---|---|---|---|
+| master `ff9fc9b`（S10 第 2 部分合并后） | 1m31 | 1m35 | 1m30 | 1m15 | 5m06 |
+| master `2ee9efc`（S5b 合并后） | 1m20 | 2m18 | 1m46 | 1m15 | 4m02 |
+| #84 `79a514d`（3a，合并 S5b 之前） | 2m55 | 1m47 | 1m34 | 57s | 8m09 |
+| #84 `6c357c0`（3a，合并 S5b 之后） | 2m40 | 2m29 | 1m31 | 1m24 | 9m15 |
+| #86 `35a9634`（3b） | 2m14 | 1m59 | 1m44 | 1m57 | 8m11 |
+不改行为就能降 CI 时间的办法（只列出，未实施，由主会话决定）：
+1. SQLite 连接复用：现在每个存储操作都新开一个连接（约 1.2 毫秒，含 `PRAGMA synchronous=FULL`），模拟盘回放每轮约 100 次。按路径缓存连接、每次使用前核对文件的 inode/大小仍是同一个（保持"库被删除或清空时可见"的 ADR-0009 语义）。剖析里这部分约占模拟盘回放测试时间的 2/3。
+2. 分片按实测时间而不是文件大小：`scripts/ci_shard.py` 按文件大小分配，模拟盘回放测试文件小但慢，集中在一两个分片。
+3. `python-acceptance` 覆盖率任务和 `python-test-all` 重复跑 `test_target_runtime.py`、`test_target_runtime_resilience.py`（模拟盘回放占 acceptance 的大部分时间）；可以只在一处跑，覆盖率从 test-all 的分片收集。
+4. 模拟盘回放测试用更短的回放（例如 240 根而不是 360 根），断言不变时只改设置；需要先确认短回放仍然有交易、有挂单过期等。
+5. CI 里 pytest 用 xdist 在一个分片内并行（本机没有 xdist）。
+
+- 说明：分片时间里约 1 分钟是装环境。模拟盘回放测试在 CI 上比本机快 3–4 倍；本机每条从约 13 秒变成约 65 秒。
