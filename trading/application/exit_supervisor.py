@@ -19,7 +19,7 @@ from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventL
                                        Notifier)
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
-from trading.domain.issues import Effect, IssueKind as K
+from trading.domain.issues import STOP_PAUSE_SECONDS, Effect, IssueKind as K, pause_end_text
 from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.symbol_state import ALLOWED, StateInputs, SymbolState, classify
 
@@ -218,7 +218,8 @@ class ExitSupervisor:
                 return None
             breached = [c for c in new_triggers.values() if c.kind is K.STOP_BREACHED]
             cause = str(breached[0] if breached else next(iter(new_triggers.values())))
-            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers))
+            ends_at = self.clock() + STOP_PAUSE_SECONDS          # ends by itself (tech lead 2026-11-16)
+            new = self.pauses.pause(symbol, cause, triggers=sorted(new_triggers), ends_at=ends_at)
         except Exception as exc:
             issue = Issue(K.PAUSE_NOT_SAVED, symbol,
                           f"{symbol}: entry pause not saved ({type(exc).__name__}); entries blocked")
@@ -226,9 +227,11 @@ class ExitSupervisor:
             logger.exception("%s entry pause not saved", symbol)
             return issue
         if new:
+            resume = pause_end_text(ends_at)
             self.journal.write(EventKind.ALERT, symbol=symbol,
-                               reason=f"entries paused: {cause}; a person releases them "
-                                      f"with: {RELEASE_COMMAND.format(symbol=symbol)}")
+                               reason=f"entries paused: {cause}; they resume by themselves at {resume} "
+                                      f"({STOP_PAUSE_SECONDS // 3600} hours after the stop); a person can release "
+                                      f"them earlier with: {RELEASE_COMMAND.format(symbol=symbol)}")
             logger.error("%s entries paused: %s", symbol, cause)
         return None
 

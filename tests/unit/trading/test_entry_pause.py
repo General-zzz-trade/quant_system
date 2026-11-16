@@ -32,10 +32,10 @@ def _offline_env(monkeypatch):
     monkeypatch.setenv("RISK_SCOPE", "binance-testnet-ut")
 
 
-def _release(state_dir, symbol, typed, reason="checked the venue and the ledger"):
+def _release(state_dir, symbol, typed, reason="checked the venue and the ledger", clock=time.time):
     out = io.StringIO()
     code = cli.main(["--state-dir", str(state_dir), "release", "--symbol", symbol, "--reason", reason],
-                    stdin=io.StringIO(typed + "\n"), stdout=out)
+                    stdin=io.StringIO(typed + "\n"), stdout=out, clock=clock)
     return code, out.getvalue()
 
 
@@ -125,7 +125,7 @@ def test_a_breached_stop_pauses_entries_until_a_person_releases_them(tmp_path):
                    if r["symbol"] == "BTCUSDT" and r["reason"] == "runner paused")
 
     assert paused_refusals() == 3
-    assert _release(tmp_path / "exec", "BTCUSDT", typed="BTCUSDT")[0] == 0
+    assert _release(tmp_path / "exec", "BTCUSDT", typed="BTCUSDT", clock=lambda: world["clock"]["now"])[0] == 0
     _advance(world, runtime, i + 5)
     assert paused_refusals() == 3                                             # the pause no longer refuses
     time.sleep(1.1)                  # both symbols enter on this bar: the second waits one second (R23 retry)

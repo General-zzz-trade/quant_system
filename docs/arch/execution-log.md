@@ -3582,3 +3582,34 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 技术负责人 2026-11-16 定下止损后暂停 4 小时、到时自动解除。`lab/um_lab.py` 的 `LiveTerms.pause_hours` 从暂定的 24 改为 4，
   `research/lab/README.md` 和 `CLAUDE.md` 同步。实盘程序一侧（自动解除）按资金路径完整流程另做，改好前实盘仍要人工解除。
 - 已有测试的改动：没有。新增 1 个测试（`test_um_lab_live_terms.py` 检查默认条件）。
+
+## 止损后的入场暂停 4 小时自动解除（2026-11-16，资金路径完整流程）
+
+- **起因**：技术负责人 2026-11-16 选择止损后的暂停"改成自动解除"、时长"4 小时"、"两种都自动解除"（交易所止损触发和止损被击穿）。
+  从备份恢复时设的暂停仍要人解除。这是"不自动放宽风险"规则的第二个例外，已写进 `CLAUDE.md`。
+- **改了什么**：
+  - `trading/domain/issues.py`：`STOP_PAUSE_SECONDS = 4 * 3600` 和给人看的时间格式 `pause_end_text`；`lab/um_lab.py` 的
+    `LiveTerms.pause_hours` 改为引用这个常数，回测和实盘只有一处定义。
+  - `trading/adapters/sqlite/entry_pause.py`：没有改表结构。止损暂停写入时就带上结束时间（`released_at`，`release_reason`
+    写"ended by itself at its scheduled time"），到时不再生效；人用 `release` 可以提前结束。需要人解除的暂停（恢复备份时设的）
+    比任何定时暂停都长：同时存在时，定时的到期后仍然暂停。后来的止损把暂停延长到新的结束时间。结束时间不在未来就报错，
+    运行时因此记 `PAUSE_NOT_SAVED` 并阻断入场（失败即关闭）。`active()` 多给出 `ends_at`。
+  - `trading/application/exit_supervisor.py`：写暂停时带结束时间（运行时时钟 + 4 小时）；告警写明恢复时间和提前解除的命令。
+  - `trading/application/ports.py`、`trading/infrastructure/paper.py`：接口和模拟盘包装传递结束时间。
+  - `trading/infrastructure/entry_pause.py`：解除命令可以注入时钟（默认真实时间），说明改写。
+  - 文档：`CLAUDE.md`（两个例外、命令说明）、运行手册（两处）、M5 核对清单、ADR-0005 的更新说明。
+- **已有测试的改动**：没有改断言。测试辅助的改动（都只是传入运行时的模拟时钟；生产里暂停存储和解除命令读同一个真实时钟）：
+  - `tests/unit/trading/test_entry_pause.py`：`_release` 多一个 `clock` 参数（默认 `time.time`），并传给 `cli.main`；
+    `test_a_breached_stop_pauses_entries_until_a_person_releases_them` 解除时传模拟时钟（否则按真实时间暂停已过期，人工解除就测不到）。
+  - `tests/characterization/test_s3_audit.py::test_after_a_pause_is_released_the_next_bar_enters_and_is_not_refused_as_paused`：
+    `_release(..., clock=lambda: world["clock"]["now"])`。
+  - `tests/unit/trading/test_stop_durability.py::test_a_deleted_pause_store_pauses_again_every_symbol_whose_stop_ever_fired`：
+    `SqliteEntryPauses(..., clock=lambda: world["clock"]["now"])`。
+  - `tests/unit/trading/test_paper_parts.py` 的假暂停存储 `Pauses.pause` 和 `test_stop_durability.py` 的 `disk_full` 替身：签名加 `ends_at=None`（模拟盘包装和运行时现在传这个参数；不加时前者报 TypeError，后者会因为 TypeError 而不是模拟的磁盘错误通过）。
+- **新增测试**：`tests/unit/trading/test_stop_pause_auto_release.py`（12 个：回测和实盘同一个时长、到期结束并留记录、人提前结束、
+  人工暂停比定时的长、后来的止损延长、到期后新止损再暂停、运行时 4 小时后重新入场、不在未来的结束时间被拒绝（4 个）、模拟盘传递）。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/stop_pause_auto_release.json` 15 个变异，基线通过，第一轮 14 个被杀；
+  存活 1 个（模拟盘包装丢掉结束时间），补了模拟盘传递的测试后被杀。最终 15/15。
+- **CI 第一次**【实际运行结果】：分片 2 失败 2 个：`test_paper_parts` 的假存储签名（上面已补）；新的运行时测试在 CI 上没重新入场——两个品种同一根 K 线入场时第二个要等真实的 1 秒（限价器每秒 1 笔），本地机器慢所以通过了；照已有测试的做法在入场前 `time.sleep(1.1)`。
+- **本地**【实际运行结果】：新测试和所有涉及暂停的测试文件（入场暂停、模拟盘并存、恢复加固、S3 审计、状态库、恢复、按交易所持仓平仓、
+  告警、丢失状态文件、备份、止损持久、问题表）、架构测试、lab 实盘条件测试通过；ruff、`mypy trading/`（91 个文件）、导入契约（5 个）通过。

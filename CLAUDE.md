@@ -95,7 +95,7 @@ python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot 
 python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
 sudo bash infra/install_host.sh                    # host install/update: packages, dirs, units; starts nothing
 python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." [--flatten]   # or clear / status
-python -m trading.infrastructure.entry_pause --state-dir <dir> status            # symbols paused after a stop
+python -m trading.infrastructure.entry_pause --state-dir <dir> status            # paused symbols, ends_at if scheduled
 python -m trading.infrastructure.entry_pause --state-dir <dir> release --symbol BTCUSDT --reason "..."  # a person only
 python -m trading.infrastructure.manual --state-dir <dir> orders     # open orders and the venue's view
 python -m trading.infrastructure.manual --state-dir <dir> settle --intent <id> --reason "..."     # runtime stopped
@@ -208,8 +208,10 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   - Never add an automatic path that raises a risk limit, removes a cap, restarts a live service or
     swaps a model into a running process.
   - Limits change only when a person edits config.
-  - The one exception, the owner's choice of 2026-11-16: the strategy's sizing base grows with its own realized
-    PnL (`CappedEquity`), never above the account's equity and under the 3x exposure cap.
+  - Two exceptions, both the owner's choices of 2026-11-16: the strategy's sizing base grows with its own realized
+    PnL (`CappedEquity`), never above the account's equity and under the 3x exposure cap; and a stop's entry pause
+    (triggered or breached stop) ends by itself after 4 hours (`STOP_PAUSE_SECONDS`, the same in the lab's
+    `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person.
 - **Signed artifacts:** model artifacts (pickle and JSON, including `config.json` and strategy specs)
   load only through `infra/model_signing.py`.
 - **Fail closed:** unreadable pause, kill or drawdown state blocks new exposure.

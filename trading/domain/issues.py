@@ -6,6 +6,7 @@ application layer.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -43,6 +44,15 @@ class Effect(Enum):
 
 
 _BLOCK = frozenset({Effect.BLOCK_SYMBOL_ENTRIES})
+
+# How long a stop's pause (PAUSE_SYMBOL of STOP_TRIGGERED or STOP_BREACHED) lasts before it ends by itself (tech lead
+# 2026-11-16; the research lab's LiveTerms uses the same value). A person can release it earlier.
+STOP_PAUSE_SECONDS = 4 * 3600
+
+
+def pause_end_text(ends_at: float) -> str:
+    """When a scheduled pause ends, for people: ``2026-11-16 08:00 UTC``."""
+    return datetime.fromtimestamp(ends_at, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 EFFECTS: dict[IssueKind, frozenset[Effect]] = {
     IssueKind.STOP_BREACHED: frozenset({Effect.FLATTEN_SYMBOL, Effect.PAUSE_SYMBOL, Effect.BLOCK_SYMBOL_ENTRIES}),

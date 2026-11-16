@@ -53,7 +53,7 @@ class Pauses:
     def __init__(self):
         self.paused = {}
 
-    def pause(self, symbol, cause, triggers=()):
+    def pause(self, symbol, cause, triggers=(), ends_at=None):
         new = symbol not in self.paused
         self.paused.setdefault(symbol, cause)
         return new
