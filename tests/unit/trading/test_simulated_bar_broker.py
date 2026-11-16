@@ -13,7 +13,6 @@ from types import SimpleNamespace as NS
 
 import lab.breakout_study as breakout
 import lab.simulate as research
-import runner.offline.broker as old_path
 from lab.strategy import StrategySpec
 from trading.adapters.simulated import bar_broker
 from trading.adapters.simulated.bar_broker import BarBroker, ReplayConfig
@@ -41,16 +40,13 @@ def broker():
     return out
 
 
-def test_research_paper_the_breakout_study_and_the_old_path_use_the_adapters_broker():
+def test_research_paper_and_the_breakout_study_use_the_adapters_broker():
     rules = research.SYMBOL_RULES["ETHUSDT"]
     sleeve = research.Sleeve("ETHUSDT", SPEC, rules, research.broker_config(SPEC, rules))   # the paper sleeve
     assert type(sleeve.broker) is bar_broker.BarBroker
     assert research.SYMBOL_RULES is bar_broker.SYMBOL_RULES and research.SymbolRules is bar_broker.SymbolRules
     assert research.broker_config is bar_broker.broker_config
     assert breakout.BarBroker is bar_broker.BarBroker and breakout.ReplayConfig is bar_broker.ReplayConfig
-    assert (old_path.BarBroker, old_path.ReplayConfig, old_path.BrokerFill) == \
-        (bar_broker.BarBroker, bar_broker.ReplayConfig, bar_broker.BrokerFill)
-    assert all(getattr(old_path, name) is getattr(bar_broker, name) for name in old_path.__all__)
 
 
 def test_research_and_execution_rest_a_maker_entry_at_the_same_offset():

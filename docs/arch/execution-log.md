@@ -2982,3 +2982,16 @@ S5 分两个 PR：S5a 是 ADR-0011 的运行中整账户检查和限频权重；
 **合并 master 之后**【测试日志】：CI 第一次在契约测试 `tests/contract/test_exchange_ports.py` 的模拟交易所参数上失败。
 - 原因：S5b 分支建于 S10 第 2 部分合入之前，模拟交易所没有 `get_position`。
 - 处理：模拟交易所补上 `get_position`，回答与 Binance 适配器相同（平仓也返回数量 0，不交易的品种返回 None）。没有改测试。
+
+## 删除 `runner/offline/`（研究撮合器的旧导入路径）（2026-11-16，删除批次，轻流程）
+
+- **批准**：S10 第 1 部分把研究撮合器搬进 `trading/adapters/simulated/bar_broker.py` 时，旧路径只留作兼容壳，计划在后面的删除批次里删除。
+- **方法**：`git grep` 按模块名和路径扫描；生产代码里没有导入它的地方，只有 3 个测试文件和 1 个测试辅助文件的说明文字。
+- **删除**：`runner/offline/broker.py`（6 行）、`runner/offline/__init__.py`（1 行），共 2 个文件 7 行。
+- **测试的改动**：
+  - `tests/unit/runner/test_broker_isolated.py`、`test_broker_maker.py`：只改导入，改为新路径；断言不变。
+  - `tests/unit/trading/test_simulated_bar_broker.py`：删掉针对旧路径的两条断言和它的导入（被删代码的测试），测试名去掉 "the old path"。删掉的原文：`assert (old_path.BarBroker, old_path.ReplayConfig, old_path.BrokerFill) == (bar_broker.BarBroker, bar_broker.ReplayConfig, bar_broker.BrokerFill)` 和 `assert all(getattr(old_path, name) is getattr(bar_broker, name) for name in old_path.__all__)`。
+  - `tests/support/legacy_execution_adapter.py`、`runner/__init__.py`：只改说明文字。
+- **保留**：`lab/*_study.py` 的"代码是否改动"检查里仍列着 `runner/offline` 路径；这些是已冻结的研究脚本，路径不存在时 `git status` 照常返回，不改。研究结果和协议里的历史引用不改。
+- **文档**：`CLAUDE.md` 的研究撮合器一行改为"旧路径已删除"。
+- **本地**【实际运行结果】：`tests/unit/runner`、撮合器测试、架构测试通过；ruff、导入契约通过；分片列表能生成。

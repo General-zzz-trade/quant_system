@@ -13,7 +13,7 @@ Same contract as the Bybit durable adapter:
 - Binance rejects requests older than its receive window, so an intent that is
   still absent after ``NOT_FOUND_GRACE_SECONDS`` is settled as ``not_found``
   and stops blocking later exits (see ``shared.confirmed_execution``).
-- Entries mirror the research fill model (``runner.offline.broker``): one
+- Entries mirror the research fill model (``trading.adapters.simulated.bar_broker``): one
   post-only (GTX) limit at ``reference x (1 -/+ offset)`` that rests for up to
   ``ttl_bars`` hours, partial fills allowed; the remainder is canceled at
   expiry or before any reduction. Reductions are reduce-only market orders.
