@@ -50,7 +50,8 @@ echo "5/5 Offline safety checks"
 cat <<EOF
 
 Installed. What a person does next (docs/binance_runbook.md):
-  1. Write $CHECKOUT/.env from .env.example (chmod 600, owner $SERVICE_USER).
+  1. Write $CHECKOUT/.env from .env.example (chmod 600, owner $SERVICE_USER). Execution needs an alert channel
+     there: ALERT_FILE=$STATE_ROOT/alerts/<network>.jsonl (the directory exists now), or the Telegram pair.
   2. Initialize the state directory once, as $SERVICE_USER:
        python3 -m trading.infrastructure.state_dir --state-dir $STATE_ROOT/state/testnet init
   3. Enable the hourly backup:   systemctl enable --now state-backup@testnet.timer
