@@ -4035,6 +4035,22 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **风险说明**【推测】：对账的顺序变了：以前每个品种"消化成交→读持仓→对账"，现在先把所有品种的成交消化完，再读一次快照，再逐个对账。
   快照之后、某个品种对账之前，交易所上又有成交时，快照和账本仍然一致（都没包含它），下一轮再看到；以前在"消化成交"和"读持仓"
   之间成交会短暂地报 LEDGER_MISMATCH（只禁止开仓一轮），这个窗口现在稍长一点（多了其他品种的消化时间），后果相同。
+
+## R6 做空：规格允许才开空，空头在整条执行路径上的符号有测试证明（2026-11-16 晚，资金路径完整流程）
+
+- 依据：`docs/arch/runtime-lab-strategies-plan.md` 第 6 步；技术负责人 2026-11-16："支持做空，规格里决定用不用"。
+- **查过的现状**【代码】：空头的处理大多已经在：止损按持仓方向（多头卖出止损在开仓价下方，空头买入止损在开仓价上方，
+  `stops.py` 的 `_target`）、平仓按交易所持仓的符号决定买卖（`reduction.py`）、敞口按数量绝对值（`exposure_gate.py`）、
+  未实现盈亏按 数量 ×（标记价 − 开仓价）带符号（`loss_stop.py`）。缺的是：规格里的 `allow_short`（R2 只记录）没有约束下单。
+- **改了什么**：签名规格的 `allow_short` 传到执行模式和模拟盘的每个会话；不允许做空时，负的目标按 0 交易——不开新空头，
+  已经持有的空头平掉。没有规格值时（直接构造会话的旧调用）按策略参数自己的 `long_only`，与之前相同。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_allow_short.py`（6 个，含参数化）、`tests/characterization/test_shorts_runtime.py`（3 个：
+  一个每个品种都要 −0.5 的策略在执行模式下卖出开空、止损是开仓价上方的买单（开仓价 ×（1 + 止损比例））、账户敞口算上空头、
+  价格上涨时未实现盈亏为负、带平仓的停机开关把空头买回（只减仓）；不允许做空时一笔不开；持有空头后改为不允许做空时买回）。
+  改代码前 9 个全部失败。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/r6_shorts.json` 7 个，按顺序、关闭字节码缓存：7/7 被杀。
+- **本地**【实际运行结果】：新测试、ruff、`mypy trading/`（95 个文件）通过；其余见 R5 之后的合并检查。
 ## 策略亏损停止线的独立审计与处理（2026-11-16 晚，资金路径完整流程）
 
 - **起因**：PR #106（策略亏损停止线）合并当天做了独立审计。审计的复现测试和它自己的变异在 `/root/lab_logs/audit-2026-11-16/`
@@ -4227,3 +4243,12 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   （守卫只按路径判断，检查的内容不变）。
 - 保留不动：ADR 正文、`research/protocols/`、本日志的旧条目、`docs/btc_eth_strategy.md`、数据集说明、`scripts/dev/mutants/README.md`、
   `research/results/` 和 `research/lab/runs/`。`docs/arch/evidence/probe_*.py` 四个探针脚本保留，但已没有文档讲它们，要不要删由技术负责人定。
+
+## R6 补：做空测试用亏损停止线的新接口（2026-11-17 凌晨）
+
+- 把 master 并进整叠分支后，#117 把 `strategy_unrealized` 改成按账本持仓和交易所标记价计算（`strategy_unrealized(ledger, venue)`），
+  R6 的做空测试还在用旧接口，CI 的一个分片失败（`TypeError: cannot unpack non-iterable VenuePosition object`）。我在本地检查合并交汇处时
+  没有把这个测试文件列进去。改为新接口：账本里的空单（数量、开仓价）和交易所的标记价；断言不变（价格上涨时空单的未实现盈亏为负）。
+- 同一轮 CI 里 R2 的 `test_spec_v2_runtime.py::test_the_same_strategy_in_either_schema_trades_the_same` 失败了一次（ETH 数量 2.254 对 2.255）：
+  执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
+  也固定为测试世界的时钟（测试辅助的改动，断言不变）。

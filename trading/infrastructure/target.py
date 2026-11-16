@@ -174,7 +174,7 @@ def strategy_positions(ledger: SqliteOrderJournal, owners: list[str]) -> list[tu
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
                        policy: ModePolicy = EXECUTION, paper: PaperParts | None = None,
-                       strategy: Strategy | None = None) -> ExecutionWiring:
+                       strategy: Strategy | None = None, allow_short: bool | None = None) -> ExecutionWiring:
     """The sessions of either mode: paper differs only by ``policy`` and the ``paper`` parts it needs."""
     if (paper is None) != (policy.sizing_equity == "account_share" and policy.limiter_clock == "monotonic"):
         raise ValueError("per-symbol sizing and the bar-time gate clock need the paper parts, and only they")
@@ -264,7 +264,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         stops_of[symbol] = stops
         sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else (capped or equity)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
-                                allocation=allocation, strategy=strategy,
+                                allocation=allocation, strategy=strategy, allow_short=allow_short,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
                                                          sizing, Flattener(symbol, executor, account, journal, clock)))
         session.restore_pending()

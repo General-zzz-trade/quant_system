@@ -78,12 +78,14 @@ class ExecutionParts:
 class TargetSession:
     def __init__(self, symbol: str, spec: StrategySpec, *, journal: EventLog, rules: LotRules,
                  make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5"),
-                 strategy: Strategy | None = None) -> None:
+                 strategy: Strategy | None = None, allow_short: bool | None = None) -> None:
         self.symbol, self.spec, self.journal, self.rules = symbol, spec, journal, rules
         self.allocation, self._make_order = allocation, make_order
         # R1 (runtime extension plan): the target comes from a strategy behind the shared interface; the spec still
         # carries the execution settings (band, execution mode, maker lifetime). Without one, the spec's overlay.
         self.strategy: Strategy = strategy if strategy is not None else OverlayStrategy(spec)
+        # R6: whether the signed spec allows shorts; without one, as the spec's own rule says (``long_only``).
+        self.allow_short = (not spec.long_only) if allow_short is None else bool(allow_short)
         self.bars: deque[Bar] = deque(maxlen=self.strategy.window_hours() + 48)
         self.funding: dict[int, float] = {}
         # Plan R4: ms between this symbol's funding settlements, from the exchange (the market side sets it); unknown,
@@ -241,6 +243,8 @@ class TargetSession:
             reasons.append("funding settlement at or before this close not published yet")
         self.entry_ready, self.entry_reason = not reasons, "; ".join(reasons)
         weight, ready = target if target is not None else self._target()
+        if weight < 0 and not self.allow_short:
+            weight = 0.0             # R6: no short unless the spec allows it; one already held is closed
         self.last_target = (weight, ready)
         self.drop_deferred("superseded by a newer bar")
         if not ready:
