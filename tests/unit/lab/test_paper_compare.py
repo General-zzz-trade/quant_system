@@ -45,13 +45,13 @@ def _snapshot(world, out: Path) -> None:
                     writer.writerow([at, str(rate), str(opens[at])])
 
 
-def _run(tmp: Path, script) -> dict:
+def _run(tmp: Path, script, *, execution="market", ttl=1) -> dict:
     with pytest.MonkeyPatch.context() as mp:
         for name in ("QUANT_MODEL_SIGN_KEY", "BINANCE_TESTNET", "RISK_SCOPE"):
             mp.delenv(name, raising=False)
         mp.setenv("QUANT_ALLOW_UNSIGNED_MODELS", "1")
-        spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market",
-                            ttl_bars=1)
+        spec = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution=execution,
+                            ttl_bars=ttl)
         world = _world(tmp, spec)
         runtime = TargetRuntime(spec_path=world["spec_path"], state_dir=tmp / "paper", mode="paper",
                                 market=world["adapter"], clock=lambda: world["clock"]["now"])
@@ -97,6 +97,22 @@ def entries_refused(tmp_path_factory):
         runtime.kill.write(active=True, reason="test", flatten=False)
         _bars(world, runtime, world["warm"], 60)
     return _run(tmp_path_factory.mktemp("refused"), script)
+
+
+@pytest.fixture(scope="module")
+def kill_cancel(tmp_path_factory):
+    """The kill switch (no flatten) comes on while a maker entry rests: the exit side cancels it (only limit entries
+    are cancelled), and research fills it at a later bar."""
+    def script(world, runtime):
+        venue = runtime.account
+        i = _until(world, runtime, lambda: any(not row["reduce_only"] for s in SYMBOLS
+                                               for row in venue.broker(s).pending))
+        runtime.kill.write(active=True, reason="test", flatten=False)
+        world["clock"]["now"] += 1800                          # half an hour on: no new bar, only the exit side acts
+        runtime.cycle()
+        assert not any(not row["reduce_only"] for s in SYMBOLS for row in venue.broker(s).pending)
+        _bars(world, runtime, i, 6)
+    return _run(tmp_path_factory.mktemp("cancel"), script, execution="maker", ttl=4)
 
 
 @pytest.fixture(scope="module")
@@ -290,7 +306,8 @@ def test_missing_or_unusable_data_cannot_be_compared_and_is_never_equal(plain, t
 
 
 # -- intended divergences --------------------------------------------------------------------------------------
-DIVERGED = [("kill_flatten", "flatten"), ("entries_refused", "entry_refused"), ("stop_crash", "stop_triggered")]
+DIVERGED = [("kill_flatten", "flatten"), ("entries_refused", "entry_refused"), ("kill_cancel", "cancel_entries"),
+            ("stop_crash", "stop_triggered")]
 
 
 @pytest.mark.parametrize("run,cause", DIVERGED)
@@ -298,7 +315,7 @@ def test_an_intended_divergence_is_listed_apart_and_is_no_inconsistency(request,
     paper, data = _copy(request.getfixturevalue(run), tmp_path)
     code, out = _compare(paper, data, capsys)
     assert (code, out.splitlines()[0]) == (0, "结论：一致"), out
-    assert "起与研究分叉" in out                                   # the fills did differ from there on
+    assert f"起与研究分叉（{cause}" in out                         # the fills differed from there on, for this cause
     listed = out.split("已解释的分叉", 1)[1]
     assert cause in listed
 
