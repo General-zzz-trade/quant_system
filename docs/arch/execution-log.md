@@ -5393,3 +5393,27 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
 - **本地**【测试日志】：
   - `test_pilot_params.py` 10 个通过，`test_lookahead.py` 的登记测试通过；
   - ruff 通过；`mypy trading/` 无问题（本次没改 trading/）。
+
+## BTC/ETH 特征池：数据层、特征池、研究机制（2026-11-17，轻流程：研究）
+
+- **起因**：业主 2026-11-17 "来使用加入特征池的方式去做，参考更多的数据去做"，确认计划后说"执行"。
+- **数据层**：`data/downloads/feature_sources.py`。
+  - 来源：币安现货 K 线、溢价指数、挂单深度、BVOL；Deribit DVOL；FRED 5 个序列；DefiLlama 稳定币；Coin Metrics 社区版 6 个指标。
+  - 存成一个带日期、不可改的快照，截止 2026-11-13（不含）；清单里记录每个文件的校验值、行数、"什么时候算已知"，以及修订风险。
+  - 新增测试 `tests/unit/data/test_feature_sources.py`，11 个，不连网：
+    - 各解析器；现货的微秒时间戳；截止日；校验值；Deribit 分页；Coin Metrics 翻页；
+    - 二分查找每日存档的第一天；快照目录不可覆盖、清单内容。
+  - **如实记录**：核对格式时有三个请求返回并打印了 11-13 之后的值：FRED 美元指数 11-13、Coin Metrics BTC 流入 11-15/16、
+    DefiLlama 稳定币 11-16。只用来看格式，没有进入任何选择；快照里没有它们。
+- **特征池**：`lab/feature_pool.py`，12 类、69 个特征；另有全市场面板加载 `load_market` 和宽度 `market_breadth`。
+  - 每个输入都按"已知时间"建索引；缺少的来源给缺失值。
+  - 新增测试 `tests/unit/lab/test_feature_pool.py`，9 个：每类都有值、前视检查（两个币）、逐值核对、
+    FRED 只在发布延迟之后可用、缺少来源、市场宽度、全市场面板。
+  - 已登记进 `tests/unit/lab/test_lookahead.py`：`FEATURE_MODULES` 和 4 个用例；用例的输入由共享快照推导。
+  - 我第一版推导的 DVOL/BVOL 用了整段均值缩放，这本身就是前视，检查报了出来；改成了固定比例。
+  - 每类各埋一个"偷看 3 天后"的漏洞，8 类全部被检查抓到。
+- **研究机制**：`lab/feature_study.py`。
+  - 包括：目标；按年滚动前推、清除标签重叠；固定模型；按块打乱目标的运气基准。
+  - 新增测试 `tests/unit/lab/test_feature_study.py`，6 个。已登记进 `OTHER_MODULES`。
+- **已有测试的改动**：没有（只在 `test_lookahead.py` 里加了登记）。
+- **预登记**：`research/results/feature_pool_2026-11-17/README.md` 和 `run.py`，在结果之前提交（3c00e189）。
