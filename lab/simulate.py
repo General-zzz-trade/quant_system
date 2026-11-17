@@ -68,7 +68,8 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
              end_ms: int | None = None, rules: SymbolRules | None = None, cost_multiplier: int = 1,
              starting_balance: str = "5000", stop_pct: str = "0",
              pause_after_stop_ms: int | None = None, reenter_after_stop: str = "pause",
-             stop_pct_at: dict[int, str] | None = None) -> SleeveResult:
+             stop_pct_at: dict[int, str] | None = None, leverage: str = "1",
+             exchange_leverage: int = 0) -> SleeveResult:
     """``stop_pct`` gives the broker the live exchange stop; after a stop fills, entries pause for
     ``pause_after_stop_ms`` (the live entry pause, released by itself after that time: tech lead 2026-11-16).
 
@@ -84,7 +85,10 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
 
     ``stop_pct_at`` (research only, tech lead 2026-11-17): the stop distance decided at each decision time
     (``available_at``), in (0, ``stop_pct``]; a position the decision's orders open keeps it until it is flat. A
-    decision time it does not list has the fixed ``stop_pct``."""
+    decision time it does not list has the fixed ``stop_pct``.
+
+    ``leverage`` and ``exchange_leverage`` (research only, owner 2026-11-17): positions up to ``leverage`` times the
+    equity (the targets carry it), on isolated margin at ``exchange_leverage``; the defaults keep 1x without margin."""
     if reenter_after_stop not in ("pause", "signal_reset", "pause_then_reset"):
         raise ValueError("reenter_after_stop must be 'pause', 'signal_reset' or 'pause_then_reset', "
                          f"not {reenter_after_stop!r}")
@@ -97,8 +101,11 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
     if wait_for_reset and D(stop_pct) <= 0:
         raise ValueError(f"reenter_after_stop={reenter_after_stop!r} needs a stop_pct above 0")
     rules = rules or SYMBOL_RULES[symbol]
-    sleeve = Sleeve(symbol, spec, rules, broker_config(spec, rules, starting_balance=starting_balance,
-                                                       cost_multiplier=cost_multiplier, stop_pct=stop_pct))
+    config = broker_config(spec, rules, starting_balance=starting_balance, cost_multiplier=cost_multiplier,
+                           stop_pct=stop_pct)
+    if D(leverage) != 1 or exchange_leverage:
+        config = replace(config, isolated_leverage=str(exchange_leverage), max_exposure=str(leverage))
+    sleeve = Sleeve(symbol, spec, rules, config)
     target_map = dict(zip(targets["available_at"].to_numpy(dtype=np.int64).tolist(),
                           zip(targets["target"].tolist(), targets["ready"].tolist())))
     rows, paused_until, waiting, stopped_side = [], 0, False, 0

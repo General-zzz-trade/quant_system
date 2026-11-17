@@ -110,8 +110,10 @@
   guard; snapshot `data_files/binance_usdt_perps_2026-11-12`), except the monthly re-selection (owner 2026-11-17:
   monthly, on a new snapshot that may read data after 2026-11-13, `lab/um_monthly.py`; the four registered forward
   tests stay frozen); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
-  lookahead, and the live terms: `LiveTerms` in `lab/um_lab.py`, 300 USDT split 1/N over a fixed list, the 8 % stop, a
-  4-hour pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
+  lookahead, and the live terms: `LiveTerms` in `lab/um_lab.py`; since 2026-11-17 `LIVE_BTC_ETH` (owner: BTCUSDT and
+  ETHUSDT only, 150 USDT split in half, positions up to 2x each half on isolated margin at the largest exchange leverage
+  the stop allows; the whole-market runs used `LIVE`, 300 USDT over ten slots at 1x), the 8 % stop, a 4-hour pause
+  after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
   -3 % a day, the 15 % cumulative loss stop, a stale feed).

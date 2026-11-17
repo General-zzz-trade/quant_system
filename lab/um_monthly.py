@@ -11,6 +11,9 @@
   2020-01-01. On the 2026-11-12 snapshot these are the 2026-11-17 run's periods.
 - ``plan`` writes the run's windows.md once; ``screen`` and ``final`` run only when it is committed and unchanged, so
   the windows are registered before any result.
+- Symbols and money (owner 2026-11-17, ``TERMS`` = ``lab.um_lab.LIVE_BTC_ETH``): BTCUSDT and ETHUSDT in every period,
+  150 USDT split in half, positions up to 2 times each half on isolated margin. Until then the list was the top 10 by
+  volume each period and 300 USDT over ten slots at 1x.
 - The ideas are the registered ones (``lab.um_lab.lab_ideas``), the stop variants ``lab.um_judge.STOP_VARIANTS``,
   the rest as the 2026-11-17 run (runs/2026-11-17/windows.md). Every replay goes to research/lab/trials.jsonl.
 - A holdout overlaps the previous months' holdouts. It is opened only for survivors, and each opening is recorded;
@@ -33,6 +36,7 @@ from trading.domain.strategy.base import Window
 FIRST_DAY = date(2020, 1, 1)
 HOLDOUT_MONTHS = 6
 MIN_SELECTION_DAYS = 365
+TERMS = lab.LIVE_BTC_ETH          # owner 2026-11-17: BTCUSDT and ETHUSDT only, 150 USDT half each, positions up to 2x
 H, DAY = lab.H, lab.DAY
 
 
@@ -135,9 +139,11 @@ class MonthlyRun:
         path = self.run / "universe.json"
         if path.is_file():
             return json.loads(path.read_text())["lists"]
-        dates = [start for start, _ in self.periods]
-        found = judge.universe(self.snapshot, dates, capital=lab.LIVE.capital, slots=10)
-        record = judge.universe_record(found, dates, capital=lab.LIVE.capital, slots=10)
+        terms = TERMS
+        found = judge.fixed_lists(terms.symbols, self.periods)
+        record = {"lists": found, "capital": terms.capital, "slots": len(terms.symbols), "leverage": terms.leverage,
+                  "rule": "BTCUSDT and ETHUSDT only, the same list in every period (owner 2026-11-17; mainnet's "
+                          "MAINNET_SYMBOLS); the capital split in half, positions up to the leverage times each half"}
         path.write_text(json.dumps(record, indent=1, sort_keys=True) + "\n")
         return found
 
@@ -165,7 +171,8 @@ class MonthlyRun:
 
     def judge(self) -> judge.Judge:
         return judge.Judge(ideas=lab.lab_ideas(), lists=self.lists(), cache=self.cache, run_date=self.run.name,
-                           snapshot=self.snapshot, periods=self.periods, lookahead=self.causal,
+                           snapshot=self.snapshot, periods=self.periods, lookahead=self.causal, terms=TERMS,
+                           slots=len(TERMS.symbols),
                            note=f"monthly re-selection {self.run.name} (lab/um_monthly.py, {self.run}/windows.md)")
 
 

@@ -4853,3 +4853,41 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 相关测试全过：tests/architecture、启动相关的 characterization、tests/unit/tooling、规格、状态目录、主机锁、组装等。
   - ruff 通过；`mypy trading/` 97 个文件无问题；lint-imports 5 个契约都保持。
 - **没改的**：研究台的品种清单和实盘条件（150 USDT、两个品种各半、2 倍）是另一步，不在这个 PR 里。
+
+## 研究台改成只做 BTC 和 ETH：150 USDT、各半、2 倍（2026-11-17，轻流程：研究代码）
+
+- **决定**：技术负责人 2026-11-17（"目前如何去改成做BTC和ETH，不再全市场这样做"）选了：研究台的实盘条件是 150 USDT、两个品种各半、2 倍。
+  这一步叠在 #153（实盘硬限制，`MAINNET_SYMBOLS`）上。
+- **改了什么**【代码】：
+  - `lab/um_lab.py`：
+    - `LiveTerms` 加 `leverage`（默认 "1"）和 `symbols`（默认空：每期另选清单）；
+    - `LIVE_BTC_ETH = LiveTerms(capital="150", leverage="2", symbols=("BTCUSDT", "ETHUSDT"))`；
+    - `LIVE` 不变，全市场那几轮照旧能重放。
+  - `exchange_leverage(stop)`：止损在逐仓强平距离一半以内的最大交易所杠杆，和实盘的 `check_stop_inside_liquidation` 同一条规则（8% 对应 6 倍）。
+    `scripts/draft_strategy_spec.largest_leverage` 改为调用它。
+  - `replay(..., leverage=)`：权重乘以杠杆，撮合器用逐仓、交易所杠杆取 `exchange_leverage`，敞口上限等于杠杆。
+    杠杆不是 1 时要求杠杆在 [1, 3] 内，并且有止损。`run_idea` 把 `live.leverage` 传下去。
+  - `lab/simulate.py`：`simulate` 加两个可选参数 `leverage`、`exchange_leverage`。默认值不改撮合器配置，模拟盘和已有回测不变。
+  - `lab/um_judge.py`：
+    - `fixed_lists(symbols, periods)`：每期同一份清单；
+    - 评审员按 `terms.leverage` 重放；
+    - 缓存设置和登记行里加杠杆，只在不是 1 倍时加，所以早先的缓存和登记不变。
+  - `lab/um_monthly.py`：每月重选改用 `TERMS = lab.LIVE_BTC_ETH`。清单固定为这两个，`universe.json` 写上资金、份数、杠杆和规则；评审员 2 份。
+  - `scripts/draft_strategy_spec.py`：`run_terms(universe)`。记了杠杆的一轮，草稿写它自己的资金和 `STRATEGY_LEVERAGE`；早先的一轮仍是 `LIVE`。
+- **已有测试的改动**：没有。
+- **新增测试**：
+  - `tests/unit/lab/test_live_btc_eth.py` 12 个：
+    - 条件和 `MAINNET_SYMBOLS` 一致；`LIVE` 没变；
+    - 4 档止损的交易所杠杆，实盘的检查接受这个值，多 1 倍就拒绝；
+    - 2 倍重放的第一笔名义金额是 1 倍的两倍（0.9 的权重、75 USDT：约 67.5 对 135）；
+    - 有杠杆没有止损时拒绝；
+    - `run_idea` 按 75 USDT、2 倍重放；评审员按条件的杠杆重放；
+    - 固定清单；每月重选只有这两个品种。
+  - `tests/unit/tooling/test_draft_strategy_spec.py` 1 个：BTC/ETH 一轮的草稿写 150 USDT、2 倍；早先的一轮仍按 `LIVE`。
+  - 改代码之前新测试全部失败（`LIVE_BTC_ETH` 等不存在）。
+- **文档**：
+  - `CLAUDE.md` 实验室一段写明 `LIVE_BTC_ETH`；
+  - `research/lab/README.md` 的"实盘条件"加上 2026-11-17 起的条件，原来的条件标为全市场几轮用的。
+- **没做的**：
+  - 还没有在真实数据上跑任何 BTC/ETH 的一轮。下一轮的计划要先登记，再跑。
+  - 每月重选的定时任务的提示词，合并后再改。

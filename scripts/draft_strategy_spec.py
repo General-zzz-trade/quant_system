@@ -24,17 +24,23 @@ from typing import Any
 from lab import um_lab as lab
 from lab.strategy import StrategySpec
 from trading.domain.issues import AFTER_STOP_PAUSE_THEN_RESET, STOP_PAUSE_SECONDS
-from trading.domain.risk.liquidation import liquidation_distance
 from trading.domain.strategy.spec import KIND_V2, parse_spec
 
-MMR = 0.005                  # the maintenance margin rate check_stop_inside_liquidation assumes
 PAUSE_HOURS = STOP_PAUSE_SECONDS // 3600
 
 
 def largest_leverage(stop_pct: str) -> int:
     """The largest isolated leverage whose half liquidation distance still holds the stop (the runtime's rule)."""
-    stop = float(Decimal(stop_pct))
-    return max((lev for lev in range(1, 21) if stop <= 0.5 * liquidation_distance(lev, MMR)), default=0)
+    return lab.exchange_leverage(stop_pct)
+
+
+def run_terms(universe: dict) -> lab.LiveTerms:
+    """The terms a run replayed with: a run that records its capital and leverage (the BTC/ETH runs, owner
+    2026-11-17) gives them; an earlier run used ``lab.LIVE``."""
+    if "leverage" not in universe:
+        return lab.LIVE
+    return lab.LiveTerms(capital=str(universe["capital"]), leverage=str(universe["leverage"]),
+                         symbols=tuple(universe["lists"][-1]))
 
 
 def _gaps(stop: dict) -> list[str]:
@@ -61,7 +67,7 @@ def _shorts(strategy: Any, symbols: list[str], snapshot: Path) -> bool:
 
 
 def draft(results: dict, lists: list[list[str]], snapshot: Path, *, idea: str | None = None,
-          allow_failed: bool = False) -> tuple[dict, dict, list[str]]:
+          allow_failed: bool = False, terms: lab.LiveTerms = lab.LIVE) -> tuple[dict, dict, list[str]]:
     """(spec, runtime settings, gaps) for ``idea`` (default: the champion)."""
     final = results["final"]
     name = idea or final.get("champion")
@@ -86,7 +92,9 @@ def draft(results: dict, lists: list[list[str]], snapshot: Path, *, idea: str | 
     parse_spec(spec)
     stop = choice["stop"]
     settings = {"STOP_PCT": stop["stop_pct"], "BINANCE_EXCHANGE_LEVERAGE (largest)": largest_leverage(stop["stop_pct"]),
-                "BINANCE_MARGIN_TYPE": "ISOLATED", "STRATEGY_CAPITAL_USDT": lab.LIVE.capital, "STRATEGY_LEVERAGE": 1}
+                "BINANCE_MARGIN_TYPE": "ISOLATED", "STRATEGY_CAPITAL_USDT": terms.capital,
+                "STRATEGY_LEVERAGE": int(terms.leverage) if Decimal(terms.leverage) == int(Decimal(terms.leverage))
+                else terms.leverage}
     return spec, settings, _gaps(stop)
 
 
@@ -115,8 +123,9 @@ def main(argv: list[str] | None = None) -> None:
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"{out} is not empty; a draft is written once")
     results = json.loads((args.run / "results.json").read_text())
-    lists = json.loads((args.run / "universe.json").read_text())["lists"]
-    spec, settings, gaps = draft(results, lists, args.snapshot, idea=args.idea, allow_failed=args.allow_failed)
+    universe = json.loads((args.run / "universe.json").read_text())
+    spec, settings, gaps = draft(results, universe["lists"], args.snapshot, idea=args.idea,
+                                 allow_failed=args.allow_failed, terms=run_terms(universe))
     passes = results["final"]["final_check"][spec["strategy"]["name"]]["passes"]
     out.mkdir(parents=True, exist_ok=True)
     (out / "final_spec.json").write_text(json.dumps(spec, indent=1) + "\n")
