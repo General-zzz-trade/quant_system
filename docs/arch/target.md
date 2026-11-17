@@ -1,4 +1,4 @@
-# 架构说明（2026-11-16 晚重写，R9）
+# 架构说明（2026-11-16 晚重写，R9；2026-11-17 更新）
 
 - 这是仓库里唯一的架构说明。`trading/__init__.py`、`trading/application/ports.py` 和 `tests/architecture/test_rules.py`
   指向本文；ADR 里引用的"2.1""2.3""第 3 节"仍是这几节。
@@ -49,6 +49,7 @@ trading/
     market_poller.py           行情侧：新 K 线、资金费间隔、按品种或一起决定
     exit_supervisor.py         退出侧：权益、对账、止损维护、暂停、急停 / 回撤 / 击穿平仓、亏损停止线、账户检查
     session.py                 一个品种：窗口、目标、再平衡、下单
+    reset_wait.py              止损暂停后等策略重置（规格的 after_stop，入场门和退出侧共用）
     status.py, alerts.py, issues.py, event_guard.py, equity.py, account_ownership.py, mode_policy.py
     execution/                 lifecycle、service、executor、stops、flatten、reduction、fills、recorded_journal
     risk/                      entry_gate、exposure_gate、order_limiter、readiness、loss_stop
@@ -159,6 +160,10 @@ trading/
 - 止损：每个确认的仓位一张交易所 `STOP_MARKET closePosition`，按交易所持仓定方向和价格（ADR-0012）；多头卖出止损在开仓价
   下方，空头买入止损在开仓价上方。急停、回撤和止损击穿的平仓按交易所持仓整仓平掉。止损触发或击穿后这个品种暂停入场 4 小时，
   到时自动解除（`STOP_PAUSE_SECONDS`）。
+- 等策略重置（技术负责人 2026-11-17，只会更严）：规格写 `"after_stop": "pause_then_reset"` 时，暂停到点结束后，空仓的品种
+  还要等策略做过一次准备好、目标正好为 0 的决定才开仓（`trading/application/reset_wait.py`）。入场门在下单数计数之前就按这条
+  规则拒绝，退出侧把它当暂停显示和处理（撤掉挂着的入场单）。止损后有一笔开仓成交（以订单记录为准，重启后也查得到）或由人用
+  `entry_pause release` 解除，等待就结束；重启前见过的 0 不记得，要等下一次。读不出来就挡住开仓。
 - 亏损停止线：有策略资金时，已实现盈亏扣手续费 + 资金费 + 持仓浮动盈亏低于策略资金的 15%（`STRATEGY_LOSS_STOP_PCT`，只能调紧）
   就打开急停并平仓；这是运行时唯一写急停文件的地方，它从不关闭急停。
 
@@ -185,12 +190,15 @@ trading/
 - 规格只经签名加载（`infra/model_signing.py`），然后由 `parse_spec` 解析成 `TargetSpec`：策略名称和参数、执行设置
   （`band`、`execution`、`ttl_bars`）、品种、`allow_short`。
 - 第 1 版（`btc_eth_multitimeframe_target`）：BTC/ETH 多周期策略，试运行用的就是它；是否做空由它的 `long_only` 决定。
-- 第 2 版（`target_strategy`）：`strategy` {`name`, `params`}、`execution`、`symbols`、`allow_short`、`passed`。严格解析：不认识的
-  字段、类型不对的值、超过 10 个品种、不是 USDT 永续的名字、重复的品种、不认识的策略、读了规格没列出的品种，都按名字拒绝。
+- 第 2 版（`target_strategy`）：`strategy` {`name`, `params`}、`execution`、`symbols`、`allow_short`、`passed`，可选的
+  `after_stop`（`"pause"` 默认，或 `"pause_then_reset"`，2026-11-17）。严格解析：不认识的字段、类型不对的值、超过 10 个品种、
+  不是 USDT 永续的名字、重复的品种、不认识的策略、读了规格没列出的品种，都按名字拒绝；第 1 版不能带 `after_stop`。
 - 清单由实验室算、人来发布（技术负责人 2026-11-16）：运行时只交易规格里列出的品种，从不自己开始交易一个新品种。每个品种的
   交易所杠杆和保证金模式由人先在币安设好，否则启动检查拒绝。
 - 主网要求规格的 `passed` 为真；代码从不修改它。
 - 发布：`python3 -m scripts.publish_strategy_spec --study <目录> --out models_binance/strategy`（用同一个解析器检查后签名）。
+- 草稿：`python3 -m scripts.draft_strategy_spec --run <实验室一轮> --snapshot <快照>` 从冠军卡写出第 2 版草稿（`passed` 永远是
+  false，不签名），并列出实盘还缺的止损规则（有缺口时退出码 2）。
 
 ## 7. 研究侧
 
@@ -202,6 +210,13 @@ trading/
   （实盘会跑的那份代码）；还是研究函数的想法用 `lab.um_lab.legacy(...)` 包上也能回测，但不能上实盘。
 - `lab/paper_compare.py`：模拟盘记录和研究在同一批 K 线上逐笔比较成交（退出码 0 一致、1 不一致、2 无法比较）。R7d 起按记录里的
   策略身份重建研究，所有品种的目标在模拟盘看到的 K 线上一次算出，横截面策略也能对照。
+- 2026-11-17 起的实验室工具：
+  - `lab/um_portfolio.py`：持有 BTC 加仓位控制的基准，以及每一折只用之前的数据挑成员的组合；
+  - `lab/um_monthly.py`：每月一次在新快照上重选，时段随快照往后移，窗口文件先提交再回测；
+  - `lab/um_forward.py`：冠军冻结后每周一次登记的前向查看，只为已登记、已到期的查看下载数据；
+  - `lab.um_lab.vol_stop_pct` 和 `StopVariant(vol_k=...)`：按波动率收紧的止损；`lab.simulate` 的 `reenter_after_stop`
+    有 `pause`、`signal_reset`、`pause_then_reset` 三种，最后一种就是规格 `after_stop` 的同一条规则。
+  - 研究撮合器可以给每个仓位单独的止损距离（`set_next_stop_pct`，只能比配置的更近），只在研究里用，模拟盘从不设。
 - 研究的纪律（试验登记、前向检验、数据快照不可变）见 `CLAUDE.md` 和 `research/protocols/`。
 
 ## 8. 不变量和检查它们的测试
