@@ -26,6 +26,7 @@ from lab import candidates as c
 from lab import candidates_study as cs
 from lab import feature_pool as fpool
 from lab import panel_study as pstudy
+from lab import vol_breakout as vbreak
 from lab import overlay_risk_study as rs
 from lab import pair_study as ps
 from lab import um_lab
@@ -211,6 +212,16 @@ def _idea(name):
     return case
 
 
+def _breakout_positions(m):
+    """The breakout's trades on both coins, as positions at each day's end."""
+    pool = _pool_inputs(m)
+    out = {}
+    for s in (BTC, ETH):
+        daily = fpool.daily(pool["hourly"][s])
+        out[s] = vbreak.positions(vbreak.breakout_trades(s, daily), daily.index.to_numpy())
+    return pd.DataFrame(out)
+
+
 CASES = [
     ("market.frame_from_bars", market.frame_from_bars, lambda m: market.frame_from_bars(m["bars"][BTC])),
     ("market.aggregate.4h", market.aggregate, lambda m: market.aggregate(m["hourly"][BTC], 4)),
@@ -274,6 +285,12 @@ CASES = [
     ("panel_study.symbol_features", pstudy.symbol_features, lambda m: _panel_parts(m)[1][ETH]),
     ("panel_study.market_state", pstudy.market_state, lambda m: _panel_parts(m)[2]),
     ("panel_study.cross_section", pstudy.cross_section, lambda m: pstudy.cross_section(*_panel_parts(m)[3:1:-1])),
+    # the volatility-expansion breakout study (owner 2026-11-17, "跑回测验证")
+    ("vol_breakout.breakout_trades", vbreak.breakout_trades, lambda m: _breakout_positions(m)),
+    ("vol_breakout.positions", vbreak.positions, lambda m: _breakout_positions(m)),
+    ("vol_breakout.median_volumes", vbreak.median_volumes, lambda m: vbreak.median_volumes(
+        {s: pstudy.daily_volume(_pool_inputs(m)["hourly"][s]) for s in (BTC, ETH)},
+        {s: int(m["hourly"][s]["open_time"].iloc[0]) for s in (BTC, ETH)}, POOL_TIMES)),
     ("feature_pool.front_quarter", fpool.front_quarter,
      lambda m: fpool.front_quarter(_raw_quarterly(_pool_inputs(m)["hourly"][BTC]), END)),
     ("feature_pool.technical.4h", fpool.technical,
@@ -286,7 +303,7 @@ CASES = [
 FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "trading.domain.strategy.ideas",
                    "lab.breakout", "lab.candidates",
                    "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study", "lab.xs_study",
-                   "lab.feature_pool", "lab.panel_study")
+                   "lab.feature_pool", "lab.panel_study", "lab.vol_breakout")
 OTHER_MODULES = {
     "lab": "package marker",
     "trading.domain.strategy.spec": "parses and checks the signed spec (runtime extension R2); computes no feature",
@@ -353,6 +370,14 @@ NOT_CHECKED = {
                                         "here would be vacuous"),
     "lab.panel_study.symbol_targets": LABEL, "lab.panel_study.evaluate": FIT, "lab.panel_study.shuffled": REPORT,
     "lab.panel_study.daily_rank_ic": REPORT, "lab.panel_study.ic_summary": REPORT,
+    "lab.vol_breakout.allocate": ("hands slots out by entry time; a slot is free again at an exit decided at or "
+                                  "before the entry (test_vol_breakout)"),
+    "lab.vol_breakout.top_share": "one day's predictions in, that day's choice out: no time axis",
+    "lab.vol_breakout.vol_sizes": "one day's predictions in, that day's sizes out: no time axis",
+    "lab.vol_breakout.weights": ("puts decided trades on the hours: a bar holds the weight decided at or before its "
+                                 "close (test_vol_breakout); the trades are checked above"),
+    "lab.vol_breakout.walk_forward_predictions": FIT, "lab.vol_breakout.trade_returns": REPORT,
+    "lab.vol_breakout.account_daily": REPORT, "lab.vol_breakout.filter_value": REPORT,
     "lab.panel_study.fit_final": FIT, "lab.panel_study.save_frozen": "writes a frozen model's files",
     "lab.panel_study.load_frozen": "reads a frozen model's files",
     "lab.panel_study.predict_frozen": "row by row: a prediction reads only its own row's features (checked above)",
