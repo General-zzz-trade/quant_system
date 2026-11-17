@@ -1,0 +1,585 @@
+{
+ "code_commit": "9cb2817f0c443195d49fcbb63b6d39560548abec",
+ "periods": [
+  [
+   "2020-01-31",
+   "2021-05-13"
+  ],
+  [
+   "2021-05-13",
+   "2022-05-13"
+  ],
+  [
+   "2022-05-13",
+   "2023-05-13"
+  ],
+  [
+   "2023-05-13",
+   "2024-05-13"
+  ],
+  [
+   "2024-05-13",
+   "2025-05-13"
+  ],
+  [
+   "2025-05-13",
+   "2025-11-16"
+  ]
+ ],
+ "main_periods": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "table": {
+  "F1_btc_trend_beta": {
+   "market_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 4.49770370204178,
+      "sharpe": 0.8987766973909179,
+      "max_drawdown": 0.6370694440576853,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 21.961931756153522,
+      "sharpe": 2.5966182772281647
+     },
+     "round_trips": 102,
+     "entry_orders": 150,
+     "fills": 300,
+     "exchange_stops": 18
+    },
+    "x2": {
+     "main": {
+      "total_return": 3.5835809239520913,
+      "sharpe": 0.8404820185645848,
+      "max_drawdown": 0.6580846361227406,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 20.887144425013826,
+      "sharpe": 2.5620586031252475
+     },
+     "round_trips": 102,
+     "entry_orders": 154,
+     "fills": 311,
+     "exchange_stops": 18
+    }
+   },
+   "maker_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 4.754676987069848,
+      "sharpe": 0.9141895798395558,
+      "max_drawdown": 0.637165536006076,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 22.754169493848167,
+      "sharpe": 2.614782889607833
+     },
+     "round_trips": 102,
+     "entry_orders": 156,
+     "fills": 306,
+     "exchange_stops": 18
+    },
+    "x2": {
+     "main": {
+      "total_return": 4.432204133121294,
+      "sharpe": 0.8946126798702884,
+      "max_drawdown": 0.6388146324067947,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 21.84935887075452,
+      "sharpe": 2.591810639758524
+     },
+     "round_trips": 102,
+     "entry_orders": 154,
+     "fills": 297,
+     "exchange_stops": 18
+    }
+   },
+   "maker_ttl3": {
+    "x1": {
+     "main": {
+      "total_return": 4.797070453019328,
+      "sharpe": 0.9165178460117767,
+      "max_drawdown": 0.6369880209328177,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 22.32880704520597,
+      "sharpe": 2.6039680609569658
+     },
+     "round_trips": 102,
+     "entry_orders": 153,
+     "fills": 307,
+     "exchange_stops": 18
+    },
+    "x2": {
+     "main": {
+      "total_return": 4.454208831581148,
+      "sharpe": 0.8958443044118618,
+      "max_drawdown": 0.6385957994635889,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 21.676123039220506,
+      "sharpe": 2.585693344569795
+     },
+     "round_trips": 102,
+     "entry_orders": 153,
+     "fills": 297,
+     "exchange_stops": 18
+    }
+   }
+  },
+  "D2_taker_imbalance": {
+   "market_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 1.4626766968336105,
+      "sharpe": 0.9571393298786884,
+      "max_drawdown": 0.2652387118515125,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.585905262409927,
+      "sharpe": 2.1201242032686203
+     },
+     "round_trips": 98,
+     "entry_orders": 104,
+     "fills": 204,
+     "exchange_stops": 0
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.1028814075088413,
+      "sharpe": 0.8138308815138138,
+      "max_drawdown": 0.2761814083199623,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.390573021198989,
+      "sharpe": 2.0399797102866777
+     },
+     "round_trips": 98,
+     "entry_orders": 104,
+     "fills": 204,
+     "exchange_stops": 0
+    }
+   },
+   "maker_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 1.6068894863705316,
+      "sharpe": 1.008273153034621,
+      "max_drawdown": 0.2623272538226379,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.646527767440989,
+      "sharpe": 2.1382388672149246
+     },
+     "round_trips": 98,
+     "entry_orders": 108,
+     "fills": 204,
+     "exchange_stops": 0
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.350966022169486,
+      "sharpe": 0.9145843130007828,
+      "max_drawdown": 0.2659241310006558,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.5313073563799917,
+      "sharpe": 2.1025360901628094
+     },
+     "round_trips": 98,
+     "entry_orders": 109,
+     "fills": 204,
+     "exchange_stops": 0
+    }
+   },
+   "maker_ttl3": {
+    "x1": {
+     "main": {
+      "total_return": 1.6459406528895997,
+      "sharpe": 1.0220948869888475,
+      "max_drawdown": 0.26232379018489127,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.648960852832498,
+      "sharpe": 2.1390189543235425
+     },
+     "round_trips": 98,
+     "entry_orders": 104,
+     "fills": 203,
+     "exchange_stops": 0
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.3778925384031018,
+      "sharpe": 0.9256453870361527,
+      "max_drawdown": 0.2659173945231702,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.5313073563799917,
+      "sharpe": 2.1025360901628094
+     },
+     "round_trips": 98,
+     "entry_orders": 106,
+     "fills": 204,
+     "exchange_stops": 0
+    }
+   }
+  },
+  "E3_vol_target_trend": {
+   "market_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 2.489065944781418,
+      "sharpe": 0.8502540157737379,
+      "max_drawdown": 0.5601154852420829,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 5.995778822484928,
+      "sharpe": 2.705834580945479
+     },
+     "round_trips": 106,
+     "entry_orders": 132,
+     "fills": 274,
+     "exchange_stops": 16
+    },
+    "x2": {
+     "main": {
+      "total_return": 2.16687696753694,
+      "sharpe": 0.8002365008163533,
+      "max_drawdown": 0.5787313963274181,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 5.716150628606406,
+      "sharpe": 2.647531129915415
+     },
+     "round_trips": 106,
+     "entry_orders": 132,
+     "fills": 274,
+     "exchange_stops": 16
+    }
+   },
+   "maker_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 2.6370746149704027,
+      "sharpe": 0.871958634820073,
+      "max_drawdown": 0.5537796832557362,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 6.0031577026729535,
+      "sharpe": 2.7106209829440715
+     },
+     "round_trips": 106,
+     "entry_orders": 133,
+     "fills": 271,
+     "exchange_stops": 16
+    },
+    "x2": {
+     "main": {
+      "total_return": 2.4301967289043,
+      "sharpe": 0.841159953891188,
+      "max_drawdown": 0.5631213740390046,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 5.987820765452945,
+      "sharpe": 2.702816059689658
+     },
+     "round_trips": 106,
+     "entry_orders": 133,
+     "fills": 272,
+     "exchange_stops": 16
+    }
+   },
+   "maker_ttl3": {
+    "x1": {
+     "main": {
+      "total_return": 2.6378699078698435,
+      "sharpe": 0.8720511411260992,
+      "max_drawdown": 0.5537796832557362,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 6.003904435976415,
+      "sharpe": 2.710783623567019
+     },
+     "round_trips": 106,
+     "entry_orders": 132,
+     "fills": 271,
+     "exchange_stops": 16
+    },
+    "x2": {
+     "main": {
+      "total_return": 2.429728081423302,
+      "sharpe": 0.8410691910091715,
+      "max_drawdown": 0.5631213740390046,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 5.988567648073207,
+      "sharpe": 2.7029785507344206
+     },
+     "round_trips": 106,
+     "entry_orders": 132,
+     "fills": 272,
+     "exchange_stops": 16
+    }
+   }
+  },
+  "B3_dip_in_uptrend": {
+   "market_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 1.4596872342388512,
+      "sharpe": 0.8796638769841034,
+      "max_drawdown": 0.2803808610759396,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.45594376205704834,
+      "sharpe": 1.4493550838189546
+     },
+     "round_trips": 23,
+     "entry_orders": 28,
+     "fills": 63,
+     "exchange_stops": 4
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.4496007459412112,
+      "sharpe": 0.8738274331297962,
+      "max_drawdown": 0.28273946706226516,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.44173336706072397,
+      "sharpe": 1.4121584679279175
+     },
+     "round_trips": 23,
+     "entry_orders": 25,
+     "fills": 57,
+     "exchange_stops": 4
+    }
+   },
+   "maker_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 1.5169323631610778,
+      "sharpe": 0.8961561091333151,
+      "max_drawdown": 0.2801047356753482,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.46596186983537025,
+      "sharpe": 1.470750301698816
+     },
+     "round_trips": 23,
+     "entry_orders": 27,
+     "fills": 62,
+     "exchange_stops": 4
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.5156459650874705,
+      "sharpe": 0.8946689032469715,
+      "max_drawdown": 0.28202385838997657,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.45605971955505464,
+      "sharpe": 1.4496250888646243
+     },
+     "round_trips": 23,
+     "entry_orders": 27,
+     "fills": 59,
+     "exchange_stops": 4
+    }
+   },
+   "maker_ttl3": {
+    "x1": {
+     "main": {
+      "total_return": 1.5169323631610778,
+      "sharpe": 0.8961561091333151,
+      "max_drawdown": 0.2801047356753482,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.46596186983537025,
+      "sharpe": 1.470750301698816
+     },
+     "round_trips": 23,
+     "entry_orders": 27,
+     "fills": 62,
+     "exchange_stops": 4
+    },
+    "x2": {
+     "main": {
+      "total_return": 1.5156459650874705,
+      "sharpe": 0.8946689032469715,
+      "max_drawdown": 0.28202385838997657,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 0.45605971955505464,
+      "sharpe": 1.4496250888646243
+     },
+     "round_trips": 23,
+     "entry_orders": 27,
+     "fills": 59,
+     "exchange_stops": 4
+    }
+   }
+  },
+  "overlay": {
+   "market_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 0.7891846576681449,
+      "sharpe": 0.653932024540302,
+      "max_drawdown": 0.25412445554228924,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.946727135545847,
+      "sharpe": 2.6944882200180875
+     },
+     "round_trips": 78,
+     "entry_orders": 160,
+     "fills": 359,
+     "exchange_stops": 5
+    },
+    "x2": {
+     "main": {
+      "total_return": 0.6903824949611834,
+      "sharpe": 0.5993300021645233,
+      "max_drawdown": 0.2683681154430957,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.8925402530284385,
+      "sharpe": 2.651834680893884
+     },
+     "round_trips": 86,
+     "entry_orders": 167,
+     "fills": 374,
+     "exchange_stops": 5
+    }
+   },
+   "maker_ttl1": {
+    "x1": {
+     "main": {
+      "total_return": 0.9066254727724261,
+      "sharpe": 0.7128528797654682,
+      "max_drawdown": 0.2452100656904802,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 3.0224656532405163,
+      "sharpe": 2.7380105095392255
+     },
+     "round_trips": 74,
+     "entry_orders": 163,
+     "fills": 350,
+     "exchange_stops": 6
+    },
+    "x2": {
+     "main": {
+      "total_return": 0.7358932408263641,
+      "sharpe": 0.6260092350907381,
+      "max_drawdown": 0.2526559361830061,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.9667461764156573,
+      "sharpe": 2.6976170120670013
+     },
+     "round_trips": 72,
+     "entry_orders": 160,
+     "fills": 345,
+     "exchange_stops": 6
+    }
+   },
+   "maker_ttl3": {
+    "x1": {
+     "main": {
+      "total_return": 0.9084942512730196,
+      "sharpe": 0.7138195979953273,
+      "max_drawdown": 0.24554333214383173,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 3.0142910539551178,
+      "sharpe": 2.732833040159493
+     },
+     "round_trips": 74,
+     "entry_orders": 163,
+     "fills": 352,
+     "exchange_stops": 6
+    },
+    "x2": {
+     "main": {
+      "total_return": 0.7394504039264347,
+      "sharpe": 0.6281436666694921,
+      "max_drawdown": 0.2528223161349059,
+      "days": 1648
+     },
+     "period_0": {
+      "total_return": 2.9763245853463847,
+      "sharpe": 2.701701444320097
+     },
+     "round_trips": 72,
+     "entry_orders": 160,
+     "fills": 347,
+     "exchange_stops": 6
+    }
+   }
+  }
+ },
+ "verdict": {
+  "maker_ttl1": {
+   "sharpe_differences": [
+    0.05413066130570354,
+    0.10075343148696903,
+    0.04092345307483469,
+    0.020841470117175298,
+    0.02667923292621488
+   ],
+   "better": 5,
+   "median": 0.04092345307483469,
+   "passes": false
+  },
+  "maker_ttl3": {
+   "sharpe_differences": [
+    0.05536228584727698,
+    0.11181450552233896,
+    0.04083269019281821,
+    0.020841470117175298,
+    0.028813664504968806
+   ],
+   "better": 5,
+   "median": 0.04083269019281821,
+   "passes": false
+  },
+  "maker_better": false
+ }
+}
