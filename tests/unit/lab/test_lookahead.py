@@ -155,6 +155,40 @@ def _pool_inputs(m):
     return out
 
 
+def _raw_quarterly(h):
+    """Quarterly klines as the snapshot has them, derived from the bars, indexed by when each row is known."""
+    known = h["available_at"].to_numpy(dtype=np.int64)
+    expiry = (known // (60 * DAY) + 1) * 60 * DAY + 8 * HOUR
+    return pd.DataFrame({"open_time": known - HOUR, "expiry": expiry, "contract": "q",
+                         "close": h["close"].to_numpy(float) * (1 + 0.05 * (expiry - known) / DAY / 365)},
+                        index=pd.Index(known))
+
+
+def _pool_inputs_v2(m):
+    """The first version's inputs and the second version's sources, again derived from the bars."""
+    out = _pool_inputs(m)
+    out["quarterly"], out["coinbase"], out["upbit"] = {}, {}, {}
+    for s in (BTC, ETH):
+        h = out["hourly"][s]
+        known = pd.Index(h["available_at"].to_numpy(dtype=np.int64))
+        close = h["close"].to_numpy(float)
+        out["quarterly"][s] = fpool.front_quarter(_raw_quarterly(h), int(known.max()))
+        out["coinbase"][s] = pd.Series(close * 1.001, index=known)
+        out["upbit"][s] = pd.Series(close * 1300, index=known)
+        d = fpool.daily(h)
+        out["cm"][s] = out["cm"][s].assign(CapMVRVCur=out["cm"][s]["CapMrktCurUSD"] / 1000,
+                                           HashRate=out["cm"][s]["TxCnt"])
+    btc = fpool.daily(out["hourly"][BTC])
+    day_known = btc.index.to_numpy(dtype=np.int64)
+    out["usdt_usd"] = pd.Series(1.0, index=pd.Index(out["hourly"][BTC]["available_at"].to_numpy(dtype=np.int64)))
+    out["fng"] = pd.Series(btc["close"].to_numpy() % 100, index=pd.Index(day_known + DAY))
+    out["fomc"] = T0 + np.arange(10, DAYS + 60, 40, dtype=np.int64) * DAY
+    for j, (k, lag) in enumerate(fpool.FRED_V2_LAG_DAYS.items()):
+        out["fred"][k] = pd.Series(btc["close"].to_numpy() / 1000 + j, index=pd.Index(day_known + lag * DAY))
+    del d
+    return out
+
+
 POOL_TIMES = T0 + np.arange(200, 279, dtype=np.int64) * DAY
 
 
@@ -222,6 +256,10 @@ CASES = [
     ("feature_pool.daily", fpool.daily, lambda m: fpool.daily(_pool_inputs(m)["hourly"][ETH])),
     ("feature_pool.market_breadth", fpool.market_breadth, lambda m: _pool_inputs(m)["breadth"]),
     ("feature_pool.bars.4h", fpool.bars, lambda m: fpool.bars(_pool_inputs(m)["hourly"][BTC], 4)),
+    ("feature_pool.build.v2.btc", fpool.build, lambda m: fpool.build(_pool_inputs_v2(m), BTC, POOL_TIMES, version=2)),
+    ("feature_pool.build.v2.eth", fpool.build, lambda m: fpool.build(_pool_inputs_v2(m), ETH, POOL_TIMES, version=2)),
+    ("feature_pool.front_quarter", fpool.front_quarter,
+     lambda m: fpool.front_quarter(_raw_quarterly(_pool_inputs(m)["hourly"][BTC]), END)),
     ("feature_pool.technical.4h", fpool.technical,
      lambda m: fpool.technical(fpool.bars(_pool_inputs(m)["hourly"][ETH], 4))),
     ("feature_pool.technical.1d", fpool.technical,

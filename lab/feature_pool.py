@@ -62,6 +62,21 @@ TECHNICAL = ("rsi", "macd_hist", "adx", "di_diff", "aroon_osc", "ichimoku_dist",
              "squeeze_bars", "bb_kc_ratio", "chop", "obv_slope", "mfi", "vwap_dev", "vol_rel", "hurst")
 TIMEFRAMES = {"4h": 4, "1d": 24}
 FEATURES = FEATURES + tuple(f"ta_{n}_{tf}" for tf in TIMEFRAMES for n in TECHNICAL)
+# The second version (owner 2026-11-17: "还有哪些特征是需要用到", then "执行"); FEATURES stays the first version's.
+FRED_V2_LAG_DAYS = {"WALCL": 3, "WTREGEN": 3, "RRPONTSYD": 1, "BAMLH0A0HYM2": 2, "DGS2": 2, "T10Y2Y": 2,
+                    "DCOILWTICO": 9, "DEXJPUS": 9, "DEXKOUS": 9}
+FG_LAG_DAYS = 1
+V2 = ("rv_intraday_1d", "har_rv_7", "har_rv_30", "parkinson_7", "garman_klass_7", "ewma_vol", "jump_share_7",
+      "downside_share_7", "vol_of_rv_30",
+      "walcl_chg_z", "tga_chg_z", "rrp_chg_z", "hy_spread", "hy_spread_chg_28", "us2y_chg_30", "curve_10y2y",
+      "oil_ret_28", "usdjpy_ret_28",
+      "qbasis_annual", "qbasis_chg_7", "cb_premium_1d", "cb_premium_7d", "kimchi_dev_30", "kimchi_chg_7",
+      "fng", "fng_chg_7",
+      "dow", "days_to_monthly_expiry", "days_to_quarterly_expiry", "days_to_fomc", "days_since_fomc",
+      "mvrv", "mvrv_chg_30", "hashrate_chg_30")
+FEATURES_V2 = FEATURES + V2
+COINBASE_PRODUCT = {"BTCUSDT": "BTC-USD", "ETHUSDT": "ETH-USD"}
+UPBIT_MARKET = {"BTCUSDT": "KRW-BTC", "ETHUSDT": "KRW-ETH"}
 
 
 # -- loading ---------------------------------------------------------------------------------------------------
@@ -117,8 +132,29 @@ def load_inputs(public_dir: Path, feature_dir: Path, limit: int, *, breadth: pd.
         if cm is not None and len(cm):
             known = np.array([_ms(d) for d in cm["date"]]) + CM_LAG_DAYS * DAY
             out["cm"][s] = _known(cm.drop(columns=["date"]).apply(pd.to_numeric, errors="coerce"), known, limit)
+    for key in ("quarterly", "coinbase", "upbit"):
+        out[key] = {}
+    for s in SYMBOLS:
+        q = _read(feature_dir / f"{s}_quarterly_1h.csv.gz")
+        if q is not None and len(q):
+            out["quarterly"][s] = front_quarter(q, limit)
+        cb = _read(feature_dir / f"coinbase_{COINBASE_PRODUCT[s]}_1h.csv.gz")
+        if cb is not None and len(cb):
+            out["coinbase"][s] = _known(cb[["close"]], cb["open_time"].to_numpy() + H, limit)["close"]
+        up = _read(feature_dir / f"upbit_{UPBIT_MARKET[s]}_1h.csv.gz")
+        if up is not None and len(up):
+            out["upbit"][s] = _known(up[["close"]], up["open_time"].to_numpy() + H, limit)["close"]
+    usdt = _read(feature_dir / "coinbase_USDT-USD_1h.csv.gz")
+    out["usdt_usd"] = None if usdt is None or not len(usdt) else _known(
+        usdt[["close"]], usdt["open_time"].to_numpy() + H, limit)["close"]
+    fg = _read(feature_dir / "fear_greed.csv.gz")
+    out["fng"] = None if fg is None or not len(fg) else _known(
+        fg[["value"]], np.array([_ms(d) for d in fg["date"]]) + FG_LAG_DAYS * DAY, limit)["value"]
+    fomc = _read(feature_dir / "fomc_days.csv.gz")
+    out["fomc"] = np.array([], dtype=np.int64) if fomc is None else np.array([_ms(d) for d in fomc["date"]],
+                                                                             dtype=np.int64)
     out["fred"] = {}
-    for series, lag in FRED_LAG_DAYS.items():
+    for series, lag in {**FRED_LAG_DAYS, **FRED_V2_LAG_DAYS}.items():
         f = _read(feature_dir / f"fred_{series}.csv.gz")
         if f is not None and len(f):
             out["fred"][series] = _known(f[["value"]], np.array([_ms(d) for d in f["date"]]) + lag * DAY,
@@ -448,8 +484,156 @@ def _chain(inputs: dict, s: str, times: np.ndarray) -> dict:
     return out
 
 
-def build(inputs: dict, asset: str, times: np.ndarray) -> pd.DataFrame:
-    """Every feature of ``FEATURES`` for ``asset`` at each decision time (index), from values known by then."""
+# -- the second version's families ---------------------------------------------------------------------------
+def front_quarter(q: pd.DataFrame, limit: int) -> pd.DataFrame:
+    """For each hour the quarterly contract nearest to expiry with at least 7 days left: its close and expiry,
+    indexed by when the hour's close is known."""
+    q = q.assign(known=q["open_time"].to_numpy(dtype=np.int64) + H)
+    q = q[(q["expiry"] - q["known"] >= 7 * DAY) & (q["known"] <= limit)].sort_values(["known", "expiry"])
+    first = q.groupby("known").first()
+    return pd.DataFrame({"close": first["close"].astype(float).to_numpy(),
+                         "expiry": first["expiry"].to_numpy(dtype=np.int64)}, index=first.index.astype(np.int64))
+
+
+def _on_days(series: pd.Series | None, times: np.ndarray, max_age: int) -> pd.Series:
+    """The last known value at every UTC midnight from the series' first one to the last decision time."""
+    if series is None or not len(series) or not len(times):
+        return pd.Series(dtype=float)
+    first = -(-int(series.index[0]) // DAY) * DAY
+    days = np.arange(first, int(times.max()) + DAY, DAY, dtype=np.int64)
+    return pd.Series(_last(series, days, max_age), index=days)
+
+
+def _change_z(series: pd.Series | None, times: np.ndarray, max_age: int, days: int = 28) -> np.ndarray:
+    """The ``days`` change, over the spread of such changes in the year before (unit-free)."""
+    d = _on_days(series, times, max_age)
+    if d.empty:
+        return np.full(len(times), np.nan)
+    chg = d - d.shift(days)
+    z = chg / chg.rolling(365, min_periods=180).std()
+    return _last(z, times, DAY)
+
+
+def _realized(hourly: pd.DataFrame, times: np.ndarray) -> dict:
+    r = pd.Series(np.log(hourly["close"].to_numpy(float)), index=hourly["available_at"].to_numpy()).diff()
+    rv24 = np.sqrt((r ** 2).rolling(24, min_periods=24).sum())
+    d = bars(hourly, 24)
+    rv_day = pd.Series(_last(rv24, d.index.to_numpy(np.int64), 0), index=d.index)
+    hl, co = np.log(d["high"] / d["low"]), np.log(d["close"] / d["open"])
+    rd = np.log(d["close"]).diff()
+    bv = (np.pi / 2) * (r.abs() * r.abs().shift()).rolling(168, min_periods=168).sum()
+    rv168 = (r ** 2).rolling(168, min_periods=168).sum()
+    down = (r.where(r < 0, 0.0) ** 2).rolling(168, min_periods=168).sum()
+    daily = {"har_rv_7": np.log(rv_day.rolling(7, min_periods=7).mean()),
+             "har_rv_30": np.log(rv_day.rolling(30, min_periods=30).mean()),
+             "parkinson_7": 0.5 * np.log((hl ** 2).rolling(7, min_periods=7).mean() / (4 * np.log(2))),
+             "garman_klass_7": 0.5 * np.log((0.5 * hl ** 2 - (2 * np.log(2) - 1) * co ** 2)
+                                            .rolling(7, min_periods=7).mean().clip(lower=1e-12)),
+             "ewma_vol": 0.5 * np.log((rd ** 2).ewm(alpha=0.06, adjust=False, min_periods=30).mean()),
+             "vol_of_rv_30": np.log(rv_day).rolling(30, min_periods=30).std()}
+    out = {k: _last(v, times, 2 * DAY) for k, v in daily.items()}
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out["rv_intraday_1d"] = _last(np.log(rv24), times, 2 * H)
+        out["jump_share_7"] = _last((1 - bv / rv168).clip(lower=0.0), times, 2 * H)
+        out["downside_share_7"] = _last(down / rv168, times, 2 * H)
+    return out
+
+
+def _liquidity(inputs: dict, times: np.ndarray) -> dict:
+    fred = inputs.get("fred", {})
+    weekly, daily_age = 10 * DAY, 6 * DAY
+    hy = fred.get("BAMLH0A0HYM2")
+    return {"walcl_chg_z": _change_z(fred.get("WALCL"), times, weekly),
+            "tga_chg_z": _change_z(fred.get("WTREGEN"), times, weekly),
+            "rrp_chg_z": _change_z(fred.get("RRPONTSYD"), times, daily_age),
+            "hy_spread": _last(hy, times, daily_age),
+            "hy_spread_chg_28": _last(hy, times, daily_age) - _last(hy, times - 28 * DAY, daily_age),
+            "us2y_chg_30": _last(fred.get("DGS2"), times, daily_age) - _last(fred.get("DGS2"), times - 30 * DAY,
+                                                                               daily_age),
+            "curve_10y2y": _last(fred.get("T10Y2Y"), times, daily_age),
+            "oil_ret_28": _log_ratio(_last(fred.get("DCOILWTICO"), times, 14 * DAY),
+                                     _last(fred.get("DCOILWTICO"), times - 28 * DAY, 14 * DAY)),
+            "usdjpy_ret_28": _log_ratio(_last(fred.get("DEXJPUS"), times, 14 * DAY),
+                                        _last(fred.get("DEXJPUS"), times - 28 * DAY, 14 * DAY))}
+
+
+def _basis_and_premiums(inputs: dict, s: str, times: np.ndarray) -> dict:
+    nan = np.full(len(times), np.nan)
+    out = {k: nan.copy() for k in ("qbasis_annual", "qbasis_chg_7", "cb_premium_1d", "cb_premium_7d",
+                                   "kimchi_dev_30", "kimchi_chg_7")}
+    perp = inputs["hourly"][s].set_index("available_at")["close"]
+    q = inputs.get("quarterly", {}).get(s)
+    if q is not None and len(q):
+        both = q.join(perp.rename("perp"), how="inner")
+        left = (both["expiry"] - both.index.to_numpy(dtype=np.int64)) / DAY
+        basis = (both["close"] / both["perp"] - 1) * 365 / left
+        out["qbasis_annual"] = _window_mean(basis, times, DAY, 20)
+        out["qbasis_chg_7"] = out["qbasis_annual"] - _window_mean(basis, times - 7 * DAY, DAY, 20)
+    spot = inputs.get("spot", {}).get(s)
+    cb = inputs.get("coinbase", {}).get(s)
+    if cb is not None and spot is not None and len(cb) and len(spot):
+        frame = pd.DataFrame({"cb": cb}).join(spot["close"].rename("spot"), how="inner")
+        usdt = inputs.get("usdt_usd")
+        rate = pd.Series(_last(usdt, frame.index.to_numpy(np.int64), 2 * H), index=frame.index).fillna(1.0) \
+            if usdt is not None else pd.Series(1.0, index=frame.index)
+        premium = frame["cb"] / (frame["spot"] * rate) - 1
+        out["cb_premium_1d"] = _window_mean(premium, times, DAY, 20)
+        out["cb_premium_7d"] = _window_mean(premium, times, 7 * DAY, 140)
+    up = inputs.get("upbit", {}).get(s)
+    if up is not None and spot is not None and len(up) and len(spot):
+        frame = pd.DataFrame({"krw": up}).join(spot["close"].rename("spot"), how="inner")
+        ratio = np.log(frame["krw"] / frame["spot"])
+        d = _on_days(ratio, times, 2 * H)
+        d = pd.Series(_window_mean(ratio, d.index.to_numpy(np.int64), DAY, 20), index=d.index)
+        out["kimchi_dev_30"] = _last(d - d.rolling(30, min_periods=30).mean(), times, DAY)
+        out["kimchi_chg_7"] = _last(d - d.shift(7), times, DAY)
+    return out
+
+
+def _sentiment_calendar_chain(inputs: dict, s: str, times: np.ndarray) -> dict:
+    fng = inputs.get("fng")
+    out = {"fng": _last(fng, times, 3 * DAY)}
+    out["fng_chg_7"] = out["fng"] - _last(fng, times - 7 * DAY, 3 * DAY)
+    stamp = pd.to_datetime(times, unit="ms", utc=True)
+    out["dow"] = stamp.dayofweek.to_numpy(dtype=float)
+
+    def next_expiry(quarterly: bool) -> np.ndarray:
+        result = np.empty(len(times))
+        for k, t in enumerate(stamp):
+            year, month = t.year, t.month
+            while True:
+                if not quarterly or month in (3, 6, 9, 12):
+                    last = pd.Timestamp(year + (month == 12), month % 12 + 1, 1, tz="UTC") - pd.Timedelta(days=1)
+                    expiry = last - pd.Timedelta(days=(last.dayofweek - 4) % 7) + pd.Timedelta(hours=8)
+                    if expiry > t:
+                        result[k] = (expiry - t) / pd.Timedelta(days=1)
+                        break
+                year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        return result
+    out["days_to_monthly_expiry"], out["days_to_quarterly_expiry"] = next_expiry(False), next_expiry(True)
+    fomc = np.sort(np.asarray(inputs.get("fomc", []), dtype=np.int64))
+    to, since = np.full(len(times), np.nan), np.full(len(times), np.nan)
+    if len(fomc):
+        statement_to, statement_since = fomc + 18 * H, fomc + 20 * H      # about 14:00 US Eastern
+        i = np.searchsorted(statement_to, times, side="right")
+        ok = i < len(fomc)
+        to[ok] = (statement_to[i[ok]] - times[ok]) / DAY
+        j = np.searchsorted(statement_since, times, side="right") - 1
+        ok = j >= 0
+        since[ok] = (times[ok] - statement_since[j[ok]]) / DAY
+    out["days_to_fomc"], out["days_since_fomc"] = to, since
+    cm = inputs["cm"].get(s)
+    mvrv = cm["CapMVRVCur"] if cm is not None and "CapMVRVCur" in cm else None
+    hashrate = cm["HashRate"].rolling(7, min_periods=7).mean() if cm is not None and "HashRate" in cm else None
+    out["mvrv"] = _last(mvrv, times, 3 * DAY)
+    out["mvrv_chg_30"] = _log_ratio(out["mvrv"], _last(mvrv, times - 30 * DAY, 3 * DAY))
+    out["hashrate_chg_30"] = _log_ratio(_last(hashrate, times, 3 * DAY), _last(hashrate, times - 30 * DAY, 3 * DAY))
+    return out
+
+
+def build(inputs: dict, asset: str, times: np.ndarray, version: int = 1) -> pd.DataFrame:
+    """Every feature of ``FEATURES`` (``FEATURES_V2`` with ``version=2``) for ``asset`` at each decision time
+    (index), from values known by then."""
     times = np.asarray(times, dtype=np.int64)
     other = SYMBOLS[1] if asset == SYMBOLS[0] else SYMBOLS[0]
     d, o = daily(inputs["hourly"][asset]), daily(inputs["hourly"][other])
@@ -464,7 +648,14 @@ def build(inputs: dict, asset: str, times: np.ndarray) -> pd.DataFrame:
     out.update(_macro(inputs, times))
     out.update(_chain(inputs, asset, times))
     out.update(_technical(inputs["hourly"][asset], times))
-    return pd.DataFrame({k: np.asarray(out[k], dtype=float) for k in FEATURES}, index=pd.Index(times))
+    names = FEATURES
+    if version >= 2:
+        out.update(_realized(inputs["hourly"][asset], times))
+        out.update(_liquidity(inputs, times))
+        out.update(_basis_and_premiums(inputs, asset, times))
+        out.update(_sentiment_calendar_chain(inputs, asset, times))
+        names = FEATURES_V2
+    return pd.DataFrame({k: np.asarray(out[k], dtype=float) for k in names}, index=pd.Index(times))
 
 
 def load_market(snapshot: Path, limit: int, *, exclude: frozenset[str] = frozenset()) -> tuple[pd.DataFrame,

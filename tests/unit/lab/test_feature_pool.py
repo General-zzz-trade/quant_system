@@ -243,3 +243,69 @@ def test_the_pool_carries_every_indicator_on_both_timeframes(inputs):
     assert set(names) <= set(fp.FEATURES)
     out = fp.build(inputs, "BTCUSDT", TIMES)
     assert all(np.isfinite(out[c]).mean() > 0.9 for c in names)
+
+
+# -- the second version (owner 2026-11-17: "还有哪些特征是需要用到", then "执行") ---------------------------------
+def v2_inputs(seed=0):
+    out = synthetic_inputs(seed)
+    rng = np.random.default_rng(seed + 100)
+    days = T0 + np.arange(N_DAYS, dtype=np.int64) * DAY
+    out["quarterly"], out["coinbase"], out["upbit"] = {}, {}, {}
+    for s in fp.SYMBOLS:
+        h = out["hourly"][s]
+        known = h["available_at"].to_numpy(dtype=np.int64)
+        perp = h["close"].to_numpy(float)
+        expiry = (known // (90 * DAY) + 1) * 90 * DAY + 8 * H                 # a contract every 90 days
+        expiry = np.where(expiry - known < 7 * DAY, expiry + 90 * DAY, expiry)
+        out["quarterly"][s] = pd.DataFrame({"close": perp * (1 + 0.1 * (expiry - known) / DAY / 365),
+                                            "expiry": expiry}, index=pd.Index(known))
+        spot = out["spot"][s]["close"].to_numpy(float)
+        out["coinbase"][s] = _series(known, spot * 1.002)
+        out["upbit"][s] = _series(known, spot * 1300 * (1 + 0.02 * np.sin(np.arange(len(h)) / 500)))
+    out["usdt_usd"] = _series(out["hourly"]["BTCUSDT"]["available_at"], np.ones(len(out["hourly"]["BTCUSDT"])))
+    out["fng"] = _series(days + DAY, rng.uniform(10, 90, N_DAYS))
+    out["fomc"] = T0 + np.arange(20, N_DAYS + 90, 45, dtype=np.int64) * DAY      # the schedule runs ahead
+    weekday = days[pd.to_datetime(days, unit="ms").dayofweek < 5]
+    for series, lag in fp.FRED_V2_LAG_DAYS.items():
+        out["fred"][series] = _series(weekday + lag * DAY, 50 + np.cumsum(rng.normal(0, 0.5, len(weekday))))
+    for s in fp.SYMBOLS:
+        out["cm"][s] = out["cm"][s].assign(CapMVRVCur=rng.uniform(1, 3, N_DAYS), HashRate=rng.uniform(1e8, 2e8, N_DAYS))
+    return out
+
+
+@pytest.fixture(scope="module")
+def inputs2():
+    return v2_inputs()
+
+
+@pytest.mark.parametrize("asset", fp.SYMBOLS)
+def test_every_second_version_feature_has_values(inputs2, asset):
+    out = fp.build(inputs2, asset, TIMES, version=2)
+    assert list(out.columns) == list(fp.FEATURES_V2)
+    assert [c for c in fp.V2 if not np.isfinite(out[c]).mean() > 0.9] == []
+    assert list(fp.build(inputs2, asset, TIMES).columns) == list(fp.FEATURES)       # the first version unchanged
+
+
+@pytest.mark.parametrize("asset", fp.SYMBOLS)
+def test_the_second_version_reads_nothing_before_it_is_known(inputs2, asset):
+    cuts = [int(TIMES[10]) + 7 * H, int(TIMES[40]), int(TIMES[70]) + 13 * H]
+    assert violations(lambda m: fp.build(m, asset, TIMES, version=2), inputs2, cuts) == []
+
+
+def test_second_version_values_by_hand(inputs2):
+    t = int(TIMES[30])
+    row = fp.build(inputs2, "BTCUSDT", np.array([t]), version=2).iloc[0]
+    assert row["qbasis_annual"] == pytest.approx(0.1)                       # futures priced 10 % a year above
+    assert row["cb_premium_1d"] == pytest.approx(0.002)
+    assert row["dow"] == pd.Timestamp(t, unit="ms").dayofweek
+    nxt = inputs2["fomc"][inputs2["fomc"] + 18 * H > t].min()
+    assert row["days_to_fomc"] == pytest.approx((nxt + 18 * H - t) / DAY)
+    assert 0 < row["days_to_monthly_expiry"] <= 31 and row["days_to_monthly_expiry"] <= row["days_to_quarterly_expiry"]
+
+
+def test_the_front_quarter_is_the_nearest_with_a_week_left():
+    q = pd.DataFrame({"open_time": [T0, T0, T0 + H, T0 + H],
+                      "expiry": [T0 + 5 * DAY, T0 + 90 * DAY, T0 + 8 * DAY, T0 + 90 * DAY],
+                      "close": [1.0, 2.0, 3.0, 4.0], "contract": ["a", "b", "c", "d"]})
+    front = fp.front_quarter(q, T0 + 10 * H)
+    assert list(front.index) == [T0 + H, T0 + 2 * H] and list(front["close"]) == [2.0, 3.0]
