@@ -90,3 +90,10 @@ def test_missing_features_are_filled_from_the_training_rows_only():
     x = pd.DataFrame({"a": np.r_[np.full(365, 1.0), np.full(365, np.nan)]}, index=index)
     filled = st.fill(x.iloc[:365], x.iloc[365:])
     assert (filled[1]["a"] == 1.0).all()                                     # the training median, not the test's
+
+
+def test_an_infinite_feature_value_is_treated_as_missing():
+    train = pd.DataFrame({"a": [1.0, 2.0, np.inf, 3.0]})
+    test = pd.DataFrame({"a": [-np.inf, 5.0]})
+    filled_train, filled_test = st.fill(train, test)
+    assert filled_train["a"].tolist() == [1.0, 2.0, 2.0, 3.0] and filled_test["a"].tolist() == [2.0, 5.0]

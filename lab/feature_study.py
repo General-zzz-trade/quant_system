@@ -72,7 +72,9 @@ def year_folds(index: pd.Index, label_end: pd.Series, years: Sequence[int]) -> l
 
 
 def fill(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Missing values filled with the training rows' medians (0 where a column has none)."""
+    """Missing values filled with the training rows' medians (0 where a column has none); an infinite value is
+    missing."""
+    train, test = train.replace([np.inf, -np.inf], np.nan), test.replace([np.inf, -np.inf], np.nan)
     medians = train.median().fillna(0.0)
     return train.fillna(medians), test.fillna(medians)
 
