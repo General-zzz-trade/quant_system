@@ -41,6 +41,7 @@ from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
+from trading.domain.issues import AFTER_STOP_PAUSE
 from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.strategy.base import Strategy
 from trading.domain.rebalance import Lot
@@ -174,7 +175,8 @@ def strategy_positions(ledger: SqliteOrderJournal, owners: list[str]) -> list[tu
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
                        policy: ModePolicy = EXECUTION, paper: PaperParts | None = None,
-                       strategy: Strategy | None = None, allow_short: bool | None = None) -> ExecutionWiring:
+                       strategy: Strategy | None = None, allow_short: bool | None = None,
+                       after_stop: str = AFTER_STOP_PAUSE) -> ExecutionWiring:
     """The sessions of either mode: paper differs only by ``policy`` and the ``paper`` parts it needs."""
     if (paper is None) != (policy.sizing_equity == "account_share" and policy.limiter_clock == "monotonic"):
         raise ValueError("per-symbol sizing and the bar-time gate clock need the paper parts, and only they")
@@ -265,6 +267,7 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else (capped or equity)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation, strategy=strategy, allow_short=allow_short,
+                                after_stop=after_stop,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
                                                          sizing, Flattener(symbol, executor, account, journal, clock)))
         session.restore_pending()
