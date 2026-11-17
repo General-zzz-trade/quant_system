@@ -5332,6 +5332,10 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
     - `test_exposure_cap_boundary` 原来用 `MAX_TOTAL_LEVERAGE` 当上限，数字按 3 倍写；现在显式传入 3，另加 2 组 10 倍的边界；
     - `test_configured_leverage_can_only_lower_the_cap` 的 "3.0001" 改为 "10.0001"。
   - `tests/unit/tooling/test_account_settings.py`：`STRATEGY_LEVERAGE="4"`（原来超过上限）改为 "11"。
+  - `tests/unit/trading/test_target_composition.py::test_the_entry_limits_reach_the_drawdown_guard_and_the_exposure_cap`：
+    - 原来设 `BINANCE_MAX_LEVERAGE="9"`（注释"超过硬上限，按上限算"），断言 `max_leverage == D("3")`；
+    - 现在设 "12"，断言 `== D("10")`。
+    - 第一次推送时我漏改了它（本地没跑这个文件），被 CI 第 2 分片发现。
 - **新增测试**：`tests/unit/trading/test_leverage_cap_ten.py`，15 个：
   - 上限是 10，默认值不变（包括交易所杠杆上限 10、累计止损上限 15%）；
   - 账户上限最多 10（5 个参数）；

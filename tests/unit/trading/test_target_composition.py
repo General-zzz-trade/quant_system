@@ -62,11 +62,11 @@ def test_an_execution_session_runs_on_the_new_executor_with_plain_order_intents(
 def test_the_entry_limits_reach_the_drawdown_guard_and_the_exposure_cap(tmp_path, monkeypatch):
     monkeypatch.setenv("MAX_DAILY_DRAWDOWN_PCT", "2")
     monkeypatch.setenv("MAX_WEEKLY_DRAWDOWN_PCT", "6")
-    monkeypatch.setenv("BINANCE_MAX_LEVERAGE", "9")               # above the hard cap: the cap wins
+    monkeypatch.setenv("BINANCE_MAX_LEVERAGE", "12")     # above the hard cap (10 since 2026-11-17): the cap wins
     _, runtime = _start(tmp_path)
     assert runtime.drawdown.limits == {"day": 2.0, "week": 6.0}
     gate = runtime.sessions["BTCUSDT"].gate.inner
-    assert gate._portfolio_reader.max_leverage == D("3") and gate._venue == "binance"
+    assert gate._portfolio_reader.max_leverage == D("10") and gate._venue == "binance"
     assert gate._kill_switch is runtime.kill and gate._drawdown_guard is runtime.drawdown
 
 
