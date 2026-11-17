@@ -71,6 +71,16 @@ class SqliteOrderJournal:
             row = db.execute(query, params).fetchone()
         return json.loads(row[0]) if row else None
 
+    def entry_filled_since(self, owner: str, since: float) -> bool:
+        """Whether an entry order (not reducing) of the owner created after ``since`` (seconds) has an exchange fill.
+        An order is created just before it is sent, so its fills came after ``since`` (tech lead 2026-11-17: an
+        entry after a stop ends the wait for the strategy's reset, also after a restart)."""
+        with self.connect() as db:
+            row = db.execute("SELECT 1 FROM submissions s WHERE s.scope=? AND s.owner=? AND s.reducing=0 AND "
+                             "s.created_at > ? AND EXISTS (SELECT 1 FROM execution_fills f WHERE f.scope=s.scope "
+                             "AND f.intent_id=s.intent_id) LIMIT 1", (self.scope, owner, float(since))).fetchone()
+        return row is not None
+
     def first_fill_at(self, owner: str) -> float | None:
         """When the owner's ledger first held something (seconds): the creation time of its earliest order with an
         exchange fill, or of a position a person put into its ledger, whichever is earlier; None if neither exists.

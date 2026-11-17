@@ -260,7 +260,7 @@ def _strategy(identity: dict[str, Any]) -> tuple[Strategy, StrategySpec]:
     """The strategy a paper record names (``TargetSpec.identity``) and its execution settings: the overlay's record,
     or a registered strategy's name, parameters and settings (R7d)."""
     if "strategy" not in identity:
-        spec = StrategySpec.from_record({k: v for k, v in identity.items() if k != "allow_short"})
+        spec = StrategySpec.from_record({k: v for k, v in identity.items() if k not in ("allow_short", "after_stop")})
         return OverlayStrategy(spec), spec
     name = identity["strategy"]
     if name not in STRATEGIES or name not in PARAMS:

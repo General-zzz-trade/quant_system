@@ -51,6 +51,10 @@ _BLOCK = frozenset({Effect.BLOCK_SYMBOL_ENTRIES})
 # How long a stop's pause (PAUSE_SYMBOL of STOP_TRIGGERED or STOP_BREACHED) lasts before it ends by itself (tech lead
 # 2026-11-16; the research lab's LiveTerms uses the same value). A person can release it earlier.
 STOP_PAUSE_SECONDS = 4 * 3600
+# What follows a stop, as the signed spec says (tech lead 2026-11-17): the pause alone, or the pause and then waiting,
+# while flat, until the strategy's target has been 0 since the stop. The second is only ever stricter.
+AFTER_STOP_PAUSE, AFTER_STOP_PAUSE_THEN_RESET = "pause", "pause_then_reset"
+AFTER_STOP_RULES = (AFTER_STOP_PAUSE, AFTER_STOP_PAUSE_THEN_RESET)
 
 
 def pause_end_text(ends_at: float) -> str:
