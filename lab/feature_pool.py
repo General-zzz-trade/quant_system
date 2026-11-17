@@ -56,6 +56,12 @@ FEATURES = (
     "stable_chg_7", "stable_chg_30", "exch_netflow_7", "exch_supply_chg_30", "active_addr_z_90", "tx_z_90",
 )
 BREADTH = ("breadth_ma30", "dispersion_7", "funding_pos_share", "alt_minus_btc_30")
+# Technical indicators on 4-hour and daily bars (owner 2026-11-17: "下一步如何去收集特征池包括技术分析指标", "执行")
+TECHNICAL = ("rsi", "macd_hist", "adx", "di_diff", "aroon_osc", "ichimoku_dist", "donchian_20", "donchian_55",
+             "ma_stack", "psar_dir", "stoch_k", "stoch_d", "cci", "bb_pctb", "bb_width", "atr_pct", "squeeze_on",
+             "squeeze_bars", "bb_kc_ratio", "chop", "obv_slope", "mfi", "vwap_dev", "vol_rel", "hurst")
+TIMEFRAMES = {"4h": 4, "1d": 24}
+FEATURES = FEATURES + tuple(f"ta_{n}_{tf}" for tf in TIMEFRAMES for n in TECHNICAL)
 
 
 # -- loading ---------------------------------------------------------------------------------------------------
@@ -172,6 +178,135 @@ def daily(hourly: pd.DataFrame) -> pd.DataFrame:
                         "hours": g["close"].count()})
     out = out[out["hours"] == 24]
     out.index = (out.index.to_numpy(dtype=np.int64) + 1) * DAY
+    return out
+
+
+def bars(hourly: pd.DataFrame, hours: int) -> pd.DataFrame:
+    """Bars of ``hours`` hours (aligned to UTC midnight), complete ones only, indexed by their end (when they are
+    known); volume is the quote volume."""
+    group = hourly["open_time"] // (hours * H)
+    g = hourly.groupby(group)
+    out = pd.DataFrame({"open": g["open"].first(), "high": g["high"].max(), "low": g["low"].min(),
+                        "close": g["close"].last(), "volume": g["quote_volume"].sum(), "n": g["close"].count()})
+    out = out[out["n"] == hours].drop(columns="n")
+    out.index = (out.index.to_numpy(dtype=np.int64) + 1) * hours * H
+    return out
+
+
+def _wilder(x: pd.Series, n: int) -> pd.Series:
+    return x.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+
+
+def _psar(high: np.ndarray, low: np.ndarray, step: float = 0.02, top: float = 0.2) -> np.ndarray:
+    """Parabolic SAR direction (+1 rising, -1 falling), the standard rule."""
+    n = len(high)
+    out = np.zeros(n)
+    if n < 2:
+        return out
+    up, af, ep, sar = True, step, high[0], low[0]
+    for i in range(1, n):
+        sar = sar + af * (ep - sar)
+        if up:
+            sar = min(sar, low[i - 1], low[i - 2] if i > 1 else low[i - 1])
+            if low[i] < sar:
+                up, sar, ep, af = False, ep, low[i], step
+            elif high[i] > ep:
+                ep, af = high[i], min(af + step, top)
+        else:
+            sar = max(sar, high[i - 1], high[i - 2] if i > 1 else high[i - 1])
+            if high[i] > sar:
+                up, sar, ep, af = True, ep, high[i], step
+            elif low[i] < ep:
+                ep, af = low[i], min(af + step, top)
+        out[i] = 1.0 if up else -1.0
+    return out
+
+
+def _hurst(close: pd.Series, window: int = 100, lags: tuple[int, ...] = tuple(range(2, 17))) -> pd.Series:
+    """Rolling Hurst exponent: the slope of log(spread of k-bar log changes) on log(k), over ``window`` bars."""
+    logp = np.log(close)
+    x = np.log(np.array(lags, dtype=float))
+    x = x - x.mean()
+    ys = pd.concat([np.log((logp - logp.shift(k)).rolling(window, min_periods=window).std()) for k in lags], axis=1)
+    return pd.Series((ys.sub(ys.mean(axis=1), axis=0) * x).sum(axis=1, min_count=len(lags)) / (x ** 2).sum(),
+                     index=close.index)
+
+
+def technical(b: pd.DataFrame) -> dict[str, pd.Series]:
+    """``TECHNICAL`` on one series of bars (open, high, low, close, volume; index: when each bar is known), each
+    value from that bar and the ones before it."""
+    o, h, low, c, v = b["open"], b["high"], b["low"], b["close"], b["volume"]
+    out: dict[str, pd.Series] = {}
+    gain, loss = c.diff().clip(lower=0), (-c.diff()).clip(lower=0)
+    avg_gain, avg_loss = _wilder(gain, 14), _wilder(loss, 14)
+    out["rsi"] = (100 * avg_gain / (avg_gain + avg_loss)).where(avg_gain + avg_loss > 0, 50.0)
+    macd = c.ewm(span=12, adjust=False, min_periods=26).mean() - c.ewm(span=26, adjust=False, min_periods=26).mean()
+    out["macd_hist"] = (macd - macd.ewm(span=9, adjust=False, min_periods=9).mean()) / c
+    tr = pd.concat([h - low, (h - c.shift()).abs(), (low - c.shift()).abs()], axis=1).max(axis=1)
+    up_move, down_move = h.diff(), -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    atr14 = _wilder(tr, 14)
+    plus_di, minus_di = 100 * _wilder(plus_dm, 14) / atr14, 100 * _wilder(minus_dm, 14) / atr14
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    out["adx"], out["di_diff"] = _wilder(dx, 14), plus_di - minus_di
+    since_high = h.rolling(26, min_periods=26).apply(lambda w: 25 - int(np.argmax(w)), raw=True)
+    since_low = low.rolling(26, min_periods=26).apply(lambda w: 25 - int(np.argmin(w)), raw=True)
+    out["aroon_osc"] = 100 * (since_low - since_high) / 25
+
+    def mid(n: int) -> pd.Series:
+        return (h.rolling(n, min_periods=n).max() + low.rolling(n, min_periods=n).min()) / 2
+    span_a, span_b = ((mid(9) + mid(26)) / 2).shift(26), mid(52).shift(26)
+    cloud_top, cloud_bottom = np.maximum(span_a, span_b), np.minimum(span_a, span_b)
+    dist = pd.Series(np.where(c > cloud_top, (c - cloud_top) / c, np.where(c < cloud_bottom, (c - cloud_bottom) / c,
+                                                                          0.0)), index=c.index)
+    out["ichimoku_dist"] = dist.where(cloud_top.notna())
+    for n in (20, 55):
+        hi, lo = h.rolling(n, min_periods=n).max(), low.rolling(n, min_periods=n).min()
+        out[f"donchian_{n}"] = (c - lo) / (hi - lo)
+    ma20, ma50, ma200 = (c.rolling(n, min_periods=n).mean() for n in (20, 50, 200))
+    stack = np.where((ma20 > ma50) & (ma50 > ma200), 1.0, np.where((ma20 < ma50) & (ma50 < ma200), -1.0, 0.0))
+    out["ma_stack"] = pd.Series(stack, index=c.index).where(ma200.notna())
+    out["psar_dir"] = pd.Series(_psar(h.to_numpy(float), low.to_numpy(float)), index=c.index).where(
+        pd.Series(np.arange(len(c)) >= 20, index=c.index))
+    hi14, lo14 = h.rolling(14, min_periods=14).max(), low.rolling(14, min_periods=14).min()
+    out["stoch_k"] = (c - lo14) / (hi14 - lo14)
+    out["stoch_d"] = out["stoch_k"].rolling(3, min_periods=3).mean()
+    tp = (h + low + c) / 3
+    mean_dev = tp.rolling(20, min_periods=20).apply(lambda w: np.mean(np.abs(w - w.mean())), raw=True)
+    out["cci"] = (tp - tp.rolling(20, min_periods=20).mean()) / (0.015 * mean_dev)
+    mid20, sd20 = c.rolling(20, min_periods=20).mean(), c.rolling(20, min_periods=20).std(ddof=0)
+    out["bb_pctb"] = (c - (mid20 - 2 * sd20)) / (4 * sd20)
+    out["bb_width"] = 4 * sd20 / mid20
+    out["atr_pct"] = atr14 / c
+    atr20 = _wilder(tr, 20)
+    kc_width = 2 * 1.5 * atr20
+    out["bb_kc_ratio"] = (4 * sd20) / kc_width
+    squeeze = (out["bb_kc_ratio"] < 1).astype(float).where(out["bb_kc_ratio"].notna())
+    run = squeeze.fillna(0.0).groupby((squeeze.fillna(0.0) != squeeze.fillna(0.0).shift()).cumsum()).cumsum()
+    out["squeeze_on"], out["squeeze_bars"] = squeeze, run.where(squeeze.notna())
+    span14 = h.rolling(14, min_periods=14).max() - low.rolling(14, min_periods=14).min()
+    out["chop"] = 100 * np.log10(tr.rolling(14, min_periods=14).sum() / span14) / np.log10(14)
+    obv = (np.sign(c.diff()).fillna(0.0) * v).cumsum()
+    out["obv_slope"] = (obv - obv.shift(20)) / v.rolling(20, min_periods=20).sum()
+    flow = tp * v
+    pos = flow.where(tp.diff() > 0, 0.0).rolling(14, min_periods=14).sum()
+    neg = flow.where(tp.diff() < 0, 0.0).rolling(14, min_periods=14).sum()
+    out["mfi"] = (100 * pos / (pos + neg)).where(pos + neg > 0, 50.0)
+    vwap = (tp * v).rolling(20, min_periods=20).sum() / v.rolling(20, min_periods=20).sum()
+    out["vwap_dev"] = c / vwap - 1
+    out["vol_rel"] = v / v.rolling(20, min_periods=20).mean()
+    out["hurst"] = _hurst(c)
+    del o
+    return out
+
+
+def _technical(hourly: pd.DataFrame, times: np.ndarray) -> dict:
+    out = {}
+    for tf, hours in TIMEFRAMES.items():
+        ta = technical(bars(hourly, hours))
+        for name in TECHNICAL:
+            out[f"ta_{name}_{tf}"] = _last(ta[name], times, 2 * hours * H)
     return out
 
 
@@ -328,6 +463,7 @@ def build(inputs: dict, asset: str, times: np.ndarray) -> pd.DataFrame:
     out.update({k: _last(breadth[k] if breadth is not None else None, times, 2 * DAY) for k in BREADTH})
     out.update(_macro(inputs, times))
     out.update(_chain(inputs, asset, times))
+    out.update(_technical(inputs["hourly"][asset], times))
     return pd.DataFrame({k: np.asarray(out[k], dtype=float) for k in FEATURES}, index=pd.Index(times))
 
 

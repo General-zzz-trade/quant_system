@@ -163,3 +163,83 @@ def test_the_market_panel_keeps_complete_days_before_the_limit_and_leaves_out_wh
     assert closes.loc[T0 + DAY, "BTCUSDT"] == 123.0
     assert funding.loc[T0 + 3 * DAY, "BTCUSDT"] == pytest.approx(0.0001)
     assert np.isnan(funding.loc[T0 + DAY, "BTCUSDT"])                      # fewer than 9 settlements by then
+
+
+# -- technical indicators (owner 2026-11-17: "下一步如何去收集特征池包括技术分析指标", "执行") -------------------
+def _bars_of(close, high=None, low=None, volume=None, step=DAY):
+    close = np.asarray(close, dtype=float)
+    high = close * 1.01 if high is None else np.asarray(high, dtype=float)
+    low = close * 0.99 if low is None else np.asarray(low, dtype=float)
+    volume = np.full(len(close), 1000.0) if volume is None else np.asarray(volume, dtype=float)
+    index = pd.Index(T0 + np.arange(1, len(close) + 1, dtype=np.int64) * step)
+    return pd.DataFrame({"open": np.r_[close[0], close[:-1]], "high": high, "low": low, "close": close,
+                         "volume": volume}, index=index)
+
+
+def test_rsi_stochastic_donchian_and_bollinger_by_hand():
+    up = _bars_of(100 + np.arange(80.0))
+    ta = fp.technical(up)
+    assert ta["rsi"].iloc[-1] == pytest.approx(100.0)                     # only rises
+    assert ta["stoch_k"].iloc[-1] == pytest.approx((up["close"].iloc[-1] - up["low"].iloc[-14:].min())
+                                                   / (up["high"].iloc[-14:].max() - up["low"].iloc[-14:].min()))
+    assert ta["donchian_20"].iloc[-1] == pytest.approx((up["close"].iloc[-1] - up["low"].iloc[-20:].min())
+                                                       / (up["high"].iloc[-20:].max() - up["low"].iloc[-20:].min()))
+    swing = _bars_of(100 + np.where(np.arange(80) % 2, 1.0, -1.0))
+    assert fp.technical(swing)["rsi"].iloc[-1] == pytest.approx(50.0, abs=3.0)
+    c = up["close"].iloc[-20:]
+    mid, sd = c.mean(), c.std(ddof=0)
+    assert ta["bb_pctb"].iloc[-1] == pytest.approx((c.iloc[-1] - (mid - 2 * sd)) / (4 * sd))
+    assert ta["bb_width"].iloc[-1] == pytest.approx(4 * sd / mid)
+
+
+def test_trend_indicators_point_the_way_of_a_steady_trend():
+    rising = fp.technical(_bars_of(100 * 1.01 ** np.arange(260)))
+    falling = fp.technical(_bars_of(100 * 0.99 ** np.arange(260)))
+    for name in ("di_diff", "aroon_osc", "ma_stack", "psar_dir"):
+        assert rising[name].iloc[-1] > 0 > falling[name].iloc[-1], name
+    k = np.arange(260.0)                                                   # the MACD histogram is acceleration
+    assert fp.technical(_bars_of(100 + 0.01 * k ** 2))["macd_hist"].iloc[-1] > 0
+    assert fp.technical(_bars_of(100 + 20 * np.sqrt(k)))["macd_hist"].iloc[-1] < 0
+    assert rising["adx"].iloc[-1] > 40 and rising["ichimoku_dist"].iloc[-1] > 0 > falling["ichimoku_dist"].iloc[-1]
+    assert rising["chop"].iloc[-1] < 40                                    # trending, not choppy
+
+
+def test_volatility_squeeze_and_choppiness():
+    rng = np.random.default_rng(3)
+    n = 200
+    close = 100 + np.cumsum(rng.normal(0, 2, n))
+    close[120:] = close[119] + rng.normal(0, 0.05, n - 120)               # closes go quiet ...
+    high, low = close + 3.0, close - 3.0                                    # ... while the bars stay wide
+    ta = fp.technical(_bars_of(close, high, low))
+    assert ta["squeeze_on"].iloc[-1] == 1.0 and ta["squeeze_bars"].iloc[-1] >= 50
+    assert ta["bb_kc_ratio"].iloc[-1] < 1.0 and ta["chop"].iloc[-1] > 60
+    assert ta["atr_pct"].iloc[-1] == pytest.approx(6.0 / close[-1], rel=0.2)
+
+
+def test_volume_indicators_and_hurst():
+    rng = np.random.default_rng(4)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, 400)))
+    ta = fp.technical(_bars_of(close, volume=rng.uniform(500, 1500, 400)))
+    assert -1 <= ta["obv_slope"].min() and ta["obv_slope"].max() <= 1
+    assert 0 <= ta["mfi"].min() and ta["mfi"].max() <= 100
+    assert abs(ta["hurst"].iloc[-150:].mean() - 0.5) < 0.15                # a random walk
+    trend = fp.technical(_bars_of(100 + np.arange(400.0) + rng.normal(0, 0.1, 400)))
+    assert trend["hurst"].iloc[-1] > 0.8                                    # persistent
+
+
+def test_bars_of_four_hours_are_complete_and_known_at_their_end():
+    h = synthetic_inputs(5)["hourly"]["BTCUSDT"]
+    bars = fp.bars(h, 4)
+    assert (bars.index.to_numpy() % (4 * H) == 0).all()
+    first = h.iloc[:4]
+    assert bars["high"].iloc[0] == first["high"].max() and bars["close"].iloc[0] == first["close"].iloc[-1]
+    assert bars.index[0] == first["available_at"].iloc[-1]
+    partial = fp.bars(h.iloc[:6], 4)
+    assert len(partial) == 1                                                # the 2 hours of the next bar are not one
+
+
+def test_the_pool_carries_every_indicator_on_both_timeframes(inputs):
+    names = [f"ta_{n}_{tf}" for tf in ("4h", "1d") for n in fp.TECHNICAL]
+    assert set(names) <= set(fp.FEATURES)
+    out = fp.build(inputs, "BTCUSDT", TIMES)
+    assert all(np.isfinite(out[c]).mean() > 0.9 for c in names)

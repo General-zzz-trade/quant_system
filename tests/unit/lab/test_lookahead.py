@@ -221,6 +221,11 @@ CASES = [
     ("feature_pool.build.eth", fpool.build, lambda m: fpool.build(_pool_inputs(m), ETH, POOL_TIMES)),
     ("feature_pool.daily", fpool.daily, lambda m: fpool.daily(_pool_inputs(m)["hourly"][ETH])),
     ("feature_pool.market_breadth", fpool.market_breadth, lambda m: _pool_inputs(m)["breadth"]),
+    ("feature_pool.bars.4h", fpool.bars, lambda m: fpool.bars(_pool_inputs(m)["hourly"][BTC], 4)),
+    ("feature_pool.technical.4h", fpool.technical,
+     lambda m: fpool.technical(fpool.bars(_pool_inputs(m)["hourly"][ETH], 4))),
+    ("feature_pool.technical.1d", fpool.technical,
+     lambda m: fpool.technical(fpool.bars(_pool_inputs(m)["hourly"][BTC], 24))),
 ]
 
 # -- the registry ---------------------------------------------------------------------------------------------------
