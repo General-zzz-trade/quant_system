@@ -120,6 +120,9 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
+- **Research scope (owner 2026-11-17, evening):** "我要求不只做BTC和ETH，全市场的永续合约USDT都可以做": research may use every
+  USDT perpetual (the whole-market panel study). The mainnet limit below stays until a strategy passes and the owner
+  approves the runtime change (dynamic universe; specs list at most 10 symbols today).
 - **Venue:** Binance USDT-margined perpetuals, **BTCUSDT and ETHUSDT only** again since 2026-11-17 (owner: "目前如何去改成做
   BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted, in the lab too (`lab.LIVE_BTC_ETH`);
   delivery and USDC-margined contracts are not used). Mainnet refuses to start with a spec listing any other symbol (`MAINNET_SYMBOLS` in `trading/domain/strategy/spec.py`,
