@@ -58,8 +58,8 @@
  [
   "no reread from the first fill",
   "trading/application/equity.py",
-  "        start = since_ms if covered is None or covered[0] > since_ms else",
-  "        start = since_ms if covered is None else",
+  "        if covered is None or covered[0] > since_ms:\n",
+  "        if covered is None:\n",
   "tests/unit/trading/test_funding_store.py"
  ],
  [
@@ -100,8 +100,8 @@
  [
   "manifest not updated",
   "trading/infrastructure/state_dir.py",
-  "        manifest[\"state_db_version\"] = schema.VERSION\n",
-  "",
+  "kept=kept.name)\n        manifest[\"state_db_version\"] = schema.VERSION\n",
+  "kept=kept.name)\n",
   "tests/characterization/test_state_migrate.py"
  ],
  [

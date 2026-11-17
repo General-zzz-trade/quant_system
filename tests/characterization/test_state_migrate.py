@@ -137,3 +137,32 @@ def test_restoring_an_old_backup_into_an_old_directory_records_the_new_version(o
     assert code == 0, out
     assert json.loads((old / managed.MANIFEST).read_text())["state_db_version"] == 2
     managed.verify(old, SCOPE)
+
+
+# -- the re-audit of PR #147 (2026-11-17) -----------------------------------------------------------------------
+def test_a_version_1_backup_that_also_lost_a_table_is_refused(tmp_path):
+    """Mutant X6: only a snapshot whose one problem is its version is migrated in its copy; a broken one is refused."""
+    from datetime import datetime, timezone
+    state = tmp_path / "state"
+    assert managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(), env=ENV) == 0
+    snapshot = state_backup.backup(state, tmp_path / "backups", now=datetime.fromtimestamp(NOW - 3600, timezone.utc))
+    _to_version_1(snapshot)
+    with sqlite3.connect(snapshot) as db:
+        db.execute("DROP TABLE entry_pauses")
+    (state / schema.STATE_DB).write_bytes(b"")
+    code, out = _restore(state, snapshot)
+    assert code == 2 and "not usable" in out
+    assert (state / schema.STATE_DB).read_bytes() == b""                 # nothing was put back
+
+
+def test_a_version_1_database_that_also_lost_a_table_is_restored_not_sent_to_migrate(old, tmp_path):
+    """Mutant X7: migrate refuses such a database (another problem), so the restore must take it."""
+    from datetime import datetime, timezone
+    with sqlite3.connect(old / schema.STATE_DB) as db:
+        db.execute("DROP TABLE entry_pauses")
+    other = tmp_path / "other"
+    assert managed.main(["--state-dir", str(other), "init"], stdout=io.StringIO(), env=ENV) == 0
+    snapshot = state_backup.backup(other, tmp_path / "backups", now=datetime.fromtimestamp(NOW - 3600, timezone.utc))
+    code, out = _restore(old, snapshot)
+    assert code == 0, out
+    managed.verify(old, SCOPE)

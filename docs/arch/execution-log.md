@@ -4837,6 +4837,48 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store_audit_fixes.json` 原来 10 个，9 个被杀。
   存活的"`_stored()` 里不检查断档"是等价变异：`last_known()` 在调用它之前已经检查，刷新时读取会先失败。
   所以删掉这处重复的检查，`_stored()` 的说明写明原因，变异文件去掉这一条。剩下 9 个全部被杀，9/9。
+
+### 复审（PR #147，089188c0，2026-11-17）和修复
+
+另一位审计员在自己的克隆里复审 089188c0：没有阻塞问题，两项应修，五项轻微。逐项处理如下。
+
+- **应修 1：87 到 88 天的断档，仍把不完整的总数当成已知。**
+  - 原因：每次读取从库里最后一行之前 24 小时开始，币安拒绝 88 天以前的起点；而 `_continuable` 看的是最后一行的时间。
+    最后一行在 87 到 88 天前时，读取永远失败，`last_known()` 却还返回库里的旧总数。
+  - 审计员跑出来：程序跑了 5 天，停了 87.5 天，其间付了 −299；重启后 `last_known()` 是 −3（真实 −302）。
+  - 修复：读取起点只在一个地方算（`StrategyFunding._start`），`_continuable` 用同一个起点判断。
+    起点早于 88 天就算未知，不再看最后一行的时间。重叠从不早于第一笔成交。
+  - 新增测试（`tests/unit/trading/test_funding_store.py`）：
+    - `test_a_gap_the_24_hour_overlap_cannot_reach_back_across_is_unknown`：跑 5 天、停 87.5 天，基数和亏损停止线都是未知。改代码之前跑过，`last_known()` 返回 −3，失败原因正确。
+    - `test_a_gap_the_overlap_still_reaches_back_across_is_read_whole`：停 86.9 天，读回完整的 −302。
+    - `test_a_read_that_starts_at_the_first_fill_within_88_days_is_read_whole`：只跑了 10 分钟就停 87.5 天，起点是第一笔成交（88 天以内），读回完整的 −302。
+- **应修 2：没有测试覆盖连续运行超过 88 天时亏损停止线的总数。**
+  - 补 `test_months_of_running_keep_the_loss_stop_s_total_known`：每 7 小时刷新、跑 120 天，运行中的 `last_known()` 和重启后（交易所连不上）的都等于完整总数。
+- **轻微：**
+  - 3（没改，记下）：任何一个品种的资金费读取一直报错，所有品种的覆盖都不前进，88 天后亏损停止线一直是未知，只能换新的状态目录。
+    这是失败即关闭，影响的是可用性，不是安全。币安对已下架品种怎么回答没有核对过。
+  - 4：变异 "manifest not updated" 在恢复修复之后匹配到两处。改成连同上一行一起匹配，只对准迁移那一处。
+  - 5：审计员的存活变异 X6、X7、X2：
+    - X6：损坏的第 1 版备份被当成"旧版本"接受。补 `test_a_version_1_backup_that_also_lost_a_table_is_refused`（tests/characterization/test_state_migrate.py）。
+    - X7：损坏的第 1 版数据库既不能迁移，也不能恢复。补 `test_a_version_1_database_that_also_lost_a_table_is_restored_not_sent_to_migrate`。
+    - X2（88 天改成 89 天）：由上面 87.5 天的测试抓住。
+    - X4、X8、X9：审计员也认为实际等价（关闭连接会回滚），不补。
+  - 6：上一轮的记录漏了一处断言改动。断档测试里把"一直在跑的进程"的 `funding.current()` 换成了重启后的 `again.current()`：
+    - 原：`with pytest.raises(RuntimeError, match="funding"): funding.current()`
+    - 新：`with pytest.raises(RuntimeError, match="funding"): again.current()`
+  - 7：`migrate` 不要求理由和确认，留着（同上一轮）。
+- **两处旧变异跟着代码改**：
+  - "no reread from the first fill"（`funding_store.json`）：起点挪进 `_start` 之后改为对准 `_start` 里的判断；
+  - "gap never unknown"（`funding_store_audit_fixes.json`）：改为对准 `_continuable` 的新判断。
+  - 两个都被杀。
+- **变异自检**【实际运行结果】：
+  - 新文件 `scripts/dev/mutants/funding_store_reaudit.json` 6 个，6/6 被杀。
+  - `funding_store.json` 17 个、`funding_store_audit_fixes.json` 9 个：两处改过的各自重跑，都被杀；其余在这一轮也都被杀。
+- **已有测试的改动**：没有（新增的都是新测试）。
+- **本地**【实际运行结果】：
+  - 资金费存储、亏损停止线、仓位基数、迁移、恢复的测试通过；
+  - ruff 通过，`mypy trading/`（98 个文件）通过。
+
 ## 试运行前一键检查（2026-11-17，轻流程：只读工具）
 
 - **决定**：技术负责人 2026-11-17 选了"试运行前一键检查"。
