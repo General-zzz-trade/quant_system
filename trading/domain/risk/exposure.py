@@ -1,12 +1,17 @@
-"""Account gross exposure cap: total notional <= MAX_TOTAL_LEVERAGE x equity.
+"""Account gross exposure cap: total notional <= the configured cap x equity, never above MAX_TOTAL_LEVERAGE.
 
-The cap is a code constant. Configuration may lower it but never raise it.
+The ceiling is a code constant. Configuration may set any cap up to it, never above; without a setting the cap is
+DEFAULT_ACCOUNT_LEVERAGE.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 
-MAX_TOTAL_LEVERAGE = Decimal("3")
+# Owner 2026-11-17: "改为资金的10倍，我要上调", then "放宽到 10 倍" after the 2-10x study
+# (research/results/overlay_pilot_leverage_2026-11-17/, where every 10x setting lost 74-95 %). It was 3. It bounds
+# STRATEGY_LEVERAGE and BINANCE_MAX_LEVERAGE; a person sets both, and nothing in the program raises them.
+MAX_TOTAL_LEVERAGE = Decimal("10")
+DEFAULT_ACCOUNT_LEVERAGE = Decimal("3")    # the account cap when no person set BINANCE_MAX_LEVERAGE (unchanged)
 
 
 def validated_leverage(value: Decimal | str | float) -> Decimal:

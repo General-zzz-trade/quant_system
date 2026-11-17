@@ -49,7 +49,7 @@ def test_a_complete_pilot_configuration_passes_the_runtime_s_own_checks(tmp_path
 
 
 def test_what_the_start_would_refuse_is_named(tmp_path):
-    for broken, named in ((dict(STRATEGY_LEVERAGE="4"), "STRATEGY_LEVERAGE"),
+    for broken, named in ((dict(STRATEGY_LEVERAGE="11"), "STRATEGY_LEVERAGE"),
                           (dict(STOP_PCT=None), "stop"),                  # 8 % on 10x isolated
                           (dict(ALERT_FILE=None), "ALERT_FILE"),
                           (dict(STRATEGY_CAPITAL_USDT=None, STRATEGY_LEVERAGE=None), "STRATEGY_CAPITAL_USDT")):

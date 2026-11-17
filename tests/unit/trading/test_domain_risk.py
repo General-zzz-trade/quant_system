@@ -11,14 +11,16 @@ from trading.domain.risk.drawdown import advance, periods, validate_limits
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE, exposure_breach, validated_leverage
 
 
-@pytest.mark.parametrize("gross,proposed,allowed", [
-    (D("0"), D("30000"), True),          # exactly 3 x equity is allowed
-    (D("0"), D("30000.01"), False),
-    (D("29999"), D("1"), True),
-    (D("29999"), D("1.01"), False),
+@pytest.mark.parametrize("cap,gross,proposed,allowed", [
+    (D(3), D("0"), D("30000"), True),            # exactly 3 x equity is allowed at a cap of 3 (the default)
+    (D(3), D("0"), D("30000.01"), False),
+    (D(3), D("29999"), D("1"), True),
+    (D(3), D("29999"), D("1.01"), False),
+    (MAX_TOTAL_LEVERAGE, D("0"), D("100000"), True),        # the ceiling, 10 since 2026-11-17
+    (MAX_TOTAL_LEVERAGE, D("99999"), D("1.01"), False),
 ])
-def test_exposure_cap_boundary(gross, proposed, allowed):
-    assert (exposure_breach(D("10000"), gross, proposed, MAX_TOTAL_LEVERAGE) == "") is allowed
+def test_exposure_cap_boundary(cap, gross, proposed, allowed):
+    assert (exposure_breach(D("10000"), gross, proposed, cap) == "") is allowed
 
 
 @pytest.mark.parametrize("equity,proposed", [(D(0), D(1)), (D(-1), D(1)), (D("NaN"), D(1)), (D(10), D(0))])
@@ -26,7 +28,7 @@ def test_exposure_refuses_unknown_equity_or_empty_orders(equity, proposed):
     assert exposure_breach(equity, D(0), proposed, MAX_TOTAL_LEVERAGE) != ""
 
 
-@pytest.mark.parametrize("value", ["0", "-1", "3.0001", "NaN", "Infinity"])
+@pytest.mark.parametrize("value", ["0", "-1", "10.0001", "NaN", "Infinity"])
 def test_configured_leverage_can_only_lower_the_cap(value):
     with pytest.raises(ValueError):
         validated_leverage(value)
