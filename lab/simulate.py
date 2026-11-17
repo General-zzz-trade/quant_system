@@ -78,16 +78,24 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
     of the stopped position is a new signal and may enter too (decided 2026-11-16, before the first run that uses the
     rule: a long/short idea can change direction without a decision at 0). It takes no pause time and needs a stop.
 
+    ``reenter_after_stop="pause_then_reset"`` (tech lead 2026-11-17) is the live runtime's ``after_stop:
+    pause_then_reset``: no entry until both the pause has passed and a ready decision since the stop wanted exactly 0
+    (a 0 inside the pause counts; the other side is no exception). It needs a pause and a stop.
+
     ``stop_pct_at`` (research only, tech lead 2026-11-17): the stop distance decided at each decision time
     (``available_at``), in (0, ``stop_pct``]; a position the decision's orders open keeps it until it is flat. A
     decision time it does not list has the fixed ``stop_pct``."""
-    if reenter_after_stop not in ("pause", "signal_reset"):
-        raise ValueError(f"reenter_after_stop must be 'pause' or 'signal_reset', not {reenter_after_stop!r}")
-    wait_for_reset = reenter_after_stop == "signal_reset"
-    if wait_for_reset and pause_after_stop_ms:
+    if reenter_after_stop not in ("pause", "signal_reset", "pause_then_reset"):
+        raise ValueError("reenter_after_stop must be 'pause', 'signal_reset' or 'pause_then_reset', "
+                         f"not {reenter_after_stop!r}")
+    wait_for_reset = reenter_after_stop in ("signal_reset", "pause_then_reset")
+    zero_only = reenter_after_stop == "pause_then_reset"         # the live rule: no exception for the other side
+    if reenter_after_stop == "signal_reset" and pause_after_stop_ms:
         raise ValueError("reenter_after_stop='signal_reset' takes no pause_after_stop_ms: one rule per stop")
+    if zero_only and not pause_after_stop_ms:
+        raise ValueError("reenter_after_stop='pause_then_reset' needs a pause_after_stop_ms")
     if wait_for_reset and D(stop_pct) <= 0:
-        raise ValueError("reenter_after_stop='signal_reset' needs a stop_pct above 0")
+        raise ValueError(f"reenter_after_stop={reenter_after_stop!r} needs a stop_pct above 0")
     rules = rules or SYMBOL_RULES[symbol]
     sleeve = Sleeve(symbol, spec, rules, broker_config(spec, rules, starting_balance=starting_balance,
                                                        cost_multiplier=cost_multiplier, stop_pct=stop_pct))
@@ -109,7 +117,7 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
         if wait_for_reset:
             if stopped:                                    # a sell stop closed a long, a buy stop a short
                 waiting, stopped_side = True, (1 if stop_fills[-1]["side"] == "sell" else -1)
-            if waiting and ready and (target == 0.0 or target * stopped_side < 0):
+            if waiting and ready and (target == 0.0 or (not zero_only and target * stopped_side < 0)):
                 waiting = False
         if bar.available_at < paused_until or waiting:
             target = 0.0                                   # paused: no entry (a stopped sleeve holds nothing)

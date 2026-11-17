@@ -4561,3 +4561,14 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 原因【实际运行结果】：假归档每次请求都重新打包 zip（先算校验和，再给文件），`writestr("data.csv", ...)` 写进当前时间；两次之间跨过一秒，字节就不同。
   本地复现：旧写法隔 2 秒打包两次字节不同，新写法相同。
 - 改动（测试辅助，断言不变）：`_zip` 用固定时间 2022-01-01 00:00:00 的 `ZipInfo`。
+
+## 实验室：止损后先暂停、再等目标回到 0（2026-11-17，研究代码）
+
+- **决定**：技术负责人 2026-11-17 选"加，比现在更严"。实盘规格可以写 `"after_stop": "pause_then_reset"`（实盘的改动另一个 PR，按资金路径完整流程）；
+  回测按同样的方式算。
+- **改了什么**：`lab.simulate(reenter_after_stop="pause_then_reset")`。止损后，暂停时间过完，而且止损之后有一次准备好的决定要的是 0，
+  两样都满足才开仓。暂停期间出现的 0 也算；另一个方向不例外，这一点比 `signal_reset` 严。必须有暂停和止损。
+  止损方案 `StopVariant(距离, 小时, "pause_then_reset")`，名字是 `stop{距离}_pause{小时}h_then_reset`。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/lab/test_simulate_pause_then_reset.py` 7 个。都先跑过、在改动前失败。
+- **本地**【实际运行结果】：新测试、`test_simulate_signal_reset.py`、`test_vol_stop.py`、`test_um_judge_screen.py` 通过；ruff 通过。
