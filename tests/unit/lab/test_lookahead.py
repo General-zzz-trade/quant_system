@@ -25,6 +25,7 @@ from lab import breakout, pair
 from lab import candidates as c
 from lab import candidates_study as cs
 from lab import feature_pool as fpool
+from lab import panel_study as pstudy
 from lab import overlay_risk_study as rs
 from lab import pair_study as ps
 from lab import um_lab
@@ -192,6 +193,16 @@ def _pool_inputs_v2(m):
 POOL_TIMES = T0 + np.arange(200, 279, dtype=np.int64) * DAY
 
 
+def _panel_parts(m):
+    """lab/panel_study.py's pieces on the check's two coins."""
+    pool = _pool_inputs(m)
+    feats = {s: pstudy.symbol_features(pool["hourly"][s], pool["funding"][s], POOL_TIMES) for s in (BTC, ETH)}
+    closes = pd.DataFrame({s: fpool.daily(pool["hourly"][s])["close"] for s in (BTC, ETH)})
+    market = pstudy.market_state(closes, closes * 0 + 1e-4, feats[BTC], POOL_TIMES)
+    panel = pd.concat([f.assign(symbol=s) for s, f in feats.items()]).sort_index(kind="stable")
+    return pool, feats, market, panel
+
+
 def _idea(name):
     """One lab idea on the check's windows, as the runtime and the lab's judge call it (R7b)."""
     def case(m):
@@ -258,6 +269,11 @@ CASES = [
     ("feature_pool.bars.4h", fpool.bars, lambda m: fpool.bars(_pool_inputs(m)["hourly"][BTC], 4)),
     ("feature_pool.build.v2.btc", fpool.build, lambda m: fpool.build(_pool_inputs_v2(m), BTC, POOL_TIMES, version=2)),
     ("feature_pool.build.v2.eth", fpool.build, lambda m: fpool.build(_pool_inputs_v2(m), ETH, POOL_TIMES, version=2)),
+    # the whole-market panel study (owner 2026-11-17, "执行")
+    ("panel_study.daily_volume", pstudy.daily_volume, lambda m: pstudy.daily_volume(_pool_inputs(m)["hourly"][BTC])),
+    ("panel_study.symbol_features", pstudy.symbol_features, lambda m: _panel_parts(m)[1][ETH]),
+    ("panel_study.market_state", pstudy.market_state, lambda m: _panel_parts(m)[2]),
+    ("panel_study.cross_section", pstudy.cross_section, lambda m: pstudy.cross_section(*_panel_parts(m)[3:1:-1])),
     ("feature_pool.front_quarter", fpool.front_quarter,
      lambda m: fpool.front_quarter(_raw_quarterly(_pool_inputs(m)["hourly"][BTC]), END)),
     ("feature_pool.technical.4h", fpool.technical,
@@ -270,7 +286,7 @@ CASES = [
 FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "trading.domain.strategy.ideas",
                    "lab.breakout", "lab.candidates",
                    "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study", "lab.xs_study",
-                   "lab.feature_pool")
+                   "lab.feature_pool", "lab.panel_study")
 OTHER_MODULES = {
     "lab": "package marker",
     "trading.domain.strategy.spec": "parses and checks the signed spec (runtime extension R2); computes no feature",
@@ -331,6 +347,12 @@ NOT_CHECKED = {
     "lab.breakout.desired_side": NUMBER, "lab.breakout.stop_distance": NUMBER,
     "lab.candidates.sized_weight": NUMBER, "lab.candidates.fit_ridge": FIT, "lab.candidates.directional_labels": LABEL,
     "lab.pair.load_inputs": "reads the snapshot files and cuts them at `limit`", "lab.pair.labels": LABEL,
+    "lab.panel_study.load_symbol": "reads a snapshot's files and cuts them at `limit`",
+    "lab.panel_study.liquid_universe": ("checked in tests/unit/lab/test_panel_study.py with volumes that cross: on "
+                                        "this snapshot's two coins the ranking never turns after a cut, so a check "
+                                        "here would be vacuous"),
+    "lab.panel_study.symbol_targets": LABEL, "lab.panel_study.evaluate": FIT, "lab.panel_study.shuffled": REPORT,
+    "lab.panel_study.daily_rank_ic": REPORT, "lab.panel_study.ic_summary": REPORT,
     "lab.feature_pool.load_inputs": "reads the snapshot files and cuts every source at `limit` by when it is known",
     "lab.feature_pool.load_market": "reads a whole-market snapshot and cuts it at `limit`; market_breadth is checked",
     "lab.pair_study.fit_predict": FIT, "lab.pair_study.simulate_pair": SIMULATION, "lab.pair_study.yearly": REPORT,
