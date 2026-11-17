@@ -56,7 +56,8 @@ def main():
             models[f"{name} naive"] = {path.name: sha(path)}
     commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True,
                             text=True).stdout.strip()
-    spec = {"study": "panel_2026-11-17:frozen", "frozen_at": "2026-11-17", "code_commit": commit,
+    spec = {"kind": "panel_forward", "passed": False, "registered": True,     # the registry's rules for a frozen spec
+            "study": "panel_2026-11-17:frozen", "frozen_at": "2026-11-17", "code_commit": commit,
             "snapshot": R.SNAP.name, "rows_known_before": "2026-11-13T00:00:00Z", "panel": info,
             "universe": f"top {R.TOP} crypto USDT perpetuals per day by the 30-day median quote volume; BTC and ETH"
                         " always; tradfi (runs/2026-11-17b/tradfi_contracts.json) and stablecoin contracts left out",
