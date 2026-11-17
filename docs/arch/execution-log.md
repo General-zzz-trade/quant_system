@@ -5146,7 +5146,10 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
   - `_refused_code` 的直接测试是运行前补的。403、408、429 和 5xx 范围这 4 个变异体经 REST 路径到不了那条分支
     （418/429 在 rest 层是 `BinanceRateLimitError`，5xx 是 `BinanceRetryableError`），没有直接测试它们会存活
     【推测，未单独运行】。
-- **本地**：TBD
+- **本地**【测试日志】：
+  - `tests/unit/trading tests/characterization tests/contract tests/unit/binance tests/offline tests/architecture`：1861 个通过、1 个跳过、8 个子测试通过，0 个失败（16 分 17 秒）；
+  - ruff 通过；`mypy trading/` 98 个文件无问题；`lint-imports` 5 条契约保持。
+  - CI（PR #157，79cbb787）：10 项全部通过，包括 4 个全量分片和覆盖率门槛。
 - **没做的、残余风险**：
   - -4142（"止盈或止损单会立即触发"）和 -2021 含义相同，现在只算 `rejected`、不算 `breached`。币安条件单接口实际返回哪个码
     未核实；如果返回 -4142，止损管理器会反复补挂而不是平仓。是否也按击穿处理会改变风控行为，留给技术负责人决定，本次不改。
