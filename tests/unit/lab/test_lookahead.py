@@ -260,6 +260,9 @@ OTHER_MODULES = {
                          "is checked in test_um_portfolio) and combinations of the judge's cached results"),
     "lab.um_forward": ("the weekly forward looks of a frozen lab champion: replays a frozen configuration over new "
                        "data at a registered look; no feature of its own (test_um_forward)"),
+    "lab.feature_study": ("the feature-pool study's targets (they look ahead by design: a label is the future), year "
+                          "folds that purge the label window, fixed models and the shuffled-target null; its features "
+                          "are lab.feature_pool's, checked here (test_feature_study)"),
     "lab.pilot_params": ("the pilot's settings study: steps the frozen overlay's targets (overlay.compute_targets, "
                          "checked here) through the shared broker with the runtime's stop, pause and latches, and "
                          "picks a setting per year from the years before it; no feature of its own "
