@@ -277,7 +277,9 @@ def test_paper_snapshot_covers_every_mutable_broker_attribute(tmp_path):
     broker = runtime.sessions["BTCUSDT"].sleeve.broker
     rebuilt_from_config = {"config", "emit", "status", "leverage"}
     handled_separately = {"position", "pending"}
-    assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately
+    research_only = {"next_stop_pct", "position_stop_pct"}     # the lab's per-position stop: paper never sets it
+    assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately | research_only
+    assert broker.next_stop_pct is None and broker.position_stop_pct is None  # so a restart restores it as None
 
 
 def test_every_paper_cycle_persists_the_bars_it_processed(tmp_path):

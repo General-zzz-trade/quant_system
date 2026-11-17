@@ -67,7 +67,8 @@ class Sleeve:
 def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec, *, start_ms: int,
              end_ms: int | None = None, rules: SymbolRules | None = None, cost_multiplier: int = 1,
              starting_balance: str = "5000", stop_pct: str = "0",
-             pause_after_stop_ms: int | None = None, reenter_after_stop: str = "pause") -> SleeveResult:
+             pause_after_stop_ms: int | None = None, reenter_after_stop: str = "pause",
+             stop_pct_at: dict[int, str] | None = None) -> SleeveResult:
     """``stop_pct`` gives the broker the live exchange stop; after a stop fills, entries pause for
     ``pause_after_stop_ms`` (the live entry pause, released by itself after that time: tech lead 2026-11-16).
 
@@ -75,7 +76,11 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
     after a stop fills there is no entry until the target has been exactly 0 on a ready decision since the stop (the
     decision at the close of the stop's bar counts); the next non-zero target may enter. A target on the other side
     of the stopped position is a new signal and may enter too (decided 2026-11-16, before the first run that uses the
-    rule: a long/short idea can change direction without a decision at 0). It takes no pause time and needs a stop."""
+    rule: a long/short idea can change direction without a decision at 0). It takes no pause time and needs a stop.
+
+    ``stop_pct_at`` (research only, tech lead 2026-11-17): the stop distance decided at each decision time
+    (``available_at``), in (0, ``stop_pct``]; a position the decision's orders open keeps it until it is flat. A
+    decision time it does not list has the fixed ``stop_pct``."""
     if reenter_after_stop not in ("pause", "signal_reset"):
         raise ValueError(f"reenter_after_stop must be 'pause' or 'signal_reset', not {reenter_after_stop!r}")
     wait_for_reset = reenter_after_stop == "signal_reset"
@@ -108,6 +113,8 @@ def simulate(symbol: str, bars: list, targets: pd.DataFrame, funding: dict, spec
                 waiting = False
         if bar.available_at < paused_until or waiting:
             target = 0.0                                   # paused: no entry (a stopped sleeve holds nothing)
+        if stop_pct_at is not None:
+            sleeve.broker.set_next_stop_pct(stop_pct_at.get(bar.available_at))
         sleeve.decide(bar, target, ready)
         b = sleeve.broker
         rows.append((bar.available_at, float(b.equity), float(b.position.qty), float(b.mark), float(b.fees),

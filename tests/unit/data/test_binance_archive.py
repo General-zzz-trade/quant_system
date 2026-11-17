@@ -19,9 +19,11 @@ OCT = 1_664_582_400_000          # 2022-10-01 00:00 UTC
 
 
 def _zip(text: str) -> bytes:
+    """A fixed timestamp: the fake builds a file twice (its checksum, then the file), and a zip stamped with the
+    current time differed whenever a second passed between the two (a checksum mismatch in CI, 2026-11-17)."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("data.csv", text)
+        archive.writestr(zipfile.ZipInfo("data.csv", date_time=(2022, 1, 1, 0, 0, 0)), text)
     return buffer.getvalue()
 
 

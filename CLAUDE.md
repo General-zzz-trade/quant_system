@@ -97,7 +97,9 @@
   the four registered forward tests stay as they are). What stays: real data with source and timestamp only,
   never invented numbers, every estimate labelled; fees, funding, slippage and delisted contracts in every
   test; every configuration tested is recorded in `research/lab/trials.jsonl`; lab data ends 2026-11-12 (forward
-  guard; snapshot `data_files/binance_usdt_perps_2026-11-12`); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
+  guard; snapshot `data_files/binance_usdt_perps_2026-11-12`), except the monthly re-selection (owner 2026-11-17:
+  monthly, on a new snapshot that may read data after 2026-11-13, `lab/um_monthly.py`; the four registered forward
+  tests stay frozen); the prompt's final check (unseen data, at least 50 trades, double fees, neighbouring settings, no
   lookahead, and the live terms: `LiveTerms` in `lab/um_lab.py`, 300 USDT split 1/N over a fixed list, the 8 % stop, a
   4-hour pause after a stop that ends by itself) and "WHY THIS COULD FAIL" on every card; a lab champion is labelled unverified. No paper and no
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime

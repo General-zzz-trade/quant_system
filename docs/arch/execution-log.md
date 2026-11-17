@@ -4429,6 +4429,15 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
   已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。
 
+## 试运行成交对照回测假设的报告 `scripts/live_fills.py`（2026-11-16 晚，工具，轻流程）
+
+- 用途（技术负责人 2026-11-16：试运行是为了用真实成交校准回测）：把执行状态库里程序发出、交易所成交的每一笔订单，和账户自己的成交记录
+  （`python3 -m scripts.account_check --history <目录>` 的只读导出）、决策那根 K 线之后的开盘价对起来，按订单类型报告真实成本：
+  调仓单对照"下一根开盘价、差 3 个基点"，交易所止损对照"触发价、差 10 个基点"，手续费对照 5 个基点；还有从决策到成交的时间。
+- 状态库只读打开；交易所里找不到成交的订单列为缺失，不猜。开盘价取币安公开 K 线，不用账户。只报成交和成本，不报收益。
+- 放在 `scripts/` 而不是 `lab/`：它是运营报告，不是研究代码（`lab/` 的规则禁止按成本名做乘法，这里只是计量已经扣过的手续费）。
+- 新增测试：`tests/unit/tooling/test_live_fills.py`（7 个），用合成的状态库和成交记录。已有测试的改动：没有。
+  本地：`tests/unit/tooling`、架构测试通过；ruff、导入契约通过。
 ## 清理过时文档（2026-11-16 深夜，轻流程；计划 R9 的前一半）
 
 - 依据：技术负责人"计划完成后就删除过时的文档，先排查"，以及随后的"清理项目过时文档"。排查结果在计划的"文档排查"一节（PR #118）。
@@ -4548,3 +4557,64 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 提到改过的文档的测试文件，加上改了文档字符串的两个刻画测试文件（14 个文件）：360 个通过。
   - `python3 scripts/ci_shard.py 1 4 >/dev/null`：退出码 0。
   - 8 个删掉的文件名逐个 `git grep -n -F`：除本日志和计划文件的"文档排查"一节（R9 的依据，按名字列出要删的文件）外，没有结果。
+## 从冠军卡生成规格草稿（2026-11-17，轻流程：工具）
+
+- **决定**：技术负责人 2026-11-17 的做法二（月度重选）：有变化时生成新规格的建议，前向跟踪 4 周后由技术负责人签名发布、标记通过。
+- **改了什么**：新工具 `scripts/draft_strategy_spec.py`。它读一轮实验室的 `results.json` 和 `universe.json`，写出：
+  - 一份第 2 版规格草稿：评审员的最终选择、最后一份清单、实验室的执行设置；策略在这份清单上的目标有负数时 `allow_short` 才是 true；
+    `passed` 永远是 false。必须能被运行时自己的 `parse_spec` 解析；不签名。
+  - 旁边的 README.md：回测假设的实盘设置。包括 STOP_PCT；交易所杠杆的上限（止损要在逐仓强平距离的一半以内，8% 对应 6 倍，4.5% 对应 10 倍）；
+    300 USDT；1 倍策略杠杆。还列出实盘程序还不支持的止损规则（暂停不是 4 小时、等目标回到 0、按波动率止损、没有止损），有这类缺口时退出码是 2。
+  - 拒绝三种情况：没通过最终检查的想法（除非 `--allow-failed`）、不在结果里的想法、要读清单外品种的想法。草稿只写一次。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/tooling/test_draft_strategy_spec.py` 11 个（含参数化），用评审员测试的合成行情。都先跑过，在改动前失败
+  （模块不存在）；其中一个是我自己的测试写错了（没给想法名就测"没通过"，先撞上"没有冠军"），提交前改正，并补测"没有冠军时要给名字"。
+- **本地**【实际运行结果】：新测试、`test_publish_strategy_spec.py`、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+## 实验室：按波动率收紧止损（2026-11-17，研究代码，实盘程序不动）
+
+- **决定**：技术负责人 2026-11-17 上午"执行 1 和 2 做法"，并回答：只测"按波动率收紧止损"；上限 4.5% 和 8% 都测；实验室证明有用之后才改实盘程序。
+- **改了什么**：
+  - 研究经纪商 `BarBroker.set_next_stop_pct`：驱动方随一次决定的订单给一个止损距离；这些订单开出的仓位（从空仓开出或反手）一直用它，
+    直到平仓；加仓时距离不变、按新的平均开仓价算。距离必须在 (0, `stop_pct`] 之内：配置的止损是人定的上限，只能收紧。不给（默认，
+    模拟盘永远不给）就是配置的止损，行为和记录都不变。
+  - `lab/um_lab.vol_stop_pct`：每个小时收盘时，k × 最近 14 个日收益（每 24 小时一个）的标准差，夹在 1.5% 和上限之间；不够 14 个完整
+    日收益（开头，或读到的收盘缺一个小时）就用上限。`replay(stop_k=...)` 把它按决定时间交给 `lab.simulate(stop_pct_at=...)`。
+  - `StopVariant(vol_k=...)`：名字 `vol{k}x_cap{上限}_{止损后}`；固定止损的名字、标签、回放参数和以前一样（今晚的缓存照用）。
+  - 登记：`research/lab/runs/2026-11-17/vol_stop.md`（14 种新方案、"有用"的判定标准），在任何结果之前提交。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_broker_position_stop.py` 15 个（含参数化），`tests/unit/lab/test_vol_stop.py` 19 个（含参数化）。都先跑过、在改动前失败。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/vol_stop.json` 21 个。第一轮 20 个被杀；存活 1 个："`replay` 里距离晚一个小时"，
+  因为没有测试经过 `replay` 的对齐。补了 `test_replay_gives_each_decision_the_distance_known_at_its_close`，单独重跑这个变异被杀。最终 21/21。
+- **本地**【实际运行结果】：两个新测试文件和经纪商、模拟、评审员、模拟盘逐根对照的相关测试通过；`tests/architecture` 通过（一个变量原来叫
+  `spread`，碰上"研究代码只能通过共用经纪商算成本"的检查，改名 `sigma`）；ruff、`mypy trading/`、`lint-imports` 通过。
+- **CI 补（同日）：已有测试的改动**。`test_target_runtime_resilience.py::test_paper_snapshot_covers_every_mutable_broker_attribute`
+  要求经纪商每个可变属性都在模拟盘的快照里；新加的两个属性不在，CI 的一个分片失败。两个属性只在研究里用，模拟盘从不设，
+  永远是 None，重启后也是 None，所以不进快照、不改模拟盘的状态格式。依据：技术负责人 2026-11-17 的决定（实验室测按波动率收紧止损）。
+  - 原断言：`assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately`
+  - 新断言：`assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately | research_only`
+    （`research_only = {"next_stop_pct", "position_stop_pct"}`），并加一条
+    `assert broker.next_stop_pct is None and broker.position_stop_pct is None`（跑 50 个周期之后，模拟盘确实没设过）。
+  - 本地【实际运行结果】：这个测试文件通过。
+## 实验室月度重选：读新数据的下载和时段（2026-11-17，轻流程）
+
+- **决定**：技术负责人 2026-11-17 上午选了"每月一次，实验室读新数据"（做法二）。4 个已登记的前向测试冻结不变，仍在登记的日期评判；
+  实验室挑出的想法照规定前向跟踪 4 周，由技术负责人签名发布。
+- **改了什么**：
+  - `data/downloads/binance_um_all.py`：`--monthly-lab` 时 `--end` 可以在 2026-11-13 之后，但必须是已经结束的月份的 1 日（不晚于今天），
+    `manifest.json` 记一行 `monthly_lab`。不带这个选项时前向保护不变。
+  - 新模块 `lab/um_monthly.py`：`monthly_periods`（验证段是快照最后 6 个月，前面按整年滚动前推，挑选段至少留一年；在 2026-11-12 的快照上
+    就是 11-17 这一轮的时段）；`plan` 只写一次窗口文件；`screen`/`final` 只在窗口文件已提交且没改过、快照对得上时才跑。
+  - `research/lab/README.md` 加月度重选一行和数据规则；`CLAUDE.md` 的实验室数据规则加上例外。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/data/test_binance_um_all.py` 加 3 个（含参数化 3 例）；`tests/unit/lab/test_um_monthly.py` 8 个。都先跑过、在改动前失败。
+- **本地**【实际运行结果】：两个测试文件、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **还没做**：从冠军卡生成规格草稿的工具、冠军的每周前向查看、每月的定时任务（另起 PR）。
+- **CI 补（同日）**：`tests/unit/lab/test_lookahead.py` 要求每个 `lab/` 模块要么是特征模块、要么写明为什么不是；新模块 `lab.um_monthly` 没登记，
+  CI 的一个分片失败。加了一行说明（它没有自己的特征，跑的想法走评审员的最终检查）。本地只跑了相关测试文件，漏了这个全目录的检查；
+  以后新增 `lab/` 模块时连这个测试一起跑。
+## 测试辅助：下载器测试的假归档用固定时间戳（2026-11-17，轻流程）
+
+- #132 合并 master 后 CI 的一个分片失败：`test_binance_archive.py::test_the_same_inputs_give_byte_identical_files` 报 checksum mismatch，本地连跑 4 次都通过。
+- 原因【实际运行结果】：假归档每次请求都重新打包 zip（先算校验和，再给文件），`writestr("data.csv", ...)` 写进当前时间；两次之间跨过一秒，字节就不同。
+  本地复现：旧写法隔 2 秒打包两次字节不同，新写法相同。
+- 改动（测试辅助，断言不变）：`_zip` 用固定时间 2022-01-01 00:00:00 的 `ZipInfo`。
