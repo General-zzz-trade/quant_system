@@ -205,6 +205,7 @@ def test_the_download_reads_long_files_with_a_long_timeout(monkeypatch):
 
 def test_only_the_chosen_sources_are_downloaded_and_the_rest_are_named(tmp_path, monkeypatch):
     monkeypatch.setattr(fs, "FRED_LAG_DAYS", {"VIXCLS": 2})
+    monkeypatch.setattr(fs, "FRED_V2_LAG_DAYS", {})
     fetch = Fetch({fs.fred_url("VIXCLS"): b"observation_date,VIXCLS\n2023-12-29,12.4\n"})
     manifest = fs.download(tmp_path / "snap", date(2024, 1, 2), fetch=fetch, sources=("fred",))
     assert list(manifest["files"]) == ["fred_VIXCLS.csv.gz"]
