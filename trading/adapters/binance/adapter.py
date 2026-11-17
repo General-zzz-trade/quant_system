@@ -6,8 +6,12 @@ Contract highlights (the execution layer relies on every one of them):
   error instead of returning an empty tuple that would look flat.
 - Every order carries a deterministic client id (``newClientOrderId``) so an
   ambiguous submission can be looked up instead of resent.
-- ``send_market_order`` returns ``submitted``, ``rejected`` (the venue refused
-  the request; nothing was placed) or ``error`` (outcome unknown: timeout/5xx).
+- ``send_market_order`` (and ``send_limit_order``, ``place_stop_market``) returns
+  ``submitted``, ``rejected`` or ``error``. ``rejected`` only for an answer whose
+  Binance error code refuses the request itself (``_REQUEST_REFUSED``): nothing
+  was placed. Everything else is ``error`` (outcome unknown: the order may exist)
+  - timeouts, network errors, 5xx, HTTP 403/408/418/429, -1000/-1001/-1006/-1007,
+  any code not listed (task 1, 2026-11-17).
 - ``get_order`` returns ``None`` only for the venue's "order does not exist".
 - Quantities/prices are floored to exchange filters; orders below the minimum
   quantity/notional are rejected locally.
@@ -27,7 +31,7 @@ from typing import Any, Optional, Tuple
 
 from trading.adapters.binance.config import BinanceConfig
 from trading.adapters.binance.rest import (
-    BinanceNonRetryableError, BinanceRateLimitError, BinanceRestClient, BinanceRestConfig,
+    BinanceNonRetryableError, BinanceRestClient, BinanceRestConfig,
 )
 from trading.adapters.binance.rate_limit import make_rate_limit_policy
 from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, BalanceSnapshot, CanonicalBalance,
@@ -65,6 +69,44 @@ _ALGO_DOES_NOT_EXIST = (-2013, -2011)
 ACTIVE = frozenset({"NEW", "TRIGGERING"})
 TRIGGERED = frozenset({"TRIGGERED", "FINISHED"})
 _IMMEDIATE_TRIGGER = -2021         # "Order would immediately trigger": price is already beyond the stop
+
+# Placement answers that mean "rejected: nothing was placed" (task 1, tech lead 2026-11-17). Only a 4xx answer whose
+# error code is listed here; the codes are from Binance's error-code page
+# (https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code, read 2026-11-17), chosen because
+# their documented meaning is a refusal of the request's parameters, permissions, or the account's or symbol's rules.
+# The page never says in so many words that a request was "not processed"; that reading is ours. Anything else - a
+# timeout, a network error, 5xx, HTTP 403/408/418/429 (the docs do not say whether a rate-limited request was
+# processed), -1000/-1001/-1006/-1007 ("execution status unknown" or an internal error), -1003/-1008/-1015/-1016, a
+# 4xx without a code or with an unlisted code - is an unknown outcome: the lifecycle looks the order up for the whole
+# not-found grace and the stop manager does not place a second stop meanwhile. -4116 (clientOrderId duplicated) is a
+# refusal of this request too: the order that holds the id is found by the lookup that precedes every settlement.
+_UNCERTAIN_HTTP = frozenset({403, 408, 418, 429})
+_REQUEST_REFUSED = frozenset({
+    # request, signature, timestamp and permission (10xx/11xx, -2014/-2015, -5028)
+    -1002, -1011, -1013, -1014, -1020, -1021, -1022,
+    -1100, -1101, -1102, -1103, -1104, -1105, -1106, -1108, -1109, -1110, -1111, -1112, -1114, -1115, -1116,
+    -1117, -1118, -1119, -1120, -1121, -1122, -1126, -1127, -1128, -1130,
+    -2014, -2015, -5028,
+    # order refused by the account's or the symbol's rules (20xx)
+    -2010, -2018, -2019, -2020, -2021, -2022, -2024, -2025, -2026, -2027, -2028,
+    # filters and order parameters (40xx-44xx)
+    *range(-4033, -3999),
+    -4044, -4045, -4050, -4051, -4060, -4061, -4062, -4087, -4088, -4104, -4105, -4106, -4107, -4109, -4116,
+    -4118, -4120, -4131, -4135, -4137, -4138, -4139, -4140, -4141, -4142, -4144, -4164, -4183, -4184, -4189,
+    -4192, -4210, -4211, -4400, -4401, -4402,
+    # order execution (50xx)
+    -5021, -5022, -5041,
+})
+
+
+def _refused_code(exc: BaseException) -> int | None:
+    """The error code when Binance refused the placement request itself (nothing placed); None when the outcome is
+    unknown."""
+    if not isinstance(exc, BinanceNonRetryableError):
+        return None
+    if not 400 <= exc.http_status <= 499 or exc.http_status in _UNCERTAIN_HTTP:
+        return None
+    return exc.code if exc.code in _REQUEST_REFUSED else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,13 +335,19 @@ class BinanceAdapter:
             params["reduceOnly"] = True
         try:
             data = self._client.request_signed(method="POST", path="/fapi/v1/order", params=params)
-        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
-            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
-        except Exception as exc:  # timeout, 5xx, network: the order may exist
-            logger.error("Binance order outcome unknown for %s: %s", client_order_id, exc)
-            return {"status": "error", "msg": str(exc)}
+        except Exception as exc:
+            return self._placement_failed(exc, client_order_id)
         return {"status": "submitted", "orderId": str(data.get("orderId", "")),
                 "clientOrderId": str(data.get("clientOrderId", ""))}
+
+    @staticmethod
+    def _placement_failed(exc: BaseException, client_id: str) -> Placement:
+        """``rejected`` when Binance refused the request itself; otherwise ``error``: the order may exist."""
+        code = _refused_code(exc)
+        if code is not None:
+            return {"status": "rejected", "code": code, "msg": str(exc)}
+        logger.error("Binance order outcome unknown for %s: %s", client_id, exc)
+        return {"status": "error", "code": getattr(exc, "code", None), "msg": str(exc)}
 
     def send_limit_order(self, symbol: str, side: str, qty: float, price: float, *, post_only: bool = True,
                          reduce_only: bool = False, client_order_id: str = "") -> Placement:
@@ -324,11 +372,8 @@ class BinanceAdapter:
             params["reduceOnly"] = True
         try:
             data = self._client.request_signed(method="POST", path="/fapi/v1/order", params=params)
-        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
-            return {"status": "rejected", "code": getattr(exc, "code", None), "msg": str(exc)}
         except Exception as exc:
-            logger.error("Binance order outcome unknown for %s: %s", client_order_id, exc)
-            return {"status": "error", "msg": str(exc)}
+            return self._placement_failed(exc, client_order_id)
         return {"status": "submitted", "orderId": str(data.get("orderId", "")),
                 "clientOrderId": str(data.get("clientOrderId", ""))}
 
@@ -451,11 +496,12 @@ class BinanceAdapter:
                   "priceProtect": "true", "clientAlgoId": client_algo_id}
         try:
             data = self._client.request_signed(method="POST", path="/fapi/v1/algoOrder", params=params)
-        except (BinanceNonRetryableError, BinanceRateLimitError) as exc:
-            code = getattr(exc, "code", None)
-            return {"status": "rejected", "code": code, "msg": str(exc), "breached": code == _IMMEDIATE_TRIGGER}
         except Exception as exc:
-            return {"status": "error", "msg": str(exc)}
+            code = _refused_code(exc)
+            if code is not None:
+                return {"status": "rejected", "code": code, "msg": str(exc), "breached": code == _IMMEDIATE_TRIGGER}
+            logger.error("Binance stop outcome unknown for %s: %s", client_algo_id, exc)
+            return {"status": "error", "code": getattr(exc, "code", None), "msg": str(exc)}
         return {"status": "submitted", "algoId": str(data.get("algoId", ""))}
 
     def get_algo_order(self, *, client_algo_id: str) -> StopOrder | None:

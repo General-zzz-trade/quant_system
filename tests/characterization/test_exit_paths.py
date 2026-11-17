@@ -66,7 +66,7 @@ def test_a_rejected_flatten_is_retried_thirty_seconds_later_within_the_same_bar(
     position = btc.positions["BTCUSDT"]
     runtime.kill.write(active=True, reason="test", flatten=True)
     posts = len(btc.posts)
-    btc.fault, btc.fault_code = "reject", -1008          # the venue rejects the first reduce-only order
+    btc.fault, btc.fault_code = "reject", -2022          # the venue rejects the first reduce-only order
     for _ in range(5):
         _tick(world, runtime)                            # 6 s to 30 s: the first attempt, rejected and settled
     assert len(btc.posts) - posts == 1

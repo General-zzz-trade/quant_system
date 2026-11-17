@@ -235,7 +235,7 @@ def test_a_stop_refused_or_lost_for_any_other_reason_is_never_reported_as_breach
     fake.request_signed = failing
     result = adapter.place_stop_market("BTCUSDT", "sell", D("96"), client_algo_id="s1")
     assert result.get("breached", False) is False
-    assert result["status"] == ("rejected" if isinstance(error, BinanceRateLimitError) else "error")
+    assert result["status"] == "error"     # task 1: HTTP 429 is an unknown outcome, not a rejection
 
 
 
