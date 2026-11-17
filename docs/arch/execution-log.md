@@ -5221,7 +5221,10 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
     按最坏的顺序算：假定这根线的最低（多头）或最高（空头）出现在成交之后。从开盘价走到越过止损价的路径一定先经过
     限价，所以这也是最可能的顺序。
   - 纸面模式不受影响：模拟交易所拒绝带 `stop_pct` 的券商，止损由纸面自己挂（`BarStopModel`）。
-- **已有测试的改动**：没有。
+- **已有测试的改动**：`tests/unit/trading/test_broker_cross_stop.py::test_invalid_stop_settings_are_refused` 去掉了一组参数
+  `({"stop_pct": "0.08", "entry_mode": "maker"}, "market")`，它断言"有止损时挂单开仓被拒绝"，正是这次有意取消的限制。
+  反过来的断言（券商接受挂单加止损）在新增的 `test_the_broker_takes_a_stop_with_maker_entries` 里。第一次推送时漏掉了它
+  （只搜了报错原文），CI 第 3 分片发现。
 - **新增测试**：
   - `tests/unit/lab/test_simulate_maker_stops.py`，5 个：按限价成交、付 maker 费；成交那根线跌破止损就在同一根线止损；
     之后的线照常止损；逐仓杠杆下也能用；券商接受挂单加止损。

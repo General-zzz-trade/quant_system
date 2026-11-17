@@ -125,7 +125,6 @@ def test_off_by_default_the_broker_and_its_record_are_unchanged():
     ({"stop_pct": "-0.01"}, "stop_pct"),
     ({"stop_pct": "1"}, "stop_pct"),
     ({"stop_pct": "nan"}, "stop_pct"),
-    ({"stop_pct": "0.08", "entry_mode": "maker"}, "market"),
 ])
 def test_invalid_stop_settings_are_refused(kwargs, match):
     with pytest.raises(ValueError, match=match):
