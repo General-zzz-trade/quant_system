@@ -8,7 +8,7 @@
   extension (`docs/arch/runtime-lab-strategies-plan.md`) has R1–R7 done on stacked PRs #119–#130, not merged yet;
   the R8 audit is in progress.
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
-  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
+  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day: `MAX_DAILY_DRAWDOWN_PCT=3`, which a person sets, the code default is 5; a 15 % cumulative loss of the strategy
   capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
