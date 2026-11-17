@@ -107,3 +107,14 @@ def test_the_execution_units_run_as_the_service_user_from_the_checkout():
         unit = _unit(name)
         assert _get(unit, "Service", "User") == "ubuntu", name
         assert _get(unit, "Service", "WorkingDirectory") == "/quant_system", name
+
+
+def test_the_execution_units_run_ahead_of_research_on_a_shared_host():
+    """2026-11-17: research jobs share the host and run at nice 19 (scripts/dev/lab_nice.sh); the trading process gets
+    the CPU and the disk first."""
+    for name in ("binance-target-mainnet.service", "binance-target-testnet.service"):
+        unit = _unit(name)
+        assert _get(unit, "Service", "Nice") == "-5", name
+        assert _get(unit, "Service", "CPUWeight") == "1000" and _get(unit, "Service", "IOWeight") == "1000", name
+    wrapper = (UNITS.parents[1] / "scripts" / "dev" / "lab_nice.sh").read_text()
+    assert 'exec nice -n 19 ionice -c3 "$@"' in wrapper
