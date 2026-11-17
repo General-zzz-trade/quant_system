@@ -212,3 +212,69 @@ def test_only_the_chosen_sources_are_downloaded_and_the_rest_are_named(tmp_path,
     assert all("fred" in url for url in fetch.seen) and not (tmp_path / "snap.partial").exists()
     with pytest.raises(ValueError, match="unknown source"):
         fs.download(tmp_path / "other", date(2024, 1, 2), fetch=fetch, sources=("fred", "tea"))
+
+
+# -- the second version's sources (owner 2026-11-17: "还有哪些特征是需要用到", then "执行") -------------------------
+def test_quarterly_expiries_are_the_last_friday_of_each_quarter_at_eight():
+    assert fs.quarterly_expiry(2024, 3) == fs.ms(date(2024, 3, 29)) + 8 * H
+    assert fs.quarterly_expiry(2025, 12) == fs.ms(date(2025, 12, 26)) + 8 * H
+    assert fs.quarterly_symbol("BTCUSDT", 2024, 3) == "BTCUSDT_240329"
+
+
+def test_quarterly_klines_carry_their_contract_and_expiry():
+    fetch = Fetch()
+    symbol = "BTCUSDT_240329"
+    url = f"https://data.binance.vision/data/futures/um/monthly/klines/{symbol}/1h/{symbol}-1h-2024-01.zip"
+    rows = [f"{END - 2 * H},1,2,0.5,1.5,1,{END - H - 1},1,1,1,1,0", f"{END},1,1,1,9,1,{END + H},1,1,1,1,0"]
+    fetch.add_zip(url, "q.csv", "\n".join(rows))
+    rows = fs.quarterly_klines("BTCUSDT", [(2024, 3)], END, fetch=fetch, months_back=0, first_month="2024-01")
+    assert rows == [(END - 2 * H, symbol, fs.quarterly_expiry(2024, 3), "1.5")]
+
+
+def test_coinbase_candles_are_paged_backwards_sorted_and_cut():
+    start = END - 700 * H
+
+    class Coinbase(Fetch):
+        def __call__(self, url):
+            self.seen.append(url)
+            q = dict(p.split("=") for p in url.split("?")[1].split("&"))
+            a, b = fs.iso_ms(q["start"]), fs.iso_ms(q["end"])
+            data = [[t // 1000, 1, 2, 1, 100 + (t - start) / H, 5] for t in range(b - H, a - 1, -H)]  # newest first
+            return json.dumps(data).encode()
+    fetch = Coinbase()
+    rows = fs.coinbase("BTC-USD", start, END, fetch=fetch)
+    assert len(fetch.seen) == 3                                                   # 300 candles a request
+    assert [r[0] for r in rows] == list(range(start, END, H)) and rows[0][1] == 100.0
+
+
+def test_upbit_candles_walk_back_from_the_end():
+    start = END - 450 * H
+
+    class Upbit(Fetch):
+        def __call__(self, url):
+            self.seen.append(url)
+            q = dict(p.split("=") for p in url.split("?")[1].split("&"))
+            to = fs.iso_ms(q["to"])
+            first = max(start, to - int(q["count"]) * H)
+            return json.dumps([{"candle_date_time_utc": fs.ms_iso(t)[:19], "trade_price": float(t // H % 1000)}
+                               for t in range(to - H, first - 1, -H)]).encode()
+    rows = fs.upbit("KRW-BTC", start, END, fetch=Upbit())
+    assert [r[0] for r in rows] == list(range(start, END, H))
+
+
+def test_fear_and_greed_keeps_days_before_the_end():
+    payload = {"data": [{"value": "40", "timestamp": str(END // 1000 - 86400)},
+                        {"value": "55", "timestamp": str(END // 1000)}]}
+    assert fs.fear_greed(END, fetch=Fetch({fs.FEAR_GREED: json.dumps(payload).encode()})) == [("2024-01-01", 40.0)]
+
+
+FOMC_PAGE = """<h4><a id="1"></a>2023 FOMC Meetings</h4>
+<div class="fomc-meeting__month col-xs-5"><strong>Jan/Feb</strong></div><div class="fomc-meeting__date">31-1</div>
+<div class="fomc-meeting__month col-xs-5"><strong>March</strong></div><div class="fomc-meeting__date">21-22*</div>
+<div class="fomc-meeting__month col-xs-5"><strong>December</strong></div><div class="fomc-meeting__date">12-13*</div>
+<h4>2024 FOMC Meetings</h4>
+<div class="fomc-meeting__month col-xs-5"><strong>Jan</strong></div><div class="fomc-meeting__date">30-31</div>"""
+
+
+def test_fomc_statement_days_are_the_last_day_of_each_meeting():
+    assert fs.fomc_days(FOMC_PAGE) == ["2023-02-01", "2023-03-22", "2023-12-13", "2024-01-31"]

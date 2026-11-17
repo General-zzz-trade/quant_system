@@ -58,7 +58,19 @@ BVOL_LEFT_OUT = ("not downloaded (2026-11-17): it duplicates Deribit's DVOL, als
                  "source on this host (about 1 GB at 150-250 KB/s in all)")
 DVOL = ("BTC", "ETH")
 FRED_LAG_DAYS = {"DTWEXBGS": 9, "DGS10": 2, "SP500": 2, "NASDAQCOM": 2, "VIXCLS": 2}   # release schedules unverified
-CM_METRICS = ("FlowInExNtv", "FlowOutExNtv", "SplyExNtv", "AdrActCnt", "TxCnt", "CapMrktCurUSD")
+CM_METRICS = ("FlowInExNtv", "FlowOutExNtv", "SplyExNtv", "AdrActCnt", "TxCnt", "CapMrktCurUSD", "CapMVRVCur",
+              "HashRate")
+# The second version (owner 2026-11-17: "还有哪些特征是需要用到", then "执行"): liquidity, credit and FX from FRED,
+# Binance's quarterly futures, Coinbase and Upbit hourly candles, the fear and greed index and the FOMC calendar.
+FRED_V2_LAG_DAYS = {"WALCL": 3, "WTREGEN": 3, "RRPONTSYD": 1, "BAMLH0A0HYM2": 2, "DGS2": 2, "T10Y2Y": 2,
+                    "DCOILWTICO": 9, "DEXJPUS": 9, "DEXKOUS": 9}     # weekly releases get 9 days; all unverified
+COINBASE = "https://api.exchange.coinbase.com/products/{product}/candles"
+COINBASE_PRODUCTS = {"BTC-USD": "2017-06-01", "ETH-USD": "2017-06-01", "USDT-USD": "2021-04-01"}
+UPBIT = "https://api.upbit.com/v1/candles/minutes/60"
+UPBIT_MARKETS = {"KRW-BTC": "2017-10-01", "KRW-ETH": "2017-10-01"}
+FEAR_GREED = "https://api.alternative.me/fng/?limit=0&format=json"
+FOMC_CALENDAR = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+QUARTERS = [(y, m) for y in range(2021, 2027) for m in (3, 6, 9, 12)]
 CM_ASSETS = ("btc", "eth")
 SPOT_FIRST, PREMIUM_FIRST = "2017-08", "2020-01"
 DVOL_FIRST, CM_FIRST = date(2021, 1, 1), date(2017, 1, 1)
@@ -319,6 +331,115 @@ def coinmetrics(asset: str, metrics: Sequence[str], first: date, end_ms: int, *,
     return out
 
 
+# -- the second version's sources -----------------------------------------------------------------------------
+def ms_iso(t_ms: int) -> str:
+    return datetime.fromtimestamp(t_ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def iso_ms(text: str) -> int:
+    stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    stamp = stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+    return int(stamp.timestamp() * 1000)
+
+
+def quarterly_expiry(year: int, month: int) -> int:
+    """08:00 UTC on the last Friday of the month: when Binance's quarterly USD-M futures settle."""
+    last = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(1))
+    friday = last - timedelta((last.weekday() - 4) % 7)
+    return ms(friday) + 8 * H
+
+
+def quarterly_symbol(asset: str, year: int, month: int) -> str:
+    day = datetime.fromtimestamp(quarterly_expiry(year, month) / 1000, timezone.utc)
+    return f"{asset}_{day:%y%m%d}"
+
+
+def quarterly_klines(asset: str, quarters: Sequence[tuple[int, int]], end_ms: int, *, fetch: Fetch = http_get,
+                     months_back: int = 6, first_month: str | None = None) -> list[tuple]:
+    """(open time ms, contract, expiry ms, close) of every quarterly contract's 1h klines, from ``months_back`` months
+    before its expiry month (or ``first_month``) through it."""
+    out = []
+    for year, month in quarters:
+        symbol, expiry = quarterly_symbol(asset, year, month), quarterly_expiry(year, month)
+        k = year * 12 + month - 1 - months_back
+        start = first_month or f"{k // 12:04d}-{k % 12 + 1:02d}"
+        stop = date(year + (month == 12), month % 12 + 1, 1)
+        for m in months(start, stop):
+            url = f"{VISION}/futures/um/monthly/klines/{symbol}/1h/{symbol}-1h-{m}.zip"
+            for r in vision_rows(url, fetch=fetch) or []:
+                t = _to_ms(r[0])
+                if t + H <= end_ms:
+                    out.append((t, symbol, expiry, r[4]))
+    return sorted(set(out))
+
+
+def coinbase(product: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get) -> list[tuple]:
+    """(open time ms, close, volume) of Coinbase's hourly candles in [start_ms, end_ms), 300 a request."""
+    found: dict[int, tuple] = {}
+    b = end_ms
+    while b > start_ms:
+        a = max(start_ms, b - 300 * H)
+        url = f"{COINBASE.format(product=product)}?granularity=3600&start={ms_iso(a)}&end={ms_iso(b)}"
+        for t, _low, _high, _open, close, volume in json.loads(fetch(url)):
+            t_ms = int(t) * 1000
+            if start_ms <= t_ms and t_ms + H <= end_ms:
+                found[t_ms] = (t_ms, float(close), float(volume))
+        b = a
+    return [found[t] for t in sorted(found)]
+
+
+def upbit(market: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get, count: int = 200) -> list[tuple]:
+    """(open time ms, last trade price) of Upbit's hourly candles in [start_ms, end_ms), walking back from the end."""
+    found: dict[int, tuple] = {}
+    to = end_ms
+    while to > start_ms:
+        page = json.loads(fetch(f"{UPBIT}?market={market}&count={count}&to={ms_iso(to)}"))
+        if not page:
+            break
+        times = []
+        for row in page:
+            t = iso_ms(row["candle_date_time_utc"])
+            times.append(t)
+            if start_ms <= t and t + H <= end_ms:
+                found[t] = (t, float(row["trade_price"]))
+        earliest = min(times)
+        if earliest >= to:
+            break
+        to = earliest
+    return [found[t] for t in sorted(found)]
+
+
+def fear_greed(end_ms: int, *, fetch: Fetch = http_get) -> list[tuple]:
+    """(date, index value) of alternative.me's fear and greed index, days before the end."""
+    out = [(_day(int(r["timestamp"]) * 1000), float(r["value"])) for r in json.loads(fetch(FEAR_GREED))["data"]
+           if int(r["timestamp"]) * 1000 < end_ms]
+    return sorted(out)
+
+
+_MONTHS = {m: k for k, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
+                                       "dec"), start=1)}
+
+
+def fomc_days(page: str) -> list[str]:
+    """The last day of every FOMC meeting the Federal Reserve's calendar page lists (the statement day)."""
+    import re
+    out = []
+    for block in re.split(r"(?=\b\d{4} FOMC Meetings)", page):
+        head = re.match(r"(\d{4}) FOMC Meetings", block)
+        if not head:
+            continue
+        year = int(head.group(1))
+        cells = re.findall(r'fomc-meeting__month[^>]*>\s*<strong>([^<]+)</strong>.*?fomc-meeting__date[^>]*>([^<]+)<',
+                           block, flags=re.S)
+        for month_text, day_text in cells:
+            month = _MONTHS.get(month_text.strip().split("/")[-1][:3].lower())
+            days_found = re.findall(r"\d+", day_text)
+            if month is None or not days_found:
+                continue
+            out.append(date(year, month, int(days_found[-1])).isoformat())
+    return sorted(set(out))
+
+
 # -- the snapshot ---------------------------------------------------------------------------------------------
 def write_snapshot(out: Path, files: dict[str, tuple[tuple, Iterable[tuple]]], end_ms: int, *,
                    sources: dict[str, dict], extra: dict | None = None) -> dict:
@@ -346,7 +467,8 @@ def write_snapshot(out: Path, files: dict[str, tuple[tuple, Iterable[tuple]]], e
     return json.loads((out / "manifest.json").read_text())
 
 
-SOURCES = ("spot", "premium", "depth", "dvol", "fred", "stable", "coinmetrics")
+SOURCES = ("spot", "premium", "depth", "dvol", "fred", "stable", "coinmetrics", "quarterly", "coinbase", "upbit",
+           "fear_greed", "fomc")
 
 
 def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 4,
@@ -390,7 +512,7 @@ def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 
         add(f"{currency}_dvol_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
             lambda c=currency: dvol(c, ms(DVOL_FIRST), end_ms, fetch=fetch),
             {"source": f"{DERIBIT} (resolution 3600)", "known": "open_time + 1 h"})
-    for series, lag in FRED_LAG_DAYS.items() if "fred" in sources else ():
+    for series, lag in {**FRED_LAG_DAYS, **FRED_V2_LAG_DAYS}.items() if "fred" in sources else ():
         add(f"fred_{series}.csv.gz", ("date", "value"), lambda x=series: fred(x, end_ms, fetch=fetch),
             {"source": fred_url(series), "known": f"date + {lag} days 00:00 UTC (release schedule unverified)"})
     if "stable" in sources:
@@ -401,6 +523,27 @@ def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 
             lambda a=asset: coinmetrics(a, CM_METRICS, CM_FIRST, end_ms, fetch=fetch),
             {"source": COINMETRICS, "known": "date + 2 days 00:00 UTC",
              "caveat": "flash values are revised: history is the revised value"})
+    for asset in SYMBOLS if "quarterly" in sources else ():
+        add(f"{asset}_quarterly_1h.csv.gz", ("open_time", "contract", "expiry", "close"),
+            lambda a=asset: quarterly_klines(a, QUARTERS, end_ms, fetch=fetch),
+            {"source": f"{VISION}/futures/um/monthly/klines/<asset>_<expiry>/1h", "known": "open_time + 1 h"})
+    for product, first in COINBASE_PRODUCTS.items() if "coinbase" in sources else ():
+        add(f"coinbase_{product}_1h.csv.gz", ("open_time", "close", "volume"),
+            lambda x=product, f=first: coinbase(x, ms(date.fromisoformat(f)), end_ms, fetch=fetch),
+            {"source": COINBASE.format(product=product), "known": "open_time + 1 h"})
+    for market, first in UPBIT_MARKETS.items() if "upbit" in sources else ():
+        add(f"upbit_{market}_1h.csv.gz", ("open_time", "close"),
+            lambda x=market, f=first: upbit(x, ms(date.fromisoformat(f)), end_ms, fetch=fetch),
+            {"source": UPBIT, "known": "open_time + 1 h"})
+    if "fear_greed" in sources:
+        add("fear_greed.csv.gz", ("date", "value"), lambda: fear_greed(end_ms, fetch=fetch),
+            {"source": FEAR_GREED, "known": "date + 1 day 00:00 UTC"})
+    if "fomc" in sources:
+        horizon = (end + timedelta(400)).isoformat()
+        add("fomc_days.csv.gz", ("date",),
+            lambda: [(d,) for d in fomc_days(fetch(FOMC_CALENDAR).decode()) if d < horizon],
+            {"source": FOMC_CALENDAR, "known": "the schedule is published about a year ahead; days up to 400 after "
+                                                "the end are kept so the next meeting is known at the end"})
     extra = {"downloaded_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
              "purpose": "feature-pool study (owner 2026-11-17)", "terms": "each source's terms of use unverified",
              "not_downloaded": {"BVOL": BVOL_LEFT_OUT,
