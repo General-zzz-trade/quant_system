@@ -36,6 +36,7 @@ from lab.simulate import SymbolRules, simulate
 from lab.strategy import StrategySpec
 from trading.domain.bars import bar_from_kline
 from trading.domain.issues import STOP_PAUSE_SECONDS
+from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import liquidation_distance
 from trading.domain.strategy.base import Strategy, Window
 from trading.domain.strategy.ideas import IDEAS as REGISTERED, IdeaStrategy, lab_frame
@@ -127,7 +128,7 @@ class LiveTerms:
     losing_trades: int = 3        # the pilot's rule until 2026-11-16, replaced by loss_stop; still reported
     loss_stop: float = 0.15       # the pilot flattens and stops once the strategy has lost 15 % of its capital
     loss_stop_days: int = 90      # reported: the share of pilots of this length that the loss stop would end
-    leverage: str = "1"           # STRATEGY_LEVERAGE: positions up to this many times a slot's capital (3 the cap)
+    leverage: str = "1"           # STRATEGY_LEVERAGE: positions up to this many times a slot's capital (cap: 10)
     symbols: tuple[str, ...] = ()  # the fixed list the strategy trades; empty: a list chosen per period
 
 
@@ -244,9 +245,9 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
     spec = StrategySpec(execution=execution, ttl_bars=ttl_bars)       # refuses another execution or a ttl below 1
     lev = D(leverage)
     exchange = exchange_leverage(stop_pct) if lev != 1 else 0
-    if lev != 1 and (not 1 <= lev <= 3 or D(stop_pct) <= 0 or exchange < 1):
-        raise ValueError(f"a replay at leverage {leverage} needs a leverage in [1, 3] and a stop inside an isolated "
-                         f"liquidation distance (stop {stop_pct})")
+    if lev != 1 and (not 1 <= lev <= MAX_TOTAL_LEVERAGE or D(stop_pct) <= 0 or not lev <= exchange):
+        raise ValueError(f"a replay at leverage {leverage} needs a leverage in [1, {MAX_TOTAL_LEVERAGE}], at most the "
+                         f"exchange leverage the stop allows ({exchange}x for a stop of {stop_pct})")
     df = frame(symbol, snapshot)
     df = df[(df.index >= start - 40 * DAY) & (df.index < end)]
     bars = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
