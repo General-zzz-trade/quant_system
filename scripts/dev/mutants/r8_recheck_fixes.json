@@ -1,0 +1,79 @@
+[
+ [
+  "refs: no advanced check (decide on warm-up close)",
+  "trading/application/market_poller.py",
+  "if not advanced & set(unit) or len({self.sessions[r].cursor for r in unit}) != 1:",
+  "if len({self.sessions[r].cursor for r in unit}) != 1:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: failing strategy not blocked",
+  "trading/application/market_poller.py",
+  "                self._decision_failed(symbol, session, exc)\n                continue",
+  "                continue",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: paper does not raise on failing strategy",
+  "trading/application/market_poller.py",
+  "            except Exception as exc:\n                if not self.policy.isolate_failures:\n                    raise                           # paper must not diverge from research silently\n                self._decision_failed(symbol, session, exc)\n                continue",
+  "            except Exception as exc:\n                self._decision_failed(symbol, session, exc)\n                continue",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: step passes every session as advanced",
+  "trading/application/market_poller.py",
+  "self._decide_together(together, decide_ms, {s for s, _ in group})",
+  "self._decide_together(together, decide_ms, set(self.sessions))",
+  "tests/unit/trading/test_decide_together.py::test_paper_does_not_decide_a_reader_on_a_close_it_got_at_warm_up"
+ ],
+ [
+  "refs: decided_at set only after success",
+  "trading/application/market_poller.py",
+  "            self.decided_at[symbol] = at\n            try:",
+  "            try:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: decision does not clear error",
+  "trading/application/market_poller.py",
+  "            self._guarded(symbol, lambda: session.decide(bar, now_ms=decide_ms, target=target))",
+  "            self._guarded(symbol, lambda: session.decide(bar, now_ms=decide_ms, target=target), clears=False)",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: only cross-sectional reported behind",
+  "trading/application/market_poller.py",
+  "        if not strategy.cross_sectional:                  # a strategy that reads others: only its readers wait\n            read = set(strategy.references())\n            behind = [symbol for symbol in behind if symbol in read]",
+  "        if not strategy.cross_sectional:\n            behind = []",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "refs: retry only the group in step",
+  "trading/application/market_poller.py",
+  "for symbol in (s for s, _ in group) if together is None else self.sessions:",
+  "for symbol in (s for s, _ in group):",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "snapshot issue not in cycle errors (alert)",
+  "trading/application/exit_supervisor.py",
+  "        if self.snapshot_issue is not None:\n            cycle_errors = cycle_errors + [self.snapshot_issue]",
+  "        pass",
+  "tests/unit/trading/test_account_snapshot.py"
+ ],
+ [
+  "pending cleared before deciding (the blocking defect)",
+  "trading/application/market_poller.py",
+  "                    if together is not None:\n                        self.pending.add(symbol)",
+  "                    if together is not None and False:\n                        self.pending.add(symbol)",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "decide only when bars came this poll",
+  "trading/application/market_poller.py",
+  "        if together is not None and self.pending:",
+  "        if together is not None and processed and self.pending:",
+  "tests/unit/trading/test_decide_together.py::test_a_retry_without_a_new_bar_still_decides_what_advanced_before_the_error"
+ ]
+]

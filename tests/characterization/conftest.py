@@ -1,6 +1,7 @@
 """Characterization tests: they pin today's behaviour of the money path before it is moved.
 
-A test marked ``known_defect("Rn")`` pins a defect listed in docs/arch/current-state.md section 5.
+A test marked ``known_defect("Rn")`` pins a defect listed in section 5 of the 2026-11-14 diagnosis (deleted in
+R9; in git history).
 Its assertions change only in the migration step that implements the approved fix, and that step's
 log entry names every assertion it changed.
 """

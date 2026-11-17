@@ -39,6 +39,7 @@ class Market:
 
     def __init__(self, last):
         self.last = dict(last)
+        self.fail: set[str] = set()                    # symbols whose klines request fails like a network error
 
     def get_funding_intervals(self):                       # R4: every symbol settles every 8 hours
         return {"BTCUSDT": 8, "ETHUSDT": 8, "AUSDT": 8, "BUSDT": 8, "CUSDT": 8}
@@ -47,6 +48,8 @@ class Market:
         return [(t, 0.0001) for t in range(T0, T0 + 48 * HOUR, 8 * HOUR)]
 
     def get_klines(self, symbol, interval="60", limit=200, *, now_ms=None):
+        if symbol in self.fail:
+            raise OSError(f"{symbol}: timed out")
         rows = [{"start": T0 + k * HOUR, "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1.0}
                 for k in range(self.last[symbol] + 1)]
         return [r for r in rows if r["start"] + HOUR <= now_ms][-limit:]
@@ -339,3 +342,93 @@ def test_when_the_symbol_read_is_behind_nobody_that_reads_it_decides():
     w.clock["t"] += 5
     w.poller.poll()
     assert [(e[1], e[2]) for e in w.log if e[0] == "decide"][1:] == [("AUSDT", 3), ("BUSDT", 3), ("CUSDT", 3)]
+
+
+
+# -- R8 re-check ----------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("strategy", [Gated(None), Ranked(None)], ids=["reads AUSDT", "cross-sectional"])
+def test_a_market_error_later_in_a_poll_does_not_lose_the_close(strategy):
+    """Finding 1: AUSDT and BUSDT advance, CUSDT's request fails and the poll backs off; on the retry every symbol still
+    decides the close (the symbols that advanced stay pending until a decision pass completes)."""
+    w = _poller(EXECUTION, _all(3), now_hours=4, strategy=strategy)
+    w.market.fail.add("CUSDT")
+    w.poller.poll()
+    assert w.log == [] and w.poller.failures == 1 and w.poller.pending == {"AUSDT", "BUSDT"}
+    w.market.fail.clear()
+    w.clock["t"] += 5
+    w.poller.poll()
+    assert sorted((e[1], e[2]) for e in w.log if e[0] == "decide") == [("AUSDT", 3), ("BUSDT", 3), ("CUSDT", 3)]
+    assert w.poller.pending == set()
+
+
+def test_without_a_new_bar_a_reader_decides_nothing():
+    w = _poller(EXECUTION, _all(3), now_hours=4, cursor=3, strategy=Gated(None))       # warmed up through bar 3
+    w.poller.poll()
+    assert w.log == []
+
+
+class Failing(Gated):
+    def __init__(self, log):
+        super().__init__(log)
+        self.broken = True
+
+    def latest(self, windows):
+        if self.broken and "BUSDT" in windows:
+            raise RuntimeError("BUSDT: bad window")
+        return super().latest(windows)
+
+
+def test_a_reader_whose_decision_fails_blocks_only_itself_until_it_decides_again():
+    w = _poller(EXECUTION, _all(4), now_hours=4, strategy=Failing(None))
+    w.poller.poll()
+    assert set(w.poller.decision_errors) == {"BUSDT"} and ("blocked", "BUSDT") in w.log
+    assert sorted(e[1] for e in w.log if e[0] == "decide") == ["AUSDT", "CUSDT"]
+    assert [i["symbol"] for i in _issues(w)] == ["BUSDT"]
+    w.sessions["BUSDT"].strategy.broken = False
+    w.clock["t"] = (T0 + 5 * HOUR + 5_000) / 1000
+    w.poller.poll()
+    assert w.poller.decision_errors == {} and ("decide", "BUSDT", 4, (0.1, True)) in w.log
+    paper = _poller(PAPER, _all(3), now_hours=4, strategy=Failing(None), gate=BarTimeClock())
+    with pytest.raises(RuntimeError, match="bad window"):
+        paper.poller.poll()
+
+
+def test_only_a_symbol_others_read_is_reported_behind_when_its_close_is_late():
+    w = _poller(EXECUTION, {"AUSDT": 2, "BUSDT": 3, "CUSDT": 3}, now_hours=4, cursor=2, strategy=Gated(None))
+    w.poller.poll()
+    assert w.log == []                                                 # BUSDT and CUSDT wait for AUSDT's bar 3
+    w.clock["t"] = (T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS + 1) / 1000
+    w.poller.poll()
+    issues = _issues(w)
+    assert [(i["symbol"], i["issue_kind"]) for i in issues] == [("AUSDT", "decision_failed")]
+    assert "reads it" in issues[0]["issue"] and ("blocked", "AUSDT") in w.log
+    w = _poller(EXECUTION, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 2}, now_hours=4, cursor=2, strategy=Gated(None))
+    w.poller.poll()
+    w.clock["t"] = (T0 + 4 * HOUR + MAX_ENTRY_DELAY_MS + 1) / 1000
+    w.poller.poll()
+    assert _issues(w) == []                                            # nobody reads CUSDT: nothing waits for it
+
+
+def test_a_retry_without_a_new_bar_still_decides_what_advanced_before_the_error():
+    """Finding 1, second form: on the retry the failed symbol has no new bar yet; the symbols that advanced before the
+    error decide anyway (a reader of the missing one waits)."""
+    w = _poller(EXECUTION, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 2}, now_hours=4, cursor=2, strategy=Gated(None))
+    w.market.fail.add("CUSDT")
+    w.market.last["CUSDT"] = 3
+    w.poller.poll()                                                    # AUSDT, BUSDT advance; CUSDT's request fails
+    assert w.poller.pending == {"AUSDT", "BUSDT"}
+    w.market.fail.clear()
+    w.market.last["CUSDT"] = 2                                         # its bar 3 is not out yet on the retry
+    w.clock["t"] += 5
+    assert w.poller.poll() == 0                                        # no new bar in this poll
+    assert sorted((e[1], e[2]) for e in w.log if e[0] == "decide") == [("AUSDT", 3), ("BUSDT", 3)]
+
+
+def test_paper_does_not_decide_a_reader_on_a_close_it_got_at_warm_up():
+    """A replayed bar marks only its own symbol: BUSDT, warmed up through bar 3, does not decide on bar 3 when
+    CUSDT's bar 3 is replayed (CUSDT's decision reads AUSDT, already at 3)."""
+    w = _poller(PAPER, {"AUSDT": 3, "BUSDT": 3, "CUSDT": 3}, now_hours=4, cursor=3, strategy=Gated(None),
+                gate=BarTimeClock())
+    w.sessions["CUSDT"].cursor = T0 + 2 * HOUR                        # CUSDT one bar behind the others
+    w.poller.poll()
+    assert [(e[1], e[2]) for e in w.log if e[0] == "decide"] == [("CUSDT", 3)]

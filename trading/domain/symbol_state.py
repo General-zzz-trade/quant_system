@@ -15,7 +15,7 @@ class SymbolState(Enum):
     WARMING = "warming"          # history not loaded yet
     READY = "ready"              # entries allowed
     BLOCKED = "blocked"          # a problem of this cycle blocks this symbol's (or every) entry
-    PAUSED = "paused"            # an entry pause holds; a person releases it
+    PAUSED = "paused"            # an entry pause holds: a stop's ends by itself after 4 hours, others a person ends
     FLATTENING = "flattening"    # a flatten applies and the position is not flat yet
     HALTED = "halted"            # the kill switch is active or the drawdown guard is latched
 

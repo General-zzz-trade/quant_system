@@ -36,11 +36,13 @@ def test_the_table_is_exactly_the_decided_one():
         IssueKind.CANCEL_FAILED: frozenset({E.ALERT_ONLY}),
         IssueKind.DECISION_FAILED: BLOCK,                               # S3c: one symbol's bar failed
         IssueKind.FUNDING_INTERVAL_UNKNOWN: BLOCK,                      # R4 audit: its settlement interval unknown
+        IssueKind.POSITIONS_UNREAD: frozenset({E.BLOCK_ALL_ENTRIES}),   # R8: blocks, cancels no resting entry
         IssueKind.CYCLE_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),       # S3c: a whole block of the cycle failed
         IssueKind.EVENT_LOG_FAILED: frozenset({E.BLOCK_ALL_ENTRIES}),   # S3 audit 3: the event log is not writable
         IssueKind.ACCOUNT_UNREADABLE: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # ADR-0011
         IssueKind.ACCOUNT_SETTINGS: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),    # ADR-0011
         IssueKind.FOREIGN_FILL: frozenset({E.ALERT_ONLY}),             # ADR-0012: a stop fill beyond the ledger
+        IssueKind.STRATEGY_LOSS_STOP: frozenset({E.BLOCK_ALL_ENTRIES, E.CANCEL_RESTING_ENTRIES}),  # loss stop audit
     }
     assert set(EFFECTS) == set(IssueKind)                         # every kind has a row
     assert all(EFFECTS[k] for k in IssueKind)                      # and at least one effect

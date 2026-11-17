@@ -9,7 +9,7 @@ from decimal import Decimal as D
 import pytest
 
 from tests.characterization.test_exit_paths import _tick, _until
-from tests.characterization.test_runtime_decisions import _events
+from tests.characterization.test_runtime_decisions import _events, _runtime
 from tests.characterization.test_strategy_capital_sizing import _execution
 from tests.unit.lab.test_target_runtime import _advance
 
@@ -88,12 +88,14 @@ def test_a_loss_that_cannot_be_known_closes_nothing_and_blocks_entries(tmp_path)
     held = btc.positions["BTCUSDT"]
     for fake in world["fakes"].values():
         fake.income_error = True
-    for step in range(3):                                           # after two hours the funding total is unknown
+    runtime = _runtime(tmp_path, world)                             # a restart: this process never read the funding
+    runtime.warmup()
+    for step in range(3):
         _advance(world, runtime, i + step)
     assert _kill(tmp_path)["active"] is False
     assert btc.positions["BTCUSDT"] == held                         # nothing was closed
     issues = [r for r in _events(tmp_path, "issue") if "strategy loss" in r.get("issue", "")]
-    assert issues and issues[0]["issue_kind"] == "account_unreadable"
+    assert issues and issues[0]["issue_kind"] == "strategy_loss_stop"
 
 
 def test_without_a_strategy_capital_there_is_no_loss_stop(tmp_path, monkeypatch):
@@ -115,7 +117,7 @@ def test_while_the_loss_is_unknown_no_entry_is_made_although_the_sizing_is_known
     btc = world["fakes"]["BTCUSDT"]
     _tick(world, runtime)
     assert all(s.executor.ready for s in runtime.sessions.values())
-    stub = SimpleNamespace(findings=[Issue(IssueKind.ACCOUNT_UNREADABLE, None, "strategy loss unknown (test)")],
+    stub = SimpleNamespace(findings=[Issue(IssueKind.STRATEGY_LOSS_STOP, None, "strategy loss unknown (test)")],
                            take_trip=lambda: None)
     stub.check = lambda: list(stub.findings)
     runtime.exits.loss_stop = stub

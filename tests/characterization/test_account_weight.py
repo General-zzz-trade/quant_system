@@ -7,9 +7,10 @@ the client's own budget is half that, 1200 a minute, shared with anything else o
 request beyond it is refused locally). The weights are the client's table
 (``trading.adapters.binance.rate_limit.endpoint_weight``, ADR-0011 point 7: a position read 5, one symbol's open
 orders 1, every symbol's 40). Not in the measure: a strategy capital adds ``/fapi/v1/income`` reads (30 per symbol
-every 10 minutes, about 30 a minute at 10 symbols). The world: 10 symbols on fake venues, the overlay
-trading every one of them, then ten minutes of 5-second cycles inside one hour with the positions held - the steady
-state of the exit side, which makes almost all of the requests.
+every 10 minutes, about 30 a minute at 10 symbols) and the loss stop's position read of each held symbol once a minute
+(5 each, about 50 a minute at 10 symbols): about 520 in all, still under the bound. The world: 10 symbols on fake
+venues, the overlay trading every one of them, then ten minutes of 5-second cycles inside one hour with the positions
+held - the steady state of the exit side, which makes almost all of the requests.
 """
 from __future__ import annotations
 

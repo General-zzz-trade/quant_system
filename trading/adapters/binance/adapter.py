@@ -205,7 +205,9 @@ class BinanceAdapter:
             raise RuntimeError("Invalid Binance position snapshot")
         positions = []
         for p in data:
-            amt = Decimal(str(p.get("positionAmt", "0")))
+            if not isinstance(p, dict) or "positionAmt" not in p:      # R8 re-check: unknown, never flat
+                raise RuntimeError("Invalid Binance position quantity")
+            amt = Decimal(str(p["positionAmt"]))
             if not amt.is_finite():
                 raise RuntimeError("Invalid Binance position quantity")
             if amt == 0:
@@ -394,15 +396,18 @@ class BinanceAdapter:
         ) for f in data)
 
     def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal:
-        """The account's USDT funding income on ``symbol`` from ``since_ms`` on (inclusive): the strategy capital
-        base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next page starts at the
-        last row's time, and a row returned twice counts once (by its transaction id). Errors and answers that
-        cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance keeps."""
+        """The account's USDT funding income on ``symbol`` from ``since_ms`` to ``now_ms`` (both inclusive): the
+        strategy capital base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next
+        page starts at the last row's time, and a row returned twice counts once (by its transaction id). Errors and
+        answers that cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance
+        keeps."""
         if since_ms < now_ms - INCOME_HISTORY_MS:
             raise RuntimeError(f"funding income of {symbol} since {since_ms} cannot be read whole: Binance keeps "
                                "income history for three months only")
+        # The end of the window is sent too (audit 2026-11-16, finding 5): Binance documents what a request with
+        # only one end of the window returns less clearly than one with both.
         params: dict[str, Any] = {"symbol": symbol, "incomeType": "FUNDING_FEE", "startTime": int(since_ms),
-                                  "limit": INCOME_PAGE}
+                                  "endTime": int(now_ms), "limit": INCOME_PAGE}
         income: dict[str, Decimal] = {}
         for _ in range(MAX_INCOME_PAGES):
             page = self._client.request_signed(method="GET", path="/fapi/v1/income", params=dict(params))
