@@ -102,3 +102,15 @@ def test_main_writes_the_draft_and_its_notes_and_exits_2_on_a_gap(market, tmp_pa
     assert "STOP_PCT=0.08" in notes and "24" in notes and "未验证" in notes
     with pytest.raises(FileExistsError):                                 # a draft is written once
         draft.main(["--run", str(run), "--snapshot", str(market), "--out", str(out)])
+
+
+def test_a_pause_then_reset_choice_is_written_as_the_spec_s_after_stop(market):  # noqa: F811
+    """Tech lead 2026-11-17: the runtime has the stricter rule now; a winner judged with it needs no code change."""
+    stop = {"stop_pct": "0.08", "pause_hours": 4, "reenter": "pause_then_reset"}
+    spec, settings, gaps = draft.draft(results(stop=stop), LISTS, market)
+    assert gaps == [] and spec["after_stop"] == "pause_then_reset"
+    assert parse_spec(spec).after_stop == "pause_then_reset"
+    plain, _, _ = draft.draft(results(), LISTS, market)
+    assert "after_stop" not in plain                                    # the pause alone: the default, not written
+    _, _, other = draft.draft(results(stop={**stop, "pause_hours": 24}), LISTS, market)
+    assert len(other) == 1 and "24" in other[0]

@@ -139,6 +139,9 @@ class DivergencePauses:
     def covered(self, symbol: str) -> set[str]:
         return self.inner.covered(symbol)
 
+    def ended_by_itself(self, symbol: str) -> float | None:
+        return self.inner.ended_by_itself(symbol)
+
 
 class PaperStateStore:
     """The ``PaperStore`` of a paper run (S10 decision 4): the document in the state database, written atomically with

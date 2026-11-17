@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from trading.application.ports import EventLog
@@ -21,6 +22,7 @@ from trading.domain.rebalance import Intent, close_without_equity, plan
 from trading.domain.strategy.base import OverlayStrategy, Strategy, Window
 from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.events import EventKind
+from trading.domain.issues import AFTER_STOP_PAUSE
 from trading.domain.symbol_state import SymbolState
 
 MAX_ENTRY_DELAY_MS = 10 * 60_000
@@ -78,7 +80,8 @@ class ExecutionParts:
 class TargetSession:
     def __init__(self, symbol: str, spec: StrategySpec, *, journal: EventLog, rules: LotRules,
                  make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5"),
-                 strategy: Strategy | None = None, allow_short: bool | None = None) -> None:
+                 strategy: Strategy | None = None, allow_short: bool | None = None,
+                 after_stop: str = AFTER_STOP_PAUSE) -> None:
         self.symbol, self.spec, self.journal, self.rules = symbol, spec, journal, rules
         self.allocation, self._make_order = allocation, make_order
         # R1 (runtime extension plan): the target comes from a strategy behind the shared interface; the spec still
@@ -95,6 +98,13 @@ class TargetSession:
         self.entry_ready, self.entry_reason = False, "no live bar yet"
         self.state = SymbolState.WARMING      # set by the exit side every cycle (ADR-0014 point 3)
         self.last_target: tuple[float, bool] = (0.0, False)
+        # Tech lead 2026-11-17: the spec's rule after a stop, and when a ready decision last wanted exactly 0 (the
+        # strategy's reset; in memory only, so after a restart the symbol waits for the next one: fail closed).
+        self.after_stop = after_stop
+        self.flat_target_at: int | None = None
+        # Whether an entry of this symbol filled after a time (seconds), from the order journal; set by the
+        # composition root. None: not known, so the wait after a stop does not end on it (fail closed).
+        self.entered_since: Callable[[float], bool] | None = None
         self.executor: Any = execution.executor
         self.consumer: Any = execution.consumer
         self.stops: Any = execution.stops
@@ -246,6 +256,8 @@ class TargetSession:
         if weight < 0 and not self.allow_short:
             weight = 0.0             # R6: no short unless the spec allows it; one already held is closed
         self.last_target = (weight, ready)
+        if ready and weight == 0.0:
+            self.flat_target_at = bar.available_at
         self.drop_deferred("superseded by a newer bar")
         if not ready:
             return

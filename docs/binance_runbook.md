@@ -41,7 +41,10 @@ QUANT_MODEL_SIGN_KEY=... python3 -m scripts.publish_strategy_spec \
     --study research/results/overlay_2026-11-13 --out models_binance/strategy
 ```
 
-规格里的门槛结果会原样复制：门槛未通过时主网保持拒绝，模拟盘和测试网可以运行。发布前用运行时同一个解析器检查规格（第 1 版：BTC/ETH 多周期策略；第 2 版：策略、参数、最多 10 个品种、是否做空，见 `docs/arch/target.md` 6.3）。
+规格里的门槛结果会原样复制：门槛未通过时主网保持拒绝，模拟盘和测试网可以运行。发布前用运行时同一个解析器检查规格（第 1 版：BTC/ETH 多周期策略；第 2 版：策略、参数、最多 10 个品种、是否做空，以及可选的 `after_stop`，见 `docs/arch/target.md` 6.3）。
+
+- 第 2 版规格写 `"after_stop": "pause_then_reset"` 时，止损的 4 小时暂停结束后，空仓的品种还要等策略要过一次 0 才开仓（技术负责人 2026-11-17，只会更严）；不写就和以前一样。
+- 实验室冠军的规格草稿：`python3 -m scripts.draft_strategy_spec --run research/lab/runs/<日期> --snapshot <快照>`。草稿的 `passed` 永远是 false、不签名；签名发布和标记通过只由技术负责人做。
 
 ## 3. 模拟盘（systemd，默认）
 
@@ -85,7 +88,12 @@ tail -f /quant_system/logs/binance_target.log
    - 运行时的各存储只打开这个数据库，从不新建文件或表。数据库丢失或被清空时启动会被拒绝；从备份恢复见第 7 节。
    - 换目录或换 `RISK_SCOPE` 就是换状态；但同一把 API Key 在本机只能有一个执行进程（主机锁），与目录和 `RISK_SCOPE` 无关。
 4. **开启备份**：`sudo systemctl enable --now state-backup@<网络>.timer`（每小时一份快照，保留 14 天，失败时告警）。
-5. **启动**：
+5. **启动前一键检查**（只读，2026-11-17）：
+   ```bash
+   python3 -m scripts.account_check --pilot --spec models_binance/strategy/final_spec.json --state-dir /var/lib/quant/state/mainnet
+   ```
+   逐项打 ✓ 或 ✗：启动时的配置检查、主网、日亏限额 3%、签名密钥、告警文件夹、策略资金、规格签名和"已通过"、状态目录、账户上有没有任何仓位或挂单、单向持仓、每个品种的杠杆和保证金模式、余额。最后写"可以启动"或"还缺 N 项"。不显示任何密钥，只发 GET 请求。
+6. **启动**：
    - 主网：`sudo systemctl start binance-target-mainnet.service`。单元里固定了主网（`/usr/bin/env BINANCE_TESTNET=0 …`），不自动重启，没有 `[Install]`，不能开机启动；失败后由人看过再手动启动。命令行不带 `--stop-pct`，止损距离来自 `.env`。
    - 测试网：`sudo systemctl start binance-target-testnet.service`。单元里固定了测试网（`/usr/bin/env BINANCE_TESTNET=1 …`），即使 `.env` 写错也连不到主网；失败后 60 秒自动重启，每小时最多 3 次（人手动启动也算）。
    - 两个单元每次失败都经 `quant-alert@` 走配置的告警出口发一条。
@@ -118,7 +126,8 @@ tail -f /quant_system/logs/binance_target.log
 | 账本对齐到交易所持仓 | `... manual --state-dir <dir> position --symbol BTCUSDT --reason "..."`（运行时必须已停止） |
 
 - 在初始化过的目录里，急停文件**丢失时按"激活"处理**。运行时从不关闭急停；它只在策略累计亏损到停止线时打开急停并带平仓（见下）。
-- 止损在交易所侧触发或被击穿后，该品种暂停入场 4 小时，到时自动解除（技术负责人 2026-11-16），同时告警，告警里写明恢复时间；人可以用 `entry_pause release` 提前解除。从备份恢复时设的暂停仍要人解除。暂停记录丢失时，会根据订单库里的止损记录重新暂停，不会因为丢了文件而放行。
+- 止损在交易所侧触发或被击穿后，该品种暂停入场 4 小时，到时自动解除（技术负责人 2026-11-16），同时告警，告警里写明恢复时间；人可以用 `entry_pause release` 提前解除。从备份恢复时设的暂停仍要人解除。
+- 规格写了 `after_stop: pause_then_reset` 时，4 小时之后空仓的品种还在"等策略目标回到 0"（状态文件里 `entry_pause` 显示这句话，`entry_pause status` 不列出）。止损后有一笔开仓成交就永久结束；人也可以用同一条 `entry_pause release` 结束这个等待（要键入确认，留一行由人解除的记录）。暂停记录丢失时，会根据订单库里的止损记录重新暂停，不会因为丢了文件而放行。
 - 手工工具要求运行时已经停止：同一账户身份的运行时在本机任何目录里运行时都拒绝（主机锁），同一目录的租约也要拿得到；还要写明理由、键入确认，并留下审计记录。它们从不凭空生成成交。
 
 ## 6. 告警与心跳

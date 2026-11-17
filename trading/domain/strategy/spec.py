@@ -7,7 +7,9 @@ parameters, the execution settings, the symbols (at most ``MAX_SYMBOLS``) and wh
   the document's ``spec`` as both its parameters and its execution settings; shorts are allowed exactly when the
   overlay's ``long_only`` is false.
 - Schema 2, kind ``target_strategy``: ``strategy`` {``name``, ``params``}, ``execution`` {``band``, ``execution``,
-  ``ttl_bars``}, ``symbols``, ``allow_short``.
+  ``ttl_bars``}, ``symbols``, ``allow_short``, and optionally ``after_stop`` (tech lead 2026-11-17): ``"pause"``, the
+  default and schema 1's rule, or ``"pause_then_reset"``, which after a stop's pause also waits, while flat, until the
+  strategy's target has been 0 since the stop.
 
 The symbol list comes from the lab and is published by the owner (2026-11-16): the runtime trades only the symbols a
 signed spec lists. Anything the parser cannot use is refused by name.
@@ -19,6 +21,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
+from trading.domain.issues import AFTER_STOP_PAUSE, AFTER_STOP_RULES
 from trading.domain.strategy.base import STRATEGIES, Strategy
 from trading.domain.strategy.ideas import IDEAS, idea_params
 from trading.domain.strategy.overlay import StrategySpec
@@ -43,20 +46,27 @@ class TargetSpec:
     execution: StrategySpec         # the execution settings the sessions use: band, execution mode, maker lifetime
     symbols: tuple[str, ...]
     allow_short: bool
+    after_stop: str = AFTER_STOP_PAUSE
 
     def strategy(self) -> Strategy:
         return STRATEGIES[self.strategy_name](self.params)
 
     def record(self) -> dict[str, Any]:
         params = self.params.record() if hasattr(self.params, "record") else self.params
-        return {"strategy": self.strategy_name, "params": params, "symbols": list(self.symbols),
-                "allow_short": self.allow_short, "band": self.execution.band, "execution": self.execution.execution,
-                "ttl_bars": self.execution.ttl_bars}
+        out = {"strategy": self.strategy_name, "params": params, "symbols": list(self.symbols),
+               "allow_short": self.allow_short, "band": self.execution.band, "execution": self.execution.execution,
+               "ttl_bars": self.execution.ttl_bars}
+        return out if self.after_stop == AFTER_STOP_PAUSE else {**out, "after_stop": self.after_stop}
 
     def identity(self) -> dict[str, Any]:
         """What a paper record stores to know its strategy: the overlay as traded (its own record, as before R2, so a
         schema-1 record is unchanged; with ``allow_short`` when the spec's rule is not the one its ``long_only``
-        implies), any other strategy by name, parameters, execution settings and shorts rule (R2 and R5/R6 audits)."""
+        implies), any other strategy by name, parameters, execution settings and shorts rule (R2 and R5/R6 audits);
+        either with ``after_stop`` when it is not the default, so a record without it is unchanged."""
+        record = self._identity()
+        return record if self.after_stop == AFTER_STOP_PAUSE else {**record, "after_stop": self.after_stop}
+
+    def _identity(self) -> dict[str, Any]:
         if self.strategy_name == "overlay":
             traded: StrategySpec = replace(self.params, band=self.execution.band, execution=self.execution.execution,
                                            ttl_bars=self.execution.ttl_bars)
@@ -101,7 +111,7 @@ def _params(name: Any, raw: Any) -> Any:
         raise ValueError(f"the strategy {name!r} refuses its params: {exc}") from None
 
 
-V2_KEYS = frozenset({"schema", "kind", "strategy", "execution", "symbols", "allow_short", "passed"})
+V2_KEYS = frozenset({"schema", "kind", "strategy", "execution", "symbols", "allow_short", "passed", "after_stop"})
 EXECUTION_KEYS = ("band", "execution", "ttl_bars")
 
 
@@ -153,6 +163,8 @@ def parse_spec(document: Mapping[str, Any]) -> TargetSpec:
     if schema == 1:
         if kind != KIND_V1:
             raise ValueError(f"a schema-1 spec must be of kind {KIND_V1!r}, not {kind!r}")
+        if "after_stop" in document:          # audit of PR #142, finding 5: refused, not silently ignored
+            raise ValueError("after_stop needs a schema-2 spec")
         overlay = _params("overlay", document.get("spec"))
         return TargetSpec("overlay", overlay, overlay, _symbols(document.get("symbols")), not overlay.long_only)
     if schema != 2:
@@ -176,7 +188,11 @@ def parse_spec(document: Mapping[str, Any]) -> TargetSpec:
     allow_short = document.get("allow_short")
     if not isinstance(allow_short, bool):
         raise ValueError("the spec's allow_short must be true or false")
-    spec = TargetSpec(str(strategy["name"]), params, settings, _symbols(document.get("symbols")), allow_short)
+    after_stop = document.get("after_stop", AFTER_STOP_PAUSE)
+    if type(after_stop) is not str or after_stop not in AFTER_STOP_RULES:
+        raise ValueError(f"the spec's after_stop must be one of {', '.join(AFTER_STOP_RULES)}, not {after_stop!r}")
+    spec = TargetSpec(str(strategy["name"]), params, settings, _symbols(document.get("symbols")), allow_short,
+                      after_stop)
     unlisted = [symbol for symbol in spec.strategy().references() if symbol not in spec.symbols]
     if unlisted:     # R7a: the runtime reads only the symbols it trades
         raise ValueError(f"the strategy {spec.strategy_name!r} reads {', '.join(unlisted)}, which the spec does not "

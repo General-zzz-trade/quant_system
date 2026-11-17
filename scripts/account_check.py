@@ -8,6 +8,8 @@ relies on.
     python3 -m scripts.account_check [--env-file PATH]
     python3 -m scripts.account_check --history DIR [--days 89]    # scripts/account_history.py: the account's own
                                                                   # income, trades and orders, read-only, to DIR
+    python3 -m scripts.account_check --pilot --spec FILE          # scripts/pilot_check.py: what a mainnet pilot
+                                                                  # start still lacks (settings, spec, state, account)
     python3 -m scripts.account_check --settings                   # scripts/account_settings.py: which settings the
                                                                   # file holds (secrets: set or not), and what the
                                                                   # runtime's start checks say; no request at all
@@ -241,7 +243,27 @@ def main(argv: list[str] | None = None, *, fetch: Fetch = _urlopen, stdout=sys.s
     parser.add_argument("--days", type=int, default=89, help="how far back the history goes (at most 89)")
     parser.add_argument("--settings", action="store_true",
                         help="report the file's settings (secrets as set or not set) and the runtime's start checks")
+    parser.add_argument("--pilot", action="store_true",
+                        help="the mainnet pilot's start check (scripts/pilot_check.py): settings, spec, state, account")
+    parser.add_argument("--spec", type=Path, default=None, help="with --pilot: the signed spec the pilot starts with")
+    parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/quant/state/mainnet"),
+                        help="with --pilot: the pilot's state directory")
     args = parser.parse_args(argv)
+    if args.pilot:
+        from scripts import account_settings, pilot_check
+        if args.spec is None:
+            print("--pilot needs --spec (the signed spec the pilot starts with)", file=stdout)
+            return 2
+        try:
+            values = account_settings.read_all(args.env_file)
+        except OSError as exc:
+            print(f"credentials file not readable: {type(exc).__name__}", file=stdout)
+            return 2
+        client = ReadOnlyClient(values.get(NAMES[0], ""), values.get(NAMES[1], ""), fetch=fetch, clock=clock)
+        lines, ready = pilot_check.run(values, client, spec_path=args.spec, state_dir=args.state_dir)
+        for line in lines:
+            print(line, file=stdout)
+        return 0 if ready else 1
     if args.settings:
         from scripts import account_settings
         try:

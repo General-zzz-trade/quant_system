@@ -122,6 +122,30 @@ def test_a_list_uses_only_bars_from_before_its_date(tmp_path):
     assert _lists(_universe_snapshot(tmp_path / "c", after=later, cut=49.95))[1] != base[1]
 
 
+def test_a_contract_listed_less_than_the_required_days_before_the_date_is_left_out(tmp_path):
+    """Tech lead 2026-11-17 (the next lab round): only contracts listed long enough. NEW's bars start on day 35."""
+    snapshot = _universe_snapshot(tmp_path / "a")
+    known = judge.universe(snapshot, DATES, capital="300", slots=3, listed_days=50, data_start=S)
+    assert known[0] == known[1] == known[2] == ["AAAUSDT", "BBBUSDT", "CCCUSDT"]   # NEW listed 35 days at day 70
+    assert known[3] == known[4] == ["DDDUSDT", "NEWUSDT", "AAAUSDT"]                # 55 and 75 days: listed long enough
+    # without the data's first day a contract counts as listed at its first bar: on day 30 nothing is 50 days old
+    unknown = judge.universe(snapshot, DATES, capital="300", slots=3, listed_days=50)
+    assert unknown[0] == [] and unknown[1] == ["AAAUSDT", "BBBUSDT", "CCCUSDT"]
+
+
+def test_excluded_contracts_are_left_out(tmp_path):
+    lists = judge.universe(_universe_snapshot(tmp_path / "a"), DATES, capital="300", slots=3, exclude=("AAAUSDT",))
+    assert lists[0] == ["BBBUSDT", "CCCUSDT", "DDDUSDT"] and all("AAAUSDT" not in x for x in lists)
+
+
+def test_the_record_states_the_extra_rules_only_when_used():
+    plain = judge.universe_record([["AAAUSDT"]] * 5, DATES, capital="300", slots=10)
+    more = judge.universe_record([["AAAUSDT"]] * 5, DATES, capital="300", slots=10, listed_days=365,
+                                 excluded="Binance TRADIFI_PERPETUAL contracts (exchangeInfo 2026-11-17)")
+    assert more["rule"] == plain["rule"] + ("; listed at least 365 days before the date; excluded: Binance "
+                                            "TRADIFI_PERPETUAL contracts (exchangeInfo 2026-11-17)")
+
+
 def test_the_universe_record_states_the_rule_and_the_dates():
     record = judge.universe_record([["AAAUSDT"]] * 5, DATES, capital="300", slots=10)
     assert record["rule"] == ("top 10 by median daily quote volume of the 30 days before each date; smallest order "
