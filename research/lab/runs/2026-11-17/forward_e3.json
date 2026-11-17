@@ -1,0 +1,49 @@
+{
+ "capital_usdt": "300",
+ "costs": "as lab.um_lab.replay: VIP0 fees, actual funding, 3 bps market and 10 bps stop slippage",
+ "holds": "the lowest hourly portfolio equity since the start stays above 92.5 % of the starting capital (a cumulative loss of less than 7.5 %, half the 15 % loss stop) at every look",
+ "looks": [
+  "2026-11-25",
+  "2026-12-02",
+  "2026-12-09",
+  "2026-12-16"
+ ],
+ "protocol": "research/protocols/2026-11-17-lab-forward-e3.md",
+ "slots": 10,
+ "spec": {
+  "allow_short": false,
+  "execution": {
+   "band": 0.1,
+   "execution": "market",
+   "ttl_bars": 1
+  },
+  "kind": "target_strategy",
+  "passed": false,
+  "schema": 2,
+  "strategy": {
+   "name": "E3_vol_target_trend",
+   "params": {
+    "target": 0.02
+   }
+  },
+  "symbols": [
+   "ETHUSDT",
+   "SOLUSDT",
+   "XAUUSDT",
+   "CLUSDT",
+   "XAGUSDT",
+   "XRPUSDT",
+   "DOGEUSDT",
+   "ZECUSDT",
+   "HYPEUSDT",
+   "1000PEPEUSDT"
+  ]
+ },
+ "start": "2026-11-18",
+ "stop": {
+  "pause_hours": null,
+  "reenter": "signal_reset",
+  "stop_pct": "0.08"
+ },
+ "what": "the lab champion of 2026-11-17, frozen for 4 weeks of forward tracking (tech lead 2026-11-17)"
+}
