@@ -215,6 +215,75 @@ def test_a_read_that_starts_at_the_first_fill_within_88_days_is_read_whole(tmp_p
     assert again.last_known() == D("-302") and again.current() == D("-302")
 
 
+def test_a_symbol_first_filled_after_the_last_read_that_cannot_be_read_for_88_days_is_unknown(tmp_path):
+    """Audit of the #147 re-audit fixes, S1: a symbol with a first fill but no kept rows yet, whose reads keep failing,
+    can never be read once its first fill is 88 days back; the running process must say unknown too (a restart did)."""
+    clock = Clock(1_000_000.0)
+    venue = Venue({})
+    fills = {}
+    funding, _ = _funding(tmp_path, venue, fills, clock)
+    clock.now += 600
+    assert funding.current() == D("0") and funding.last_known() == D("0")    # read once, nothing filled yet
+    fills["BTCUSDT"] = clock.now                                              # the first fill, after that read
+    venue.down = True
+    venue.rows["BTCUSDT"] = [("x", int(clock.now * 1000) + DAY_MS, D("-12"))]
+    clock.now += 87 * 86_400
+    assert funding.last_known() == D("0")                                     # still readable: the last total
+    clock.now += 2 * 86_400                                                   # 89 days since the first fill
+    with pytest.raises(RuntimeError, match="88 days"):
+        funding.last_known()
+    again, _ = _funding(tmp_path, venue, fills, clock)
+    with pytest.raises(RuntimeError, match="funding"):
+        again.last_known()
+
+
+def test_while_the_read_start_is_inside_88_days_the_kept_total_stays_known_with_the_venue_down(tmp_path):
+    """Audit of the #147 re-audit fixes, M1: no false unknown below the boundary, in the running process and after a
+    restart, while nothing can be read."""
+    clock = Clock(1_000_000.0)
+    venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
+    funding, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    clock.now += 600
+    funding.current()
+    clock.now += 5 * 86_400
+    funding.current()                                    # kept rows end now; the next read starts 24 h before
+    venue.down = True
+    clock.now += int(86.5 * 86_400)                      # the read start is 87.5 days back
+    assert funding.last_known() == D("-3")
+    again, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    assert again.last_known() == D("-3")
+
+
+def test_the_read_start_exactly_88_days_back_is_still_known(tmp_path):
+    """Audit of the #147 re-audit fixes, M3: the adapter refuses a start before now - 88 days, not one at it."""
+    clock = Clock(1_000_000_000.0)
+    venue = Venue({})
+    venue.down = True
+    funding, store = _funding(tmp_path, venue, {"BTCUSDT": 900_000_000.0}, clock)
+    now_ms = int(clock.now * 1000)
+    through = now_ms - 88 * DAY_MS + 24 * HOUR_MS          # the next read would start exactly 88 days back
+    store.add("BTCUSDT", [("a", through - 1, D("-3"))], from_ms=900_000_000_000, through_ms=through)
+    assert funding.last_known() == D("-3")
+    clock.now += 0.001
+    with pytest.raises(RuntimeError, match="88 days"):
+        funding.last_known()
+
+
+def test_a_symbol_never_filled_listed_first_does_not_hide_a_filled_one_s_gap(tmp_path):
+    """Audit of the #147 re-audit fixes, M2: the owners are sorted, so a symbol never filled can come first."""
+    clock = Clock(1_000_000.0)
+    venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
+    store = _store(tmp_path)
+    fills = {"BTCUSDT": 1_000_000.0}
+    funding = StrategyFunding(venue, ["AAAUSDT", "BTCUSDT"], fills.get, clock, store=store)
+    clock.now += 600
+    assert funding.current() == D("-3")
+    venue.down = True
+    clock.now += 100 * 86_400
+    with pytest.raises(RuntimeError, match="88 days"):
+        funding.last_known()
+
+
 def test_months_of_running_keep_the_loss_stop_s_total_known(tmp_path):
     """Re-audit of PR #147, item 2 (mutant X1): past 88 days of running, the loss stop's total stays known and whole,
     in the running process and after a restart, not only the base's."""

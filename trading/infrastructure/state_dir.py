@@ -271,7 +271,7 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
             if old.exists():
                 os.replace(old, kept / old.name)
         os.replace(temporary, database)
-        if older and manifest.get("state_db_version") != schema.VERSION:   # the copy was migrated: say so
+        if manifest.get("state_db_version") != schema.VERSION:   # the database put back is at this version: say so
             manifest["state_db_version"] = schema.VERSION
             tmp = state_dir / f"{MANIFEST}.tmp"
             tmp.write_text(json.dumps(manifest, indent=2) + "\n")

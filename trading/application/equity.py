@@ -144,8 +144,8 @@ class StrategyFunding:
             since = self.first_fill(symbol)
             if since is None:
                 continue
-            covered = self.store.coverage(symbol)
-            if covered is not None and self._start(covered, int(since * 1000)) < oldest:
+            # No kept rows yet: the read starts at the first fill (audit of the re-audit fixes, S1).
+            if self._start(self.store.coverage(symbol), int(since * 1000)) < oldest:
                 raise RuntimeError(f"strategy funding unknown: {symbol}'s next read would start more than 88 days "
                                    "ago, beyond Binance's history")
 

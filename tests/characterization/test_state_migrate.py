@@ -166,3 +166,5 @@ def test_a_version_1_database_that_also_lost_a_table_is_restored_not_sent_to_mig
     code, out = _restore(old, snapshot)
     assert code == 0, out
     managed.verify(old, SCOPE)
+    manifest = json.loads((old / managed.MANIFEST).read_text())
+    assert manifest["state_db_version"] == schema.VERSION      # audit of the re-audit fixes, M5
