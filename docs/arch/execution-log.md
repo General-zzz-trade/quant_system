@@ -5209,3 +5209,30 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
   - JSON 和 markdown 输出；
   - 状态库只读。
 - **流程：** 先写实现、后写测试（轻流程）。原有的 7 个测试不变、全部通过；新旧 13 个都通过，ruff 通过。
+
+## 实验室回放加挂单执行（2026-11-17，轻流程：研究工具）
+
+- **起因**：业主 2026-11-17 "开广度和成本"，成本这一步先让实验室能按挂单（maker）回放，再登记一次市价对挂单的比较。
+- **改了什么**【代码】：
+  - `lab/um_lab.py`：`replay` 和 `run_idea` 加 `execution`（默认 `"market"`）和 `ttl_bars`（默认 1）。`"maker"` 时
+    每笔开仓挂只做 maker 的限价单（决策收盘价 ∓ `LIMIT_OFFSET_BPS`），挂 `ttl_bars` 根 K 线，按 maker 费率成交；
+    减仓和止损仍是市价。其他取值和 `ttl_bars < 1` 由 `StrategySpec` 拒绝。
+  - `trading/adapters/simulated/bar_broker.py`：去掉"有止损就必须市价开仓"的拒绝。挂单成交的那根 K 线也检查止损，
+    按最坏的顺序算：假定这根线的最低（多头）或最高（空头）出现在成交之后。从开盘价走到越过止损价的路径一定先经过
+    限价，所以这也是最可能的顺序。
+  - 纸面模式不受影响：模拟交易所拒绝带 `stop_pct` 的券商，止损由纸面自己挂（`BarStopModel`）。
+- **已有测试的改动**：`tests/unit/trading/test_broker_cross_stop.py::test_invalid_stop_settings_are_refused` 去掉了一组参数
+  `({"stop_pct": "0.08", "entry_mode": "maker"}, "market")`，它断言"有止损时挂单开仓被拒绝"，正是这次有意取消的限制。
+  反过来的断言（券商接受挂单加止损）在新增的 `test_the_broker_takes_a_stop_with_maker_entries` 里。第一次推送时漏掉了它
+  （只搜了报错原文），CI 第 3 分片发现。
+- **新增测试**：
+  - `tests/unit/lab/test_simulate_maker_stops.py`，5 个：按限价成交、付 maker 费；成交那根线跌破止损就在同一根线止损；
+    之后的线照常止损；逐仓杠杆下也能用；券商接受挂单加止损。
+  - `tests/unit/lab/test_um_lab_maker.py`，5 个：默认仍是市价、全部按 taker 费；挂单回放开仓付 maker 费（双倍费用时也翻倍）；
+    杠杆下能跑；未知执行方式和 `ttl_bars=0` 被拒绝；`run_idea` 把执行方式传给每次回放。
+  - 改代码前 10 个全部失败，原因正确：券商报 "stop_pct needs market entries"，回放和 `run_idea` 没有 `execution` 参数。
+- **本地**【测试日志】：见 PR。
+- **残余**：
+  - 纸面模式下，挂单规格的止损从成交后的下一根线才开始检查，比研究乐观。现在的规格是市价，所以没有影响；
+    如果以后用挂单规格上纸面，`paper_compare` 会在这里报不一致。
+  - 实盘中挂单成交后，要等成交确认后才挂止损，中间有几秒到几分钟没有保护。回放没有模拟这段时间。

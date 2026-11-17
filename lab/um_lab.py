@@ -230,13 +230,16 @@ def vol_stop_pct(df: pd.DataFrame, k: str, cap: str, *, floor: str = VOL_STOP_FL
 def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: int = START, end: int = END,
            snapshot: Path = SNAPSHOT, starting_balance: str = "5000", stop_pct: str = "0",
            pause_ms: int | None = None, reenter_after_stop: str = "pause", stop_k: str | None = None,
-           leverage: str = "1") -> dict:
+           leverage: str = "1", execution: str = "market", ttl_bars: int = 1) -> dict:
     """Target weights (decided at each bar's close, index = open time) through the shared broker. Returns the
     hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only).
     ``stop_pct``, ``pause_ms`` and ``reenter_after_stop`` are lab.simulate's stop, pause and re-entry rule.
     ``stop_k``: the volatility-tightened stop (``vol_stop_pct`` with ``stop_pct`` as the cap) instead of a fixed one.
     ``leverage`` (owner 2026-11-17): the weights are multiplied by it, on isolated margin at ``exchange_leverage`` of
-    the stop (its cap), so a stop is needed."""
+    the stop (its cap), so a stop is needed.
+    ``execution`` and ``ttl_bars`` (owner 2026-11-17, the cost lever): "maker" rests each entry as a post-only limit
+    for ``ttl_bars`` bars at the maker fee (reductions and stops stay market); the default is market."""
+    spec = StrategySpec(execution=execution, ttl_bars=ttl_bars)       # refuses another execution or a ttl below 1
     lev = D(leverage)
     exchange = exchange_leverage(stop_pct) if lev != 1 else 0
     if lev != 1 and (not 1 <= lev <= 3 or D(stop_pct) <= 0 or exchange < 1):
@@ -252,7 +255,7 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
     funding = {int(t): (D(repr(float(r))),) for t, r in df["funding"].items() if r != 0.0}
     stop_pct_at = None if stop_k is None else \
         {int(t) + H: f"{v:.6f}" for t, v in vol_stop_pct(df, stop_k, stop_pct).items()}
-    result = simulate(symbol, bars, targets, funding, StrategySpec(execution="market"),
+    result = simulate(symbol, bars, targets, funding, spec,
                       start_ms=max(start, int(df.index[0]) if len(df) else start), end_ms=end,
                       rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier,
                       starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms,
@@ -439,15 +442,17 @@ def _replay_job(job: tuple) -> dict:
 
 
 def run_idea(idea: Idea, params: dict, symbols: list[str], *, cost_multiplier: int = 1, min_daily_quote: float = 0,
-             processes: int = 2, snapshot: Path = SNAPSHOT, live: LiveTerms | None = None) -> dict:
+             processes: int = 2, snapshot: Path = SNAPSHOT, live: LiveTerms | None = None,
+             execution: str = "market", ttl_bars: int = 1) -> dict:
     """One parameter set of an idea over ``symbols``: per-contract replays, the portfolio's daily returns and the
     number of fills. With ``live`` the symbols are the strategy's fixed list sharing ``live.capital`` equally, each
     replay has the live stop and pause, the daily returns are the whole account's, and ``live`` reports what the
-    order limits must allow and how often the pilot's hard stops would have fired."""
-    terms: dict = {}
+    order limits must allow and how often the pilot's hard stops would have fired. ``execution`` and ``ttl_bars``
+    go to every replay."""
+    terms: dict = {"execution": execution, "ttl_bars": ttl_bars}
     if live is not None:
-        terms = {"starting_balance": str(D(live.capital) / len(symbols)), "stop_pct": live.stop_pct,
-                 "pause_ms": live.pause_hours * H, "leverage": live.leverage}
+        terms |= {"starting_balance": str(D(live.capital) / len(symbols)), "stop_pct": live.stop_pct,
+                  "pause_ms": live.pause_hours * H, "leverage": live.leverage}
     jobs = [(s, idea, params, cost_multiplier, min_daily_quote, snapshot, terms) for s in symbols]
     if processes > 1:
         with get_context("fork").Pool(processes) as pool:
