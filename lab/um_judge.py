@@ -97,6 +97,11 @@ def universe(snapshot: Path, dates: Sequence[int], *, capital: str, slots: int, 
     return [table[table["period"] == k].nlargest(slots, "quote")["symbol"].tolist() for k in range(len(dates))]
 
 
+def fixed_lists(symbols: Sequence[str], periods: Sequence[tuple[int, int]]) -> list[list[str]]:
+    """The same list in every period: a strategy with a fixed list (owner 2026-11-17: BTCUSDT and ETHUSDT only)."""
+    return [list(symbols) for _ in periods]
+
+
 def universe_record(lists: Sequence[Sequence[str]], dates: Sequence[int], *, capital: str, slots: int,
                     listed_days: int = 0, excluded: str = "") -> dict:
     """What a run writes next to its results (universe.json); the extra rules only when a run uses them."""
@@ -356,7 +361,7 @@ class Judge:
                 if not (w[(w.index >= start - H) & (w.index < end)] != 0).any():
                     continue
                 r = lab.replay(symbol, w, cost_multiplier=config.cost, start=start, end=end, snapshot=self.snapshot,
-                               starting_balance=str(slot), **config.stop.replay_terms())
+                               starting_balance=str(slot), **config.stop.replay_terms(), **self._leverage())
                 if not len(r["curve"]):
                     continue
                 curves.append(r["curve"])
@@ -382,12 +387,17 @@ class Judge:
             out[s] = pd.Series(target, index=history[s]["available_at"].to_numpy(dtype="int64") - H)
         return out
 
+    def _leverage(self) -> dict:
+        """The replay's leverage when the terms have one (owner 2026-11-17); none at 1x, so earlier runs replay and
+        cache exactly as they did."""
+        return {"leverage": self.terms.leverage} if D(self.terms.leverage) != 1 else {}
+
     # -- cache and registry --------------------------------------------------------------------------------
     def _settings(self) -> dict:
         """What a cached result depends on besides its configuration."""
         return {"snapshot": self.snapshot.name, "capital": self.terms.capital, "slots": self.slots,
                 "periods": [list(p) for p in self.periods], "lists": [list(symbols) for symbols in self.lists],
-                "legacy_days": self.legacy_days, "ready_only": self.ready_only}
+                "legacy_days": self.legacy_days, "ready_only": self.ready_only, **self._leverage()}
 
     def _path(self, config: Config) -> Path:
         tag = "_".join(f"{k}{v}" for k, v in sorted(config.params.items()))
@@ -430,7 +440,8 @@ class Judge:
         s = lab.summary(result["daily"])
         row = {"date": self.run_date, "idea": config.idea, "params": config.params, "stop": config.stop.name,
                "cost_multiplier": config.cost, "holdout": k == self.holdout,
-               "terms": f"{self.terms.capital} USDT, {self.slots} slots, yearly list, {config.stop.name}",
+               "terms": f"{self.terms.capital} USDT, {self.slots} slots, yearly list, {config.stop.name}"
+                        + (f", {self.terms.leverage}x" if self._leverage() else ""),
                "window": [_date(t) for t in self.periods[k]], "total_return": s.get("total_return"),
                "sharpe": s.get("sharpe"), "max_drawdown": s.get("max_drawdown"),
                "round_trips": len(result["trips"]), "fills": result["fills"]}
@@ -572,6 +583,6 @@ class Judge:
                 "champion": order[0] if out[order[0]]["passes"] else None}
 
 
-__all__ = ["BTC", "Config", "Judge", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant", "final_checks",
-           "joined", "longest_losing", "period_daily", "periods", "score", "survives", "universe", "universe_record",
-           "walk_forward"]
+__all__ = ["BTC", "Config", "Judge", "LIVE_STOP", "PERIODS", "STABLE", "STOP_VARIANTS", "StopVariant",
+           "final_checks", "fixed_lists", "joined", "longest_losing", "period_daily", "periods", "score", "survives",
+           "universe", "universe_record", "walk_forward"]

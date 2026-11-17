@@ -46,6 +46,16 @@
 
 ## 实盘条件（技术负责人 2026-11-16：回测按实盘的方式算）
 
+**2026-11-17 起只做 BTCUSDT 和 ETHUSDT**（技术负责人："目前如何去改成做BTC和ETH，不再全市场这样做"）。新的一轮用
+`lab.LIVE_BTC_ETH`：
+- 150 USDT，两个品种各 75；仓位最多是各自那份的 2 倍（`STRATEGY_LEVERAGE=2`）；
+- 逐仓，交易所杠杆取止损允许的最大值（`lab.exchange_leverage`：止损要在强平距离的一半以内，8% 止损对应 6 倍，
+  12% 对应 4 倍，15% 对应 3 倍），所以回测里也会算强平；
+- 每期的清单都是这两个（`judge.fixed_lists`），每月重选（`lab/um_monthly.py`）也是；
+- 实盘程序在主网拒绝别的品种（`MAINNET_SYMBOLS`）。
+
+下面是 2026-11-16 起全市场那几轮的条件（`lab.LIVE`），其余各条两种条件相同。
+
 候选策略一律用 `run_idea(..., live=LIVE)` 回测（`lab/um_lab.py` 的 `LiveTerms`）：
 - 资金 300 USDT（小资金实盘的 `STRATEGY_CAPITAL_USDT`），在策略的固定品种清单上平分，与实盘程序的 1/N 分配相同；
   低于交易所最小下单额的单不发。

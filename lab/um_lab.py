@@ -36,8 +36,10 @@ from lab.simulate import SymbolRules, simulate
 from lab.strategy import StrategySpec
 from trading.domain.bars import bar_from_kline
 from trading.domain.issues import STOP_PAUSE_SECONDS
+from trading.domain.risk.liquidation import liquidation_distance
 from trading.domain.strategy.base import Strategy, Window
 from trading.domain.strategy.ideas import IDEAS as REGISTERED, IdeaStrategy, lab_frame
+from trading.domain.strategy.spec import MAINNET_SYMBOLS
 
 H = 3_600_000
 DAY = 86_400_000
@@ -123,9 +125,22 @@ class LiveTerms:
     losing_trades: int = 3        # the pilot's rule until 2026-11-16, replaced by loss_stop; still reported
     loss_stop: float = 0.15       # the pilot flattens and stops once the strategy has lost 15 % of its capital
     loss_stop_days: int = 90      # reported: the share of pilots of this length that the loss stop would end
+    leverage: str = "1"           # STRATEGY_LEVERAGE: positions up to this many times a slot's capital (3 the cap)
+    symbols: tuple[str, ...] = ()  # the fixed list the strategy trades; empty: a list chosen per period
 
 
-LIVE = LiveTerms()
+LIVE = LiveTerms()                # the terms of the whole-market runs of 2026-11-16 and 2026-11-17 (300 USDT, 1x)
+# Owner 2026-11-17 ("目前如何去改成做BTC和ETH，不再全市场这样做"): BTCUSDT and ETHUSDT only (mainnet's list), 150 USDT
+# split in half, positions up to 2 times each half, on isolated margin (``exchange_leverage``).
+LIVE_BTC_ETH = LiveTerms(capital="150", leverage="2", symbols=tuple(sorted(MAINNET_SYMBOLS)))
+MMR = 0.005                       # the maintenance margin rate the runtime's liquidation check assumes
+
+
+def exchange_leverage(stop_pct: str) -> int:
+    """The largest isolated exchange leverage whose half liquidation distance still holds the stop: the most the
+    runtime allows with that stop (``check_stop_inside_liquidation``); 0 when none does."""
+    stop = float(D(stop_pct))
+    return max((lev for lev in range(1, 21) if stop <= 0.5 * liquidation_distance(lev, MMR)), default=0)
 
 
 # -- data ------------------------------------------------------------------------------------------------------
@@ -214,16 +229,24 @@ def vol_stop_pct(df: pd.DataFrame, k: str, cap: str, *, floor: str = VOL_STOP_FL
 # -- one contract through the shared broker --------------------------------------------------------------------
 def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: int = START, end: int = END,
            snapshot: Path = SNAPSHOT, starting_balance: str = "5000", stop_pct: str = "0",
-           pause_ms: int | None = None, reenter_after_stop: str = "pause", stop_k: str | None = None) -> dict:
+           pause_ms: int | None = None, reenter_after_stop: str = "pause", stop_k: str | None = None,
+           leverage: str = "1") -> dict:
     """Target weights (decided at each bar's close, index = open time) through the shared broker. Returns the
     hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only).
     ``stop_pct``, ``pause_ms`` and ``reenter_after_stop`` are lab.simulate's stop, pause and re-entry rule.
-    ``stop_k``: the volatility-tightened stop (``vol_stop_pct`` with ``stop_pct`` as the cap) instead of a fixed one."""
+    ``stop_k``: the volatility-tightened stop (``vol_stop_pct`` with ``stop_pct`` as the cap) instead of a fixed one.
+    ``leverage`` (owner 2026-11-17): the weights are multiplied by it, on isolated margin at ``exchange_leverage`` of
+    the stop (its cap), so a stop is needed."""
+    lev = D(leverage)
+    exchange = exchange_leverage(stop_pct) if lev != 1 else 0
+    if lev != 1 and (not 1 <= lev <= 3 or D(stop_pct) <= 0 or exchange < 1):
+        raise ValueError(f"a replay at leverage {leverage} needs a leverage in [1, 3] and a stop inside an isolated "
+                         f"liquidation distance (stop {stop_pct})")
     df = frame(symbol, snapshot)
     df = df[(df.index >= start - 40 * DAY) & (df.index < end)]
     bars = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
                             "close": str(r.close), "volume": str(r.volume)}) for t, r in zip(df.index, df.itertuples())]
-    w = weights.reindex(df.index).fillna(0.0).clip(-1.0, 1.0)
+    w = weights.reindex(df.index).fillna(0.0).clip(-1.0, 1.0) * float(lev)
     targets = pd.DataFrame({"available_at": df.index.to_numpy(np.int64) + H, "target": w.to_numpy(float),
                             "ready": np.ones(len(df), dtype=bool)})
     funding = {int(t): (D(repr(float(r))),) for t, r in df["funding"].items() if r != 0.0}
@@ -233,7 +256,8 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
                       start_ms=max(start, int(df.index[0]) if len(df) else start), end_ms=end,
                       rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier,
                       starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms,
-                      reenter_after_stop=reenter_after_stop, stop_pct_at=stop_pct_at)
+                      reenter_after_stop=reenter_after_stop, stop_pct_at=stop_pct_at,
+                      leverage=leverage, exchange_leverage=exchange)
     curve = result.curve.set_index("at")["equity"]
     orders = [(int(o["submitted_at"]), float(D(o["qty"]) * D(o["reference"])), bool(o["reduce_only"]))
               for o in result.order_rows if o.get("rejection") != "below trading minimum"]
@@ -423,7 +447,7 @@ def run_idea(idea: Idea, params: dict, symbols: list[str], *, cost_multiplier: i
     terms: dict = {}
     if live is not None:
         terms = {"starting_balance": str(D(live.capital) / len(symbols)), "stop_pct": live.stop_pct,
-                 "pause_ms": live.pause_hours * H}
+                 "pause_ms": live.pause_hours * H, "leverage": live.leverage}
     jobs = [(s, idea, params, cost_multiplier, min_daily_quote, snapshot, terms) for s in symbols]
     if processes > 1:
         with get_context("fork").Pool(processes) as pool:
@@ -448,8 +472,8 @@ def record(rows: list[dict], path: Path = TRIALS) -> None:
             handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
 
 
-__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LiveTerms", "Run", "SELECT_END", "START", "VOL_STOP_DAYS",
-           "VOL_STOP_FLOOR", "vol_stop_pct",
-           "account_daily", "buy_and_hold", "by_regime", "contracts", "frame", "limits_needed", "liquid",
-           "live_report", "losing_streaks", "loss_stop_share", "manifest", "portfolio_daily", "record", "regimes",
-           "replay", "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]
+__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LIVE_BTC_ETH", "LiveTerms", "MMR", "Run", "SELECT_END",
+           "START", "VOL_STOP_DAYS", "VOL_STOP_FLOOR", "vol_stop_pct",
+           "account_daily", "buy_and_hold", "by_regime", "contracts", "exchange_leverage", "frame", "limits_needed",
+           "liquid", "live_report", "losing_streaks", "loss_stop_share", "manifest", "portfolio_daily", "record",
+           "regimes", "replay", "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]

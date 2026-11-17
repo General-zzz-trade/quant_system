@@ -114,3 +114,13 @@ def test_a_pause_then_reset_choice_is_written_as_the_spec_s_after_stop(market): 
     assert "after_stop" not in plain                                    # the pause alone: the default, not written
     _, _, other = draft.draft(results(stop={**stop, "pause_hours": 24}), LISTS, market)
     assert len(other) == 1 and "24" in other[0]
+
+
+def test_a_btc_eth_run_drafts_its_own_capital_and_leverage(market):  # noqa: F811
+    """Owner 2026-11-17: the BTC/ETH runs replay 150 USDT at 2x; the draft gives the settings they assumed."""
+    universe = {"lists": [["UPUSDT", "DOWNUSDT"]] * 2, "capital": "150", "slots": 2, "leverage": "2", "rule": "fixed"}
+    terms = draft.run_terms(universe)
+    assert (terms.capital, terms.leverage) == ("150", "2")
+    _, settings, _ = draft.draft(results(), universe["lists"], market, terms=terms)
+    assert settings["STRATEGY_CAPITAL_USDT"] == "150" and settings["STRATEGY_LEVERAGE"] == 2
+    assert draft.run_terms({"lists": LISTS, "rule": "top 10"}) is lab.LIVE     # an earlier run: its terms
