@@ -38,8 +38,9 @@
   funding income of each strategy symbol since the strategy's first fill on it, from Binance's income history, read
   at most every 10 minutes; funding never read or older than 2 hours sizes the base to zero. Binance keeps that
   history for three months only, so every funding row read is kept in the state database (version 2, tech lead
-  2026-11-17) and each refresh reads from 8 hours before the kept span ends; only a gap longer than Binance's three
-  months (the runtime down that long) leaves the funding unknown, which sizes the base to zero.
+  2026-11-17) and each refresh reads from 24 hours before the kept span ends; only a gap longer than Binance's three
+  months (the runtime down that long) leaves the funding unknown, which sizes the base to zero and leaves the loss
+  stop's total unknown too (every entry blocked).
   Every `target.*` owner in the scope's ledger counts, also one whose symbol the current spec no longer trades.
   A zero base plans no partial reduction, only a whole close (the zero-sizing rule). Fees paid in BNB are not in
   the PnL (BNB fee payment is off on the account, checked 2026-11-16).
@@ -237,7 +238,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   - A loss that cannot be known closes nothing and blocks every entry. Funding that cannot be refreshed does not
     blind the stop: it counts the last total read in this process, whatever its age (the sizing base keeps the
     2-hour rule). Since 2026-11-17 that total is the one kept in the state database, also right after a restart;
-    it is unknown only when the kept rows do not reach back to a first fill.
+    it is unknown when the kept rows do not reach back to a first fill or end more than 88 days ago (the rest can
+    never be read, so the total would be partial).
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day

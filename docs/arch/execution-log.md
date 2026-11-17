@@ -4788,7 +4788,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **本地**【实际运行结果】：上述测试，以及 `test_loss_stop_audit_runtime.py`、`test_strategy_loss_stop_runtime.py`、`test_loss_stop_audit.py`、
   `test_strategy_loss_stop.py`、`test_strategy_capital.py`、`test_state_restore.py`、`test_state_dir.py`、`test_risk_state.py`、
   `test_paper_beside_execution.py`、`test_pilot_leverage_sizing.py`、`test_paper_parts.py`、`tests/architecture` 通过；
-  ruff（全仓库）、`mypy trading/`（97 个文件）、`lint-imports`、离线安全检查通过。
+  ruff（全仓库）、`mypy trading/`（97 个文件；合并 master 后是 98 个）、`lint-imports`、离线安全检查通过。
 - **主机上要做的**：试运行用的 `/var/lib/quant/state/mainnet` 是 2026-11-16 用第 1 版初始化的，启动前要运行一次 `state_dir migrate`（运行时停着）。
   这一步改的是实盘状态目录，由技术负责人做，或者经技术负责人同意后由我做。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store.json` 17 个。第一轮 14 个被杀，存活 3 个，都是测试缺口：
@@ -4797,3 +4797,43 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - "迁移不更新清单的版本号"：测试造的旧目录，清单原来就写着 2；现在写 1，和版本 1 初始化时一样。
   - 单独重跑，这 3 个都被杀。最终 17/17。资金费存储测试现在 13 个。
 - **审计**：合并前由独立审计员审。
+
+### 独立审计（PR #147，2026-11-17）和修复
+
+审计员在自己的克隆里审 ddc78a41：没有阻塞问题，三项应修，六项轻微。逐项处理如下。
+
+- **应修 1：长时间断档后，亏损停止线把不完整的总数当成已知。**
+  - 审计员跑出来：程序停了 100 天，其间付了 −299；重启后 `last_known()` 一直是 −3，真实是 −302。原来的程序在这种情况下报"未知"，会挡住开仓并告警。
+  - 修复：交易过的品种，只要库里的资金费最后一行早于 88 天（`FUNDING_HISTORY_MS`），中间的资金费就再也读不到，
+    仓位基数和亏损停止线都算未知（`StrategyFunding._continuable`）。不管是重启后还是一直在跑的进程，都一样。
+  - 我原来的测试 `test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_but_the_loss_stop_keeps_the_stored_total` 期望的正是错的行为。
+    这个测试是本 PR 里新写的、还没合并，现在改为 `..._is_unknown_to_the_base_and_to_the_loss_stop`：
+    - 原断言：`assert funding.last_known() == D("-3")`
+    - 新断言：两次 `pytest.raises(RuntimeError, match="88 days")`（重启后的进程、一直在跑的进程各一次）
+  - 另加 `test_a_restart_within_binance_s_history_reads_the_rest`：断档短于 88 天时，重启后会把缺的读回来。
+- **应修 2：变异文件没提交。** 现在 `scripts/dev/mutants/funding_store.json` 和这一轮的 `funding_store_audit_fixes.json` 都提交了。
+- **应修 3：测试缺口**（审计员自己写的变异有存活）：
+  - 迁移的范围检查：补 `test_migrate_under_another_scope_is_refused_on_a_clean_old_directory`；
+  - 迁移的主机锁：补 `test_migrate_is_refused_while_a_runtime_of_the_account_runs_anywhere_on_the_host`；
+  - 存储用的范围：运行时测试检查 `funding_rows` 的范围就是运行时的范围。
+- **轻微，已改：**
+  - 4：迁移不是一个事务。现在建表和改版本号显式放在一个事务里，失败就回滚。测试 `test_a_migration_that_fails_halfway_changes_nothing`。
+  - 5：恢复命令会用备份替换一个完好但版本旧的库。现在拒绝，提示用迁移。测试 `test_restore_refuses_an_intact_database_of_an_older_version`。
+  - 6：存储会接受一次在已有区间开始之前就结束的读取，把中间当成已覆盖。现在按断档拒绝。测试 `test_a_read_that_ends_before_the_kept_span_starts_is_a_gap`。
+  - 7：晚到超过重叠窗口的行永远不计。重叠从 8 小时加到 24 小时（每次多读几行，代价很小）。币安资金费的实际延迟没有核对过。
+  - 8：资金费的行按（范围、交易号）存，依赖币安交易号在账户内唯一。现在按（范围、品种、交易号）存，不再依赖这一点。
+    测试 `test_the_same_transaction_id_on_two_symbols_is_kept_for_each`。表是本 PR 新加的，还没部署，改结构不需要迁移。
+  - 9：
+    - 迁移不会再新建文件，测试 `test_migrate_never_creates_a_file`；
+    - 从旧版本备份恢复后，清单的版本号也更新，测试 `test_restoring_an_old_backup_into_an_old_directory_records_the_new_version`；
+    - 运行手册写明：迁移之前每小时的备份会失败告警，完好的旧版本库只能迁移；
+    - `migrate` 不要求写理由、不要求键入确认，留着（它只加表，旧文件留一份）。
+- **这一轮的测试改动**（都是本 PR 新写的测试，跟着行为改动一起改）：
+  - 第一次读取的测试改名为 `..._24_hours_...`，期望的窗口起点改为结束前 24 小时；
+  - "几个月后仍完整"的窗口上限从 15 小时改为 31 小时；
+  - 运行时测试往前走 27 小时，窗口上限改为 25 小时。
+- **本地**【实际运行结果】：资金费存储测试 18 个、迁移测试 9 个，以及状态、恢复、资金费、亏损停止线的相关测试、`tests/architecture` 通过；
+  ruff、`mypy trading/`（98 个文件）、`lint-imports` 通过。修复的变异自检见下一条。
+- **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store_audit_fixes.json` 原来 10 个，9 个被杀。
+  存活的"`_stored()` 里不检查断档"是等价变异：`last_known()` 在调用它之前已经检查，刷新时读取会先失败。
+  所以删掉这处重复的检查，`_stored()` 的说明写明原因，变异文件去掉这一条。剩下 9 个全部被杀，9/9。
