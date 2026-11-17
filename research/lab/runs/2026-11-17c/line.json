@@ -1,0 +1,629 @@
+{
+ "code_commit": "75cf8b1ea5dec33fb0c98fb7440bde05283e2240",
+ "benchmarks": {
+  "btc_hold": {
+   "days": 1826,
+   "total_return": 0.6223362642290444,
+   "cagr": 0.10155239407871797,
+   "sharpe": 0.45191109516028277,
+   "max_drawdown": 0.7666956183209539,
+   "worst_month": -0.3734314952606783,
+   "worst_month_label": "2022-06",
+   "longest_losing_days": 8
+  },
+  "btc_vol_target": {
+   "days": 1826,
+   "total_return": 0.8117792643759822,
+   "cagr": 0.1261410430801797,
+   "sharpe": 0.5383205920489937,
+   "max_drawdown": 0.46570086058257554,
+   "worst_month": -0.1627797305738613,
+   "worst_month_label": "2022-11",
+   "longest_losing_days": 8
+  }
+ },
+ "n_trials": 2505,
+ "selection_sharpe_std": 0.5155558504881276,
+ "ideas": {
+  "A1_tsmom_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 1.7657166872674308,
+    "cagr": 0.22549952497546655,
+    "sharpe": 0.6386795547935799,
+    "max_drawdown": 0.7168655381118532,
+    "worst_month": -0.25450210592726163,
+    "worst_month_label": "2021-09",
+    "longest_losing_days": 10
+   },
+   "deflated_probability": 0.00441172264744134,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A2_tsmom_ls": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.5543701100265218,
+    "cagr": -0.14918858101051102,
+    "sharpe": 0.29022365081040613,
+    "max_drawdown": 0.8199815703806054,
+    "worst_month": -0.3975825903521554,
+    "worst_month_label": "2022-07",
+    "longest_losing_days": 11
+   },
+   "deflated_probability": 0.00033891191031798295,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A3_ma_cross_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.6877898604305175,
+    "cagr": -0.20759944068598957,
+    "sharpe": -0.15324174462911522,
+    "max_drawdown": 0.8196077819211811,
+    "worst_month": -0.4094982381467773,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 6
+   },
+   "deflated_probability": 5.514366772780472e-06,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A4_donchian_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.18011100246305167,
+    "cagr": -0.03891796781787882,
+    "sharpe": 0.21018866226013475,
+    "max_drawdown": 0.6345925275351263,
+    "worst_month": -0.3568877206339549,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 6
+   },
+   "deflated_probability": 0.00017865793733917498,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A5_btc_gate_tsmom": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.4538971771379765,
+    "cagr": 0.07767779990272827,
+    "sharpe": 0.40071651276519665,
+    "max_drawdown": 0.6674530357955364,
+    "worst_month": -0.4125433658855201,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 10
+   },
+   "deflated_probability": 0.0007975408853827025,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A6_voladj_mom": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.4868732221817387,
+    "cagr": 0.08251997546470391,
+    "sharpe": 0.42216809052770976,
+    "max_drawdown": 0.6081752556863549,
+    "worst_month": -0.3500219896909912,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 7
+   },
+   "deflated_probability": 0.0009811551907695877,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A7_rel_strength_btc": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.3871648330626085,
+    "cagr": 0.06760364255790718,
+    "sharpe": 0.36186831013987975,
+    "max_drawdown": 0.4144148046252114,
+    "worst_month": -0.17668008771388422,
+    "worst_month_label": "2022-09",
+    "longest_losing_days": 7
+   },
+   "deflated_probability": 0.0005917562919080771,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "A8_xs_momentum_top3": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.9997395940132143,
+    "cagr": 0.14858125373379494,
+    "sharpe": 0.5396044698805277,
+    "max_drawdown": 0.7420739117932478,
+    "worst_month": -0.37576679051408324,
+    "worst_month_label": "2022-11",
+    "longest_losing_days": 8
+   },
+   "deflated_probability": 0.002138423986467216,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "B1_xs_reversal_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.9278855494187784,
+    "cagr": -0.40880665102987324,
+    "sharpe": -0.17873546162379336,
+    "max_drawdown": 0.9417238175824725,
+    "worst_month": -0.6487707175951173,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 4.246354537860201e-06,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "B2_xs_reversal_ls": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.0,
+    "cagr": 0.0,
+    "sharpe": 0.0,
+    "max_drawdown": 0.0,
+    "worst_month": 0.0,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 0
+   },
+   "deflated_probability": NaN,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "B3_dip_in_uptrend": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.9807180453414315,
+    "cagr": 0.14638902837254686,
+    "sharpe": 0.5895253550896487,
+    "max_drawdown": 0.31894158199032774,
+    "worst_month": -0.20976374558249689,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 6
+   },
+   "deflated_probability": 0.0027326664640242547,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "B4_band_reversion_ls": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.760515534847591,
+    "cagr": -0.24850956623297182,
+    "sharpe": -0.3486492612843779,
+    "max_drawdown": 0.7960560916858916,
+    "worst_month": -0.25682877260767656,
+    "worst_month_label": "2021-07",
+    "longest_losing_days": 8
+   },
+   "deflated_probability": 6.966606289665355e-07,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "B5_flush_reversal": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.5872147100870956,
+    "cagr": -0.16211014556002246,
+    "sharpe": -0.49442528028495125,
+    "max_drawdown": 0.6712354544512107,
+    "worst_month": -0.3058489012865405,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 4
+   },
+   "deflated_probability": 2.504651819299411e-08,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "C1_funding_carry_short": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.147515843023453,
+    "cagr": -0.031399129151394534,
+    "sharpe": 0.02077151943746367,
+    "max_drawdown": 0.4924992641076831,
+    "worst_month": -0.12789665358565439,
+    "worst_month_label": "2021-10",
+    "longest_losing_days": 8
+   },
+   "deflated_probability": 2.9681147836960406e-05,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "C2_funding_negative_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.16171759104768735,
+    "cagr": 0.030416923079606306,
+    "sharpe": 0.27454447635078677,
+    "max_drawdown": 0.33359054807946176,
+    "worst_month": -0.13330979438530033,
+    "worst_month_label": "2022-09",
+    "longest_losing_days": 3
+   },
+   "deflated_probability": 0.00036732498902400775,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "C3_xs_funding_top_long": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.9278855494187784,
+    "cagr": -0.40880665102987324,
+    "sharpe": -0.17873546162379336,
+    "max_drawdown": 0.9417238175824725,
+    "worst_month": -0.6487707175951173,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 4.246354537860201e-06,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "C4_xs_funding_ls": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.0,
+    "cagr": 0.0,
+    "sharpe": 0.0,
+    "max_drawdown": 0.0,
+    "worst_month": 0.0,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 0
+   },
+   "deflated_probability": NaN,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "C5_trend_not_crowded": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 1.4414580998526936,
+    "cagr": 0.1953288352099838,
+    "sharpe": 0.5980340879203853,
+    "max_drawdown": 0.7086518037308766,
+    "worst_month": -0.2522141188072554,
+    "worst_month_label": "2021-09",
+    "longest_losing_days": 10
+   },
+   "deflated_probability": 0.003401870709461827,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "D1_volume_breakout": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.12669560836444016,
+    "cagr": 0.024131315367460937,
+    "sharpe": 0.24664179066670633,
+    "max_drawdown": 0.5037743955283454,
+    "worst_month": -0.4593690217728119,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 6
+   },
+   "deflated_probability": 0.0002531027845900973,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "D2_taker_imbalance": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 1.1349399933886604,
+    "cagr": 0.16370006151670746,
+    "sharpe": 0.7472072735394335,
+    "max_drawdown": 0.2652387118515125,
+    "worst_month": -0.19604724982659094,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 4
+   },
+   "deflated_probability": 0.005023618461417671,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "D3_surge_fade_short": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.08136988896381747,
+    "cagr": -0.01682195365111605,
+    "sharpe": -0.08497027938037599,
+    "max_drawdown": 0.2626296248421244,
+    "worst_month": -0.21124294033665458,
+    "worst_month_label": "2023-01",
+    "longest_losing_days": 3
+   },
+   "deflated_probability": 1.1091796330958316e-05,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "E1_squeeze_breakout": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.09558295005656992,
+    "cagr": 0.01841482029717434,
+    "sharpe": 0.2899501312723825,
+    "max_drawdown": 0.7270300145085153,
+    "worst_month": -0.22497677477245015,
+    "worst_month_label": "2022-11",
+    "longest_losing_days": 8
+   },
+   "deflated_probability": 0.00038066828557031004,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "E2_calm_trend": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 1.176219270705562,
+    "cagr": 0.16816325734865467,
+    "sharpe": 0.5680412779118904,
+    "max_drawdown": 0.704382638779687,
+    "worst_month": -0.30246655677231116,
+    "worst_month_label": "2022-08",
+    "longest_losing_days": 7
+   },
+   "deflated_probability": 0.0029227584774425704,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "E3_vol_target_trend": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 1.7326684847055591,
+    "cagr": 0.2225582781970632,
+    "sharpe": 0.6437081239677391,
+    "max_drawdown": 0.6869945705610879,
+    "worst_month": -0.23957747773397353,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 10
+   },
+   "deflated_probability": 0.004610839649818852,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "E4_high_vol_off": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.9150180862021253,
+    "cagr": -0.3890824924066514,
+    "sharpe": -0.1737754250476322,
+    "max_drawdown": 0.9277359853270691,
+    "worst_month": -0.6039430435092688,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 4.2864226264916745e-06,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "F1_btc_trend_beta": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 3.3003006785045086,
+    "cagr": 0.3385369923402417,
+    "sharpe": 0.7737813187487693,
+    "max_drawdown": 0.6370694440576853,
+    "worst_month": -0.3028687985079672,
+    "worst_month_label": "2024-04",
+    "longest_losing_days": 10
+   },
+   "deflated_probability": 0.01047588251217068,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "F2_btc_lead_hourly": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.8833525880858359,
+    "cagr": -0.3491555201151605,
+    "sharpe": -0.33811978028102657,
+    "max_drawdown": 0.8737613848483625,
+    "worst_month": -0.5061474615991552,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 5
+   },
+   "deflated_probability": 7.857712385311895e-07,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "F3_bear_short": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.7452239917356012,
+    "cagr": -0.2391540228962754,
+    "sharpe": -0.19681371888177582,
+    "max_drawdown": 0.8029273311143731,
+    "worst_month": -0.24918187427773508,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 3.937980730191345e-06,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "F4_regime_switch_ls": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": -0.2868111185354284,
+    "cagr": -0.06533282418469988,
+    "sharpe": 0.32011771411660817,
+    "max_drawdown": 0.716135459505438,
+    "worst_month": -0.3678232252460326,
+    "worst_month_label": "2021-09",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 0.00042671065931116216,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  },
+  "overlay": {
+   "walk_forward": {
+    "days": 1826,
+    "total_return": 0.6029262510038147,
+    "cagr": 0.09890529066276943,
+    "sharpe": 0.5179560070357258,
+    "max_drawdown": 0.2541244555422897,
+    "worst_month": -0.11487501706860559,
+    "worst_month_label": "2021-05",
+    "longest_losing_days": 9
+   },
+   "deflated_probability": 0.0017260558473919548,
+   "checks": {
+    "return_above_0": true,
+    "beats_btc_hold": true,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false
+   },
+   "survives": false
+  }
+ }
+}
