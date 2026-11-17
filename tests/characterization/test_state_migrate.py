@@ -94,3 +94,46 @@ def test_a_restore_of_a_version_1_backup_migrates_its_copy(tmp_path):
     assert code == 0, out
     assert "migrated to 2" in out
     managed.verify(state, SCOPE)
+
+
+
+# -- the audit of PR #147 (2026-11-17) --------------------------------------------------------------------------
+def test_migrate_under_another_scope_is_refused_on_a_clean_old_directory(old):
+    """Finding 3 (mutant A2): the scope check itself, not another problem of the database."""
+    code, out = _migrate(old, env={**ENV, "RISK_SCOPE": "binance-testnet-other"})
+    assert code == 2 and "belongs to scope" in out
+    with pytest.raises(RuntimeError, match="migrate"):
+        managed.verify(old, SCOPE)                                  # nothing changed
+
+
+def test_migrate_is_refused_while_a_runtime_of_the_account_runs_anywhere_on_the_host(old):
+    """Finding 3 (mutant A3): the host lock, whatever directory the running runtime uses."""
+    from trading.adapters.files.host_lock import HostLock
+    from trading.infrastructure.config import account_identity
+    lock = HostLock(account_identity(testnet=True, api_key="k"), holder="a running runtime")
+    try:
+        code, out = _migrate(old)
+    finally:
+        lock.close()
+    assert code == 3 and "stop the runtime" in out
+
+
+def test_restore_refuses_an_intact_database_of_an_older_version(old, tmp_path):
+    """Finding 5: an intact version-1 database is migrated, never replaced by a snapshot."""
+    from datetime import datetime, timezone
+    other = tmp_path / "other"
+    assert managed.main(["--state-dir", str(other), "init"], stdout=io.StringIO(), env=ENV) == 0
+    snapshot = state_backup.backup(other, tmp_path / "backups", now=datetime.fromtimestamp(NOW - 3600, timezone.utc))
+    code, out = _restore(old, snapshot)
+    assert code == 1 and "migrate it instead" in out
+
+
+def test_restoring_an_old_backup_into_an_old_directory_records_the_new_version(old, tmp_path):
+    from trading.adapters.sqlite.backup import copy_database
+    snapshot = tmp_path / "snap.sqlite"
+    copy_database(old / schema.STATE_DB, snapshot)                    # a version-1 backup (WAL included)
+    (old / schema.STATE_DB).write_bytes(b"")                          # the database lost
+    code, out = _restore(old, snapshot)
+    assert code == 0, out
+    assert json.loads((old / managed.MANIFEST).read_text())["state_db_version"] == 2
+    managed.verify(old, SCOPE)

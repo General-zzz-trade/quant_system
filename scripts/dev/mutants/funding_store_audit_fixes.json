@@ -1,0 +1,65 @@
+[
+ [
+  "gap never unknown",
+  "trading/application/equity.py",
+  "            if covered is not None and covered[1] < oldest:\n",
+  "            if False:\n",
+  "tests/unit/trading/test_funding_store.py::test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_and_to_the_loss_stop"
+ ],
+ [
+  "running process ignores the gap",
+  "trading/application/equity.py",
+  "        if self.store is not None:\n            self._continuable()              # a gap",
+  "        if False:\n            self._continuable()              # a gap",
+  "tests/unit/trading/test_funding_store.py::test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_and_to_the_loss_stop"
+ ],
+ [
+  "overlap 8 hours",
+  "trading/application/equity.py",
+  "FUNDING_OVERLAP_MS = 24 * 3600 * 1000",
+  "FUNDING_OVERLAP_MS = 8 * 3600 * 1000",
+  "tests/unit/trading/test_funding_store.py::test_the_first_read_is_from_the_first_fill_and_later_ones_from_24_hours_before_the_coverage_end"
+ ],
+ [
+  "read before the span allowed",
+  "trading/adapters/sqlite/funding_store.py",
+  "            if old is not None and through_ms < int(old[\"from_ms\"]):\n",
+  "            if False:\n",
+  "tests/unit/trading/test_funding_store.py::test_a_read_that_ends_before_the_kept_span_starts_is_a_gap"
+ ],
+ [
+  "rows keyed without the symbol",
+  "trading/adapters/sqlite/schema.py",
+  "amount TEXT NOT NULL, PRIMARY KEY(scope, symbol, tran_id))",
+  "amount TEXT NOT NULL, PRIMARY KEY(scope, tran_id))",
+  "tests/unit/trading/test_funding_store.py::test_the_same_transaction_id_on_two_symbols_is_kept_for_each"
+ ],
+ [
+  "migration not one transaction",
+  "trading/adapters/sqlite/schema.py",
+  "        db.execute(\"BEGIN IMMEDIATE\")       # the tables and the version together",
+  "        pass  # db.execute(\"BEGIN IMMEDIATE\")       # the tables and the version together",
+  "tests/unit/trading/test_funding_store.py::test_a_migration_that_fails_halfway_changes_nothing"
+ ],
+ [
+  "migrate creates a file",
+  "trading/adapters/sqlite/schema.py",
+  "    if not Path(path).is_file():\n        raise FileNotFoundError",
+  "    if False:\n        raise FileNotFoundError",
+  "tests/unit/trading/test_funding_store.py::test_migrate_never_creates_a_file"
+ ],
+ [
+  "restore replaces an intact old db",
+  "trading/infrastructure/state_dir.py",
+  "    if intact_older:                 # audit of #147",
+  "    if False:                 # audit of #147",
+  "tests/characterization/test_state_migrate.py::test_restore_refuses_an_intact_database_of_an_older_version"
+ ],
+ [
+  "restore leaves the manifest",
+  "trading/infrastructure/state_dir.py",
+  "        if older and manifest.get(\"state_db_version\") != schema.VERSION:",
+  "        if False:",
+  "tests/characterization/test_state_migrate.py::test_restoring_an_old_backup_into_an_old_directory_records_the_new_version"
+ ]
+]

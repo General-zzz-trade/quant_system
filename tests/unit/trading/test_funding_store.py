@@ -125,7 +125,7 @@ def _funding(tmp_path, venue, first_fills, clock):
     return StrategyFunding(venue, ["BTCUSDT", "ETHUSDT"], first_fills.get, clock, store=store), store
 
 
-def test_the_first_read_is_from_the_first_fill_and_later_ones_from_8_hours_before_the_coverage_end(tmp_path):
+def test_the_first_read_is_from_the_first_fill_and_later_ones_from_24_hours_before_the_coverage_end(tmp_path):
     clock = Clock(1_000_000.0)
     venue = Venue({"BTCUSDT": [("a", 600_000_000, D("-2")), ("b", 990_000_000, D("1"))]})
     funding, store = _funding(tmp_path, venue, {"BTCUSDT": 500_000.0}, clock)
@@ -134,7 +134,7 @@ def test_the_first_read_is_from_the_first_fill_and_later_ones_from_8_hours_befor
     clock.now += 600
     venue.rows["BTCUSDT"].append(("c", 1_000_300_000, D("0.5")))
     assert funding.current() == D("-0.5")
-    assert venue.calls[-1] == ("BTCUSDT", 1_000_000_000 - 8 * HOUR_MS, 1_000_600_000)
+    assert venue.calls[-1] == ("BTCUSDT", 1_000_000_000 - 24 * HOUR_MS, 1_000_600_000)
     assert store.coverage("BTCUSDT") == (500_000_000, 1_000_600_000)
 
 
@@ -150,20 +150,39 @@ def test_months_later_the_total_is_still_known_whole(tmp_path):
         funding.current()
     seen = [r for r in rows if r[1] <= clock.now * 1000]
     assert funding.current() == sum((r[2] for r in seen), D(0)) and len(seen) > 350
-    assert all(now - since <= 15 * HOUR_MS for _, since, now in venue.calls[1:])   # never more than 8 h + 7 h back
+    assert all(now - since <= 31 * HOUR_MS for _, since, now in venue.calls[1:])   # never more than 24 h + 7 h back
 
 
-def test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_but_the_loss_stop_keeps_the_stored_total(tmp_path):
+def test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_and_to_the_loss_stop(tmp_path):
+    """Audit of PR #147, finding 1: rows kept only up to more than 88 days ago can never be completed, so their total
+    is partial; it must read as unknown (the loss stop blocks every entry and alerts), never as known."""
     clock = Clock(1_000_000.0)
     venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
     funding, store = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
     clock.now += 600
     assert funding.current() == D("-3")
     clock.now += 100 * 86_400                                       # the runtime was down for 100 days
+    venue.rows["BTCUSDT"].append(("gap", int(clock.now * 1000) - 50 * DAY_MS, D("-299")))
+    again, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)   # the restart
     with pytest.raises(RuntimeError, match="funding"):
-        funding.current()                                           # the read fails (beyond three months): unknown
-    assert funding.last_known() == D("-3")                          # the stop counts what the store holds
+        again.current()
+    with pytest.raises(RuntimeError, match="88 days"):
+        again.last_known()                                          # not -3: the gap's -299 is unknowable
+    with pytest.raises(RuntimeError, match="88 days"):
+        funding.last_known()                                        # the process that ran on: the same
     assert store.coverage("BTCUSDT")[1] == 1_000_600_000            # no coverage across the gap
+
+
+def test_a_restart_within_binance_s_history_reads_the_rest(tmp_path):
+    clock = Clock(1_000_000.0)
+    venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
+    funding, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    clock.now += 600
+    funding.current()
+    clock.now += 30 * 86_400                                        # down for 30 days
+    venue.rows["BTCUSDT"].append(("b", int(clock.now * 1000) - 10 * DAY_MS, D("-7")))
+    again, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    assert again.last_known() == D("-10") and again.current() == D("-10")
 
 
 def test_after_a_restart_the_loss_stop_knows_the_stored_total_before_any_read(tmp_path):
@@ -207,3 +226,41 @@ def test_kept_rows_that_start_after_the_first_fill_are_read_again_from_the_first
     assert funding.current() == D("-4")
     assert venue.calls == [("BTCUSDT", 900_000_000, 1_000_000_000)]
     assert store.coverage("BTCUSDT") == (900_000_000, 1_000_000_000)
+
+
+# -- the audit of PR #147 (2026-11-17) --------------------------------------------------------------------------
+def test_the_same_transaction_id_on_two_symbols_is_kept_for_each(tmp_path):
+    """Finding 8: rows are keyed by symbol too; nothing relies on Binance's ids being unique across symbols."""
+    store = _store(tmp_path)
+    store.add("BTCUSDT", [("7", 100, D("-1"))], from_ms=0, through_ms=200)
+    store.add("ETHUSDT", [("7", 100, D("-2"))], from_ms=0, through_ms=200)
+    assert store.total("BTCUSDT", since_ms=0) == D("-1") and store.total("ETHUSDT", since_ms=0) == D("-2")
+
+
+def test_a_read_that_ends_before_the_kept_span_starts_is_a_gap(tmp_path):
+    """Finding 6: [0, 10] before a span of [100, 200] must not mark [10, 100] as covered."""
+    store = _store(tmp_path)
+    store.add("BTCUSDT", [], from_ms=100, through_ms=200)
+    with pytest.raises(ValueError, match="gap"):
+        store.add("BTCUSDT", [], from_ms=0, through_ms=10)
+    assert store.coverage("BTCUSDT") == (100, 200)
+
+
+def test_a_migration_that_fails_halfway_changes_nothing(tmp_path):
+    """Finding 4: the tables and the version change in one transaction."""
+    path = tmp_path / schema.STATE_DB
+    _version_1(path)
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE funding_coverage (x INTEGER)")        # the second CREATE will fail
+    with pytest.raises(sqlite3.OperationalError):
+        schema.migrate(path)
+    with sqlite3.connect(path) as db:
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert "funding_rows" not in tables
+
+
+def test_migrate_never_creates_a_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        schema.migrate(tmp_path / "missing.sqlite")
+    assert not (tmp_path / "missing.sqlite").exists()
