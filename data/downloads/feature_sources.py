@@ -10,7 +10,7 @@ no key). Nothing at or after ``--end`` is written: data from 2026-11-13 on is re
 - Binance USD-M premium index 1h klines (data.binance.vision);
 - Binance USD-M order book depth (daily archives from the first day there is one), the hourly mean and last notional
   of each percentage level;
-- Binance options BVOL index (daily archives, per second), the last value of each hour;
+- Binance options BVOL index: ``bvol`` reads its daily archives, but ``download`` leaves it out (``BVOL_LEFT_OUT``);
 - Deribit DVOL index, hourly candles (public API);
 - FRED daily series: broad dollar index, 10-year Treasury yield, S&P 500, Nasdaq composite, VIX;
 - DefiLlama total stablecoin supply in USD, daily;
@@ -29,6 +29,7 @@ import hashlib
 import http.client
 import io
 import json
+import shutil
 import time
 import urllib.error
 import zipfile
@@ -37,6 +38,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 from data.downloads.binance_public import http_get
 
@@ -50,12 +53,21 @@ STABLECOINS = "https://stablecoins.llama.fi/stablecoincharts/all"
 COINMETRICS = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 BVOL = ("BTCBVOLUSDT", "ETHBVOLUSDT")
+BVOL_LEFT_OUT = ("not downloaded (2026-11-17): it duplicates Deribit's DVOL, also a 30-day implied volatility index, "
+                 "from 2021 and read from an API; its per-second daily archives start in 2023 and are the slowest "
+                 "source on this host (about 1 GB at 150-250 KB/s in all)")
 DVOL = ("BTC", "ETH")
 FRED_LAG_DAYS = {"DTWEXBGS": 9, "DGS10": 2, "SP500": 2, "NASDAQCOM": 2, "VIXCLS": 2}   # release schedules unverified
 CM_METRICS = ("FlowInExNtv", "FlowOutExNtv", "SplyExNtv", "AdrActCnt", "TxCnt", "CapMrktCurUSD")
 CM_ASSETS = ("btc", "eth")
 SPOT_FIRST, PREMIUM_FIRST = "2017-08", "2020-01"
 DVOL_FIRST, CM_FIRST = date(2021, 1, 1), date(2017, 1, 1)
+
+
+def slow_fetch(url: str) -> bytes:
+    """http_get with a timeout long enough for this host's link to data.binance.vision (about 150-250 KB/s in all,
+    measured 2026-11-17: a 0.5 MB daily archive takes 3 s alone and much longer beside others)."""
+    return http_get(url, timeout=120.0, retries=6)
 
 
 def retrying(fetch: Fetch, *, attempts: int = 5, pause: float = 5.0) -> Fetch:
@@ -179,20 +191,32 @@ def _parallel(fn: Callable[[date], list], day_list: Sequence[date], workers: int
         return [row for part in pool.map(fn, day_list) for row in part]
 
 
+def _depth_day(rows: list[list[str]], end_ms: int) -> list[tuple]:
+    if not rows:
+        return []
+    frame = pd.DataFrame(rows, columns=["timestamp", "percentage", "depth", "notional"])
+    t = pd.to_datetime(frame["timestamp"], format="%Y-%m-%d %H:%M:%S", utc=True).astype("int64") // 10**6
+    frame = frame.assign(hour=t - t % H, percentage=frame["percentage"].astype(float).astype(int),
+                         notional=frame["notional"].astype(float))
+    frame = frame[frame["hour"] + H <= end_ms]
+    g = frame.groupby(["hour", "percentage"], sort=True)["notional"]
+    out = pd.DataFrame({"mean": g.mean(), "last": g.last()}).reset_index()
+    return [(int(h), int(p), float(m), float(v)) for h, p, m, v in out.itertuples(index=False)]
+
+
 def book_depth(symbol: str, day_list: Sequence[date], end_ms: int, *, fetch: Fetch = http_get,
-               workers: int = 1) -> list[tuple]:
+               workers: int = 1, cache: Path | None = None) -> list[tuple]:
     """(hour open ms, percentage, mean notional, last notional) of the snapshots taken in that hour; a negative
-    percentage is the bid side."""
+    percentage is the bid side. With ``cache``, every finished day is kept there and not fetched again."""
     def one(day: date) -> list[tuple]:
-        cells: dict[tuple[int, int], list[float]] = {}
-        for r in vision_rows(depth_url(symbol, day), fetch=fetch) or []:
-            stamp = datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-            t = int(stamp.timestamp() * 1000)
-            hour = t - t % H
-            if hour + H <= end_ms:
-                cells.setdefault((hour, int(float(r[1]))), []).append(float(r[3]))
-        return [(hour, pct, sum(v) / len(v), v[-1]) for (hour, pct), v in cells.items()]
-    return sorted(_parallel(one, day_list, workers))
+        if cache is not None:
+            return [tuple(r) for r in staged(Path(cache), f"{symbol}_{day.isoformat()}.csv.gz",
+                                             ("hour", "percentage", "mean", "last"),
+                                             lambda: _depth_day(vision_rows(depth_url(symbol, day), fetch=fetch)
+                                                                or [], end_ms))]
+        return _depth_day(vision_rows(depth_url(symbol, day), fetch=fetch) or [], end_ms)
+    rows = _parallel(one, day_list, workers)
+    return sorted((int(h), int(p), float(m), float(v)) for h, p, m, v in rows)
 
 
 def bvol(symbol: str, day_list: Sequence[date], end_ms: int, *, fetch: Fetch = http_get,
@@ -322,7 +346,7 @@ def write_snapshot(out: Path, files: dict[str, tuple[tuple, Iterable[tuple]]], e
     return json.loads((out / "manifest.json").read_text())
 
 
-def download(out: Path, end: date, *, fetch: Fetch = http_get, workers: int = 4) -> dict:
+def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 4) -> dict:
     """Every source, each kept in ``<out>.partial`` as soon as it is done (a rerun after a failure resumes there),
     then the snapshot and its manifest; the staging directory is removed at the end."""
     end_ms = ms(end)
@@ -347,16 +371,11 @@ def download(out: Path, end: date, *, fetch: Fetch = http_get, workers: int = 4)
             {"source": f"{VISION}/futures/um/monthly/premiumIndexKlines/{symbol}/1h", "known": "open_time + 1 h"})
         first = first_day(lambda d, s=symbol: depth_url(s, d), date(2020, 1, 1), last, fetch=fetch)
         add(f"{symbol}_depth_1h.csv.gz", ("hour", "percentage", "mean_notional", "last_notional"),
-            lambda s=symbol, f=first: book_depth(s, days(f, end), end_ms, fetch=fetch, workers=workers) if f else [],
+            lambda s=symbol, f=first: book_depth(s, days(f, end), end_ms, fetch=fetch, workers=workers,
+                                                 cache=stage / "depth_days") if f else [],
             {"source": f"{VISION}/futures/um/daily/bookDepth/{symbol}",
              "first_day": first.isoformat() if first else None,
              "known": "hour + 1 h (snapshots taken in [hour, hour + 1 h))"})
-    for symbol in BVOL:
-        first = first_day(lambda d, s=symbol: bvol_url(s, d), date(2020, 1, 1), last, fetch=fetch)
-        add(f"{symbol}_1h.csv.gz", ("hour", "last_value"),
-            lambda s=symbol, f=first: bvol(s, days(f, end), end_ms, fetch=fetch, workers=workers) if f else [],
-            {"source": f"{VISION}/option/daily/BVOLIndex/{symbol}", "first_day": first.isoformat() if first else None,
-             "known": "hour + 1 h (the last value in [hour, hour + 1 h))"})
     for currency in DVOL:
         add(f"{currency}_dvol_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
             lambda c=currency: dvol(c, ms(DVOL_FIRST), end_ms, fetch=fetch),
@@ -372,11 +391,10 @@ def download(out: Path, end: date, *, fetch: Fetch = http_get, workers: int = 4)
             {"source": COINMETRICS, "known": "date + 2 days 00:00 UTC",
              "caveat": "flash values are revised: history is the revised value"})
     extra = {"downloaded_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
-             "purpose": "feature-pool study (owner 2026-11-17)", "terms": "each source's terms of use unverified"}
+             "purpose": "feature-pool study (owner 2026-11-17)", "terms": "each source's terms of use unverified",
+             "not_downloaded": {"BVOL": BVOL_LEFT_OUT}}
     manifest = write_snapshot(out, files, end_ms, sources=sources, extra=extra)
-    for path in stage.glob("*"):
-        path.unlink()
-    stage.rmdir()
+    shutil.rmtree(stage)
     return manifest
 
 

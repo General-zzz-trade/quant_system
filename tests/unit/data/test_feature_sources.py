@@ -185,3 +185,19 @@ def test_a_finished_source_is_kept_for_the_next_attempt(tmp_path):
     first = fs.staged(tmp_path, "a.csv.gz", ("t", "v"), rows)
     second = fs.staged(tmp_path, "a.csv.gz", ("t", "v"), lambda: pytest.fail("made again"))
     assert len(made) == 1 and [tuple(map(str, r)) for r in first] == [tuple(r) for r in second]
+
+
+def test_a_finished_depth_day_is_kept_and_not_fetched_again(tmp_path):
+    fetch = Fetch()
+    text = "timestamp,percentage,depth,notional\n2024-01-01 00:00:10,-1,1,100\n2024-01-01 00:30:10,-1,1,300\n"
+    fetch.add_zip(fs.depth_url("BTCUSDT", date(2024, 1, 1)), "d.csv", text)
+    first = fs.book_depth("BTCUSDT", [date(2024, 1, 1)], END, fetch=fetch, cache=tmp_path)
+    again = fs.book_depth("BTCUSDT", [date(2024, 1, 1)], END, fetch=Fetch(), cache=tmp_path)   # would be a 404
+    assert first == again == [(fs.ms(date(2024, 1, 1)), -1, 200.0, 300.0)]
+
+
+def test_the_download_reads_long_files_with_a_long_timeout(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(fs, "http_get", lambda url, **kw: seen.update(kw) or b"x")
+    fs.slow_fetch("u")
+    assert seen["timeout"] >= 120
