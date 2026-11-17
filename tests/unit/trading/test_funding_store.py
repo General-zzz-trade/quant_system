@@ -71,7 +71,7 @@ def test_a_version_1_database_is_told_to_migrate_and_migrate_brings_it_to_versio
     path = tmp_path / schema.STATE_DB
     _version_1(path)
     found = schema.problems(path)
-    assert any("version 1, expected 2" in p and "migrate" in p for p in found)
+    assert len(found) == 1 and "version 1, expected 2" in found[0] and "migrate" in found[0]   # only the version
     assert schema.migrate(path) == 1
     assert schema.problems(path) == []
     assert schema.migrate(path) == 2                              # already there: nothing changes
@@ -195,3 +195,15 @@ def test_without_a_store_nothing_changes(tmp_path):
     funding = StrategyFunding(venue, ["BTCUSDT", "ETHUSDT"], {"BTCUSDT": 500.5}.get, Clock())
     assert funding.current() == D("-3.25") and venue.calls == [("BTCUSDT", 500_500, 1_000_000_000)]
     assert FUNDING_MAX_AGE == 7200
+
+
+def test_kept_rows_that_start_after_the_first_fill_are_read_again_from_the_first_fill(tmp_path):
+    """Mutation self-check survivor: a first fill earlier than the kept span (a person set the ledger's position)
+    makes the next read start at the first fill, so the total covers it."""
+    clock = Clock(1_000_000.0)
+    venue = Venue({"BTCUSDT": [("early", 950_000_000, D("-5")), ("late", 999_000_000, D("1"))]})
+    funding, store = _funding(tmp_path, venue, {"BTCUSDT": 900_000.0}, clock)
+    store.add("BTCUSDT", [("late", 999_000_000, D("1"))], from_ms=990_000_000, through_ms=1_000_000_000)
+    assert funding.current() == D("-4")
+    assert venue.calls == [("BTCUSDT", 900_000_000, 1_000_000_000)]
+    assert store.coverage("BTCUSDT") == (900_000_000, 1_000_000_000)

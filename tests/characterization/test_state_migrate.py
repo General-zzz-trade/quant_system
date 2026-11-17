@@ -32,6 +32,9 @@ def old(tmp_path):
     state = tmp_path / "state"
     assert managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(), env=ENV) == 0
     _to_version_1(state / schema.STATE_DB)
+    manifest = json.loads((state / managed.MANIFEST).read_text())
+    manifest["state_db_version"] = 1                                # as version 1's init wrote it
+    (state / managed.MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n")
     return state
 
 
