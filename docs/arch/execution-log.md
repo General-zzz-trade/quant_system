@@ -4674,3 +4674,49 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **本地**【实际运行结果】：新测试、`test_binance_um_all.py`、`test_research_infra.py`、`test_lookahead.py` 的模块清单测试、
   `tests/architecture` 通过；ruff、`lint-imports` 通过。
 - **第一次用**：2026-11-26 起，先 `download` 再 `look`（命令在模块说明里），结果放 `research/lab/forward/e3/2026-11-25/`。
+
+## 累计资金费存进状态库（状态库第 2 版，2026-11-17，资金路径，完整流程）
+
+- **决定**：技术负责人 2026-11-17 选了"累计资金费存进状态库"（2026-11-16 时说过：88 天的保护保留到这一项做完）。
+- **原来的问题**：仓位基数和 15% 亏损停止线都要算策略自首笔成交以来的资金费，币安的收入历史只保留三个月。所以首笔成交超过 88 天后
+  仓位基数就是 0；重启后亏损停止线也不知道资金费，直到本进程读到一次。
+- **改了什么**：
+  - 状态库第 2 版（`schema.VERSION = 2`）加两张表：
+    - `funding_rows`：每一行资金费，按币安的交易号去重；
+    - `funding_coverage`：每个品种的资金费已完整读到的区间。
+  - 存储 `SqliteFundingStore`：同一行只存一次；会留下断档的写入一律拒绝；可以按"从某个时间起"求和。
+  - `StrategyFunding(store=...)`：
+    - 第一次从首笔成交读起；
+    - 以后从已存区间结束前 8 小时读起，重叠部分照顾晚到的行；
+    - 总数取库里存的。
+    - 程序停了超过三个月、中间断档时，读取失败，仓位基数 2 小时后归零（和原来一样）；亏损停止线用库里存着的总数。
+    - 重启后，在本进程还没读到之前，亏损停止线也用库里存着的总数。
+    - 不给存储时，行为和原来完全一样（已有测试都没改）。
+  - 币安适配层新增 `get_funding_rows`，返回交易号、时间、金额；`get_funding_income` 改为它的和，行为不变。端口 `FundingIncome` 加这个方法，
+    另有新端口 `FundingStore`。执行模式接入这个存储；模拟盘不用资金费，不受影响。
+  - 迁移（ADR-0009 第 5 条）：
+    - `schema.migrate` 只加表；`state_dir migrate` 由人在运行时停着的时候运行，要拿到主机锁和目录租约；
+    - 旧文件留一份（`state.sqlite.v1-<时间>`），迁移记进 `manual_actions` 和清单；
+    - 有别的问题的库拒绝迁移；
+    - 版本不对时启动会拒绝，并提示这条命令；从旧版本的备份恢复时，恢复会迁移副本。
+  - 开发中改过一次：第一版让亏损停止线每次都从库里重新算。首笔成交后 10 分钟内，库里还没有这个品种的行，
+    7 个亏损停止线的运行时测试因此失败（停止线变成"未知"）。改回原来的语义：本进程读到过，就用读到的总数；只有重启后还没读到时，才用库里存着的总数。
+- **已有测试的改动**（依据：技术负责人 2026-11-17 的决定，状态库升到第 2 版）：
+  - `tests/characterization/test_state_database.py`：
+    - `test_init_creates_one_state_database_at_version_1_with_every_table` 改名为 `..._at_version_2_...`，
+      断言 `user_version == 1` 改为 `== 2`；
+    - `test_a_wrong_version_refuses_to_start_and_creates_nothing` 的参数 `[0, 2]` 改为 `[0, 3]`，匹配文字 `expected 1` 改为 `expected 2`；
+      版本 1 现在会被拒绝并提示迁移，另有测试；
+    - 表名清单 `TABLES` 加 `funding_rows`、`funding_coverage`。
+- **新增测试**：
+  - `tests/unit/trading/test_funding_store.py` 14 个：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
+  - `tests/characterization/test_state_migrate.py` 5 个：启动拒绝并提示；迁移；运行时占着目录时拒绝；有别的问题或换了范围时拒绝；旧版本备份恢复。
+  - `test_strategy_capital_sizing.py` 加 1 个：运行时把资金费行存进状态库。
+  - `test_funding_income.py` 加 1 个：读到的行。
+- **本地**【实际运行结果】：上述测试，以及 `test_loss_stop_audit_runtime.py`、`test_strategy_loss_stop_runtime.py`、`test_loss_stop_audit.py`、
+  `test_strategy_loss_stop.py`、`test_strategy_capital.py`、`test_state_restore.py`、`test_state_dir.py`、`test_risk_state.py`、
+  `test_paper_beside_execution.py`、`test_pilot_leverage_sizing.py`、`test_paper_parts.py`、`tests/architecture` 通过；
+  ruff（全仓库）、`mypy trading/`（97 个文件）、`lint-imports`、离线安全检查通过。
+- **主机上要做的**：试运行用的 `/var/lib/quant/state/mainnet` 是 2026-11-16 用第 1 版初始化的，启动前要运行一次 `state_dir migrate`（运行时停着）。
+  这一步改的是实盘状态目录，由技术负责人做，或者经技术负责人同意后由我做。
+- **变异自检和审计**：见下面补充。

@@ -65,7 +65,9 @@
   和暂停、改配置都要先问技术负责人。
 
 还没做完的工程项（`CLAUDE.md` 的 "still required first"）
-- [ ] 累计资金费存进状态库，取代"首笔成交早于 88 天时仓位基数为 0"的保护（技术负责人 2026-11-16：在那之前保护保留）。
+- [x] 累计资金费存进状态库，取代"首笔成交早于 88 天时仓位基数为 0"的保护（2026-11-17 完成：状态库第 2 版）。
+- [ ] 已经初始化的状态目录（例如 `/var/lib/quant/state/mainnet`，2026-11-16 用第 1 版初始化）在启动前迁移到第 2 版，运行时要先停：
+  `python3 -m trading.infrastructure.state_dir --state-dir /var/lib/quant/state/mainnet migrate`，再 `check`。旧文件会留一份在旁边。
 
 ## 4. 启动
 

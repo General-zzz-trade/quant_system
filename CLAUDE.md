@@ -12,9 +12,9 @@
   capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
-  the host install, the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it), and the
-  cumulative funding kept in the state database instead of the 88-day guard (owner
-  2026-11-16: the guard stays until then).
+  the host install, and the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it). The
+  cumulative funding is kept in the state database since 2026-11-17 (state database version 2; an existing directory
+  is brought there with `state_dir migrate`, the runtime stopped).
 - **Before a lab survivor gets money (owner, 2026-11-16 evening):** an idea that passes the lab's checks is frozen and
   tracked on new data for 4 weeks first: one registered look a week (`research/forward_looks.jsonl`, as the forward
   protocol says), each on a new snapshot; it goes to the pilot only if it still holds on all four. Nothing is
@@ -37,7 +37,9 @@
   that this base grows with the strategy's profits. The PnL includes funding (tech lead, 2026-11-16): the USDT
   funding income of each strategy symbol since the strategy's first fill on it, from Binance's income history, read
   at most every 10 minutes; funding never read or older than 2 hours sizes the base to zero. Binance keeps that
-  history for three months only, so a first fill older than 88 days also sizes to zero (open for the tech lead).
+  history for three months only, so every funding row read is kept in the state database (version 2, tech lead
+  2026-11-17) and each refresh reads from 8 hours before the kept span ends; only a gap longer than Binance's three
+  months (the runtime down that long) leaves the funding unknown, which sizes the base to zero.
   Every `target.*` owner in the scope's ledger counts, also one whose symbol the current spec no longer trades.
   A zero base plans no partial reduction, only a whole close (the zero-sizing rule). Fees paid in BNB are not in
   the PnL (BNB fee payment is off on the account, checked 2026-11-16).
@@ -234,8 +236,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     any entry); going on means a new pilot in a new state directory.
   - A loss that cannot be known closes nothing and blocks every entry. Funding that cannot be refreshed does not
     blind the stop: it counts the last total read in this process, whatever its age (the sizing base keeps the
-    2-hour rule). After a restart with a first fill older than 88 days the funding, and so the loss, is unknown
-    until the cumulative funding is kept in the state database.
+    2-hour rule). Since 2026-11-17 that total is the one kept in the state database, also right after a restart;
+    it is unknown only when the kept rows do not reach back to a first fill.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
