@@ -23,6 +23,7 @@ from typing import Any
 from trading.adapters.sqlite.connection import connect
 
 SCHEDULED_END = "ended by itself at its scheduled time"
+RESET_WAIT_RELEASED = "a person ended the wait for the strategy's reset"
 _ACTIVE = "(released_at IS NULL OR released_at > ?)"
 
 
@@ -63,6 +64,17 @@ class SqliteEntryPauses:
                              "ORDER BY paused_at LIMIT 1", (symbol, float(self.clock()))).fetchone()
         return str(row["cause"]) if row else None
 
+    def ended_by_itself(self, symbol: str) -> float | None:
+        """When ``symbol``'s latest pause began, if that pause has ended by itself at its scheduled time; None when
+        there is none, it is still running or a person released it (tech lead 2026-11-17: a spec's
+        ``after_stop: pause_then_reset`` waits for the strategy's reset after such a pause)."""
+        with self._connect() as db:
+            row = db.execute("SELECT paused_at, released_at, release_reason FROM entry_pauses WHERE symbol=? "
+                             "ORDER BY paused_at DESC, rowid DESC LIMIT 1", (symbol,)).fetchone()
+        if row is None or row["release_reason"] != SCHEDULED_END or row["released_at"] is None:
+            return None
+        return float(row["paused_at"]) if float(row["released_at"]) <= float(self.clock()) else None
+
     def covered(self, symbol: str) -> set[str]:
         """The stop triggers of ``symbol`` a pause has been set for."""
         with self._connect() as db:
@@ -75,6 +87,20 @@ class SqliteEntryPauses:
             return [dict(r) for r in db.execute(f"SELECT symbol, paused_at, cause, released_at AS ends_at "
                                                 f"FROM entry_pauses WHERE {_ACTIVE} ORDER BY paused_at",
                                                 (float(self.clock()),))]
+
+    def release_wait(self, symbol: str, reason: str) -> bool:
+        """End the wait for the strategy's reset after ``symbol``'s pause ended by itself (a spec's ``after_stop:
+        pause_then_reset``): a release row, so the latest pause is no longer one that ended by itself. False when
+        there is no such pause. For a person only (``entry_pause release``, audit of PR #142, finding 3)."""
+        if not reason.strip():
+            raise ValueError("a release needs a reason")
+        if self.ended_by_itself(symbol) is None:
+            return False
+        now = float(self.clock())
+        with self._connect() as db:
+            db.execute("INSERT INTO entry_pauses (symbol, paused_at, cause, released_at, release_reason) "
+                       "VALUES (?, ?, ?, ?, ?)", (symbol, now, RESET_WAIT_RELEASED, now, reason.strip()))
+        return True
 
     def release(self, symbol: str, reason: str) -> int:
         """End ``symbol``'s active pauses now (a scheduled one too), recording why; returns how many ended. For a

@@ -23,7 +23,7 @@ from typing import Any
 
 from lab import um_lab as lab
 from lab.strategy import StrategySpec
-from trading.domain.issues import STOP_PAUSE_SECONDS
+from trading.domain.issues import AFTER_STOP_PAUSE_THEN_RESET, STOP_PAUSE_SECONDS
 from trading.domain.risk.liquidation import liquidation_distance
 from trading.domain.strategy.spec import KIND_V2, parse_spec
 
@@ -43,7 +43,8 @@ def _gaps(stop: dict) -> list[str]:
     if stop.get("vol_k") is not None:
         return [f"vol stop (k={stop['vol_k']}): the runtime's stop is a fixed STOP_PCT"]
     if stop.get("reenter") == "signal_reset":
-        return ["signal reset after a stop: the runtime pauses entries for a fixed time"]
+        return ["signal reset after a stop without a pause: the runtime's after_stop always pauses first "
+                "(pause_then_reset, tech lead 2026-11-17)"]
     if stop.get("pause_hours") != PAUSE_HOURS:
         return [f"a {stop.get('pause_hours')}-hour pause after a stop: the runtime's pause is {PAUSE_HOURS} hours"]
     return []
@@ -80,6 +81,8 @@ def draft(results: dict, lists: list[list[str]], snapshot: Path, *, idea: str | 
     spec = {"schema": 2, "kind": KIND_V2, "strategy": {"name": name, "params": choice["params"]},
             "execution": {"band": execution.band, "execution": "market", "ttl_bars": execution.ttl_bars},
             "symbols": symbols, "allow_short": _shorts(strategy, symbols, snapshot), "passed": False}
+    if choice["stop"].get("reenter") == AFTER_STOP_PAUSE_THEN_RESET:       # the runtime's stricter rule (2026-11-17)
+        spec["after_stop"] = AFTER_STOP_PAUSE_THEN_RESET
     parse_spec(spec)
     stop = choice["stop"]
     settings = {"STOP_PCT": stop["stop_pct"], "BINANCE_EXCHANGE_LEVERAGE (largest)": largest_leverage(stop["stop_pct"]),

@@ -4630,6 +4630,42 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **新增测试**：`tests/unit/lab/test_simulate_pause_then_reset.py` 7 个。都先跑过、在改动前失败。
 - **本地**【实际运行结果】：新测试、`test_simulate_signal_reset.py`、`test_vol_stop.py`、`test_um_judge_screen.py` 通过；ruff 通过。
 
+## 实盘：止损暂停结束后，空仓的品种等策略目标回到 0 才开仓（2026-11-17，资金路径，完整流程）
+
+- **决定**：技术负责人 2026-11-17 选"加，比现在更严"（止损后先暂停 4 小时，之后还要等策略目标回到 0）。依据：实验室 11-17 这一轮里，
+  "等信号回到 0"在前 10 个想法里有 6 个几乎年年选中（5 个五折全选，C5 选了 4 折）；冠军 E3 按实盘的"暂停 4 小时"回测，夏普从 0.62 降到 0.37。
+- **改了什么**：
+  - 第 2 版规格可选字段 `after_stop`：`"pause"`（默认，也是第 1 版的规则）或 `"pause_then_reset"`；别的值和类型都拒绝。
+    不是默认值时才写进规格的记录和身份，所以已有的模拟盘记录不变。
+  - 暂停库 `ended_by_itself(symbol)`：这个品种最近一次暂停如果到点自己结束，返回它开始的时间；没有暂停、还在暂停中、或由人解除的，返回 None。
+    不改数据库结构。端口和模拟盘的包装同步加上。
+  - 会话记下最近一次"准备好且目标正好是 0"的决定时间（只在内存里）。
+  - 退出侧的 `pause_status`：规格是 `pause_then_reset` 时，如果品种空仓、最近一次暂停到点自己结束、并且从那次暂停开始以后没有过目标为 0
+    的决定，就返回"waiting for the strategy's target to return to 0 after a stop"。这个状态和暂停一样：品种状态是 paused，
+    不能开仓，挂着的入场单撤掉，状态文件里显示原因。
+    读不出来的，返回 "unreadable"，挡住开仓。止损的告警文字写明还要等目标回到 0。
+  - 两种模式（执行、模拟盘）都从规格接这个字段。规格草稿工具：评审选了 `stop…_pause4h_then_reset` 的，草稿里写
+    `"after_stop": "pause_then_reset"`，不再算缺口。
+  - 设计取舍（我做的，写在这里供审计）：
+    - 放在规格里，不放在配置里。重新开仓的规则是和策略一起评审的；默认不变，所以 BTC/ETH 校准试运行的行为不变。
+    - "见过 0"只放在内存里，不改库结构。重启后不记得之前见过的 0，要等下一次，只会更严。
+    - 持有仓位时不等：有仓位就说明止损后已经重新开过仓。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：没有。
+- **新增测试**：
+  - `tests/unit/trading/test_stop_reset_reentry.py`：18 个测试函数，其中一个参数化 6 例，共 23 例（审计更正：原来写成 19 个、24 例）。内容包括规格、暂停库、端到端运行时
+    （进场→止损→4 小时→等 0→再进场）、暂停期间的 0、人工解除、重启、读不出、告警、未准备好的 0、重启时持有仓位、两种模式的接线、
+    模拟盘的包装、止损前的 0。
+  - `tests/unit/tooling/test_draft_strategy_spec.py` 加 1 个。
+  - 在未改的 master 上跑：我当时跑的是这个文件的早期版本，18 例里 11 个失败。审计员用最终的文件在 0f091ebc 上跑，16 个失败、7 个通过
+    （审计更正：原来只写了 11 个失败）。通过的 7 个是参数化的 6 例"拒绝别的值"，它们在 master 上通过的原因不同（master 拒绝任何不认识的字段），
+    以及"没有这个字段时 4 小时后照旧"，这一例本来就该通过。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/stop_reset_reentry.json` 20 个。第一轮 19 个被杀。存活 1 个："止损之前的 0 也算"，
+  当时没有测试先让策略要过 0 再进场。补了 `test_a_0_from_before_the_stop_does_not_count`，单独重跑这个变异被杀。最终 20/20。
+- **本地**【实际运行结果】：新测试；`test_stop_pause_auto_release.py`、`test_paper_parts.py`、`test_spec_v2.py`、`test_issues.py`、
+  `test_spec_v2_runtime.py`、`test_shorts_runtime.py`、`test_stop_durability.py`、`test_draft_strategy_spec.py`、`tests/architecture` 通过；
+  ruff、`mypy trading/`（96 个文件）、`lint-imports` 通过。
+- **审计**：合并前由独立审计员审。
 ## 实验室下一轮的工具：品种清单的新规则、BTC 加仓位控制的基准、按折挑选的组合（2026-11-17，研究代码）
 
 - **决定**：技术负责人 2026-11-17 选了"组合幸存者、改品种清单、提高淘汰线"三项。这一轮的做法登记在 `research/lab/runs/2026-11-17b/plan.md`。
@@ -4649,3 +4685,130 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `test_um_portfolio.py` 7 个：合成、按折挑选、不用未来数据挑、最多 k 个、基准太强时空仓、基准仓位只用完成的日 K 线、按时段回放。
   - 都先跑过、在改动前失败。其中两个是我自己写错了期望值（合成的基准太平滑，夏普极高；按夏普排序时 steady 在前），提交前改正。
 - **本地**【实际运行结果】：上述测试、`tests/architecture`、ruff、`lint-imports` 通过。
+
+### 独立审计（PR #142，2026-11-17）和修复
+
+审计员在自己的克隆里审 9cd4d6df：没有阻塞问题，两项应修，五项轻微。逐项处理如下。
+
+- **应修 1：等待中的品种被拒的开仓仍然占用共享的每日下单数**（审计员跑出：4 根收盘计数从 4 笔增加到 8 笔）。
+  - 原因：入口闸门的 `paused()` 不知道这个等待，开仓过了它，到了下单数限制那里先计数，最后才被就绪检查拒绝。
+  - 修复：等待规则抽成一个函数 `trading/application/reset_wait.waits_for_reset`，闸门和退出侧共用。闸门在下单数限制之前就拒绝。
+  - 新测试：`test_a_waiting_symbol_s_refusals_use_none_of_the_shared_daily_counts`。
+- **应修 2：等待会在很久以后又出现**（审计员跑出：重新开仓、带仓位重启，之后有人急停平仓再解除，等待又回来了，实验室不会这样）。
+  - 修复：止损之后只要有一笔开仓单成交，等待就永久结束。依据是订单记录：止损后创建的非减仓单有交易所成交，重启后也查得到
+    （`SqliteOrderJournal.entry_filled_since`，模拟盘的订单记录继承它）。
+  - 新测试：`test_an_entry_after_the_stop_ends_the_wait_for_good`，就是审计员的复现。
+- **轻微 3：4 小时过后没人能结束等待。** `entry_pause release` 在最近一次暂停自己结束时，可以结束等待（也要输入品种名确认）。
+  做法是写一行由人解除的记录，库结构不变。新测试：`test_a_person_can_end_the_wait_with_the_release_command`。
+- **轻微 4：模拟盘对照工具读不了带这个字段的叠加策略记录。** 已修。新测试：`test_the_paper_comparison_reads_an_overlay_record_with_the_rule`。
+- **轻微 5：第 1 版规格会悄悄忽略这个字段。** 现在拒绝。新测试：`test_a_schema_1_spec_cannot_carry_the_field`。
+- **轻微 6：模拟盘里止损那根 K 线收盘时的决定不算重置**（实验室算）。只会更严，严一根 K 线，留着不改，记在这里。
+- **轻微 7：记录里的数字错了。** 已在上面更正。
+- **审计员指出的测试缺口**：
+  - 补了 `test_a_short_target_is_not_the_reset`（允许做空时，空头目标不算回到 0）；
+  - 挂单入场在等待期间被撤，还没有测试：撤单和暂停走同一条路径。
+- **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/stop_reset_audit_fixes.json` 9 个。第一轮 7 个被杀，存活 2 个，都在订单记录的查询里：
+  "减仓单也算开仓"、"没成交的开仓单也算"。补了 `test_only_an_entry_created_after_the_time_and_filled_ends_the_wait`，直接写订单和成交行检查这个查询；
+  单独重跑，这两个都被杀。最终 9/9。
+- **修复后的测试**：这个文件现在 25 个测试函数、30 例，全部通过。相关的 `test_stop_pause_auto_release.py`、`test_spec_v2.py`、
+  `test_paper_compare*.py`、`test_paper_parts.py`、`test_spec_v2_runtime.py`、`test_draft_strategy_spec.py`、`test_entry_pause.py`、
+  `tests/architecture` 通过；ruff、`mypy trading/`（97 个文件）、`lint-imports` 通过【实际运行结果】。
+
+### 复核（2026-11-17）
+
+审计员在 ed8eda51 复核修复：没有阻塞问题，没有应修问题，有两点轻微，已改：
+- 已提交的变异文件里，那两个存活变异还指向原来的测试，重跑会得到 7/9；现在改为指向直接查询的测试，重跑就是 9/9。
+- `entry_pause release` 的新分支在最近一次暂停到点自己结束时，就提出并写一行解除记录，不管规格是不是 `pause_then_reset`、品种有没有持仓。
+  这一行不生效，也不碍事。现在打印的文字按实际结果写：没写入时说明没写；写入时说明只对空仓、规格是 `pause_then_reset` 的品种有意义。
+  `status` 仍只列生效中的暂停，等待只显示在运行时的状态文件里。
+- 原来的轻微第 6 点（模拟盘不算止损那根 K 线收盘时的决定）照旧留着。
+## 实验室冠军的每周前向查看工具（2026-11-17，研究代码）
+
+- **依据**：技术负责人 2026-11-16 晚定的规则（冠军先冻结，在新数据上跟踪 4 周，每周一次登记的查看，每次用新快照）和 2026-11-17 定的
+  "还成立"标准。E3 的冻结文件和 4 次查看已登记（#140），第一次查看在 2026-11-25 结束。
+- **改了什么**：
+  - 新模块 `lab/um_forward.py`：
+    - `download`：只为已登记、结束日已完全过去的查看下载冻结的品种加 BTCUSDT，从 2026-09-01 起算预热。
+    - `look`：按冻结的配置（策略、参数、品种、止损、按份分资金）从冻结的开始日回放到这次查看的结束日。标准是每小时组合权益的最低点
+      高于资金的 92.5%。结果写进新目录，一次查看只评一次。
+    - 登记由 `lab.forward.registered_look` 检查：按冻结文件的 SHA-256 核对；登记日必须早于结束日；结束日必须已完全过去。
+  - 下载器加 `forward_look`：只下名单里的品种，结束日不晚于今天；登记由调用方检查；`manifest.json` 记一行。不带这个选项时，前向保护不变。
+  - `test_lookahead.py` 的模块清单加一行说明。
+- **已有测试的改动**：没有。测试辅助：新测试里把 `lab.forward.FORWARD_START` 临时设成合成行情的开始（合成数据在 2023 年）。
+- **新增测试**：`tests/unit/lab/test_um_forward.py`，6 个函数（一个参数化 4 例），共 9 例：
+  - 回放和标准；
+  - 跌破标准线（自己的合成合约：上涨中一小时下跌 30%，跌破止损）；
+  - 没登记、冻结文件被改、登记太晚、没到时间都拒绝，下载和查看都拒绝；
+  - 只评一次；
+  - 下载只要冻结的品种和 BTC；
+  - 下载器的限制。
+  - 我自己写错过一次：第一版的暴跌测试选的合约价格是平的，动量想法根本不持仓。改成自己的合成合约。
+- **本地**【实际运行结果】：新测试、`test_binance_um_all.py`、`test_research_infra.py`、`test_lookahead.py` 的模块清单测试、
+  `tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **第一次用**：2026-11-26 起，先 `download` 再 `look`（命令在模块说明里），结果放 `research/lab/forward/e3/2026-11-25/`。
+
+## 试运行前一键检查（2026-11-17，轻流程：只读工具）
+
+- **决定**：技术负责人 2026-11-17 选了"试运行前一键检查"。
+- **改了什么**：
+  - `python3 -m scripts.account_check --pilot --spec <签名规格> [--state-dir /var/lib/quant/state/mainnet]`，逻辑在新模块 `scripts/pilot_check.py`。
+    它在唯一被允许读凭证文件的工具里运行，只发白名单上的 GET 请求，不显示任何密钥。
+  - 逐项打 ✓ 或 ✗，最后写"可以启动"或"还缺 N 项"。检查的内容：
+    - 设置：启动时的配置检查、主网、日亏限额 3%（代码默认是 5%）、签名密钥、告警文件夹能写、策略资金。
+    - 规格：签名对得上（用和 `infra.model_signing` 相同的 HMAC-SHA256，密钥只在内存里）、`passed` 为 true、运行时的解析器能读。
+    - 状态目录：运行时的启动检查，包括数据库版本。
+    - 账户：没有任何仓位；没有挂单和条件单；单向持仓模式；规格里每个品种的杠杆和保证金模式和设置一致；USDT 余额不少于策略资金。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/tooling/test_pilot_check.py` 9 个函数（一个参数化 5 例），共 13 例：
+  - 全部就绪时通过，输出里没有密钥，只用白名单路径；
+  - 缺少的设置会被点名；
+  - 任何仓位或挂单都会被点名；
+  - 品种的杠杆或保证金模式不对；
+  - 规格没签名、没标记通过或被改过；
+  - 状态目录没通过检查；告警文件夹不能写；余额不够；对冲持仓模式。
+- **本地**【实际运行结果】：`tests/unit/tooling`、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **用法**：资金费存储合并之后（状态库第 2 版），先在主机上迁移状态目录，再跑这个检查；全部 ✓ 之后，启动仍由技术负责人决定。
+
+## 文档更新（2026-11-17，轻流程：只改文档）
+
+技术负责人 2026-11-17 说"更新项目文档"。把今天合并的改动（#132、#135–#146）写进文档：
+- `CLAUDE.md`：
+  - 现状改到 2026-11-17：运行时扩展计划已完成；`after_stop` 规则和一键检查已合并；资金费存储在审计中。
+  - 前向检验加上实验室冠军 E3：冻结的内容、4 次查看、"还成立"的标准。
+  - 实验室一段加上：11-17 这一轮的结论（止损后怎么重新开仓比止损距离更重要）、已登记的下一轮（2026-11-17b）、
+    按波动率收紧止损的回测、每月重选的定时任务和规格草稿工具。
+  - 命令清单加上 `account_check --pilot`、`live_fills`、`lab.um_monthly`、`lab.um_forward`、`draft_strategy_spec`。
+- `README.md`：现状、E3、`after_stop`、一键检查、安全默认值里的例外。
+- `docs/arch/target.md`：
+  - 退出侧加"等策略重置"，包结构加 `reset_wait.py`；
+  - 第 2 版规格加可选的 `after_stop`，以及规格草稿工具；
+  - 研究侧加 2026-11-17 起的实验室工具。
+- `docs/binance_runbook.md`：规格的 `after_stop` 和草稿工具；启动前一键检查（启动步骤变成第 6 步）；怎样结束"等策略目标回到 0"。
+- `docs/m5_checklist.md`：启动前先跑一键检查；每日对照真实成交的命令。
+- `research/lab/README.md`：
+  - 2020 年起的快照和传统金融合约；第二种止损后规则和按波动率的止损；
+  - 两种切分；2026-11-17b 起更高的淘汰线和组合；
+  - 前向跟踪的工具、标准和正在跟踪的 E3。
+- `docs/arch/runtime-lab-strategies-plan.md`：标记计划全部完成。
+- 资金费存进状态库的文档改动在 #147 里，随它一起合并。
+
+## 主机：实盘优先于研究，清理过期配置和闲置目录（2026-11-17，轻流程）
+
+技术负责人 2026-11-17 说"执行"：做从软件工程角度评估里的前两项，限制回测的 CPU 占用、清理过期配置和闲置目录。
+- **实盘优先**：
+  - 测试网和主网两个执行服务加 `Nice=-5`、`CPUWeight=1000`、`IOWeight=1000`。用 `systemd-analyze verify` 校验过，
+    主机要再跑一次 `infra/install_host.sh` 才生效（它不启动任何服务）。
+  - 新增 `scripts/dev/lab_nice.sh`：研究任务以 nice 19、磁盘空闲级运行；`research/lab/README.md` 和 `CLAUDE.md` 写明一律用它。
+  - 正在跑的两轮回测已就地降到 nice 19（`renice`、`ionice -c3`）。
+  - 新增测试：`test_systemd_units.py::test_the_execution_units_run_ahead_of_research_on_a_shared_host`。
+- **过期配置**（`pyproject.toml`）：
+  - 删掉给 2026-11-15 已删除的包（core、regime、state、decision、engine、event、features、execution、alpha、attribution）的类型检查覆盖；
+  - 覆盖率的 `source` 改为现在存在的包（trading、lab、data、infra、monitoring、runner）；CI 自己用 `--cov` 指定资金路径的包，不受影响；
+  - "核心逻辑零外部依赖"这句注释不对（交易系统和实验室都用 numpy、pandas），改正。
+  - 可以去掉、但这次没动的可选依赖：websocket-client、python-dotenv、pyyaml、pyarrow、yfinance、ccxt、matplotlib、aiohttp、websockets。
+    仓库里没有任何文件导入它们（scipy 有 4 个文件在用）。改依赖会影响安装，另行处理。
+- **闲置目录**（主机上，不在仓库里）：
+  - 删了 18 个工作目录：17 个对应已合并的 PR，`r9-docs` 的内容已由 #139 合并，它的分支保留；
+  - 删了 17 个已合并的本地分支、一个残留的变异自检工作目录；
+  - 删了 `/tmp` 里 200 多个变异自检残留目录，以及 19 个已结束的审计克隆。正在用的审计克隆和两轮回测的目录都保留。
+- **本地**【实际运行结果】：`test_systemd_units.py`、`test_unit_alert.py`、`test_alert_file.py` 通过；`mypy trading/`（97 个文件）通过；`pyproject.toml` 能解析。

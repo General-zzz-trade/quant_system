@@ -20,7 +20,9 @@ from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventL
 from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
-from trading.domain.issues import STOP_PAUSE_SECONDS, Effect, IssueKind as K, pause_end_text
+from trading.application.reset_wait import RESET_WAIT, waits_for_reset
+from trading.domain.issues import AFTER_STOP_PAUSE_THEN_RESET, STOP_PAUSE_SECONDS, Effect, IssueKind as K, \
+    pause_end_text
 from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.symbol_state import ALLOWED, StateInputs, SymbolState, classify
 
@@ -291,18 +293,27 @@ class ExitSupervisor:
             return issue
         if new:
             resume = pause_end_text(ends_at)
+            then = "" if session.after_stop != AFTER_STOP_PAUSE_THEN_RESET else \
+                ", and only once the strategy's target has returned to 0 (the spec's after_stop)"
             self.journal.write(EventKind.ALERT, symbol=symbol,
                                reason=f"entries paused: {cause}; they resume by themselves at {resume} "
-                                      f"({STOP_PAUSE_SECONDS // 3600} hours after the stop); a person can release "
-                                      f"them earlier with: {RELEASE_COMMAND.format(symbol=symbol)}")
+                                      f"({STOP_PAUSE_SECONDS // 3600} hours after the stop){then}; a person can "
+                                      f"release them earlier with: {RELEASE_COMMAND.format(symbol=symbol)}")
             logger.error("%s entries paused: %s", symbol, cause)
         return None
 
     def pause_status(self, symbol: str) -> str | None:
+        """Why ``symbol``'s entries are paused, or None. With the spec's ``after_stop: pause_then_reset`` (tech lead
+        2026-11-17) a flat symbol whose latest pause ended by itself also waits until its strategy's target has been
+        0 since that pause began. Unreadable state blocks."""
         if self.pauses is None:
             return None
         try:
-            return self.pauses.reason(symbol)
+            reason = self.pauses.reason(symbol)
+            if reason is not None:
+                return reason
+            session = self.sessions.get(symbol)
+            return RESET_WAIT if session is not None and waits_for_reset(session, self.pauses) else None
         except Exception:
             return "unreadable"
 

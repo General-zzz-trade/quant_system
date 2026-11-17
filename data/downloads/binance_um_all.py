@@ -16,6 +16,8 @@ USDC contracts are not used). Source: data.binance.vision; every zip is checked 
 - Except for the lab's monthly re-selection (``--monthly-lab``; tech lead 2026-11-17: the lab re-selects monthly on
   new data). Its ``end`` is the first day of a month that has closed (not after today), so every month is whole.
   The four registered forward tests stay frozen and are judged at their registered looks.
+- And a forward look: a registered look of a frozen lab champion (``forward_look``, called by ``lab.um_forward``, which
+  checks the registration first): named symbols only, up to an end that has passed.
 
 Snapshots are immutable: an existing non-empty output directory is refused. ``manifest.json`` records the source,
 the window, every file's SHA-256 and row count, the months that were missing and the contract type.
@@ -166,11 +168,15 @@ MONTHLY_LAB = "tech lead 2026-11-17: the lab's monthly re-selection reads new da
 
 
 def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = http_get, workers: int = 16,
-             symbols: list[str] | None = None, monthly_lab: bool = False, today: date | None = None) -> dict:
+             symbols: list[str] | None = None, monthly_lab: bool = False, forward_look: bool = False,
+             today: date | None = None) -> dict:
     today = today or datetime.now(timezone.utc).date()
     if monthly_lab and (end.day != 1 or end > today):
         raise ValueError(f"the monthly lab's end must be the first day of a closed month, not {end} (today {today})")
-    if end > DEFAULT_END and not monthly_lab:
+    if forward_look and (not symbols or end > today):
+        raise ValueError(f"a forward look downloads named symbols up to an end that has passed, not {end} (today "
+                         f"{today}); its registration is checked by lab.um_forward")
+    if end > DEFAULT_END and not (monthly_lab or forward_look):
         raise ValueError("data from 2026-11-13 on is read only at registered forward looks (lab/forward.py)")
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"{out} is not empty; snapshots are immutable")
@@ -202,6 +208,8 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
                 "contracts": sorted(entries, key=lambda e: e["symbol"])}
     if monthly_lab:
         manifest["monthly_lab"] = MONTHLY_LAB
+    if forward_look:
+        manifest["forward_look"] = "a registered forward look (lab/um_forward.py checked the registration)"
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     return manifest
 

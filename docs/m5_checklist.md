@@ -69,6 +69,10 @@
 
 ## 4. 启动
 
+- [ ] 启动前一键检查全部 ✓（只读，不显示密钥，2026-11-17）：
+  `python3 -m scripts.account_check --pilot --spec <签名并标记通过的规格> --state-dir /var/lib/quant/state/mainnet`。
+  它把上面第 3 节里能自动核对的项一次查完：配置、日亏 3%、告警文件夹、规格签名和"已通过"、状态目录、账户上的仓位和挂单、
+  每个品种的杠杆和保证金模式、余额。有 ✗ 就先解决，不启动。
 - [ ] `sudo systemctl start binance-target-mainnet.service`（不自动重启，不能开机启动，只能人手动启动）。
 - [ ] 告警文件里有一行 "MAINNET execution starting"（带 scope、账户身份前缀和状态目录）。没有这一行就没有任何账户请求。
 - [ ] `/var/lib/quant/state/mainnet/target_status.json` 里各品种的状态正常，`config_digest` 与启动日志一致。
@@ -87,6 +91,8 @@
 - [ ] 最近一小时有新的备份快照。
 - [ ] 心跳监控没有失联记录；磁盘用量（`df`）正常。
 - [ ] 真实成交和回测的假设对照：成交价、滑点、止损成交、被拒（校准试运行的目的）。不因此改参数。
+  工具：`python3 -m scripts.live_fills --state-db /var/lib/quant/state/mainnet/state.sqlite --history <账户记录目录>`
+  （账户记录用 `python3 -m scripts.account_check --history <目录>` 只读导出）。
 
 任何一项不符：记录、查明原因；对账差异或未解释的告警让 4 周计时从头开始。
 

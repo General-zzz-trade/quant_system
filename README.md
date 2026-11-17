@@ -2,12 +2,15 @@
 
 币安 USDT 保证金永续合约的目标仓位交易系统，纯 Python。
 
-## 现状（2026-11-16）
+## 现状（2026-11-17）
 
 - **没有获准实盘，也没有任何策略被证明有优势。** 文档、配置或提交说明里出现的旧夏普、旧收益数字都没有经过验证，不能当作结果。
 - **前向检验**：4 个候选在前向检验中，查看日期是 2027-02-13（只报告）和 2027-05-13（判定）。
   - 4 个候选是：风险管理型多头，以及 ETH/BTC 配对、周级方向、爆仓后反转。
   - 规则见 `research/protocols/`，登记见 `research/forward_looks.jsonl`。
+- **实验室冠军 E3**（2026-11-17，未验证）：按波动率定仓位的趋势，只做多。从 2026-11-18 起前向跟踪 4 周，查看日是 11-25、12-02、12-09、12-16；
+  4 次都满足"累计亏损从没超过 7.5%"，才考虑小资金实盘。它在 1092 个配置里挑出来，紧缩夏普概率只有 0.03，不算优势的证据。
+  见 `research/lab/runs/2026-11-17/judge.md`。
 - **产品运行时**：`runner/binance_target.py`，代码在 `trading/`。
   - 交易一份签名规格里列出的品种（最多 10 个），用规格里写明的策略；现有的规格是 BTC/ETH 多周期策略。
   - 默认是模拟盘，默认用测试网。
@@ -15,8 +18,10 @@
   - 主网要求签名规格里的 `passed` 为真，目前是假，所以主网会被拒绝。
 - **上实盘的路径**（技术负责人 2026-11-16）：不做模拟盘和测试网阶段，直接上主网的小资金试运行。准备和每日检查见
   `docs/m5_checklist.md`，要先由人完成其中的准备。
-- **运行时扩展**：让程序能跑实验室的策略（多品种、横截面、做空），计划在 PR #118（`docs/arch/runtime-lab-strategies-plan.md`），
-  R1–R7 在 PR #119–#130，正在独立审计，**还没有合并**；master 上的程序仍只跑 BTC/ETH 的第 1 版规格。
+- **运行时扩展**：程序能跑实验室的策略（多品种、横截面、做空），计划 R1–R9 已全部完成并合并
+  （`docs/arch/runtime-lab-strategies-plan.md`）；现在唯一签名过的规格仍是 BTC/ETH 多周期策略。
+- **止损后的开仓规则**（2026-11-17）：第 2 版规格可以写 `"after_stop": "pause_then_reset"`，止损暂停 4 小时之后，还要等策略目标回到 0 才开仓（只会更严）。
+- **试运行前一键检查**（2026-11-17）：`python3 -m scripts.account_check --pilot --spec <签名规格>`，只读列出还缺什么。
 - 旧的机器学习运行时和其他交易所的代码已于 2026-11-15 删除；最后一版见 git 标签 `archive/ml-line-2026-11-15`。
 
 ## 目录
@@ -46,6 +51,7 @@ python -m trading.infrastructure.kill --state-dir <dir> activate --reason "..." 
 python -m trading.infrastructure.entry_pause --state-dir <dir> status
 python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <文件> --reason "..."   # 只在状态库丢失或损坏时
 python -m lab.paper_compare --paper-dir <模拟盘目录> --data-dir <数据快照>   # 模拟盘与研究逐笔比较
+python3 -m scripts.account_check --pilot --spec <签名规格>   # 试运行前一键检查（只读）
 sudo bash infra/install_host.sh                  # 主机安装或更新；从不启动服务
 ```
 
@@ -55,7 +61,7 @@ sudo bash infra/install_host.sh                  # 主机安装或更新；从�
 
 - 默认模拟盘、默认测试网。CI 从不部署，部署由人手动进行。
 - 任何代码路径都不会自动提高风险限额、重启服务或替换模型。技术负责人 2026-11-16 定的例外只有两个：仓位基数随策略自己的
-  盈亏和资金费变化（不超过账户权益）；止损后的入场暂停 4 小时后自动解除。
+  盈亏和资金费变化（不超过账户权益）；止损后的入场暂停 4 小时后自动解除（规格写 `after_stop: pause_then_reset` 时还要等策略目标回到 0）。
 - 状态读不出时阻断新敞口；权益或价格未知时下单量为零。
 - 模型和策略规格只能经 `infra/model_signing.py` 加载。
 
