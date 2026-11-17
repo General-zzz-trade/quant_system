@@ -4500,6 +4500,23 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
   也固定为测试世界的时钟（测试辅助的改动，断言不变）。
 
+## 实验室月度重选：读新数据的下载和时段（2026-11-17，轻流程）
+
+- **决定**：技术负责人 2026-11-17 上午选了"每月一次，实验室读新数据"（做法二）。4 个已登记的前向测试冻结不变，仍在登记的日期评判；
+  实验室挑出的想法照规定前向跟踪 4 周，由技术负责人签名发布。
+- **改了什么**：
+  - `data/downloads/binance_um_all.py`：`--monthly-lab` 时 `--end` 可以在 2026-11-13 之后，但必须是已经结束的月份的 1 日（不晚于今天），
+    `manifest.json` 记一行 `monthly_lab`。不带这个选项时前向保护不变。
+  - 新模块 `lab/um_monthly.py`：`monthly_periods`（验证段是快照最后 6 个月，前面按整年滚动前推，挑选段至少留一年；在 2026-11-12 的快照上
+    就是 11-17 这一轮的时段）；`plan` 只写一次窗口文件；`screen`/`final` 只在窗口文件已提交且没改过、快照对得上时才跑。
+  - `research/lab/README.md` 加月度重选一行和数据规则；`CLAUDE.md` 的实验室数据规则加上例外。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/data/test_binance_um_all.py` 加 3 个（含参数化 3 例）；`tests/unit/lab/test_um_monthly.py` 8 个。都先跑过、在改动前失败。
+- **本地**【实际运行结果】：两个测试文件、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **还没做**：从冠军卡生成规格草稿的工具、冠军的每周前向查看、每月的定时任务（另起 PR）。
+- **CI 补（同日）**：`tests/unit/lab/test_lookahead.py` 要求每个 `lab/` 模块要么是特征模块、要么写明为什么不是；新模块 `lab.um_monthly` 没登记，
+  CI 的一个分片失败。加了一行说明（它没有自己的特征，跑的想法走评审员的最终检查）。本地只跑了相关测试文件，漏了这个全目录的检查；
+  以后新增 `lab/` 模块时连这个测试一起跑。
 ## 测试辅助：下载器测试的假归档用固定时间戳（2026-11-17，轻流程）
 
 - #132 合并 master 后 CI 的一个分片失败：`test_binance_archive.py::test_the_same_inputs_give_byte_identical_files` 报 checksum mismatch，本地连跑 4 次都通过。
