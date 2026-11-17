@@ -12,9 +12,9 @@
   "days": 1648
  },
  "X3_xs_lowvol_ls": {
-  "total_return": -0.2557515487764155,
-  "sharpe": -0.02590790465693923,
-  "max_drawdown": 0.6213828020517833,
+  "total_return": -0.22487866915882826,
+  "sharpe": -0.01709084359945654,
+  "max_drawdown": 0.6213828020517831,
   "days": 1648
  },
  "X4_xs_regime_ls": {

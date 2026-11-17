@@ -1,5 +1,5 @@
 {
- "code_commit": "9fac36838cbbc8bec124c9767c55d3009ac6dad1",
+ "code_commit": "40a70fb17b46151cb0f5f6d79394cd7c028c316d",
  "benchmarks": {
   "btc_hold": {
    "days": 1648,
@@ -22,8 +22,8 @@
    "longest_losing_days": 8
   }
  },
- "n_trials": 2541,
- "selection_sharpe_std": 0.4837120263331222,
+ "n_trials": 2544,
+ "selection_sharpe_std": 0.49203635168146614,
  "ideas": {
   "X1_xs_momentum_ls": {
    "walk_forward": {
@@ -47,7 +47,7 @@
     "longest_losing_days": 9
    },
    "round_trips": 2047,
-   "deflated_probability": 3.965510956011622e-06,
+   "deflated_probability": 2.959000542220395e-06,
    "checks": {
     "return_above_0": false,
     "beats_btc_hold": false,
@@ -80,7 +80,7 @@
     "longest_losing_days": 11
    },
    "round_trips": 2100,
-   "deflated_probability": 1.888160343219232e-06,
+   "deflated_probability": 1.398351111531922e-06,
    "checks": {
     "return_above_0": false,
     "beats_btc_hold": false,
@@ -94,26 +94,26 @@
   "X3_xs_lowvol_ls": {
    "walk_forward": {
     "days": 1648,
-    "total_return": -0.830678904106635,
-    "cagr": -0.32520092493002095,
-    "sharpe": -0.8034106511357527,
-    "max_drawdown": 0.829089448385486,
+    "total_return": -0.8324932882253189,
+    "cagr": -0.3268091528379964,
+    "sharpe": -0.836511759473828,
+    "max_drawdown": 0.8321460433284155,
     "worst_month": -0.3090083224233483,
     "worst_month_label": "2021-05",
     "longest_losing_days": 9
    },
    "double_costs": {
     "days": 1648,
-    "total_return": -0.8918372788265965,
-    "cagr": -0.38896379289683247,
-    "sharpe": -1.0768013857463636,
-    "max_drawdown": 0.8898768765662711,
+    "total_return": -0.8921100838961311,
+    "cagr": -0.38930546084902395,
+    "sharpe": -1.1376430761663487,
+    "max_drawdown": 0.8908942280362201,
     "worst_month": -0.32349754120375296,
     "worst_month_label": "2021-05",
-    "longest_losing_days": 9
+    "longest_losing_days": 13
    },
-   "round_trips": 1455,
-   "deflated_probability": 6.588928263954338e-08,
+   "round_trips": 1256,
+   "deflated_probability": 4.428086457346712e-08,
    "checks": {
     "return_above_0": false,
     "beats_btc_hold": false,
@@ -146,7 +146,7 @@
     "longest_losing_days": 19
    },
    "round_trips": 4635,
-   "deflated_probability": 5.941554712475912e-07,
+   "deflated_probability": 4.3454338848494477e-07,
    "checks": {
     "return_above_0": false,
     "beats_btc_hold": false,
@@ -179,7 +179,7 @@
     "longest_losing_days": 14
    },
    "round_trips": 5166,
-   "deflated_probability": 5.711147914999442e-15,
+   "deflated_probability": 3.567392254103469e-15,
    "checks": {
     "return_above_0": false,
     "beats_btc_hold": false,

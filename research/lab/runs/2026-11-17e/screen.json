@@ -1,5 +1,5 @@
 {
- "code_commit": "9fac36838cbbc8bec124c9767c55d3009ac6dad1",
+ "code_commit": "40a70fb17b46151cb0f5f6d79394cd7c028c316d",
  "stop_variants": [
   "stop0.08_pause4h",
   "stop0.08_pause4h_then_reset"
@@ -288,7 +288,7 @@
      "stop": {
       "stop_pct": "0.08",
       "pause_hours": 4,
-      "reenter": "pause"
+      "reenter": "pause_then_reset"
      }
     },
     {
@@ -298,7 +298,7 @@
      "stop": {
       "stop_pct": "0.08",
       "pause_hours": 4,
-      "reenter": "pause"
+      "reenter": "pause_then_reset"
      }
     }
    ],
@@ -314,21 +314,21 @@
    },
    "walk_forward": {
     "days": 1648,
-    "total_return": -0.830678904106635,
-    "cagr": -0.32520092493002095,
-    "sharpe": -0.8034106511357527,
-    "max_drawdown": 0.829089448385486,
+    "total_return": -0.8324932882253189,
+    "cagr": -0.3268091528379964,
+    "sharpe": -0.836511759473828,
+    "max_drawdown": 0.8321460433284155,
     "worst_month": -0.3090083224233483,
     "worst_month_label": "2021-05",
     "longest_losing_days": 9
    },
    "regime": {
-    "bear": -0.2901253590077346,
-    "chop": -0.13304720329931918
+    "bear": -0.02707652093002033,
+    "chop": -0.32324133301461844
    },
-   "round_trips": 1455,
+   "round_trips": 1256,
    "longest_losing_trades": 21,
-   "exchange_stops": 848,
+   "exchange_stops": 702,
    "score": {
     "return": 1,
     "drawdown": 1,
@@ -339,21 +339,21 @@
    },
    "survives": false,
    "selection_sharpe": {
-    "{\"params\": {\"n\": 14}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause\", \"stop_pct\": \"0.08\"}}": -0.4593230984016488,
-    "{\"params\": {\"n\": 14}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause_then_reset\", \"stop_pct\": \"0.08\"}}": -0.5431042909235015,
-    "{\"params\": {\"n\": 30}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause\", \"stop_pct\": \"0.08\"}}": -0.5908875730961384,
-    "{\"params\": {\"n\": 30}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause_then_reset\", \"stop_pct\": \"0.08\"}}": -0.45333194613507166
+    "{\"params\": {\"n\": 14}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause\", \"stop_pct\": \"0.08\"}}": -0.5401354905600261,
+    "{\"params\": {\"n\": 14}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause_then_reset\", \"stop_pct\": \"0.08\"}}": -0.39832469441086366,
+    "{\"params\": {\"n\": 30}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause\", \"stop_pct\": \"0.08\"}}": -0.5548983271883046,
+    "{\"params\": {\"n\": 30}, \"stop\": {\"pause_hours\": 4, \"reenter\": \"pause_then_reset\", \"stop_pct\": \"0.08\"}}": -0.2785330304331592
    },
    "pilot": {
-    "losing_streak_stops": 222,
-    "per_30_days": 4.04126213592233,
-    "days_below_daily_stop": 94,
-    "loss_stop_share": 0.42105263157894735
+    "losing_streak_stops": 185,
+    "per_30_days": 3.3677184466019416,
+    "days_below_daily_stop": 75,
+    "loss_stop_share": 0.38446726572528883
    },
    "limits_needed": {
-    "entry_orders": 7374,
+    "entry_orders": 6114,
     "max_orders_per_day": 33,
-    "p95_orders_per_active_day": 12.0,
+    "p95_orders_per_active_day": 11.0,
     "max_daily_notional": 4353.47518,
     "max_order_notional": 1140.32006,
     "max_orders_in_one_hour": 6

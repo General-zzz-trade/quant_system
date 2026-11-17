@@ -1,5 +1,5 @@
 {
- "code_commit": "9fac36838cbbc8bec124c9767c55d3009ac6dad1",
+ "code_commit": "40a70fb17b46151cb0f5f6d79394cd7c028c316d",
  "regimes": {
   "X1_xs_momentum_ls": {
    "trend": {
@@ -28,13 +28,13 @@
   "X3_xs_lowvol_ls": {
    "trend": {
     "days": 398,
-    "return": -0.23861417897727455,
-    "sharpe": -0.3777501479422335
+    "return": -0.06979805201197642,
+    "sharpe": 0.047893601806538906
    },
    "range": {
     "days": 1250,
-    "return": -0.7776145927357496,
-    "sharpe": -0.9549397978312626
+    "return": -0.8199243592888741,
+    "sharpe": -1.1538555374571957
    }
   },
   "X4_xs_regime_ls": {
