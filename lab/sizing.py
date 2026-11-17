@@ -7,7 +7,7 @@
                                                           isolated liquidation distance
 
 ``exposure`` is gross notional / equity. ``max_exposure`` can never exceed the
-account hard cap ``MAX_TOTAL_LEVERAGE`` (3x) nor the isolated leverage. The
+breakout study's 3x (``MAX_EXPOSURE``, its 2026-11-14 decision) nor the isolated leverage. The
 liquidation distance of an isolated position is ``1/leverage - mmr`` whatever
 its size, so the stop must sit within ``max_stop_to_liquidation`` of it.
 """
@@ -16,8 +16,10 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 
-from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import liquidation_distance  # moved in migration step 10
+
+# The closed breakout study's 1-3x sizing (user 2026-11-14); kept when the runtime's ceiling became 10 (2026-11-17).
+MAX_EXPOSURE = 3.0
 
 
 @dataclass(frozen=True)
@@ -34,8 +36,8 @@ class SizingRule:
         values = asdict(self)
         if any(not math.isfinite(v) or v <= 0 for v in values.values()):
             raise ValueError("sizing parameters must be finite and positive")
-        if self.max_exposure > float(MAX_TOTAL_LEVERAGE) or self.max_exposure > self.isolated_leverage:
-            raise ValueError(f"max_exposure must not exceed {MAX_TOTAL_LEVERAGE} or the isolated leverage")
+        if self.max_exposure > MAX_EXPOSURE or self.max_exposure > self.isolated_leverage:
+            raise ValueError(f"max_exposure must not exceed {MAX_EXPOSURE} or the isolated leverage")
         if self.min_open > self.max_exposure:
             raise ValueError("min_open must not exceed max_exposure")
         if self.max_trade_loss >= 1 or self.max_stop_to_liquidation >= 1:

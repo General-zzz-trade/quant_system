@@ -41,7 +41,7 @@ from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, Balanc
 logger = logging.getLogger(__name__)
 
 # Hard ceiling on the exchange LEVERAGE SETTING (margin per position, liquidation distance).
-# Actual exposure is capped separately at 3x equity by shared.exposure_gate. The setting
+# Actual exposure is capped separately by the account exposure cap (exposure_gate). The setting
 # changes only through human config (BINANCE_EXCHANGE_LEVERAGE); the default stays 3.
 MAX_LEVERAGE = 10
 DEFAULT_LEVERAGE = 3

@@ -2,7 +2,7 @@
 
 ``CappedEquity`` (owner, 2026-11-16): the strategy shares the main account and sizes from
 min(account equity, cap + the strategy's own cumulative realized PnL after fees). The owner chose that the base
-grows with the strategy's profits and shrinks with its losses; it never exceeds the account's equity, the 3x
+grows with the strategy's profits and shrinks with its losses; it never exceeds the account's equity, the account
 exposure cap still holds, and anything unknown (stale equity, an unreadable ledger) sizes to zero.
 
 ``StrategyFunding`` (tech lead, 2026-11-16): the realized PnL of the base includes the strategy's funding income on

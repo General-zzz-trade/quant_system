@@ -5304,3 +5304,62 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
   - 结果：10 倍的 15 种组合全部亏 74% 至 95%，回撤 92% 至 99%。2 倍仍然最好。
   - README 里有方案表（A3）。
 - **本地**【测试日志】：相关 145 个测试通过（券商、逐仓、止损、模拟交易所、`test_live_btc_eth`、`tests/architecture`）；ruff 通过。
+
+## 杠杆硬上限 3 → 10（2026-11-17，完整流程：风控门）
+
+- **决定**：业主 2026-11-17 "改为资金的10倍，我要上调"。看过 2 到 10 倍的回测
+  （`research/results/overlay_pilot_leverage_2026-11-17/`，10 倍的所有设置都亏 74% 至 95%）之后，业主选了：
+  - 仓位倍数硬上限"放宽到 10 倍"；
+  - 交易所杠杆上限"保持 10 倍"；
+  - 累计止损上限"保持 15%"。
+- **改了什么**【代码】：
+  - `trading/domain/risk/exposure.py`：`MAX_TOTAL_LEVERAGE` 从 3 改为 10。它是 `STRATEGY_LEVERAGE` 和 `BINANCE_MAX_LEVERAGE` 的上限。
+    新增 `DEFAULT_ACCOUNT_LEVERAGE = 3`。
+  - 默认值不变：
+    - `trading/application/risk/exposure_gate.py`：构造时没给上限的，用 `DEFAULT_ACCOUNT_LEVERAGE`（3），不用硬上限；
+    - `trading/infrastructure/config.py`：`BINANCE_MAX_LEVERAGE` 不设时，也取这个常量（3）；
+    - `STRATEGY_LEVERAGE` 不设时仍是 1。
+  - `lab/um_lab.py`：回放的倍数上限跟随 `MAX_TOTAL_LEVERAGE`，并且和运行时一样，不超过止损允许的交易所杠杆。
+  - `lab/sizing.py`（已关闭的突破研究）：用自己的 `MAX_EXPOSURE = 3.0`，不跟随新上限，旧研究原样可复现。
+  - 几处写着 "3x" 的说明文字改成"账户敞口上限"；`CLAUDE.md`、`docs/arch/target.md`、`docs/binance_runbook.md` 同步更新。
+  - 没有改：交易所杠杆上限（`MAX_LEVERAGE` 10）、累计止损上限 15%、回撤上限 10% / 25%、任何默认值。
+- **已有测试的改动**（都是有意改的，钉住的是旧的 3 倍）：
+  - `tests/unit/trading/test_pilot_settings.py`：
+    - 接受的 `STRATEGY_LEVERAGE` 加了 "4"、"10"；
+    - 拒绝列表 `["3.01", "4", "10", ...]` 改为 `["10.01", "11", ...]`；
+    - 测试名 `..._outside_1_to_3_...` 改为 `..._outside_1_to_10_...`。
+  - `tests/unit/trading/test_domain_risk.py`：
+    - `test_exposure_cap_boundary` 原来用 `MAX_TOTAL_LEVERAGE` 当上限，数字按 3 倍写；现在显式传入 3，另加 2 组 10 倍的边界；
+    - `test_configured_leverage_can_only_lower_the_cap` 的 "3.0001" 改为 "10.0001"。
+  - `tests/unit/tooling/test_account_settings.py`：`STRATEGY_LEVERAGE="4"`（原来超过上限）改为 "11"。
+  - `tests/unit/trading/test_target_composition.py::test_the_entry_limits_reach_the_drawdown_guard_and_the_exposure_cap`：
+    - 原来设 `BINANCE_MAX_LEVERAGE="9"`（注释"超过硬上限，按上限算"），断言 `max_leverage == D("3")`；
+    - 现在设 "12"，断言 `== D("10")`。
+    - 第一次推送时我漏改了它（本地没跑这个文件），被 CI 第 2 分片发现。
+- **新增测试**：`tests/unit/trading/test_leverage_cap_ten.py`，15 个：
+  - 上限是 10，默认值不变（包括交易所杠杆上限 10、累计止损上限 15%）；
+  - 账户上限最多 10（5 个参数）；
+  - 10 倍时，入场正好到 10 倍权益放行，多 1 USDT 拒绝；
+  - `STRATEGY_LEVERAGE` 4、7.5、10 都接受；仍不超过交易所杠杆设置；
+  - 运行时的门：不设是 3、设 10 是 10、设 20 按 10 算；
+  - 实验室回放到 10 倍，并受止损允许的交易所杠杆限制。
+  - 改代码前：先只加上默认常量，其余全部因为 3 倍上限而失败（"STRATEGY_LEVERAGE must be between 1 and 3"、
+    "max_leverage must be in (0, 3]" 等）。
+  - 我把门的 `check_would_exceed` 返回值理解反了，第一版测试写错，已修正。
+    实验室那条测试原来只匹配 "leverage"，删掉交易所杠杆检查也能通过；改成匹配完整的报错原文。
+- **变异自检**：11 个变异体，第一轮全部被杀死（11/11）：
+  - 上限改回 3 或改成 11；
+  - 账户默认值、门的默认值、配置默认值改成上限；
+  - 接线时忽略人设的上限，或忽略硬上限；
+  - 去掉"不超过交易所杠杆"；
+  - 实验室去掉交易所杠杆检查，或封顶 3；
+  - 突破研究跟随新上限。
+- **本地**【测试日志】：
+  - ruff、`mypy trading/`（98 个文件）、`lint-imports`（5 条契约）全部通过；
+  - 新测试和相关测试文件全部通过：pilot_settings、domain_risk、binance_risk、sizing、live_btc_eth、runtime_wiring_limits、
+    pilot_leverage_sizing、exchange_settings、pilot_check、account_settings、um_lab_live_terms、`tests/architecture`。
+- **实际要开到 10 倍，业主还要自己在 `.env` 里写这些（程序不会改）**：
+  - `STRATEGY_LEVERAGE=10`；
+  - `BINANCE_MAX_LEVERAGE=10`（账户只有 150 USDT 时必须写）；
+  - `BINANCE_EXCHANGE_LEVERAGE=10`，保证金会用掉整份资金；交易所会不会因此拒单，未核实。
+  - 按回测，一次 4.5% 的止损在 10 倍下亏约 23%，超过 15% 的累计止损线，试运行随即结束。

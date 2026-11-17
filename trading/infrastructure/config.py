@@ -23,7 +23,7 @@ from trading.adapters.notify.heartbeat import HttpHeartbeat
 from trading.adapters.notify.log import LogNotifier
 from trading.adapters.notify.file import FileNotifier
 from trading.application.execution.stops import MAX_STOP_PCT, MIN_STOP_PCT
-from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
+from trading.domain.risk.exposure import DEFAULT_ACCOUNT_LEVERAGE, MAX_TOTAL_LEVERAGE
 from trading.adapters.notify.telegram import TelegramNotifier
 
 
@@ -51,7 +51,7 @@ def exchange_settings(env: Mapping[str, str] | None = None) -> tuple[int, str | 
     """(exchange leverage setting, margin type or None) from BINANCE_EXCHANGE_LEVERAGE / BINANCE_MARGIN_TYPE.
 
     Defaults: leverage 3, margin type left as it is. These change margin per position and
-    the liquidation distance only; actual exposure stays capped at 3x equity."""
+    the liquidation distance only; actual exposure stays within the account exposure cap (BINANCE_MAX_LEVERAGE)."""
     env = os.environ if env is None else env
     raw = env.get("BINANCE_EXCHANGE_LEVERAGE", "").strip()
     leverage = int(raw) if raw else DEFAULT_LEVERAGE
@@ -123,7 +123,7 @@ def risk_limits(env: Mapping[str, str] | None = None) -> RiskLimits:
                       max_order_notional=Decimal(env.get("BINANCE_MAX_ORDER_NOTIONAL", "5000")),
                       max_daily_notional=Decimal(env.get("BINANCE_MAX_DAILY_NOTIONAL", "50000")),
                       max_daily_orders=int(env.get("BINANCE_MAX_DAILY_ORDERS", "50")),
-                      max_leverage=Decimal(env.get("BINANCE_MAX_LEVERAGE", "3")))
+                      max_leverage=Decimal(env.get("BINANCE_MAX_LEVERAGE", str(DEFAULT_ACCOUNT_LEVERAGE))))
     for kind, value in (("daily", limits.daily_drawdown_pct), ("weekly", limits.weekly_drawdown_pct)):
         if not math.isfinite(value) or not 0 < value <= DRAWDOWN_CEILING_PCT[kind]:
             raise RuntimeError(f"{kind} drawdown limit {value}% is outside (0, {DRAWDOWN_CEILING_PCT[kind]}%]")

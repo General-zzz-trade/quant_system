@@ -2,8 +2,8 @@
 isolated margin, with a 4.5 % exchange stop.
 
 - ``STRATEGY_LEVERAGE``: how many times the strategy capital a full position is. 1 unless set; above 1 only with a
-  strategy capital; at most 3 (``MAX_TOTAL_LEVERAGE``, the account's exposure cap) and never above the exchange
-  leverage setting the account must have. A person writes it; nothing in the program changes it.
+  strategy capital; at most 10 (``MAX_TOTAL_LEVERAGE``; 3 until the owner raised it, 2026-11-17) and never above
+  the exchange leverage setting the account must have. A person writes it; nothing in the program changes it.
 - ``STOP_PCT``: the exchange stop's distance when the command line gives none (the mainnet unit gives none). 8 %
   unless set; within the stop manager's bounds. The command line's ``--stop-pct`` still wins.
 """
@@ -26,15 +26,16 @@ def _load(stop_pct=None, **over):
     return load_config(env, execution=True, stop_pct=stop_pct)[0]
 
 
-@pytest.mark.parametrize("raw,expected", [(None, "1"), ("", "1"), ("1", "1"), ("2", "2"), ("2.5", "2.5"), ("3", "3")])
+@pytest.mark.parametrize("raw,expected", [(None, "1"), ("", "1"), ("1", "1"), ("2", "2"), ("2.5", "2.5"), ("3", "3"),
+                                          ("4", "4"), ("10", "10")])
 def test_the_strategy_leverage_is_read_once_and_recorded(raw, expected):
     config = _load(STRATEGY_LEVERAGE=raw)
     assert config.strategy_leverage == D(expected)
     assert json.loads(json.dumps(config.record()))["strategy_leverage"] == expected
 
 
-@pytest.mark.parametrize("raw", ["3.01", "4", "10", "0.99", "0", "-2", "nan", "inf", "two"])
-def test_a_leverage_outside_1_to_3_is_refused_and_named(raw):
+@pytest.mark.parametrize("raw", ["10.01", "11", "0.99", "0", "-2", "nan", "inf", "two"])
+def test_a_leverage_outside_1_to_10_is_refused_and_named(raw):
     with pytest.raises(RuntimeError, match="STRATEGY_LEVERAGE"):
         _load(STRATEGY_LEVERAGE=raw)
 

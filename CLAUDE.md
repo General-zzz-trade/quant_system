@@ -27,7 +27,8 @@
   chose to use the 150 USDT now on the account, not 300: `STRATEGY_CAPITAL_USDT=150`, so the loss stop is at
   22.5 USDT. Later that evening the owner chose 10x isolated margin (`BINANCE_EXCHANGE_LEVERAGE=10`,
   `BINANCE_MARGIN_TYPE=ISOLATED`), a 4.5 % stop (`STOP_PCT=0.045`; 10x isolated allows at most 4.75 %) and positions
-  of 2 to 3 times the capital (`STRATEGY_LEVERAGE`, which the owner writes; 3 is the hard cap). The backtest of that
+  of 2 to 3 times the capital (`STRATEGY_LEVERAGE`, which the owner writes; the hard cap was 3 and is 10 since
+  2026-11-17, see below). The backtest of that
   choice (`research/results/overlay_pilot_leverage_2026-11-16/`, development window) had 2x best: +69 %, Sharpe
   0.54, max drawdown 23 %; 3x: +19 %, Sharpe 0.30, max drawdown 46 %. Exchange minimums limit an order's notional,
   not its margin: with leverage BTC trades too (the 1x sizing was what kept it out, not the exchange).
@@ -47,7 +48,7 @@
   Every `target.*` owner in the scope's ledger counts, also one whose symbol the current spec no longer trades.
   A zero base plans no partial reduction, only a whole close (the zero-sizing rule). Fees paid in BNB are not in
   the PnL (BNB fee payment is off on the account, checked 2026-11-16).
-  The drawdown latch, the -3 % daily stop and the 3x exposure cap stay on the whole account's equity (owner's
+  The drawdown latch, the -3 % daily stop and the account exposure cap stay on the whole account's equity (owner's
   choice: with a large account and a small strategy they rarely trigger on the strategy's losses alone).
 - **Forward-test candidates (none has a verified edge):**
   - The risk-managed long BTC/ETH overlay (`lab/overlay_study.py`).
@@ -290,7 +291,14 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     than 88 days back (24 hours before its kept rows end, or at its first fill when none are kept): the rest can never
     be read, so the total would be partial.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
-- `AccountExposureGate`: 3x hard cap, checked at entry time only.
+- `AccountExposureGate`: the account exposure cap, checked at entry time only: `BINANCE_MAX_LEVERAGE` (3 unless a
+  person sets it, `DEFAULT_ACCOUNT_LEVERAGE`), never above `MAX_TOTAL_LEVERAGE`.
+- Leverage ceiling (owner 2026-11-17): `MAX_TOTAL_LEVERAGE` (`trading/domain/risk/exposure.py`) is 10, it was 3. The
+  owner asked for positions of 10x the capital and chose "放宽到 10 倍" after the 2-10x study
+  (`research/results/overlay_pilot_leverage_2026-11-17/`: every 10x setting lost 74-95 % on the development window,
+  2x stayed best). Only the ceiling of `STRATEGY_LEVERAGE` and `BINANCE_MAX_LEVERAGE` moved; both still default to
+  1 and 3, a person writes them, and `STRATEGY_LEVERAGE` stays at most the exchange leverage setting (ceiling 10).
+  The loss stop's ceiling (15 %) and the drawdown ceilings (10 % / 25 %) did not change (owner, same day).
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
   in the state database; unreadable counts refuse orders. Drawdown limits are capped at 10 % daily / 25 %
   weekly at start-up.
@@ -328,8 +336,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     swaps a model into a running process.
   - Limits change only when a person edits config.
   - Two exceptions, both the owner's choices of 2026-11-16: the strategy's sizing base grows with its own realized
-    PnL and funding income (`CappedEquity`, `StrategyFunding`), never above the account's equity and under the 3x
-    exposure cap; and a stop's entry pause
+    PnL and funding income (`CappedEquity`, `StrategyFunding`), never above the account's equity and under the
+    account exposure cap; and a stop's entry pause
     (triggered or breached stop) ends by itself after 4 hours (`STOP_PAUSE_SECONDS`, the same in the lab's
     `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person. A spec with
     `"after_stop": "pause_then_reset"` (owner 2026-11-17, only ever stricter) also keeps a flat symbol's entries

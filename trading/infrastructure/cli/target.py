@@ -10,7 +10,7 @@ Each closed 1h bar, per symbol:
    first, as research does),
 2. compute the target weight with the function research uses on a trailing window (exactly the research value),
 3. rebalance with ``trading.domain.rebalance.plan`` (band, reduce-only vs entry),
-4. send intents through the gates (inputs fresh, kill switch, drawdown, 3x gross exposure, order limits) to the
+4. send intents through the gates (inputs fresh, kill switch, drawdown, gross exposure cap, order limits) to the
    durable executor.
 
 Paper runs the same execution path on the simulated exchange (ADR-0013 plan B) and reproduces the research

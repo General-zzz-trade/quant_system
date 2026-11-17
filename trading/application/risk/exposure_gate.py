@@ -10,12 +10,12 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from trading.application.ports import ExchangeAccount, OrderJournal
-from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE, exposure_breach, validated_leverage
+from trading.domain.risk.exposure import DEFAULT_ACCOUNT_LEVERAGE, exposure_breach, validated_leverage
 
 
 class AccountExposureGate:
     def __init__(self, adapter: ExchangeAccount, journal: OrderJournal | None = None, *,
-                 max_leverage: Decimal = MAX_TOTAL_LEVERAGE,
+                 max_leverage: Decimal = DEFAULT_ACCOUNT_LEVERAGE,
                  prices: Callable[[str], Decimal] | None = None) -> None:
         self.adapter, self.journal = adapter, journal
         self.max_leverage = validated_leverage(max_leverage)
