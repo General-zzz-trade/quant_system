@@ -1,0 +1,103 @@
+{
+ "info": {
+  "contracts_seen": 619,
+  "contracts_ever_in_universe": 416,
+  "rows": 174879,
+  "mean_names_per_day": 98.7459062676454
+ },
+ "btc_eth": {
+  "trend_14 logistic": {
+   "BTCUSDT": {
+    "auc": 0.6773659243561871,
+    "rows": 1402,
+    "base_rate": 0.0920114122681883
+   },
+   "ETHUSDT": {
+    "auc": 0.6413895412039567,
+    "rows": 1402,
+    "base_rate": 0.09343794579172611
+   }
+  },
+  "trend_14 lgbm": {
+   "BTCUSDT": {
+    "auc": 0.606478013847531,
+    "rows": 1402,
+    "base_rate": 0.0920114122681883
+   },
+   "ETHUSDT": {
+    "auc": 0.5454621894162798,
+    "rows": 1402,
+    "base_rate": 0.09343794579172611
+   }
+  },
+  "fwd_vol_7 ridge": {
+   "BTCUSDT": {
+    "corr_pred_outcome": 0.3124986932733515,
+    "rows": 1409
+   },
+   "ETHUSDT": {
+    "corr_pred_outcome": 0.37300829137919894,
+    "rows": 1409
+   }
+  },
+  "fwd_vol_7 lgbm": {
+   "BTCUSDT": {
+    "corr_pred_outcome": 0.23026811177585502,
+    "rows": 1409
+   },
+   "ETHUSDT": {
+    "corr_pred_outcome": 0.28479137753348516,
+    "rows": 1409
+   }
+  },
+  "fwd_vol_14 ridge": {
+   "BTCUSDT": {
+    "corr_pred_outcome": 0.3240456116977662,
+    "rows": 1402
+   },
+   "ETHUSDT": {
+    "corr_pred_outcome": 0.4340257731651949,
+    "rows": 1402
+   }
+  },
+  "fwd_vol_14 lgbm": {
+   "BTCUSDT": {
+    "corr_pred_outcome": 0.2418017019767408,
+    "rows": 1402
+   },
+   "ETHUSDT": {
+    "corr_pred_outcome": 0.26355822454589056,
+    "rows": 1402
+   }
+  }
+ },
+ "within_day_auc": {
+  "logistic": {
+   "pooled": 0.6927953777726734,
+   "within_day_mean": 0.6514864674136461
+  },
+  "lgbm": {
+   "pooled": 0.6832883701212848,
+   "within_day_mean": 0.65718734971693
+  }
+ },
+ "top_features": {
+  "trend_14 lgbm (fit on every development row, for reading only)": {
+   "btc_rv_30": 0.1406,
+   "alt_minus_btc_30": 0.0816,
+   "funding_pos_share": 0.0759,
+   "log_rv_30": 0.0671,
+   "btc_ret_30_z": 0.0633,
+   "rv_pct_365": 0.0603,
+   "dispersion_7": 0.0424,
+   "btc_ret_7_z": 0.0418,
+   "breadth_ma30": 0.0407,
+   "ret_90_z": 0.0239,
+   "rv_30": 0.0235,
+   "rank_rv_30": 0.0224,
+   "vov_60": 0.0179,
+   "vol_of_rv_30": 0.0159,
+   "funding_3d": 0.015
+  }
+ }
+}
