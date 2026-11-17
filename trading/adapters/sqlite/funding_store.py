@@ -42,6 +42,9 @@ class SqliteFundingStore:
             db.execute("BEGIN IMMEDIATE")
             old = db.execute("SELECT from_ms, through_ms FROM funding_coverage WHERE scope=? AND symbol=?",
                              (self.scope, symbol)).fetchone()
+            if old is not None and through_ms < int(old["from_ms"]):
+                raise ValueError(f"{symbol}: a read ending at {through_ms} before the known span starts "
+                                 f"({old['from_ms']}) would leave a gap")
             if old is None or from_ms <= int(old["from_ms"]):
                 span = (from_ms, max(through_ms, int(old["through_ms"]) if old is not None else through_ms))
             elif from_ms <= int(old["through_ms"]):

@@ -193,6 +193,14 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
     if not problems:
         print(f"{STATE_DB} is intact; a restore is only for a lost or broken state database", file=stdout)
         return 1
+    try:
+        intact_older = len(problems) == 1 and schema.version(database) in schema.MIGRATIONS
+    except Exception:
+        intact_older = False
+    if intact_older:                 # audit of #147, finding 5: an older version is migrated, never replaced
+        print(f"{STATE_DB} is intact at an older version; migrate it instead: "
+              f"python -m trading.infrastructure.state_dir --state-dir {state_dir} migrate", file=stdout)
+        return 1
     bad = schema.problems(snapshot)
     try:
         older = len(bad) == 1 and schema.version(snapshot) in schema.MIGRATIONS     # migrated in its copy below
@@ -263,6 +271,11 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
             if old.exists():
                 os.replace(old, kept / old.name)
         os.replace(temporary, database)
+        if older and manifest.get("state_db_version") != schema.VERSION:   # the copy was migrated: say so
+            manifest["state_db_version"] = schema.VERSION
+            tmp = state_dir / f"{MANIFEST}.tmp"
+            tmp.write_text(json.dumps(manifest, indent=2) + "\n")
+            os.replace(tmp, state_dir / MANIFEST)
         verify(state_dir, scope)
     finally:
         lease.close()

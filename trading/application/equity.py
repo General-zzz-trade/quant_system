@@ -24,7 +24,10 @@ logger = logging.getLogger("binance_target")
 EQUITY_MAX_AGE = 120.0
 FUNDING_REFRESH_SECONDS = 600.0     # at most one request per strategy symbol every ten minutes
 FUNDING_MAX_AGE = 7200.0            # a funding total older than two hours is unknown
-FUNDING_OVERLAP_MS = 8 * 3600 * 1000   # each read starts this long before the kept span ends (late-posted rows)
+FUNDING_OVERLAP_MS = 24 * 3600 * 1000  # each read starts this long before the kept span ends (late-posted rows)
+# Binance keeps the income history for three months; the adapter refuses a read that starts before this (88 days).
+# Kept rows that end before it can never be completed: their total is partial, so it is unknown (audit of #147, 1).
+FUNDING_HISTORY_MS = 88 * 86_400_000
 
 
 class EquitySource:
@@ -100,7 +103,7 @@ class StrategyFunding:
     def _read(self, symbol: str, since_ms: int, now_ms: int) -> None:
         """Tech lead 2026-11-17: read from the first fill when the kept rows do not reach back to it, otherwise from
         ``FUNDING_OVERLAP_MS`` before their span ends, and keep what was read. A span that ended more than Binance's
-        three months ago cannot be continued: the read raises and the total stays what the store holds."""
+        three months ago cannot be continued: the read raises, and the total is unknown from then on."""
         assert self.store is not None
         covered = self.store.coverage(symbol)
         start = since_ms if covered is None or covered[0] > since_ms else max(since_ms, covered[1] - FUNDING_OVERLAP_MS)
@@ -108,7 +111,9 @@ class StrategyFunding:
         self.store.add(symbol, rows, from_ms=start, through_ms=now_ms)
 
     def _stored(self) -> Decimal:
-        """The kept total since each symbol's first fill; raises when a symbol's kept rows do not reach back to it."""
+        """The kept total since each symbol's first fill; raises when a symbol's kept rows do not reach back to it.
+        (Rows that end more than 88 days ago are refused before: ``last_known`` checks ``_continuable`` first, and a
+        refresh fails to read across such a gap.)"""
         assert self.store is not None
         total = Decimal(0)
         for symbol in self.symbols():
@@ -120,6 +125,18 @@ class StrategyFunding:
                 raise RuntimeError(f"strategy funding unknown: {symbol}'s kept rows do not reach its first fill")
             total += self.store.total(symbol, since_ms=int(since * 1000))
         return total
+
+    def _continuable(self) -> None:
+        """Raise when a traded symbol's kept rows end more than Binance's history ago: what was paid after them can
+        never be read, so no total is whole (audit of PR #147, finding 1: unknown, never a partial total)."""
+        assert self.store is not None
+        oldest = int(self.clock() * 1000) - FUNDING_HISTORY_MS
+        for symbol in self.symbols():
+            if self.first_fill(symbol) is None:
+                continue
+            covered = self.store.coverage(symbol)
+            if covered is not None and covered[1] < oldest:
+                raise RuntimeError(f"strategy funding unknown: {symbol}'s kept rows end more than 88 days ago")
 
     def current(self) -> Decimal:
         """The funding total; raises when it is older than two hours or was never read (the base sizes to zero)."""
@@ -135,6 +152,8 @@ class StrategyFunding:
         2026-11-17), before the first read of this process (a restart): the kept total; raises only when the kept
         rows do not reach back to a first fill."""
         self.refresh_if_due()
+        if self.store is not None:
+            self._continuable()              # a gap that can never be read: unknown, also in a running process
         if self.refreshed_at is None and self.store is not None:
             return self._stored()            # not read in this process yet (a restart): what the store holds
         if self.refreshed_at is None:
@@ -142,6 +161,5 @@ class StrategyFunding:
         return self.total
 
 
-__all__ = ["CappedEquity", "EQUITY_MAX_AGE", "EquitySource", "FUNDING_MAX_AGE", "FUNDING_OVERLAP_MS",
-           "FUNDING_REFRESH_SECONDS",
-           "StrategyFunding"]
+__all__ = ["CappedEquity", "EQUITY_MAX_AGE", "EquitySource", "FUNDING_HISTORY_MS", "FUNDING_MAX_AGE",
+           "FUNDING_OVERLAP_MS", "FUNDING_REFRESH_SECONDS", "StrategyFunding"]

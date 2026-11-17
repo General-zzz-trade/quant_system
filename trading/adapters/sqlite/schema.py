@@ -53,7 +53,7 @@ TABLES: dict[str, str] = {
     # known whole for (lab/README and CLAUDE.md: Binance keeps the income history for three months only).
     "funding_rows": """CREATE TABLE funding_rows (
         scope TEXT NOT NULL, symbol TEXT NOT NULL, tran_id TEXT NOT NULL, time_ms INTEGER NOT NULL,
-        amount TEXT NOT NULL, PRIMARY KEY(scope, tran_id))""",
+        amount TEXT NOT NULL, PRIMARY KEY(scope, symbol, tran_id))""",
     "funding_coverage": """CREATE TABLE funding_coverage (
         scope TEXT NOT NULL, symbol TEXT NOT NULL, from_ms INTEGER NOT NULL, through_ms INTEGER NOT NULL,
         PRIMARY KEY(scope, symbol))""",
@@ -126,8 +126,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {1: ("funding_rows", "funding_coverage"
 
 def migrate(path: Path) -> int:
     """Bring the database at ``path`` to ``VERSION`` by adding the tables of each step, in one transaction; returns
-    the version it had. Nothing else changes. A version without a migration is refused."""
-    db = sqlite3.connect(Path(path))
+    the version it had. Nothing else changes. A version without a migration, or a missing file, is refused."""
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"{path} does not exist; a migration never creates a database")
+    db = sqlite3.connect(Path(path), isolation_level=None)       # the transaction below is explicit
     try:
         had = int(db.execute("PRAGMA user_version").fetchone()[0])
         if had == VERSION:
@@ -135,11 +137,16 @@ def migrate(path: Path) -> int:
         steps = list(range(had, VERSION))
         if not steps or not all(step in MIGRATIONS for step in steps):
             raise ValueError(f"{Path(path).name} has version {had}; there is no migration from it to {VERSION}")
-        with db:
+        db.execute("BEGIN IMMEDIATE")       # the tables and the version together, or nothing (audit of #147, 4)
+        try:
             for step in steps:
                 for table in MIGRATIONS[step]:
                     db.execute(TABLES[table])
             db.execute(f"PRAGMA user_version={VERSION}")
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
         return had
     finally:
         db.close()
