@@ -4832,7 +4832,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `trading/domain/strategy/spec.py`：`MAINNET_SYMBOLS = frozenset({"BTCUSDT", "ETHUSDT"})`，注明决定。
   - `trading/infrastructure/target.py`：`refuse_mainnet_symbols(testnet=, symbols=)`，主网且规格列了别的品种就抛错，错误信息列出多出来的品种。
   - `trading/infrastructure/cli/target.py`：两处调用。
-    - 启动检查 `preflight`：紧跟"规格未通过"的拒绝之后、读配置和连账户之前；
+    - 启动检查 `preflight`：紧跟"规格未通过"的拒绝之后、连账户之前（入口 `main` 先读配置再调用它；没传配置时它在读配置之前拒绝）；
     - 运行时组装处（`TargetRuntime.__init__`）：紧跟同一个拒绝之后，给跳过启动检查的调用方（测试、工具）多一道。
   - `scripts/pilot_check.py`（`account_check --pilot`）：多一项"规格只交易 BTCUSDT 和 ETHUSDT"，列出别的品种。
 - **已有测试的改动**：没有。
@@ -4854,6 +4854,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - ruff 通过；`mypy trading/` 97 个文件无问题；lint-imports 5 个契约都保持。
 - **没改的**：研究台的品种清单和实盘条件（150 USDT、两个品种各半、2 倍）是另一步，不在这个 PR 里。
 
+<<<<<<< HEAD
 ## 研究台改成只做 BTC 和 ETH：150 USDT、各半、2 倍（2026-11-17，轻流程：研究代码）
 
 - **决定**：技术负责人 2026-11-17（"目前如何去改成做BTC和ETH，不再全市场这样做"）选了：研究台的实盘条件是 150 USDT、两个品种各半、2 倍。
@@ -4891,3 +4892,26 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **没做的**：
   - 还没有在真实数据上跑任何 BTC/ETH 的一轮。下一轮的计划要先登记，再跑。
   - 每月重选的定时任务的提示词，合并后再改。
+=======
+### 独立审计（PR #153，de7e6bf4）和修复
+
+审计员在自己的克隆里审 de7e6bf4：没有阻塞问题，没找到主网交易别的品种的路径；一项应修，五项轻微。
+审计员还用全部主网设置齐全的入口试过（策略资金、告警文件、心跳、`passed: true`，第 1 版和第 2 版规格各列 AVAXUSDT）：
+都在构造适配器、发任何请求、写杠杆、建状态目录、写告警之前被拒。
+
+- **应修 S1：架构文档没更新。** `docs/arch/target.md` §6.3 加上这条规则（含"拒绝的是整个启动"），不变量表加一行。
+- **轻微 M1：审计员的变异有 7 个存活，补测试：**
+  - 只检查最后一个品种（运行时和试运行检查各一个）：所有被拒的例子都把别的品种放在最后。补 ("SOLUSDT", "BTCUSDT")，入口和试运行检查的例子也改成别的品种在前。
+  - 第 1 版规格被跳过（启动检查、运行时各一个）：补 `test_a_schema_1_spec_is_refused_too` 和运行时的第 1 版测试。
+  - 试运行检查只见过第 1 版规格：补一个第 2 版规格的例子。
+  - 运行时把测试网当主网：已有的 `tests/characterization/test_account_weight.py`（测试网 10 个品种）能抓住，变异自检的测试清单加上它。
+  - 用 `testnet` 参数代替配置（两处）：补两个测试，配置是主网、参数是 `True` 时照样拒绝。
+- **轻微 M2：入口测试缺主网的其他设置**，去掉品种检查也会停在"缺策略资金"。现在设上策略资金、告警文件和心跳，并断言连告警文件都没写。
+- **轻微 M3：记录的措辞**："读配置之前"只在没传配置时成立，已改。
+- **轻微 M4：CLAUDE.md 的 Venue 一条**读起来像研究也已改回。改成写明：这里说的是实盘程序，研究台改成 BTC/ETH 是另一步。
+- **轻微 M5：拒绝的是整个启动。** 主网状态目录里若有别的品种的账本仓位，运行时不能接手平掉，要由人处理。
+  只在启动时检查，运行中从不挡退出。至今唯一能上主网的规格是 BTC/ETH，写进了架构文档。
+- **测试改动**：本 PR 新写的测试加了例子；入口测试的环境变量和别的品种的位置（`ETHUSDT, SOLUSDT` 改为 `SOLUSDT, ETHUSDT`）改了；已有测试没改。
+- **新增测试**：`test_mainnet_symbols.py` 现在 14 个（多了 1 个参数化例子和 3 个函数），`test_pilot_check.py` 的那一个多了第 2 版规格的例子。
+- **变异自检**【实际运行结果】：`mainnet_symbols.json` 加上审计员存活的 8 个，测试清单加上 `test_account_weight.py`，共 15 个，15/15 被杀。
+>>>>>>> origin/master
