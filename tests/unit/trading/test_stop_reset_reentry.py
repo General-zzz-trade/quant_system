@@ -345,3 +345,133 @@ def test_a_0_from_before_the_stop_does_not_count(tmp_path):
     for k in range(i, i + 3):
         _close(world, runtime, k)
     assert _status(runtime) == WAITING and btc.positions.get("BTCUSDT", 0) == 0
+
+
+# -- the audit of PR #142 (2026-11-17) --------------------------------------------------------------------------
+def _counts(tmp_path, world):
+    from trading.adapters.sqlite.limit_store import SqliteLimitStore
+    from trading.domain.risk.drawdown import periods
+    return SqliteLimitStore(tmp_path / "exec" / STATE_DB, "binance-testnet-ut").load(
+        periods(world["clock"]["now"])["day"])
+
+
+def test_a_waiting_symbol_s_refusals_use_none_of_the_shared_daily_counts(tmp_path):
+    """Audit finding 1: the entry gate refuses a waiting symbol before the order limiter counts it."""
+    world, runtime, strategy, i = _stopped(tmp_path, "pause_then_reset")
+    assert _status(runtime) == WAITING
+    before = _counts(tmp_path, world)
+    for k in range(i, i + 4):
+        _close(world, runtime, k)
+    assert _counts(tmp_path, world) == before
+    rows = [json.loads(x) for x in (tmp_path / "exec" / "target_events.jsonl").read_text().splitlines()]
+    refused = [r for r in rows if r["kind"] == "blocked" and r.get("symbol") == "BTCUSDT"]
+    assert refused and all("paused" in r.get("reason", "") for r in refused[-4:])
+
+
+def test_an_entry_after_the_stop_ends_the_wait_for_good(tmp_path):
+    """Audit finding 2: re-entered, restarted while holding, then a person's kill flatten: no wait comes back."""
+    world, runtime, strategy, i = _stopped(tmp_path, "pause_then_reset")
+    btc = world["fakes"]["BTCUSDT"]
+    strategy.weight = 0.0
+    _close(world, runtime, i)
+    strategy.weight = 0.5
+    for k in range(i + 1, i + 4):
+        _close(world, runtime, k)
+        time.sleep(1.1)
+    assert btc.positions.get("BTCUSDT", 0) != 0
+    again = _runtime(world, tmp_path, strategy)
+    again.warmup()
+    _close(world, again, i + 4)
+    again.kill.write(active=True, reason="person", flatten=True)
+    _tick(world, again)
+    assert btc.positions.get("BTCUSDT", 0) == 0
+    again.kill.write(active=False)
+    for k in range(i + 5, i + 9):
+        _close(world, again, k)
+        time.sleep(1.1)
+    assert _status(again) is None and btc.positions.get("BTCUSDT", 0) != 0
+
+
+def test_a_short_target_is_not_the_reset(tmp_path):
+    """Exactly 0, as in the lab: a short (the spec allows shorts) does not end the wait."""
+    world = _world(tmp_path, SPEC)
+    world["spec_path"].write_text(json.dumps(_doc(after_stop="pause_then_reset", allow_short=True)))
+    state_dir_db(tmp_path / "exec")
+    strategy = Scripted()
+    runtime = _runtime(world, tmp_path, strategy)
+    runtime.warmup()
+    i = world["warm"]
+    btc = world["fakes"]["BTCUSDT"]
+    while btc.positions.get("BTCUSDT", 0) == 0:
+        _close(world, runtime, i)
+        i += 1
+    (client_id,) = [k for k, v in btc.algo.items() if v["algoStatus"] == "NEW"]
+    btc.trigger_stop(client_id, btc.mark("BTCUSDT"))
+    _tick(world, runtime)
+    stopped_at = world["clock"]["now"]
+    strategy.weight = -0.5
+    while world["clock"]["now"] < stopped_at + STOP_PAUSE_SECONDS + 3 * 3600:
+        _close(world, runtime, i)
+        i += 1
+    assert _status(runtime) == WAITING and btc.positions.get("BTCUSDT", 0) == 0
+
+
+def test_a_person_can_end_the_wait_with_the_release_command(tmp_path):
+    """Audit finding 3: ``entry_pause release`` ends the wait too, once the 4-hour pause is over."""
+    import io
+    from trading.infrastructure import entry_pause
+    world, runtime, strategy, i = _stopped(tmp_path, "pause_then_reset")
+    assert _status(runtime) == WAITING
+    out = io.StringIO()
+    code = entry_pause.main(["--state-dir", str(tmp_path / "exec"), "release", "--symbol", "BTCUSDT",
+                             "--reason", "checked; entries may resume"], stdin=io.StringIO("BTCUSDT\n"), stdout=out,
+                            clock=lambda: world["clock"]["now"])
+    assert code == 0 and "wait" in out.getvalue()
+    for k in range(i, i + 3):
+        _close(world, runtime, k)
+        time.sleep(1.1)
+    assert _status(runtime) is None and world["fakes"]["BTCUSDT"].positions.get("BTCUSDT", 0) != 0
+
+
+def test_a_schema_1_spec_cannot_carry_the_field():
+    """Audit finding 5: schema 1 has no after_stop; one there is refused, not ignored."""
+    doc = {"schema": 1, "kind": "btc_eth_multitimeframe_target", "symbols": ["BTCUSDT", "ETHUSDT"],
+           "spec": SPEC.record(), "passed": False, "after_stop": "pause_then_reset"}
+    with pytest.raises(ValueError, match="after_stop"):
+        parse_spec(doc)
+
+
+def test_the_paper_comparison_reads_an_overlay_record_with_the_rule():
+    """Audit finding 4: an overlay paper record carrying after_stop still names its strategy."""
+    from lab.paper_compare import _strategy
+    strategy, spec = _strategy(parse_spec(_doc(after_stop="pause_then_reset")).identity())
+    assert strategy.name == "overlay" and spec.band == SPEC.band
+
+
+def test_only_an_entry_created_after_the_time_and_filled_ends_the_wait(tmp_path):
+    """Mutation self-check survivors of the audit fixes: a reduction, an entry without a fill and one created before
+    the time do not count."""
+    from trading.adapters.sqlite.order_journal import SqliteOrderJournal
+    path = state_db(tmp_path / STATE_DB)
+    journal = SqliteOrderJournal(path, "binance-testnet-ut")
+    owner = "target.BTCUSDT"
+
+    def order(intent, *, reducing, at, filled):
+        """The rows the lifecycle leaves, written directly (the journal refuses an order beside an unconsumed fill)."""
+        import sqlite3
+        with sqlite3.connect(path) as db:
+            db.execute("INSERT INTO submissions (scope, intent_id, symbol, client_id, order_id, settled, side, qty, "
+                       "reducing, owner, parent, status, order_type, created_at) VALUES (?, ?, 'BTCUSDT', ?, ?, 1, "
+                       "'buy', '1', ?, ?, NULL, ?, 'market', ?)",
+                       ("binance-testnet-ut", intent, f"c-{intent}", f"o-{intent}", int(reducing), owner,
+                        "filled" if filled else "canceled", at))
+            if filled:
+                db.execute("INSERT INTO execution_fills (scope, fill_id, intent_id, owner, payload, delivered) "
+                           "VALUES (?, ?, ?, ?, '{}', 1)", ("binance-testnet-ut", f"f-{intent}", intent, owner))
+    order("before", reducing=False, at=100.0, filled=True)          # an entry before the time
+    order("reduce", reducing=True, at=300.0, filled=True)           # a reduction after it
+    order("unfilled", reducing=False, at=400.0, filled=False)       # an entry after it, never filled
+    assert journal.entry_filled_since(owner, 200.0) is False
+    order("entry", reducing=False, at=500.0, filled=True)
+    assert journal.entry_filled_since(owner, 200.0) is True
+    assert journal.entry_filled_since("target.ETHUSDT", 200.0) is False

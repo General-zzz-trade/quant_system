@@ -163,6 +163,8 @@ def parse_spec(document: Mapping[str, Any]) -> TargetSpec:
     if schema == 1:
         if kind != KIND_V1:
             raise ValueError(f"a schema-1 spec must be of kind {KIND_V1!r}, not {kind!r}")
+        if "after_stop" in document:          # audit of PR #142, finding 5: refused, not silently ignored
+            raise ValueError("after_stop needs a schema-2 spec")
         overlay = _params("overlay", document.get("spec"))
         return TargetSpec("overlay", overlay, overlay, _symbols(document.get("symbols")), not overlay.long_only)
     if schema != 2:

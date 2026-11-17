@@ -1,0 +1,65 @@
+[
+ [
+  "entry check ignored",
+  "trading/application/reset_wait.py",
+  "    return not (entered is not None and entered(since))\n",
+  "    return True\n",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_an_entry_after_the_stop_ends_the_wait_for_good"
+ ],
+ [
+  "gate ignores the wait",
+  "trading/infrastructure/target.py",
+  "        return session is not None and waits_for_reset(session, pauses)\n",
+  "        return False\n",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_a_waiting_symbol_s_refusals_use_none_of_the_shared_daily_counts"
+ ],
+ [
+  "reductions count as entries",
+  "trading/adapters/sqlite/order_journal.py",
+  "s.owner=? AND s.reducing=0 AND ",
+  "s.owner=? AND ",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_after_the_4_hours_the_symbol_waits_until_the_target_was_0_then_enters_again"
+ ],
+ [
+  "entries before the stop count",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"s.created_at > ? AND EXISTS",
+  "\"s.created_at < ? AND EXISTS",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_after_the_4_hours_the_symbol_waits_until_the_target_was_0_then_enters_again"
+ ],
+ [
+  "unfilled entries count",
+  "trading/adapters/sqlite/order_journal.py",
+  "\"s.created_at > ? AND EXISTS (SELECT 1 FROM execution_fills f WHERE f.scope=s.scope \"\n                             \"AND f.intent_id=s.intent_id) LIMIT 1\"",
+  "\"s.created_at > ? LIMIT 1\"",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_after_the_4_hours_the_symbol_waits_until_the_target_was_0_then_enters_again"
+ ],
+ [
+  "journal not wired",
+  "trading/infrastructure/target.py",
+  "        session.entered_since = partial(orders.entry_filled_since, owner)\n",
+  "",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_an_entry_after_the_stop_ends_the_wait_for_good"
+ ],
+ [
+  "cli does not release",
+  "trading/infrastructure/entry_pause.py",
+  "        pauses.release_wait(args.symbol, args.reason)\n",
+  "",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_a_person_can_end_the_wait_with_the_release_command"
+ ],
+ [
+  "schema 1 ignores it",
+  "trading/domain/strategy/spec.py",
+  "        if \"after_stop\" in document:",
+  "        if False:",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_a_schema_1_spec_cannot_carry_the_field"
+ ],
+ [
+  "compare keeps the key",
+  "lab/paper_compare.py",
+  "if k not in (\"allow_short\", \"after_stop\")",
+  "if k != \"allow_short\"",
+  "tests/unit/trading/test_stop_reset_reentry.py::test_the_paper_comparison_reads_an_overlay_record_with_the_rule"
+ ]
+]

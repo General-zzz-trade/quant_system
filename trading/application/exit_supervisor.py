@@ -20,6 +20,7 @@ from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventL
 from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
+from trading.application.reset_wait import RESET_WAIT, waits_for_reset
 from trading.domain.issues import AFTER_STOP_PAUSE_THEN_RESET, STOP_PAUSE_SECONDS, Effect, IssueKind as K, \
     pause_end_text
 from trading.domain.strategy.overlay import StrategySpec
@@ -30,7 +31,6 @@ logger = logging.getLogger("binance_target")
 RECONCILE_SECONDS = 5.0
 ACCOUNT_CHECK_SECONDS = 60.0      # ADR-0011 / decision O: the whole account at most once a minute
 EQUITY_SECONDS = 60.0
-RESET_WAIT = "waiting for the strategy's target to return to 0 after a stop"
 RELEASE_COMMAND = "python -m trading.infrastructure.entry_pause --state-dir <state dir> release --symbol {symbol} " \
                   "--reason <why>"
 
@@ -313,13 +313,7 @@ class ExitSupervisor:
             if reason is not None:
                 return reason
             session = self.sessions.get(symbol)
-            if session is None or session.after_stop != AFTER_STOP_PAUSE_THEN_RESET:
-                return None
-            since = self.pauses.ended_by_itself(symbol)
-            if since is None or session.position_qty() != 0:
-                return None
-            seen = session.flat_target_at
-            return None if seen is not None and seen > since * 1000 else RESET_WAIT
+            return RESET_WAIT if session is not None and waits_for_reset(session, self.pauses) else None
         except Exception:
             return "unreadable"
 

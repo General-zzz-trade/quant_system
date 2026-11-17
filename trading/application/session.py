@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from trading.application.ports import EventLog
@@ -101,6 +102,9 @@ class TargetSession:
         # strategy's reset; in memory only, so after a restart the symbol waits for the next one: fail closed).
         self.after_stop = after_stop
         self.flat_target_at: int | None = None
+        # Whether an entry of this symbol filled after a time (seconds), from the order journal; set by the
+        # composition root. None: not known, so the wait after a stop does not end on it (fail closed).
+        self.entered_since: Callable[[float], bool] | None = None
         self.executor: Any = execution.executor
         self.consumer: Any = execution.consumer
         self.stops: Any = execution.stops

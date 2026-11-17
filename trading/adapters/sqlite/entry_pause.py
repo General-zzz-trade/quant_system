@@ -23,6 +23,7 @@ from typing import Any
 from trading.adapters.sqlite.connection import connect
 
 SCHEDULED_END = "ended by itself at its scheduled time"
+RESET_WAIT_RELEASED = "a person ended the wait for the strategy's reset"
 _ACTIVE = "(released_at IS NULL OR released_at > ?)"
 
 
@@ -86,6 +87,20 @@ class SqliteEntryPauses:
             return [dict(r) for r in db.execute(f"SELECT symbol, paused_at, cause, released_at AS ends_at "
                                                 f"FROM entry_pauses WHERE {_ACTIVE} ORDER BY paused_at",
                                                 (float(self.clock()),))]
+
+    def release_wait(self, symbol: str, reason: str) -> bool:
+        """End the wait for the strategy's reset after ``symbol``'s pause ended by itself (a spec's ``after_stop:
+        pause_then_reset``): a release row, so the latest pause is no longer one that ended by itself. False when
+        there is no such pause. For a person only (``entry_pause release``, audit of PR #142, finding 3)."""
+        if not reason.strip():
+            raise ValueError("a release needs a reason")
+        if self.ended_by_itself(symbol) is None:
+            return False
+        now = float(self.clock())
+        with self._connect() as db:
+            db.execute("INSERT INTO entry_pauses (symbol, paused_at, cause, released_at, release_reason) "
+                       "VALUES (?, ?, ?, ?, ?)", (symbol, now, RESET_WAIT_RELEASED, now, reason.strip()))
+        return True
 
     def release(self, symbol: str, reason: str) -> int:
         """End ``symbol``'s active pauses now (a scheduled one too), recording why; returns how many ended. For a

@@ -4653,12 +4653,13 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **已有测试的改动**：没有。
 - **测试辅助的改动**：没有。
 - **新增测试**：
-  - `tests/unit/trading/test_stop_reset_reentry.py`：19 个测试函数，其中一个参数化 6 例，共 24 例。内容包括规格、暂停库、端到端运行时
+  - `tests/unit/trading/test_stop_reset_reentry.py`：18 个测试函数，其中一个参数化 6 例，共 23 例（审计更正：原来写成 19 个、24 例）。内容包括规格、暂停库、端到端运行时
     （进场→止损→4 小时→等 0→再进场）、暂停期间的 0、人工解除、重启、读不出、告警、未准备好的 0、重启时持有仓位、两种模式的接线、
     模拟盘的包装、止损前的 0。
   - `tests/unit/tooling/test_draft_strategy_spec.py` 加 1 个。
-  - 在未改的 master 上跑同一个文件：11 个失败。参数化的 6 例"拒绝别的值"在 master 上也通过，但原因不同（master 拒绝任何不认识的字段）；
-    "没有这个字段时 4 小时后照旧"本来就该通过。
+  - 在未改的 master 上跑：我当时跑的是这个文件的早期版本，18 例里 11 个失败。审计员用最终的文件在 0f091ebc 上跑，16 个失败、7 个通过
+    （审计更正：原来只写了 11 个失败）。通过的 7 个是参数化的 6 例"拒绝别的值"，它们在 master 上通过的原因不同（master 拒绝任何不认识的字段），
+    以及"没有这个字段时 4 小时后照旧"，这一例本来就该通过。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/stop_reset_reentry.json` 20 个。第一轮 19 个被杀。存活 1 个："止损之前的 0 也算"，
   当时没有测试先让策略要过 0 再进场。补了 `test_a_0_from_before_the_stop_does_not_count`，单独重跑这个变异被杀。最终 20/20。
 - **本地**【实际运行结果】：新测试；`test_stop_pause_auto_release.py`、`test_paper_parts.py`、`test_spec_v2.py`、`test_issues.py`、
@@ -4684,3 +4685,31 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `test_um_portfolio.py` 7 个：合成、按折挑选、不用未来数据挑、最多 k 个、基准太强时空仓、基准仓位只用完成的日 K 线、按时段回放。
   - 都先跑过、在改动前失败。其中两个是我自己写错了期望值（合成的基准太平滑，夏普极高；按夏普排序时 steady 在前），提交前改正。
 - **本地**【实际运行结果】：上述测试、`tests/architecture`、ruff、`lint-imports` 通过。
+
+### 独立审计（PR #142，2026-11-17）和修复
+
+审计员在自己的克隆里审 9cd4d6df：没有阻塞问题，两项应修，五项轻微。逐项处理如下。
+
+- **应修 1：等待中的品种被拒的开仓仍然占用共享的每日下单数**（审计员跑出：4 根收盘计数从 4 笔增加到 8 笔）。
+  - 原因：入口闸门的 `paused()` 不知道这个等待，开仓过了它，到了下单数限制那里先计数，最后才被就绪检查拒绝。
+  - 修复：等待规则抽成一个函数 `trading/application/reset_wait.waits_for_reset`，闸门和退出侧共用。闸门在下单数限制之前就拒绝。
+  - 新测试：`test_a_waiting_symbol_s_refusals_use_none_of_the_shared_daily_counts`。
+- **应修 2：等待会在很久以后又出现**（审计员跑出：重新开仓、带仓位重启，之后有人急停平仓再解除，等待又回来了，实验室不会这样）。
+  - 修复：止损之后只要有一笔开仓单成交，等待就永久结束。依据是订单记录：止损后创建的非减仓单有交易所成交，重启后也查得到
+    （`SqliteOrderJournal.entry_filled_since`，模拟盘的订单记录继承它）。
+  - 新测试：`test_an_entry_after_the_stop_ends_the_wait_for_good`，就是审计员的复现。
+- **轻微 3：4 小时过后没人能结束等待。** `entry_pause release` 在最近一次暂停自己结束时，可以结束等待（也要输入品种名确认）。
+  做法是写一行由人解除的记录，库结构不变。新测试：`test_a_person_can_end_the_wait_with_the_release_command`。
+- **轻微 4：模拟盘对照工具读不了带这个字段的叠加策略记录。** 已修。新测试：`test_the_paper_comparison_reads_an_overlay_record_with_the_rule`。
+- **轻微 5：第 1 版规格会悄悄忽略这个字段。** 现在拒绝。新测试：`test_a_schema_1_spec_cannot_carry_the_field`。
+- **轻微 6：模拟盘里止损那根 K 线收盘时的决定不算重置**（实验室算）。只会更严，严一根 K 线，留着不改，记在这里。
+- **轻微 7：记录里的数字错了。** 已在上面更正。
+- **审计员指出的测试缺口**：
+  - 补了 `test_a_short_target_is_not_the_reset`（允许做空时，空头目标不算回到 0）；
+  - 挂单入场在等待期间被撤，还没有测试：撤单和暂停走同一条路径。
+- **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/stop_reset_audit_fixes.json` 9 个。第一轮 7 个被杀，存活 2 个，都在订单记录的查询里：
+  "减仓单也算开仓"、"没成交的开仓单也算"。补了 `test_only_an_entry_created_after_the_time_and_filled_ends_the_wait`，直接写订单和成交行检查这个查询；
+  单独重跑，这两个都被杀。最终 9/9。
+- **修复后的测试**：这个文件现在 25 个测试函数、30 例，全部通过。相关的 `test_stop_pause_auto_release.py`、`test_spec_v2.py`、
+  `test_paper_compare*.py`、`test_paper_parts.py`、`test_spec_v2_runtime.py`、`test_draft_strategy_spec.py`、`test_entry_pause.py`、
+  `tests/architecture` 通过；ruff、`mypy trading/`（97 个文件）、`lint-imports` 通过【实际运行结果】。
