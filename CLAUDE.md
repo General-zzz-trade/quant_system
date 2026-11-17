@@ -7,7 +7,8 @@
 - **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16). The runtime
   extension (`docs/arch/runtime-lab-strategies-plan.md`) is done: R1–R7 (#119–#130), its audit fixes (#126, #134)
   and the docs (R9, #139). 2026-11-17: the spec's `after_stop: pause_then_reset` (#142, audited), the pilot's start
-  check `account_check --pilot` (#146); the funding kept in the state database (#147) is under audit.
+  check `account_check --pilot` (#146), the funding kept in the state database (#147, three audits) and mainnet's
+  BTC/ETH hard limit (#153); the lab moved to BTC/ETH (#154).
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
   checks goes to a small-capital mainnet pilot with hard limits (-3 % a day: `MAX_DAILY_DRAWDOWN_PCT=3`, which a person sets, the code default is 5; a 15 % cumulative loss of the strategy
   capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
@@ -15,7 +16,8 @@
   passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
   the host install, and the strategy capital `STRATEGY_CAPITAL_USDT` (mainnet refuses to start without it). The
   cumulative funding is kept in the state database since 2026-11-17 (state database version 2; an existing directory
-  is brought there with `state_dir migrate`, the runtime stopped).
+  is brought there with `state_dir migrate`, the runtime stopped; this host's `/var/lib/quant/state/mainnet` was still
+  version 1 on 2026-11-17 and waits for the owner's go-ahead).
 - **Before a lab survivor gets money (owner, 2026-11-16 evening):** an idea that passes the lab's checks is frozen and
   tracked on new data for 4 weeks first: one registered look a week (`research/forward_looks.jsonl`, as the forward
   protocol says), each on a new snapshot; it goes to the pilot only if it still holds on all four. Nothing is
@@ -266,8 +268,9 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   - A loss that cannot be known closes nothing and blocks every entry. Funding that cannot be refreshed does not
     blind the stop: it counts the last total read in this process, whatever its age (the sizing base keeps the
     2-hour rule). Since 2026-11-17 that total is the one kept in the state database, also right after a restart;
-    it is unknown when the kept rows do not reach back to a first fill or end more than 88 days ago (the rest can
-    never be read, so the total would be partial).
+    it is unknown when the kept rows do not reach back to a first fill or when a symbol's next read would start more
+    than 88 days back (24 hours before its kept rows end, or at its first fill when none are kept): the rest can never
+    be read, so the total would be partial.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: 3x hard cap, checked at entry time only.
 - `OrderLimiter` (target runtime, `trading/application/risk/order_limiter.py`): daily counts stored per UTC day
