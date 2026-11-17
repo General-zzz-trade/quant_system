@@ -346,29 +346,39 @@ def write_snapshot(out: Path, files: dict[str, tuple[tuple, Iterable[tuple]]], e
     return json.loads((out / "manifest.json").read_text())
 
 
-def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 4) -> dict:
-    """Every source, each kept in ``<out>.partial`` as soon as it is done (a rerun after a failure resumes there),
-    then the snapshot and its manifest; the staging directory is removed at the end."""
+SOURCES = ("spot", "premium", "depth", "dvol", "fred", "stable", "coinmetrics")
+
+
+def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 4,
+             sources: Sequence[str] = SOURCES) -> dict:
+    """The chosen ``sources``, each kept in ``<out>.partial`` as soon as it is done (a rerun after a failure resumes
+    there), then the snapshot and its manifest, which names every source left out; the staging directory is removed
+    at the end."""
+    unknown = sorted(set(sources) - set(SOURCES))
+    if unknown:
+        raise ValueError(f"unknown source(s): {unknown}; choose from {SOURCES}")
     end_ms = ms(end)
     fetch = retrying(fetch)
     stage = Path(str(out) + ".partial")
     files: dict[str, tuple[tuple, Any]] = {}
-    sources: dict[str, dict] = {}
+    meta: dict[str, dict] = {}
     started = datetime.now(timezone.utc).isoformat()
 
-    def add(name: str, header: tuple, make: Callable[[], list], meta: dict) -> None:
+    def add(name: str, header: tuple, make: Callable[[], list], info: dict) -> None:
         files[name] = (header, staged(stage, name, header, make))
-        sources[name] = meta
+        meta[name] = info
         print(name, len(files[name][1]), "rows", flush=True)
     last = end - timedelta(1)
-    for symbol in SYMBOLS:
+    for symbol in SYMBOLS if "spot" in sources else ():
         add(f"{symbol}_spot_1h.csv.gz", ("open_time", "open", "high", "low", "close", "volume", "quote_volume",
                                          "trades", "taker_buy_quote_volume"),
             lambda s=symbol: spot_klines(s, months(SPOT_FIRST, end), end_ms, fetch=fetch),
             {"source": f"{VISION}/spot/monthly/klines/{symbol}/1h", "known": "open_time + 1 h"})
+    for symbol in SYMBOLS if "premium" in sources else ():
         add(f"{symbol}_premium_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
             lambda s=symbol: premium_klines(s, months(PREMIUM_FIRST, end), end_ms, fetch=fetch),
             {"source": f"{VISION}/futures/um/monthly/premiumIndexKlines/{symbol}/1h", "known": "open_time + 1 h"})
+    for symbol in SYMBOLS if "depth" in sources else ():
         first = first_day(lambda d, s=symbol: depth_url(s, d), date(2020, 1, 1), last, fetch=fetch)
         add(f"{symbol}_depth_1h.csv.gz", ("hour", "percentage", "mean_notional", "last_notional"),
             lambda s=symbol, f=first: book_depth(s, days(f, end), end_ms, fetch=fetch, workers=workers,
@@ -376,25 +386,27 @@ def download(out: Path, end: date, *, fetch: Fetch = slow_fetch, workers: int = 
             {"source": f"{VISION}/futures/um/daily/bookDepth/{symbol}",
              "first_day": first.isoformat() if first else None,
              "known": "hour + 1 h (snapshots taken in [hour, hour + 1 h))"})
-    for currency in DVOL:
+    for currency in DVOL if "dvol" in sources else ():
         add(f"{currency}_dvol_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
             lambda c=currency: dvol(c, ms(DVOL_FIRST), end_ms, fetch=fetch),
             {"source": f"{DERIBIT} (resolution 3600)", "known": "open_time + 1 h"})
-    for series, lag in FRED_LAG_DAYS.items():
+    for series, lag in FRED_LAG_DAYS.items() if "fred" in sources else ():
         add(f"fred_{series}.csv.gz", ("date", "value"), lambda x=series: fred(x, end_ms, fetch=fetch),
             {"source": fred_url(series), "known": f"date + {lag} days 00:00 UTC (release schedule unverified)"})
-    add("stablecoins_usd.csv.gz", ("date", "total_usd"), lambda: stablecoins(end_ms, fetch=fetch),
+    if "stable" in sources:
+        add("stablecoins_usd.csv.gz", ("date", "total_usd"), lambda: stablecoins(end_ms, fetch=fetch),
         {"source": STABLECOINS, "known": "date + 1 day 00:00 UTC", "caveat": "revised after first publication"})
-    for asset in CM_ASSETS:
+    for asset in CM_ASSETS if "coinmetrics" in sources else ():
         add(f"coinmetrics_{asset}.csv.gz", ("date", *CM_METRICS),
             lambda a=asset: coinmetrics(a, CM_METRICS, CM_FIRST, end_ms, fetch=fetch),
             {"source": COINMETRICS, "known": "date + 2 days 00:00 UTC",
              "caveat": "flash values are revised: history is the revised value"})
     extra = {"downloaded_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
              "purpose": "feature-pool study (owner 2026-11-17)", "terms": "each source's terms of use unverified",
-             "not_downloaded": {"BVOL": BVOL_LEFT_OUT}}
-    manifest = write_snapshot(out, files, end_ms, sources=sources, extra=extra)
-    shutil.rmtree(stage)
+             "not_downloaded": {"BVOL": BVOL_LEFT_OUT,
+                                **{x: "not chosen for this snapshot" for x in SOURCES if x not in sources}}}
+    manifest = write_snapshot(out, files, end_ms, sources=meta, extra=extra)
+    shutil.rmtree(stage, ignore_errors=True)
     return manifest
 
 
@@ -403,8 +415,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--end", required=True, type=date.fromisoformat, help="first day NOT written (UTC)")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--sources", default=",".join(SOURCES), help=f"comma-separated, from {SOURCES}")
     args = parser.parse_args(argv)
-    manifest = download(args.out, args.end, workers=args.workers)
+    manifest = download(args.out, args.end, workers=args.workers, sources=tuple(args.sources.split(",")))
     print(json.dumps({k: {"rows": v["rows"]} for k, v in manifest["files"].items()}, indent=1))
 
 

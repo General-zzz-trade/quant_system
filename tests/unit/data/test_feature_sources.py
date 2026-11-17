@@ -201,3 +201,14 @@ def test_the_download_reads_long_files_with_a_long_timeout(monkeypatch):
     monkeypatch.setattr(fs, "http_get", lambda url, **kw: seen.update(kw) or b"x")
     fs.slow_fetch("u")
     assert seen["timeout"] >= 120
+
+
+def test_only_the_chosen_sources_are_downloaded_and_the_rest_are_named(tmp_path, monkeypatch):
+    monkeypatch.setattr(fs, "FRED_LAG_DAYS", {"VIXCLS": 2})
+    fetch = Fetch({fs.fred_url("VIXCLS"): b"observation_date,VIXCLS\n2023-12-29,12.4\n"})
+    manifest = fs.download(tmp_path / "snap", date(2024, 1, 2), fetch=fetch, sources=("fred",))
+    assert list(manifest["files"]) == ["fred_VIXCLS.csv.gz"]
+    assert set(manifest["not_downloaded"]) >= {"spot", "premium", "depth", "dvol", "stable", "coinmetrics", "BVOL"}
+    assert all("fred" in url for url in fetch.seen) and not (tmp_path / "snap.partial").exists()
+    with pytest.raises(ValueError, match="unknown source"):
+        fs.download(tmp_path / "other", date(2024, 1, 2), fetch=fetch, sources=("fred", "tea"))
