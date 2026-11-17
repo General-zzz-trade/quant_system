@@ -17,13 +17,14 @@ import logging
 from collections.abc import Callable, Sequence
 from decimal import Decimal
 
-from trading.application.ports import Clock, FundingIncome
+from trading.application.ports import Clock, FundingIncome, FundingStore
 
 logger = logging.getLogger("binance_target")
 
 EQUITY_MAX_AGE = 120.0
 FUNDING_REFRESH_SECONDS = 600.0     # at most one request per strategy symbol every ten minutes
 FUNDING_MAX_AGE = 7200.0            # a funding total older than two hours is unknown
+FUNDING_OVERLAP_MS = 8 * 3600 * 1000   # each read starts this long before the kept span ends (late-posted rows)
 
 
 class EquitySource:
@@ -64,8 +65,8 @@ class StrategyFunding:
     makes this funding the strategy's. Called on the runtime's cycle; ``clock`` is the runtime's."""
 
     def __init__(self, venue: FundingIncome, symbols: Sequence[str] | Callable[[], Sequence[str]],
-                 first_fill: Callable[[str], float | None], clock: Clock) -> None:
-        self.venue, self.first_fill, self.clock = venue, first_fill, clock
+                 first_fill: Callable[[str], float | None], clock: Clock, *, store: FundingStore | None = None) -> None:
+        self.venue, self.first_fill, self.clock, self.store = venue, first_fill, clock, store
         fixed = () if callable(symbols) else tuple(symbols)
         self.symbols: Callable[[], Sequence[str]] = symbols if callable(symbols) else (lambda: fixed)
         self.total = Decimal(0)
@@ -81,14 +82,44 @@ class StrategyFunding:
             total = Decimal(0)
             for symbol in self.symbols():
                 since = self.first_fill(symbol)
-                if since is not None:
+                if since is None:
+                    continue
+                if self.store is None:
                     total += Decimal(self.venue.get_funding_income(symbol, since_ms=int(since * 1000),
                                                                    now_ms=int(now * 1000)))
+                else:
+                    self._read(symbol, int(since * 1000), int(now * 1000))
+            if self.store is not None:
+                total = self._stored()
         except Exception:
             logger.warning("Strategy funding not refreshed; the last total is kept for at most two hours",
                            exc_info=True)
             return
         self.total, self.refreshed_at = total, now
+
+    def _read(self, symbol: str, since_ms: int, now_ms: int) -> None:
+        """Tech lead 2026-11-17: read from the first fill when the kept rows do not reach back to it, otherwise from
+        ``FUNDING_OVERLAP_MS`` before their span ends, and keep what was read. A span that ended more than Binance's
+        three months ago cannot be continued: the read raises and the total stays what the store holds."""
+        assert self.store is not None
+        covered = self.store.coverage(symbol)
+        start = since_ms if covered is None or covered[0] > since_ms else max(since_ms, covered[1] - FUNDING_OVERLAP_MS)
+        rows = self.venue.get_funding_rows(symbol, since_ms=start, now_ms=now_ms)
+        self.store.add(symbol, rows, from_ms=start, through_ms=now_ms)
+
+    def _stored(self) -> Decimal:
+        """The kept total since each symbol's first fill; raises when a symbol's kept rows do not reach back to it."""
+        assert self.store is not None
+        total = Decimal(0)
+        for symbol in self.symbols():
+            since = self.first_fill(symbol)
+            if since is None:
+                continue
+            covered = self.store.coverage(symbol)
+            if covered is None or covered[0] > int(since * 1000):
+                raise RuntimeError(f"strategy funding unknown: {symbol}'s kept rows do not reach its first fill")
+            total += self.store.total(symbol, since_ms=int(since * 1000))
+        return total
 
     def current(self) -> Decimal:
         """The funding total; raises when it is older than two hours or was never read (the base sizes to zero)."""
@@ -100,12 +131,17 @@ class StrategyFunding:
     def last_known(self) -> Decimal:
         """The last funding total read in this process, whatever its age: what the loss stop counts (audit
         2026-11-16, finding 4: a refresh that keeps failing must not blind the stop, and an old total is nearer the
-        truth than none). Raises only when no total was ever read in this process."""
+        truth than none). Raises only when no total was ever read in this process. With the store (tech lead
+        2026-11-17), before the first read of this process (a restart): the kept total; raises only when the kept
+        rows do not reach back to a first fill."""
         self.refresh_if_due()
+        if self.refreshed_at is None and self.store is not None:
+            return self._stored()            # not read in this process yet (a restart): what the store holds
         if self.refreshed_at is None:
             raise RuntimeError("strategy funding unknown: not read once in this process")
         return self.total
 
 
-__all__ = ["CappedEquity", "EQUITY_MAX_AGE", "EquitySource", "FUNDING_MAX_AGE", "FUNDING_REFRESH_SECONDS",
+__all__ = ["CappedEquity", "EQUITY_MAX_AGE", "EquitySource", "FUNDING_MAX_AGE", "FUNDING_OVERLAP_MS",
+           "FUNDING_REFRESH_SECONDS",
            "StrategyFunding"]
