@@ -9,8 +9,8 @@ description = "Event-driven quantitative trading system for crypto perpetual fut
 requires-python = ">=3.11"
 license = {text = "Proprietary"}
 
-# Zero external dependencies for core logic — only stdlib.
-# Optional groups below add functionality for specific environments.
+# The runtime and the lab use numpy and pandas (installed with the system Python on the host); the groups below are
+# older optional sets, not checked against today's imports (2026-11-17: listed in the execution log, not changed here).
 dependencies = []
 
 [project.optional-dependencies]
@@ -100,9 +100,9 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["alpha", "core", "data", "decision", "engine", "event",
-          "execution", "features", "infra", "monitoring", "policy",
-          "lab", "portfolio", "regime", "risk", "runner", "shared", "state"]
+# The packages that exist (2026-11-17: the legacy ones were deleted on 2026-11-15). CI names its own money-path
+# packages with --cov; this list is for a local run.
+source = ["trading", "lab", "data", "infra", "monitoring", "runner"]
 omit = ["*/tests/*", "*/archive/*", "scripts/*", "ext/*"]
 
 [tool.coverage.report]
@@ -125,11 +125,6 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # gradual adoption — new code must have full annotations
-
-[[tool.mypy.overrides]]
-module = ["core.*", "regime.*", "state.*", "decision.*", "engine.*", "event.*", "features.*", "execution.*", "alpha.*", "attribution.*"]
-disallow_untyped_defs = true
-warn_return_any = true
 
 [[tool.mypy.overrides]]
 # numpy and pandas stubs need a newer Python than the 3.11 target; trading/ treats them as Any.
