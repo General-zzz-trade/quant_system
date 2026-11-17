@@ -4709,7 +4709,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
       版本 1 现在会被拒绝并提示迁移，另有测试；
     - 表名清单 `TABLES` 加 `funding_rows`、`funding_coverage`。
 - **新增测试**：
-  - `tests/unit/trading/test_funding_store.py` 14 个：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
+  - `tests/unit/trading/test_funding_store.py` 12 个：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
   - `tests/characterization/test_state_migrate.py` 5 个：启动拒绝并提示；迁移；运行时占着目录时拒绝；有别的问题或换了范围时拒绝；旧版本备份恢复。
   - `test_strategy_capital_sizing.py` 加 1 个：运行时把资金费行存进状态库。
   - `test_funding_income.py` 加 1 个：读到的行。
