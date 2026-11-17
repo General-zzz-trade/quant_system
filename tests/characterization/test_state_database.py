@@ -21,7 +21,8 @@ from trading.infrastructure import state_dir as managed
 ROOT = Path(__file__).resolve().parents[2]
 SCOPE = "binance-testnet-ut"
 TABLES = {"submissions", "execution_fills", "execution_consumers", "manual_actions", "protective_stops",
-          "drawdown_periods", "equity_observations", "order_limits", "entry_pauses", "pause_triggers"}
+          "drawdown_periods", "equity_observations", "order_limits", "entry_pauses", "pause_triggers",
+          "funding_rows", "funding_coverage"}                      # version 2 (tech lead 2026-11-17)
 OLD_FILES = ("orders.sqlite", "drawdown.sqlite", "order_limits.sqlite", "entry_pauses.sqlite")
 
 
@@ -44,11 +45,11 @@ def _files(directory):
 
 
 # -- initialization --------------------------------------------------------------------------------------------
-def test_init_creates_one_state_database_at_version_1_with_every_table(tmp_path):
+def test_init_creates_one_state_database_at_version_2_with_every_table(tmp_path):
     db_path = _init(tmp_path / "state")
     assert [n for n in _files(tmp_path / "state") if n.endswith(".sqlite")] == ["state.sqlite"]
     with sqlite3.connect(db_path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2     # version 2: the funding rows (2026-11-17)
         assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert tables == TABLES
@@ -80,12 +81,12 @@ def _set_version(path, version):
         db.execute(f"PRAGMA user_version={version}")
 
 
-@pytest.mark.parametrize("version", [0, 2])
+@pytest.mark.parametrize("version", [0, 3])          # 1 is refused too, with the migrate hint (test_state_migrate)
 def test_a_wrong_version_refuses_to_start_and_creates_nothing(tmp_path, version):
     db_path = _init(tmp_path / "state")
     _set_version(db_path, version)
     before = _files(tmp_path / "state")
-    with pytest.raises(RuntimeError, match=f"state.sqlite has version {version}, expected 1"):
+    with pytest.raises(RuntimeError, match=f"state.sqlite has version {version}, expected 2"):
         managed.verify(tmp_path / "state", SCOPE)
     assert _files(tmp_path / "state") == before
 

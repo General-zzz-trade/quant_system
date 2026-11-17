@@ -148,3 +148,14 @@ def test_a_history_beyond_the_page_cap_raises_instead_of_returning_a_part(monkey
     with pytest.raises(RuntimeError, match="more than 2 pages"):
         _adapter(fake).get_funding_income("BTCUSDT", since_ms=T, now_ms=NOW)
     assert len(fake.income_requests) == 2
+
+
+def test_the_rows_carry_their_transaction_id_time_and_amount_once_each():
+    """Tech lead 2026-11-17: the rows are kept in the state database, so the reader gives them, not only the sum."""
+    client = Pages([_row("-1.5", T, 7), _row("0.25", T + 8 * HOUR, 8), _row("10", T, 9, symbol="ETHUSDT")])
+    rows = _adapter(client).get_funding_rows("BTCUSDT", since_ms=T, now_ms=NOW)
+    assert rows == [("7", T, D("-1.5")), ("8", T + 8 * HOUR, D("0.25"))]
+    page = [_row("1", T + k, k) for k in range(1000)]               # a full page, then the same last row again
+    rows = _adapter(Pages(page, [_row("1", T + 999, 999), _row("2", T + 2000, 1000)])).get_funding_rows(
+        "BTCUSDT", since_ms=T, now_ms=NOW)
+    assert len(rows) == 1001 and rows[-1] == ("1000", T + 2000, D("2"))   # the repeated row is kept once
