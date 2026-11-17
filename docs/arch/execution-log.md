@@ -4791,3 +4791,24 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 前向跟踪的工具、标准和正在跟踪的 E3。
 - `docs/arch/runtime-lab-strategies-plan.md`：标记计划全部完成。
 - 资金费存进状态库的文档改动在 #147 里，随它一起合并。
+
+## 主机：实盘优先于研究，清理过期配置和闲置目录（2026-11-17，轻流程）
+
+技术负责人 2026-11-17 说"执行"：做从软件工程角度评估里的前两项，限制回测的 CPU 占用、清理过期配置和闲置目录。
+- **实盘优先**：
+  - 测试网和主网两个执行服务加 `Nice=-5`、`CPUWeight=1000`、`IOWeight=1000`。用 `systemd-analyze verify` 校验过，
+    主机要再跑一次 `infra/install_host.sh` 才生效（它不启动任何服务）。
+  - 新增 `scripts/dev/lab_nice.sh`：研究任务以 nice 19、磁盘空闲级运行；`research/lab/README.md` 和 `CLAUDE.md` 写明一律用它。
+  - 正在跑的两轮回测已就地降到 nice 19（`renice`、`ionice -c3`）。
+  - 新增测试：`test_systemd_units.py::test_the_execution_units_run_ahead_of_research_on_a_shared_host`。
+- **过期配置**（`pyproject.toml`）：
+  - 删掉给 2026-11-15 已删除的包（core、regime、state、decision、engine、event、features、execution、alpha、attribution）的类型检查覆盖；
+  - 覆盖率的 `source` 改为现在存在的包（trading、lab、data、infra、monitoring、runner）；CI 自己用 `--cov` 指定资金路径的包，不受影响；
+  - "核心逻辑零外部依赖"这句注释不对（交易系统和实验室都用 numpy、pandas），改正。
+  - 可以去掉、但这次没动的可选依赖：websocket-client、python-dotenv、pyyaml、pyarrow、yfinance、ccxt、matplotlib、aiohttp、websockets。
+    仓库里没有任何文件导入它们（scipy 有 4 个文件在用）。改依赖会影响安装，另行处理。
+- **闲置目录**（主机上，不在仓库里）：
+  - 删了 18 个工作目录：17 个对应已合并的 PR，`r9-docs` 的内容已由 #139 合并，它的分支保留；
+  - 删了 17 个已合并的本地分支、一个残留的变异自检工作目录；
+  - 删了 `/tmp` 里 200 多个变异自检残留目录，以及 19 个已结束的审计克隆。正在用的审计克隆和两轮回测的目录都保留。
+- **本地**【实际运行结果】：`test_systemd_units.py`、`test_unit_alert.py`、`test_alert_file.py` 通过；`mypy trading/`（97 个文件）通过；`pyproject.toml` 能解析。

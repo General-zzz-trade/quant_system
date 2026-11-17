@@ -328,6 +328,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 
 ## Gotchas
 
+- **Research shares the host with the runtime:** run every backtest, screen or mutation run through
+  `scripts/dev/lab_nice.sh` (nice 19, idle disk); the execution units run at `Nice=-5`, `CPUWeight=1000` (2026-11-17).
 - **Fd8 fixed point:** state `.close` and `.last_price` are raw integers (price × 1e8). Use `close_f`
   and `last_price_f`.
 - **Bar timestamps:** adapter bar dicts carry `"time"` in seconds and `"start"` in milliseconds.

@@ -72,6 +72,9 @@
 
 ## 评审员怎么跑（`lab/um_judge.py`，2026-11-16 起）
 
+回测和实盘程序在同一台机器上（2026-11-17 起的规定）：一律经 `scripts/dev/lab_nice.sh` 运行，CPU 优先级最低、磁盘读写空闲级，
+例如 `scripts/dev/lab_nice.sh python3 research/lab/runs/<日期>/judge.py screen`。实盘的执行服务是 `Nice=-5`、`CPUWeight=1000`，CPU 紧张时先拿到。
+
 第一轮的流程写在一次性脚本 `runs/2026-11-16/judge.py` 里，没有测试；它留作那一轮的记录。从下一轮起，流程在
 `lab/um_judge.py`（有测试，`tests/unit/lab/test_um_judge*.py`），每晚的 `runs/<日期>/judge.py` 只把当晚的想法交给它：
 
