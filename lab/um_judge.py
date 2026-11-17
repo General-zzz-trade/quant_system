@@ -101,10 +101,12 @@ def universe_record(lists: Sequence[Sequence[str]], dates: Sequence[int], *, cap
 class StopVariant:
     """The exchange stop of every position and what follows a stop: a fixed pause (``pause_hours``, None for no
     pause) or waiting for the idea's target to go back to 0 (``reenter="signal_reset"``, lab.simulate). A stop of
-    "0" is no stop: a diagnostic only, the live runtime always has one."""
+    "0" is no stop: a diagnostic only, the live runtime always has one. ``vol_k`` (tech lead 2026-11-17): the stop
+    tightens with low volatility, ``lab.um_lab.vol_stop_pct`` with ``stop_pct`` as its cap."""
     stop_pct: str = lab.LIVE.stop_pct
     pause_hours: int | None = lab.LIVE.pause_hours
     reenter: str = "pause"
+    vol_k: str | None = None
 
     def __post_init__(self) -> None:
         stop = D(self.stop_pct)
@@ -114,18 +116,23 @@ class StopVariant:
             raise ValueError(f"signal_reset needs a stop and takes no pause: {self}")
         if stop == 0 and self.pause_hours is not None:
             raise ValueError(f"no stop, nothing to pause after: {self}")
+        if self.vol_k is not None and (not D(self.vol_k).is_finite() or D(self.vol_k) <= 0 or stop == 0):
+            raise ValueError(f"a volatility stop needs k > 0 and a cap: {self}")
 
     @property
     def name(self) -> str:
         if D(self.stop_pct) == 0:
             return "nostop"
         after = "signal_reset" if self.reenter == "signal_reset" else f"pause{self.pause_hours or 0}h"
+        if self.vol_k is not None:
+            return f"vol{self.vol_k}x_cap{self.stop_pct}_{after}"
         return f"stop{self.stop_pct}_{after}"
 
     def replay_terms(self) -> dict:
         """The keywords of ``lab.um_lab.replay`` for this variant."""
-        return {"stop_pct": self.stop_pct, "pause_ms": self.pause_hours * H if self.pause_hours else None,
-                "reenter_after_stop": self.reenter}
+        terms = {"stop_pct": self.stop_pct, "pause_ms": self.pause_hours * H if self.pause_hours else None,
+                 "reenter_after_stop": self.reenter}
+        return terms if self.vol_k is None else {**terms, "stop_k": self.vol_k}
 
 
 LIVE_STOP = StopVariant()                                        # the runtime's: 8 %, entries pause 4 hours
@@ -171,7 +178,11 @@ class Config:
 
     @property
     def label(self) -> dict:
-        return {"params": self.params, "stop": asdict(self.stop)}
+        """A fixed stop's label is what it was before ``vol_k`` existed."""
+        stop = asdict(self.stop)
+        if stop["vol_k"] is None:
+            del stop["vol_k"]
+        return {"params": self.params, "stop": stop}
 
     @property
     def key(self) -> str:
