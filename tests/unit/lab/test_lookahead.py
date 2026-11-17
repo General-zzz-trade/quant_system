@@ -24,6 +24,7 @@ import pytest
 from lab import breakout, pair
 from lab import candidates as c
 from lab import candidates_study as cs
+from lab import feature_pool as fpool
 from lab import overlay_risk_study as rs
 from lab import pair_study as ps
 from lab import um_lab
@@ -120,6 +121,43 @@ def _xs(fn, params):
     return case
 
 
+def _pool_inputs(m):
+    """lab/feature_pool.py's inputs from the check's snapshot: the bars, funding, metrics and premium as they are, and
+    every other source derived from the bars (so a change after a cut reaches it), each indexed by when it is known."""
+    out = {k: {} for k in ("hourly", "funding", "metrics", "spot", "premium", "depth", "bvol", "dvol", "cm")}
+    for s in (BTC, ETH):
+        h = m["hourly"][s].copy()
+        h["quote_volume"] = h["close"] * h["volume"]
+        h["taker_buy_quote_volume"] = h["quote_volume"] * 0.55
+        out["hourly"][s] = h
+        out["funding"][s] = pd.Series({t: float(r) for t, (r, _) in m["funding"][s].items()}).sort_index()
+        out["metrics"][s], out["premium"][s] = m["metrics"][s], m["premium"][s]
+        known = pd.Index(h["available_at"].to_numpy(dtype=np.int64))
+        close = h["close"].to_numpy(float)
+        out["spot"][s] = pd.DataFrame({"close": close * 0.9995, "quote_volume": h["quote_volume"].to_numpy() * 0.4,
+                                       "taker_buy_quote_volume": h["quote_volume"].to_numpy() * 0.2}, index=known)
+        out["depth"][s] = pd.DataFrame({"bid_1": close, "ask_1": close * 1.1, "bid_5": close * 3, "ask_5": close * 2.5},
+                                       index=known)
+        out["bvol"][s] = pd.Series(close / close[0] * 50, index=known)          # a fixed scale: no later value
+        out["dvol"][s] = pd.Series(close / close[0] * 60, index=known)
+        d = fpool.daily(h)
+        out["cm"][s] = pd.DataFrame({"FlowInExNtv": d["quote"].to_numpy(), "FlowOutExNtv": d["quote"].to_numpy() * 0.9,
+                                     "SplyExNtv": d["close"].to_numpy() * 100, "AdrActCnt": d["quote"].to_numpy(),
+                                     "TxCnt": d["taker"].to_numpy(), "CapMrktCurUSD": d["close"].to_numpy()},
+                                    index=pd.Index(d.index.to_numpy(dtype=np.int64) + 2 * DAY))
+    btc = fpool.daily(out["hourly"][BTC])
+    out["fred"] = {k: pd.Series(btc["close"].to_numpy() * (j + 1), index=pd.Index(
+        btc.index.to_numpy(dtype=np.int64) + lag * DAY)) for j, (k, lag) in enumerate(fpool.FRED_LAG_DAYS.items())}
+    out["stable"] = pd.Series(btc["quote"].to_numpy(), index=pd.Index(btc.index.to_numpy(dtype=np.int64) + DAY))
+    eth = fpool.daily(out["hourly"][ETH])
+    out["breadth"] = fpool.market_breadth(pd.DataFrame({BTC: btc["close"], ETH: eth["close"]}),
+                                          pd.DataFrame({BTC: btc["close"] * 0 + 1e-4, ETH: btc["close"] * 0 - 1e-4}))
+    return out
+
+
+POOL_TIMES = T0 + np.arange(200, 279, dtype=np.int64) * DAY
+
+
 def _idea(name):
     """One lab idea on the check's windows, as the runtime and the lab's judge call it (R7b)."""
     def case(m):
@@ -178,12 +216,18 @@ CASES = [
     # the 2026-11-17e cross-sectional ideas as the judge replays them (research functions behind the interface)
     *((f"xs_study.{name}", fn, _xs(fn, grid[0])) for name, (fn, grid) in xs.IDEAS.items()),
     ("xs_study.efficiency", xs.efficiency, lambda m: xs.efficiency(c.daily_close(m["hourly"][BTC]), 30)),
+    # the feature pool (owner 2026-11-17), every family through build, on sources derived from the check's snapshot
+    ("feature_pool.build.btc", fpool.build, lambda m: fpool.build(_pool_inputs(m), BTC, POOL_TIMES)),
+    ("feature_pool.build.eth", fpool.build, lambda m: fpool.build(_pool_inputs(m), ETH, POOL_TIMES)),
+    ("feature_pool.daily", fpool.daily, lambda m: fpool.daily(_pool_inputs(m)["hourly"][ETH])),
+    ("feature_pool.market_breadth", fpool.market_breadth, lambda m: _pool_inputs(m)["breadth"]),
 ]
 
 # -- the registry ---------------------------------------------------------------------------------------------------
 FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "trading.domain.strategy.ideas",
                    "lab.breakout", "lab.candidates",
-                   "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study", "lab.xs_study")
+                   "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study", "lab.xs_study",
+                   "lab.feature_pool")
 OTHER_MODULES = {
     "lab": "package marker",
     "trading.domain.strategy.spec": "parses and checks the signed spec (runtime extension R2); computes no feature",
@@ -241,6 +285,7 @@ NOT_CHECKED = {
     "lab.breakout.desired_side": NUMBER, "lab.breakout.stop_distance": NUMBER,
     "lab.candidates.sized_weight": NUMBER, "lab.candidates.fit_ridge": FIT, "lab.candidates.directional_labels": LABEL,
     "lab.pair.load_inputs": "reads the snapshot files and cuts them at `limit`", "lab.pair.labels": LABEL,
+    "lab.feature_pool.load_inputs": "reads the snapshot files and cuts every source at `limit` by when it is known",
     "lab.pair_study.fit_predict": FIT, "lab.pair_study.simulate_pair": SIMULATION, "lab.pair_study.yearly": REPORT,
     "lab.pair_study.describe": REPORT, "lab.pair_study.public": REPORT, "lab.pair_study.gate_checks": REPORT,
     "lab.pair_study.run_study": DRIVER, "lab.pair_study.main": DRIVER,
