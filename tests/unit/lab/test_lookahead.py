@@ -200,6 +200,8 @@ OTHER_MODULES = {
                      "final check; its one rule over market data, the yearly universe, is checked in test_um_judge "
                      "(a list uses only bars from before its date); each idea it runs is checked with lab.causality "
                      "by the lab, and its final check fails an idea whose check was not run"),
+    "lab.um_portfolio": ("the lab's benchmark and fold-by-fold portfolio: BTC sized from completed days (its causality "
+                         "is checked in test_um_portfolio) and combinations of the judge's cached results"),
     "lab.um_monthly": ("the lab's monthly re-selection: periods from a snapshot's end date and the judge's run; no "
                        "feature of its own (test_um_monthly); the ideas it runs go through lab.um_judge's final check"),
     "lab.um_lab": ("the research lab's harness: snapshot loading, replays through the shared broker, portfolio "

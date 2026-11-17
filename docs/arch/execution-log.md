@@ -4629,3 +4629,23 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **已有测试的改动**：没有。
 - **新增测试**：`tests/unit/lab/test_simulate_pause_then_reset.py` 7 个。都先跑过、在改动前失败。
 - **本地**【实际运行结果】：新测试、`test_simulate_signal_reset.py`、`test_vol_stop.py`、`test_um_judge_screen.py` 通过；ruff 通过。
+
+## 实验室下一轮的工具：品种清单的新规则、BTC 加仓位控制的基准、按折挑选的组合（2026-11-17，研究代码）
+
+- **决定**：技术负责人 2026-11-17 选了"组合幸存者、改品种清单、提高淘汰线"三项。这一轮的做法登记在 `research/lab/runs/2026-11-17b/plan.md`。
+- **改了什么**：
+  - `lab.um_judge.universe` 加两个选项，默认都关：
+    - `listed_days`：首根 K 线要在日期之前足够久。从数据第一天就有的合约，按"已上市"算。
+    - `exclude`：按名字排除。
+  - `universe_record` 只在用到时才写出新规则。第一轮的清单和记录不变。
+  - 新模块 `lab/um_portfolio.py`，包括三个函数：
+    - `vol_target_hold`：BTC 只做多，仓位 = min(0.95, 2% ÷ 30 天日波动)，按完成的日 K 线算，走共用经纪商和成本。
+    - `walk_forward_portfolio`：每一折只用之前的时段挑成员，最多 5 个，等资金，折内不再平衡。
+    - `combine`。
+  - `tradfi_contracts.json`：币安公开接口 2026-11-17 03:20 UTC 列出的 236 个 `TRADIFI_PERPETUAL` 合约，其中 235 个在 2020 年起的快照里。
+- **已有测试的改动**：没有。`test_lookahead.py` 的模块清单加了 `lab.um_portfolio` 一行说明。
+- **新增测试**：
+  - `test_um_judge.py` 加 3 个：上市天数、排除、记录。
+  - `test_um_portfolio.py` 7 个：合成、按折挑选、不用未来数据挑、最多 k 个、基准太强时空仓、基准仓位只用完成的日 K 线、按时段回放。
+  - 都先跑过、在改动前失败。其中两个是我自己写错了期望值（合成的基准太平滑，夏普极高；按夏普排序时 steady 在前），提交前改正。
+- **本地**【实际运行结果】：上述测试、`tests/architecture`、ruff、`lint-imports` 通过。
