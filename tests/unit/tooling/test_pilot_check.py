@@ -123,6 +123,29 @@ def test_an_unsigned_unpassed_or_tampered_spec_is_named(tmp_path, monkeypatch):
     assert code == 1 and any(line.startswith("✗") and "签名" in line for line in out.splitlines())
 
 
+def test_a_spec_with_a_symbol_other_than_btc_and_eth_is_named(tmp_path, monkeypatch):
+    """Mainnet trades BTCUSDT and ETHUSDT only (owner 2026-11-17); the runtime refuses any other, so does the check."""
+    rows = READY_POSITIONS + [{**READY_POSITIONS[0], "symbol": "SOLUSDT"}]
+    venue = Venue(answers={"/fapi/v2/positionRisk": lambda q: rows})
+    code, out, _ = _run(tmp_path, monkeypatch, venue=venue, spec=_spec(tmp_path, symbols=("SOLUSDT", "BTCUSDT")))
+    assert code == 1
+    assert any(line.startswith("✗") and "BTCUSDT 和 ETHUSDT" in line and "SOLUSDT" in line for line in out.splitlines())
+    # a schema-2 spec too (audit of PR #153, M1)
+    from lab.strategy import StrategySpec
+    params = StrategySpec(lookbacks=(5, 10, 20), vol_lookback=10, target_vol=0.6, band=0.05, execution="market")
+    folder = tmp_path / "v2"
+    folder.mkdir()
+    path = folder / "final_spec.json"
+    path.write_text(json.dumps({"schema": 2, "kind": "target_strategy",
+                                "strategy": {"name": "overlay", "params": params.record()},
+                                "execution": {"band": 0.05, "execution": "market", "ttl_bars": params.ttl_bars},
+                                "symbols": ["SOLUSDT", "BTCUSDT"], "allow_short": False, "passed": True}))
+    (folder / "final_spec.json.sig").write_text(hmac.new(SIGN.encode(), path.read_bytes(), hashlib.sha256).hexdigest())
+    code, out, _ = _run(folder, monkeypatch, venue=venue, spec=path)
+    assert code == 1
+    assert any(line.startswith("✗") and "BTCUSDT 和 ETHUSDT" in line and "SOLUSDT" in line for line in out.splitlines())
+
+
 def test_a_state_directory_that_fails_its_check_or_belongs_to_another_scope_is_named(tmp_path, monkeypatch):
     code, out, _ = _run(tmp_path, monkeypatch, state=tmp_path / "never-initialized")
     assert code == 1 and any(line.startswith("✗") and "状态目录" in line for line in out.splitlines())

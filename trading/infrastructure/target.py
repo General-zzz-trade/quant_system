@@ -51,6 +51,7 @@ from trading.domain.risk.order_limits import OrderLimitsConfig
 from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.risk.liquidation import check_stop_inside_liquidation
 from trading.domain.strategy.overlay import StrategySpec
+from trading.domain.strategy.spec import MAINNET_SYMBOLS
 from trading.infrastructure.config import RiskLimits
 from trading.infrastructure.modes import EXECUTION
 
@@ -107,6 +108,14 @@ class PaperParts:
 def refuse_unverified_mainnet(*, testnet: bool, spec_passed: object) -> None:
     if not testnet and spec_passed is not True:
         raise RuntimeError("research gate not passed; mainnet execution refused")
+
+
+def refuse_mainnet_symbols(*, testnet: bool, symbols: Sequence[str]) -> None:
+    """Mainnet trades BTCUSDT and ETHUSDT only (owner 2026-11-17, ``MAINNET_SYMBOLS``); the testnet stays general."""
+    other = sorted(set(symbols) - MAINNET_SYMBOLS)
+    if not testnet and other:
+        raise RuntimeError(f"mainnet trades only BTCUSDT and ETHUSDT (owner 2026-11-17); the spec also lists "
+                           f"{', '.join(other)}; mainnet execution refused")
 
 
 def account_checker(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str], leverage: int,
@@ -286,5 +295,5 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
 
 
 __all__ = ["Account", "ExecutionInputs", "ExecutionWiring", "OWNER_PREFIX", "PaperParts", "exchange_lot_rules",
-           "execution_sessions", "refuse_foreign_holdings", "refuse_unverified_mainnet", "strategy_owners",
-           "strategy_positions", "strategy_realized_pnl"]
+           "execution_sessions", "refuse_foreign_holdings", "refuse_mainnet_symbols", "refuse_unverified_mainnet",
+           "strategy_owners", "strategy_positions", "strategy_realized_pnl"]

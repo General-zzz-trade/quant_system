@@ -27,6 +27,9 @@ from trading.domain.strategy.ideas import IDEAS, idea_params
 from trading.domain.strategy.overlay import StrategySpec
 
 MAX_SYMBOLS = 10                    # owner 2026-11-16: at most 10 symbols in the first version
+# Owner 2026-11-17 ("目前如何去改成做BTC和ETH，不再全市场这样做", "加硬限制"): mainnet trades these two only. The
+# testnet and paper stay general (R1-R7) for tests; the start check refuses a mainnet spec listing any other symbol.
+MAINNET_SYMBOLS = frozenset({"BTCUSDT", "ETHUSDT"})
 KIND_V1, KIND_V2 = "btc_eth_multitimeframe_target", "target_strategy"
 def _idea_params(name: str) -> Callable[[Mapping[str, Any]], Any]:
     return lambda params: idea_params(name, params)
@@ -200,4 +203,5 @@ def parse_spec(document: Mapping[str, Any]) -> TargetSpec:
     return spec
 
 
-__all__ = ["EXECUTION_KEYS", "KIND_V1", "KIND_V2", "MAX_SYMBOLS", "PARAMS", "TargetSpec", "V2_KEYS", "parse_spec"]
+__all__ = ["EXECUTION_KEYS", "KIND_V1", "KIND_V2", "MAINNET_SYMBOLS", "MAX_SYMBOLS", "PARAMS", "TargetSpec", "V2_KEYS",
+           "parse_spec"]

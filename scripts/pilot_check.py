@@ -66,11 +66,14 @@ def spec_items(path: Path, key: str) -> tuple[list[tuple[bool, str]], list[str]]
     items = [_item(signed, f"规格的签名对得上：{sig.name if sig.is_file() else '没有签名文件'}")]
     try:
         document = json.loads(data)
-        from trading.domain.strategy.spec import parse_spec
+        from trading.domain.strategy.spec import MAINNET_SYMBOLS, parse_spec
         spec = parse_spec(document)
     except Exception as exc:
         return items + [_item(False, f"规格读不出：{type(exc).__name__}: {exc}"[:200])], []
     items.append(_item(document.get("passed") is True, "规格已被技术负责人标记为通过（passed: true）"))
+    other = sorted(set(spec.symbols) - MAINNET_SYMBOLS)
+    items.append(_item(not other, f"规格只交易 BTCUSDT 和 ETHUSDT（实盘的硬限制；其他："
+                                  f"{', '.join(other) if other else '无'}）"))
     return items, list(spec.symbols)
 
 

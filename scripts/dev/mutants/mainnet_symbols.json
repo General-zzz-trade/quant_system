@@ -1,0 +1,92 @@
+[
+ [
+  "the start check skips the symbol refusal",
+  "trading/infrastructure/cli/target.py",
+  "        target.refuse_mainnet_symbols(testnet=net, symbols=parse_spec(frozen).symbols)\n",
+  ""
+ ],
+ [
+  "the start check treats mainnet as the testnet",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=net,",
+  "target.refuse_mainnet_symbols(testnet=True,"
+ ],
+ [
+  "the runtime skips the symbol refusal",
+  "trading/infrastructure/cli/target.py",
+  "            target.refuse_mainnet_symbols(testnet=config.testnet, symbols=self.target_spec.symbols)\n",
+  ""
+ ],
+ [
+  "the testnet is refused too",
+  "trading/infrastructure/target.py",
+  "    if not testnet and other:\n",
+  "    if other:\n"
+ ],
+ [
+  "nothing is ever other",
+  "trading/infrastructure/target.py",
+  "    other = sorted(set(symbols) - MAINNET_SYMBOLS)\n    if not testnet",
+  "    other = sorted(set(symbols) - MAINNET_SYMBOLS - set(symbols))\n    if not testnet"
+ ],
+ [
+  "SOLUSDT joins the mainnet list",
+  "trading/domain/strategy/spec.py",
+  "frozenset({\"BTCUSDT\", \"ETHUSDT\"})",
+  "frozenset({\"BTCUSDT\", \"ETHUSDT\", \"SOLUSDT\"})"
+ ],
+ [
+  "the pilot check always passes the symbols",
+  "scripts/pilot_check.py",
+  "items.append(_item(not other, f\"规格只交易",
+  "items.append(_item(True, f\"规格只交易"
+ ],
+ [
+  "only the last symbol is checked",
+  "trading/infrastructure/target.py",
+  "other = sorted(set(symbols) - MAINNET_SYMBOLS)",
+  "other = sorted(set(symbols[-1:]) - MAINNET_SYMBOLS)"
+ ],
+ [
+  "the pilot check looks at the last symbol only",
+  "scripts/pilot_check.py",
+  "other = sorted(set(spec.symbols) - MAINNET_SYMBOLS)",
+  "other = sorted(set(spec.symbols[-1:]) - MAINNET_SYMBOLS)"
+ ],
+ [
+  "the start check skips schema 1",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=net,",
+  "target.refuse_mainnet_symbols(testnet=net or frozen.get(\"schema\") == 1,"
+ ],
+ [
+  "the runtime skips schema 1",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=config.testnet,",
+  "target.refuse_mainnet_symbols(testnet=config.testnet or self.frozen.get(\"schema\") == 1,"
+ ],
+ [
+  "the pilot check skips schema 2",
+  "scripts/pilot_check.py",
+  "items.append(_item(not other,",
+  "items.append(_item(not other or document.get(\"schema\") == 2,"
+ ],
+ [
+  "the runtime treats the testnet as mainnet",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=config.testnet,",
+  "target.refuse_mainnet_symbols(testnet=False,"
+ ],
+ [
+  "the runtime follows its testnet argument",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=config.testnet,",
+  "target.refuse_mainnet_symbols(testnet=testnet,"
+ ],
+ [
+  "the start check follows its testnet argument",
+  "trading/infrastructure/cli/target.py",
+  "target.refuse_mainnet_symbols(testnet=net,",
+  "target.refuse_mainnet_symbols(testnet=testnet,"
+ ]
+]
