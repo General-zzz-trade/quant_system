@@ -47,8 +47,9 @@ def carry_ls(df: pd.DataFrame, ctx: dict) -> pd.Series:
 
 
 def lowvol_ls(df: pd.DataFrame, ctx: dict) -> pd.Series:
-    """Long the ``K`` lowest standard deviations of the last ``n`` daily returns, short the ``K`` highest."""
-    returns = _panel(ctx, "close").pct_change()
+    """Long the ``K`` lowest standard deviations of the last ``n`` daily returns, short the ``K`` highest. A day
+    without a close has no return (not 0): a symbol whose data has ended is not ranked as calm."""
+    returns = _panel(ctx, "close").pct_change(fill_method=None)
     return _long_short(df, ctx, returns.rolling(ctx["params"]["n"]).std(), long_high=False)
 
 

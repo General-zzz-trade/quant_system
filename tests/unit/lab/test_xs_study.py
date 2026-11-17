@@ -113,3 +113,13 @@ class _Window:
         self.hourly = frame.drop(columns=["funding"]).reset_index(names="open_time")
         self.funding = pd.Series(frame["funding"][frame["funding"] != 0].to_numpy(),
                                  index=frame.index[frame["funding"] != 0].to_numpy(np.int64))
+
+
+def test_a_symbol_whose_data_has_ended_is_not_ranked_as_calm():
+    def swing(w, days=60):
+        return 100 * (1 + w * np.where(np.arange(days * 24) // 24 % 2, 1.0, -1.0))
+    frames = {s: _frame(swing(w)) for s, w in zip(NAMES, (0.001, 0.002, 0.003, 0.01, 0.03, 0.05, 0.08))}
+    frames["BTCUSDT"] = _frame(swing(0.008))
+    frames["GONEUSDT"] = _frame(swing(0.1, days=20))           # delisted after 20 days: no returns after that
+    last = _last(_weights(xs.lowvol_ls, frames, {"n": 14}))
+    assert [last[s] for s in NAMES[:3]] == [ON, ON, ON]          # the three calmest that still trade
