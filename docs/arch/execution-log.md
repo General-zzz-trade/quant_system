@@ -4429,6 +4429,15 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
   已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。
 
+## 试运行成交对照回测假设的报告 `scripts/live_fills.py`（2026-11-16 晚，工具，轻流程）
+
+- 用途（技术负责人 2026-11-16：试运行是为了用真实成交校准回测）：把执行状态库里程序发出、交易所成交的每一笔订单，和账户自己的成交记录
+  （`python3 -m scripts.account_check --history <目录>` 的只读导出）、决策那根 K 线之后的开盘价对起来，按订单类型报告真实成本：
+  调仓单对照"下一根开盘价、差 3 个基点"，交易所止损对照"触发价、差 10 个基点"，手续费对照 5 个基点；还有从决策到成交的时间。
+- 状态库只读打开；交易所里找不到成交的订单列为缺失，不猜。开盘价取币安公开 K 线，不用账户。只报成交和成本，不报收益。
+- 放在 `scripts/` 而不是 `lab/`：它是运营报告，不是研究代码（`lab/` 的规则禁止按成本名做乘法，这里只是计量已经扣过的手续费）。
+- 新增测试：`tests/unit/tooling/test_live_fills.py`（7 个），用合成的状态库和成交记录。已有测试的改动：没有。
+  本地：`tests/unit/tooling`、架构测试通过；ruff、导入契约通过。
 ## 清理过时文档（2026-11-16 深夜，轻流程；计划 R9 的前一半）
 
 - 依据：技术负责人"计划完成后就删除过时的文档，先排查"，以及随后的"清理项目过时文档"。排查结果在计划的"文档排查"一节（PR #118）。
@@ -4516,3 +4525,26 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
     （`research_only = {"next_stop_pct", "position_stop_pct"}`），并加一条
     `assert broker.next_stop_pct is None and broker.position_stop_pct is None`（跑 50 个周期之后，模拟盘确实没设过）。
   - 本地【实际运行结果】：这个测试文件通过。
+## 实验室月度重选：读新数据的下载和时段（2026-11-17，轻流程）
+
+- **决定**：技术负责人 2026-11-17 上午选了"每月一次，实验室读新数据"（做法二）。4 个已登记的前向测试冻结不变，仍在登记的日期评判；
+  实验室挑出的想法照规定前向跟踪 4 周，由技术负责人签名发布。
+- **改了什么**：
+  - `data/downloads/binance_um_all.py`：`--monthly-lab` 时 `--end` 可以在 2026-11-13 之后，但必须是已经结束的月份的 1 日（不晚于今天），
+    `manifest.json` 记一行 `monthly_lab`。不带这个选项时前向保护不变。
+  - 新模块 `lab/um_monthly.py`：`monthly_periods`（验证段是快照最后 6 个月，前面按整年滚动前推，挑选段至少留一年；在 2026-11-12 的快照上
+    就是 11-17 这一轮的时段）；`plan` 只写一次窗口文件；`screen`/`final` 只在窗口文件已提交且没改过、快照对得上时才跑。
+  - `research/lab/README.md` 加月度重选一行和数据规则；`CLAUDE.md` 的实验室数据规则加上例外。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/data/test_binance_um_all.py` 加 3 个（含参数化 3 例）；`tests/unit/lab/test_um_monthly.py` 8 个。都先跑过、在改动前失败。
+- **本地**【实际运行结果】：两个测试文件、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **还没做**：从冠军卡生成规格草稿的工具、冠军的每周前向查看、每月的定时任务（另起 PR）。
+- **CI 补（同日）**：`tests/unit/lab/test_lookahead.py` 要求每个 `lab/` 模块要么是特征模块、要么写明为什么不是；新模块 `lab.um_monthly` 没登记，
+  CI 的一个分片失败。加了一行说明（它没有自己的特征，跑的想法走评审员的最终检查）。本地只跑了相关测试文件，漏了这个全目录的检查；
+  以后新增 `lab/` 模块时连这个测试一起跑。
+## 测试辅助：下载器测试的假归档用固定时间戳（2026-11-17，轻流程）
+
+- #132 合并 master 后 CI 的一个分片失败：`test_binance_archive.py::test_the_same_inputs_give_byte_identical_files` 报 checksum mismatch，本地连跑 4 次都通过。
+- 原因【实际运行结果】：假归档每次请求都重新打包 zip（先算校验和，再给文件），`writestr("data.csv", ...)` 写进当前时间；两次之间跨过一秒，字节就不同。
+  本地复现：旧写法隔 2 秒打包两次字节不同，新写法相同。
+- 改动（测试辅助，断言不变）：`_zip` 用固定时间 2022-01-01 00:00:00 的 `ZipInfo`。
