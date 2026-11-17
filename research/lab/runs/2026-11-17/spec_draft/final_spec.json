@@ -1,0 +1,29 @@
+{
+ "schema": 2,
+ "kind": "target_strategy",
+ "strategy": {
+  "name": "E3_vol_target_trend",
+  "params": {
+   "target": 0.02
+  }
+ },
+ "execution": {
+  "band": 0.1,
+  "execution": "market",
+  "ttl_bars": 1
+ },
+ "symbols": [
+  "ETHUSDT",
+  "SOLUSDT",
+  "XAUUSDT",
+  "CLUSDT",
+  "XAGUSDT",
+  "XRPUSDT",
+  "DOGEUSDT",
+  "ZECUSDT",
+  "HYPEUSDT",
+  "1000PEPEUSDT"
+ ],
+ "allow_short": false,
+ "passed": false
+}

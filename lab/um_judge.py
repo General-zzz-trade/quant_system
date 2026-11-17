@@ -63,20 +63,29 @@ PERIODS = periods()
 
 # -- the universe rule -----------------------------------------------------------------------------------------
 def universe(snapshot: Path, dates: Sequence[int], *, capital: str, slots: int, stable: Sequence[str] = STABLE,
-             history_days: int = 30, min_days: int = 25) -> list[list[str]]:
+             history_days: int = 30, min_days: int = 25, listed_days: int = 0, data_start: int | None = None,
+             exclude: Sequence[str] = ()) -> list[list[str]]:
     """For each date the ``slots`` contracts with the highest median daily quote volume over the ``history_days``
     days before it, among those with at least ``min_days`` of them, whose smallest order (the exchange minimum or
     one lot at the last close before the date) is at most 2/3 of a slot, stablecoin contracts left out. Only bars
-    that opened before the date count."""
+    that opened before the date count.
+
+    Tech lead 2026-11-17 (the next round), both off by default: ``listed_days``, a contract's first bar must be at
+    least that many days before the date (a contract whose bars start at ``data_start``, the data's first hour,
+    counts as listed before it: its real listing date is not in the data); ``exclude``, contracts left out by name."""
     slot = float(D(capital) / slots)
     rows = []
     for symbol in lab.contracts(snapshot):
-        if symbol in stable:
+        if symbol in stable or symbol in exclude:
             continue
         df = pd.read_csv(snapshot / f"{symbol}_1h.csv.gz", usecols=["open_time", "close", "quote_volume"])
         df = df.set_index("open_time").sort_index()
         rules = lab.rules(symbol, snapshot)
+        listed = None if data_start is not None and len(df) and int(df.index[0]) <= data_start else \
+            (int(df.index[0]) if len(df) else None)
         for k, date in enumerate(dates):
+            if listed_days and listed is not None and listed > date - listed_days * DAY:
+                continue
             past = df[(df.index >= date - history_days * DAY) & (df.index < date)]
             daily = past["quote_volume"].groupby(past.index // DAY).sum()
             if len(daily) < min_days:
@@ -88,12 +97,15 @@ def universe(snapshot: Path, dates: Sequence[int], *, capital: str, slots: int, 
     return [table[table["period"] == k].nlargest(slots, "quote")["symbol"].tolist() for k in range(len(dates))]
 
 
-def universe_record(lists: Sequence[Sequence[str]], dates: Sequence[int], *, capital: str, slots: int) -> dict:
-    """What a run writes next to its results (universe.json)."""
+def universe_record(lists: Sequence[Sequence[str]], dates: Sequence[int], *, capital: str, slots: int,
+                    listed_days: int = 0, excluded: str = "") -> dict:
+    """What a run writes next to its results (universe.json); the extra rules only when a run uses them."""
     slot = float(D(capital) / slots)
-    return {"rule": f"top {slots} by median daily quote volume of the 30 days before each date; smallest order <= "
-                    f"{slot * 2 / 3:.0f} USDT; no stablecoin contracts",
-            "dates": [_date(t) for t in dates], "lists": [list(symbols) for symbols in lists]}
+    rule = (f"top {slots} by median daily quote volume of the 30 days before each date; smallest order <= "
+            f"{slot * 2 / 3:.0f} USDT; no stablecoin contracts")
+    rule += f"; listed at least {listed_days} days before the date" if listed_days else ""
+    rule += f"; excluded: {excluded}" if excluded else ""
+    return {"rule": rule, "dates": [_date(t) for t in dates], "lists": [list(symbols) for symbols in lists]}
 
 
 # -- the stop: part of a configuration -------------------------------------------------------------------------
