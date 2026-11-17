@@ -228,7 +228,7 @@ def test_a_breached_stop_whose_flatten_is_rejected_shows_flattening(tmp_path):
     btc = world["fakes"]["BTCUSDT"]
     i = _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
     _advance(world, runtime, i)
-    btc.fault, btc.fault_code = "reject", -1008                        # the flatten is rejected
+    btc.fault, btc.fault_code = "reject", -2022                        # the flatten is rejected
     _breach(world, runtime, i + 1)
     assert btc.positions["BTCUSDT"] != 0 and runtime.sessions["BTCUSDT"].state is S.FLATTENING
 

@@ -51,7 +51,7 @@ def _refuse_reductions(fake):
     def refuse(*, method, path, params=None):
         if path == "/fapi/v1/order" and method == "POST" and (params or {}).get("reduceOnly") in (True, "true"):
             fake.posts.append(dict(params))
-            fake._error(-1008, "server busy")
+            fake._error(-2022, "ReduceOnly Order is rejected.")
         return original(method=method, path=path, params=params)
 
     fake.request_signed = refuse
@@ -147,7 +147,7 @@ def test_a_flatten_is_retried_while_market_data_is_down(tmp_path):
         def down(*, method, path, params=None):
             raise BinanceRetryableError("Network error: market data down")
         fake.request_public = down
-    btc.fault, btc.fault_code = "reject", -1008
+    btc.fault, btc.fault_code = "reject", -2022
     runtime.kill.write(active=True, reason="test", flatten=True)
     cursor = session.cursor
     world["clock"]["now"] = (world["rows"]["BTCUSDT"][i + 1]["start"] + HOUR + 5_000) / 1000   # the next bar is due

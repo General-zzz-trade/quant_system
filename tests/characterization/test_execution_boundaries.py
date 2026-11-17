@@ -244,6 +244,31 @@ def test_a_stop_never_placed_is_retried_only_after_the_lookup_grace(env):
     assert sorted(_rows(executor)) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1
 
 
+@pytest.mark.parametrize("status,code", [(429, -1003), (418, None), (408, -1007), (400, -1000), (400, -1006)])
+def test_a_stop_answered_with_an_unknown_outcome_is_looked_up_not_replaced(env, status, code):
+    """Task 1 (2026-11-17): a rate limit, a timeout or an "unknown" answer is not a rejection. Like a lost answer,
+    the stop is looked up for the whole 90 s grace before a second stop may be placed."""
+    from tests.support.binance_errors import rest_error
+    fake, _, executor, clock, _, _ = env
+    stops = _stops(env)
+    original = fake.request_signed
+
+    def answered(*, method, path, params=None):
+        if path == "/fapi/v1/algoOrder" and method == "POST":
+            raise rest_error(status, code)
+        return original(method=method, path=path, params=params)
+
+    fake.request_signed = answered
+    assert stops.sync() == ["BTCUSDT: protective stop placement outcome unknown; will query"]
+    fake.request_signed = original
+    assert _rows(executor) == [(0, "unknown")]
+    clock["now"] += 89
+    assert stops.sync() == [] and fake.algo == {}             # still inside the 90 s lookup grace
+    clock["now"] += 1
+    assert stops.sync() == []
+    assert sorted(_rows(executor)) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1
+
+
 def test_a_stop_stuck_in_canceling_is_canceled_again_and_never_counts_as_the_stop(env):
     fake, _, executor, _, consumer, _ = env
     stops = _stops(env)

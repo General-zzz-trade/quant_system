@@ -5082,3 +5082,76 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
 本机主网状态目录 `/var/lib/quant/state/mainnet` 在 2026-11-17 只读查看时还是第 1 版，迁移等技术负责人同意。
 亏损停止线一段的"未知"条件按复审修复后的代码写：一个品种下一次读取的起点早于 88 天就是未知。
 起点是库里资金费行结束前 24 小时；库里没有行时，是第一笔成交。
+
+## 下单错误的分类：只有"请求本身被拒"才算 rejected（2026-11-17，完整流程）
+
+- **问题**【代码】：
+  - `send_market_order`、`send_limit_order`、`place_stop_market` 把所有 `BinanceNonRetryableError`（418/429 以外的
+    4xx，包括 HTTP 408）和 `BinanceRateLimitError`（418/429）都返回为 `rejected`。
+  - 生命周期收到 `rejected` 后查一次订单，查不到就立即以 `rejected` 结案（`lifecycle.py` 的 `_absence_is_final`），
+    绕过 90 秒宽限期，同品种的入场锁随之放开。
+  - 止损被判 `rejected` 时，下一轮立即补挂新止损。
+  - 如果交易所其实已经收下（408、-1007 超时等），账本就不知道这笔订单或止损。
+- **依据**（币安官方文档，2026-11-17 抓取，已核实）：
+  - 错误码页 https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code ：
+    -1006 "Execution status unknown"；-1007 "Send status unknown; execution status unknown"；
+    -1000 "An unknown error occured while processing the request"；-1001 "Internal error; unable to process your request"。
+  - 通用信息页 https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info ：
+    - HTTP 408：等待后端响应时超时；
+    - HTTP 503 "Unknown error"：执行状态未知，可能已经成功；"Service Unavailable"、"Internal error"：失败；
+    - HTTP 429/418：只写了触发原因，没有说请求是否被处理。
+  - 文档里没有任何一个错误码的原文写着"未处理"。白名单按"文档描述的含义是拒绝请求本身（参数、权限、账户或品种规则）"
+    来选，这是推断。
+- **改了什么**【代码】，只改 `trading/adapters/binance/adapter.py`：
+  - 加 `_REQUEST_REFUSED`（白名单）、`_UNCERTAIN_HTTP`（403/408/418/429）和 `_refused_code(exc)`：
+    只有 HTTP 状态是 4xx、不是这四个、且错误码在白名单里，才返回这个码。
+  - 三个下单函数都用它：
+    - 白名单内 → `rejected`；止损遇到 -2021 仍然带 `breached`；
+    - 其余 → `error`（结果未知），日志记 "outcome unknown"，`code` 照带。
+  - 本地校验的拒绝（缺 side、低于最小数量、对冲模式）不变，仍是 `rejected`：请求没有发出。
+  - `trading/application/execution/` 没有改：`error` 走已有的"状态未知"路径。订单在整个宽限期内持续查询，同品种入场被锁；
+    止损 90 秒内只查不补（`stops.py`）。
+- **行为变化**：
+  - 以下答复从 `rejected` 改为 `error`：408、418、429、403；-1000、-1001、-1003、-1006、-1007、-1008、-1015、-1016；
+    没有错误码或错误码不在白名单的 4xx。5xx 和网络错误本来就是 `error`。
+  - 平仓单遇到这些答复时，同品种后续的平仓要等这一笔结案（`REDUCTION_OVERLAP`，最多约 90 秒宽限），期间交易所止损仍在。
+    技术负责人 2026-11-17 选择按未知处理；文档说系统级限流（-1008）对只减仓单和整仓平仓单豁免。
+- **已有测试的改动**：
+  - 断言，`tests/unit/trading/test_runtime_wiring_limits.py:238`：
+    - 旧：`assert result["status"] == ("rejected" if isinstance(error, BinanceRateLimitError) else "error")`
+    - 新：`assert result["status"] == "error"`
+    - 这是本任务有意的行为变化；这条测试的主断言"不误报击穿"不变。
+  - 测试准备：4 处用 -1008 模拟"交易所拒绝只减仓单"，改为 -2022（"ReduceOnly Order is rejected."）。
+    -1008 现在是"未知"，而这些测试要测的是"被明确拒绝后有限次重试"：
+    - `tests/unit/trading/test_flatten.py` 的 `_refuse_reductions` 和 `test_a_flatten_is_retried_while_market_data_is_down`；
+    - `tests/characterization/test_exit_paths.py:69`；
+    - `tests/characterization/test_s3_audit.py:231`：用 -1008 在新代码下也能通过，但测的就变成"未知"，和注释
+      "the flatten is rejected" 不符。
+  - 不改准备数据时，新代码下有 5 个测试失败（`test_exit_paths` 1 个，`test_flatten` 4 个）。
+- **测试辅助**：新增 `tests/support/binance_errors.py`，经真实的 REST 映射（打桩 `urlopen`）构造某个 HTTP 答复对应的异常。
+- **新增测试**：
+  - `tests/unit/trading/test_order_error_classes.py` 144 个：
+    - 16 种拒绝答复 × 3 个下单函数 → `rejected`；20 种其他答复 × 3 → `error`，且不报击穿；
+    - 没有 HTTP 答复的 4 种（网络错误、本地限流、超时、连接重置）× 3 → `error`；
+    - 只有 -2021 报击穿；
+    - `_refused_code` 直接测试 10 个：带白名单错误码、但 HTTP 状态是 403/408/418/429/5xx 时不算拒绝；
+    - 生命周期接真实适配器：9 种未知答复在整个宽限期内不结案、同品种第二笔入场被拒，满 90 秒以 `not_found` 结案后才能再入场；
+    - 408 后订单延迟出现：按查到的订单跟踪，成交只记一次，不重发；
+    - -2019 立即以 `rejected` 结案，入场随即放开。
+  - `tests/characterization/test_execution_boundaries.py` 5 个（参数化）：止损遇到 429/418/408/-1000/-1006 时，90 秒内只查不补，
+    满 90 秒才补挂。
+  - 改代码之前（还没有 `_refused_code` 直接测试时）：65 个失败、74 个通过。失败的都是旧代码返回 `rejected`、或立即以
+    `rejected` 结案；通过的是白名单内的拒绝和 5xx，作为护栏。
+- **变异自检**：15 个变异体，第一轮全部杀死（15/15）。
+  - `_refused_code` 的直接测试是运行前补的。403、408、429 和 5xx 范围这 4 个变异体经 REST 路径到不了那条分支
+    （418/429 在 rest 层是 `BinanceRateLimitError`，5xx 是 `BinanceRetryableError`），没有直接测试它们会存活
+    【推测，未单独运行】。
+- **本地**【测试日志】：
+  - `tests/unit/trading tests/characterization tests/contract tests/unit/binance tests/offline tests/architecture`：1861 个通过、1 个跳过、8 个子测试通过，0 个失败（16 分 17 秒）；
+  - ruff 通过；`mypy trading/` 98 个文件无问题；`lint-imports` 5 条契约保持。
+  - CI（PR #157，79cbb787）：10 项全部通过，包括 4 个全量分片和覆盖率门槛。
+- **没做的、残余风险**：
+  - -4142（"止盈或止损单会立即触发"）和 -2021 含义相同，现在只算 `rejected`、不算 `breached`。币安条件单接口实际返回哪个码
+    未核实；如果返回 -4142，止损管理器会反复补挂而不是平仓。是否也按击穿处理会改变风控行为，留给技术负责人决定，本次不改。
+  - 本地限流（请求根本没发出）仍按 `error` 处理，比必要的保守（最多等宽限期）；没改。
+  - 503 "Service Unavailable"、"Internal error" 和 -1001 文档说是失败，仍按未知处理（技术负责人 2026-11-17）。
